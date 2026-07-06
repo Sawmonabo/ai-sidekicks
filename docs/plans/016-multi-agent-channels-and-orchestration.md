@@ -147,7 +147,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
   - **Tests:** schema acceptance/rejection rows per type; strict unknown-key rejection; round-robin-requires-order config validation; union discriminates all twelve types (fourteen once the B6-gated `session.goal_*` registration lands); `channelCreatedPayloadSchema` back-compat (config absent still parses).
 - **T1.2 — Wire request/response pairs + carrier type.**
   - **Files:** `packages/contracts/src/orchestration.ts` (EXTEND from T1.1).
-  - **Provides:** the thirteen request/response pairs and `OrchestrationRunLinkCarrier` exactly per [api-payload-contracts.md §Plan-016](../architecture/contracts/api-payload-contracts.md) (field-for-field parity).
+  - **Provides:** the fifteen request/response pairs (thirteen original + `SessionGoalUpdate`/`SessionGoalClear`, campaign B6 2026-07-06 — the goal contract's wire mirror; task-level enrichment lands with the campaign's Plan-016 bundle) and `OrchestrationRunLinkCarrier` exactly per [api-payload-contracts.md §Plan-016](../architecture/contracts/api-payload-contracts.md) (field-for-field parity).
   - **Consumes:** T1.1 enums/configs; `SessionId` (Plan-001).
   - **Spec coverage:** Spec-016 §Interfaces And Contracts (all interface bullets + budget surface).
   - **Verifies invariant:** I-016-1.
@@ -243,7 +243,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 ### Phase 3 — Wire namespace + SDK
 
-**Goal:** The thirteen JSON-RPC methods on the daemon registry, typed error projection, and the typed SDK client — the surface Phase 4 and the CLI consume.
+**Goal:** The fifteen JSON-RPC methods on the daemon registry (incl. `session.goalUpdate`/`session.goalClear`, campaign B6 2026-07-06), typed error projection, and the typed SDK client — the surface Phase 4 and the CLI consume.
 
 **Scope:** `packages/runtime-daemon/src/ipc/handlers/`, `packages/runtime-daemon/src/orchestration/errors.ts`, `packages/client-sdk/src/orchestrationClient.ts`.
 
@@ -277,7 +277,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
   - **Tests:** each class projects its standard JSON-RPC numeric + `data.type` + sanitized `data.fields` per the BL-143 envelope (error-contracts.md §JSON-RPC Wire Mapping); never-collides assertion vs Spec-006 event names.
 - **T3.4 — SDK `orchestrationClient.ts`.**
   - **Files:** `packages/client-sdk/src/orchestrationClient.ts` (NEW); `packages/client-sdk/src/index.ts` (EXTEND — barrel export).
-  - **Provides:** thirteen typed methods marshaling requests verbatim and surfacing `data.type` rejections; no client-side derivation (I-016-16); does **not** duplicate Plan-002's gateway `channel.list` method.
+  - **Provides:** fifteen typed methods (incl. the two goal RPCs, campaign B6) marshaling requests verbatim and surfacing `data.type` rejections; no client-side derivation (I-016-16); does **not** duplicate Plan-002's gateway `channel.list` method.
   - **Consumes:** T1.2 pairs; `JsonRpcClient` transport (Plan-007-partial).
   - **Spec coverage:** Spec-016 §Interfaces And Contracts (typed client SDK).
   - **Verifies invariant:** I-016-16.

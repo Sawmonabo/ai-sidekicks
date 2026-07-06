@@ -1044,6 +1044,7 @@ CREATE TABLE session_budgets (
   max_queue_depth_per_channel   INTEGER NOT NULL DEFAULT 25,
   max_pending_orchestration_runs INTEGER NOT NULL DEFAULT 10,
   active_child_limit            INTEGER NOT NULL DEFAULT 5,     -- Spec-016:175 daemon default, configurable
+  unpriced_family_caps          TEXT NOT NULL DEFAULT '[]',     -- JSON [{modelFamily, hardCapUsdCents}] — owner-supplied unpriced-family escapes, native-cap legs only (Spec-016 §Cost Derivation And Absent-Cost Semantics, campaign B6); wire mirror = OrchestrationBudgetUpdate.unpricedFamilyCaps
   updated_at                    TEXT NOT NULL,
   -- Non-negative-integer floors on every limit; wire mirror = orchestration.budgetUpdate Zod .int().nonnegative() (D-016-5)
   CHECK (typeof(cost_limit_cents) = 'integer' AND cost_limit_cents >= 0),

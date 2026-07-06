@@ -2582,6 +2582,9 @@ interface OrchestrationBudgetState {
   maxQueueDepthPerChannel: number; // default 25
   maxPendingOrchestrationRuns: number; // default 10
   activeChildLimit: number; // default 5
+  // owner-supplied unpriced-family escapes — native-cap provider legs only
+  // (Spec-016 §Cost Derivation And Absent-Cost Semantics, campaign B6); empty by default
+  unpricedFamilyCaps: { modelFamily: string; hardCapUsdCents: number }[];
   observedCostCents: number; // BudgetAccountant projection (in-memory, replay-rebuilt)
 }
 type OrchestrationBudgetReadResponse = OrchestrationBudgetState;
@@ -2595,11 +2598,14 @@ interface OrchestrationBudgetUpdateRequest {
   maxQueueDepthPerChannel?: number;
   maxPendingOrchestrationRuns?: number;
   activeChildLimit?: number;
+  // replace-set semantics; hardCapUsdCents a positive integer — the named
+  // fail-closed escape for unpriced families on native-cap legs (Spec-016, campaign B6)
+  unpricedFamilyCaps?: { modelFamily: string; hardCapUsdCents: number }[];
 }
 type OrchestrationBudgetUpdateResponse = OrchestrationBudgetState;
 
 interface SessionGoal {
-  text: string; // the Spec-016 §Session Goals structured shape — the single required member; extending it requires a spec revision (campaign B6)
+  text: string; // 1–4096 chars, non-blank, NUL-rejected (standard bounded free-form guards — persisted to the event log and injected into provider prompts); the Spec-016 §Session Goals structured shape; extending it requires a spec revision (campaign B6)
 }
 interface SessionGoalUpdateRequest {
   sessionId: SessionId;
@@ -2697,8 +2703,8 @@ interface OrchestrationRunLinkCarrier {
 | `orchestration.childRunLinkRead` | RPC | `ChildRunLinkReadRequest` → `ChildRunLinkReadResponse` | run_links projection + event-folded `rejectedCreates` (zero-residue refusals, I-016-8) |
 | `orchestration.budgetRead` | RPC | `OrchestrationBudgetReadRequest` → `OrchestrationBudgetReadResponse` |  |
 | `orchestration.budgetUpdate` | RPC | `OrchestrationBudgetUpdateRequest` → `OrchestrationBudgetUpdateResponse` | Session-owner-only (wire-boundary authorization) |
-| `session.goalUpdate` | RPC | `SessionGoalUpdateRequest` → `SessionGoalUpdateResponse` | Owner/member ([Spec-016 §Session Goals](../../specs/016-multi-agent-channels-and-orchestration.md#session-goals), campaign B6); an accepted update emits `session.goal_updated` carrying the same canonical `goal` |
-| `session.goalClear` | RPC | `SessionGoalClearRequest` → `SessionGoalClearResponse` | Owner/member; an accepted clear emits `session.goal_cleared` (clearing is the distinct operation — an update without a goal is malformed) |
+| `session.goalUpdate` | RPC | `SessionGoalUpdateRequest` → `SessionGoalUpdateResponse` | Owner/collaborator — viewers + runtime contributors read-only, per the Security Architecture role matrix ([Spec-016 §Session Goals](../../specs/016-multi-agent-channels-and-orchestration.md#session-goals), campaign B6); an accepted update emits `session.goal_updated` carrying the same canonical `goal` |
+| `session.goalClear` | RPC | `SessionGoalClearRequest` → `SessionGoalClearResponse` | Owner/collaborator; an accepted clear emits `session.goal_cleared` (clearing is the distinct operation — an update without a goal is malformed) |
 | `agent.attach` | RPC | `AgentAttachRequest` → `AgentAttachResponse` | Emits `agent.attached` |
 | `agent.detach` | RPC | `AgentDetachRequest` → `AgentDetachResponse` | Emits `agent.detached` |
 | `agent.configUpdate` | RPC | `AgentConfigUpdateRequest` → `AgentConfigUpdateResponse` | Emits `agent.config_updated` |
