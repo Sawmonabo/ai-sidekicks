@@ -138,7 +138,7 @@ Every doc task's final steps invoke this procedure with its own branch/commit/fi
 **Interfaces:** Consumes Tasks 5 (B3's P0-3 edits to the shared domain doc + the self-standing `rollbackTo` driver op), 9 (the B8 ADR-017 rollback decision row this amendment's `run.rolled_back` forward-event text cites), and 11 (B21's Spec-010 turn-snapshot section — the file-restore leg this amendment cites). Produces — P1-8 late-event absorption paragraph (absorbed-never-appended; `run.late_event.absorbed` diagnostic non-event); R8 `rollback` intervention type (rides `applyIntervention` with mandatory `expectedRunVersion` guard, 6-state result, state-gating with **pause-first** for `running` targets; forward `run.rolled_back` event; new §Driver-Level Rollback Mechanics mirroring the steer section; file restore via B21/B22 snapshot refs); the **run-state-machine.md amendment**: new intervention-driven `completed | interrupted | failed → paused` transitions (rollback is the only terminal-exit path) + the :34 exactly-one-terminal invariant reworded per-`runVersion`-epoch — without this the authoritative transition table (zero terminal-exit edges today) contradicts rollback-from-terminal; the domain-doc mirror — `InterventionType` gains `rollback` + the `{targetPosition}` payload-shape row (carried here, not in B3: it is Spec-004 content). Consumed by Task 13.
 
 - [ ] **Step 1:** SBP-1 bundle=`b2`, branch=`docs/b2-spec004-rollback-absorption`. Confirm Tasks 5, 9, and 11 are merged (B3's shared-file edits + `rollbackTo` op; the ADR-017 decision row; B21's snapshot-ref section — every surface this amendment cites must exist).
-- [ ] **Step 2:** Author per Design §4 B2 across the three files; anchors to re-verify: Spec-004 :38–46 (late-event paragraph site), :63–:65 (intervention contract), :101 (capability-gating pattern); run-state-machine.md :34 (invariant) + :60–93 (transition table); queue-and-intervention-model.md :104–110/:128 (post-B3 state — B3's P0-3 edits shift these lines). Cite ADR-011 as designed-for-this (zero ADR amendment).
+- [ ] **Step 2:** Author per Design §4 B2 across the three files; anchors to re-verify: Spec-004 :38–46 (late-event paragraph site), :63–:65 (intervention contract), :101 (capability-gating pattern); run-state-machine.md :34 (invariant) + :60–94 (transition table; post-B5 state — B5's divergence rows + recovery-prose reconciliation shift these lines); queue-and-intervention-model.md :104–110/:128 (post-B3 state — B3's P0-3 edits shift these lines). Cite ADR-011 as designed-for-this (zero ADR amendment).
 - [ ] **Step 3:** SBP-3/4/5/6 — subject `docs(repo): spec-004 late-event absorption + rollback intervention (b2)`, trailer `Refs: Spec-004, ADR-011, ADR-017`.
 
 ### Task 5: B3 — Spec-005 + driver-wire bundle (after Tasks 9 + 10)
@@ -147,20 +147,20 @@ Every doc task's final steps invoke this procedure with its own branch/commit/fi
 
 **Interfaces:** Consumes Tasks 9 (the ADR-015 #18 row P2-7's operator-governed upgrade path cites — Spec-028 is W3, so the landed scope authority is the citable anchor) and 10 (B20's Spec-012 posture semantics the `executionPosture` shape cites). Produces — P0-2 `cliVersion`/`DriverCliVersionReport`; P0-5 `DriverAuthProbeResult` (`.strict()`); P0-3 `clientIdempotencyKey` (3 surfaces + `interventions` schema columns `client_idempotency_key` + `UNIQUE(target_run_id, client_idempotency_key)`); P3-4 `RecoveryCondition` hoist (4 sites incl. :1996); P1-5/P3-3 resume union (`resumed.sessionPosition`; `failed` omits `bindingId`); P3-1; P3-7 (:55 change-detection); P2-9 (:166 per-runtime-node 15-min cadence); P2-6 normalize obligation (:78–84); P2-7 MCP `manual_reconcile_only` floor (:116–128); P2-10-L2 honesty note (:101, :106–114); currency: `steer` TRUE via `turn/steer` (C-11), two-provider `interactive_requests` (C-3), `structured_output` flag (C-13), effort vocabularies + per-turn note (C-8), **`approvalsReviewer: "user"` pin** (C-6); R8: mechanism grades on the matrix, `rollbackTo(position)`, goal injection contract, session callback-tool registry, `subagentPolicy {enabled, maxDepth, maxConcurrent, definitions[]}`, `executionPosture` shape, Codex transport axis (the `InterventionType` rollback mirror moves to B2 — it is Spec-004 content). Consumed by Tasks 4, 8, 12, 13, 14, 16, 17, 22.
 
-- [ ] **Step 1:** SBP-1 bundle=`b3`, branch=`docs/b3-spec005-driver-wire`. Confirm Tasks 9 and 10 are merged (the ADR-015 #18 row; the Spec-012 posture section).
-- [ ] **Step 2:** Author across the five files per Design §4 B3; re-verify anchors :55/:78–84/:101/:106–114/:116–128/:166 (Spec-005), :677/:993–1003/:1023/:1996/:2197 (api-payload), :104–110/:128 (domain doc). Apply §3.4 rules (regenerate-don't-transcribe for Codex claims).
-- [ ] **Step 3:** SBP-3 (five files) — plus confirm the schema-doc diff touches only the `interventions` table region (B17 owns the `cross_node_pending_dispatch` row later).
-- [ ] **Step 4:** SBP-4/5/6 — subject `docs(repo): spec-005 + wire contracts — driver + r8 parity (b3)`, trailer `Refs: Spec-005, Spec-012, Spec-024`.
+- [x] **Step 1:** SBP-1 bundle=`b3`, branch=`docs/b3-spec005-driver-wire`. Confirm Tasks 9 and 10 are merged (the ADR-015 #18 row; the Spec-012 posture section).
+- [x] **Step 2:** Author across the five files per Design §4 B3; re-verify anchors :55/:78–84/:101/:106–114/:116–128/:166 (Spec-005), :677/:993–1003/:1023/:1996/:2197 (api-payload), :104–110/:128 (domain doc). Apply §3.4 rules (regenerate-don't-transcribe for Codex claims).
+- [x] **Step 3:** SBP-3 (five files) — plus confirm the schema-doc diff touches only the `interventions` table region (B17 owns the `cross_node_pending_dispatch` row later).
+- [x] **Step 4:** SBP-4/5/6 — subject `docs(repo): spec-005 + wire contracts — driver + r8 parity (b3)`, trailer `Refs: Spec-005, Spec-012, Spec-024`.
 
 ### Task 6: B5 — Spec-015 bundle (after Task 9)
 
-**Design contract:** §4 B5. **Files:** Modify `docs/specs/015-persistence-recovery-and-replay.md`.
+**Design contract:** §4 B5. **Files:** Modify `docs/specs/015-persistence-recovery-and-replay.md`; plus `docs/domain/run-state-machine.md` (review absorption, 2026-07-06 — the P1-5 halt needs sanctioned startup-reconciliation divergence rows, the same companion-row pattern as B2's rollback transitions; same-file serialization: B2 + B13 edit this doc later).
 
 **Interfaces:** Consumes Task 9 (the B8 ADR-017 local-log-authoritative row the P1-5 divergence rule cites). Produces — P0-6 reconstruction-before-action bullet (§Default Behavior, after :56); P1-5 resume position-compare divergence ⇒ HALT-FOR-HUMAN (§Fallback :60 area). Consumed by Task 17.
 
-- [ ] **Step 1:** SBP-1 bundle=`b5`, branch=`docs/b5-spec015-recovery`. Confirm Task 9 is merged (the ADR-017 ruling this amendment cites must exist).
-- [ ] **Step 2:** Author the two amendment bullets per Design §4 B5; re-verify :56/:60.
-- [ ] **Step 3:** SBP-3/4/5/6 — subject `docs(repo): spec-015 — reconstruction gate + resume-divergence halt (b5)`, trailer `Refs: Spec-015, ADR-017`.
+- [x] **Step 1:** SBP-1 bundle=`b5`, branch=`docs/b5-spec015-recovery`. Confirm Task 9 is merged (the ADR-017 ruling this amendment cites must exist).
+- [x] **Step 2:** Author the two amendment bullets per Design §4 B5; re-verify :56/:60.
+- [x] **Step 3:** SBP-3/4/5/6 — subject `docs(repo): spec-015 — reconstruction gate + resume-divergence halt (b5)`, trailer `Refs: Spec-015, ADR-017`.
 
 ### Task 7: B6 — Spec-016 budget + R8 orchestration bundle (after Tasks 3 + 10)
 
