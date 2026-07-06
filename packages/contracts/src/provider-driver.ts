@@ -245,7 +245,7 @@ export interface DriverCapabilities {
 
 // --------------------------------------------------------------------------
 // T1.3 — Tool metadata + idempotency (Spec-005:57, :160-162, :172;
-//         Spec-015:108, :120; verifies I-005-3)
+//         Spec-015:110,122; verifies I-005-3)
 // --------------------------------------------------------------------------
 //
 // Per-tool idempotency classification used by the daemon's two-phase

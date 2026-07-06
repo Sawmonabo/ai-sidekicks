@@ -158,9 +158,9 @@ Every doc task's final steps invoke this procedure with its own branch/commit/fi
 
 **Interfaces:** Consumes Task 9 (the B8 ADR-017 local-log-authoritative row the P1-5 divergence rule cites). Produces — P0-6 reconstruction-before-action bullet (§Default Behavior, after :56); P1-5 resume position-compare divergence ⇒ HALT-FOR-HUMAN (§Fallback :60 area). Consumed by Task 17.
 
-- [ ] **Step 1:** SBP-1 bundle=`b5`, branch=`docs/b5-spec015-recovery`. Confirm Task 9 is merged (the ADR-017 ruling this amendment cites must exist).
-- [ ] **Step 2:** Author the two amendment bullets per Design §4 B5; re-verify :56/:60.
-- [ ] **Step 3:** SBP-3/4/5/6 — subject `docs(repo): spec-015 — reconstruction gate + resume-divergence halt (b5)`, trailer `Refs: Spec-015, ADR-017`.
+- [x] **Step 1:** SBP-1 bundle=`b5`, branch=`docs/b5-spec015-recovery`. Confirm Task 9 is merged (the ADR-017 ruling this amendment cites must exist).
+- [x] **Step 2:** Author the two amendment bullets per Design §4 B5; re-verify :56/:60.
+- [x] **Step 3:** SBP-3/4/5/6 — subject `docs(repo): spec-015 — reconstruction gate + resume-divergence halt (b5)`, trailer `Refs: Spec-015, ADR-017`.
 
 ### Task 7: B6 — Spec-016 budget + R8 orchestration bundle (after Tasks 3 + 10)
 

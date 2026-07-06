@@ -54,10 +54,12 @@ This spec covers local persistence, shared coordination persistence, recovery ru
 - Local mutable operations are blocked if the local durable store is unavailable.
 - Recovery runs automatically on daemon startup before new mutable work is accepted.
 - Recovery prefers adopting existing live provider sessions where possible before using stored resume handles.
+- Projection reconstruction completes strictly before any provider-facing action (campaign B5): daemon startup finishes replaying the local log into read state — and the recovery classification that depends on it — before any resume, reconciliation probe, or driver dispatch consumes that state; acting on a partially reconstructed projection is the ordering fault this gate closes.
 
 ## Fallback Behavior
 
 - If a persisted driver handle cannot be resumed, the affected run must transition to `failed` with visible recovery failure detail rather than silently disappearing or restarting as a new run.
+- On resume, the driver-reported normalized `sessionPosition` ([Spec-005 §Fallback Behavior](005-provider-driver-contract-and-capabilities.md#fallback-behavior), campaign B3) is compared against the daemon's recorded position; on divergence the local log is authoritative ([ADR-017 Decision Log, 2026-07-02](../decisions/017-shared-event-sourcing-scope.md#decision-log)) and the run halts for human action (campaign B5): it enters `waiting_for_input` carrying a `recovery-needed` `RecoveryCondition` payload, and the daemon never silently re-emits locally recorded events into the provider session and never silently discards provider-side events.
 - If projection rebuild fails, the daemon may enter degraded read-only mode while exposing repair signals.
 - If shared control-plane storage is unavailable, local execution may continue for already attached local sessions, but shared membership and invite operations must fail explicitly.
 
