@@ -1057,11 +1057,11 @@ CREATE TABLE session_budgets (
 
 -- Live-leg goal-delivery crash consistency (Spec-016 §Session Goals, campaign B6): the durable
 -- goal-dispatch intent written BEFORE the driver op (ADR-019 spawn-intent pattern); startup
--- reconciliation replays a dangling row (goal set is last-write-wins idempotent), then deletes it.
+-- reconciliation completes a dangling row: re-issue to legs still 'pending'; if the mutation cannot complete on every leg, revert 'acked' legs to the prior goal and delete WITHOUT appending (converging with a refusal outcome). Deleted on append AND on failure — a refused mutation never survives to replay.
 -- One in-flight goal mutation per session (goal ops serialize per session).
 CREATE TABLE session_goal_dispatch_intents (
   session_id  TEXT PRIMARY KEY,
-  payload     TEXT NOT NULL,   -- JSON {op: 'set'|'clear', goal?: {text}} — the pending mutation
+  payload     TEXT NOT NULL,   -- JSON {op: 'set'|'clear', goal?: {text}, prior: {goal?}, actor: ParticipantId, legs: {bindingId: 'pending'|'acked'}} — everything the crash-recovered session.goal_* event and the revert path need (Spec-006 envelope attribution; last-write-wins revert)
   created_at  TEXT NOT NULL
 );
 ```

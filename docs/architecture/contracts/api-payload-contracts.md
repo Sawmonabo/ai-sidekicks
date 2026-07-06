@@ -2594,7 +2594,7 @@ interface OrchestrationBudgetState {
   // Σ snapshot-at-admission reservations over ACTIVE native-cap-escape runs — admission
   // predicate: observed + reserved + newCap ≤ costLimitCents. At each such run's terminal the
   // reservation converts to a worst-case debit in observedCostCents (never back to headroom).
-  // Each run's admitted cap is frozen in effectiveRunConfig.admittedUnpricedCapCents:
+  // Each run's admitted cap is frozen in the server-stamped OrchestrationRunLinkCarrier.admittedUnpricedCapCents (run.queued):
   // unpricedFamilyCaps updates apply to future admissions only; restart/replay rebuilds
   // reservations + debits from run.queued records alone
   // (Spec-016 §Cost Derivation And Absent-Cost Semantics, campaign B6)

@@ -117,11 +117,12 @@ expect(caught).toMatchObject({
 
 ### Session
 
-| Code                     | Description                                            | HTTP Status |
-| ------------------------ | ------------------------------------------------------ | ----------- |
-| `session.not_found`      | Session does not exist or is not accessible            | 404         |
-| `session.already_closed` | Session has already been closed and cannot be modified | 409         |
-| `session.limit_exceeded` | Session creation rate limit exceeded                   | 429         |
+| Code | Description | HTTP Status |
+| --- | --- | --- |
+| `session.not_found` | Session does not exist or is not accessible | 404 |
+| `session.already_closed` | Session has already been closed and cannot be modified | 409 |
+| `session.limit_exceeded` | Session creation rate limit exceeded | 429 |
+| `session.goal_delivery_failed` | A live-leg goal mutation (`session.goalUpdate` / `session.goalClear`) failed at the provider driver — no event appended, no goal change; acked legs reverted to the prior goal (Spec-016 §Session Goals, campaign B6; `data.fields`: `failedBindingIds`, `driverCode`) | 502 |
 
 ### Auth
 

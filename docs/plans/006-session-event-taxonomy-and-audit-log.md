@@ -275,7 +275,7 @@ File: `packages/contracts/src/event.ts` (EXTEND; imports `DriverCapabilityFlag` 
 
 ##### T1.5 — Cross-link version-bound errors to Spec-006 + ADR-018 (JSDoc-only)
 
-File: `packages/contracts/src/event.ts` (EXTEND JSDoc on `EventEnvelopeVersionSchema`); optional reciprocal cite in `docs/architecture/contracts/error-contracts.md:375-376`. Provides: JSDoc cross-link pointer; no new schemas (Plan-001 T2.3 already shipped `VersionFloorExceededErrorSchema` + `VersionCeilingExceededErrorSchema` per Phase 1 audit forward-completed surface). Depends: Plan-001 T2.3 shipped artifacts. IdempotencyClass: N/A (docs).
+File: `packages/contracts/src/event.ts` (EXTEND JSDoc on `EventEnvelopeVersionSchema`); optional reciprocal cite in `docs/architecture/contracts/error-contracts.md:376-377`. Provides: JSDoc cross-link pointer; no new schemas (Plan-001 T2.3 already shipped `VersionFloorExceededErrorSchema` + `VersionCeilingExceededErrorSchema` per Phase 1 audit forward-completed surface). Depends: Plan-001 T2.3 shipped artifacts. IdempotencyClass: N/A (docs).
 
 - **Spec coverage:** Spec-006 line 88 (`VERSION_FLOOR_EXCEEDED`)
 - **Verifies invariant:** none (JSDoc-only cross-link; no Phase-1 invariant covers the FLOOR/CEILING version errors)
