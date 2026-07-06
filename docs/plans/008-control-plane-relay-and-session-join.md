@@ -95,7 +95,7 @@ The following decompose the I-008-2 umbrella into the concrete, individually-tes
 
 ### I-008-4 — PASETO v4 validation on every Tier-5 endpoint
 
-Every control-plane Tier-5 endpoint (`SessionJoin`, `PresenceRegister`, `RelayNegotiation`, `SessionResumeAfterReconnect`) **and** the relay WSS handshake MUST validate a PASETO v4.public token before any dispatch ([Spec-008:130](../specs/008-control-plane-relay-and-session-join.md) `Sec-WebSocket-Protocol: paseto-v4, <base64url(token)>`; Spec-008:225). Validation consumes the Tier-1-shipped `@ai-sidekicks/crypto-paseto` `verify` primitive (PR #92) against the [Plan-018](./018-identity-and-participant-state.md)-published issuer key (CP-008-4). No endpoint serves on an absent / expired / invalid token. Rate-limit middleware is a separate Tier-6 layer (CP-008-5), not part of this invariant.
+Every control-plane Tier-5 endpoint (`SessionJoin`, `PresenceRegister`, `RelayNegotiation`, `SessionResumeAfterReconnect`) **and** the relay WSS handshake MUST validate a PASETO v4.public token before any dispatch ([Spec-008:130](../specs/008-control-plane-relay-and-session-join.md) `Sec-WebSocket-Protocol: paseto-v4, <base64url(token)>`; Spec-008:225-228). Validation consumes the Tier-1-shipped `@ai-sidekicks/crypto-paseto` `verify` primitive (PR #92) against the [Plan-018](./018-identity-and-participant-state.md)-published issuer key (CP-008-4). No endpoint serves on an absent / expired / invalid token. Rate-limit middleware is a separate Tier-6 layer (CP-008-5), not part of this invariant.
 
 ### I-008-5 — Relay is zero-knowledge (E2EE; never plaintext)
 
