@@ -44,7 +44,7 @@ import {
 // `runtime_node_attachments` (shared-postgres-schema.md:199) — deliberately
 // contrasted against `id` / `session_id` / `participant_id`, which are `UUID`
 // in the SAME table — and `TEXT` in both local SQLite tables
-// (local-sqlite-schema.md:304,313). So `NodeId` is a daemon-minted opaque
+// (local-sqlite-schema.md:307,316). So `NodeId` is a daemon-minted opaque
 // scalar, NOT a server-minted UUID: we mirror `SessionId`'s brand SHAPE but
 // deliberately depart from its UUID parser, using the non-UUID branded-scalar
 // idiom from `session.ts`'s `EventCursorSchema` (z.string().min(1).max(cap)
@@ -948,7 +948,7 @@ export const RuntimeNodeOfflinePayloadSchema: z.ZodType<RuntimeNodeOfflinePayloa
 //
 // NAMING NOTE — this `RuntimeNodeCapabilityDeclaredPayload` is a SUPERSET of the
 // canonical interface of the same name in api-payload-contracts.md §Plan-006
-// (line 981), which lists the EXTENSION fields only (`capability`,
+// (line 984), which lists the EXTENSION fields only (`capability`,
 // `capabilityDetails`). Our schema = Spec-006's REDUCED base (`{sessionId?,
 // nodeId, actor?}`) + that doc's extension fields; it does not contradict the
 // canonical interface, it carries the base the canonical doc's extension-only
@@ -957,7 +957,7 @@ export const RuntimeNodeOfflinePayloadSchema: z.ZodType<RuntimeNodeOfflinePayloa
 // `capabilityDetails` ships as interim-opaque `z.record(z.string(), z.unknown())`
 // — marker `Plan-006-Tier-4-binds-canonical`: the canonical `CapabilityDetails`
 // (`{flags: Record<DriverCapabilityFlag, boolean>; contractVersion: string;
-// tools: NormalizedProviderToolMetadata[]}`, api-payload-contracts.md:973-977)
+// tools: NormalizedProviderToolMetadata[]}`, api-payload-contracts.md:976-980)
 // consumes Plan-005's `provider-driver.ts` types (`DriverCapabilityFlag`,
 // `NormalizedProviderToolMetadata`), but that's Plan-006 Tier 4's owned step,
 // not this layer's — so the field stays opaque here. An HONEST
@@ -991,7 +991,7 @@ export const RuntimeNodeCapabilityDeclaredPayloadSchema: z.ZodType<RuntimeNodeCa
 // Spec-006:413 ("base + {capability, previousState, newState}"). Emitted by the
 // T2.2 capability-service on a capability health/config change. CRITICAL: here
 // `previousState` / `newState` are `CapabilityDetails` SNAPSHOTS (so consumers
-// diff capability snapshots structurally — api-payload-contracts.md:988-993),
+// diff capability snapshots structurally — api-payload-contracts.md:991-996),
 // NOT `NodeState` values. This is exactly why this event uses the REDUCED base:
 // a base `previousState`/`newState: NodeState` would collide with these
 // capability-snapshot fields of the same name. Both ship as interim-opaque

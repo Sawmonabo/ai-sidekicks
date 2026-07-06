@@ -183,6 +183,9 @@ CREATE TABLE driver_capabilities (
                       'callback_tools', 'subagents'
                     )),
   supported         INTEGER NOT NULL DEFAULT 0, -- boolean: 0 or 1
+                    -- Campaign-B3 widening note: the catch-up migration that widens the CHECK above MUST
+                    -- backfill the five new flags as supported=0 for every existing driver_name (undeclared =
+                    -- unsupported, I-005-2); a pre-B3 seven-row cache would otherwise break the hydrator's exact-cardinality guard before any refresh could heal it.
   refreshed_at      TEXT NOT NULL,
   PRIMARY KEY (driver_name, capability_flag)
 );

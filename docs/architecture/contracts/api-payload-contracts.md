@@ -963,7 +963,10 @@ interface GetCapabilitiesResult {
 // here as `NormalizedProviderToolMetadata` (post-default), since these payloads cross the event
 // boundary and must never carry an un-normalized `idempotency_class`. `GetCapabilitiesResult.cliVersion`
 // is intentionally NOT mirrored here — the CLI-version floor is an attach-time fail-closed gate, not a
-// per-snapshot capability property, so it never crosses the event boundary (campaign B3).
+// per-snapshot capability property, so it never crosses the event boundary (campaign B3). The floor
+// check and the `driver_contract_meta.cli_version_*` cache write are refresh-path obligations evaluated
+// on EVERY refresh, before and independent of this snapshot's change-detection diff — a CLI-version-only
+// change is event-silent but never floor-silent or cache-stale (campaign B3).
 // Why flattened (not nested under `capabilities`): in the event-payload context all three
 // surfaces compose one capability snapshot; readers (Plan-013 timeline, Plan-020 dashboards,
 // Plan-015 replay) discriminate `runtime_node.capability_*` events from the discriminated
