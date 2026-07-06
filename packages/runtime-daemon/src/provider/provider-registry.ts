@@ -38,7 +38,7 @@
 // future `driver.steer` entrypoint, or `getCapabilities` against an unregistered
 // driver). `applyIntervention` is EXCLUDED from pre-dispatch gating — its
 // intervention-type-aware degraded-fallback per ADR-011 must reach the driver to
-// return `{ status: 'degraded', fallbackAction }` (Spec-005:44). That exclusion
+// return `{ status: 'degraded', fallbackAction }` (Spec-005:46). That exclusion
 // is realized simply by `checkCapability` being the only gate and the registry
 // never calling/special-casing `applyIntervention` — there is no exclusion branch.
 //
@@ -48,12 +48,12 @@
 // message + structured `fields`. Both error classes are exported because T2.5's
 // integration test asserts the gate throws the right type/code.
 //
-// Spec coverage: Spec-005:41 (every provider integration implements a normalized
-// driver contract — the registry is keyed on that contract), Spec-005:48 (runtime
+// Spec coverage: Spec-005:43 (every provider integration implements a normalized
+// driver contract — the registry is keyed on that contract), Spec-005:56 (runtime
 // treats undeclared capabilities as unsupported — the `checkCapability` gate).
 //
-// Refs: Plan-005 §Phase 2 / T2.3, Spec-005 lines 41 + 48, invariant I-005-2,
-// ADR-011 (capability flags + intervention modeling), error-contracts.md line 302
+// Refs: Plan-005 §Phase 2 / T2.3, Spec-005 lines 43 + 48, invariant I-005-2,
+// ADR-011 (capability flags + intervention modeling), error-contracts.md line 310
 // (`driver.unavailable`, HTTP 503) + line 303 (`driver.capability_unsupported`,
 // HTTP 400).
 
@@ -71,7 +71,7 @@ import type {
 /**
  * Thrown when a capability check targets a `driverId` that is not registered.
  *
- * `code === "driver.unavailable"` (error-contracts.md line 302, HTTP 503 —
+ * `code === "driver.unavailable"` (error-contracts.md line 310, HTTP 503 —
  * "Provider driver is currently unavailable"). This covers the plan's
  * "`driver.getCapabilities` … called against an unregistered driver" case: a
  * direct capability-bound call cannot proceed against a driver the registry has
@@ -96,7 +96,7 @@ export class DriverUnavailableError extends Error {
  * Thrown when a registered driver is asked for a capability it has not declared
  * `true` — the primary runtime realization of I-005-2.
  *
- * `code === "driver.capability_unsupported"` (error-contracts.md line 303, HTTP
+ * `code === "driver.capability_unsupported"` (error-contracts.md line 311, HTTP
  * 400 — "Requested capability is not supported by the driver"). Raised by the
  * fail-closed gate for BOTH a declared-`false` flag AND a flag absent from the
  * cached snapshot (an undeclared/bogus flag), because "unsupported" is the
@@ -231,7 +231,7 @@ export class ProviderRegistry {
    * declared `true` — this is the runtime half of I-005-2.
    *
    * `applyIntervention` is intentionally NOT gated here — there is no branch for
-   * it. Its ADR-011 degraded-fallback must reach the driver (Spec-005:44).
+   * it. Its ADR-011 degraded-fallback must reach the driver (Spec-005:46).
    */
   checkCapability(driverId: string, flag: DriverCapabilityFlag): void {
     const entry = this.#drivers.get(driverId);

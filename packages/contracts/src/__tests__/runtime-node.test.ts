@@ -4,7 +4,7 @@
 // line 53 (`client_version` floor field — the daemon's reported version, which
 // the Phase-3 attach service floor-compares against `sessions.min_client_version`
 // per ADR-018 §Decision #4 / I-003-1). T1.1 ships only the contract SURFACE;
-// these tests pin the wire shape (api-payload-contracts.md:490-503).
+// these tests pin the wire shape (api-payload-contracts.md:495-508).
 //
 // Coverage shape:
 //   • RuntimeNodeAttachRequestSchema ACCEPTS a payload with all required fields
@@ -261,7 +261,7 @@ describe("RuntimeNodeHealthStateSchema (catch #10: 2-value daemon-reported healt
 // (online|degraded) — the SAME self-report axis as `attach`/`heartbeat`, NOT the
 // broad 5-value `NodeState` (narrowed by T3.0; `offline`/`revoked` are owned by
 // other authorities and are unrepresentable here, I-003-2 least-privilege).
-// Wire shape pinned: api-payload-contracts.md:512-522.
+// Wire shape pinned: api-payload-contracts.md:517-527.
 const buildValidCapabilityUpdateRequest = () => ({
   nodeId: NodeIdSchema.parse(NODE_ID),
   capabilities: { "feature.x": { enabled: true } },
@@ -460,7 +460,7 @@ describe("RuntimeNodeCapabilityUpdateResponseSchema (C2: nodeId + state + update
 // Plan-003 PR #135 — Test C6: `RuntimeNodeHeartbeat` request + null response.
 // --------------------------------------------------------------------------
 //
-// Backstops the heartbeat wire shape (api-payload-contracts.md:505-510,559):
+// Backstops the heartbeat wire shape (api-payload-contracts.md:510-515,568):
 // a `nodeId` + a 2-value `healthState`, and a `null` response payload (NOT a
 // 204 empty body — the resolver returns `null`, serialized as a 200 success
 // envelope). The discriminating test is the 2-value health-enum boundary: a
@@ -543,7 +543,7 @@ describe("RuntimeNodeHeartbeatResponseSchema (C6: null no-content payload)", () 
 // Plan-003 PR #135 — Test C3: `RuntimeNodeDetach` request + null response.
 // --------------------------------------------------------------------------
 //
-// Backstops the detach wire shape (api-payload-contracts.md:524-529,561): a
+// Backstops the detach wire shape (api-payload-contracts.md:529-534,566): a
 // `nodeId` + an OPTIONAL free-form `reason`, and a `null` response payload. The
 // `reason` field composes `wireFreeFormString` (session.ts:118), so it inherits
 // the trust-boundary guards — these mirror the four `InviteRevoke.reason` /
@@ -722,11 +722,11 @@ describe("RUNTIME_NODE_EVENT_NAMES (C4: 7-name runtime_node.* taxonomy)", () => 
 // daemon read-only (Spec-003 AC4:130) — lands at Plan-003 Phase 3 (P3/P4).
 //
 // Cites: Spec-003:53, Spec-003 AC4:130, I-003-1, ADR-018 §Decision #4 /
-// §Decision #10, docs/architecture/contracts/error-contracts.md:364.
+// §Decision #10, docs/architecture/contracts/error-contracts.md:375.
 describe("VersionFloorExceededErrorSchema (C5: VERSION_FLOOR_EXCEEDED typed-contract conformance — Plan-003 consumer anchor)", () => {
-  it("pins the wire code literal to the value registered in error-contracts.md:364", () => {
+  it("pins the wire code literal to the value registered in error-contracts.md:375", () => {
     // The expected string is single-sourced from the INDEPENDENT registry —
-    // error-contracts.md:364 maps the typed `VERSION_FLOOR_EXCEEDED` name to the
+    // error-contracts.md:375 maps the typed `VERSION_FLOOR_EXCEEDED` name to the
     // dotted wire code `version.floor_exceeded` (ADR-018 §Decision #10 mandates
     // registration there). That doc, NOT `error.ts`, is the source of the
     // expected value here, so this pin detects drift in `error.ts` rather than
@@ -998,7 +998,7 @@ describe("RuntimeNodeCapabilityDeclaredPayloadSchema (C7: reduced base + {capabi
 
   it("REJECTS a newState key (reduced base omits the NodeState-transition fields)", () => {
     // Discriminating reduced-base proof: capability events are NOT NodeState
-    // transitions (the canonical payload, api-payload-contracts.md:756, carries no
+    // transitions (the canonical payload, api-payload-contracts.md:984, carries no
     // base NodeState fields). A `newState` key is therefore an unknown key under
     // `.strict()` — its presence rejects.
     const broken = { ...buildValidCapabilityDeclaredPayload(), newState: "online" };
@@ -1147,7 +1147,7 @@ describe("RuntimeNodeCapabilityUpdatedPayloadSchema (C7: reduced base + {capabil
 // Plan-003 Phase 5 — T5.0b: `RuntimeNodeRoster` request / entry / response.
 // --------------------------------------------------------------------------
 //
-// Backstops the roster wire shape (api-payload-contracts.md:531-551; registry
+// Backstops the roster wire shape (api-payload-contracts.md:536-556; registry
 // row :566) pinned in Spec-003 §Interfaces And Contracts (2026-06-09
 // amendment, lines 90-94): request `{ sessionId }`, the nine-field both-axes
 // entry, and response `{ nodes: RuntimeNodeRosterEntry[] }`. Spec coverage:

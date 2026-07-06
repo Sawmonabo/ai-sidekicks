@@ -15,7 +15,7 @@
 // is bound to which driver, and over the durable record of it, never leaves the
 // local daemon.
 //
-// Write-seam validation (DEFENSE-IN-DEPTH, Spec-005:47):
+// Write-seam validation (DEFENSE-IN-DEPTH, Spec-005:55):
 //   `contract_version` and `resume_handle` are the only PROVIDER-DECLARED columns
 //   and the only columns with DB CHECK constraints (`0003-runtime-bindings.ts`).
 //   They are validated through `provider-output-validation.ts` BEFORE every
@@ -40,7 +40,7 @@
 // on ONE axis — it is dispatched IMMEDIATE, not DEFERRED (see the `#updateTxn`
 // field comment for why a read-first transaction needs `BEGIN IMMEDIATE`).
 //
-// Refs: Plan-005 §Phase 2 / T2.2, Spec-005 line 47, invariant I-005-1.
+// Refs: Plan-005 §Phase 2 / T2.2, Spec-005 line 55, invariant I-005-1.
 
 import { randomUUID } from "node:crypto";
 

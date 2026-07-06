@@ -16,18 +16,18 @@
 //   connection).
 //
 // Coverage map (cites are the authoritative contract, not just the ACs):
-//   * Spec-005:48 (the runtime treats undeclared capabilities as unsupported):
+//   * Spec-005:56 (the runtime treats undeclared capabilities as unsupported):
 //     `checkCapability` gates the integration boundary across registry-A,
 //     the cold-start re-seeded registry-B, and the refreshed registry.
-//   * Spec-005:47 (drivers persist provider-owned resume handles separately
+//   * Spec-005:55 (drivers persist provider-owned resume handles separately
 //     from canonical session/run ids): `RuntimeBindingStore.create` carries the
 //     opaque `resumeHandle`, and the binding round-trips through a FRESH store
 //     over the same `db`.
-//   * Spec-005:156 (AC2 — unsupported capabilities remain unavailable and
+//   * Spec-005:203 (AC2 — unsupported capabilities remain unavailable and
 //     cannot be invoked accidentally): the capability round-trip + cold-start
 //     re-seed proves the durable cache reconstitutes the gating set identically
 //     across a daemon restart.
-//   * Spec-005:44 + ADR-011 (intervention dispatch routes by type to the driver;
+//   * Spec-005:46 + ADR-011 (intervention dispatch routes by type to the driver;
 //     a driver lacking native support returns a `degraded` result): the gate's
 //     SCOPE boundary — `applyIntervention` is NOT pre-gated, so a `steer:false`
 //     driver still receives the steer call and degrades.
@@ -42,7 +42,7 @@
 //     integration boundary (unregistered → `driver.unavailable`; declared-false
 //     → `driver.capability_unsupported`; declared-true → void).
 //
-// Refs: Plan-005 §Phase 2 / T2.5, Spec-005 lines 47 + 48 + 156 (AC2),
+// Refs: Plan-005 §Phase 2 / T2.5, Spec-005 lines 55 + 48 + 156 (AC2),
 // CP-005-5, ADR-011, invariants I-005-1 + I-005-2.
 
 import type { Database as DatabaseType } from "better-sqlite3";
@@ -150,7 +150,7 @@ function makeMockDriver(capabilitiesResult: GetCapabilitiesResult): MockProvider
     applyIntervention(params: ApplyInterventionParams): Promise<DriverInterventionResult> {
       interventionCalls.push(params);
       // A driver lacking native support for the requested intervention returns a
-      // `degraded` result so the orchestration layer can fall back (Spec-005:44,
+      // `degraded` result so the orchestration layer can fall back (Spec-005:46,
       // ADR-011). `fallbackAction` is the suggested fallback hint.
       return Promise.resolve({ status: "degraded", fallbackAction: "queue_and_interrupt" });
     },
@@ -239,7 +239,7 @@ afterEach(() => {
 });
 
 // ----------------------------------------------------------------------------
-// (1) AC2 — capability round-trip + cold-start re-seed (Spec-005:48, :156)
+// (1) AC2 — capability round-trip + cold-start re-seed (Spec-005:56, :203)
 // ----------------------------------------------------------------------------
 
 describe("Phase 2 integration — AC2 capability round-trip + cold-start re-seed", () => {
@@ -319,7 +319,7 @@ describe("Phase 2 integration — AC2 capability round-trip + cold-start re-seed
 });
 
 // ----------------------------------------------------------------------------
-// (2) I-005-2 — gate matrix at the integration boundary (Spec-005:48)
+// (2) I-005-2 — gate matrix at the integration boundary (Spec-005:56)
 // ----------------------------------------------------------------------------
 
 describe("Phase 2 integration — I-005-2 gate matrix at the integration boundary", () => {
@@ -362,7 +362,7 @@ describe("Phase 2 integration — I-005-2 gate matrix at the integration boundar
 });
 
 // ----------------------------------------------------------------------------
-// (3) I-005-2 gate SCOPE / ADR-011 non-gating boundary (Spec-005:44)
+// (3) I-005-2 gate SCOPE / ADR-011 non-gating boundary (Spec-005:46)
 // ----------------------------------------------------------------------------
 
 describe("Phase 2 integration — gate scope: applyIntervention is NOT pre-gated (ADR-011)", () => {
@@ -400,14 +400,14 @@ describe("Phase 2 integration — gate scope: applyIntervention is NOT pre-gated
     // The call REACHED the mock (it was not blocked by a capability gate)...
     expect(driver.interventionCalls).toHaveLength(1);
     expect(driver.interventionCalls[0]?.type).toBe("steer");
-    // ...and degraded per ADR-011 / Spec-005:44.
+    // ...and degraded per ADR-011 / Spec-005:46.
     expect(result.status).toBe("degraded");
   });
 });
 
 // ----------------------------------------------------------------------------
 // (4) I-005-1 — daemon-local authority (binding linkage + fresh-store cold read)
-//     (Spec-005:47)
+//     (Spec-005:55)
 // ----------------------------------------------------------------------------
 
 describe("Phase 2 integration — I-005-1 daemon-local authority (binding linkage)", () => {
@@ -429,7 +429,7 @@ describe("Phase 2 integration — I-005-1 daemon-local authority (binding linkag
     if (hydrated === undefined) return;
 
     // The provider's ONLY contribution is the opaque strings it declared — here
-    // the `resumeHandle` (Spec-005:47, persisted separately from canonical
+    // the `resumeHandle` (Spec-005:55, persisted separately from canonical
     // session/run ids). Authority over the run↔driver binding stays daemon-local.
     const created = bindingStore.create({
       runId: "run-1",
@@ -464,7 +464,7 @@ describe("Phase 2 integration — I-005-1 daemon-local authority (binding linkag
 
 // ----------------------------------------------------------------------------
 // (5) Refresh seam coherence — declare 'updated' ties to the registry refresh
-//     (Spec-005:48 + CP-005-5)
+//     (Spec-005:56 + CP-005-5)
 // ----------------------------------------------------------------------------
 
 describe("Phase 2 integration — refresh seam coherence (updated → re-hydrate → registry gate flips)", () => {

@@ -179,7 +179,12 @@ type DriverCapabilityFlag =
   | "mcp"
   | "tool_calls"
   | "reasoning_stream"
-  | "model_mutation";
+  | "model_mutation"
+  | "structured_output" // schema-constrained final output (Spec-005 §Per-Driver Capability Matrix, campaign B3)
+  | "rollback" // conversation rollback via rollbackTo (campaign B3; the rollback InterventionType is Spec-004 content, campaign B2)
+  | "session_goals" // setSessionGoal / clearSessionGoal (campaign B3)
+  | "callback_tools" // daemon-curated callback-tool registry (campaign B3)
+  | "subagents"; // provider-native in-session subagents under subagentPolicy (campaign B3)
 ```
 
 ---
@@ -582,22 +587,28 @@ The four dual-transport methods (`attach`/`heartbeat`/`capabilityupdate`/`detach
 // normalized at the Plan-005 Phase-3 driver boundary (the driver, daemon-owned code, parses
 // raw provider output there) and returned to the daemon as already-trusted normalized values,
 // so they ship nominal by design and are not re-parsed at this contract layer. Their persisted
-// free-form fields (`DriverCapabilities.contractVersion`, `ProviderSessionHandle.resumeHandle`)
-// are bounded at the Plan-005 Phase-2 write seam (semver / non-empty + length + NUL), not here.
+// free-form fields (`DriverCapabilities.contractVersion`, `ProviderSessionHandle.resumeHandle`,
+// and `DriverCliVersionReport.raw` — the CLI-version string, parsed to `semver` fail-closed and
+// riding the nominal `GetCapabilitiesResult` return exactly like `contractVersion`) are bounded
+// at the Plan-005 Phase-2 write seam (semver / non-empty + length + NUL), not here.
 // Zod validates ONLY the surfaces that parse UNTRUSTED
-// provider output (the trust boundary): the result envelopes `DriverInterventionResult` and
-// `DriverResumeResult`, and provider-declared `ProviderToolMetadata`.
+// provider output (the trust boundary): the result envelopes `DriverInterventionResult`,
+// `DriverResumeResult`, `DriverRollbackResult`, `DriverGoalResult`, and `DriverAuthProbeResult`,
+// and provider-declared `ProviderToolMetadata`.
 // `resumeSession` returns the `DriverResumeResult` discriminated union (defined below)
-// to make silent-replacement structurally inexpressible per Spec-005:60.
+// to make silent-replacement structurally inexpressible per Spec-005:69.
 // `getCapabilities` returns the `GetCapabilitiesResult` wrapper (defined below) so the
 // per-tool `ProviderToolMetadata[]` rides alongside the flag matrix in a single
 // round-trip per Plan-005 Phase 4 ratified design.
-// Within the Zod-validated surfaces, `ProviderToolMetadata` STRIPS unknown keys (Spec-005:55
-// forward-compat: "Unknown capability fields are ignored until the driver contract version
-// explicitly supports them"), while the result envelopes reject unknown keys (`.strict()`);
-// and all five untrusted provider-output free-form strings (`ProviderToolMetadata.name`/`.description`,
-// `DriverInterventionResult.fallbackAction`, `DriverResumeResult.bindingId`/`.providerFailureDetail`)
-// are runtime-bounded (length + non-whitespace + NUL-rejection) via the package's `wireFreeFormString`
+// Within the Zod-validated surfaces, `ProviderToolMetadata` STRIPS unknown keys (Spec-005
+// §Default Behavior forward-compat: "Unknown capability fields are ignored (tolerant
+// reader)" — campaign B3 re-framed contractVersion as change-detection, not negotiation),
+// while the result envelopes reject unknown keys (`.strict()`);
+// and all eight untrusted provider-output free-form strings (`ProviderToolMetadata.name`/`.description`,
+// `DriverInterventionResult.fallbackAction`, `DriverResumeResult.bindingId`/`.providerFailureDetail`,
+// `DriverRollbackResult.fallbackAction`, `DriverGoalResult.fallbackAction`,
+// `DriverAuthProbeResult.detail`) — each on a Zod-validated result envelope or `ProviderToolMetadata`
+// above — are runtime-bounded (length + non-whitespace + NUL-rejection) via the package's `wireFreeFormString`
 // helper — Zod constraints not expressible in these TS interface shapes.
 interface ProviderDriver {
   createSession(params: CreateSessionParams): Promise<ProviderSessionHandle>;
@@ -605,16 +616,23 @@ interface ProviderDriver {
   startRun(params: StartRunParams): Promise<void>;
   interruptRun(params: InterruptRunParams): Promise<void>;
   applyIntervention(params: ApplyInterventionParams): Promise<DriverInterventionResult>;
+  rollbackTo(params: RollbackToParams): Promise<DriverRollbackResult>;
   respondToRequest(params: RespondToRequestParams): Promise<void>;
+  setSessionGoal(params: SetSessionGoalParams): Promise<DriverGoalResult>;
+  clearSessionGoal(params: ClearSessionGoalParams): Promise<DriverGoalResult>;
   closeSession(params: CloseSessionParams): Promise<void>;
   listModels(): Promise<ProviderModel[]>;
   listModes(): Promise<ProviderMode[]>;
   getCapabilities(): Promise<GetCapabilitiesResult>;
+  probeAuth(): Promise<DriverAuthProbeResult>;
 }
 
 interface CreateSessionParams {
   sessionId: SessionId;
   config: Record<string, unknown>;
+  executionPosture?: ExecutionPosture; // spawn-time posture — provider legs that bind posture at process spawn (Claude `--settings` sandbox) realize it here; the per-run effective posture rides StartRunParams (Spec-005 §Required Behavior, campaign B3)
+  callbackTools?: SessionCallbackTool[]; // daemon-curated callback-tool registry exposed into the session (Codex function-form dynamicTools; Claude daemon-hosted ephemeral MCP server via --mcp-config); gated on the callback_tools flag
+  subagentPolicy?: SubagentPolicy; // provider-native in-session subagent policy pass-through under the single-supervisor invariant (Spec-016 semantics land via campaign B6); gated on the subagents flag
 }
 
 interface ResumeSessionParams {
@@ -627,6 +645,7 @@ interface StartRunParams {
   channelId: ChannelId;
   agentConfig: Record<string, unknown>;
   conversationHistory?: unknown[];
+  executionPosture?: ExecutionPosture; // per-run effective posture — the same object the daemon stamps on run.running (Spec-006 §Run Lifecycle). Codex realizes per-turn (turn/start sandbox params); a provider that binds posture at spawn realizes it at session boundaries, and a mid-session posture change on such a leg resolves via session relaunch, never silent partial application (Spec-005 §Required Behavior, campaign B3)
 }
 
 interface InterruptRunParams {
@@ -636,12 +655,34 @@ interface InterruptRunParams {
 
 // Discriminated union over `type` — each intervention type coupled to its payload
 // shape. `expectedRunVersion` is the MANDATORY fail-closed comparand (Plan-004
-// D-004-2) repeated on every arm — absent value rejected, never applied. Same
-// field set as the InterventionRequestPayload union below.
+// D-004-2) repeated on every arm — absent value rejected, never applied.
+// `clientIdempotencyKey` is the MANDATORY requester-generated UUID (Spec-005 §Required
+// Behavior, campaign B3): the daemon dedupes on it (replay-or-conflict), and it rides
+// through to the driver so provider-remote invocations that honor dedupe keys receive
+// it (the `compensable` propagation pattern, Spec-005 §Tool Metadata). Same field set
+// as the InterventionRequestPayload union below.
 type ApplyInterventionParams =
-  | { type: "steer"; targetRunId: RunId; expectedRunVersion: number; payload: SteerPayload }
-  | { type: "interrupt"; targetRunId: RunId; expectedRunVersion: number; payload: InterruptPayload }
-  | { type: "cancel"; targetRunId: RunId; expectedRunVersion: number; payload: CancelPayload };
+  | {
+      type: "steer";
+      targetRunId: RunId;
+      expectedRunVersion: number;
+      clientIdempotencyKey: string;
+      payload: SteerPayload;
+    }
+  | {
+      type: "interrupt";
+      targetRunId: RunId;
+      expectedRunVersion: number;
+      clientIdempotencyKey: string;
+      payload: InterruptPayload;
+    }
+  | {
+      type: "cancel";
+      targetRunId: RunId;
+      expectedRunVersion: number;
+      clientIdempotencyKey: string;
+      payload: CancelPayload;
+    };
 
 interface SteerPayload {
   content: string;
@@ -658,25 +699,85 @@ interface CancelPayload {
 }
 
 interface DriverInterventionResult {
-  status: "applied" | "degraded";
+  status: "applied" | "degraded"; // the complete driver-level vocabulary — `rejected` / `expired` are orchestration-layer verdicts rendered around driver dispatch, never driver-returned (Spec-005 §Required Behavior; normative mapping in queue-and-intervention-model.md §Driver Result To Lifecycle Mapping, campaign B3)
   fallbackAction?: string; // e.g. 'queue_and_interrupt' for degraded steer
 }
 
+// Driver-level conversation rollback (campaign B3). `position` is the normalized monotonic
+// session position (the same turn/event ordinal vocabulary `DriverResumeResult.sessionPosition`
+// reports); the intervention-layer `targetPosition` (Spec-004 rollback content, campaign B2 —
+// a named merge prerequisite before any rollback emitter exists) maps onto this driver ordinal.
+// Codex leg: `thread/rollback` (drop-N-turns — the driver computes the drop count from the
+// ordinal delta); Claude leg: `--resume-session-at <message-uuid>` + `--fork-session` composed.
+// Conversation state ONLY: file-state restore is the daemon's turn-snapshot git leg (Plan-010),
+// never the driver's — the Codex protocol schema itself notes rollback does not revert local
+// file changes.
+interface RollbackToParams {
+  sessionId: SessionId;
+  position: number;
+}
+
+type DriverRollbackResult =
+  // A successful rollback without a confirmed floor is structurally inexpressible (mirrors
+  // `DriverResumeResult`): position-compares consume it per Spec-015 via campaign B5/B14.
+  | { status: "applied"; sessionPosition: number } // REQUIRED driver-confirmed post-rollback position — the new authoritative recovery floor
+  | { status: "degraded"; fallbackAction?: string };
+
+// Session-goal injection (campaign B3). `goalText` is the daemon-rendered textual form of the
+// session's structured goal — the structured shape is owned by the Spec-016 goal contract
+// (campaign B6), and the daemon renders structure → provider text at dispatch. Codex leg:
+// `thread/goal/set` / `thread/goal/clear` (the `objective` field), live; Claude leg:
+// driver-held composition into the system prompt at the next turn/resume boundary (grade
+// `emulated` — Spec-005 §Parity Capability Mechanism Grades). Durable truth is the
+// `session.goal_updated` / `session.goal_cleared` events (Spec-006); the daemon re-pushes the
+// goal on session resume, so driver-held state is never the recovery source.
+interface SetSessionGoalParams {
+  sessionId: SessionId;
+  goalText: string;
+}
+
+interface ClearSessionGoalParams {
+  sessionId: SessionId;
+}
+
+type DriverGoalResult =
+  // `applied` = the goal governs the session from now or the next turn boundary (both V1
+  // legs) — a fallback narrative on a successful application is unrepresentable.
+  | { status: "applied" } // success carries no fallback field
+  | { status: "degraded"; fallbackAction?: string }; // an absent-grade driver could not deliver
+
 // Return shape of `ProviderDriver.resumeSession()`. Discriminated union over `status`
 // makes silent-replacement structurally inexpressible: the failure variant has no
-// `bindingId`, so a successful resume cannot be conflated with a failed one. Spec-005:60
-// requires that resume failure "surface `provider failure` detail and a visible
-// `recovery-needed` condition; it must not silently create a replacement provider
-// session under the same canonical run." Timestamps for the resumed case live on
+// `bindingId`, so a successful resume cannot be conflated with a failed one. Spec-005
+// §Fallback Behavior requires that resume failure "surface `provider failure` detail and
+// a visible `recovery-needed` condition; it must not silently create a replacement provider
+// session under the same canonical run." The `resumed` variant's REQUIRED `sessionPosition`
+// (campaign B3) is the driver's normalized monotonic position — turn/event ordinal, the same
+// number-cursor convention as `lastReplayedSequence`/`afterSequence` below — which the daemon
+// compares against its recorded position; divergence reconciliation (halt-for-human, rollback
+// markers as the position floor) is Spec-015's, landing via campaign B5/B14 per ADR-017's
+// local-log-authoritative ruling. The compare also catches a provider silently returning a
+// fresh session on resume (e.g. Claude on a working-directory mismatch): a fresh session's
+// position cannot match the recorded one. Timestamps for the resumed case live on
 // `runtime_bindings.updated_at` (Plan-005 T2.1); the result shape carries only the
 // discriminated-union semantic payload.
 type DriverResumeResult =
-  | { status: "resumed"; bindingId: string }
+  | { status: "resumed"; bindingId: string; sessionPosition: number }
   | {
       status: "failed";
-      recoveryCondition: "recovery-needed";
+      recoveryCondition: RecoveryCondition;
       providerFailureDetail: string;
     };
+
+// Named once, referenced at every carrying surface (campaign B3, hoisting the previously
+// repeated inline union): REQUIRED form on `DriverResumeResult.failed` above; optional form
+// on `RunStateChangeEvent`, `RecoveryStatusReadResponse.sessions[]`, and
+// `FailureDetailReadResponse` below. `recovery-needed` = generic, operator reconciliation
+// required. `reauth-required` = the provider session or credential expired (detected mid-run
+// via the provider's typed auth-failure signals or at resume/probe time); remediation is
+// re-authenticating the provider CLI on the runtime node, after which recovery may retry
+// (Spec-005 §Fallback Behavior).
+type RecoveryCondition = "recovery-needed" | "reauth-required";
 
 interface RespondToRequestParams {
   runId: RunId;
@@ -697,6 +798,7 @@ interface ProviderModel {
   id: string;
   name: string;
   capabilities: string[];
+  effortLevels?: string[]; // per-model reasoning-effort vocabulary (provider vocabularies differ: Claude low..max; Codex minimal..xhigh — Spec-005 §Provider Parameter Vocabularies, campaign B3); absent = the model exposes no effort selection
 }
 
 interface ProviderMode {
@@ -704,9 +806,79 @@ interface ProviderMode {
   name: string;
 }
 
+// Effective sandbox/permission posture (campaign B3 hoist of the previously inline
+// RunStateChangeEvent field — shape owned by Spec-005, policy semantics by Spec-012 §Required
+// Behavior, campaign B20). Referenced by RunStateChangeEvent.executionPosture? (the run.running
+// audit stamp) and by CreateSessionParams/StartRunParams (the spawn/turn carriers).
+type ExecutionPostureNetwork =
+  | { networkAccess: "none" | "full"; allowedDomains?: never } // allowedDomains structurally absent
+  | { networkAccess: "allowed-domains"; allowedDomains: [string, ...string[]] }; // non-empty by construction (Spec-012 cross-field invariants, fail closed)
+
+type ExecutionPosture = ExecutionPostureNetwork & {
+  writableRoots: string[];
+  profileName?: string;
+} & (
+    | { mode: "trusted"; credentialPolicyRef?: never } // a trusted run records no enforced credential constraint — a posture carrying mode "trusted" AND a policy ref is unrepresentable
+    | {
+        mode: "workspace-sandboxed" | "readonly-sandboxed";
+        credentialPolicyRef: string; // content-addressed "sha256:<hex>" over the RFC 8785 JCS-canonicalized credential-policy artifact {schemaVersion: 1, denyPaths: string[], denyEnvVars: string[], envNameMatch: 'case-sensitive' | 'case-insensitive'} (daemon canonicalizes denyEnvVars names to the host's env-name case semantics — case-insensitive-env hosts fold to one spelling, case-sensitive verbatim — and records the host's match mode as envNameMatch so hosts that strip differently never share a ref; then lexicographically sorts + dedupes both arrays before hashing — JCS canonicalizes object members, not array order) — REQUIRED on both sandboxed modes ('workspace-sandboxed' / 'readonly-sandboxed'), absent under mode:'trusted' (the credential policy is realized as part of a sandboxed posture — a trusted run records no enforced credential constraint), so auditors reconstruct exactly which credentials were denied/scrubbed without embedding the raw installation-revealing list; the daemon persists the artifact row write-ahead (before the first citing posture stamp) so the ref never dangles (Spec-012 §Required Behavior, campaign B20).
+      }
+  );
+
+// Daemon-curated callback tool exposed into a session (campaign B3; authorization semantics
+// Spec-012, campaign B20). Mirrors the function-form provider tool shape (name + description +
+// JSON-Schema input) — the Codex leg maps 1:1 onto function-form `dynamicTools` specs invoked
+// via the `item/tool/call` server request; the Claude leg hosts the same registry as a
+// daemon-hosted ephemeral MCP server (`--mcp-config`), where tools surface as
+// `mcp__<server>__<tool>`. Every invocation flows through the daemon's approval pipeline and
+// lands as an ordinary `tool_activity` row (Spec-006). Daemon-constructed and daemon-trusted —
+// never provider output.
+interface SessionCallbackTool {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>; // JSON Schema for the tool's arguments
+}
+
+// Provider-native in-session subagent policy (campaign B3; orchestration semantics Spec-016 via
+// campaign B6). Single-supervisor invariant: the daemon is the only cross-session supervisor —
+// provider subagents run in-session only, their usage aggregates into the run's own budgets, and
+// their tool calls flow through the same approval pipeline. `maxConcurrent` enforces natively on
+// Codex; the Claude concurrency cap is docs-silent, so that leg monitors-with-diagnostic
+// (Spec-005 §Parity Capability Mechanism Grades).
+type SubagentPolicy =
+  // Discriminated on `enabled`: a disabled policy carries no limits or definitions —
+  // "off but configured" is unrepresentable; the daemon sends the full arm on enable.
+  | { enabled: false }
+  | { enabled: true; maxDepth: number; maxConcurrent: number; definitions: SubagentDefinition[] };
+
+// Unified per-subagent definition the driver maps onto its provider form (Claude --agents
+// AgentDefinition; Codex [agents] config). Fields beyond `name` are optional — each leg maps
+// what its provider supports and ignores the rest (tolerant mapping, graded on the matrix).
+interface SubagentDefinition {
+  name: string;
+  description?: string;
+  model?: string;
+  tools?: string[];
+  permissionMode?: string;
+  effort?: string;
+  maxTurns?: number;
+}
+
+// Driver transport configuration (campaign B3) — a daemon driver-registry config surface, not
+// an RPC payload. V1: the Codex driver only (app-server --listen unix://|ws://, config-gated,
+// off by default); the Claude CLI exposes no local listener — remote Claude participation is
+// Spec-024 cross-node dispatch, recorded as the parity mechanism. `bearerTokenRef` is a
+// daemon-config reference to the ws bearer credential — a reference, never the secret value
+// (the credentialPolicyRef ref-not-value pattern).
+type DriverTransportConfig =
+  | { transport: "stdio" } // the V1 default — no local listener, no endpoint
+  | { transport: "unix-socket"; endpoint: string } // unix:// URL, REQUIRED
+  // ws:// URL + bearer credential reference, both REQUIRED — an unauthenticated ws listener is unrepresentable:
+  | { transport: "websocket"; endpoint: string; bearerTokenRef: string };
+
 interface DriverCapabilities {
   flags: Record<DriverCapabilityFlag, boolean>;
-  contractVersion: string;
+  contractVersion: string; // change-detection signal, not negotiation: recorded at attach, compared on refresh to invalidate capability snapshots; the daemon never version-gates behavior on it (Spec-005 §Default Behavior, campaign B3)
 }
 
 // Per-tool idempotency classification used by the daemon's two-phase command-receipt
@@ -717,9 +889,9 @@ type IdempotencyClass = "idempotent" | "compensable" | "manual_reconcile_only";
 // INGRESS shape — what a provider driver DECLARES via `getCapabilities()`. `idempotency_class`
 // is OPTIONAL: a driver MAY omit it and an undeclared class is NOT a contract violation. Were the
 // field required here, Zod would reject a conformant-but-silent driver at ingress BEFORE the
-// default could apply — defeating Spec-005:128. The daemon's capability-normalization seam
+// default could apply — defeating Spec-005:172. The daemon's capability-normalization seam
 // (Plan-005 T2.4 hydration) resolves an omitted class to `manual_reconcile_only` (the conservative
-// default per Spec-005:128), producing a `NormalizedProviderToolMetadata`.
+// default per Spec-005:172), producing a `NormalizedProviderToolMetadata`.
 interface ProviderToolMetadata {
   name: string;
   idempotency_class?: IdempotencyClass;
@@ -737,15 +909,45 @@ interface NormalizedProviderToolMetadata {
   description?: string;
 }
 
-// Return type of `ProviderDriver.getCapabilities()`. Spec-005:116-118 semantically
+// CLI-version report (campaign B3, P0-2). `raw` is the verbatim provider-reported version
+// string (untrusted provider output on the nominal `GetCapabilitiesResult` return — bounded at
+// the Plan-005 write seam like `contractVersion`, not the Zod trust boundary); `semver` is the
+// driver-parsed normalized MAJOR.MINOR.PATCH the daemon compares against its configured
+// per-driver floor (mechanical enforcement at attach/refresh; V1 shipped floors: Claude Code
+// 2.1.198, codex-cli 0.141.0 — the 2026-07-02 CLI-currency audit pair). `semver` is REQUIRED,
+// so an unparseable version is unrepresentable in this shape — the driver fails the report
+// fail-closed and attach refuses as `driver.cli_version_unparseable`; a parseable version
+// below the configured floor refuses as `driver.cli_version_below_floor` (Spec-005 §Required
+// Behavior).
+interface DriverCliVersionReport {
+  raw: string;
+  semver: string;
+}
+
+// Zero-turn authentication probe result (campaign B3, P0-5). Zod `.strict()` — a result
+// envelope rejecting unknown keys, correct for an internal owned contract paired with
+// contract versioning. `indeterminate` (probe surface unavailable or unparseable) is treated
+// as NOT authenticated for admission — fail closed — while staying distinguishable so
+// operators separate probe health from credential state. Run admission against a driver not
+// probing `authenticated` refuses as `driver.not_authenticated` before any turn is spent
+// (Spec-005 §Required Behavior). Mid-run credential expiry is a different surface: the
+// provider's typed auth-failure signals map to RecoveryCondition 'reauth-required'.
+interface DriverAuthProbeResult {
+  status: "authenticated" | "unauthenticated" | "indeterminate";
+  detail?: string; // provider-reported account/plan detail (untrusted free-form, bounded)
+}
+
+// Return type of `ProviderDriver.getCapabilities()`. Spec-005 §Tool Metadata semantically
 // separates whole-driver capability flags from per-tool metadata; the wrapper keeps
 // `DriverCapabilities` pure (flags + contractVersion only) while still carrying both
 // surfaces in a single round-trip. Modern precedent: MCP 2026 separates `initialize`
 // server capabilities from `tools/list`; LSP separates `ServerCapabilities` from
-// registered tool surfaces.
+// registered tool surfaces. `cliVersion` (campaign B3) is REQUIRED: a report without a
+// parseable provider version never reaches the daemon (fail-closed by construction).
 interface GetCapabilitiesResult {
   capabilities: DriverCapabilities;
   tools: ProviderToolMetadata[];
+  cliVersion: DriverCliVersionReport;
 }
 ```
 
@@ -757,9 +959,14 @@ interface GetCapabilitiesResult {
 // CapabilityDetails — wrapper shape carried by `runtime_node.capability_declared` and
 // `runtime_node.capability_updated` event payloads (Spec-006:412-413). Bound to the same
 // three surfaces a driver advertises via `ProviderDriver.getCapabilities()` (GetCapabilitiesResult
-// above): the seven-flag matrix, the negotiated contract version, and the per-tool metadata —
+// above): the twelve-flag matrix, the declared contract version, and the per-tool metadata —
 // here as `NormalizedProviderToolMetadata` (post-default), since these payloads cross the event
-// boundary and must never carry an un-normalized `idempotency_class`.
+// boundary and must never carry an un-normalized `idempotency_class`. `GetCapabilitiesResult.cliVersion`
+// is intentionally NOT mirrored here — the CLI-version floor is an attach-time fail-closed gate, not a
+// per-snapshot capability property, so it never crosses the event boundary (campaign B3). The floor
+// check and the `driver_contract_meta.cli_version_*` cache write are refresh-path obligations evaluated
+// on EVERY refresh, before and independent of this snapshot's change-detection diff — a CLI-version-only
+// change is event-silent but never floor-silent or cache-stale (campaign B3).
 // Why flattened (not nested under `capabilities`): in the event-payload context all three
 // surfaces compose one capability snapshot; readers (Plan-013 timeline, Plan-020 dashboards,
 // Plan-015 replay) discriminate `runtime_node.capability_*` events from the discriminated
@@ -990,18 +1197,41 @@ interface QueueItemCancelResponse {
 // (Plan-004 D-004-1): an any-run-progression counter that advances on every run progression,
 // applied interventions included — distinct from the immutable EventEnvelope `.version` wire-contract
 // field (Spec-006 §EventEnvelope Version Semantics).
+// `clientIdempotencyKey` (campaign B3) is the second mandatory guard — a requester-generated UUID
+// giving at-least-once delivery exactly-once application: the daemon persists it on the
+// interventions row (UNIQUE(target_run_id, client_idempotency_key)); an identical retry replays
+// the originally recorded outcome without re-dispatching, and key reuse with a differing payload
+// is rejected as `intervention.idempotency_conflict` (Spec-005 §Required Behavior). The two
+// guards are orthogonal: `expectedRunVersion` defeats stale replays of OUTDATED intent;
+// `clientIdempotencyKey` defeats duplicate applications of the SAME intent.
 type InterventionRequestPayload =
   | {
       type: "steer";
       targetRunId: RunId;
       expectedRunVersion: number;
+      clientIdempotencyKey: string;
       content: string;
       attachments?: unknown[];
       expectedTurnId?: string;
     }
-  | { type: "interrupt"; targetRunId: RunId; expectedRunVersion: number; reason?: string }
-  | { type: "cancel"; targetRunId: RunId; expectedRunVersion: number; reason?: string };
+  | {
+      type: "interrupt";
+      targetRunId: RunId;
+      expectedRunVersion: number;
+      clientIdempotencyKey: string;
+      reason?: string;
+    }
+  | {
+      type: "cancel";
+      targetRunId: RunId;
+      expectedRunVersion: number;
+      clientIdempotencyKey: string;
+      reason?: string;
+    };
 
+// On an idempotent replay (same clientIdempotencyKey, identical payload) this response is
+// reconstructed from the persisted intervention row — same interventionId, current state,
+// current runVersion — never a second application (campaign B3).
 interface InterventionRequestResponse {
   interventionId: InterventionId;
   state: InterventionState;
@@ -1011,7 +1241,7 @@ interface InterventionRequestResponse {
 
 // RunStateChange (event, not request/response). The `run.failed` variant carries the
 // `providerFailureDetail` surface that mirrors the `failed`-variant `providerFailureDetail` of `DriverResumeResult`
-// (line 657 above) — Spec-005:60 requires resume-failure detail to reach the canonical audit
+// (§Plan-005 above) — Spec-005:69 requires resume-failure detail to reach the canonical audit
 // log so Plan-015's recovery dispatcher and Plan-013's timeline can render the operator-actionable
 // reason for the failure without re-querying the driver. Plan-005 CP-005-5; Plan-006 Phase 3 audit.
 interface RunStateChangeEvent {
@@ -1020,19 +1250,12 @@ interface RunStateChangeEvent {
   previousState: RunState;
   currentState: RunState;
   failureCategory?: RunFailureCategory;
-  recoveryCondition?: "recovery-needed";
+  recoveryCondition?: RecoveryCondition; // named type in §Plan-005 above (campaign B3): 'recovery-needed' | 'reauth-required'
   healthSignal?: "stuck-suspected";
   providerFailureDetail?: string; // populated on `run.failed` when failureCategory='provider'
   completionKind?: "turn" | "task"; // on `run.completed`: whether the completion closes a conversational turn or the whole task — optional in the shared shape only for pre-B1 history; post-B1 emitters MUST set it (Spec-006 §Run Lifecycle run-state payload, 2026-07-02 B1 amendment)
   intendedClose?: true; // daemon-initiated closeSession clean-terminal discriminator: present only on that path, absent on every other terminal; consumers MUST NOT classify such a terminal as a crash (Spec-006 §Run Lifecycle "Intended-close discriminator", 2026-07-02 B1 amendment)
-  executionPosture?: {
-    mode: "trusted" | "workspace-sandboxed" | "readonly-sandboxed";
-    networkAccess: "none" | "allowed-domains" | "full";
-    allowedDomains?: string[]; // present iff networkAccess === "allowed-domains", and then non-empty — absent under "none" / "full" (Spec-012 cross-field invariants, fail closed)
-    writableRoots: string[];
-    profileName?: string;
-    credentialPolicyRef?: string; // content-addressed "sha256:<hex>" over the RFC 8785 JCS-canonicalized credential-policy artifact {schemaVersion: 1, denyPaths: string[], denyEnvVars: string[], envNameMatch: 'case-sensitive' | 'case-insensitive'} (daemon canonicalizes denyEnvVars names to the host's env-name case semantics — case-insensitive-env hosts fold to one spelling, case-sensitive verbatim — and records the host's match mode as envNameMatch so hosts that strip differently never share a ref; then lexicographically sorts + dedupes both arrays before hashing — JCS canonicalizes object members, not array order) — REQUIRED on both sandboxed modes ('workspace-sandboxed' / 'readonly-sandboxed'), absent under mode:'trusted' (the credential policy is realized as part of a sandboxed posture — a trusted run records no enforced credential constraint), so auditors reconstruct exactly which credentials were denied/scrubbed without embedding the raw installation-revealing list; the daemon persists the artifact row write-ahead (before the first citing posture stamp) so the ref never dangles (Spec-012 §Required Behavior, campaign B20).
-  }; // stamped only on run.running — the post-setup-gate spawn-success transition, where the resolved workspace root and effective posture are final (Plan-004 gate seam; a run.starting stamp would be premature) — recording the run's effective sandbox/permission posture for audit (Spec-006 §Run Lifecycle run-state payload, 2026-07-02 B1 amendment item 11; shape + policy semantics per Spec-012 §Required Behavior, campaign B20). Optionality is for pre-B20 history and non-running rows only: once B20's posture semantics land, run.running emitters MUST stamp the complete posture object — including credentialPolicyRef on both sandboxed modes (absent under mode:'trusted').
+  executionPosture?: ExecutionPosture; // named type in §Plan-005 above (campaign B3 hoist — same shape, now shared with the CreateSessionParams/StartRunParams spawn/turn carriers). Stamped only on run.running — the post-setup-gate spawn-success transition, where the resolved workspace root and effective posture are final (Plan-004 gate seam; a run.starting stamp would be premature) — recording the run's effective sandbox/permission posture for audit (Spec-006 §Run Lifecycle run-state payload, 2026-07-02 B1 amendment item 11; shape owned by Spec-005 per campaign B3, policy semantics per Spec-012 §Required Behavior, campaign B20). Optionality is for pre-B20 history and non-running rows only: once B20's posture semantics land, run.running emitters MUST stamp the complete posture object — including credentialPolicyRef on both sandboxed modes (absent under mode:'trusted').
   trigger?: "turn_limit" | "budget_exhausted" | "idle_timeout" | "moderation_denied"; // stop-condition provenance (additive per ADR-018): 'turn_limit' rides run.completed at the turn limit (Plan-016 D-016-8 — the value CP-004-10 adds to Plan-004's trigger set); the three InterruptReason values ride run.interrupted on system interrupts (D-016-7). Absent on natural completion and user-initiated paths; the Runs View / timeline stop-condition rendering (Spec-023) reads this field.
   // run.queued linkage (orchestration-created runs only): the OrchestrationRunLinkCarrier fields
   // threaded into the durable payload as optional additive fields (CP-004-10; Plan-016 D-016-3 —
@@ -1994,7 +2217,7 @@ interface RecoveryStatusReadResponse {
     state: "healthy" | "replaying" | "degraded" | "blocked";
     lastReplayedSequence?: number;
     failureCategory?: RunFailureCategory;
-    recoveryCondition?: "recovery-needed";
+    recoveryCondition?: RecoveryCondition; // named type in §Plan-005 (campaign B3)
   }>;
 }
 
@@ -2195,7 +2418,7 @@ interface FailureDetailReadRequest {
 interface FailureDetailReadResponse {
   runId: RunId;
   failureCategory: RunFailureCategory;
-  recoveryCondition?: "recovery-needed";
+  recoveryCondition?: RecoveryCondition; // named type in §Plan-005 (campaign B3)
   humanSummary: string;
   technicalDetails: Record<string, unknown>;
   occurredAt: string;

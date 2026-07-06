@@ -3,7 +3,7 @@
 // Backstops the C5 acceptance criterion (Plan-002 §C5, Spec-002 line 87):
 // `ChannelList` request/response shape parses the read-only projection of
 // channels in a session per the canonical wire form at
-// docs/architecture/contracts/api-payload-contracts.md lines 442-454.
+// docs/architecture/contracts/api-payload-contracts.md lines 447-454.
 //
 // Test surface enumerated (the "what" each block pins):
 //   * ChannelStateSchema wire-form pin — exactly the 3 canonical lowercase

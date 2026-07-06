@@ -8,10 +8,10 @@
 // `runtime_node.capability_*` session event, ATOMICALLY, on driver
 // registration + capability refresh. It also exposes a cold-start hydration
 // read that reconstructs the in-memory `GetCapabilitiesResult` wrapper from
-// those same three tables WITHOUT round-tripping the driver (Spec-005:130-132,
+// those same three tables WITHOUT round-tripping the driver (Spec-005:176-178,
 // the cache-as-source-of-truth). This is the durable cache that the in-memory
 // `ProviderRegistry` (T2.3) mirrors; together they complete the capability
-// round-trip that T2.5 verifies end-to-end (Spec-005:48, invariant I-005-2).
+// round-trip that T2.5 verifies end-to-end (Spec-005:56, invariant I-005-2).
 //
 //   * driver_capabilities  — the 7-flag matrix (PK driver_name, capability_flag).
 //   * driver_tools         — per-tool metadata (PK driver_name, tool_name).
@@ -26,7 +26,7 @@
 //
 // FLAT event payload vs NESTED hydrate return (do not conflate)
 // --------------------------------------------------------------------------
-// The canonical `CapabilityDetails` (api-payload-contracts.md:769-773 — the
+// The canonical `CapabilityDetails` (api-payload-contracts.md:976-980 — the
 // shape Plan-006 Tier 4 will bind over the currently interim-opaque
 // `capabilityDetails` / `previousState` / `newState` event payload fields) is
 // FLATTENED:
@@ -50,7 +50,7 @@
 // `capability: "provider-driver-{codex|claude}"`. The DRIVER-NAME SUFFIX
 // disambiguates MULTIPLE drivers on one runtime node IN-PLAN — it is the
 // resolved contract (CP-005-5 status: RESOLVED), NOT a deferred Plan-006
-// concern. (api-payload-contracts.md:778's bare `"provider-driver"` is only an
+// concern. (api-payload-contracts.md:985's bare `"provider-driver"` is only an
 // ILLUSTRATIVE example of the `capability` field, not the canonical value;
 // CP-005-5 is the authority.)
 //
@@ -127,10 +127,10 @@
 // daemon root composition is responsible for honoring this same-connection
 // obligation.
 //
-// Spec coverage: Spec-005:48 (runtime treats undeclared capabilities as
-// unsupported — the cache the gate reads), Spec-005:53 (driver capability
+// Spec coverage: Spec-005:56 (runtime treats undeclared capabilities as
+// unsupported — the cache the gate reads), Spec-005:61 (driver capability
 // declarations are required at attach time and may be refreshed when provider
-// state changes — the `declare` seam and its refresh path), Spec-005:130-132
+// state changes — the `declare` seam and its refresh path), Spec-005:176-178
 // (cache-as-source-of-truth; cold-start hydration reconstructs the snapshot
 // without round-tripping the driver). Refs: Plan-005 §Phase 2 / T2.4, CP-005-5
 // (the `runtime_node.capability_*` emission), invariant I-005-2.
@@ -172,7 +172,7 @@ function providerDriverCapabilityKey(driverName: string): string {
 
 /**
  * The flat capability snapshot — the canonical `CapabilityDetails` shape
- * (api-payload-contracts.md:769-773). This is the form carried by the
+ * (api-payload-contracts.md:976-980). This is the form carried by the
  * `runtime_node.capability_*` event payloads AND the form used for
  * change-detection. `hydrate()` wraps this into the nested `GetCapabilitiesResult`.
  * `tools` is ALWAYS in canonical (`name`-ascending) order — see the file header.
@@ -263,7 +263,7 @@ export class DriverCapabilitiesWriter {
   // read that never upgrades to a write, so it must NOT take a writer-intent lock.)
   readonly #readTxn: Transaction<(driverName: string) => CapabilityDetails | undefined>;
   // The emission seam. REQUIRED (not optional): capability declarations always
-  // occur at attach time with a live session/node (Spec-005:53). The `#writeTxn`
+  // occur at attach time with a live session/node (Spec-005:61). The `#writeTxn`
   // closure captures it for the write paths.
   readonly #emitter: RuntimeNodeEventEmitter;
   // Injected wall-clock for `refreshed_at` (deterministic tests).
@@ -486,7 +486,7 @@ export class DriverCapabilitiesWriter {
 
     // (3) Normalize each ingress tool via the contract schema — fills the
     // `idempotency_class` default `"manual_reconcile_only"` (I-005-3) and strips
-    // unknown keys (Spec-005:55 forward-compat). `safeParse` (NOT `.parse()`) so a
+    // unknown keys (Spec-005:64 forward-compat). `safeParse` (NOT `.parse()`) so a
     // malformed tool surfaces the leak-safe `ProviderOutputValidationError` —
     // error-type-symmetric with the contract_version path, never a raw `ZodError`
     // (the leak-safe doctrine of `provider-output-validation.ts`). Still before
@@ -589,7 +589,7 @@ export class DriverCapabilitiesWriter {
   /**
    * Cold-start hydration: reconstruct a driver's advertised
    * `GetCapabilitiesResult` from the durable cache WITHOUT round-tripping the
-   * driver (Spec-005:130-132). Pure READ (no write, no emit); the three SELECTs
+   * driver (Spec-005:176-178). Pure READ (no write, no emit); the three SELECTs
    * run inside ONE `BEGIN DEFERRED` read transaction so they share a consistent
    * snapshot — see the `#readTxn` field comment. Returns `undefined` when the
    * driver has never been written.

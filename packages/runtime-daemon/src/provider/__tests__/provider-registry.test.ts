@@ -7,15 +7,15 @@
 // invokes them — proving the gate reads the CACHED snapshot, never the driver.
 //
 // Coverage map (cites are the authoritative contract, not just the ACs):
-//   * Spec-005:41 (every provider integration implements a normalized driver
+//   * Spec-005:43 (every provider integration implements a normalized driver
 //     contract): the register + lookup round-trip keys a `ProviderDriver`
 //     instance under its canonical id.
-//   * Spec-005:48 + I-005-2 (runtime treats undeclared capabilities as
+//   * Spec-005:56 + I-005-2 (runtime treats undeclared capabilities as
 //     unsupported): the declared-`false` AND fail-closed undeclared-flag cases
 //     both throw `driver.capability_unsupported`; a declared-`true` flag passes.
 //
-// Refs: Plan-005 §Phase 2 / T2.3, Spec-005 lines 41 + 48, invariant I-005-2,
-// error-contracts.md line 302 (`driver.unavailable`) + line 303
+// Refs: Plan-005 §Phase 2 / T2.3, Spec-005 lines 43 + 48, invariant I-005-2,
+// error-contracts.md line 310 (`driver.unavailable`) + line 303
 // (`driver.capability_unsupported`).
 
 import type {
@@ -147,10 +147,10 @@ class RejectingProviderDriver extends FakeProviderDriver {
 }
 
 // ----------------------------------------------------------------------------
-// register + lookup — Spec-005:41 (normalized contract keyed by id)
+// register + lookup — Spec-005:43 (normalized contract keyed by id)
 // ----------------------------------------------------------------------------
 
-describe("ProviderRegistry — register + lookup (Spec-005:41)", () => {
+describe("ProviderRegistry — register + lookup (Spec-005:43)", () => {
   it("round-trips a registered driver via lookup", async () => {
     const registry = new ProviderRegistry();
     const driver = new FakeProviderDriver(makeFlags());
@@ -198,10 +198,10 @@ describe("ProviderRegistry — register + lookup (Spec-005:41)", () => {
 });
 
 // ----------------------------------------------------------------------------
-// checkCapability — Spec-005:48 + I-005-2 (undeclared capability = unsupported)
+// checkCapability — Spec-005:56 + I-005-2 (undeclared capability = unsupported)
 // ----------------------------------------------------------------------------
 
-describe("ProviderRegistry — checkCapability gate (Spec-005:48, I-005-2)", () => {
+describe("ProviderRegistry — checkCapability gate (Spec-005:56, I-005-2)", () => {
   it("passes (returns void, does not throw) for a flag declared true", async () => {
     const registry = new ProviderRegistry();
     await registry.register(DRIVER_ID, new FakeProviderDriver(makeFlags({ tool_calls: true })));

@@ -10,12 +10,12 @@
 // the emitter's append running on that connection — the T2.5 wiring contract).
 //
 // Coverage map (cites are the authoritative contract, not just the ACs):
-//   * Spec-005:48 (undeclared capabilities are unsupported — the cache the gate
+//   * Spec-005:56 (undeclared capabilities are unsupported — the cache the gate
 //     reads): the 7-flag matrix round-trips through `driver_capabilities` and
 //     `hydrate`, so a `false`/absent flag is faithfully reconstructed.
-//   * Spec-005:53 (declarations required at attach time, refreshed on provider
+//   * Spec-005:61 (declarations required at attach time, refreshed on provider
 //     state change): the declare → refresh paths (declared / updated / noop).
-//   * Spec-005:130-132 (cache-as-source-of-truth; cold-start hydration without
+//   * Spec-005:176-178 (cache-as-source-of-truth; cold-start hydration without
 //     round-tripping the driver): `hydrate` reconstructs the nested
 //     `GetCapabilitiesResult` from the three tables.
 //   * I-005-2 (the capability cache is the durable mirror the in-memory registry
@@ -24,7 +24,7 @@
 //   * Atomicity / write-then-emit ordering: a throwing emit rolls back all three
 //     table writes (no rows for that driver after the failed declare).
 //
-// Refs: Plan-005 §Phase 2 / T2.4, Spec-005 lines 48 + 53 + 130-132, CP-005-5,
+// Refs: Plan-005 §Phase 2 / T2.4, Spec-005 lines 56 + 53 + 130-132, CP-005-5,
 // invariant I-005-2.
 
 import type { Database as DatabaseType } from "better-sqlite3";

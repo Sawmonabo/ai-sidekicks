@@ -8,7 +8,7 @@
 // `:memory:`), so there is no tmp-file/unlink lifecycle to manage.
 //
 // Coverage map (cites are the authoritative contract, not just the ACs):
-//   * Spec-005:47 (resume_handle is a provider-owned opaque handle, bounded at
+//   * Spec-005:55 (resume_handle is a provider-owned opaque handle, bounded at
 //     the write seam): nullability round-trips; length-edge accept/reject;
 //     whitespace-only + NUL rejection (the /\S/ + NUL hardening beyond the DB
 //     CHECK).
@@ -20,7 +20,7 @@
 //     const bumped above the SQL CHECK literal would pass Zod but fail the DB
 //     CHECK — making this test fail. The coherence is enforced, not commented.
 //
-// Refs: Plan-005 §Phase 2 / T2.2, Spec-005 line 47, invariant I-005-1.
+// Refs: Plan-005 §Phase 2 / T2.2, Spec-005 line 55, invariant I-005-1.
 
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
