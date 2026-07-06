@@ -656,7 +656,7 @@ interface InterruptRunParams {
 // Discriminated union over `type` — each intervention type coupled to its payload
 // shape. `expectedRunVersion` is the MANDATORY fail-closed comparand (Plan-004
 // D-004-2) repeated on every arm — absent value rejected, never applied.
-// `clientIdempotencyKey` is the MANDATORY client-generated UUID (Spec-005 §Required
+// `clientIdempotencyKey` is the MANDATORY requester-generated UUID (Spec-005 §Required
 // Behavior, campaign B3): the daemon dedupes on it (replay-or-conflict), and it rides
 // through to the driver so provider-remote invocations that honor dedupe keys receive
 // it (the `compensable` propagation pattern, Spec-005 §Tool Metadata). Same field set
@@ -1187,7 +1187,7 @@ interface QueueItemCancelResponse {
 // (Plan-004 D-004-1): an any-run-progression counter that advances on every run progression,
 // applied interventions included — distinct from the immutable EventEnvelope `.version` wire-contract
 // field (Spec-006 §EventEnvelope Version Semantics).
-// `clientIdempotencyKey` (campaign B3) is the second mandatory guard — a client-generated UUID
+// `clientIdempotencyKey` (campaign B3) is the second mandatory guard — a requester-generated UUID
 // giving at-least-once delivery exactly-once application: the daemon persists it on the
 // interventions row (UNIQUE(target_run_id, client_idempotency_key)); an identical retry replays
 // the originally recorded outcome without re-dispatching, and key reuse with a differing payload
