@@ -2,13 +2,15 @@
 
 | Field | Value |
 | --- | --- |
-| **Status** | `approved` |
+| **Status** | `review` |
 | **NNN** | `015` |
 | **Slug** | `persistence-recovery-and-replay` |
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
 | **Depends On** | [Data Architecture](../architecture/data-architecture.md), [Run State Machine](../domain/run-state-machine.md), [Session Event Taxonomy And Audit Log](../specs/006-session-event-taxonomy-and-audit-log.md) |
 | **Implementation Plan** | [Plan-015: Persistence Recovery And Replay](../plans/015-persistence-recovery-and-replay.md) |
+
+> **Amendment (2026-07-06, capability-enhancement campaign B5 — amends the previously-`approved` spec; the header is flipped to `review` for the amendment's review window per the audit runbook's spec-amendment rule, and the campaign plan's Task 28 batch re-promotion restores `approved` after the W1.5 spec gate; dependent plans' code dispatch stays census-gated on that restoration).** This bundle lands two normative bullets: (1) §Default Behavior — projection reconstruction completes strictly before any provider-facing action; (2) §Fallback Behavior — on a successful resume (`DriverResumeResult.status: 'resumed'`) whose driver-reported `sessionPosition` diverges from the daemon-recorded position, the local log is authoritative ([ADR-017 Decision Log, 2026-07-02](../decisions/017-shared-event-sourcing-scope.md#decision-log)) and the run halts for human action in `waiting_for_input` carrying `recovery-needed`. Companion edits: sanctioned startup-reconciliation divergence rows + the three-outcome recovery decision rule in [run-state-machine.md](../domain/run-state-machine.md), and the `recovery.succeeded` third-outcome counter (`runsHaltedForReconciliation`) in [Spec-006 §Recovery Events](006-session-event-taxonomy-and-audit-log.md).
 
 ## Purpose
 
