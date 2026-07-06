@@ -40,7 +40,7 @@ export const SSE_HEARTBEAT_INTERVAL_MS = 15_000;
  * Initial-frame `retry:` hint sent to the EventSource client. 5 s gives
  * intermediary infrastructure time to recover before the client dials back
  * in; tRPC's stream consumer respects this on reconnect. Ratified per
- * api-payload-contracts.md §SSE Wire Frame (Tier 1 Ratified, line 277).
+ * api-payload-contracts.md §SSE Wire Frame (Tier 1 Ratified, line 282).
  */
 export const SSE_RETRY_HINT_MS = 5_000;
 

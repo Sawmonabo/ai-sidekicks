@@ -282,7 +282,7 @@ File: `packages/contracts/src/event.ts` (EXTEND JSDoc on `EventEnvelopeVersionSc
 
 ##### T1.6 — Widen api-payload-contracts.md Plan-006 §EventEnvelope block to 19 categories
 
-File: `docs/architecture/contracts/api-payload-contracts.md` (EDIT Plan-006 §EventEnvelope block, ~line 705-723). Provides: Updated `EventCategory` doc-mirror to 19 entries + comment "16 categories total" → "19 categories total per Spec-006 §Event Type Summary (140 event types — 140 per the 2026-07-02 Spec-006 B1 amendment; was 130 pre-B1)". Already applied in this audit PR. Depends: T1.1. IdempotencyClass: N/A (docs).
+File: `docs/architecture/contracts/api-payload-contracts.md` (EDIT Plan-006 §EventEnvelope block, ~line 997-1010). Provides: Updated `EventCategory` doc-mirror to 19 entries + comment "16 categories total" → "19 categories total per Spec-006 §Event Type Summary (140 event types — 140 per the 2026-07-02 Spec-006 B1 amendment; was 130 pre-B1)". Already applied in this audit PR. Depends: T1.1. IdempotencyClass: N/A (docs).
 
 - **Spec coverage:** Spec-006 line 551 (Event Type Summary), Spec-006 lines 555-582
 - **Verifies invariant:** none (doc-mirror widening of api-payload-contracts.md; no Phase-1 invariant names T1.6)

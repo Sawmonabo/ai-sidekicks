@@ -14,8 +14,8 @@
 //     unsupported): the declared-`false` AND fail-closed undeclared-flag cases
 //     both throw `driver.capability_unsupported`; a declared-`true` flag passes.
 //
-// Refs: Plan-005 §Phase 2 / T2.3, Spec-005 lines 41 + 48, invariant I-005-2,
-// error-contracts.md line 302 (`driver.unavailable`) + line 303
+// Refs: Plan-005 §Phase 2 / T2.3, Spec-005 lines 43 + 48, invariant I-005-2,
+// error-contracts.md line 310 (`driver.unavailable`) + line 303
 // (`driver.capability_unsupported`).
 
 import type {

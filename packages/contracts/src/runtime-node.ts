@@ -948,7 +948,7 @@ export const RuntimeNodeOfflinePayloadSchema: z.ZodType<RuntimeNodeOfflinePayloa
 //
 // NAMING NOTE — this `RuntimeNodeCapabilityDeclaredPayload` is a SUPERSET of the
 // canonical interface of the same name in api-payload-contracts.md §Plan-006
-// (line 752), which lists the EXTENSION fields only (`capability`,
+// (line 974), which lists the EXTENSION fields only (`capability`,
 // `capabilityDetails`). Our schema = Spec-006's REDUCED base (`{sessionId?,
 // nodeId, actor?}`) + that doc's extension fields; it does not contradict the
 // canonical interface, it carries the base the canonical doc's extension-only

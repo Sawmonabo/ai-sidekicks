@@ -4,7 +4,7 @@
 // the channels in a session, as a strict-shaped projection.
 //
 // Canonical wire form lives in
-// docs/architecture/contracts/api-payload-contracts.md lines 442-454:
+// docs/architecture/contracts/api-payload-contracts.md lines 447-454:
 //
 //   interface ChannelListRequest {
 //     sessionId: SessionId;

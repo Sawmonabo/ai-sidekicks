@@ -40,7 +40,7 @@
 // on ONE axis — it is dispatched IMMEDIATE, not DEFERRED (see the `#updateTxn`
 // field comment for why a read-first transaction needs `BEGIN IMMEDIATE`).
 //
-// Refs: Plan-005 §Phase 2 / T2.2, Spec-005 line 47, invariant I-005-1.
+// Refs: Plan-005 §Phase 2 / T2.2, Spec-005 line 55, invariant I-005-1.
 
 import { randomUUID } from "node:crypto";
 

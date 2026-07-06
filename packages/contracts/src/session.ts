@@ -246,7 +246,7 @@ export const MembershipSummarySchema: z.ZodType<MembershipSummary> = z
   .strict();
 
 // `name` is optional in the canonical interface (`name?: string`). Per
-// api-payload-contracts.md line 228, omission is the wire signal for a
+// api-payload-contracts.md line 233, omission is the wire signal for a
 // channel without a friendly label (e.g. the implicit `main` channel).
 //
 // Note on `exactOptionalPropertyTypes: true`: the spec's wire form is
@@ -330,7 +330,7 @@ export const SessionReadRequestSchema: z.ZodType<SessionReadRequest, SessionRead
   .strict();
 
 // `timelineCursors.acknowledged` is optional per the canonical interface
-// (api-payload-contracts.md line 208).
+// (api-payload-contracts.md line 213).
 export interface SessionReadResponse {
   session: SessionSnapshot;
   timelineCursors: {

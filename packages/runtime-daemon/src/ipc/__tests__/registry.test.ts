@@ -291,7 +291,7 @@ describe("I-007-9 — method-name format validation", () => {
     "presence.subscribe",
     "run.stream.notify",
     // camelCase tails (BL-142): lowercase root + camelCase tail segment, per
-    // api-payload-contracts.md §JSON-RPC Method-Name Registry (line 329 cites
+    // api-payload-contracts.md §JSON-RPC Method-Name Registry (line 334 cites
     // `settings.effectiveRead` / `driver.listCapabilities` as permitted).
     "settings.effectiveRead",
     "driver.listCapabilities",

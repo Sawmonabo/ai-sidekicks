@@ -3,7 +3,7 @@
 // Backstops the C3 acceptance criterion (Plan-002 §C3, Spec-002 line 83):
 // `MembershipUpdate.action` discriminated union covers role change,
 // suspension, revocation, and reactivation per the canonical wire form
-// at docs/architecture/contracts/api-payload-contracts.md lines 404-414.
+// at docs/architecture/contracts/api-payload-contracts.md lines 409-414.
 //
 // Test surface enumerated (the "what" each block pins):
 //   * Action discriminant pin — exactly 4 canonical snake_case literals
@@ -182,7 +182,7 @@ describe("MembershipStateSchema (re-exported; lifecycle states per session.ts:18
 // C3 — MembershipUpdateSchema discriminated union (Spec-002 line 83)
 // =============================================================================
 //
-// Canonical wire form per api-payload-contracts.md lines 404-414:
+// Canonical wire form per api-payload-contracts.md lines 409-414:
 //
 //   interface MembershipUpdateRequest {
 //     membershipId: MembershipId;

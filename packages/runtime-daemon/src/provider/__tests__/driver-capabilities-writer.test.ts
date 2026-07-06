@@ -24,7 +24,7 @@
 //   * Atomicity / write-then-emit ordering: a throwing emit rolls back all three
 //     table writes (no rows for that driver after the failed declare).
 //
-// Refs: Plan-005 §Phase 2 / T2.4, Spec-005 lines 48 + 53 + 130-132, CP-005-5,
+// Refs: Plan-005 §Phase 2 / T2.4, Spec-005 lines 56 + 53 + 130-132, CP-005-5,
 // invariant I-005-2.
 
 import type { Database as DatabaseType } from "better-sqlite3";

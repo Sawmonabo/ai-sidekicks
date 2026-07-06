@@ -42,7 +42,7 @@
 //     integration boundary (unregistered → `driver.unavailable`; declared-false
 //     → `driver.capability_unsupported`; declared-true → void).
 //
-// Refs: Plan-005 §Phase 2 / T2.5, Spec-005 lines 47 + 48 + 156 (AC2),
+// Refs: Plan-005 §Phase 2 / T2.5, Spec-005 lines 55 + 48 + 156 (AC2),
 // CP-005-5, ADR-011, invariants I-005-1 + I-005-2.
 
 import type { Database as DatabaseType } from "better-sqlite3";
