@@ -85,12 +85,13 @@ During startup reconciliation the daemon detects runs left in non-terminal state
 
 - From `starting`, `running`, `waiting_for_approval`, `waiting_for_input`: the daemon may transition the run to `failed` if automatic recovery cannot safely resume execution.
 - From `paused`: the daemon may transition the run to `failed` if the resume handle is lost and recovery is impossible.
-- From any non-terminal state during recovery: the run transitions to `interrupted` if a pending user-initiated stop (interrupt or cancel intervention) was recorded before the crash; it transitions to `failed` otherwise.
+- From any non-terminal state during recovery: the run transitions to `interrupted` if a pending user-initiated stop (interrupt or cancel intervention) was recorded before the crash; otherwise it transitions to `failed` when recovery cannot safely resume, or — on a resume that succeeds (`DriverResumeResult.status: 'resumed'`) but reports a session position diverged from the daemon-recorded position — halts for human action in `waiting_for_input` per the divergence rows below (Spec-015 §Fallback Behavior, campaign B5).
 
-Decision rule — `interrupted` vs `failed` during recovery:
+Decision rule — `interrupted` vs `failed` vs `waiting_for_input` during recovery:
 
-- `interrupted`: the run had a pending user-initiated stop. The user's intent was to end the run; recovery honours that intent.
+- `interrupted`: the run had a pending user-initiated stop. The user's intent was to end the run; recovery honours that intent — this outcome takes precedence over the other two.
 - `failed`: recovery itself fails with no prior user-initiated stop. The run did not end on its own terms.
+- `waiting_for_input`: recovery resumed the provider session but the reported position diverged from the daemon-recorded position; the local log is authoritative and a human decides how to reconcile (`recovery-needed` — Spec-015 §Fallback Behavior, campaign B5).
 
 ## Complete Transition Table
 
