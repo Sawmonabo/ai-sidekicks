@@ -89,11 +89,13 @@ The `interventions` SQLite table (Plan-004) stores the full lifecycle entity —
 
 Intervention payloads are a discriminated union by type:
 
-- `steer`: `{targetRunId, expectedTurnId?, expectedRunVersion, content, attachments?}`
-- `interrupt`: `{targetRunId, expectedRunVersion, reason?}`
-- `cancel`: `{targetRunId, expectedRunVersion, reason?}`
+- `steer`: `{targetRunId, expectedTurnId?, expectedRunVersion, clientIdempotencyKey, content, attachments?}`
+- `interrupt`: `{targetRunId, expectedRunVersion, clientIdempotencyKey, reason?}`
+- `cancel`: `{targetRunId, expectedRunVersion, clientIdempotencyKey, reason?}`
 
 All intervention types carry a **mandatory** version guard (`expectedRunVersion`) — the guard is **fail-closed**: the comparand is required on every intervention request and an absent comparand is **rejected**, never applied (an optional guard would let a caller bypass stale-replay protection by omitting the field). See [Spec-004 §Interfaces And Contracts](../specs/004-queue-steer-pause-resume.md) and [Plan-004 D-004-2](../plans/004-queue-steer-pause-resume.md#ratified-design-decisions-tier-5-audit-2026-05-30). A guard mismatch produces `expired`. An authorization failure produces `rejected`.
+
+All intervention types also carry a **mandatory** client-generated `clientIdempotencyKey` (UUID; [Spec-005 §Required Behavior](../specs/005-provider-driver-contract-and-capabilities.md), campaign B3). The daemon persists it on the `interventions` row (`UNIQUE(target_run_id, client_idempotency_key)`) and applies replay-or-conflict semantics: an identical retry returns the originally recorded outcome without re-dispatching the driver; reuse of a key with a differing payload is rejected as `intervention.idempotency_conflict`. The two guards are orthogonal — `expectedRunVersion` defeats stale replays of **outdated** intent, `clientIdempotencyKey` defeats duplicate applications of the **same** intent.
 
 ## Field-Level Consistency
 
@@ -105,6 +107,7 @@ The following field inventory maps each intervention payload to the canonical so
 | --- | --- | --- | --- |
 | `targetRunId` | yes | `InterventionRequestPayload` | `ApplyInterventionParams.targetRunId` |
 | `expectedRunVersion` | yes | `InterventionRequestPayload` | `ApplyInterventionParams.expectedRunVersion` |
+| `clientIdempotencyKey` | yes | `InterventionRequestPayload` | `ApplyInterventionParams.clientIdempotencyKey` |
 | `content` | yes | `InterventionRequestPayload` | `SteerPayload.content` |
 | `attachments` | no | `InterventionRequestPayload` (optional) | `SteerPayload.attachments` (optional) |
 | `expectedTurnId` | no | `InterventionRequestPayload` (optional) | `SteerPayload.expectedTurnId` (optional) |
@@ -115,6 +118,7 @@ The following field inventory maps each intervention payload to the canonical so
 | --- | --- | --- | --- |
 | `targetRunId` | yes | `InterventionRequestPayload` | `ApplyInterventionParams.targetRunId` |
 | `expectedRunVersion` | yes | `InterventionRequestPayload` | `ApplyInterventionParams.expectedRunVersion` |
+| `clientIdempotencyKey` | yes | `InterventionRequestPayload` | `ApplyInterventionParams.clientIdempotencyKey` |
 | `reason` | no | `InterventionRequestPayload` (optional) | `InterruptPayload.reason` (optional) |
 
 **`cancel` payload:**
@@ -123,9 +127,24 @@ The following field inventory maps each intervention payload to the canonical so
 | --- | --- | --- | --- |
 | `targetRunId` | yes | `InterventionRequestPayload` | `ApplyInterventionParams.targetRunId` |
 | `expectedRunVersion` | yes | `InterventionRequestPayload` | `ApplyInterventionParams.expectedRunVersion` |
+| `clientIdempotencyKey` | yes | `InterventionRequestPayload` | `ApplyInterventionParams.clientIdempotencyKey` |
 | `reason` | no | `InterventionRequestPayload` (optional) | `CancelPayload.reason` (optional) |
 
-Note: The `ApplyInterventionParams` interface in Spec-005 splits the payload into `targetRunId` and `expectedRunVersion` at the top level and routes the remaining type-specific fields through `SteerPayload`, `InterruptPayload`, or `CancelPayload`. The `InterventionRequestPayload` in the API contracts flattens all fields into a single discriminated union. Both representations carry the same field set per intervention type. The `DriverInterventionResult` returned by the driver uses `status: 'applied' | 'degraded'` — the orchestration layer maps this to the full 6-state lifecycle.
+Note: The `ApplyInterventionParams` interface in Spec-005 splits the payload into `targetRunId`, `expectedRunVersion`, and `clientIdempotencyKey` at the top level and routes the remaining type-specific fields through `SteerPayload`, `InterruptPayload`, or `CancelPayload`. The `InterventionRequestPayload` in the API contracts flattens all fields into a single discriminated union. Both representations carry the same field set per intervention type. The `DriverInterventionResult` returned by the driver uses `status: 'applied' | 'degraded'` — the orchestration layer maps this to the full 6-state lifecycle per the normative table below.
+
+## Driver Result To Lifecycle Mapping
+
+The driver-result and intervention-lifecycle vocabularies are distinct and map normatively ([Spec-005 §Required Behavior](../specs/005-provider-driver-contract-and-capabilities.md), campaign B3). The driver-level result vocabulary is exactly `applied | degraded`; a driver never produces `rejected` or `expired`, and the daemon never reclassifies a driver verdict.
+
+| Lifecycle state | Producer | Trigger |
+| --- | --- | --- |
+| `requested` / `accepted` | daemon (pre-dispatch) | Recording and validation states before any driver involvement |
+| `rejected` | daemon (pre-dispatch) | Authorization failure or invalid target — the driver is never invoked |
+| `expired` | daemon | `expectedRunVersion` guard mismatch (pre-dispatch), or target state changed between accept and apply |
+| `applied` | driver → daemon | Driver returned `status: 'applied'` — the intervention took effect natively |
+| `degraded` | driver → daemon | Driver returned `status: 'degraded'` — the type is unsupported at the driver boundary and the orchestration layer fell back (`fallbackAction`) |
+
+Static capability refusal is a separate, earlier surface: the daemon MAY refuse dispatch outright with the `driver.capability_unsupported` error code when the driver's declared flags exclude the intervention type entirely, reserving `degraded` for the dynamic driver-boundary outcome (the two are not in conflict — [Plan-005](../plans/005-provider-driver-contract-and-capabilities.md) adjudicates the static/dynamic split).
 
 ## Boundary: Interventions vs Interactive Requests
 

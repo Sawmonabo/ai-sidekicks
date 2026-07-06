@@ -97,20 +97,22 @@ CREATE TABLE queue_items (
 CREATE INDEX idx_queue_items_session_state ON queue_items(session_id, state);
 CREATE INDEX idx_queue_items_channel ON queue_items(channel_id) WHERE channel_id IS NOT NULL;
 
--- Owner: Plan-004
+-- Owner: Plan-004 | Extended by: Spec-005 campaign B3 (client_idempotency_key intervention dedupe)
 CREATE TABLE interventions (
-  id                    TEXT PRIMARY KEY,
-  target_run_id         TEXT NOT NULL,
-  type                  TEXT NOT NULL
-                        CHECK(type IN ('steer', 'interrupt', 'cancel')),
-  state                 TEXT NOT NULL DEFAULT 'requested'
-                        CHECK(state IN ('requested', 'accepted', 'applied', 'rejected', 'degraded', 'expired')),
-  payload               TEXT NOT NULL DEFAULT '{}', -- JSON: type-specific fields
-  expected_run_version  INTEGER NOT NULL,           -- MANDATORY fail-closed comparand (Spec-004:63 / Plan-004 D-004-2)
-  result                TEXT,                       -- JSON: outcome details
-  initiator_id          TEXT,                       -- participant or system
-  created_at            TEXT NOT NULL,
-  resolved_at           TEXT
+  id                     TEXT PRIMARY KEY,
+  target_run_id          TEXT NOT NULL,
+  type                   TEXT NOT NULL
+                         CHECK(type IN ('steer', 'interrupt', 'cancel')),
+  state                  TEXT NOT NULL DEFAULT 'requested'
+                         CHECK(state IN ('requested', 'accepted', 'applied', 'rejected', 'degraded', 'expired')),
+  payload                TEXT NOT NULL DEFAULT '{}', -- JSON: type-specific fields
+  expected_run_version   INTEGER NOT NULL,           -- MANDATORY fail-closed comparand (Spec-004:63 / Plan-004 D-004-2)
+  client_idempotency_key TEXT NOT NULL,              -- MANDATORY client-generated UUID; replay-or-conflict intervention dedupe (Spec-005 §Required Behavior, campaign B3)
+  result                 TEXT,                       -- JSON: outcome details
+  initiator_id           TEXT,                       -- participant or system
+  created_at             TEXT NOT NULL,
+  resolved_at            TEXT,
+  UNIQUE(target_run_id, client_idempotency_key)      -- identical retry replays the recorded outcome; key reuse with a differing payload rejects as intervention.idempotency_conflict — distinct grain from command_receipts.command_id (per-command crash-recovery dedupe)
 );
 
 CREATE INDEX idx_interventions_run ON interventions(target_run_id);
@@ -182,7 +184,7 @@ CREATE TABLE driver_capabilities (
 -- Owner: Plan-005
 -- Per-tool metadata for the daemon's two-phase command-receipt protocol at
 -- crash-recovery dispatch time (idempotency_class lookup without round-tripping
--- the driver per Spec-005:130-132). Normalized per-tool rows mirror the
+-- the driver per Spec-005:176-178). Normalized per-tool rows mirror the
 -- per-flag-row shape of driver_capabilities.
 CREATE TABLE driver_tools (
   driver_name        TEXT NOT NULL,
@@ -201,7 +203,7 @@ CREATE TABLE driver_tools (
 -- (driver_capabilities + driver_tools are per-driver children); this parent row holds the
 -- single per-driver contract_version so cold-start hydration can reconstruct
 -- GetCapabilitiesResult = { capabilities: { flags, contractVersion }, tools } WITHOUT
--- round-tripping the driver (Spec-005:130-132 cache-as-source-of-truth). Distinct from
+-- round-tripping the driver (Spec-005:176-178 cache-as-source-of-truth). Distinct from
 -- runtime_bindings.contract_version, which records the version bound to a specific run.
 -- Provider-output defense-in-depth CHECK (Plan-005 T2.1): `contract_version`
 -- mirrors the `runtime_bindings.contract_version` bound (length + NUL-rejection,

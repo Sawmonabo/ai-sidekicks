@@ -41,7 +41,7 @@
 //                             `idempotency_class` so the daemon's two-phase
 //                             command-receipt protocol resolves crash-recovery
 //                             dispatch class without round-tripping the driver
-//                             (Spec-005:130-132).
+//                             (Spec-005:176-178).
 //   * driver_contract_meta  — per-driver parent row (PK driver_name) holding
 //                             the single advertised `contract_version` that
 //                             cold-start cache hydration (T2.4) reconstructs
@@ -115,7 +115,7 @@ CREATE TABLE driver_capabilities (
 -- Owner: Plan-005
 -- Per-tool metadata for the daemon's two-phase command-receipt protocol at
 -- crash-recovery dispatch time (idempotency_class lookup without round-tripping
--- the driver per Spec-005:130-132). Normalized per-tool rows mirror the
+-- the driver per Spec-005:176-178). Normalized per-tool rows mirror the
 -- per-flag-row shape of driver_capabilities.
 CREATE TABLE driver_tools (
   driver_name        TEXT NOT NULL,
@@ -134,7 +134,7 @@ CREATE TABLE driver_tools (
 -- (driver_capabilities + driver_tools are per-driver children); this parent row holds the
 -- single per-driver contract_version so cold-start hydration can reconstruct
 -- GetCapabilitiesResult = { capabilities: { flags, contractVersion }, tools } WITHOUT
--- round-tripping the driver (Spec-005:130-132 cache-as-source-of-truth). Distinct from
+-- round-tripping the driver (Spec-005:176-178 cache-as-source-of-truth). Distinct from
 -- runtime_bindings.contract_version, which records the version bound to a specific run.
 -- Provider-output defense-in-depth CHECK (Plan-005 T2.1): contract_version
 -- mirrors the runtime_bindings.contract_version bound (length + NUL-rejection,
