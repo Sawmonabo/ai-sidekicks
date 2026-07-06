@@ -149,6 +149,11 @@ export interface StartRunParams {
   runId: RunId;
   channelId: ChannelId;
   agentConfig: Record<string, unknown>;
+  // Native-cap-escape wire-through: the run.queued server-stamped admitted family
+  // cap, realized as the provider's native hard cap on cap-capable legs (Claude
+  // `--max-budget-usd`) — api-payload-contracts.md §Plan-005 StartRunParams mirror
+  // (Spec-016 §Cost Derivation And Absent-Cost Semantics, campaign B6).
+  admittedCostCapCents?: number | undefined;
   // `?: T | undefined` (not bare `?: T`) per the package idiom under
   // `exactOptionalPropertyTypes: true` — see session.ts:252-257. T4.2 has no
   // `StartRunParamsSchema` (lifecycle ops are daemon-internal per Phase 4

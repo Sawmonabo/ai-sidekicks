@@ -641,7 +641,7 @@ interface ResumeSessionParams {
 }
 
 interface StartRunParams {
-  // native-cap-escape wire-through: the admitted family cap (= effectiveRunConfig.admittedUnpricedCapCents),
+  // native-cap-escape wire-through: the admitted family cap (= the run.queued server-stamped admittedUnpricedCapCents),
   // realized as the provider's native hard cap on cap-capable legs (Claude `--max-budget-usd`); a leg that
   // binds caps at spawn realizes it at session boundaries per the executionPosture precedent below
   // (Spec-016 §Cost Derivation And Absent-Cost Semantics, campaign B6)
@@ -2476,11 +2476,6 @@ interface ChannelConfig {
   moderation?: { preTurnGate?: boolean; postTurnReview?: boolean }; // Spec-016 §Moderation Hooks; both default false (V1 opt-in)
 }
 interface OrchestrationRunConfig {
-  // native-cap-escape snapshot: the family cap admitted for this run, frozen at admission
-  // (immutable — later unpricedFamilyCaps updates never touch it; replay rebuilds reservations
-  // and terminal debits from run.queued's effectiveRunConfig alone; absent on priced runs)
-  // (Spec-016 §Cost Derivation And Absent-Cost Semantics, campaign B6)
-  admittedUnpricedCapCents?: number;
   tokenLimit?: number; // per-run token budget; default 100000 (Spec-016 §Budget Policies)
   idleTimeoutMs?: number; // idle stop condition; default 300000 (Spec-016 §Stop Conditions)
 }
@@ -2594,7 +2589,7 @@ interface OrchestrationBudgetState {
   activeChildLimit: number; // default 5
   // owner-supplied unpriced-family escapes — native-cap provider legs only
   // (Spec-016 §Cost Derivation And Absent-Cost Semantics, campaign B6); empty by default
-  unpricedFamilyCaps: { modelFamily: string; hardCapUsdCents: number }[];
+  unpricedFamilyCaps: { modelFamily: string; hardCapUsdCents: number }[]; // one entry per modelFamily — duplicate families rejected at validation
   observedCostCents: number; // BudgetAccountant projection (in-memory, replay-rebuilt); includes worst-case unpriced debits charged at each native-cap-escape run's terminal (Spec-016, campaign B6)
   // Σ snapshot-at-admission reservations over ACTIVE native-cap-escape runs — admission
   // predicate: observed + reserved + newCap ≤ costLimitCents. At each such run's terminal the
@@ -2618,7 +2613,7 @@ interface OrchestrationBudgetUpdateRequest {
   activeChildLimit?: number;
   // replace-set semantics; hardCapUsdCents a positive integer — the named
   // fail-closed escape for unpriced families on native-cap legs (Spec-016, campaign B6)
-  unpricedFamilyCaps?: { modelFamily: string; hardCapUsdCents: number }[];
+  unpricedFamilyCaps?: { modelFamily: string; hardCapUsdCents: number }[]; // replace-set keyed by modelFamily: one entry per family, duplicates rejected at validation
 }
 type OrchestrationBudgetUpdateResponse = OrchestrationBudgetState;
 
@@ -2705,6 +2700,12 @@ interface OrchestrationRunLinkCarrier {
   agentId: AgentId; // name mirrors the run.queued additive payload field verbatim (CP-004-10); the service maps the validated wire targetAgentId here after agent resolution
   producingNodeId: NodeId;
   effectiveRunConfig: OrchestrationRunConfig; // admission-resolved post-merge values (request override else session default), persisted on run.queued so budget/idle enforcement rebuilds replay-stable (D-016-5, I-016-14)
+  // native-cap-escape snapshot — SERVER-STAMPED at admission, deliberately NOT an
+  // OrchestrationRunConfig member so it can never arrive on OrchestrationRunCreateRequest.config
+  // (client-injection hazard); frozen per run, immune to later unpricedFamilyCaps updates;
+  // replay rebuilds reservations + terminal debits from run.queued records alone; absent on
+  // priced runs (Spec-016 §Cost Derivation And Absent-Cost Semantics, campaign B6)
+  admittedUnpricedCapCents?: number;
 }
 ```
 
