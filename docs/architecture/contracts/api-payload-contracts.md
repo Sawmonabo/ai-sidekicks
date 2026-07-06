@@ -740,10 +740,11 @@ interface ClearSessionGoalParams {
   sessionId: SessionId;
 }
 
-interface DriverGoalResult {
-  status: "applied" | "degraded"; // applied = the goal governs the session from now or the next turn boundary (both V1 legs); degraded = an absent-grade driver could not deliver
-  fallbackAction?: string;
-}
+type DriverGoalResult =
+  // `applied` = the goal governs the session from now or the next turn boundary (both V1
+  // legs) — a fallback narrative on a successful application is unrepresentable.
+  | { status: "applied" } // success carries no fallback field
+  | { status: "degraded"; fallbackAction?: string }; // an absent-grade driver could not deliver
 
 // Return shape of `ProviderDriver.resumeSession()`. Discriminated union over `status`
 // makes silent-replacement structurally inexpressible: the failure variant has no
@@ -844,12 +845,11 @@ interface SessionCallbackTool {
 // their tool calls flow through the same approval pipeline. `maxConcurrent` enforces natively on
 // Codex; the Claude concurrency cap is docs-silent, so that leg monitors-with-diagnostic
 // (Spec-005 §Parity Capability Mechanism Grades).
-interface SubagentPolicy {
-  enabled: boolean;
-  maxDepth: number;
-  maxConcurrent: number;
-  definitions: SubagentDefinition[];
-}
+type SubagentPolicy =
+  // Discriminated on `enabled`: a disabled policy carries no limits or definitions —
+  // "off but configured" is unrepresentable; the daemon sends the full arm on enable.
+  | { enabled: false }
+  | { enabled: true; maxDepth: number; maxConcurrent: number; definitions: SubagentDefinition[] };
 
 // Unified per-subagent definition the driver maps onto its provider form (Claude --agents
 // AgentDefinition; Codex [agents] config). Fields beyond `name` are optional — each leg maps
