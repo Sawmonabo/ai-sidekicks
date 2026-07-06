@@ -311,6 +311,7 @@ Ephemeral-clone lifecycle errors (Plan-010 D-010-4, Tier-6 audit). Same sanitiza
 | `driver.capability_unsupported` | Requested capability is not supported by the driver | 400 |
 | `driver.timeout` | Provider driver operation timed out | 504 |
 | `driver.cli_version_unparseable` | The provider CLI's reported version could not be parsed to a semantic version; capability attach/refresh fails closed and runs cannot start on this driver until the provider install is repaired (Spec-005 §Required Behavior, campaign B3 — the `workspace.stale` blocked-until-repair convention) | 409 |
+| `driver.cli_version_below_floor` | The provider CLI's reported version parsed cleanly but is below the configured per-driver minimum floor; capability attach/refresh fails closed until the provider install is upgraded (Spec-005 §Required Behavior, campaign B3 — distinct from `version.floor_exceeded`, which is scoped to client/event-envelope contract floors, not provider CLI installs) | 409 |
 | `driver.not_authenticated` | The zero-turn `probeAuth` did not report `authenticated` (`unauthenticated`, or `indeterminate` treated fail-closed); run admission is refused before any billed turn — remediation is re-authenticating the provider CLI on the runtime node (Spec-005 §Required Behavior, campaign B3). Mid-run credential expiry is the separate `reauth-required` `RecoveryCondition`, not this code | 409 |
 
 ### Relay

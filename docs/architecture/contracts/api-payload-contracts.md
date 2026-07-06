@@ -910,7 +910,8 @@ interface NormalizedProviderToolMetadata {
 // per-driver floor (mechanical enforcement at attach/refresh; V1 shipped floors: Claude Code
 // 2.1.198, codex-cli 0.141.0 — the 2026-07-02 CLI-currency audit pair). `semver` is REQUIRED,
 // so an unparseable version is unrepresentable in this shape — the driver fails the report
-// fail-closed and attach refuses as `driver.cli_version_unparseable` (Spec-005 §Required
+// fail-closed and attach refuses as `driver.cli_version_unparseable`; a parseable version
+// below the configured floor refuses as `driver.cli_version_below_floor` (Spec-005 §Required
 // Behavior).
 interface DriverCliVersionReport {
   raw: string;

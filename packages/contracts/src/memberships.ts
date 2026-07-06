@@ -230,7 +230,7 @@ export const MembershipUpdateSchema: z.ZodType<MembershipUpdate, MembershipUpdat
   ]) as unknown as z.ZodType<MembershipUpdate, MembershipUpdate>;
 
 // --------------------------------------------------------------------------
-// MembershipUpdateResponse — api-payload-contracts.md §Tier 2 (lines 411-410)
+// MembershipUpdateResponse — api-payload-contracts.md §Tier 2 (lines 434-439)
 // --------------------------------------------------------------------------
 //
 // `{membershipId, state, role, updatedAt}`. The wire RESPONSE returned by the

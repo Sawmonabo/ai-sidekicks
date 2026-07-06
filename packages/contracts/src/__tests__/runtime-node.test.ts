@@ -722,11 +722,11 @@ describe("RUNTIME_NODE_EVENT_NAMES (C4: 7-name runtime_node.* taxonomy)", () => 
 // daemon read-only (Spec-003 AC4:130) — lands at Plan-003 Phase 3 (P3/P4).
 //
 // Cites: Spec-003:53, Spec-003 AC4:130, I-003-1, ADR-018 §Decision #4 /
-// §Decision #10, docs/architecture/contracts/error-contracts.md:374.
+// §Decision #10, docs/architecture/contracts/error-contracts.md:375.
 describe("VersionFloorExceededErrorSchema (C5: VERSION_FLOOR_EXCEEDED typed-contract conformance — Plan-003 consumer anchor)", () => {
-  it("pins the wire code literal to the value registered in error-contracts.md:374", () => {
+  it("pins the wire code literal to the value registered in error-contracts.md:375", () => {
     // The expected string is single-sourced from the INDEPENDENT registry —
-    // error-contracts.md:374 maps the typed `VERSION_FLOOR_EXCEEDED` name to the
+    // error-contracts.md:375 maps the typed `VERSION_FLOOR_EXCEEDED` name to the
     // dotted wire code `version.floor_exceeded` (ADR-018 §Decision #10 mandates
     // registration there). That doc, NOT `error.ts`, is the source of the
     // expected value here, so this pin detects drift in `error.ts` rather than
@@ -998,7 +998,7 @@ describe("RuntimeNodeCapabilityDeclaredPayloadSchema (C7: reduced base + {capabi
 
   it("REJECTS a newState key (reduced base omits the NodeState-transition fields)", () => {
     // Discriminating reduced-base proof: capability events are NOT NodeState
-    // transitions (the canonical payload, api-payload-contracts.md:974, carries no
+    // transitions (the canonical payload, api-payload-contracts.md:975, carries no
     // base NodeState fields). A `newState` key is therefore an unknown key under
     // `.strict()` — its presence rejects.
     const broken = { ...buildValidCapabilityDeclaredPayload(), newState: "online" };

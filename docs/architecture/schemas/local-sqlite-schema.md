@@ -162,7 +162,7 @@ CREATE TABLE runtime_bindings (
   cli_version_raw     TEXT                      -- verbatim provider-reported CLI version captured at binding write (Spec-005 §Required Behavior `cliVersion` report, campaign B3); NULL only on pre-B3 rows — the write path stores the pair or neither
                       CHECK (cli_version_raw IS NULL OR (length(cli_version_raw) > 0 AND length(cli_version_raw) <= 128 AND instr(cli_version_raw, char(0)) = 0)),
   cli_version_semver  TEXT                      -- parsed floor-compare form of the pair; the fail-closed floor gate (`driver.cli_version_unparseable`) runs before any binding write, so a stored pair is always parseable
-                      CHECK ((cli_version_semver IS NULL) = (cli_version_raw IS NULL)),
+                      CHECK ((cli_version_semver IS NULL) = (cli_version_raw IS NULL) AND (cli_version_semver IS NULL OR (length(cli_version_semver) > 0 AND length(cli_version_semver) <= 64 AND instr(cli_version_semver, char(0)) = 0))),
   resume_handle       TEXT                      -- provider-owned opaque handle
                       CHECK (resume_handle IS NULL OR (length(resume_handle) > 0 AND length(resume_handle) <= 4096 AND instr(resume_handle, char(0)) = 0)),
   runtime_metadata    TEXT NOT NULL DEFAULT '{}', -- JSON: provider-specific recovery data
@@ -227,7 +227,7 @@ CREATE TABLE driver_contract_meta (
   cli_version_raw     TEXT                      -- cached `cliVersion.raw` from the last capability refresh (Spec-005 §Required Behavior, campaign B3); NULL only on pre-B3 rows
                       CHECK (cli_version_raw IS NULL OR (length(cli_version_raw) > 0 AND length(cli_version_raw) <= 128 AND instr(cli_version_raw, char(0)) = 0)),
   cli_version_semver  TEXT                      -- cached parsed form; cold-start hydration MUST treat a NULL pair as a cache miss and refresh from the driver — the required `GetCapabilitiesResult.cliVersion` is never fabricated from cache
-                      CHECK ((cli_version_semver IS NULL) = (cli_version_raw IS NULL)),
+                      CHECK ((cli_version_semver IS NULL) = (cli_version_raw IS NULL) AND (cli_version_semver IS NULL OR (length(cli_version_semver) > 0 AND length(cli_version_semver) <= 64 AND instr(cli_version_semver, char(0)) = 0))),
   refreshed_at        TEXT NOT NULL             -- last capability-refresh write (matches driver_capabilities.refreshed_at cadence)
 );
 ```

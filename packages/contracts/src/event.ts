@@ -52,7 +52,7 @@ import {
 // EventCategory — canonical taxonomy enum.
 // --------------------------------------------------------------------------
 //
-// Mirrors the EventCategory registry in api-payload-contracts.md lines 991–821
+// Mirrors the EventCategory registry in api-payload-contracts.md lines 1013–1040
 // (19 categories per Spec-006 §Event Type Summary). Code ships the 16-category
 // V1 baseline; Plan-006 Phase 1 (T1.1) widens it with `channel_arbitration`,
 // `onboarding_lifecycle`, and `cross_node_dispatch`.

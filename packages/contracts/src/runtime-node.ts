@@ -948,7 +948,7 @@ export const RuntimeNodeOfflinePayloadSchema: z.ZodType<RuntimeNodeOfflinePayloa
 //
 // NAMING NOTE — this `RuntimeNodeCapabilityDeclaredPayload` is a SUPERSET of the
 // canonical interface of the same name in api-payload-contracts.md §Plan-006
-// (line 974), which lists the EXTENSION fields only (`capability`,
+// (line 975), which lists the EXTENSION fields only (`capability`,
 // `capabilityDetails`). Our schema = Spec-006's REDUCED base (`{sessionId?,
 // nodeId, actor?}`) + that doc's extension fields; it does not contradict the
 // canonical interface, it carries the base the canonical doc's extension-only
@@ -957,7 +957,7 @@ export const RuntimeNodeOfflinePayloadSchema: z.ZodType<RuntimeNodeOfflinePayloa
 // `capabilityDetails` ships as interim-opaque `z.record(z.string(), z.unknown())`
 // — marker `Plan-006-Tier-4-binds-canonical`: the canonical `CapabilityDetails`
 // (`{flags: Record<DriverCapabilityFlag, boolean>; contractVersion: string;
-// tools: NormalizedProviderToolMetadata[]}`, api-payload-contracts.md:966-970)
+// tools: NormalizedProviderToolMetadata[]}`, api-payload-contracts.md:967-971)
 // consumes Plan-005's `provider-driver.ts` types (`DriverCapabilityFlag`,
 // `NormalizedProviderToolMetadata`), but that's Plan-006 Tier 4's owned step,
 // not this layer's — so the field stays opaque here. An HONEST
@@ -991,7 +991,7 @@ export const RuntimeNodeCapabilityDeclaredPayloadSchema: z.ZodType<RuntimeNodeCa
 // Spec-006:413 ("base + {capability, previousState, newState}"). Emitted by the
 // T2.2 capability-service on a capability health/config change. CRITICAL: here
 // `previousState` / `newState` are `CapabilityDetails` SNAPSHOTS (so consumers
-// diff capability snapshots structurally — api-payload-contracts.md:981-986),
+// diff capability snapshots structurally — api-payload-contracts.md:982-987),
 // NOT `NodeState` values. This is exactly why this event uses the REDUCED base:
 // a base `previousState`/`newState: NodeState` would collide with these
 // capability-snapshot fields of the same name. Both ship as interim-opaque
