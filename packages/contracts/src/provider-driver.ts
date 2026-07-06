@@ -414,7 +414,7 @@ export interface CancelPayload {
 // by convention. Intentionally a flat object, NOT a `status`-discriminated union
 // like the sibling `DriverResumeResult`: that envelope's variants carry different
 // REQUIRED fields, whereas these two differ only by one optional field — the flat
-// shape mirrors the ratified api-payload-contracts.md:701 envelope (Phase-4
+// shape mirrors the ratified api-payload-contracts.md:706 envelope (Phase-4
 // decision #3). Non-transforming object → double-`T` annotation per
 // session.ts:289-294.
 export interface DriverInterventionResult {

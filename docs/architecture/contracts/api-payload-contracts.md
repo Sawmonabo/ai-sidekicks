@@ -641,6 +641,11 @@ interface ResumeSessionParams {
 }
 
 interface StartRunParams {
+  // native-cap-escape wire-through: the admitted family cap (= effectiveRunConfig.admittedUnpricedCapCents),
+  // realized as the provider's native hard cap on cap-capable legs (Claude `--max-budget-usd`); a leg that
+  // binds caps at spawn realizes it at session boundaries per the executionPosture precedent below
+  // (Spec-016 §Cost Derivation And Absent-Cost Semantics, campaign B6)
+  admittedCostCapCents?: number;
   runId: RunId;
   channelId: ChannelId;
   agentConfig: Record<string, unknown>;
@@ -2471,6 +2476,11 @@ interface ChannelConfig {
   moderation?: { preTurnGate?: boolean; postTurnReview?: boolean }; // Spec-016 §Moderation Hooks; both default false (V1 opt-in)
 }
 interface OrchestrationRunConfig {
+  // native-cap-escape snapshot: the family cap admitted for this run, frozen at admission
+  // (immutable — later unpricedFamilyCaps updates never touch it; replay rebuilds reservations
+  // and terminal debits from run.queued's effectiveRunConfig alone; absent on priced runs)
+  // (Spec-016 §Cost Derivation And Absent-Cost Semantics, campaign B6)
+  admittedUnpricedCapCents?: number;
   tokenLimit?: number; // per-run token budget; default 100000 (Spec-016 §Budget Policies)
   idleTimeoutMs?: number; // idle stop condition; default 300000 (Spec-016 §Stop Conditions)
 }
@@ -2585,12 +2595,13 @@ interface OrchestrationBudgetState {
   // owner-supplied unpriced-family escapes — native-cap provider legs only
   // (Spec-016 §Cost Derivation And Absent-Cost Semantics, campaign B6); empty by default
   unpricedFamilyCaps: { modelFamily: string; hardCapUsdCents: number }[];
-  observedCostCents: number; // BudgetAccountant projection (in-memory, replay-rebuilt)
-  // Σ snapshot-at-admission reservations over active native-cap-escape runs — admission
-  // predicate: observed + reserved + newCap ≤ costLimitCents; released at run-terminal.
-  // Each run's reserved amount persists with its admission record: unpricedFamilyCaps updates
-  // apply to future admissions only and never retro-adjust active reservations; restart/replay
-  // reloads from the per-run records, not the current cap set
+  observedCostCents: number; // BudgetAccountant projection (in-memory, replay-rebuilt); includes worst-case unpriced debits charged at each native-cap-escape run's terminal (Spec-016, campaign B6)
+  // Σ snapshot-at-admission reservations over ACTIVE native-cap-escape runs — admission
+  // predicate: observed + reserved + newCap ≤ costLimitCents. At each such run's terminal the
+  // reservation converts to a worst-case debit in observedCostCents (never back to headroom).
+  // Each run's admitted cap is frozen in effectiveRunConfig.admittedUnpricedCapCents:
+  // unpricedFamilyCaps updates apply to future admissions only; restart/replay rebuilds
+  // reservations + debits from run.queued records alone
   // (Spec-016 §Cost Derivation And Absent-Cost Semantics, campaign B6)
   reservedCostCents: number;
 }
@@ -2717,7 +2728,7 @@ interface OrchestrationRunLinkCarrier {
 | `agent.configUpdate` | RPC | `AgentConfigUpdateRequest` → `AgentConfigUpdateResponse` | Emits `agent.config_updated` |
 | `agent.list` | RPC | `AgentListRequest` → `AgentListResponse` | agents-table projection |
 
-Error vocabulary: [error-contracts.md](./error-contracts.md) §Channel / §Orchestration / §Agent (D-016-16). Durable events owned by Plan-016 (Spec-006 registrations): `channel.created` / `channel.muted` / `channel.unmuted` / `channel.archived`, `agent.attached` / `agent.detached` / `agent.config_updated`, `arbitration.paused` / `arbitration.resumed`, `orchestration.rejected`, `usage.budget_warning`, `moderation.review_flagged` — see [Spec-006 §Event Type Registry](../../specs/006-session-event-taxonomy-and-audit-log.md).
+Error vocabulary: [error-contracts.md](./error-contracts.md) §Channel / §Orchestration / §Agent (D-016-16). Durable events owned by Plan-016 (Spec-006 registrations): `channel.created` / `channel.muted` / `channel.unmuted` / `channel.archived`, `agent.attached` / `agent.detached` / `agent.config_updated`, `arbitration.paused` / `arbitration.resumed`, `orchestration.rejected`, `usage.budget_warning`, `moderation.review_flagged`, `session.goal_updated` / `session.goal_cleared` (campaign B6 — emitted by the goal RPCs above) — see [Spec-006 §Event Type Registry](../../specs/006-session-event-taxonomy-and-audit-log.md).
 
 ### Plan-017 — Workflow Authoring And Execution
 
