@@ -460,7 +460,7 @@ describe("RuntimeNodeCapabilityUpdateResponseSchema (C2: nodeId + state + update
 // Plan-003 PR #135 — Test C6: `RuntimeNodeHeartbeat` request + null response.
 // --------------------------------------------------------------------------
 //
-// Backstops the heartbeat wire shape (api-payload-contracts.md:510-515,564):
+// Backstops the heartbeat wire shape (api-payload-contracts.md:510-515,568):
 // a `nodeId` + a 2-value `healthState`, and a `null` response payload (NOT a
 // 204 empty body — the resolver returns `null`, serialized as a 200 success
 // envelope). The discriminating test is the 2-value health-enum boundary: a

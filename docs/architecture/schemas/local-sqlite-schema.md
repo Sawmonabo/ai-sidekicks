@@ -178,7 +178,9 @@ CREATE TABLE driver_capabilities (
   capability_flag   TEXT NOT NULL
                     CHECK(capability_flag IN (
                       'resume', 'steer', 'interactive_requests', 'mcp',
-                      'tool_calls', 'reasoning_stream', 'model_mutation'
+                      'tool_calls', 'reasoning_stream', 'model_mutation',
+                      'structured_output', 'rollback', 'session_goals',
+                      'callback_tools', 'subagents'
                     )),
   supported         INTEGER NOT NULL DEFAULT 0, -- boolean: 0 or 1
   refreshed_at      TEXT NOT NULL,
