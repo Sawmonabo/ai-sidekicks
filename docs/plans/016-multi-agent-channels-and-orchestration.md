@@ -152,9 +152,9 @@ Target paths below assume the canonical implementation topology defined in [Cont
   - **Spec coverage:** Spec-016 §Interfaces And Contracts (all interface bullets + budget surface).
   - **Verifies invariant:** I-016-1.
   - **Tests:** request validation rows (missing/invalid fields per pair, incl. negative / non-integer budget limits refused — `.int().nonnegative()`, the `session_budgets` CHECK mirror); response parity assertions against the api-payload block; `agent.configUpdate` `defaultNodeId` tri-state rows (absent = unchanged, `null` = clear-pin, value = rebind — `z.union([NodeIdSchema, z.null()]).optional()`); carrier round-trip.
-- **T1.3 — Migration: `channels` / `run_links` / `agents` / `session_budgets`.**
+- **T1.3 — Migration: `channels` / `run_links` / `agents` / `session_budgets` / `session_goal_dispatch_intents`.**
   - **Files:** `packages/runtime-daemon/src/migrations/0NNN-orchestration.ts` (CREATE — NNN = next free version per migration-runner append order at PR-open time), `packages/runtime-daemon/src/session/migration-runner.ts` (EXTEND — version-N guarded `if (!hasMigrationApplied(db, N))` block with `db.transaction(...).immediate()` + in-transaction re-check, per the runner's documented extension contract).
-  - **Provides:** the four tables byte-matching [local-sqlite-schema.md §Channel and Orchestration Tables](../architecture/schemas/local-sqlite-schema.md) (CHECK constraints, indexes, defaults).
+  - **Provides:** the five tables (incl. `session_goal_dispatch_intents`, campaign B6) byte-matching [local-sqlite-schema.md §Channel and Orchestration Tables](../architecture/schemas/local-sqlite-schema.md) (CHECK constraints, indexes, defaults).
   - **Consumes:** Plan-001 migration-runner seam (shipped).
   - **Spec coverage:** Spec-016 §State And Data Implications (durable + replayable).
   - **Verifies invariant:** I-016-3, I-016-10.
@@ -241,12 +241,19 @@ Target paths below assume the canonical implementation topology defined in [Cont
   - **Verifies invariant:** I-016-4, I-016-5, I-016-8, I-016-9, I-016-11, I-016-20.
   - **Tests:** the suite is the test (one section per invariant above).
 - **T2.10 — Session-goal service (campaign B6 2026-07-06).**
-  - **Files:** `packages/runtime-daemon/src/orchestration/session-goal-service.ts` (NEW).
+  - **Files:** `packages/runtime-daemon/src/orchestration/session-goal-service.ts` (NEW); owns `session_goal_dispatch_intents` rows (write-before-dispatch, delete-on-append; startup replay of dangling intents — T1.3 creates the table).
   - **Provides:** the event-sourced goal projection (no goal store — rebuilt from `session.goal_updated` / `session.goal_cleared`, [Spec-006 §Session Events](../specs/006-session-event-taxonomy-and-audit-log.md)); `updateGoal` / `clearGoal` service ops the T3.1 binders delegate to — **live-leg ordering: driver op first, event on success**: dispatch the [Spec-005](../specs/005-provider-driver-contract-and-capabilities.md) `setSessionGoal` / `clearSessionGoal` driver op (Codex native `thread/goal/*`), commit `session.goal_updated` / `session.goal_cleared` only after the driver acknowledges, and surface a driver refusal/failure as the typed RPC error with no event and no goal change (the log never claims a goal the provider session doesn't carry); the ack→append crash window is closed by a durable **goal-dispatch intent record** written before the driver op (the ADR-019 spawn-intent pattern): startup reconciliation replays any dangling intent — re-issuing the driver op is safe (goal set is last-write-wins idempotent) and the event appends on the replayed ack, so no acknowledged prompt mutation is ever unaudited across a crash; the Claude emulated leg (daemon-stored + system-prompt injection) commits directly — injection is next-turn by construction, so there is no remote failure mode to desync against; bounded-text validation (1–4096, non-blank, NUL-rejected) at the service boundary. Task-level enrichment lands with the campaign's Plan-016 bundle.
   - **Consumes:** T2.1 agents projection (active-driver dispatch); `MethodRegistry` consumers arrive in T3.1.
   - **Spec coverage:** Spec-016 §Session Goals (campaign B6).
   - **Verifies invariant:** —
   - **Tests:** projection rebuilds from events alone (update → clear → update); driver-op dispatch per parity leg; live-leg driver failure surfaces the typed error and appends no event (no phantom goal); a dangling goal-dispatch intent replays at startup into a driver re-issue + event append (crash between ack and append leaves no unaudited goal); bounds refusal (empty, >4096, NUL).
+- **T2.11 — Provider-native subagent governance (campaign B6 2026-07-06).**
+  - **Files:** `packages/runtime-daemon/src/orchestration/native-subagent-governor.ts` (NEW).
+  - **Provides:** the orchestration side of [Spec-016 §Provider-Native Subagents](../specs/016-multi-agent-channels-and-orchestration.md#provider-native-subagents): daemon-derived `subagentPolicy` supplied on every spawn (never provider defaults — the pass-through shape is Spec-005's, its exported code mirror landing with Plan-005's driver phases via the campaign's Plan-005 bundle), subagent usage rolled into the T2.5 accountant with no escape hatch (a subagent's usage debits its supervising run's budgets), approval flow-through (subagent tool calls hit the same Spec-012 approval pipeline as the parent run), and `subagent.started` / `subagent.completed` timeline normalization keyed on the (`runId`, `provider`, `subagentId`) pairing triple. Until the Plan-005 mirror lands, native subagents stay disabled at the driver boundary (spawn params omit any enablement — fail-safe). Task-level enrichment lands with the campaign's Plan-016 bundle.
+  - **Consumes:** T2.5 accountant; Spec-005 `subagentPolicy` driver params (cross-plan seam — Plan-005); Spec-012 approval pipeline (CP-016-5).
+  - **Spec coverage:** Spec-016 §Provider-Native Subagents (campaign B6).
+  - **Verifies invariant:** —
+  - **Tests:** policy supplied on spawn (never absent); subagent usage debits the supervising run's budget; unapproved subagent tool call blocks at the approval pipeline; `subagent.*` rows pair on the triple; disabled-at-boundary until the driver mirror exists.
 
 ### Phase 3 — Wire namespace + SDK
 

@@ -1054,6 +1054,16 @@ CREATE TABLE session_budgets (
   CHECK (typeof(max_pending_orchestration_runs) = 'integer' AND max_pending_orchestration_runs >= 0),
   CHECK (typeof(active_child_limit) = 'integer' AND active_child_limit >= 0)
 );
+
+-- Live-leg goal-delivery crash consistency (Spec-016 §Session Goals, campaign B6): the durable
+-- goal-dispatch intent written BEFORE the driver op (ADR-019 spawn-intent pattern); startup
+-- reconciliation replays a dangling row (goal set is last-write-wins idempotent), then deletes it.
+-- One in-flight goal mutation per session (goal ops serialize per session).
+CREATE TABLE session_goal_dispatch_intents (
+  session_id  TEXT PRIMARY KEY,
+  payload     TEXT NOT NULL,   -- JSON {op: 'set'|'clear', goal?: {text}} — the pending mutation
+  created_at  TEXT NOT NULL
+);
 ```
 
 Per-run token (`tokenLimit`, default 100000) and idle-timeout (`idleTimeoutMs`, default 300000) budgets are per-run `OrchestrationRunConfig` values resolved at admission (request override else session default) and persisted durably as the `run.queued` payload's `effectiveRunConfig` (Plan-016 D-016-5; api-payload `RunStateChangeEvent`) — they have no session-level column, and budget/idle enforcement rebuilds from that event field on replay, never by re-merging session defaults that may have changed mid-run. Budget _accounting_ (tokens/cost consumed) has no table: the daemon's `BudgetAccountant` is an in-memory projection rebuilt on replay from `usage_telemetry` + `run.*` events (D-016-5).
