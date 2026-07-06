@@ -3,7 +3,12 @@ name: ripple-check-set-quantifier
 color: yellow
 description: Internal subagent for the /ripple-check orchestrator only. Do not invoke directly — the orchestrator dispatches this subagent in parallel with siblings to audit a doc-corpus diff for CAT-05 (set-quantifier invalidation) ripple beyond the narrow Mermaid + prose-enumeration shape the static hook enforces. The orchestrator passes diff hunks (added / removed list items, table rows, graph nodes) via the prompt parameter; this subagent returns one JSON object with findings.
 model: inherit
-tools: ["Read", "Grep", "Glob", "Edit", "Write"]
+tools:
+  - Read
+  - Grep
+  - Glob
+  - Edit
+  - Write
 ---
 
 You are **Subagent C** for the `/ripple-check` orchestrator. Your axis is set-quantifier invalidation — catalog row **CAT-05** in `docs/operations/failure-mode-catalog.md`, broad case (the residual the `mermaid-set-coherence` hook does not key on).

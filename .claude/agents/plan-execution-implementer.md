@@ -3,7 +3,13 @@ name: plan-execution-implementer
 color: green
 description: Internal subagent for the /plan-execution orchestrator only. Do not invoke directly — the orchestrator dispatches this subagent in Phase B.2 to build one DAG task by editing files in target_paths and running per-package tests. The orchestrator passes the task definition, plan section, and working directory via the prompt parameter; this subagent writes implementation files, runs scoped tests, and returns a `RESULT:` tag with the suggested commit message.
 model: inherit
-tools: ["Read", "Grep", "Glob", "Edit", "Write", "Bash"]
+tools:
+  - Read
+  - Grep
+  - Glob
+  - Edit
+  - Write
+  - Bash
 ---
 
 You are the implementer subagent for the `/plan-execution` orchestrator. Your axis is building one DAG task end-to-end — editing the files in `target_paths`, running per-package tests, and returning a suggested Conventional Commits message — for a task whose DAG `role` is `implementer`.

@@ -6,7 +6,7 @@ For decisions and rationale behind these choices, see [ADR-022 — V1 Toolchain 
 
 ## Repository State
 
-The repository is in the V1 doc-first phase. There is no source code yet — `package.json` is a placeholder. The next milestone is [Plan-001](docs/plans/001-shared-session-core.md) PR #1 (the first code-execution PR). Until that PR opens, only doc PRs are expected. See [`CLAUDE.md`](CLAUDE.md) for current state details.
+The repository is in mixed doc + code execution: [Plan-001](docs/plans/001-shared-session-core.md) has shipped all five phases, `package.json` is real (pnpm workspace + Turbo), and code PRs land tier by tier alongside governance docs. [`CLAUDE.md`](CLAUDE.md) §Current State is the live census of shipped PRs, active gates, and audit status — this file deliberately does not duplicate it.
 
 ## Branch Model
 
@@ -126,7 +126,7 @@ If the binary is missing, the lefthook hook emits a `WARNING:` to stderr and let
 
 1. **Branch off `develop`.** `git switch develop && git pull && git switch -c feat/plan-001-monorepo-scaffold`
 2. **Commit using Conventional Commits format.** Pre-commit hooks (lefthook + lint-staged + commitlint) catch format errors locally; CI re-runs them as enforcement per ADR-023 §Axis 2.
-3. **Open the PR (base `develop`).** PR title MUST match conventional-commit subject format — it becomes the squash-commit subject on `develop`. PR body explains the change; code PRs include a Test Plan section.
+3. **Open the PR (base `develop`).** PR title MUST match conventional-commit subject format — it becomes the squash-commit subject on `develop`. A PR that ships work for a specific plan (implementing, fixing, or extending Plan-NNN tasks — whether via `/plan-execution` or direct development) MUST also include the `Plan-NNN` token in the title: the plan-execution preflight's manifest-freshness gate recovers shipment drift by searching merged PR titles (`Plan-NNN in:title`), and a title carrying the plan only in the body `Refs:` line is invisible to it. PR body explains the change; code PRs include a Test Plan section.
 4. **Address review.** Push additional commits to the same branch; squash-merge collapses them.
 5. **Merge.** `gh pr merge --squash --delete-branch` — squashes the branch, deletes both local and remote, fast-forwards local `develop`.
 

@@ -710,6 +710,26 @@ shipped:
     spec_coverage: []
     notes: |
       Phase 5 Lane D T5.3 — polymorphic `PtyHost.shutdown({ perSessionTimeoutMs: 2000, hostTimeoutMs: 2000 })` extension on both backends + `apps/desktop/src/main/sidecar-lifecycle.ts` will-quit drain orchestration registered at index.ts FIFO position 0 (Shape A lazy PtyHostGetter per CP-001-1). NodePtyHost (in-process) drives SIGTERM→SIGKILL per-session escalation; RustSidecarPtyHost (out-of-process) drives stdin-close → child-exit wait → taskkill /T /F /PID escalation with `shuttingDown`-flag crash-budget suppression. 5 s hard wall-clock cap (`HARD_QUIT_CAP_MS`) + `drainCompleted` re-entry guard preserve Electron's `app.quit()` chain semantics. Verifies I5 (= CP-001-1 + Plan-024 I-024-4) end-to-end against the real RustSidecarPtyHost. Codex follow-ups in-PR: P1 #6 added cross-platform child-process tree-kill via `packages/runtime-daemon/src/pty/taskkill-windows.ts`; P2 #1 corrected `DrainResult.forced` count; P2 #2 fixed crash-before-drain `-1` sentinel misreport. **Closes NS-08** — Plan-001 Phase 5 fully shipped (T5.1–T5.6 complete); no downstream NS-XX promotion (NS-08 is a leaf — no §6 entry lists `Upstream: NS-08`).
+  - phase: 5
+    task: P5-residuals
+    pr: 87
+    sha: bc33f30
+    merged_at: 2026-05-21
+    files:
+      - docs/plans/001-shared-session-core.md
+      - packages/contracts/src/__tests__/error.test.ts
+      - packages/contracts/src/error.ts
+      - packages/control-plane/src/sessions/__tests__/session-directory-service.test.ts
+      - packages/control-plane/src/sessions/errors.ts
+      - packages/control-plane/src/sessions/session-directory-service.ts
+      - packages/control-plane/src/sessions/session-router.factory.ts
+      - packages/control-plane/src/sessions/trpc.ts
+      - packages/runtime-daemon/src/session/__tests__/__snapshots__/migration-shape.test.ts.snap
+      - packages/runtime-daemon/src/session/__tests__/migration-shape.test.ts
+    verifies_invariant: []
+    spec_coverage: []
+    notes: |
+      Backfill (BL-110 Gate 6 baseline reconciliation, 2026-07-06): follow-up PR shipped outside a plan-execution run; descriptive task label, not a DAG task id. Closed the Tier-1 closing audit's Plan-001 acceptance gaps (A1 G2/G3/G4) and promoted the plan to completed.
 ```
 
 ### Notes
