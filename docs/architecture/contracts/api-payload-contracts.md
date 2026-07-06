@@ -2586,9 +2586,12 @@ interface OrchestrationBudgetState {
   // (Spec-016 §Cost Derivation And Absent-Cost Semantics, campaign B6); empty by default
   unpricedFamilyCaps: { modelFamily: string; hardCapUsdCents: number }[];
   observedCostCents: number; // BudgetAccountant projection (in-memory, replay-rebuilt)
-  // Σ hardCapUsdCents over active native-cap-escape runs — admission predicate:
-  // observed + reserved + newCap ≤ costLimitCents; released at run-terminal
-  // (Spec-016 §Cost Derivation And Absent-Cost Semantics, campaign B6); same projection lifecycle
+  // Σ snapshot-at-admission reservations over active native-cap-escape runs — admission
+  // predicate: observed + reserved + newCap ≤ costLimitCents; released at run-terminal.
+  // Each run's reserved amount persists with its admission record: unpricedFamilyCaps updates
+  // apply to future admissions only and never retro-adjust active reservations; restart/replay
+  // reloads from the per-run records, not the current cap set
+  // (Spec-016 §Cost Derivation And Absent-Cost Semantics, campaign B6)
   reservedCostCents: number;
 }
 type OrchestrationBudgetReadResponse = OrchestrationBudgetState;
