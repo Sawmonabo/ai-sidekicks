@@ -4,7 +4,11 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { execSync } from "node:child_process";
 
-import { expandToInboundCiteCorpus, makeIndexAwareReader } from "../lib/inbound-cite-discovery.ts";
+import {
+  expandToInboundCiteCorpus,
+  findGovernanceCitersOfCode,
+  makeIndexAwareReader,
+} from "../lib/inbound-cite-discovery.ts";
 import { extractCites } from "../lib/cite-target-existence.ts";
 
 function setupRepo(files: Record<string, string>): { root: string; cleanup: () => void } {
@@ -391,6 +395,42 @@ describe("inbound-cite-discovery — governance-corpus inbound expansion", () =>
       // is not in the index and so is invisible to extractCites.
       expect(cites).toHaveLength(1);
       expect(cites[0].targetLine).toBe(2);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe("findGovernanceCitersOfCode — reverse-direction advisory", () => {
+  it("maps a governance citer to its staged-code rawTargets", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/plans/001-x.md":
+        "# Plan-001\n\nThe parser lives at `packages/foo/src/bar.ts#doThing`.\n",
+      "docs/plans/002-y.md": "# Plan-002\n\nNo code cites here.\n",
+      "packages/foo/src/bar.ts": "export function doThing(): void {}\n",
+    });
+    try {
+      const citers = withRepoRoot(root, () =>
+        findGovernanceCitersOfCode([resolve(root, "packages/foo/src/bar.ts")]),
+      );
+      expect(citers.size).toBe(1);
+      expect(citers.get("docs/plans/001-x.md")).toEqual(["packages/foo/src/bar.ts#doThing"]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("returns an empty map when the staged code file is uncited", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/plans/001-x.md":
+        "# Plan-001\n\nThe parser lives at `packages/foo/src/bar.ts#doThing`.\n",
+      "packages/foo/src/other.ts": "export function other(): void {}\n",
+    });
+    try {
+      const citers = withRepoRoot(root, () =>
+        findGovernanceCitersOfCode([resolve(root, "packages/foo/src/other.ts")]),
+      );
+      expect(citers.size).toBe(0);
     } finally {
       cleanup();
     }

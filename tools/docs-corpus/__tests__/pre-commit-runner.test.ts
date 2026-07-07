@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { writeFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { writeFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -231,6 +231,40 @@ describe("pre-commit-runner — bin-script direct-invocation guard", () => {
       expect(combined).toContain("missing-target-file");
     } finally {
       rmSync(fixtureDir, { recursive: true });
+    }
+  });
+});
+
+describe("pre-commit-runner — reverse-direction advisory", () => {
+  it("warns (without blocking) when staged code is cited by governance docs", () => {
+    const { root, cleanup } = setupRepo({
+      // `draft` → manifest-presence guard exempts this plan (see describe note).
+      "docs/plans/001-x.md":
+        "# Plan-001\n\n| **Status** | `draft` |\n\nThe parser lives at `packages/foo/src/bar.ts#doThing`.\n",
+      "packages/foo/src/bar.ts": "export function doThing(): void {}\n",
+      // checkPathCanonicalRipple roots on process.cwd() (not REPO_ROOT) and
+      // fails closed on a missing registry — this test chdirs into the
+      // fixture, so give it an empty registry.
+      "tools/docs-corpus/canonical-paths.json": '{ "paths": [] }\n',
+    });
+    // isCodeFile keys on repo-relative paths (`packages/…`), matching
+    // lefthook's invocation from the repo root — so run from the fixture root
+    // with a relative arg, unlike the md-lane tests above (absolute args).
+    // realpath the root first: macOS mkdtemp returns a /var → /private/var
+    // symlink, and process.cwd() after chdir is physical, so a symlinked
+    // REPO_ROOT would never match cwd-resolved staged paths.
+    const previousCwd = process.cwd();
+    const physicalRoot = realpathSync(root);
+    try {
+      process.chdir(physicalRoot);
+      const result = withRepoRoot(physicalRoot, () => runChecks(["packages/foo/src/bar.ts"]));
+      expect(result.exitCode).toBe(0); // advisory only — never blocks
+      const joined = result.messages.join("\n");
+      expect(joined).toContain("staged code is cited by governance docs");
+      expect(joined).toContain("docs/plans/001-x.md");
+    } finally {
+      process.chdir(previousCwd);
+      cleanup();
     }
   });
 });

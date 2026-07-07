@@ -199,3 +199,31 @@ export function expandToInboundCiteCorpus(
   }
   return [...expanded];
 }
+
+// Reverse direction of expandToInboundCiteCorpus: which governance docs cite
+// the STAGED CODE? Advisory-only consumer (pre-commit warning) — never blocks.
+export function findGovernanceCitersOfCode(
+  stagedCodeFiles: string[],
+  repoRoot?: string,
+  reader?: FileContentReader,
+): Map<string, string[]> {
+  const root = repoRoot ?? getRepoRoot();
+  const stagedAbsolute = new Set(stagedCodeFiles.map((f) => resolve(f)));
+  const citers = new Map<string, string[]>();
+  if (stagedAbsolute.size === 0) return citers;
+  const stagedBasenames = [...stagedAbsolute].map((p) => basename(p));
+  for (const candidate of enumerateGovernanceCorpus(root, stagedBasenames)) {
+    let rawTargets: string[];
+    try {
+      rawTargets = extractCites(candidate, reader)
+        .filter((cite) => stagedAbsolute.has(resolve(cite.targetPath)))
+        .map((cite) => cite.rawTarget);
+    } catch {
+      continue; // unreadable candidate — advisory path stays silent
+    }
+    if (rawTargets.length > 0) {
+      citers.set(toRepoRelative(root, candidate), [...new Set(rawTargets)]);
+    }
+  }
+  return citers;
+}
