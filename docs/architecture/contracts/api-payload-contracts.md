@@ -2639,7 +2639,7 @@ interface OrchestrationBudgetState {
   // owner-supplied unpriced-family escapes — native-cap provider legs only
   // (Spec-016 §Cost Derivation And Absent-Cost Semantics, campaign B6); empty by default
   unpricedFamilyCaps: { modelFamily: string; hardCapUsdCents: number }[]; // one entry per modelFamily — duplicate families rejected at validation
-  observedCostCents: number; // BudgetAccountant projection (in-memory, replay-rebuilt by folding PERSISTED usage.cost_update.costCents — derivation is emit-once, never re-run against the current pricing table, so a table update re-prices nothing retroactively); includes worst-case unpriced debits charged at each native-cap-escape run's terminal (Spec-016, campaign B6)
+  observedCostCents: number; // BudgetAccountant projection (in-memory, replay-rebuilt from TWO folds: persisted usage.cost_update.costCents — derivation emit-once, never re-run against the current table, so an update re-prices nothing retroactively — PLUS worst-case debits of terminal native-cap runs from run.queued.admittedUnpricedCapCents, whose cost rows are costless by design; folding rows alone would resurrect their headroom) (Spec-016, campaign B6)
   // Σ snapshot-at-admission reservations over ACTIVE native-cap-escape runs — admission
   // predicate: observed + reserved + newCap ≤ costLimitCents. At each such run's terminal the
   // reservation converts to a worst-case debit in observedCostCents (never back to headroom).
