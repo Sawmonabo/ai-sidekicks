@@ -655,7 +655,7 @@ interface ResumeSessionParams {
 interface StartRunParams {
   // native-cap-escape wire-through: the admitted family cap (= the run.queued server-stamped admittedUnpricedCapCents),
   // realized as the provider's native hard cap on cap-capable legs (Claude `--max-budget-usd`); a leg that
-  // binds caps at spawn realizes it via CreateSessionParams.admittedCostCapCents (the spawn carrier above)
+  // binds caps at spawn realizes it via CreateSessionParams.admittedCostCapCents (the spawn carrier above) — and a native-cap run on such a leg starts only inside a session spawned with the MATCHING cap: an existing uncapped process forces a capped relaunch at the session boundary before this startRun dispatches (posture-relaunch precedent), never a start-in-uncapped
   // (Spec-016 §Cost Derivation And Absent-Cost Semantics, campaign B6)
   admittedCostCapCents?: number;
   runId: RunId;
@@ -1297,6 +1297,11 @@ interface RunStateChangeEvent {
   // OrchestrationRunConfig member, so it can never arrive on OrchestrationRunCreateRequest.config
   // (Spec-016 §Cost Derivation And Absent-Cost Semantics).
   admittedUnpricedCapCents?: number;
+  // As-of-admission model family (campaign B6, sibling of the cap): resolved agentId → agent
+  // model → pricing-family key AT ADMISSION and frozen here — a later agent.configUpdate model
+  // change never re-keys an admitted run's pricing, caps, or warnings; replay reads this field,
+  // never the current agents projection.
+  admittedModelFamily?: string;
   timestamp: string;
 }
 
@@ -2729,6 +2734,11 @@ interface OrchestrationRunLinkCarrier {
   // replay rebuilds reservations + terminal debits from run.queued records alone; absent on
   // priced runs (Spec-016 §Cost Derivation And Absent-Cost Semantics, campaign B6)
   admittedUnpricedCapCents?: number;
+  // As-of-admission model family (campaign B6, sibling of the cap): resolved agentId → agent
+  // model → pricing-family key AT ADMISSION and frozen here — a later agent.configUpdate model
+  // change never re-keys an admitted run's pricing, caps, or warnings; replay reads this field,
+  // never the current agents projection.
+  admittedModelFamily?: string;
 }
 ```
 
