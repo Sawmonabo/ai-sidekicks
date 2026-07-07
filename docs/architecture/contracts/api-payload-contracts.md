@@ -1274,6 +1274,12 @@ interface RunStateChangeEvent {
   // else session default) persisted durably so budget/idle enforcement rebuilds replay-stable even
   // if session defaults change mid-run (Plan-016 D-016-5, I-016-14; Spec-006:196).
   effectiveRunConfig?: OrchestrationRunConfig;
+  // Native-cap unpriced admission only (campaign B6): the server-stamped admitted family cap,
+  // persisted on the durable run.queued payload as the replay source for reservedCostCents and
+  // the worst-case terminal debit. Sibling of effectiveRunConfig — deliberately NOT an
+  // OrchestrationRunConfig member, so it can never arrive on OrchestrationRunCreateRequest.config
+  // (Spec-016 §Cost Derivation And Absent-Cost Semantics).
+  admittedUnpricedCapCents?: number;
   timestamp: string;
 }
 
@@ -2729,7 +2735,7 @@ interface OrchestrationRunLinkCarrier {
 | `agent.configUpdate` | RPC | `AgentConfigUpdateRequest` → `AgentConfigUpdateResponse` | Emits `agent.config_updated` |
 | `agent.list` | RPC | `AgentListRequest` → `AgentListResponse` | agents-table projection |
 
-Error vocabulary: [error-contracts.md](./error-contracts.md) §Channel / §Orchestration / §Agent (D-016-16). Durable events owned by Plan-016 (Spec-006 registrations): `channel.created` / `channel.muted` / `channel.unmuted` / `channel.archived`, `agent.attached` / `agent.detached` / `agent.config_updated`, `arbitration.paused` / `arbitration.resumed`, `orchestration.rejected`, `usage.budget_warning`, `moderation.review_flagged`, `session.goal_updated` / `session.goal_cleared` (campaign B6 — emitted by the goal RPCs above) — see [Spec-006 §Event Type Registry](../../specs/006-session-event-taxonomy-and-audit-log.md).
+Error vocabulary: [error-contracts.md](./error-contracts.md) §Channel / §Orchestration / §Agent (D-016-16) plus the §Session `session.goal_delivery_failed` mapping for the live goal-delivery RPCs (campaign B6). Durable events owned by Plan-016 (Spec-006 registrations): `channel.created` / `channel.muted` / `channel.unmuted` / `channel.archived`, `agent.attached` / `agent.detached` / `agent.config_updated`, `arbitration.paused` / `arbitration.resumed`, `orchestration.rejected`, `usage.budget_warning`, `moderation.review_flagged`, `session.goal_updated` / `session.goal_cleared` (campaign B6 — emitted by the goal RPCs above) — see [Spec-006 §Event Type Registry](../../specs/006-session-event-taxonomy-and-audit-log.md).
 
 ### Plan-017 — Workflow Authoring And Execution
 
