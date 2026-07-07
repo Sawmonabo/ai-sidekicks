@@ -309,6 +309,10 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: "22.12"
+          # This job never installs dependencies; without this, setup-node@v5
+          # sees `packageManager: pnpm` in package.json and fails looking for
+          # a pnpm binary that is deliberately absent here.
+          package-manager-cache: false
 
       - name: Run hook guard tests
         run: node --test '.claude/hooks/__tests__/**/*.test.mjs'
