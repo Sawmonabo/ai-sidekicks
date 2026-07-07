@@ -5,9 +5,12 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import process from "node:process";
+import { fileURLToPath, URL } from "node:url";
 import {
   parseArgs,
   parsePhaseFromPr,
@@ -31,7 +34,12 @@ test("parseArgs: rejects malformed --plan", () => {
 });
 
 test("parseArgs: happy path", () => {
-  assert.deepEqual(parseArgs(["--plan", "001"]), { plan: "001", dryRun: false, force: false });
+  assert.deepEqual(parseArgs(["--plan", "001"]), {
+    plan: "001",
+    dryRun: false,
+    force: false,
+    includeBodyMatches: false,
+  });
 });
 
 test("parseArgs: --dry-run + --force", () => {
@@ -39,6 +47,7 @@ test("parseArgs: --dry-run + --force", () => {
     plan: "001",
     dryRun: true,
     force: true,
+    includeBodyMatches: false,
   });
 });
 
@@ -638,6 +647,339 @@ test("rebuildManifest: empty PR list returns exit 0 with message", async () => {
     });
     assert.equal(r.exitCode, 0);
     assert.match(r.message, /no merged PRs found/);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+function makeCaptureStream() {
+  return {
+    lines: [],
+    write(s) {
+      this.lines.push(s);
+    },
+    text() {
+      return this.lines.join("");
+    },
+  };
+}
+
+test("rebuildManifest excludes PRs whose title lacks the Plan-NNN token (lane-2 bodies)", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "rsm-e2e-"));
+  try {
+    const planDir = join(tmp, "docs", "plans");
+    mkdirSync(planDir, { recursive: true });
+    const planFile = join(planDir, "001-shared-session-core.md");
+    writeFileSync(planFile, PLAN_TEMPLATE);
+
+    const ghRunner = makeGhRunner({
+      prList: [30, 42],
+      prDetails: {
+        30: SAMPLE_DETAILS,
+        42: {
+          title: "feat(daemon): improve session cleanup",
+          body: "Tightens idle-session teardown.\n\nRefs: Plan-001",
+          mergedAt: "2026-07-01T12:00:00Z",
+          mergeCommit: { oid: "abc9876def0000" },
+          files: [{ path: "packages/runtime-daemon/src/session-cleanup.ts" }],
+        },
+      },
+    });
+
+    const stdout = makeCaptureStream();
+    const stderr = makeCaptureStream();
+    const r = await rebuildManifest({
+      plan: "001",
+      dryRun: true,
+      force: false,
+      ghRunner,
+      plansDir: planDir,
+      stdout,
+      stderr,
+    });
+    assert.equal(r.exitCode, 0);
+    assert.match(stderr.text(), /skipped \(no title token\): PR #42/i); // lane-2 PR listed informationally
+    assert.doesNotMatch(stdout.text(), /^\s*pr: 42$/m); // and NEVER synthesized into an entry
+    // dry-run stdout is a pure YAML stream — diagnostics never leak into it
+    assert.doesNotMatch(stdout.text(), /skipped \(no title token\)/);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("rebuildManifest skips a body-only PR before the truncation-sensitive details fetch", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "rsm-e2e-"));
+  try {
+    const planDir = join(tmp, "docs", "plans");
+    mkdirSync(planDir, { recursive: true });
+    const planFile = join(planDir, "001-shared-session-core.md");
+    writeFileSync(planFile, PLAN_TEMPLATE);
+
+    const ghRunner = makeGhRunner({
+      prList: [30, 42],
+      prDetails: {
+        30: SAMPLE_DETAILS,
+        42: {
+          title: "feat(daemon): improve session cleanup",
+          body: "Sweeping refactor.\n\nRefs: Plan-001",
+          mergedAt: "2026-07-01T12:00:00Z",
+          mergeCommit: { oid: "abc9876def0000" },
+          // files truncated far below changedFiles — fetchPrDetails would halt
+          // with exit 7 if it ran; the title-only probe must skip PR #42 first.
+          changedFiles: 200,
+          files: [{ path: "packages/runtime-daemon/src/session-cleanup.ts" }],
+        },
+      },
+    });
+
+    const stdout = makeCaptureStream();
+    const stderr = makeCaptureStream();
+    const r = await rebuildManifest({
+      plan: "001",
+      dryRun: true,
+      force: false,
+      ghRunner,
+      plansDir: planDir,
+      stdout,
+      stderr,
+    });
+    assert.equal(r.exitCode, 0);
+    assert.match(stderr.text(), /skipped \(no title token\): PR #42/i);
+    assert.doesNotMatch(stdout.text(), /^\s*pr: 42$/m);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+// Pre-mandate squash text: carries the Plan-001 ref in the body but NO
+// parseable Phase/T-markers — synthesis would yield phase 0 / empty task
+// (the real shape of Plan-001 PR #6/#8/#9/#10 squash bodies).
+const UNPARSEABLE_BODY_DETAILS = {
+  title: "feat(daemon): improve session cleanup",
+  body: "Sweeping refactor.\n\nRefs: Plan-001",
+  mergedAt: "2026-07-01T12:00:00Z",
+  mergeCommit: { oid: "abc9876def0000" },
+  files: [{ path: "packages/runtime-daemon/src/session-cleanup.ts" }],
+};
+
+const PARSEABLE_BACKFILL_DETAILS = {
+  ...UNPARSEABLE_BODY_DETAILS,
+  body: "Backfill of Phase 2 T2.9 work.\n\nRefs: Plan-001",
+};
+
+test("rebuildManifest reuses the on-disk entry for a body-only PR the manifest records (no re-synthesis)", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "rsm-e2e-"));
+  try {
+    const planDir = join(tmp, "docs", "plans");
+    mkdirSync(planDir, { recursive: true });
+    const planFile = join(planDir, "001-shared-session-core.md");
+    writeFileSync(
+      planFile,
+      PLAN_TEMPLATE.replace(
+        "shipped: []",
+        [
+          "shipped:",
+          "  - phase: 2",
+          "    task: T2.9",
+          "    pr: 42",
+          "    sha: abc9876",
+          "    merged_at: 2026-07-01",
+          "    files:",
+          "      - packages/runtime-daemon/src/session-cleanup.ts",
+          "    notes: legacy pre-title-mandate shipment",
+        ].join("\n"),
+      ),
+    );
+
+    // Squash text is UNPARSEABLE — re-synthesis would degrade the entry to
+    // phase 0 / empty task and fail validation. Reuse must win instead.
+    const ghRunner = makeGhRunner({
+      prList: [42],
+      prDetails: { 42: UNPARSEABLE_BODY_DETAILS },
+    });
+
+    const stdout = makeCaptureStream();
+    const stderr = makeCaptureStream();
+    const r = await rebuildManifest({
+      plan: "001",
+      dryRun: true,
+      force: false,
+      ghRunner,
+      plansDir: planDir,
+      stdout,
+      stderr,
+    });
+    assert.equal(r.exitCode, 0);
+    assert.match(stderr.text(), /reused existing manifest entry \(body-only title\): PR #42/i);
+    assert.match(stdout.text(), /^\s*pr: 42$/m); // legacy shipment stays in the rebuilt manifest
+    assert.match(stdout.text(), /^\s*task: T2\.9$/m); // ...with its on-disk fields, not phase-0 synthesis
+    assert.match(stdout.text(), /^\s*- phase: 2$/m);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("rebuildManifest --include-body-matches admits parseable body-only PRs for pre-mandate backfill", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "rsm-e2e-"));
+  try {
+    const planDir = join(tmp, "docs", "plans");
+    mkdirSync(planDir, { recursive: true });
+    const planFile = join(planDir, "001-shared-session-core.md");
+    writeFileSync(planFile, PLAN_TEMPLATE);
+
+    const ghRunner = makeGhRunner({
+      prList: [42],
+      prDetails: { 42: PARSEABLE_BACKFILL_DETAILS },
+    });
+
+    const stdout = makeCaptureStream();
+    const stderr = makeCaptureStream();
+    const r = await rebuildManifest({
+      plan: "001",
+      dryRun: true,
+      force: false,
+      includeBodyMatches: true,
+      ghRunner,
+      plansDir: planDir,
+      stdout,
+      stderr,
+    });
+    assert.equal(r.exitCode, 0);
+    assert.match(stderr.text(), /included body-only match \(--include-body-matches/i);
+    assert.match(stderr.text(), /operator MUST confirm/i);
+    assert.match(stdout.text(), /^\s*pr: 42$/m);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("rebuildManifest --include-body-matches emits operator-confirmation YAML for unparseable candidates", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "rsm-e2e-"));
+  try {
+    const planDir = join(tmp, "docs", "plans");
+    mkdirSync(planDir, { recursive: true });
+    const planFile = join(planDir, "001-shared-session-core.md");
+    writeFileSync(planFile, PLAN_TEMPLATE);
+
+    const ghRunner = makeGhRunner({
+      prList: [42],
+      prDetails: { 42: UNPARSEABLE_BODY_DETAILS },
+    });
+
+    const stdout = makeCaptureStream();
+    const stderr = makeCaptureStream();
+    const r = await rebuildManifest({
+      plan: "001",
+      dryRun: true,
+      force: false,
+      includeBodyMatches: true,
+      ghRunner,
+      plansDir: planDir,
+      stdout,
+      stderr,
+    });
+    // Pre-redesign this exited 5 (validation failure) with no editable output.
+    assert.equal(r.exitCode, 0);
+    assert.match(r.message, /operator confirmation/i);
+    const out = stdout.text();
+    assert.match(out, /# Operator confirmation needed \(body-only matches, unparseable markers\):/);
+    assert.match(out, /^#\s+pr: 42$/m); // commented, editable YAML for the candidate
+    assert.match(out, /\^ unresolved: /);
+    assert.doesNotMatch(out, /^\s*pr: 42$/m); // never written as a live shipped[] entry
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("parseArgs accepts --include-body-matches", () => {
+  const r = parseArgs(["--plan", "001", "--dry-run", "--include-body-matches"]);
+  assert.equal(r.includeBodyMatches, true);
+  assert.equal(parseArgs(["--plan", "001"]).includeBodyMatches, false);
+});
+
+test("CLI --dry-run keeps stdout a pure YAML stream (summary on stderr)", () => {
+  const tmp = mkdtempSync(join(tmpdir(), "rsm-cli-"));
+  try {
+    const planDir = join(tmp, "docs", "plans");
+    mkdirSync(planDir, { recursive: true });
+    writeFileSync(join(planDir, "001-shared-session-core.md"), PLAN_TEMPLATE);
+
+    // PATH-shimmed gh: the CLI path uses defaultGhRunner (real shell-outs),
+    // so the fake binary serves the three command shapes the script issues.
+    // The full-details case is matched FIRST — its --json list is a superset
+    // of the title-only probe's.
+    const binDir = join(tmp, "bin");
+    mkdirSync(binDir);
+    const detailsJson = JSON.stringify({ ...SAMPLE_DETAILS, changedFiles: 1 });
+    writeFileSync(
+      join(binDir, "gh"),
+      [
+        "#!/bin/sh",
+        'case "$*" in',
+        `  *"pr list"*) printf '%s' '[{"number":30}]' ;;`,
+        `  *"--json title,body,"*) printf '%s' '${detailsJson}' ;;`,
+        `  *"--json title"*) printf '%s' '{"title":"feat(client-sdk): add sessionClient transports (Plan-001 T5.1)"}' ;;`,
+        "esac",
+        "",
+      ].join("\n"),
+    );
+    chmodSync(join(binDir, "gh"), 0o755);
+
+    const scriptPath = fileURLToPath(new URL("../rebuild-shipment-manifest.mjs", import.meta.url));
+    const r = spawnSync(process.execPath, [scriptPath, "--plan", "001", "--dry-run"], {
+      cwd: tmp,
+      env: { ...process.env, PATH: `${binDir}:${process.env.PATH}` },
+      encoding: "utf8",
+    });
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /^# Rebuilt manifest for Plan-001 \(dry run\)/);
+    assert.match(r.stdout, /^\s*pr: 30$/m);
+    assert.doesNotMatch(r.stdout, /entries emitted/); // summary must not corrupt redirected YAML
+    assert.match(r.stderr, /entries emitted/);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("rebuildManifest --include-body-matches routes >100-file candidates to operator confirmation", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "rsm-e2e-"));
+  try {
+    const planDir = join(tmp, "docs", "plans");
+    mkdirSync(planDir, { recursive: true });
+    const planFile = join(planDir, "001-shared-session-core.md");
+    writeFileSync(planFile, PLAN_TEMPLATE);
+
+    // Legacy monorepo-bootstrap shape: body-only, file list truncated at the
+    // 100-file page. Pre-fix the include path threw exit 7 here.
+    const ghRunner = makeGhRunner({
+      prList: [42],
+      prDetails: {
+        42: { ...UNPARSEABLE_BODY_DETAILS, changedFiles: 200 },
+      },
+    });
+
+    const stdout = makeCaptureStream();
+    const stderr = makeCaptureStream();
+    const r = await rebuildManifest({
+      plan: "001",
+      dryRun: true,
+      force: false,
+      includeBodyMatches: true,
+      ghRunner,
+      plansDir: planDir,
+      stdout,
+      stderr,
+    });
+    assert.equal(r.exitCode, 0);
+    assert.match(
+      stderr.text(),
+      /file list truncated at the 100-file page — PR #42 routed to operator confirmation/,
+    );
+    const out = stdout.text();
+    assert.match(out, /# Operator confirmation needed \(body-only matches, unparseable markers\):/);
+    assert.match(out, /^#\s+pr: 42$/m);
+    assert.match(out, /unresolved: file list truncated at the 100-file GraphQL page/);
+    assert.doesNotMatch(out, /^\s*pr: 42$/m); // never a live shipped[] entry with partial files
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
