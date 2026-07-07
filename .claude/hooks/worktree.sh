@@ -5,8 +5,12 @@
 
 set -euo pipefail
 
-# Hook cwd is under-documented; force repo root.
-cd "$(git rev-parse --show-toplevel)"
+# Force the MAIN checkout root, not the current toplevel: the WorktreeRemove
+# hook runs with cwd INSIDE the worktree being removed (probe 2026-07-07),
+# where --show-toplevel returns the worktree root and every .worktrees/ path
+# below would silently mis-resolve. The common git dir always lives in the
+# main checkout.
+cd "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
 
 payload=$(cat)
 
@@ -17,6 +21,8 @@ die() {
   echo "worktree.sh: $*" >&2
   exit 1
 }
+
+command -v jq >/dev/null 2>&1 || die "jq is required"
 
 validate_name() {
   local n="$1"
@@ -67,6 +73,32 @@ cmd_remove() {
   if [[ ! -d "$path" ]]; then
     echo "worktree.sh: nothing to remove at $path" >&2
     exit 0
+  fi
+
+  # Refuse to delete a live process's cwd — that breaks every later command
+  # spawn in the occupying session (ENOENT posix_spawn '/bin/sh'). The
+  # occupancy engine excludes this hook's own process lineage, so a
+  # legitimate auto-clean (whose cwd sits inside the worktree being removed)
+  # does not deadlock; only OTHER sessions' processes block. The hook owns
+  # removal (replace semantics, probed 2026-07-07): a non-zero exit here
+  # aborts the harness removal entirely, so failing is safe.
+  local python_bin script_dir abs_path occupants occupancy_status
+  python_bin="$(command -v python3 || command -v python)" \
+    || die "python3/python is required for the occupancy check"
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+  abs_path="$(cd "$path" && pwd -P)" || die "cannot resolve '$path'"
+  occupancy_status=0
+  occupants="$("$python_bin" "$script_dir/command-guard.py" --occupancy "$abs_path")" \
+    || occupancy_status=$?
+  if [[ $occupancy_status -ne 0 ]]; then
+    die "could not verify occupancy of '$path' (exit $occupancy_status); refusing removal"
+  fi
+  if [[ -n "$occupants" ]]; then
+    die "refusing to remove occupied worktree '$path' — live occupants (pid/command/cwd):
+$occupants
+Exit the occupying session or kill the PIDs, then retry. (This harness-side
+path has no escape hatch; a Bash-side \`git worktree remove\` offers the
+WORKTREE_REMOVE_ALLOW_OCCUPIED=1 prefix.)"
   fi
 
   git worktree remove "$path" >&2 || die "git worktree remove '$path' failed"
