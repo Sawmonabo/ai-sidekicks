@@ -642,3 +642,48 @@ test("rebuildManifest: empty PR list returns exit 0 with message", async () => {
     rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+test("rebuildManifest excludes PRs whose title lacks the Plan-NNN token (lane-2 bodies)", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "rsm-e2e-"));
+  try {
+    const planDir = join(tmp, "docs", "plans");
+    mkdirSync(planDir, { recursive: true });
+    const planFile = join(planDir, "001-shared-session-core.md");
+    writeFileSync(planFile, PLAN_TEMPLATE);
+
+    const ghRunner = makeGhRunner({
+      prList: [30, 42],
+      prDetails: {
+        30: SAMPLE_DETAILS,
+        42: {
+          title: "feat(daemon): improve session cleanup",
+          body: "Tightens idle-session teardown.\n\nRefs: Plan-001",
+          mergedAt: "2026-07-01T12:00:00Z",
+          mergeCommit: { oid: "abc9876def0000" },
+          files: [{ path: "packages/runtime-daemon/src/session-cleanup.ts" }],
+        },
+      },
+    });
+
+    const stdout = {
+      lines: [],
+      write(s) {
+        this.lines.push(s);
+      },
+    };
+    const r = await rebuildManifest({
+      plan: "001",
+      dryRun: true,
+      force: false,
+      ghRunner,
+      plansDir: planDir,
+      stdout,
+    });
+    assert.equal(r.exitCode, 0);
+    const out = stdout.lines.join("");
+    assert.match(out, /skipped \(no title token\): PR #42/i); // lane-2 PR listed informationally
+    assert.doesNotMatch(out, /^\s*pr: 42$/m); // and NEVER synthesized into an entry
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});

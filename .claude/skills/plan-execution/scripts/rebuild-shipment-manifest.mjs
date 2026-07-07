@@ -305,6 +305,22 @@ export async function rebuildManifest({
   const built = [];
   for (const pr of prNumbers) {
     const details = fetchPrDetails({ pr, ghRunner });
+    // Candidate precision (2026-07-07): the in:title,body search keeps broad
+    // recall for the operator, but only TITLE-tokened PRs are the manifest
+    // population — G6 freshness is title-only, and lane-2 enhancement PRs
+    // (CONTRIBUTING §How Code Lands) carry `Refs: Plan-NNN` in the BODY by
+    // design. Synthesizing entries from body-only matches would fabricate
+    // shipped[] state and make preflight Gate 3 silently skip unshipped tasks.
+    // "i" flag: GitHub's search (both G6's title-only and this tool's in:title,body)
+    // matches case-insensitively — a lowercase `plan-001` title is G6-visible, so the
+    // rebuild filter must see it too or the two mechanisms disagree on the population.
+    const titleTokenRe = new RegExp(`\\bPlan-${plan}\\b`, "i");
+    if (!titleTokenRe.test(details.title ?? "")) {
+      stdout.write(
+        `skipped (no title token): PR #${pr} — "${details.title}" (body-only match; enhancement-lane or passing mention)\n`,
+      );
+      continue;
+    }
     built.push(buildEntryFromPr({ pr, details, plan }));
   }
 
