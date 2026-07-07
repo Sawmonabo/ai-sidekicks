@@ -214,8 +214,14 @@ See [Local SQLite Schema §Driver and Runtime Binding Tables](../architecture/sc
 | `tool_calls`           | `true`  | `true`  |
 | `reasoning_stream`     | `false` | `true`  |
 | `model_mutation`       | `false` | `true`  |
+| `structured_output`    | `true`  | `true`  |
+| `rollback`             | `true`  | `true`  |
+| `session_goals`        | `true`  | `true`  |
+| `callback_tools`       | `true`  | `true`  |
+| `subagents`            | `true`  | `true`  |
+| `cost_cap`             | `false` | `true`  |
 
-`pause` is intentionally absent from both — orchestration-layer construct per Spec-005:54.
+`pause` is intentionally absent from both — orchestration-layer construct per Spec-005:54. The six campaign rows above (five B3 + B6's `cost_cap`) mirror the Spec-005 matrix; their driver declaration + refusal tests land with the campaign's Plan-005 bundle's driver tasks (Claude `cost_cap: true` via `--max-budget-usd`, Codex `false` fail-closed for native-cap admissions).
 
 #### Tasks
 

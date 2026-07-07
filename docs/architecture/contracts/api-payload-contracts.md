@@ -750,16 +750,21 @@ type DriverRollbackResult =
 // goal on session resume, so driver-held state is never the recovery source.
 interface SetSessionGoalParams {
   sessionId: SessionId;
-  // Leg addressing (campaign B6): goal delivery fans out per live binding, so each driver
-  // call targets one leg by its run — the InterruptRunParams idiom; the driver resolves its
-  // provider session from the binding established at startRun/resumeSession.
+  // Leg addressing (campaign B6): goal delivery fans out per live binding, and `run` →
+  // bindings is 1:many in the shipped store (store-minted surrogate ids; e.g. a capped or
+  // posture relaunch mints a new binding for the same run) — so the BINDING is the leg key,
+  // matching the durable intent's per-leg map. The driver resolves its provider session from
+  // the binding it established at createSession/resumeSession (DriverResumeResult already
+  // returns bindingId); runId rides along for run-scoped context and telemetry.
+  bindingId: string;
   runId: RunId;
   goalText: string;
 }
 
 interface ClearSessionGoalParams {
   sessionId: SessionId;
-  runId: RunId; // leg addressing — same per-leg fan-out as SetSessionGoalParams (campaign B6)
+  bindingId: string; // leg key — same per-binding fan-out as SetSessionGoalParams (campaign B6)
+  runId: RunId;
 }
 
 type DriverGoalResult =

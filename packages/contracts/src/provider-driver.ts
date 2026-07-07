@@ -178,7 +178,7 @@ export interface InterruptRunParams {
   runId: RunId;
   // `?: T | undefined` per the package idiom under `exactOptionalPropertyTypes`
   // (session.ts:252-257). Load-bearing here: T4.2 pairs `InterruptRunParamsSchema`
-  // (Plan-005 line 288), whose Zod `.optional()` infers `string | undefined` — the
+  // (Plan-005 line 294), whose Zod `.optional()` infers `string | undefined` — the
   // explicit `| undefined` keeps the interface and the inferred schema output aligned.
   reason?: string | undefined;
 }

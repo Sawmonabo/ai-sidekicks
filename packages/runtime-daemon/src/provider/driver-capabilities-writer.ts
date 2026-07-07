@@ -26,7 +26,7 @@
 //
 // FLAT event payload vs NESTED hydrate return (do not conflate)
 // --------------------------------------------------------------------------
-// The canonical `CapabilityDetails` (api-payload-contracts.md:998-1002 — the
+// The canonical `CapabilityDetails` (api-payload-contracts.md:1003-1007 — the
 // shape Plan-006 Tier 4 will bind over the currently interim-opaque
 // `capabilityDetails` / `previousState` / `newState` event payload fields) is
 // FLATTENED:
@@ -45,12 +45,12 @@
 // Capability key — `"provider-driver-<driverName>"` (CP-005-5)
 // --------------------------------------------------------------------------
 // The emitted `capability` identifier is `"provider-driver-" + driverName`
-// (e.g. `provider-driver-claude`), per CP-005-5 (Plan-005:420-421), which
+// (e.g. `provider-driver-claude`), per CP-005-5 (Plan-005:426-427), which
 // directs the emit on driver registration + refresh with
 // `capability: "provider-driver-{codex|claude}"`. The DRIVER-NAME SUFFIX
 // disambiguates MULTIPLE drivers on one runtime node IN-PLAN — it is the
 // resolved contract (CP-005-5 status: RESOLVED), NOT a deferred Plan-006
-// concern. (api-payload-contracts.md:1007's bare `"provider-driver"` is only an
+// concern. (api-payload-contracts.md:1012's bare `"provider-driver"` is only an
 // ILLUSTRATIVE example of the `capability` field, not the canonical value;
 // CP-005-5 is the authority.)
 //
@@ -163,7 +163,7 @@ import {
 /**
  * The driver-name-suffixed capability identifier emitted on every
  * `runtime_node.capability_*` event — `"provider-driver-<driverName>"`
- * (e.g. `provider-driver-claude`). Per CP-005-5 (Plan-005:420-421), the
+ * (e.g. `provider-driver-claude`). Per CP-005-5 (Plan-005:426-427), the
  * suffix disambiguates multiple drivers on one runtime node IN-PLAN.
  */
 function providerDriverCapabilityKey(driverName: string): string {
@@ -172,7 +172,7 @@ function providerDriverCapabilityKey(driverName: string): string {
 
 /**
  * The flat capability snapshot — the canonical `CapabilityDetails` shape
- * (api-payload-contracts.md:998-1002). This is the form carried by the
+ * (api-payload-contracts.md:1003-1007). This is the form carried by the
  * `runtime_node.capability_*` event payloads AND the form used for
  * change-detection. `hydrate()` wraps this into the nested `GetCapabilitiesResult`.
  * `tools` is ALWAYS in canonical (`name`-ascending) order — see the file header.
