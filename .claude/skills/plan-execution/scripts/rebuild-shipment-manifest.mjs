@@ -492,7 +492,10 @@ if (isMain) {
   }
   rebuildManifest(args)
     .then((r) => {
-      process.stdout.write(`${r.message}\n`);
+      // Summary goes to stderr: dry-run stdout is a pure YAML stream that
+      // operators redirect (`--dry-run > manifest.yml`), and an uncommented
+      // "N entries emitted" line would corrupt it (Codex P2 round 4, PR #187).
+      process.stderr.write(`${r.message}\n`);
       process.exit(r.exitCode);
     })
     .catch((e) => {

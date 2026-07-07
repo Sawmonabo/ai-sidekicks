@@ -5,9 +5,12 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import process from "node:process";
+import { fileURLToPath, URL } from "node:url";
 import {
   parseArgs,
   parsePhaseFromPr,
@@ -892,4 +895,48 @@ test("parseArgs accepts --include-body-matches", () => {
   const r = parseArgs(["--plan", "001", "--dry-run", "--include-body-matches"]);
   assert.equal(r.includeBodyMatches, true);
   assert.equal(parseArgs(["--plan", "001"]).includeBodyMatches, false);
+});
+
+test("CLI --dry-run keeps stdout a pure YAML stream (summary on stderr)", () => {
+  const tmp = mkdtempSync(join(tmpdir(), "rsm-cli-"));
+  try {
+    const planDir = join(tmp, "docs", "plans");
+    mkdirSync(planDir, { recursive: true });
+    writeFileSync(join(planDir, "001-shared-session-core.md"), PLAN_TEMPLATE);
+
+    // PATH-shimmed gh: the CLI path uses defaultGhRunner (real shell-outs),
+    // so the fake binary serves the three command shapes the script issues.
+    // The full-details case is matched FIRST — its --json list is a superset
+    // of the title-only probe's.
+    const binDir = join(tmp, "bin");
+    mkdirSync(binDir);
+    const detailsJson = JSON.stringify({ ...SAMPLE_DETAILS, changedFiles: 1 });
+    writeFileSync(
+      join(binDir, "gh"),
+      [
+        "#!/bin/sh",
+        'case "$*" in',
+        `  *"pr list"*) printf '%s' '[{"number":30}]' ;;`,
+        `  *"--json title,body,"*) printf '%s' '${detailsJson}' ;;`,
+        `  *"--json title"*) printf '%s' '{"title":"feat(client-sdk): add sessionClient transports (Plan-001 T5.1)"}' ;;`,
+        "esac",
+        "",
+      ].join("\n"),
+    );
+    chmodSync(join(binDir, "gh"), 0o755);
+
+    const scriptPath = fileURLToPath(new URL("../rebuild-shipment-manifest.mjs", import.meta.url));
+    const r = spawnSync(process.execPath, [scriptPath, "--plan", "001", "--dry-run"], {
+      cwd: tmp,
+      env: { ...process.env, PATH: `${binDir}:${process.env.PATH}` },
+      encoding: "utf8",
+    });
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /^# Rebuilt manifest for Plan-001 \(dry run\)/);
+    assert.match(r.stdout, /^\s*pr: 30$/m);
+    assert.doesNotMatch(r.stdout, /entries emitted/); // summary must not corrupt redirected YAML
+    assert.match(r.stderr, /entries emitted/);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
 });
