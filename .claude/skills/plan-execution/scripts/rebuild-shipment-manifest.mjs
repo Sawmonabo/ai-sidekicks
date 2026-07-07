@@ -353,8 +353,31 @@ export async function rebuildManifest({
         stderr.write(
           `included body-only match (--include-body-matches; operator MUST confirm lane-1 shipment): PR #${pr} — "${title}"\n`,
         );
-        const details = fetchPrDetails({ pr, ghRunner });
-        built.push({ ...buildEntryFromPr({ pr, details, plan }), bodyOnly: true });
+        try {
+          const details = fetchPrDetails({ pr, ghRunner });
+          built.push({ ...buildEntryFromPr({ pr, details, plan }), bodyOnly: true });
+        } catch (e) {
+          if (e.exitCode !== 7) throw e;
+          // 100-file truncation: legacy scaffold PRs — the include path's
+          // whole audience — routinely exceed the page (Plan-001 PR #6 is a
+          // monorepo bootstrap). Rebuild the candidate from a files-free
+          // fetch and FORCE it into the operator-confirmation block: a
+          // partial files[] must never land as a live entry (Codex P2
+          // round 5, PR #187).
+          const light = JSON.parse(
+            ghRunner(`gh pr view ${pr} --json title,body,mergedAt,mergeCommit`),
+          );
+          built.push({
+            ...buildEntryFromPr({ pr, details: { ...light, files: [] }, plan }),
+            bodyOnly: true,
+            forcedErrors: [
+              "file list truncated at the 100-file GraphQL page — fill files[] by hand (gh api with cursor pagination)",
+            ],
+          });
+          stderr.write(
+            `  file list truncated at the 100-file page — PR #${pr} routed to operator confirmation\n`,
+          );
+        }
         continue;
       }
       stderr.write(
@@ -384,7 +407,16 @@ export async function rebuildManifest({
       continue;
     }
     const v = validateEntry(item.entry);
-    if (v.ok) {
+    const forcedErrors = item.forcedErrors ?? [];
+    if (forcedErrors.length > 0) {
+      // Truncated-fetch candidates are unconditionally operator-confirmed —
+      // even when the entry otherwise validates, its files[] is incomplete.
+      operatorConfirm.push({
+        pr: item.entry.pr,
+        errors: [...forcedErrors, ...(v.ok ? [] : v.errors)],
+        entry: item.entry,
+      });
+    } else if (v.ok) {
       validated.push({ entry: item.entry, ambiguities: item.ambiguities });
     } else if (item.bodyOnly) {
       operatorConfirm.push({ pr: item.entry.pr, errors: v.errors, entry: item.entry });

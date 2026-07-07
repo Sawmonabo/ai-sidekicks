@@ -167,8 +167,8 @@ git commit -m "feat(daemon): scaffold pnpm workspace + Turbo pipeline"
 git commit -m "feat(daemon): add Vitest config for daemon package"
 git commit -m "test(daemon): add scaffold smoke test"
 
-# 3. Open PR
-gh pr create --title "feat(daemon): scaffold monorepo with pnpm + Turbo" \
+# 3. Open PR — lane-1 shipment, so the title carries the Plan-NNN token
+gh pr create --title "feat(daemon): scaffold monorepo with pnpm + Turbo (Plan-001)" \
   --body "$(cat <<'EOF'
 ## Summary
 
@@ -193,7 +193,7 @@ gh pr merge --squash --delete-branch
 The squash-commit on `develop` reads:
 
 ```text
-feat(daemon): scaffold monorepo with pnpm + Turbo (#2)
+feat(daemon): scaffold monorepo with pnpm + Turbo (Plan-001) (#2)
 
 Scaffold the V1 monorepo per Plan-001: pnpm workspace, Turbo pipeline,
 daemon package skeleton, Vitest config.

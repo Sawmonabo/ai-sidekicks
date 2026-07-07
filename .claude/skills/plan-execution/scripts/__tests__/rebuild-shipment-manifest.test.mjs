@@ -940,3 +940,47 @@ test("CLI --dry-run keeps stdout a pure YAML stream (summary on stderr)", () => 
     rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+test("rebuildManifest --include-body-matches routes >100-file candidates to operator confirmation", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "rsm-e2e-"));
+  try {
+    const planDir = join(tmp, "docs", "plans");
+    mkdirSync(planDir, { recursive: true });
+    const planFile = join(planDir, "001-shared-session-core.md");
+    writeFileSync(planFile, PLAN_TEMPLATE);
+
+    // Legacy monorepo-bootstrap shape: body-only, file list truncated at the
+    // 100-file page. Pre-fix the include path threw exit 7 here.
+    const ghRunner = makeGhRunner({
+      prList: [42],
+      prDetails: {
+        42: { ...UNPARSEABLE_BODY_DETAILS, changedFiles: 200 },
+      },
+    });
+
+    const stdout = makeCaptureStream();
+    const stderr = makeCaptureStream();
+    const r = await rebuildManifest({
+      plan: "001",
+      dryRun: true,
+      force: false,
+      includeBodyMatches: true,
+      ghRunner,
+      plansDir: planDir,
+      stdout,
+      stderr,
+    });
+    assert.equal(r.exitCode, 0);
+    assert.match(
+      stderr.text(),
+      /file list truncated at the 100-file page — PR #42 routed to operator confirmation/,
+    );
+    const out = stdout.text();
+    assert.match(out, /# Operator confirmation needed \(body-only matches, unparseable markers\):/);
+    assert.match(out, /^#\s+pr: 42$/m);
+    assert.match(out, /unresolved: file list truncated at the 100-file GraphQL page/);
+    assert.doesNotMatch(out, /^\s*pr: 42$/m); // never a live shipped[] entry with partial files
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});

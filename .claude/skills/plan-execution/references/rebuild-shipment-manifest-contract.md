@@ -61,6 +61,7 @@ The script intentionally surfaces ambiguity rather than guessing:
 - **Multi-task PRs.** When two or more distinct task IDs appear, the entry uses array form (Plan-007 PR #19's `task: [T-007p-3-1, T-007p-3-2, T-007p-3-4]` shape).
 - **Missing merge SHA.** A PR queued and later reverted may have null `mergeCommit` — that entry fails `validateEntry` (exit 5 without `--force`).
 - **Body-only candidates under `--include-body-matches`.** Validation failures on these never exit 5 — they emit as the commented `# Operator confirmation needed` block in dry-run output, one entry per candidate with its `^ unresolved:` field list, for the operator to hand-edit and move into `shipped[]`.
+- **Truncated file lists under `--include-body-matches`.** A body-only candidate above the 100-file page does NOT exit 7 (legacy scaffold PRs — the flag's audience — routinely exceed it): the candidate rebuilds from a files-free fetch with `files: []` and is unconditionally routed to the operator-confirmation block, its `^ unresolved:` line naming the truncation. The default (tokened) path keeps the exit-7 halt.
 
 ## Plan Invariant I-3 boundary
 
