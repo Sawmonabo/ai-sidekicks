@@ -86,7 +86,7 @@ Override the diff source. Default is `git diff HEAD` ∪ `git diff --cached` (wo
       - **Token forms:** colon `Spec-003:178`; line-word `Spec-003 line 178` / `lines 81, 107-113`; parenthesized `(line 178)`; named-section `§Acceptance Criteria line 81`; acceptance-criterion `AC4:108`.
       - **Path / basename forms:** full path `docs/domain/session-model.md:61-77`; bare basename `api-payload-contracts.md:120`; and their line-word variants `…md line N` / `…md (line N)`.
 
-      Drop bare mentions with no line (`Spec-003 §Foo`, `per Spec-003`, a path with no `:NNN`) — there is no cited line to drift. Enumerating colon-only here would merely re-cover the floor and let the line-word AND bare-basename residual fall through BOTH layers — the exact gap (#139 was 11/41 line-word cites) this audit exists to close.
+      Drop bare mentions with no line (`Spec-NNN §Foo`, `per Spec-NNN`, a path with no `:NNN`) — there is no cited line to drift. Enumerating colon-only here would merely re-cover the floor and let the line-word AND bare-basename residual fall through BOTH layers — the exact gap (#139 was 11/41 line-word cites) this audit exists to close.
 
    4. **Normalize** each hit to `<doc-path>:NNN` — the amended doc's path paired with the cited line; a range / list (`lines 81, 107-113`, `:61-77`) expands to one entry per endpoint — and concatenate with the `.md` inbound citers. Pass the union as Subagent D's inbound list, tagging each entry's origin (`.md` vs code) so the subagent can name the citing surface in its narrative.
 

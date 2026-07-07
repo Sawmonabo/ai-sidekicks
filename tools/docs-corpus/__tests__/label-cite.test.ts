@@ -6,6 +6,7 @@ import { execSync } from "node:child_process";
 import {
   extractLabelCites,
   checkLabelCiteTargets,
+  checkSectionCites,
   formatLabelCiteViolations,
 } from "../lib/label-cite.ts";
 
@@ -475,6 +476,55 @@ describe("section-anchor cites", () => {
       );
       expect(violations).toHaveLength(1);
       expect(violations[0].reason).toBe("missing-target-file");
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe("checkSectionCites — section-anchor verification for markdown citers", () => {
+  it("passes a doc-to-doc `Spec-NNN §Heading` cite whose heading exists", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md": "# Spec\n\n## Wire Format\n\nbody\n",
+      "docs/plans/001-x.md": "# Plan\n\nPer `Spec-003 §Wire Format` the frame is LSP-style.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkSectionCites([resolve(root, "docs/plans/001-x.md")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("flags section-not-found for a doc-to-doc cite with a dead heading", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md": "# Spec\n\n## Something Else\n\nbody\n",
+      "docs/plans/001-x.md": "# Plan\n\nPer `Spec-003 §Wire Format` the frame is LSP-style.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkSectionCites([resolve(root, "docs/plans/001-x.md")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("section-not-found");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("ignores raw label-form cites (md label floors stay cite-target-existence's beat)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md": "line one\n",
+      "docs/plans/001-x.md":
+        "# Plan\n\nPer Spec-003:999 (raw form — out of range, NOT this check's scope).\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkSectionCites([resolve(root, "docs/plans/001-x.md")]),
+      );
+      expect(violations).toHaveLength(0);
     } finally {
       cleanup();
     }

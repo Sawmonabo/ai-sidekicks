@@ -12,7 +12,7 @@
 //   - `session.ts:408`                                            (inline-code with :N)
 
 import { readFileSync, existsSync } from "node:fs";
-import { dirname, resolve, isAbsolute } from "node:path";
+import { dirname, relative, resolve, isAbsolute, sep } from "node:path";
 
 export interface Cite {
   file: string;
@@ -90,6 +90,9 @@ export function extractCites(
   // from md. The two filters are orthogonal — widening extraction never
   // widens the citer lane.
   const codeRe = /`([\w./-]+\.(?:ts|tsx|js|mjs|mts|cts|md)):(\d+(?:\s*[,-]\s*\d+)*)`/g;
+  // Markdown-link form with a CODE-extension target — extracted solely for the
+  // volatile deny (see the pass below).
+  const linkCodeRe = /\]\(([^)]+\.(?:ts|tsx|js|mjs|mts|cts))\)\s*:\s*([\d,\s-]+)/g;
   const repoRoot = getRepoRoot();
 
   const lines = content.split("\n");
@@ -129,15 +132,20 @@ export function extractCites(
     // would generate false positives until basename-resolution is reworked.
     while ((m = codeRe.exec(line)) !== null) {
       const targetName = m[1];
-      const candidate = resolve(repoRoot, targetName);
-      const isPathShaped = targetName.includes("/");
+      // Strip `./` self-reference prefixes before the volatile-prefix test:
+      // `./packages/x.ts` resolves identically to `packages/x.ts`, so an
+      // unnormalized startsWith would let the spelling bypass the deny
+      // (Codex review, PR #188).
+      const normalizedTargetName = targetName.replace(/^(?:\.\/)+/, "");
+      const candidate = resolve(repoRoot, normalizedTargetName);
+      const isPathShaped = normalizedTargetName.includes("/");
       // The volatile deny covers CODE targets only — a `packages/**/*.md:NN`
       // cite is not "code under packages/" per AGENTS.md §Durable-Cite Rule,
       // so `.md` targets keep floor semantics.
       const isVolatileCode =
         isPathShaped &&
-        !targetName.endsWith(".md") &&
-        VOLATILE_CODE_PREFIXES.some((prefix) => targetName.startsWith(prefix));
+        !normalizedTargetName.endsWith(".md") &&
+        VOLATILE_CODE_PREFIXES.some((prefix) => normalizedTargetName.startsWith(prefix));
       if (!(isPathShaped || existsSync(candidate))) continue;
       const lineList: number[] = [];
       for (const token of m[2].split(/[,\s]+/).filter(Boolean)) {
@@ -154,6 +162,38 @@ export function extractCites(
           targetPath: candidate,
           targetLine,
           ...(isVolatileCode ? { volatileCodeTarget: true } : {}),
+        });
+      }
+    }
+    // Markdown-LINK line-pins into code targets (`[impl](../x/bar.ts):12`).
+    // linkRe above accepts only `.md` targets, so a code-target link was
+    // invisible to the volatile deny — a raw line-pin bypass via link syntax
+    // (Codex review, PR #188). This pass extracts code-extension link targets
+    // ONLY to apply the deny: the target resolves citer-relative (like md
+    // links), and its repo-relative form decides volatility. Non-volatile
+    // code links stay unextracted — pre-existing scope, unchanged.
+    linkCodeRe.lastIndex = 0;
+    while ((m = linkCodeRe.exec(line)) !== null) {
+      const relTarget = m[1].trim();
+      if (/^https?:/.test(relTarget)) continue;
+      const targetPath = isAbsolute(relTarget) ? relTarget : resolve(baseDir, relTarget);
+      const repoRelative = relative(repoRoot, targetPath).split(sep).join("/");
+      if (!VOLATILE_CODE_PREFIXES.some((prefix) => repoRelative.startsWith(prefix))) continue;
+      const lineList: number[] = [];
+      for (const token of m[2].split(/[,\s]+/).filter(Boolean)) {
+        for (const part of token.split("-")) {
+          const n = Number.parseInt(part, 10);
+          if (Number.isFinite(n) && n > 0) lineList.push(n);
+        }
+      }
+      for (const targetLine of lineList) {
+        cites.push({
+          file: citingFile,
+          line: i + 1,
+          rawTarget: `${relTarget}:${targetLine}`,
+          targetPath,
+          targetLine,
+          volatileCodeTarget: true,
         });
       }
     }

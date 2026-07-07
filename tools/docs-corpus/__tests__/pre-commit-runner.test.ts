@@ -268,3 +268,23 @@ describe("pre-commit-runner — reverse-direction advisory", () => {
     }
   });
 });
+
+describe("pre-commit-runner — markdown section-anchor cites", () => {
+  it("flags a staged doc citing a dead `§Heading` (section-not-found)", () => {
+    const { root, cleanup } = setupRepo({
+      // `draft` → manifest-presence guard exempts this plan (see describe note).
+      "docs/plans/002-test.md":
+        "# Plan-002\n\n| **Status** | `draft` |\n\nPer `Spec-003 §Wire Format` the frame is LSP-style.\n",
+      "docs/specs/003-runtime-node-attach.md":
+        "# Spec\n\n| **Status** | `draft` |\n\n## Something Else\n\nbody\n",
+    });
+    try {
+      const result = withRepoRoot(root, () => runChecks([resolve(root, "docs/plans/002-test.md")]));
+      expect(result.exitCode).toBe(1);
+      const joined = result.messages.join("\n");
+      expect(joined).toContain("section-not-found");
+    } finally {
+      cleanup();
+    }
+  });
+});

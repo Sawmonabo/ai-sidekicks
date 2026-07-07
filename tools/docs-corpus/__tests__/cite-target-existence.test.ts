@@ -341,3 +341,51 @@ describe("durable-cite rule", () => {
     }
   });
 });
+
+describe("durable-cite rule — Codex round-1 hardening (PR #188)", () => {
+  it("denies a ./-spelled raw line-cite into packages/ (normalizes before the prefix test)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/plans/001-x.md": "# Plan\n\nSee `./packages/lost/src/missing.ts:42` for detail.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/plans/001-x.md")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("raw-line-cite-into-volatile-code");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("denies a markdown-link line-pin whose target is volatile code", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/plans/001-x.md": "# Plan\n\nSee [impl](../../packages/foo/src/bar.ts):12 for detail.\n",
+      "packages/foo/src/bar.ts": "export function doThing(): void {}\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/plans/001-x.md")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("raw-line-cite-into-volatile-code");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("leaves a markdown-link line-pin to non-volatile code unextracted (pre-existing scope)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/plans/001-x.md": "# Plan\n\nSee [helper](../../tools/foo.ts):12 for detail.\n",
+      "tools/foo.ts": "export function helper(): void {}\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/plans/001-x.md")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+});

@@ -45,7 +45,11 @@ import {
   getRepoRoot,
   makeIndexAwareReader,
 } from "../lib/inbound-cite-discovery.ts";
-import { checkLabelCiteTargets, formatLabelCiteViolations } from "../lib/label-cite.ts";
+import {
+  checkLabelCiteTargets,
+  checkSectionCites,
+  formatLabelCiteViolations,
+} from "../lib/label-cite.ts";
 import { checkMermaidSetCoherence, formatMermaidViolations } from "../lib/mermaid-set-coherence.ts";
 import {
   checkPathCanonicalRipple,
@@ -165,6 +169,14 @@ export function runChecks(args: string[]): RunChecksResult {
       const citeHits = checkCiteTargetExistence(expanded, reader);
       if (citeHits.length > 0) {
         messages.push(formatCiteTargetViolations(citeHits));
+        exitCode = 1;
+      }
+      // Backticked `Spec-NNN §Heading` cites in DOCS verify against the
+      // resolved doc's headings, same as code citers — a section-only walk
+      // (raw label-form md floors stay cite-target-existence's beat above).
+      const sectionHits = checkSectionCites(expanded, reader);
+      if (sectionHits.length > 0) {
+        messages.push(formatLabelCiteViolations(sectionHits));
         exitCode = 1;
       }
     }

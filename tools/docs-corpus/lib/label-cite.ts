@@ -277,6 +277,37 @@ export function extractLabelCites(
   return extractLabelCitesFrom(citingFile, getRepoRoot(), reader);
 }
 
+// Verify one section-form cite (c.section is set). Returns null when the
+// heading exists in the resolved doc.
+function sectionViolation(c: Cite, reader: FileContentReader): CiteViolation | null {
+  let content: string;
+  try {
+    content = reader(c.targetPath);
+  } catch {
+    return { cite: c, reason: "missing-target-file", detail: c.targetPath };
+  }
+  const section = c.section as string;
+  if (verifySectionHeading(content, section)) return null;
+  // Self-heal detail: a §-cite usually breaks because the heading was
+  // RENAMED — list the doc's current headings (prefix-matched first,
+  // else the first few) so the citer's fix is self-serve.
+  const headings = content
+    .split("\n")
+    .filter((l) => /^#+\s+/.test(l))
+    .map((l) => l.replace(/^#+\s+/, "").trim());
+  const target = normalizeTokenForMatch(section);
+  const near = headings.filter((h) => {
+    const n = normalizeTokenForMatch(h);
+    return n.startsWith(target.slice(0, 6)) || target.startsWith(n.slice(0, 6));
+  });
+  const suggestions = (near.length > 0 ? near : headings).slice(0, 5);
+  return {
+    cite: c,
+    reason: "section-not-found",
+    detail: `heading '§${section}' not found in ${c.targetPath}; nearest headings: ${suggestions.join(" | ") || "(none)"}`,
+  };
+}
+
 export function checkLabelCiteTargets(
   files: string[],
   reader: FileContentReader = defaultReader,
@@ -286,36 +317,33 @@ export function checkLabelCiteTargets(
   for (const f of files) {
     for (const c of extractLabelCitesFrom(f, repoRoot, reader)) {
       if (c.section !== undefined) {
-        let content: string;
-        try {
-          content = reader(c.targetPath);
-        } catch {
-          violations.push({ cite: c, reason: "missing-target-file", detail: c.targetPath });
-          continue;
-        }
-        if (!verifySectionHeading(content, c.section)) {
-          // Self-heal detail: a §-cite usually breaks because the heading was
-          // RENAMED — list the doc's current headings (prefix-matched first,
-          // else the first few) so the citer's fix is self-serve.
-          const headings = content
-            .split("\n")
-            .filter((l) => /^#+\s+/.test(l))
-            .map((l) => l.replace(/^#+\s+/, "").trim());
-          const target = normalizeTokenForMatch(c.section);
-          const near = headings.filter((h) => {
-            const n = normalizeTokenForMatch(h);
-            return n.startsWith(target.slice(0, 6)) || target.startsWith(n.slice(0, 6));
-          });
-          const suggestions = (near.length > 0 ? near : headings).slice(0, 5);
-          violations.push({
-            cite: c,
-            reason: "section-not-found",
-            detail: `heading '§${c.section}' not found in ${c.targetPath}; nearest headings: ${suggestions.join(" | ") || "(none)"}`,
-          });
-        }
+        const sectionV = sectionViolation(c, reader);
+        if (sectionV) violations.push(sectionV);
         continue;
       }
       const v = checkCite(c, reader);
+      if (v) violations.push(v);
+    }
+  }
+  return violations;
+}
+
+// Section-anchor verification for MARKDOWN citers. Docs legally carry raw
+// label-form line cites in prose (their floor is cite-target-existence's
+// beat), so the md lane must NOT route through checkLabelCiteTargets — this
+// narrower walk extracts ONLY the backticked `Spec-NNN §Heading` form and
+// verifies the heading, closing the docs-to-docs gap the Durable-Cite Rule
+// promises (Codex review, PR #188).
+export function checkSectionCites(
+  files: string[],
+  reader: FileContentReader = defaultReader,
+): CiteViolation[] {
+  const repoRoot = getRepoRoot();
+  const violations: CiteViolation[] = [];
+  for (const f of files) {
+    for (const c of extractLabelCitesFrom(f, repoRoot, reader)) {
+      if (c.section === undefined) continue;
+      const v = sectionViolation(c, reader);
       if (v) violations.push(v);
     }
   }
