@@ -20,7 +20,7 @@
 // CLI:
 //   node --experimental-strip-types \
 //     .claude/skills/plan-execution/scripts/rebuild-shipment-manifest.mjs \
-//     --plan NNN [--dry-run] [--force]
+//     --plan NNN [--dry-run] [--force] [--include-body-matches]
 //
 // Exit codes:
 //   0  success (entries appended OR --dry-run produced YAML)
@@ -60,7 +60,7 @@ class ArgError extends Error {
 }
 
 export function parseArgs(argv) {
-  const result = { plan: null, dryRun: false, force: false };
+  const result = { plan: null, dryRun: false, force: false, includeBodyMatches: false };
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
     switch (flag) {
@@ -78,6 +78,9 @@ export function parseArgs(argv) {
         break;
       case "--force":
         result.force = true;
+        break;
+      case "--include-body-matches":
+        result.includeBodyMatches = true;
         break;
       default:
         throw new ArgError(`unknown flag: ${flag}`);
@@ -288,6 +291,7 @@ export async function rebuildManifest({
   plan,
   dryRun,
   force,
+  includeBodyMatches = false,
   ghRunner = defaultGhRunner,
   plansDir = "docs/plans",
   stdout = process.stdout,
@@ -301,6 +305,14 @@ export async function rebuildManifest({
   if (prNumbers.length === 0) {
     return { exitCode: 0, message: `no merged PRs found for Plan-${plan}` };
   }
+
+  // PRs the on-disk manifest already records are known lane-1 shipments — a
+  // body-only title never demotes them (legacy squash titles pre-date the
+  // title-token mandate: Plan-001 shipped via PR #6/#8/#9/#10 with no token;
+  // Codex P2 round 2, PR #187). An unparseable block yields the empty set —
+  // the write path re-parses later and fails loudly there where it matters.
+  const preParsed = parseManifestBlock(readFileSync(planFile, "utf8"));
+  const existingManifestPrs = new Set(preParsed.ok ? preParsed.shipped.map((e) => e.pr) : []);
 
   const built = [];
   for (const pr of prNumbers) {
@@ -317,13 +329,27 @@ export async function rebuildManifest({
     // halts loudly (exit 7) when files truncate at the 100-file GraphQL page,
     // and a body-only PR outside the manifest population must not be able to
     // trip that halt (Codex P2, PR #187).
+    // Two rescue paths for body-only matches that ARE shipments: membership in
+    // the existing manifest (recovery/cross-validation runs), and the
+    // --include-body-matches flag (fresh backfills of pre-mandate history,
+    // operator confirms each candidate per the contract).
     const titleTokenRe = new RegExp(`\\bPlan-${plan}\\b`, "i");
     const { title } = JSON.parse(ghRunner(`gh pr view ${pr} --json title`));
     if (!titleTokenRe.test(title ?? "")) {
-      stdout.write(
-        `skipped (no title token): PR #${pr} — "${title}" (body-only match; enhancement-lane or passing mention)\n`,
-      );
-      continue;
+      if (existingManifestPrs.has(pr)) {
+        stdout.write(
+          `included body-only match (already recorded in manifest): PR #${pr} — "${title}"\n`,
+        );
+      } else if (includeBodyMatches) {
+        stdout.write(
+          `included body-only match (--include-body-matches; operator MUST confirm lane-1 shipment): PR #${pr} — "${title}"\n`,
+        );
+      } else {
+        stdout.write(
+          `skipped (no title token): PR #${pr} — "${title}" (body-only match; enhancement-lane or passing mention — legacy pre-mandate shipments need --include-body-matches)\n`,
+        );
+        continue;
+      }
     }
     const details = fetchPrDetails({ pr, ghRunner });
     built.push(buildEntryFromPr({ pr, details, plan }));

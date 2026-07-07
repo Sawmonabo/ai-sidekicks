@@ -31,7 +31,12 @@ test("parseArgs: rejects malformed --plan", () => {
 });
 
 test("parseArgs: happy path", () => {
-  assert.deepEqual(parseArgs(["--plan", "001"]), { plan: "001", dryRun: false, force: false });
+  assert.deepEqual(parseArgs(["--plan", "001"]), {
+    plan: "001",
+    dryRun: false,
+    force: false,
+    includeBodyMatches: false,
+  });
 });
 
 test("parseArgs: --dry-run + --force", () => {
@@ -39,6 +44,7 @@ test("parseArgs: --dry-run + --force", () => {
     plan: "001",
     dryRun: true,
     force: true,
+    includeBodyMatches: false,
   });
 });
 
@@ -734,4 +740,108 @@ test("rebuildManifest skips a body-only PR before the truncation-sensitive detai
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
+});
+
+const LANE2_BACKFILL_DETAILS = {
+  title: "feat(daemon): improve session cleanup",
+  body: "Backfill of Phase 2 T2.9 work.\n\nRefs: Plan-001",
+  mergedAt: "2026-07-01T12:00:00Z",
+  mergeCommit: { oid: "abc9876def0000" },
+  files: [{ path: "packages/runtime-daemon/src/session-cleanup.ts" }],
+};
+
+test("rebuildManifest keeps a body-only PR that the manifest already records (legacy shipment)", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "rsm-e2e-"));
+  try {
+    const planDir = join(tmp, "docs", "plans");
+    mkdirSync(planDir, { recursive: true });
+    const planFile = join(planDir, "001-shared-session-core.md");
+    writeFileSync(
+      planFile,
+      PLAN_TEMPLATE.replace(
+        "shipped: []",
+        [
+          "shipped:",
+          "  - phase: 2",
+          "    task: T2.9",
+          "    pr: 42",
+          "    sha: abc9876",
+          "    merged_at: 2026-07-01",
+          "    files:",
+          "      - packages/runtime-daemon/src/session-cleanup.ts",
+          "    notes: legacy pre-title-mandate shipment",
+        ].join("\n"),
+      ),
+    );
+
+    const ghRunner = makeGhRunner({
+      prList: [42],
+      prDetails: { 42: LANE2_BACKFILL_DETAILS },
+    });
+
+    const stdout = {
+      lines: [],
+      write(s) {
+        this.lines.push(s);
+      },
+    };
+    const r = await rebuildManifest({
+      plan: "001",
+      dryRun: true,
+      force: false,
+      ghRunner,
+      plansDir: planDir,
+      stdout,
+    });
+    assert.equal(r.exitCode, 0);
+    const out = stdout.lines.join("");
+    assert.match(out, /included body-only match \(already recorded in manifest\): PR #42/i);
+    assert.match(out, /^\s*pr: 42$/m); // legacy shipment stays in the rebuilt manifest
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("rebuildManifest --include-body-matches admits body-only PRs for pre-mandate backfill", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "rsm-e2e-"));
+  try {
+    const planDir = join(tmp, "docs", "plans");
+    mkdirSync(planDir, { recursive: true });
+    const planFile = join(planDir, "001-shared-session-core.md");
+    writeFileSync(planFile, PLAN_TEMPLATE);
+
+    const ghRunner = makeGhRunner({
+      prList: [42],
+      prDetails: { 42: LANE2_BACKFILL_DETAILS },
+    });
+
+    const stdout = {
+      lines: [],
+      write(s) {
+        this.lines.push(s);
+      },
+    };
+    const r = await rebuildManifest({
+      plan: "001",
+      dryRun: true,
+      force: false,
+      includeBodyMatches: true,
+      ghRunner,
+      plansDir: planDir,
+      stdout,
+    });
+    assert.equal(r.exitCode, 0);
+    const out = stdout.lines.join("");
+    assert.match(out, /included body-only match \(--include-body-matches/i);
+    assert.match(out, /operator MUST confirm/i);
+    assert.match(out, /^\s*pr: 42$/m);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("parseArgs accepts --include-body-matches", () => {
+  const r = parseArgs(["--plan", "001", "--dry-run", "--include-body-matches"]);
+  assert.equal(r.includeBodyMatches, true);
+  assert.equal(parseArgs(["--plan", "001"]).includeBodyMatches, false);
 });

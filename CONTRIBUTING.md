@@ -126,7 +126,7 @@ If the binary is missing, the lefthook hook emits a `WARNING:` to stderr and let
 
 1. **Branch off `develop`.** `git switch develop && git pull && git switch -c feat/plan-001-monorepo-scaffold`
 2. **Commit using Conventional Commits format.** Pre-commit hooks (lefthook + lint-staged + commitlint) catch format errors locally; CI re-runs them as enforcement per ADR-023 §Axis 2.
-3. **Open the PR (base `develop`).** PR title MUST match conventional-commit subject format — it becomes the squash-commit subject on `develop`. A **lane-1 PR** (ships or modifies tasks tracked in a plan's Shipment Manifest / task DAG — see §How Code Lands below) MUST also include the `Plan-NNN` token in the title: the plan-execution preflight's manifest-freshness gate recovers shipment drift by searching merged PR titles (`Plan-NNN in:title`), and a title carrying the plan only in the body `Refs:` line is invisible to it. Lane-2/3 PRs MUST NOT carry the token — their invisibility to that gate is the lane boundary working as designed, not a gap. PR body explains the change; code PRs include a Test Plan section.
+3. **Open the PR (base `develop`).** PR title MUST match conventional-commit subject format — it becomes the squash-commit subject on `develop`. A **lane-1 PR** (ships plan-task work that adds or completes entries in a plan's Shipment Manifest / task DAG — see §How Code Lands below) MUST also include the `Plan-NNN` token in the title: the plan-execution preflight's manifest-freshness gate recovers shipment drift by searching merged PR titles (`Plan-NNN in:title`), and a title carrying the plan only in the body `Refs:` line is invisible to it. Lane-2/3 PRs MUST NOT carry the token — their invisibility to that gate is the lane boundary working as designed, not a gap. PR body explains the change; code PRs include a Test Plan section.
 4. **Address review.** Push additional commits to the same branch; squash-merge collapses them.
 5. **Merge.** `gh pr merge --squash --delete-branch` — squashes the branch, deletes both local and remote, fast-forwards local `develop`.
 
@@ -134,14 +134,16 @@ Branch protection ensures no direct pushes to `develop` or `main`. The squash-me
 
 ## How Code Lands: Work Classification
 
-Classify the change before branching; the lane decides the ceremony. When in doubt between lanes 2 and 4, the boundary rule below decides.
+Classify the change before branching; the lane decides the ceremony. When in doubt, the boundary rules below decide.
 
 | # | Lane | What qualifies | Ceremony |
 | --- | --- | --- | --- |
-| 1 | **Plan-task shipment** | Implementing, fixing, or extending tasks tracked in a plan's Shipment Manifest / task DAG — a phase in flight, a partial re-ship, a plan-scoped extension | `Plan-NNN` in the PR title; manifest entry; doc-first + audit gates per [AGENTS.md §Doc-First Discipline](AGENTS.md#doc-first-discipline); dispatches in tier order and on plan §Preconditions; `/plan-execution` optional |
-| 2 | **Post-completion enhancement** | Changing code a completed/shipped plan phase introduced, staying within the approved spec envelope | Ordinary Conventional-Commit PR + `Refs: Plan-NNN` footer for traceability; **no** title token, **no** manifest entry, **no** preflight; ordinary review + CI |
+| 1 | **Plan-task shipment** | Shipping not-yet-shipped plan-task work — a phase in flight, a partial re-ship of reverted work, a plan-scoped extension adding NEW manifest-tracked tasks; the PR adds or completes Shipment Manifest entries | `Plan-NNN` in the PR title; manifest entry; doc-first + audit gates per [AGENTS.md §Doc-First Discipline](AGENTS.md#doc-first-discipline); dispatches in tier order and on plan §Preconditions; `/plan-execution` optional |
+| 2 | **Post-completion enhancement** | Changing code a completed/shipped plan phase introduced (its manifest entry already exists), staying within the approved spec envelope — fixes to already-shipped tasks are lane 2, never a lane-1 re-ship | Ordinary Conventional-Commit PR + `Refs: Plan-NNN` footer for traceability; **no** title token, **no** manifest entry, **no** preflight; ordinary review + CI |
 | 3 | **Repo tooling / infra / chore** | `.claude/**`, `tools/**`, CI workflows, hooks, scripts, dependency bumps — work no plan owns | Plain conventional PR; no plan relationship at all |
 | 4 | **Behavior-contract change** | Anything that alters a plan §Invariant (I-NNN-M) or a spec Required Behavior / Acceptance Criteria row — including on already-shipped code | Spec/plan amendment FIRST (doc-first), then lane 1 |
+
+**Boundary rule (lane 1 vs lane 2).** A task already recorded in the Shipment Manifest is shipped; later fixes or improvements to that code are lane 2 (or lane 4 when they alter the contract) — never a second lane-1 pass over the same entry. Lane 1 is reserved for work that adds or completes manifest entries.
 
 **Boundary rule (lane 2 vs lane 4).** If the diff changes what a plan §Invariants entry or a spec Required Behavior / Acceptance Criteria row asserts, it is NOT an enhancement — the governing doc amends first. If behavior stays within the approved spec envelope, it is lane 2 regardless of which plan originally shipped the file.
 
