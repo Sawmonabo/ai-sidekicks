@@ -1302,10 +1302,11 @@ interface RunStateChangeEvent {
   // OrchestrationRunConfig member, so it can never arrive on OrchestrationRunCreateRequest.config
   // (Spec-016 §Cost Derivation And Absent-Cost Semantics).
   admittedUnpricedCapCents?: number;
-  // As-of-admission model family (campaign B6, sibling of the cap): resolved agentId → agent
-  // model → pricing-family key AT ADMISSION and frozen here — a later agent.configUpdate model
-  // change never re-keys an admitted run's pricing, caps, or warnings; replay reads this field,
-  // never the current agents projection.
+  // As-of-admission model family (campaign B6): resolved agentId → agent model →
+  // pricing-family key AT ADMISSION and frozen here. Stamped on EVERY admitted run — unlike
+  // the native-cap field above — because derived pricing, family caps, and warnings all key
+  // off it; a later agent.configUpdate model change never re-keys an admitted run, and replay
+  // reads this field, never the current agents projection.
   admittedModelFamily?: string;
   timestamp: string;
 }
@@ -2739,10 +2740,11 @@ interface OrchestrationRunLinkCarrier {
   // replay rebuilds reservations + terminal debits from run.queued records alone; absent on
   // priced runs (Spec-016 §Cost Derivation And Absent-Cost Semantics, campaign B6)
   admittedUnpricedCapCents?: number;
-  // As-of-admission model family (campaign B6, sibling of the cap): resolved agentId → agent
-  // model → pricing-family key AT ADMISSION and frozen here — a later agent.configUpdate model
-  // change never re-keys an admitted run's pricing, caps, or warnings; replay reads this field,
-  // never the current agents projection.
+  // As-of-admission model family (campaign B6): resolved agentId → agent model →
+  // pricing-family key AT ADMISSION and frozen here. Stamped on EVERY admitted run — unlike
+  // the native-cap field above — because derived pricing, family caps, and warnings all key
+  // off it; a later agent.configUpdate model change never re-keys an admitted run, and replay
+  // reads this field, never the current agents projection.
   admittedModelFamily?: string;
 }
 ```
