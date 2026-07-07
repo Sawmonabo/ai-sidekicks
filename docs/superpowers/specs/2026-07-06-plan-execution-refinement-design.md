@@ -33,6 +33,7 @@ The estate encoded one worldview: **every code change is plan-task shipment.** T
 7. Post-sweep, the deny ratchets to the code→docs direction (no new raw `Spec-NNN:LL` / `docs/….md:LL` in code comments).
 8. Enhancement-lane boundary: a change that alters a plan §Invariant or a spec Required Behavior / Acceptance Criteria row is NOT an enhancement — spec/plan amends first.
 9. S-class housekeeping: the orchestrator applies the deterministic edits directly (no subagent dispatch) in the usual second gated PR, merged on CLEAN per the doc-only precedent. Same-PR batching is impossible because the manifest entry records the squash SHA, which does not exist pre-merge.
+10. The housekeeper design spec §4.3.5 verbatim-mirror requirement is superseded: state-recovery points at the canonical rules instead of duplicating them.
 
 ## 4. The five PRs
 

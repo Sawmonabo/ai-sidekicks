@@ -120,7 +120,7 @@ Stage 1 (script) writes the file with subagent fields stubbed. Stage 2 (subagent
 
 **Graceful degradation.** If the orchestrator omits `--squash-sha` or `--merged-at` (legacy callers, fixture tests, Phase E configuration bugs), the script emits `proposed_manifest_entry: null` rather than a partial entry. The orchestrator's `extractProposedEntry` helper returns null in that case, and step 6 halts with a configuration gap surfaced to the user — never a silent no-op manifest write.
 
-**Plan Invariant I-3 boundary.** The script does NOT touch the plan-file's `### Shipment Manifest` block itself (no git imports, no plan-file writes — see `__tests__/post-merge-housekeeper-orchestrator-helpers.test.mjs § I-3 invariant`). The script's job is to PROPOSE; the orchestrator's job is to enrich (DAG fields) + WRITE (via `appendManifestEntry` from `scripts/lib/manifest.mjs`). Pattern B per the cozy-crafting-hummingbird design (script ↔ orchestrator separation).
+**Plan Invariant I-3 boundary.** The script does NOT touch the plan-file's `### Shipment Manifest` block itself (no git imports, no plan-file writes — see `__tests__/post-merge-housekeeper-orchestrator-helpers.test.mjs § I-3 invariant`). The script's job is to PROPOSE; the orchestrator's job is to enrich (DAG fields) + WRITE (via `appendManifestEntry` from `scripts/lib/manifest.mjs`). Pattern B — script proposes, orchestrator writes — per the shipment-manifest refactor design.
 
 **Idempotency.** `appendManifestEntry` is keyed on the `pr` field — re-running Phase E step 6 with the same proposed entry is a no-op (per `__tests__/manifest.test.mjs § appendManifestEntry: idempotency on pr`).
 

@@ -206,15 +206,8 @@ Recovery diagnostic — run in this order:
    - `"NEEDS_CONTEXT"` → read `manifest.concerns[].context_request`; surface to the user; re-dispatch with the requested context
    - `"BLOCKED"` → read `manifest.concerns[].blocker`; cannot proceed; user must decide
 
-### Candidate-lookup rules (verbatim from SKILL.md § Phase E step 1; mirrored here per spec §4.3.5)
+### Candidate-lookup rules (canonical at SKILL.md § Phase E step 1)
 
-The script's `--candidate-ns` mode is dispatched only after orchestrator-side candidate-lookup returns exactly one match. The four heading-only matching rules (no body parsing) are:
-
-- **Rule 1 — Plan + Phase match:** Diff touches `docs/plans/<NNN>-<slug>.md` AND commit message cites `Phase <N>` → match `### NS-NN: Plan-<NNN> Phase <N> — ...` (case-insensitive on "Phase"). The plan-NN and phase-N must both appear in the heading; `Phase 5 Lane A` matches `Phase 5` (lane suffix is a Phase-5 sub-scope).
-- **Rule 2 — Plan + task-id match:** Commit message cites `T<phase>.<sub>` (e.g., `T5.1`) or `T-NNN-N-N` (e.g., `T-001-5-1`) → match `### NS-NN: Plan-<NNN> Phase <N> ...` whose `PRs:` block contains a row matching the task-id. Requires reading the `PRs:` block, but only to disambiguate among Phase-matching candidates.
-- **Rule 3 — Plan + Tier-K match:** Diff is a plan-readiness audit (matches `docs/plans/<tier-K>-<...>.md` shape) → match `### NS-NN..NS-MM: Tier <K>-<L> plan-readiness audits` via the lower-endpoint `tier-K` form. The task-arg form is `tier-3` (per Plan §Decisions-Locked D-4); range merges always use the lower endpoint, so `tier-3-9` is REJECTED at arg-parse.
-- **Rule 4 — No-match fallback:** If rules 1-3 produce zero matches, the orchestrator drops to `--auto-create` (which reserves the next free NS-NN with stub fields). If the orchestrator's intent was to MATCH (not create), surface NEEDS_CONTEXT halt with the rule-1/2/3 attempts so the user can disambiguate.
-
-If a Phase E halt's `manifest.script_exit_code === 1` (no NS match), trace which rule should have matched and why it didn't — typo'd Plan-NN, missing `PRs:` block row, lookup-rule-3 lower-endpoint mismatch, etc. The fixture `11-tier-range-audit` (Plan §Decisions-Locked D-7 row 11) is the canonical rule-3 test case to consult for shape comparison.
+The four heading-only matching rules are canonical at SKILL.md § Phase E step 1 — read them there; this file no longer mirrors them. For a Phase E halt with `manifest.script_exit_code === 1` (no NS match), trace which rule should have matched and why it didn't — typo'd Plan-NN, missing `PRs:` block row, rule-3 lower-endpoint mismatch. The fixture `11-tier-range-audit` is the canonical rule-3 shape to compare against.
 
 Full contract: [`post-merge-housekeeper-contract.md`](post-merge-housekeeper-contract.md).

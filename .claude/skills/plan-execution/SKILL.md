@@ -458,7 +458,7 @@ Phase E fires AFTER Phase D.5 step 4 (`git switch develop && git pull --ff-only`
 
 The phase has 8 steps in this exact order — DO NOT reorder; step 6 (shipment-manifest entry) explicitly moves AFTER housekeeping per spec §6.1 design choice (a single commit bundles housekeeping + manifest entry so the post-merge state is atomic):
 
-1. **Run candidate-lookup** over `docs/architecture/cross-plan-dependencies.md` §6 per the four heading-only matching rules in `references/post-merge-housekeeper-contract.md` § Candidate-Lookup Rules: [^d7]
+1. **Run candidate-lookup** over `docs/architecture/cross-plan-dependencies.md` §6 per the four heading-only matching rules below (canonical here — state-recovery.md and the housekeeper contract defer to this list): [^d7]
    - Rule 1: Plan + Phase match (e.g., diff touches `docs/plans/024-rust-pty-sidecar.md` + commit cites Phase 1 → match `### NS-NN: Plan-024 Phase 1 — ...`)
    - Rule 2: Plan + task-id match (e.g., commit cites `T5.1` → match `### NS-NN: Plan-001 Phase 5 Lane A` whose `PRs:` block has a `T5.1` row)
    - Rule 3: Plan + Tier-K match (e.g., diff is a Tier-3 plan-readiness audit → match `### NS-15..NS-21: Tier 3-9 plan-readiness audits` via the lower-endpoint of the range form `tier-3`)

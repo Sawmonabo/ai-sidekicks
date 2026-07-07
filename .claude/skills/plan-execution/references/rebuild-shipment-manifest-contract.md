@@ -61,7 +61,7 @@ The script intentionally surfaces ambiguity rather than guessing:
 
 `post-merge-housekeeper.mjs` is mechanically constrained to import only `node:fs`/`path`/`process` (asserted by an `I-3 invariant` test in `__tests__/post-merge-housekeeper-orchestrator-helpers.test.mjs`). This rebuild script is excluded from that invariant by design — it lives in the same directory but has no shared callers, so its `child_process` import doesn't poison the housekeeper's no-git contract.
 
-## Cross-validation pattern (Commit 5 of cozy-crafting-hummingbird)
+## Cross-validation pattern (manifest backfill)
 
 The Plan-001 + Plan-007 backfill workflow:
 
@@ -69,4 +69,4 @@ The Plan-001 + Plan-007 backfill workflow:
 2. Run `node rebuild-shipment-manifest.mjs --plan 001 --dry-run` and compare against the hand-curated entries.
 3. Discrepancies indicate either (a) a script heuristic gap (parser misses a phase/task pattern) or (b) an operator-confirmation field that the script auto-derived correctly. Resolve in favor of script output unless the operator has independent grounds.
 
-This is the pattern used to validate Commit 5's hand-curated entries against this script's `--dry-run` output.
+This is the pattern used to validate the Plan-001/Plan-007 backfill's hand-curated entries against this script's `--dry-run` output.
