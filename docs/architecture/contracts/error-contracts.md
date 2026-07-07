@@ -123,6 +123,7 @@ expect(caught).toMatchObject({
 | `session.already_closed` | Session has already been closed and cannot be modified | 409 |
 | `session.limit_exceeded` | Session creation rate limit exceeded | 429 |
 | `session.goal_delivery_failed` | A live-leg goal mutation (`session.goalUpdate` / `session.goalClear`) failed at the provider driver — no event appended, no goal change; acked legs reverted to the prior goal (Spec-016 §Session Goals, campaign B6; `data.fields`: `failedBindingIds`, `driverCode`) | 502 |
+| `session.goal_mutation_in_flight` | A goal mutation was refused because a prior goal intent has not converged (a leg is still `acked` awaiting its compensating revert) — retry after convergence (Spec-016 §Session Goals, campaign B6; `data.fields`: `unconvergedBindingIds`) | 409 |
 
 ### Auth
 

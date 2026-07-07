@@ -32,7 +32,7 @@ Plan-006 is the canonical emitter of the `event_maintenance` and `audit_integrit
 
 ## Preconditions
 
-- [x] Paired spec is approved
+- [x] Paired spec is approved — **dated gate note (2026-07-06, campaign class-completion via B6):** the paired spec is temporarily `review` for its campaign amendment window (B1 amendment, 2026-07-02); this box records the audit-time state, and code dispatch for amendment surfaces stays blocked until the campaign's Task-28 / W1.5 batch re-promotion restores `approved`.
 - [x] Required ADRs are accepted
 - [x] Blocking open questions are resolved or explicitly deferred
 - [x] **Plan-readiness audit complete per [`docs/operations/plan-implementation-readiness-audit-runbook.md`](../operations/plan-implementation-readiness-audit-runbook.md)** — Tier 4 audit (NS-16 / PR #124), audit synthesis 2026-05-28; per-task Gate-4 traceability sub-bullets (a `Spec coverage` + `Verifies invariant` pair on each Phase 1–4 task) completed 2026-06-14 — the audit's per-task-traceability deliverable, outstanding from the 2026-05-28 synthesis; see [Status Promotion Gate §1](../operations/plan-implementation-readiness-audit-runbook.md#status-promotion-gate).
@@ -275,7 +275,7 @@ File: `packages/contracts/src/event.ts` (EXTEND; imports `DriverCapabilityFlag` 
 
 ##### T1.5 — Cross-link version-bound errors to Spec-006 + ADR-018 (JSDoc-only)
 
-File: `packages/contracts/src/event.ts` (EXTEND JSDoc on `EventEnvelopeVersionSchema`); optional reciprocal cite in `docs/architecture/contracts/error-contracts.md:376-377`. Provides: JSDoc cross-link pointer; no new schemas (Plan-001 T2.3 already shipped `VersionFloorExceededErrorSchema` + `VersionCeilingExceededErrorSchema` per Phase 1 audit forward-completed surface). Depends: Plan-001 T2.3 shipped artifacts. IdempotencyClass: N/A (docs).
+File: `packages/contracts/src/event.ts` (EXTEND JSDoc on `EventEnvelopeVersionSchema`); optional reciprocal cite in `docs/architecture/contracts/error-contracts.md:377-378`. Provides: JSDoc cross-link pointer; no new schemas (Plan-001 T2.3 already shipped `VersionFloorExceededErrorSchema` + `VersionCeilingExceededErrorSchema` per Phase 1 audit forward-completed surface). Depends: Plan-001 T2.3 shipped artifacts. IdempotencyClass: N/A (docs).
 
 - **Spec coverage:** Spec-006 line 88 (`VERSION_FLOOR_EXCEEDED`)
 - **Verifies invariant:** none (JSDoc-only cross-link; no Phase-1 invariant covers the FLOOR/CEILING version errors)
