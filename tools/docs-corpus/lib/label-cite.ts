@@ -9,6 +9,10 @@
 //      `` `docs/<subtree>/<file>.md:LL` `` (e.g. `docs/domain/session-model.md:61-77`).
 //      This is the ONLY floor reachable for docs that carry no label token —
 //      domain / architecture / operations docs are not `Spec/Plan/ADR-NNN`.
+//   3. SECTION form — backticked `` `Spec-NNN §Heading` `` (likewise Plan/ADR);
+//      the token resolves via the same NNN glob and the heading is verified
+//      against the doc's current headings (exact-after-normalize) — the durable
+//      anchor form per AGENTS.md §Durable-Cite Rule.
 //
 // This is the CODE-COMMENT analogue of cite-target-existence's `file.md:NNN`
 // check. The deterministic walk only ever reached `.md` governance docs, so a
@@ -77,11 +81,34 @@ const defaultReader: FileContentReader = (absolutePath) => readFileSync(absolute
 // Token-adjacent colon form ONLY. `\b` before the token rejects a longer word
 // ending in the token name (`MySpec-003:5` does not match). `(\d{3})` pins the
 // 3-digit doc number; the colon must immediately follow (no space) so a
-// named-section reference like `Spec-003 §Foo` never matches. The number-list
-// tail accepts ranges and comma lists (`:381-382`, `:81,107`) but NOT a bare
-// trailing space-separated integer (`:5 7`), so prose after the cite cannot be
-// swallowed into a spurious second line number.
+// named-section reference like `Spec-003 §Foo` never matches (the backticked
+// §-form is matched by pass 3's SECTION_CITE_RE and verified against headings,
+// not lines). The number-list tail accepts ranges and comma lists (`:381-382`,
+// `:81,107`) but NOT a bare trailing space-separated integer (`:5 7`), so prose
+// after the cite cannot be swallowed into a spurious second line number.
 const LABEL_CITE_RE = /\b(Spec|Plan|ADR)-(\d{3}):(\d+(?:\s*[,-]\s*\d+)*)/g;
+
+// Backticked-only §Heading form — backticks are the zero-FP boundary for the
+// heading text in a REQUIRED gate (unbounded heading matches over comment prose
+// would over-match; unbackticked forms stay audit-layer via /ripple-check).
+const SECTION_CITE_RE = /`(Spec|Plan|ADR)-(\d{3}) §([^`]+)`/g;
+
+// Ported from preflight.mjs findSectionHeading/normalizeTokenForMatch — port,
+// don't reinvent: exact-after-normalize so `§Token` cannot prefix-match
+// "Token Security Properties".
+function normalizeTokenForMatch(token: string): string {
+  return token.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+export function verifySectionHeading(docContent: string, sectionName: string): boolean {
+  const target = normalizeTokenForMatch(sectionName);
+  for (const line of docContent.split("\n")) {
+    if (/^#+\s+/.test(line)) {
+      if (normalizeTokenForMatch(line.replace(/^#+\s+/, "")) === target) return true;
+    }
+  }
+  return false;
+}
 
 // Docs-path form: a repo-root-relative governance path with a line suffix,
 // `docs/<subtree…>/<file>.md:LL` — ANY depth under the repo-root `docs/`
@@ -221,6 +248,21 @@ function extractLabelCitesFrom(
       const docsPath = m[1];
       pushExpandedCites(cites, citingFile, i, `${docsPath}:`, resolve(repoRoot, docsPath), m[2]);
     }
+
+    // Pass 3 — backticked section-anchor form (`` `Spec-003 §Wire Format` ``).
+    // Heading existence is verified in checkLabelCiteTargets, not checkCite —
+    // there is no line number to floor.
+    SECTION_CITE_RE.lastIndex = 0;
+    while ((m = SECTION_CITE_RE.exec(line)) !== null) {
+      cites.push({
+        file: citingFile,
+        line: i + 1,
+        rawTarget: `${m[1]}-${m[2]} §${m[3]}`,
+        targetPath: resolveLabelTarget(repoRoot, m[1], m[2]),
+        targetLine: 0,
+        section: m[3],
+      });
+    }
   }
   return cites;
 }
@@ -243,6 +285,36 @@ export function checkLabelCiteTargets(
   const violations: CiteViolation[] = [];
   for (const f of files) {
     for (const c of extractLabelCitesFrom(f, repoRoot, reader)) {
+      if (c.section !== undefined) {
+        let content: string;
+        try {
+          content = reader(c.targetPath);
+        } catch {
+          violations.push({ cite: c, reason: "missing-target-file", detail: c.targetPath });
+          continue;
+        }
+        if (!verifySectionHeading(content, c.section)) {
+          // Self-heal detail: a §-cite usually breaks because the heading was
+          // RENAMED — list the doc's current headings (prefix-matched first,
+          // else the first few) so the citer's fix is self-serve.
+          const headings = content
+            .split("\n")
+            .filter((l) => /^#+\s+/.test(l))
+            .map((l) => l.replace(/^#+\s+/, "").trim());
+          const target = normalizeTokenForMatch(c.section);
+          const near = headings.filter((h) => {
+            const n = normalizeTokenForMatch(h);
+            return n.startsWith(target.slice(0, 6)) || target.startsWith(n.slice(0, 6));
+          });
+          const suggestions = (near.length > 0 ? near : headings).slice(0, 5);
+          violations.push({
+            cite: c,
+            reason: "section-not-found",
+            detail: `heading '§${c.section}' not found in ${c.targetPath}; nearest headings: ${suggestions.join(" | ") || "(none)"}`,
+          });
+        }
+        continue;
+      }
       const v = checkCite(c, reader);
       if (v) violations.push(v);
     }

@@ -19,8 +19,9 @@ export interface Cite {
   line: number;
   rawTarget: string;
   targetPath: string;
-  targetLine: number; // 0 for symbol-form cites
+  targetLine: number; // 0 for symbol-form and section-form cites
   symbol?: string; // present for `path#symbol` cites
+  section?: string; // present for backticked `Spec-NNN §Heading` cites (label-cite pass 3)
   volatileCodeTarget?: boolean; // raw line-pin into packages/ | apps/
 }
 
@@ -31,7 +32,8 @@ export interface CiteViolation {
     | "line-out-of-range"
     | "target-line-empty"
     | "raw-line-cite-into-volatile-code"
-    | "symbol-not-found";
+    | "symbol-not-found"
+    | "section-not-found";
   detail: string;
 }
 
