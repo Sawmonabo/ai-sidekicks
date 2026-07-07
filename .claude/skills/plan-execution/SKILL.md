@@ -1,6 +1,6 @@
 ---
 name: plan-execution
-description: Execute an implementation plan (docs/plans/NNN-*.md) one Phase per PR — expand the audit-derived `#### Tasks` block into a task DAG, dispatch task-scoped implementer subagents, gate with per-task and PR-scope review pipelines, then Codex-gated squash-merge plus post-merge housekeeping. Opt-in only — use on explicit /plan-execution invocation, an explicit by-name request for this pipeline, or resume of an in-flight run (a feat/plan-NNN-* branch whose draft PR body carries this skill's Task DAG block). A request that merely names a plan ("work on Plan-NNN", "fix X from Plan-NNN") is normal development per CONTRIBUTING.md — not a trigger.
+description: Execute an implementation plan (docs/plans/NNN-*.md) one Phase per PR — expand the audit-derived `#### Tasks` block into a task DAG, dispatch task-scoped implementer subagents, gate with per-task and PR-scope review pipelines, then Codex-gated squash-merge plus post-merge housekeeping. Opt-in only — use on explicit /plan-execution invocation, an explicit by-name request for this pipeline, or resume of an in-flight run (a feat/plan-NNN-* branch whose draft PR body carries this skill's Task DAG block). A request that merely names a plan ("work on Plan-NNN", "fix X from Plan-NNN", "continue Plan-NNN") is normal development per CONTRIBUTING.md — not a trigger.
 requires_files:
   - docs/operations/plan-implementation-readiness-audit-runbook.md
   - docs/architecture/cross-plan-dependencies.md
