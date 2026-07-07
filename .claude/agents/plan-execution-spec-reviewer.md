@@ -99,7 +99,7 @@ Open with `## Verification narrative` (1-3 short paragraphs): what you checked a
 Then a `## Findings` section. For each finding:
 
 - Severity: POLISH | ACTIONABLE (VERIFICATION is narrative, not a finding)
-- File + line range (e.g., `packages/foo/src/bar.ts:45-52`)
+- File + line range (e.g., `<file>:<start>-<end>`)
 - Spec/plan/ADR text being violated (quote it directly)
 - What the diff does instead
 - Suggested fix (one sentence)

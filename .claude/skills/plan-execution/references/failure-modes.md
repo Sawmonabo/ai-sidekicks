@@ -129,7 +129,7 @@ Three reviewers run in parallel against the same diff. Their findings sometimes 
 
 **Detection is mechanical (preflight-adjacent).** The reviewer-response validator (`scripts/validate-review-response.mjs`) parses each reviewer's findings, groups by `file:line`, and flags conflicts. The rules below are the orchestrator's adjudication policy on detected conflicts.
 
-**Severity precedence at same surface.** ACTIONABLE > POLISH > VERIFICATION. If reviewer A flags `packages/foo/src/bar.ts:45-52` ACTIONABLE and reviewer B flags the same surface POLISH, the consolidated round-trip carries the ACTIONABLE label and the POLISH content folds in (the implementer fixes the higher concern; the lower-severity surface is by-construction addressed). Mechanical: pick max severity by precedence above.
+**Severity precedence at same surface.** ACTIONABLE > POLISH > VERIFICATION. If reviewer A flags `<file>:<start>-<end>` ACTIONABLE and reviewer B flags the same surface POLISH, the consolidated round-trip carries the ACTIONABLE label and the POLISH content folds in (the implementer fixes the higher concern; the lower-severity surface is by-construction addressed). Mechanical: pick max severity by precedence above.
 
 **Opposing-direction same-severity.** Reviewer A says "extract this duplication into a helper" (POLISH, idiom); reviewer B says "this duplication is load-bearing on a `blocked_on` surface — do not extract" (POLISH, conservative-shape). The findings are mutually exclusive at the same surface. Halt the per-task pipeline; surface to user with one example sentence from each reviewer; wait for direction. Do NOT re-dispatch the implementer with both — that produces churn at the next round-trip.
 
