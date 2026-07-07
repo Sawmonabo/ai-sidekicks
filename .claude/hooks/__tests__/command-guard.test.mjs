@@ -288,6 +288,74 @@ test("allow: markdown mention of a removal inside heredoc text", async () => {
   await killOccupant(child, wtA);
 });
 
+// ---------- Codex review regressions (PR #184) ----------
+
+test("deny: brace-expanded targets are unsafe", async () => {
+  const gitDecision = runGuard("git worktree remove .worktrees/{wt-a,wt-ab}");
+  assert.equal(gitDecision?.permissionDecision, "deny");
+  assert.match(gitDecision.permissionDecisionReason, /literal/);
+  // rm with a brace target falls back to the whole-tree occupancy check.
+  const child = await spawnOccupant(wtA);
+  const rmDecision = runGuard("rm -rf .worktrees/{wt-a,wt-ab}");
+  assert.equal(rmDecision?.permissionDecision, "deny");
+  assert.match(rmDecision.permissionDecisionReason, /live process/);
+  await killOccupant(child, wtA);
+});
+
+test("deny: cd is tracked before resolving removal targets", async () => {
+  const child = await spawnOccupant(wtA);
+  const rmDecision = runGuard("cd .worktrees && rm -rf wt-a");
+  assert.equal(rmDecision?.permissionDecision, "deny");
+  assert.match(rmDecision.permissionDecisionReason, /live process/);
+  const gitDecision = runGuard("cd .worktrees && git worktree remove wt-a");
+  assert.equal(gitDecision?.permissionDecision, "deny");
+  assert.match(gitDecision.permissionDecisionReason, /live process/);
+  await killOccupant(child, wtA);
+});
+
+test("deny: removal through a git alias is still occupancy-checked", async () => {
+  const child = await spawnOccupant(wtA);
+  const inlineDecision = runGuard("git -c alias.wtr='worktree remove' wtr .worktrees/wt-a");
+  assert.equal(inlineDecision?.permissionDecision, "deny");
+  assert.match(inlineDecision.permissionDecisionReason, /live process/);
+  fixture.git(["config", "alias.wtr", "worktree remove"]);
+  try {
+    const configuredDecision = runGuard("git wtr .worktrees/wt-a");
+    assert.equal(configuredDecision?.permissionDecision, "deny");
+    assert.match(configuredDecision.permissionDecisionReason, /live process/);
+  } finally {
+    fixture.git(["config", "--unset", "alias.wtr"]);
+  }
+  await killOccupant(child, wtA);
+});
+
+test("deny: redirection glued to the removal target", async () => {
+  const child = await spawnOccupant(wtA);
+  const decision = runGuard("git worktree remove .worktrees/wt-a>/tmp/guard.log");
+  assert.equal(decision?.permissionDecision, "deny");
+  assert.match(decision.permissionDecisionReason, /live process/);
+  await killOccupant(child, wtA);
+});
+
+test("deny: removal behind a shell prefix is still scanned", async () => {
+  const child = await spawnOccupant(wtA);
+  const sudoDecision = runGuard("sudo rm -rf .worktrees/wt-a");
+  assert.equal(sudoDecision?.permissionDecision, "deny");
+  assert.match(sudoDecision.permissionDecisionReason, /live process/);
+  const ifDecision = runGuard("if [ -d .worktrees/wt-a ]; then rm -rf .worktrees/wt-a; fi");
+  assert.equal(ifDecision?.permissionDecision, "deny");
+  assert.match(ifDecision.permissionDecisionReason, /live process/);
+  await killOccupant(child, wtA);
+});
+
+test("deny: variable rm target resolves through its literal assignment", async () => {
+  const child = await spawnOccupant(wtA);
+  const decision = runGuard('target=.worktrees/wt-a; rm -rf "$target"');
+  assert.equal(decision?.permissionDecision, "deny");
+  assert.match(decision.permissionDecisionReason, /live process/);
+  await killOccupant(child, wtA);
+});
+
 test("deny: unbalanced quote on a removal-shaped command fails closed", () => {
   const decision = runGuard('git worktree remove ".worktrees/wt-a');
   assert.equal(decision?.permissionDecision, "deny");

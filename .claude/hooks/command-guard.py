@@ -180,6 +180,10 @@ _ALIAS_PREFIX = "alias."
 # "scanned, none found". Tests override by setting this module attribute
 # before exercising the check.
 _configured_alias_cache = None
+# Same lazy model for aliases whose body targets `worktree remove`, mapping
+# alias name -> body tokens after `remove` ("shell" for a `!` body whose
+# target is unextractable). None = "not yet scanned".
+_configured_removal_alias_cache = None
 
 
 def _repo_root():
@@ -426,6 +430,75 @@ def _get_configured_worktree_aliases():
         _configured_alias_cache = frozenset()
         _configured_alias_cache = _scan_configured_worktree_aliases()
     return _configured_alias_cache
+
+
+def _alias_removal_tail(expansion):
+    """If a git alias body expands into `worktree remove`, return the token
+    list that follows `remove` in the body (often empty — the target then
+    comes from the use site). Return the sentinel "shell" for a `!` shell
+    body containing a worktree removal (target unextractable — callers deny)
+    and None when the alias is not a removal alias. Chained aliases stay an
+    accepted residual, parity with _alias_targets_worktree."""
+    expansion = expansion.strip()
+    if (
+        len(expansion) >= 2
+        and expansion[0] == expansion[-1]
+        and expansion[0] in ("'", '"')
+    ):
+        expansion = expansion[1:-1]
+    try:
+        toks = shlex.split(expansion)
+    except ValueError:
+        return None
+    if not toks:
+        return None
+    if toks[0].startswith("!"):
+        if _GIT_WORKTREE_REMOVE_RE.search(expansion):
+            return "shell"
+        return None
+    j, _, _ = _consume_git_globals(toks, 0)
+    if (
+        j + 1 < len(toks)
+        and toks[j].lower() == "worktree"
+        and toks[j + 1].lower() == "remove"
+    ):
+        return toks[j + 2 :]
+    return None
+
+
+def _get_configured_removal_aliases():
+    """Lazy map of configured git alias names whose body expands into
+    `worktree remove` -> body tokens after `remove` ("shell" when the target
+    is unextractable). Same one-subprocess cost model as the add|move alias
+    cache; no bootstrap-recursion guard is needed because _alias_removal_tail
+    never calls back into this cache."""
+    global _configured_removal_alias_cache
+    if _configured_removal_alias_cache is not None:
+        return _configured_removal_alias_cache
+    aliases = {}
+    try:
+        result = subprocess.run(
+            ["git", "config", "--get-regexp", r"^alias\."],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        result = None
+    if result is not None and result.returncode == 0:
+        for line in result.stdout.splitlines():
+            if not line.startswith(_ALIAS_PREFIX):
+                continue
+            parts = line.split(" ", 1)
+            if len(parts) != 2:
+                continue
+            key, value = parts
+            tail = _alias_removal_tail(value)
+            if tail is not None:
+                aliases[key[len(_ALIAS_PREFIX) :]] = tail
+    _configured_removal_alias_cache = aliases
+    return aliases
 
 
 def _has_git_worktree_invocation(tokens):
@@ -903,11 +976,44 @@ _MAX_OCCUPANTS_LISTED = 8
 _GIT_WORKTREE_REMOVE_RE = re.compile(
     r"\bworktree\b[^\n]{0,40}\bremove\b", re.IGNORECASE
 )
-_UNSAFE_TARGET_RE = re.compile(r"[$`*?\[]")
+# `{` covers brace expansion (`rm -rf .worktrees/{a,b}`) — the shell expands
+# it into multiple paths before rm runs, so the literal token points at a
+# path that does not exist and an occupancy check on it would silently pass.
+_UNSAFE_TARGET_RE = re.compile(r"[$`*?\[{]")
 # Redirection-shaped tokens survive _normalize_shell_operators as `>`,
 # `>>`, `<`, `2>`, `2>/dev/null`, `>file` (only `;|&()` get split). A bare
 # operator consumes the following token as its filename.
 _REDIRECTION_TOKEN_RE = re.compile(r"^\d*(>>?|<)")
+# Reserved words and transparent wrappers that precede the real command head
+# in a statement: `if [ -d x ]; then rm -rf x; fi` yields a statement headed
+# by `then`, and `sudo rm -rf x` is headed by `sudo`. Wrapper flags that take
+# an operand (`sudo -u user rm`, `nice -n 10 rm`) remain a residual — the
+# operand lands as the head and dispatch misses.
+_TRANSPARENT_PREFIX_WORDS = frozenset(
+    {
+        "then",
+        "do",
+        "else",
+        "elif",
+        "fi",
+        "done",
+        "esac",
+        "{",
+        "}",
+        "!",
+        "if",
+        "while",
+        "until",
+        "time",
+        "sudo",
+        "command",
+        "nohup",
+        "nice",
+        "stdbuf",
+    }
+)
+_ASSIGNMENT_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_VARIABLE_TOKEN_RE = re.compile(r"^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?$")
 
 
 class _OccupancyCheckError(Exception):
@@ -1095,19 +1201,34 @@ def _statement_has_escape(statement):
 def _iter_positional_tokens(tokens, honor_double_dash):
     """Positional (non-flag) tokens, skipping redirections. A bare
     redirection operator (`>`, `2>`, `<`, `>>`) consumes the next token as
-    its filename. With honor_double_dash, tokens after `--` count as
-    positionals even when dash-prefixed (rm semantics); without it `--` is
-    merely skipped (git worktree remove has no valued flags)."""
+    its filename; a glued form (`>file`, `2>/dev/null`) is self-contained.
+    Bash also recognizes redirection glued to the end of a word — it parses
+    `.worktrees/wt-a>/tmp/log` as the word `.worktrees/wt-a` plus a stdout
+    redirect — so a token is split at its first `<`/`>` and the word prefix,
+    when non-empty and non-numeric, is the positional. (shlex has already
+    stripped quotes, so a genuinely quoted `<`/`>` in a path is truncated
+    the same way — pathological names, accepted.) With honor_double_dash,
+    tokens after `--` count as positionals even when dash-prefixed (rm
+    semantics); without it `--` is merely skipped (git worktree remove has
+    no valued flags)."""
     past_double_dash = False
     skip_redirect_filename = False
     for tok in tokens:
         if skip_redirect_filename:
             skip_redirect_filename = False
             continue
-        if _REDIRECTION_TOKEN_RE.match(tok):
-            if _REDIRECTION_TOKEN_RE.fullmatch(tok):
-                skip_redirect_filename = True
-            continue
+        redirect_at = min(
+            (i for i, ch in enumerate(tok) if ch in "<>"), default=None
+        )
+        if redirect_at is not None:
+            prefix = tok[:redirect_at]
+            if not prefix or prefix.isdigit():
+                # Pure redirection token; the bare-operator form consumes
+                # the next token as its filename.
+                if _REDIRECTION_TOKEN_RE.fullmatch(tok):
+                    skip_redirect_filename = True
+                continue
+            tok = prefix  # word with glued redirection: keep the word
         if tok == "--":
             past_double_dash = True
             continue
@@ -1152,20 +1273,36 @@ def _build_unverifiable_deny(display_target, error):
 
 
 def _extract_git_removal_target(rest, base):
-    """Given statement tokens starting at a git head whose subcommand chain
-    is `worktree remove`, return (abs_target, display_target, deny_reason).
-    Exactly one of the pair / deny_reason is meaningful."""
-    after_globals, c_paths, _ = _consume_git_globals(rest, 1)
-    if (
-        after_globals + 1 >= len(rest)
-        or rest[after_globals].lower() != "worktree"
-        or rest[after_globals + 1].lower() != "remove"
-    ):
+    """Given statement tokens starting at a git head, return
+    (abs_target, display_target, deny_reason) when the subcommand chain is
+    `worktree remove` — spelled directly or through an alias (inline
+    `-c alias.X='worktree remove'` or configured). Exactly one of the pair /
+    deny_reason is meaningful. `base` is the tracked statement cwd; None
+    means a prior `cd` made it unknowable, so a relative target denies
+    (fail closed) rather than resolving against the wrong directory."""
+    after_globals, c_paths, inline_aliases = _consume_git_globals(rest, 1)
+    if after_globals >= len(rest):
         return None, None, None
+    head = rest[after_globals]
+    if (
+        after_globals + 1 < len(rest)
+        and head.lower() == "worktree"
+        and rest[after_globals + 1].lower() == "remove"
+    ):
+        window = rest[after_globals + 2 :]
+    else:
+        if head in inline_aliases:
+            # Inline definitions shadow configured aliases (git semantics).
+            alias_tail = _alias_removal_tail(inline_aliases[head])
+        else:
+            alias_tail = _get_configured_removal_aliases().get(head)
+        if alias_tail is None:
+            return None, None, None
+        if alias_tail == "shell":
+            return None, None, _build_removal_unparseable_deny(head)
+        window = list(alias_tail) + rest[after_globals + 1 :]
     target = next(
-        _iter_positional_tokens(
-            rest[after_globals + 2 :], honor_double_dash=False
-        ),
+        _iter_positional_tokens(window, honor_double_dash=False),
         None,
     )
     if target is None:
@@ -1174,18 +1311,44 @@ def _extract_git_removal_target(rest, base):
         return None, None, _build_removal_unparseable_deny(target)
     effective_cwd = base
     for c_path in c_paths:
-        effective_cwd = _resolve_path(c_path, effective_cwd)
-    abs_target = _resolve_path(os.path.expanduser(target), effective_cwd)
+        expanded_c = os.path.expanduser(c_path)
+        if os.path.isabs(expanded_c):
+            effective_cwd = os.path.normpath(expanded_c)
+        elif effective_cwd is not None:
+            effective_cwd = _resolve_path(expanded_c, effective_cwd)
+    expanded = os.path.expanduser(target)
+    if not os.path.isabs(expanded) and effective_cwd is None:
+        return None, None, _build_removal_unparseable_deny(target)
+    abs_target = (
+        os.path.normpath(expanded)
+        if os.path.isabs(expanded)
+        else _resolve_path(expanded, effective_cwd)
+    )
     return abs_target, target, None
 
 
-def _collect_rm_targets(rest, base, worktrees_root, worktrees_real):
+def _lookup_assignment(token, assignments):
+    """Value of a `$NAME` / `${NAME}` token when NAME was assigned a literal
+    earlier in the same command; None otherwise (unknown variables keep
+    their raw token and flow through the unsafe-target handling)."""
+    match = _VARIABLE_TOKEN_RE.match(token)
+    if not match:
+        return None
+    return assignments.get(match.group(1))
+
+
+def _collect_rm_targets(rest, base, worktrees_root, worktrees_real, assignments):
     """Removal targets of a recursive `rm` statement that land inside
-    .worktrees/, resolved against the session cwd first so
+    .worktrees/, resolved against the tracked statement cwd (`base`) so
     `cd .worktrees && rm -rf x` and `rm -rf ../x` from inside are caught.
-    Unresolvable (glob/variable) targets that point at .worktrees textually,
-    or appear while the cwd is inside it, fall back to checking the whole
-    tree — cheap, since enumeration is per-process, not per-file."""
+    `base` None means a prior `cd` made the cwd unknowable — relative and
+    unresolvable targets then go conservative. A `$NAME` target assigned a
+    literal earlier in the same command resolves through that literal
+    (`target=.worktrees/x; rm -rf "$target"`). Remaining unresolvable
+    (glob/brace/unknown-variable) targets that point at .worktrees
+    textually, or appear while the cwd is inside or unknown, fall back to
+    checking the whole tree — cheap, since enumeration is per-process, not
+    per-file."""
     flags = [t for t in rest[1:] if t.startswith("-") and t != "--"]
     recursive = any(
         t in ("--recursive", "-R")
@@ -1199,13 +1362,27 @@ def _collect_rm_targets(rest, base, worktrees_root, worktrees_real):
     if not recursive:
         return []
     targets = []
-    base_inside = _resolved_path_is_under(base, worktrees_real)
+    base_inside = base is None or _resolved_path_is_under(
+        base, worktrees_real
+    )
     for tok in _iter_positional_tokens(rest[1:], honor_double_dash=True):
+        assigned = _lookup_assignment(tok, assignments)
+        if assigned is not None:
+            tok = assigned
         if _UNSAFE_TARGET_RE.search(tok):
             if ".worktrees" in tok or base_inside:
                 targets.append((worktrees_root, tok))
             continue
-        abs_target = _resolve_path(os.path.expanduser(tok), base)
+        expanded = os.path.expanduser(tok)
+        if not os.path.isabs(expanded) and base is None:
+            if ".worktrees" in tok or base_inside:
+                targets.append((worktrees_root, tok))
+            continue
+        abs_target = (
+            os.path.normpath(expanded)
+            if os.path.isabs(expanded)
+            else _resolve_path(expanded, base)
+        )
         if _resolved_path_is_under(abs_target, worktrees_real):
             targets.append((abs_target, tok))
     return targets
@@ -1217,8 +1394,14 @@ def _check_worktree_removal(command, base_cwd=None, _depth=0):
     Unlike add|move there is no strict-shape requirement — documented flows
     (plan-execution teardown) legitimately chain a removal with branch
     cleanup, so each statement between shell operators is scanned
-    independently for `git [globals] worktree remove <target>` and for
-    recursive `rm` touching .worktrees/. Every literal target is
+    independently for `git [globals] worktree remove <target>` (spelled
+    directly or through an inline/configured alias) and for recursive `rm`
+    touching .worktrees/. Literal `cd` statements update the resolution base
+    for later statements (`cd .worktrees && rm -rf x`); an unresolvable `cd`
+    makes it unknown and later relative targets go conservative. Reserved
+    words and transparent wrappers (`then`, `sudo`, ...) are stripped before
+    head dispatch, and a `$NAME` rm target assigned a literal earlier in the
+    command resolves through that literal. Every literal target is
     occupancy-checked; a statement prefixed with the exact escape token
     skips the check. Unextractable targets and shlex failures on
     removal-shaped commands DENY (fail closed) rather than fall open.
@@ -1246,7 +1429,12 @@ def _check_worktree_removal(command, base_cwd=None, _depth=0):
             and _resolved_path_is_under(base, worktrees_real)
         )
     )
-    if not mentions_git_removal and not rm_relevant:
+    removal_shaped = mentions_git_removal or rm_relevant
+    # A configured alias (`git config alias.wtr 'worktree remove'; git wtr
+    # .worktrees/x`) leaves no removal-shaped text, so any git-mentioning
+    # command still gets the token scan (parity with the add|move alias
+    # scan and the same one-subprocess cost model).
+    if not removal_shaped and not re.search(r"\bgit\b", command):
         return None
 
     # No blanket subshell/backtick deny here (unlike add|move): doc/PR text
@@ -1262,9 +1450,15 @@ def _check_worktree_removal(command, base_cwd=None, _depth=0):
     try:
         tokens = shlex.split(normalized)
     except ValueError:
-        return _build_removal_unparseable_deny(command)
+        # Fail closed only when the raw text is removal-shaped; an arbitrary
+        # git command with an odd quote must not deny.
+        if removal_shaped:
+            return _build_removal_unparseable_deny(command)
+        return None
 
     removal_targets = []  # (abs_target, display_target, escaped)
+    assignments = {}  # literal NAME=value seen earlier in the command
+    current_base = base  # tracked across `cd` statements; None = unknown
     for statement in _iter_statements(tokens):
         escaped = _statement_has_escape(statement)
         head_index = 0
@@ -1273,28 +1467,56 @@ def _check_worktree_removal(command, base_cwd=None, _depth=0):
             and "=" in statement[head_index]
             and not statement[head_index].startswith("=")
         ):
+            name, _, value = statement[head_index].partition("=")
+            if _ASSIGNMENT_NAME_RE.match(name):
+                assignments[name] = value
             head_index += 1
         if head_index >= len(statement):
             continue
         rest = statement[head_index:]
 
+        rest = _strip_env_prefix(rest)
+        # Reserved words / transparent wrappers (`then rm ...`, `sudo rm
+        # ...`) hide the real head; flags left behind by a stripped wrapper
+        # are dropped with them.
+        while rest and (
+            rest[0] in _TRANSPARENT_PREFIX_WORDS or rest[0].startswith("-")
+        ):
+            rest = rest[1:]
+        if not rest:
+            continue
+
         nested = _extract_wrapped_command(rest)
         if nested is not None:
             nested_deny = _check_worktree_removal(
-                nested, base_cwd, _depth + 1
+                nested, current_base, _depth + 1
             )
             if nested_deny is not None:
                 return nested_deny
             continue
 
-        rest = _strip_env_prefix(rest)
-        if not rest:
-            continue
         head = rest[0]
+
+        if os.path.basename(head) == "cd":
+            cd_target = next(
+                _iter_positional_tokens(rest[1:], honor_double_dash=False),
+                None,
+            )
+            if cd_target is None:
+                current_base = os.path.expanduser("~")
+            elif cd_target == "-" or _UNSAFE_TARGET_RE.search(cd_target):
+                current_base = None  # unknowable — downstream goes conservative
+            else:
+                expanded_cd = os.path.expanduser(cd_target)
+                if os.path.isabs(expanded_cd):
+                    current_base = os.path.normpath(expanded_cd)
+                elif current_base is not None:
+                    current_base = _resolve_path(expanded_cd, current_base)
+            continue
 
         if _is_git_token(head):
             abs_target, display, deny = _extract_git_removal_target(
-                rest, base
+                rest, current_base
             )
             if deny is not None:
                 return deny
@@ -1307,7 +1529,7 @@ def _check_worktree_removal(command, base_cwd=None, _depth=0):
             and worktrees_root is not None
         ):
             for abs_target, display in _collect_rm_targets(
-                rest, base, worktrees_root, worktrees_real
+                rest, current_base, worktrees_root, worktrees_real, assignments
             ):
                 removal_targets.append((abs_target, display, escaped))
 
