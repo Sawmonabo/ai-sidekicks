@@ -34,8 +34,11 @@ describe("cite-target-existence — inline-code citations", () => {
     // didn't exist, masking renamed/deleted targets. Re-importing the lib
     // dynamically would be cleaner than env-var threading, but
     // REPO_ROOT-on-import is the existing pattern.
+    // Fixtures cite a NON-volatile tree (tools/): raw line-cites into
+    // packages//apps/ now hit the durable-cite deny before any floor check —
+    // that behavior is covered by the "durable-cite rule" suite below.
     const { root, cleanup } = setupRepo({
-      "docs/note.md": "see `packages/lost/src/missing.ts:42` for context.\n",
+      "docs/note.md": "see `tools/lost/missing.ts:42` for context.\n",
     });
     try {
       const violations = withRepoRoot(root, () =>
@@ -43,7 +46,7 @@ describe("cite-target-existence — inline-code citations", () => {
       );
       expect(violations).toHaveLength(1);
       expect(violations[0].reason).toBe("missing-target-file");
-      expect(violations[0].cite.rawTarget).toBe("packages/lost/src/missing.ts:42");
+      expect(violations[0].cite.rawTarget).toBe("tools/lost/missing.ts:42");
     } finally {
       cleanup();
     }
@@ -51,8 +54,8 @@ describe("cite-target-existence — inline-code citations", () => {
 
   it("ACCEPTS path-shaped citations whose target exists at the cited line", () => {
     const { root, cleanup } = setupRepo({
-      "docs/note.md": "see `packages/contracts/src/session.ts:2` for context.\n",
-      "packages/contracts/src/session.ts": "line one\nline two\nline three\n",
+      "docs/note.md": "see `tools/docs-corpus/lib/session.ts:2` for context.\n",
+      "tools/docs-corpus/lib/session.ts": "line one\nline two\nline three\n",
     });
     try {
       const violations = withRepoRoot(root, () =>
@@ -66,8 +69,8 @@ describe("cite-target-existence — inline-code citations", () => {
 
   it("FLAGS path-shaped citations whose target line is out of range", () => {
     const { root, cleanup } = setupRepo({
-      "docs/note.md": "see `packages/contracts/src/session.ts:99` for context.\n",
-      "packages/contracts/src/session.ts": "line one\nline two\n",
+      "docs/note.md": "see `tools/docs-corpus/lib/session.ts:99` for context.\n",
+      "tools/docs-corpus/lib/session.ts": "line one\nline two\n",
     });
     try {
       const violations = withRepoRoot(root, () =>
@@ -160,6 +163,179 @@ describe("cite-target-existence — inline-code citations", () => {
     try {
       const cites = withRepoRoot(root, () => extractCites(resolve(root, "docs/note.md")));
       expect(cites).toEqual([]);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe("durable-cite rule", () => {
+  it("denies a raw line-cite whose target resolves under packages/", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/note.md": "see `packages/foo/src/bar.ts:12` for context.\n",
+      "packages/foo/src/bar.ts": Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join("\n"),
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/note.md")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("raw-line-cite-into-volatile-code");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("still floors raw line-cites into non-volatile trees (tools/)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/note.md": "see `tools/docs-corpus/lib/slug.ts:9999` for context.\n",
+      "tools/docs-corpus/lib/slug.ts": "line one\nline two\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/note.md")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("line-out-of-range");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("passes a path#symbol cite whose symbol is present", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/note.md": "see `packages/foo/src/bar.ts#exportedName` for context.\n",
+      "packages/foo/src/bar.ts": "export function exportedName(): void {}\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/note.md")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("fails a path#symbol cite whose symbol is absent", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/note.md": "see `packages/foo/src/bar.ts#missingName` for context.\n",
+      "packages/foo/src/bar.ts": "export function presentName(): void {}\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/note.md")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("symbol-not-found");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("fails a path#symbol cite whose file is missing", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/note.md": "see `packages/lost/src/gone.ts#anything` for context.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/note.md")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("missing-target-file");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("keeps floor semantics for a packages/**.md target (docs, not code)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/note.md": "see `packages/foo/README.md:9999` for context.\n",
+      "packages/foo/README.md": "# readme\n\nshort file\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/note.md")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("line-out-of-range");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("denies a RANGE cite into packages/ exactly once (per-endpoint expansion + dedupe)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/note.md": "see `packages/foo/src/bar.ts:10-99` for context.\n",
+      "packages/foo/src/bar.ts": Array.from({ length: 120 }, (_, i) => `line ${i + 1}`).join("\n"),
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/note.md")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("raw-line-cite-into-volatile-code");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("floors BOTH endpoints of a backticked .md range (new capability)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/note.md": "see `docs/other.md:3-9999` for context.\n",
+      "docs/other.md": Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join("\n"),
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/note.md")]),
+      );
+      expect(violations.some((v) => v.reason === "line-out-of-range")).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("does not false-pass a #symbol cite on a substring or comment mention", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/note.md": "see `packages/foo/src/bar.ts#doThing` for context.\n",
+      "packages/foo/src/bar.ts": "export function doThingFast(): void {}\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/note.md")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("symbol-not-found");
+      expect(violations[0].detail).toContain("exported symbols");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("handles $ in symbol names without regex breakage", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/note.md": "see `packages/foo/src/bar.ts#store$` for context.\n",
+      "packages/foo/src/bar.ts": "export const store$ = makeStore();\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/note.md")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("gates bare-name #symbol cites exactly like bare-name line cites", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/note.md": "see `session.ts#SessionSubscribeRequest` for context.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/note.md")]),
+      );
+      expect(violations).toHaveLength(0);
     } finally {
       cleanup();
     }
