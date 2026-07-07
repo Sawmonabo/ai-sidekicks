@@ -1057,11 +1057,11 @@ CREATE TABLE session_budgets (
 
 -- Live-leg goal-delivery crash consistency (Spec-016 §Session Goals, campaign B6): the durable
 -- goal-dispatch intent written BEFORE the driver op (ADR-019 spawn-intent pattern); startup
--- reconciliation completes a dangling row: re-issue to legs still 'pending'; if the mutation cannot complete on every leg, revert 'acked' legs to the prior goal and delete WITHOUT appending (converging with a refusal outcome). Deleted on append; on failure, deleted only after every compensating revert acks (a failed revert keeps the row durable with that leg marked acked-unreverted and blocks further goal mutations for the session until convergence) — a refused mutation never re-applies on replay.
+-- reconciliation completes a dangling row: re-issue to legs still 'pending'; if the mutation cannot complete on every leg, revert 'acked' legs to the prior goal — each successful compensating revert flips that leg 'acked' -> 'reverted' — and delete WITHOUT appending (converging with a refusal outcome). Deleted on append; on failure, deleted only once no leg remains 'acked' (a failed revert keeps the row durable with that leg still 'acked', so restart reconciliation knows exactly which legs still carry the unapplied goal; further goal mutations for the session stay blocked until convergence) — a refused mutation never re-applies on replay.
 -- One in-flight goal mutation per session (goal ops serialize per session).
 CREATE TABLE session_goal_dispatch_intents (
   session_id  TEXT PRIMARY KEY,
-  payload     TEXT NOT NULL,   -- JSON {op: 'set'|'clear', goal?: {text}, prior: {goal?}, actor: ParticipantId, legs: {bindingId: 'pending'|'acked'}} — everything the crash-recovered session.goal_* event and the revert path need (Spec-006 envelope attribution; last-write-wins revert)
+  payload     TEXT NOT NULL,   -- JSON {op: 'set'|'clear', goal?: {text}, prior: {goal?}, actor: ParticipantId, legs: {bindingId: 'pending'|'acked'|'reverted'}} — everything the crash-recovered session.goal_* event and the revert path need (Spec-006 envelope attribution; last-write-wins revert)
   created_at  TEXT NOT NULL
 );
 ```
