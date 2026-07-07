@@ -1296,15 +1296,19 @@ interface RunStateChangeEvent {
   // else session default) persisted durably so budget/idle enforcement rebuilds replay-stable even
   // if session defaults change mid-run (Plan-016 D-016-5, I-016-14; Spec-006:196).
   effectiveRunConfig?: OrchestrationRunConfig;
-  // Native-cap unpriced admission only (campaign B6): the server-stamped admitted family cap,
-  // persisted on the durable run.queued payload as the replay source for reservedCostCents and
-  // the worst-case terminal debit. Sibling of effectiveRunConfig — deliberately NOT an
-  // OrchestrationRunConfig member, so it can never arrive on OrchestrationRunCreateRequest.config
-  // (Spec-016 §Cost Derivation And Absent-Cost Semantics).
+  // ── Path-independent admission stamps (campaign B6) — NOT part of the orchestration linkage
+  // block above: run.queued carries these for EVERY provider run, whether admitted via the
+  // ordinary run.queueCreate path or orchestration admission (the orchestration path threads
+  // its values through the OrchestrationRunLinkCarrier; the ordinary path stamps directly at
+  // the queue write — CP-004-10 owns the stamp either way). Never client-suppliable.
+  // Native-cap unpriced admissions only (any creation path): the server-stamped admitted family
+  // cap — the replay source for reservedCostCents and the worst-case terminal debit; deliberately
+  // NOT an OrchestrationRunConfig member, so it can never arrive on
+  // OrchestrationRunCreateRequest.config (Spec-016 §Cost Derivation And Absent-Cost Semantics).
   admittedUnpricedCapCents?: number;
-  // As-of-admission model family (campaign B6): resolved agentId → agent model →
-  // pricing-family key AT ADMISSION and frozen here. Stamped on EVERY admitted run — unlike
-  // the native-cap field above — because derived pricing, family caps, and warnings all key
+  // As-of-admission model family, frozen here for every admitted provider run: orchestration-
+  // created runs resolve agentId → agent model → pricing-family key; ordinary runs resolve from
+  // the admission-resolved provider model. Derived pricing, family caps, and warnings all key
   // off it; a later agent.configUpdate model change never re-keys an admitted run, and replay
   // reads this field, never the current agents projection.
   admittedModelFamily?: string;
@@ -2738,13 +2742,14 @@ interface OrchestrationRunLinkCarrier {
   // OrchestrationRunConfig member so it can never arrive on OrchestrationRunCreateRequest.config
   // (client-injection hazard); frozen per run, immune to later unpricedFamilyCaps updates;
   // replay rebuilds reservations + terminal debits from run.queued records alone; absent on
-  // priced runs (Spec-016 §Cost Derivation And Absent-Cost Semantics, campaign B6)
+  // priced runs (Spec-016 §Cost Derivation And Absent-Cost Semantics, campaign B6).
+  // The carrier only THREADS this for orchestration-created runs — the durable run.queued
+  // fields are path-independent (ordinary run.queueCreate admissions stamp them directly at
+  // the queue write; CP-004-10).
   admittedUnpricedCapCents?: number;
   // As-of-admission model family (campaign B6): resolved agentId → agent model →
-  // pricing-family key AT ADMISSION and frozen here. Stamped on EVERY admitted run — unlike
-  // the native-cap field above — because derived pricing, family caps, and warnings all key
-  // off it; a later agent.configUpdate model change never re-keys an admitted run, and replay
-  // reads this field, never the current agents projection.
+  // pricing-family key at admission. Threading copy for the orchestration path; the durable,
+  // path-independent home is run.queued.admittedModelFamily (stamped for every provider run).
   admittedModelFamily?: string;
 }
 ```
