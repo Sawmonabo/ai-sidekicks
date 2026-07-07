@@ -205,6 +205,8 @@ Tasks-block field shapes vary across plans (sub-header style in Plan-001 Phase 5
 
 The plan-analyst returns a YAML DAG with this schema:
 
+The schema below mirrors the shape only — field semantics + validation rules are mastered in [`plan-execution-plan-analyst.md` § Output](../../agents/plan-execution-plan-analyst.md) and § Validation rules; edit BOTH files when the schema changes.
+
 ```yaml
 plan: NNN
 phase: N # Phase number from the plan's Implementation Phase Sequence
@@ -222,8 +224,8 @@ tasks:
     acceptance_criteria: # subset of the Phase's test plan items (orientation; spec_coverage is the audit-derived authority)
       - <plan AC reference, e.g., "P1: SessionCreate returns stable session id">
     contract_provides: [] # type/symbol names this task exports for consumers (contract-author only)
-    contract_consumes: [] # type/symbol names this task imports from upstream tasks (bare importable symbols — implementer/reviewer read this field only)
-    consumes_resolution: {} # map: each contract_consumes symbol resolved out-of-DAG (clauses b/c/d) → its verbatim Tasks-row `Consumes:` clause (call-shape + provider preserved); forwarded to implementer + spec-reviewer briefs alongside contract_consumes (empty {} when all consumes are in-DAG)
+    contract_consumes: [] # bare importable symbols only
+    consumes_resolution: {} # map: out-of-DAG symbol → verbatim Consumes: clause (see plan-analyst § Output)
     notes: <optional analyst commentary>
 levels: # topological levels — tasks within a level may run concurrently in worktree mode
   - [T1]
@@ -239,7 +241,7 @@ status: ready # ready | needs-context | blocked
   - Every Tasks-row `Spec coverage:` cite appears in the corresponding DAG task's `spec_coverage`.
   - Every Tasks-row `Verifies invariant:` cite appears in the corresponding DAG task's `verifies_invariant`.
   - Every Tasks-row `BLOCKED-ON-C*` marker appears in the corresponding DAG task's `blocked_on`.
-  - Every Tasks-row `Consumes:` entry is split into the corresponding DAG task: its **bare importable symbol** (stripped of any call-shape suffix) into `contract_consumes`, and the **verbatim `Consumes:` clause** (call-shape + provider preserved) into `consumes_resolution[symbol]` (per the Topology + contracts resolution rule below) — `consumes_resolution` is forwarded to the implementer + spec-reviewer briefs alongside `contract_consumes` as the per-symbol provenance map. A dropped `Consumes:` entry silently bypasses the consume-resolution gate before implementer/reviewer dispatch; appending the resolution string onto the `contract_consumes` symbol itself would hand the implementer a non-importable target; and dropping the call-shape from the `consumes_resolution[symbol]` value would reintroduce the absent-shape gap Dimension 11 catches (e.g., `presence.subscribe({ sessionId })` losing `({ sessionId })` after the split — the §Preload-Bridge gap PR #120 burned on).
+  - Every Tasks-row `Consumes:` entry is split per the **Topology + contracts** resolution rule below — bare importable symbol into `contract_consumes`, verbatim clause (call-shape + provider preserved) into `consumes_resolution[symbol]`. The full rule and its failure modes live one list down; they are not restated here.
 - **Topology + contracts:**
   - Every task's `depends_on` ids exist in the DAG.
   - The `depends_on` graph is acyclic (no `T_a → T_b → ... → T_a` chains).
@@ -470,7 +472,7 @@ The phase has 8 steps in this exact order — DO NOT reorder; step 6 (shipment-m
 3. **Validate the script-stage manifest** at `.agents/tmp/housekeeper-manifest-PR<N>.json` against the script-stage invariants per spec §5.3:
    - exit code matches `script_exit_code`
    - `mechanical_edits.status_flip.to_line` contains `<TODO subagent prose>` literal placeholder string (subagent fills this)
-   - `affected_files` is a superset (or exact match) of files actually edited by the script — declared list must cover every actual edit so any out-of-scope write is detected before subagent dispatch (per `references/post-merge-housekeeper-contract.md` §Validation invariants line 93)
+   - `affected_files` is a superset (or exact match) of files actually edited by the script — declared list must cover every actual edit so any out-of-scope write is detected before subagent dispatch (per [`references/post-merge-housekeeper-contract.md` § Validation invariants](references/post-merge-housekeeper-contract.md#validation-invariants))
    - **Snapshot for step-5 baseline (REQUIRED — before step 4 dispatch):** copy the validated manifest to the sidecar now — `cp .agents/tmp/housekeeper-manifest-PR<N>.json .agents/tmp/housekeeper-stage1-PR<N>.json`. Step 5 cannot self-heal a missed snapshot; if the sidecar is missing at step 5, halt Phase E and re-run from step 3. Rationale + failure history: [`references/post-merge-housekeeper-contract.md` § Stage-1 sidecar snapshot](references/post-merge-housekeeper-contract.md#stage-1-sidecar-snapshot-phase-e-step-3).
 
 4. **Decide routing on `script_exit_code`, then dispatch xor halt** — call `decideHousekeeperRouting({ scriptExitCode })` from `lib/housekeeper-orchestrator-helpers.mjs`. That helper is the single source of truth for the dispatch/halt mapping; edit it (and its unit tests in `scripts/__tests__/post-merge-housekeeper-orchestrator-helpers.test.mjs`) when the contract's exit-code semantics change. The helper returns either `{ action: "dispatch", exitClass: "subagent-handled" }` (exits 0 / 2 / 3 / 5 — happy path, subagent-handled BLOCKED, no-checklist, schema-violation surfacing) or `{ action: "halt", exitClass, reason, surfacePromptTemplate }` (exits 1 / 4 — orchestrator misdispatch; exit ≥6 — script crash; defensive fallback for unrecognized codes).
@@ -553,9 +555,9 @@ The plan-analyst tags each task `dispatch_mode: sequential | worktree`. The orch
 
 Reviewers tag every finding with one of three severity labels:
 
-- **VERIFICATION** — reviewer showing their work (call-stack trace, idiom-match check, cite-resolution). Lives in the report's `## Verification narrative` section, not as a numbered finding. The orchestrator does not re-dispatch the implementer for VERIFICATION; there is nothing to fix.
-- **POLISH** — real improvement that does not block correctness or contract: tighter naming, drift comments, missing JSDoc, redundant defensive checks, idiom mismatch with neighboring code, citation drift, an under-cited cite traceable via a less-obvious route. Round-trips to the implementer (consolidated with ACTIONABLE); fix in-PR — the PR is the cheapest moment under AI-implementer economics.
-- **ACTIONABLE** — must fix to merge: bugs, regressions, races, security boundary violations, silent failures, type unsoundness on exported APIs, premature abstraction on `blocked_on` surfaces, citation that names a non-existent ID, invariant cite that doesn't preserve the I-NNN-M property. Round-trips immediately.
+- **VERIFICATION** — reviewer showing work; lives in the narrative section, never re-dispatched.
+- **POLISH** — real improvement, fix in-PR (round-trips with ACTIONABLE).
+- **ACTIONABLE** — must fix to merge; round-trips immediately.
 
 Full routing rules per reviewer role, examples, "no label" recovery, and the round-trip cap rationale live in [`references/failure-modes.md` § Findings Discipline](references/failure-modes.md#findings-discipline). The three-label discipline replaces the prior binary OBSERVATION/ACTIONABLE scheme, which conflated VERIFICATION (no-op narrative) with POLISH (real fix needed) and bucketed both as "skip" — surfacing the failure mode in Plan-007 PR #19, where 10 of 11 OBSERVATIONs were verification statements but 1 was a real polish finding (citation drift) deferred only because of the bucket name.
 

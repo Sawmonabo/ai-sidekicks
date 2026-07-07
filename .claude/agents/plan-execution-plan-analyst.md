@@ -99,7 +99,7 @@ status: ready # ready | needs-context | blocked
 - Every Tasks-row `Spec coverage:` cite appears in the corresponding DAG task's `spec_coverage`.
 - Every Tasks-row `Verifies invariant:` cite appears in the corresponding DAG task's `verifies_invariant`.
 - Every Tasks-row `BLOCKED-ON-C*` marker appears in the corresponding DAG task's `blocked_on`.
-- Every Tasks-row `Consumes:` entry is split into the corresponding DAG task: its **bare importable symbol** (stripped of any call-shape suffix) into `contract_consumes`, and the **verbatim `Consumes:` clause** (call-shape + provider preserved) into `consumes_resolution[symbol]` (per the Topology + contracts resolution rule below) — `consumes_resolution` is forwarded to the implementer + spec-reviewer briefs alongside `contract_consumes` as the per-symbol provenance map. A dropped `Consumes:` entry silently bypasses the consume-resolution gate before implementer/reviewer dispatch; appending the resolution string onto the `contract_consumes` symbol itself would hand the implementer a non-importable target; and dropping the call-shape from the `consumes_resolution[symbol]` value would reintroduce the absent-shape gap Dimension 11 catches (e.g., `presence.subscribe({ sessionId })` losing `({ sessionId })` after the split — the §Preload-Bridge gap PR #120 burned on).
+- Every Tasks-row `Consumes:` entry is split per the **Topology + contracts** resolution rule below (bare importable symbol into `contract_consumes`; verbatim clause into `consumes_resolution[symbol]`). The full transcription rule — including the never-append-resolution-onto-symbol and call-shape-preservation failure modes — lives in that rule below; it is not restated here.
 
 **Topology + contracts:**
 
