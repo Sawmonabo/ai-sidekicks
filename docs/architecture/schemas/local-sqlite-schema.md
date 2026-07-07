@@ -180,11 +180,11 @@ CREATE TABLE driver_capabilities (
                       'resume', 'steer', 'interactive_requests', 'mcp',
                       'tool_calls', 'reasoning_stream', 'model_mutation',
                       'structured_output', 'rollback', 'session_goals',
-                      'callback_tools', 'subagents'
+                      'callback_tools', 'subagents', 'cost_cap'
                     )),
   supported         INTEGER NOT NULL DEFAULT 0, -- boolean: 0 or 1
-                    -- Campaign-B3 widening note: the catch-up migration that widens the CHECK above MUST
-                    -- backfill the five new flags as supported=0 for every existing driver_name (undeclared =
+                    -- Campaign-B3/B6 widening note: the catch-up migration that widens the CHECK above MUST
+                    -- backfill the six new flags (five B3 + B6's cost_cap) as supported=0 for every existing driver_name (undeclared =
                     -- unsupported, I-005-2); a pre-B3 seven-row cache would otherwise break the hydrator's exact-cardinality guard before any refresh could heal it.
   refreshed_at      TEXT NOT NULL,
   PRIMARY KEY (driver_name, capability_flag)

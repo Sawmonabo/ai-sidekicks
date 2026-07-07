@@ -143,6 +143,12 @@ export interface CreateSessionParams {
 export interface ResumeSessionParams {
   sessionId: SessionId;
   resumeHandle: string; // opaque provider-owned handle
+  // Recovery wire-through of the native-cap-escape admitted cap: resume/relaunch
+  // re-threads the run.queued server-stamped value so the provider-side hard stop
+  // survives daemon restart and session relaunch — api-payload-contracts.md
+  // §Plan-005 ResumeSessionParams mirror (Spec-016 §Cost Derivation And
+  // Absent-Cost Semantics, campaign B6). Same idiom note as StartRunParams below.
+  admittedCostCapCents?: number | undefined;
 }
 
 export interface StartRunParams {

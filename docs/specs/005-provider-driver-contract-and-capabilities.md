@@ -122,7 +122,7 @@ This spec covers required driver operations, capability advertisement, normalize
 | `session_goals` | true | true | Session-goal injection via `setSessionGoal` / `clearSessionGoal` (Codex `thread/goal/*`, native live; Claude system-prompt composition applied from the next turn boundary — driver-emulated, see grades) |
 | `callback_tools` | true | true | Daemon-curated callback-tool registry exposed into runs (Codex `dynamicTools` + `item/tool/call`; Claude daemon-hosted ephemeral MCP server) |
 | `subagents` | true | true | Provider-native in-session subagents under the daemon-supplied `subagentPolicy` (Codex `[agents]` config; Claude `--agents` definitions) |
-| `cost_cap` | true | false | Realizes a daemon-supplied hard cost cap natively at spawn (Claude `--max-budget-usd`). Consumed by Spec-016's native-cap unpriced admission: the escape reserves only against legs whose driver declares this flag (campaign B6, 2026-07-06). |
+| `cost_cap` | false | true | Realizes a daemon-supplied hard cost cap natively at spawn (Claude `--max-budget-usd`). Consumed by Spec-016's native-cap unpriced admission: the escape reserves only against legs whose driver declares this flag (campaign B6, 2026-07-06). |
 
 ### Fallback Behavior
 

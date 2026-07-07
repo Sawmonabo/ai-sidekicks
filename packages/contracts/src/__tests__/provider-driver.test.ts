@@ -263,6 +263,25 @@ describe("ProviderDriver contract — AC1 (Spec-005:204): a mock implements all 
     expect(startParams.runId).toBe(RUN_UUID);
     expect(startParams.channelId).toBe(CHANNEL_UUID);
   });
+
+  it("carries the native-cap admitted cap on both the start and resume seams", () => {
+    // The omitting fixtures above prove the field is optional; these prove the
+    // typed presence form on both seams — recovery must be able to re-thread
+    // the run.queued server-stamped cap (campaign B6).
+    const cappedStart: StartRunParams = {
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: {},
+      admittedCostCapCents: 2500,
+    };
+    const cappedResume: ResumeSessionParams = {
+      sessionId: SESSION_ID,
+      resumeHandle: "resume-handle-opaque",
+      admittedCostCapCents: 2500,
+    };
+    expect(cappedStart.admittedCostCapCents).toBe(2500);
+    expect(cappedResume.admittedCostCapCents).toBe(2500);
+  });
 });
 
 // ===========================================================================
