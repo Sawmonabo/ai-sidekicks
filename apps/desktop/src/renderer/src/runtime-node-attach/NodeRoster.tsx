@@ -4,7 +4,7 @@
 // runtime nodes attached to the active session — one `RuntimeNodeRosterEntry`
 // per `runtime_node_attachments` row, exactly as the registered
 // `runtimenode.roster` read returns it — and visually distinguishes the three
-// status facets the wire entry carries (api-payload-contracts.md:544-554;
+// status facets the wire entry carries (api-payload-contracts.md:551-561;
 // runtime-node.ts:560-570):
 //   • `state: NodeState` — the SLOT axis (registering|online|degraded|offline|
 //     revoked, runtime-node.ts:86), `runtime_node_attachments.state` carried
@@ -87,7 +87,7 @@
 //       shared-postgres-schema.md `runtime_node_attachments` /
 //       `runtime_node_presence`), NOT `daemon.call`: `runtimenode.roster` is
 //       registered control-plane tRPC ONLY (a daemon knows only itself), per
-//       the registry row (api-payload-contracts.md:572).
+//       the registry row (api-payload-contracts.md:579).
 //     • Live health TRANSITIONS arrive on `window.sidekicks.daemon.subscribe(
 //       <runtime_node.* event>, handler)` — the daemon authors the
 //       daemon-reachable `runtime_node.*` lifecycle events (the registered
@@ -115,9 +115,9 @@
 //   Runtime-Node Method-Name Registry exposes five `runtimenode.*` methods —
 //   four mutations (`attach`/`heartbeat`/`capabilityupdate`/`detach`) plus
 //   this namespace-first `query` (the registry table at
-//   api-payload-contracts.md:566-572, roster row :571; procedure-type
+//   api-payload-contracts.md:573-579, roster row :571; procedure-type
 //   paragraph :568) — with the request/response wire shapes at
-//   api-payload-contracts.md:537-557 and the contract pinned in Spec-003
+//   api-payload-contracts.md:544-564 and the contract pinned in Spec-003
 //   §Interfaces And Contracts (line 86; amendment lines 90-94). Server truth:
 //   `AttachService.readRoster` (attach-service.ts:1000-1059), mounted as the
 //   router's first `.query()` (runtime-node-router.factory.ts:268-287); the
@@ -174,7 +174,7 @@ import type {
 //
 // `ROSTER_READ_PROCEDURE` — the REGISTERED control-plane procedure for the
 // reconciled roster read (presence × slot): registry row
-// api-payload-contracts.md:572 (`query`, control-plane tRPC ONLY — the
+// api-payload-contracts.md:579 (`query`, control-plane tRPC ONLY — the
 // namespace's first and only query; its four siblings are mutations), served
 // by `AttachService.readRoster` via the router's first `.query()`
 // (runtime-node-router.factory.ts:268-287). Hardcoded as a local `const` per

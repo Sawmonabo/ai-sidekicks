@@ -186,6 +186,13 @@ type DriverCapabilityFlag =
   | "callback_tools" // daemon-curated callback-tool registry (campaign B3)
   | "subagents" // provider-native in-session subagents under subagentPolicy (campaign B3)
   | "cost_cap"; // realizes a daemon-supplied hard cost cap natively at spawn — Claude --max-budget-usd; gates the Spec-016 native-cap unpriced admission (campaign B6)
+// Code-mirror gate (campaign B3/B6): the shipped executable union
+// (packages/contracts/src/provider-driver.ts) still exports the seven pre-B3 flags, and the
+// shipped assertValidCapabilityFlags rejects any snapshot whose key count differs — so a driver
+// MUST NOT declare the six campaign flags against the shipped validator. Union + validator +
+// driver_capabilities migration backfill + conformance tests widen together as ONE change via
+// the campaign's Plan-005 bundle; cost_cap-gated admission code (Plan-016 T2.3) dispatch-gates
+// on that bundle (same named-bundle gate as the goal driver mirror).
 ```
 
 ---
@@ -870,8 +877,10 @@ interface SessionCallbackTool {
 // campaign B6). Single-supervisor invariant: the daemon is the only cross-session supervisor —
 // provider subagents run in-session only, their usage aggregates into the run's own budgets, and
 // their tool calls flow through the same approval pipeline. `maxConcurrent` enforces natively on
-// Codex; the Claude concurrency cap is docs-silent, so that leg monitors-with-diagnostic
-// (Spec-005 §Parity Capability Mechanism Grades).
+// Codex; the Claude spawn-side cap is docs-silent, so that leg is BOUNDARY-SERIALIZED — beyond-cap
+// subagents hold at their next daemon-mediated tool call until a slot frees (never failed; breach
+// diagnostic = observability; subagents disabled at spawn if the leg cannot mediate tool calls)
+// (Spec-005 §Parity Capability Mechanism Grades; Spec-016 §Provider-Native Subagents).
 type SubagentPolicy =
   // Discriminated on `enabled`: a disabled policy carries no limits or definitions —
   // "off but configured" is unrepresentable; the daemon sends the full arm on enable.

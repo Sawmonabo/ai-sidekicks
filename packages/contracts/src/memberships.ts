@@ -4,7 +4,7 @@
 // suspension, revocation, and reactivation.
 //
 // Canonical wire form lives in
-// docs/architecture/contracts/api-payload-contracts.md lines 410-415:
+// docs/architecture/contracts/api-payload-contracts.md lines 417-422:
 //
 //   interface MembershipUpdateRequest {
 //     membershipId: MembershipId;
@@ -112,7 +112,7 @@ export type {
 export { MembershipIdSchema, MembershipRoleSchema, MembershipStateSchema } from "./session.js";
 
 // --------------------------------------------------------------------------
-// MembershipUpdate — Spec-002 line 83 + api-payload-contracts.md lines 410-415
+// MembershipUpdate — Spec-002 line 83 + api-payload-contracts.md lines 417-422
 // --------------------------------------------------------------------------
 //
 // Discriminated union over `action`. Variant shapes:
@@ -230,7 +230,7 @@ export const MembershipUpdateSchema: z.ZodType<MembershipUpdate, MembershipUpdat
   ]) as unknown as z.ZodType<MembershipUpdate, MembershipUpdate>;
 
 // --------------------------------------------------------------------------
-// MembershipUpdateResponse — api-payload-contracts.md §Tier 2 (lines 435-440)
+// MembershipUpdateResponse — api-payload-contracts.md §Tier 2 (lines 442-447)
 // --------------------------------------------------------------------------
 //
 // `{membershipId, state, role, updatedAt}`. The wire RESPONSE returned by the

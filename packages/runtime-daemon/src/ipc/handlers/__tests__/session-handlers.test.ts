@@ -222,7 +222,7 @@ function buildSessionCreatedEvent(): SessionEvent {
  * succeeds and the dispatched value reaches the test assertion intact.
  *
  * `timelineCursors.acknowledged` is intentionally omitted — it is optional
- * per the canonical interface (api-payload-contracts.md line 214) and
+ * per the canonical interface (api-payload-contracts.md line 221) and
  * exercising the absent-key shape catches a regression where a default of
  * `undefined` would slip through and fail `.strict()` parsing.
  */

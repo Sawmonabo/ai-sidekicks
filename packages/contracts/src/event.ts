@@ -25,7 +25,7 @@
 // `"MAJOR.MINOR"` STRING per ADR-018 §Decision #1. It is NEVER numeric on
 // the wire (lexical compare on strings like "1.10" vs "1.9" is unsafe; the
 // reader parses MAJOR/MINOR as integers). The format check below enforces
-// the regex from api-payload-contracts.md line 478.
+// the regex from api-payload-contracts.md line 485.
 //
 // Refs: Spec-001 §Interfaces, Spec-006 §Event Type Enumeration + §Canonical
 // Serialization Rules, ADR-017 (event sourcing), ADR-018 (cross-version
@@ -52,7 +52,7 @@ import {
 // EventCategory — canonical taxonomy enum.
 // --------------------------------------------------------------------------
 //
-// Mirrors the EventCategory registry in api-payload-contracts.md lines 1049–1076
+// Mirrors the EventCategory registry in api-payload-contracts.md lines 1058–1085
 // (19 categories per Spec-006 §Event Type Summary). Code ships the 16-category
 // V1 baseline; Plan-006 Phase 1 (T1.1) widens it with `channel_arbitration`,
 // `onboarding_lifecycle`, and `cross_node_dispatch`.
@@ -253,7 +253,7 @@ export const EVENT_FIELD_MAX_LEN = 256;
 // while supplying its own `type` literal, its own literal `category`, and
 // its own `payload`. Per Spec-001 § Data And Storage Changes the daemon
 // assigns the persisted event id (UUID v7 in current daemon code, but the
-// wire contract per api-payload-contracts.md line 482 is opaque `id: string`
+// wire contract per api-payload-contracts.md line 489 is opaque `id: string`
 // — no UUID-format invariant is asserted at the wire layer); `sequence` is
 // the canonical replay key per ADR-017.
 //
@@ -290,7 +290,7 @@ interface SessionEventCommonFields {
 const buildCommonShape = () => ({
   // `id`: opaque on the wire (no UUID-format invariant). The daemon assigns
   // UUID v7 internally per Spec-006 (sortable timestamp ordering), but the
-  // wire contract per api-payload-contracts.md line 482 is `id: string`. A
+  // wire contract per api-payload-contracts.md line 489 is `id: string`. A
   // future spec edit may tighten this to `z.uuid()`; until then, accepting
   // any non-empty bounded string (length cap + whitespace + NUL guards)
   // matches the documented contract.
@@ -299,7 +299,7 @@ const buildCommonShape = () => ({
   // `sequence` is a non-negative integer. The daemon assigns a strictly
   // monotonic per-session sequence on append; gaps are an integrity bug.
   sequence: z.number().int().nonnegative(),
-  // `occurredAt` is ISO 8601 per api-payload-contracts.md line 485.
+  // `occurredAt` is ISO 8601 per api-payload-contracts.md line 492.
   // `{ offset: true }` widens default Z-only acceptance to include numeric
   // RFC 3339 §5.6 offsets ("+00:00", "-05:00"). The narrower CANONICAL form
   // for the integrity protocol (Spec-006:597-599 — Z-suffixed UTC, ms
@@ -307,7 +307,7 @@ const buildCommonShape = () => ({
   // step, NOT at the wire layer here.
   occurredAt: z.iso.datetime({ offset: true }),
   // `actor` is a participant_id, agent_id, or null/absent for system-emitted
-  // events (api-payload-contracts.md line 488 — "or null for system").
+  // events (api-payload-contracts.md line 495 — "or null for system").
   // The helper rejects empty/whitespace-only/NUL strings — a system event
   // must use `null` or omit the key, NOT send an empty string. `.nullable()`
   // is composed AFTER the helper so the inner string checks only run on
