@@ -233,13 +233,16 @@ Resume diagnostic (run on Phase E re-entry):
    └── YES: continue to step 3
 
 3. Read manifest.result:
-   ├── null: check the stage-1 sidecar first —
-   │   ├── .agents/tmp/housekeeper-stage1-PR<N>.json absent: re-run the script
-   │   │   (same flags — idempotent, regenerates the script-stage manifest),
-   │   │   then validate + snapshot per SKILL.md Phase E step 3, then dispatch
-   │   │   (the crash window between script-write and the step-3 snapshot
-   │   │   otherwise skips the only safe snapshot point and step 5 halts)
-   │   └── sidecar present: re-dispatch subagent (manifest is script-only)
+   ├── null: manifest is script-only — resume the live pipeline; this tree
+   │   never routes dispatch itself. (1) Sidecar absent
+   │   (.agents/tmp/housekeeper-stage1-PR<N>.json): re-run the script (same
+   │   flags — idempotent), then validate + snapshot per SKILL.md Phase E
+   │   step 3 (the crash window between script-write and the step-3 snapshot
+   │   otherwise skips the only safe snapshot point). (2) Sidecar present:
+   │   keep it. Either way, finish by routing per SKILL.md Phase E step 4 —
+   │   decideHousekeeperRouting on script_exit_code decides dispatch XOR halt
+   │   (exits 1 / 4 / ≥6 halt with operator action; they never reach the
+   │   subagent)
    ├── DONE | DONE_WITH_CONCERNS: skip to "Append Progress Log → git add + commit"
    ├── NEEDS_CONTEXT | BLOCKED: surface to user (same as fresh halt)
    └── any other value: treat as malformed, halt
