@@ -192,6 +192,18 @@ test("deny: worktree add outside .worktrees/", () => {
   assert.equal(decision?.permissionDecision, "deny");
 });
 
+test("deny: worktree add hidden in command substitution is still seen", () => {
+  // Parens are split by the normalizer, so the inner tokens surface and the
+  // strict-shape deny fires — pins the claim that dropping the blanket
+  // subshell deny does not blind the scanner to `$(...)`.
+  const decision = runGuard("echo $(git worktree add /tmp/evil)");
+  assert.equal(decision?.permissionDecision, "deny");
+});
+
+test("allow: worktree mention near a substitution is not an invocation", () => {
+  assert.equal(runGuard('echo "worktrees: $(date)"'), null);
+});
+
 test("deny: relative add resolves against payload cwd, not repo root", () => {
   const subdir = join(fixture.repo, "packages", "foo");
   mkdirSync(subdir, { recursive: true });
@@ -260,6 +272,20 @@ test("deny: variable removal target is unparseable", () => {
 test("deny: command substitution around a removal", () => {
   const decision = runGuard("git worktree remove $(pick-worktree)");
   assert.equal(decision?.permissionDecision, "deny");
+});
+
+test("allow: markdown mention of a removal inside heredoc text", async () => {
+  // Dogfood regression: doc/PR text written via heredoc mentions the command
+  // in backticks — a mention is not an invocation and must pass even while
+  // the named worktree is occupied.
+  const child = await spawnOccupant(wtA);
+  const command = [
+    "cat > /tmp/notes.md <<'EOF'",
+    "Run `git worktree remove .worktrees/wt-a` after the merge.",
+    "EOF",
+  ].join("\n");
+  assert.equal(runGuard(command), null);
+  await killOccupant(child, wtA);
 });
 
 test("deny: unbalanced quote on a removal-shaped command fails closed", () => {

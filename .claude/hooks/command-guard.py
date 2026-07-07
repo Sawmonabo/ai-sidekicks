@@ -767,12 +767,17 @@ def _check_worktree_path(command, base_cwd=None, _depth=0):
     has_invocation = _has_git_worktree_invocation(tokens)
 
     if not has_invocation:
-        # No actual `git worktree (add|move)` in the tokens. Only deny if a
-        # subshell could be hiding one we can't see (e.g., `$(git worktree
-        # add ../escape)`); otherwise this is a data mention like `echo
-        # worktree add` or a different subcommand like `git worktree list`.
-        if has_subshell:
-            return _build_shape_deny()
+        # No actual `git worktree (add|move)` in the tokens — a data mention
+        # like `echo worktree add` or a different subcommand like
+        # `git worktree list`. A `$(git worktree add ...)` substitution is
+        # NOT hidden from the scan: _normalize_shell_operators splits parens,
+        # so its tokens surface and set has_invocation above. Only a
+        # backtick-wrapped invocation stays glued and invisible — accepted
+        # residual under the non-adversarial threat model; the previous
+        # blanket subshell deny here false-positived on every command that
+        # merely mentioned `worktree` near a backtick or `$(` (markdown in
+        # heredocs, `$(git worktree list)` interpolations), which activation
+        # exposed.
         return None
 
     if has_subshell:
@@ -1244,9 +1249,15 @@ def _check_worktree_removal(command, base_cwd=None, _depth=0):
     if not mentions_git_removal and not rm_relevant:
         return None
 
-    if _has_unquoted_subshell(command):
-        return _build_removal_unparseable_deny(command)
-
+    # No blanket subshell/backtick deny here (unlike add|move): doc/PR text
+    # written through heredocs legitimately mentions `git worktree remove`
+    # inside markdown backticks, and a blanket deny turns every such mention
+    # into a false positive (found by dogfooding — the guard denied its own
+    # PR-creation command). `$(...)` stays visible to the statement scan
+    # below because _normalize_shell_operators splits parens, and a
+    # substitution IN a removal target still denies via _UNSAFE_TARGET_RE.
+    # A removal hidden entirely inside backticks is an accepted residual
+    # under the non-adversarial threat model.
     normalized = _normalize_shell_operators(command)
     try:
         tokens = shlex.split(normalized)
