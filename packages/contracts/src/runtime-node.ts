@@ -823,7 +823,7 @@ const buildRuntimeNodeLifecycleBaseShape = () => ({
 // REDUCED CAPABILITY base — the full base MINUS `previousState` / `newState`.
 // Capability events are NOT `NodeState` transitions: the canonical typed
 // payloads `RuntimeNodeCapabilityDeclaredPayload` / `RuntimeNodeCapabilityUpdated-
-// Payload` (api-payload-contracts.md §Plan-006, lines 768-780) carry NO base /
+// Payload` (api-payload-contracts.md §Plan-006, lines 774-786) carry NO base /
 // `NodeState` fields at all — only the capability fields. Carrying a base
 // `newState: NodeState` here would additionally COLLIDE with `capability_updated`'s
 // own `previousState` / `newState`, which are `CapabilityDetails` SNAPSHOTS (the
@@ -957,7 +957,7 @@ export const RuntimeNodeOfflinePayloadSchema: z.ZodType<RuntimeNodeOfflinePayloa
 // `capabilityDetails` ships as interim-opaque `z.record(z.string(), z.unknown())`
 // — marker `Plan-006-Tier-4-binds-canonical`: the canonical `CapabilityDetails`
 // (`{flags: Record<DriverCapabilityFlag, boolean>; contractVersion: string;
-// tools: NormalizedProviderToolMetadata[]}`, api-payload-contracts.md:992-996)
+// tools: NormalizedProviderToolMetadata[]}`, api-payload-contracts.md:998-1002)
 // consumes Plan-005's `provider-driver.ts` types (`DriverCapabilityFlag`,
 // `NormalizedProviderToolMetadata`), but that's Plan-006 Tier 4's owned step,
 // not this layer's — so the field stays opaque here. An HONEST
@@ -991,7 +991,7 @@ export const RuntimeNodeCapabilityDeclaredPayloadSchema: z.ZodType<RuntimeNodeCa
 // Spec-006:413 ("base + {capability, previousState, newState}"). Emitted by the
 // T2.2 capability-service on a capability health/config change. CRITICAL: here
 // `previousState` / `newState` are `CapabilityDetails` SNAPSHOTS (so consumers
-// diff capability snapshots structurally — api-payload-contracts.md:1007-1012),
+// diff capability snapshots structurally — api-payload-contracts.md:1013-1018),
 // NOT `NodeState` values. This is exactly why this event uses the REDUCED base:
 // a base `previousState`/`newState: NodeState` would collide with these
 // capability-snapshot fields of the same name. Both ship as interim-opaque

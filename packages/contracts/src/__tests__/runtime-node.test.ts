@@ -998,7 +998,7 @@ describe("RuntimeNodeCapabilityDeclaredPayloadSchema (C7: reduced base + {capabi
 
   it("REJECTS a newState key (reduced base omits the NodeState-transition fields)", () => {
     // Discriminating reduced-base proof: capability events are NOT NodeState
-    // transitions (the canonical payload, api-payload-contracts.md:1000, carries no
+    // transitions (the canonical payload, api-payload-contracts.md:1006, carries no
     // base NodeState fields). A `newState` key is therefore an unknown key under
     // `.strict()` — its presence rejects.
     const broken = { ...buildValidCapabilityDeclaredPayload(), newState: "online" };

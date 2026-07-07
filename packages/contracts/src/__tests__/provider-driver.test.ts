@@ -279,8 +279,14 @@ describe("ProviderDriver contract — AC1 (Spec-005:204): a mock implements all 
       resumeHandle: "resume-handle-opaque",
       admittedCostCapCents: 2500,
     };
+    const cappedCreate: CreateSessionParams = {
+      sessionId: SESSION_ID,
+      config: {},
+      admittedCostCapCents: 2500,
+    };
     expect(cappedStart.admittedCostCapCents).toBe(2500);
     expect(cappedResume.admittedCostCapCents).toBe(2500);
+    expect(cappedCreate.admittedCostCapCents).toBe(2500);
   });
 });
 

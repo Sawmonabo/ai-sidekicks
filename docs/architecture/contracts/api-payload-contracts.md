@@ -631,6 +631,12 @@ interface ProviderDriver {
 interface CreateSessionParams {
   sessionId: SessionId;
   config: Record<string, unknown>;
+  // Spawn-time realization of the native-cap-escape admitted cap (campaign B6): providers that
+  // bind budget caps at process spawn (Claude `--max-budget-usd`) realize it HERE — the initial
+  // create path must never launch a native-cap-admitted leg capless while the accountant
+  // reserves/debits as if enforced. StartRunParams / ResumeSessionParams carry the same value
+  // for the run and recovery paths (Spec-016 §Cost Derivation And Absent-Cost Semantics).
+  admittedCostCapCents?: number;
   executionPosture?: ExecutionPosture; // spawn-time posture — provider legs that bind posture at process spawn (Claude `--settings` sandbox) realize it here; the per-run effective posture rides StartRunParams (Spec-005 §Required Behavior, campaign B3)
   callbackTools?: SessionCallbackTool[]; // daemon-curated callback-tool registry exposed into the session (Codex function-form dynamicTools; Claude daemon-hosted ephemeral MCP server via --mcp-config); gated on the callback_tools flag
   subagentPolicy?: SubagentPolicy; // provider-native in-session subagent policy pass-through under the single-supervisor invariant (Spec-016 semantics land via campaign B6); gated on the subagents flag
@@ -649,7 +655,7 @@ interface ResumeSessionParams {
 interface StartRunParams {
   // native-cap-escape wire-through: the admitted family cap (= the run.queued server-stamped admittedUnpricedCapCents),
   // realized as the provider's native hard cap on cap-capable legs (Claude `--max-budget-usd`); a leg that
-  // binds caps at spawn realizes it at session boundaries per the executionPosture precedent below
+  // binds caps at spawn realizes it via CreateSessionParams.admittedCostCapCents (the spawn carrier above)
   // (Spec-016 §Cost Derivation And Absent-Cost Semantics, campaign B6)
   admittedCostCapCents?: number;
   runId: RunId;

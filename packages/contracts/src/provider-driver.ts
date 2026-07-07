@@ -138,6 +138,13 @@ export interface ProviderDriver {
 export interface CreateSessionParams {
   sessionId: SessionId;
   config: Record<string, unknown>;
+  // Spawn-time realization of the native-cap-escape admitted cap: providers that
+  // bind budget caps at process spawn (Claude `--max-budget-usd`) realize it here,
+  // so the initial create path never launches a native-cap-admitted leg capless —
+  // api-payload-contracts.md §Plan-005 CreateSessionParams mirror (Spec-016 §Cost
+  // Derivation And Absent-Cost Semantics, campaign B6). Same idiom note as
+  // StartRunParams below.
+  admittedCostCapCents?: number | undefined;
 }
 
 export interface ResumeSessionParams {
@@ -425,7 +432,7 @@ export interface CancelPayload {
 // by convention. Intentionally a flat object, NOT a `status`-discriminated union
 // like the sibling `DriverResumeResult`: that envelope's variants carry different
 // REQUIRED fields, whereas these two differ only by one optional field — the flat
-// shape mirrors the ratified api-payload-contracts.md:712 envelope (Phase-4
+// shape mirrors the ratified api-payload-contracts.md:718 envelope (Phase-4
 // decision #3). Non-transforming object → double-`T` annotation per
 // session.ts:289-294.
 export interface DriverInterventionResult {
