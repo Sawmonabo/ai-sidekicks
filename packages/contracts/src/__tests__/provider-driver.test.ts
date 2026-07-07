@@ -11,11 +11,11 @@
 // consumers.
 //
 // Coverage map (cite → block):
-//   • AC1 (Spec-005:202) — a mock fully implementing `ProviderDriver` (all 10
+//   • AC1 (Spec-005:204) — a mock fully implementing `ProviderDriver` (all 10
 //     ops, correctly-typed params + returns) compiles with no session-domain
 //     change. The compile is the assertion; a runtime smoke confirms the mock
 //     is constructable and a method returns the expected shape.
-//   • AC2 (Spec-005:203) — a capability flag outside the 7-flag
+//   • AC2 (Spec-005:205) — a capability flag outside the 7-flag
 //     `DriverCapabilityFlag` union is a TS error (`@ts-expect-error`, self-
 //     verifying via TS2578 if the invalid flag ever became valid).
 //   • I-005-5 — narrowing a `DriverResumeResult` to `status: "failed"` makes
@@ -41,9 +41,9 @@
 // uses no `expectTypeOf` / `assertType` helper, so the compile-time assertions
 // here are typed-binding + `@ts-expect-error`, exactly as the siblings do.
 //
-// Refs: Spec-005:202 (AC1 — driver implementable with no session-domain change),
-// Spec-005:203 (AC2 — off-union capability flag is a type error), Spec-005:69
-// (resume-failure surfacing), Spec-005:172 (idempotency default), Plan-005
+// Refs: Spec-005:204 (AC1 — driver implementable with no session-domain change),
+// Spec-005:205 (AC2 — off-union capability flag is a type error), Spec-005:69
+// (resume-failure surfacing), Spec-005:174 (idempotency default), Plan-005
 // Phase 1, I-005-3, I-005-5.
 import { describe, expect, it } from "vitest";
 
@@ -89,7 +89,7 @@ const RUN_ID = RUN_UUID as RunId;
 const CHANNEL_ID = CHANNEL_UUID as ChannelId;
 
 // ===========================================================================
-// AC1 (Spec-005:202) — a mock fully implementing `ProviderDriver` compiles.
+// AC1 (Spec-005:204) — a mock fully implementing `ProviderDriver` compiles.
 // ===========================================================================
 //
 // The class below implements ALL 10 operations with correctly-typed params and
@@ -174,7 +174,7 @@ class MockProviderDriver implements ProviderDriver {
   }
 }
 
-describe("ProviderDriver contract — AC1 (Spec-005:202): a mock implements all 10 ops", () => {
+describe("ProviderDriver contract — AC1 (Spec-005:204): a mock implements all 10 ops", () => {
   // Type-level proof that the mock satisfies the contract interface: assigning
   // it to a `ProviderDriver`-typed binding will fail to compile if any of the
   // 10 method signatures drifts from the contract. This is the AC1 assertion;
@@ -266,7 +266,7 @@ describe("ProviderDriver contract — AC1 (Spec-005:202): a mock implements all 
 });
 
 // ===========================================================================
-// AC2 (Spec-005:203) — a capability flag outside the 7-flag union is a TS error.
+// AC2 (Spec-005:205) — a capability flag outside the 7-flag union is a TS error.
 // ===========================================================================
 //
 // `DriverCapabilities.flags` is `Record<DriverCapabilityFlag, boolean>`. The
@@ -279,7 +279,7 @@ describe("ProviderDriver contract — AC1 (Spec-005:202): a mock implements all 
 // No `as any` / `as never` escape hatch is used — that would silence the very
 // error this case exists to surface.
 
-describe("ProviderDriver contract — AC2 (Spec-005:203): off-union capability flag is a type error", () => {
+describe("ProviderDriver contract — AC2 (Spec-005:205): off-union capability flag is a type error", () => {
   it("rejects a capability flag outside the 7-flag DriverCapabilityFlag union at compile time", () => {
     const flagsWithExtra: DriverCapabilities["flags"] = {
       resume: true,
@@ -390,7 +390,7 @@ describe("ProviderDriver contract — I-005-5: failed resume cannot carry a bind
 // This package's first TRANSFORMING schema (Input ≠ Output): an OMITTED
 // `idempotency_class` defaults to `manual_reconcile_only` on the OUTPUT (a
 // driver may omit it at ingress; the daemon-side normalized shape requires it).
-// Spec-005:172 — an undeclared class is NOT a contract violation; the safe
+// Spec-005:174 — an undeclared class is NOT a contract violation; the safe
 // default applies at the normalization seam.
 
 describe("ProviderToolMetadataSchema — I-005-3: ingress→normalized idempotency default", () => {

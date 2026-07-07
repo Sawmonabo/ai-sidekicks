@@ -184,7 +184,8 @@ type DriverCapabilityFlag =
   | "rollback" // conversation rollback via rollbackTo (campaign B3; the rollback InterventionType is Spec-004 content, campaign B2)
   | "session_goals" // setSessionGoal / clearSessionGoal (campaign B3)
   | "callback_tools" // daemon-curated callback-tool registry (campaign B3)
-  | "subagents"; // provider-native in-session subagents under subagentPolicy (campaign B3)
+  | "subagents" // provider-native in-session subagents under subagentPolicy (campaign B3)
+  | "cost_cap"; // realizes a daemon-supplied hard cost cap natively at spawn — Claude --max-budget-usd; gates the Spec-016 native-cap unpriced admission (campaign B6)
 ```
 
 ---
@@ -638,6 +639,11 @@ interface CreateSessionParams {
 interface ResumeSessionParams {
   sessionId: SessionId;
   resumeHandle: string; // opaque provider-owned handle
+  // recovery wire-through (campaign B6): on resume/relaunch of a native-cap-admitted run the daemon
+  // re-threads the admitted cap from the durable run.queued payload (admittedUnpricedCapCents), so the
+  // provider-side hard stop survives daemon restart and session relaunch (Plan-015 recovery resumes
+  // bindings through this seam; realized like StartRunParams.admittedCostCapCents on cap-capable legs)
+  admittedCostCapCents?: number;
 }
 
 interface StartRunParams {
@@ -894,9 +900,9 @@ type IdempotencyClass = "idempotent" | "compensable" | "manual_reconcile_only";
 // INGRESS shape — what a provider driver DECLARES via `getCapabilities()`. `idempotency_class`
 // is OPTIONAL: a driver MAY omit it and an undeclared class is NOT a contract violation. Were the
 // field required here, Zod would reject a conformant-but-silent driver at ingress BEFORE the
-// default could apply — defeating Spec-005:172. The daemon's capability-normalization seam
+// default could apply — defeating Spec-005:174. The daemon's capability-normalization seam
 // (Plan-005 T2.4 hydration) resolves an omitted class to `manual_reconcile_only` (the conservative
-// default per Spec-005:172), producing a `NormalizedProviderToolMetadata`.
+// default per Spec-005:174), producing a `NormalizedProviderToolMetadata`.
 interface ProviderToolMetadata {
   name: string;
   idempotency_class?: IdempotencyClass;
@@ -964,7 +970,7 @@ interface GetCapabilitiesResult {
 // CapabilityDetails — wrapper shape carried by `runtime_node.capability_declared` and
 // `runtime_node.capability_updated` event payloads (Spec-006:412-413). Bound to the same
 // three surfaces a driver advertises via `ProviderDriver.getCapabilities()` (GetCapabilitiesResult
-// above): the twelve-flag matrix, the declared contract version, and the per-tool metadata —
+// above): the thirteen-flag matrix, the declared contract version, and the per-tool metadata —
 // here as `NormalizedProviderToolMetadata` (post-default), since these payloads cross the event
 // boundary and must never carry an un-normalized `idempotency_class`. `GetCapabilitiesResult.cliVersion`
 // is intentionally NOT mirrored here — the CLI-version floor is an attach-time fail-closed gate, not a

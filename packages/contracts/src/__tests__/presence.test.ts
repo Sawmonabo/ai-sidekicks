@@ -203,7 +203,7 @@ describe("JoinModeSchema (canonical wire form is SPACED 'runtime contributor')",
 // =============================================================================
 //
 // Canonical wire form merges two governance sources:
-//   * api-payload-contracts.md:422-426 — 3 outer fields
+//   * api-payload-contracts.md:423-427 — 3 outer fields
 //     `{participantId, deviceId, activityState}`
 //   * Spec-002 line 59 + line 84 — 5 REQUIRED metadata fields
 //     `{deviceType, focusedSessionId, focusedChannelId, lastActivityAt, appVisible}`
@@ -257,7 +257,7 @@ describe("PresenceHeartbeatSchema (C4: 5 metadata fields per Spec-002 line 84)",
   });
 
   // ----------------------------------------------------------------------
-  // Outer fields are all REQUIRED — api-payload-contracts.md:422-426.
+  // Outer fields are all REQUIRED — api-payload-contracts.md:423-427.
   // ----------------------------------------------------------------------
 
   it.each(["participantId", "deviceId", "activityState"] as const)(
@@ -547,7 +547,7 @@ describe("PresenceHeartbeatSchema (C4: 5 metadata fields per Spec-002 line 84)",
 // PresenceUpdateSchema — JSON-RPC local IPC daemon → client push
 // =============================================================================
 //
-// Exact wire shape (api-payload-contracts.md:429-433):
+// Exact wire shape (api-payload-contracts.md:430-434):
 //   `{sessionId: SessionId, awarenessState: Uint8Array}`
 
 describe("PresenceUpdateSchema (JSON-RPC local IPC, daemon → client push)", () => {
@@ -647,10 +647,10 @@ describe("PresenceReadRequestSchema (JSON-RPC local IPC, client → daemon query
 // PresenceReadResponseSchema — participant projection array
 // =============================================================================
 //
-// Wire shape (api-payload-contracts.md:439-445):
+// Wire shape (api-payload-contracts.md:440-446):
 //   `{participants: Array<{participantId, state: PresenceState, lastSeen: string}>}`
 
-describe("PresenceReadResponseSchema (participant projection per api-payload-contracts.md:439-445)", () => {
+describe("PresenceReadResponseSchema (participant projection per api-payload-contracts.md:440-446)", () => {
   it("accepts a response with one participant", () => {
     const payload = {
       participants: [

@@ -311,7 +311,7 @@ export const IdempotencyClassSchema: z.ZodType<IdempotencyClass, IdempotencyClas
 // `idempotency_class` is OPTIONAL: a driver MAY omit it and an undeclared class
 // is NOT a contract violation. Were the field required at ingress, Zod would
 // reject a conformant-but-silent driver BEFORE the default could apply,
-// defeating Spec-005:172.
+// defeating Spec-005:174.
 export interface ProviderToolMetadata {
   name: string;
   idempotency_class?: IdempotencyClass | undefined;
@@ -364,7 +364,7 @@ export const ProviderToolMetadataSchema: z.ZodType<
   ).optional(),
 });
 
-// Return type of `ProviderDriver.getCapabilities()` — nominal TS. Spec-005:160-162
+// Return type of `ProviderDriver.getCapabilities()` — nominal TS. Spec-005:162-164
 // semantically separates whole-driver capability flags from per-tool metadata;
 // this wrapper keeps `DriverCapabilities` pure (flags + contractVersion only)
 // while carrying both surfaces in a single round-trip. `tools` is the INGRESS
@@ -419,7 +419,7 @@ export interface CancelPayload {
 // by convention. Intentionally a flat object, NOT a `status`-discriminated union
 // like the sibling `DriverResumeResult`: that envelope's variants carry different
 // REQUIRED fields, whereas these two differ only by one optional field — the flat
-// shape mirrors the ratified api-payload-contracts.md:706 envelope (Phase-4
+// shape mirrors the ratified api-payload-contracts.md:712 envelope (Phase-4
 // decision #3). Non-transforming object → double-`T` annotation per
 // session.ts:289-294.
 export interface DriverInterventionResult {

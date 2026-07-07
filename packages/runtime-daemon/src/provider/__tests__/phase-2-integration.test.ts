@@ -23,7 +23,7 @@
 //     from canonical session/run ids): `RuntimeBindingStore.create` carries the
 //     opaque `resumeHandle`, and the binding round-trips through a FRESH store
 //     over the same `db`.
-//   * Spec-005:203 (AC2 — unsupported capabilities remain unavailable and
+//   * Spec-005:205 (AC2 — unsupported capabilities remain unavailable and
 //     cannot be invoked accidentally): the capability round-trip + cold-start
 //     re-seed proves the durable cache reconstitutes the gating set identically
 //     across a daemon restart.
