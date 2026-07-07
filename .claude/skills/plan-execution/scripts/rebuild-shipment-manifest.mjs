@@ -304,7 +304,6 @@ export async function rebuildManifest({
 
   const built = [];
   for (const pr of prNumbers) {
-    const details = fetchPrDetails({ pr, ghRunner });
     // Candidate precision (2026-07-07): the in:title,body search keeps broad
     // recall for the operator, but only TITLE-tokened PRs are the manifest
     // population — G6 freshness is title-only, and lane-2 enhancement PRs
@@ -314,13 +313,19 @@ export async function rebuildManifest({
     // "i" flag: GitHub's search (both G6's title-only and this tool's in:title,body)
     // matches case-insensitively — a lowercase `plan-001` title is G6-visible, so the
     // rebuild filter must see it too or the two mechanisms disagree on the population.
+    // The probe is title-ONLY and runs BEFORE fetchPrDetails: the full fetch
+    // halts loudly (exit 7) when files truncate at the 100-file GraphQL page,
+    // and a body-only PR outside the manifest population must not be able to
+    // trip that halt (Codex P2, PR #187).
     const titleTokenRe = new RegExp(`\\bPlan-${plan}\\b`, "i");
-    if (!titleTokenRe.test(details.title ?? "")) {
+    const { title } = JSON.parse(ghRunner(`gh pr view ${pr} --json title`));
+    if (!titleTokenRe.test(title ?? "")) {
       stdout.write(
-        `skipped (no title token): PR #${pr} — "${details.title}" (body-only match; enhancement-lane or passing mention)\n`,
+        `skipped (no title token): PR #${pr} — "${title}" (body-only match; enhancement-lane or passing mention)\n`,
       );
       continue;
     }
+    const details = fetchPrDetails({ pr, ghRunner });
     built.push(buildEntryFromPr({ pr, details, plan }));
   }
 
