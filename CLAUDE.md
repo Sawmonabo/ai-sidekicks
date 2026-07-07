@@ -56,6 +56,8 @@ Read `AGENTS.md` on demand before:
 
 Git worktrees live under `.worktrees/<name>/` at the repo root. The harness enforces this via `WorktreeCreate` and `PreToolUse` hooks in `.claude/settings.json` — `git worktree add` or `git worktree move` to any path outside `.worktrees/` is denied. Use `git worktree add .worktrees/<name> -b worktree-<name>` when creating manually to match the harness branch-naming convention.
 
+**Removal discipline.** Deleting a worktree that is a live process's working directory breaks every later command spawn in the occupying session (`ENOENT posix_spawn '/bin/sh'` — 2026-07-07 incident). Removals (`git worktree remove`, recursive `rm` into `.worktrees/`, harness-initiated removals via `worktree.sh`) are occupancy-checked by `command-guard.py`: an occupied removal is denied with the occupant list. Occupancy can be transient — retry once; otherwise exit the occupying session or kill the listed PIDs; the deliberate override is prefixing the exact command with `WORKTREE_REMOVE_ALLOW_OCCUPIED=1`. Bulk cleanups remove only worktrees you created, after checking `python3 .claude/hooks/command-guard.py --occupancy <path>` (empty output = unoccupied). Honest limit: a session whose _tracked_ Bash cwd is inside a worktree with no live process there at check time is invisible to the guard — the only-remove-what-you-created rule is the mitigation. Active on macOS/Linux/WSL2; inert-but-safe on native Windows (the OS itself locks in-use directories).
+
 ## Documentation Corpus
 
 | Tree | Purpose | Template | Status Lifecycle |

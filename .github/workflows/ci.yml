@@ -210,6 +210,14 @@ jobs:
       - name: Run plan-execution skill tests (Layer 1 + Layer 2)
         run: node --test --experimental-strip-types '.claude/skills/plan-execution/scripts/__tests__/**/*.test.mjs'
 
+      # Hook guard tests (command-guard.py + worktree.sh, driven as
+      # subprocesses from node:test — no Python test framework per ADR-023).
+      # This leg exercises the Linux /proc occupancy path; the darwin/lsof
+      # path — the platform of the 2026-07-07 occupied-worktree incident —
+      # runs in the dedicated `hook-tests-macos` job below.
+      - name: Run hook guard tests
+        run: node --test '.claude/hooks/__tests__/**/*.test.mjs'
+
   # Tier-2 (Node 24 — control-plane + CLI per ADR-022 §Decision row 8). The
   # control-plane package declares `engines.node: ">=24.0.0"`, so its build /
   # typecheck / test must run against Node 24 to validate the floor. Other
@@ -284,10 +292,31 @@ jobs:
           fi
           echo "ok: all Node 24 tier packages pass publint --strict + attw"
 
+  # Minimal darwin leg for the hook guard tests only: the occupancy engine
+  # has a platform fork (lsof on darwin, /proc on linux) and the incident it
+  # guards against happened on macOS — an ubuntu-only matrix would ship the
+  # lsof invocation, its -F parser wiring, and the exit-1 convention with
+  # zero CI coverage. Deliberately skips pnpm install: the hook tests need
+  # only node + git + python3 + jq (all on the macos-latest image).
+  hook-tests-macos:
+    name: hook tests (macos-latest)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22.12"
+
+      - name: Run hook guard tests
+        run: node --test '.claude/hooks/__tests__/**/*.test.mjs'
+
   ci-gate:
     name: ci-gate
     runs-on: ubuntu-latest
-    needs: [test-node22, test-node24]
+    needs: [test-node22, test-node24, hook-tests-macos]
     if: always()
     steps:
       - name: Aggregate required-checks status
@@ -302,6 +331,10 @@ jobs:
           fi
           if [[ "${{ needs.test-node24.result }}" != "success" ]]; then
             echo "ci-gate: required job 'test-node24' did not succeed (result=${{ needs.test-node24.result }})"
+            fail=1
+          fi
+          if [[ "${{ needs.hook-tests-macos.result }}" != "success" ]]; then
+            echo "ci-gate: required job 'hook-tests-macos' did not succeed (result=${{ needs.hook-tests-macos.result }})"
             fail=1
           fi
           if [[ $fail -ne 0 ]]; then

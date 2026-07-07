@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Guard Bash commands with ask/deny decisions based on pattern matching."""
+"""Guard Bash commands with ask/deny decisions based on pattern matching.
+
+Two entry modes (see main()):
+- no argv: PreToolUse:Bash hook — payload JSON on stdin, decision JSON on
+  stdout (documented contract; legacy CLAUDE_TOOL_INPUT env is a fallback).
+- `--occupancy <path>`: worktree-occupancy CLI used by worktree.sh — lists
+  live processes whose cwd sits inside <path> (see _run_occupancy_cli).
+"""
 
 import json
 import os
@@ -33,7 +40,9 @@ ASK_PATTERNS = [
         "Deletes untracked files",
         r"-[a-zA-Z]*n\b|--dry-run",
     ),
-    (r"git\s+branch\s+.*-D\b", "Force-deletes a branch"),
+    # `(?-i:...)` keeps the flag case-sensitive under the loop's IGNORECASE:
+    # `-d` is the safe merged-only delete and must not trip the ask.
+    (r"git\s+branch\s+.*(?-i:-D)\b", "Force-deletes a branch"),
     (
         r"rm\s+(-[rf]+\s+)*-[rf]+\s+(\.\.?/?|~/?|/\*?|\*)(\s|$)",
         "Destructive rm on broad target",
@@ -48,6 +57,8 @@ ASK_PATTERNS = [
         "Pipe-to-shell execution",
     ),
 ]
+
+_EXCLUDE_INDEX = 2
 
 _WORKTREE_ALLOWED_DIR = ".worktrees"
 _WORKTREE_FLAGS_WITH_ARG = {"-b", "-B", "--reason"}
@@ -654,9 +665,17 @@ def _build_shape_deny():
     )
 
 
-def _check_worktree_path(command, _depth=0):
+def _check_worktree_path(command, base_cwd=None, _depth=0):
     """
     Strict-shape check for `git worktree add|move`.
+
+    base_cwd is the session cwd from the hook payload — git resolves
+    relative paths (and the `-C` chain) against it, so containment must
+    too. Before payload plumbing this resolved against the repo root,
+    which silently allowed `git worktree add .worktrees/x` to land at
+    `<cwd>/.worktrees/x` outside containment when the session cwd was a
+    subdirectory. Falls back to the repo root when absent (legacy env
+    input has no cwd field).
 
     Required shape (the whole command, no leading commands or chains):
 
@@ -722,7 +741,7 @@ def _check_worktree_path(command, _depth=0):
 
     nested = _extract_wrapped_command(tokens)
     if nested is not None:
-        nested_deny = _check_worktree_path(nested, _depth + 1)
+        nested_deny = _check_worktree_path(nested, base_cwd, _depth + 1)
         if nested_deny is not None:
             return nested_deny
         # Defense-in-depth for interpreter-language wrappers (`node -e`,
@@ -785,7 +804,7 @@ def _check_worktree_path(command, _depth=0):
     # Apply `-C` paths cumulatively (git semantics: each non-absolute -C is
     # interpreted relative to the preceding one; absolute -C resets the chain;
     # empty -C is a no-op).
-    effective_cwd = repo_root
+    effective_cwd = base_cwd if base_cwd else repo_root
     for c_path in c_paths:
         effective_cwd = _resolve_path(c_path, effective_cwd)
 
@@ -850,60 +869,577 @@ def _check_worktree_path(command, _depth=0):
     return None
 
 
-tool_input = os.environ.get("CLAUDE_TOOL_INPUT", "{}")
-try:
-    data = json.loads(tool_input)
-    command = data.get("command", "")
-except (json.JSONDecodeError, AttributeError):
-    sys.exit(0)
+# ---------------------------------------------------------------------------
+# Worktree-removal occupancy guard
+# ---------------------------------------------------------------------------
+# Deleting a directory that is a live process's cwd breaks every subsequent
+# command spawn in that process's session on macOS/Linux — Node reports the
+# missing spawn-cwd as `ENOENT posix_spawn '/bin/sh'` against the executable
+# (2026-07-07 incident: a cleanup session removed a worktree a live session
+# occupied). Removal commands are therefore occupancy-checked: DENY with the
+# occupant list unless the statement carries the explicit escape token.
+#
+# Unlike the rest of this hook, removal decisions fail CLOSED when the check
+# itself errors: a silent fail-open would re-open the incident on exactly the
+# machines where enumeration misbehaves. The escape token is the valve.
 
-for pattern, reason in DENY_PATTERNS:
-    if re.search(pattern, command, re.IGNORECASE):
-        print(  # noqa: T201 — hook output to stdout is required
-            json.dumps(
-                {
-                    "hookSpecificOutput": {
-                        "hookEventName": "PreToolUse",
-                        "permissionDecision": "deny",
-                        "permissionDecisionReason": reason,
-                    }
-                }
-            )
+_OCCUPANCY_ESCAPE_TOKEN = "WORKTREE_REMOVE_ALLOW_OCCUPIED=1"
+_LSOF_BIN = "/usr/sbin/lsof"
+_OCCUPANCY_TIMEOUT_SECONDS = 10
+_MAX_OCCUPANTS_LISTED = 8
+
+# Cheap raw-text gates so non-removal commands skip tokenization, and so a
+# shlex parse failure on a removal-shaped command can deny instead of
+# falling open (same intent must not get opposite outcomes depending on a
+# stray quote). NOT reused for interpreter payloads the way _GIT_WORKTREE_RE
+# is — a data mention like `echo "git worktree remove x"` parses fine and is
+# filtered by the token scan; extending the substring fallback to `remove`
+# would turn every such mention into a deny.
+_GIT_WORKTREE_REMOVE_RE = re.compile(
+    r"\bworktree\b[^\n]{0,40}\bremove\b", re.IGNORECASE
+)
+_UNSAFE_TARGET_RE = re.compile(r"[$`*?\[]")
+# Redirection-shaped tokens survive _normalize_shell_operators as `>`,
+# `>>`, `<`, `2>`, `2>/dev/null`, `>file` (only `;|&()` get split). A bare
+# operator consumes the following token as its filename.
+_REDIRECTION_TOKEN_RE = re.compile(r"^\d*(>>?|<)")
+
+
+class _OccupancyCheckError(Exception):
+    """Live-occupant enumeration itself failed (callers fail closed)."""
+
+
+def _parent_pid(pid):
+    """Parent pid via `ps` (portable across darwin/linux); 0 on failure."""
+    try:
+        result = subprocess.run(
+            ["ps", "-o", "ppid=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
         )
-        sys.exit(0)
+        return int(result.stdout.strip() or 0)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return 0
 
-_worktree_reason = _check_worktree_path(command)
-if _worktree_reason:
+
+def _own_lineage_pids():
+    """This process's pid plus its full ancestor chain.
+
+    Hooks are spawned with the session's cwd — during a legitimate harness
+    auto-clean that cwd is INSIDE the worktree being removed (WorktreeRemove
+    probe, 2026-07-07), so the check's own sh/bash/python lineage would
+    otherwise always count as an occupant and deadlock every auto-clean.
+    Sibling sessions, their background children, and daemons are never
+    ancestors, so the cross-session incident class stays detectable. The
+    accepted trade-off: a session removing the very worktree its own harness
+    process was launched in is excluded via ancestry (documented residual)."""
+    lineage = set()
+    pid = os.getpid()
+    while pid > 0 and pid not in lineage and len(lineage) < 32:
+        lineage.add(pid)
+        pid = _parent_pid(pid)
+    return lineage
+
+
+def _resolved_path_is_under(path, ancestor_real):
+    """True if realpath(path) is ancestor_real or inside it. Boundary-aware
+    (`.worktrees/ab` is NOT under `.worktrees/a`) and realpath'd on the
+    probe side so platform symlinks (`/tmp` -> `/private/tmp`) and symlinked
+    repo paths compare symmetrically with an already-resolved ancestor."""
+    resolved = os.path.realpath(path)
+    return resolved == ancestor_real or resolved.startswith(
+        ancestor_real + os.sep
+    )
+
+
+def _parse_lsof_cwd_fields(output, target_real, excluded_pids):
+    """Parse `lsof -Fpcn` field output (p<pid> / c<command> / n<path> lines,
+    one cwd record per process) into (pid, command, cwd) occupant tuples."""
+    occupants = []
+    pid = None
+    command_name = ""
+    for line in output.splitlines():
+        if not line:
+            continue
+        tag, value = line[0], line[1:]
+        if tag == "p":
+            try:
+                pid = int(value)
+            except ValueError:
+                pid = None
+            command_name = ""
+        elif tag == "c":
+            command_name = value
+        elif tag == "n" and pid is not None and pid not in excluded_pids:
+            if _resolved_path_is_under(value, target_real):
+                occupants.append((pid, command_name, value))
+    return occupants
+
+
+def _occupants_darwin(target_real, excluded_pids):
+    """All-process cwd enumeration via lsof. Never `+D <dir>` — that stats
+    the entire tree (lsof(8) warns it may be slow) and a node_modules-bearing
+    worktree would blow the timeout in exactly the realistic case; one cwd
+    record per process is cheap and filtered here instead."""
+    try:
+        result = subprocess.run(
+            [_LSOF_BIN, "-a", "-d", "cwd", "-Fpcn"],
+            capture_output=True,
+            text=True,
+            timeout=_OCCUPANCY_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise _OccupancyCheckError(f"lsof failed: {error}")
+    # lsof exits 1 both for "nothing matched" and for processes it could not
+    # fully inspect — normal here. Anything else is a real failure.
+    if result.returncode not in (0, 1):
+        raise _OccupancyCheckError(
+            f"lsof exit {result.returncode}: {result.stderr.strip()[:200]}"
+        )
+    return _parse_lsof_cwd_fields(result.stdout, target_real, excluded_pids)
+
+
+def _occupants_linux(target_real, excluded_pids):
+    """All-process cwd enumeration via /proc (also the WSL2 path)."""
+    try:
+        proc_entries = os.listdir("/proc")
+    except OSError as error:
+        raise _OccupancyCheckError(f"/proc scan failed: {error}")
+    occupants = []
+    for entry in proc_entries:
+        if not entry.isdigit():
+            continue
+        pid = int(entry)
+        if pid in excluded_pids:
+            continue
+        try:
+            cwd_path = os.readlink(f"/proc/{entry}/cwd")
+        except OSError:
+            continue  # exited mid-scan, kernel thread, or EACCES
+        if cwd_path.endswith(" (deleted)"):
+            cwd_path = cwd_path[: -len(" (deleted)")]
+        if not _resolved_path_is_under(cwd_path, target_real):
+            continue
+        try:
+            with open(f"/proc/{entry}/comm") as comm_file:
+                command_name = comm_file.read().strip()
+        except OSError:
+            command_name = ""
+        occupants.append((pid, command_name, cwd_path))
+    return occupants
+
+
+def _worktree_occupants(target_path, lsof_output_file=None):
+    """Live processes whose cwd sits at/under target_path, minus this
+    check's own spawn lineage. Raises _OccupancyCheckError when enumeration
+    itself fails. lsof_output_file substitutes canned `-Fpcn` output so the
+    parser is testable on any OS.
+
+    Platforms without an enumeration path (native Windows) return empty:
+    Windows itself locks a directory that is any process's cwd, so removal
+    of an occupied worktree already fails at the filesystem there."""
+    target_real = os.path.realpath(target_path)
+    excluded_pids = _own_lineage_pids()
+    if lsof_output_file is not None:
+        try:
+            with open(lsof_output_file) as fixture:
+                return _parse_lsof_cwd_fields(
+                    fixture.read(), target_real, excluded_pids
+                )
+        except OSError as error:
+            raise _OccupancyCheckError(f"fixture read failed: {error}")
+    if sys.platform == "darwin":
+        return _occupants_darwin(target_real, excluded_pids)
+    if sys.platform.startswith("linux"):
+        return _occupants_linux(target_real, excluded_pids)
+    return []
+
+
+def _iter_statements(tokens):
+    """Yield token slices between _SHELL_OPS separators."""
+    statement = []
+    for tok in tokens:
+        if tok in _SHELL_OPS:
+            if statement:
+                yield statement
+            statement = []
+        else:
+            statement.append(tok)
+    if statement:
+        yield statement
+
+
+def _statement_has_escape(statement):
+    """True if the escape token appears as an assignment-prefix token before
+    the statement's command head — exact-token match only. A quoted mention
+    (an agent echoing the deny message's remediation text) tokenizes as part
+    of a larger string token or lands after the head, so narration never
+    authorizes the removal. The `env VAR=1 ...` spelling is deliberately not
+    recognized — the deny message prescribes the exact prefix form."""
+    for tok in statement:
+        if tok == _OCCUPANCY_ESCAPE_TOKEN:
+            return True
+        if "=" not in tok or tok.startswith("="):
+            return False  # first non-assignment token is the command head
+    return False
+
+
+def _iter_positional_tokens(tokens, honor_double_dash):
+    """Positional (non-flag) tokens, skipping redirections. A bare
+    redirection operator (`>`, `2>`, `<`, `>>`) consumes the next token as
+    its filename. With honor_double_dash, tokens after `--` count as
+    positionals even when dash-prefixed (rm semantics); without it `--` is
+    merely skipped (git worktree remove has no valued flags)."""
+    past_double_dash = False
+    skip_redirect_filename = False
+    for tok in tokens:
+        if skip_redirect_filename:
+            skip_redirect_filename = False
+            continue
+        if _REDIRECTION_TOKEN_RE.match(tok):
+            if _REDIRECTION_TOKEN_RE.fullmatch(tok):
+                skip_redirect_filename = True
+            continue
+        if tok == "--":
+            past_double_dash = True
+            continue
+        if tok.startswith("-") and not (honor_double_dash and past_double_dash):
+            continue
+        yield tok
+
+
+def _build_removal_unparseable_deny(detail):
+    return (
+        "Worktree removals are occupancy-checked, which needs a literal "
+        f"target path — could not safely parse: {detail!r}. Re-run with a "
+        "literal path (`git worktree remove .worktrees/<name>`), one removal "
+        "per command — no shell variables, globs, or command substitution "
+        "in the target."
+    )
+
+
+def _build_occupied_deny(display_target, occupants):
+    listing = "; ".join(
+        f"PID {pid} ({command_name or 'unknown'}) cwd={cwd_path}"
+        for pid, command_name, cwd_path in occupants[:_MAX_OCCUPANTS_LISTED]
+    )
+    return (
+        f"'{display_target}' is the working directory of live process(es): "
+        f"{listing}. Deleting it would break every later command spawn in "
+        "those sessions (ENOENT posix_spawn '/bin/sh'). Occupancy can be "
+        "transient — retry once before escalating. Otherwise exit the "
+        "occupying session or kill the PIDs. To proceed anyway, re-run the "
+        f"exact command prefixed with {_OCCUPANCY_ESCAPE_TOKEN} (e.g. "
+        f"`{_OCCUPANCY_ESCAPE_TOKEN} git worktree remove {display_target}`)."
+    )
+
+
+def _build_unverifiable_deny(display_target, error):
+    return (
+        f"Could not verify that no live session occupies '{display_target}' "
+        f"({error}); refusing the removal (occupancy checks fail closed). "
+        "If you are certain it is unoccupied, re-run the exact command "
+        f"prefixed with {_OCCUPANCY_ESCAPE_TOKEN}."
+    )
+
+
+def _extract_git_removal_target(rest, base):
+    """Given statement tokens starting at a git head whose subcommand chain
+    is `worktree remove`, return (abs_target, display_target, deny_reason).
+    Exactly one of the pair / deny_reason is meaningful."""
+    after_globals, c_paths, _ = _consume_git_globals(rest, 1)
+    if (
+        after_globals + 1 >= len(rest)
+        or rest[after_globals].lower() != "worktree"
+        or rest[after_globals + 1].lower() != "remove"
+    ):
+        return None, None, None
+    target = next(
+        _iter_positional_tokens(
+            rest[after_globals + 2 :], honor_double_dash=False
+        ),
+        None,
+    )
+    if target is None:
+        return None, None, None  # git rejects a target-less remove itself
+    if _UNSAFE_TARGET_RE.search(target):
+        return None, None, _build_removal_unparseable_deny(target)
+    effective_cwd = base
+    for c_path in c_paths:
+        effective_cwd = _resolve_path(c_path, effective_cwd)
+    abs_target = _resolve_path(os.path.expanduser(target), effective_cwd)
+    return abs_target, target, None
+
+
+def _collect_rm_targets(rest, base, worktrees_root, worktrees_real):
+    """Removal targets of a recursive `rm` statement that land inside
+    .worktrees/, resolved against the session cwd first so
+    `cd .worktrees && rm -rf x` and `rm -rf ../x` from inside are caught.
+    Unresolvable (glob/variable) targets that point at .worktrees textually,
+    or appear while the cwd is inside it, fall back to checking the whole
+    tree — cheap, since enumeration is per-process, not per-file."""
+    flags = [t for t in rest[1:] if t.startswith("-") and t != "--"]
+    recursive = any(
+        t in ("--recursive", "-R")
+        or (
+            t.startswith("-")
+            and not t.startswith("--")
+            and any(ch in "rR" for ch in t[1:])
+        )
+        for t in flags
+    )
+    if not recursive:
+        return []
+    targets = []
+    base_inside = _resolved_path_is_under(base, worktrees_real)
+    for tok in _iter_positional_tokens(rest[1:], honor_double_dash=True):
+        if _UNSAFE_TARGET_RE.search(tok):
+            if ".worktrees" in tok or base_inside:
+                targets.append((worktrees_root, tok))
+            continue
+        abs_target = _resolve_path(os.path.expanduser(tok), base)
+        if _resolved_path_is_under(abs_target, worktrees_real):
+            targets.append((abs_target, tok))
+    return targets
+
+
+def _check_worktree_removal(command, base_cwd=None, _depth=0):
+    """Occupancy gate for worktree-removal commands (deny reason or None).
+
+    Unlike add|move there is no strict-shape requirement — documented flows
+    (plan-execution teardown) legitimately chain a removal with branch
+    cleanup, so each statement between shell operators is scanned
+    independently for `git [globals] worktree remove <target>` and for
+    recursive `rm` touching .worktrees/. Every literal target is
+    occupancy-checked; a statement prefixed with the exact escape token
+    skips the check. Unextractable targets and shlex failures on
+    removal-shaped commands DENY (fail closed) rather than fall open.
+    Wrappers are unwrapped per statement head; a wrapper hidden mid-payload
+    remains an accepted residual, consistent with add|move."""
+    if _depth > _MAX_WRAPPER_DEPTH:
+        return None
+
+    repo_root = _repo_root()
+    worktrees_root = (
+        os.path.normpath(os.path.join(repo_root, _WORKTREE_ALLOWED_DIR))
+        if repo_root
+        else None
+    )
+    worktrees_real = (
+        os.path.realpath(worktrees_root) if worktrees_root else None
+    )
+    base = base_cwd if base_cwd else (repo_root or os.getcwd())
+
+    mentions_git_removal = bool(_GIT_WORKTREE_REMOVE_RE.search(command))
+    rm_relevant = bool(re.search(r"\brm\b", command)) and (
+        ".worktrees" in command
+        or (
+            worktrees_real is not None
+            and _resolved_path_is_under(base, worktrees_real)
+        )
+    )
+    if not mentions_git_removal and not rm_relevant:
+        return None
+
+    if _has_unquoted_subshell(command):
+        return _build_removal_unparseable_deny(command)
+
+    normalized = _normalize_shell_operators(command)
+    try:
+        tokens = shlex.split(normalized)
+    except ValueError:
+        return _build_removal_unparseable_deny(command)
+
+    removal_targets = []  # (abs_target, display_target, escaped)
+    for statement in _iter_statements(tokens):
+        escaped = _statement_has_escape(statement)
+        head_index = 0
+        while (
+            head_index < len(statement)
+            and "=" in statement[head_index]
+            and not statement[head_index].startswith("=")
+        ):
+            head_index += 1
+        if head_index >= len(statement):
+            continue
+        rest = statement[head_index:]
+
+        nested = _extract_wrapped_command(rest)
+        if nested is not None:
+            nested_deny = _check_worktree_removal(
+                nested, base_cwd, _depth + 1
+            )
+            if nested_deny is not None:
+                return nested_deny
+            continue
+
+        rest = _strip_env_prefix(rest)
+        if not rest:
+            continue
+        head = rest[0]
+
+        if _is_git_token(head):
+            abs_target, display, deny = _extract_git_removal_target(
+                rest, base
+            )
+            if deny is not None:
+                return deny
+            if abs_target is not None:
+                removal_targets.append((abs_target, display, escaped))
+            continue
+
+        if (
+            os.path.basename(head) == "rm"
+            and worktrees_root is not None
+        ):
+            for abs_target, display in _collect_rm_targets(
+                rest, base, worktrees_root, worktrees_real
+            ):
+                removal_targets.append((abs_target, display, escaped))
+
+    for abs_target, display, escaped in removal_targets:
+        if escaped:
+            continue
+        try:
+            occupants = _worktree_occupants(abs_target)
+        except _OccupancyCheckError as error:
+            return _build_unverifiable_deny(display, error)
+        if occupants:
+            return _build_occupied_deny(display, occupants)
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Entry points
+# ---------------------------------------------------------------------------
+
+
+def _read_hook_payload():
+    """Hook input: JSON on stdin (documented contract — the command nests at
+    tool_input.command), falling back to the legacy flat CLAUDE_TOOL_INPUT
+    env shape. Until 2026-07-07 this hook read ONLY the env var, which the
+    harness never sets, so it had never actually fired. Returns
+    (command, cwd)."""
+    data = None
+    if not sys.stdin.isatty():
+        try:
+            raw = sys.stdin.read()
+        except OSError:
+            raw = ""
+        if raw.strip():
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError:
+                data = None
+    if not isinstance(data, dict):
+        try:
+            data = json.loads(os.environ.get("CLAUDE_TOOL_INPUT", "{}"))
+        except json.JSONDecodeError:
+            data = {}
+        if not isinstance(data, dict):
+            data = {}
+    tool_input = data.get("tool_input")
+    if isinstance(tool_input, dict):
+        command = tool_input.get("command", "")
+    else:
+        command = data.get("command", "")
+    if not isinstance(command, str):
+        command = ""
+    cwd = data.get("cwd")
+    if not isinstance(cwd, str) or not cwd:
+        cwd = None
+    return command, cwd
+
+
+def _emit_decision(decision, reason):
     print(  # noqa: T201 — hook output to stdout is required
         json.dumps(
             {
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
-                    "permissionDecision": "deny",
-                    "permissionDecisionReason": _worktree_reason,
+                    "permissionDecision": decision,
+                    "permissionDecisionReason": reason,
                 }
             }
         )
     )
-    sys.exit(0)
 
-_EXCLUDE_INDEX = 2
 
-for entry in ASK_PATTERNS:
-    pattern, reason = entry[0], entry[1]
-    exclude = entry[_EXCLUDE_INDEX] if len(entry) > _EXCLUDE_INDEX else None
-    if re.search(pattern, command, re.IGNORECASE):
-        if exclude and re.search(exclude, command, re.IGNORECASE):
+def _run_hook_mode():
+    command, payload_cwd = _read_hook_payload()
+    if not command:
+        return 0
+
+    for pattern, reason in DENY_PATTERNS:
+        if re.search(pattern, command, re.IGNORECASE):
+            _emit_decision("deny", reason)
+            return 0
+
+    worktree_reason = _check_worktree_path(command, payload_cwd)
+    if worktree_reason:
+        _emit_decision("deny", worktree_reason)
+        return 0
+
+    removal_reason = _check_worktree_removal(command, payload_cwd)
+    if removal_reason:
+        _emit_decision("deny", removal_reason)
+        return 0
+
+    for entry in ASK_PATTERNS:
+        pattern, reason = entry[0], entry[1]
+        exclude = entry[_EXCLUDE_INDEX] if len(entry) > _EXCLUDE_INDEX else None
+        if re.search(pattern, command, re.IGNORECASE):
+            if exclude and re.search(exclude, command, re.IGNORECASE):
+                continue
+            _emit_decision("ask", reason)
+            return 0
+    return 0
+
+
+def _run_occupancy_cli(argv):
+    """`--occupancy <path> [--lsof-output-file <file>]`: occupant lines
+    (pid<TAB>command<TAB>cwd) on stdout; empty output = unoccupied; exit 2 =
+    could not verify (the caller decides fail-open vs fail-closed).
+    worktree.sh shells out to this before harness-initiated removals."""
+    target = None
+    lsof_output_file = None
+    i = 0
+    while i < len(argv):
+        if argv[i] == "--lsof-output-file" and i + 1 < len(argv):
+            lsof_output_file = argv[i + 1]
+            i += 2
             continue
-        print(  # noqa: T201 — hook output to stdout is required
-            json.dumps(
-                {
-                    "hookSpecificOutput": {
-                        "hookEventName": "PreToolUse",
-                        "permissionDecision": "ask",
-                        "permissionDecisionReason": reason,
-                    }
-                }
-            )
+        if target is None:
+            target = argv[i]
+            i += 1
+            continue
+        print(f"unexpected argument: {argv[i]}", file=sys.stderr)
+        return 2
+    if not target:
+        print(
+            "usage: command-guard.py --occupancy <path> "
+            "[--lsof-output-file <file>]",
+            file=sys.stderr,
         )
-        sys.exit(0)
+        return 2
+    try:
+        occupants = _worktree_occupants(target, lsof_output_file)
+    except _OccupancyCheckError as error:
+        print(f"occupancy check failed: {error}", file=sys.stderr)
+        return 2
+    for pid, command_name, cwd_path in occupants:
+        print(f"{pid}\t{command_name}\t{cwd_path}")
+    return 0
+
+
+def main(argv):
+    if argv and argv[0] == "--occupancy":
+        return _run_occupancy_cli(argv[1:])
+    return _run_hook_mode()
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
