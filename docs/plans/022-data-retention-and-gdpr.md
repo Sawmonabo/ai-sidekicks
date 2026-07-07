@@ -302,7 +302,7 @@ Audit-derived task decomposition. The 11 Implementation Steps regroup into five 
   - Files: `packages/runtime-daemon/src/crypto/pii-codec.ts` (CREATE)
   - Spec coverage: Spec-022 §PII Data Map + §Signature Safety Under Shred (PII AAD/nonce/wire — author-internal, back-fill owed); NIST SP 800-38D §8.3
   - Verifies invariant: I-022-8, I-022-12
-  - Consumes: `@noble/ciphers` AES-256-GCM (T22.1.1); Plan-006's `PiiEncryptor` interface + branded `PiiPayloadCiphertext` (CP-022-1 / CP-006-1, shipped NS-16/PR #124).
+  - Consumes: `@noble/ciphers` AES-256-GCM (T22.1.1); Plan-006's `PiiEncryptor` interface + branded `PiiPayloadCiphertext` (CP-022-1 / CP-006-1, shipped via NS-16).
 
 ### Cluster 3 — Write-path integration (Steps 7–8)
 
