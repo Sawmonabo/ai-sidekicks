@@ -543,6 +543,10 @@ export function gateAuditCheckbox(planSource, planFile) {
 // classes out: (1) `in:title` only — never `in:title,body` (PR bodies cite
 // plans in passing constantly; titles cite the plan they ship for — empirical
 // sweep 2026-07-06: title-search precision was exact across all 27 plans);
+// This recall trade IS the enhancement-lane boundary (CONTRIBUTING.md §How Code
+// Lands): lane-2 enhancement and lane-3 tooling PRs deliberately omit the token,
+// so they are invisible to this gate BY DESIGN — only lane-1 plan-task shipments
+// participate in manifest freshness.
 // (2) only PRs whose diff touches a MATERIAL_PATH_PREFIXES path count —
 // packages/ + apps/ are the ownership map's code families, and .github/ covers
 // workflow-only shipments (Plan-024 T-024-4-1 ships sidecar-build.yml alone;
