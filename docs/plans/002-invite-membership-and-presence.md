@@ -308,7 +308,7 @@ preconditions:
 
 #### Tasks
 
-_The task ids below were reconciled post-merge to the as-shipped decomposition (PR #108, squash-commit `1b8e865`): the audit's single **T3.4** row shipped as **T3.4a** + **T3.4b**, and **T3.3c** was an orchestrator-introduced contract-author task. Full rationale in the Shipment Manifest Notes below._
+_The task ids below were reconciled post-merge to the as-shipped decomposition: the audit's single **T3.4** row shipped as **T3.4a** + **T3.4b**, and **T3.3c** was an orchestrator-introduced contract-author task. Full rationale + shipment provenance (PR + squash commit) in the Shipment Manifest Notes below._
 
 ##### T3.1 — Implement `presence-register-service.ts` with Yjs Awareness ingestion (in-memory only); add Pr1 schema-shape regression test asserting no SQLite/Postgres write occurs on heartbeat.
 
