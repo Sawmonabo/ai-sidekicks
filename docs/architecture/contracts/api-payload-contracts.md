@@ -744,11 +744,16 @@ type DriverRollbackResult =
 // goal on session resume, so driver-held state is never the recovery source.
 interface SetSessionGoalParams {
   sessionId: SessionId;
+  // Leg addressing (campaign B6): goal delivery fans out per live binding, so each driver
+  // call targets one leg by its run — the InterruptRunParams idiom; the driver resolves its
+  // provider session from the binding established at startRun/resumeSession.
+  runId: RunId;
   goalText: string;
 }
 
 interface ClearSessionGoalParams {
   sessionId: SessionId;
+  runId: RunId; // leg addressing — same per-leg fan-out as SetSessionGoalParams (campaign B6)
 }
 
 type DriverGoalResult =

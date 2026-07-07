@@ -82,7 +82,7 @@ This spec covers required driver operations, capability advertisement, normalize
   - `applyIntervention` — generic dispatcher for steer, interrupt, cancel; checks capability flags and returns `degraded` for unsupported intervention types
   - `rollbackTo` — conversation rollback to a normalized session position (gated on the `rollback` flag; file-state restore is the daemon's turn-snapshot leg, [Plan-010](../plans/010-worktree-lifecycle-and-execution-modes.md), never the driver's)
   - `respondToRequest`
-  - `setSessionGoal` / `clearSessionGoal` — session-goal injection (gated on `session_goals`; the daemon supplies the rendered goal text — the structured goal shape is owned by the Spec-016 goal contract, campaign B6)
+  - `setSessionGoal` / `clearSessionGoal` — session-goal injection (gated on `session_goals`; the daemon supplies the rendered goal text and the target `runId` — delivery is per-leg (one call per live binding, the fan-out ack unit) — the structured goal shape is owned by the Spec-016 goal contract, campaign B6)
   - `closeSession`
   - `listModels`
   - `listModes`
