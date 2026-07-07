@@ -288,3 +288,48 @@ describe("pre-commit-runner — markdown section-anchor cites", () => {
     }
   });
 });
+
+describe("pre-commit-runner — inbound section-cite ripple", () => {
+  it("catches an unstaged citer's dead §-cite when the staged spec renamed the heading", () => {
+    // Codex repro (PR #188 round 2): stage ONLY the spec whose heading was
+    // renamed; the unstaged plan cites the OLD heading via `Spec-003 §…`.
+    // Without §-aware inbound expansion the runner exits 0 and CI catches it
+    // post-push — the exact PR #97 gap shape, for section anchors.
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md":
+        "# Spec\n\n| **Status** | `draft` |\n\n## Frame Format\n\nbody\n",
+      // `draft` → manifest-presence guard exempts this plan (see describe note).
+      "docs/plans/009-y.md":
+        "# Plan-009\n\n| **Status** | `draft` |\n\nPer `Spec-003 §Wire Format` the frame is LSP-style.\n",
+    });
+    try {
+      const result = withRepoRoot(root, () =>
+        runChecks([resolve(root, "docs/specs/003-runtime-node-attach.md")]),
+      );
+      expect(result.exitCode).toBe(1);
+      const joined = result.messages.join("\n");
+      expect(joined).toContain("section-not-found");
+      expect(joined).toContain("docs/plans/009-y.md");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("stays green when the staged spec still carries the cited heading", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md":
+        "# Spec\n\n| **Status** | `draft` |\n\n## Wire Format\n\nbody\n",
+      "docs/plans/009-y.md":
+        "# Plan-009\n\n| **Status** | `draft` |\n\nPer `Spec-003 §Wire Format` the frame is LSP-style.\n",
+    });
+    try {
+      const result = withRepoRoot(root, () =>
+        runChecks([resolve(root, "docs/specs/003-runtime-node-attach.md")]),
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.messages).toEqual([]);
+    } finally {
+      cleanup();
+    }
+  });
+});

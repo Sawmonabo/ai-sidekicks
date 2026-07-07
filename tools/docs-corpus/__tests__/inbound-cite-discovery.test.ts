@@ -10,6 +10,7 @@ import {
   makeIndexAwareReader,
 } from "../lib/inbound-cite-discovery.ts";
 import { extractCites } from "../lib/cite-target-existence.ts";
+import { extractLabelCites } from "../lib/label-cite.ts";
 
 function setupRepo(files: Record<string, string>): { root: string; cleanup: () => void } {
   const root = mkdtempSync(resolve(tmpdir(), "icd-"));
@@ -431,6 +432,44 @@ describe("findGovernanceCitersOfCode — reverse-direction advisory", () => {
         findGovernanceCitersOfCode([resolve(root, "packages/foo/src/other.ts")]),
       );
       expect(citers.size).toBe(0);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe("expandToInboundCiteCorpus — section-cite citers (extraCiteTargets)", () => {
+  it("includes an unstaged §-form citer of a staged spec when the extractor is supplied", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md": "# Spec\n\n## Wire Format\n\nbody\n",
+      // The citer references the LABEL TOKEN only — never the spec's basename,
+      // so basename-only grep needles cannot reach it.
+      "docs/plans/009-y.md": "# Plan\n\nPer `Spec-003 §Wire Format` the frame is LSP-style.\n",
+    });
+    try {
+      const staged = [resolve(root, "docs/specs/003-runtime-node-attach.md")];
+      const sectionTargets = (candidate: string): string[] =>
+        withRepoRoot(root, () => extractLabelCites(candidate))
+          .filter((c) => c.section !== undefined)
+          .map((c) => c.targetPath);
+      const expanded = withRepoRoot(root, () =>
+        expandToInboundCiteCorpus(staged, undefined, undefined, sectionTargets),
+      );
+      expect(expanded).toContain(resolve(root, "docs/plans/009-y.md"));
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("does not include the §-form citer without the extractor (line/symbol cites only)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md": "# Spec\n\n## Wire Format\n\nbody\n",
+      "docs/plans/009-y.md": "# Plan\n\nPer `Spec-003 §Wire Format` the frame is LSP-style.\n",
+    });
+    try {
+      const staged = [resolve(root, "docs/specs/003-runtime-node-attach.md")];
+      const expanded = withRepoRoot(root, () => expandToInboundCiteCorpus(staged));
+      expect(expanded).not.toContain(resolve(root, "docs/plans/009-y.md"));
     } finally {
       cleanup();
     }

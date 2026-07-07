@@ -65,15 +65,17 @@ function isInGovernanceCorpus(repoRoot: string, absolutePath: string): boolean {
   return GOVERNANCE_CORPUS_DIRS.some((dir) => rel.startsWith(`${dir}/`));
 }
 
-function enumerateGovernanceCorpus(repoRoot: string, stagedBasenames: string[]): string[] {
+function enumerateGovernanceCorpus(repoRoot: string, stagedNeedles: string[]): string[] {
   // Two-pass enumeration:
   //
   // 1. `git ls-files` (index-only — tracked + staged-new, excludes untracked
   //    + ignored) bounds the candidate set to what exists in CI.
   // 2. `git grep --cached -l -F` narrows that set to citers whose staged
-  //    blob mentions any staged file's BASENAME — a necessary substring of
-  //    every cite shape we recognize (`[label](path/to/file.md):NNN` or
-  //    `path/to/file.md:NNN` in code spans). Without this narrowing every
+  //    blob mentions any staged file's NEEDLE — its basename (a necessary
+  //    substring of every path-shaped cite: `[label](path/to/file.md):NNN`,
+  //    `path/to/file.md:NNN` in code spans) or, for label-token governance
+  //    docs, the `Spec-016`-style token §-form citers reference (they never
+  //    mention the filename). Without this narrowing every
   //    governance file becomes a `git show :path` subprocess (~20ms each on
   //    macOS), turning a single-file stage into a 2-3s pre-commit on the
   //    real repo (~120 governance files). Substring-only false positives
@@ -90,10 +92,10 @@ function enumerateGovernanceCorpus(repoRoot: string, stagedBasenames: string[]):
   });
   if (lsFiles.status !== 0) return [];
   const allTracked = lsFiles.stdout.split("\n").filter((line) => line.endsWith(".md"));
-  if (stagedBasenames.length === 0) return allTracked.map((line) => resolve(repoRoot, line));
+  if (stagedNeedles.length === 0) return allTracked.map((line) => resolve(repoRoot, line));
 
   const grepArgs = ["-C", repoRoot, "grep", "--cached", "-l", "-F"];
-  for (const b of stagedBasenames) grepArgs.push("-e", b);
+  for (const b of stagedNeedles) grepArgs.push("-e", b);
   grepArgs.push("--", ...GOVERNANCE_CORPUS_DIRS);
   const grep = spawnSync("git", grepArgs, { encoding: "utf8" });
   // git grep status: 0 = matches, 1 = no matches, 128 = error.
@@ -164,10 +166,38 @@ export function makeIndexAwareReader(
   };
 }
 
+// Grep needles for one staged file: always its basename; for a governance doc
+// in a label-token tree (`docs/specs/016-…` → `Spec-016`), ALSO the token —
+// §-form citers reference the token, never the filename, so basename-only
+// needles cannot reach them (Codex review, PR #188 round 2).
+const LABEL_TREE_TOKENS: Record<string, string> = {
+  "docs/specs": "Spec",
+  "docs/plans": "Plan",
+  "docs/decisions": "ADR",
+};
+
+function needlesForStagedFile(repoRoot: string, absolutePath: string): string[] {
+  const fileBasename = basename(absolutePath);
+  const needles = [fileBasename];
+  const relDir = toRepoRelative(repoRoot, dirname(absolutePath));
+  const token = LABEL_TREE_TOKENS[relDir];
+  const numberedPrefix = fileBasename.match(/^(\d{3})-/);
+  if (token !== undefined && numberedPrefix !== null) {
+    needles.push(`${token}-${numberedPrefix[1]}`);
+  }
+  return needles;
+}
+
 export function expandToInboundCiteCorpus(
   stagedFiles: string[],
   repoRoot?: string,
   reader?: FileContentReader,
+  // Optional secondary target-extractor (absolute paths) so callers can pull
+  // in citers whose cite shapes extractCites does not know — the runner
+  // passes label-cite's §-form targets here. A callback (not an import of
+  // label-cite) keeps the module dependency one-directional: label-cite
+  // already imports getRepoRoot from this module.
+  extraCiteTargets?: (candidateAbsolutePath: string) => string[],
 ): string[] {
   const root = repoRoot ?? getRepoRoot();
   const stagedAbsolute = new Set<string>(stagedFiles.map((f) => resolve(f)));
@@ -183,19 +213,20 @@ export function expandToInboundCiteCorpus(
   }
   if (!hasGovernanceStaged) return [...stagedAbsolute];
 
-  const stagedBasenames = [...stagedAbsolute].map((p) => basename(p));
+  const stagedNeedles = [...stagedAbsolute].flatMap((p) => needlesForStagedFile(root, p));
   const expanded = new Set<string>(stagedAbsolute);
-  const candidates = enumerateGovernanceCorpus(root, stagedBasenames).filter(
+  const candidates = enumerateGovernanceCorpus(root, stagedNeedles).filter(
     (candidate) => !stagedAbsolute.has(candidate),
   );
   for (const candidate of candidates) {
     const cites = extractCites(candidate, reader);
-    for (const cite of cites) {
-      if (stagedAbsolute.has(resolve(cite.targetPath))) {
-        expanded.add(candidate);
-        break;
-      }
+    let citesStaged = cites.some((cite) => stagedAbsolute.has(resolve(cite.targetPath)));
+    if (!citesStaged && extraCiteTargets !== undefined) {
+      citesStaged = extraCiteTargets(candidate).some((target) =>
+        stagedAbsolute.has(resolve(target)),
+      );
     }
+    if (citesStaged) expanded.add(candidate);
   }
   return [...expanded];
 }

@@ -48,6 +48,7 @@ import {
 import {
   checkLabelCiteTargets,
   checkSectionCites,
+  extractLabelCites,
   formatLabelCiteViolations,
 } from "../lib/label-cite.ts";
 import { checkMermaidSetCoherence, formatMermaidViolations } from "../lib/mermaid-set-coherence.ts";
@@ -165,7 +166,14 @@ export function runChecks(args: string[]): RunChecksResult {
     const reader = makeIndexAwareReader(repoRoot, stagedAbsolute);
 
     if (stagedMd.length > 0) {
-      const expanded = expandToInboundCiteCorpus(stagedMd, repoRoot, reader);
+      // §-form citers reach the expansion via the extractor callback — their
+      // cite shape lives in label-cite, not extractCites (a staged heading
+      // rename must pull in the unstaged `Spec-NNN §Old Heading` citer).
+      const sectionCiteTargets = (candidate: string): string[] =>
+        extractLabelCites(candidate, reader)
+          .filter((cite) => cite.section !== undefined)
+          .map((cite) => cite.targetPath);
+      const expanded = expandToInboundCiteCorpus(stagedMd, repoRoot, reader, sectionCiteTargets);
       const citeHits = checkCiteTargetExistence(expanded, reader);
       if (citeHits.length > 0) {
         messages.push(formatCiteTargetViolations(citeHits));
