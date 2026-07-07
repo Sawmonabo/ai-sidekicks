@@ -295,6 +295,7 @@ export async function rebuildManifest({
   ghRunner = defaultGhRunner,
   plansDir = "docs/plans",
   stdout = process.stdout,
+  stderr = process.stderr,
 }) {
   const planFile = resolvePlanFile({ plan, plansDir });
   if (!planFile) {
@@ -309,10 +310,16 @@ export async function rebuildManifest({
   // PRs the on-disk manifest already records are known lane-1 shipments — a
   // body-only title never demotes them (legacy squash titles pre-date the
   // title-token mandate: Plan-001 shipped via PR #6/#8/#9/#10 with no token;
-  // Codex P2 round 2, PR #187). An unparseable block yields the empty set —
-  // the write path re-parses later and fails loudly there where it matters.
+  // Codex P2 round 2, PR #187). Their on-disk entries are REUSED VERBATIM,
+  // never re-synthesized: legacy squash text often carries no parseable
+  // Phase/T-markers, so synthesis would degrade a known-good entry to
+  // phase 0 / empty task and fail validation (Codex P2 round 3). An
+  // unparseable block yields the empty map — the write path re-parses later
+  // and fails loudly there where it matters.
   const preParsed = parseManifestBlock(readFileSync(planFile, "utf8"));
-  const existingManifestPrs = new Set(preParsed.ok ? preParsed.shipped.map((e) => e.pr) : []);
+  const existingEntryByPr = new Map(
+    preParsed.ok ? preParsed.shipped.map((entry) => [entry.pr, entry]) : [],
+  );
 
   const built = [];
   for (const pr of prNumbers) {
@@ -329,27 +336,31 @@ export async function rebuildManifest({
     // halts loudly (exit 7) when files truncate at the 100-file GraphQL page,
     // and a body-only PR outside the manifest population must not be able to
     // trip that halt (Codex P2, PR #187).
-    // Two rescue paths for body-only matches that ARE shipments: membership in
-    // the existing manifest (recovery/cross-validation runs), and the
-    // --include-body-matches flag (fresh backfills of pre-mandate history,
-    // operator confirms each candidate per the contract).
+    // Diagnostics go to stderr — dry-run stdout is a pure YAML stream that
+    // operators redirect and diff (Codex P2 round 3). Two rescue paths keep
+    // body-only shipments in: verbatim reuse of an existing on-disk entry,
+    // and --include-body-matches for fresh pre-mandate backfills.
     const titleTokenRe = new RegExp(`\\bPlan-${plan}\\b`, "i");
     const { title } = JSON.parse(ghRunner(`gh pr view ${pr} --json title`));
     if (!titleTokenRe.test(title ?? "")) {
-      if (existingManifestPrs.has(pr)) {
-        stdout.write(
-          `included body-only match (already recorded in manifest): PR #${pr} — "${title}"\n`,
-        );
-      } else if (includeBodyMatches) {
-        stdout.write(
-          `included body-only match (--include-body-matches; operator MUST confirm lane-1 shipment): PR #${pr} — "${title}"\n`,
-        );
-      } else {
-        stdout.write(
-          `skipped (no title token): PR #${pr} — "${title}" (body-only match; enhancement-lane or passing mention — legacy pre-mandate shipments need --include-body-matches)\n`,
-        );
+      const existingEntry = existingEntryByPr.get(pr);
+      if (existingEntry) {
+        stderr.write(`reused existing manifest entry (body-only title): PR #${pr} — "${title}"\n`);
+        built.push({ entry: existingEntry, ambiguities: [], reused: true });
         continue;
       }
+      if (includeBodyMatches) {
+        stderr.write(
+          `included body-only match (--include-body-matches; operator MUST confirm lane-1 shipment): PR #${pr} — "${title}"\n`,
+        );
+        const details = fetchPrDetails({ pr, ghRunner });
+        built.push({ ...buildEntryFromPr({ pr, details, plan }), bodyOnly: true });
+        continue;
+      }
+      stderr.write(
+        `skipped (no title token): PR #${pr} — "${title}" (body-only match; enhancement-lane or passing mention — legacy pre-mandate shipments need --include-body-matches)\n`,
+      );
+      continue;
     }
     const details = fetchPrDetails({ pr, ghRunner });
     built.push(buildEntryFromPr({ pr, details, plan }));
@@ -357,15 +368,28 @@ export async function rebuildManifest({
 
   // Validate every entry; collect failures. Caller can pass --force to
   // skip failed entries (rare — usually means a PR has no merge SHA yet,
-  // i.e. it was queued and reverted).
+  // i.e. it was queued and reverted). Reused entries bypass validation —
+  // they are the on-disk ground truth being preserved, not synthesized
+  // candidates. Body-only candidates admitted by --include-body-matches
+  // route their validation failures to the operator-confirmation block
+  // instead of exit 5: pre-mandate squash text usually lacks parseable
+  // Phase/T-markers, and the flag exists precisely to emit editable YAML
+  // for those (Codex P2 round 3).
   const validated = [];
   const validationFailures = [];
-  for (const { entry, ambiguities } of built) {
-    const v = validateEntry(entry);
+  const operatorConfirm = [];
+  for (const item of built) {
+    if (item.reused) {
+      validated.push(item);
+      continue;
+    }
+    const v = validateEntry(item.entry);
     if (v.ok) {
-      validated.push({ entry, ambiguities });
+      validated.push({ entry: item.entry, ambiguities: item.ambiguities });
+    } else if (item.bodyOnly) {
+      operatorConfirm.push({ pr: item.entry.pr, errors: v.errors, entry: item.entry });
     } else {
-      validationFailures.push({ pr: entry.pr, errors: v.errors });
+      validationFailures.push({ pr: item.entry.pr, errors: v.errors });
     }
   }
   if (validationFailures.length > 0 && !force) {
@@ -390,7 +414,26 @@ export async function rebuildManifest({
         stdout.write(`#   PR #${f.pr}: ${f.errors.join(" | ")}\n`);
       }
     }
-    return { exitCode: 0, message: `${validated.length} entries emitted` };
+    if (operatorConfirm.length > 0) {
+      // Commented YAML keeps the stream parseable: the operator fills in the
+      // unresolved fields and moves each entry into shipped[] by hand.
+      stdout.write(`\n# Operator confirmation needed (body-only matches, unparseable markers):\n`);
+      stdout.write(
+        `# Edit the fields below, then move each entry into shipped[] once confirmed.\n`,
+      );
+      for (const oc of operatorConfirm) {
+        for (const line of serializeEntry(oc.entry)) stdout.write(`# ${line}\n`);
+        stdout.write(`#   ^ unresolved: ${oc.errors.join(" | ")}\n`);
+      }
+    }
+    return {
+      exitCode: 0,
+      message:
+        `${validated.length} entries emitted` +
+        (operatorConfirm.length > 0
+          ? `; ${operatorConfirm.length} body-only candidates need operator confirmation (commented block above)`
+          : ""),
+    };
   }
 
   // Write mode: read plan file, append each entry idempotently. If an
@@ -406,8 +449,10 @@ export async function rebuildManifest({
       message: `plan ${planFile} has no parseable manifest block: ${existing.reason}`,
     };
   }
+  // Reused entries collide with themselves by construction — appendManifestEntry
+  // is an idempotent no-op for them, so they are exempt from the halt.
   const existingPrs = new Set(existing.shipped.map((e) => e.pr));
-  const collisions = validated.filter(({ entry }) => existingPrs.has(entry.pr));
+  const collisions = validated.filter(({ entry, reused }) => !reused && existingPrs.has(entry.pr));
   if (collisions.length > 0 && !force) {
     return {
       exitCode: 4,
@@ -426,7 +471,11 @@ export async function rebuildManifest({
   writeFileSync(planFile, source);
   return {
     exitCode: 0,
-    message: `appended ${appended} new entries to ${planFile} (${validated.length - appended} were already present)`,
+    message:
+      `appended ${appended} new entries to ${planFile} (${validated.length - appended} were already present)` +
+      (operatorConfirm.length > 0
+        ? `\n${operatorConfirm.length} body-only candidates were NOT written — they need operator confirmation; run with --dry-run to see the commented block`
+        : ""),
   };
 }
 

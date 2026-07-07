@@ -649,6 +649,18 @@ test("rebuildManifest: empty PR list returns exit 0 with message", async () => {
   }
 });
 
+function makeCaptureStream() {
+  return {
+    lines: [],
+    write(s) {
+      this.lines.push(s);
+    },
+    text() {
+      return this.lines.join("");
+    },
+  };
+}
+
 test("rebuildManifest excludes PRs whose title lacks the Plan-NNN token (lane-2 bodies)", async () => {
   const tmp = mkdtempSync(join(tmpdir(), "rsm-e2e-"));
   try {
@@ -671,12 +683,8 @@ test("rebuildManifest excludes PRs whose title lacks the Plan-NNN token (lane-2 
       },
     });
 
-    const stdout = {
-      lines: [],
-      write(s) {
-        this.lines.push(s);
-      },
-    };
+    const stdout = makeCaptureStream();
+    const stderr = makeCaptureStream();
     const r = await rebuildManifest({
       plan: "001",
       dryRun: true,
@@ -684,11 +692,13 @@ test("rebuildManifest excludes PRs whose title lacks the Plan-NNN token (lane-2 
       ghRunner,
       plansDir: planDir,
       stdout,
+      stderr,
     });
     assert.equal(r.exitCode, 0);
-    const out = stdout.lines.join("");
-    assert.match(out, /skipped \(no title token\): PR #42/i); // lane-2 PR listed informationally
-    assert.doesNotMatch(out, /^\s*pr: 42$/m); // and NEVER synthesized into an entry
+    assert.match(stderr.text(), /skipped \(no title token\): PR #42/i); // lane-2 PR listed informationally
+    assert.doesNotMatch(stdout.text(), /^\s*pr: 42$/m); // and NEVER synthesized into an entry
+    // dry-run stdout is a pure YAML stream — diagnostics never leak into it
+    assert.doesNotMatch(stdout.text(), /skipped \(no title token\)/);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
@@ -719,12 +729,8 @@ test("rebuildManifest skips a body-only PR before the truncation-sensitive detai
       },
     });
 
-    const stdout = {
-      lines: [],
-      write(s) {
-        this.lines.push(s);
-      },
-    };
+    const stdout = makeCaptureStream();
+    const stderr = makeCaptureStream();
     const r = await rebuildManifest({
       plan: "001",
       dryRun: true,
@@ -732,25 +738,33 @@ test("rebuildManifest skips a body-only PR before the truncation-sensitive detai
       ghRunner,
       plansDir: planDir,
       stdout,
+      stderr,
     });
     assert.equal(r.exitCode, 0);
-    const out = stdout.lines.join("");
-    assert.match(out, /skipped \(no title token\): PR #42/i);
-    assert.doesNotMatch(out, /^\s*pr: 42$/m);
+    assert.match(stderr.text(), /skipped \(no title token\): PR #42/i);
+    assert.doesNotMatch(stdout.text(), /^\s*pr: 42$/m);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
 });
 
-const LANE2_BACKFILL_DETAILS = {
+// Pre-mandate squash text: carries the Plan-001 ref in the body but NO
+// parseable Phase/T-markers — synthesis would yield phase 0 / empty task
+// (the real shape of Plan-001 PR #6/#8/#9/#10 squash bodies).
+const UNPARSEABLE_BODY_DETAILS = {
   title: "feat(daemon): improve session cleanup",
-  body: "Backfill of Phase 2 T2.9 work.\n\nRefs: Plan-001",
+  body: "Sweeping refactor.\n\nRefs: Plan-001",
   mergedAt: "2026-07-01T12:00:00Z",
   mergeCommit: { oid: "abc9876def0000" },
   files: [{ path: "packages/runtime-daemon/src/session-cleanup.ts" }],
 };
 
-test("rebuildManifest keeps a body-only PR that the manifest already records (legacy shipment)", async () => {
+const PARSEABLE_BACKFILL_DETAILS = {
+  ...UNPARSEABLE_BODY_DETAILS,
+  body: "Backfill of Phase 2 T2.9 work.\n\nRefs: Plan-001",
+};
+
+test("rebuildManifest reuses the on-disk entry for a body-only PR the manifest records (no re-synthesis)", async () => {
   const tmp = mkdtempSync(join(tmpdir(), "rsm-e2e-"));
   try {
     const planDir = join(tmp, "docs", "plans");
@@ -774,17 +788,15 @@ test("rebuildManifest keeps a body-only PR that the manifest already records (le
       ),
     );
 
+    // Squash text is UNPARSEABLE — re-synthesis would degrade the entry to
+    // phase 0 / empty task and fail validation. Reuse must win instead.
     const ghRunner = makeGhRunner({
       prList: [42],
-      prDetails: { 42: LANE2_BACKFILL_DETAILS },
+      prDetails: { 42: UNPARSEABLE_BODY_DETAILS },
     });
 
-    const stdout = {
-      lines: [],
-      write(s) {
-        this.lines.push(s);
-      },
-    };
+    const stdout = makeCaptureStream();
+    const stderr = makeCaptureStream();
     const r = await rebuildManifest({
       plan: "001",
       dryRun: true,
@@ -792,17 +804,19 @@ test("rebuildManifest keeps a body-only PR that the manifest already records (le
       ghRunner,
       plansDir: planDir,
       stdout,
+      stderr,
     });
     assert.equal(r.exitCode, 0);
-    const out = stdout.lines.join("");
-    assert.match(out, /included body-only match \(already recorded in manifest\): PR #42/i);
-    assert.match(out, /^\s*pr: 42$/m); // legacy shipment stays in the rebuilt manifest
+    assert.match(stderr.text(), /reused existing manifest entry \(body-only title\): PR #42/i);
+    assert.match(stdout.text(), /^\s*pr: 42$/m); // legacy shipment stays in the rebuilt manifest
+    assert.match(stdout.text(), /^\s*task: T2\.9$/m); // ...with its on-disk fields, not phase-0 synthesis
+    assert.match(stdout.text(), /^\s*- phase: 2$/m);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
 });
 
-test("rebuildManifest --include-body-matches admits body-only PRs for pre-mandate backfill", async () => {
+test("rebuildManifest --include-body-matches admits parseable body-only PRs for pre-mandate backfill", async () => {
   const tmp = mkdtempSync(join(tmpdir(), "rsm-e2e-"));
   try {
     const planDir = join(tmp, "docs", "plans");
@@ -812,15 +826,11 @@ test("rebuildManifest --include-body-matches admits body-only PRs for pre-mandat
 
     const ghRunner = makeGhRunner({
       prList: [42],
-      prDetails: { 42: LANE2_BACKFILL_DETAILS },
+      prDetails: { 42: PARSEABLE_BACKFILL_DETAILS },
     });
 
-    const stdout = {
-      lines: [],
-      write(s) {
-        this.lines.push(s);
-      },
-    };
+    const stdout = makeCaptureStream();
+    const stderr = makeCaptureStream();
     const r = await rebuildManifest({
       plan: "001",
       dryRun: true,
@@ -829,12 +839,50 @@ test("rebuildManifest --include-body-matches admits body-only PRs for pre-mandat
       ghRunner,
       plansDir: planDir,
       stdout,
+      stderr,
     });
     assert.equal(r.exitCode, 0);
-    const out = stdout.lines.join("");
-    assert.match(out, /included body-only match \(--include-body-matches/i);
-    assert.match(out, /operator MUST confirm/i);
-    assert.match(out, /^\s*pr: 42$/m);
+    assert.match(stderr.text(), /included body-only match \(--include-body-matches/i);
+    assert.match(stderr.text(), /operator MUST confirm/i);
+    assert.match(stdout.text(), /^\s*pr: 42$/m);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("rebuildManifest --include-body-matches emits operator-confirmation YAML for unparseable candidates", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "rsm-e2e-"));
+  try {
+    const planDir = join(tmp, "docs", "plans");
+    mkdirSync(planDir, { recursive: true });
+    const planFile = join(planDir, "001-shared-session-core.md");
+    writeFileSync(planFile, PLAN_TEMPLATE);
+
+    const ghRunner = makeGhRunner({
+      prList: [42],
+      prDetails: { 42: UNPARSEABLE_BODY_DETAILS },
+    });
+
+    const stdout = makeCaptureStream();
+    const stderr = makeCaptureStream();
+    const r = await rebuildManifest({
+      plan: "001",
+      dryRun: true,
+      force: false,
+      includeBodyMatches: true,
+      ghRunner,
+      plansDir: planDir,
+      stdout,
+      stderr,
+    });
+    // Pre-redesign this exited 5 (validation failure) with no editable output.
+    assert.equal(r.exitCode, 0);
+    assert.match(r.message, /operator confirmation/i);
+    const out = stdout.text();
+    assert.match(out, /# Operator confirmation needed \(body-only matches, unparseable markers\):/);
+    assert.match(out, /^#\s+pr: 42$/m); // commented, editable YAML for the candidate
+    assert.match(out, /\^ unresolved: /);
+    assert.doesNotMatch(out, /^\s*pr: 42$/m); // never written as a live shipped[] entry
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
