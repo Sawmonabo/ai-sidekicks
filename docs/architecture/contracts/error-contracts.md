@@ -117,11 +117,13 @@ expect(caught).toMatchObject({
 
 ### Session
 
-| Code                     | Description                                            | HTTP Status |
-| ------------------------ | ------------------------------------------------------ | ----------- |
-| `session.not_found`      | Session does not exist or is not accessible            | 404         |
-| `session.already_closed` | Session has already been closed and cannot be modified | 409         |
-| `session.limit_exceeded` | Session creation rate limit exceeded                   | 429         |
+| Code | Description | HTTP Status |
+| --- | --- | --- |
+| `session.not_found` | Session does not exist or is not accessible | 404 |
+| `session.already_closed` | Session has already been closed and cannot be modified | 409 |
+| `session.limit_exceeded` | Session creation rate limit exceeded | 429 |
+| `session.goal_delivery_failed` | A live-leg goal mutation (`session.goalUpdate` / `session.goalClear`) failed at the provider driver — no event appended, no goal change; acked legs reverted to the prior goal (Spec-016 §Session Goals, campaign B6; `data.fields`: `failedBindingIds`, `driverCode`) | 502 |
+| `session.goal_mutation_in_flight` | A goal mutation was refused because a prior goal intent has not converged — whether still applying (legs `pending`/`acked`; the ordinary concurrent-update case) or compensating after a failure (an `acked` leg awaiting revert) — retry after convergence (Spec-016 §Session Goals, campaign B6; `data.fields`: `unconvergedBindingIds` — every not-yet-converged leg, any state) | 409 |
 
 ### Auth
 
@@ -170,17 +172,17 @@ Channel lifecycle codes (Plan-016, Tier-6 audit D-016-16). Daemon-only authority
 
 ### Orchestration
 
-Orchestration admission-refusal codes (Plan-016, Tier-6 audit D-016-16). Every code is a zero-residue create-time refusal — no run row, no queue item, no partial state survives the rejection (I-016-8); the daemon additionally records the refusal durably via the `orchestration.rejected` event (Spec-016:89 "records the refusal visibly"). The event name `orchestration.rejected` and these error codes share a root but no token collides with an event name. The parent-run-missing case reuses §Run `run.not_found` (no new semantic — D-016-16).
+Orchestration admission-refusal codes (Plan-016, Tier-6 audit D-016-16). Every code is a zero-residue create-time refusal — no run row, no queue item, no partial state survives the rejection (I-016-8); the daemon additionally records the refusal durably via the `orchestration.rejected` event (Spec-016:91 "records the refusal visibly"). The event name `orchestration.rejected` and these error codes share a root but no token collides with an event name. The parent-run-missing case reuses §Run `run.not_found` (no new semantic — D-016-16).
 
 | Code | Description | HTTP Status |
 | --- | --- | --- |
-| `orchestration.depth_exceeded` | Creating run is itself a child — V1 permits exactly one level of run nesting (Spec-016:55; `data.fields`: `parentRunId`, `maxDepth: 1`) | 409 |
+| `orchestration.depth_exceeded` | Creating run is itself a child — V1 permits exactly one level of run nesting (Spec-016:57; `data.fields`: `parentRunId`, `maxDepth: 1`) | 409 |
 | `orchestration.active_child_limit_exceeded` | Parent already has the configured number of active children (`data.fields`: `parentRunId`, `limit`, `activeChildCount`) | 429 |
 | `orchestration.pending_limit_exceeded` | Session already has the maximum pending orchestration-created runs (Spec-016 §Scheduler Limits; `data.fields`: `limit`) | 429 |
 | `orchestration.channel_limit_exceeded` | Admitting the run would open a new executing channel beyond the maximum concurrently executing channels (Spec-016 §Scheduler Limits; `data.fields`: `limit`) — the run may instead be held `queued`; this code fires only when the target channel's queue is also exhausted (a busy target channel with a full queue is `orchestration.queue_depth_exceeded` regardless of the executing-channel count) | 429 |
 | `orchestration.queue_depth_exceeded` | Target channel already has an executing run and its queue is at maximum depth, so the run cannot be held `queued` (Spec-016 §Scheduler Limits: 25 per channel, subject to the Spec-001 per-session queue depth; `data.fields`: `channelId`, `limit`, `queuedCount`) | 429 |
 | `orchestration.turn_limit_exceeded` | Target agent is at its consecutive-turn limit in the target channel (D-016-8 — the counter resets on an interleaving human or different-agent turn; `data.fields`: `agentId`, `channelId`, `limit`) | 429 |
-| `orchestration.budget_exhausted` | Session cost ceiling reached — admission blocked until the session owner raises the limit (Spec-016 §Budget Policies; `data.fields`: `budgetType`, `limitValue`, `observedValue`) | 429 |
+| `orchestration.budget_exhausted` | Session cost ceiling reached — admission blocked until the session owner raises the limit; also fired for the unpriced-model-family admission block with `reason: 'unpriced-model'` + `modelFamily` in `data.fields` and the same threshold fields carrying the configured limit + committed spend (observed cost including unpriced terminal debits, plus active reservations), and for native-cap-escape reservation refusals — `reason: 'driver_capless'` when the target leg's driver lacks the `cost_cap` capability (fail-closed, Spec-005 matrix) — where `observedValue` carries committed spend (observed cost including unpriced terminal debits, plus active reservations) (Spec-016 §Budget Policies incl. §Cost Derivation And Absent-Cost Semantics, campaign B6; `data.fields`: `budgetType`, `limitValue`, `observedValue`, `reason?`, `modelFamily?`) | 429 |
 | `orchestration.node_not_local` | `targetNodeId` names a node not attached to this daemon — V1 orchestration is single-node; cross-node dispatch is Spec-024/Plan-027 (D-016-9; `data.fields`: `targetNodeId`) | 422 |
 
 ### Agent

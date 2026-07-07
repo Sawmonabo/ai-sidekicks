@@ -29,7 +29,7 @@ This plan covers approval records, remembered grants, daemon-side permission che
 
 ## Preconditions
 
-- [x] Paired spec is approved
+- [x] Paired spec is approved — **dated gate note (2026-07-06, campaign class-completion via B6):** the paired spec is temporarily `review` for its campaign amendment window (B20 amendment, PR #175); this box records the audit-time state, and code dispatch for amendment surfaces stays blocked until the campaign's Task-28 / W1.5 batch re-promotion restores `approved`.
 - [x] Required ADRs are accepted
 - [x] Blocking open questions are resolved or explicitly deferred
 - [x] **Plan-readiness audit complete per [runbook](../operations/plan-implementation-readiness-audit-runbook.md)** — Tier-6 audit (2026-06-10), this revision: 64 findings adjudicated across A-1..A-28; four-phase `#### Tasks` structure, §Invariants, §Cross-Plan Obligations, and §Ratified Design Decisions authored; api-payload §Plan-012 + §Approval Method-Name Registry, error-contracts §Approval, Spec-006 `approval.canceled`, ADR-012 clarifications, and the Plan-004/Plan-005/Plan-009/Plan-010/Spec-023 reciprocals landed in the same audit PR.

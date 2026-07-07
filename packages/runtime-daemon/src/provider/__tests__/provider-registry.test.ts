@@ -15,7 +15,7 @@
 //     both throw `driver.capability_unsupported`; a declared-`true` flag passes.
 //
 // Refs: Plan-005 §Phase 2 / T2.3, Spec-005 lines 43 + 48, invariant I-005-2,
-// error-contracts.md line 310 (`driver.unavailable`) + line 303
+// error-contracts.md line 312 (`driver.unavailable`) + line 313
 // (`driver.capability_unsupported`).
 
 import type {

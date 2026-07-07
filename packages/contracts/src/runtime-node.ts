@@ -98,7 +98,7 @@ export const NodeStateSchema: z.ZodType<NodeState> = z.enum([
 //
 // SHARED wire enum: `healthState: "online" | "degraded"` appears on BOTH
 // `RuntimeNodeAttachRequest` (this task, T1.1) and `RuntimeNodeHeartbeatRequest`
-// (T1.3, same file — api-payload-contracts.md:511-513). Hoisted to a single
+// (T1.3, same file — api-payload-contracts.md:519-521). Hoisted to a single
 // named export so the two surfaces stay single-sourced (2+ wire-surface
 // consumers is the hoist bar). This is the daemon's SELF-REPORTED health at
 // attach/heartbeat time — a 2-value subset, distinct from the 5-value
@@ -115,7 +115,7 @@ export const RuntimeNodeHealthStateSchema: z.ZodType<RuntimeNodeHealthState> = z
 // RuntimeNodeAttach — request / response.
 // --------------------------------------------------------------------------
 //
-// Canonical wire: api-payload-contracts.md:495-508. The request carries the
+// Canonical wire: api-payload-contracts.md:503-516. The request carries the
 // daemon's reported `clientVersion` (typed `EventEnvelopeVersion` — the branded
 // MAJOR.MINOR semver, NOT a plain string, so the Phase-3 floor comparison is
 // semver-aware not lexicographic, per ADR-018 §Decision #1) and is `.strict()`
@@ -177,7 +177,7 @@ export interface RuntimeNodeAttachResponse {
 // `SessionCreateResponseSchema` et al. in session.ts).
 export const RuntimeNodeAttachResponseSchema: z.ZodType<RuntimeNodeAttachResponse> = z
   .object({
-    // `attachmentId`: the wire contract (api-payload-contracts.md:504) types
+    // `attachmentId`: the wire contract (api-payload-contracts.md:512) types
     // this plain `string`, NOT `NodeId`/UUID — it is the `runtime_node_
     // attachments.id` surfaced opaquely. We deliberately do NOT add `.uuid()`
     // (the wire asserts no UUID-format invariant; matches the opaque-`id`
@@ -207,7 +207,7 @@ export const RuntimeNodeAttachResponseSchema: z.ZodType<RuntimeNodeAttachRespons
 // the not-yet-written T1.3 detach `reason`; each operation owns its own cap).
 export const RUNTIME_NODE_CAPABILITY_UPDATE_REASON_MAX_LEN = 512;
 //
-// Canonical wire: api-payload-contracts.md:517-527. Method
+// Canonical wire: api-payload-contracts.md:525-535. Method
 // `runtimenode.capabilityupdate` (a tRPC mutation), so the REQUEST is a tRPC
 // input surface. The request carries the daemon's FULL REPLACEMENT capability
 // map — additions and removals are both expressed by the new `capabilities`
@@ -231,7 +231,7 @@ export const RUNTIME_NODE_CAPABILITY_UPDATE_REASON_MAX_LEN = 512;
 //   • `revoked` is an authority-issued trust decision ABOUT the node (the
 //     session / detach / admin path, Plan-003 T3.7), never self-asserted.
 // `registering` is likewise not a daemon-reportable health value. This narrows
-// the broad field T1.2 shipped (api-payload-contracts.md:521); the request→
+// the broad field T1.2 shipped (api-payload-contracts.md:529); the request→
 // response asymmetry is intentional — the daemon asserts the NARROW 2-value
 // health axis here, while the RESPONSE `state: NodeState` below stays the broad
 // server-derived liveness projection the control plane owns.
@@ -354,7 +354,7 @@ export const RuntimeNodeCapabilityUpdateResponseSchema: z.ZodType<RuntimeNodeCap
 // RuntimeNodeHeartbeat — request / response.
 // --------------------------------------------------------------------------
 //
-// Canonical wire: api-payload-contracts.md:510-515. Method
+// Canonical wire: api-payload-contracts.md:518-523. Method
 // `runtimenode.heartbeat` (a tRPC mutation), so the REQUEST is a tRPC input
 // surface. The heartbeat is the daemon's periodic liveness self-report: it
 // carries the `nodeId` and the daemon's CURRENT 2-value health on the wire.
@@ -415,7 +415,7 @@ export const RuntimeNodeHeartbeatRequestSchema: z.ZodType<
   .strict() as unknown as z.ZodType<RuntimeNodeHeartbeatRequest, RuntimeNodeHeartbeatRequest>;
 
 // No-content response. The wire payload is literally `null`, NOT a 204 empty
-// body (api-payload-contracts.md:515,568): the resolver returns `null`, which
+// body (api-payload-contracts.md:523,576): the resolver returns `null`, which
 // tRPC serializes as an ordinary HTTP 200 success envelope
 // `{ result: { data: null } }`, and the JSON-RPC daemon transport returns
 // `result: null`. Both are validated by this `z.null()` schema, so
@@ -441,7 +441,7 @@ export const RuntimeNodeHeartbeatResponseSchema: z.ZodType<null> = z.null();
 // authoritative limit; this is defense-in-depth at the wire trust boundary.
 export const RUNTIME_NODE_DETACH_REASON_MAX_LEN = 512;
 //
-// Canonical wire: api-payload-contracts.md:529-534. Method `runtimenode.detach`
+// Canonical wire: api-payload-contracts.md:537-542. Method `runtimenode.detach`
 // (a tRPC mutation), so the REQUEST is a tRPC input surface. The request carries
 // the `nodeId` and an OPTIONAL free-form `reason` audit string.
 //
@@ -498,7 +498,7 @@ export const RuntimeNodeDetachRequestSchema: z.ZodType<
   .strict();
 
 // No-content response. The wire payload is literally `null`, NOT a 204 empty
-// body (api-payload-contracts.md:534,570): the resolver returns `null`, which
+// body (api-payload-contracts.md:542,578): the resolver returns `null`, which
 // tRPC serializes as an ordinary HTTP 200 success envelope
 // `{ result: { data: null } }`, and the JSON-RPC daemon transport returns
 // `result: null`. Both are validated by this `z.null()` schema, so
@@ -513,7 +513,7 @@ export const RuntimeNodeDetachResponseSchema: z.ZodType<null> = z.null();
 // RuntimeNodeRoster — request / entry / response (the fifth procedure).
 // --------------------------------------------------------------------------
 //
-// Canonical wire: api-payload-contracts.md:536-556 (registry row at :571,
+// Canonical wire: api-payload-contracts.md:544-564 (registry row at :571,
 // procedure-type paragraph at :568); pinned in Spec-003 §Interfaces And
 // Contracts (2026-06-09 amendment, lines 90-94). Method `runtimenode.roster`
 // is the namespace's FIRST — and only — `query` (its four siblings above are
@@ -823,7 +823,7 @@ const buildRuntimeNodeLifecycleBaseShape = () => ({
 // REDUCED CAPABILITY base — the full base MINUS `previousState` / `newState`.
 // Capability events are NOT `NodeState` transitions: the canonical typed
 // payloads `RuntimeNodeCapabilityDeclaredPayload` / `RuntimeNodeCapabilityUpdated-
-// Payload` (api-payload-contracts.md §Plan-006, lines 752-764) carry NO base /
+// Payload` (api-payload-contracts.md §Plan-006, lines 786-798) carry NO base /
 // `NodeState` fields at all — only the capability fields. Carrying a base
 // `newState: NodeState` here would additionally COLLIDE with `capability_updated`'s
 // own `previousState` / `newState`, which are `CapabilityDetails` SNAPSHOTS (the
@@ -957,7 +957,7 @@ export const RuntimeNodeOfflinePayloadSchema: z.ZodType<RuntimeNodeOfflinePayloa
 // `capabilityDetails` ships as interim-opaque `z.record(z.string(), z.unknown())`
 // — marker `Plan-006-Tier-4-binds-canonical`: the canonical `CapabilityDetails`
 // (`{flags: Record<DriverCapabilityFlag, boolean>; contractVersion: string;
-// tools: NormalizedProviderToolMetadata[]}`, api-payload-contracts.md:976-980)
+// tools: NormalizedProviderToolMetadata[]}`, api-payload-contracts.md:1012-1016)
 // consumes Plan-005's `provider-driver.ts` types (`DriverCapabilityFlag`,
 // `NormalizedProviderToolMetadata`), but that's Plan-006 Tier 4's owned step,
 // not this layer's — so the field stays opaque here. An HONEST
@@ -991,7 +991,7 @@ export const RuntimeNodeCapabilityDeclaredPayloadSchema: z.ZodType<RuntimeNodeCa
 // Spec-006:413 ("base + {capability, previousState, newState}"). Emitted by the
 // T2.2 capability-service on a capability health/config change. CRITICAL: here
 // `previousState` / `newState` are `CapabilityDetails` SNAPSHOTS (so consumers
-// diff capability snapshots structurally — api-payload-contracts.md:991-996),
+// diff capability snapshots structurally — api-payload-contracts.md:1027-1032),
 // NOT `NodeState` values. This is exactly why this event uses the REDUCED base:
 // a base `previousState`/`newState: NodeState` would collide with these
 // capability-snapshot fields of the same name. Both ship as interim-opaque

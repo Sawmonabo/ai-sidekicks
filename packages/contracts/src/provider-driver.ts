@@ -138,17 +138,35 @@ export interface ProviderDriver {
 export interface CreateSessionParams {
   sessionId: SessionId;
   config: Record<string, unknown>;
+  // Spawn-time realization of the native-cap-escape admitted cap: providers that
+  // bind budget caps at process spawn (Claude `--max-budget-usd`) realize it here,
+  // so the initial create path never launches a native-cap-admitted leg capless —
+  // api-payload-contracts.md §Plan-005 CreateSessionParams mirror (Spec-016 §Cost
+  // Derivation And Absent-Cost Semantics, campaign B6). Same idiom note as
+  // StartRunParams below.
+  admittedCostCapCents?: number | undefined;
 }
 
 export interface ResumeSessionParams {
   sessionId: SessionId;
   resumeHandle: string; // opaque provider-owned handle
+  // Recovery wire-through of the native-cap-escape admitted cap: resume/relaunch
+  // re-threads the run.queued server-stamped value so the provider-side hard stop
+  // survives daemon restart and session relaunch — api-payload-contracts.md
+  // §Plan-005 ResumeSessionParams mirror (Spec-016 §Cost Derivation And
+  // Absent-Cost Semantics, campaign B6). Same idiom note as StartRunParams below.
+  admittedCostCapCents?: number | undefined;
 }
 
 export interface StartRunParams {
   runId: RunId;
   channelId: ChannelId;
   agentConfig: Record<string, unknown>;
+  // Native-cap-escape wire-through: the run.queued server-stamped admitted family
+  // cap, realized as the provider's native hard cap on cap-capable legs (Claude
+  // `--max-budget-usd`) — api-payload-contracts.md §Plan-005 StartRunParams mirror
+  // (Spec-016 §Cost Derivation And Absent-Cost Semantics, campaign B6).
+  admittedCostCapCents?: number | undefined;
   // `?: T | undefined` (not bare `?: T`) per the package idiom under
   // `exactOptionalPropertyTypes: true` — see session.ts:252-257. T4.2 has no
   // `StartRunParamsSchema` (lifecycle ops are daemon-internal per Phase 4
@@ -160,7 +178,7 @@ export interface InterruptRunParams {
   runId: RunId;
   // `?: T | undefined` per the package idiom under `exactOptionalPropertyTypes`
   // (session.ts:252-257). Load-bearing here: T4.2 pairs `InterruptRunParamsSchema`
-  // (Plan-005 line 288), whose Zod `.optional()` infers `string | undefined` — the
+  // (Plan-005 line 294), whose Zod `.optional()` infers `string | undefined` — the
   // explicit `| undefined` keeps the interface and the inferred schema output aligned.
   reason?: string | undefined;
 }
@@ -306,7 +324,7 @@ export const IdempotencyClassSchema: z.ZodType<IdempotencyClass, IdempotencyClas
 // `idempotency_class` is OPTIONAL: a driver MAY omit it and an undeclared class
 // is NOT a contract violation. Were the field required at ingress, Zod would
 // reject a conformant-but-silent driver BEFORE the default could apply,
-// defeating Spec-005:172.
+// defeating Spec-005:174.
 export interface ProviderToolMetadata {
   name: string;
   idempotency_class?: IdempotencyClass | undefined;
@@ -359,7 +377,7 @@ export const ProviderToolMetadataSchema: z.ZodType<
   ).optional(),
 });
 
-// Return type of `ProviderDriver.getCapabilities()` — nominal TS. Spec-005:160-162
+// Return type of `ProviderDriver.getCapabilities()` — nominal TS. Spec-005:162-164
 // semantically separates whole-driver capability flags from per-tool metadata;
 // this wrapper keeps `DriverCapabilities` pure (flags + contractVersion only)
 // while carrying both surfaces in a single round-trip. `tools` is the INGRESS
@@ -414,7 +432,7 @@ export interface CancelPayload {
 // by convention. Intentionally a flat object, NOT a `status`-discriminated union
 // like the sibling `DriverResumeResult`: that envelope's variants carry different
 // REQUIRED fields, whereas these two differ only by one optional field — the flat
-// shape mirrors the ratified api-payload-contracts.md:701 envelope (Phase-4
+// shape mirrors the ratified api-payload-contracts.md:725 envelope (Phase-4
 // decision #3). Non-transforming object → double-`T` annotation per
 // session.ts:289-294.
 export interface DriverInterventionResult {

@@ -4,7 +4,7 @@
 // the channels in a session, as a strict-shaped projection.
 //
 // Canonical wire form lives in
-// docs/architecture/contracts/api-payload-contracts.md lines 447-454:
+// docs/architecture/contracts/api-payload-contracts.md lines 455-462:
 //
 //   interface ChannelListRequest {
 //     sessionId: SessionId;
@@ -144,7 +144,7 @@ export {
 } from "./session.js";
 
 // --------------------------------------------------------------------------
-// C5 — ChannelListRequest (Spec-002 line 87 + api-payload-contracts.md:449-451)
+// C5 — ChannelListRequest (Spec-002 line 87 + api-payload-contracts.md:457-459)
 // --------------------------------------------------------------------------
 //
 // Exact wire shape:
@@ -173,7 +173,7 @@ export const ChannelListRequestSchema: z.ZodType<ChannelListRequest, ChannelList
 // --------------------------------------------------------------------------
 //
 // One element per channel visible to the calling participant. Wire shape
-// (api-payload-contracts.md:452-458):
+// (api-payload-contracts.md:460-466):
 //   `{id: ChannelId, name?: string, state: ChannelState, participantCount: number}`
 //
 // `name` is OPTIONAL — see file header for the bootstrap-unnamed-channel
@@ -240,7 +240,7 @@ export const ChannelListResponseChannelSchema: z.ZodType<
 // ChannelListResponse — outer projection envelope
 // --------------------------------------------------------------------------
 //
-// Exact wire shape (api-payload-contracts.md:452-459):
+// Exact wire shape (api-payload-contracts.md:460-467):
 //   `{channels: Array<ChannelListResponseChannel>}`
 //
 // Empty list is valid — a session with no visible channels (or a session

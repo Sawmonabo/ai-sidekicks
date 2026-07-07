@@ -184,7 +184,15 @@ type DriverCapabilityFlag =
   | "rollback" // conversation rollback via rollbackTo (campaign B3; the rollback InterventionType is Spec-004 content, campaign B2)
   | "session_goals" // setSessionGoal / clearSessionGoal (campaign B3)
   | "callback_tools" // daemon-curated callback-tool registry (campaign B3)
-  | "subagents"; // provider-native in-session subagents under subagentPolicy (campaign B3)
+  | "subagents" // provider-native in-session subagents under subagentPolicy (campaign B3)
+  | "cost_cap"; // realizes a daemon-supplied hard cost cap natively at spawn — Claude --max-budget-usd; gates the Spec-016 native-cap unpriced admission (campaign B6)
+// Code-mirror gate (campaign B3/B6): the shipped executable union
+// (packages/contracts/src/provider-driver.ts) still exports the seven pre-B3 flags, and the
+// shipped assertValidCapabilityFlags rejects any snapshot whose key count differs — so a driver
+// MUST NOT declare the six campaign flags against the shipped validator. Union + validator +
+// driver_capabilities migration backfill + conformance tests widen together as ONE change via
+// the campaign's Plan-005 bundle; cost_cap-gated admission code (Plan-016 T2.3) dispatch-gates
+// on that bundle (same named-bundle gate as the goal driver mirror).
 ```
 
 ---
@@ -630,6 +638,12 @@ interface ProviderDriver {
 interface CreateSessionParams {
   sessionId: SessionId;
   config: Record<string, unknown>;
+  // Spawn-time realization of the native-cap-escape admitted cap (campaign B6): providers that
+  // bind budget caps at process spawn (Claude `--max-budget-usd`) realize it HERE — the initial
+  // create path must never launch a native-cap-admitted leg capless while the accountant
+  // reserves/debits as if enforced. StartRunParams / ResumeSessionParams carry the same value
+  // for the run and recovery paths (Spec-016 §Cost Derivation And Absent-Cost Semantics).
+  admittedCostCapCents?: number;
   executionPosture?: ExecutionPosture; // spawn-time posture — provider legs that bind posture at process spawn (Claude `--settings` sandbox) realize it here; the per-run effective posture rides StartRunParams (Spec-005 §Required Behavior, campaign B3)
   callbackTools?: SessionCallbackTool[]; // daemon-curated callback-tool registry exposed into the session (Codex function-form dynamicTools; Claude daemon-hosted ephemeral MCP server via --mcp-config); gated on the callback_tools flag
   subagentPolicy?: SubagentPolicy; // provider-native in-session subagent policy pass-through under the single-supervisor invariant (Spec-016 semantics land via campaign B6); gated on the subagents flag
@@ -638,9 +652,19 @@ interface CreateSessionParams {
 interface ResumeSessionParams {
   sessionId: SessionId;
   resumeHandle: string; // opaque provider-owned handle
+  // recovery wire-through (campaign B6): on resume/relaunch of a native-cap-admitted run the daemon
+  // re-threads the admitted cap from the durable run.queued payload (admittedUnpricedCapCents), so the
+  // provider-side hard stop survives daemon restart and session relaunch (Plan-015 recovery resumes
+  // bindings through this seam; realized like StartRunParams.admittedCostCapCents on cap-capable legs)
+  admittedCostCapCents?: number;
 }
 
 interface StartRunParams {
+  // native-cap-escape wire-through: the admitted family cap (= the run.queued server-stamped admittedUnpricedCapCents),
+  // realized as the provider's native hard cap on cap-capable legs (Claude `--max-budget-usd`); a leg that
+  // binds caps at spawn realizes it via CreateSessionParams.admittedCostCapCents (the spawn carrier above) — and a native-cap run on such a leg starts only inside a session spawned with the MATCHING cap: an existing uncapped process forces a capped relaunch at the session boundary before this startRun dispatches (posture-relaunch precedent), never a start-in-uncapped
+  // (Spec-016 §Cost Derivation And Absent-Cost Semantics, campaign B6)
+  admittedCostCapCents?: number;
   runId: RunId;
   channelId: ChannelId;
   agentConfig: Record<string, unknown>;
@@ -733,11 +757,21 @@ type DriverRollbackResult =
 // goal on session resume, so driver-held state is never the recovery source.
 interface SetSessionGoalParams {
   sessionId: SessionId;
+  // Leg addressing (campaign B6): goal delivery fans out per live binding, and `run` →
+  // bindings is 1:many in the shipped store (store-minted surrogate ids; e.g. a capped or
+  // posture relaunch mints a new binding for the same run) — so the BINDING is the leg key,
+  // matching the durable intent's per-leg map. The driver resolves its provider session from
+  // the binding it established at createSession/resumeSession (DriverResumeResult already
+  // returns bindingId); runId rides along for run-scoped context and telemetry.
+  bindingId: string;
+  runId: RunId;
   goalText: string;
 }
 
 interface ClearSessionGoalParams {
   sessionId: SessionId;
+  bindingId: string; // leg key — same per-binding fan-out as SetSessionGoalParams (campaign B6)
+  runId: RunId;
 }
 
 type DriverGoalResult =
@@ -843,8 +877,10 @@ interface SessionCallbackTool {
 // campaign B6). Single-supervisor invariant: the daemon is the only cross-session supervisor —
 // provider subagents run in-session only, their usage aggregates into the run's own budgets, and
 // their tool calls flow through the same approval pipeline. `maxConcurrent` enforces natively on
-// Codex; the Claude concurrency cap is docs-silent, so that leg monitors-with-diagnostic
-// (Spec-005 §Parity Capability Mechanism Grades).
+// Codex; the Claude spawn-side cap is docs-silent, so that leg is BOUNDARY-SERIALIZED — beyond-cap
+// subagents hold at their next daemon-mediated tool call until a slot frees (never failed; breach
+// diagnostic = observability; subagents disabled at spawn if the leg cannot mediate tool calls)
+// (Spec-005 §Parity Capability Mechanism Grades; Spec-016 §Provider-Native Subagents).
 type SubagentPolicy =
   // Discriminated on `enabled`: a disabled policy carries no limits or definitions —
   // "off but configured" is unrepresentable; the daemon sends the full arm on enable.
@@ -889,9 +925,9 @@ type IdempotencyClass = "idempotent" | "compensable" | "manual_reconcile_only";
 // INGRESS shape — what a provider driver DECLARES via `getCapabilities()`. `idempotency_class`
 // is OPTIONAL: a driver MAY omit it and an undeclared class is NOT a contract violation. Were the
 // field required here, Zod would reject a conformant-but-silent driver at ingress BEFORE the
-// default could apply — defeating Spec-005:172. The daemon's capability-normalization seam
+// default could apply — defeating Spec-005:174. The daemon's capability-normalization seam
 // (Plan-005 T2.4 hydration) resolves an omitted class to `manual_reconcile_only` (the conservative
-// default per Spec-005:172), producing a `NormalizedProviderToolMetadata`.
+// default per Spec-005:174), producing a `NormalizedProviderToolMetadata`.
 interface ProviderToolMetadata {
   name: string;
   idempotency_class?: IdempotencyClass;
@@ -959,7 +995,7 @@ interface GetCapabilitiesResult {
 // CapabilityDetails — wrapper shape carried by `runtime_node.capability_declared` and
 // `runtime_node.capability_updated` event payloads (Spec-006:412-413). Bound to the same
 // three surfaces a driver advertises via `ProviderDriver.getCapabilities()` (GetCapabilitiesResult
-// above): the twelve-flag matrix, the declared contract version, and the per-tool metadata —
+// above): the thirteen-flag matrix, the declared contract version, and the per-tool metadata —
 // here as `NormalizedProviderToolMetadata` (post-default), since these payloads cross the event
 // boundary and must never carry an un-normalized `idempotency_class`. `GetCapabilitiesResult.cliVersion`
 // is intentionally NOT mirrored here — the CLI-version floor is an attach-time fail-closed gate, not a
@@ -1269,6 +1305,24 @@ interface RunStateChangeEvent {
   // else session default) persisted durably so budget/idle enforcement rebuilds replay-stable even
   // if session defaults change mid-run (Plan-016 D-016-5, I-016-14; Spec-006:196).
   effectiveRunConfig?: OrchestrationRunConfig;
+  // ── Path-independent admission stamps (campaign B6) — NOT part of the orchestration linkage
+  // block above: run.queued carries these for EVERY provider run, whether admitted via the
+  // ordinary run.queueCreate path or orchestration admission (the orchestration path threads
+  // its values through the OrchestrationRunLinkCarrier; the ordinary path stamps directly at
+  // the queue write — CP-004-10 owns the stamp either way). Never client-suppliable.
+  // Native-cap unpriced admissions only (any creation path): the server-stamped admitted family
+  // cap — the replay source for reservedCostCents and the worst-case terminal debit; deliberately
+  // NOT an OrchestrationRunConfig member, so it can never arrive on
+  // OrchestrationRunCreateRequest.config (Spec-016 §Cost Derivation And Absent-Cost Semantics).
+  admittedUnpricedCapCents?: number;
+  // As-of-admission model family, frozen here for every admitted provider run: orchestration-
+  // created runs resolve agentId → agent model → pricing-family key; ordinary runs resolve from
+  // the admission-resolved provider model. Derived pricing, family caps, and warnings all key
+  // off it; a later agent.configUpdate model change never re-keys an admitted run, and replay
+  // reads this field, never the current agents projection. Derived pricing resolves per usage
+  // row: a row wire-attributed to another model (e.g. a differently-modeled subagent) keys off
+  // that model's family; this field is the fallback when the wire carries no attribution.
+  admittedModelFamily?: string;
   timestamp: string;
 }
 
@@ -2510,7 +2564,7 @@ interface ChannelRosterReadResponse {
     state: ChannelState;
     config: ChannelConfig;
     arbitration: {
-      state: "active" | "paused"; // round-robin arbitration pause (Spec-016:122-124) — daemon projection from arbitration.* events
+      state: "active" | "paused"; // round-robin arbitration pause (Spec-016:186-188) — daemon projection from arbitration.* events
       turnPolicy: TurnPolicy;
       unreachableNodeId?: NodeId; // present while paused on an unreachable node
       unreachableAgentId?: AgentId;
@@ -2524,7 +2578,7 @@ interface ChannelRosterReadResponse {
 // Plan-004 queue admission; zero-residue typed refusal + durable orchestration.rejected on deny)
 interface OrchestrationRunCreateRequest {
   sessionId: SessionId;
-  parentRunId?: RunId; // present = child run; child-of-child refused (depth 1, Spec-016:198)
+  parentRunId?: RunId; // present = child run; child-of-child refused (depth 1, Spec-016:223)
   targetAgentId: AgentId; // must resolve in the agents projection (agent.not_found / agent.not_ready)
   targetNodeId?: NodeId; // V1: must be locally attached or absent (orchestration.node_not_local; cross-node = Spec-024/Plan-027, D-016-9)
   targetChannelId: ChannelId; // accepts the derived main id without a channels row (D-016-15)
@@ -2582,7 +2636,20 @@ interface OrchestrationBudgetState {
   maxQueueDepthPerChannel: number; // default 25
   maxPendingOrchestrationRuns: number; // default 10
   activeChildLimit: number; // default 5
-  observedCostCents: number; // BudgetAccountant projection (in-memory, replay-rebuilt)
+  // owner-supplied unpriced-family escapes — native-cap provider legs only
+  // (Spec-016 §Cost Derivation And Absent-Cost Semantics, campaign B6); empty by default
+  unpricedFamilyCaps: { modelFamily: string; hardCapUsdCents: number }[]; // one entry per modelFamily — duplicate families rejected at validation
+  observedCostCents: number; // BudgetAccountant projection (in-memory, replay-rebuilt from TWO folds: persisted usage.cost_update.costCents — derivation emit-once, never re-run against the current table, so an update re-prices nothing retroactively — PLUS worst-case debits of terminal native-cap runs from run.queued.admittedUnpricedCapCents, whose cost rows are costless by design; folding rows alone would resurrect their headroom) (Spec-016, campaign B6)
+  // Σ snapshot-at-admission reservations over ACTIVE native-cap-escape runs — admission
+  // predicate: observed + reserved + newCap ≤ costLimitCents. At each such run's terminal the
+  // reservation converts to a worst-case debit in observedCostCents (never back to headroom).
+  // Each run's admitted cap is frozen in the server-stamped run.queued.admittedUnpricedCapCents —
+  // the path-independent durable field on EVERY provider run (ordinary run.queueCreate admissions
+  // stamp it directly; the OrchestrationRunLinkCarrier only threads it for orchestration-created
+  // runs): unpricedFamilyCaps updates apply to future admissions only; restart/replay rebuilds
+  // reservations + debits from run.queued records alone — native-cap ordinary runs included
+  // (Spec-016 §Cost Derivation And Absent-Cost Semantics, campaign B6)
+  reservedCostCents: number;
 }
 type OrchestrationBudgetReadResponse = OrchestrationBudgetState;
 interface OrchestrationBudgetUpdateRequest {
@@ -2595,8 +2662,24 @@ interface OrchestrationBudgetUpdateRequest {
   maxQueueDepthPerChannel?: number;
   maxPendingOrchestrationRuns?: number;
   activeChildLimit?: number;
+  // replace-set semantics; hardCapUsdCents a positive integer — the named
+  // fail-closed escape for unpriced families on native-cap legs (Spec-016, campaign B6)
+  unpricedFamilyCaps?: { modelFamily: string; hardCapUsdCents: number }[]; // replace-set keyed by modelFamily: one entry per family, duplicates rejected at validation
 }
 type OrchestrationBudgetUpdateResponse = OrchestrationBudgetState;
+
+interface SessionGoal {
+  text: string; // 1–4096 chars, non-blank, NUL-rejected (standard bounded free-form guards — persisted to the event log and injected into provider prompts); the Spec-016 §Session Goals structured shape; extending it requires a spec revision (campaign B6)
+}
+interface SessionGoalUpdateRequest {
+  sessionId: SessionId;
+  goal: SessionGoal;
+}
+type SessionGoalUpdateResponse = { sessionId: SessionId; goal: SessionGoal };
+interface SessionGoalClearRequest {
+  sessionId: SessionId;
+}
+type SessionGoalClearResponse = { sessionId: SessionId };
 
 // Agent surface (A-016-2 — Plan-016 owns the V1 agent identity + lifecycle surface).
 // AgentState is the canonical 4-state lifecycle from domain/agent-channel-and-run-model.md
@@ -2668,6 +2751,19 @@ interface OrchestrationRunLinkCarrier {
   agentId: AgentId; // name mirrors the run.queued additive payload field verbatim (CP-004-10); the service maps the validated wire targetAgentId here after agent resolution
   producingNodeId: NodeId;
   effectiveRunConfig: OrchestrationRunConfig; // admission-resolved post-merge values (request override else session default), persisted on run.queued so budget/idle enforcement rebuilds replay-stable (D-016-5, I-016-14)
+  // native-cap-escape snapshot — SERVER-STAMPED at admission, deliberately NOT an
+  // OrchestrationRunConfig member so it can never arrive on OrchestrationRunCreateRequest.config
+  // (client-injection hazard); frozen per run, immune to later unpricedFamilyCaps updates;
+  // replay rebuilds reservations + terminal debits from run.queued records alone; absent on
+  // priced runs (Spec-016 §Cost Derivation And Absent-Cost Semantics, campaign B6).
+  // The carrier only THREADS this for orchestration-created runs — the durable run.queued
+  // fields are path-independent (ordinary run.queueCreate admissions stamp them directly at
+  // the queue write; CP-004-10).
+  admittedUnpricedCapCents?: number;
+  // As-of-admission model family (campaign B6): resolved agentId → agent model →
+  // pricing-family key at admission. Threading copy for the orchestration path; the durable,
+  // path-independent home is run.queued.admittedModelFamily (stamped for every provider run).
+  admittedModelFamily?: string;
 }
 ```
 
@@ -2684,12 +2780,14 @@ interface OrchestrationRunLinkCarrier {
 | `orchestration.childRunLinkRead` | RPC | `ChildRunLinkReadRequest` → `ChildRunLinkReadResponse` | run_links projection + event-folded `rejectedCreates` (zero-residue refusals, I-016-8) |
 | `orchestration.budgetRead` | RPC | `OrchestrationBudgetReadRequest` → `OrchestrationBudgetReadResponse` |  |
 | `orchestration.budgetUpdate` | RPC | `OrchestrationBudgetUpdateRequest` → `OrchestrationBudgetUpdateResponse` | Session-owner-only (wire-boundary authorization) |
+| `session.goalUpdate` | RPC | `SessionGoalUpdateRequest` → `SessionGoalUpdateResponse` | Owner/collaborator — viewers + runtime contributors read-only, per the Security Architecture role matrix ([Spec-016 §Session Goals](../../specs/016-multi-agent-channels-and-orchestration.md#session-goals), campaign B6); an accepted update emits `session.goal_updated` carrying the same canonical `goal` |
+| `session.goalClear` | RPC | `SessionGoalClearRequest` → `SessionGoalClearResponse` | Owner/collaborator; an accepted clear emits `session.goal_cleared` (clearing is the distinct operation — an update without a goal is malformed) |
 | `agent.attach` | RPC | `AgentAttachRequest` → `AgentAttachResponse` | Emits `agent.attached` |
 | `agent.detach` | RPC | `AgentDetachRequest` → `AgentDetachResponse` | Emits `agent.detached` |
 | `agent.configUpdate` | RPC | `AgentConfigUpdateRequest` → `AgentConfigUpdateResponse` | Emits `agent.config_updated` |
 | `agent.list` | RPC | `AgentListRequest` → `AgentListResponse` | agents-table projection |
 
-Error vocabulary: [error-contracts.md](./error-contracts.md) §Channel / §Orchestration / §Agent (D-016-16). Durable events owned by Plan-016 (Spec-006 registrations): `channel.created` / `channel.muted` / `channel.unmuted` / `channel.archived`, `agent.attached` / `agent.detached` / `agent.config_updated`, `arbitration.paused` / `arbitration.resumed`, `orchestration.rejected`, `usage.budget_warning`, `moderation.review_flagged` — see [Spec-006 §Event Type Registry](../../specs/006-session-event-taxonomy-and-audit-log.md).
+Error vocabulary: [error-contracts.md](./error-contracts.md) §Channel / §Orchestration / §Agent (D-016-16) plus the §Session `session.goal_delivery_failed` (502) and `session.goal_mutation_in_flight` (409) mappings for the live goal-delivery RPCs (campaign B6). Durable events owned by Plan-016 (Spec-006 registrations): `channel.created` / `channel.muted` / `channel.unmuted` / `channel.archived`, `agent.attached` / `agent.detached` / `agent.config_updated`, `arbitration.paused` / `arbitration.resumed`, `orchestration.rejected`, `usage.budget_warning`, `moderation.review_flagged`, `session.goal_updated` / `session.goal_cleared` (campaign B6 — emitted by the goal RPCs above) — see [Spec-006 §Event Type Registry](../../specs/006-session-event-taxonomy-and-audit-log.md).
 
 ### Plan-017 — Workflow Authoring And Execution
 

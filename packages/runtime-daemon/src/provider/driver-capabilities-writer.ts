@@ -8,7 +8,7 @@
 // `runtime_node.capability_*` session event, ATOMICALLY, on driver
 // registration + capability refresh. It also exposes a cold-start hydration
 // read that reconstructs the in-memory `GetCapabilitiesResult` wrapper from
-// those same three tables WITHOUT round-tripping the driver (Spec-005:176-178,
+// those same three tables WITHOUT round-tripping the driver (Spec-005:178-180,
 // the cache-as-source-of-truth). This is the durable cache that the in-memory
 // `ProviderRegistry` (T2.3) mirrors; together they complete the capability
 // round-trip that T2.5 verifies end-to-end (Spec-005:56, invariant I-005-2).
@@ -26,7 +26,7 @@
 //
 // FLAT event payload vs NESTED hydrate return (do not conflate)
 // --------------------------------------------------------------------------
-// The canonical `CapabilityDetails` (api-payload-contracts.md:976-980 — the
+// The canonical `CapabilityDetails` (api-payload-contracts.md:1012-1016 — the
 // shape Plan-006 Tier 4 will bind over the currently interim-opaque
 // `capabilityDetails` / `previousState` / `newState` event payload fields) is
 // FLATTENED:
@@ -45,12 +45,12 @@
 // Capability key — `"provider-driver-<driverName>"` (CP-005-5)
 // --------------------------------------------------------------------------
 // The emitted `capability` identifier is `"provider-driver-" + driverName`
-// (e.g. `provider-driver-claude`), per CP-005-5 (Plan-005:420-421), which
+// (e.g. `provider-driver-claude`), per CP-005-5 (Plan-005:426-427), which
 // directs the emit on driver registration + refresh with
 // `capability: "provider-driver-{codex|claude}"`. The DRIVER-NAME SUFFIX
 // disambiguates MULTIPLE drivers on one runtime node IN-PLAN — it is the
 // resolved contract (CP-005-5 status: RESOLVED), NOT a deferred Plan-006
-// concern. (api-payload-contracts.md:985's bare `"provider-driver"` is only an
+// concern. (api-payload-contracts.md:1021's bare `"provider-driver"` is only an
 // ILLUSTRATIVE example of the `capability` field, not the canonical value;
 // CP-005-5 is the authority.)
 //
@@ -130,7 +130,7 @@
 // Spec coverage: Spec-005:56 (runtime treats undeclared capabilities as
 // unsupported — the cache the gate reads), Spec-005:61 (driver capability
 // declarations are required at attach time and may be refreshed when provider
-// state changes — the `declare` seam and its refresh path), Spec-005:176-178
+// state changes — the `declare` seam and its refresh path), Spec-005:178-180
 // (cache-as-source-of-truth; cold-start hydration reconstructs the snapshot
 // without round-tripping the driver). Refs: Plan-005 §Phase 2 / T2.4, CP-005-5
 // (the `runtime_node.capability_*` emission), invariant I-005-2.
@@ -163,7 +163,7 @@ import {
 /**
  * The driver-name-suffixed capability identifier emitted on every
  * `runtime_node.capability_*` event — `"provider-driver-<driverName>"`
- * (e.g. `provider-driver-claude`). Per CP-005-5 (Plan-005:420-421), the
+ * (e.g. `provider-driver-claude`). Per CP-005-5 (Plan-005:426-427), the
  * suffix disambiguates multiple drivers on one runtime node IN-PLAN.
  */
 function providerDriverCapabilityKey(driverName: string): string {
@@ -172,7 +172,7 @@ function providerDriverCapabilityKey(driverName: string): string {
 
 /**
  * The flat capability snapshot — the canonical `CapabilityDetails` shape
- * (api-payload-contracts.md:976-980). This is the form carried by the
+ * (api-payload-contracts.md:1012-1016). This is the form carried by the
  * `runtime_node.capability_*` event payloads AND the form used for
  * change-detection. `hydrate()` wraps this into the nested `GetCapabilitiesResult`.
  * `tools` is ALWAYS in canonical (`name`-ascending) order — see the file header.
@@ -589,7 +589,7 @@ export class DriverCapabilitiesWriter {
   /**
    * Cold-start hydration: reconstruct a driver's advertised
    * `GetCapabilitiesResult` from the durable cache WITHOUT round-tripping the
-   * driver (Spec-005:176-178). Pure READ (no write, no emit); the three SELECTs
+   * driver (Spec-005:178-180). Pure READ (no write, no emit); the three SELECTs
    * run inside ONE `BEGIN DEFERRED` read transaction so they share a consistent
    * snapshot — see the `#readTxn` field comment. Returns `undefined` when the
    * driver has never been written.

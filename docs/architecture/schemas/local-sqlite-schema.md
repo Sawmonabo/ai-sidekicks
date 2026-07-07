@@ -180,11 +180,11 @@ CREATE TABLE driver_capabilities (
                       'resume', 'steer', 'interactive_requests', 'mcp',
                       'tool_calls', 'reasoning_stream', 'model_mutation',
                       'structured_output', 'rollback', 'session_goals',
-                      'callback_tools', 'subagents'
+                      'callback_tools', 'subagents', 'cost_cap'
                     )),
   supported         INTEGER NOT NULL DEFAULT 0, -- boolean: 0 or 1
-                    -- Campaign-B3 widening note: the catch-up migration that widens the CHECK above MUST
-                    -- backfill the five new flags as supported=0 for every existing driver_name (undeclared =
+                    -- Campaign-B3/B6 widening note: the catch-up migration that widens the CHECK above MUST
+                    -- backfill the six new flags (five B3 + B6's cost_cap) as supported=0 for every existing driver_name (undeclared =
                     -- unsupported, I-005-2); a pre-B3 seven-row cache would otherwise break the hydrator's exact-cardinality guard before any refresh could heal it.
   refreshed_at      TEXT NOT NULL,
   PRIMARY KEY (driver_name, capability_flag)
@@ -193,7 +193,7 @@ CREATE TABLE driver_capabilities (
 -- Owner: Plan-005
 -- Per-tool metadata for the daemon's two-phase command-receipt protocol at
 -- crash-recovery dispatch time (idempotency_class lookup without round-tripping
--- the driver per Spec-005:176-178). Normalized per-tool rows mirror the
+-- the driver per Spec-005:178-180). Normalized per-tool rows mirror the
 -- per-flag-row shape of driver_capabilities.
 CREATE TABLE driver_tools (
   driver_name        TEXT NOT NULL,
@@ -212,7 +212,7 @@ CREATE TABLE driver_tools (
 -- (driver_capabilities + driver_tools are per-driver children); this parent row holds the
 -- single per-driver contract_version so cold-start hydration can reconstruct
 -- GetCapabilitiesResult = { capabilities: { flags, contractVersion }, tools } WITHOUT
--- round-tripping the driver (Spec-005:176-178 cache-as-source-of-truth). Distinct from
+-- round-tripping the driver (Spec-005:178-180 cache-as-source-of-truth). Distinct from
 -- runtime_bindings.contract_version, which records the version bound to a specific run.
 -- Provider-output defense-in-depth CHECK (Plan-005 T2.1): `contract_version`
 -- mirrors the `runtime_bindings.contract_version` bound (length + NUL-rejection,
@@ -1039,11 +1039,12 @@ CREATE INDEX idx_agents_session ON agents(session_id);
 CREATE TABLE session_budgets (
   session_id                    TEXT PRIMARY KEY,
   cost_limit_cents              INTEGER NOT NULL DEFAULT 1000,  -- Spec-016: $10 per session
-  turn_limit_per_agent          INTEGER NOT NULL DEFAULT 50,    -- Spec-016:107: max consecutive turns per (channel, agent), reset on interleave (D-016-8) — not a per-session total
+  turn_limit_per_agent          INTEGER NOT NULL DEFAULT 50,    -- Spec-016:109: max consecutive turns per (channel, agent), reset on interleave (D-016-8) — not a per-session total
   max_executing_channels        INTEGER NOT NULL DEFAULT 5,     -- Spec-016 §Scheduler Limits
   max_queue_depth_per_channel   INTEGER NOT NULL DEFAULT 25,
   max_pending_orchestration_runs INTEGER NOT NULL DEFAULT 10,
-  active_child_limit            INTEGER NOT NULL DEFAULT 5,     -- Spec-016:150 daemon default, configurable
+  active_child_limit            INTEGER NOT NULL DEFAULT 5,     -- Spec-016:175 daemon default, configurable
+  unpriced_family_caps          TEXT NOT NULL DEFAULT '[]',     -- JSON [{modelFamily, hardCapUsdCents}] — owner-supplied unpriced-family escapes, native-cap legs only (Spec-016 §Cost Derivation And Absent-Cost Semantics, campaign B6); wire mirror = OrchestrationBudgetUpdate.unpricedFamilyCaps
   updated_at                    TEXT NOT NULL,
   -- Non-negative-integer floors on every limit; wire mirror = orchestration.budgetUpdate Zod .int().nonnegative() (D-016-5)
   CHECK (typeof(cost_limit_cents) = 'integer' AND cost_limit_cents >= 0),
@@ -1052,6 +1053,16 @@ CREATE TABLE session_budgets (
   CHECK (typeof(max_queue_depth_per_channel) = 'integer' AND max_queue_depth_per_channel >= 0),
   CHECK (typeof(max_pending_orchestration_runs) = 'integer' AND max_pending_orchestration_runs >= 0),
   CHECK (typeof(active_child_limit) = 'integer' AND active_child_limit >= 0)
+);
+
+-- Live-leg goal-delivery crash consistency (Spec-016 §Session Goals, campaign B6): the durable
+-- goal-dispatch intent written BEFORE the driver op (ADR-019 spawn-intent pattern); startup
+-- reconciliation completes a dangling row keyed on durable leg states: no 'failed' leg = interrupted apply (re-issue to EVERY leg, acked included — idempotent last-write-wins re-send; acked is advisory across restart); any 'failed' leg = revert mode (re-assert the prior goal on EVERY leg, pending included — an in-flight call may have applied unacked; never re-issue the new goal — a refusing leg is marked 'failed' BEFORE compensation begins, so a doomed mutation never re-applies across a crash) — each successful prior-goal re-assertion flips its leg to 'reverted' ('acked' -> 'reverted' and 'pending' -> 'reverted' alike — pending is unknown-outcome and converges only by re-assertion) — and delete WITHOUT appending (converging with a refusal outcome). Deleted on append — the append and the delete commit in ONE transaction (both tables daemon-local), so a committed event with a live row is unrepresentable; on failure, deleted only once EVERY non-'failed' leg is 'reverted' — pending included, since a pending leg's in-flight call may already carry the goal unacked (a failed or unconverged revert keeps the row durable with that leg still 'acked'/'pending', so restart reconciliation knows exactly which legs still carry the unapplied goal and the durable turn gate stays alive; further goal mutations for the session stay blocked until convergence) — a refused mutation never re-applies on replay.
+-- One in-flight goal mutation per session (goal ops serialize per session).
+CREATE TABLE session_goal_dispatch_intents (
+  session_id  TEXT PRIMARY KEY,
+  payload     TEXT NOT NULL,   -- JSON {op: 'set'|'clear', goal?: {text}, prior: {goal?}, actor: ParticipantId, legs: {bindingId: 'pending'|'acked'|'failed'|'reverted'}} — everything the crash-recovered session.goal_* event and the revert path need (Spec-006 envelope attribution; last-write-wins revert)
+  created_at  TEXT NOT NULL
 );
 ```
 

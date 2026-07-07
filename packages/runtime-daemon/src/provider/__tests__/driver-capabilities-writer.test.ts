@@ -15,7 +15,7 @@
 //     `hydrate`, so a `false`/absent flag is faithfully reconstructed.
 //   * Spec-005:61 (declarations required at attach time, refreshed on provider
 //     state change): the declare → refresh paths (declared / updated / noop).
-//   * Spec-005:176-178 (cache-as-source-of-truth; cold-start hydration without
+//   * Spec-005:178-180 (cache-as-source-of-truth; cold-start hydration without
 //     round-tripping the driver): `hydrate` reconstructs the nested
 //     `GetCapabilitiesResult` from the three tables.
 //   * I-005-2 (the capability cache is the durable mirror the in-memory registry
