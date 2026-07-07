@@ -94,6 +94,9 @@ Plan-NNN declares the following obligations on adjacent plans (or inherits oblig
 - [ ] Blocking open questions are resolved or explicitly deferred
 - [ ] **Plan-readiness audit complete per [`docs/operations/plan-implementation-readiness-audit-runbook.md`](../operations/plan-implementation-readiness-audit-runbook.md)**
 
+<!-- Cite durable forms per AGENTS.md §Durable-Cite Rule: `path#exportedSymbol` for code,
+     `Spec-NNN §Heading` for specs/plans/ADRs; raw :NNN only for frozen/archive content. -->
+
 ## Target Areas
 
 - {Target service/module/file area}
