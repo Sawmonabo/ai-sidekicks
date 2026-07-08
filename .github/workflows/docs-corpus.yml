@@ -245,8 +245,12 @@ jobs:
     # via the post-merge housekeeping PR). Otherwise the merged title
     # pollutes the manifest-freshness gate's title-search recovery — the
     # one remaining way to re-create shipment drift. Docs-only diffs pass
-    # (G6's own narrowing): docs PRs may legitimately name plans; Revert-
-    # titled PRs pass with a reconciliation advisory.
+    # (G6's own narrowing): docs PRs may legitimately name plans. Reverts
+    # get no exemption (G6 has none: a merged material revert title
+    # carrying the token becomes an unmanifested shipment in the freshness
+    # population — drop the token or reconcile the manifest in-PR), and the
+    # inverse mislabel fails too: a material diff on a plan-scoped branch
+    # whose title omits the token would be invisible to G6's title search.
     #
     # PR-metadata guard, so it runs only on pull_request events; on push the
     # job is skipped and the aggregator accepts `skipped` for exactly this
@@ -281,11 +285,22 @@ jobs:
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BRANCH: ${{ github.event.pull_request.head.ref }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
         run: |
           set -euo pipefail
           gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" \
-            --paginate --jq '.[].filename' \
-            | node --experimental-strip-types tools/docs-corpus/bin/lane-boundary-check.ts
+            --paginate --jq '.[].filename' > "${RUNNER_TEMP}/changed-files.txt"
+          # Fail closed on a capped listing: the files endpoint returns at
+          # most 3,000 entries even paginated, and a partial list could hide
+          # the material file that makes a plan-titled PR a violation. Every
+          # file, renamed or not, is one row and one changed_files count.
+          LISTED_COUNT="$(wc -l < "${RUNNER_TEMP}/changed-files.txt" | tr -d ' ')"
+          if [ "${LISTED_COUNT}" -ne "${PR_CHANGED_FILES}" ]; then
+            echo "::error title=lane-boundary halt::files API returned ${LISTED_COUNT} of ${PR_CHANGED_FILES} changed files (endpoint caps at 3,000) — cannot classify the diff; split the PR."
+            exit 1
+          fi
+          node --experimental-strip-types tools/docs-corpus/bin/lane-boundary-check.ts \
+            < "${RUNNER_TEMP}/changed-files.txt"
 
   docs-corpus-gate:
     name: docs-corpus-gate

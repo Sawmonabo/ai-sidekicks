@@ -21,14 +21,17 @@
 //     `sha:` field is the squash SHA, so Phase E lands it via a separate
 //     post-merge housekeeping PR (SKILL.md §Phase E, steps 6-8 — Codex P1
 //     on this PR's first review round);
-//   - a `Revert "..."`-titled PR passes with an advisory: the manifest
-//     reconciliation for a reverted shipment is owed to the housekeeping /
-//     rebuild path, not to the revert PR itself.
-//
-// A `feat|fix/plan-NNN-*` branch whose title lacks the token gets a log-only
-// advisory (exit 0): the shipment would be invisible to G6, but branch names
-// are not load-bearing the way merged titles are, so the guard warns rather
-// than blocks.
+//   - reverts get NO exemption (Codex P2, round 3): G6 itself has none, so
+//     a merged material `Revert "... Plan-NNN ..."` title joins the
+//     freshness population as an unmanifested shipment — the exact
+//     pollution this guard exists to prevent. A material revert must drop
+//     the token from its title (reverts are not shipments) or carry the
+//     full manifest reconciliation (a `docs/plans/NNN-*.md` edit) in-PR;
+//   - the INVERSE mislabel fails too (Codex P2, round 3): a material diff
+//     on a `feat|fix/plan-NNN-*` branch whose title omits the token is an
+//     apparent lane-1 shipment G6 can never recover (it searches titles,
+//     not branches) — add the token or rename the branch. A docs-only diff
+//     on a plan-shaped branch keeps a log-only advisory.
 //
 // argv: none. Reads PR_TITLE and PR_BRANCH from env and the changed-file
 // list from stdin (one repo-relative path per line — arg-length-safe on
@@ -81,34 +84,40 @@ export function extractTitlePlanTokens(title: string): string[] {
 export function checkLaneBoundary(input: LaneBoundaryInput): LaneBoundaryResult {
   const tokens = extractTitlePlanTokens(input.title);
   const advisories: string[] = [];
+  const materialFiles = input.changedFiles.filter((file) =>
+    MATERIAL_PATH_PREFIXES.some((prefix) => file.startsWith(prefix)),
+  );
   if (tokens.length === 0) {
     if (LANE1_BRANCH_RE.test(input.branch)) {
+      if (materialFiles.length > 0) {
+        // Apparent lane-1 shipment with no title token: G6 recovers drift by
+        // searching merged TITLES, so this shipment would be permanently
+        // invisible to freshness recovery — a hard failure, not an advisory.
+        return {
+          ok: false,
+          failures: [
+            `branch "${input.branch}" is lane-1-shaped (feat|fix/plan-NNN-*) and the diff ` +
+              `touches ${materialFiles.length} material file(s) ` +
+              `(${MATERIAL_PATH_PREFIXES.join(" / ")}), but the PR title carries no ` +
+              `Plan-NNN token — a shipment without the title token is invisible to the ` +
+              `manifest-freshness gate (G6 searches titles, not branches). If this ships ` +
+              `plan-task work, put the token in the title (CONTRIBUTING.md §How Code ` +
+              `Lands step 3); if not, rename the branch off the plan-scoped shape.`,
+          ],
+          advisories,
+        };
+      }
       advisories.push(
         `branch "${input.branch}" is lane-1-shaped (feat|fix/plan-NNN-*) but the PR title ` +
-          `carries no Plan-NNN token — a lane-1 shipment without the title token is ` +
-          `invisible to the manifest-freshness gate (G6). If this PR ships plan-task ` +
+          `carries no Plan-NNN token and the diff is docs-only. If this PR is plan-scoped ` +
           `work, put the token in the title; if not, rename the branch lane.`,
       );
     }
     return { ok: true, failures: [], advisories };
   }
-  const materialFiles = input.changedFiles.filter((file) =>
-    MATERIAL_PATH_PREFIXES.some((prefix) => file.startsWith(prefix)),
-  );
   if (materialFiles.length === 0) {
     // Docs-only diffs are invisible to G6 by the same narrowing, so a title
     // that names a plan (e.g. a plan-amendment PR) is not a lane violation.
-    return { ok: true, failures: [], advisories };
-  }
-  if (REVERT_TITLE_RE.test(input.title)) {
-    // A revert of a lane-1 shipment re-carries the shipped title's token but
-    // cannot carry a manifest edit any more than the shipment could — the
-    // reconciliation is owed post-merge (housekeeping or rebuild).
-    advisories.push(
-      `revert PR carries Plan-${tokens.join("/Plan-")} in its title; after merge, ` +
-        `reconcile the plan's Shipment Manifest for the reverted work (post-merge ` +
-        `housekeeping or rebuild-shipment-manifest.mjs).`,
-    );
     return { ok: true, failures: [], advisories };
   }
   const failures: string[] = [];
@@ -118,18 +127,29 @@ export function checkLaneBoundary(input: LaneBoundaryInput): LaneBoundaryResult 
     // (the normal shipment shape — the Shipment Manifest entry lands in the
     // post-merge housekeeping PR, never in the shipment PR, because its
     // `sha:` field is this PR's own squash SHA), or a plan-doc edit riding
-    // in the same PR (amendment-with-code shape).
+    // in the same PR (amendment-with-code shape). Reverts get no third
+    // path: G6 has no revert exemption, so a merged material revert title
+    // carrying the token becomes an unmanifested shipment in the freshness
+    // population — GitHub's default `revert-<pr>-<branch>` head is not
+    // lane-1-shaped, so a default revert fails here unless it carries the
+    // manifest reconciliation (plan-doc edit) or drops the token.
     const declaresLane1 =
       lane1BranchRe(planNumber).test(input.branch) ||
       input.changedFiles.some((file) => planFileRe.test(file));
     if (!declaresLane1) {
+      const revertRemedy = REVERT_TITLE_RE.test(input.title)
+        ? `This is a revert: GitHub's default title re-carries the shipped token — ` +
+          `edit the title to drop it (reverts are not shipments; the manifest-freshness ` +
+          `gate has no revert exemption) or include the Shipment Manifest ` +
+          `reconciliation (docs/plans/${planNumber}-*.md) in this PR. `
+        : ``;
       failures.push(
         `PR title cites Plan-${planNumber} (case-insensitive) and the diff touches ` +
           `${materialFiles.length} material file(s) (${MATERIAL_PATH_PREFIXES.join(" / ")}), ` +
           `but nothing declares lane-1 shipment for Plan-${planNumber}: the branch ` +
           `("${input.branch}") is not (feat|fix)/plan-${planNumber}-* and ` +
-          `docs/plans/${planNumber}-*.md is not in the diff. If this ships plan-task ` +
-          `work, use a plan-scoped branch; if it is an enhancement or tooling PR ` +
+          `docs/plans/${planNumber}-*.md is not in the diff. ${revertRemedy}If this ships ` +
+          `plan-task work, use a plan-scoped branch; if it is an enhancement or tooling PR ` +
           `(lane 2/3), drop the token from the title. See CONTRIBUTING.md ` +
           `§How Code Lands: Work Classification.`,
       );

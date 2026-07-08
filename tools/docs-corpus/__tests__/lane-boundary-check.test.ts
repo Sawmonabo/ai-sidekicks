@@ -122,15 +122,38 @@ describe("checkLaneBoundary", () => {
     expect(result.failures[0]).toContain("Plan-007");
   });
 
-  it("passes the revert shape with a reconciliation advisory (no manifest edit possible in-PR)", () => {
+  it("fails a token-carrying material revert (G6 has no revert exemption) with the revert remedy", () => {
+    // GitHub's default revert head (`revert-<pr>-<branch>`) is not
+    // lane-1-shaped, so a default material revert must drop the token or
+    // carry the manifest reconciliation — otherwise the merged title joins
+    // G6's freshness population as an unmanifested shipment.
     const result = checkLaneBoundary({
       title: 'Revert "feat(daemon): Plan-004 run lifecycle handlers"',
       branch: "revert-199-feat/plan-004-run-handlers",
       changedFiles: [materialFile],
     });
-    expect(result.ok).toBe(true);
-    expect(result.advisories).toHaveLength(1);
-    expect(result.advisories[0]).toContain("reconcile the plan's Shipment Manifest");
+    expect(result.ok).toBe(false);
+    expect(result.failures).toHaveLength(1);
+    expect(result.failures[0]).toContain("This is a revert");
+    expect(result.failures[0]).toContain("no revert exemption");
+  });
+
+  it("passes a material revert that carries the manifest reconciliation (plan-doc edit)", () => {
+    const result = checkLaneBoundary({
+      title: 'Revert "feat(daemon): Plan-004 run lifecycle handlers"',
+      branch: "revert-199-feat/plan-004-run-handlers",
+      changedFiles: [materialFile, "docs/plans/004-agent-runs-and-lifecycle.md"],
+    });
+    expect(result).toEqual({ ok: true, failures: [], advisories: [] });
+  });
+
+  it("passes a docs-only revert (token in title, no material paths — invisible to G6)", () => {
+    const result = checkLaneBoundary({
+      title: 'Revert "docs(repo): Plan-004 phase notes"',
+      branch: "revert-201-docs/plan-004-phase-notes",
+      changedFiles: ["docs/plans/004-agent-runs-and-lifecycle.md"],
+    });
+    expect(result).toEqual({ ok: true, failures: [], advisories: [] });
   });
 
   it("a plans/ doc edit for another NNN does not declare lane 1 for the cited plan", () => {
@@ -142,15 +165,26 @@ describe("checkLaneBoundary", () => {
     expect(result.ok).toBe(false);
   });
 
-  it("advises (exit-0 path) on a lane-1-shaped branch with a tokenless title", () => {
+  it("fails a MATERIAL diff on a lane-1-shaped branch with a tokenless title (invisible to G6)", () => {
     const result = checkLaneBoundary({
       title: "feat(daemon): run lifecycle handlers",
       branch: "feat/plan-004-run-handlers",
       changedFiles: [materialFile, "docs/plans/004-agent-runs-and-lifecycle.md"],
     });
+    expect(result.ok).toBe(false);
+    expect(result.failures).toHaveLength(1);
+    expect(result.failures[0]).toContain("invisible to the manifest-freshness gate");
+  });
+
+  it("advises (exit-0) on a DOCS-ONLY diff on a lane-1-shaped branch with a tokenless title", () => {
+    const result = checkLaneBoundary({
+      title: "docs(repo): plan amendment notes",
+      branch: "feat/plan-004-run-handlers",
+      changedFiles: ["docs/plans/004-agent-runs-and-lifecycle.md"],
+    });
     expect(result.ok).toBe(true);
     expect(result.advisories).toHaveLength(1);
-    expect(result.advisories[0]).toContain("invisible to the manifest-freshness gate");
+    expect(result.advisories[0]).toContain("docs-only");
   });
 });
 
@@ -174,14 +208,24 @@ describe("runLaneBoundaryCheck (stdin parsing + annotations)", () => {
     expect(message).toContain("::error title=lane-boundary violation::");
   });
 
-  it("emits ::warning:: annotations with exit 0 for the branch advisory", () => {
+  it("emits ::warning:: annotations with exit 0 for the docs-only branch advisory", () => {
+    const { exitCode, message } = runLaneBoundaryCheck(
+      "docs(repo): plan amendment notes",
+      "feat/plan-004-run-handlers",
+      "docs/plans/004-agent-runs-and-lifecycle.md\n",
+    );
+    expect(exitCode).toBe(0);
+    expect(message).toContain("::warning title=lane-boundary advisory::");
+  });
+
+  it("emits ::error:: and exit 1 for the tokenless material diff on a plan-scoped branch", () => {
     const { exitCode, message } = runLaneBoundaryCheck(
       "feat(daemon): run lifecycle handlers",
       "feat/plan-004-run-handlers",
       "packages/runtime-daemon/src/a.ts\ndocs/plans/004-agent-runs-and-lifecycle.md\n",
     );
-    expect(exitCode).toBe(0);
-    expect(message).toContain("::warning title=lane-boundary advisory::");
+    expect(exitCode).toBe(1);
+    expect(message).toContain("::error title=lane-boundary violation::");
   });
 });
 
