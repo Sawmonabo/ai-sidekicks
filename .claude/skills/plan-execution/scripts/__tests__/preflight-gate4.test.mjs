@@ -20,6 +20,7 @@ import {
   classifyPhaseSize,
   extractDeclaredFilePaths,
   extractDeclaredTaskIds,
+  G4_GRAMMAR_DEMOTE_KINDS,
 } from "../preflight.mjs";
 
 const FIXTURE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "preflight-gate4-fixtures");
@@ -1058,6 +1059,25 @@ test("extractDeclaredFilePaths strips trailing sentence punctuation (Codex PR #1
     ),
     "L",
   );
+});
+
+test("classifyPhaseSize: non-package CODE paths (tools/, .claude/, .github/) fail closed to L (Codex, PR #190)", () => {
+  assert.equal(
+    classifyPhaseSize(["T1", "T2"], [".claude/skills/plan-execution/scripts/preflight.mjs"]),
+    "L",
+  );
+  assert.equal(classifyPhaseSize(["T1", "T2"], ["tools/docs-corpus/lib/label-cite.ts"]), "L");
+  // docs-ish paths stay exempt: alone → M; alongside a single package root → M
+  assert.equal(classifyPhaseSize(["T1", "T2"], ["docs/specs/002-x.md", "CONTRIBUTING.md"]), "M");
+  assert.equal(
+    classifyPhaseSize(["T1", "T2"], ["packages/a/src/x.ts", "docs/specs/002-x.md"]),
+    "M",
+  );
+});
+
+test("G4 tiering: subject-mismatch stays a HARD error even for size-class S (Codex, PR #190)", () => {
+  assert.ok(!G4_GRAMMAR_DEMOTE_KINDS.has("subject-mismatch"));
+  assert.ok(!G4_GRAMMAR_DEMOTE_KINDS.has("subject-mismatch-in-range"));
 });
 
 test("classifyPhaseSize: bare packages/<name> and apps/<name> tokens are root-bearing (Codex, PR #190)", () => {

@@ -402,6 +402,15 @@ export function classifyPhaseSize(declaredTaskIds, targetPaths) {
     // (docs-only phases keep M: paths parsed, none code). Codex, PR #190:
     // Plan-021 Phase 4 has three task rows with no Files: fields.
     if (targetPaths.length === 0) return "L";
+    // Docs-ish paths (docs/ tree, *.md anywhere) are the ONLY exempt class.
+    // Repo-tooling / infra CODE outside packages|apps (.claude/, tools/,
+    // .github/, scripts/) is not covered by M's single-package-root grant —
+    // fail closed to L rather than awarding M on zero counted roots
+    // (Codex, PR #190).
+    const nonExempt = targetPaths.filter(
+      (p) => !/^docs\//.test(p) && !/\.md$/.test(p) && !/^(packages|apps)\//.test(p),
+    );
+    if (nonExempt.length > 0) return "L";
     const roots = new Set();
     for (const p of targetPaths) {
       // (\/|$) — a bare `packages/a` (no trailing slash) is still that root
@@ -2092,7 +2101,7 @@ function verifySectionAnchor(anchor, specLines) {
 // class. Verifier failures arrive with kind = the verify reason (wrapped at the
 // verifyFailures.push site in gateTasksBlockCites), so one set covers both the
 // parser and verifier layers. Kind strings verified against this file 2026-07-06.
-const G4_GRAMMAR_DEMOTE_KINDS = new Set([
+export const G4_GRAMMAR_DEMOTE_KINDS = new Set([
   // parser-layer grammar/format kinds
   "unparseable-cite",
   "unparseable-spec-subanchor",
@@ -2102,9 +2111,11 @@ const G4_GRAMMAR_DEMOTE_KINDS = new Set([
   "plan-local-id-as-spec-anchor",
   "plan-local-id-malformed-trailer",
   "plan-local-id-unparseable",
-  // verifier-layer content-drift kinds (the target exists; content moved)
-  "subject-mismatch",
-  "subject-mismatch-in-range",
+  // NOT here (kept hard for every class): subject-mismatch and
+  // subject-mismatch-in-range — those are SEMANTIC failures (the cited line
+  // exists but names different behavior), and for an S-class run the only
+  // dispatched reviewer is intent-blind on cite content, so demoting them
+  // would lose spec coverage entirely (Codex, PR #190).
   // AC line-HINT refinement kinds (the AC bullet itself was found)
   "ac-line-hint-not-bullet",
   "ac-line-hint-out-of-range",
