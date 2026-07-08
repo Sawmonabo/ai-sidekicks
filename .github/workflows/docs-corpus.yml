@@ -260,6 +260,11 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: "22.12"
+          # setup-node v5 auto-enables pnpm caching from package.json's
+          # packageManager field; this job never installs dependencies (the
+          # check is stdlib-only), so pnpm is absent and auto-cache would
+          # fail the step. Explicitly off.
+          package-manager-cache: false
 
       - name: Enforce lane-1 title-token boundary
         # Title and branch pass through env — never inline-templated into
