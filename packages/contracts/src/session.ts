@@ -495,3 +495,5 @@ export const SessionSubscribeRequestSchema: z.ZodType<
 export type SessionSubscribeResponse = SubscribeAckResponse;
 export const SessionSubscribeResponseSchema: z.ZodType<SessionSubscribeResponse> =
   SubscribeAckResponseSchema;
+
+// lane-guard live-fire probe (synthetic; PR will be closed unmerged)
