@@ -389,9 +389,9 @@ Findings carry severity labels: **VERIFICATION** (narrative — reviewer showing
 node .claude/skills/plan-execution/scripts/validate-review-response.mjs --conflicts spec.md quality.md code.md
 ```
 
-Exit 0 means no inter-reviewer conflicts at the same `file:line`. Exit 1 emits a JSON conflict report to `stdout`; resolve per [`references/failure-modes.md` § Inter-reviewer conflict adjudication](references/failure-modes.md#inter-reviewer-conflict-adjudication) (severity precedence ACTIONABLE > POLISH > VERIFICATION; opposing-direction same-severity halts to user).
+Pass only the responses of the reviewers actually dispatched for this task's class (§ Size-Classed Ceremony): L all three, M its two (`spec.md code.md`). S-class runs SKIP the `--conflicts` step — a single reviewer has no inter-reviewer conflicts, and the validator itself requires ≥ 2 response files. Exit 0 means no inter-reviewer conflicts at the same `file:line`. Exit 1 emits a JSON conflict report to `stdout`; resolve per [`references/failure-modes.md` § Inter-reviewer conflict adjudication](references/failure-modes.md#inter-reviewer-conflict-adjudication) (severity precedence ACTIONABLE > POLISH > VERIFICATION; opposing-direction same-severity halts to user).
 
-Route per [`references/failure-modes.md`](references/failure-modes.md). Loop until all three reviewers return `DONE` (no POLISH or ACTIONABLE findings; VERIFICATION narrative may still appear in their reports).
+Route per [`references/failure-modes.md`](references/failure-modes.md). Loop until every DISPATCHED reviewer (per the class's active set) returns `DONE` (no POLISH or ACTIONABLE findings; VERIFICATION narrative may still appear in their reports).
 
 **Round-trip cap: 3 rounds per task.** After 3 implementer→reviewer round-trips on the same task, halt the task and surface the consolidated finding-set to the user. The user decides: ship as-is (residual POLISH/ACTIONABLE lands in a follow-up PR — exception, not norm), manual fix, or abort the task. (Why 3 specifically: [`references/failure-modes.md` § Round-trip cap rationale](references/failure-modes.md#round-trip-cap-rationale).)
 

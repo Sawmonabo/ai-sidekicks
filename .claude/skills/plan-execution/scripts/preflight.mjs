@@ -388,7 +388,12 @@ export function extractDeclaredFilePaths(phaseSection) {
   let m;
   while ((m = fieldRe.exec(phaseSection)) !== null) {
     for (const token of m[1].split(/[,\s]+/)) {
-      const cleaned = token.replace(/[`*]/g, "").trim();
+      // Trailing sentence punctuation (`pty-host.ts\`.`) would fail the path
+      // regex and silently drop the package root from classification.
+      const cleaned = token
+        .replace(/[`*]/g, "")
+        .trim()
+        .replace(/[.,;:!?]+$/, "");
       if (/^[\w.@-]+(\/[\w.@-]+)+\.\w+$/.test(cleaned) && !paths.includes(cleaned))
         paths.push(cleaned);
     }
@@ -2538,7 +2543,13 @@ function _checkPhase(planSource, planNumber, phase, planFile, opts) {
     phaseSection: sec,
     phaseNumber: phase.number,
   });
-  if (!g5.ok) return { eligible: false, reason: "preconditions", halt: g5.halt };
+  if (!g5.ok)
+    return {
+      eligible: false,
+      reason: "preconditions",
+      halt: g5.halt,
+      warnings: g4?.warnings ?? [],
+    };
   // Demoted G4 findings must ride the PASS path (delta D-14) — otherwise S/M
   // grammar rot accumulates invisibly behind the demotion.
   return { eligible: true, sizeClass, warnings: g4?.warnings ?? [] };
@@ -2592,10 +2603,20 @@ export function runPreflight(
   }
 
   const skipped = [];
+  // Demoted G4 grammar warnings from phases the walk SKIPS (e.g. an S phase
+  // whose only hard failure is an unmet precondition) must still surface on
+  // the eventual success return — the never-silent contract covers skipped
+  // phases too, or cite rot hides behind the skip.
+  const walkWarnings = [];
   for (const p of phases) {
     const r = _checkPhase(planSource, planNumber, p, planFile, opts);
     if (r.eligible)
-      return { exit: 0, stdout: String(p.number), sizeClass: r.sizeClass, warnings: r.warnings };
+      return {
+        exit: 0,
+        stdout: String(p.number),
+        sizeClass: r.sizeClass,
+        warnings: [...walkWarnings, ...(r.warnings ?? [])],
+      };
     // `fully_shipped` is the only legitimate silent-skip — every other Gate 3
     // failure must surface, including the round-7/8 strict halts. Pre-round-9
     // _checkPhase collapsed all `gatePhaseUnshipped` failures to `reason:
@@ -2621,6 +2642,7 @@ export function runPreflight(
       return { exit: 1, stdout: r.halt };
     }
     // no-section / preconditions — per-phase issues, try next phase.
+    walkWarnings.push(...(r.warnings ?? []));
     skipped.push(`Phase ${p.number} (${r.reason}): ${r.halt.split("\n")[0]}`);
   }
   const reasonsText = skipped.length

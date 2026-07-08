@@ -830,6 +830,7 @@ const PASSING_S_PLAN = resolve(FIXTURE_DIR, "200-passing-s-plan.md");
 const GRAMMAR_S_PLAN = resolve(FIXTURE_DIR, "201-grammar-defect-s-plan.md");
 const GRAMMAR_L_PLAN = resolve(FIXTURE_DIR, "202-grammar-defect-l-plan.md");
 const MISSING_SPEC_S_PLAN = resolve(FIXTURE_DIR, "203-missing-spec-s-plan.md");
+const WARNINGS_CARRY_WALK_PLAN = resolve(FIXTURE_DIR, "204-warnings-carry-walk-plan.md");
 
 test("classifyPhaseSize: 1 task is S regardless of paths", () => {
   assert.equal(classifyPhaseSize(["T1"], ["packages/a/src/x.ts"]), "S");
@@ -992,3 +993,29 @@ test("auto-walk (c): existence-shaped defect halts even for an S-class phase", (
 //     outcome (exit + stdout line 1 + halt text) is byte-identical to pre-change —
 //     asserted by the untouched pre-existing suite above; only the new sizeClass
 //     field / stdout line 2 / warnings channel may differ.
+
+test("extractDeclaredFilePaths strips trailing sentence punctuation (Codex PR #190: plan-024 Phase 2 shape)", () => {
+  assert.deepEqual(extractDeclaredFilePaths("Files: `packages/contracts/src/pty-host.ts`."), [
+    "packages/contracts/src/pty-host.ts",
+  ]);
+  // Dropping the root demoted a real two-root phase to M; with the strip it is L.
+  assert.equal(
+    classifyPhaseSize(
+      ["T1", "T2", "T3"],
+      extractDeclaredFilePaths(
+        "Files: `packages/contracts/src/pty-host.ts`.\nFiles: `packages/runtime-daemon/src/pty/node-pty-host.ts`",
+      ),
+    ),
+    "L",
+  );
+});
+
+test("auto-walk carries demoted warnings from SKIPPED phases into the selection (Codex PR #190)", () => {
+  const walk = runPreflight(WARNINGS_CARRY_WALK_PLAN, undefined, {});
+  assert.equal(walk.exit, 0, `expected select; got halt:\n${walk.stdout}`);
+  assert.equal(walk.stdout, "2", "phase 1 is precondition-blocked; walk selects phase 2");
+  assert.ok(
+    walk.warnings.some((w) => w.kind === "unparseable-cite"),
+    "phase 1's demoted grammar finding must ride the phase-2 selection, never silently dropped",
+  );
+});
