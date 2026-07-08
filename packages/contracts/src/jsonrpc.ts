@@ -42,7 +42,7 @@
 // `protocolVersion` field type ratified at api-payload-contracts.md
 // §Tier 1 (cont.): Plan-007 (BL-102 closed 2026-05-01) — ISO 8601
 // `YYYY-MM-DD` date-string per the MCP §Architecture overview precedent
-// (modelcontextprotocol.io). Spec-007:54 amended to match. Date-strings
+// (modelcontextprotocol.io). `Spec-007 §Wire Format` amended to match. Date-strings
 // sort lexicographically equivalent to chronologically and dodge the
 // semver "v1.5 with no v1.4" ambiguity.
 
@@ -63,7 +63,7 @@ export type JsonRpcVersion = typeof JSONRPC_VERSION;
 
 /**
  * Methods exempt from the substrate's envelope-level `protocolVersion`
- * gate. Spec-007:54 mandates that every request carries an ISO 8601
+ * gate. `Spec-007 §Wire Format` mandates that every request carries an ISO 8601
  * `YYYY-MM-DD` `protocolVersion` field on the JSON-RPC envelope; the
  * `local-ipc-gateway.ts#dispatchFrame` substrate enforces the field
  * BEFORE dispatch (per I-007-7), but the handshake exchange itself
@@ -74,7 +74,7 @@ export type JsonRpcVersion = typeof JSONRPC_VERSION;
  * registry against `DaemonHelloSchema` per F-007p-2-10.
  *
  * Tier 1 surface only registers `daemon.hello`; Tier-4 health-check
- * methods (Spec-007:54 "except health checks") will extend this set
+ * methods (`Spec-007 §Wire Format` "except health checks") will extend this set
  * when those methods are implemented. Adding a method here is a
  * deliberate, documented exemption — every entry MUST cite which
  * envelope-level violation invariant it is shifting into the handler's
@@ -115,7 +115,7 @@ export type JsonRpcId = string | number | null;
  * (line 54 — every request except health checks must carry it). Typed as
  * an ISO 8601 `YYYY-MM-DD` date-string per api-payload-contracts.md
  * §Tier 1 (cont.): Plan-007 (BL-102 ratified 2026-05-01). Optional because
- * health checks omit it per Spec-007:54.
+ * health checks omit it per `Spec-007 §Wire Format`.
  *
  * `params` is `unknown` at this layer because the substrate does NOT
  * validate it — Zod schema validation runs INSIDE the registry's

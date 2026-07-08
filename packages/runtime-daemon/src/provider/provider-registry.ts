@@ -38,7 +38,7 @@
 // future `driver.steer` entrypoint, or `getCapabilities` against an unregistered
 // driver). `applyIntervention` is EXCLUDED from pre-dispatch gating — its
 // intervention-type-aware degraded-fallback per ADR-011 must reach the driver to
-// return `{ status: 'degraded', fallbackAction }` (Spec-005:46). That exclusion
+// return `{ status: 'degraded', fallbackAction }` (`Spec-005 §Required Behavior`). That exclusion
 // is realized simply by `checkCapability` being the only gate and the registry
 // never calling/special-casing `applyIntervention` — there is no exclusion branch.
 //
@@ -48,8 +48,8 @@
 // message + structured `fields`. Both error classes are exported because T2.5's
 // integration test asserts the gate throws the right type/code.
 //
-// Spec coverage: Spec-005:43 (every provider integration implements a normalized
-// driver contract — the registry is keyed on that contract), Spec-005:56 (runtime
+// Spec coverage: `Spec-005 §Required Behavior` (every provider integration implements a normalized
+// driver contract — the registry is keyed on that contract), `Spec-005 §Required Behavior` (runtime
 // treats undeclared capabilities as unsupported — the `checkCapability` gate).
 //
 // Refs: Plan-005 §Phase 2 / T2.3, Spec-005 lines 43 + 48, invariant I-005-2,
@@ -231,7 +231,7 @@ export class ProviderRegistry {
    * declared `true` — this is the runtime half of I-005-2.
    *
    * `applyIntervention` is intentionally NOT gated here — there is no branch for
-   * it. Its ADR-011 degraded-fallback must reach the driver (Spec-005:46).
+   * it. Its ADR-011 degraded-fallback must reach the driver (`Spec-005 §Required Behavior`).
    */
   checkCapability(driverId: string, flag: DriverCapabilityFlag): void {
     const entry = this.#drivers.get(driverId);

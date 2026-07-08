@@ -185,7 +185,7 @@ function bootstrapFromCreated(event: StoredEvent): DaemonSessionSnapshot {
     // distinct `session.activated` event for that transition. The full
     // canonical lifecycle (provisioning → active → archived/closed →
     // purge_requested → purged) lives in
-    // `docs/domain/session-model.md:61-77`; the wire enum is
+    // `docs/domain/session-model.md §State Model`; the wire enum is
     // `SessionState` in `packages/contracts/src/session.ts:129-135`.
     // TODO(Plan-006): handle `session.activated` and transition to `active`.
     state: "provisioning",

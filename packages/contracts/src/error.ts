@@ -48,7 +48,7 @@
 // + `acceptedRange` + optional `upgradePath` guidance). The shared shape
 // avoids divergence; the only wire-level difference between the two
 // errors is the code literal. No emitter wiring lands in Plan-001 — T2.3
-// specifies "Phase 2 ships the wire-shape contracts only" (Plan-001:276);
+// specifies "Phase 2 ships the wire-shape contracts only" (`Plan-001 §Phase 2 — Contracts Package`);
 // Plan-002+ owns the emit sites where version-floor / version-ceiling
 // checks happen.
 //

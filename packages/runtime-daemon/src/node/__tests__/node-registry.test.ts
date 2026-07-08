@@ -10,7 +10,7 @@
 // connection.
 //
 // Coverage map (cites are the authoritative contract, not just the ACs):
-//   * D1 (Plan-003 T2.1 / Spec-003:98,116, AC1): register a node, CLOSE + REOPEN
+//   * D1 (Plan-003 T2.1 / `Spec-003 §State And Data Implications` + `Spec-003 §Implementation Notes`, AC1): register a node, CLOSE + REOPEN
 //     the DB handle, build a fresh registry over the reopened DB, `lookup` →
 //     the same node identity is recoverable from the durable row. Proves
 //     identity is SQLite-durable, not in-memory state.
@@ -26,8 +26,8 @@
 //     makes the emit throw AFTER the upsert ran inside the transaction, so the
 //     `node_trust_state` upsert rolls back (no row).
 //   * Happy-path emit shape: exactly one `runtime_node.registered` row lands in
-//     `session_events` with the Spec-006:407 payload shape.
-//   * Spec-003:122 (no implicit capability exposure on attach): registering a node
+//     `session_events` with the `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` payload shape.
+//   * `Spec-003 §Pitfalls To Avoid` (no implicit capability exposure on attach): registering a node
 //     that CARRIES capabilities on the wire writes ZERO `node_capabilities` rows —
 //     only an explicit `declare` (T2.2) makes a capability schedulable, never
 //     `register` (least privilege; the wire capabilities are replay-only).
@@ -74,7 +74,7 @@ const PARTICIPANT_ID: string = "01J0PA0000NN5J5J5J5J5J5J5J";
 
 // Raw read shape for the persisted `runtime_node.registered` event. The
 // integrity columns are not relevant here (D5 owns them); we read the payload +
-// type to assert the Spec-006:407 shape.
+// type to assert the `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` shape.
 interface EventRow {
   readonly sequence: bigint;
   readonly type: string;
@@ -105,7 +105,7 @@ function readTrustRows(db: DatabaseType, nodeId: string): ReadonlyArray<NodeTrus
 }
 
 // Count `node_capabilities` rows for a node — used to prove that registration
-// does NOT populate the capability table (Spec-003:122, no implicit capability
+// does NOT populate the capability table (`Spec-003 §Pitfalls To Avoid`, no implicit capability
 // exposure on attach: declaration is the ONLY path that makes a capability
 // schedulable, never registration, even when `register` carries capabilities).
 function capabilityRowCount(db: DatabaseType, nodeId: string): number {
@@ -175,7 +175,7 @@ function makeRegistry(now: () => string = () => "2026-06-02T12:00:00.000Z"): Nod
 }
 
 // ----------------------------------------------------------------------------
-// D1 — durable identity recovered across DB reopen (Spec-003:98,116, AC1)
+// D1 — durable identity recovered across DB reopen (`Spec-003 §State And Data Implications` + `Spec-003 §Implementation Notes`, AC1)
 // ----------------------------------------------------------------------------
 
 describe("NodeRegistry — D1 (durable identity across DB reopen)", () => {
@@ -254,12 +254,12 @@ describe("NodeRegistry — I-003-3 (registration does not mutate session_members
 });
 
 // ----------------------------------------------------------------------------
-// Happy-path emit shape (Spec-006:407) + envelope wiring + Spec-003:122
+// Happy-path emit shape (`Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`) + envelope wiring + `Spec-003 §Pitfalls To Avoid`
 // (no implicit capability exposure on attach)
 // ----------------------------------------------------------------------------
 
-describe("NodeRegistry — emits runtime_node.registered (Spec-006:407)", () => {
-  it("lands exactly one runtime_node.registered event with the Spec-006:407 payload shape and exposes NO capability (Spec-003:122)", () => {
+describe("NodeRegistry — emits runtime_node.registered (Spec-006 §Runtime Node Lifecycle (`runtime_node_lifecycle`))", () => {
+  it("lands exactly one runtime_node.registered event with the Spec-006 §Runtime Node Lifecycle (`runtime_node_lifecycle`) payload shape and exposes NO capability (Spec-003 §Pitfalls To Avoid)", () => {
     const registry: NodeRegistry = makeRegistry();
     registry.register({
       nodeId: NODE_ID,
@@ -267,7 +267,7 @@ describe("NodeRegistry — emits runtime_node.registered (Spec-006:407)", () => 
       actor: PARTICIPANT_ID,
       // Register CARRYING capabilities on the wire — the registered event
       // replays them, but they must NOT be persisted as schedulable
-      // `node_capabilities` rows (Spec-003:122, asserted below).
+      // `node_capabilities` rows (`Spec-003 §Pitfalls To Avoid`, asserted below).
       capabilities: { "provider-driver": { contractVersion: "1.0" } },
       nodeVersion: "1.4.2",
       platform: "darwin-arm64",
@@ -282,7 +282,7 @@ describe("NodeRegistry — emits runtime_node.registered (Spec-006:407)", () => 
     expect(event.category).toBe("runtime_node_lifecycle");
 
     const payload = JSON.parse(event.payload) as Record<string, unknown>;
-    // Spec-006:407 shape: base + {capabilities, nodeVersion, platform}. The
+    // `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` shape: base + {capabilities, nodeVersion, platform}. The
     // initial lifecycle event carries newState `registering` and NO
     // `previousState` (registration is the first transition — the schema's
     // `.optional()` previousState is stripped when omitted).
@@ -297,7 +297,7 @@ describe("NodeRegistry — emits runtime_node.registered (Spec-006:407)", () => 
     });
     expect(payload).not.toHaveProperty("previousState");
 
-    // Spec-003:122 — no implicit capability exposure on attach: even though the
+    // `Spec-003 §Pitfalls To Avoid` — no implicit capability exposure on attach: even though the
     // wire `capabilities` carried a "provider-driver" entry, registration wrote
     // ZERO `node_capabilities` rows. Only an explicit `NodeCapabilityService.declare`
     // (T2.2) makes a capability schedulable, never `register` (least privilege).
@@ -476,7 +476,7 @@ describe("NodeRegistry — T2.5/D4 (detach + reconnect under stable node identit
 
     // Reconnect under the SAME node id (a fresh register) → lookup resolves the SAME
     // identity: same node_id, and established_at PRESERVED from the first
-    // registration (Spec-003:116 — node identity stable across reconnect).
+    // registration (`Spec-003 §Implementation Notes` — node identity stable across reconnect).
     registry.register({
       nodeId: NODE_ID,
       sessionId: SESSION_ID,

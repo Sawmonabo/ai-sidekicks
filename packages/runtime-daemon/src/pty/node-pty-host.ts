@@ -700,7 +700,7 @@ export class NodePtyHost implements PtyHost {
       throw new Error(`NodePtyHost.kill: unknown sessionId '${sessionId}'`);
     }
 
-    // Idempotency clause (per Plan-024:122) — already-exited children
+    // Idempotency clause (per `Plan-024 §Data And Storage Changes`) — already-exited children
     // get a re-emit of the cached exit, not a throw and not a re-kill.
     if (record.exitCode !== null) {
       this.fireExit(sessionId, record.exitCode, record.signalCode);

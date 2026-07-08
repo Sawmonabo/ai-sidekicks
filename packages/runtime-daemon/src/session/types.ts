@@ -13,7 +13,7 @@
 // `provisioning | active | archived | closed | purge_requested | purged`
 // per `packages/contracts/src/session.ts:129-135`,
 // `docs/architecture/contracts/api-payload-contracts.md` §Shared Enums,
-// and `docs/domain/session-model.md:61-77`. The contracts dependency
+// and `docs/domain/session-model.md §State Model`. The contracts dependency
 // was already present in this package's `package.json`; this import
 // doesn't add a new edge to the workspace dep graph.
 //

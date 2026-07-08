@@ -3,7 +3,7 @@
 //
 // This file covers TWO conceptually-distinct deliverables of T3.3:
 //
-//   1. LOCAL IPC BRIDGE (Spec-002:85, Plan-002:305) — the daemon→client
+//   1. LOCAL IPC BRIDGE (`Spec-002 §Interfaces And Contracts`, `Plan-002 §Phase 3 — Presence Heartbeat + ChannelList Projection`) — the daemon→client
 //      `PresenceUpdate` push. Realized as the notify side of a
 //      `presence.subscribe` subscription on the Phase 2 streaming primitive
 //      (see presence-subscribe.ts for the streaming-design rationale).
@@ -12,7 +12,7 @@
 //      against `PresenceUpdateSchema`; `mutating: false`; transportId
 //      required; I-007-6 duplicate-registration.
 //
-//   2. DURABLE PRESENCE EMISSION (Spec-002:157 / Pr4; Spec-006 §Presence) —
+//   2. DURABLE PRESENCE EMISSION (`Spec-002 §State And Data Implications` / Pr4; Spec-006 §Presence) —
 //      `presence.online`/`idle`/`reconnecting`/`offline` state-change events
 //      land in the daemon's `session_events` log. The runtime trigger is
 //      downstream of T3.3 (documented as a deps-contract obligation on
@@ -38,7 +38,7 @@
 //   * I-007-11 (plan line 131, streaming-leak) — `sub.onCancel(unsubscribe)`
 //     fires the upstream detach on wire-cancel + transport-disconnect;
 //     `complete()` does NOT fire it.
-// Plus the cross-cutting Spec-002:157 prose-trap guard: the emitted rows
+// Plus the cross-cutting `Spec-002 §State And Data Implications` prose-trap guard: the emitted rows
 // carry `category: "membership_change"` (NOT "presence").
 
 import { mkdtempSync, rmSync } from "node:fs";
@@ -549,7 +549,7 @@ function makeBootstrapCreatedEvent(): AppendableEvent {
  * one transition. This is the EXACT shape the downstream emission contract
  * (documented on `PresenceSubscribeDeps.subscribeToPresence`) obligates the
  * substrate to append:
- *   * category: "membership_change"  (NOT "presence" — Spec-002:157 prose
+ *   * category: "membership_change"  (NOT "presence" — `Spec-002 §State And Data Implications` prose
  *                                     trap; canonical per Spec-006 §Presence)
  *   * type:     "presence.<newState>"
  *   * payload:  {sessionId, participantId, deviceId, previousState?, newState}
@@ -633,7 +633,7 @@ describe("Pr4 — durable presence-state-change events round-trip to real sessio
     expect(presenceRows).toHaveLength(5);
 
     // CRITICAL prose-trap guard — EVERY presence row's category is
-    // "membership_change", NOT "presence" (Spec-002:157 says "under the
+    // "membership_change", NOT "presence" (`Spec-002 §State And Data Implications` says "under the
     // presence category" but the canonical EventCategory enum has no
     // `presence` member; Spec-006 §Presence is `membership_change`).
     for (const row of presenceRows) {

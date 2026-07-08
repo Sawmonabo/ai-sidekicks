@@ -115,7 +115,7 @@ export const DAEMON_SUPPORTED_PROTOCOL_VERSIONS: readonly string[] = ["2026-05-0
  *     per error-contracts.md §JSON-RPC Wire Mapping.
  *   * `"protocol.version_mismatch"` — a mutating method was dispatched
  *     after a `daemon.hello` that yielded `compatible: false`.
- *     Spec-007:67-68 enforcement: read-only methods continue working;
+ *     `Spec-007 §Fallback Behavior` enforcement: read-only methods continue working;
  *     mutating methods are blocked until versions are compatible. Maps
  *     to JSON-RPC `-32600` per error-contracts.md §JSON-RPC Wire Mapping.
  *
@@ -185,7 +185,7 @@ export class NegotiationError extends Error {
  *   * `"done-incompatible"` — a `daemon.hello` completed but the daemon
  *     could not find a compatible protocol version. Mutating dispatch is
  *     refused with `protocol.version_mismatch`; read-only
- *     dispatches continue to flow through (Spec-007:67-68).
+ *     dispatches continue to flow through (`Spec-007 §Fallback Behavior`).
  *
  * State transitions:
  *
@@ -370,7 +370,7 @@ class WrappedRegistry implements MethodRegistry {
     //          here would mask the not-found error as a version-mismatch
     //          error — Acceptance test W-007p-2-T7 would fail.
     //        * `false` (registered read-only) → pass through; read-only
-    //          methods are always allowed per Spec-007:67-68.
+    //          methods are always allowed per `Spec-007 §Fallback Behavior`.
     //        * `true` (registered mutating) → consult negotiation state
     //          to decide.
     //   2. If mutating, look up the negotiation state for this transport.
@@ -394,13 +394,13 @@ class WrappedRegistry implements MethodRegistry {
             // that might enter via `method`; here the only inputs are the
             // method name string (developer-supplied) and a static
             // sentence — neither carries sensitive data.
-            `protocol-negotiation: mutating method ${JSON.stringify(method)} refused before \`${DAEMON_HELLO_METHOD}\` completed (I-007-1 fail-closed; per Spec-007:47)`,
+            `protocol-negotiation: mutating method ${JSON.stringify(method)} refused before \`${DAEMON_HELLO_METHOD}\` completed (I-007-1 fail-closed; per Spec-007 §Required Behavior)`,
           );
         }
         if (state.kind === "done-incompatible") {
           throw new NegotiationError(
             "protocol.version_mismatch",
-            `protocol-negotiation: mutating method ${JSON.stringify(method)} refused because the connection's prior handshake was incompatible (reason=${JSON.stringify(state.reason)}; per Spec-007:67-68)`,
+            `protocol-negotiation: mutating method ${JSON.stringify(method)} refused because the connection's prior handshake was incompatible (reason=${JSON.stringify(state.reason)}; per Spec-007 §Fallback Behavior)`,
             { reason: state.reason },
           );
         }

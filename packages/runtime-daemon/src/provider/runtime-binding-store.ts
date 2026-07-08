@@ -15,7 +15,7 @@
 // is bound to which driver, and over the durable record of it, never leaves the
 // local daemon.
 //
-// Write-seam validation (DEFENSE-IN-DEPTH, Spec-005:55):
+// Write-seam validation (DEFENSE-IN-DEPTH, `Spec-005 §Required Behavior`):
 //   `contract_version` and `resume_handle` are the only PROVIDER-DECLARED columns
 //   and the only columns with DB CHECK constraints (`0003-runtime-bindings.ts`).
 //   They are validated through `provider-output-validation.ts` BEFORE every

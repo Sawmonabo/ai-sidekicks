@@ -16,7 +16,7 @@
 //   asserted in ONE place and reused, rather than drifting across two call
 //   sites.
 //
-// Spec coverage: Spec-005:55 (resume_handle is a provider-owned opaque handle,
+// Spec coverage: `Spec-005 §Required Behavior` (resume_handle is a provider-owned opaque handle,
 // bounded at the write seam).
 //
 // Refs: Plan-005 §Phase 2 / T2.2 + T2.4, Spec-005 line 55.

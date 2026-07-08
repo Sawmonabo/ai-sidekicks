@@ -209,7 +209,7 @@ describe("W-007p-2-T1 — handshake + version-negotiation compatibility", () => 
 });
 
 // ----------------------------------------------------------------------------
-// W-007p-2-T8 — Mutating-op gate (Spec-007:67-68)
+// W-007p-2-T8 — Mutating-op gate (`Spec-007 §Fallback Behavior`)
 // ----------------------------------------------------------------------------
 
 describe("W-007p-2-T8 — mutating-op gate when version-mismatch", () => {
@@ -275,7 +275,7 @@ describe("W-007p-2-T8 — mutating-op gate when version-mismatch", () => {
     expect(result).toStrictEqual({ ok: true });
   });
 
-  it("after INCOMPATIBLE handshake, read methods still pass + mutating methods refused (Spec-007:67-68)", async () => {
+  it("after INCOMPATIBLE handshake, read methods still pass + mutating methods refused (Spec-007 §Fallback Behavior)", async () => {
     const { raw, gated } = makeFixture();
     raw.register(
       "math.read",
@@ -299,7 +299,7 @@ describe("W-007p-2-T8 — mutating-op gate when version-mismatch", () => {
     };
     const ack = (await gated.dispatch(DAEMON_HELLO_METHOD, params, ctx)) as DaemonHelloAck;
     expect(ack.compatible).toBe(false);
-    // Read still passes (Spec-007:67-68).
+    // Read still passes (`Spec-007 §Fallback Behavior`).
     const readResult = await gated.dispatch("math.read", {}, ctx);
     expect(readResult).toStrictEqual({ ok: true });
     // Mutating refused with `protocol.version_mismatch`.

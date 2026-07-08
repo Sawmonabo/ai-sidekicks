@@ -79,7 +79,7 @@ const VALID_BASE_CONFIG: SecureDefaultsConfig = {
 // A representative override event for the I-007-4 dedupe assertions.
 // The `behavior` integer is what the dedupe Set keys on; `row`,
 // `effective_value`, and `banner_printed_at` are payload-shape fields
-// per Spec-027:138 carried verbatim through the sink.
+// per `Spec-027 §Interfaces And Contracts` carried verbatim through the sink.
 function makeOverrideEvent(
   behavior: number,
   overrides: Partial<SecurityDefaultOverrideEvent> = {},

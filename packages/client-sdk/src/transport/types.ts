@@ -89,7 +89,7 @@ import type {
  * transport's concern.
  *
  * Design note: this matches the MCP TypeScript SDK transport boundary
- * (per Plan-007:309 reference). Their `Transport` interface has `send`,
+ * (per `Plan-007 §Daemon IPC + bootstrap (packages/runtime-daemon/src/)` reference). Their `Transport` interface has `send`,
  * `onmessage`, `onclose`, `onerror`, `start`, `close`. We collapse `start`
  * into the constructor (the transport is connected by the time it reaches
  * the client) and treat `onerror` as a specialization of `onClose(reason)`.
@@ -212,7 +212,7 @@ export interface LocalSubscriptionConsumer<T> {
    *     brand in `@ai-sidekicks/contracts/jsonrpc-streaming.ts`.
    *
    * Why `string` and not `SubscriptionId` (the branded type): the plan
-   * body (Plan-007:325) names `subscriptionId: string` literally, and the
+   * body (`Plan-007 §Client SDK + CLI (packages/client-sdk/, apps/cli/)`) names `subscriptionId: string` literally, and the
    * brand is a server-side construction concern. SDK consumers that need
    * the brand can `SubscriptionIdSchema.parse()` from `@ai-sidekicks/
    * contracts` after the field is populated.
@@ -269,7 +269,7 @@ export interface LocalSubscriptionConsumer<T> {
    * this subscription is mutually exclusive with direct `next()` polling.
    *
    * Returns `AsyncIterator<T>` (not `AsyncIterableIterator<T>`) per the
-   * Plan-007:328 task contract verbatim. Callers using `for await`
+   * `Plan-007 §Client SDK + CLI (packages/client-sdk/, apps/cli/)` task contract verbatim. Callers using `for await`
    * directly on the subscription work because the JS runtime invokes
    * `[Symbol.asyncIterator]()` once at loop start; mixing repeated
    * `for await` blocks against the same subscription is implementation-
@@ -280,13 +280,13 @@ export interface LocalSubscriptionConsumer<T> {
 }
 
 // --------------------------------------------------------------------------
-// Handler<Req, Res> — client-side handler shape (Plan-007:330)
+// Handler<Req, Res> — client-side handler shape (`Plan-007 §Client SDK + CLI (packages/client-sdk/, apps/cli/)`)
 // --------------------------------------------------------------------------
 
 /**
  * Type alias for a typed JSON-RPC handler function. Structurally identical
  * to `Handler<P, R>` in `@ai-sidekicks/contracts/jsonrpc-registry.ts`
- * (lines 105-123); the rename to `<Req, Res>` follows the Plan-007:330
+ * (lines 105-123); the rename to `<Req, Res>` follows the `Plan-007 §Client SDK + CLI (packages/client-sdk/, apps/cli/)`
  * task contract verbatim.
  *
  * Why redeclare instead of re-export under an alias: TypeScript's

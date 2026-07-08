@@ -209,7 +209,7 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
     ["channel.created", buildChannelCreated, "session_lifecycle"],
   ] as const)("emits the canonical category %s -> %s", (label, build, expected) => {
     // Round-trip parse pin: each variant carries its declared canonical
-    // category. This is wire-load-bearing because Spec-006:597 puts
+    // category. This is wire-load-bearing because `Spec-006 §Canonical Serialization Rules` puts
     // `category` inside the canonical bytes that back the BLAKE3 hash chain
     // and Ed25519 signature; the parsed value must equal the per-type
     // category defined in `SESSION_EVENT_CATEGORY_BY_TYPE`.

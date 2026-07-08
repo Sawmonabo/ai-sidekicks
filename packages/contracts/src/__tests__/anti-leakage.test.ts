@@ -10,7 +10,7 @@
 //      assertion) — `@ai-sidekicks/contracts` MUST NOT export ANY channel-
 //      MUTATION wire shape. Channel creation, muting, archiving, deletion,
 //      and renaming are explicitly handled by Plan-016 (multi-agent-channels
-//      -and-orchestration) per Spec-002:87 ("`ChannelList` is the only
+//      -and-orchestration) per `Spec-002 §Interfaces And Contracts` ("`ChannelList` is the only
 //      channel surface contracted in Spec-002; channel creation is handled
 //      by Plan-016"). A future PR that accidentally lands a `ChannelCreate*`
 //      or peer mutation shape in this package would cross-plan trespass on
@@ -121,14 +121,14 @@ const buildValidInviteCreate = () => ({
 // InviteAcceptSchema accepts an opaque token string (1..INVITE_TOKEN_MAX_LEN
 // chars) per invites.ts:167-171. A representative PASETO v4.local prefix is
 // the natural minimum-valid wire value — the contract layer does NOT decode
-// the token (Spec-002:107-113 routes signature verification to the service
+// the token (`Spec-002 §Token Security Properties` routes signature verification to the service
 // layer); a non-empty string is all the schema asks for.
 const buildValidInviteAccept = () => ({
   token: "v4.local.opaque-token-payload",
 });
 
 // InviteRevokeSchema requires `{sessionId, inviteId}` and admits an
-// optional `reason` (Spec-002:82 verbatim). The minimum-valid fixture
+// optional `reason` (`Spec-002 §Interfaces And Contracts` verbatim). The minimum-valid fixture
 // omits `reason` to keep the .strict() reject-extra-key test focused on
 // the BASE shape rather than a populated-optional shape — extraneous-key
 // rejection is the only property under test in Section 3.
@@ -179,7 +179,7 @@ const buildValidChannelListRequest = () => ({
 });
 
 // Minimum-valid PER-ELEMENT shape per channels.ts:185-232. `name` is
-// optional (Spec-002:87 verbatim — the bootstrap default channel may be
+// optional (`Spec-002 §Interfaces And Contracts` verbatim — the bootstrap default channel may be
 // unnamed); omitting it keeps the .strict() reject-extra-key test focused
 // on the REQUIRED base shape, matching the pattern used for the other
 // optional-bearing fixtures (buildValidInviteRevoke omits `reason`).
@@ -206,7 +206,7 @@ const buildValidChannelListResponse = () => ({
 // Section 1 — Cross-plan ownership boundary: NO channel-MUTATION exports
 // =============================================================================
 //
-// Spec-002:87 binds the canonical Spec-002 channel surface to `ChannelList`
+// `Spec-002 §Interfaces And Contracts` binds the canonical Spec-002 channel surface to `ChannelList`
 // (read-only projection) ONLY; the spec defers ALL channel-mutation shapes to
 // Plan-016. The `@ai-sidekicks/contracts` package MUST NOT export ANY of the
 // following symbols. If any one of them is ever added, the corresponding
@@ -224,7 +224,7 @@ describe("Plan-002 anti-leakage — NO channel-mutation contracts in @ai-sidekic
   // schema variants). Enumerating every shape closes the door against
   // every plausible drift mode in one assertion table.
   const FORBIDDEN_CHANNEL_MUTATION_SYMBOLS = [
-    // ChannelCreate family — owned by Plan-016 per Spec-002:87.
+    // ChannelCreate family — owned by Plan-016 per `Spec-002 §Interfaces And Contracts`.
     "ChannelCreate",
     "ChannelCreateRequest",
     "ChannelCreateResponse",
@@ -262,7 +262,7 @@ describe("Plan-002 anti-leakage — NO channel-mutation contracts in @ai-sidekic
   ] as const;
 
   it.each(FORBIDDEN_CHANNEL_MUTATION_SYMBOLS)(
-    "does not export channel-mutation symbol: %s (owned by Plan-016 per Spec-002:87)",
+    "does not export channel-mutation symbol: %s (owned by Plan-016 per Spec-002 §Interfaces And Contracts)",
     (symbol) => {
       // The `Record<string, unknown>` cast is load-bearing: direct property
       // access on the typed namespace would be a TS compile error (no such

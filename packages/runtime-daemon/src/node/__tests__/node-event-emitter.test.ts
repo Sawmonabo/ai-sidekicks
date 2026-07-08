@@ -21,7 +21,7 @@
 //   * Determinism: injected `monotonicNow` / `now` / `newEventId` flow
 //     through to the persisted row (what T2.6's D6 relies on to drive
 //     non-monotonic `monotonic_ns` through the emitter).
-//   * Per-event payload shapes (Spec-006:407-413): each of the 5
+//   * Per-event payload shapes (`Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`): each of the 5
 //     daemon-reachable events persists with its Spec-006 payload shape and
 //     its `runtime_node.*` type + `runtime_node_lifecycle` category.
 //   * sessionId/actor reconciliation: one input value populates BOTH the
@@ -581,10 +581,10 @@ describe("RuntimeNodeEventEmitter — determinism (injected monotonicNow/now/new
 });
 
 // ----------------------------------------------------------------------------
-// Per-event payload shapes (Spec-006:407-413) + sessionId/actor reconciliation
+// Per-event payload shapes (`Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`) + sessionId/actor reconciliation
 // ----------------------------------------------------------------------------
 
-describe("RuntimeNodeEventEmitter — per-event payload shapes (Spec-006:407-413)", () => {
+describe("RuntimeNodeEventEmitter — per-event payload shapes (Spec-006 §Runtime Node Lifecycle (`runtime_node_lifecycle`))", () => {
   function persistedPayload(db: DatabaseType, sequence: bigint): Record<string, unknown> {
     const rows: ReadonlyArray<IntegrityRow> = readRawRows(db, SESSION_ID);
     const match = rows.find((r) => r.sequence === sequence);
@@ -593,7 +593,7 @@ describe("RuntimeNodeEventEmitter — per-event payload shapes (Spec-006:407-413
     return JSON.parse(match.payload) as Record<string, unknown>;
   }
 
-  it("registered → base + {capabilities, nodeVersion, platform} (Spec-006:407)", () => {
+  it("registered → base + {capabilities, nodeVersion, platform} (Spec-006 §Runtime Node Lifecycle (`runtime_node_lifecycle`))", () => {
     const emitter: RuntimeNodeEventEmitter = makeEmitter();
     const event: AppendableEvent = emitter.emitRegistered({
       sessionId: SESSION_ID,
@@ -622,7 +622,7 @@ describe("RuntimeNodeEventEmitter — per-event payload shapes (Spec-006:407-413
     expect(event.actor).toBe(PARTICIPANT_ID);
   });
 
-  it("online → base (no extension), defaulting actor to null when omitted (Spec-006:408)", () => {
+  it("online → base (no extension), defaulting actor to null when omitted (Spec-006 §Runtime Node Lifecycle (`runtime_node_lifecycle`))", () => {
     const emitter: RuntimeNodeEventEmitter = makeEmitter();
     const event: AppendableEvent = emitter.emitOnline({
       sessionId: SESSION_ID,
@@ -642,7 +642,7 @@ describe("RuntimeNodeEventEmitter — per-event payload shapes (Spec-006:407-413
     expect(event.actor).toBeNull();
   });
 
-  it("offline → base + {lastHeartbeatAt, reason: explicit_shutdown} (Spec-006:410)", () => {
+  it("offline → base + {lastHeartbeatAt, reason: explicit_shutdown} (Spec-006 §Runtime Node Lifecycle (`runtime_node_lifecycle`))", () => {
     const emitter: RuntimeNodeEventEmitter = makeEmitter();
     const event: AppendableEvent = emitter.emitOffline({
       sessionId: SESSION_ID,
@@ -666,7 +666,7 @@ describe("RuntimeNodeEventEmitter — per-event payload shapes (Spec-006:407-413
     });
   });
 
-  it("capability_declared → reduced base + {capability, capabilityDetails} (Spec-006:412)", () => {
+  it("capability_declared → reduced base + {capability, capabilityDetails} (Spec-006 §Runtime Node Lifecycle (`runtime_node_lifecycle`))", () => {
     const emitter: RuntimeNodeEventEmitter = makeEmitter();
     const event: AppendableEvent = emitter.emitCapabilityDeclared({
       sessionId: SESSION_ID,
@@ -689,7 +689,7 @@ describe("RuntimeNodeEventEmitter — per-event payload shapes (Spec-006:407-413
     expect(payload).not.toHaveProperty("newState");
   });
 
-  it("capability_updated → reduced base + {capability, previousState, newState} as snapshots (Spec-006:413)", () => {
+  it("capability_updated → reduced base + {capability, previousState, newState} as snapshots (Spec-006 §Runtime Node Lifecycle (`runtime_node_lifecycle`))", () => {
     const emitter: RuntimeNodeEventEmitter = makeEmitter();
     const event: AppendableEvent = emitter.emitCapabilityUpdated({
       sessionId: SESSION_ID,

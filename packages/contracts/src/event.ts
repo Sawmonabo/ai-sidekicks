@@ -56,7 +56,7 @@ import {
 // (19 categories per Spec-006 §Event Type Summary). Code ships the 16-category
 // V1 baseline; Plan-006 Phase 1 (T1.1) widens it with `channel_arbitration`,
 // `onboarding_lifecycle`, and `cross_node_dispatch`.
-// Spec-006:597 specifies that `category` participates in the canonical-bytes
+// `Spec-006 §Canonical Serialization Rules` specifies that `category` participates in the canonical-bytes
 // computation that backs the integrity protocol's BLAKE3 hash chain and
 // Ed25519 signature; producers MUST emit the category that matches the type's
 // namespace, and consumers MUST NOT silently coerce mismatches. The literal
@@ -65,7 +65,7 @@ import {
 // payload is rejected at parse time, BEFORE it can be hashed under the
 // wrong category string and break replay.
 //
-// ORDER IS NOT LOAD-BEARING — Spec-006:594 specifies RFC 8785 JCS
+// ORDER IS NOT LOAD-BEARING — `Spec-006 §Canonical Serialization Rules` specifies RFC 8785 JCS
 // canonicalization, which serializes the LITERAL wire string ("session_
 // lifecycle", "membership_change", etc.) into the canonical bytes that back
 // the BLAKE3 hash chain and Ed25519 signature. The TypeScript enum's
@@ -302,7 +302,7 @@ const buildCommonShape = () => ({
   // `occurredAt` is ISO 8601 per api-payload-contracts.md line 492.
   // `{ offset: true }` widens default Z-only acceptance to include numeric
   // RFC 3339 §5.6 offsets ("+00:00", "-05:00"). The narrower CANONICAL form
-  // for the integrity protocol (Spec-006:597-599 — Z-suffixed UTC, ms
+  // for the integrity protocol (`Spec-006 §Canonical Serialization Rules` — Z-suffixed UTC, ms
   // precision) is enforced at hashing time by Plan-006's normalization
   // step, NOT at the wire layer here.
   occurredAt: z.iso.datetime({ offset: true }),
