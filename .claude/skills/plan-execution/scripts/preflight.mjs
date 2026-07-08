@@ -387,6 +387,12 @@ export function classifyPhaseSize(declaredTaskIds, targetPaths) {
   if (declaredTaskIds.length === 0) return "L";
   if (declaredTaskIds.length <= 1) return "S";
   if (declaredTaskIds.length <= 3) {
+    // FAIL CLOSED on zero parsed paths (mirror of the zero-IDs rule above):
+    // with no Files: targets parsed, single-root confinement is UNPROVEN —
+    // M is earned only by parsed paths sitting in at most one code root
+    // (docs-only phases keep M: paths parsed, none code). Codex, PR #190:
+    // Plan-021 Phase 4 has three task rows with no Files: fields.
+    if (targetPaths.length === 0) return "L";
     const roots = new Set();
     for (const p of targetPaths) {
       const m = /^(packages\/[^/]+|apps\/[^/]+)\//.exec(p);
@@ -2623,7 +2629,10 @@ export function runPreflight(
     if (!target)
       return { exit: 1, stdout: `## Preflight halt: phase ${phaseArg} not found in ${planFile}` };
     const r = _checkPhase(planSource, planNumber, target, planFile, opts);
-    if (!r.eligible) return { exit: 1, stdout: r.halt };
+    // Halt paths carry demoted warnings too — explicit-phase overrides are a
+    // normal recovery path, and the never-silent contract must survive them
+    // (Codex, PR #190: precondition halt was hiding the phase's cite drift).
+    if (!r.eligible) return { exit: 1, stdout: r.halt, warnings: r.warnings ?? [] };
     return { exit: 0, stdout: String(target.number), sizeClass: r.sizeClass, warnings: r.warnings };
   }
 
@@ -2664,7 +2673,7 @@ export function runPreflight(
       r.reason === "manifest_invalid_entries" ||
       r.reason === "audit"
     ) {
-      return { exit: 1, stdout: r.halt };
+      return { exit: 1, stdout: r.halt, warnings: [...walkWarnings, ...(r.warnings ?? [])] };
     }
     // no-section / preconditions — per-phase issues, try next phase.
     walkWarnings.push(...(r.warnings ?? []));
@@ -2676,6 +2685,7 @@ export function runPreflight(
   return {
     exit: 1,
     stdout: `## Preflight halt: no eligible un-shipped phase in ${planFile}${reasonsText}`,
+    warnings: walkWarnings,
   };
 }
 
@@ -2717,9 +2727,12 @@ async function main() {
     process.stdout.write(`size-class: ${result.sizeClass}\n`);
   // Demoted grammar findings are non-blocking but NEVER silent — stderr keeps the
   // stdout contract at exactly two lines while the author still sees the drift.
-  if (result.exit === 0 && result.warnings?.length) {
+  // Printed on halt exits too: an explicit-phase or walk halt must not hide
+  // warnings its phases demoted (Codex, PR #190).
+  if (result.warnings?.length) {
+    const classPrefix = result.sizeClass ? `size-class ${result.sizeClass} ` : "";
     process.stderr.write(
-      `preflight: size-class ${result.sizeClass} demoted ${result.warnings.length} grammar finding(s) to warnings:\n`,
+      `preflight: ${classPrefix}demoted ${result.warnings.length} grammar finding(s) to warnings:\n`,
     );
     for (const w of result.warnings) {
       process.stderr.write(

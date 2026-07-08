@@ -1060,6 +1060,36 @@ test("extractDeclaredFilePaths strips trailing sentence punctuation (Codex PR #1
   );
 });
 
+test("classifyPhaseSize: 2-3 tasks with ZERO parsed paths fail closed to L; docs-only keeps M (Codex, PR #190)", () => {
+  assert.equal(classifyPhaseSize(["T1", "T2", "T3"], []), "L");
+  assert.equal(classifyPhaseSize(["T1", "T2"], ["docs/specs/002-x.md"]), "M");
+});
+
+test("explicit-phase halt still surfaces the phase's demoted warnings (Codex, PR #190)", () => {
+  const r = runPreflight(WARNINGS_CARRY_WALK_PLAN, 1, {});
+  assert.equal(r.exit, 1, "phase 1 is precondition-blocked");
+  assert.match(r.stdout, /[Pp]recondition/);
+  assert.ok(
+    r.warnings.some((w) => w.kind === "unparseable-cite"),
+    "the demoted grammar finding must ride the halt, not vanish behind it",
+  );
+});
+
+test("CLI prints demoted warnings on stderr even when halting (Codex, PR #190)", () => {
+  const spawned = spawnSync(
+    process.execPath,
+    [
+      resolve(FIXTURE_DIR, "../../preflight.mjs"),
+      WARNINGS_CARRY_WALK_PLAN,
+      "1",
+      "--allow-stale-manifest",
+    ],
+    { encoding: "utf8" },
+  );
+  assert.equal(spawned.status, 1);
+  assert.match(spawned.stderr, /\[unparseable-cite\]/);
+});
+
 test("auto-walk carries demoted warnings from SKIPPED phases into the selection (Codex PR #190)", () => {
   const walk = runPreflight(WARNINGS_CARRY_WALK_PLAN, undefined, {});
   assert.equal(walk.exit, 0, `expected select; got halt:\n${walk.stdout}`);
