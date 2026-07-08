@@ -413,6 +413,10 @@ export function classifyPhaseSize(declaredTaskIds, targetPaths) {
     if (nonExempt.length > 0) return "L";
     const roots = new Set();
     for (const p of targetPaths) {
+      // A wildcard in the root-name position (`packages/*/src/index.ts`) can
+      // span every package — it can never prove single-root confinement, so
+      // it fails closed to L instead of counting as one root (Codex, PR #190).
+      if (/^(packages|apps)\/[^/]*\*/.test(p)) return "L";
       // (\/|$) — a bare `packages/a` (no trailing slash) is still that root
       // (Codex, PR #190: `Files: packages/a, apps/b` counted zero roots → M).
       const m = /^(packages\/[^/]+|apps\/[^/]+)(\/|$)/.exec(p);
@@ -455,12 +459,15 @@ export function extractDeclaredFilePaths(phaseSection) {
         .replace(/^[`*([]+/, "")
         .replace(/[`*.,;:!?)\]]+$/, "")
         .trim();
-      // Path-shaped = 2+ slash-joined segments; files, directories (trailing
-      // slash), and globs all count — a directory target like
+      // Path-shaped = 2+ slash-joined segments (files, directories with a
+      // trailing slash, globs — a directory target like
       // `packages/runtime-daemon/src/ipc/handlers/` is root-bearing evidence
-      // for classification even without a filename extension (Codex, PR #190).
-      if (/^[\w.@-]+(\/[\w.@*-]+)+\/?$/.test(cleaned) && !paths.includes(cleaned))
-        paths.push(cleaned);
+      // even without an extension) OR a slash-less root-level file with an
+      // extension (`package.json`) — dropping those hid root tooling/config
+      // targets from the fail-closed non-exempt check (Codex, PR #190).
+      const pathShaped =
+        /^[\w.@-]+(\/[\w.@*-]+)+\/?$/.test(cleaned) || /^[\w@-][\w.@-]*\.\w+$/.test(cleaned);
+      if (pathShaped && !paths.includes(cleaned)) paths.push(cleaned);
     }
   }
   return paths;
@@ -2104,7 +2111,10 @@ function verifySectionAnchor(anchor, specLines) {
 export const G4_GRAMMAR_DEMOTE_KINDS = new Set([
   // parser-layer grammar/format kinds
   "unparseable-cite",
-  "unparseable-spec-subanchor",
+  // NOT unparseable-spec-subanchor: a Spec-NNN cite that parses to NO anchor
+  // (e.g. `Spec-999 row 4`) never reaches the verifier, so demoting the parse
+  // failure would silently skip the spec-file-not-found HARD check for the
+  // exact classes with the least reviewer coverage (Codex, PR #190).
   "compound-range-multi-subject",
   "namespace-violation",
   "spec-namespace-malformed",

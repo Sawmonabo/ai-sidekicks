@@ -1080,6 +1080,31 @@ test("G4 tiering: subject-mismatch stays a HARD error even for size-class S (Cod
   assert.ok(!G4_GRAMMAR_DEMOTE_KINDS.has("subject-mismatch-in-range"));
 });
 
+test("classifyPhaseSize: root-level files count as non-exempt targets — package.json forces L (Codex, PR #190)", () => {
+  const paths = extractDeclaredFilePaths("Files: package.json, `packages/a/src/x.ts`");
+  assert.ok(paths.includes("package.json"), "slash-less root file must be path-shaped");
+  assert.equal(classifyPhaseSize(["T1", "T2"], paths), "L");
+});
+
+test("classifyPhaseSize: wildcard package roots never prove single-root confinement (Codex, PR #190)", () => {
+  assert.equal(classifyPhaseSize(["T1", "T2"], ["packages/*/src/index.ts"]), "L");
+  // a glob confined WITHIN one literal package still earns M
+  assert.equal(classifyPhaseSize(["T1", "T2"], ["packages/a/src/**/*.ts"]), "M");
+});
+
+test("G4 tiering: no-anchor Spec parse failure stays HARD for S — it can mask a missing spec (Codex, PR #190)", () => {
+  assert.ok(!G4_GRAMMAR_DEMOTE_KINDS.has("unparseable-spec-subanchor"));
+  const section = [
+    "#### Tasks",
+    "",
+    "- **T-1** — Task with a no-anchor spec cite naming an absent spec",
+    "  - **Spec coverage:** Spec-999 row 4",
+    "  - **Verifies invariant:** I-1",
+    "",
+  ].join("\n");
+  assert.equal(gateTasksBlockCites(section, "016", 1, { sizeClass: "S" }).ok, false);
+});
+
 test("classifyPhaseSize: bare packages/<name> and apps/<name> tokens are root-bearing (Codex, PR #190)", () => {
   assert.equal(classifyPhaseSize(["T1", "T2"], ["packages/a", "apps/b"]), "L");
   assert.equal(classifyPhaseSize(["T1", "T2"], ["packages/a"]), "M");
