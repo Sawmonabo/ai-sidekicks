@@ -2488,6 +2488,21 @@ export function resolvePrecondition(
         // Opaque-pass, mirroring plan_phase's future-schema disposition.
         return { ok: true };
       }
+      // Schema-validate every entry BEFORE trusting its task list — a
+      // syntactically parsed but invalid entry (phase: "5" string, bad sha)
+      // must halt, mirroring plan_phase's manifest_invalid_entries path;
+      // collecting ids from unvalidated entries was fail-open relative to the
+      // integer route (Codex P2, PR #192 round 6).
+      const invalidEntryIndexes = [];
+      for (let i = 0; i < manifest.shipped.length; i++) {
+        if (!validateEntry(manifest.shipped[i]).ok) invalidEntryIndexes.push(i);
+      }
+      if (invalidEntryIndexes.length > 0) {
+        return {
+          ok: false,
+          halt: `Plan-${entry.plan} shipment manifest has invalid entries (index ${invalidEntryIndexes.join(", ")}) — fix the manifest before Phase ${entry.phase} can gate on it`,
+        };
+      }
       const shippedTaskIds = new Set();
       for (const shippedEntry of manifest.shipped) {
         for (const taskId of [].concat(shippedEntry.task ?? [])) {
@@ -2828,22 +2843,29 @@ export function surveyCorpus({ repoRoot = REPO_ROOT } = {}) {
       continue;
     }
     const phaseSummaries = [];
-    for (const { number } of phases) {
-      const section = extractPhaseSection(source, number) ?? "";
+    // Remainder phases (### Phase R2) are invisible to walkPhases by design
+    // (the dispatch walker is numeric), but the external_plan_phase_merged
+    // gate now READS their task ids — a malformed R-task row must not merge
+    // behind a green survey and only surface at downstream gate-eval time
+    // (Codex P2, PR #192 round 6). Survey them alongside the numeric walk.
+    const remainderLabels = [...source.matchAll(/^### Phase (R\d+)\b/gm)].map((m) => m[1]);
+    const allPhaseLabels = [...phases.map(({ number }) => number), ...remainderLabels];
+    for (const label of allPhaseLabels) {
+      const section = extractPhaseSection(source, label) ?? "";
       const result = surveyPhase(section);
       phaseCount += 1;
       distribution[result.sizeClass] += 1;
-      phaseSummaries.push(`P${number} ${result.sizeClass}(${result.ids.length})`);
+      phaseSummaries.push(`P${label} ${result.sizeClass}(${result.ids.length})`);
       for (const line of result.omissions) {
         anomalies.push(
-          `${name} Phase ${number} [omission] task-shaped row not parsed: ${line.trim()}`,
+          `${name} Phase ${label} [omission] task-shaped row not parsed: ${line.trim()}`,
         );
       }
       for (const id of result.phantoms) {
-        anomalies.push(`${name} Phase ${number} [phantom] parsed id on no task-shaped row: ${id}`);
+        anomalies.push(`${name} Phase ${label} [phantom] parsed id on no task-shaped row: ${id}`);
       }
     }
-    reportLines.push(`${name}: ${phases.length} phase(s) — ${phaseSummaries.join(" ")}`);
+    reportLines.push(`${name}: ${allPhaseLabels.length} phase(s) — ${phaseSummaries.join(" ")}`);
   }
   return {
     planCount: planFileNames.length,
