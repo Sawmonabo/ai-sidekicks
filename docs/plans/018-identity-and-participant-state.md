@@ -73,7 +73,7 @@ Behavioral guarantees this plan must preserve. Each is bound to the Tasks that u
 - **I-018-5 — Conservative no-false-offline.** Presence aggregation never reports a participant offline while any device retains live or reconnecting state; ambiguity resolves toward the more-present state. (Spec-018:56.) Tasks: T3.1.
 - **I-018-6 — Device-detail read authorization.** `PresenceDetailRead` (per-device fan-out) is served only to the authorized set (D-018-5: owner/operator-only); the aggregated summary is the unauthorized default. (Spec-018:63; ADR-007.) Tasks: T1.3, T3.4, T4.4.
 - **I-018-7 — Self-authorized state update.** A participant may update only their own display state; `ParticipantStateUpdate` is self-scoped and carries no actor-override field. (Spec-018:62; ADR-007.) Tasks: T1.2, T3.5, T4.4.
-- **I-018-8 — Daemon-as-gateway single transport.** Client surfaces (SDK, CLI, renderer) reach participant/presence reads through the local daemon JSON-RPC gateway, never a direct control-plane client; the daemon proxies control-plane-stored identity/membership truth. (ADR-008 transport-boundary decision; `membershipClient.ts:24-51` precedent.) Tasks: T4.1, T4.3.
+- **I-018-8 — Daemon-as-gateway single transport.** Client surfaces (SDK, CLI, renderer) reach participant/presence reads through the local daemon JSON-RPC gateway, never a direct control-plane client; the daemon proxies control-plane-stored identity/membership truth. (ADR-008 transport-boundary decision; `packages/client-sdk/src/membershipClient.ts#createDaemonMembershipClient` precedent.) Tasks: T4.1, T4.3.
 - **I-018-9 — Renderer is bridge-only.** The desktop renderer reads participant/presence state exclusively through the `window.sidekicks` preload bridge projection, never a direct daemon socket or control-plane fetch. (ADR-009; Spec-023.) Tasks: T4.2.
 
 ## Cross-Plan Obligations
@@ -158,7 +158,7 @@ Control-plane service mapping authenticated identity to one canonical participan
   - Files: `packages/control-plane/src/participants/participant-mapping-service.ts` (CREATE); migration `packages/control-plane/src/migrations/00NN-participants-identity.ts` (CREATE — `participants` ALTER (+`display_name`, +`identity_ref`, +`metadata`) + `identity_mappings` CREATE; `NNNN` assigned by append-order) wired into the Plan-001-owned `migration-runner.ts` as `{ version: N, sql: PARTICIPANTS_IDENTITY_MIGRATION_SQL }` — appended **after v3** (Plan-003's `0003-runtime-nodes.ts`, the highest pre-Tier-5 control-plane migration; the runner is at v2 `session-invites` today, with v3 forward-declared at Tier 3). Plan-018 lands first of the Tier-5 control-plane migrations (F-008r-C orders it before Plan-008-remainder; Plan-022 T22.5.2 appends last), but the version integer is assigned at build by append-order, **not pinned** ([cross-plan-dependencies.md §5](../architecture/cross-plan-dependencies.md#5-canonical-build-order) Tier-5 migration landing-order note)
   - Spec coverage: Spec-018:40 (one identity → one participant per session), Spec-018:69 (mapping in shared control-plane storage)
   - Verifies invariant: I-018-1
-  - Consumes: `identity_mappings` / `participants` rows; `ParticipantId` (contracts); `session_memberships` (Plan-002, shipped); `joinSession` (Plan-001, shipped). Repairs the double-mint at `session-directory-service.ts:180-186`.
+  - Consumes: `identity_mappings` / `participants` rows; `ParticipantId` (contracts); `session_memberships` (Plan-002, shipped); `joinSession` (Plan-001, shipped). Repairs the double-mint in `packages/control-plane/src/sessions/session-directory-service.ts#joinSession`.
   - Decided: D-018-1 (Plan-018-owned `AuthenticatedIdentityContext` shape, CP-018-3) + D-018-2 (`identity_ref` = stable synthetic ref) — both ratified Tier-5; the prior Phase-2 gate is cleared. Uniqueness keys source-forced: `identity_mappings UNIQUE(provider, external_id)`, `participants.identity_ref UNIQUE`, `session_memberships UNIQUE(session_id, participant_id)`.
 - **T2.2 — Default display metadata from authenticated profile.**
   - Files: `participant-mapping-service.ts` (same)
@@ -186,7 +186,7 @@ Highest-activity presence reduction, participant projection assembly, and stable
   - Files: `packages/control-plane/src/presence/presence-aggregation-service.ts` (CREATE)
   - Spec coverage: Spec-018:41 (aggregate device presence), Spec-018:49,50 (presence summary + precedence), Spec-018:56 (conservative no-false-offline)
   - Verifies invariant: I-018-4, I-018-5
-  - Consumes: per-device presence rows via the T3.2 accessor (NOT the recency-collapsing `readPresence`, `presence-register-service.ts:719-753` — F-018-3-01); `PRESENCE_SUMMARY_PRECEDENCE` (T1.4)
+  - Consumes: per-device presence rows via the T3.2 accessor (NOT the recency-collapsing `packages/control-plane/src/presence/presence-register-service.ts#readPresence` — F-018-3-01); `PRESENCE_SUMMARY_PRECEDENCE` (T1.4)
   - Note: authors a new highest-activity reduction; the shipped `readPresence` collapses by recency and MUST NOT be reused for the summary.
   - Decided: D-018-4 (`lastSeen` = winning precedence-device's value) — ratified Tier-5.
 - **T3.2 — Per-device presence read accessor on the substrate.**
@@ -223,7 +223,7 @@ Typed SDK (daemon-as-gateway), renderer subtree, CLI commands, and the service-l
   - Spec coverage: Spec-018:61,62,63 (the three reads/updates), Spec-018:49 (presence summary)
   - Verifies invariant: I-018-8
   - Consumes: the three Phase-1 contracts; `JsonRpcClient` (Plan-007 substrate, shipped Tier 1); `participant.*` method strings (CP-018-6, proposed)
-  - Note: transport authored daemon-as-gateway (author-with-citation: ADR-008 transport boundary + `membershipClient.ts:24-51` precedent; Spec-018:69-as-forcing-fact rebutted — membership is equally control-plane-stored yet daemon-proxied — F-018-4-05).
+  - Note: transport authored daemon-as-gateway (author-with-citation: ADR-008 transport boundary + `packages/client-sdk/src/membershipClient.ts#createDaemonMembershipClient` precedent; Spec-018:69-as-forcing-fact rebutted — membership is equally control-plane-stored yet daemon-proxied — F-018-4-05).
 - **T4.2 — `participants/` renderer subtree.**
   - Files: `apps/desktop/src/renderer/src/participants/` (CREATE) + `apps/desktop/src/renderer/src/participants/__tests__/*.test.tsx`
   - Spec coverage: Spec-018:42 (display state, partial), Spec-018:49 (presence summary)

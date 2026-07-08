@@ -45,7 +45,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 - `packages/contracts/src/event.ts` (EXTEND in place per Plan-001's contracts package layout — directory-placement decision resolved 2026-05-28) — `EventEnvelope` schema + 19-category `EventCategory` literal union + 140-event `SessionEventType` literal union + `SESSION_EVENT_CATEGORY_BY_TYPE` registry + `CapabilityDetails` wrapper + `RuntimeNodeCapability{Declared,Updated}Payload` interfaces. The `events/` subdirectory does not exist in the contracts package; the top-level co-location pattern (Plan-001 baseline: 16 categories + 3-variant union + factory + registry) is the canonical layout.
 - `packages/contracts/src/event-anchor.ts` (NEW Plan-006-owned) — `AnchorPayload` wire shape for daemon → control-plane anchor upload (Phase 3 T3.3). Top-level co-located per the package convention.
-- `packages/contracts/src/error.ts` (CROSS-LINK only — JSDoc on `EventEnvelopeVersionSchema` pointing to the existing `VersionFloorExceededError` + `VersionCeilingExceededError` schemas at error.ts:97-101, 306-339, already shipped by Plan-001 T2.3 per the Phase 1 audit forward-completed surface)
+- `packages/contracts/src/error.ts` (CROSS-LINK only — JSDoc on `EventEnvelopeVersionSchema` pointing to the existing `VersionFloorExceededError` + `VersionCeilingExceededError` schemas (`packages/contracts/src/error.ts#VersionFloorExceededError` + `packages/contracts/src/error.ts#VersionCeilingExceededError`), already shipped by Plan-001 T2.3 per the Phase 1 audit forward-completed surface)
 - `packages/runtime-daemon/src/events/canonicalizer.ts` — RFC 8785 JCS emitter with mandatory UTF-16 code-unit lex-sort field ordering per the canonicalization resolution + Spec-006:597 amendment + RFC 3339 UTC millisecond `occurredAt`
 - `packages/runtime-daemon/src/events/signer.ts` — BLAKE3 hash chain + Ed25519 signer
 - `packages/runtime-daemon/src/events/signing-key-source.ts` (NEW Plan-006-owned per the signing-key custody resolution) — `DaemonSigningKeySource` interface + `OsKeystoreSealedDaemonSigningKeySource` implementation (per-session Ed25519 sealed via OS-keystore master-key; stored as ciphertext in the new local `daemon_signing_keys` SQLite table per ADR-004 SQLite-local-state boundary — corrected from the pre-Codex-T4-review draft that mis-located the column on shared-Postgres `sessions`)
@@ -247,14 +247,14 @@ Both are exported from `packages/contracts/src/provider-driver.ts` by Plan-005 P
 
 ##### T1.1 — Widen `EventCategory` enum to 19 canonical entries
 
-File: `packages/contracts/src/event.ts` (EXTEND). Provides: `EventCategory` literal union with all 19 entries adding `channel_arbitration`, `onboarding_lifecycle`, `cross_node_dispatch` to the existing 16. Depends: existing 16-entry baseline at `event.ts:74-90` (Plan-001's contracts package). IdempotencyClass: N/A (type).
+File: `packages/contracts/src/event.ts` (EXTEND). Provides: `EventCategory` literal union with all 19 entries adding `channel_arbitration`, `onboarding_lifecycle`, `cross_node_dispatch` to the existing 16. Depends: existing 16-entry baseline (`packages/contracts/src/event.ts#EventCategorySchema`) (Plan-001's contracts package). IdempotencyClass: N/A (type).
 
 - **Spec coverage:** Spec-006 line 561 (channel_arbitration), Spec-006 line 571 (cross_node_dispatch), Spec-006 line 573 (onboarding_lifecycle)
 - **Verifies invariant:** I-006-1-01 (category/type bijection — the 19-category union)
 
 ##### T1.2 — Enumerate 140 `SessionEventType` literals + category registry
 
-File: `packages/contracts/src/event.ts` (EXTEND). Provides: `SessionEventType` literal union of all 140 strings; `SESSION_EVENT_CATEGORY_BY_TYPE: ReadonlyMap<SessionEventType, EventCategory>`; per-category const arrays (`SESSION_LIFECYCLE_EVENT_TYPES`, etc.). Depends: T1.1; existing 3-variant `SessionEvent` union; existing registry pattern at `event.ts:431`. IdempotencyClass: N/A (type/data).
+File: `packages/contracts/src/event.ts` (EXTEND). Provides: `SessionEventType` literal union of all 140 strings; `SESSION_EVENT_CATEGORY_BY_TYPE: ReadonlyMap<SessionEventType, EventCategory>`; per-category const arrays (`SESSION_LIFECYCLE_EVENT_TYPES`, etc.). Depends: T1.1; existing 3-variant `SessionEvent` union; existing registration pattern around `packages/contracts/src/event.ts#SessionEventSchema`. IdempotencyClass: N/A (type/data).
 
 - **Spec coverage:** Spec-006 line 551 (Event Type Summary), Spec-006 line 553 (Total enumerated event types), Spec-006 lines 557-581
 - **Verifies invariant:** I-006-1-01 (140-type / 19-category bijection), I-006-1-02 (event-type-string immutability)
