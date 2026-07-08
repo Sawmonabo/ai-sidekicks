@@ -553,3 +553,21 @@ describe("section-anchor cites — fenced headings excluded", () => {
     }
   });
 });
+
+describe("section-anchor cites — fenced citer content excluded (md only)", () => {
+  it("does not extract a §-cite from a fenced example block in a markdown citer", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md": "# Spec\n\n## Wire Format\n\nbody\n",
+      "docs/plans/009-y.md":
+        "# Plan\n\n```markdown\nPer `Spec-003 §Old Heading` — illustrative only.\n```\n\nprose\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkSectionCites([resolve(root, "docs/plans/009-y.md")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+});

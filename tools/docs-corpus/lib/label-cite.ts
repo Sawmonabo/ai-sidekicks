@@ -233,8 +233,20 @@ function extractLabelCitesFrom(
   const content = reader(resolve(citingFile));
   const cites: Cite[] = [];
   const lines = content.split("\n");
+  // Markdown citers skip fenced blocks entirely — a fenced `Spec-NNN §…`
+  // snippet is an illustrative example, not an authoritative cite (Codex
+  // review, PR #188 round 5). Code citers never fence-toggle: a ``` inside a
+  // template literal would flip bogus fence state and uncover real label
+  // cites.
+  const trackFences = citingFile.endsWith(".md");
+  let insideFence = false;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+    if (trackFences && /^\s*(?:```|~~~)/.test(line)) {
+      insideFence = !insideFence;
+      continue;
+    }
+    if (insideFence) continue;
     let m: RegExpExecArray | null;
 
     // Pass 1 — label form (`Spec-003:178`). Token resolves via the NNN glob.

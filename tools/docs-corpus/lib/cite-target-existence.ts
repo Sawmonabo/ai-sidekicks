@@ -100,13 +100,16 @@ export function extractCites(
   // Markdown-link form with a CODE-extension target — extracted solely for the
   // volatile deny (see the pass below).
   const linkCodeRe = /\]\(([^)]+\.(?:ts|tsx|js|mjs|mts|cts|rs))\)\s*:\s*([\d,\s-]+)/g;
-  // BARE (unbackticked, unlinked) volatile line-pins. Anchored on the volatile
-  // prefixes themselves, so plain prose paths (`tools/foo.ts:12`) and longer
-  // paths whose tail merely contains `packages/` (the `/` in the lookbehind)
-  // stay invisible — this pass exists ONLY to deny the raw form the other two
-  // passes cannot see (Codex review, PR #188 round 4).
+  // BARE (unbackticked, unlinked) volatile line-pins. Matches ANY path-shaped
+  // token (≥1 slash), then the loop resolves it and denies ONLY volatile-tree
+  // targets — the same resolve-then-test posture as the backticked pass, so
+  // `./packages/…` and `docs/../packages/…` spellings collapse to the same
+  // answer (Codex review, PR #188 rounds 4 + 5). Non-volatile resolutions are
+  // skipped (bare mentions never had floor semantics). The lookbehind blocks
+  // backticked, linked, and mid-word starts; a match beginning mid-path never
+  // bites because the full-path match succeeds first and advances lastIndex.
   const bareVolatileRe =
-    /(?<![`[\w/.-])((?:packages|apps)\/[\w./-]+\.(?:ts|tsx|js|mjs|mts|cts|rs)):(\d+(?:\s*[,-]\s*\d+)*)/g;
+    /(?<![`[\w])((?:[\w.-]+\/)+[\w.-]+\.(?:ts|tsx|js|mjs|mts|cts|rs)):(\d+(?:\s*[,-]\s*\d+)*)/g;
   const repoRoot = getRepoRoot();
 
   const lines = content.split("\n");
@@ -197,6 +200,9 @@ export function extractCites(
     bareVolatileRe.lastIndex = 0;
     while (!insideFence && (m = bareVolatileRe.exec(line)) !== null) {
       const bareTargetName = m[1];
+      const bareCandidate = resolve(repoRoot, bareTargetName);
+      const bareRepoRelative = relative(repoRoot, bareCandidate).split(sep).join("/");
+      if (!VOLATILE_CODE_PREFIXES.some((prefix) => bareRepoRelative.startsWith(prefix))) continue;
       const lineList: number[] = [];
       for (const token of m[2].split(/[,\s]+/).filter(Boolean)) {
         for (const part of token.split("-")) {
@@ -209,7 +215,7 @@ export function extractCites(
           file: citingFile,
           line: i + 1,
           rawTarget: `${bareTargetName}:${targetLine}`,
-          targetPath: resolve(repoRoot, bareTargetName),
+          targetPath: bareCandidate,
           targetLine,
           volatileCodeTarget: true,
         });

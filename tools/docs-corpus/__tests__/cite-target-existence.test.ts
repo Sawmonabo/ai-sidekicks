@@ -423,6 +423,25 @@ describe("durable-cite rule — Codex round-4 hardening (PR #188)", () => {
     }
   });
 
+  it("denies dot-segment bare spellings via resolve-then-test (`./packages/…`, `docs/../packages/…`)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/plans/001-x.md":
+        "# Plan\n\nEdit ./packages/foo/src/bar.ts:12 today.\n\nAlso docs/../packages/foo/src/bar.ts:30 tomorrow.\n",
+      "packages/foo/src/bar.ts": "export function doThing(): void {}\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/plans/001-x.md")]),
+      );
+      expect(violations).toHaveLength(2);
+      for (const violation of violations) {
+        expect(violation.reason).toBe("raw-line-cite-into-volatile-code");
+      }
+    } finally {
+      cleanup();
+    }
+  });
+
   it("skips bare volatile pins inside code fences (quoted-example carve-out)", () => {
     const { root, cleanup } = setupRepo({
       "docs/plans/001-x.md":
