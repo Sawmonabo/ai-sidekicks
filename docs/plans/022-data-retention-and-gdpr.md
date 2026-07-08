@@ -251,7 +251,13 @@ Audit-derived task decomposition. The 11 Implementation Steps regroup into six b
 
 ### Phase 1 — Daemon master-key custody (Steps 1–2)
 
-**Precondition:** Plan-007 Phase R2 merged — T-007r-2-4 ships the `DaemonKeyStore` interface + test-only stub at `bootstrap/daemon-key-store.ts` (CP-007-8); this phase's `OsKeystoreSealedDaemonKeyStore` (T22.1.2) implements that interface and must not author Plan-007's file. (Prose gate: R-phases carry no manifest integer yet, so preflight's `plan_phase` form cannot anchor them — same form as Plan-007's own R-phase preconditions.)
+**Precondition:** Plan-007 Phase R2 merged — T-007r-2-4 ships the `DaemonKeyStore` interface + test-only stub at `bootstrap/daemon-key-store.ts` (CP-007-8); this phase's `OsKeystoreSealedDaemonKeyStore` (T22.1.2) implements that interface and must not author Plan-007's file.
+
+<!-- prettier-ignore -->
+```yaml
+preconditions:
+  - { type: external_plan_phase_merged, plan: 007, phase: R2 }
+```
 
 #### Tasks
 
