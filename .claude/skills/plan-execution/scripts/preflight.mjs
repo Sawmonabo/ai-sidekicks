@@ -342,8 +342,15 @@ export function extractAdrStatus(source) {
 // both slice the same region without re-implementing the heading boundary
 // logic.
 export function extractTasksBlock(phaseSection) {
-  const tasksMatch = phaseSection.match(/####\s*Tasks\s*\n([\s\S]*?)(?=\n####\s|\n###\s|$)/);
-  return tasksMatch ? tasksMatch[1] : null;
+  // A phase's declared tasks are the UNION of all its `#### Tasks` blocks —
+  // refinement-lane phases (Plan-007 Phase 3, Plan-008 Phase 1) carry a second
+  // block, and reading only the first made its task ids invisible to Gate 3:
+  // the phase could read fully_shipped while lane tasks were still pending
+  // (same class as the Codex P1 on PR #190; found by the omission survey).
+  const blocks = [
+    ...phaseSection.matchAll(/####\s*Tasks\s*\n([\s\S]*?)(?=\n####\s|\n###\s|$)/g),
+  ].map((m) => m[1]);
+  return blocks.length ? blocks.join("\n") : null;
 }
 
 // Extract declared task ids from a phase's `#### Tasks` block. Returns a
@@ -357,9 +364,126 @@ export function extractDeclaredTaskIds(phaseSection) {
   const block = extractTasksBlock(phaseSection);
   if (block === null) return [];
   const ids = new Set();
-  for (const m of block.matchAll(/^#####\s+(T[-a-zA-Z0-9.]+)\b/gm)) ids.add(m[1]);
-  for (const m of block.matchAll(/^-\s+\*\*(T[-a-zA-Z0-9.]+)\*\*/gm)) ids.add(m[1]);
+  // (?=[-\d]) pins the task-id SHAPE: a digit (T1.1) or hyphen (T-100-1.1)
+  // must follow T — otherwise prose bolds/headings starting with T ("Test",
+  // "Testing") phantom-match, and a phantom declared id makes Gate 3 see the
+  // phase as never fully shipped (auto-walk re-enters shipped work — Codex P1,
+  // PR #190, reproduced on Plan-003 Phase 1).
+  for (const m of block.matchAll(/^#####\s+(T(?=[-\d])[-a-zA-Z0-9.]+)\b/gm)) ids.add(m[1]);
+  // Bullet shapes: `- **T-100-1.1** — title` (bold closes after the id),
+  // `- **T1.1 — title**` (title INSIDE the bold — Plan-009/016), optional GFM
+  // checkbox (`- [ ] **T21.1-1 — …**` — Plan-021). No closing-`**` tail is
+  // required: titles containing a literal `*` (Plan-009 `repo.*`, Plan-018
+  // `participant.*`, Plan-022 `gdpr.*`) broke a `[^*\n]*\*\*` tail and the
+  // omitted id let Gate 3 mark the phase fully shipped while that task was
+  // still pending (Codex P1, PR #190). The top-level-bullet anchor + `**T` +
+  // digit/hyphen lookahead are the guards against prose bolds.
+  for (const m of block.matchAll(/^-\s+(?:\[[ xX]\]\s+)?\*\*(T(?=[-\d])[-a-zA-Z0-9.]+)\b/gm))
+    ids.add(m[1]);
   return [...ids].sort();
+}
+
+// --- Size classification (design memo §5, 2026-07-06 refinement) ---
+// S: ≤1 declared task. M: 2-3 tasks whose Files: paths sit in one top-level
+// packages/<name> | apps/<name> root (non-code paths don't count against it).
+// L: everything else. Drives G4 strictness here and the ceremony map in
+// SKILL.md § Size-Classed Ceremony; Codex + CI are invariant across classes.
+export function classifyPhaseSize(declaredTaskIds, targetPaths) {
+  // FAIL CLOSED on zero parsed IDs: an empty list means the extractor did not
+  // recognize the Tasks-block shape (not that the phase is small) — classify L
+  // so an unrecognized future shape gets the FULL ceremony, never a skipped
+  // reviewer set + demoted G4 (Codex P1, PR #190).
+  if (declaredTaskIds.length === 0) return "L";
+  if (declaredTaskIds.length <= 1) return "S";
+  if (declaredTaskIds.length <= 3) {
+    // FAIL CLOSED on zero parsed paths (mirror of the zero-IDs rule above):
+    // with no Files: targets parsed, single-root confinement is UNPROVEN —
+    // M is earned only by parsed paths sitting in at most one code root
+    // (docs-only phases keep M: paths parsed, none code). Codex, PR #190:
+    // Plan-021 Phase 4 has three task rows with no Files: fields.
+    if (targetPaths.length === 0) return "L";
+    // Docs-ish paths (docs/ tree, *.md anywhere) are the ONLY exempt class.
+    // Repo-tooling / infra CODE outside packages|apps (.claude/, tools/,
+    // .github/, scripts/) is not covered by M's single-package-root grant —
+    // fail closed to L rather than awarding M on zero counted roots
+    // (Codex, PR #190).
+    const nonExempt = targetPaths.filter(
+      (p) => !/^docs\//.test(p) && !/\.md$/.test(p) && !/^(packages|apps)\//.test(p),
+    );
+    if (nonExempt.length > 0) return "L";
+    const roots = new Set();
+    for (const p of targetPaths) {
+      // A wildcard in the root-name position (`packages/*/src/index.ts`) can
+      // span every package — it can never prove single-root confinement, so
+      // it fails closed to L instead of counting as one root (Codex, PR #190).
+      if (/^(packages|apps)\/[^/]*\*/.test(p)) return "L";
+      // (\/|$) — a bare `packages/a` (no trailing slash) is still that root
+      // (Codex, PR #190: `Files: packages/a, apps/b` counted zero roots → M).
+      const m = /^(packages\/[^/]+|apps\/[^/]+)(\/|$)/.exec(p);
+      if (m) roots.add(m[1]);
+    }
+    if (roots.size <= 1) return "M";
+  }
+  return "L";
+}
+
+// Files: extractor over both audit-Tasks-block layouts (sub-header bold field
+// + parenthesized inline). Path-shaped tokens only; dedup, order-stable.
+export function extractDeclaredFilePaths(phaseSection) {
+  const paths = [];
+  // Capture the whole line, then truncate at the first KNOWN metadata marker —
+  // not at every `;` (audited rows also use semicolons BETWEEN paths: `x.ts
+  // (NEW); apps/b/y.ts (EXTEND)`), and not at the first `)` (inline
+  // annotations like `a.ts (CREATE) + b.ts` would drop the second root). An
+  // unknown future marker leaks its path-shaped tokens into the target list,
+  // which can only widen the root set — the fail-closed direction (Codex ×2,
+  // PR #190).
+  const fieldRe = /\bFiles:\s*([^\n]+)/g;
+  // Two marker shapes end the clause: `; Label:` (inline rows) and `**Label`
+  // (sub-header rows whose fields share one line) — without the bold stop,
+  // cite prose after `**Spec coverage:**` leaks slash-shaped tokens like
+  // `20/session/hr` into the target list, turning a should-be-fail-closed-L
+  // phase into M via nonzero non-code paths (Codex, PR #190).
+  const fieldLabels =
+    "Spec coverage|Verifies invariant|Consumes|Provides|Wires|Acceptance|Depends on|Rollback";
+  const metadataMarker = new RegExp(`;\\s*(?:${fieldLabels})\\s*:|\\*\\*\\s*(?:${fieldLabels})`);
+  let m;
+  while ((m = fieldRe.exec(phaseSection)) !== null) {
+    const markerHit = metadataMarker.exec(m[1]);
+    const clause = markerHit ? m[1].slice(0, markerHit.index) : m[1];
+    for (const token of clause.split(/[,\s]+/)) {
+      // Trailing sentence punctuation (`pty-host.ts\`.`) would fail the path
+      // regex and silently drop the package root from classification. Markup
+      // strip is EDGE-anchored so glob stars inside a path survive.
+      const cleaned = token
+        .replace(/^[`*([]+/, "")
+        .replace(/[`*.,;:!?)\]]+$/, "")
+        .trim();
+      // Path-shaped = 2+ slash-joined segments (files, directories with a
+      // trailing slash, globs — a directory target like
+      // `packages/runtime-daemon/src/ipc/handlers/` is root-bearing evidence
+      // even without an extension) OR a slash-less root-level file with an
+      // extension (`package.json`) — dropping those hid root tooling/config
+      // targets from the fail-closed non-exempt check (Codex, PR #190).
+      const pathShaped =
+        /^[\w.@-]+(\/[\w.@*-]+)+\/?$/.test(cleaned) ||
+        /^[\w@-][\w.@-]*\.\w+$/.test(cleaned) ||
+        // Extensionless root config/tooling files: dotfiles (.nvmrc,
+        // .gitignore) and the well-known bare names — dropping them hid
+        // repo-root tooling targets from the fail-closed check (Codex, PR #190).
+        /^\.[\w.-]+$/.test(cleaned) ||
+        /^(?:Dockerfile|Makefile|Justfile|Procfile|Brewfile|Vagrantfile|LICENSE|NOTICE|CODEOWNERS)$/.test(
+          cleaned,
+        ) ||
+        // Single-segment directories (`tools/`) and the bare root tooling dir
+        // names — a directory-valued repo-root target must reach the
+        // fail-closed non-exempt check (Codex, PR #190).
+        /^[\w.@-]+\/$/.test(cleaned) ||
+        /^(?:tools|scripts)$/.test(cleaned);
+      if (pathShaped && !paths.includes(cleaned)) paths.push(cleaned);
+    }
+  }
+  return paths;
 }
 
 // Extract §5 (Canonical Build Order) from cross-plan-dependencies.md. Used by
@@ -1059,6 +1183,23 @@ function makeFailure(kind, raw, message, remediation, severity = "error") {
 // descriptor, Plan-local-ID at first anchor position, phantom-section
 // (verified later by verifyAnchorAgainstSpec).
 function parseSpecSegment(segment) {
+  const result = parseSpecSegmentInner(segment);
+  // Stamp the segment's Spec number on every failure: sub-token failures
+  // (compound-range-multi-subject and friends) carry only the sub-token as
+  // `raw` (`lines 13-14 (…)`), so the demote gate's existence floor could not
+  // see which Spec the segment named (Codex, PR #190 round 11).
+  const specMatch = segment.match(/\bSpec-(\d{1,4})\b/);
+  if (specMatch) {
+    const spec = Number(specMatch[1]);
+    return {
+      anchors: result.anchors,
+      failures: result.failures.map((f) => ({ ...f, spec: f.spec ?? spec })),
+    };
+  }
+  return result;
+}
+
+function parseSpecSegmentInner(segment) {
   const nsMatch = segment.match(/^Spec-(\d+)\b\s*(.*)$/s);
   if (!nsMatch) {
     return {
@@ -1988,6 +2129,40 @@ function verifySectionAnchor(anchor, specLines) {
   return sectionNotFoundFailure(anchor.section);
 }
 
+// Grammar/format kinds demote to warnings for S/M classes. FAIL-CLOSED polarity:
+// this set enumerates what DEMOTES, so any kind not listed — every
+// existence-shaped kind (spec-file-not-found/-ambiguous/-unreadable,
+// section-not-found, line-out-of-range, line-blank, line-range-out-of-bounds,
+// ac-section-missing, ac-index-out-of-range, adr-/arch-doc-/cross-plan-deps
+// lookups, *-unconfigured) and any FUTURE kind — stays a hard error for every
+// class. Verifier failures arrive with kind = the verify reason (wrapped at the
+// verifyFailures.push site in gateTasksBlockCites), so one set covers both the
+// parser and verifier layers. Kind strings verified against this file 2026-07-06.
+export const G4_GRAMMAR_DEMOTE_KINDS = new Set([
+  // parser-layer grammar/format kinds
+  "unparseable-cite",
+  // NOT unparseable-spec-subanchor: a Spec-NNN cite that parses to NO anchor
+  // (e.g. `Spec-999 row 4`) never reaches the verifier, so demoting the parse
+  // failure would silently skip the spec-file-not-found HARD check for the
+  // exact classes with the least reviewer coverage (Codex, PR #190).
+  "compound-range-multi-subject",
+  "namespace-violation",
+  "spec-namespace-malformed",
+  "plan-local-id-as-spec-anchor",
+  "plan-local-id-malformed-trailer",
+  "plan-local-id-unparseable",
+  // NOT here (kept hard for every class): subject-mismatch and
+  // subject-mismatch-in-range — those are SEMANTIC failures (the cited line
+  // exists but names different behavior), and for an S-class run the only
+  // dispatched reviewer is intent-blind on cite content, so demoting them
+  // would lose spec coverage entirely (Codex, PR #190).
+  // AC line-HINT refinement kinds (the AC bullet itself was found)
+  "ac-line-hint-not-bullet",
+  "ac-line-hint-out-of-range",
+  "ac-line-hint-outside-section",
+  "ac-line-hint-wrong-bullet",
+]);
+
 export function gateTasksBlockCites(phaseSection, planNumber, phaseNumber, opts = {}) {
   const counts = countCites(phaseSection);
   if (!(counts.spec_coverage > 0 && counts.verifies_invariant > 0)) {
@@ -2042,8 +2217,32 @@ export function gateTasksBlockCites(phaseSection, planNumber, phaseNumber, opts 
     }
   }
   const allFailures = [...parseFailures, ...verifyFailures];
-  const blockingFailures = allFailures.filter((f) => (f.severity ?? "error") === "error");
-  if (blockingFailures.length === 0) return { ok: true };
+  // Size-classed tiering (SKILL.md § Size-Classed Ceremony): grammar/format
+  // kinds demote to warnings for S/M phases; existence-shaped kinds and any
+  // kind outside the fail-closed demote set stay hard for every class. The
+  // Gate-4 token-presence floor above stays hard for all classes.
+  const demoteGrammar = opts.sizeClass === "S" || opts.sizeClass === "M";
+  // Existence floor survives demotion: a no-anchor parse failure (compound
+  // range with multi-subject, plan-local id at anchor position, unparseable
+  // tail, …) never reaches the verifier, so the spec-file existence check it
+  // skipped is re-applied HERE — every Spec-NNN the raw payload names must
+  // resolve to exactly one file or the finding stays hard for every class
+  // (family closure for Codex rounds 9-10, PR #190).
+  const demotionKeepsExistenceFloor = (f) => {
+    const named = [...String(f.raw ?? "").matchAll(/\bSpec-(\d{1,4})\b/g)].map((m) => Number(m[1]));
+    if (f.spec != null) named.push(Number(f.spec));
+    return named.every((num) => findPaddedFiles(specsDir, num).length === 1);
+  };
+  const demoted = [];
+  const blockingFailures = allFailures.filter((f) => {
+    if ((f.severity ?? "error") !== "error") return false;
+    if (demoteGrammar && G4_GRAMMAR_DEMOTE_KINDS.has(f.kind) && demotionKeepsExistenceFloor(f)) {
+      demoted.push(f);
+      return false;
+    }
+    return true;
+  });
+  if (blockingFailures.length === 0) return { ok: true, warnings: demoted };
   const lines = [
     "## Preflight halt: Gate 4 cite-anchor semantic check failed",
     "",
@@ -2057,6 +2256,14 @@ export function gateTasksBlockCites(phaseSection, planNumber, phaseNumber, opts 
     lines.push(`- [${f.kind}] ${where}: ${f.message}`);
     lines.push(`  cite: ${f.raw}`);
     if (f.remediation) lines.push(`  fix:  ${f.remediation}`);
+  }
+  if (demoted.length > 0) {
+    lines.push("");
+    lines.push(`Demoted to warnings under size-class ${opts.sizeClass}:`);
+    for (const f of demoted) {
+      const where = f.taskId ? `${f.taskId} (${f.field})` : f.field;
+      lines.push(`- [${f.kind}] ${where}: ${f.message}`);
+    }
   }
   lines.push("");
   lines.push("Authoring contract: docs/operations/plan-implementation-readiness-audit-runbook.md");
@@ -2430,6 +2637,9 @@ function _checkPhase(planSource, planNumber, phase, planFile, opts) {
   // phases also use this to admit themselves before Gate 4 is skipped.
   const gPhase = gatePhaseAuditCheckbox(planSource, sec, planFile, phase.number);
   if (!gPhase.ok) return { eligible: false, reason: "audit", halt: gPhase.halt };
+  // Size class is computed for every phase — including substrate-exempt ones,
+  // which skip Gate 4 but still drive the SKILL.md ceremony map off the class.
+  const sizeClass = classifyPhaseSize(extractDeclaredTaskIds(sec), extractDeclaredFilePaths(sec));
   // Gate 4 (Tasks-block G4 cites) is skipped for phases declaring
   // audit_status: substrate_exempt. By criterion (3) those phases ship pure
   // pre-behavior plumbing with zero Spec AC coverage — Gate 4's `Spec
@@ -2441,8 +2651,9 @@ function _checkPhase(planSource, planNumber, phase, planFile, opts) {
   const isSubstrateExempt = entries.some(
     (e) => e.type === "audit_status" && e.status === "substrate_exempt",
   );
+  let g4 = null;
   if (!isSubstrateExempt) {
-    const g4 = gateTasksBlockCites(sec, planNumber, phase.number, opts);
+    g4 = gateTasksBlockCites(sec, planNumber, phase.number, { ...opts, sizeClass });
     if (!g4.ok) return { eligible: false, reason: "audit", halt: g4.halt };
   }
   const g5 = gatePreconditions(sec, planFile, phase.number, {
@@ -2450,8 +2661,16 @@ function _checkPhase(planSource, planNumber, phase, planFile, opts) {
     phaseSection: sec,
     phaseNumber: phase.number,
   });
-  if (!g5.ok) return { eligible: false, reason: "preconditions", halt: g5.halt };
-  return { eligible: true };
+  if (!g5.ok)
+    return {
+      eligible: false,
+      reason: "preconditions",
+      halt: g5.halt,
+      warnings: g4?.warnings ?? [],
+    };
+  // Demoted G4 findings must ride the PASS path (delta D-14) — otherwise S/M
+  // grammar rot accumulates invisibly behind the demotion.
+  return { eligible: true, sizeClass, warnings: g4?.warnings ?? [] };
 }
 
 export function runPreflight(
@@ -2497,14 +2716,28 @@ export function runPreflight(
     if (!target)
       return { exit: 1, stdout: `## Preflight halt: phase ${phaseArg} not found in ${planFile}` };
     const r = _checkPhase(planSource, planNumber, target, planFile, opts);
-    if (!r.eligible) return { exit: 1, stdout: r.halt };
-    return { exit: 0, stdout: String(target.number) };
+    // Halt paths carry demoted warnings too — explicit-phase overrides are a
+    // normal recovery path, and the never-silent contract must survive them
+    // (Codex, PR #190: precondition halt was hiding the phase's cite drift).
+    if (!r.eligible) return { exit: 1, stdout: r.halt, warnings: r.warnings ?? [] };
+    return { exit: 0, stdout: String(target.number), sizeClass: r.sizeClass, warnings: r.warnings };
   }
 
   const skipped = [];
+  // Demoted G4 grammar warnings from phases the walk SKIPS (e.g. an S phase
+  // whose only hard failure is an unmet precondition) must still surface on
+  // the eventual success return — the never-silent contract covers skipped
+  // phases too, or cite rot hides behind the skip.
+  const walkWarnings = [];
   for (const p of phases) {
     const r = _checkPhase(planSource, planNumber, p, planFile, opts);
-    if (r.eligible) return { exit: 0, stdout: String(p.number) };
+    if (r.eligible)
+      return {
+        exit: 0,
+        stdout: String(p.number),
+        sizeClass: r.sizeClass,
+        warnings: [...walkWarnings, ...(r.warnings ?? [])],
+      };
     // `fully_shipped` is the only legitimate silent-skip — every other Gate 3
     // failure must surface, including the round-7/8 strict halts. Pre-round-9
     // _checkPhase collapsed all `gatePhaseUnshipped` failures to `reason:
@@ -2527,9 +2760,10 @@ export function runPreflight(
       r.reason === "manifest_invalid_entries" ||
       r.reason === "audit"
     ) {
-      return { exit: 1, stdout: r.halt };
+      return { exit: 1, stdout: r.halt, warnings: [...walkWarnings, ...(r.warnings ?? [])] };
     }
     // no-section / preconditions — per-phase issues, try next phase.
+    walkWarnings.push(...(r.warnings ?? []));
     skipped.push(`Phase ${p.number} (${r.reason}): ${r.halt.split("\n")[0]}`);
   }
   const reasonsText = skipped.length
@@ -2538,6 +2772,7 @@ export function runPreflight(
   return {
     exit: 1,
     stdout: `## Preflight halt: no eligible un-shipped phase in ${planFile}${reasonsText}`,
+    warnings: walkWarnings,
   };
 }
 
@@ -2572,7 +2807,33 @@ async function main() {
     );
   }
   const result = runPreflight(planFile, phaseArg, { checkFreshness: !allowStaleManifest });
-  if (result.stdout) process.stdout.write(result.stdout + "\n");
+  const warningLines = (result.warnings ?? []).map(
+    (w) => `  - [${w.kind}] ${[w.taskId, w.field, w.message].filter(Boolean).join(" ")}`,
+  );
+  // Halt warnings fold INTO the stdout halt text: the orchestrator contract
+  // surfaces stdout verbatim on non-zero exit, so stderr-only warnings would
+  // vanish on the exact recovery paths they were added for (Codex, PR #190).
+  if (result.stdout) {
+    const haltWarningsBlock =
+      result.exit !== 0 && warningLines.length
+        ? `\n\nDemoted grammar warnings (non-blocking, carried by the halt):\n${warningLines.join("\n")}`
+        : "";
+    process.stdout.write(result.stdout + haltWarningsBlock + "\n");
+  }
+  // Line 2 of the success contract (delta D-5): the phase's size class drives
+  // the ceremony map in SKILL.md § Size-Classed Ceremony.
+  if (result.exit === 0 && result.sizeClass)
+    process.stdout.write(`size-class: ${result.sizeClass}\n`);
+  // Success path: demoted findings are non-blocking but NEVER silent — stderr
+  // keeps the success stdout contract at exactly two lines while the author
+  // still sees the drift.
+  if (result.exit === 0 && warningLines.length) {
+    process.stderr.write(
+      `preflight: size-class ${result.sizeClass} demoted ${warningLines.length} grammar finding(s) to warnings:\n` +
+        warningLines.join("\n") +
+        "\n",
+    );
+  }
   if (result.stderr) process.stderr.write(result.stderr + "\n");
   process.exit(result.exit);
 }

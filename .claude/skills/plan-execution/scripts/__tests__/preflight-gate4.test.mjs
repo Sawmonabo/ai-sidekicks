@@ -7,6 +7,8 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { mkdtempSync, mkdirSync, symlinkSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { spawnSync } from "node:child_process";
+import process from "node:process";
 import {
   normalizeCitePayload,
   extractIdentifierTokens,
@@ -15,6 +17,10 @@ import {
   verifyAnchorAgainstSpec,
   gateTasksBlockCites,
   runPreflight,
+  classifyPhaseSize,
+  extractDeclaredFilePaths,
+  extractDeclaredTaskIds,
+  G4_GRAMMAR_DEMOTE_KINDS,
 } from "../preflight.mjs";
 
 const FIXTURE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "preflight-gate4-fixtures");
@@ -808,4 +814,460 @@ test("PASS 50: mid-list range verifies end-to-end against the spec fixture", () 
   assert.equal(anchors.length, 2);
   assert.equal(anchors[1].type, "line-range");
   assert.equal(anchors[1].subject, "RateLimitResponse");
+});
+
+// ============================================================
+// Size-classed ceremony (PR-5, design memo §5): classifyPhaseSize /
+// extractDeclaredFilePaths units, G4 tiering by size class, preflight
+// sizeClass surfacing, CLI two-line stdout contract, and the auto-walk
+// selection-semantics regression pins (PM-31b/PM-31c).
+// ============================================================
+
+const SIZE_CLASS_PREFLIGHT_CLI = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "preflight.mjs",
+);
+const PASSING_S_PLAN = resolve(FIXTURE_DIR, "200-passing-s-plan.md");
+const GRAMMAR_S_PLAN = resolve(FIXTURE_DIR, "201-grammar-defect-s-plan.md");
+const GRAMMAR_L_PLAN = resolve(FIXTURE_DIR, "202-grammar-defect-l-plan.md");
+const MISSING_SPEC_S_PLAN = resolve(FIXTURE_DIR, "203-missing-spec-s-plan.md");
+const WARNINGS_CARRY_WALK_PLAN = resolve(FIXTURE_DIR, "204-warnings-carry-walk-plan.md");
+
+test("classifyPhaseSize: 1 task is S regardless of paths", () => {
+  assert.equal(classifyPhaseSize(["T1"], ["packages/a/src/x.ts"]), "S");
+});
+
+test("classifyPhaseSize: 2-3 tasks in a single package root is M; non-code paths don't count", () => {
+  assert.equal(
+    classifyPhaseSize(
+      ["T1", "T2"],
+      ["packages/a/src/x.ts", "packages/a/src/y.ts", "docs/plans/001-x.md"],
+    ),
+    "M",
+  );
+});
+
+test("classifyPhaseSize: two package roots is L", () => {
+  assert.equal(
+    classifyPhaseSize(["T1", "T2"], ["packages/a/src/x.ts", "packages/b/src/y.ts"]),
+    "L",
+  );
+});
+
+test("classifyPhaseSize: >3 tasks is L even in one root", () => {
+  assert.equal(classifyPhaseSize(["T1", "T2", "T3", "T4"], ["packages/a/src/x.ts"]), "L");
+});
+
+test("classifyPhaseSize: zero parsed task IDs FAILS CLOSED to L (unrecognized shape gets full ceremony)", () => {
+  assert.equal(classifyPhaseSize([], []), "L");
+});
+
+test("extractDeclaredTaskIds parses the em-dash-inside-bold row shape audited plans use (Codex P1, PR #190)", () => {
+  const block = [
+    "#### Tasks",
+    "",
+    "- **T1.1 — `repo.ts` contract core: branded IDs + canonical enums.**",
+    "- **T1.2 — `RepoAttach` + `RepoMountRead` schemas.**",
+    "- **T-100-1.3** — bold-closes-after-id shape still parses",
+    "- [ ] **T21.1-4 — checkbox row shape (Plan-021) parses too.**",
+    "",
+  ].join("\n");
+  assert.deepEqual(extractDeclaredTaskIds(block), ["T-100-1.3", "T1.1", "T1.2", "T21.1-4"]);
+});
+
+test("extractDeclaredTaskIds rejects prose bolds starting with T — no phantom ids (Codex P1, PR #190)", () => {
+  const block = [
+    "#### Tasks",
+    "",
+    "- **T1.1 — real task.**",
+    "- **Test (C1):** metadata bullet that must NOT count as a task id",
+    "- **Tooling note:** neither must this",
+    "",
+    "##### Testing strategy",
+    "",
+  ].join("\n");
+  assert.deepEqual(extractDeclaredTaskIds(block), ["T1.1"]);
+});
+
+test("extractDeclaredFilePaths counts directory and glob targets as root-bearing (Codex, PR #190)", () => {
+  const paths = extractDeclaredFilePaths(
+    "Files: `packages/runtime-daemon/src/ipc/handlers/`, `apps/desktop/src/renderer/src/participants/`",
+  );
+  assert.deepEqual(paths, [
+    "packages/runtime-daemon/src/ipc/handlers/",
+    "apps/desktop/src/renderer/src/participants/",
+  ]);
+  assert.equal(classifyPhaseSize(["T1", "T2"], paths), "L");
+  assert.deepEqual(extractDeclaredFilePaths("Files: `packages/a/src/**/*.ts`"), [
+    "packages/a/src/**/*.ts",
+  ]);
+});
+
+test("extractDeclaredFilePaths survives inline annotations between paths (Codex, PR #190)", () => {
+  const paths = extractDeclaredFilePaths(
+    "Files: `packages/a/src/x.ts` (CREATE) + `apps/b/src/y.ts` (EXTEND); Verifies invariant: I-1",
+  );
+  assert.deepEqual(paths, ["packages/a/src/x.ts", "apps/b/src/y.ts"]);
+  assert.equal(classifyPhaseSize(["T1", "T2"], paths), "L");
+});
+
+test("extractDeclaredFilePaths covers the sub-header bold-field layout and strips markup", () => {
+  assert.deepEqual(extractDeclaredFilePaths("Files: `packages/a/src/x.ts`, docs/plans/001-x.md"), [
+    "packages/a/src/x.ts",
+    "docs/plans/001-x.md",
+  ]);
+});
+
+test("extractDeclaredFilePaths covers the parenthesized inline layout, dedups, stays order-stable", () => {
+  const section = [
+    "- **T-1** (Files: `packages/a/src/x.ts` `packages/a/src/y.ts`; Verifies invariant: I-1) — desc",
+    "- **T-2** — other",
+    "  - **Files:** `packages/a/src/x.ts`",
+  ].join("\n");
+  assert.deepEqual(extractDeclaredFilePaths(section), [
+    "packages/a/src/x.ts",
+    "packages/a/src/y.ts",
+  ]);
+});
+
+const grammarDefectSection = [
+  "#### Tasks",
+  "",
+  "- **T-1** — Task with an unparseable cite form",
+  "  - **Spec coverage:** xyz random junk",
+  "  - **Verifies invariant:** I-1",
+  "",
+].join("\n");
+
+const missingSpecSection = [
+  "#### Tasks",
+  "",
+  "- **T-1** — Task citing a spec absent from the corpus",
+  "  - **Spec coverage:** Spec-100 line 3 (MissingFixtureIdentifier)",
+  "  - **Verifies invariant:** I-1",
+  "",
+].join("\n");
+
+test("G4 tiering: grammar-shaped kind demotes to warnings for size-class S", () => {
+  const r = gateTasksBlockCites(grammarDefectSection, "016", 1, { sizeClass: "S" });
+  assert.equal(r.ok, true, `expected demote-pass; got halt:\n${r.halt}`);
+  assert.ok(r.warnings.length >= 1, "demoted findings must ride the warnings channel");
+  assert.equal(r.warnings[0].kind, "unparseable-cite");
+});
+
+test("G4 tiering: the SAME grammar defect stays a hard halt for size-class L", () => {
+  assert.equal(gateTasksBlockCites(grammarDefectSection, "016", 1, { sizeClass: "L" }).ok, false);
+});
+
+test("G4 tiering: the grammar defect stays a hard halt when no sizeClass is passed", () => {
+  assert.equal(gateTasksBlockCites(grammarDefectSection, "016", 1, {}).ok, false);
+});
+
+test("G4 tiering: existence-shaped kind halts for EVERY class (fail-closed set polarity)", () => {
+  const r = gateTasksBlockCites(missingSpecSection, "016", 1, { sizeClass: "S" });
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /spec-file-not-found|spec-file/);
+});
+
+test("G4 tiering: a halting S-class run still lists demoted grammar findings (never silent)", () => {
+  const mixedSection = [
+    "#### Tasks",
+    "",
+    "- **T-1** — Task with one grammar defect and one existence defect",
+    "  - **Spec coverage:** xyz random junk",
+    "  - **Spec coverage:** Spec-100 line 3 (MissingFixtureIdentifier)",
+    "  - **Verifies invariant:** I-1",
+    "",
+  ].join("\n");
+  const r = gateTasksBlockCites(mixedSection, "016", 1, { sizeClass: "S" });
+  assert.equal(r.ok, false, "existence defect must still halt S");
+  assert.match(r.halt, /Demoted to warnings under size-class S/);
+  assert.match(r.halt, /unparseable-cite/);
+});
+
+test("runPreflight surfaces sizeClass on the explicit-phase success path", () => {
+  const r = runPreflight(PASSING_S_PLAN, 1, {});
+  assert.equal(r.exit, 0, `expected pass; got:\n${r.stdout}`);
+  assert.equal(r.stdout, "1");
+  assert.equal(r.sizeClass, "S");
+});
+
+test("CLI prints size-class as stdout line 2 (line 1 UNCHANGED; spawn — the bin guard requires it)", () => {
+  const cli = spawnSync(
+    process.execPath,
+    [SIZE_CLASS_PREFLIGHT_CLI, PASSING_S_PLAN, "1", "--allow-stale-manifest"],
+    { encoding: "utf8" },
+  );
+  assert.equal(cli.status, 0, `status=${cli.status} stdout=${cli.stdout} stderr=${cli.stderr}`);
+  assert.equal(cli.stdout, "1\nsize-class: S\n");
+});
+
+// AUTO-WALK selection semantics pinned (PM-31b — next-task-detection integrity):
+// (a) S-class grammar defect: walk SELECTS the phase (was: strict-halt) and the
+//     demoted findings surface on the WARNINGS channel, never silently dropped.
+test("auto-walk (a): S-class grammar defect selects the phase with warnings riding the return", () => {
+  const walkS = runPreflight(GRAMMAR_S_PLAN, undefined, {});
+  assert.equal(walkS.exit, 0, `expected select; got halt:\n${walkS.stdout}`);
+  assert.equal(walkS.stdout, "1");
+  assert.ok(walkS.warnings.length >= 1, "demoted findings ride the return");
+});
+
+test("auto-walk (a) CLI: two-line stdout contract + demoted warnings on STDERR", () => {
+  const cliWalk = spawnSync(
+    process.execPath,
+    [SIZE_CLASS_PREFLIGHT_CLI, GRAMMAR_S_PLAN, "--allow-stale-manifest"],
+    { encoding: "utf8" },
+  );
+  assert.equal(
+    cliWalk.status,
+    0,
+    `status=${cliWalk.status} stdout=${cliWalk.stdout} stderr=${cliWalk.stderr}`,
+  );
+  assert.equal(cliWalk.stdout, "1\nsize-class: S\n");
+  assert.match(cliWalk.stderr, /demoted.*grammar/i);
+});
+
+// (b) same Tasks-block defect in an L-shaped phase (4 tasks): strict-halt preserved verbatim.
+test("auto-walk (b): the SAME grammar defect in an L-shaped phase strict-halts", () => {
+  const walkL = runPreflight(GRAMMAR_L_PLAN, undefined, {});
+  assert.equal(walkL.exit, 1);
+  assert.match(walkL.stdout, /Gate 4 cite-anchor semantic check failed/);
+});
+
+// (c) existence-shaped defect (nonexistent spec): halts for EVERY class.
+test("auto-walk (c): existence-shaped defect halts even for an S-class phase", () => {
+  assert.equal(runPreflight(MISSING_SPEC_S_PLAN, undefined, {}).exit, 1);
+});
+
+// (d) eligibility invariance (PM-31c): every pre-existing fixture's runPreflight
+//     outcome (exit + stdout line 1 + halt text) is byte-identical to pre-change —
+//     asserted by the untouched pre-existing suite above; only the new sizeClass
+//     field / stdout line 2 / warnings channel may differ.
+
+test("extractDeclaredFilePaths strips trailing sentence punctuation (Codex PR #190: plan-024 Phase 2 shape)", () => {
+  assert.deepEqual(extractDeclaredFilePaths("Files: `packages/contracts/src/pty-host.ts`."), [
+    "packages/contracts/src/pty-host.ts",
+  ]);
+  // Dropping the root demoted a real two-root phase to M; with the strip it is L.
+  assert.equal(
+    classifyPhaseSize(
+      ["T1", "T2", "T3"],
+      extractDeclaredFilePaths(
+        "Files: `packages/contracts/src/pty-host.ts`.\nFiles: `packages/runtime-daemon/src/pty/node-pty-host.ts`",
+      ),
+    ),
+    "L",
+  );
+});
+
+test("classifyPhaseSize: non-package CODE paths (tools/, .claude/, .github/) fail closed to L (Codex, PR #190)", () => {
+  assert.equal(
+    classifyPhaseSize(["T1", "T2"], [".claude/skills/plan-execution/scripts/preflight.mjs"]),
+    "L",
+  );
+  assert.equal(classifyPhaseSize(["T1", "T2"], ["tools/docs-corpus/lib/label-cite.ts"]), "L");
+  // docs-ish paths stay exempt: alone → M; alongside a single package root → M
+  assert.equal(classifyPhaseSize(["T1", "T2"], ["docs/specs/002-x.md", "CONTRIBUTING.md"]), "M");
+  assert.equal(
+    classifyPhaseSize(["T1", "T2"], ["packages/a/src/x.ts", "docs/specs/002-x.md"]),
+    "M",
+  );
+});
+
+test("G4 tiering: subject-mismatch stays a HARD error even for size-class S (Codex, PR #190)", () => {
+  assert.ok(!G4_GRAMMAR_DEMOTE_KINDS.has("subject-mismatch"));
+  assert.ok(!G4_GRAMMAR_DEMOTE_KINDS.has("subject-mismatch-in-range"));
+});
+
+test("G4 tiering: demotion re-applies the existence floor — no-anchor kinds naming a missing spec stay hard (Codex, PR #190)", () => {
+  const missingSpecNoAnchor = [
+    "#### Tasks",
+    "",
+    "- **T-1** — Plan-local id at anchor position, absent spec",
+    "  - **Spec coverage:** Spec-999 C5",
+    "  - **Verifies invariant:** I-1",
+    "",
+  ].join("\n");
+  assert.equal(gateTasksBlockCites(missingSpecNoAnchor, "016", 1, { sizeClass: "S" }).ok, false);
+  // Same no-anchor kind on an EXISTING spec still demotes — the guard is an
+  // existence floor, not a blanket re-hardening.
+  const existingSpecNoAnchor = [
+    "#### Tasks",
+    "",
+    "- **T-1** — Plan-local id at anchor position, existing spec",
+    "  - **Spec coverage:** Spec-002 C5",
+    "  - **Verifies invariant:** I-1",
+    "",
+  ].join("\n");
+  const r = gateTasksBlockCites(existingSpecNoAnchor, "016", 1, { sizeClass: "S" });
+  assert.equal(r.ok, true, `expected demote-pass; got halt:\n${r.halt}`);
+  assert.ok(r.warnings.length >= 1);
+});
+
+test("G4 tiering: sub-token failures inherit the segment's Spec for the existence floor (Codex, PR #190)", () => {
+  const missingSpecCompoundRange = [
+    "#### Tasks",
+    "",
+    "- **T-1** — Compound range on an absent spec",
+    "  - **Spec coverage:** Spec-999 lines 13-14 (Foo/Bar)",
+    "  - **Verifies invariant:** I-1",
+    "",
+  ].join("\n");
+  assert.equal(
+    gateTasksBlockCites(missingSpecCompoundRange, "016", 1, { sizeClass: "S" }).ok,
+    false,
+  );
+  const existingSpecCompoundRange = missingSpecCompoundRange.replace("Spec-999", "Spec-002");
+  const r = gateTasksBlockCites(existingSpecCompoundRange, "016", 1, { sizeClass: "S" });
+  assert.equal(r.ok, true, `expected demote-pass; got halt:\n${r.halt}`);
+  assert.equal(r.warnings[0].kind, "compound-range-multi-subject");
+});
+
+test("extractDeclaredFilePaths counts bare root tooling directories (Codex, PR #190)", () => {
+  const paths = extractDeclaredFilePaths("Files: tools/, scripts, `packages/a/src/x.ts`");
+  assert.ok(paths.includes("tools/"));
+  assert.ok(paths.includes("scripts"));
+  assert.equal(classifyPhaseSize(["T1", "T2"], paths), "L");
+});
+
+test("extractDeclaredFilePaths counts extensionless root config files (Codex, PR #190)", () => {
+  const paths = extractDeclaredFilePaths("Files: Dockerfile, .nvmrc, `packages/a/src/x.ts`");
+  assert.ok(paths.includes("Dockerfile"));
+  assert.ok(paths.includes(".nvmrc"));
+  assert.equal(classifyPhaseSize(["T1", "T2"], paths), "L");
+});
+
+test("classifyPhaseSize: root-level files count as non-exempt targets — package.json forces L (Codex, PR #190)", () => {
+  const paths = extractDeclaredFilePaths("Files: package.json, `packages/a/src/x.ts`");
+  assert.ok(paths.includes("package.json"), "slash-less root file must be path-shaped");
+  assert.equal(classifyPhaseSize(["T1", "T2"], paths), "L");
+});
+
+test("classifyPhaseSize: wildcard package roots never prove single-root confinement (Codex, PR #190)", () => {
+  assert.equal(classifyPhaseSize(["T1", "T2"], ["packages/*/src/index.ts"]), "L");
+  // a glob confined WITHIN one literal package still earns M
+  assert.equal(classifyPhaseSize(["T1", "T2"], ["packages/a/src/**/*.ts"]), "M");
+});
+
+test("G4 tiering: no-anchor Spec parse failure stays HARD for S — it can mask a missing spec (Codex, PR #190)", () => {
+  assert.ok(!G4_GRAMMAR_DEMOTE_KINDS.has("unparseable-spec-subanchor"));
+  const section = [
+    "#### Tasks",
+    "",
+    "- **T-1** — Task with a no-anchor spec cite naming an absent spec",
+    "  - **Spec coverage:** Spec-999 row 4",
+    "  - **Verifies invariant:** I-1",
+    "",
+  ].join("\n");
+  assert.equal(gateTasksBlockCites(section, "016", 1, { sizeClass: "S" }).ok, false);
+});
+
+test("classifyPhaseSize: bare packages/<name> and apps/<name> tokens are root-bearing (Codex, PR #190)", () => {
+  assert.equal(classifyPhaseSize(["T1", "T2"], ["packages/a", "apps/b"]), "L");
+  assert.equal(classifyPhaseSize(["T1", "T2"], ["packages/a"]), "M");
+});
+
+test("extractDeclaredFilePaths keeps semicolon-separated paths, still truncating at metadata markers (Codex, PR #190)", () => {
+  assert.deepEqual(
+    extractDeclaredFilePaths("Files: packages/a/src/x.ts (NEW); apps/b/src/y.ts (EXTEND)"),
+    ["packages/a/src/x.ts", "apps/b/src/y.ts"],
+  );
+  assert.deepEqual(
+    extractDeclaredFilePaths(
+      "(Files: `packages/a/src/x.ts`; Verifies invariant: docs/specs/002-x.md)",
+    ),
+    ["packages/a/src/x.ts"],
+  );
+});
+
+test("extractDeclaredTaskIds keeps ids whose bold titles contain a literal star (Codex P1, PR #190)", () => {
+  const block = [
+    "#### Tasks",
+    "",
+    "- **T1.4 — Typed repo error classes carrying the canonical `repo.*` code strings.**",
+    "- [ ] **T4.6 — Register `participant.*` handlers.**",
+    "",
+  ].join("\n");
+  assert.deepEqual(extractDeclaredTaskIds(block), ["T1.4", "T4.6"]);
+});
+
+test("extractDeclaredTaskIds unions ALL #### Tasks blocks in a phase (refinement-lane shape, PR #190)", () => {
+  const section = [
+    "### Phase 3 — Split-lane phase",
+    "",
+    "#### Tasks",
+    "",
+    "- **T3.1 — main-lane task.**",
+    "",
+    "#### Deliverables",
+    "",
+    "- prose that is not a task row",
+    "",
+    "#### Tasks",
+    "",
+    "- **T-007r-1-1** — refinement-lane task",
+    "",
+  ].join("\n");
+  assert.deepEqual(extractDeclaredTaskIds(section), ["T-007r-1-1", "T3.1"]);
+});
+
+test("extractDeclaredFilePaths stops at BOLD metadata labels — cite prose slash-tokens stay out (Codex, PR #190)", () => {
+  assert.deepEqual(
+    extractDeclaredFilePaths(
+      "- **Files:** `packages/a/src/x.ts` **Spec coverage:** Spec-002 §Rate Limiting (20/session/hr + membership/presence)",
+    ),
+    ["packages/a/src/x.ts"],
+  );
+  // `Files: none` + trailing cite prose must yield ZERO paths (fail-closed L),
+  // not a nonzero non-code list that would award M.
+  assert.deepEqual(
+    extractDeclaredFilePaths(
+      "- **Files:** none **Spec coverage:** Spec-002 line 88 (20/session/hr)",
+    ),
+    [],
+  );
+});
+
+test("classifyPhaseSize: 2-3 tasks with ZERO parsed paths fail closed to L; docs-only keeps M (Codex, PR #190)", () => {
+  assert.equal(classifyPhaseSize(["T1", "T2", "T3"], []), "L");
+  assert.equal(classifyPhaseSize(["T1", "T2"], ["docs/specs/002-x.md"]), "M");
+});
+
+test("explicit-phase halt still surfaces the phase's demoted warnings (Codex, PR #190)", () => {
+  const r = runPreflight(WARNINGS_CARRY_WALK_PLAN, 1, {});
+  assert.equal(r.exit, 1, "phase 1 is precondition-blocked");
+  assert.match(r.stdout, /[Pp]recondition/);
+  assert.ok(
+    r.warnings.some((w) => w.kind === "unparseable-cite"),
+    "the demoted grammar finding must ride the halt, not vanish behind it",
+  );
+});
+
+test("CLI folds demoted warnings INTO the stdout halt text (Codex, PR #190)", () => {
+  const spawned = spawnSync(
+    process.execPath,
+    [
+      resolve(FIXTURE_DIR, "../../preflight.mjs"),
+      WARNINGS_CARRY_WALK_PLAN,
+      "1",
+      "--allow-stale-manifest",
+    ],
+    { encoding: "utf8" },
+  );
+  assert.equal(spawned.status, 1);
+  // Orchestrators surface stdout verbatim on non-zero exit — the warnings
+  // must live there, not on stderr where that contract never looks.
+  assert.match(spawned.stdout, /Demoted grammar warnings \(non-blocking, carried by the halt\):/);
+  assert.match(spawned.stdout, /\[unparseable-cite\]/);
+});
+
+test("auto-walk carries demoted warnings from SKIPPED phases into the selection (Codex PR #190)", () => {
+  const walk = runPreflight(WARNINGS_CARRY_WALK_PLAN, undefined, {});
+  assert.equal(walk.exit, 0, `expected select; got halt:\n${walk.stdout}`);
+  assert.equal(walk.stdout, "2", "phase 1 is precondition-blocked; walk selects phase 2");
+  assert.ok(
+    walk.warnings.some((w) => w.kind === "unparseable-cite"),
+    "phase 1's demoted grammar finding must ride the phase-2 selection, never silently dropped",
+  );
 });

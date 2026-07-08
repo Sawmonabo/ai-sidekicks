@@ -54,6 +54,7 @@ Every finding carries exactly one label — a finding without a label is a contr
 - Plan `## Invariants` section (read I-NNN-M entries cited in `verifies_invariant`): <paste>
 - Spec: <docs/specs/NNN-\*.md>
 - Cited ADRs: <list>
+- Size class: `S` | `M` | `L` — informational ceremony tier for this run (SKILL.md § Size-Classed Ceremony). Your lane and severity discipline are unchanged by it.
 
 [Phase D — PR-scoped:]
 
