@@ -138,6 +138,17 @@ describe("checkLaneBoundary", () => {
     expect(result.failures[0]).toContain("no revert exemption");
   });
 
+  it("fails a material revert even on a hand-renamed plan-scoped branch (branch shortcut void for reverts)", () => {
+    const result = checkLaneBoundary({
+      title: 'Revert "feat(daemon): Plan-004 run lifecycle handlers"',
+      branch: "fix/plan-004-revert-run-handlers",
+      changedFiles: [materialFile],
+    });
+    expect(result.ok).toBe(false);
+    expect(result.failures).toHaveLength(1);
+    expect(result.failures[0]).toContain("This is a revert");
+  });
+
   it("passes a material revert that carries the manifest reconciliation (plan-doc edit)", () => {
     const result = checkLaneBoundary({
       title: 'Revert "feat(daemon): Plan-004 run lifecycle handlers"',

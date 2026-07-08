@@ -21,12 +21,15 @@
 //     `sha:` field is the squash SHA, so Phase E lands it via a separate
 //     post-merge housekeeping PR (SKILL.md §Phase E, steps 6-8 — Codex P1
 //     on this PR's first review round);
-//   - reverts get NO exemption (Codex P2, round 3): G6 itself has none, so
-//     a merged material `Revert "... Plan-NNN ..."` title joins the
+//   - reverts get NO exemption (Codex P2, rounds 3-4): G6 itself has none,
+//     so a merged material `Revert "... Plan-NNN ..."` title joins the
 //     freshness population as an unmanifested shipment — the exact
-//     pollution this guard exists to prevent. A material revert must drop
-//     the token from its title (reverts are not shipments) or carry the
-//     full manifest reconciliation (a `docs/plans/NNN-*.md` edit) in-PR;
+//     pollution this guard exists to prevent. The branch-shape shortcut
+//     does not count for reverts either (the shipped token rides any
+//     revert branch, including a hand-renamed plan-scoped one): a material
+//     revert must drop the token from its title (reverts are not
+//     shipments) or carry the full manifest reconciliation (a
+//     `docs/plans/NNN-*.md` edit) in-PR;
 //   - the INVERSE mislabel fails too (Codex P2, round 3): a material diff
 //     on a `feat|fix/plan-NNN-*` branch whose title omits the token is an
 //     apparent lane-1 shipment G6 can never recover (it searches titles,
@@ -121,6 +124,7 @@ export function checkLaneBoundary(input: LaneBoundaryInput): LaneBoundaryResult 
     return { ok: true, failures: [], advisories };
   }
   const failures: string[] = [];
+  const isRevertTitle = REVERT_TITLE_RE.test(input.title);
   for (const planNumber of tokens) {
     const planFileRe = new RegExp(`^docs/plans/${planNumber}-[^/]+\\.md$`);
     // Lane 1 is declared per cited plan: a plan-scoped branch for that NNN
@@ -130,14 +134,17 @@ export function checkLaneBoundary(input: LaneBoundaryInput): LaneBoundaryResult 
     // in the same PR (amendment-with-code shape). Reverts get no third
     // path: G6 has no revert exemption, so a merged material revert title
     // carrying the token becomes an unmanifested shipment in the freshness
-    // population — GitHub's default `revert-<pr>-<branch>` head is not
-    // lane-1-shaped, so a default revert fails here unless it carries the
-    // manifest reconciliation (plan-doc edit) or drops the token.
+    // population. For reverts the branch-shape shortcut does not count
+    // either (Codex P2, round 4): the shipped title's token rides ANY
+    // revert branch — GitHub's default `revert-<pr>-<branch>` head is not
+    // lane-1-shaped, but a hand-renamed `feat|fix/plan-NNN-*` revert branch
+    // would slip through while still leaving G6 polluted. A material revert
+    // passes only via the in-PR manifest reconciliation (plan-doc edit).
     const declaresLane1 =
-      lane1BranchRe(planNumber).test(input.branch) ||
+      (!isRevertTitle && lane1BranchRe(planNumber).test(input.branch)) ||
       input.changedFiles.some((file) => planFileRe.test(file));
     if (!declaresLane1) {
-      const revertRemedy = REVERT_TITLE_RE.test(input.title)
+      const revertRemedy = isRevertTitle
         ? `This is a revert: GitHub's default title re-carries the shipped token — ` +
           `edit the title to drop it (reverts are not shipments; the manifest-freshness ` +
           `gate has no revert exemption) or include the Shipment Manifest ` +
