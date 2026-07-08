@@ -41,11 +41,12 @@
 // the schema default `'untrusted'`; trust elevation is a separate
 // Phase-3/approval concern, so `register` takes no `trust_level` param.
 //
-// Refs: Plan-003 (Runtime Node Attach) §Phase 2 / T2.1 + T2.5, Spec-003 line 78
+// Refs: Plan-003 (Runtime Node Attach) §Phase 2 / T2.1 + T2.5, `Spec-003 §Fallback Behavior`
 // (disconnected node keeps membership; reconnect under same identity — the T2.5
-// detach guarantee), line 91 (durable runtime-node records), line 109 (node
-// identity stable across reconnect), Spec-006 lines 407 (`runtime_node.registered`
-// payload shape), 410 (`runtime_node.offline` payload shape), invariant I-003-3
+// detach guarantee), `Spec-003 §State And Data Implications` (durable
+// runtime-node records for reconnect + audit),
+// `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`
+// (`runtime_node.registered` + `runtime_node.offline` payload shapes), invariant I-003-3
 // (registration records a node without mutating membership; detach does not
 // revoke membership).
 
@@ -166,7 +167,7 @@ export class NodeRegistry {
         sessionId: input.sessionId,
         nodeId: input.nodeId,
         // `registering` is the initial lifecycle state (the node has joined and
-        // is completing capability declaration — runtime-node-model.md:48 /
+        // is completing capability declaration — `docs/domain/runtime-node-model.md §State Model` /
         // NodeStateSchema). `previousState` is intentionally OMITTED: registration
         // is the FIRST lifecycle event, so there is no prior state to report.
         // Omitting the key keeps it absent from the parsed payload (the happy-path

@@ -5,16 +5,16 @@
 // coordination record `runtime_node_presence`, distinct from the attachment-slot
 // axis (`runtime_node_attachments.state`) that AttachService / detach own:
 //
-//   * ingest — the daemon's periodic 15s heartbeat self-report (Spec-003
-//     line 59). Upserts the node's `runtime_node_presence` row with the SERVER
+//   * ingest — the daemon's periodic 15s heartbeat self-report (`Spec-003 §Default Behavior`).
+//     Upserts the node's `runtime_node_presence` row with the SERVER
 //     clock (`now()`) and the daemon's 2-value self-reported `health_state`
 //     (`online | degraded`). This is also the HYSTERESIS-RECOVERY path: a node
 //     the sweep demoted to `degraded` that resumes heartbeating (reporting
 //     `online`) is restored to `online` and its `last_heartbeat_at` bumped —
-//     recovering WITHOUT ever passing through `offline` (Spec-003 line 60).
+//     recovering WITHOUT ever passing through `offline` (`Spec-003 §Default Behavior`).
 //
-//   * sweepStaleness — the periodic, SERVER-DERIVED demotion (Spec-003
-//     line 61). A single `UPDATE ... RETURNING` that demotes rows whose
+//   * sweepStaleness — the periodic, SERVER-DERIVED demotion (`Spec-003 §Default Behavior`).
+//     A single `UPDATE ... RETURNING` that demotes rows whose
 //     `last_heartbeat_at` aged past the thresholds: `degraded` past 30s
 //     (≈2 missed 15s beats), `offline` past 60s (≈4 missed beats). Demotion is
 //     SWEEP-driven, never ingest-driven — a dead node sends nothing, so ingest
@@ -66,8 +66,8 @@
 //     nodes.ts`. This service only INSERT/UPDATEs rows; it never ALTERs the
 //     schema.
 //
-// Refs: Spec-003 §Default Behavior lines 59 (15s cadence / ingestion) / 60
-// (degraded@30s, offline@60s, hysteresis) / 61 (server-derived, sweep-driven,
+// Refs: `Spec-003 §Default Behavior` (15s cadence / ingestion;
+// degraded@30s, offline@60s, hysteresis; server-derived, sweep-driven,
 // coordination-record transition, no durable event); ADR-017 §Server-Derived
 // Runtime-Node Lifecycle Events (V1.1 event gate); docs/architecture/contracts/
 // api-payload-contracts.md §Runtime-Node (RuntimeNodeHeartbeat request/response);
@@ -83,14 +83,14 @@ import type { Querier } from "../sessions/migration-runner.js";
 // Cloudflare Cron `scheduled()` wiring is Tier-5/deployment-deferred — see the
 // `sweepStaleness()` cross-task boundary note above) to drive the periodic
 // `sweepStaleness()` invocation. Set to 5s, FINER than the 15s
-// heartbeat cadence (Spec-003 line 59) so a degraded/offline transition is
-// recorded within one sweep of the threshold crossing — the Spec-003 line 61
+// heartbeat cadence (`Spec-003 §Default Behavior`) so a degraded/offline transition is
+// recorded within one sweep of the threshold crossing — the `Spec-003 §Default Behavior`
 // guarantee that a transition is "recorded within one sweep interval of a
 // threshold crossing", with the sweep interval "set finer than the 15s cadence
 // to keep that bound tight" (bounds detection lag to ≤5s).
 export const STALENESS_SWEEP_INTERVAL_MS = 5_000;
 
-// Demotion thresholds (Spec-003 line 60). A node is demoted to `degraded` once
+// Demotion thresholds (`Spec-003 §Default Behavior`). A node is demoted to `degraded` once
 // its last heartbeat is older than 30s (≈2 missed 15s beats) and to `offline`
 // once older than 60s (≈4 missed beats). The 30–60s band is deliberate
 // hysteresis: a node whose heartbeats resume within it is restored to `online`
@@ -100,9 +100,9 @@ const OFFLINE_AFTER_SECONDS = 60;
 
 // The two states the sweep is permitted to ASSIGN. The sweep ONLY demotes — it
 // never assigns `online` (restoration to `online` is `ingest`'s job, Spec-003
-// line 60). `offline` is liveness-death and is SERVER-derived here, never
+// above). `offline` is liveness-death and is SERVER-derived here, never
 // daemon-self-reported (the wire health enum is `online | degraded` only,
-// Spec-003 line 61).
+// `Spec-003 §Default Behavior`).
 const DEGRADED_STATE = "degraded";
 const OFFLINE_STATE = "offline";
 
@@ -131,12 +131,12 @@ export class HeartbeatService {
   }
 
   /**
-   * Ingest a runtime-node heartbeat (Spec-003 line 59; Plan-003 T3.6).
+   * Ingest a runtime-node heartbeat (`Spec-003 §Default Behavior`; Plan-003 T3.6).
    *
    * Upserts the node's `runtime_node_presence` row with the SERVER clock
    * (`now()`) and the daemon's 2-value self-reported `health_state`. This is the
    * heartbeat-reception side of the 15s cadence AND the hysteresis-recovery path
-   * (Spec-003 line 60): a `degraded` node that resumes heartbeating with
+   * (`Spec-003 §Default Behavior`): a `degraded` node that resumes heartbeating with
    * `healthState: "online"` is restored to `online` and its `last_heartbeat_at`
    * bumped, recovering WITHOUT passing through `offline`.
    *
@@ -162,7 +162,7 @@ export class HeartbeatService {
     // continues to heartbeat; it is denied only the capability WRITE. This holds
     // only while the heartbeat payload stays version-invariant — revisit if a
     // version-sensitive field is ever added to the heartbeat shape.
-    // Refs: Spec-003 §Required Behavior line 53 (the version-sensitive-write vs
+    // Refs: `Spec-003 §Required Behavior` (the version-sensitive-write vs
     // version-invariant-heartbeat refusal boundary); ADR-018 §Decision #4.
 
     // Trust-boundary validation — parse rather than trust the caller. Surfaces
@@ -188,7 +188,7 @@ export class HeartbeatService {
   }
 
   /**
-   * Sweep stale presence rows and demote them (Spec-003 line 61; Plan-003
+   * Sweep stale presence rows and demote them (`Spec-003 §Default Behavior`; Plan-003
    * T3.6). The periodic, SERVER-DERIVED demotion — NOT ingest-driven (a dead
    * node sends nothing, so its demotion MUST come from this sweep).
    *

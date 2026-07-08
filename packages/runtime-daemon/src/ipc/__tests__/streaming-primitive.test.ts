@@ -1,7 +1,7 @@
 // W-007p-2-T11 — StreamingPrimitive test suite (T-007p-2-6).
 //
 // Spec coverage:
-//   * Spec-007 §Required Behavior (lines 43-47) + §Wire Format (lines 50-56)
+//   * `Spec-007 §Required Behavior` + `Spec-007 §Wire Format`
 //     (docs/specs/007-local-ipc-and-daemon-control.md) — Local IPC supports
 //     bidirectional streaming notifications; the wire envelope is the same
 //     `Content-Length`-framed JSON-RPC envelope.
@@ -14,7 +14,7 @@
 //     the gateway sends the frame. Validation failure throws
 //     `StreamingValidationError` (programmer error).
 //
-// W-tests covered here (per Plan-007 §Phase 2 line 383):
+// W-tests covered here (per `Plan-007 §Phase 2 — Wire Substrate (W-007p-2-T1..T11)`):
 //   * W-007p-2-T11 — `LocalSubscriptionProducer<T>` round-trip + cancel
 //                    cleanup. Initial response carries
 //                    `subscriptionId`; N notifications correlate;

@@ -59,13 +59,15 @@
 // has no `session_id` column; `capability` maps to `capability_key`,
 // `capabilityDetails` to the `capability_value` JSON column.
 //
-// Refs: Plan-003 (Runtime Node Attach) §Phase 2 / T2.2 + T2.4, Spec-003 line 57
-// (online only after capability declaration — the T2.4 gate), line 58
-// (least-privilege schedulability), line 92 (capability/trust changes emitted as
-// session events), line 115 (no implicit capability exposure on attach), line 133
-// (serial re-attach satisfies the node-scoped gate without re-declaring),
-// Spec-006 lines 403 (online payload), 379-380 (capability_declared /
-// capability_updated payload shapes), invariant I-003-2 (the declaration is the
+// Refs: Plan-003 (Runtime Node Attach) §Phase 2 / T2.2 + T2.4, `Spec-003 §Default Behavior`
+// (online only after capability declaration — the T2.4 gate;
+// least-privilege schedulability), `Spec-003 §State And Data Implications`
+// (capability/trust changes emitted as session events),
+// `Spec-003 §Pitfalls To Avoid` (no implicit capability exposure on attach;
+// serial re-attach satisfying the node-scoped gate without re-declaring is
+// the T2.4 gate contract),
+// `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` (`runtime_node.online` +
+// `capability_declared` / `capability_updated` payload shapes), invariant I-003-2 (the declaration is the
 // precondition that gates `online`).
 
 import { isDeepStrictEqual } from "node:util";

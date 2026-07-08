@@ -2,13 +2,13 @@
 //
 // Backstops the two acceptance criteria + spec_coverage rows the task
 // implements:
-//   • C1 — Spec-002 line 80: `InviteCreate` requires `{sessionId, inviter,
+//   • C1 — `Spec-002 §Interfaces And Contracts`: `InviteCreate` requires `{sessionId, inviter,
 //          joinMode, expiresAt}`. Omission of any field rejects.
-//   • C2 — Spec-002 line 43: invite lifecycle states are EXACTLY
+//   • C2 — `Spec-002 §Required Behavior`: invite lifecycle states are EXACTLY
 //          `{pending, accepted, revoked, expired}`. `"declined"` is NOT a
 //          valid V1 state (declining is implicit; no explicit `declined`).
 //
-// Also pins the `InviteRevoke` request shape from Spec-002 line 82
+// Also pins the `InviteRevoke` request shape from `Spec-002 §Interfaces And Contracts`
 // (`{sessionId: SessionId, inviteId: InviteId, reason?: string}` — exact
 // shape, `.strict()` rejects extraneous keys).
 //
@@ -79,10 +79,10 @@ describe("InviteIdSchema (branded UUID guard)", () => {
 });
 
 // =============================================================================
-// C2 — InviteStateSchema lifecycle enum (Spec-002 line 43)
+// C2 — InviteStateSchema lifecycle enum (`Spec-002 §Required Behavior`)
 // =============================================================================
 //
-// Spec-002 line 43 binds the V1 invite lifecycle to EXACTLY four states.
+// `Spec-002 §Required Behavior` binds the V1 invite lifecycle to EXACTLY four states.
 // Two halves of the invariant:
 //   1. Positive: the enum's option set equals {pending, accepted, revoked,
 //      expired} (exact set, length 4 — neither a subset nor a superset).
@@ -113,7 +113,7 @@ describe("InviteStateSchema (C2: lifecycle enum is exactly {pending, accepted, r
     expect(InviteStateSchema.safeParse(state).success).toBe(true);
   });
 
-  it("rejects 'declined' — V1 declining is implicit, not an explicit state (Spec-002 line 43)", () => {
+  it("rejects 'declined' — V1 declining is implicit, not an explicit state (Spec-002 §Required Behavior)", () => {
     expect(InviteStateSchema.safeParse("declined").success).toBe(false);
   });
 
@@ -128,14 +128,14 @@ describe("InviteStateSchema (C2: lifecycle enum is exactly {pending, accepted, r
 });
 
 // =============================================================================
-// C1 — InviteCreateSchema required fields (Spec-002 line 80)
+// C1 — InviteCreateSchema required fields (`Spec-002 §Interfaces And Contracts`)
 // =============================================================================
 //
-// Spec-002 line 80: "`InviteCreate` must include session id, inviter,
+// `Spec-002 §Interfaces And Contracts`: "`InviteCreate` must include session id, inviter,
 // proposed join mode, and expiry." Omission of any of the four fields
 // MUST reject with a clear path in the issue.
 
-describe("InviteCreateSchema (C1: required fields per Spec-002 line 80)", () => {
+describe("InviteCreateSchema (C1: required fields per Spec-002 §Interfaces And Contracts)", () => {
   it("accepts a well-formed payload (all four required fields present)", () => {
     const parsed = InviteCreateSchema.parse(buildValidInviteCreate());
     expect(parsed.sessionId).toBe(SESSION_ID);
@@ -196,10 +196,10 @@ describe("InviteCreateSchema (C1: required fields per Spec-002 line 80)", () => 
 });
 
 // =============================================================================
-// InviteAcceptSchema — opaque PASETO token (Spec-002 lines 107-113)
+// InviteAcceptSchema — opaque PASETO token (`Spec-002 §Token Security Properties`)
 // =============================================================================
 
-describe("InviteAcceptSchema (opaque PASETO token, Spec-002 lines 107-113)", () => {
+describe("InviteAcceptSchema (opaque PASETO token, Spec-002 §Token Security Properties)", () => {
   it("accepts a non-empty token string", () => {
     const result = InviteAcceptSchema.safeParse({ token: "v4.local.opaque-token-payload" });
     expect(result.success).toBe(true);
@@ -230,13 +230,13 @@ describe("InviteAcceptSchema (opaque PASETO token, Spec-002 lines 107-113)", () 
 });
 
 // =============================================================================
-// InviteRevokeSchema — exact wire shape (Spec-002 line 82)
+// InviteRevokeSchema — exact wire shape (`Spec-002 §Interfaces And Contracts`)
 // =============================================================================
 //
-// Spec-002 line 82 binds the wire shape verbatim:
+// `Spec-002 §Interfaces And Contracts` binds the wire shape verbatim:
 //   `{sessionId: SessionId, inviteId: InviteId, reason?: string}`
 
-describe("InviteRevokeSchema (exact shape per Spec-002 line 82)", () => {
+describe("InviteRevokeSchema (exact shape per Spec-002 §Interfaces And Contracts)", () => {
   it("accepts the minimal valid request (sessionId + inviteId, no reason)", () => {
     const parsed = InviteRevokeSchema.parse(buildValidInviteRevoke());
     expect(parsed.sessionId).toBe(SESSION_ID);

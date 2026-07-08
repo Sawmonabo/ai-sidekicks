@@ -351,7 +351,7 @@ describe("registerSidecarLifecycle — Plan-001 CP-001-1 / Plan-024 I-024-4", ()
     const { app, emitWillQuit } = makeFakeApp();
     // A `PtyHost` whose ONLY working method is `shutdown` — every
     // other field throws if touched. The lifecycle handler MUST NOT
-    // reach for any other surface (ADR-019 §Decision item 8 line 48:
+    // reach for any other surface (`ADR-019 §Decision` item 4:
     // "Consumers never see the backend choice").
     const shutdown = vi.fn(
       async (): Promise<DrainResult> => ({

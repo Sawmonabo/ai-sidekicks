@@ -2,7 +2,7 @@
 //
 // Asserts the wire frame ratified at
 // docs/architecture/contracts/api-payload-contracts.md §SSE Wire Frame
-// (Tier 1 Ratified, line 295): `retry: 5000` MUST appear before any
+// (Tier 1 Ratified): `retry: 5000` MUST appear before any
 // `event: connected` / `data:` / `id:` line so reconnecting EventSource
 // clients honor the documented 5-second backoff. tRPC v11's
 // `sseStreamProducer` does not emit `retry:` natively — the substrate at
@@ -97,7 +97,7 @@ async function readLeadingBytes(response: Response, byteLimit: number): Promise<
   return accumulated;
 }
 
-describe("§SSE Wire Frame line 295: retry hint precedes the first event", () => {
+describe("§SSE Wire Frame retry hint precedes the first event", () => {
   it("emits `retry: <SSE_RETRY_HINT_MS>` before the connected frame", async () => {
     const handler = buildControlPlaneFetchHandler({
       ...makeRefusalAssertingDeps(),

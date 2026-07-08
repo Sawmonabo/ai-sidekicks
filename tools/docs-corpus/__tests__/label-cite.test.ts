@@ -297,12 +297,16 @@ describe("label-cite — exclusions (must never flag; required-gate false-positi
     }
   }
 
-  it("does NOT match the line-word form (Spec-003 line 5) — that is audit-layer (CAT-07)", () => {
-    expect(extractFrom("// Spec-003 line 5 describes the floor.\n")).toEqual([]);
+  it("line-word form (Spec-003 line 5) IS extracted in code citers — pass-5 deny (was audit-layer pre-ratchet)", () => {
+    const cites = extractFrom("// Spec-003 line 5 describes the floor.\n");
+    expect(cites).toHaveLength(1);
+    expect(cites[0].lineWordDeny).toBe(true);
   });
 
-  it("does NOT match a parenthesized line phrase (Spec-003 §AC1 (line 5))", () => {
-    expect(extractFrom("//   • Spec-003 §AC1 (line 5, an attach race):\n")).toEqual([]);
+  it("parenthesized line phrase (Spec-003 §AC1 (line 5)) IS extracted in code citers — pass-5 deny", () => {
+    const cites = extractFrom("//   • Spec-003 §AC1 (line 5, an attach race):\n");
+    expect(cites).toHaveLength(1);
+    expect(cites[0].lineWordDeny).toBe(true);
   });
 
   it("does NOT match a markdown-link where the token is link text", () => {
@@ -682,6 +686,150 @@ describe("path-section anchor cites (`docs/….md §Heading` — label-LESS gove
     try {
       const violations = withRepoRoot(root, () =>
         checkLabelCiteTargets([resolve(root, "packages/contracts/src/provider.ts")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe("line-word + bare-basename deny in code citers (CAT-07 ratchet)", () => {
+  it("DENIES a docs-rooted §-heading cite with a trailing line anchor in a code file", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/plans/021-x.md": FIVE_LINE_DOC,
+      "packages/p/src/a.ts":
+        "// See docs/plans/021-x.md §Tier 1 Partial PR Sequence > Phase 1 line 259.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/p/src/a.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("line-anchored-cite-in-code");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("DENIES a label line-word cite in a code file", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/021-x.md": FIVE_LINE_DOC,
+      "packages/p/src/a.ts": "// per Spec-021 line 2 the bind address is loopback.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/p/src/a.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("line-anchored-cite-in-code");
+      expect(violations[0].detail).toContain("§Heading");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("DENIES the lines-list, parenthesized, and §-section+line variants", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/plans/022-y.md": FIVE_LINE_DOC,
+      "docs/decisions/014-z.md": FIVE_LINE_DOC,
+      "docs/specs/027-w.md": FIVE_LINE_DOC,
+      "packages/p/src/b.ts": [
+        "// Plan-022 lines 2, 3-4 cover retention.",
+        "// ADR-014 (line 2) picked tRPC.",
+        "// Spec-027 §Bind-Address line 3 pins the default.",
+        "",
+      ].join("\n"),
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/p/src/b.ts")]),
+      );
+      expect(violations).toHaveLength(3);
+      expect(violations.every((v) => v.reason === "line-anchored-cite-in-code")).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("DENIES bare-basename colon and line-word forms", () => {
+    const { root, cleanup } = setupRepo({
+      "packages/p/src/c.ts": [
+        "// api-payload-contracts.md:120 documents the envelope.",
+        "// session-model.md line 61 defines membership.",
+        "",
+      ].join("\n"),
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/p/src/c.ts")]),
+      );
+      expect(violations).toHaveLength(2);
+      expect(violations.every((v) => v.reason === "line-anchored-cite-in-code")).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("DENIES a docs-rooted line-word cite (colon form is pass 2's; line-word slips it)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/domain/session-model.md": FIVE_LINE_DOC,
+      "packages/p/src/d.ts": "// docs/domain/session-model.md line 3 defines membership.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/p/src/d.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("line-anchored-cite-in-code");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("does NOT fire in markdown citers (docs corpus keeps its own conventions)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/021-x.md": FIVE_LINE_DOC,
+      "docs/architecture/note.md": "Per Spec-021 line 2 the bind address is loopback.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "docs/architecture/note.md")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("does NOT fire on durable §-forms, prose without a line anchor, or 'outlines'", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/021-x.md": "# X\n\n## Bind Address\n\nbody\n",
+      "packages/p/src/e.ts": [
+        "// `Spec-021 §Bind Address` is the durable form.",
+        "// Plan-022 Phase 4 ships the stubs.",
+        "// Spec-021 outlines 3 tiers.",
+        "",
+      ].join("\n"),
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/p/src/e.ts")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("keeps frozen-tree line-word cites legal (parity with the colon-form carve-out)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/reference/excerpt.md": FIVE_LINE_DOC,
+      "packages/p/src/f.ts": "// docs/reference/excerpt.md line 2 quotes upstream.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/p/src/f.ts")]),
       );
       expect(violations).toHaveLength(0);
     } finally {

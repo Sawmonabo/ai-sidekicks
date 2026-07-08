@@ -47,11 +47,12 @@
 //     proving the gate read the durable node-keyed ROW, not the event stream
 //     (the WHY of the gate-on-row design; Model A would never online here).
 //
-// Spec coverage: Spec-003 line 57 (online only after capability declaration — the
-// T2.4 gate D3 verifies: no online until a declaration EXISTS), line 58
-// (least-privilege schedulability — declaration is the path that makes a
-// capability schedulable, proven by path 1's `node_capabilities` row), line 99
-// (capability/trust changes emitted as session events), line 140 (serial re-attach
+// Spec coverage: `Spec-003 §Default Behavior` (online only after capability declaration — the
+// T2.4 gate D3 verifies: no online until a declaration EXISTS;
+// least-privilege schedulability — declaration is the path that makes a
+// capability schedulable, proven by path 1's `node_capabilities` row),
+// `Spec-003 §State And Data Implications` (capability/trust changes emitted
+// as session events), and the T2.4 gate contract (serial re-attach
 // satisfies the node-scoped gate without re-declaring — the gate-reads-ROW block).
 // (`Spec-003 §Fallback Behavior` — validation FAILURE → degraded/offline — is NOT covered here: it is
 // a server-derived path, no Phase-2 `degraded` emit shape; D3 tests declaration

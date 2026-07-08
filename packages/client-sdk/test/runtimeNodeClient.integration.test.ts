@@ -10,18 +10,18 @@
 //
 // Spec coverage — the named acceptance criteria from Spec-003:
 //   * I1 — live attach to an already-active session leaves session identity
-//          unchanged (Spec-003 line 127 AC1: "A participant can attach a local
-//          runtime node to an already active session"; Spec-003 line 50: attach
+//          unchanged (`Spec-003 §Acceptance Criteria` (AC1): "A participant can attach a local
+//          runtime node to an already active session"; `Spec-003 §Required Behavior`: attach
 //          "must not require session recreation").
 //   * I2 — a capability-degraded node stays visible and distinguishable from a
 //          healthy online node through the client-observable `NodeState`
-//          (Spec-003 line 128 AC2; line 76: capability-validation failure
-//          leaves the node `degraded`; line 72: the two health axes are
+//          (`Spec-003 §Acceptance Criteria` (AC2); `Spec-003 §Fallback Behavior`: capability-validation failure
+//          leaves the node `degraded`; `Spec-003 §Default Behavior`: the two health axes are
 //          independent — the `capabilityupdate` response `state` is the
 //          server-derived full `NodeState`). See the I2 section below for why
 //          `degraded` is driven on the capability-health axis, per the Plan-003
 //          T4.3 amendment (2026-06-09, PR #147).
-//   * I3 — mixed-version attach (Spec-003 line 130 AC4): the below-floor daemon
+//   * I3 — mixed-version attach (`Spec-003 §Acceptance Criteria` (AC4)): the below-floor daemon
 //          is ADMITTED read-only — its reads succeed, its version-sensitive
 //          capability WRITE returns typed `VERSION_FLOOR_EXCEEDED`, and neither
 //          daemon is ejected for the floor mismatch. The ONE Phase-4 scenario
@@ -30,18 +30,18 @@
 //   * Detach lifecycle — `detach` retires BOTH axes (attachment slot ->
 //          `offline`, presence `health_state` -> `offline`), a LATE capability
 //          write against the retired slot is refused typed, and a second
-//          detach is an idempotent `null` no-op (Spec-003 line 85:
+//          detach is an idempotent `null` no-op (`Spec-003 §Interfaces And Contracts`:
 //          `RuntimeNodeDetach` must explicitly retire or disconnect a node;
-//          line 69: an explicit detach retires the node — `offline` is
+//          `Spec-003 §Default Behavior`: an explicit detach retires the node — `offline` is
 //          server-effected liveness-death).
 //   * Roster — the control-plane-only `runtimenode.roster` query projects
 //          every attachment row with BOTH health axes verbatim plus the
-//          per-row read-time `readOnly` verdict, session-isolated (Spec-003
-//          line 128 AC2: a degraded node distinguishable from a healthy
-//          online node through the client read; line 129 AC3: multiple nodes
-//          coexist without changing session identity; line 130 AC4: the
+//          per-row read-time `readOnly` verdict, session-isolated
+//          (`Spec-003 §Acceptance Criteria` (AC2): a degraded node distinguishable from a healthy
+//          online node through the client read; AC3: multiple nodes
+//          coexist without changing session identity; AC4: the
 //          below-floor node visible with `readOnly: true` — admitted, never
-//          ejected; line 49: multiple runtime nodes per session). See the
+//          ejected; `Spec-003 §Required Behavior`: multiple runtime nodes per session). See the
 //          T5.0d section below.
 //
 // Architecture (locked — see Plan-003 Phase 4 dispatch): this harness drives the
@@ -117,7 +117,7 @@ const CLIENT_VERSION: EventEnvelopeVersion = "1.4" as EventEnvelopeVersion;
 
 // I2 (T4.3) node ids — TWO distinct nodes in ONE session (the attach upsert's
 // conflict key is the total `(node_id, session_id)`, so distinct node ids
-// coexist as two attachment rows — the Spec-003 line 49 multi-node shape).
+// coexist as two attachment rows — the `Spec-003 §Required Behavior` multi-node shape).
 // Named for the scenario role each plays: the capability-degraded subject vs.
 // the healthy-online contrast node. Distinct from I1's `node-alpha-01` purely
 // for failure-output legibility (each test gets a fresh PGlite, so this is
@@ -250,9 +250,9 @@ async function seedSession(
 }
 
 // Seed an ACTIVE membership row (the "has joined a live session" precondition
-// in Spec-003 AC1 line 127). Direct INSERT bypassing joinSession; mirrors
+// in `Spec-003 §Acceptance Criteria` (AC1)). Direct INSERT bypassing joinSession; mirrors
 // host-runtime-node.test.ts's `seedMembership`. The attach path never reads it
-// (attach is a SEPARATE step from membership — Spec-003 line 47), but seeding it
+// (attach is a SEPARATE step from membership — `Spec-003 §Required Behavior`), but seeding it
 // keeps the scenario faithful to AC1's wording.
 async function seedMembership(
   querier: Querier,
@@ -307,7 +307,7 @@ async function readAttachmentStatesByNode(querier: Querier): Promise<Record<stri
 }
 
 // Read a node's `runtime_node_presence` row — the LIVENESS axis the heartbeat
-// service owns, DISTINCT from the attachment-slot axis above (Spec-003 line 72:
+// service owns, DISTINCT from the attachment-slot axis above (`Spec-003 §Default Behavior`:
 // independent health axes with distinct owners). Persistence-layer observation
 // was the ONLY seam for this axis when Phase 4 shipped (the heartbeat wire
 // response is the no-content `null`); the Phase-5 T5.0d `roster` query now
@@ -524,10 +524,10 @@ afterEach(async () => {
 
 // ---------------------------------------------------------------------------
 // I1 — live attach to an already-active session leaves session identity unchanged
-// (Spec-003 line 127 AC1 + line 50 no-recreation) — control-plane transport
+// (`Spec-003 §Acceptance Criteria` (AC1) + `Spec-003 §Required Behavior` no-recreation) — control-plane transport
 // ---------------------------------------------------------------------------
 
-describe("I1 / Spec-003 AC1 (line 127) + line 50 — live attach leaves session identity unchanged", () => {
+describe("I1 / Spec-003 §Acceptance Criteria (AC1) + Spec-003 §Required Behavior — live attach leaves session identity unchanged", () => {
   it("control-plane transport: a joined participant attaches a node; the sessions row is byte-identical and no second session is materialized", async () => {
     // Seed the already-active session (NULL floor), the participant, and an
     // active membership (the "has joined a live session" precondition). Direct
@@ -572,7 +572,7 @@ describe("I1 / Spec-003 AC1 (line 127) + line 50 — live attach leaves session 
     // through to persistence, not a no-op the no-recreation check would also pass).
     expect(await countAttachments(ctx.querier)).toBe(1);
 
-    // (b) SESSION IDENTITY UNCHANGED (the I1 core assertion, Spec-003 line 50):
+    // (b) SESSION IDENTITY UNCHANGED (the I1 core assertion, `Spec-003 §Required Behavior`):
     // the `sessions` row is byte-for-byte identical after the attach — attach
     // writes `runtime_node_attachments`, never `sessions`, so the session id (and
     // every other column) is invariant across the attach.
@@ -582,7 +582,7 @@ describe("I1 / Spec-003 AC1 (line 127) + line 50 — live attach leaves session 
     expect(sessionAfter?.["id"]).toBe(String(SESSION_ID));
 
     // (c) NO RECREATION: still exactly ONE session row — the attach did not
-    // materialize a second session (Spec-003 line 50, "attach must not require
+    // materialize a second session (`Spec-003 §Required Behavior`, "attach must not require
     // session recreation").
     expect(await countSessions(ctx.querier)).toBe(1);
   });
@@ -590,7 +590,7 @@ describe("I1 / Spec-003 AC1 (line 127) + line 50 — live attach leaves session 
 
 // ---------------------------------------------------------------------------
 // I2 — a degraded node remains distinguishable from a healthy online node
-// (Spec-003 line 128 AC2 + line 76 + line 72) — control-plane transport
+// (`Spec-003 §Acceptance Criteria` (AC2) + `Spec-003 §Fallback Behavior` + `Spec-003 §Default Behavior`) — control-plane transport
 // ---------------------------------------------------------------------------
 //
 // WHY the capability-health axis, NOT the originally-planned heartbeat-driven
@@ -602,10 +602,10 @@ describe("I1 / Spec-003 AC1 (line 127) + line 50 — live attach leaves session 
 // roster-read SDK surface arrived later, in Phase 5 T5.0d — the roster
 // section below now asserts the liveness axis through the client). The
 // `capabilityUpdate` response `state` IS client-observable: the server-derived
-// full `NodeState` from `runtime_node_attachments.state` (Spec-003 line 72),
+// full `NodeState` from `runtime_node_attachments.state` (`Spec-003 §Default Behavior`),
 // and `registering -> degraded` on that axis is EXPLICITLY permitted by the
 // I-003-2 guard, which blocks only `registering -> online` (attach-service.ts
-// step 4) — per Spec-003 line 76, a capability-validation failure leaves the
+// step 4) — per `Spec-003 §Fallback Behavior`, a capability-validation failure leaves the
 // node `degraded`. So the capability-health axis was the ONE client-observable
 // degraded drive in Phase 4, and I2's distinguishability thesis is asserted on
 // it.
@@ -617,7 +617,7 @@ describe("I1 / Spec-003 AC1 (line 127) + line 50 — live attach leaves session 
 // `JsonRpcClient.call`; I2's thesis (REAL state transitions reaching real
 // persistence) only exists on the real-service control-plane harness.
 
-describe("I2 / Spec-003 AC2 (line 128) + lines 76/72 — degraded node remains distinguishable", () => {
+describe("I2 / Spec-003 §Acceptance Criteria (AC2) + Spec-003 §Fallback Behavior / Spec-003 §Default Behavior — degraded node remains distinguishable", () => {
   it("control-plane transport: a capability-degraded node stays visible and distinguishable from a healthy online node in the same session", async () => {
     // Seed the live session (NULL floor — version gating is T4.4's axis, not
     // I2's), the participant, and an active membership. Direct INSERTs — the
@@ -636,7 +636,7 @@ describe("I2 / Spec-003 AC2 (line 128) + lines 76/72 — degraded node remains d
     // (1) Attach TWO nodes to the ONE live session through the SDK. The attach
     // upsert's conflict key is the total `(node_id, session_id)`, so the two
     // distinct node ids land as two attachment rows; both are hard-pinned at
-    // `registering` (Spec-003 line 57 — `online` requires a daemon-side
+    // `registering` (`Spec-003 §Default Behavior` — `online` requires a daemon-side
     // capability declaration, which the control plane never performs).
     const degradedSubjectAttach = await sdk.attach({
       sessionId: SESSION_ID,
@@ -661,10 +661,10 @@ describe("I2 / Spec-003 AC2 (line 128) + lines 76/72 — degraded node remains d
     expect(await countAttachments(ctx.querier)).toBe(2);
 
     // (2) Drive node A `registering -> degraded` on the self-reported
-    // capability-health axis (Spec-003 line 76 — capability-validation failure
+    // capability-health axis (`Spec-003 §Fallback Behavior` — capability-validation failure
     // leaves the node `degraded`). EXPLICITLY permitted by the I-003-2 guard.
-    // The response `state` is the server-derived full `NodeState` (Spec-003
-    // line 72), so `degraded` here is the client-observable roster position.
+    // The response `state` is the server-derived full `NodeState`
+    // (`Spec-003 §Default Behavior`), so `degraded` here is the client-observable roster position.
     const degradeResponse = await sdk.capabilityUpdate({
       nodeId: DEGRADED_NODE_ID,
       capabilities: CAPABILITIES,
@@ -766,7 +766,7 @@ describe("I2 / Spec-003 AC2 (line 128) + lines 76/72 — degraded node remains d
     expect(presenceAfterHeartbeat?.last_heartbeat_at).not.toBeNull();
     expect(presenceAfterHeartbeat?.last_heartbeat_at).toBeDefined();
 
-    // (2) Capability-degrade the SAME node (the Spec-003 line 76 drive, as in
+    // (2) Capability-degrade the SAME node (the `Spec-003 §Fallback Behavior` drive, as in
     // the sibling test) — the trigger for the axis-independence observation.
     const degradeResponse = await sdk.capabilityUpdate({
       nodeId: DEGRADED_NODE_ID,
@@ -778,7 +778,7 @@ describe("I2 / Spec-003 AC2 (line 128) + lines 76/72 — degraded node remains d
     });
     expect(degradeResponse.state).toBe("degraded");
 
-    // (3) AXIS INDEPENDENCE (Spec-003 line 72): the capability-`degraded`
+    // (3) AXIS INDEPENDENCE (`Spec-003 §Default Behavior`): the capability-`degraded`
     // write touched ONLY the slot axis (`runtime_node_attachments.state`) —
     // the liveness axis (`runtime_node_presence.health_state`) still reads the
     // heartbeat-reported `online`. Same node, two axes, two values, each owned
@@ -794,7 +794,7 @@ describe("I2 / Spec-003 AC2 (line 128) + lines 76/72 — degraded node remains d
 // ---------------------------------------------------------------------------
 // I3 — mixed-version attach: at-floor reads/writes; below-floor reads but
 // writes return VERSION_FLOOR_EXCEEDED; neither node is ejected
-// (Spec-003 line 130 AC4 + I-003-1) — control-plane transport
+// (`Spec-003 §Acceptance Criteria` (AC4) + I-003-1) — control-plane transport
 // ---------------------------------------------------------------------------
 //
 // THE invariant scenario: T4.4 is the only Phase-4 task verifying a Plan-003
@@ -819,14 +819,14 @@ describe("I2 / Spec-003 AC2 (line 128) + lines 76/72 — degraded node remains d
 // `{nodeId, healthState}` shape cannot carry a version-incompatible payload),
 // so the read-only daemon keeps participating in liveness while write-blocked.
 // The floor gates only version-SENSITIVE domain writes — the capability
-// declaration (the Spec-003 line 53 refusal boundary).
+// declaration (the `Spec-003 §Required Behavior` refusal boundary).
 //
 // NO daemon-transport variant (same reasoning as I2): the `readOnly` verdict
 // and the floor refusal are derived by the REAL `AttachService` against the
 // session row — a scripted reply table would just echo whatever verdict we
 // scripted, a tautology with no floor decision under test.
 
-describe("I3 / Spec-003 AC4 (line 130) + I-003-1 — mixed-version attach: below-floor admitted read-only, write refused, never ejected", () => {
+describe("I3 / Spec-003 §Acceptance Criteria (AC4) + I-003-1 — mixed-version attach: below-floor admitted read-only, write refused, never ejected", () => {
   it("control-plane transport: the at-floor daemon reads and writes; the below-floor daemon reads but its capability write returns typed VERSION_FLOOR_EXCEEDED; both stay joined", async () => {
     // (1) Seed the live session WITH a version floor — `min_client_version` is
     // `CLIENT_VERSION` ("1.4") itself, so the at-floor daemon attaches EQUAL
@@ -914,8 +914,8 @@ describe("I3 / Spec-003 AC4 (line 130) + I-003-1 — mixed-version attach: below
     expect(atFloorWrite.nodeId).toBe(AT_FLOOR_NODE_ID);
     expect(atFloorWrite.state).toBe("registering");
 
-    // (6) The BELOW-FLOOR WRITE IS REFUSED — typed, not generic (Spec-003
-    // line 130 AC4): the IDENTICAL capability write rejects with the SDK's
+    // (6) The BELOW-FLOOR WRITE IS REFUSED — typed, not generic
+    // (`Spec-003 §Acceptance Criteria` (AC4)): the IDENTICAL capability write rejects with the SDK's
     // typed `RuntimeNodeControlPlaneError` carrying the dotted wire code
     // `version.floor_exceeded` (asserted against the canonical
     // `VERSION_FLOOR_EXCEEDED_CODE` constant, never a string literal) and the
@@ -966,7 +966,7 @@ describe("I3 / Spec-003 AC4 (line 130) + I-003-1 — mixed-version attach: below
 
 // ---------------------------------------------------------------------------
 // Detach lifecycle — detach retires both axes; the retired slot refuses late
-// writes; re-detach is an idempotent no-op (Spec-003 line 85 + line 69) —
+// writes; re-detach is an idempotent no-op (`Spec-003 §Interfaces And Contracts` + `Spec-003 §Default Behavior`) —
 // control-plane transport
 // ---------------------------------------------------------------------------
 //
@@ -990,7 +990,7 @@ describe("I3 / Spec-003 AC4 (line 130) + I-003-1 — mixed-version attach: below
 // a node that never beat has no row, and the liveness assert would otherwise
 // be a vacuous 0-row no-op instead of an observed `online -> offline` flip).
 
-describe("Detach lifecycle / Spec-003 line 85 + line 69 — detach retires both axes; late writes refused; re-detach idempotent", () => {
+describe("Detach lifecycle / Spec-003 §Interfaces And Contracts + Spec-003 §Default Behavior — detach retires both axes; late writes refused; re-detach idempotent", () => {
   it("control-plane transport: detach resolves null and flips slot + presence to offline; a late capability write is refused typed; a second detach is an idempotent no-op", async () => {
     // Seed the live session (NULL floor — version gating is I3's axis) and
     // attach the subject node. Direct INSERTs, as in I1/I2/I3.
@@ -1035,8 +1035,8 @@ describe("Detach lifecycle / Spec-003 line 85 + line 69 — detach retires both 
     });
     expect(detachResult).toBeNull();
 
-    // (3) BOTH axes retired (Spec-003 line 69 — `offline` is server-effected
-    // liveness-death; line 85 — detach explicitly retires the node): the
+    // (3) BOTH axes retired (`Spec-003 §Default Behavior` — `offline` is server-effected
+    // liveness-death; `Spec-003 §Interfaces And Contracts` — detach explicitly retires the node): the
     // attachment SLOT axis reads `offline` (exact map — no extra row
     // materialized) AND the presence LIVENESS axis flipped `online ->
     // offline` without waiting for heartbeat staleness.
@@ -1086,7 +1086,7 @@ describe("Detach lifecycle / Spec-003 line 85 + line 69 — detach retires both 
 // through the SDK: a mixed-version pair returned with per-axis state +
 // readOnly; session isolation; AC2 distinguishability; SDK-boundary
 // fail-fast; the typed non-2xx surface
-// (Spec-003 AC2 line 128 + AC3 line 129 + AC4 line 130 + line 49) —
+// (`Spec-003 §Acceptance Criteria` (AC2 + AC3 + AC4) + `Spec-003 §Required Behavior`) —
 // control-plane transport
 // ---------------------------------------------------------------------------
 //
@@ -1106,13 +1106,13 @@ describe("Detach lifecycle / Spec-003 line 85 + line 69 — detach retires both 
 // put there by a Phase-3 writer (attach / heartbeat / capabilityupdate), so
 // the assertions are projections of real transitions, not scripted echoes.
 
-describe("Roster read (T5.0d) / Spec-003 AC2 (line 128) + AC3 (line 129) + AC4 (line 130) + line 49 — the control-plane roster query projects both axes per node", () => {
+describe("Roster read (T5.0d) / Spec-003 §Acceptance Criteria (AC2 + AC3 + AC4) + Spec-003 §Required Behavior — the control-plane roster query projects both axes per node", () => {
   it("control-plane transport: a mixed-version pair returns with per-axis state and readOnly, the roster is session-isolated, and session identity is unchanged", async () => {
     // (1) Seed TWO live sessions: the floored subject session (floor =
     // CLIENT_VERSION "1.4", the I3 boundary shape) and a NULL-floor second
     // session that exists purely as the isolation foil. Direct INSERTs, as in
     // I1-I3; memberships seeded for scenario faithfulness (the attach path
-    // never reads them — Spec-003 line 47).
+    // never reads them — `Spec-003 §Required Behavior`).
     await seedParticipant(ctx.querier, PARTICIPANT_ID);
     await seedSession(ctx.querier, SESSION_ID, CLIENT_VERSION);
     await seedMembership(ctx.querier, {
@@ -1132,12 +1132,12 @@ describe("Roster read (T5.0d) / Spec-003 AC2 (line 128) + AC3 (line 129) + AC4 (
     const sdk = buildControlPlaneRuntimeNodeClient(buildRuntimeNodeDeps(ctx.querier));
 
     // Snapshot the subject session's identity BEFORE any attach — the AC3
-    // (line 129) "without changing session identity" target, asserted after
+    // (`Spec-003 §Acceptance Criteria`) "without changing session identity" target, asserted after
     // the roster reads with the same byte-identity posture as I1.
     const sessionBefore = await readSessionRow(ctx.querier, SESSION_ID);
     expect(sessionBefore).toBeDefined();
 
-    // (2) Attach the mixed-version pair to the subject session (line 49 —
+    // (2) Attach the mixed-version pair to the subject session (`Spec-003 §Required Behavior` —
     // multiple runtime nodes per session): at-floor ("1.4" EQUALS the floor)
     // and below-floor ("1.3"), plus the isolation node to the SECOND session.
     const atFloorAttach = await sdk.attach({
@@ -1166,7 +1166,7 @@ describe("Roster read (T5.0d) / Spec-003 AC2 (line 128) + AC3 (line 129) + AC4 (
     });
 
     // (3) Heartbeat EXACTLY ONE of the pair — the BELOW-FLOOR node, the
-    // sharper choice: liveness is version-invariant (Spec-003 line 53), so
+    // sharper choice: liveness is version-invariant (`Spec-003 §Required Behavior`), so
     // the read-only node is the one whose presence row exists, while its
     // at-floor peer never beats and must surface the LEFT-JOIN nulls.
     const heartbeatResult: null = await sdk.heartbeat({
@@ -1221,7 +1221,7 @@ describe("Roster read (T5.0d) / Spec-003 AC2 (line 128) + AC3 (line 129) + AC4 (
     const otherRoster = await sdk.roster({ sessionId: OTHER_SESSION_ID });
     expect(otherRoster.nodes.map((entry) => entry.nodeId)).toEqual([ROSTER_ISOLATED_NODE_ID]);
 
-    // (6) AC3 (line 129): the nodes coexist WITHOUT changing session identity
+    // (6) AC3 (`Spec-003 §Acceptance Criteria`): the nodes coexist WITHOUT changing session identity
     // — the subject sessions row is byte-identical after the attaches AND the
     // roster reads (the read writes nothing), and no session materialized
     // beyond the two seeded.
@@ -1296,7 +1296,7 @@ describe("Roster read (T5.0d) / Spec-003 AC2 (line 128) + AC3 (line 129) + AC4 (
     });
     expect(contrastRecover.state).toBe("online");
 
-    // (2) The AC2 thesis THROUGH THE ROSTER READ (line 128): the degraded
+    // (2) The AC2 thesis THROUGH THE ROSTER READ (`Spec-003 §Acceptance Criteria`): the degraded
     // node is PRESENT (the faithful projection hides nothing) and
     // DISTINGUISHABLE from its healthy online peer on the slot axis.
     const roster = await sdk.roster({ sessionId: SESSION_ID });
@@ -1308,7 +1308,7 @@ describe("Roster read (T5.0d) / Spec-003 AC2 (line 128) + AC3 (line 129) + AC4 (
     expect(healthyEntry?.state).toBe("online");
     expect(degradedEntry?.state).not.toBe(healthyEntry?.state);
 
-    // (3) AXIS INDEPENDENCE through the roster (Spec-003 line 72 never-mask):
+    // (3) AXIS INDEPENDENCE through the roster (`Spec-003 §Default Behavior` never-mask):
     // the capability-degraded subject carries its FRESH liveness axis
     // verbatim — `healthState: "online"` + a non-null `lastHeartbeatAt` ride
     // alongside the degraded slot state, neither axis masking the other —

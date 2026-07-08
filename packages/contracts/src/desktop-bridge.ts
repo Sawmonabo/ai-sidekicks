@@ -1,8 +1,8 @@
 // Spec-023 §Preload Bridge Contract — typed `window.sidekicks` surface.
 //
 // At Tier 1 this module ships:
-//   • `SidekicksBridge` — verbatim shape + `readonly` hardening from Spec-023
-//     §Preload Bridge Contract (lines 152-202). The structure matches the
+//   • `SidekicksBridge` — verbatim shape + `readonly` hardening from
+//     `Spec-023 §Preload Bridge Contract`. The structure matches the
 //     spec exactly; this implementation adds `readonly` modifiers to every
 //     capability group and `app` sub-property for defense-in-depth (prevents
 //     a compromised renderer from reassigning `bridge.daemon = …`).
@@ -14,7 +14,7 @@
 //   • `createTier1Bridge()` — factory the preload calls; every method throws
 //
 // Coverage:
-//   Spec-023 §Acceptance Criteria line 592 ("No auth material on
+//   `Spec-023 §Acceptance Criteria` ("No auth material on
 //   `window.sidekicks`") is enforced by the conditional-type negative test
 //   `desktop-bridge.test-d.ts` against the `SidekicksBridge` interface declared
 //   below. Any future edit that introduces a property name matching
@@ -33,7 +33,7 @@
 //     Tier 8 either adds `dom` to the contracts lib list or imports the types
 //     from `@types/webappapis`.
 //
-// Bridge non-exposure list (Spec-023 §Preload Bridge Contract lines 205-210):
+// Bridge non-exposure list (`Spec-023 §Preload Bridge Contract`):
 //   • raw `ipcRenderer` / `ipcMain`
 //   • `require`, `process`, `global`, any Node built-in
 //   • auth material (PASETO tokens, DPoP key, WebAuthn PRF output, daemon
@@ -152,7 +152,7 @@ export interface NotificationOptions {}
  * path string — every operation that returns a path returns this token, and
  * every operation that consumes a path takes this token, with the main process
  * dereferencing internally. This is the structural enforcement of Spec-023
- * §Preload Bridge Contract line 210 ("arbitrary file paths as strings").
+ * `Spec-023 §Preload Bridge Contract` ("arbitrary file paths as strings").
  */
 export type FilePathRef = string & { readonly __brand: "FilePathRef" };
 
@@ -230,12 +230,11 @@ export class NotImplementedAtTier1Error extends Error {
 }
 
 // ---------------------------------------------------------------------------
-// The bridge interface — verbatim shape + `readonly` hardening from Spec-023
-// §Preload Bridge Contract (lines 152-202 of
-// docs/specs/023-desktop-shell-and-renderer.md). The structure matches the
+// The bridge interface — verbatim shape + `readonly` hardening from
+// `Spec-023 §Preload Bridge Contract`. The structure matches the
 // spec exactly; `readonly` modifiers on every capability group and `app`
-// sub-property are local defense-in-depth (the spec block contains zero
-// `readonly` modifiers in lines 152-202).
+// sub-property are local defense-in-depth (the spec's contract block contains
+// zero `readonly` modifiers).
 //
 // Every property name on this interface is enforced not to match
 // /token|dpop|prf|secret/i by the conditional-type test in
@@ -256,7 +255,7 @@ export class NotImplementedAtTier1Error extends Error {
  *   • `update` — renderer observes the auto-updater state machine
  *   • `app` — read-only build/runtime meta
  *
- * Non-exposure (Spec-023 §Preload Bridge Contract lines 205-210):
+ * Non-exposure (`Spec-023 §Preload Bridge Contract`):
  *   • `ipcRenderer` / `ipcMain` / `require` / `process` / `global` / Node built-ins
  *   • auth material (any token / DPoP / PRF output / secret) — enforced
  *     STRUCTURALLY by the negative type-test (`desktop-bridge.test-d.ts`)

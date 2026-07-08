@@ -1,7 +1,7 @@
 // `session.read` JSON-RPC handler — Plan-007 Phase 3 (T-007p-3-1).
 //
 // Spec coverage:
-//   * Spec-007 §Required Behavior + §Interfaces And Contracts (lines 71-78) —
+//   * `Spec-007 §Required Behavior` + `Spec-007 §Interfaces And Contracts` —
 //     `session.read` is the V1 vertical-slice READ method: a peer process
 //     opens a connection, completes the `daemon.hello` handshake (Plan-007
 //     Phase 2 / T-007p-2-4), then dispatches `session.read` to fetch a
@@ -13,7 +13,7 @@
 //     `mutating: false`).
 //
 // Invariants this module participates in (canonical text in
-// docs/plans/007-local-ipc-and-daemon-control.md §Invariants lines 95-117):
+// `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`, I-007-6 through I-007-9):
 //   * I-007-1 / I-007-6 / I-007-7 / I-007-8 — same posture as the
 //     `session.create` slice. See `session-create.ts` for the canonical
 //     write-up; this file inherits the same registry-side guarantees.
@@ -21,8 +21,8 @@
 // Why `mutating: false`: `session.read` does not mutate domain state. The
 // pre-handshake mutating-op gate's predicate is `isMutating(method) ===
 // true`; flagging `read` as `false` means a connection in `pre` or
-// `done-incompatible` state can still call `read`. This matches Spec-007
-// §Fallback Behavior lines 67-68 — "If version negotiation fails,
+// `done-incompatible` state can still call `read`. This matches
+// `Spec-007 §Fallback Behavior` — "If version negotiation fails,
 // read-only compatibility may continue, but mutating operations must be
 // blocked."
 //
@@ -37,9 +37,9 @@
 //   * Test coverage — owned by T-007p-3-4 (sibling task).
 //
 // Method-name format ratified: dotted-camelCase per
-// docs/architecture/contracts/api-payload-contracts.md §JSON-RPC Method-Name
-// Registry (Tier 1 Ratified, lines 291-331). The `register` call site below
-// passes `"session.read"`, which matches the canonical regex.
+// `docs/architecture/contracts/api-payload-contracts.md §JSON-RPC Method-Name Registry (Tier 1 Ratified)`.
+// The `register` call site below passes `"session.read"`, which matches the
+// canonical regex.
 
 import type {
   Handler,

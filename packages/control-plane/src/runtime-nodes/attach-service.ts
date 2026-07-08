@@ -7,7 +7,7 @@
 //   * attach — admit a runtime node into a session by upserting its
 //     `runtime_node_attachments` row, returning the wire
 //     `RuntimeNodeAttachResponse` (`{attachmentId, state, readOnly, attachedAt}`).
-//     Three load-bearing behaviors (Spec-003 line 53; Plan-003 §Invariants):
+//     Three load-bearing behaviors (`Spec-003 §Required Behavior`; Plan-003 §Invariants):
 //       - P1/P2/P3 (version-floor verdict): the floor read + the `readOnly`
 //         derivation live here (`#deriveReadOnly`). A NULL floor ("no floor")
 //         admits EVERY daemon version with `readOnly = false` (P1). A non-NULL
@@ -23,14 +23,14 @@
 //         `RuntimeNodeAttachConflictException`; a SAME-OWNER reconnect of a node
 //         whose row for THIS session is `offline` reactivates it (offline ->
 //         registering). The owner participant is IMMUTABLE across reconnect
-//         (Spec-003 line 116 — a reconnect is the same daemon), so a DIFFERENT
+//         (`Spec-003 §Implementation Notes` — a reconnect is the same daemon), so a DIFFERENT
 //         participant reconnecting to that row is REFUSED with the same typed
 //         `RuntimeNodeAttachConflictException` rather than overwriting the owner
-//         (Spec-003 line 123 — never destroy historical node provenance).
+//         (`Spec-003 §Pitfalls To Avoid` — never destroy historical node provenance).
 //       - P10 (revocation is terminal): a re-attach against a row in the
 //         terminal `revoked` state for THIS session is refused with the typed
 //         `RuntimeNodeAttachRevokedException` — never reactivated.
-//   * detach — the clean-disconnect `offline` transition (T3.7; Spec-003 line 69
+//   * detach — the clean-disconnect `offline` transition (T3.7; `Spec-003 §Default Behavior`
 //     "an explicit `detach` retires the node"). Moves the node's SINGLE active
 //     attachment to `offline` across two orthogonal axes: the SLOT axis
 //     (`runtime_node_attachments.state -> offline`, guarded to active states) and
@@ -41,7 +41,7 @@
 //     `offline` ONLY — it is NOT a `revoked` producer (see the detach scope note
 //     under Cross-task boundaries). Never touches `session_memberships` (I-003-3).
 //   * updateCapabilities — the capability-declaration refresh (T3.9; Spec-003
-//     line 57 "the node declares its capabilities"). Resolves the node's SINGLE
+//     `Spec-003 §Default Behavior` "the node declares its capabilities"). Resolves the node's SINGLE
 //     active attachment by `nodeId` (I-003-5 — the request carries no
 //     `sessionId`), then refreshes its `capabilities` discovery snapshot and
 //     applies the resolved next-state, all inside ONE `Querier.transaction(...)`.
@@ -52,22 +52,22 @@
 //         + the daemon's attach-time `client_version`, then thrown as the typed
 //         `VersionFloorExceededException` (admit-not-eject — the throw rolls back,
 //         the node stays joined; I-003-1 / ADR-018 §Decision #4 / Spec-003
-//         line 130); and
+//         `Spec-003 §Acceptance Criteria` AC4); and
 //       - the I-003-2 registering->online guard — driving a still-`registering`
 //         attachment to `online` is refused (the typed
 //         `RuntimeNodeCapabilityUpdateConflictException`): bringing a node online
 //         requires a successful daemon-side capability declaration (Spec-003
-//         line 57), and the control plane is not the declaration authority
-//         (Spec-003 line 52).
+//         `Spec-003 §Default Behavior`), and the control plane is not the declaration authority
+//         (`Spec-003 §Required Behavior`).
 //     A no-active-attachment request (a late update racing a detach / revoke) is
 //     the third refusal — also the typed conflict, never a null no-op. A thrown
 //     refusal rolls the transaction back, so a refused update leaves
 //     `runtime_node_attachments` byte-for-byte unchanged.
 //   * readRoster — the session roster projection (T5.0c; Spec-003 §Interfaces
-//     And Contracts 2026-06-09 amendment, lines 90-94). ONE read-only SELECT
+//     And Contracts 2026-06-09 amendment). ONE read-only SELECT
 //     returning EVERY `runtime_node_attachments` row for the session — all five
-//     `state` values verbatim, no server-side hiding (Spec-003 line 92; AC2
-//     line 128 needs degraded/offline nodes visible) — LEFT-JOINed with the
+//     `state` values verbatim, no server-side hiding (`Spec-003 §Interfaces And Contracts`; AC2
+//     `Spec-003 §Acceptance Criteria` AC2 needs degraded/offline nodes visible) — LEFT-JOINed with the
 //     heartbeat-owned presence axis (NULL until the node's first beat) and
 //     carrying a per-row `readOnly` verdict derived AT READ TIME via the SAME
 //     `#deriveReadOnly` comparator attach uses (AC4 line 130 — the read-side
@@ -89,7 +89,7 @@
 //     after a successful attach. The DETACH path holds the same invariant: it
 //     writes ONLY the two runtime-node tables (`runtime_node_attachments` +
 //     `runtime_node_presence`) and never references `session_memberships`, so an
-//     offline/detached node retains its membership (Spec-003 line 51). P8 asserts
+//     offline/detached node retains its membership (`Spec-003 §Required Behavior`). P8 asserts
 //     the byte-for-byte membership no-mutation across a detach (snapshot + count,
 //     the same two disjoint mutation modes as the attach test). The ROSTER READ
 //     (T5.0c) holds the invariant by the same disjointness: readRoster's single
@@ -147,7 +147,7 @@
 //   * The `revoked` trust-revocation producer — the AUTHORITY / admin path that
 //     writes `runtime_node_attachments.state = 'revoked'`. NOT in scope here:
 //     `revoked` is a trust decision issued by an authority ABOUT the node
-//     (Spec-003 line 70 — never self-asserted), whose proper home is a Cedar-
+//     (`Spec-003 §Default Behavior` — never self-asserted), whose proper home is a Cedar-
 //     gated authority surface (ADR-012), NOT this daemon-facing detach (a daemon
 //     cannot self-revoke; the wire `RuntimeNodeDetachRequest` carries no
 //     disposition discriminator). The `revoked` STATE itself + attach's P10
@@ -157,25 +157,26 @@
 //     SINGLE liveness-derivation writer. readRoster (T5.0c) carries
 //     `runtime_node_presence.health_state` / `last_heartbeat_at` VERBATIM and
 //     never ages a heartbeat into a health verdict — deriving at read time
-//     would create a second, racing liveness author (Spec-003 lines 61 / 72:
-//     per-axis single-writer; line 92 — "the read never derives staleness").
+//     would create a second, racing liveness author (`Spec-003 §Default Behavior`:
+//     per-axis single-writer; `Spec-003 §Interfaces And Contracts` — "the read never derives staleness").
 //   * The tRPC router + errorFormatter that lift the typed `.code` onto the wire
 //     envelope and map each refusal to HTTP 409 / tRPC `CONFLICT` — T3.4 / T3.8.
 //
-// Refs: Spec-003 line 53 (version-floor admission), line 47 (attach is a separate
-// step from membership acceptance — I-003-3), line 51 (detach/offline must not
-// revoke membership by default — I-003-3), line 57 (the node declares its
-// capabilities — updateCapabilities), line 69 (an explicit `detach` retires
-// the node), line 70 (`revoked` is authority-issued, never self-asserted),
-// line 116 (node identity is stable across reconnect if the same daemon
-// reattaches — the owner is immutable) / line 123 (§Pitfalls — never destroy
-// historical node provenance when a node reconnects: the cross-owner reconnect
-// refusal), line 130 (below-floor writes are refused VERSION_FLOOR_EXCEEDED — the
-// T3.9 write-gate), line 49 (multiple runtime nodes per session — the roster's
-// `nodes[]`), line 86 + lines 90-94 (§Interfaces And Contracts roster pin —
-// visibility / nullable presence / derived readOnly / never-mask / ADR-017
-// non-collision), line 128 (AC2 — degraded/offline distinguishable in the
-// roster) / line 129 (AC3 — multiple nodes coexist); Plan-003 §Invariants
+// Refs: `Spec-003 §Required Behavior` (version-floor admission; attach is a
+// separate step from membership acceptance — I-003-3; detach/offline must not
+// revoke membership by default — I-003-3; multiple runtime nodes per session —
+// the roster's `nodes[]`), `Spec-003 §Default Behavior` (the node declares its
+// capabilities — updateCapabilities; an explicit `detach` retires the node;
+// `revoked` is authority-issued, never self-asserted),
+// `Spec-003 §Implementation Notes` (node identity is stable across reconnect if
+// the same daemon reattaches — the owner is immutable),
+// `Spec-003 §Pitfalls To Avoid` (never destroy historical node provenance when
+// a node reconnects: the cross-owner reconnect refusal),
+// `Spec-003 §Acceptance Criteria` (below-floor writes are refused
+// VERSION_FLOOR_EXCEEDED — the T3.9 write-gate; AC2 — degraded/offline
+// distinguishable in the roster; AC3 — multiple nodes coexist),
+// `Spec-003 §Interfaces And Contracts` (roster pin — visibility / nullable
+// presence / derived readOnly / never-mask / ADR-017 non-collision); Plan-003 §Invariants
 // I-003-1 (admit below-floor read-only,
 // write-refuse, never eject) / I-003-2 (the control plane cannot drive a node
 // registering -> online — the updateCapabilities guard) / I-003-3 (no
@@ -191,8 +192,8 @@
 // indexes); docs/architecture/contracts/api-payload-contracts.md §Plan-003
 // (RuntimeNodeAttach + RuntimeNodeDetach + RuntimeNodeCapabilityUpdate
 // request/response) + §Runtime-Node Method-Name Registry (the
-// RuntimeNodeRoster wire shapes at lines 527-547, registry row at line 562,
-// procedure-type paragraph at line 564); `memberships/membership-service.ts`
+// RuntimeNodeRoster wire shapes in `docs/architecture/contracts/api-payload-contracts.md §Tier 3: Plan-003 — Runtime Node Attach (Task 4.4)`,
+// registry row + procedure-type paragraph in its §Runtime-Node Method-Name Registry (Tier 3) table); `memberships/membership-service.ts`
 // (the `Querier`-injected service idiom + the no-membership-mutation precedent
 // this mirrors).
 
@@ -244,7 +245,7 @@ const UNIQUE_VIOLATION_SQLSTATE = "23505";
 // against a row in this state is refused (P10); a non-active `offline` row is
 // reactivated by the upsert's DO UPDATE ONLY when the reconnecting participant is
 // the row's existing owner (a cross-owner reconnect is suppressed instead — the
-// owner is immutable, Spec-003 line 116/123).
+// owner is immutable, `Spec-003 §Implementation Notes` + `Spec-003 §Pitfalls To Avoid`).
 const REVOKED_STATE: NodeState = "revoked";
 
 // The liveness state a freshly-admitted / reactivated attachment enters. The
@@ -257,9 +258,9 @@ const REGISTERING_STATE: NodeState = "registering";
 // (`runtime_node_attachments.state` — the clean-disconnect terminal state) and
 // the presence LIVENESS axis (`runtime_node_presence.health_state` — the
 // `online|degraded|offline` CHECK domain). It is the same liveness-death value
-// the T3.6 staleness sweep derives at 60s (Spec-003 line 61), which an explicit
+// the T3.6 staleness sweep derives at 60s (`Spec-003 §Default Behavior`), which an explicit
 // detach effects IMMEDIATELY instead of waiting for heartbeat staleness
-// (Spec-003 line 69 — "an explicit `detach` retires the node").
+// (`Spec-003 §Default Behavior` — "an explicit `detach` retires the node").
 const OFFLINE_STATE: NodeState = "offline";
 
 // Internal row shape returned by `pg.Pool#query` / `PGlite#query`. Postgres
@@ -353,7 +354,7 @@ export class AttachService {
   }
 
   /**
-   * Attach a runtime node to a session (Spec-003 line 53; Plan-003 T3.2).
+   * Attach a runtime node to a session (`Spec-003 §Required Behavior`; Plan-003 T3.2).
    *
    * @param request the runtime-node attach payload. Validated at the boundary
    *   (`RuntimeNodeAttachRequestSchema.parse`) before any row is read or
@@ -365,7 +366,7 @@ export class AttachService {
    *   already actively attached to a DIFFERENT session (P9 / I-003-5 — the
    *   active-index `23505`); and (2) a DIFFERENT participant attempts to reconnect
    *   to an existing `(node_id, session_id)` row whose owner is another
-   *   participant (the owner is immutable across reconnect — Spec-003 line 116 —
+   *   participant (the owner is immutable across reconnect — `Spec-003 §Implementation Notes` —
    *   so a cross-owner reconnect is refused rather than overwriting the owner).
    * @throws RuntimeNodeAttachRevokedException when the node's row for THIS
    *   session is in the terminal `revoked` state (P10).
@@ -380,7 +381,7 @@ export class AttachService {
    *      same-owner `offline` row (P9 reconnect) and is SUPPRESSED — yielding zero
    *      RETURNING rows — for a `revoked` row (P10) OR a row owned by a different
    *      participant (cross-owner reconnect). `participant_id` is NOT in the SET,
-   *      so the owner is never reassigned (Spec-003 line 123 — never destroy node
+   *      so the owner is never reassigned (`Spec-003 §Pitfalls To Avoid` — never destroy node
    *      provenance on reconnect).
    *   4a. Non-empty RETURNING -> map the row to the response (the admit /
    *       same-owner reconnect happy path, P1 / P9 reconnect).
@@ -436,7 +437,7 @@ export class AttachService {
       //     and is SUPPRESSED for a `revoked` row (P10 -> zero RETURNING rows).
       //   - `participant_id = EXCLUDED.participant_id` — the owner participant is
       //     IMMUTABLE across reconnect: a reconnect is the SAME local daemon
-      //     (Spec-003 line 116), so a DIFFERENT participant attempting to reattach
+      //     (`Spec-003 §Implementation Notes`), so a DIFFERENT participant attempting to reattach
       //     to this `(node_id, session_id)` row is SUPPRESSED (-> zero RETURNING
       //     rows), the same zero-row mechanism the revoked case uses. This is why
       //     `participant_id` is NOT in the SET list: reassigning the owner on a
@@ -446,7 +447,7 @@ export class AttachService {
       // refers to the would-be-inserted row's value.)
       //
       // `validated.healthState` is parsed at the boundary but DELIBERATELY NOT
-      // persisted here: `state` is hard-pinned to `registering` (Spec-003 line 57
+      // persisted here: `state` is hard-pinned to `registering` (`Spec-003 §Default Behavior`
       // / I-003-2) — a node advances to `online` ONLY via the capability-
       // declaration handshake (T3.9), and presence/health lands on the first
       // heartbeat (T3.6 owns `runtime_node_presence`). Do NOT "fix" the dropped
@@ -519,7 +520,7 @@ export class AttachService {
       //       session's identity is disclosed.
       //   (b) cross-owner — the existing row is owned by a DIFFERENT participant
       //       (its `participant_id` differs from the caller's). A reconnect is the
-      //       same daemon (Spec-003 line 116), so the owner is IMMUTABLE; a
+      //       same daemon (`Spec-003 §Implementation Notes`), so the owner is IMMUTABLE; a
       //       different participant attempting to reattach to this `(node_id,
       //       session_id)` row is refused with the typed conflict. The message
       //       names `nodeId` + the caller's OWN `sessionId` ONLY — never the
@@ -568,7 +569,7 @@ export class AttachService {
 
   /**
    * Detach a runtime node — the clean-disconnect `offline` transition (Spec-003
-   * line 69 "an explicit `detach` retires the node"; Plan-003 T3.7).
+   * `Spec-003 §Default Behavior` "an explicit `detach` retires the node"; Plan-003 T3.7).
    *
    * Retires the node's SINGLE active attachment by `nodeId` alone: the partial
    * active index `idx_node_attachments_active` admits at most one active-state
@@ -580,7 +581,7 @@ export class AttachService {
    *
    * Scope (settled, T3.7): detach writes the TERMINAL state `offline` ONLY. It is
    * NOT a `revoked` producer. `revoked` is an authority-issued trust decision
-   * ABOUT the node (Spec-003 line 70 — never self-asserted), gated on a Cedar /
+   * ABOUT the node (`Spec-003 §Default Behavior` — never self-asserted), gated on a Cedar /
    * ADR-012 authorization surface Phase 3 does not ship; the only V1 caller of
    * detach (T3.8's daemon-initiated `runtimenode.detach`) is a clean disconnect,
    * and a daemon cannot self-revoke. The `revoked` STATE + attach's P10 terminal
@@ -607,7 +608,7 @@ export class AttachService {
    * I-003-3 (attach-membership separation): detach writes ONLY
    * `runtime_node_attachments` + `runtime_node_presence`. It NEVER references,
    * SELECTs FOR UPDATE, INSERTs, UPDATEs, or DELETEs `session_memberships` — an
-   * offline/detached node retains its membership (Spec-003 line 51). Mirrors the
+   * offline/detached node retains its membership (`Spec-003 §Required Behavior`). Mirrors the
    * MembershipService no-mutation precedent (the attach domain is disjoint from
    * the membership domain; cross-plan-dependencies.md §1). P8 asserts the
    * byte-for-byte no-mutation property across a detach (snapshot + count).
@@ -655,7 +656,7 @@ export class AttachService {
 
       // (2) Liveness axis — effect the node's liveness-death immediately, the
       // same `health_state = 'offline'` the T3.6 staleness sweep derives at 60s
-      // (Spec-003 line 61), without waiting for heartbeat staleness. UPDATE-ONLY,
+      // (`Spec-003 §Default Behavior`), without waiting for heartbeat staleness. UPDATE-ONLY,
       // never an upsert/INSERT: presence rows are heartbeat-owned (T3.6 creates
       // the row on the first beat), and `runtime_node_presence.last_heartbeat_at`
       // is `NOT NULL` with no default — an INSERT here would be both wrong
@@ -704,7 +705,7 @@ export class AttachService {
    *   admitted READ-ONLY at attach because its declared `clientVersion` is below
    *   the session's `min_client_version` floor (T3.3) — attempts this capability
    *   WRITE (the typed `VERSION_FLOOR_EXCEEDED` write-refusal; I-003-1 / ADR-018
-   *   §Decision #4 / Spec-003 line 130). The node is NOT ejected — the throw
+   *   §Decision #4 / `Spec-003 §Acceptance Criteria`). The node is NOT ejected — the throw
    *   rolls back, leaving its attachment row byte-for-byte unchanged.
    * @throws RuntimeNodeCapabilityUpdateConflictException in two cases, both 409:
    *   (1) no active attachment exists — the SLOT axis was retired by a `detach`
@@ -713,11 +714,11 @@ export class AttachService {
    *   writes only `runtime_node_presence.health_state` and leaves the attachment
    *   SLOT active, so a swept-offline-but-still-attached node IS still resolved by
    *   the active-band lookup and CAN still receive a capability update (the two
-   *   axes reconcile at READ time — Spec-003 line 72); and
+   *   axes reconcile at READ time — `Spec-003 §Default Behavior`); and
    *   (2) the I-003-2 guard — the request would drive a `registering` attachment
    *   to `online` (bringing a node online requires a daemon-side capability
    *   declaration; the control plane is not the declaration authority —
-   *   Spec-003 lines 52 / 57).
+   *   `Spec-003 §Required Behavior` + `Spec-003 §Default Behavior`).
    *
    * Transaction sequence (ONE commit boundary):
    *   1. Resolve the node's SINGLE active attachment `FOR UPDATE` by `nodeId`
@@ -726,7 +727,7 @@ export class AttachService {
    *      (the floor-gate at step 3 needs both).
    *   2. Zero rows -> the no-active-attachment refusal (case 1 above).
    *   3. Version-floor write-gate (I-003-1 / ADR-018 §Decision #4 / Spec-003
-   *      line 130): re-derive the read-only verdict at WRITE time from the
+   *      `Spec-003 §Acceptance Criteria` AC4): re-derive the read-only verdict at WRITE time from the
    *      CURRENT session floor + the version the daemon declared at attach. A
    *      below-floor node is refused with `VersionFloorExceededException` (typed,
    *      never-eject — the throw rolls back, the attachment row is untouched, the
@@ -828,7 +829,7 @@ export class AttachService {
       // `runtime_node_presence.health_state` and leaves the SLOT active, so a
       // swept-offline-but-still-attached node still matches the active-band lookup
       // above and is updated normally (the two axes reconcile at READ time —
-      // Spec-003 line 72). This mirrors attach's defensive posture (the service
+      // `Spec-003 §Default Behavior`). This mirrors attach's defensive posture (the service
       // does not assume the router pre-validated liveness). The message names
       // `nodeId` ONLY (no session, no state — no info-leak).
       if (activeRow === undefined) {
@@ -838,7 +839,7 @@ export class AttachService {
       }
 
       // (3) Version-floor write-gate (I-003-1 / ADR-018 §Decision #4 / Spec-003
-      // line 130). Re-derive the read-only verdict at WRITE time from the
+      // `Spec-003 §Acceptance Criteria` AC4). Re-derive the read-only verdict at WRITE time from the
       // CURRENT session floor and the version the daemon declared at attach
       // (stored `client_version`). A below-floor node was admitted read-only
       // (T3.3); this is where its capability WRITE is refused — typed,
@@ -877,8 +878,8 @@ export class AttachService {
       // VALUE `online` is legal (the 2-value `RuntimeNodeHealthState`), but
       // applying it to a still-`registering` attachment is not: bringing a node
       // `online` requires a successful DAEMON-side capability declaration
-      // (Spec-003 line 57), and the control plane is not the declaration
-      // authority (Spec-003 line 52). EXPLICITLY ALLOWED and NOT guarded here:
+      // (`Spec-003 §Default Behavior`), and the control plane is not the declaration
+      // authority (`Spec-003 §Required Behavior`). EXPLICITLY ALLOWED and NOT guarded here:
       //   - `registering -> degraded` (Spec-003 §Fallback Behavior — a
       //     capability-validation failure leaves the node degraded);
       //   - `degraded -> online` (recovery — the node was declared online once);
@@ -939,17 +940,17 @@ export class AttachService {
   /**
    * Read a session's full runtime-node roster — the `runtimenode.roster`
    * coordination-record projection (Plan-003 T5.0c; Spec-003 §Interfaces And
-   * Contracts 2026-06-09 amendment, lines 90-94; wire shapes in
-   * api-payload-contracts.md lines 544-559, registry row at line 562).
+   * Contracts 2026-06-09 amendment; wire shapes in
+   * `docs/architecture/contracts/api-payload-contracts.md §Tier 3: Plan-003 — Runtime Node Attach (Task 4.4)`, registry row in the §Runtime-Node Method-Name Registry (Tier 3) table).
    *
-   * FAITHFUL PROJECTION (Spec-003 line 92 / AC2 line 128): returns EVERY
+   * FAITHFUL PROJECTION (`Spec-003 §Interfaces And Contracts` / AC2): returns EVERY
    * `runtime_node_attachments` row for the session — all five `state` values
    * verbatim (`registering | online | degraded | offline | revoked`), no
    * server-side hiding — because AC2's distinguishability requires
    * `degraded` / `offline` nodes visible, and the row count is bounded by
    * distinct nodes ever attached (`UNIQUE(node_id, session_id)`).
    *
-   * BOTH AXES VERBATIM, NEVER COLLAPSED (Spec-003 line 72): each entry carries
+   * BOTH AXES VERBATIM, NEVER COLLAPSED (`Spec-003 §Default Behavior`): each entry carries
    * the SLOT axis (`runtime_node_attachments.state`) AND the LIVENESS axis
    * (`runtime_node_presence.health_state` + `last_heartbeat_at`, LEFT-JOINed
    * on `node_id` and NULL until the node's first heartbeat — presence rows are
@@ -959,11 +960,11 @@ export class AttachService {
    *
    * NO STALENESS DERIVATION: the read NEVER ages `last_heartbeat_at` into a
    * health verdict — the T3.6 staleness sweep stays the SINGLE
-   * liveness-derivation writer (Spec-003 lines 61 / 72 / 92). A
+   * liveness-derivation writer (`Spec-003 §Default Behavior` + `Spec-003 §Interfaces And Contracts`). A
    * stale-but-unswept row reports its stored `health_state` verbatim; deriving
    * here would create a second, racing liveness author.
    *
-   * DERIVED `readOnly` (Spec-003 line 92 / AC4 line 130 / I-003-1): computed
+   * DERIVED `readOnly` (`Spec-003 §Interfaces And Contracts` / AC4 / I-003-1): computed
    * per row AT READ TIME from the stored `client_version` against the
    * session's CURRENT `min_client_version` floor via the same
    * `#deriveReadOnly` comparator the attach-time verdict (T3.3) and the T3.9
@@ -1062,7 +1063,7 @@ export class AttachService {
    * Derive the `readOnly` PERMISSION verdict from the session floor and the
    * daemon's reported `clientVersion`.
    *
-   * Two branches, both serving Spec-003 line 53 / I-003-1:
+   * Two branches, both serving `Spec-003 §Required Behavior` / I-003-1:
    *   - NULL floor (P1) — "no floor", so EVERY daemon version is admitted with
    *     `readOnly = false`. Unconditional read-write admission.
    *   - Non-NULL floor (P2/P3) — compare the daemon's `clientVersion` against the

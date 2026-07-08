@@ -1,7 +1,7 @@
 // `session.subscribe` JSON-RPC handler — Plan-007 Phase 3 (T-007p-3-1).
 //
 // Spec coverage:
-//   * Spec-007 §Required Behavior + §Interfaces And Contracts (lines 71-78) —
+//   * `Spec-007 §Required Behavior` + `Spec-007 §Interfaces And Contracts` —
 //     `session.subscribe` opens a server-side streaming subscription on the
 //     Phase 2 streaming primitive (T-007p-2-5). The wire request carries the
 //     `sessionId` (and optional `afterCursor` for replay-from-cursor); the
@@ -19,7 +19,7 @@
 //     method name with the correct mutating-flag.
 //
 // Invariants this module participates in (canonical text in
-// docs/plans/007-local-ipc-and-daemon-control.md §Invariants lines 95-117):
+// `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`, I-007-6 through I-007-9):
 //   * I-007-1 — load-before-bind: `registerSessionSubscribe` is called by
 //     the bootstrap orchestrator AFTER the registry is loaded and AFTER
 //     the streaming primitive has been constructed (the primitive eagerly
@@ -57,9 +57,9 @@
 //   * Test coverage — owned by T-007p-3-4 (sibling task).
 //
 // Method-name format ratified: dotted-camelCase per
-// docs/architecture/contracts/api-payload-contracts.md §JSON-RPC Method-Name
-// Registry (Tier 1 Ratified, lines 291-331). The `register` call site below
-// passes `"session.subscribe"`, which matches the canonical regex.
+// `docs/architecture/contracts/api-payload-contracts.md §JSON-RPC Method-Name Registry (Tier 1 Ratified)`.
+// The `register` call site below passes `"session.subscribe"`, which matches
+// the canonical regex.
 
 import type {
   Handler,

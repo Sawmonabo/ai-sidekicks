@@ -11,7 +11,7 @@
 //     orchestrator constructs and wires into `LocalIpcGateway` dispatch.
 //
 // Invariants this module owns (canonical text in
-// docs/plans/007-local-ipc-and-daemon-control.md §Invariants lines 95-117):
+// `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`, I-007-6 through I-007-9):
 //
 //   * I-007-6 — duplicate method-name registration MUST be rejected at
 //     register-time (synchronously), not at dispatch-time. The registry
@@ -31,8 +31,7 @@
 //     "invalid_params")`.
 //
 //   * I-007-9 — method names conform to the canonical format declared in
-//     docs/architecture/contracts/api-payload-contracts.md §JSON-RPC
-//     Method-Name Registry (Tier 1 Ratified, lines 291-331). The dotted-
+//     `docs/architecture/contracts/api-payload-contracts.md §JSON-RPC Method-Name Registry (Tier 1 Ratified)`. The dotted-
 //     camelCase regex `/^[a-z][a-z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/` is
 //     canonical (lowercase-rooted; camelCase permitted in tail segments);
 //     LSP-style `$/`-prefixed names remain enforced via a sibling regex
@@ -111,8 +110,8 @@ const METHOD_NAME_LSP_REGEX = /^\$\/[a-z][a-zA-Z0-9]*(?:\/[a-z][a-zA-Z0-9]*)*$/;
 /**
  * Test a method-name string against the registry's accepted shapes.
  * Returns `true` if the name matches EITHER the canonical dotted-camelCase
- * pattern (per api-payload-contracts.md §JSON-RPC Method-Name Registry,
- * lines 291-331) OR the LSP `$/`-prefixed system-method pattern (separate
+ * pattern (per `docs/architecture/contracts/api-payload-contracts.md §JSON-RPC Method-Name Registry (Tier 1 Ratified)`)
+ * OR the LSP `$/`-prefixed system-method pattern (separate
  * follow-up). Exported only for test reach — production callers go through
  * `register()`.
  */

@@ -8,11 +8,11 @@
 // the SDK does NOT swallow validation errors (per `Plan-007 §Phase 3: session.* Handlers + SDK Zod Layer` T-007p-3-2 / I-007-3-T4).
 //
 // Spec coverage:
-//   * Spec-007 line 56 — "typed JSON-RPC client transport" surface owed to
+//   * `Spec-007 §Wire Format` — "typed JSON-RPC client transport" surface owed to
 //     desktop renderer + CLI consumers.
 //   * Plan-007 §Cross-Plan Obligations CP-007-4 — `transport/jsonRpcClient.ts`
 //     CREATE (transport-layer + Zod wrapping primitive).
-//   * Plan-007 lines 309-322 — `JsonRpcClient` class signature contract
+//   * `Plan-007 §Phase 3: session.* Handlers + SDK Zod Layer` — `JsonRpcClient` class signature contract
 //     (constructor + `call<P, R>` + `subscribe<T>`).
 //   * MCP TypeScript SDK pattern (`Plan-007 §Phase 3: session.* Handlers + SDK Zod Layer` T-007p-3-2 reference; see
 //     https://github.com/modelcontextprotocol/typescript-sdk) — separation

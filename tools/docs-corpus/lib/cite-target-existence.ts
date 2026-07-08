@@ -27,6 +27,7 @@ export interface Cite {
   symbol?: string; // present for `path#symbol` cites
   section?: string; // present for backticked `Spec-NNN §Heading` cites (label-cite pass 3)
   volatileCodeTarget?: boolean; // raw line-pin into packages/ | apps/
+  lineWordDeny?: boolean; // line-word / bare-basename form in a CODE citer (label-cite passes 5-6)
 }
 
 export interface CiteViolation {
@@ -38,7 +39,8 @@ export interface CiteViolation {
     | "raw-line-cite-into-volatile-code"
     | "raw-line-cite-into-governance-doc"
     | "symbol-not-found"
-    | "section-not-found";
+    | "section-not-found"
+    | "line-anchored-cite-in-code";
   detail: string;
 }
 

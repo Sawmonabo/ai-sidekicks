@@ -119,7 +119,7 @@ export const RUNTIME_NODE_ATTACH_REVOKED_CODE: RuntimeNodeAttachRevokedCode =
 // against a node with no active attachment (a detach/sweep race), and the I-003-2
 // state-context guard (cannot drive `registering -> online` — bringing a node
 // online requires a daemon-side capability declaration, which the control plane
-// is not the authority for; Spec-003 lines 52/57). One code, two call sites,
+// is not the authority for; `Spec-003 §Required Behavior` / `Spec-003 §Default Behavior`). One code, two call sites,
 // distinct messages — neither leaks another session's identity or the node's
 // internal state.
 export type RuntimeNodeCapabilityUpdateConflictCode = "runtimenode.capabilityupdate_conflict";

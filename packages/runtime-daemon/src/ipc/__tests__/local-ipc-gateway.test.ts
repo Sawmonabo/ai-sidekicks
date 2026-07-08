@@ -1,16 +1,15 @@
 // W-007p-2-T2..T6 + T10 — LocalIpcGateway test suite (T-007p-2-6).
 //
 // Spec coverage:
-//   * Spec-007 §Wire Format (docs/specs/007-local-ipc-and-daemon-control.md
-//     lines 50-56) — JSON-RPC 2.0 + LSP-style Content-Length framing;
+//   * `Spec-007 §Wire Format` — JSON-RPC 2.0 + LSP-style Content-Length framing;
 //     1 MB max-message-size.
-//   * Spec-007 §Required Behavior (lines 43-47) — OS-local default
+//   * `Spec-007 §Required Behavior` — OS-local default
 //     transport (Unix domain socket on Unix-like; named pipe on Windows).
 //   * ADR-009 (docs/decisions/009-json-rpc-ipc-wire-format.md) — wire-
 //     format decision rationale per F-007p-2-08 (header citation
 //     required on the gateway test file).
 //
-// W-tests covered here (per Plan-007 §Phase 2 lines 374-382):
+// W-tests covered here (per `Plan-007 §Phase 2 — Wire Substrate (W-007p-2-T1..T11)`):
 //   * W-007p-2-T2 — Transport: Unix domain socket round-trip
 //   * W-007p-2-T3 — Transport: Windows named pipe round-trip
 //                   (it.skipIf(process.platform !== "win32") — Tier 1
@@ -497,7 +496,7 @@ describe("W-007p-2-T4 — gated loopback fallback (Tier 1)", () => {
 // W-007p-2-T5 — 1MB max-message-size enforcement
 // ----------------------------------------------------------------------------
 //
-// Per Plan-007 line 377: "Body > 1MB → connection close + `-32600` error
+// Per `Plan-007 §Phase 2 — Wire Substrate (W-007p-2-T1..T11)`: "Body > 1MB → connection close + `-32600` error
 // frame; subsequent reconnect succeeds." The mapping (oversized_body →
 // -32600 InvalidRequest) lives at jsonrpc-error-mapping.ts:175-199; the
 // disconnect-then-reconnect contract is enforced by the gateway's
@@ -984,7 +983,7 @@ describe("RT-codex-1 finding #3 — parseFrame caps header section even when del
 // RT-codex-2 finding #4 — envelope-level `protocolVersion` substrate gate
 // ----------------------------------------------------------------------------
 //
-// Spec-007 §Wire Format line 54 (BL-102 ratified 2026-05-01) mandates:
+// `Spec-007 §Wire Format` (BL-102 ratified 2026-05-01) mandates:
 // "Every request (except health checks) must include a `protocolVersion`
 // field carrying an ISO 8601 date-string in `YYYY-MM-DD` form." Prior to
 // this gate, `local-ipc-gateway.ts#dispatchFrame` validated only

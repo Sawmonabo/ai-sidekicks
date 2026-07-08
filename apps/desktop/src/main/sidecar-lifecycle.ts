@@ -14,7 +14,7 @@
 // `NodePtyHost` (macOS/Linux primary; Windows fallback) and the
 // out-of-process `RustSidecarPtyHost` (Windows Phase 5 default) —
 // implement the same interface, so this module never touches a
-// backend-specific surface. ADR-019 §Decision item 8 line 48 declares
+// backend-specific surface. `ADR-019 §Decision` item 4 declares
 // "Consumers never see the backend choice" — that polymorphism contract
 // is what lets this module stay backend-agnostic.
 //
@@ -228,8 +228,8 @@ export interface SidecarLifecycleDeps {
  *      rationale.
  *
  * Backend polymorphism: the handler calls `shutdown()` on the
- * `PtyHost` interface — never on a backend-specific class. ADR-019
- * §Decision item 8 line 48 declares "Consumers never see the backend
+ * `PtyHost` interface — never on a backend-specific class.
+ * `ADR-019 §Decision` item 4 declares "Consumers never see the backend
  * choice"; this module is the consumer-side enforcement of that
  * invariant on the lifecycle axis.
  *

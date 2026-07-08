@@ -1,6 +1,6 @@
 // Plan-003 Phase 5 T5.2 (Tier 3) — renderer AttachFlow component.
 //
-// The Spec-003 AC1 surface (line 127): a USER-INITIATED flow that attaches a
+// The `Spec-003 §Acceptance Criteria` AC1 surface: a USER-INITIATED flow that attaches a
 // local runtime node to an ALREADY-ACTIVE session — the live session whose
 // branded id arrives as the `sessionId` prop — through the Spec-023 preload
 // bridge. The view renders the node's full attach declaration up front, fires
@@ -9,32 +9,32 @@
 // verbatim.
 //
 // Spec-003 coverage:
-//   • §AC1 (line 127, "a participant can attach a local runtime node to an
+//   • `Spec-003 §Acceptance Criteria` AC1 ("a participant can attach a local runtime node to an
 //     already active session"): the idle branch presents the attach prompt
 //     for the live target session; the click handler issues the attach call;
 //     the resolved branch renders the attachment the call returns.
-//   • Line 50 ("runtime-node attach must not require session recreation") —
+//   • `Spec-003 §Required Behavior` ("runtime-node attach must not require session recreation") —
 //     held STRUCTURALLY: the component receives an EXISTING `SessionId` and
 //     its only wire call is `runtimenode.attach`. No `session.create` (or any
 //     other session-minting call) exists in this file, so attach cannot
 //     recreate the session by construction; the rendered "target session"
 //     line shows the attach is INTO the session the view was handed.
-//   • Line 48 ("attach must include node identity, declared capabilities,
+//   • `Spec-003 §Required Behavior` ("attach must include node identity, declared capabilities,
 //     health, and trust context"): the declaration block enumerates all four
 //     payload components — `nodeId` (identity), the `capabilities` map
 //     rendered by the composed `CapabilityDeclaration` (declared
 //     capabilities), `healthState` (the daemon's 2-value self-reported health
 //     axis, runtime-node.ts:108), and `participantId` + `clientVersion`
 //     (trust context: the membership identity the attach rides and the
-//     version the control plane compares against the session floor, Spec-003
-//     line 53) — and the request carries exactly those fields plus the
+//     version the control plane compares against the session floor,
+//     `Spec-003 §Required Behavior`) — and the request carries exactly those fields plus the
 //     target `sessionId` (`RuntimeNodeAttachRequest`, runtime-node.ts:124-131).
-//   • Line 47 ("runtime-node attach must be a separate step from membership
+//   • `Spec-003 §Required Behavior` ("runtime-node attach must be a separate step from membership
 //     acceptance"): the I-003-3 block below — the separation is this view's
 //     invariant.
 //
 // I-003-3 (attach is separate from membership) — the invariant this task
-// verifies (Plan-003 §Invariants, the I-003-3 entry at lines 49-55:
+// verifies (`Plan-003 §I-003-3 — Attach is separate from membership`:
 // "`RuntimeNodeAttach` MUST NOT modify session_memberships"; the T5.2 row
 // pins the renderer reading — attach and membership surface as DISTINCT
 // actions, never coupled to a `session_memberships` mutation). Concretely:
@@ -42,16 +42,16 @@
 //     no `membership.*`, no `invite.*`, no `session.*` call, named or
 //     implied. Membership acceptance is a SEPARATE, PRIOR step owned by a
 //     DIFFERENT view (`session-members/invite-accept-view.tsx`, the Plan-002
-//     T6.1 surface): a participant first holds active membership (Spec-003
-//     line 46), THEN — as its own deliberate action — attaches a node under
+//     T6.1 surface): a participant first holds active membership
+//     (`Spec-003 §Required Behavior`), THEN — as its own deliberate action — attaches a node under
 //     it.
 //   • A future editor will be tempted to fold the two into a "one-click
 //     accept-invite-and-attach" convenience inside this flow's handler. That
 //     is the exact inversion I-003-3 exists to forbid: accepting an invite
 //     would auto-attach a runtime node (the Spec-002 §Pitfalls security
 //     violation the invariant's why-load-bearing clause names), and
-//     membership would become automatic node trust (Spec-003 §Pitfalls line
-//     121). Keep this view's wire surface at exactly one procedure.
+//     membership would become automatic node trust
+//     (`Spec-003 §Pitfalls To Avoid`). Keep this view's wire surface at exactly one procedure.
 //
 // CLICK-TRIGGERED, NOT MOUNT-TRIGGERED — why this view has an `idle` state:
 //
@@ -67,7 +67,7 @@
 //       rejected for invite acceptance, where mount-fire would consume the
 //       invite on route-load).
 //     • The user must see what the node declares BEFORE it attaches
-//       (Spec-003 line 48 + the line-58 least-privilege default): the idle
+//       (`Spec-003 §Required Behavior` + the `Spec-003 §Default Behavior` least-privilege default): the idle
 //       branch renders the full declaration — identity, capabilities, health,
 //       trust context — ahead of any wire call.
 //   The async lifecycle that follows the click is exactly the
@@ -77,11 +77,11 @@
 // TRANSPORT — the GENERIC `controlPlane.call(...)` bridge arm:
 //
 //   `runtimenode.attach` is registered DUAL-transport
-//   (api-payload-contracts.md:569 — the four mutations register under the
+//   (`docs/architecture/contracts/api-payload-contracts.md §Runtime-Node Method-Name Registry (Tier 3)` — the four mutations register under the
 //   Plan-007-partial daemon JSON-RPC substrate AND cross the Plan-008
 //   control-plane tRPC transport). This renderer rides the CONTROL-PLANE arm because:
 //     • the attach lands control-plane-owned cross-node coordination state —
-//       the `runtime_node_attachments` row (Spec-003 line 52: "the control
+//       the `runtime_node_attachments` row (`Spec-003 §Required Behavior`: "the control
 //       plane must coordinate runtime-node discovery and presence");
 //     • the shipped end-to-end proof of the procedure is the control-plane
 //       SDK arm (`createControlPlaneRuntimeNodeClient` in
@@ -134,7 +134,7 @@ import { CapabilityDeclaration } from "./CapabilityDeclaration.js";
 // Wire procedure name.
 //
 // `RUNTIME_NODE_ATTACH_PROCEDURE` — the REGISTERED runtime-node attach
-// mutation: registry row api-payload-contracts.md:575 (`mutation`, request
+// mutation: registry row `docs/architecture/contracts/api-payload-contracts.md §Runtime-Node Method-Name Registry (Tier 3)` (`mutation`, request
 // `RuntimeNodeAttachRequest`, response `RuntimeNodeAttachResponse`; the
 // five-method registry table at :560-566). Hardcoded as a local `const` per
 // the shipped renderer idiom (NodeRoster's `ROSTER_READ_PROCEDURE`,
@@ -169,7 +169,7 @@ export type RuntimeNodeAttachDraft = Omit<RuntimeNodeAttachRequest, "sessionId">
  * Props for {@link AttachFlow}.
  *
  * `sessionId` is the branded {@link SessionId} of the ALREADY-ACTIVE session
- * to attach into (Spec-003 line 127 "already active"; line 50 — the id is
+ * to attach into (`Spec-003 §Acceptance Criteria` "already active"; `Spec-003 §Required Behavior` — the id is
  * received, never minted, so attach cannot recreate a session). It arrives as
  * a prop (supplied by a future Plan-023 router/deep-link; exercised by the
  * T5.4 manual smoke), the same prop-contract posture as `NodeRoster` /
@@ -328,7 +328,7 @@ export function AttachFlow({ sessionId, attachDraft }: AttachFlowProps): React.J
   // self-description, relevant before (idle), during (pending), and after
   // (resolved/rejected) the call. The "target session" line makes the
   // no-recreation posture visible: the attach is INTO this existing live
-  // session (Spec-003 line 50).
+  // session (`Spec-003 §Required Behavior`).
   const nodeDeclaration = (
     <>
       <ul aria-label="attach-node-declaration">
@@ -385,7 +385,7 @@ export function AttachFlow({ sessionId, attachDraft }: AttachFlowProps): React.J
     //     declaration succeeds; I-003-2). Attach-success MUST NOT be
     //     presented as node-healthy, so no "online"/"healthy" copy is
     //     synthesized here.
-    //   • `readOnly` is the attach-time floor verdict (Spec-003 line 53: a
+    //   • `readOnly` is the attach-time floor verdict (`Spec-003 §Required Behavior`: a
     //     below-floor daemon is ADMITTED read-only, not refused), labeled
     //     with the same at-floor/below-floor wording as the sibling
     //     NodeRoster row (NodeRoster.tsx:550-552) so the two surfaces read
@@ -474,7 +474,7 @@ function isWireErrorEnvelope(value: unknown): value is { code: string; message: 
 //     holds a real `Error` instance.
 // DELIBERATELY NO below-floor (`version.floor_exceeded`) recognizer here, in
 // contrast to NodeRoster's: a below-floor daemon is ADMITTED at attach —
-// read-only, never refused (Spec-003 line 53; I-003-1 admit-not-eject) — so
+// read-only, never refused (`Spec-003 §Required Behavior`; I-003-1 admit-not-eject) — so
 // `VERSION_FLOOR_EXCEEDED` is a verdict on SUBSEQUENT version-sensitive
 // writes, never on this call. The below-floor outcome on THIS path is the
 // RESOLVED branch's `readOnly: true`, rendered verbatim; labeling a floor

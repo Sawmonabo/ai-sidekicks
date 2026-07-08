@@ -2,7 +2,7 @@
 // suite (T-007p-3-4 + BL-117 closure).
 //
 // Spec coverage:
-//   * Spec-007 §Required Behavior + §Interfaces And Contracts (lines 71-78)
+//   * `Spec-007 §Required Behavior` + `Spec-007 §Interfaces And Contracts`
 //     (docs/specs/007-local-ipc-and-daemon-control.md) — the `session.*`
 //     methods are the V1 vertical-slice surface (`create` / `read` / `join` /
 //     `subscribe`); this file exercises the handlers' registry-binding
@@ -12,7 +12,7 @@
 // suite covering every cross-plan obligation owed by Phase 3 handlers.
 //
 // Invariants verified here (canonical text in
-// docs/plans/007-local-ipc-and-daemon-control.md §Invariants lines 95-117):
+// `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`, I-007-6 through I-007-9):
 //   * I-007-6 — duplicate method-name registration is rejected at register-
 //     time. T5 below verifies via `registerSessionCreate(...)` called twice
 //     against the same registry.
@@ -25,7 +25,7 @@
 //     `mapJsonRpcError` path through the new `SessionNotFoundError`
 //     discriminator branch.
 //
-// Acceptance Criteria coverage matrix (per task contract lines 21-46 +
+// Acceptance Criteria coverage matrix (per the T-007p-3-4 task contract +
 // BL-117 closure for AC-N2/AC-N3):
 //   * I-007-3-T1 — `session.create` round-trip through the registry: mock
 //     `createSession` invoked with parsed params; response matches
@@ -50,8 +50,9 @@
 //     (happy path); unknown sessionId throws `SessionNotFoundError` from
 //     `packages/runtime-daemon/src/ipc/session-errors.ts` which
 //     `mapJsonRpcError` discriminates to `-32602 InvalidParams` +
-//     `data.type: "session.not_found"` per error-contracts.md §JSON-RPC
-//     Wire Mapping (line 114, HTTP 404 equivalent). Closes BL-117.
+//     `data.type: "session.not_found"` per
+//     `docs/architecture/contracts/error-contracts.md §JSON-RPC Wire Mapping`
+//     (the §Session row is the HTTP 404 equivalent). Closes BL-117.
 //   * I-007-3-T9 (Verifies Spec-007 AC-N3 + Spec-001 AC4) — `session.join`
 //     round-trip. Happy path: mock `joinSession` drives a
 //     `membership.created` event (the canonical V1 join-admission variant
@@ -85,7 +86,7 @@
 //     SQLite-backed event log + control-plane replay path ships with
 //     Plan-001 Phase 5.
 //
-// Shared-helper directive (task contract lines 184-189):
+// Shared-helper directive (per the T-007p-3-4 task contract):
 //   T3's `$/subscription/notify` frame-shape assertions are INLINE-DUPLICATED
 //   verbatim across each `it()` block; the task contract explicitly forbids
 //   extracting a shared helper. The duplication is load-bearing for
@@ -222,7 +223,7 @@ function buildSessionCreatedEvent(): SessionEvent {
  * succeeds and the dispatched value reaches the test assertion intact.
  *
  * `timelineCursors.acknowledged` is intentionally omitted — it is optional
- * per the canonical interface (api-payload-contracts.md line 221) and
+ * per the canonical interface (`docs/architecture/contracts/api-payload-contracts.md §Tier 1: Plan-001 — Shared Session Core (Task 4.2)`) and
  * exercising the absent-key shape catches a regression where a default of
  * `undefined` would slip through and fail `.strict()` parsing.
  */
@@ -1154,8 +1155,9 @@ describe("I-007-3-T5 — duplicate registerSessionCreate rejected at register-ti
 // `SessionRead`-shape projection; (b) unknown sessionId — the deps throw
 // `SessionNotFoundError`, which `mapJsonRpcError` discriminates to the
 // canonical wire envelope `-32602 InvalidParams` + `data.type:
-// "session.not_found"` per error-contracts.md §JSON-RPC Wire Mapping
-// (line 114, HTTP 404 equivalent).
+// "session.not_found"` per
+// `docs/architecture/contracts/error-contracts.md §JSON-RPC Wire Mapping`
+// (the §Session row is the HTTP 404 equivalent).
 //
 // Wire-mapping check is performed by passing the `RegistryDispatchError`
 // the registry rethrows through `mapJsonRpcError` and asserting the
@@ -1268,7 +1270,7 @@ describe("I-007-3-T8 — session.read round-trip (Spec-007 AC-N2 + I-007-8)", ()
   });
 
   it("registers `session.read` with mutating: false (pre-handshake gate passes through)", () => {
-    // Sanity — Spec-007 §Fallback Behavior lines 67-68 require read-only
+    // Sanity — `Spec-007 §Fallback Behavior` requires read-only
     // compatibility to continue across version-mismatch. Flipping this
     // flag to true would break the read-only-fallback contract.
     const registry = new MethodRegistryImpl();

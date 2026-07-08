@@ -1,12 +1,12 @@
 // P6/P7 — MembershipService invariant gates (Plan-002 Phase 2, T2.3).
 //
-// P6 (I-002-1, Spec-002 §Required Behavior line 49, AC3): a NON-OWNER caller
+// P6 (I-002-1, `Spec-002 §Required Behavior`, AC3): a NON-OWNER caller
 //     issuing `MembershipUpdate{action: "change_role", newRole: "owner"}`
 //     throws the typed `membership.permission_denied` error AND leaves
 //     `session_memberships` unchanged. Owner elevation must be issued by an
 //     existing owner; a non-owner cannot self-elevate.
 //
-// P7 (I-002-2, Spec-002 §Required Behavior line 50): the SOLE owner attempting
+// P7 (I-002-2, `Spec-002 §Required Behavior`): the SOLE owner attempting
 //     a self-leave (self-targeted `revoke` / `suspend`) throws the typed
 //     `membership.last_owner` error AND the owner row remains unchanged. A
 //     session must never reach zero active owners via a MembershipUpdate.
@@ -390,8 +390,8 @@ describe("MembershipService — P7 (I-002-2: last-owner-cannot-leave)", () => {
 // Covers the permission-gate `else if` branch T2.3 introduces
 // (membership-service.ts §4): a non-owner attempting to apply a NON-self-leave
 // action to ANOTHER member's row is denied. The matrix scopes `Suspend/revoke
-// member` to `owner` only (security-architecture.md §Permission Matrix line
-// 301), so a `collaborator` issuing `revoke` against a peer is rejected before
+// member` to `owner` only (security-architecture.md §Permission Matrix),
+// so a `collaborator` issuing `revoke` against a peer is rejected before
 // any mutation. This is a single denial smoke test; the full happy-path /
 // transition sweep stays in T2.5.
 

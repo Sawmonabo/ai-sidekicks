@@ -64,9 +64,10 @@
 // map resolution path itself is exercised transitively by consumer-package
 // typechecks (e.g. `pnpm --filter @ai-sidekicks/runtime-daemon typecheck`).
 //
-// Refs: Spec-002 §Interfaces And Contracts (line 87 — `ChannelList` is the
+// Refs: `Spec-002 §Interfaces And Contracts` (`ChannelList` is the
 // only channel surface contracted in Spec-002; channel creation belongs to
-// Plan-016), Plan-002 §Phase 1 (T1.6 anti-leakage row at lines 230-232),
+// Plan-016), `Plan-002 §Phase 1 — Invite And Membership Contracts + Migration`
+// (the T1.6 anti-leakage row),
 // ADR-001 (session-as-primary-domain-object), ADR-014 (tRPC v11 / Standard
 // Schema V1 — informs the cross-contract `.strict()` posture).
 import { describe, expect, it } from "vitest";

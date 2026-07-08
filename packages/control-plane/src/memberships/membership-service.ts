@@ -1,7 +1,7 @@
 // MembershipService — Plan-002 Phase 2 (T2.3, MembershipUpdate handler).
 //
 // Responsibilities (this task, T2.3):
-//   * updateMembership — apply a `MembershipUpdate` (the Spec-002 line 83
+//   * updateMembership — apply a `MembershipUpdate` (the `Spec-002 §Interfaces And Contracts`
 //     discriminated union: `change_role` / `suspend` / `revoke` /
 //     `reactivate`) against a `session_memberships` row, enforcing the two
 //     load-bearing Plan-002 invariants:
@@ -9,11 +9,11 @@
 //         `{action: "change_role", newRole: "owner"}` MUST be issued by an
 //         actor who already holds active `owner` membership in the SAME
 //         session, and the target MUST already hold active membership
-//         (Spec-002 §Required Behavior line 49). A non-owner cannot
+//         (`Spec-002 §Required Behavior`). A non-owner cannot
 //         self-elevate. → typed error `membership.permission_denied`.
 //       - I-002-2 (last-owner-cannot-leave): the system MUST prevent the
-//         last remaining active owner from leaving a session (Spec-002
-//         §Required Behavior line 50). The load-bearing property is "a
+//         last remaining active owner from leaving a session
+//         (`Spec-002 §Required Behavior`). The load-bearing property is "a
 //         session never reaches zero active owners via a MembershipUpdate",
 //         so the guard fires on ANY action that would remove the sole
 //         remaining active owner — self `revoke` / `suspend` of that owner,
@@ -21,12 +21,12 @@
 //         → typed error `membership.last_owner`.
 //
 // Permission model (a deliberate scope decision — see RESULT concerns).
-// Spec-002 lines 49-50 name only two guards explicitly: owner-elevation
-// (line 49) and last-owner-cannot-leave (line 50). The row-level authority
+// `Spec-002 §Required Behavior` names only two guards explicitly: owner-elevation
+// and last-owner-cannot-leave. The row-level authority
 // for WHO may apply each action is the Permission Matrix in
-// docs/architecture/security-architecture.md §Permission Matrix (rows 300-301,
-// the per-action owner-only authority). That matrix scopes `Elevate member
-// role` (line 300) and `Suspend/revoke member` (line 301) to `owner` only —
+// `docs/architecture/security-architecture.md §Permission Matrix (Task 5.4)`
+// (the per-action owner-only authority). That matrix scopes `Elevate member
+// role` and `Suspend/revoke member` to `owner` only —
 // every non-owner column is `No`. ADR-007's
 // owner-centric layered-trust model is the frame; the matrix is the per-action
 // source. This service adopts that OWNER-ONLY-DEFAULT reading: every
@@ -35,7 +35,7 @@
 // to leave their OWN membership (a self-targeted `revoke` / `suspend`), which
 // is then subject to the I-002-2 last-owner guard. `reactivate` is not an
 // enumerated matrix row; it inherits owner-only by INVERSION of the documented
-// owner-only `Suspend/revoke member` row (line 301) — a participant who cannot
+// owner-only `Suspend/revoke member` row — a participant who cannot
 // suspend or revoke a member certainly cannot un-suspend one. The narrow
 // alternative (guard ONLY the two Spec-002 named cases, allow any actor every
 // other action) was rejected because it contradicts the matrix and leaves a
@@ -84,11 +84,11 @@
 //     This service mutates the row only; it emits no event.
 //   * Invite-accept membership creation — owned by InviteService (T2.2).
 //
-// Refs: Spec-002 §Required Behavior (lines 49-50), §Interfaces And Contracts
-// (line 83), Plan-002 §Invariants I-002-1 / I-002-2 / I-002-4,
-// docs/architecture/contracts/api-payload-contracts.md §MembershipUpdate
-// (lines 400-410), docs/architecture/security-architecture.md
-// §Permission Matrix (lines 300-301, the per-action owner-only authority),
+// Refs: `Spec-002 §Required Behavior`, `Spec-002 §Interfaces And Contracts`,
+// Plan-002 §Invariants I-002-1 / I-002-2 / I-002-4,
+// `docs/architecture/contracts/api-payload-contracts.md §Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3)`
+// (the `MembershipUpdate` contract), `docs/architecture/security-architecture.md §Permission Matrix (Task 5.4)`
+// (the per-action owner-only authority),
 // ADR-007 (collaboration trust + permission model).
 
 import type {
@@ -155,7 +155,7 @@ export class MembershipPermissionDeniedException extends Error {
  * zero active owners is unrecoverable — no participant could issue further
  * `MembershipUpdate` calls or transfer ownership — so this is a one-way door
  * the guard refuses to open. The message directs the owner to transfer
- * ownership first (Spec-002 §Required Behavior line 50). The transport layer
+ * ownership first (`Spec-002 §Required Behavior`). The transport layer
  * maps this to a conflict / precondition-failed response.
  */
 export class MembershipLastOwnerException extends Error {
@@ -349,12 +349,12 @@ export class MembershipService {
       if (validated.action === "change_role" && validated.newRole === "owner") {
         if (!actorIsActiveOwner) {
           throw new MembershipPermissionDeniedException(
-            `MembershipService.updateMembership: owner elevation (change_role -> owner) requires an active owner to issue it; participant ${String(actorParticipantId)} is not an active owner of session ${sessionId} (Plan-002 I-002-1, Spec-002 line 49).`,
+            `MembershipService.updateMembership: owner elevation (change_role -> owner) requires an active owner to issue it; participant ${String(actorParticipantId)} is not an active owner of session ${sessionId} (Plan-002 I-002-1, Spec-002 §Required Behavior).`,
           );
         }
         if (targetRow.state !== "active") {
           throw new MembershipPermissionDeniedException(
-            `MembershipService.updateMembership: owner elevation requires the target to already hold active membership; membership ${String(validated.membershipId)} is in state '${targetRow.state}' (Plan-002 I-002-1, Spec-002 line 49).`,
+            `MembershipService.updateMembership: owner elevation requires the target to already hold active membership; membership ${String(validated.membershipId)} is in state '${targetRow.state}' (Plan-002 I-002-1, Spec-002 §Required Behavior).`,
           );
         }
       } else if (!isSelfLeave && !actorIsActiveOwner) {
@@ -400,7 +400,7 @@ export class MembershipService {
           const activeOwnerCount: number = countRow.n;
           if (activeOwnerCount <= 1) {
             throw new MembershipLastOwnerException(
-              `MembershipService.updateMembership: cannot ${validated.action} the last active owner of session ${sessionId}; transfer ownership to another participant first (Plan-002 I-002-2, Spec-002 line 50).`,
+              `MembershipService.updateMembership: cannot ${validated.action} the last active owner of session ${sessionId}; transfer ownership to another participant first (Plan-002 I-002-2, Spec-002 §Required Behavior).`,
             );
           }
         }

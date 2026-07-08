@@ -9,11 +9,11 @@
 // boundary.
 //
 // Spec coverage:
-//   * Spec-007 line 56 — typed JSON-RPC client transport surface owed to
+//   * `Spec-007 §Wire Format` — typed JSON-RPC client transport surface owed to
 //     desktop renderer + CLI consumers.
 //   * Plan-007 §Cross-Plan Obligations CP-007-4 — `transport/jsonRpcClient.ts`
 //     + `transport/types.ts` CREATE.
-//   * Plan-007 lines 309-331 — task contract for the file pair (the
+//   * `Plan-007 §Phase 3: session.* Handlers + SDK Zod Layer` — task contract for the file pair (the
 //     `JsonRpcClient` class signature + `LocalSubscriptionConsumer<T>` /
 //     `Handler<Req, Res>` shapes). The original plan body named the
 //     consumer interface `LocalSubscription<T>`; BL-115 (landed 2026-05-19)

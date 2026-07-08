@@ -14,8 +14,8 @@
 //     ratified there; this module is its substrate-side enforcement seam.
 //
 // Invariants this module owns at the error-mapping boundary (canonical
-// text in docs/plans/007-local-ipc-and-daemon-control.md §Invariants
-// lines 101-111):
+// text in `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`,
+// I-007-7 and I-007-8):
 //   * I-007-7 (schema validation runs before handler dispatch) — mapping-
 //     side: when the registry's `dispatch()` throws
 //     `RegistryDispatchError(registryCode: "invalid_params")` BEFORE the
@@ -320,8 +320,9 @@ function buildSecureDefaultsValidationData(
 /**
  * Build the `data: JsonRpcErrorData` payload for a `SessionNotFoundError`.
  * The class's `code` literal is the canonical project dotted-namespace
- * identifier (`session.not_found`) per error-contracts.md §JSON-RPC Wire
- * Mapping (line 114, HTTP 404 equivalent). The optional `fields` payload
+ * identifier (`session.not_found`) per
+ * `docs/architecture/contracts/error-contracts.md §JSON-RPC Wire Mapping`
+ * (the §Session row is the HTTP 404 equivalent). The optional `fields` payload
  * captured at the throw site (typically `{ sessionId }`) projects through
  * to `data.fields`.
  */
@@ -738,8 +739,8 @@ function capString(value: string): string {
  * is the canonical two-layer envelope shape ratified at error-contracts.md
  * §JSON-RPC Wire Mapping (BL-103 closed 2026-05-01).
  *
- * I-007-8 multi-channel posture (the canonical text in plan §Invariants
- * lines 107-111 says "Stack traces and secrets MUST never leak through the
+ * I-007-8 multi-channel posture (the canonical text in plan §Invariants,
+ * I-007-8, says "Stack traces and secrets MUST never leak through the
  * response" — "the response" is the entire JSON-RPC error envelope, not
  * just `error.message`). Both surfaces of the envelope that carry
  * substrate-or-throw-site-supplied content flow through dedicated
@@ -824,7 +825,7 @@ export function mapJsonRpcError(thrown: unknown, requestId: JsonRpcId): JsonRpcE
     data = buildNegotiationErrorData(thrown);
   } else if (thrown instanceof SessionNotFoundError) {
     // `session.not_found` is a registered project dotted-namespace
-    // identifier per error-contracts.md §Session (line 114) — HTTP 404
+    // identifier per `docs/architecture/contracts/error-contracts.md §Session` — HTTP 404
     // equivalent. Maps to `-32602 InvalidParams` per the project
     // convention that "requested resource does not exist" is
     // structurally a param-shape failure (the supplied sessionId does

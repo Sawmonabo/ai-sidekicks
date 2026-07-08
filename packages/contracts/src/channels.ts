@@ -1,10 +1,10 @@
 // Channel contracts — request/response payload for Plan-002 Phase 1's
 // `ChannelList` read-only projection. Implements the C5 acceptance criterion
-// (Plan-002 §C5, Spec-002 line 87): the JSON-RPC client surface for reading
+// (Plan-002 §C5, `Spec-002 §Interfaces And Contracts`): the JSON-RPC client surface for reading
 // the channels in a session, as a strict-shaped projection.
 //
 // Canonical wire form lives in
-// docs/architecture/contracts/api-payload-contracts.md lines 455-462:
+// `docs/architecture/contracts/api-payload-contracts.md §Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3)`:
 //
 //   interface ChannelListRequest {
 //     sessionId: SessionId;
@@ -104,11 +104,11 @@
 // same pattern as `memberships.ts` composing the single-T
 // `MembershipRoleSchema` inside the double-T `MembershipUpdateSchema`.
 //
-// Refs: Spec-002 §Interfaces And Contracts (line 87), Plan-002 §Phase 1 (C5),
-// docs/architecture/contracts/api-payload-contracts.md §Shared Enums
-// (line 166 — `ChannelState`) + §Tier 2 — Plan-002 (lines 438-450 —
-// `ChannelList` request/response), ADR-001 (session-as-primary-domain-
-// object), ADR-014 (tRPC v11 / Standard Schema V1), ADR-022 (toolchain — Zod 4.x).
+// Refs: `Spec-002 §Interfaces And Contracts`, Plan-002 §Phase 1 (C5),
+// `docs/architecture/contracts/api-payload-contracts.md §Shared Enums` (`ChannelState`)
+// + `docs/architecture/contracts/api-payload-contracts.md §Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3)`
+// (`ChannelList` request/response), ADR-001 (session-as-primary-domain-object),
+// ADR-014 (tRPC v11 / Standard Schema V1), ADR-022 (toolchain — Zod 4.x).
 import { z } from "zod";
 
 import {
@@ -144,7 +144,7 @@ export {
 } from "./session.js";
 
 // --------------------------------------------------------------------------
-// C5 — ChannelListRequest (Spec-002 line 87 + api-payload-contracts.md:457-459)
+// C5 — ChannelListRequest (`Spec-002 §Interfaces And Contracts` + `docs/architecture/contracts/api-payload-contracts.md §Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3)`)
 // --------------------------------------------------------------------------
 //
 // Exact wire shape:
@@ -173,7 +173,7 @@ export const ChannelListRequestSchema: z.ZodType<ChannelListRequest, ChannelList
 // --------------------------------------------------------------------------
 //
 // One element per channel visible to the calling participant. Wire shape
-// (api-payload-contracts.md:460-466):
+// (`docs/architecture/contracts/api-payload-contracts.md §Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3)`):
 //   `{id: ChannelId, name?: string, state: ChannelState, participantCount: number}`
 //
 // `name` is OPTIONAL — see file header for the bootstrap-unnamed-channel
@@ -240,7 +240,7 @@ export const ChannelListResponseChannelSchema: z.ZodType<
 // ChannelListResponse — outer projection envelope
 // --------------------------------------------------------------------------
 //
-// Exact wire shape (api-payload-contracts.md:460-467):
+// Exact wire shape (`docs/architecture/contracts/api-payload-contracts.md §Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3)`):
 //   `{channels: Array<ChannelListResponseChannel>}`
 //
 // Empty list is valid — a session with no visible channels (or a session

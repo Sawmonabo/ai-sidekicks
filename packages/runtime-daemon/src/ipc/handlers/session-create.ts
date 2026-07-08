@@ -15,7 +15,7 @@
 //     binding boundary).
 //
 // Invariants this module participates in (canonical text in
-// docs/plans/007-local-ipc-and-daemon-control.md §Invariants lines 95-117):
+// `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`, I-007-6 through I-007-9):
 //   * I-007-1 — load-before-bind: this file declares the handler shape and
 //     a `register*` function the bootstrap orchestrator calls AFTER the
 //     registry is loaded. The orchestrator (Plan-001 Phase 5 — owned by a
@@ -50,8 +50,7 @@
 //     production code only.
 //
 // Method-name format ratified: dotted-camelCase per
-// docs/architecture/contracts/api-payload-contracts.md §JSON-RPC Method-Name
-// Registry (Tier 1 Ratified, lines 291-331). Canonical regex:
+// `docs/architecture/contracts/api-payload-contracts.md §JSON-RPC Method-Name Registry (Tier 1 Ratified)`. Canonical regex:
 // `/^[a-z][a-z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/` — the `register` call site below
 // passes `"session.create"`, which matches.
 //

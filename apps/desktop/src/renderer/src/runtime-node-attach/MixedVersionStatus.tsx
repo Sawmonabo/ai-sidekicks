@@ -1,6 +1,6 @@
 // Plan-003 Phase 5 T5.3 (Tier 3) — renderer MixedVersionStatus component.
 //
-// The Spec-003 AC4 surface (line 130): a PER-NODE mixed-version status
+// The `Spec-003 §Acceptance Criteria` AC4 surface: a PER-NODE mixed-version status
 // indicator that distinguishes "read-only (below floor)" from "full
 // read/write (at floor)" from "detached", and surfaces the typed
 // `VERSION_FLOOR_EXCEEDED` outcome of a version-sensitive write attempt while
@@ -12,10 +12,10 @@
 // derivation in `AttachService.readRoster`, attach-service.ts:1000-1059);
 // this view consumes it and NEVER re-derives floor logic — no
 // `clientVersion`-vs-floor comparison exists in this file, by design (the
-// T5.3 task row, Plan-003 plan lines 600-606).
+// T5.3 task row, `Plan-003 §T5.3 — Mixed-version status indicator (below-floor read-only surfacing)`).
 //
 // Spec-003 coverage:
-//   • §AC4 (line 130, "admitted in read-only state, surfaces typed
+//   • `Spec-003 §Acceptance Criteria` AC4 ("admitted in read-only state, surfaces typed
 //     `VERSION_FLOOR_EXCEEDED` on any subsequent version-sensitive domain
 //     write (e.g. a capability declaration via `capabilityupdate`), and is
 //     never ejected for the floor mismatch"): the access-status verdict
@@ -32,8 +32,9 @@
 //     surfaces is the line-53 verdict on a subsequent version-sensitive
 //     domain write (e.g. a capability declaration via `capabilityupdate`).
 //
-// I-003-1 (admit-not-eject) — the invariant this task verifies (Plan-003
-// §Invariants lines 33-39: a below-floor daemon "MUST be admitted in
+// I-003-1 (admit-not-eject) — the invariant this task verifies
+// (`Plan-003 §I-003-1 — Attach is admit-not-eject for below-floor daemons`:
+// a below-floor daemon "MUST be admitted in
 // read-only state — the daemon remains joined and may read session state";
 // "Ejection MUST NOT be the response to a floor mismatch"). The renderer
 // reading (the T5.3 task row): below-floor nodes present as
@@ -62,9 +63,9 @@
 //     row to `offline` (attach-service.ts:640-647; "detach writes the
 //     TERMINAL state `offline` ONLY", :581) — slot-axis `offline` is
 //     server-effected via explicit detach, never daemon-self-reported
-//     (Spec-003 line 69; the sweep owns only the PRESENCE axis, line 61) —
+//     (`Spec-003 §Default Behavior`; the sweep owns only the PRESENCE axis) —
 //     and the roster read is a faithful projection that returns every row
-//     with no server-side hiding (Spec-003 line 92). So a detached node
+//     with no server-side hiding (`Spec-003 §Interfaces And Contracts`). So a detached node
 //     arrives HERE as an entry with `state: "offline"`.
 //   • A node NEVER attached to the session has no `runtime_node_attachments`
 //     row at all — the roster carries no entry, so absence needs an explicit
@@ -79,8 +80,8 @@
 // `revoked` is DELIBERATELY a fourth, distinct verdict — never collapsed into
 // `detached`. The contract keeps the two terminal states apart on purpose: a
 // detached/disconnected node MAY reconnect under the same node identity
-// (Spec-003 line 78), while `revoked` is an authority-issued trust denial
-// (Spec-003 line 70) that detach itself refuses to overwrite (the
+// (`Spec-003 §Fallback Behavior`), while `revoked` is an authority-issued trust denial
+// (`Spec-003 §Default Behavior`) that detach itself refuses to overwrite (the
 // revocation-terminality guard, attach-service.ts:634-636) and that refuses
 // re-attach terminally. Rendering a revoked node as "detached" would mask a
 // trust decision as a clean disconnect and invite a doomed re-attach — the
@@ -94,7 +95,7 @@
 // roster entry is read upstream through the GENERIC bridge surface — the
 // registered control-plane-only `runtimenode.roster` query
 // (`window.sidekicks.controlPlane.call(...)`, exactly the sibling NodeRoster's
-// read; Spec-003 §Interfaces And Contracts amendment lines 90-94) — by the
+// read; `Spec-003 §Interfaces And Contracts` amendment) — by the
 // future Plan-023 Tier-8 parent (exercised by the T5.4 manual smoke), which
 // selects the local node's entry and hands it down. The write-attempt outcome
 // likewise arrives as a prop: no live version-sensitive write path exists at
@@ -189,7 +190,7 @@ type NodeAccessStatus = "read-write" | "read-only" | "detached" | "revoked";
 // sibling access wording (NodeRoster.tsx:550-552; AttachFlow.tsx:411) so the
 // three runtime-node views read consistently in the T5.4 smoke; the two
 // RETIRED labels state the load-bearing difference between the terminal
-// states (reconnect-allowed vs re-attach-refused — Spec-003 lines 78 and 70).
+// states (reconnect-allowed vs re-attach-refused — `Spec-003 §Fallback Behavior` and `Spec-003 §Default Behavior`).
 const ACCESS_STATUS_LABELS: Record<NodeAccessStatus, string> = {
   "read-write": "read-write",
   "read-only": "read-only (below version floor)",
@@ -199,7 +200,7 @@ const ACCESS_STATUS_LABELS: Record<NodeAccessStatus, string> = {
 
 // Resolves the access verdict from the server-resolved roster facets. This is
 // render-time LABELING of already-resolved state — the reconciliation
-// Spec-003 lines 72/92 explicitly assign to the client — NOT floor
+// `Spec-003 §Default Behavior` / `Spec-003 §Interfaces And Contracts` explicitly assign to the client — NOT floor
 // derivation: no version comparison occurs here or anywhere in this file (the
 // floor verdict is consumed verbatim as `readOnly`, computed by
 // `AttachService.readRoster` — see the file header). Deliberately a function

@@ -229,8 +229,8 @@ export function selectPtyHost(deps?: Partial<PtyHostSelectorDeps>): PtyHost {
   }
 
   if (envValue === "rust-sidecar") {
-    // Phase 3 wiring (per Plan-024 §Implementation Step 9 lines 123–
-    // 126 + F-024-2-02): the env-var IS honored (no silent fallback),
+    // Phase 3 wiring (per the `Plan-024 §Implementation Steps` step-9
+    // selector bullet + F-024-2-02): the env-var IS honored (no silent fallback),
     // and the rust-sidecar backend is now available. Failures inside
     // the factory (binary missing, spawn-time error, sliding-window
     // crash budget exhausted) are wrapped as
@@ -275,15 +275,15 @@ export function selectPtyHost(deps?: Partial<PtyHostSelectorDeps>): PtyHost {
 /**
  * Resolve the platform default backend.
  *
- * **Phase 2 contract: always `NodePtyHost` on every platform** (Plan-024
- * §Step 9 line 124). This intentionally does NOT consult `deps.platform`
+ * **Phase 2 contract: always `NodePtyHost` on every platform**
+ * (`Plan-024 §Implementation Steps`, step 9). This intentionally does NOT consult `deps.platform`
  * — the platform branch is dead at Phase 2, and adding a no-op branch
  * here would dilute the contract.
  *
  * TODO(Phase 5): flip the `win32` branch to `RustSidecarPtyHost` with a
  * `NodePtyHost` fallback when the sidecar binary is not resolvable.
  * macOS/Linux MUST remain on `NodePtyHost` primary at Phase 5 and
- * beyond per Plan-024 §Step 9 lines 124–125.
+ * beyond per the `Plan-024 §Implementation Steps` step-9 selector bullet.
  */
 function platformDefault(deps: ResolvedPtyHostSelectorDeps): PtyHost {
   return deps.createNodePtyHost();

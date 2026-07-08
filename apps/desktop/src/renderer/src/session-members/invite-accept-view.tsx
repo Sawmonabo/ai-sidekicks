@@ -1,13 +1,13 @@
 // Plan-002 Phase 6 T6.1 (Tier 2) — renderer InviteAcceptView component.
 //
 // Spec-002 coverage:
-//   • §Interfaces And Contracts line 81 ("`InviteAccept` must create active
-//     membership and emit participant join events") + §AC1 (line 178, an
-//     invited participant joins an active session): this view is the renderer
+//   • §Interfaces And Contracts ("`InviteAccept` must create active
+//     membership and emit participant join events") + §Acceptance Criteria
+//     AC1 (an invited participant joins an active session): this view is the renderer
 //     surface that issues the `invite.accept` wire call and renders the
 //     resulting active membership (sessionId, role, membership state,
 //     membershipId) the accept path returns.
-//   • §Token Security Properties (lines 107-113): the view carries ONLY the
+//   • §Token Security Properties: the view carries ONLY the
 //     opaque PASETO v4.local token (the `token` prop) into the request. Token
 //     decoding, signature verification, expiry enforcement, and single-use
 //     atomicity are the control-plane service's job, never the renderer's —
@@ -80,7 +80,7 @@ import type { InviteAccept, InviteAcceptResponse } from "@ai-sidekicks/contracts
 // `SidekicksBridge`-typed without an import here. The bridge exposes exactly
 // six GENERIC capability surfaces (Spec-023; desktop-bridge.ts:265-314) — there
 // is no `invites`/`presence` namespace. The plan's Tasks-block shorthand
-// `window.sidekicks.invites.accept` (line 384) is non-binding prose; the real
+// `window.sidekicks.invites.accept` is non-binding prose; the real
 // transport is the unary `daemon.call("invite.accept", …)` below.
 
 // The wire method name. DAEMON-AS-GATEWAY (Option A, ADR-008): the renderer

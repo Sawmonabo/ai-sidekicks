@@ -83,8 +83,9 @@ export interface StoredEvent {
 // PR #4/#5 will widen these as more event variants land.
 //
 // `MembershipRole` mirrors the canonical contracts enum verbatim
-// (`@ai-sidekicks/contracts` §MembershipRole; api-payload-contracts.md
-// line 99). The "runtime contributor" string includes the literal space
+// (`@ai-sidekicks/contracts` §MembershipRole;
+// `docs/architecture/contracts/api-payload-contracts.md §Shared Enums`).
+// The "runtime contributor" string includes the literal space
 // — preserved per the contracts source-of-truth. The projector reads
 // `payload.role` directly so daemon-side narrowing cannot diverge from
 // the wire enum.
@@ -119,10 +120,10 @@ export interface ChannelProjection {
 
 // `state` reuses the canonical `SessionState` from `@ai-sidekicks/contracts`
 // (`provisioning | active | archived | closed | purge_requested | purged`).
-// Plan-001 PR #3 only emits `provisioning` (Spec-001 line 53: a newly
+// Plan-001 PR #3 only emits `provisioning` (`Spec-001 §Default Behavior`: a newly
 // created session starts in `provisioning` and transitions to `active`
 // once initial membership, storage, and control-plane metadata are
-// ready). Spec-006 line 106 enumerates a distinct `session.activated`
+// ready). `Spec-006 §Session Lifecycle (session_lifecycle)` enumerates a distinct `session.activated`
 // event for the `provisioning -> active` transition; Plan-022 owns
 // `purge_requested` / `purged`; Plan-006 / future plans own `archived` /
 // `closed`. Carrying the full canonical union at the daemon-internal

@@ -142,6 +142,29 @@ export function verifySectionHeading(docContent: string, sectionName: string): b
 const DOCS_PATH_CITE_RE =
   /(?<![\w/.-])(docs\/(?:[a-z][a-z-]*\/)*[A-Za-z0-9._-]+\.md):(\d+(?:\s*[,-]\s*\d+)*)/g;
 
+// Passes 5-6 (CODE citers only) — the CAT-07 ratchet closing the line-word and
+// bare-basename residual (2026-07 sweep, PR-E of the hardening follow-ups):
+// with the swept code trees at zero occurrences, every new match is a fresh
+// gate-invisible line anchor and is denied outright with the durable-form
+// remediation. Markdown citers are exempt — the docs corpus keeps its own
+// conventions and the /ripple-check audit lane owns CAT-07 there.
+//
+// Pass 5 — label line-word: `Spec-021 line 128`, `Plan-022 lines 81, 107-113`,
+// `ADR-014 (line 60)`, and the §-section+line hybrid `Spec-027 §Bind-Address
+// line 94`. The lazy `[^\n`]{0,60}?` bridge only matches when a `line <N>`
+// tail actually follows, so durable backticked §-forms never fire; `\blines?\b`
+// keeps prose like "outlines 3 tiers" out.
+const LABEL_LINE_WORD_RE =
+  /\b(Spec|Plan|ADR)-(\d{3})(?:\s+§[^\n`]{0,60}?)?\s*\(?\s*\blines?\s+\d+/g;
+
+// Pass 6 — `.md` path/basename with a line anchor: bare `session-model.md:61`
+// / `api-payload-contracts.md line 120`, and the line-word tail on ANY path
+// shape (`docs/domain/session-model.md line 61`) — the colon form on a
+// docs/-rooted path is pass 2's (deny via raw-line-cite), so pass 6 skips that
+// overlap. The lookbehind keeps mid-path fragments from matching twice.
+const MD_LINE_ANCHOR_RE =
+  /(?<![\w/.-])([A-Za-z0-9._/-]+\.md)(:\d+|(?:\s+§[^\n`]{0,80}?)?\s*\(?\s*\blines?\s+\d+)/g;
+
 // Memoize the directory listing per absolute governance tree so a file with N
 // label cites does at most one readdir per tree (3 trees total) instead of one
 // per cite. Keyed on the absolute dir, so a REPO_ROOT override in tests gets
@@ -305,6 +328,46 @@ function extractLabelCitesFrom(
         section: m[2],
       });
     }
+
+    // Passes 5-6 — line-word / bare-basename deny, CODE citers only.
+    if (!trackFences) {
+      LABEL_LINE_WORD_RE.lastIndex = 0;
+      while ((m = LABEL_LINE_WORD_RE.exec(line)) !== null) {
+        cites.push({
+          file: citingFile,
+          line: i + 1,
+          rawTarget: m[0].trim(),
+          targetPath: resolveLabelTarget(repoRoot, m[1], m[2]),
+          targetLine: 0,
+          lineWordDeny: true,
+        });
+      }
+      MD_LINE_ANCHOR_RE.lastIndex = 0;
+      while ((m = MD_LINE_ANCHOR_RE.exec(line)) !== null) {
+        const mdPath = m[1];
+        const colonForm = m[2].startsWith(":");
+        // Scope: bare basenames and repo-root docs/ paths only. Path-y
+        // non-corpus refs (node_modules/x/docs/y.md:3, src/docs/y.md:5) stay
+        // audit-layer — this is a required gate and those are the FP guards
+        // the pass-2 lookbehind already promised (kept green by this test
+        // suite's exclusion block).
+        if (mdPath.includes("/") && !mdPath.startsWith("docs/")) continue;
+        // Docs-rooted colon forms are pass 2's match (raw-line-cite deny /
+        // frozen carve-out); firing here too would double-report the line.
+        if (colonForm && mdPath.startsWith("docs/")) continue;
+        // Frozen trees keep their line anchors legal (parity with the raw
+        // colon carve-out): the content never shifts, so the pin cannot rot.
+        if (FROZEN_DOC_PREFIXES.some((prefix) => mdPath.startsWith(prefix))) continue;
+        cites.push({
+          file: citingFile,
+          line: i + 1,
+          rawTarget: m[0].trim(),
+          targetPath: mdPath.startsWith("docs/") ? resolve(repoRoot, mdPath) : "",
+          targetLine: 0,
+          lineWordDeny: true,
+        });
+      }
+    }
   }
   return cites;
 }
@@ -356,6 +419,22 @@ export function checkLabelCiteTargets(
   const deniedRawCites = new Set<string>();
   for (const f of files) {
     for (const c of extractLabelCitesFrom(f, repoRoot, reader)) {
+      if (c.lineWordDeny) {
+        const deniedKey = `${c.file}:${c.line}:${c.rawTarget}`;
+        if (!deniedRawCites.has(deniedKey)) {
+          deniedRawCites.add(deniedKey);
+          const docsPathForm = c.rawTarget.startsWith("docs/");
+          const durableForm = docsPathForm
+            ? `\`${c.rawTarget.replace(/(?::\d+|\s*\(?\s*lines?\s+.*)$/, "")} §Heading\``
+            : "`Spec-NNN §Heading` (or `docs/<tree>/<file>.md §Heading` for label-less docs)";
+          violations.push({
+            cite: c,
+            reason: "line-anchored-cite-in-code",
+            detail: `line-word / bare-basename cite '${c.rawTarget}' is gate-invisible and rots silently; use the durable section form ${durableForm} (CAT-07 ratchet, 2026-07 sweep)`,
+          });
+        }
+        continue;
+      }
       if (c.section !== undefined) {
         const sectionV = sectionViolation(c, reader);
         if (sectionV) violations.push(sectionV);

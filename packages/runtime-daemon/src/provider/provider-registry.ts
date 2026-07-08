@@ -52,10 +52,9 @@
 // driver contract — the registry is keyed on that contract), `Spec-005 §Required Behavior` (runtime
 // treats undeclared capabilities as unsupported — the `checkCapability` gate).
 //
-// Refs: Plan-005 §Phase 2 / T2.3, Spec-005 lines 43 + 48, invariant I-005-2,
-// ADR-011 (capability flags + intervention modeling), error-contracts.md line 312
-// (`driver.unavailable`, HTTP 503) + line 303 (`driver.capability_unsupported`,
-// HTTP 400).
+// Refs: Plan-005 §Phase 2 / T2.3, `Spec-005 §Required Behavior`, invariant I-005-2,
+// ADR-011 (capability flags + intervention modeling), `docs/architecture/contracts/error-contracts.md §Driver`
+// (`driver.unavailable` HTTP 503 + `driver.capability_unsupported` HTTP 400).
 
 import type {
   DriverCapabilities,
@@ -71,7 +70,7 @@ import type {
 /**
  * Thrown when a capability check targets a `driverId` that is not registered.
  *
- * `code === "driver.unavailable"` (error-contracts.md line 312, HTTP 503 —
+ * `code === "driver.unavailable"` (`docs/architecture/contracts/error-contracts.md §Driver`, HTTP 503 —
  * "Provider driver is currently unavailable"). This covers the plan's
  * "`driver.getCapabilities` … called against an unregistered driver" case: a
  * direct capability-bound call cannot proceed against a driver the registry has
@@ -96,7 +95,7 @@ export class DriverUnavailableError extends Error {
  * Thrown when a registered driver is asked for a capability it has not declared
  * `true` — the primary runtime realization of I-005-2.
  *
- * `code === "driver.capability_unsupported"` (error-contracts.md line 313, HTTP
+ * `code === "driver.capability_unsupported"` (`docs/architecture/contracts/error-contracts.md §Driver`, HTTP
  * 400 — "Requested capability is not supported by the driver"). Raised by the
  * fail-closed gate for BOTH a declared-`false` flag AND a flag absent from the
  * cached snapshot (an undeclared/bogus flag), because "unsupported" is the

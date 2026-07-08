@@ -1,23 +1,23 @@
 // Plan-002 Phase 6 T6.3 — ParticipantRoster renderer unit suite (Tier 2).
 //
 // Single-client component smoke for the participant-roster / presence surface,
-// per Plan-002 Phase 6 §Goal (line 378) + §Verification (line 179): Phase 6
+// per `Plan-002 §Phase 6 — Renderer (Tier 2)` Goal + `Plan-002 §Verification`: Phase 6
 // component tests + single-client smoke prove the roster + presence indicators
 // render/update via the preload bridge (the two-client end-to-end smoke is
 // deferred to Tier 8 per CP-002-5). The phrasing here paraphrases both anchors;
 // it is not a verbatim quotation of either.
 //
 // Spec coverage:
-//   • Spec-002 §AC1 (line 178, an invited participant joins an active session):
+//   • `Spec-002 §Acceptance Criteria` AC1 (an invited participant joins an active session):
 //     the loaded-roster test asserts the view renders one row per participant
 //     the daemon's presence projection reports.
-//   • Spec-002 §AC2 (line 179, "Membership remains durable when presence goes
+//   • `Spec-002 §Acceptance Criteria` AC2 ("Membership remains durable when presence goes
 //     offline and later returns"): the loaded-roster fixture includes a member
 //     with `state: "offline"` and the test asserts that member renders a ROW
 //     (with an offline indicator), rather than vanishing — the renderer-contract
 //     surface of the durability guarantee.
-//   • Spec-002 §Interfaces And Contracts line 85 (`PresenceUpdate` push) +
-//     line 86 (`PresenceRead`): the subscribe-wiring test asserts the view
+//   • `Spec-002 §Interfaces And Contracts` (`PresenceUpdate` push +
+//     `PresenceRead`): the subscribe-wiring test asserts the view
 //     composes `presence.read` (decoded snapshot) with `presence.subscribe`
 //     (opaque change-signal that triggers a re-read) — the Option-C design in
 //     participant-roster.tsx's header.

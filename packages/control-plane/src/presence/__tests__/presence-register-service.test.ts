@@ -1,8 +1,8 @@
 // PresenceRegisterService tests — Plan-002 Phase 3 (T3.1 + T3.2).
 //
 // Coverage (mapped to the dispatched spec_coverage + verifies_invariant):
-//   Pr1 (I-002-3, Spec-002 §Default Behavior line 58 + §State And Data
-//       Implications line 157): Yjs Awareness presence state is IN-MEMORY ONLY
+//   Pr1 (I-002-3, `Spec-002 §Default Behavior` +
+//       `Spec-002 §State And Data Implications`): Yjs Awareness presence state is IN-MEMORY ONLY
 //       — NO SQLite or Postgres write occurs on heartbeat ingestion. This is
 //       the load-bearing invariant test. It is proven three ways:
 //         (a) the service takes NO database handle at all — a TYPE-LEVEL
@@ -23,14 +23,14 @@
 //   P10 (re-verify): the (b) + (c) assertions ARE the P10 re-verification — the
 //       same no-presence-state-table / no-DB-write schema-shape assertion as
 //       Pr1's schema-shape test, run after the Plan-002 migrations.
-//   Pr2 (Spec-002 §Fallback Behavior line 73): a missed heartbeat moves a
+//   Pr2 (`Spec-002 §Fallback Behavior`): a missed heartbeat moves a
 //       participant to `reconnecting` BEFORE `offline` — the reconnect-grace
 //       two-step timer (15s -> reconnecting, 45s -> offline from the last
 //       heartbeat). A heartbeat within the grace window cancels the pending
 //       transition. The timer rewrites the live CRDT only (I-002-3) and fires
 //       the `onTransition` observation seam (T3.3 wires durable emission; T3.2
 //       writes nothing durable).
-//   Pr3 (Spec-002 §Default Behavior line 61): Postgres LISTEN/NOTIFY fan-out
+//   Pr3 (`Spec-002 §Default Behavior`): Postgres LISTEN/NOTIFY fan-out
 //       delivers presence updates cross-node. Proven with an in-memory
 //       broadcast bus standing in for the shared NOTIFY channel (two services =
 //       two nodes), PLUS one belt-and-suspenders test of the real
@@ -600,10 +600,10 @@ describe("PresenceRegisterService — forgetClient (explicit in-memory GC of a d
 
 // ----------------------------------------------------------------------------
 // Pr2 — reconnect-grace timer: a missed heartbeat moves a participant to
-// `reconnecting` BEFORE `offline` (Spec-002 §Fallback Behavior line 73).
+// `reconnecting` BEFORE `offline` (`Spec-002 §Fallback Behavior`).
 // ----------------------------------------------------------------------------
 //
-// The two-step grace machine (Spec-002 line 57 defaults: 15s -> reconnecting,
+// The two-step grace machine (`Spec-002 §Default Behavior` defaults: 15s -> reconnecting,
 // 45s -> offline, measured from the LAST heartbeat). Driven by Vitest fake
 // timers so the transitions are deterministic. Fake timers are scoped to THIS
 // describe (in beforeEach/afterEach) — the PGlite suites above run on real
@@ -1208,8 +1208,7 @@ describe("PresenceRegisterService — Pr2 crash guard (a throwing onTransition o
 });
 
 // ----------------------------------------------------------------------------
-// Pr3 — Postgres LISTEN/NOTIFY cross-node fan-out (Spec-002 §Default Behavior
-// line 61).
+// Pr3 — Postgres LISTEN/NOTIFY cross-node fan-out (`Spec-002 §Default Behavior`).
 // ----------------------------------------------------------------------------
 //
 // The cross-node tests use an `InMemoryPresencePubSub` as the shared transport:

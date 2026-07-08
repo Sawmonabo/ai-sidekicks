@@ -11,7 +11,7 @@
 //
 // The wire frame ratified at
 // `docs/architecture/contracts/api-payload-contracts.md` §SSE Wire Frame
-// (Tier 1 Ratified, line 295) requires `retry: 5000` so reconnecting
+// (Tier 1 Ratified) requires `retry: 5000` so reconnecting
 // `EventSource` clients honor the documented backoff under transient
 // disconnects. This module bridges the gap without forking tRPC: a
 // TransformStream prepends `retry: <ms>\n` ahead of tRPC's first chunk.

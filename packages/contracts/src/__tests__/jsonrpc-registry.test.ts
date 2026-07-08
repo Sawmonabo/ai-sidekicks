@@ -35,7 +35,7 @@ describe("METHOD_NAME_FORMAT — canonical JSON-RPC method-name format (BL-142)"
     "presence.subscribe",
     // Three-segment nested form (`noun.sub.verb`).
     "run.stream.notify",
-    // camelCase tails — the ratification (line 329) cites these as permitted.
+    // camelCase tails — the registry ratification cites these as permitted.
     "settings.effectiveRead",
     "driver.listCapabilities",
     // BL-142 per-plan camelCase-tail strings (Plan-009/010/012/016 Phase 3).
@@ -56,9 +56,9 @@ describe("METHOD_NAME_FORMAT — canonical JSON-RPC method-name format (BL-142)"
   const REJECTED = [
     // Roots stay lowercase — the "didn't over-loosen" guard.
     "Session.create", // uppercase root
-    "textDocument.didOpen", // camelCase ROOT (LSP-style; rejected per line 329)
+    "textDocument.didOpen", // camelCase ROOT (LSP-style; rejected by the ratified regex)
     "runtimeNode.capabilityUpdate", // camelCase root (the line-558 trap)
-    // Structural rejections enumerated by the ratification (lines 333-335).
+    // Structural rejections enumerated by the ratification.
     "sessionCreate", // no namespace dot
     "session/create", // slash separator (HTTP-path conflation)
     "SessionCreate", // PascalCase (type-name collision)

@@ -3,9 +3,10 @@
 // Mirrors the `SecureDefaultsValidationError` pattern at
 // `packages/runtime-daemon/src/bootstrap/secure-defaults.ts`: a typed Error
 // subclass whose stable `code` string projects directly into the JSON-RPC
-// envelope's `error.data.type` per `error-contracts.md` §JSON-RPC Wire
-// Mapping (line 114 registers `session.not_found` as the canonical
-// project dotted-namespace identifier — HTTP 404 equivalent).
+// envelope's `error.data.type` per
+// `docs/architecture/contracts/error-contracts.md §JSON-RPC Wire Mapping`
+// (`session.not_found` is the canonical project dotted-namespace
+// identifier — its §Session row is the HTTP 404 equivalent).
 //
 // Per Plan-007 §Invariants I-007-8 ("handler-thrown errors project to the
 // canonical envelope; secrets and stack traces never leak"), the

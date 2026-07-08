@@ -222,7 +222,7 @@ describe("NodePtyHost — hard-stop escalation to taskkill /T /F (I-024-2)", () 
     const { session_id } = await ctx.host.spawn(SAMPLE_SPAWN);
     await ctx.host.kill(session_id, "SIGKILL");
 
-    // Per Plan-024 §Step 8 line 120: SIGKILL is "taskkill /T /F /PID
+    // Per the `Plan-024 §Implementation Steps` step-8 kill bullet: SIGKILL is "taskkill /T /F /PID
     // <pid> directly, skipping CTRL_BREAK_EVENT". The mock is async
     // (`mockResolvedValue`); we have already awaited `host.kill` so
     // by the time we assert the resolution chain has run.

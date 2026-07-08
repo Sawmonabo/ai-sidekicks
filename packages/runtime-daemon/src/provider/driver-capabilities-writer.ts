@@ -26,7 +26,7 @@
 //
 // FLAT event payload vs NESTED hydrate return (do not conflate)
 // --------------------------------------------------------------------------
-// The canonical `CapabilityDetails` (api-payload-contracts.md:1012-1016 — the
+// The canonical `CapabilityDetails` (`docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy` — the
 // shape Plan-006 Tier 4 will bind over the currently interim-opaque
 // `capabilityDetails` / `previousState` / `newState` event payload fields) is
 // FLATTENED:
@@ -50,7 +50,7 @@
 // `capability: "provider-driver-{codex|claude}"`. The DRIVER-NAME SUFFIX
 // disambiguates MULTIPLE drivers on one runtime node IN-PLAN — it is the
 // resolved contract (CP-005-5 status: RESOLVED), NOT a deferred Plan-006
-// concern. (api-payload-contracts.md:1021's bare `"provider-driver"` is only an
+// concern. (`docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy`'s bare `"provider-driver"` is only an
 // ILLUSTRATIVE example of the `capability` field, not the canonical value;
 // CP-005-5 is the authority.)
 //
@@ -172,7 +172,7 @@ function providerDriverCapabilityKey(driverName: string): string {
 
 /**
  * The flat capability snapshot — the canonical `CapabilityDetails` shape
- * (api-payload-contracts.md:1012-1016). This is the form carried by the
+ * (`docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy`). This is the form carried by the
  * `runtime_node.capability_*` event payloads AND the form used for
  * change-detection. `hydrate()` wraps this into the nested `GetCapabilitiesResult`.
  * `tools` is ALWAYS in canonical (`name`-ascending) order — see the file header.

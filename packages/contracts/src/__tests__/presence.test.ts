@@ -1,19 +1,19 @@
 // Plan-002 Phase 1 T1.3 — presence contract schema tests.
 //
-// Backstops the C4 acceptance criterion (Plan-002 §C4, Spec-002 line 84):
+// Backstops the C4 acceptance criterion (Plan-002 §C4, `Spec-002 §Interfaces And Contracts`):
 // `PresenceHeartbeat` payload carries the 5 required metadata fields
 // `{deviceType, focusedSessionId, focusedChannelId, lastActivityAt, appVisible}`
-// per the canonical wire form at docs/architecture/contracts/api-payload-
-// contracts.md lines 412-417 merged with the Spec-002 line 59 metadata
+// per the canonical wire form at
+// `docs/architecture/contracts/api-payload-contracts.md §Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3)` merged with the `Spec-002 §Default Behavior` metadata
 // requirement.
 //
 // Test surface enumerated (the "what" each block pins):
 //   * PresenceStateSchema wire-form pin — exactly the 4 canonical literals
-//     `{online, idle, reconnecting, offline}` per Spec-002 line 47 and
-//     api-payload-contracts.md:123. `"away"` / `"busy"` rejected.
+//     `{online, idle, reconnecting, offline}` per `Spec-002 §Required Behavior` and
+//     `docs/architecture/contracts/api-payload-contracts.md §Shared Enums`. `"away"` / `"busy"` rejected.
 //   * JoinModeSchema wire-form pin — exactly the 3 canonical SPACED literals
-//     `{viewer, collaborator, runtime contributor}` per api-payload-
-//     contracts.md:120. snake_case `"runtime_contributor"` rejected.
+//     `{viewer, collaborator, runtime contributor}` per
+//     `docs/architecture/contracts/api-payload-contracts.md §Shared Enums`. snake_case `"runtime_contributor"` rejected.
 //   * PresenceHeartbeatSchema happy path — all 3 outer + 5 metadata fields
 //     parse cleanly. C4 backstop.
 //   * PresenceHeartbeatSchema required-field guards — outer 3 each required
@@ -111,10 +111,10 @@ describe("ParticipantIdSchema / SessionIdSchema / ChannelIdSchema (re-exported f
 });
 
 // =============================================================================
-// PresenceStateSchema — canonical lifecycle enum (api-payload-contracts.md:123)
+// PresenceStateSchema — canonical lifecycle enum (`docs/architecture/contracts/api-payload-contracts.md §Shared Enums`)
 // =============================================================================
 //
-// Spec-002 line 47 + api-payload-contracts.md:123 bind the wire form to
+// `Spec-002 §Required Behavior` + `docs/architecture/contracts/api-payload-contracts.md §Shared Enums` bind the wire form to
 // EXACTLY four lowercase literals. Adding `"away"` / `"busy"` is a contract
 // break requiring the spec edit FIRST per doc-first ordering.
 
@@ -144,10 +144,10 @@ describe("PresenceStateSchema (wire form is exactly {online, idle, reconnecting,
 });
 
 // =============================================================================
-// JoinModeSchema — canonical enum (api-payload-contracts.md:124 + :388)
+// JoinModeSchema — canonical enum (`docs/architecture/contracts/api-payload-contracts.md §Shared Enums`)
 // =============================================================================
 //
-// Spec-002 line 45 + api-payload-contracts.md:124 bind the wire form to
+// `Spec-002 §Required Behavior` + `docs/architecture/contracts/api-payload-contracts.md §Shared Enums` bind the wire form to
 // EXACTLY three SPACED literals. Editing the space in "runtime contributor"
 // to underscore or camelCase is a contract break.
 
@@ -199,13 +199,13 @@ describe("JoinModeSchema (canonical wire form is SPACED 'runtime contributor')",
 });
 
 // =============================================================================
-// C4 — PresenceHeartbeatSchema (Spec-002 line 59 + line 84)
+// C4 — PresenceHeartbeatSchema (`Spec-002 §Default Behavior` + `Spec-002 §Interfaces And Contracts`)
 // =============================================================================
 //
 // Canonical wire form merges two governance sources:
-//   * api-payload-contracts.md:430-434 — 3 outer fields
+//   * `docs/architecture/contracts/api-payload-contracts.md §Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3)` — 3 outer fields
 //     `{participantId, deviceId, activityState}`
-//   * Spec-002 line 59 + line 84 — 5 REQUIRED metadata fields
+//   * `Spec-002 §Default Behavior` + `Spec-002 §Interfaces And Contracts` — 5 REQUIRED metadata fields
 //     `{deviceType, focusedSessionId, focusedChannelId, lastActivityAt, appVisible}`
 //
 // All 5 metadata keys MUST be present at parse time. `focusedSessionId` and
@@ -223,7 +223,7 @@ describe("JoinModeSchema (canonical wire form is SPACED 'runtime contributor')",
 // convention. Explicit NUL-byte regression tests live near the boundary
 // checks below.
 
-describe("PresenceHeartbeatSchema (C4: 5 metadata fields per Spec-002 line 84)", () => {
+describe("PresenceHeartbeatSchema (C4: 5 metadata fields per Spec-002 §Interfaces And Contracts)", () => {
   // ----------------------------------------------------------------------
   // Happy paths
   // ----------------------------------------------------------------------
@@ -257,7 +257,7 @@ describe("PresenceHeartbeatSchema (C4: 5 metadata fields per Spec-002 line 84)",
   });
 
   // ----------------------------------------------------------------------
-  // Outer fields are all REQUIRED — api-payload-contracts.md:430-434.
+  // Outer fields are all REQUIRED — `docs/architecture/contracts/api-payload-contracts.md §Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3)`.
   // ----------------------------------------------------------------------
 
   it.each(["participantId", "deviceId", "activityState"] as const)(
@@ -547,7 +547,7 @@ describe("PresenceHeartbeatSchema (C4: 5 metadata fields per Spec-002 line 84)",
 // PresenceUpdateSchema — JSON-RPC local IPC daemon → client push
 // =============================================================================
 //
-// Exact wire shape (api-payload-contracts.md:437-441):
+// Exact wire shape (`docs/architecture/contracts/api-payload-contracts.md §Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3)`):
 //   `{sessionId: SessionId, awarenessState: Uint8Array}`
 
 describe("PresenceUpdateSchema (JSON-RPC local IPC, daemon → client push)", () => {
@@ -647,10 +647,10 @@ describe("PresenceReadRequestSchema (JSON-RPC local IPC, client → daemon query
 // PresenceReadResponseSchema — participant projection array
 // =============================================================================
 //
-// Wire shape (api-payload-contracts.md:447-453):
+// Wire shape (`docs/architecture/contracts/api-payload-contracts.md §Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3)`):
 //   `{participants: Array<{participantId, state: PresenceState, lastSeen: string}>}`
 
-describe("PresenceReadResponseSchema (participant projection per api-payload-contracts.md:447-453)", () => {
+describe("PresenceReadResponseSchema (participant projection per docs/architecture/contracts/api-payload-contracts.md §Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3))", () => {
   it("accepts a response with one participant", () => {
     const payload = {
       participants: [

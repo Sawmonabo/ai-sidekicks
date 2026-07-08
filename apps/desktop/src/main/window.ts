@@ -1,11 +1,11 @@
 // `createMainWindow()` — `BrowserWindow` factory for the Electron main process.
 //
-// The `webPreferences` block below is the verbatim Spec-023 §Security Hardening
-// Baseline lock-in (lines 104-116 of docs/specs/023-desktop-shell-and-renderer.md).
+// The `webPreferences` block below is the verbatim
+// `Spec-023 §Security Hardening Baseline` lock-in.
 // Every value is asserted at build time by `apps/desktop/build/assert-webprefs.ts`;
 // any drift fails `pnpm build` before the bundle is shipped. The build-time
-// assertion is the enforcement mechanism for Plan-023 §Done Checklist line 356
-// and Spec-023 §Pitfalls To Avoid (line 579: `nodeIntegration: true` or
+// assertion is the enforcement mechanism for `Plan-023 §Done Checklist`
+// and `Spec-023 §Pitfalls To Avoid` (`nodeIntegration: true` or
 // `sandbox: false` MUST be a build-time error).
 //
 // Tier 1 carve-outs (per Plan-023 Phase 1 task T-023p-1-3):

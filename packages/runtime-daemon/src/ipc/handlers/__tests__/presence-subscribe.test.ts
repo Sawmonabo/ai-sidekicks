@@ -24,7 +24,7 @@
 //      state-change EVENTS are.
 //
 // Invariants verified (canonical text in
-// docs/plans/007-local-ipc-and-daemon-control.md §Invariants lines 95-131):
+// `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`, I-007-6 through I-007-11):
 //   * I-007-6 — duplicate `registerPresenceSubscribe` rejected at register-
 //     time.
 //   * I-007-7 (streaming analog) — every pushed `PresenceUpdate` is
@@ -35,7 +35,7 @@
 //     frame: updates fired during setup buffer and flush on a `setImmediate`
 //     boundary after the init `{subscriptionId}` response settles (also
 //     exercised by the replay-flush + live-tail crash guards).
-//   * I-007-11 (plan line 131, streaming-leak) — `sub.onCancel(unsubscribe)`
+//   * I-007-11 (plan §Invariants, streaming-leak) — `sub.onCancel(unsubscribe)`
 //     fires the upstream detach on wire-cancel + transport-disconnect;
 //     `complete()` does NOT fire it.
 // Plus the cross-cutting `Spec-002 §State And Data Implications` prose-trap guard: the emitted rows

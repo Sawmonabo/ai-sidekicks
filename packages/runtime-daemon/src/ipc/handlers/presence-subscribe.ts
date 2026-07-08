@@ -22,12 +22,12 @@
 //   `presence.subscribe` subscription, not a registered push-method.
 //
 // Spec coverage:
-//   * Spec-002 §Interfaces And Contracts line 85 — "`PresenceUpdate`
+//   * `Spec-002 §Interfaces And Contracts` — "`PresenceUpdate`
 //     (JSON-RPC, local IPC) — daemon pushes serialized Yjs Awareness state
 //     to local clients." Realized here as the `presence.subscribe` notify
 //     stream carrying `PresenceUpdate` values (`{sessionId,
 //     awarenessState: Uint8Array}`).
-//   * Spec-002 §State And Data Implications line 157 (Pr4) — durable
+//   * `Spec-002 §State And Data Implications` (Pr4) — durable
 //     presence state-change events (`presence.online`/`idle`/
 //     `reconnecting`/`offline`) emitted to the session event log. This is
 //     a DEPS-CONTRACT obligation documented on
@@ -39,7 +39,7 @@
 //     (`subscribe`) slice, `presence-read.ts` is the query (`read`) slice.
 //
 // Invariants this module participates in (canonical text in
-// docs/plans/007-local-ipc-and-daemon-control.md §Invariants lines 95-123):
+// `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`, I-007-6 through I-007-10):
 //   * I-007-1 — load-before-bind: `registerPresenceSubscribe` is called by
 //     the bootstrap orchestrator AFTER the registry is loaded and AFTER the
 //     streaming primitive has been constructed (the primitive eagerly
@@ -62,8 +62,10 @@
 //     `registerPresenceSubscribe` step 3 JSDoc) is the daemon-side half of
 //     this invariant (the SDK-side synchronous dispatcher-entry registration
 //     is the paired half).
-//   * Plan-007 §I-007 streaming-leak invariant (plan line 131, named for
-//     Plan-002 `presence.*` explicitly) — the upstream-detach callback
+//   * The `Plan-007 §I-007-11 — LocalSubscriptionProducer<T>.onCancel fires
+//     across all externally-imposed cancel paths` streaming-leak invariant
+//     (its why-load-bearing clause names Plan-002 `presence.*` explicitly) —
+//     the upstream-detach callback
 //     returned by `subscribeToPresence` is registered via `sub.onCancel`
 //     so wire-cancel / transport-disconnect / trusted-internal teardown all
 //     propagate cleanup upstream. Without it, every subscribe/cancel cycle
@@ -88,12 +90,12 @@
 //     emission contract on the deps interface (Pr4).
 //
 // Method-name format ratified: dotted-camelCase per
-// docs/architecture/contracts/api-payload-contracts.md §JSON-RPC Method-Name
-// Registry (Tier 1 Ratified, lines 311-351). The canonical regex
+// `docs/architecture/contracts/api-payload-contracts.md §JSON-RPC Method-Name Registry (Tier 1 Ratified)`.
+// The canonical regex
 // `/^[a-z][a-z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/` accepts `"presence.subscribe"`.
-// The method-name TABLE at lines 327-336 enumerates only Plan-007 Phase 3's
+// The method-name TABLE there enumerates only Plan-007 Phase 3's
 // `session.*` surface; Plan-002 registers the `presence.*` namespace against
-// the same ratified FORMAT (Plan-002 line 95 / CP-002-2). The `subscribe`
+// the same ratified FORMAT (`Plan-002 §API And Transport Changes` / CP-002-2). The `subscribe`
 // method string is derived from the streaming-push mechanics + the Phase 6
 // renderer presence-consumption surface (`Plan-002 §Phase 6 — Renderer (Tier 2)`
 // T6.2 — presence indicators over the generic `window.sidekicks` preload
@@ -169,7 +171,7 @@ export interface PresenceSubscribeDeps {
    *
    * ---------------------------------------------------------------------
    * DURABLE PRESENCE-STATE-CHANGE EVENT EMISSION CONTRACT (Pr4 — Spec-002
-   * §State And Data Implications line 157; canonical taxonomy in Spec-006
+   * §State And Data Implications; canonical taxonomy in Spec-006
    * §Presence).
    * ---------------------------------------------------------------------
    *

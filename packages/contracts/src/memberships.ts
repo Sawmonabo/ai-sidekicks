@@ -1,10 +1,10 @@
 // Membership contracts — request payload for Plan-002 Phase 1 membership
-// mutations. Implements the C3 acceptance criterion (Plan-002 §C3, Spec-002
-// line 83): `MembershipUpdate.action` discriminated union covers role change,
+// mutations. Implements the C3 acceptance criterion (Plan-002 §C3,
+// `Spec-002 §Interfaces And Contracts`): `MembershipUpdate.action` discriminated union covers role change,
 // suspension, revocation, and reactivation.
 //
 // Canonical wire form lives in
-// docs/architecture/contracts/api-payload-contracts.md lines 417-422:
+// `docs/architecture/contracts/api-payload-contracts.md §Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3)`:
 //
 //   interface MembershipUpdateRequest {
 //     membershipId: MembershipId;
@@ -32,15 +32,15 @@
 //      additional (sessionId, membershipId) consistency check that buys
 //      nothing the foreign-key constraint does not already give.
 //
-//   4. NO `reason` field on suspend/revoke. Spec-002 line 82 carries
-//      `reason?` only on `InviteRevoke`; Spec-002 line 48 routes
+//   4. NO `reason` field on suspend/revoke. `Spec-002 §Interfaces And Contracts` carries
+//      `reason?` only on `InviteRevoke`; `Spec-002 §Required Behavior` routes
 //      role-change and membership-revocation audit detail to session
 //      events (the `session.update.membership` event payload owned by
 //      Plan-006), not the request body. Adding `reason` here invents
 //      wire surface absent from every governance doc.
 //
 //   5. `newRole` admits ALL `MembershipRole` values including `owner`.
-//      Spec-002 line 49 + Plan-002 §I-002-1 explicitly allow an existing
+//      `Spec-002 §Required Behavior` + Plan-002 §I-002-1 explicitly allow an existing
 //      owner to promote another active member via
 //      `{action: "change_role", newRole: "owner"}`. The "only existing
 //      owners may elevate" guard is a SERVICE-LAYER check owned by
@@ -74,10 +74,10 @@
 // the bidirectional drift check that `_ActionPin` and the test backstops
 // rely on.
 //
-// Refs: Spec-002 §Interfaces And Contracts (line 83) + §Required Behavior
-// (line 49), Plan-002 §Phase 1 (C3), Plan-002 §I-002-1 (owner-elevation
-// invariant — service layer), docs/architecture/contracts/api-payload-
-// contracts.md §MembershipUpdate (lines 399-410), ADR-014 (tRPC v11 /
+// Refs: `Spec-002 §Interfaces And Contracts` + §Required Behavior
+// (`Spec-002 §Required Behavior`), Plan-002 §Phase 1 (C3), Plan-002 §I-002-1 (owner-elevation
+// invariant — service layer), `docs/architecture/contracts/api-payload-contracts.md §Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3)`
+// (the `MembershipUpdate` contract), ADR-014 (tRPC v11 /
 // Standard Schema V1), ADR-022 (toolchain — Zod 4.x).
 import { z } from "zod";
 
@@ -112,7 +112,7 @@ export type {
 export { MembershipIdSchema, MembershipRoleSchema, MembershipStateSchema } from "./session.js";
 
 // --------------------------------------------------------------------------
-// MembershipUpdate — Spec-002 line 83 + api-payload-contracts.md lines 417-422
+// MembershipUpdate — `Spec-002 §Interfaces And Contracts` + `docs/architecture/contracts/api-payload-contracts.md §Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3)`
 // --------------------------------------------------------------------------
 //
 // Discriminated union over `action`. Variant shapes:
@@ -128,7 +128,7 @@ export { MembershipIdSchema, MembershipRoleSchema, MembershipStateSchema } from 
 //
 //   * revoke     — `{membershipId, action: "revoke"}`
 //     Transitions membership to `revoked`. No payload beyond the
-//     discriminator + id. Plan-002 Spec lines 60-62 govern the side
+//     discriminator + id. `Spec-002 §Default Behavior` governs the side
 //     effects (mid-run interruption for runtime contributors, grace
 //     window for collaborators).
 //
@@ -230,7 +230,7 @@ export const MembershipUpdateSchema: z.ZodType<MembershipUpdate, MembershipUpdat
   ]) as unknown as z.ZodType<MembershipUpdate, MembershipUpdate>;
 
 // --------------------------------------------------------------------------
-// MembershipUpdateResponse — api-payload-contracts.md §Tier 2 (lines 442-447)
+// MembershipUpdateResponse — `docs/architecture/contracts/api-payload-contracts.md §Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3)`
 // --------------------------------------------------------------------------
 //
 // `{membershipId, state, role, updatedAt}`. The wire RESPONSE returned by the

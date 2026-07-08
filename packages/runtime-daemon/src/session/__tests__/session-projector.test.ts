@@ -43,7 +43,7 @@ describe("session-projector — D1 (bootstrap projection)", () => {
     if (snapshot === null) return; // type guard for TS
 
     expect(snapshot.sessionId).toBe(SESSION_ID);
-    // Spec-001 line 53: a newly created session starts in `provisioning`.
+    // `Spec-001 §Default Behavior`: a newly created session starts in `provisioning`.
     // Plan-006 will land the `session.activated` event handler that
     // transitions to `active`.
     expect(snapshot.state).toBe("provisioning");

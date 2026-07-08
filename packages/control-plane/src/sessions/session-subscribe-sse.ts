@@ -14,7 +14,7 @@
 //
 // SSE wire frame ratified per
 // docs/architecture/contracts/api-payload-contracts.md §SSE Wire Frame
-// (Tier 1 Ratified, lines 268-283): Content-Type text/event-stream; one
+// (Tier 1 Ratified): Content-Type text/event-stream; one
 // EventEnvelope per `data:` line as single-line JSON; `id:` carries
 // EventCursor; `retry: 5000`; heartbeat every 15s; tRPC fetch adapter
 // handles SSE natively per BL-104.
@@ -40,7 +40,7 @@ export const SSE_HEARTBEAT_INTERVAL_MS = 15_000;
  * Initial-frame `retry:` hint sent to the EventSource client. 5 s gives
  * intermediary infrastructure time to recover before the client dials back
  * in; tRPC's stream consumer respects this on reconnect. Ratified per
- * api-payload-contracts.md §SSE Wire Frame (Tier 1 Ratified, line 282).
+ * `docs/architecture/contracts/api-payload-contracts.md §SSE Wire Frame (Tier 1 Ratified)`.
  */
 export const SSE_RETRY_HINT_MS = 5_000;
 
