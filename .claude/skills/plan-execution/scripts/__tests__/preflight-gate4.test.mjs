@@ -1078,6 +1078,37 @@ test("extractDeclaredFilePaths keeps semicolon-separated paths, still truncating
   );
 });
 
+test("extractDeclaredTaskIds keeps ids whose bold titles contain a literal star (Codex P1, PR #190)", () => {
+  const block = [
+    "#### Tasks",
+    "",
+    "- **T1.4 — Typed repo error classes carrying the canonical `repo.*` code strings.**",
+    "- [ ] **T4.6 — Register `participant.*` handlers.**",
+    "",
+  ].join("\n");
+  assert.deepEqual(extractDeclaredTaskIds(block), ["T1.4", "T4.6"]);
+});
+
+test("extractDeclaredTaskIds unions ALL #### Tasks blocks in a phase (refinement-lane shape, PR #190)", () => {
+  const section = [
+    "### Phase 3 — Split-lane phase",
+    "",
+    "#### Tasks",
+    "",
+    "- **T3.1 — main-lane task.**",
+    "",
+    "#### Deliverables",
+    "",
+    "- prose that is not a task row",
+    "",
+    "#### Tasks",
+    "",
+    "- **T-007r-1-1** — refinement-lane task",
+    "",
+  ].join("\n");
+  assert.deepEqual(extractDeclaredTaskIds(section), ["T-007r-1-1", "T3.1"]);
+});
+
 test("extractDeclaredFilePaths stops at BOLD metadata labels — cite prose slash-tokens stay out (Codex, PR #190)", () => {
   assert.deepEqual(
     extractDeclaredFilePaths(

@@ -342,8 +342,15 @@ export function extractAdrStatus(source) {
 // both slice the same region without re-implementing the heading boundary
 // logic.
 export function extractTasksBlock(phaseSection) {
-  const tasksMatch = phaseSection.match(/####\s*Tasks\s*\n([\s\S]*?)(?=\n####\s|\n###\s|$)/);
-  return tasksMatch ? tasksMatch[1] : null;
+  // A phase's declared tasks are the UNION of all its `#### Tasks` blocks —
+  // refinement-lane phases (Plan-007 Phase 3, Plan-008 Phase 1) carry a second
+  // block, and reading only the first made its task ids invisible to Gate 3:
+  // the phase could read fully_shipped while lane tasks were still pending
+  // (same class as the Codex P1 on PR #190; found by the omission survey).
+  const blocks = [
+    ...phaseSection.matchAll(/####\s*Tasks\s*\n([\s\S]*?)(?=\n####\s|\n###\s|$)/g),
+  ].map((m) => m[1]);
+  return blocks.length ? blocks.join("\n") : null;
 }
 
 // Extract declared task ids from a phase's `#### Tasks` block. Returns a
@@ -363,13 +370,15 @@ export function extractDeclaredTaskIds(phaseSection) {
   // phase as never fully shipped (auto-walk re-enters shipped work — Codex P1,
   // PR #190, reproduced on Plan-003 Phase 1).
   for (const m of block.matchAll(/^#####\s+(T(?=[-\d])[-a-zA-Z0-9.]+)\b/gm)) ids.add(m[1]);
-  // Two bullet shapes: `- **T-100-1.1** — title` (bold closes after the id)
-  // and `- **T1.1 — title**` (em-dash + title INSIDE the bold — the shape
-  // audited plans like Plan-009/016 use). [^*\n]* spans the intra-bold tail.
-  // Optional GFM checkbox (`- [ ] **T21.1-1 — …**`) — Plan-021's row shape.
-  for (const m of block.matchAll(
-    /^-\s+(?:\[[ xX]\]\s+)?\*\*(T(?=[-\d])[-a-zA-Z0-9.]+)\b[^*\n]*\*\*/gm,
-  ))
+  // Bullet shapes: `- **T-100-1.1** — title` (bold closes after the id),
+  // `- **T1.1 — title**` (title INSIDE the bold — Plan-009/016), optional GFM
+  // checkbox (`- [ ] **T21.1-1 — …**` — Plan-021). No closing-`**` tail is
+  // required: titles containing a literal `*` (Plan-009 `repo.*`, Plan-018
+  // `participant.*`, Plan-022 `gdpr.*`) broke a `[^*\n]*\*\*` tail and the
+  // omitted id let Gate 3 mark the phase fully shipped while that task was
+  // still pending (Codex P1, PR #190). The top-level-bullet anchor + `**T` +
+  // digit/hyphen lookahead are the guards against prose bolds.
+  for (const m of block.matchAll(/^-\s+(?:\[[ xX]\]\s+)?\*\*(T(?=[-\d])[-a-zA-Z0-9.]+)\b/gm))
     ids.add(m[1]);
   return [...ids].sort();
 }
