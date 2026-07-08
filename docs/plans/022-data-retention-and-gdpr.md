@@ -326,7 +326,7 @@ Audit-derived task decomposition. The 11 Implementation Steps regroup into five 
 
 ### Phase 4 — GDPR stub surface (Steps 9–10)
 
-**Precondition:** Phase 3 merged (Steps 9–10 surface data the Step-7–8 write path persists).
+**Precondition:** Plan-007 Phase 2 merged (the JSON-RPC `MethodRegistry` the `gdpr.*` stubs register on, per D-022-3 — already shipped, PR #17). No in-plan gate: §Parallelization Notes — Step 9 is fully parallelizable with every other Plan-022 step.
 
 #### Tasks
 
@@ -360,7 +360,7 @@ Audit-derived task decomposition. The 11 Implementation Steps regroup into five 
 
 ### Phase 5 — Cross-plan fan-out: Path-2 FK-severance migration + alignment checkpoint (Step 11)
 
-**Precondition:** Phase 4 merged (the Step-11 alignment checkpoint audits the full Phases 1–4 surface).
+**Precondition:** None within Plan-022 — T22.5.2 touches only `packages/control-plane` and depends on Plan-001's shipped `session_memberships` + Plan-002's shipped `session_invites` (§Parallelization Notes; it parallelizes with every other Plan-022 step).
 
 #### Tasks
 
