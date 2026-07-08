@@ -39,6 +39,9 @@ name: docs-corpus
 on:
   pull_request:
     branches: [develop, main]
+    # `edited` is load-bearing for the lane-boundary job: fixing a PR title
+    # must re-run the guard, and the default type set omits title edits.
+    types: [opened, edited, synchronize, reopened]
   push:
     branches: [develop, main]
 
@@ -230,6 +233,82 @@ jobs:
       - name: Unit tests for hook implementations
         run: pnpm exec vitest run --root tools/docs-corpus
 
+  lane-boundary:
+    name: lane boundary — plan-title token (required)
+    # Enforces the lane-1 title-token boundary from CONTRIBUTING.md §How Code
+    # Lands: a PR whose title cites `Plan-NNN` (case-insensitive) while its
+    # diff touches material paths (packages/ + apps/ + .github/ — G6's
+    # MATERIAL_PATH_PREFIXES) must DECLARE lane-1 shipment for that plan —
+    # a plan-scoped branch (<type>/plan-NNN-*, any CONTRIBUTING §Type-segment
+    # type) or a docs/plans/NNN-*.md edit in the same diff. The Shipment
+    # Manifest entry cannot be required in-PR (its sha: field is this PR's
+    # own squash SHA; Phase E lands it via the post-merge housekeeping PR).
+    # Otherwise the merged title pollutes the manifest-freshness gate's
+    # title-search recovery — the one remaining way to re-create shipment
+    # drift. Docs-only diffs pass (G6's own narrowing): docs PRs may
+    # legitimately name plans. Reverts get no exemption (G6 has none: a
+    # merged material revert title carrying the token becomes an
+    # unmanifested shipment in the freshness population — drop the token or
+    # carry a plan-doc edit that actually touches manifest content), and the
+    # inverse mislabel fails too: a material diff on a plan-scoped branch
+    # whose title does not cite that same plan would be invisible to G6's
+    # title search.
+    #
+    # PR-metadata guard, so it runs only on pull_request events; on push the
+    # job is skipped and the aggregator accepts `skipped` for exactly this
+    # job (every commit on develop/main arrived through a PR that ran it).
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22.12"
+          # setup-node v5 auto-enables pnpm caching from package.json's
+          # packageManager field; this job never installs dependencies (the
+          # check is stdlib-only), so pnpm is absent and auto-cache would
+          # fail the step. Explicitly off.
+          package-manager-cache: false
+
+      - name: Enforce lane-1 title-token boundary
+        # Title and branch pass through env — never inline-templated into
+        # the script body, since PR titles are attacker-controlled text.
+        # The changed-file list streams from the paginated files API so a
+        # large PR neither truncates the classification (anti-silent-
+        # truncation discipline) nor overflows argv.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+        run: |
+          set -euo pipefail
+          # One JSON object per line ({filename, patch}) so the checker can
+          # verify a revert's plan-doc edit actually touches Shipment
+          # Manifest content, not just the file. @json keeps this
+          # line-oriented, so the count check below still holds.
+          gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" \
+            --paginate --jq '.[] | {filename: .filename, patch: (.patch // "")} | @json' \
+            > "${RUNNER_TEMP}/changed-files.txt"
+          # Fail closed on a capped listing: the files endpoint returns at
+          # most 3,000 entries even paginated, and a partial list could hide
+          # the material file that makes a plan-titled PR a violation. Every
+          # file, renamed or not, is one row and one changed_files count.
+          LISTED_COUNT="$(wc -l < "${RUNNER_TEMP}/changed-files.txt" | tr -d ' ')"
+          if [ "${LISTED_COUNT}" -ne "${PR_CHANGED_FILES}" ]; then
+            echo "::error title=lane-boundary halt::files API returned ${LISTED_COUNT} of ${PR_CHANGED_FILES} changed files (endpoint caps at 3,000) — cannot classify the diff; split the PR."
+            exit 1
+          fi
+          node --experimental-strip-types tools/docs-corpus/bin/lane-boundary-check.ts \
+            < "${RUNNER_TEMP}/changed-files.txt"
+
   docs-corpus-gate:
     name: docs-corpus-gate
     runs-on: ubuntu-latest
@@ -240,7 +319,7 @@ jobs:
     # third-party drift signal, not a PR-introduced regression. See
     # the workflow header comment for the full advisory-vs-required
     # rationale.
-    needs: [lychee-inbound, custom-checks]
+    needs: [lychee-inbound, custom-checks, lane-boundary]
     if: always()
     steps:
       - name: Aggregate required-checks status
@@ -252,6 +331,13 @@ jobs:
           fi
           if [[ "${{ needs.custom-checks.result }}" != "success" ]]; then
             echo "docs-corpus-gate: required job 'custom-checks' did not succeed (result=${{ needs.custom-checks.result }})"
+            fail=1
+          fi
+          # `skipped` is success-equivalent for lane-boundary ONLY: the job
+          # is if-gated to pull_request events, and push builds on develop/
+          # main re-verify commits that already passed the guard in their PR.
+          if [[ "${{ needs.lane-boundary.result }}" != "success" && "${{ needs.lane-boundary.result }}" != "skipped" ]]; then
+            echo "docs-corpus-gate: required job 'lane-boundary' did not succeed (result=${{ needs.lane-boundary.result }})"
             fail=1
           fi
           if [[ $fail -ne 0 ]]; then

@@ -688,6 +688,10 @@ export function gateAuditCheckbox(planSource, planFile) {
 // saturation, and file-list truncation all HALT rather than pass. The
 // explicit CLI escape is --allow-stale-manifest (skip is logged to stderr).
 export const FRESHNESS_FETCH_LIMIT = 100;
+// Sync contract: tools/docs-corpus/bin/lane-boundary-check.ts mirrors this
+// constant (the CI lane guard must classify "material" exactly as G6 does);
+// a deep-equality test in tools/docs-corpus/__tests__/lane-boundary-check.test.ts
+// fails CI on divergence.
 export const MATERIAL_PATH_PREFIXES = ["packages/", "apps/", ".github/"];
 
 export function gateManifestFreshness(planSource, planNumber) {

@@ -42,8 +42,9 @@ Based on [Conventional Branch](https://conventional-branch.github.io/) with a lo
 | `release/` | Release preparation            | `release/v0.1.0`                        |
 | `chore/`   | Build / tooling / dependencies | `chore/bump-pnpm`                       |
 | `docs/`    | Documentation-only             | `docs/add-observability-adr`            |
+| `test/`    | Test-only additions            | `test/plan-004-conformance`             |
 
-`docs/` is a local extension. Conventional Branch defines five types; we add `docs/` for legibility — `docs/audit-realignment` reads correctly while `chore/audit-realignment` undersells doc work.
+`docs/` and `test/` are local extensions. Conventional Branch defines five types; we add `docs/` for legibility — `docs/audit-realignment` reads correctly while `chore/audit-realignment` undersells doc work — and `test/` to mirror the Conventional Commits `test:` commit type, which the plan-execution scaffold already names as a branch type for test-only plan shipments.
 
 Short-form types are pinned (`feat/`, `fix/`) — do not use the long forms (`feature/`, `bugfix/`) so the branch type matches the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) commit type 1:1.
 
@@ -143,7 +144,7 @@ Classify the change before branching; the lane decides the ceremony. When in dou
 | 3 | **Repo tooling / infra / chore** | `.claude/**`, `tools/**`, CI workflows, hooks, scripts, dependency bumps — work no plan owns | Plain conventional PR; no plan relationship at all |
 | 4 | **Behavior-contract change** | Anything that alters a plan §Invariant (I-NNN-M) or a spec Required Behavior / Acceptance Criteria row — including on already-shipped code | Spec/plan amendment FIRST (doc-first), then lane 1 |
 
-**Boundary rule (lane 1 vs lane 2).** A task already recorded in the Shipment Manifest is shipped; later fixes or improvements to that code are lane 2 (or lane 4 when they alter the contract) — never a second lane-1 pass over the same entry. Lane 1 is reserved for work that adds or completes manifest entries.
+**Boundary rule (lane 1 vs lane 2).** A task already recorded in the Shipment Manifest is shipped; later fixes or improvements to that code are lane 2 (or lane 4 when they alter the contract) — never a second lane-1 pass over the same entry. Lane 1 is reserved for work that adds or completes manifest entries. The title-token side of this boundary is CI-enforced: the docs-corpus workflow's `lane-boundary` job (`tools/docs-corpus/bin/lane-boundary-check.ts`) fails any PR whose title cites `Plan-NNN` (case-insensitive) while its diff touches material paths (`packages/`, `apps/`, `.github/`) and nothing declares lane-1 shipment for that plan — a plan-scoped branch (`<type>/plan-NNN-*`, any §Type-segment type per §Topic segment) or a `docs/plans/NNN-*.md` edit in the same diff (the Shipment Manifest entry itself lands post-merge via the housekeeping PR, so it is never required in-PR). The inverse mislabel fails too: a material diff on a plan-scoped branch whose title does not cite that same plan (the freshness gate recovers drift by searching merged titles, so such a shipment would be invisible to it). Reverts — GitHub's `Revert "..."` shape or Conventional `revert:` subjects — get no exemption: a material revert re-carrying the shipped token must drop it from the title or include the manifest reconciliation in-PR (a plan-doc edit that actually touches Shipment Manifest content).
 
 **Boundary rule (lane 2 vs lane 4).** If the diff changes what a plan §Invariants entry or a spec Required Behavior / Acceptance Criteria row asserts, it is NOT an enhancement — the governing doc amends first. If behavior stays within the approved spec envelope, it is lane 2 regardless of which plan originally shipped the file.
 
