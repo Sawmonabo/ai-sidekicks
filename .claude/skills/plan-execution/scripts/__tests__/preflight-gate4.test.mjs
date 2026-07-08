@@ -869,9 +869,38 @@ test("extractDeclaredTaskIds parses the em-dash-inside-bold row shape audited pl
     "- **T1.1 — `repo.ts` contract core: branded IDs + canonical enums.**",
     "- **T1.2 — `RepoAttach` + `RepoMountRead` schemas.**",
     "- **T-100-1.3** — bold-closes-after-id shape still parses",
+    "- [ ] **T21.1-4 — checkbox row shape (Plan-021) parses too.**",
     "",
   ].join("\n");
-  assert.deepEqual(extractDeclaredTaskIds(block), ["T-100-1.3", "T1.1", "T1.2"]);
+  assert.deepEqual(extractDeclaredTaskIds(block), ["T-100-1.3", "T1.1", "T1.2", "T21.1-4"]);
+});
+
+test("extractDeclaredTaskIds rejects prose bolds starting with T — no phantom ids (Codex P1, PR #190)", () => {
+  const block = [
+    "#### Tasks",
+    "",
+    "- **T1.1 — real task.**",
+    "- **Test (C1):** metadata bullet that must NOT count as a task id",
+    "- **Tooling note:** neither must this",
+    "",
+    "##### Testing strategy",
+    "",
+  ].join("\n");
+  assert.deepEqual(extractDeclaredTaskIds(block), ["T1.1"]);
+});
+
+test("extractDeclaredFilePaths counts directory and glob targets as root-bearing (Codex, PR #190)", () => {
+  const paths = extractDeclaredFilePaths(
+    "Files: `packages/runtime-daemon/src/ipc/handlers/`, `apps/desktop/src/renderer/src/participants/`",
+  );
+  assert.deepEqual(paths, [
+    "packages/runtime-daemon/src/ipc/handlers/",
+    "apps/desktop/src/renderer/src/participants/",
+  ]);
+  assert.equal(classifyPhaseSize(["T1", "T2"], paths), "L");
+  assert.deepEqual(extractDeclaredFilePaths("Files: `packages/a/src/**/*.ts`"), [
+    "packages/a/src/**/*.ts",
+  ]);
 });
 
 test("extractDeclaredFilePaths survives inline annotations between paths (Codex, PR #190)", () => {

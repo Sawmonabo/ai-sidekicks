@@ -357,11 +357,20 @@ export function extractDeclaredTaskIds(phaseSection) {
   const block = extractTasksBlock(phaseSection);
   if (block === null) return [];
   const ids = new Set();
-  for (const m of block.matchAll(/^#####\s+(T[-a-zA-Z0-9.]+)\b/gm)) ids.add(m[1]);
+  // (?=[-\d]) pins the task-id SHAPE: a digit (T1.1) or hyphen (T-100-1.1)
+  // must follow T — otherwise prose bolds/headings starting with T ("Test",
+  // "Testing") phantom-match, and a phantom declared id makes Gate 3 see the
+  // phase as never fully shipped (auto-walk re-enters shipped work — Codex P1,
+  // PR #190, reproduced on Plan-003 Phase 1).
+  for (const m of block.matchAll(/^#####\s+(T(?=[-\d])[-a-zA-Z0-9.]+)\b/gm)) ids.add(m[1]);
   // Two bullet shapes: `- **T-100-1.1** — title` (bold closes after the id)
   // and `- **T1.1 — title**` (em-dash + title INSIDE the bold — the shape
   // audited plans like Plan-009/016 use). [^*\n]* spans the intra-bold tail.
-  for (const m of block.matchAll(/^-\s+\*\*(T[-a-zA-Z0-9.]+)\b[^*\n]*\*\*/gm)) ids.add(m[1]);
+  // Optional GFM checkbox (`- [ ] **T21.1-1 — …**`) — Plan-021's row shape.
+  for (const m of block.matchAll(
+    /^-\s+(?:\[[ xX]\]\s+)?\*\*(T(?=[-\d])[-a-zA-Z0-9.]+)\b[^*\n]*\*\*/gm,
+  ))
+    ids.add(m[1]);
   return [...ids].sort();
 }
 
@@ -400,12 +409,17 @@ export function extractDeclaredFilePaths(phaseSection) {
   while ((m = fieldRe.exec(phaseSection)) !== null) {
     for (const token of m[1].split(/[,\s]+/)) {
       // Trailing sentence punctuation (`pty-host.ts\`.`) would fail the path
-      // regex and silently drop the package root from classification.
+      // regex and silently drop the package root from classification. Markup
+      // strip is EDGE-anchored so glob stars inside a path survive.
       const cleaned = token
-        .replace(/[`*]/g, "")
-        .trim()
-        .replace(/[.,;:!?)\]]+$/, "");
-      if (/^[\w.@-]+(\/[\w.@-]+)+\.\w+$/.test(cleaned) && !paths.includes(cleaned))
+        .replace(/^[`*([]+/, "")
+        .replace(/[`*.,;:!?)\]]+$/, "")
+        .trim();
+      // Path-shaped = 2+ slash-joined segments; files, directories (trailing
+      // slash), and globs all count — a directory target like
+      // `packages/runtime-daemon/src/ipc/handlers/` is root-bearing evidence
+      // for classification even without a filename extension (Codex, PR #190).
+      if (/^[\w.@-]+(\/[\w.@*-]+)+\/?$/.test(cleaned) && !paths.includes(cleaned))
         paths.push(cleaned);
     }
   }
