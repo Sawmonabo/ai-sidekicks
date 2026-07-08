@@ -3,7 +3,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -2786,6 +2786,127 @@ test("gateStatusPromotion halts review and draft with the promotion message", ()
     assert.match(r.halt, new RegExp(`Status is \\\`${status}\\\``));
     assert.match(r.halt, /--allow-unpromoted/);
   }
+});
+
+// ---------- external_plan_phase_merged (R-phase gates — Codex r4, PR #193) ----------
+
+function writeRPhaseUpstream(dir, { shipR2 = false } = {}) {
+  const manifestTasks = shipR2
+    ? "  - phase: 5\n    task: [T-007r-2-1, T-007r-2-2]\n    pr: 99\n    sha: abc1234\n    merged_at: 2026-08-01\n    files:\n      - packages/runtime-daemon/src/bootstrap/daemon-key-store.ts\n    verifies_invariant: []\n    spec_coverage: []\n    notes: |\n      R2 shipped under integer phase 5.\n"
+    : "  - phase: 1\n    task: [T-007p-1-1]\n    pr: 16\n    sha: 49f1116\n    merged_at: 2026-04-29\n    files:\n      - packages/runtime-daemon/src/bootstrap/secure-defaults.ts\n    verifies_invariant: []\n    spec_coverage: []\n    notes: |\n      Phase 1 only.\n";
+  const upstream = `# Plan-007 — Fixture
+
+| Field | Value |
+| --- | --- |
+| **Status** | \`approved\` |
+
+## Implementation Phase Sequence
+
+### Phase 1 — Shipped Substrate
+
+#### Tasks
+
+- **T-007p-1-1 — substrate.**
+
+### Phase R2 — Secure Defaults (Tier 4)
+
+#### Tasks
+
+- **T-007r-2-1** (Files: \`packages/runtime-daemon/src/bootstrap/secure-defaults.ts\` EXTEND) — config keys.
+- **T-007r-2-2** (Files: \`packages/runtime-daemon/src/bootstrap/daemon-key-store.ts\`) — DaemonKeyStore interface.
+
+## Progress Log
+
+### Shipment Manifest
+
+\`\`\`yaml
+manifest_schema_version: 1
+shipped:
+${manifestTasks}\`\`\`
+`;
+  writeFileSync(join(dir, "007-fixture.md"), upstream);
+}
+
+test("findSectionBoundary: a remainder heading (### Phase R2) bounds the preceding numbered phase", () => {
+  const body = "\nbody of phase 3\n\n### Phase R1 — Remainder\n\nmore";
+  const idx = findSectionBoundary(body);
+  assert.ok(idx > 0);
+  assert.equal(body.slice(idx).startsWith("### Phase R1"), true);
+});
+
+test("external_plan_phase_merged: R-phase gate halts while the R-section tasks are unshipped", () => {
+  const tmp = mkdtempSync(join(tmpdir(), "pf-rphase-"));
+  try {
+    const planDir = join(tmp, "docs", "plans");
+    mkdirSync(planDir, { recursive: true });
+    writeRPhaseUpstream(planDir, { shipR2: false });
+    const r = resolvePrecondition(
+      { type: "external_plan_phase_merged", plan: 7, phase: "R2" },
+      { repoRoot: tmp },
+    );
+    assert.equal(r.ok, false);
+    assert.match(r.halt, /Phase R2 not shipped — missing tasks: T-007r-2-1, T-007r-2-2/);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("external_plan_phase_merged: R-phase gate passes once the tasks ship under ANY integer phase", () => {
+  const tmp = mkdtempSync(join(tmpdir(), "pf-rphase-"));
+  try {
+    const planDir = join(tmp, "docs", "plans");
+    mkdirSync(planDir, { recursive: true });
+    writeRPhaseUpstream(planDir, { shipR2: true });
+    const r = resolvePrecondition(
+      { type: "external_plan_phase_merged", plan: 7, phase: "R2" },
+      { repoRoot: tmp },
+    );
+    assert.equal(r.ok, true);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("external_plan_phase_merged: missing R-section fails closed", () => {
+  const tmp = mkdtempSync(join(tmpdir(), "pf-rphase-"));
+  try {
+    const planDir = join(tmp, "docs", "plans");
+    mkdirSync(planDir, { recursive: true });
+    writeRPhaseUpstream(planDir, { shipR2: false });
+    const r = resolvePrecondition(
+      { type: "external_plan_phase_merged", plan: 7, phase: "R9" },
+      { repoRoot: tmp },
+    );
+    assert.equal(r.ok, false);
+    assert.match(r.halt, /no "### Phase R9" section/);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("external_plan_phase_merged: integer phase delegates to plan_phase semantics", () => {
+  const tmp = mkdtempSync(join(tmpdir(), "pf-rphase-"));
+  try {
+    const planDir = join(tmp, "docs", "plans");
+    mkdirSync(planDir, { recursive: true });
+    writeRPhaseUpstream(planDir, { shipR2: false });
+    const r = resolvePrecondition(
+      { type: "external_plan_phase_merged", plan: 7, phase: 1 },
+      { repoRoot: tmp },
+    );
+    assert.equal(r.ok, true); // Phase 1's declared T-007p-1-1 is in the manifest
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("external_plan_phase_merged: malformed phase value halts loudly", () => {
+  const r = resolvePrecondition(
+    { type: "external_plan_phase_merged", plan: 7, phase: "banana" },
+    { repoRoot: "/nonexistent" },
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /unsupported phase value/);
 });
 
 test("gateStatusPromotion ignores Status-shaped table rows in the body (header-region scope — Codex r3)", () => {

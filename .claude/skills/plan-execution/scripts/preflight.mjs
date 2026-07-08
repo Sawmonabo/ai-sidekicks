@@ -115,7 +115,13 @@ export function findSectionBoundary(body) {
         fenceChar = "";
         fenceLen = 0;
       }
-    } else if (fenceChar === "" && (/^### Phase \d+/.test(line) || /^## /.test(line))) {
+      // Remainder headings (`### Phase R2`) are real section boundaries too:
+      // digit-only matching made the preceding numbered phase swallow the
+      // R-section, so its declared-task set absorbed the R-series ids and a
+      // shipped numbered phase classified partially_shipped forever (latent
+      // Plan-007 Phase 3 false-halt; surfaced by the external_plan_phase_merged
+      // work, Codex P2 PR #193 round 4).
+    } else if (fenceChar === "" && (/^### Phase R?\d+/.test(line) || /^## /.test(line))) {
       return offset;
     }
     offset += line.length + 1; // +1 restores the "\n" consumed by split
@@ -2416,6 +2422,83 @@ export function resolvePrecondition(
       return {
         ok: false,
         halt: `Plan-${entry.plan} has not shipped yet (no shipment-manifest entries) — cross-tier substrate unavailable`,
+      };
+    }
+    case "external_plan_phase_merged": {
+      // Corpus-declared structured form for cross-plan phase gates (Plan-007's
+      // R-section YAML blocks already carry it). Two phase shapes:
+      //   - integer (`phase: 2`) — identical semantics to the prose-derived
+      //     plan_phase entry; delegate.
+      //   - remainder string (`phase: R2`) — R-phases are real plan sections
+      //     (`### Phase R2 — …`) but can never appear as a manifest phase key
+      //     (validateEntry forces positive integers), so phase-key equality is
+      //     structurally unanswerable. The checkable truth is TASK-SET
+      //     membership: the R-section's declared task ids (T-007r-2-*) must
+      //     all appear in the upstream manifest's shipped task lists under
+      //     WHATEVER integer phase the R-series ships as. Halts today while
+      //     the tasks are unshipped; passes when they land — no manifest
+      //     schema change, no upstream renumbering (Codex P2, PR #193 round 4:
+      //     the prose-only R2 gate left plan-022 Phase 1 mechanically open).
+      if (typeof entry.phase === "number") {
+        return resolvePrecondition(
+          { type: "plan_phase", plan: entry.plan, phase: entry.phase, status: "merged" },
+          { repoRoot },
+        );
+      }
+      if (typeof entry.phase !== "string" || !/^R\d+$/.test(entry.phase)) {
+        return {
+          ok: false,
+          halt: `external_plan_phase_merged: unsupported phase value ${JSON.stringify(entry.phase)} (expected an integer or "R<n>")`,
+        };
+      }
+      const planDir = resolve(repoRoot, "docs", "plans");
+      const planMatches = findPaddedFiles(planDir, entry.plan);
+      if (planMatches.length === 0) {
+        return { ok: false, halt: `Plan-${entry.plan} not found in docs/plans/` };
+      }
+      if (planMatches.length > 1) {
+        return {
+          ok: false,
+          halt: `Plan-${entry.plan} resolves to multiple files in docs/plans/: ${planMatches.map((p) => basename(p)).join(", ")}. Rename or remove the duplicate.`,
+        };
+      }
+      const source = readFileSync(planMatches[0], "utf8");
+      const section = extractPhaseSection(source, entry.phase);
+      if (!section) {
+        return {
+          ok: false,
+          halt: `Plan-${entry.plan} has no "### Phase ${entry.phase}" section — cannot evaluate external_plan_phase_merged (fail closed)`,
+        };
+      }
+      const declared = extractDeclaredTaskIds(section);
+      if (declared.length === 0) {
+        return {
+          ok: false,
+          halt: `Plan-${entry.plan} Phase ${entry.phase} declares no parseable task ids — cannot verify shipment (fail closed)`,
+        };
+      }
+      const manifest = parseManifestBlock(source);
+      if (!manifest.ok) {
+        return {
+          ok: false,
+          halt: `Plan-${entry.plan} shipment manifest unparseable (${manifest.reason}) — cannot evaluate Phase ${entry.phase} gate`,
+        };
+      }
+      if (manifest.version > MANIFEST_SCHEMA_VERSION) {
+        // Opaque-pass, mirroring plan_phase's future-schema disposition.
+        return { ok: true };
+      }
+      const shippedTaskIds = new Set();
+      for (const shippedEntry of manifest.shipped) {
+        for (const taskId of [].concat(shippedEntry.task ?? [])) {
+          if (taskId) shippedTaskIds.add(taskId);
+        }
+      }
+      const missing = declared.filter((taskId) => !shippedTaskIds.has(taskId));
+      if (missing.length === 0) return { ok: true };
+      return {
+        ok: false,
+        halt: `Plan-${entry.plan} Phase ${entry.phase} not shipped — missing tasks: ${missing.join(", ")}`,
       };
     }
     case "cross_plan_carve_out": {
