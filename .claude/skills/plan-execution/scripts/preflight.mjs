@@ -2892,7 +2892,16 @@ async function main() {
   if (args.includes("--survey")) {
     // Corpus-wide extractor screen; no plan file, no gates, no network.
     // Exit 1 on any two-sided anomaly so authoring/refactor workflows can
-    // gate on it. Contract: ../references/preflight-contract.md § Survey mode.
+    // gate on it. Strictly solo: a mixed invocation like
+    // `preflight.mjs <plan> <phase> --survey` must NOT silently take the
+    // survey path — the caller asked for a gated phase check, and exiting
+    // on survey cleanliness alone would green-light an unvetted phase
+    // (Codex P2, PR #192). Contract: ../references/preflight-contract.md
+    // § Survey mode.
+    if (args.length !== 1) {
+      process.stderr.write("--survey runs alone — it takes no plan file, phase, or other flags\n");
+      process.exit(2);
+    }
     const survey = surveyCorpus();
     process.stdout.write(formatSurvey(survey) + "\n");
     process.exit(survey.anomalies.length > 0 ? 1 : 0);

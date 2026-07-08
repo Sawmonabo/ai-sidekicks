@@ -1038,7 +1038,7 @@ test("rebuildManifest skips a docs-only title match instead of validation-failin
   }
 });
 
-test("rebuildManifest docs-only filter exempts PRs already recorded in the on-disk manifest", async () => {
+test("rebuildManifest reuses the on-disk entry for a docs-only title match instead of re-synthesizing", async () => {
   const tmp = mkdtempSync(join(tmpdir(), "rsm-e2e-"));
   try {
     const planDir = join(tmp, "docs", "plans");
@@ -1064,7 +1064,9 @@ test("rebuildManifest docs-only filter exempts PRs already recorded in the on-di
       prList: [61],
       prDetails: {
         61: {
-          title: "docs(repo): Plan-001 Phase 5 T5.9 governance sync",
+          // Deliberately marker-less (the #1/#29 class): synthesis would
+          // yield phase 0 / empty task and exit-5 — reuse must win instead.
+          title: "docs: V1 doc-first phase closure for Plan-001",
           body: "Docs-only, but already recorded on disk.",
           mergedAt: "2026-04-26T10:00:00Z",
           mergeCommit: { oid: "1234567deadbeef" },
@@ -1085,8 +1087,10 @@ test("rebuildManifest docs-only filter exempts PRs already recorded in the on-di
       stdout,
       stderr,
     });
-    assert.equal(r.exitCode, 0);
+    assert.equal(r.exitCode, 0); // exit 5 here would mean the entry was re-synthesized
+    assert.match(stderr.text(), /reused existing manifest entry \(docs-only title match\): PR #61/);
     assert.doesNotMatch(stderr.text(), /skipped \(docs-only title match/);
+    assert.match(stdout.text(), /task: T5\.9/); // the ground-truth entry rides through verbatim
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }

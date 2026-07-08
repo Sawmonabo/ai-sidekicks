@@ -200,7 +200,7 @@ Output: one line per walked plan (`P<N> <class>(<id-count>)` per phase), the S/M
 | #83 | 5     | T5.3         | `a70de3e` | 2026-05-20 |
 | #87 | 5     | P5-residuals | `bc33f30` | 2026-05-21 |
 
-(#6/#8/#9/#10 reuse their on-disk entries when the manifest exists; on a true from-scratch rebuild they synthesize from parseable squash text or route to operator confirmation via the truncation path — PR #6 exceeds the 100-file page.)
+(#6/#8/#9/#10 reuse their on-disk entries when the manifest exists. On a true from-scratch rebuild they are **body-only matches** — their pre-mandate titles carry no `Plan-001` token — so the default run lists them as `skipped (no title token)`; the operator MUST re-run with `--include-body-matches` to pull them into synthesis/confirmation, and PR #6 additionally exceeds the 100-file page, routing through the truncation → operator-confirmation path.)
 
 ## Stability
 

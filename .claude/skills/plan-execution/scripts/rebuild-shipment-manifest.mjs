@@ -395,21 +395,28 @@ export async function rebuildManifest({
     // title names the plan (doc-first closure PRs #1/#29 are the Plan-001
     // shapes) must not enter synthesis — its squash text has no Phase/T
     // markers and it validation-fails as noise (exit 5) on every from-
-    // scratch rebuild. On-disk manifest entries are exempt: ground truth
-    // being preserved outranks the classifier. The exit-7 truncation halt
-    // fires in fetchPrDetails BEFORE this filter — a truncated file list
-    // cannot prove docs-only, so it stays fail-closed.
-    if (!existingEntryByPr.has(pr)) {
-      const filePaths = (details.files ?? []).map((f) => f.path);
-      const materialFileCount = filePaths.filter((p) =>
-        MATERIAL_PATH_PREFIXES.some((prefix) => p.startsWith(prefix)),
-      ).length;
-      if (materialFileCount === 0) {
+    // scratch rebuild. When such a PR already has an on-disk manifest
+    // entry, that ground truth is REUSED verbatim (mirroring the body-only
+    // reuse path) rather than re-synthesized — synthesis would produce the
+    // same phase-0/empty-task failure the filter exists to remove (Codex
+    // P2, PR #192). The exit-7 truncation halt fires in fetchPrDetails
+    // BEFORE this filter — a truncated file list cannot prove docs-only,
+    // so it stays fail-closed.
+    const filePaths = (details.files ?? []).map((f) => f.path);
+    const materialFileCount = filePaths.filter((p) =>
+      MATERIAL_PATH_PREFIXES.some((prefix) => p.startsWith(prefix)),
+    ).length;
+    if (materialFileCount === 0) {
+      const existingEntry = existingEntryByPr.get(pr);
+      if (existingEntry) {
         stderr.write(
-          `skipped (docs-only title match, no material paths): PR #${pr} — "${title}"\n`,
+          `reused existing manifest entry (docs-only title match): PR #${pr} — "${title}"\n`,
         );
+        built.push({ entry: existingEntry, ambiguities: [], reused: true });
         continue;
       }
+      stderr.write(`skipped (docs-only title match, no material paths): PR #${pr} — "${title}"\n`);
+      continue;
     }
     built.push(buildEntryFromPr({ pr, details, plan }));
   }

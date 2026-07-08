@@ -176,6 +176,17 @@ test("preflight --survey: exit 0 on the real corpus, report on stdout", () => {
   assert.match(run.stdout, /anomalies: none/);
 });
 
+test("preflight --survey: rejects mixed invocations (exit 2, no survey run)", () => {
+  const run = spawnSync(
+    process.execPath,
+    [PREFLIGHT, "docs/plans/001-shared-session-core.md", "5", "--survey"],
+    { encoding: "utf8", cwd: REPO_ROOT },
+  );
+  assert.equal(run.status, 2, run.stdout + run.stderr);
+  assert.match(run.stderr, /--survey runs alone/);
+  assert.doesNotMatch(run.stdout, /distribution:/); // the survey must not have run
+});
+
 test("preflight --survey: exit 1 with anomaly listing on a broken fixture corpus", () => {
   const tmp = makeFixtureCorpus({
     "052-broken.md": `### Phase 2 — broken
