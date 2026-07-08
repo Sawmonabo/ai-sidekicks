@@ -176,6 +176,15 @@ test("parseTaskFromPr: dedupes across title and body", () => {
   assert.equal(r, "T5.1");
 });
 
+test("parseTaskFromPr: extracts lettered-series T-NNNx-N-N form (deploy series — Codex r4)", () => {
+  const r = parseTaskFromPr({
+    title: "feat(deploy): Plan-025 T-025d-14-1 self-host compose",
+    body: null,
+    plan: "025",
+  });
+  assert.equal(r, "T-025d-14-1");
+});
+
 test("parseTaskFromPr: returns null when no task ID", () => {
   assert.equal(parseTaskFromPr({ title: "Phase 1 bootstrap", body: null, plan: "001" }), null);
 });
@@ -985,9 +994,9 @@ test("rebuildManifest --include-body-matches routes >100-file candidates to oper
   }
 });
 
-// ---------- governance-only title-match skip (docs/ + root files) ----------
+// ---------- governance/closure skip (no task token + no material paths) ----------
 
-test("rebuildManifest skips a governance-only title match instead of validation-failing it", async () => {
+test("rebuildManifest skips a no-token/no-material closure PR instead of validation-failing it", async () => {
   const tmp = mkdtempSync(join(tmpdir(), "rsm-e2e-"));
   try {
     const planDir = join(tmp, "docs", "plans");
@@ -1030,20 +1039,17 @@ test("rebuildManifest skips a governance-only title match instead of validation-
       stderr,
     });
     assert.equal(r.exitCode, 0); // no validation failures — the docs PR never entered synthesis
-    assert.match(
-      stderr.text(),
-      /skipped \(governance-only title match: docs\/ \+ root files\): PR #61/,
-    );
+    assert.match(stderr.text(), /skipped \(no task token, no material paths\): PR #61/);
     assert.doesNotMatch(stdout.text(), /^\s*pr: 61$/m);
     assert.match(stdout.text(), /task: T5\.1/); // the material shipment still synthesizes
     // dry-run stdout stays a pure YAML stream
-    assert.doesNotMatch(stdout.text(), /skipped \(governance-only/);
+    assert.doesNotMatch(stdout.text(), /skipped \(no task token/);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
 });
 
-test("rebuildManifest reuses the on-disk entry for a governance-only title match instead of re-synthesizing", async () => {
+test("rebuildManifest reuses the on-disk entry for a skipped closure PR instead of re-synthesizing", async () => {
   const tmp = mkdtempSync(join(tmpdir(), "rsm-e2e-"));
   try {
     const planDir = join(tmp, "docs", "plans");
@@ -1095,10 +1101,56 @@ test("rebuildManifest reuses the on-disk entry for a governance-only title match
     assert.equal(r.exitCode, 0); // exit 5 here would mean the entry was re-synthesized
     assert.match(
       stderr.text(),
-      /reused existing manifest entry \(governance-only title match\): PR #61/,
+      /reused existing manifest entry \(no task token, no material paths\): PR #61/,
     );
-    assert.doesNotMatch(stderr.text(), /skipped \(governance-only title match/);
+    assert.doesNotMatch(stderr.text(), /skipped \(no task token/);
     assert.match(stdout.text(), /task: T5\.9/); // the ground-truth entry rides through verbatim
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("rebuildManifest does NOT skip a docs-only shipment task (Plan-022 T22.4.4 class — Codex r4)", async () => {
+  // Docs-only + a plan-scoped task token in the title = a real shipment
+  // (Plan-022 T22.4.4/T22.4.5 declare Files: entirely under docs/). The
+  // task discriminator, not file shape, decides.
+  const tmp = mkdtempSync(join(tmpdir(), "rsm-e2e-"));
+  try {
+    const planDir = join(tmp, "docs", "plans");
+    mkdirSync(planDir, { recursive: true });
+    writeFileSync(join(planDir, "022-data-retention-and-gdpr.md"), PLAN_TEMPLATE);
+
+    const ghRunner = makeGhRunner({
+      prList: [95],
+      prDetails: {
+        95: {
+          title: "docs(repo): Plan-022 T22.4.4 error-code + api-payload docs",
+          body: "Documents the gdpr.endpoint_not_v1 error surface (Plan-022 Phase 4).",
+          mergedAt: "2026-07-01T10:00:00Z",
+          mergeCommit: { oid: "def4567abc89012" },
+          changedFiles: 2,
+          files: [
+            { path: "docs/architecture/contracts/error-contracts.md" },
+            { path: "docs/plans/022-data-retention-and-gdpr.md" },
+          ],
+        },
+      },
+    });
+
+    const stdout = makeCaptureStream();
+    const stderr = makeCaptureStream();
+    const r = await rebuildManifest({
+      plan: "022",
+      dryRun: true,
+      force: false,
+      ghRunner,
+      plansDir: planDir,
+      stdout,
+      stderr,
+    });
+    assert.doesNotMatch(stderr.text(), /no task token/);
+    assert.match(stdout.text(), /task: T22\.4\.4/);
+    assert.equal(r.exitCode, 0);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
@@ -1143,7 +1195,7 @@ test("rebuildManifest does NOT skip a root-config shipment (Plan-001 T1.1 class 
       stdout,
       stderr,
     });
-    assert.doesNotMatch(stderr.text(), /governance-only/);
+    assert.doesNotMatch(stderr.text(), /no task token/);
     assert.match(stdout.text(), /task: T1\.1/); // synthesized, not dropped
     assert.equal(r.exitCode, 0);
   } finally {
@@ -1153,7 +1205,7 @@ test("rebuildManifest does NOT skip a root-config shipment (Plan-001 T1.1 class 
 
 test("rebuildManifest does NOT skip a deploy/-only shipment (material work outside MATERIAL_PATH_PREFIXES — Codex r2)", async () => {
   // Plan-025's T-025d-14-1 ships only deploy/self-host/* — a real shipment
-  // with zero packages/apps/.github paths. The governance-only predicate
+  // with zero packages/apps/.github paths. The closure-skip predicate
   // must let it synthesize (visible entry or honest validation failure),
   // never silently drop it from a disaster rebuild.
   const tmp = mkdtempSync(join(tmpdir(), "rsm-e2e-"));
@@ -1190,7 +1242,7 @@ test("rebuildManifest does NOT skip a deploy/-only shipment (material work outsi
       stdout,
       stderr,
     });
-    assert.doesNotMatch(stderr.text(), /governance-only/);
+    assert.doesNotMatch(stderr.text(), /no task token/);
     assert.match(stdout.text(), /task: T5\.8/); // synthesized, not dropped
     assert.equal(r.exitCode, 0);
   } finally {
