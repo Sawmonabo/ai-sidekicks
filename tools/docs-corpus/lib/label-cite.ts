@@ -58,6 +58,11 @@ const TOKEN_DIRS: Record<string, string> = {
   ADR: "docs/decisions",
 };
 
+// Frozen content — raw `:NNN` cites into these trees stay legal (AGENTS.md
+// §Durable-Cite Rule: archive / reference material never shifts after
+// landing), so the code-citer deny must not fire on them.
+const FROZEN_DOC_PREFIXES = ["docs/archive/", "docs/reference/"];
+
 const defaultReader: FileContentReader = (absolutePath) => readFileSync(absolutePath, "utf8");
 
 // Token-adjacent colon form ONLY. `\b` before the token rejects a longer word
@@ -356,6 +361,12 @@ export function checkLabelCiteTargets(
       // extractLabelCitesFrom expands range/list cites into one Cite per line
       // number; dedupe on citing line + resolved doc so `Spec-016:81-83` yields
       // ONE violation, not three.
+      // Frozen trees keep raw `:NNN` legality (AGENTS.md §Durable-Cite Rule):
+      // archive / reference content never shifts after landing, so a line pin
+      // there cannot rot — and those docs carry no live headings to anchor.
+      // Label tokens never resolve into these trees (TOKEN_DIRS), so the
+      // prefix test on the raw docs-path form covers every reachable case.
+      if (FROZEN_DOC_PREFIXES.some((prefix) => c.rawTarget.startsWith(prefix))) continue;
       const deniedKey = `${c.file}:${c.line}:${c.targetPath}`;
       if (!deniedRawCites.has(deniedKey)) {
         deniedRawCites.add(deniedKey);

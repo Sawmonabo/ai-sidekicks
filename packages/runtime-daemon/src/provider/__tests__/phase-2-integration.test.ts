@@ -239,7 +239,7 @@ afterEach(() => {
 });
 
 // ----------------------------------------------------------------------------
-// (1) AC2 — capability round-trip + cold-start re-seed (`Spec-005 §Required Behavior`, :203)
+// (1) AC2 — capability round-trip + cold-start re-seed (`Spec-005 §Required Behavior`)
 // ----------------------------------------------------------------------------
 
 describe("Phase 2 integration — AC2 capability round-trip + cold-start re-seed", () => {

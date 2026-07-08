@@ -724,3 +724,35 @@ describe("deny-detail remediation names the form that exists for the target", ()
     }
   });
 });
+
+describe("frozen trees exempt from the raw-cite deny (AGENTS.md: raw `:NNN` stays legal there)", () => {
+  it("does not deny a code cite into docs/reference/", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/reference/paseo/overview.md": FIVE_LINE_DOC,
+      "packages/x/src/f.ts": "// upstream precedent: docs/reference/paseo/overview.md:3\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/x/src/f.ts")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("does not deny a code cite into docs/archive/", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/archive/backlog-archive.md": FIVE_LINE_DOC,
+      "packages/x/src/f.ts": "// closed as docs/archive/backlog-archive.md:2\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/x/src/f.ts")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+});

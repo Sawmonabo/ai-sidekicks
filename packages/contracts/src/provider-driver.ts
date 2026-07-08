@@ -216,7 +216,7 @@ export interface ProviderMode {
 }
 
 // --------------------------------------------------------------------------
-// T1.2 — Capability flags (`Spec-005 §Required Behavior`, :56; verifies I-005-2)
+// T1.2 — Capability flags (`Spec-005 §Required Behavior`; verifies I-005-2)
 // --------------------------------------------------------------------------
 //
 // Nominal TypeScript — NO Zod. The capability surface is a driver-CONSTRUCTED
@@ -262,7 +262,7 @@ export interface DriverCapabilities {
 }
 
 // --------------------------------------------------------------------------
-// T1.3 — Tool metadata + idempotency (`Spec-005 §Required Behavior`, :160-162, :172;
+// T1.3 — Tool metadata + idempotency (`Spec-005 §Required Behavior`;
 //         `Spec-015 §Idempotency Classes and Recovery Behavior`; verifies I-005-3)
 // --------------------------------------------------------------------------
 //
@@ -480,7 +480,7 @@ export const DriverResumeResultSchema: z.ZodType<DriverResumeResult, DriverResum
       .object({
         status: z.literal("resumed"),
         // `bindingId` is a machine-generated OPAQUE provider session-binding
-        // handle (`Spec-005 §Required Behavior`, :102) — the same category as the `invites.ts`
+        // handle (`Spec-005 §Required Behavior`) — the same category as the `invites.ts`
         // PASETO token (`z.string().min(1).max(INVITE_TOKEN_MAX_LEN)`), whose
         // comment (invites.ts:145-150) deliberately OMITS the `/\S/` + NUL guards
         // because those target HUMAN-entered fields. We make a different choice
