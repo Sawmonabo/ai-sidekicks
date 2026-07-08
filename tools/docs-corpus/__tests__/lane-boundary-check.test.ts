@@ -61,52 +61,82 @@ describe("checkLaneBoundary", () => {
     expect(result.failures).toEqual([]);
   });
 
-  it("passes a lane-1 shape: token + material + manifest-entry surface", () => {
-    const result = checkLaneBoundary({
-      title: "feat(daemon): Plan-004 run lifecycle handlers",
-      branch: "feat/plan-004-run-handlers",
-      changedFiles: [materialFile, "docs/plans/004-agent-runs-and-lifecycle.md"],
-    });
-    expect(result.ok).toBe(true);
-  });
-
-  it("fails a material diff whose cited plan file is untouched", () => {
+  it("passes the normal lane-1 shipment: token + material + plan-scoped branch, NO plan-doc edit (manifest lands post-merge via housekeeping)", () => {
     const result = checkLaneBoundary({
       title: "feat(daemon): Plan-004 run lifecycle handlers",
       branch: "feat/plan-004-run-handlers",
       changedFiles: [materialFile],
     });
+    expect(result).toEqual({ ok: true, failures: [], advisories: [] });
+  });
+
+  it("passes the fix-typed lane-1 branch (CONTRIBUTING's own fix/plan-NNN example)", () => {
+    const result = checkLaneBoundary({
+      title: "fix(desktop): Plan-023 renderer leak",
+      branch: "fix/plan-023-renderer-leak",
+      changedFiles: ["apps/desktop/src/renderer/leak.ts"],
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it("passes the amendment-with-code shape: plan-doc edit rides with material on a non-plan branch", () => {
+    const result = checkLaneBoundary({
+      title: "feat(daemon): Plan-004 run lifecycle handlers",
+      branch: "feat/run-handlers",
+      changedFiles: [materialFile, "docs/plans/004-agent-runs-and-lifecycle.md"],
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it("fails a material diff with no lane-1 declaration (non-plan branch, no plan-doc edit)", () => {
+    const result = checkLaneBoundary({
+      title: "chore(repo): tooling cleanup mentioning Plan-004",
+      branch: "chore/tooling-cleanup",
+      changedFiles: [materialFile],
+    });
     expect(result.ok).toBe(false);
     expect(result.failures).toHaveLength(1);
     expect(result.failures[0]).toContain("Plan-004");
-    expect(result.failures[0]).toContain("docs/plans/004-*.md");
+    expect(result.failures[0]).toContain("(feat|fix)/plan-004-*");
     expect(result.failures[0]).toContain("CONTRIBUTING.md");
   });
 
-  it("multi-token: reports only the plans missing their file", () => {
+  it("fails when the branch is plan-scoped for a DIFFERENT plan than the title cites", () => {
+    const result = checkLaneBoundary({
+      title: "feat(daemon): Plan-004 run lifecycle handlers",
+      branch: "feat/plan-007-ipc-host",
+      changedFiles: [materialFile],
+    });
+    expect(result.ok).toBe(false);
+    expect(result.failures[0]).toContain("Plan-004");
+  });
+
+  it("multi-token: the branch declares one plan; the other needs its plan-doc edit", () => {
     const result = checkLaneBoundary({
       title: "feat(daemon): Plan-004 + Plan-007 handler split",
       branch: "feat/plan-004-handler-split",
-      changedFiles: [materialFile, "docs/plans/004-agent-runs-and-lifecycle.md"],
+      changedFiles: [materialFile],
     });
     expect(result.ok).toBe(false);
     expect(result.failures).toHaveLength(1);
     expect(result.failures[0]).toContain("Plan-007");
   });
 
-  it("passes the revert shape (manifest-entry removal touches the plan file)", () => {
+  it("passes the revert shape with a reconciliation advisory (no manifest edit possible in-PR)", () => {
     const result = checkLaneBoundary({
       title: 'Revert "feat(daemon): Plan-004 run lifecycle handlers"',
       branch: "revert-199-feat/plan-004-run-handlers",
-      changedFiles: [materialFile, "docs/plans/004-agent-runs-and-lifecycle.md"],
+      changedFiles: [materialFile],
     });
     expect(result.ok).toBe(true);
+    expect(result.advisories).toHaveLength(1);
+    expect(result.advisories[0]).toContain("reconcile the plan's Shipment Manifest");
   });
 
-  it("requires a real plan-doc path — a plans/ file for another NNN does not satisfy", () => {
+  it("a plans/ doc edit for another NNN does not declare lane 1 for the cited plan", () => {
     const result = checkLaneBoundary({
       title: "feat(daemon): Plan-004 run lifecycle handlers",
-      branch: "feat/plan-004-run-handlers",
+      branch: "feat/run-handlers",
       changedFiles: [materialFile, "docs/plans/007-local-ipc-and-daemon-control.md"],
     });
     expect(result.ok).toBe(false);
@@ -136,8 +166,8 @@ describe("runLaneBoundaryCheck (stdin parsing + annotations)", () => {
 
   it("emits ::error:: annotations and exit 1 on violation", () => {
     const { exitCode, message } = runLaneBoundaryCheck(
-      "feat(daemon): Plan-004 run lifecycle handlers",
-      "feat/plan-004-run-handlers",
+      "chore(repo): tooling cleanup mentioning Plan-004",
+      "chore/tooling-cleanup",
       "packages/runtime-daemon/src/a.ts\n",
     );
     expect(exitCode).toBe(1);
@@ -164,17 +194,20 @@ describe("CLI (spawned — the direct-invocation path tests cannot reach via imp
     });
   }
 
-  it("exits 0 on a passing lane-1 shape", () => {
+  it("exits 0 on the normal lane-1 shape (plan-scoped branch, no plan-doc edit)", () => {
     const run = spawnCli(
       { PR_TITLE: "feat(daemon): Plan-004 run handlers", PR_BRANCH: "feat/plan-004-run-handlers" },
-      "packages/runtime-daemon/src/a.ts\ndocs/plans/004-agent-runs-and-lifecycle.md\n",
+      "packages/runtime-daemon/src/a.ts\n",
     );
     expect(run.status).toBe(0);
   });
 
   it("exits 1 with an ::error:: annotation on a violation", () => {
     const run = spawnCli(
-      { PR_TITLE: "feat(daemon): Plan-004 run handlers", PR_BRANCH: "feat/plan-004-run-handlers" },
+      {
+        PR_TITLE: "chore(repo): tooling cleanup mentioning Plan-004",
+        PR_BRANCH: "chore/tooling-cleanup",
+      },
       "packages/runtime-daemon/src/a.ts\n",
     );
     expect(run.status).toBe(1);

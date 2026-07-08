@@ -238,11 +238,15 @@ jobs:
     # Enforces the lane-1 title-token boundary from CONTRIBUTING.md §How Code
     # Lands: a PR whose title cites `Plan-NNN` (case-insensitive) while its
     # diff touches material paths (packages/ + apps/ + .github/ — G6's
-    # MATERIAL_PATH_PREFIXES) must also touch `docs/plans/NNN-*.md`, the
-    # Shipment Manifest surface. Otherwise the merged title pollutes the
-    # plan-execution manifest-freshness gate's title-search recovery — the
+    # MATERIAL_PATH_PREFIXES) must DECLARE lane-1 shipment for that plan —
+    # a plan-scoped branch (feat|fix/plan-NNN-*) or a docs/plans/NNN-*.md
+    # edit in the same diff. The Shipment Manifest entry cannot be required
+    # in-PR (its sha: field is this PR's own squash SHA; Phase E lands it
+    # via the post-merge housekeeping PR). Otherwise the merged title
+    # pollutes the manifest-freshness gate's title-search recovery — the
     # one remaining way to re-create shipment drift. Docs-only diffs pass
-    # (G6's own narrowing): docs PRs may legitimately name plans.
+    # (G6's own narrowing): docs PRs may legitimately name plans; Revert-
+    # titled PRs pass with a reconciliation advisory.
     #
     # PR-metadata guard, so it runs only on pull_request events; on push the
     # job is skipped and the aggregator accepts `skipped` for exactly this

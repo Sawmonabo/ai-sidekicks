@@ -5,20 +5,27 @@
 // The plan-execution manifest-freshness gate (G6) recovers shipment drift by
 // searching merged PR titles for `Plan-NNN` and counting any hit that touches
 // material paths. That makes a mislabeled title the one way to re-create
-// drift: a lane-2/3 PR carrying the token pollutes recovery, and a lane-1
-// shipment is only coherent when the same PR lands its Shipment Manifest
-// entry (a `docs/plans/NNN-*.md` edit). This guard enforces exactly that
-// boundary, with G6's own narrowings so the two predicates cannot disagree:
+// drift: a lane-2/3 PR carrying the token pollutes recovery. This guard
+// enforces the boundary with G6's own narrowings so the two predicates
+// cannot disagree:
 //
 //   - token match is case-insensitive (GitHub search is, and
 //     rebuild-shipment-manifest.mjs filters with the `i` flag);
 //   - a docs-only diff passes (G6 counts only PRs touching
 //     MATERIAL_PATH_PREFIXES, so docs PRs may legitimately name plans);
-//   - a material diff with a title token MUST touch every cited plan's
-//     `docs/plans/NNN-*.md` (the manifest-entry surface). Reverts satisfy
-//     this naturally — reverting a shipment also reverts its manifest entry.
+//   - a material diff with a title token must DECLARE lane 1 for every
+//     cited plan: either the branch is plan-scoped for that same NNN
+//     (`feat|fix/plan-NNN-*` per CONTRIBUTING §Topic segment) or the diff
+//     touches `docs/plans/NNN-*.md` (a plan amendment riding with code).
+//     The Shipment Manifest entry itself CANNOT be required in-PR: its
+//     `sha:` field is the squash SHA, so Phase E lands it via a separate
+//     post-merge housekeeping PR (SKILL.md §Phase E, steps 6-8 — Codex P1
+//     on this PR's first review round);
+//   - a `Revert "..."`-titled PR passes with an advisory: the manifest
+//     reconciliation for a reverted shipment is owed to the housekeeping /
+//     rebuild path, not to the revert PR itself.
 //
-// A `feat/plan-NNN-*` branch whose title lacks the token gets a log-only
+// A `feat|fix/plan-NNN-*` branch whose title lacks the token gets a log-only
 // advisory (exit 0): the shipment would be invisible to G6, but branch names
 // are not load-bearing the way merged titles are, so the guard warns rather
 // than blocks.
@@ -40,7 +47,16 @@ export const MATERIAL_PATH_PREFIXES: readonly string[] = ["packages/", "apps/", 
 // `plan-0011` shapes out, matching the 3-digit padded form G6 searches.
 const TITLE_TOKEN_RE = /\bplan-(\d{3})\b/gi;
 
-const LANE1_BRANCH_RE = /^feat\/plan-\d{3}-/;
+// CONTRIBUTING §Topic segment: plan-scoped work embeds `plan-NNN-` in the
+// topic; `feat/` ships new plan tasks and `fix/` ships plan-scoped fixes
+// (`fix/plan-023-renderer-leak` is CONTRIBUTING's own example).
+const LANE1_BRANCH_RE = /^(feat|fix)\/plan-\d{3}-/;
+
+const REVERT_TITLE_RE = /^Revert "/;
+
+function lane1BranchRe(planNumber: string): RegExp {
+  return new RegExp(`^(feat|fix)/plan-${planNumber}-`);
+}
 
 export interface LaneBoundaryInput {
   title: string;
@@ -68,7 +84,7 @@ export function checkLaneBoundary(input: LaneBoundaryInput): LaneBoundaryResult 
   if (tokens.length === 0) {
     if (LANE1_BRANCH_RE.test(input.branch)) {
       advisories.push(
-        `branch "${input.branch}" is lane-1-shaped (feat/plan-NNN-*) but the PR title ` +
+        `branch "${input.branch}" is lane-1-shaped (feat|fix/plan-NNN-*) but the PR title ` +
           `carries no Plan-NNN token — a lane-1 shipment without the title token is ` +
           `invisible to the manifest-freshness gate (G6). If this PR ships plan-task ` +
           `work, put the token in the title; if not, rename the branch lane.`,
@@ -84,17 +100,38 @@ export function checkLaneBoundary(input: LaneBoundaryInput): LaneBoundaryResult 
     // that names a plan (e.g. a plan-amendment PR) is not a lane violation.
     return { ok: true, failures: [], advisories };
   }
+  if (REVERT_TITLE_RE.test(input.title)) {
+    // A revert of a lane-1 shipment re-carries the shipped title's token but
+    // cannot carry a manifest edit any more than the shipment could — the
+    // reconciliation is owed post-merge (housekeeping or rebuild).
+    advisories.push(
+      `revert PR carries Plan-${tokens.join("/Plan-")} in its title; after merge, ` +
+        `reconcile the plan's Shipment Manifest for the reverted work (post-merge ` +
+        `housekeeping or rebuild-shipment-manifest.mjs).`,
+    );
+    return { ok: true, failures: [], advisories };
+  }
   const failures: string[] = [];
   for (const planNumber of tokens) {
     const planFileRe = new RegExp(`^docs/plans/${planNumber}-[^/]+\\.md$`);
-    if (!input.changedFiles.some((file) => planFileRe.test(file))) {
+    // Lane 1 is declared per cited plan: a plan-scoped branch for that NNN
+    // (the normal shipment shape — the Shipment Manifest entry lands in the
+    // post-merge housekeeping PR, never in the shipment PR, because its
+    // `sha:` field is this PR's own squash SHA), or a plan-doc edit riding
+    // in the same PR (amendment-with-code shape).
+    const declaresLane1 =
+      lane1BranchRe(planNumber).test(input.branch) ||
+      input.changedFiles.some((file) => planFileRe.test(file));
+    if (!declaresLane1) {
       failures.push(
         `PR title cites Plan-${planNumber} (case-insensitive) and the diff touches ` +
           `${materialFiles.length} material file(s) (${MATERIAL_PATH_PREFIXES.join(" / ")}), ` +
-          `but docs/plans/${planNumber}-*.md is not in the diff. Lane 1 ships a Shipment ` +
-          `Manifest entry (touch docs/plans/${planNumber}-*.md in the same PR); lane-2/3 ` +
-          `PRs must drop the token from the title. See CONTRIBUTING.md §How Code Lands: ` +
-          `Work Classification.`,
+          `but nothing declares lane-1 shipment for Plan-${planNumber}: the branch ` +
+          `("${input.branch}") is not (feat|fix)/plan-${planNumber}-* and ` +
+          `docs/plans/${planNumber}-*.md is not in the diff. If this ships plan-task ` +
+          `work, use a plan-scoped branch; if it is an enhancement or tooling PR ` +
+          `(lane 2/3), drop the token from the title. See CONTRIBUTING.md ` +
+          `§How Code Lands: Work Classification.`,
       );
     }
   }
