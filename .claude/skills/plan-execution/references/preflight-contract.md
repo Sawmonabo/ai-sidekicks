@@ -14,9 +14,13 @@ The tool MUST be run from the repo root (Gate 5 `pr_merged` and `adr_accepted` r
 
 ## Exit codes
 
-- `0` — all gates pass. `stdout` contains the resolved phase number on a single line (e.g., `4`).
+- `0` — all gates pass. `stdout` contains exactly two lines: the resolved phase number (e.g., `4`), then `size-class: S|M|L` (§Size classes below). Demoted Gate-4 grammar findings, when present, print on `stderr` — non-blocking but never silent.
 - `1` — a gate failed. `stdout` contains a self-contained halt message the orchestrator surfaces verbatim (failure type, file paths, remediation hint). `stderr` empty.
 - `2` — internal error (malformed plan markdown, malformed YAML preconditions, missing tool deps). `stderr` describes the error; `stdout` empty. Orchestrator escalates to user; not a normal halt.
+
+## Size classes
+
+Every phase classifies S / M / L via `classifyPhaseSize(declaredTaskIds, targetPaths)` — inputs are the phase's declared task IDs (Gate 3's `extractDeclaredTaskIds`) and the path-shaped tokens from its `Files:` fields (`extractDeclaredFilePaths`). S: ≤1 task; M: 2-3 tasks whose code paths sit in a single top-level `packages/<name>` / `apps/<name>` root (non-code paths don't count against it); L: everything else. Definition + rationale: `docs/superpowers/specs/2026-07-06-plan-execution-refinement-design.md` §5. The class rides the success return (`sizeClass`) and stdout line 2; SKILL.md § Size-Classed Ceremony maps it to review + housekeeping tiers, and Gate 4 tiers its strictness by it (§Gate 4 aggregation). Substrate-exempt phases classify too (the ceremony map still applies even though Gate 4 is skipped).
 
 ## Gates
 
@@ -116,7 +120,9 @@ The existence checks above are gated by orchestrator-supplied paths (`adrsDir`, 
 
 #### Gate 4 aggregation
 
-`gateTasksBlockCites(phaseSection, planNumber, phaseNumber)` collects (a) the token-presence floor result and (b) the semantic-anchor failures across every cite in the phase. The gate halts when any failure has `severity: error`; `severity: warn` failures surface in the report but do not block. The halt message lists each blocking failure with `[kind] T-N.M (field): message` + `cite: <raw>` + `fix: <remediation>`, and cross-links the authoring contract (`docs/operations/plan-implementation-readiness-audit-runbook.md` §Subagent Prompt Template) and this verifier contract.
+`gateTasksBlockCites(phaseSection, planNumber, phaseNumber, opts)` collects (a) the token-presence floor result and (b) the semantic-anchor failures across every cite in the phase. The gate halts when any failure has `severity: error`; `severity: warn` failures surface in the report but do not block. The halt message lists each blocking failure with `[kind] T-N.M (field): message` + `cite: <raw>` + `fix: <remediation>`, and cross-links the authoring contract (`docs/operations/plan-implementation-readiness-audit-runbook.md` §Subagent Prompt Template) and this verifier contract.
+
+**Size-classed tiering.** When `opts.sizeClass` is `S` or `M`, grammar/format kinds demote from blocking errors to warnings — they ride the ok-path return (`{ ok: true, warnings }`) and, when the gate still halts on other findings, a `Demoted to warnings under size-class <X>:` block lists them so they are never silent. The demote set (`G4_GRAMMAR_DEMOTE_KINDS`) is **fail-closed**: it enumerates exactly what demotes (parser grammar kinds, verifier content-drift kinds, AC line-HINT refinement kinds), so every existence-shaped kind — file-not-found / section-not-found / line-out-of-range / AC-missing and every FUTURE kind — stays a hard error for every class. L phases (and calls with no `sizeClass`) keep the full grammar hard-gate unchanged. The token-presence floor stays hard for all classes.
 
 #### Why error vs warn
 

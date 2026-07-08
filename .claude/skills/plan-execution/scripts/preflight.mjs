@@ -362,6 +362,40 @@ export function extractDeclaredTaskIds(phaseSection) {
   return [...ids].sort();
 }
 
+// --- Size classification (design memo §5, 2026-07-06 refinement) ---
+// S: ≤1 declared task. M: 2-3 tasks whose Files: paths sit in one top-level
+// packages/<name> | apps/<name> root (non-code paths don't count against it).
+// L: everything else. Drives G4 strictness here and the ceremony map in
+// SKILL.md § Size-Classed Ceremony; Codex + CI are invariant across classes.
+export function classifyPhaseSize(declaredTaskIds, targetPaths) {
+  if (declaredTaskIds.length <= 1) return "S";
+  if (declaredTaskIds.length <= 3) {
+    const roots = new Set();
+    for (const p of targetPaths) {
+      const m = /^(packages\/[^/]+|apps\/[^/]+)\//.exec(p);
+      if (m) roots.add(m[1]);
+    }
+    if (roots.size <= 1) return "M";
+  }
+  return "L";
+}
+
+// Files: extractor over both audit-Tasks-block layouts (sub-header bold field
+// + parenthesized inline). Path-shaped tokens only; dedup, order-stable.
+export function extractDeclaredFilePaths(phaseSection) {
+  const paths = [];
+  const fieldRe = /\bFiles:\s*([^\n;)]+)/g;
+  let m;
+  while ((m = fieldRe.exec(phaseSection)) !== null) {
+    for (const token of m[1].split(/[,\s]+/)) {
+      const cleaned = token.replace(/[`*]/g, "").trim();
+      if (/^[\w.@-]+(\/[\w.@-]+)+\.\w+$/.test(cleaned) && !paths.includes(cleaned))
+        paths.push(cleaned);
+    }
+  }
+  return paths;
+}
+
 // Extract §5 (Canonical Build Order) from cross-plan-dependencies.md. Used by
 // the cross_plan_carve_out and audit_status:substrate_exempt resolvers to
 // scope membership checks to §5 only — pre-fix cross_plan_carve_out used a
@@ -1988,6 +2022,35 @@ function verifySectionAnchor(anchor, specLines) {
   return sectionNotFoundFailure(anchor.section);
 }
 
+// Grammar/format kinds demote to warnings for S/M classes. FAIL-CLOSED polarity:
+// this set enumerates what DEMOTES, so any kind not listed — every
+// existence-shaped kind (spec-file-not-found/-ambiguous/-unreadable,
+// section-not-found, line-out-of-range, line-blank, line-range-out-of-bounds,
+// ac-section-missing, ac-index-out-of-range, adr-/arch-doc-/cross-plan-deps
+// lookups, *-unconfigured) and any FUTURE kind — stays a hard error for every
+// class. Verifier failures arrive with kind = the verify reason (wrapped at the
+// verifyFailures.push site in gateTasksBlockCites), so one set covers both the
+// parser and verifier layers. Kind strings verified against this file 2026-07-06.
+const G4_GRAMMAR_DEMOTE_KINDS = new Set([
+  // parser-layer grammar/format kinds
+  "unparseable-cite",
+  "unparseable-spec-subanchor",
+  "compound-range-multi-subject",
+  "namespace-violation",
+  "spec-namespace-malformed",
+  "plan-local-id-as-spec-anchor",
+  "plan-local-id-malformed-trailer",
+  "plan-local-id-unparseable",
+  // verifier-layer content-drift kinds (the target exists; content moved)
+  "subject-mismatch",
+  "subject-mismatch-in-range",
+  // AC line-HINT refinement kinds (the AC bullet itself was found)
+  "ac-line-hint-not-bullet",
+  "ac-line-hint-out-of-range",
+  "ac-line-hint-outside-section",
+  "ac-line-hint-wrong-bullet",
+]);
+
 export function gateTasksBlockCites(phaseSection, planNumber, phaseNumber, opts = {}) {
   const counts = countCites(phaseSection);
   if (!(counts.spec_coverage > 0 && counts.verifies_invariant > 0)) {
@@ -2042,8 +2105,21 @@ export function gateTasksBlockCites(phaseSection, planNumber, phaseNumber, opts 
     }
   }
   const allFailures = [...parseFailures, ...verifyFailures];
-  const blockingFailures = allFailures.filter((f) => (f.severity ?? "error") === "error");
-  if (blockingFailures.length === 0) return { ok: true };
+  // Size-classed tiering (SKILL.md § Size-Classed Ceremony): grammar/format
+  // kinds demote to warnings for S/M phases; existence-shaped kinds and any
+  // kind outside the fail-closed demote set stay hard for every class. The
+  // Gate-4 token-presence floor above stays hard for all classes.
+  const demoteGrammar = opts.sizeClass === "S" || opts.sizeClass === "M";
+  const demoted = [];
+  const blockingFailures = allFailures.filter((f) => {
+    if ((f.severity ?? "error") !== "error") return false;
+    if (demoteGrammar && G4_GRAMMAR_DEMOTE_KINDS.has(f.kind)) {
+      demoted.push(f);
+      return false;
+    }
+    return true;
+  });
+  if (blockingFailures.length === 0) return { ok: true, warnings: demoted };
   const lines = [
     "## Preflight halt: Gate 4 cite-anchor semantic check failed",
     "",
@@ -2057,6 +2133,14 @@ export function gateTasksBlockCites(phaseSection, planNumber, phaseNumber, opts 
     lines.push(`- [${f.kind}] ${where}: ${f.message}`);
     lines.push(`  cite: ${f.raw}`);
     if (f.remediation) lines.push(`  fix:  ${f.remediation}`);
+  }
+  if (demoted.length > 0) {
+    lines.push("");
+    lines.push(`Demoted to warnings under size-class ${opts.sizeClass}:`);
+    for (const f of demoted) {
+      const where = f.taskId ? `${f.taskId} (${f.field})` : f.field;
+      lines.push(`- [${f.kind}] ${where}: ${f.message}`);
+    }
   }
   lines.push("");
   lines.push("Authoring contract: docs/operations/plan-implementation-readiness-audit-runbook.md");
@@ -2430,6 +2514,9 @@ function _checkPhase(planSource, planNumber, phase, planFile, opts) {
   // phases also use this to admit themselves before Gate 4 is skipped.
   const gPhase = gatePhaseAuditCheckbox(planSource, sec, planFile, phase.number);
   if (!gPhase.ok) return { eligible: false, reason: "audit", halt: gPhase.halt };
+  // Size class is computed for every phase — including substrate-exempt ones,
+  // which skip Gate 4 but still drive the SKILL.md ceremony map off the class.
+  const sizeClass = classifyPhaseSize(extractDeclaredTaskIds(sec), extractDeclaredFilePaths(sec));
   // Gate 4 (Tasks-block G4 cites) is skipped for phases declaring
   // audit_status: substrate_exempt. By criterion (3) those phases ship pure
   // pre-behavior plumbing with zero Spec AC coverage — Gate 4's `Spec
@@ -2441,8 +2528,9 @@ function _checkPhase(planSource, planNumber, phase, planFile, opts) {
   const isSubstrateExempt = entries.some(
     (e) => e.type === "audit_status" && e.status === "substrate_exempt",
   );
+  let g4 = null;
   if (!isSubstrateExempt) {
-    const g4 = gateTasksBlockCites(sec, planNumber, phase.number, opts);
+    g4 = gateTasksBlockCites(sec, planNumber, phase.number, { ...opts, sizeClass });
     if (!g4.ok) return { eligible: false, reason: "audit", halt: g4.halt };
   }
   const g5 = gatePreconditions(sec, planFile, phase.number, {
@@ -2451,7 +2539,9 @@ function _checkPhase(planSource, planNumber, phase, planFile, opts) {
     phaseNumber: phase.number,
   });
   if (!g5.ok) return { eligible: false, reason: "preconditions", halt: g5.halt };
-  return { eligible: true };
+  // Demoted G4 findings must ride the PASS path (delta D-14) — otherwise S/M
+  // grammar rot accumulates invisibly behind the demotion.
+  return { eligible: true, sizeClass, warnings: g4?.warnings ?? [] };
 }
 
 export function runPreflight(
@@ -2498,13 +2588,14 @@ export function runPreflight(
       return { exit: 1, stdout: `## Preflight halt: phase ${phaseArg} not found in ${planFile}` };
     const r = _checkPhase(planSource, planNumber, target, planFile, opts);
     if (!r.eligible) return { exit: 1, stdout: r.halt };
-    return { exit: 0, stdout: String(target.number) };
+    return { exit: 0, stdout: String(target.number), sizeClass: r.sizeClass, warnings: r.warnings };
   }
 
   const skipped = [];
   for (const p of phases) {
     const r = _checkPhase(planSource, planNumber, p, planFile, opts);
-    if (r.eligible) return { exit: 0, stdout: String(p.number) };
+    if (r.eligible)
+      return { exit: 0, stdout: String(p.number), sizeClass: r.sizeClass, warnings: r.warnings };
     // `fully_shipped` is the only legitimate silent-skip — every other Gate 3
     // failure must surface, including the round-7/8 strict halts. Pre-round-9
     // _checkPhase collapsed all `gatePhaseUnshipped` failures to `reason:
@@ -2573,6 +2664,22 @@ async function main() {
   }
   const result = runPreflight(planFile, phaseArg, { checkFreshness: !allowStaleManifest });
   if (result.stdout) process.stdout.write(result.stdout + "\n");
+  // Line 2 of the success contract (delta D-5): the phase's size class drives
+  // the ceremony map in SKILL.md § Size-Classed Ceremony.
+  if (result.exit === 0 && result.sizeClass)
+    process.stdout.write(`size-class: ${result.sizeClass}\n`);
+  // Demoted grammar findings are non-blocking but NEVER silent — stderr keeps the
+  // stdout contract at exactly two lines while the author still sees the drift.
+  if (result.exit === 0 && result.warnings?.length) {
+    process.stderr.write(
+      `preflight: size-class ${result.sizeClass} demoted ${result.warnings.length} grammar finding(s) to warnings:\n`,
+    );
+    for (const w of result.warnings) {
+      process.stderr.write(
+        `  - [${w.kind}] ${[w.taskId, w.field, w.message].filter(Boolean).join(" ")}\n`,
+      );
+    }
+  }
   if (result.stderr) process.stderr.write(result.stderr + "\n");
   process.exit(result.exit);
 }

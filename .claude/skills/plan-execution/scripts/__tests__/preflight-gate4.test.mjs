@@ -7,6 +7,8 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { mkdtempSync, mkdirSync, symlinkSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { spawnSync } from "node:child_process";
+import process from "node:process";
 import {
   normalizeCitePayload,
   extractIdentifierTokens,
@@ -15,6 +17,8 @@ import {
   verifyAnchorAgainstSpec,
   gateTasksBlockCites,
   runPreflight,
+  classifyPhaseSize,
+  extractDeclaredFilePaths,
 } from "../preflight.mjs";
 
 const FIXTURE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "preflight-gate4-fixtures");
@@ -809,3 +813,182 @@ test("PASS 50: mid-list range verifies end-to-end against the spec fixture", () 
   assert.equal(anchors[1].type, "line-range");
   assert.equal(anchors[1].subject, "RateLimitResponse");
 });
+
+// ============================================================
+// Size-classed ceremony (PR-5, design memo §5): classifyPhaseSize /
+// extractDeclaredFilePaths units, G4 tiering by size class, preflight
+// sizeClass surfacing, CLI two-line stdout contract, and the auto-walk
+// selection-semantics regression pins (PM-31b/PM-31c).
+// ============================================================
+
+const SIZE_CLASS_PREFLIGHT_CLI = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "preflight.mjs",
+);
+const PASSING_S_PLAN = resolve(FIXTURE_DIR, "200-passing-s-plan.md");
+const GRAMMAR_S_PLAN = resolve(FIXTURE_DIR, "201-grammar-defect-s-plan.md");
+const GRAMMAR_L_PLAN = resolve(FIXTURE_DIR, "202-grammar-defect-l-plan.md");
+const MISSING_SPEC_S_PLAN = resolve(FIXTURE_DIR, "203-missing-spec-s-plan.md");
+
+test("classifyPhaseSize: 1 task is S regardless of paths", () => {
+  assert.equal(classifyPhaseSize(["T1"], ["packages/a/src/x.ts"]), "S");
+});
+
+test("classifyPhaseSize: 2-3 tasks in a single package root is M; non-code paths don't count", () => {
+  assert.equal(
+    classifyPhaseSize(
+      ["T1", "T2"],
+      ["packages/a/src/x.ts", "packages/a/src/y.ts", "docs/plans/001-x.md"],
+    ),
+    "M",
+  );
+});
+
+test("classifyPhaseSize: two package roots is L", () => {
+  assert.equal(
+    classifyPhaseSize(["T1", "T2"], ["packages/a/src/x.ts", "packages/b/src/y.ts"]),
+    "L",
+  );
+});
+
+test("classifyPhaseSize: >3 tasks is L even in one root", () => {
+  assert.equal(classifyPhaseSize(["T1", "T2", "T3", "T4"], ["packages/a/src/x.ts"]), "L");
+});
+
+test("classifyPhaseSize: degenerate 0-task phase classifies S", () => {
+  assert.equal(classifyPhaseSize([], []), "S");
+});
+
+test("extractDeclaredFilePaths covers the sub-header bold-field layout and strips markup", () => {
+  assert.deepEqual(extractDeclaredFilePaths("Files: `packages/a/src/x.ts`, docs/plans/001-x.md"), [
+    "packages/a/src/x.ts",
+    "docs/plans/001-x.md",
+  ]);
+});
+
+test("extractDeclaredFilePaths covers the parenthesized inline layout, dedups, stays order-stable", () => {
+  const section = [
+    "- **T-1** (Files: `packages/a/src/x.ts` `packages/a/src/y.ts`; Verifies invariant: I-1) — desc",
+    "- **T-2** — other",
+    "  - **Files:** `packages/a/src/x.ts`",
+  ].join("\n");
+  assert.deepEqual(extractDeclaredFilePaths(section), [
+    "packages/a/src/x.ts",
+    "packages/a/src/y.ts",
+  ]);
+});
+
+const grammarDefectSection = [
+  "#### Tasks",
+  "",
+  "- **T-1** — Task with an unparseable cite form",
+  "  - **Spec coverage:** xyz random junk",
+  "  - **Verifies invariant:** I-1",
+  "",
+].join("\n");
+
+const missingSpecSection = [
+  "#### Tasks",
+  "",
+  "- **T-1** — Task citing a spec absent from the corpus",
+  "  - **Spec coverage:** Spec-100 line 3 (MissingFixtureIdentifier)",
+  "  - **Verifies invariant:** I-1",
+  "",
+].join("\n");
+
+test("G4 tiering: grammar-shaped kind demotes to warnings for size-class S", () => {
+  const r = gateTasksBlockCites(grammarDefectSection, "016", 1, { sizeClass: "S" });
+  assert.equal(r.ok, true, `expected demote-pass; got halt:\n${r.halt}`);
+  assert.ok(r.warnings.length >= 1, "demoted findings must ride the warnings channel");
+  assert.equal(r.warnings[0].kind, "unparseable-cite");
+});
+
+test("G4 tiering: the SAME grammar defect stays a hard halt for size-class L", () => {
+  assert.equal(gateTasksBlockCites(grammarDefectSection, "016", 1, { sizeClass: "L" }).ok, false);
+});
+
+test("G4 tiering: the grammar defect stays a hard halt when no sizeClass is passed", () => {
+  assert.equal(gateTasksBlockCites(grammarDefectSection, "016", 1, {}).ok, false);
+});
+
+test("G4 tiering: existence-shaped kind halts for EVERY class (fail-closed set polarity)", () => {
+  const r = gateTasksBlockCites(missingSpecSection, "016", 1, { sizeClass: "S" });
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /spec-file-not-found|spec-file/);
+});
+
+test("G4 tiering: a halting S-class run still lists demoted grammar findings (never silent)", () => {
+  const mixedSection = [
+    "#### Tasks",
+    "",
+    "- **T-1** — Task with one grammar defect and one existence defect",
+    "  - **Spec coverage:** xyz random junk",
+    "  - **Spec coverage:** Spec-100 line 3 (MissingFixtureIdentifier)",
+    "  - **Verifies invariant:** I-1",
+    "",
+  ].join("\n");
+  const r = gateTasksBlockCites(mixedSection, "016", 1, { sizeClass: "S" });
+  assert.equal(r.ok, false, "existence defect must still halt S");
+  assert.match(r.halt, /Demoted to warnings under size-class S/);
+  assert.match(r.halt, /unparseable-cite/);
+});
+
+test("runPreflight surfaces sizeClass on the explicit-phase success path", () => {
+  const r = runPreflight(PASSING_S_PLAN, 1, {});
+  assert.equal(r.exit, 0, `expected pass; got:\n${r.stdout}`);
+  assert.equal(r.stdout, "1");
+  assert.equal(r.sizeClass, "S");
+});
+
+test("CLI prints size-class as stdout line 2 (line 1 UNCHANGED; spawn — the bin guard requires it)", () => {
+  const cli = spawnSync(
+    process.execPath,
+    [SIZE_CLASS_PREFLIGHT_CLI, PASSING_S_PLAN, "1", "--allow-stale-manifest"],
+    { encoding: "utf8" },
+  );
+  assert.equal(cli.status, 0, `status=${cli.status} stdout=${cli.stdout} stderr=${cli.stderr}`);
+  assert.equal(cli.stdout, "1\nsize-class: S\n");
+});
+
+// AUTO-WALK selection semantics pinned (PM-31b — next-task-detection integrity):
+// (a) S-class grammar defect: walk SELECTS the phase (was: strict-halt) and the
+//     demoted findings surface on the WARNINGS channel, never silently dropped.
+test("auto-walk (a): S-class grammar defect selects the phase with warnings riding the return", () => {
+  const walkS = runPreflight(GRAMMAR_S_PLAN, undefined, {});
+  assert.equal(walkS.exit, 0, `expected select; got halt:\n${walkS.stdout}`);
+  assert.equal(walkS.stdout, "1");
+  assert.ok(walkS.warnings.length >= 1, "demoted findings ride the return");
+});
+
+test("auto-walk (a) CLI: two-line stdout contract + demoted warnings on STDERR", () => {
+  const cliWalk = spawnSync(
+    process.execPath,
+    [SIZE_CLASS_PREFLIGHT_CLI, GRAMMAR_S_PLAN, "--allow-stale-manifest"],
+    { encoding: "utf8" },
+  );
+  assert.equal(
+    cliWalk.status,
+    0,
+    `status=${cliWalk.status} stdout=${cliWalk.stdout} stderr=${cliWalk.stderr}`,
+  );
+  assert.equal(cliWalk.stdout, "1\nsize-class: S\n");
+  assert.match(cliWalk.stderr, /demoted.*grammar/i);
+});
+
+// (b) same Tasks-block defect in an L-shaped phase (4 tasks): strict-halt preserved verbatim.
+test("auto-walk (b): the SAME grammar defect in an L-shaped phase strict-halts", () => {
+  const walkL = runPreflight(GRAMMAR_L_PLAN, undefined, {});
+  assert.equal(walkL.exit, 1);
+  assert.match(walkL.stdout, /Gate 4 cite-anchor semantic check failed/);
+});
+
+// (c) existence-shaped defect (nonexistent spec): halts for EVERY class.
+test("auto-walk (c): existence-shaped defect halts even for an S-class phase", () => {
+  assert.equal(runPreflight(MISSING_SPEC_S_PLAN, undefined, {}).exit, 1);
+});
+
+// (d) eligibility invariance (PM-31c): every pre-existing fixture's runPreflight
+//     outcome (exit + stdout line 1 + halt text) is byte-identical to pre-change —
+//     asserted by the untouched pre-existing suite above; only the new sizeClass
+//     field / stdout line 2 / warnings channel may differ.
