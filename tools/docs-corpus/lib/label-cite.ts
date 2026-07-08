@@ -158,10 +158,13 @@ const DOCS_PATH_CITE_RE =
 // denied — the pin rots identically whichever spelling carries it (Codex,
 // PR #195). `\blines?\b` keeps prose like "outlines 3 tiers" out; the
 // `[-\s]+` separator also catches the adjectival hyphen spelling
-// (`Spec-003 line-48 payload`), and the trailing group consumes the full
-// range / comma list so rawTarget shows the whole anchor.
+// (`Spec-003 line-48 payload`), the optional `[,;:]` accepts punctuation
+// between label and locator (`Spec-003, line 5`), the {0,200} bridge spans
+// real long headings (`Plan-003 §T5.3 — Mixed-version status indicator
+// (below-floor read-only surfacing) line 600`), and the trailing group
+// consumes the full range / comma list so rawTarget shows the whole anchor.
 const LABEL_LINE_WORD_RE =
-  /\b(Spec|Plan|ADR)-(\d{3})(?:\s+§[^\n`]{0,60}?)?`?\s*\(?\s*\blines?[-\s]+\d+(?:\s*[,-]\s*\d+)*/g;
+  /\b(Spec|Plan|ADR)-(\d{3})(?:\s+§[^\n`]{0,200}?)?`?\s*[,;:]?\s*\(?\s*\blines?[-\s]+\d+(?:\s*[,-]\s*\d+)*/g;
 
 // Pass 6 — `.md` path/basename with a line anchor: bare `session-model.md:61`
 // / `api-payload-contracts.md line 120`, and the line-word tail on ANY path
@@ -170,10 +173,11 @@ const LABEL_LINE_WORD_RE =
 // overlap. The optional closing backtick mirrors pass 5: a line-word tail
 // after a durable path cite (`` `docs/….md §Heading` line 61 ``) is still a
 // pin and still denied. The lookbehind keeps mid-path fragments from
-// matching twice. The `[-\s]+` separator and trailing range/list group
-// mirror pass 5 (hyphen spellings; full-anchor rawTarget).
+// matching twice. The `[-\s]+` separator, `[,;:]` punctuation, {0,200}
+// bridge, and trailing range/list group mirror pass 5 (hyphen spellings;
+// comma variants; long headings; full-anchor rawTarget).
 const MD_LINE_ANCHOR_RE =
-  /(?<![\w/.-])([A-Za-z0-9._/-]+\.md)(:\d+|(?:\s+§[^\n`]{0,80}?)?`?\s*\(?\s*\blines?[-\s]+\d+(?:\s*[,-]\s*\d+)*)/g;
+  /(?<![\w/.-])([A-Za-z0-9._/-]+\.md)(:\d+|(?:\s+§[^\n`]{0,200}?)?`?\s*[,;:]?\s*\(?\s*\blines?[-\s]+\d+(?:\s*[,-]\s*\d+)*)/g;
 
 // Memoize the directory listing per absolute governance tree so a file with N
 // label cites does at most one readdir per tree (3 trees total) instead of one
@@ -252,6 +256,70 @@ function pushExpandedCites(
   }
 }
 
+// Lexical comment extractor for one line of a CODE citer. Returns the line's
+// comment text (concatenated `//` tail + `/* … */` regions + whole line when
+// inside a carried block comment or on an SQL `--` comment line), or null
+// when the line has no comment region. String literals suppress comment
+// openers (`"foo// Spec-003 line 5"` is data, not a comment); string state is
+// line-local by design — see the pass 5-6 call site for the trade-off.
+function extractCommentText(
+  line: string,
+  insideBlockComment: boolean,
+): { text: string | null; insideBlockAfter: boolean } {
+  if (line.trimStart().startsWith("--")) {
+    // SQL comment line (migration template interiors) — whole line scans.
+    return { text: line, insideBlockAfter: insideBlockComment };
+  }
+  let collected = "";
+  let sawComment = false;
+  let inBlock = insideBlockComment;
+  let quote: string | null = null;
+  let i = 0;
+  while (i < line.length) {
+    if (inBlock) {
+      sawComment = true;
+      const end = line.indexOf("*/", i);
+      if (end === -1) {
+        collected += line.slice(i);
+        i = line.length;
+      } else {
+        collected += line.slice(i, end);
+        inBlock = false;
+        i = end + 2;
+      }
+      continue;
+    }
+    const ch = line[i];
+    if (quote !== null) {
+      if (ch === "\\") {
+        i += 2;
+        continue;
+      }
+      if (ch === quote) quote = null;
+      i += 1;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") {
+      quote = ch;
+      i += 1;
+      continue;
+    }
+    if (ch === "/" && line[i + 1] === "/") {
+      collected += line.slice(i + 2);
+      sawComment = true;
+      i = line.length;
+      continue;
+    }
+    if (ch === "/" && line[i + 1] === "*") {
+      inBlock = true;
+      i += 2;
+      continue;
+    }
+    i += 1;
+  }
+  return { text: sawComment ? collected : null, insideBlockAfter: inBlock };
+}
+
 function extractLabelCitesFrom(
   citingFile: string,
   repoRoot: string,
@@ -273,6 +341,8 @@ function extractLabelCitesFrom(
   // template literal would flip bogus fence state and uncover real label
   // cites.
   const trackFences = citingFile.endsWith(".md");
+  // Cross-line `/* … */` state for the code-citer comment lexer (passes 5-6).
+  let insideBlockComment = false;
   let insideFence = false;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -342,26 +412,21 @@ function extractLabelCitesFrom(
     // Passes 5-6 — line-word / bare-basename deny, CODE citers only, and only
     // within COMMENT text. Cites live in comments; scanning whole code lines
     // turned fixture / diagnostic strings (`expect(format("README.md:12"))`)
-    // into required-gate rejections (Codex, PR #195). Comment context = a
-    // line-comment / block-comment / SQL-comment line, or the tail after an
-    // inline `//` (skipping the `://` of URLs). Cites inside non-comment
-    // string literals stay audit-layer.
+    // into required-gate rejections (Codex, PR #195). Comment text is
+    // extracted lexically per line — `//` and `/*` openers are ignored inside
+    // quoted strings, and `/* … */` block state carries across lines so
+    // unstarred interior lines still scan (Codex, PR #195 round 3). Two
+    // documented bounds: string state is line-local, so the interior lines of
+    // a multi-line template literal scan as code — deliberate, because
+    // migration SQL templates carry `--`-prefixed comment lines the ratchet
+    // must keep covering (those are also matched explicitly); and cites in
+    // single-line non-comment strings stay audit-layer.
     if (!trackFences) {
-      const trimmedLine = line.trimStart();
-      const isCommentLine =
-        trimmedLine.startsWith("//") ||
-        trimmedLine.startsWith("*") ||
-        trimmedLine.startsWith("/*") ||
-        trimmedLine.startsWith("--");
-      const inlineCommentMatch = isCommentLine ? null : /(?<!:)\/\//.exec(line);
-      const scanText = isCommentLine
-        ? line
-        : inlineCommentMatch
-          ? line.slice(inlineCommentMatch.index)
-          : null;
-      if (scanText === null) continue;
+      const scanText = extractCommentText(line, insideBlockComment);
+      insideBlockComment = scanText.insideBlockAfter;
+      if (scanText.text === null) continue;
       LABEL_LINE_WORD_RE.lastIndex = 0;
-      while ((m = LABEL_LINE_WORD_RE.exec(scanText)) !== null) {
+      while ((m = LABEL_LINE_WORD_RE.exec(scanText.text)) !== null) {
         cites.push({
           file: citingFile,
           line: i + 1,
@@ -372,9 +437,12 @@ function extractLabelCitesFrom(
         });
       }
       MD_LINE_ANCHOR_RE.lastIndex = 0;
-      while ((m = MD_LINE_ANCHOR_RE.exec(scanText)) !== null) {
+      while ((m = MD_LINE_ANCHOR_RE.exec(scanText.text)) !== null) {
         const mdPath = m[1];
-        const colonForm = m[2].startsWith(":");
+        // Colon-form means `:NNN` directly — `.md: line 5` (colon + line-word,
+        // reachable via the [,;:] separator) is a line-word spelling and must
+        // stay in pass 6, not be misrouted to pass 2 and vanish.
+        const colonForm = /^:\d/.test(m[2]);
         // Scope: bare basenames and repo-root docs/ paths only. Path-y
         // non-corpus refs (node_modules/x/docs/y.md:3, src/docs/y.md:5) stay
         // audit-layer — this is a required gate and those are the FP guards

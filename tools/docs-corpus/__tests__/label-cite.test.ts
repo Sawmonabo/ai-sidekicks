@@ -959,6 +959,70 @@ describe("line-word + bare-basename deny in code citers (CAT-07 ratchet)", () =>
     }
   });
 
+  it("DENIES the comma-separated spelling (Spec-003, line 5)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+      "packages/p/src/n.ts": "// Per Spec-003, line 5 the attach handshake is versioned.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/p/src/n.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("line-anchored-cite-in-code");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("DENIES a line pin after a LONG § heading (bridge spans real heading lengths)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/plans/003-runtime-node-attach.md": FIVE_LINE_DOC,
+      "packages/p/src/o.ts":
+        "// Plan-003 §T5.3 — Mixed-version status indicator (below-floor read-only surfacing) line 600 moved.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/p/src/o.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("line-anchored-cite-in-code");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("DENIES a pin on an unstarred block-comment interior line (cross-line /* state)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+      "packages/p/src/q.ts": "/*\n  Spec-003 line 5 governs the handshake.\n*/\nconst x = 1;\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/p/src/q.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("line-anchored-cite-in-code");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("does NOT treat // inside a quoted string as a comment opener", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+      "packages/p/src/r.ts": 'const fixture = "foo// Spec-003 line 5";\n',
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/p/src/r.ts")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
   it("does NOT deny .md:NN inside non-comment code strings (fixture/diagnostic FP guard)", () => {
     const { root, cleanup } = setupRepo({
       "packages/p/src/m.ts":
