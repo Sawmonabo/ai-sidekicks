@@ -37,11 +37,12 @@ Ship the V1 **schema and write-path** of the Spec-022 crypto-shredding model so 
 
 ## Preconditions
 
+- [x] **Plan-readiness audit complete per [runbook](../operations/plan-implementation-readiness-audit-runbook.md)** — Tier-5 audit (2026-05-30, PR #129): D-022-1..8 ratified in [§Ratified Design Decisions](#ratified-design-decisions-tier-5-audit-2026-05-30) and folded into the plan body; audit-derived five-phase `#### Tasks` structure (18 Tasks); companion Spec-022 amendments landed in the same audit PR. (Row recorded 2026-07-08: PR #129 predates the normalized Gate-2 checkbox-row convention — Tier-6 C-6-08, 2026-06-12 — and the omission surfaced when the phase-heading normalization made the plan visible to preflight's Gate 2.)
 - [x] Spec-022 is approved (this plan is paired with it)
 - [x] ADR-015 V1 Feature Scope Definition is accepted (places GDPR schema readiness as V1 surface requirement)
 - [x] `@noble/hashes` and `@noble/ciphers` crypto-library decision ([ADR-010 §Decision point 3](../decisions/010-paseto-webauthn-mls-auth.md#decision) / [security-architecture.md §Relay Authentication And Encryption](../architecture/security-architecture.md#relay-authentication-and-encryption-task-53) — already fixed to `@noble` v2.x for V1; `@noble/hashes` v2.x supplies Argon2id for the KEK, so the KEK needs no second crypto dependency — and the random per-participant content DEK needs no KDF at all)
 - [x] [ADR-021: CLI Identity Key Storage Custody](../decisions/021-cli-identity-key-storage-custody.md) is accepted — defines the version-byte XChaCha20-Poly1305 envelope and Argon2id-KEK custody model this plan's daemon `daemon-master.enc` extends
-- [ ] Plan-001 is authored and accepts the forward-declaration (actioned in Session 4 per BL-054)
+- [x] Plan-001 is authored and accepts the forward-declaration (actioned in Session 4 per BL-054; Plan-001 is `completed` — all five phases shipped — and its §Cross-Plan Forward-Declared Schema carries `participant_keys` per BL-089, so the box was stale-unticked drift)
 - [x] PII classification is a call-site decision owned by the emitter, not a Spec-006 registry attribute. Spec-006 does not carry a `pii:true|false` per-event-type flag — the splitter consumes the emitter's explicit split of `{payload, piiPayload}` on each write. See §Scope for rationale.
 
 ## Target Areas
@@ -246,9 +247,9 @@ The Open Decisions surfaced at the Tier-5 user-review pause are ratified below a
 
 ## Implementation Phase Sequence
 
-Audit-derived task decomposition. The 11 Implementation Steps regroup into five buildable clusters (custody, per-participant crypto, write-path, stub surface, cross-plan fan-out); **18 Tasks** total. Each Task row carries the fields the plan-execution plan-analyst consumes verbatim: **Files**, **Spec coverage**, **Verifies invariant**, **Consumes** (upstream symbols/rows + provider); the former **BLOCKED-ON** / **CONFIRM-AT-PAUSE** markers were all resolved at the Tier-5 pause (see [§Ratified Design Decisions](#ratified-design-decisions-tier-5-audit-2026-05-30)). Sequencing maps to §Rollout Order. Header-level ADR promotion and the Done-Checklist rewrite are corpus edits already applied, not code Tasks.
+Audit-derived task decomposition. The 11 Implementation Steps regroup into five buildable phases (custody, per-participant crypto, write-path, stub surface, cross-plan fan-out); **18 Tasks** total. Each Task row carries the fields the plan-execution plan-analyst consumes verbatim: **Files**, **Spec coverage**, **Verifies invariant**, **Consumes** (upstream symbols/rows + provider); the former **BLOCKED-ON** / **CONFIRM-AT-PAUSE** markers were all resolved at the Tier-5 pause (see [§Ratified Design Decisions](#ratified-design-decisions-tier-5-audit-2026-05-30)). Sequencing maps to §Rollout Order. Header-level ADR promotion and the Done-Checklist rewrite are corpus edits already applied, not code Tasks.
 
-### Cluster 1 — Daemon master-key custody (Steps 1–2)
+### Phase 1 — Daemon master-key custody (Steps 1–2)
 
 #### Tasks
 
@@ -279,7 +280,7 @@ Audit-derived task decomposition. The 11 Implementation Steps regroup into five 
   - Verifies invariant: I-022-5, I-022-6
   - Consumes: `sodium-native` (T22.1.1).
 
-### Cluster 2 — Per-participant crypto primitives (Steps 3–6)
+### Phase 2 — Per-participant crypto primitives (Steps 3–6)
 
 #### Tasks
 
@@ -304,7 +305,7 @@ Audit-derived task decomposition. The 11 Implementation Steps regroup into five 
   - Verifies invariant: I-022-8, I-022-12
   - Consumes: `@noble/ciphers` AES-256-GCM (T22.1.1); Plan-006's `PiiEncryptor` interface + branded `PiiPayloadCiphertext` (CP-022-1 / CP-006-1, shipped via NS-16).
 
-### Cluster 3 — Write-path integration (Steps 7–8)
+### Phase 3 — Write-path integration (Steps 7–8)
 
 #### Tasks
 
@@ -319,7 +320,7 @@ Audit-derived task decomposition. The 11 Implementation Steps regroup into five 
   - Verifies invariant: I-022-20
   - Consumes: Plan-001's shipped `0001-initial.ts` (verify it already carries `pii_payload` + the `participant_keys` table per CP-022-5).
 
-### Cluster 4 — GDPR stub surface (Steps 9–10)
+### Phase 4 — GDPR stub surface (Steps 9–10)
 
 #### Tasks
 
@@ -351,7 +352,7 @@ Audit-derived task decomposition. The 11 Implementation Steps regroup into five 
   - Verifies invariant: I-022-18
   - Consumes: the `participant_keys` schema (T22.2.3 / T22.3.2).
 
-### Cluster 5 — Cross-plan fan-out: Path-2 FK-severance migration + alignment checkpoint (Step 11)
+### Phase 5 — Cross-plan fan-out: Path-2 FK-severance migration + alignment checkpoint (Step 11)
 
 #### Tasks
 
