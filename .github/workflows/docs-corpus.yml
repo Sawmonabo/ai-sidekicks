@@ -39,6 +39,9 @@ name: docs-corpus
 on:
   pull_request:
     branches: [develop, main]
+    # `edited` is load-bearing for the lane-boundary job: fixing a PR title
+    # must re-run the guard, and the default type set omits title edits.
+    types: [opened, edited, synchronize, reopened]
   push:
     branches: [develop, main]
 
@@ -230,6 +233,51 @@ jobs:
       - name: Unit tests for hook implementations
         run: pnpm exec vitest run --root tools/docs-corpus
 
+  lane-boundary:
+    name: lane boundary — plan-title token (required)
+    # Enforces the lane-1 title-token boundary from CONTRIBUTING.md §How Code
+    # Lands: a PR whose title cites `Plan-NNN` (case-insensitive) while its
+    # diff touches material paths (packages/ + apps/ + .github/ — G6's
+    # MATERIAL_PATH_PREFIXES) must also touch `docs/plans/NNN-*.md`, the
+    # Shipment Manifest surface. Otherwise the merged title pollutes the
+    # plan-execution manifest-freshness gate's title-search recovery — the
+    # one remaining way to re-create shipment drift. Docs-only diffs pass
+    # (G6's own narrowing): docs PRs may legitimately name plans.
+    #
+    # PR-metadata guard, so it runs only on pull_request events; on push the
+    # job is skipped and the aggregator accepts `skipped` for exactly this
+    # job (every commit on develop/main arrived through a PR that ran it).
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22.12"
+
+      - name: Enforce lane-1 title-token boundary
+        # Title and branch pass through env — never inline-templated into
+        # the script body, since PR titles are attacker-controlled text.
+        # The changed-file list streams from the paginated files API so a
+        # large PR neither truncates the classification (anti-silent-
+        # truncation discipline) nor overflows argv.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" \
+            --paginate --jq '.[].filename' \
+            | node --experimental-strip-types tools/docs-corpus/bin/lane-boundary-check.ts
+
   docs-corpus-gate:
     name: docs-corpus-gate
     runs-on: ubuntu-latest
@@ -240,7 +288,7 @@ jobs:
     # third-party drift signal, not a PR-introduced regression. See
     # the workflow header comment for the full advisory-vs-required
     # rationale.
-    needs: [lychee-inbound, custom-checks]
+    needs: [lychee-inbound, custom-checks, lane-boundary]
     if: always()
     steps:
       - name: Aggregate required-checks status
@@ -252,6 +300,13 @@ jobs:
           fi
           if [[ "${{ needs.custom-checks.result }}" != "success" ]]; then
             echo "docs-corpus-gate: required job 'custom-checks' did not succeed (result=${{ needs.custom-checks.result }})"
+            fail=1
+          fi
+          # `skipped` is success-equivalent for lane-boundary ONLY: the job
+          # is if-gated to pull_request events, and push builds on develop/
+          # main re-verify commits that already passed the guard in their PR.
+          if [[ "${{ needs.lane-boundary.result }}" != "success" && "${{ needs.lane-boundary.result }}" != "skipped" ]]; then
+            echo "docs-corpus-gate: required job 'lane-boundary' did not succeed (result=${{ needs.lane-boundary.result }})"
             fail=1
           fi
           if [[ $fail -ne 0 ]]; then
