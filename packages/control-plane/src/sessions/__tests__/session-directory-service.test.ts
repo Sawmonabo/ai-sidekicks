@@ -1296,7 +1296,7 @@ describe("SessionDirectoryService — P5 (AC8 participant-limit enforcement)", (
     expect(Number.parseInt(probe.rows[0]?.count ?? "0", 10)).toBe(10);
   });
 
-  it("honors per-session config.participantLimit override (Spec-001 §Limit Enforcement)", async () => {
+  it("honors per-session config.participantLimit override (`Spec-001 §Limit Enforcement`)", async () => {
     // Spec-001 §Limit Enforcement: "Limits are configurable per session
     // via session config. The values above are defaults." A session
     // created with `config: { participantLimit: 3 }` must trip the cap

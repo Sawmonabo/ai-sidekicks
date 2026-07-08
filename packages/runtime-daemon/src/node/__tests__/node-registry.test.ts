@@ -261,7 +261,7 @@ describe("NodeRegistry — I-003-3 (registration does not mutate session_members
 // ----------------------------------------------------------------------------
 
 describe("NodeRegistry — emits runtime_node.registered (Spec-006 §Runtime Node Lifecycle (`runtime_node_lifecycle`))", () => {
-  it("lands exactly one runtime_node.registered event with the Spec-006 §Runtime Node Lifecycle (`runtime_node_lifecycle`) payload shape and exposes NO capability (Spec-003 §Pitfalls To Avoid)", () => {
+  it("lands exactly one runtime_node.registered event with the Spec-006 §Runtime Node Lifecycle (`runtime_node_lifecycle`) payload shape and exposes NO capability (`Spec-003 §Pitfalls To Avoid`)", () => {
     const registry: NodeRegistry = makeRegistry();
     registry.register({
       nodeId: NODE_ID,

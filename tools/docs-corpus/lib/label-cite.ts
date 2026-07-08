@@ -152,18 +152,24 @@ const DOCS_PATH_CITE_RE =
 // Pass 5 — label line-word: `Spec-021 line 128`, `Plan-022 lines 81, 107-113`,
 // `ADR-014 (line 60)`, and the §-section+line hybrid `Spec-027 §Bind-Address
 // line 94`. The lazy `[^\n`]{0,60}?` bridge only matches when a `line <N>`
-// tail actually follows, so durable backticked §-forms never fire; `\blines?\b`
-// keeps prose like "outlines 3 tiers" out.
+// tail actually follows, so durable backticked §-forms never fire on their
+// own; the optional closing backtick before the tail means a locator appended
+// AFTER a durable cite (`` `Spec-021 §Bind Address` line 2 ``) is still
+// denied — the pin rots identically whichever spelling carries it (Codex,
+// PR #195). `\blines?\b` keeps prose like "outlines 3 tiers" out.
 const LABEL_LINE_WORD_RE =
-  /\b(Spec|Plan|ADR)-(\d{3})(?:\s+§[^\n`]{0,60}?)?\s*\(?\s*\blines?\s+\d+/g;
+  /\b(Spec|Plan|ADR)-(\d{3})(?:\s+§[^\n`]{0,60}?)?`?\s*\(?\s*\blines?\s+\d+/g;
 
 // Pass 6 — `.md` path/basename with a line anchor: bare `session-model.md:61`
 // / `api-payload-contracts.md line 120`, and the line-word tail on ANY path
 // shape (`docs/domain/session-model.md line 61`) — the colon form on a
 // docs/-rooted path is pass 2's (deny via raw-line-cite), so pass 6 skips that
-// overlap. The lookbehind keeps mid-path fragments from matching twice.
+// overlap. The optional closing backtick mirrors pass 5: a line-word tail
+// after a durable path cite (`` `docs/….md §Heading` line 61 ``) is still a
+// pin and still denied. The lookbehind keeps mid-path fragments from
+// matching twice.
 const MD_LINE_ANCHOR_RE =
-  /(?<![\w/.-])([A-Za-z0-9._/-]+\.md)(:\d+|(?:\s+§[^\n`]{0,80}?)?\s*\(?\s*\blines?\s+\d+)/g;
+  /(?<![\w/.-])([A-Za-z0-9._/-]+\.md)(:\d+|(?:\s+§[^\n`]{0,80}?)?`?\s*\(?\s*\blines?\s+\d+)/g;
 
 // Memoize the directory listing per absolute governance tree so a file with N
 // label cites does at most one readdir per tree (3 trees total) instead of one
@@ -357,7 +363,22 @@ function extractLabelCitesFrom(
         if (colonForm && mdPath.startsWith("docs/")) continue;
         // Frozen trees keep their line anchors legal (parity with the raw
         // colon carve-out): the content never shifts, so the pin cannot rot.
-        if (FROZEN_DOC_PREFIXES.some((prefix) => mdPath.startsWith(prefix))) continue;
+        // Legal ≠ unchecked — route the cite through the pre-ratchet FLOOR
+        // (no lineWordDeny; first endpoint as the target line) so a deleted
+        // frozen doc or out-of-range pin still fails loudly, exactly like the
+        // colon form does in checkLabelCiteTargets' frozen branch (Codex,
+        // PR #195 — pass 6 previously dropped these matches entirely).
+        if (FROZEN_DOC_PREFIXES.some((prefix) => mdPath.startsWith(prefix))) {
+          const firstAnchoredLine = Number((m[2].match(/\d+/) ?? ["0"])[0]);
+          cites.push({
+            file: citingFile,
+            line: i + 1,
+            rawTarget: m[0].trim(),
+            targetPath: resolve(repoRoot, mdPath),
+            targetLine: firstAnchoredLine,
+          });
+          continue;
+        }
         cites.push({
           file: citingFile,
           line: i + 1,

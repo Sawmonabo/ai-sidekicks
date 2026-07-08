@@ -177,7 +177,7 @@ afterEach(async () => {
 // `Spec-003 §Default Behavior` — heartbeat ingestion + the sweep-interval cadence anchor
 // ----------------------------------------------------------------------------
 
-describe("HeartbeatService — ingest (Spec-003 §Default Behavior)", () => {
+describe("HeartbeatService — ingest (`Spec-003 §Default Behavior`)", () => {
   it("creates a presence row with a recent last_heartbeat_at and the reported health on first heartbeat (P6)", async () => {
     await ctx.service.ingest({ nodeId: NODE_ID, healthState: "online" });
 
@@ -214,7 +214,7 @@ describe("HeartbeatService — ingest (Spec-003 §Default Behavior)", () => {
     expect(await countPresence(ctx.querier)).toBe(0);
   });
 
-  it("exports STALENESS_SWEEP_INTERVAL_MS finer than the 15s heartbeat cadence (Spec-003 §Default Behavior heartbeat-cadence -> sweep-derivation bound)", () => {
+  it("exports STALENESS_SWEEP_INTERVAL_MS finer than the 15s heartbeat cadence (`Spec-003 §Default Behavior` heartbeat-cadence -> sweep-derivation bound)", () => {
     // The line-61 timing guarantee ("recorded within one sweep interval of a
     // threshold crossing", "set finer than the 15s cadence") derives from the
     // line-59 cadence. Pin it numerically: the constant is exported (T3.8's
@@ -228,7 +228,7 @@ describe("HeartbeatService — ingest (Spec-003 §Default Behavior)", () => {
 // `Spec-003 §Default Behavior` — sweep-driven degraded/offline + hysteresis recovery
 // ----------------------------------------------------------------------------
 
-describe("HeartbeatService — sweepStaleness demotions (Spec-003 §Default Behavior)", () => {
+describe("HeartbeatService — sweepStaleness demotions (`Spec-003 §Default Behavior`)", () => {
   it("demotes an online row stale past 30s to degraded and returns it (P6)", async () => {
     await seedPresence(ctx.querier, { nodeId: NODE_ID, ageSeconds: 45, healthState: "online" });
 
@@ -364,7 +364,7 @@ describe("HeartbeatService — sweepStaleness demotions (Spec-003 §Default Beha
 // `Spec-003 §Default Behavior` — idempotent / transition-only + writes only presence
 // ----------------------------------------------------------------------------
 
-describe("HeartbeatService — sweep idempotency + write boundary (Spec-003 §Default Behavior)", () => {
+describe("HeartbeatService — sweep idempotency + write boundary (`Spec-003 §Default Behavior`)", () => {
   it("does NOT re-write or re-report an already-offline row still aged past 60s (idempotent / transition-only)", async () => {
     // The row is ALREADY at its computed target (`offline`) and still stale. A
     // re-sweep must be a no-op: no re-write, no re-report. This pins the

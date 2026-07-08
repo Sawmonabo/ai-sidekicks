@@ -251,7 +251,7 @@ describe("I1 / Spec-002 AC1 — invited participant joins an active session with
 // (`Spec-002 §Interfaces And Contracts` + AC1) — daemon factory
 // ---------------------------------------------------------------------------
 
-describe("I3 / Spec-002 §Interfaces And Contracts + AC1 — ChannelList returns the bootstrap main channel for an existing session (daemon factory)", () => {
+describe("I3 / `Spec-002 §Interfaces And Contracts` + AC1 — ChannelList returns the bootstrap main channel for an existing session (daemon factory)", () => {
   it("daemon factory: listChannels returns a projection whose channels include the deterministically-derived bootstrap main channel", async () => {
     // The bootstrap `main` channel's id is a PURE FUNCTION of the session id
     // (CP-002-7 — deriveMainChannelId is THE shared derivation consumed by both

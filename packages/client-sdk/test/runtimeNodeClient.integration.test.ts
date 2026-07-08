@@ -527,7 +527,7 @@ afterEach(async () => {
 // (`Spec-003 §Acceptance Criteria` (AC1) + `Spec-003 §Required Behavior` no-recreation) — control-plane transport
 // ---------------------------------------------------------------------------
 
-describe("I1 / Spec-003 §Acceptance Criteria (AC1) + Spec-003 §Required Behavior — live attach leaves session identity unchanged", () => {
+describe("I1 / `Spec-003 §Acceptance Criteria` (AC1) + `Spec-003 §Required Behavior` — live attach leaves session identity unchanged", () => {
   it("control-plane transport: a joined participant attaches a node; the sessions row is byte-identical and no second session is materialized", async () => {
     // Seed the already-active session (NULL floor), the participant, and an
     // active membership (the "has joined a live session" precondition). Direct
@@ -617,7 +617,7 @@ describe("I1 / Spec-003 §Acceptance Criteria (AC1) + Spec-003 §Required Behavi
 // `JsonRpcClient.call`; I2's thesis (REAL state transitions reaching real
 // persistence) only exists on the real-service control-plane harness.
 
-describe("I2 / Spec-003 §Acceptance Criteria (AC2) + Spec-003 §Fallback Behavior / Spec-003 §Default Behavior — degraded node remains distinguishable", () => {
+describe("I2 / `Spec-003 §Acceptance Criteria` (AC2) + `Spec-003 §Fallback Behavior` / `Spec-003 §Default Behavior` — degraded node remains distinguishable", () => {
   it("control-plane transport: a capability-degraded node stays visible and distinguishable from a healthy online node in the same session", async () => {
     // Seed the live session (NULL floor — version gating is T4.4's axis, not
     // I2's), the participant, and an active membership. Direct INSERTs — the
@@ -826,7 +826,7 @@ describe("I2 / Spec-003 §Acceptance Criteria (AC2) + Spec-003 §Fallback Behavi
 // session row — a scripted reply table would just echo whatever verdict we
 // scripted, a tautology with no floor decision under test.
 
-describe("I3 / Spec-003 §Acceptance Criteria (AC4) + I-003-1 — mixed-version attach: below-floor admitted read-only, write refused, never ejected", () => {
+describe("I3 / `Spec-003 §Acceptance Criteria` (AC4) + I-003-1 — mixed-version attach: below-floor admitted read-only, write refused, never ejected", () => {
   it("control-plane transport: the at-floor daemon reads and writes; the below-floor daemon reads but its capability write returns typed VERSION_FLOOR_EXCEEDED; both stay joined", async () => {
     // (1) Seed the live session WITH a version floor — `min_client_version` is
     // `CLIENT_VERSION` ("1.4") itself, so the at-floor daemon attaches EQUAL
@@ -990,7 +990,7 @@ describe("I3 / Spec-003 §Acceptance Criteria (AC4) + I-003-1 — mixed-version 
 // a node that never beat has no row, and the liveness assert would otherwise
 // be a vacuous 0-row no-op instead of an observed `online -> offline` flip).
 
-describe("Detach lifecycle / Spec-003 §Interfaces And Contracts + Spec-003 §Default Behavior — detach retires both axes; late writes refused; re-detach idempotent", () => {
+describe("Detach lifecycle / `Spec-003 §Interfaces And Contracts` + `Spec-003 §Default Behavior` — detach retires both axes; late writes refused; re-detach idempotent", () => {
   it("control-plane transport: detach resolves null and flips slot + presence to offline; a late capability write is refused typed; a second detach is an idempotent no-op", async () => {
     // Seed the live session (NULL floor — version gating is I3's axis) and
     // attach the subject node. Direct INSERTs, as in I1/I2/I3.
@@ -1106,7 +1106,7 @@ describe("Detach lifecycle / Spec-003 §Interfaces And Contracts + Spec-003 §De
 // put there by a Phase-3 writer (attach / heartbeat / capabilityupdate), so
 // the assertions are projections of real transitions, not scripted echoes.
 
-describe("Roster read (T5.0d) / Spec-003 §Acceptance Criteria (AC2 + AC3 + AC4) + Spec-003 §Required Behavior — the control-plane roster query projects both axes per node", () => {
+describe("Roster read (T5.0d) / `Spec-003 §Acceptance Criteria` (AC2 + AC3 + AC4) + `Spec-003 §Required Behavior` — the control-plane roster query projects both axes per node", () => {
   it("control-plane transport: a mixed-version pair returns with per-axis state and readOnly, the roster is session-isolated, and session identity is unchanged", async () => {
     // (1) Seed TWO live sessions: the floored subject session (floor =
     // CLIENT_VERSION "1.4", the I3 boundary shape) and a NULL-floor second

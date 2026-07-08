@@ -150,7 +150,7 @@ class RejectingProviderDriver extends FakeProviderDriver {
 // register + lookup — `Spec-005 §Required Behavior` (normalized contract keyed by id)
 // ----------------------------------------------------------------------------
 
-describe("ProviderRegistry — register + lookup (Spec-005 §Required Behavior)", () => {
+describe("ProviderRegistry — register + lookup (`Spec-005 §Required Behavior`)", () => {
   it("round-trips a registered driver via lookup", async () => {
     const registry = new ProviderRegistry();
     const driver = new FakeProviderDriver(makeFlags());
@@ -201,7 +201,7 @@ describe("ProviderRegistry — register + lookup (Spec-005 §Required Behavior)"
 // checkCapability — `Spec-005 §Required Behavior` + I-005-2 (undeclared capability = unsupported)
 // ----------------------------------------------------------------------------
 
-describe("ProviderRegistry — checkCapability gate (Spec-005 §Required Behavior, I-005-2)", () => {
+describe("ProviderRegistry — checkCapability gate (`Spec-005 §Required Behavior`, I-005-2)", () => {
   it("passes (returns void, does not throw) for a flag declared true", async () => {
     const registry = new ProviderRegistry();
     await registry.register(DRIVER_ID, new FakeProviderDriver(makeFlags({ tool_calls: true })));

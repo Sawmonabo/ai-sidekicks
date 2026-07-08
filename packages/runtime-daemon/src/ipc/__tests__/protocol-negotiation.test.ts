@@ -275,7 +275,7 @@ describe("W-007p-2-T8 — mutating-op gate when version-mismatch", () => {
     expect(result).toStrictEqual({ ok: true });
   });
 
-  it("after INCOMPATIBLE handshake, read methods still pass + mutating methods refused (Spec-007 §Fallback Behavior)", async () => {
+  it("after INCOMPATIBLE handshake, read methods still pass + mutating methods refused (`Spec-007 §Fallback Behavior`)", async () => {
     const { raw, gated } = makeFixture();
     raw.register(
       "math.read",

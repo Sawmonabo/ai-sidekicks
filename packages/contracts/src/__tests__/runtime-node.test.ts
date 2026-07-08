@@ -93,7 +93,7 @@ describe("RuntimeNodeAttachRequestSchema (C1: required fields)", () => {
     expect(RuntimeNodeAttachRequestSchema.safeParse(buildValidAttachRequest()).success).toBe(true);
   });
 
-  it("rejects a payload missing clientVersion (Spec-003 §Required Behavior floor field)", () => {
+  it("rejects a payload missing clientVersion (`Spec-003 §Required Behavior` floor field)", () => {
     const { clientVersion: _omitted, ...withoutClientVersion } = buildValidAttachRequest();
     expect(RuntimeNodeAttachRequestSchema.safeParse(withoutClientVersion).success).toBe(false);
   });
@@ -224,7 +224,7 @@ describe("NodeIdSchema (catch #2: non-UUID opaque daemon-assigned brand)", () =>
   });
 });
 
-describe("NodeStateSchema (5-value liveness enum; docs/architecture/schemas/shared-postgres-schema.md §Runtime Node Attachments (Plan-003))", () => {
+describe("NodeStateSchema (5-value liveness enum; `docs/architecture/schemas/shared-postgres-schema.md §Runtime Node Attachments (Plan-003`))", () => {
   it.each(["registering", "online", "degraded", "offline", "revoked"])(
     "accepts the liveness value %s",
     (value) => {
@@ -654,7 +654,7 @@ const expectedSevenFromSpec006 = [
 ];
 
 describe("RUNTIME_NODE_EVENT_NAMES (C4: 7-name runtime_node.* taxonomy)", () => {
-  it("is exactly the sorted set of the 7 names in Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)", () => {
+  it("is exactly the sorted set of the 7 names in `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle`)", () => {
     // Order-independent SET equality: sort both sides so a reorder of either the
     // export tuple or the spec table does not spuriously fail, while a
     // missing/extra/renamed name does (the membership IS the contract per
@@ -724,7 +724,7 @@ describe("RUNTIME_NODE_EVENT_NAMES (C4: 7-name runtime_node.* taxonomy)", () => 
 // Cites: `Spec-003 §Required Behavior`, `Spec-003 §Acceptance Criteria` AC4, I-003-1, ADR-018 §Decision #4 /
 // §Decision #10, `docs/architecture/contracts/error-contracts.md §Version`.
 describe("VersionFloorExceededErrorSchema (C5: VERSION_FLOOR_EXCEEDED typed-contract conformance — Plan-003 consumer anchor)", () => {
-  it("pins the wire code literal to the value registered in docs/architecture/contracts/error-contracts.md §Version", () => {
+  it("pins the wire code literal to the value registered in `docs/architecture/contracts/error-contracts.md §Version`", () => {
     // The expected string is single-sourced from the INDEPENDENT registry —
     // `docs/architecture/contracts/error-contracts.md §Version` maps the typed `VERSION_FLOOR_EXCEEDED` name to the
     // dotted wire code `version.floor_exceeded` (ADR-018 §Decision #10 mandates

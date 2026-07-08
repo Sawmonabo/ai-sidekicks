@@ -66,7 +66,7 @@ describe("ResourceLimitExceededErrorSchema (C4: resource.limit_exceeded shape)",
     expect(RESOURCE_LIMIT_EXCEEDED_CODE).toBe("resource.limit_exceeded");
   });
 
-  it("accepts the canonical Spec-001 §Limit Enforcement shape", () => {
+  it("accepts the canonical `Spec-001 §Limit Enforcement` shape", () => {
     const valid = buildValidError();
     const parsed = ResourceLimitExceededErrorSchema.parse(valid);
     expect(parsed.code).toBe(RESOURCE_LIMIT_EXCEEDED_CODE);

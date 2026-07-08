@@ -603,7 +603,7 @@ async function countInvitesForSession(querier: Querier, sessionId: string): Prom
   return probe.rows[0]?.n ?? -1;
 }
 
-describe("InviteService.createInvite — owner-authorization (Spec-002 §Invite Revocation, Permission Matrix)", () => {
+describe("InviteService.createInvite — owner-authorization (`Spec-002 §Invite Revocation`, Permission Matrix)", () => {
   it("a non-owner ACTIVE member issuing for themselves throws invite.permission_denied and writes no invite row", async () => {
     await seedParticipant(ctx.querier, OWNER_PARTICIPANT_ID);
     await seedParticipant(ctx.querier, NON_OWNER_PARTICIPANT_ID);
@@ -793,7 +793,7 @@ describe("InviteService — P8 (revoked invite cannot be accepted: no re-join wi
 // reuse would surface `invite.revoked` — masking that a membership was already
 // created.
 
-describe("InviteService.revokeInvite — does not overwrite an accepted (terminal) invite (Spec-002 §Token Security Properties + Spec-002 §State And Data Implications)", () => {
+describe("InviteService.revokeInvite — does not overwrite an accepted (terminal) invite (`Spec-002 §Token Security Properties` + `Spec-002 §State And Data Implications`)", () => {
   it("accept -> revoke (no-op) -> reuse still classifies as invite.already_accepted, not invite.revoked", async () => {
     await seedParticipant(ctx.querier, OWNER_PARTICIPANT_ID);
     await seedParticipant(ctx.querier, INVITEE_PARTICIPANT_ID);
@@ -859,7 +859,7 @@ describe("InviteService.revokeInvite — does not overwrite an accepted (termina
 // Owner-authorization (`Spec-002 §Invite Revocation`) — owner-only revoke
 // ----------------------------------------------------------------------------
 
-describe("InviteService.revokeInvite — owner-authorization (Spec-002 §Invite Revocation)", () => {
+describe("InviteService.revokeInvite — owner-authorization (`Spec-002 §Invite Revocation`)", () => {
   it("a NON-owner revoke throws invite.permission_denied and leaves the invite state unchanged", async () => {
     await seedParticipant(ctx.querier, OWNER_PARTICIPANT_ID);
     await seedParticipant(ctx.querier, NON_OWNER_PARTICIPANT_ID);

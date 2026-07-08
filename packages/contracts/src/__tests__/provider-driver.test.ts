@@ -174,7 +174,7 @@ class MockProviderDriver implements ProviderDriver {
   }
 }
 
-describe("ProviderDriver contract — AC1 (Spec-005 §Acceptance Criteria): a mock implements all 10 ops", () => {
+describe("ProviderDriver contract — AC1 (`Spec-005 §Acceptance Criteria`): a mock implements all 10 ops", () => {
   // Type-level proof that the mock satisfies the contract interface: assigning
   // it to a `ProviderDriver`-typed binding will fail to compile if any of the
   // 10 method signatures drifts from the contract. This is the AC1 assertion;
@@ -238,7 +238,7 @@ describe("ProviderDriver contract — AC1 (Spec-005 §Acceptance Criteria): a mo
     expect(result.status).toBe("applied");
   });
 
-  it("rejects a steer intervention with an empty payload (compile-time, Spec-005 §Required Behavior)", () => {
+  it("rejects a steer intervention with an empty payload (compile-time, `Spec-005 §Required Behavior`)", () => {
     // @ts-expect-error — `steer` is coupled to SteerPayload; `content` is
     // mandatory, so the empty `payload: {}` below makes this assignment a type
     // error (an empty payload is structurally unrepresentable for `steer`).
@@ -304,7 +304,7 @@ describe("ProviderDriver contract — AC1 (Spec-005 §Acceptance Criteria): a mo
 // No `as any` / `as never` escape hatch is used — that would silence the very
 // error this case exists to surface.
 
-describe("ProviderDriver contract — AC2 (Spec-005 §Acceptance Criteria): off-union capability flag is a type error", () => {
+describe("ProviderDriver contract — AC2 (`Spec-005 §Acceptance Criteria`): off-union capability flag is a type error", () => {
   it("rejects a capability flag outside the 7-flag DriverCapabilityFlag union at compile time", () => {
     const flagsWithExtra: DriverCapabilities["flags"] = {
       resume: true,
@@ -463,7 +463,7 @@ describe("ProviderToolMetadataSchema — I-005-3: ingress→normalized idempoten
     ).toBe(false);
   });
 
-  it("strips an unknown extra key (Spec-005 §Default Behavior forward-compat — unknown fields ignored)", () => {
+  it("strips an unknown extra key (`Spec-005 §Default Behavior` forward-compat — unknown fields ignored)", () => {
     // The extensible tool-metadata DECLARATION surface must IGNORE unknown keys
     // (`Spec-005 §Default Behavior`), in deliberate contrast to the `.strict()` result envelopes.
     // The load-bearing assertion is ABSENCE of the unknown key from the

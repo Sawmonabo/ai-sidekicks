@@ -836,6 +836,61 @@ describe("line-word + bare-basename deny in code citers (CAT-07 ratchet)", () =>
       cleanup();
     }
   });
+
+  it("FLOORS a frozen-tree line-word cite: a deleted target still fails loudly", () => {
+    // Legal ≠ unchecked (parity with the colon-form frozen carve-out): the
+    // line-word spelling into docs/reference/ is exempt from the deny, but a
+    // missing file or out-of-range pin must surface, not vanish from every
+    // check (Codex, PR #195 — pass 6 previously dropped the match entirely).
+    const { root, cleanup } = setupRepo({
+      "packages/p/src/f.ts": "// docs/reference/gone.md line 3 quotes upstream.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/p/src/f.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("missing-target-file");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("DENIES a line locator appended after a backticked durable label cite", () => {
+    // The durable spelling does not launder a pin: `` `Spec-021 §Bind
+    // Address` line 2 `` re-enters the CAT-07 class through the closing
+    // backtick unless the deny looks past it (Codex, PR #195).
+    const { root, cleanup } = setupRepo({
+      "docs/specs/021-x.md": "# X\n\n## Bind Address\n\nbody\n",
+      "packages/p/src/g.ts": "// `Spec-021 §Bind Address` line 2 pins the default.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/p/src/g.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("line-anchored-cite-in-code");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("DENIES a line-word tail after a backticked docs-path cite", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/domain/session-model.md": "# M\n\n## State Model\n\nbody\n",
+      "packages/p/src/h.ts":
+        "// `docs/domain/session-model.md §State Model` lines 61-77 moved here.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/p/src/h.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("line-anchored-cite-in-code");
+    } finally {
+      cleanup();
+    }
+  });
 });
 
 describe("deny-detail remediation names the form that exists for the target", () => {

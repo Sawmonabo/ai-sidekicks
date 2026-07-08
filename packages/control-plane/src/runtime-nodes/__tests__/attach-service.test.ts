@@ -701,7 +701,7 @@ describe("AttachService — P9b (reconnect reactivates an offline row)", () => {
 // revoked refusal — are the P9a and P10 blocks above; they remain regression
 // guards for the SET/WHERE change and are not duplicated here.)
 
-describe("AttachService — P9 owner-immutability (reconnect preserves node provenance, Spec-003 §Implementation Notes + Spec-003 §Pitfalls To Avoid)", () => {
+describe("AttachService — P9 owner-immutability (reconnect preserves node provenance, `Spec-003 §Implementation Notes` + `Spec-003 §Pitfalls To Avoid`)", () => {
   it("reconnects a SAME-participant node after detach (offline -> registering) and leaves the owner participant unchanged", async () => {
     // The legitimate P9 reconnect, end-to-end through the service: the SAME
     // participant attaches node N, detaches it (slot -> offline), then reattaches.
@@ -739,7 +739,7 @@ describe("AttachService — P9 owner-immutability (reconnect preserves node prov
     );
   });
 
-  it("refuses a CROSS-owner reconnect to the same session with the typed conflict and preserves the original owner (Spec-003 §Pitfalls To Avoid)", async () => {
+  it("refuses a CROSS-owner reconnect to the same session with the typed conflict and preserves the original owner (`Spec-003 §Pitfalls To Avoid`)", async () => {
     // The data-integrity bug this fix closes: participant A attaches node N to
     // session S and detaches it (slot -> offline); participant B (the SAME session
     // S) then attempts to attach node N. The ON CONFLICT (node_id, session_id)
@@ -845,7 +845,7 @@ describe("AttachService — P9 owner-immutability (reconnect preserves node prov
 // P1 — NULL-floor unconditional admission (`Spec-003 §Required Behavior`)
 // ----------------------------------------------------------------------------
 
-describe("AttachService — P1 (NULL-floor unconditional admission, Spec-003 §Required Behavior)", () => {
+describe("AttachService — P1 (NULL-floor unconditional admission, `Spec-003 §Required Behavior`)", () => {
   it("admits a fresh attach with readOnly=false and state=registering when the session floor is NULL", async () => {
     await seedParticipant(ctx.querier, PARTICIPANT_ID);
     // No min_client_version => NULL floor => no version gate.
@@ -894,7 +894,7 @@ describe("AttachService — P1 (NULL-floor unconditional admission, Spec-003 §R
 // is a plain nullable TEXT column (0001-initial.ts line 104 — no DB CHECK), so a
 // regex-invalid floor seeds fine and the ONLY guard is the read-time parse.
 
-describe("AttachService — P2/P3 (version-floor comparison, Spec-003 §Required Behavior / I-003-1)", () => {
+describe("AttachService — P2/P3 (version-floor comparison, `Spec-003 §Required Behavior` / I-003-1)", () => {
   it("admits a daemon BELOW a non-NULL floor in read-only state (P3 — admit-not-eject, I-003-1)", async () => {
     // Below-floor (client 1.0 < floor 2.0): admit READ-ONLY, never eject. The
     // write refusal (VERSION_FLOOR_EXCEEDED) on this read-only daemon's next
@@ -1047,7 +1047,7 @@ describe("AttachService — P2/P3 (version-floor comparison, Spec-003 §Required
 //     `sessions` row is created. This is the multi-node complement to T3.2's
 //     single-attach I-003-3 guard, extended to the `sessions` table itself.
 
-describe("AttachService — P5 (multi-node coexistence, Spec-003 §Required Behavior + AC; I-003-3 session identity)", () => {
+describe("AttachService — P5 (multi-node coexistence, `Spec-003 §Required Behavior` + AC; I-003-3 session identity)", () => {
   it("admits two distinct nodes as co-active attachments in one session and leaves the sessions row byte-for-byte unchanged", async () => {
     await seedParticipant(ctx.querier, PARTICIPANT_ID);
     // A NULL-floor session (no version gate) — both daemons are admitted
@@ -1219,7 +1219,7 @@ describe("AttachService — I-003-3 (attach must not mutate session_memberships)
 // `Spec-003 §Required Behavior`) is the SHIPPED attach I-003-3 test above — not re-tested here.
 
 describe("AttachService — P7/P8 + detach (offline transition, T3.7)", () => {
-  it("retires an active node to offline on both axes and leaves session_memberships byte-for-byte unchanged (P8, Spec-003 §Required Behavior / I-003-3)", async () => {
+  it("retires an active node to offline on both axes and leaves session_memberships byte-for-byte unchanged (P8, `Spec-003 §Required Behavior` / I-003-3)", async () => {
     await seedParticipant(ctx.querier, PARTICIPANT_ID);
     await seedSession(ctx.querier, SESSION_ID);
     // An ACTIVE attachment (slot axis) + a presence row (liveness axis), both
@@ -1527,7 +1527,7 @@ describe("AttachService — updateCapabilities (discovery-snapshot refresh, T3.9
     expect(after).toEqual(before);
   });
 
-  it("ALLOWS registering -> degraded (Spec-003 §Fallback Behavior — pins the guard's narrowness)", async () => {
+  it("ALLOWS registering -> degraded (`Spec-003 §Fallback Behavior` — pins the guard's narrowness)", async () => {
     // EXPLICITLY ALLOWED — the guard is the SINGLE registering->online case, NOT
     // a blanket registering->* refusal. A capability-validation failure leaves
     // the node `degraded` (Spec-003 §Fallback Behavior), so registering ->
@@ -1807,7 +1807,7 @@ describe("AttachService — updateCapabilities (discovery-snapshot refresh, T3.9
 // NULL-floor session admits every write (no gate at all).
 
 describe("AttachService — updateCapabilities version-floor write-refusal (P4 / I-003-1, T3.4)", () => {
-  it("refuses a below-floor (read-only) node's capability write with typed VERSION_FLOOR_EXCEEDED and leaves it JOINED (Spec-003 §Acceptance Criteria / I-003-1)", async () => {
+  it("refuses a below-floor (read-only) node's capability write with typed VERSION_FLOOR_EXCEEDED and leaves it JOINED (`Spec-003 §Acceptance Criteria` / I-003-1)", async () => {
     // Full lifecycle through the real admission path: a floored session
     // (floor 2.0) admits a below-floor daemon (client 1.0) READ-ONLY at attach
     // (T3.3), then the daemon's capability WRITE is refused (T3.4).
@@ -1993,7 +1993,7 @@ describe("AttachService — updateCapabilities version-floor write-refusal (P4 /
 // `client_version`.
 
 describe("AttachService — readRoster (roster projection, T5.0c)", () => {
-  it("returns EVERY attachment row for the session — offline and revoked included — with all five states verbatim (AC2, Spec-003 §Acceptance Criteria + Spec-003 §Interfaces And Contracts; Spec-003 §Fallback Behavior)", async () => {
+  it("returns EVERY attachment row for the session — offline and revoked included — with all five states verbatim (AC2, `Spec-003 §Acceptance Criteria` + `Spec-003 §Interfaces And Contracts`; `Spec-003 §Fallback Behavior`)", async () => {
     // One session, five DISTINCT nodes, one in each NodeState. Distinct
     // node_ids never collide on the per-node active index (three active rows
     // are fine), and the `(node_id, session_id)` arbiter sees five distinct
@@ -2024,7 +2024,7 @@ describe("AttachService — readRoster (roster projection, T5.0c)", () => {
     }
   });
 
-  it("projects multiple coexisting nodes attached through the REAL attach path with per-node identity intact (AC3, Spec-003 §Acceptance Criteria + Spec-003 §Required Behavior)", async () => {
+  it("projects multiple coexisting nodes attached through the REAL attach path with per-node identity intact (AC3, `Spec-003 §Acceptance Criteria` + `Spec-003 §Required Behavior`)", async () => {
     // End-to-end write -> read coherence: two nodes attach through the real
     // service path (not seeds) with DIFFERENT capability maps, then the roster
     // returns both entries each carrying its OWN identity + fields — per-node
@@ -2057,7 +2057,7 @@ describe("AttachService — readRoster (roster projection, T5.0c)", () => {
     expect(betaEntry?.healthState).toBeNull();
   });
 
-  it("round-trips DISAGREEING axes verbatim in both directions and carries the heartbeat clock untouched (Spec-003 §Default Behavior — never collapse, never mask)", async () => {
+  it("round-trips DISAGREEING axes verbatim in both directions and carries the heartbeat clock untouched (`Spec-003 §Default Behavior` — never collapse, never mask)", async () => {
     // Axis independence, both directions in ONE roster:
     //   - node A: slot `online` + swept liveness `offline` (the
     //     swept-offline-but-still-attached shape — the sweep writes only
@@ -2136,7 +2136,7 @@ describe("AttachService — readRoster (roster projection, T5.0c)", () => {
     expect(entry?.healthState).toBe("online");
   });
 
-  it("derives readOnly PER ROW — below-floor true with state untouched, at-floor false in the SAME roster (AC4, Spec-003 §Acceptance Criteria / I-003-1)", async () => {
+  it("derives readOnly PER ROW — below-floor true with state untouched, at-floor false in the SAME roster (AC4, `Spec-003 §Acceptance Criteria` / I-003-1)", async () => {
     // A floored session (2.0) holding two nodes: one attached at a below-floor
     // client_version (1.0), one at-floor (2.0). The roster derives the verdict
     // per row from the STORED version vs the CURRENT floor — the same

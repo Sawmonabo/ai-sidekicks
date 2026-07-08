@@ -200,7 +200,7 @@ describe("MembershipStateSchema (re-exported; lifecycle states per session.ts:18
 // edit ever silently re-introduces kebab-case or drops `reactivate`, the
 // explicit literal-rejection tests below fail loudly.
 
-describe("MembershipUpdateSchema (C3: discriminated union per Spec-002 §Interfaces And Contracts)", () => {
+describe("MembershipUpdateSchema (C3: discriminated union per `Spec-002 §Interfaces And Contracts`)", () => {
   // ----------------------------------------------------------------------
   // Happy paths — one `it()` per canonical action variant.
   // ----------------------------------------------------------------------
@@ -214,7 +214,7 @@ describe("MembershipUpdateSchema (C3: discriminated union per Spec-002 §Interfa
     }
   });
 
-  it("accepts change_role payload with newRole='owner' (Spec-002 §Required Behavior owner-elevation path)", () => {
+  it("accepts change_role payload with newRole='owner' (`Spec-002 §Required Behavior` owner-elevation path)", () => {
     // Owner elevation is an EXPLICIT spec-permitted path (`Spec-002 §Required Behavior`):
     // an existing owner CAN promote another active member to owner.
     // Schema admits it; the "only existing owners may promote" guard is

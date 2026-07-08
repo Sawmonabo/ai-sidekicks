@@ -305,7 +305,7 @@ describe("0002-session-invites migration (T3 — join_mode CHECK pins canonical 
     await seedSessionAndInviter(ctx.querier);
   });
 
-  it("accepts SPACED 'runtime contributor' (canonical wire form per Spec-002 §Required Behavior)", async () => {
+  it("accepts SPACED 'runtime contributor' (canonical wire form per `Spec-002 §Required Behavior`)", async () => {
     await expect(
       ctx.querier.query(
         `INSERT INTO session_invites
@@ -360,7 +360,7 @@ describe("0002-session-invites migration (T4 — state CHECK pins {pending, acce
     });
   }
 
-  it("rejects 'declined' — V1 declining is implicit, not an explicit state (Spec-002 §Required Behavior)", async () => {
+  it("rejects 'declined' — V1 declining is implicit, not an explicit state (`Spec-002 §Required Behavior`)", async () => {
     await expect(
       ctx.querier.query(
         `INSERT INTO session_invites

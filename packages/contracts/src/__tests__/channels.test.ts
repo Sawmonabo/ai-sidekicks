@@ -130,7 +130,7 @@ describe("ChannelStateSchema (wire form is exactly {active, muted, archived})", 
 // `Spec-002 §Interfaces And Contracts` verbatim: "Request: `{sessionId: SessionId}`". Single
 // required field; .strict() rejects unknown keys at the outer envelope.
 
-describe("ChannelListRequestSchema (C5: sessionId-only request per Spec-002 §Interfaces And Contracts)", () => {
+describe("ChannelListRequestSchema (C5: sessionId-only request per `Spec-002 §Interfaces And Contracts`)", () => {
   it("accepts a request with sessionId only", () => {
     const parsed = ChannelListRequestSchema.parse({ sessionId: SESSION_ID });
     expect(parsed.sessionId).toBe(SESSION_ID);
@@ -363,7 +363,7 @@ describe("ChannelListResponseChannelSchema (per-element projection)", () => {
 // service may return zero visible channels per authorization). `.strict()`
 // rejects unknown top-level keys.
 
-describe("ChannelListResponseSchema (C5: outer envelope per Spec-002 §Interfaces And Contracts)", () => {
+describe("ChannelListResponseSchema (C5: outer envelope per `Spec-002 §Interfaces And Contracts`)", () => {
   it("accepts an empty channels list (zero visible channels)", () => {
     const parsed = ChannelListResponseSchema.parse({ channels: [] });
     expect(parsed.channels).toEqual([]);

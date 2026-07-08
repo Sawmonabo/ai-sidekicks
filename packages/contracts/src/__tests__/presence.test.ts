@@ -223,7 +223,7 @@ describe("JoinModeSchema (canonical wire form is SPACED 'runtime contributor')",
 // convention. Explicit NUL-byte regression tests live near the boundary
 // checks below.
 
-describe("PresenceHeartbeatSchema (C4: 5 metadata fields per Spec-002 §Interfaces And Contracts)", () => {
+describe("PresenceHeartbeatSchema (C4: 5 metadata fields per `Spec-002 §Interfaces And Contracts`)", () => {
   // ----------------------------------------------------------------------
   // Happy paths
   // ----------------------------------------------------------------------
@@ -650,7 +650,7 @@ describe("PresenceReadRequestSchema (JSON-RPC local IPC, client → daemon query
 // Wire shape (`docs/architecture/contracts/api-payload-contracts.md §Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3)`):
 //   `{participants: Array<{participantId, state: PresenceState, lastSeen: string}>}`
 
-describe("PresenceReadResponseSchema (participant projection per docs/architecture/contracts/api-payload-contracts.md §Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3))", () => {
+describe("PresenceReadResponseSchema (participant projection per `docs/architecture/contracts/api-payload-contracts.md §Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3`))", () => {
   it("accepts a response with one participant", () => {
     const payload = {
       participants: [
