@@ -5,7 +5,7 @@
 // `subscribe<T>` operations against the daemon's JSON-RPC method-namespace
 // registry. Every outbound payload is Zod-validated BEFORE the wire write,
 // every inbound payload is Zod-validated BEFORE it surfaces to the caller —
-// the SDK does NOT swallow validation errors (per `Plan-007 §Desktop main process (apps/desktop/src/main/)` / I-007-3-T4).
+// the SDK does NOT swallow validation errors (per `Plan-007 §Phase 3: session.* Handlers + SDK Zod Layer` T-007p-3-2 / I-007-3-T4).
 //
 // Spec coverage:
 //   * Spec-007 line 56 — "typed JSON-RPC client transport" surface owed to
@@ -14,7 +14,7 @@
 //     CREATE (transport-layer + Zod wrapping primitive).
 //   * Plan-007 lines 309-322 — `JsonRpcClient` class signature contract
 //     (constructor + `call<P, R>` + `subscribe<T>`).
-//   * MCP TypeScript SDK pattern (`Plan-007 §Daemon IPC + bootstrap (packages/runtime-daemon/src/)` reference; see
+//   * MCP TypeScript SDK pattern (`Plan-007 §Phase 3: session.* Handlers + SDK Zod Layer` T-007p-3-2 reference; see
 //     https://github.com/modelcontextprotocol/typescript-sdk) — separation
 //     of envelope-layer client from byte-framing transport.
 //

@@ -73,7 +73,7 @@ import type { ClientTransport } from "../types.js";
 // Captures every outbound `send(envelope)` call into `sentEnvelopes`. Holds
 // the inbound `onMessage` callback so the test can drive a hand-built reply
 // envelope through the client's dispatcher. Mirrors the pattern from MCP
-// SDK's in-memory transport (per `Plan-007 §Daemon IPC + bootstrap (packages/runtime-daemon/src/)` reference) but trimmed to the
+// SDK's in-memory transport (per `Plan-007 §Phase 3: session.* Handlers + SDK Zod Layer` T-007p-3-2 reference) but trimmed to the
 // fields T4 actually needs.
 
 class InMemoryTransport implements ClientTransport {

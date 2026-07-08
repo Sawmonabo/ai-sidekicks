@@ -551,10 +551,10 @@ describe("W-007p-2-T5 — 1MB max-message-size enforcement", () => {
         // The gateway emits the error frame BEFORE destroying the
         // socket, so we expect either:
         //   * a parse-able error frame in `received` AND a subsequent
-        //     close (best-effort emit + tear-down per plan §377), OR
+        //     close (best-effort emit + tear-down per the same T-007p-2-2 row), OR
         //   * close-only when the kernel already shut the socket
         //     before the error frame's flush completed (race).
-        // `Plan-007 §Secure Defaults (Spec-027 daemon-side rows)` mandates the error-frame surface; we assert it
+        // `Plan-007 §Phase 2: Wire Substrate` (T-007p-2-2 oversized-body row) mandates the error-frame surface; we assert it
         // here and let the test fail loudly if the implementation
         // tears down without writing.
         expect(racer).not.toBe("closed");

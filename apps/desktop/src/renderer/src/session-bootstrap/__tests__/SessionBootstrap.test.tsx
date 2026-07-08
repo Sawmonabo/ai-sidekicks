@@ -5,7 +5,7 @@
 //     inside the resolve/reject tests — proves the component fired
 //     `daemon.call("session.create", {})` on mount.
 // The reject-branch tests cover task AC T5.2(d) (renders the error envelope
-// on reject), not Spec-001 AC4 — see `docs/plans/001-shared-session-core.md §T5.1 — sessionClient.ts daemon + control-plane transport`.
+// on reject), not Spec-001 AC4 — see `docs/plans/001-shared-session-core.md §T5.2 — apps/desktop/src/renderer/src/session-bootstrap/ renderer wiring`.
 //
 // Four-case coverage (per T5.2 acceptance criteria f + sync-throw defense):
 //   1. pending — promise never settles; placeholder visible.

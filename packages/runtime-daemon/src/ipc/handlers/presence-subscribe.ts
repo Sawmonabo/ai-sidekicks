@@ -94,9 +94,10 @@
 // The method-name TABLE at lines 327-336 enumerates only Plan-007 Phase 3's
 // `session.*` surface; Plan-002 registers the `presence.*` namespace against
 // the same ratified FORMAT (Plan-002 line 95 / CP-002-2). The `subscribe`
-// method string is derived from the streaming-push mechanics + the SDK
-// accessor named at `Plan-002 §Phase 6 — Renderer (Tier 2)` (`window.sidekicks.presence.subscribe`),
-// which maps 1:1 to the JSON-RPC method name per the `session.*` precedent.
+// method string is derived from the streaming-push mechanics + the Phase 6
+// renderer presence-consumption surface (`Plan-002 §Phase 6 — Renderer (Tier 2)`
+// T6.2 — presence indicators over the generic `window.sidekicks` preload
+// bridge), which maps 1:1 to the JSON-RPC method name per the `session.*` precedent.
 
 import type {
   Handler,
