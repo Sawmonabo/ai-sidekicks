@@ -49,6 +49,10 @@ import {
   validateEntry,
   serializeEntry,
 } from "./lib/manifest.mjs";
+// Single source for the material-path classification — G6 (manifest
+// freshness), the CI lane-boundary guard, and this tool must agree on what
+// counts as a shipment-shaped diff or their candidate populations drift.
+import { MATERIAL_PATH_PREFIXES } from "./preflight.mjs";
 
 // ---------- arg parsing ----------
 
@@ -386,6 +390,27 @@ export async function rebuildManifest({
       continue;
     }
     const details = fetchPrDetails({ pr, ghRunner });
+    // Docs-only title matches are not shipments: G6's freshness population
+    // counts only PRs touching MATERIAL_PATH_PREFIXES, so a docs PR whose
+    // title names the plan (doc-first closure PRs #1/#29 are the Plan-001
+    // shapes) must not enter synthesis — its squash text has no Phase/T
+    // markers and it validation-fails as noise (exit 5) on every from-
+    // scratch rebuild. On-disk manifest entries are exempt: ground truth
+    // being preserved outranks the classifier. The exit-7 truncation halt
+    // fires in fetchPrDetails BEFORE this filter — a truncated file list
+    // cannot prove docs-only, so it stays fail-closed.
+    if (!existingEntryByPr.has(pr)) {
+      const filePaths = (details.files ?? []).map((f) => f.path);
+      const materialFileCount = filePaths.filter((p) =>
+        MATERIAL_PATH_PREFIXES.some((prefix) => p.startsWith(prefix)),
+      ).length;
+      if (materialFileCount === 0) {
+        stderr.write(
+          `skipped (docs-only title match, no material paths): PR #${pr} — "${title}"\n`,
+        );
+        continue;
+      }
+    }
     built.push(buildEntryFromPr({ pr, details, plan }));
   }
 

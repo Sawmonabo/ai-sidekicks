@@ -2621,6 +2621,109 @@ export function gatePreconditions(phaseSection, planFile, phaseNumber, opts = {}
   return { ok: true };
 }
 
+// ---------- corpus survey (--survey) ----------
+//
+// Two-sided anomaly screen over every real plan, institutionalizing the
+// omission survey that caught the second-`#### Tasks`-block bug on PR #190
+// (an extractor blind spot Codex's 11 rounds had not surfaced). Runs the
+// production extractors over docs/plans/NNN-*.md and compares against a
+// DELIBERATELY LOOSER raw oracle — a task-shaped line opens as a top-level
+// bullet (optional GFM checkbox, 1-3 asterisks) or `#####` heading whose
+// bold/heading token BEGINS `T<digit>`/`T-`. Head-anchored on purpose:
+// Tasks blocks carry top-level detail bullets (`- **Step:** ... T3.6 ...`,
+// Plan-003) that mention task ids in prose — an anywhere-on-line oracle
+// flags those as false omissions. Looser than the extractor in exactly the
+// dimensions that have failed before: no closing-`**` tail (star-in-title,
+// PR #190) and 1-3 asterisks (bold-italic rows), so both historical miss
+// classes still surface as omissions. Both directions must reconcile:
+//   omission — an oracle line no parsed id appears on (the extractor
+//     missed a real task row; the phase-falsely-shipped class);
+//   phantom  — a parsed id absent from every oracle line (the extractor
+//     invented a task; Gate 3 would see the phase as never shippable).
+// The oracle is a screen, not a proof: a truncated-id parse whose prefix
+// appears on the same line can still hide (documented limit).
+// Contract: ../references/preflight-contract.md § Survey mode.
+
+const SURVEY_ORACLE_RE = /^(?:-\s+(?:\[[ xX]\]\s+)?\*{1,3}T[-\d]|#####\s+T[-\d])/;
+
+export function surveyPhase(phaseSection) {
+  const ids = extractDeclaredTaskIds(phaseSection);
+  const sizeClass = classifyPhaseSize(ids, extractDeclaredFilePaths(phaseSection));
+  const block = extractTasksBlock(phaseSection);
+  const oracleLines =
+    block === null ? [] : block.split("\n").filter((line) => SURVEY_ORACLE_RE.test(line));
+  const omissions = oracleLines.filter((line) => !ids.some((id) => line.includes(id)));
+  const phantoms = ids.filter((id) => !oracleLines.some((line) => line.includes(id)));
+  return { ids, sizeClass, oracleLines, omissions, phantoms };
+}
+
+export function surveyCorpus({ repoRoot = REPO_ROOT } = {}) {
+  const plansDir = resolve(repoRoot, "docs", "plans");
+  const planFileNames = readdirSync(plansDir)
+    .filter((name) => /^\d{3}-.+\.md$/.test(name) && !name.startsWith("000-"))
+    .sort();
+  const reportLines = [];
+  const notices = [];
+  const anomalies = [];
+  const distribution = { S: 0, M: 0, L: 0 };
+  let phaseCount = 0;
+  for (const name of planFileNames) {
+    const source = readFileSync(resolve(plansDir, name), "utf8");
+    const phases = walkPhases(source);
+    if (phases.length === 0) {
+      // Zero phases is a NOTICE, not an anomaly: the plan is invisible to
+      // the phase walker (preflight exits 2 on it), which is fail-closed —
+      // but an operator running the survey should see the gap by name.
+      notices.push(`${name}: no \`### Phase N\` headings — invisible to walkPhases`);
+      continue;
+    }
+    const phaseSummaries = [];
+    for (const { number } of phases) {
+      const section = extractPhaseSection(source, number) ?? "";
+      const result = surveyPhase(section);
+      phaseCount += 1;
+      distribution[result.sizeClass] += 1;
+      phaseSummaries.push(`P${number} ${result.sizeClass}(${result.ids.length})`);
+      for (const line of result.omissions) {
+        anomalies.push(
+          `${name} Phase ${number} [omission] task-shaped row not parsed: ${line.trim()}`,
+        );
+      }
+      for (const id of result.phantoms) {
+        anomalies.push(`${name} Phase ${number} [phantom] parsed id on no task-shaped row: ${id}`);
+      }
+    }
+    reportLines.push(`${name}: ${phases.length} phase(s) — ${phaseSummaries.join(" ")}`);
+  }
+  return {
+    planCount: planFileNames.length,
+    phaseCount,
+    distribution,
+    reportLines,
+    notices,
+    anomalies,
+  };
+}
+
+export function formatSurvey(survey) {
+  const lines = [...survey.reportLines];
+  lines.push(
+    `distribution: L=${survey.distribution.L} M=${survey.distribution.M} S=${survey.distribution.S} ` +
+      `across ${survey.phaseCount} phase(s) in ${survey.planCount} plan(s)`,
+  );
+  if (survey.notices.length) {
+    lines.push(`notices (${survey.notices.length}):`);
+    for (const notice of survey.notices) lines.push(`  - ${notice}`);
+  }
+  if (survey.anomalies.length) {
+    lines.push(`anomalies (${survey.anomalies.length}):`);
+    for (const anomaly of survey.anomalies) lines.push(`  - ${anomaly}`);
+  } else {
+    lines.push("anomalies: none");
+  }
+  return lines.join("\n");
+}
+
 // ---------- orchestration ----------
 
 function _checkPhase(planSource, planNumber, phase, planFile, opts) {
@@ -2780,17 +2883,25 @@ export function runPreflight(
 
 async function main() {
   const args = process.argv.slice(2);
-  const knownFlags = new Set(["--allow-stale-manifest", "--help", "-h"]);
+  const knownFlags = new Set(["--allow-stale-manifest", "--help", "-h", "--survey"]);
   const unknownFlags = args.filter((a) => a.startsWith("-") && !knownFlags.has(a));
   if (unknownFlags.length > 0) {
     process.stderr.write(`unknown flag(s): ${unknownFlags.join(", ")}\n`);
     process.exit(2);
   }
+  if (args.includes("--survey")) {
+    // Corpus-wide extractor screen; no plan file, no gates, no network.
+    // Exit 1 on any two-sided anomaly so authoring/refactor workflows can
+    // gate on it. Contract: ../references/preflight-contract.md § Survey mode.
+    const survey = surveyCorpus();
+    process.stdout.write(formatSurvey(survey) + "\n");
+    process.exit(survey.anomalies.length > 0 ? 1 : 0);
+  }
   const allowStaleManifest = args.includes("--allow-stale-manifest");
   const positional = args.filter((a) => !a.startsWith("-"));
   if (positional.length === 0 || args.includes("--help") || args.includes("-h")) {
     process.stderr.write(
-      "Usage: node preflight.mjs <plan-file> [phase-number] [--allow-stale-manifest]\n" +
+      "Usage: node preflight.mjs <plan-file> [phase-number] [--allow-stale-manifest] | --survey\n" +
         "See ../references/preflight-contract.md.\n",
     );
     process.exit(2);

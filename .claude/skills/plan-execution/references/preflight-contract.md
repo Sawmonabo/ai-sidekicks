@@ -173,6 +173,35 @@ Outcome table:
 - `gh pr list` returns exactly `FRESHNESS_FETCH_LIMIT` rows → **halt** (possible truncation; mirrors rebuild's exit-6 saturation sentinel).
 - Per-PR file list truncated (`files.length < changedFiles`, the GraphQL `files(first: 100)` ceiling) → **halt** (mirrors rebuild's exit-7 discipline; an unclassifiable candidate cannot be assumed doc-only).
 
+## Survey mode
+
+    node .claude/skills/plan-execution/scripts/preflight.mjs --survey
+
+Corpus-wide extractor screen — no plan file, no gates, no network. Iterates every `docs/plans/NNN-*.md` (the `000-` template excluded), walks each plan's `### Phase N` headings, runs the production extractors (`extractTasksBlock` → `extractDeclaredTaskIds` / `extractDeclaredFilePaths` → `classifyPhaseSize`), and reconciles the parsed task-id set against a **deliberately looser raw oracle** in both directions. An oracle row is a Tasks-block line opening as a top-level bullet (optional GFM checkbox, 1-3 asterisks) or `#####` heading whose token begins `T<digit>`/`T-` — head-anchored so detail bullets that mention task ids in prose (`- **Step:** ... T3.6 ...`, the Plan-003 shape) are not rows, but tolerant in exactly the dimensions the extractor has historically missed (no closing-`**` tail — the PR #190 star-in-title class; 1-3 asterisks — bold-italic rows).
+
+- **omission** — an oracle row no parsed id appears on: the extractor missed a real task row (the phase-falsely-shipped class; this direction caught the second-`#### Tasks`-block bug on PR #190).
+- **phantom** — a parsed id absent from every oracle row: the extractor invented a task (Gate 3 would see the phase as never shippable).
+
+Output: one line per walked plan (`P<N> <class>(<id-count>)` per phase), the S/M/L distribution, zero-phase plans as **notices** (they are invisible to `walkPhases`; a normal preflight run on one exits 2 fail-closed — the notice names the gap without failing the survey), and the anomaly list. Exit `0` clean / `1` on any anomaly — authoring and extractor-refactor workflows gate on it, and `preflight-survey.test.mjs` runs the real-corpus screen in CI (ci.yml's skill-test step) so a newly authored plan with an unparseable Tasks-block shape fails the PR that introduces it. The oracle is a screen, not a proof: a truncated-id parse whose prefix appears on the same row can still hide.
+
+## Manifest rebuild — legacy-PR appendix
+
+`rebuild-shipment-manifest.mjs --plan 001` from scratch (manifest lost) synthesizes candidates from squash text, and the pre-title-token-mandate era leaves two irreducible classes:
+
+- **Docs-only title matches** (PRs #1, #29 — doc-first closure and audit-split PRs whose titles cite Plan-001) are skipped automatically since the material-path filter (`skipped (docs-only title match, no material paths)`) — same `MATERIAL_PATH_PREFIXES` predicate as Gate 6, imported from preflight.mjs.
+- **Real shipments whose squash text carries no parseable Phase/T markers** validation-fail synthesis and need operator attribution. Their correct values, recorded here from the live Plan-001 manifest so a disaster rebuild is copy-paste instead of archaeology (files[] re-fetches mechanically via `gh pr view N --json files`):
+
+| PR  | phase | task         | sha       | merged_at  |
+| --- | ----- | ------------ | --------- | ---------- |
+| #30 | 5     | T5.1         | `7e4ae47` | 2026-05-06 |
+| #36 | 5     | T5.5         | `a1ef5be` | 2026-05-11 |
+| #48 | 5     | T5.4         | `de47f65` | 2026-05-11 |
+| #77 | 5     | T5.2         | `637a3f0` | 2026-05-19 |
+| #83 | 5     | T5.3         | `a70de3e` | 2026-05-20 |
+| #87 | 5     | P5-residuals | `bc33f30` | 2026-05-21 |
+
+(#6/#8/#9/#10 reuse their on-disk entries when the manifest exists; on a true from-scratch rebuild they synthesize from parseable squash text or route to operator confirmation via the truncation path — PR #6 exceeds the 100-file page.)
+
 ## Stability
 
 This tool is the single point of mechanical-gate truth. New gates land here, not in SKILL.md prose. The contract above is versioned by git history; no version stamp in the file.

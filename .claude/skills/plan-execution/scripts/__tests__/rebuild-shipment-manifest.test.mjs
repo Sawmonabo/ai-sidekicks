@@ -984,3 +984,110 @@ test("rebuildManifest --include-body-matches routes >100-file candidates to oper
     rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+// ---------- docs-only title-match skip (material-path filter) ----------
+
+test("rebuildManifest skips a docs-only title match instead of validation-failing it", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "rsm-e2e-"));
+  try {
+    const planDir = join(tmp, "docs", "plans");
+    mkdirSync(planDir, { recursive: true });
+    writeFileSync(join(planDir, "001-shared-session-core.md"), PLAN_TEMPLATE);
+
+    const ghRunner = makeGhRunner({
+      prList: [30, 61],
+      prDetails: {
+        30: SAMPLE_DETAILS,
+        // Mirrors real PR #1: token in title, docs + root files only — no
+        // parseable Phase/T markers, so pre-filter it exit-5-noised every
+        // from-scratch rebuild.
+        61: {
+          title: "docs: V1 doc-first phase closure — Plan-001 PR #1 unblocked",
+          body: "Closes BL-100.",
+          mergedAt: "2026-04-26T10:00:00Z",
+          mergeCommit: { oid: "1234567deadbeef" },
+          changedFiles: 3,
+          files: [
+            { path: "docs/decisions/023-v1-ci-cd-and-release-automation.md" },
+            { path: "README.md" },
+            { path: "AGENTS.md" },
+          ],
+        },
+      },
+    });
+
+    const stdout = makeCaptureStream();
+    const stderr = makeCaptureStream();
+    const r = await rebuildManifest({
+      plan: "001",
+      dryRun: true,
+      force: false,
+      ghRunner,
+      plansDir: planDir,
+      stdout,
+      stderr,
+    });
+    assert.equal(r.exitCode, 0); // no validation failures — the docs PR never entered synthesis
+    assert.match(stderr.text(), /skipped \(docs-only title match, no material paths\): PR #61/);
+    assert.doesNotMatch(stdout.text(), /^\s*pr: 61$/m);
+    assert.match(stdout.text(), /task: T5\.1/); // the material shipment still synthesizes
+    // dry-run stdout stays a pure YAML stream
+    assert.doesNotMatch(stdout.text(), /skipped \(docs-only/);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("rebuildManifest docs-only filter exempts PRs already recorded in the on-disk manifest", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "rsm-e2e-"));
+  try {
+    const planDir = join(tmp, "docs", "plans");
+    mkdirSync(planDir, { recursive: true });
+    const planWithEntry = PLAN_TEMPLATE.replace(
+      "shipped: []",
+      `shipped:
+  - phase: 5
+    task: T5.9
+    pr: 61
+    sha: 1234567
+    merged_at: 2026-04-26
+    files:
+      - docs/decisions/023-v1-ci-cd-and-release-automation.md
+    verifies_invariant: []
+    spec_coverage: []
+    notes: |
+      Ground-truth entry the classifier must not outrank.`,
+    );
+    writeFileSync(join(planDir, "001-shared-session-core.md"), planWithEntry);
+
+    const ghRunner = makeGhRunner({
+      prList: [61],
+      prDetails: {
+        61: {
+          title: "docs(repo): Plan-001 Phase 5 T5.9 governance sync",
+          body: "Docs-only, but already recorded on disk.",
+          mergedAt: "2026-04-26T10:00:00Z",
+          mergeCommit: { oid: "1234567deadbeef" },
+          changedFiles: 1,
+          files: [{ path: "docs/decisions/023-v1-ci-cd-and-release-automation.md" }],
+        },
+      },
+    });
+
+    const stdout = makeCaptureStream();
+    const stderr = makeCaptureStream();
+    const r = await rebuildManifest({
+      plan: "001",
+      dryRun: true,
+      force: false,
+      ghRunner,
+      plansDir: planDir,
+      stdout,
+      stderr,
+    });
+    assert.equal(r.exitCode, 0);
+    assert.doesNotMatch(stderr.text(), /skipped \(docs-only title match/);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
