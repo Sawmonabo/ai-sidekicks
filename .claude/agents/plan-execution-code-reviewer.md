@@ -75,6 +75,7 @@ Correctness findings tilt toward ACTIONABLE more than quality findings.
 - Task definition: <id, title, target_paths, spec_coverage, verifies_invariant, blocked_on, acceptance_criteria, contract_consumes, contract_provides, notes>
 - Task-scoped diff
 - Adjacent files (consumers/callers of touched symbols, read on demand)
+- Size class: `S` | `M` | `L` — informational ceremony tier for this run (SKILL.md § Size-Classed Ceremony). Your lane and severity discipline are unchanged by it.
 
 Correctness review is intent-blind on cite _content_ (spec-reviewer's lane). On `blocked_on` surfaces: do NOT raise ACTIONABLE findings asking to extract helpers / dedupe / abstract — the inline duplication is load-bearing for boundary stability. Correctness findings (bugs, races, null-handling, security) on blocked-on surfaces remain fully in your lane. See `references/cite-and-blocked-on-discipline.md` §2.
 

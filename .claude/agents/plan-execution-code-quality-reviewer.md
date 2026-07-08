@@ -57,6 +57,7 @@ Quality findings tilt toward POLISH or VERIFICATION more than spec or correctnes
 - Task-scoped diff
 - Coding standards: `.claude/rules/coding-standards.md`
 - Neighboring code (read on demand): adjacent files in target package
+- Size class: `S` | `M` | `L` — informational ceremony tier for this run (SKILL.md § Size-Classed Ceremony). Your lane and severity discipline are unchanged by it.
 
 Quality review is intent-blind on cite _content_ (spec-reviewer's lane).
 
