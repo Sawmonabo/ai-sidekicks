@@ -5,7 +5,7 @@
 // `presence.subscribe` subscription on the Phase 2 streaming primitive: a
 // push is NOT a request/response RPC; it flows as `$/subscription/notify`
 // frames keyed by a `subscriptionId` allocated through a prior `subscribe`
-// call. `PresenceUpdate` (Spec-002:85 "daemon pushes serialized Yjs
+// call. `PresenceUpdate` (`Spec-002 §Interfaces And Contracts` "daemon pushes serialized Yjs
 // Awareness state to local clients") is the VALUE that travels over the
 // subscription, and `PresenceUpdateSchema` is wired as that subscription's
 // per-value `valueSchema` below. Cf. `session-subscribe.ts`, the streaming
@@ -18,7 +18,7 @@
 //   method would widen the gateway contract, which Phase 3 forbids and
 //   which exceeds this task's target_paths). Server→client push is the
 //   streaming primitive's job, exposed to clients via a `subscribe` call.
-//   Spec-002:85's "daemon pushes" is realized as the notify side of a
+//   `Spec-002 §Interfaces And Contracts`'s "daemon pushes" is realized as the notify side of a
 //   `presence.subscribe` subscription, not a registered push-method.
 //
 // Spec coverage:
@@ -94,9 +94,10 @@
 // The method-name TABLE at lines 327-336 enumerates only Plan-007 Phase 3's
 // `session.*` surface; Plan-002 registers the `presence.*` namespace against
 // the same ratified FORMAT (Plan-002 line 95 / CP-002-2). The `subscribe`
-// method string is derived from the streaming-push mechanics + the SDK
-// accessor named at Plan-002:378 (`window.sidekicks.presence.subscribe`),
-// which maps 1:1 to the JSON-RPC method name per the `session.*` precedent.
+// method string is derived from the streaming-push mechanics + the Phase 6
+// renderer presence-consumption surface (`Plan-002 §Phase 6 — Renderer (Tier 2)`
+// T6.2 — presence indicators over the generic `window.sidekicks` preload
+// bridge), which maps 1:1 to the JSON-RPC method name per the `session.*` precedent.
 
 import type {
   Handler,
@@ -183,7 +184,7 @@ export interface PresenceSubscribeDeps {
    * `SessionService.append` with EXACTLY this shape:
    *
    *   * `category: "membership_change"`
-   *       NOT "presence". Spec-002:157 prose says "under the `presence`
+   *       NOT "presence". `Spec-002 §State And Data Implications` prose says "under the `presence`
    *       category" — that is a documentation slip. The canonical
    *       `EventCategory` enum (`packages/contracts/src/event.ts:74-90`)
    *       has NO `presence` member; Spec-006 §Presence is headed
@@ -203,7 +204,7 @@ export interface PresenceSubscribeDeps {
    *       `"presence.offline"`      — device disconnected.
    *     ALL FOUR states MUST be expressible. `online`/`idle` are
    *     heartbeat/activity-driven; `reconnecting`/`offline` are WS-liveness-
-   *     driven (Spec-002:68 — a dropped WebSocket triggers the reconnect
+   *     driven (`Spec-002 §Heartbeat Transport` — a dropped WebSocket triggers the reconnect
    *     grace window). This is a FULL lifecycle, not a degradation-only
    *     (online→reconnecting→offline) chain.
    *

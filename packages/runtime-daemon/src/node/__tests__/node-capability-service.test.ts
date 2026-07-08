@@ -9,11 +9,11 @@
 // on the emitter's append running on that connection).
 //
 // Coverage map (cites are the authoritative contract, not just the ACs):
-//   * D2 path 1 (declare → capability_declared, Spec-006:412): a first
+//   * D2 path 1 (declare → capability_declared, `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`): a first
 //     declaration emits exactly one `runtime_node.capability_declared` event
 //     (reduced base + {capability, capabilityDetails}) + a `node_capabilities`
 //     row.
-//   * D2 path 2 (re-declare changed → capability_updated, Spec-006:413): a
+//   * D2 path 2 (re-declare changed → capability_updated, `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`): a
 //     re-declare with CHANGED details emits exactly one
 //     `runtime_node.capability_updated` carrying the prior + new snapshots, and
 //     the row's `capability_value` is updated.
@@ -31,13 +31,13 @@
 //   * I-003-2 (the declaration is the precondition that gates `online`): a
 //     `runtime_node.capability_declared` event lands for the node id — the event
 //     a Phase-3/T2.4 `online` gate waits for.
-//   * T2.4 / D3 (online only after capability_declared, I-003-2; Spec-003:57):
+//   * T2.4 / D3 (online only after capability_declared, I-003-2; `Spec-003 §Default Behavior`):
 //     bringOnline returns false + emits nothing before any declaration EXISTS —
-//     the node stays in its non-online (registering) state (Spec-003:57, "online
+//     the node stays in its non-online (registering) state (`Spec-003 §Default Behavior`, "online
 //     only after capability declaration succeeds"). After declare it returns true
 //     and appends `runtime_node.online` (newState online, previousState
 //     registering) AFTER the capability_declared event. This is declaration
-//     ABSENCE (the :57 gate), NOT capability-validation FAILURE: Spec-003:76
+//     ABSENCE (the :57 gate), NOT capability-validation FAILURE: `Spec-003 §Fallback Behavior`
 //     ("validation FAILS → degraded/offline, not healthy") is a DIFFERENT path,
 //     server-derived — Phase 2 has no `degraded`/`offline`-on-invalid emission
 //     (the emitter/schemas V1.1-gate `degraded`/`revoked` durable events on the
@@ -53,9 +53,9 @@
 // capability schedulable, proven by path 1's `node_capabilities` row), line 99
 // (capability/trust changes emitted as session events), line 140 (serial re-attach
 // satisfies the node-scoped gate without re-declaring — the gate-reads-ROW block).
-// (Spec-003:76 — validation FAILURE → degraded/offline — is NOT covered here: it is
+// (`Spec-003 §Fallback Behavior` — validation FAILURE → degraded/offline — is NOT covered here: it is
 // a server-derived path, no Phase-2 `degraded` emit shape; D3 tests declaration
-// ABSENCE via the :57 gate, not validation failure. Spec-003:122 — no implicit
+// ABSENCE via the :57 gate, not validation failure. `Spec-003 §Pitfalls To Avoid` — no implicit
 // exposure on ATTACH — is the register path's obligation, exercised in
 // node-registry.test.ts where `register` carries capabilities yet writes zero
 // `node_capabilities` rows.) Verifies invariant: I-003-2 (the declaration is the
@@ -172,7 +172,7 @@ function makeCapabilityService(now: () => string = makeAdvancingClock()): NodeCa
 }
 
 // ----------------------------------------------------------------------------
-// D2 path 1 — first declaration emits capability_declared (Spec-006:412)
+// D2 path 1 — first declaration emits capability_declared (`Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`)
 // ----------------------------------------------------------------------------
 
 describe("NodeCapabilityService — D2 path 1 (first declaration → capability_declared)", () => {
@@ -193,7 +193,7 @@ describe("NodeCapabilityService — D2 path 1 (first declaration → capability_
     expect(event.type).toBe("runtime_node.capability_declared");
     expect(event.category).toBe("runtime_node_lifecycle");
 
-    // Spec-006:412 shape: reduced base + {capability, capabilityDetails}. NO
+    // `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` shape: reduced base + {capability, capabilityDetails}. NO
     // previousState/newState NodeState fields (capability events are not
     // NodeState transitions).
     const payload = JSON.parse(event.payload) as Record<string, unknown>;
@@ -216,7 +216,7 @@ describe("NodeCapabilityService — D2 path 1 (first declaration → capability_
 });
 
 // ----------------------------------------------------------------------------
-// D2 path 2 — changed re-declare emits capability_updated (Spec-006:413)
+// D2 path 2 — changed re-declare emits capability_updated (`Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`)
 // ----------------------------------------------------------------------------
 
 describe("NodeCapabilityService — D2 path 2 (changed re-declare → capability_updated)", () => {
@@ -250,7 +250,7 @@ describe("NodeCapabilityService — D2 path 2 (changed re-declare → capability
     expect(updatedEvent).toBeDefined();
     if (updatedEvent === undefined) return;
     const payload = JSON.parse(updatedEvent.payload) as Record<string, unknown>;
-    // Spec-006:413 shape: reduced base + {capability, previousState, newState} as
+    // `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` shape: reduced base + {capability, previousState, newState} as
     // CapabilityDetails SNAPSHOTS carrying the prior + new details.
     expect(payload).toEqual({
       sessionId: SESSION_ID,
@@ -486,7 +486,7 @@ describe("NodeCapabilityService — change-detection is node-scoped, not session
       capabilityDetails: details,
     });
     // Re-declare the SAME node + capability + details under a DIFFERENT session — a
-    // supported serial re-attach (Spec-003:140). `node_capabilities` is node-keyed
+    // supported serial re-attach (`Spec-003 §Resolved Questions and V1 Scope Decisions`). `node_capabilities` is node-keyed
     // (no session_id column), so the existing row is found and this is a no-op: NO
     // capability_declared lands in session two. (The daemon `online` gate reads the
     // node-keyed row, not a per-session event, so S2-online does not depend on a
@@ -523,7 +523,7 @@ describe("NodeCapabilityService — T2.4/D3 (online only after capability_declar
 
     // Before any declaration the I-003-2 precondition is unmet: bringOnline reads
     // the (absent) node-keyed row, emits NOTHING, and returns false. The node
-    // stays in its non-online (registering) state (Spec-003:57). Registration is
+    // stays in its non-online (registering) state (`Spec-003 §Default Behavior`). Registration is
     // deliberately NOT performed — the gate reads `node_capabilities`, not
     // `node_trust_state`, so this test stays focused on the declaration→online
     // gate without coupling to NodeRegistry.
@@ -550,7 +550,7 @@ describe("NodeCapabilityService — T2.4/D3 (online only after capability_declar
       "runtime_node.online",
     ]);
 
-    // The online payload is the registering→online transition (Spec-006:408 base).
+    // The online payload is the registering→online transition (`Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` base).
     const onlineEvent = events[1];
     expect(onlineEvent).toBeDefined();
     if (onlineEvent === undefined) return;

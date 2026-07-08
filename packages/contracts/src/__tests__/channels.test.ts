@@ -170,7 +170,7 @@ describe("ChannelListRequestSchema (C5: sessionId-only request per Spec-002 line
 //
 // Per-element invariants:
 //   * `id`, `state`, `participantCount` are REQUIRED at parse time.
-//   * `name` is OPTIONAL (the `?` is verbatim per Spec-002:87) — the
+//   * `name` is OPTIONAL (the `?` is verbatim per `Spec-002 §Interfaces And Contracts`) — the
 //     bootstrap default channel may have no friendly label; the wire
 //     signal for "no name" is KEY ABSENT.
 //   * `participantCount` is non-negative integer (`.int().nonnegative()`

@@ -265,9 +265,9 @@ describe("0002-runtime-node migration shape", () => {
 // only. The CHECK-rejection tests verify the provider-output defense-in-depth
 // layer actually fires (column presence alone would not prove the bound
 // landed), encoding the spec_coverage cites:
-//   * Spec-005:45 — driver-contract operations persist provider session
+//   * `Spec-005 §Required Behavior` — driver-contract operations persist provider session
 //     handles (runtime_bindings is the persistence surface).
-//   * Spec-005:55 — provider-owned resume handles persisted separately from
+//   * `Spec-005 §Required Behavior` — provider-owned resume handles persisted separately from
 //     canonical run ids (runtime_bindings.resume_handle is nullable + distinct
 //     from id / run_id).
 describe("0003-runtime-bindings migration shape", () => {
@@ -320,7 +320,7 @@ describe("0003-runtime-bindings migration shape", () => {
       expect(byName.get(other)?.pk).toBe(0);
     }
 
-    // Spec-005:55 — resume_handle (provider-owned handle) is persisted
+    // `Spec-005 §Required Behavior` — resume_handle (provider-owned handle) is persisted
     // SEPARATELY from the canonical `id` / `run_id` and is NULLABLE (a run may
     // exist before the provider issues a resume handle).
     expect(byName.get("resume_handle")?.notnull).toBe(0);
@@ -500,7 +500,7 @@ describe("0003-runtime-bindings migration shape", () => {
       }).not.toThrow();
     }
     // An undeclared flag is rejected by the CHECK IN constraint. `pause` is the
-    // canonical excluded flag per Spec-005:54 + ADR-011.
+    // canonical excluded flag per `Spec-005 §Required Behavior` + ADR-011.
     expect(() => {
       insertFlag("pause");
     }).toThrow(/CHECK constraint failed/i);

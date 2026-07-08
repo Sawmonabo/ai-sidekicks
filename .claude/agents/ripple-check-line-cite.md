@@ -21,7 +21,7 @@ The orchestrator passes you:
 
 - A list of modified files (repo-relative paths) — the cite TARGETS.
 - The diff hunks for those files (so you can compute line-shift offsets).
-- The list of inbound `<file>:NNN` cites that point at any modified file — from elsewhere in the `.md` corpus **and** from `packages/**`+`apps/**` code comments. The orchestrator enumerates code citers across all line-bearing forms (not just the floor-covered colon `Spec-003:178` — also line-word `Spec-003 line 178`, parenthesized `(line 178)`, named-section `§… line 81`, `AC4:108`, and the path / basename forms `docs/domain/session-model.md:61-77` and bare `api-payload-contracts.md:120`, which are the only way a label-less domain / architecture / ops doc is cited), normalizes each to `<doc-path>:NNN`, and tags its origin (`.md` vs code). Audit a code citer exactly as a `.md` citer: read the citing comment for what it claims, read the target line for what it now says.
+- The list of inbound `<file>:NNN` cites that point at any modified file — from elsewhere in the `.md` corpus **and** from `packages/**`+`apps/**` code comments, across all line-bearing forms (colon `Spec-003:178`, line-word `Spec-003 line 178`, parenthesized `(line 178)`, named-section `§… line 81`, `AC4:108`, full-path and bare-basename `.md` forms), normalized to `<doc-path>:NNN` and tagged by origin (`.md` vs code). The post-2026-07 sweep converted the code tree's COLON-form cites to gate-verified `§Heading` anchors and the gate denies new colon/path raw forms — but the line-word spelling and the bare-basename class remain live in code and gate-invisible, so code citers stay in scope. Audit a code citer exactly as a `.md` citer: read the citing comment for what it claims, read the target line for what it now says. Heading-anchor exposure routes to Subagent B.
 
 If any input is missing or unparseable, return `exit_state: NEEDS_CONTEXT` with a `narrative` describing the gap.
 
@@ -106,6 +106,8 @@ The PR #27 fix `aab5bf9` failing example: `Spec-027:6` should have been `Spec-02
    - **Match** — record `info` only if there is something noteworthy; otherwise skip.
    - **Mismatch with computable shift** — propose a corrected `:NNN+N` line number. Compute N from the diff hunks: count `+` lines above the original cited line. This is the insertion-drift case.
    - **Mismatch without clean shift** — the section was refactored; propose either (a) a different line cite that points at the new location of the same content, or (b) a content-based citation form (insert an inline anchor `<a id="..."></a>` near the target and cite `<file>#<id>`, or quote a unique substring the citing prose can use).
+
+4. **§-semantic check (CAT-07, warning severity).** When the orchestrator flags a diff hunk under a cited `§Heading` (Subagent B found the anchor intact), read the section and judge whether the citing context still holds — the anchor survived, but the content under it may have changed contract.
 
 ## Severity calibration
 

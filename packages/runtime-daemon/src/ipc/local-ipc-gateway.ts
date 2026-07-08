@@ -1138,7 +1138,7 @@ export class LocalIpcGateway {
             : { reason: pvReason };
         const wrapped = new FramingError(
           "invalid_protocol_version",
-          `invalid JSON-RPC envelope: protocolVersion ${pvReason} (Spec-007:54)`,
+          `invalid JSON-RPC envelope: protocolVersion ${pvReason} (Spec-007 §Wire Format)`,
           fields,
         );
         if (isNotification) {

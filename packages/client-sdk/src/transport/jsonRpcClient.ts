@@ -5,7 +5,7 @@
 // `subscribe<T>` operations against the daemon's JSON-RPC method-namespace
 // registry. Every outbound payload is Zod-validated BEFORE the wire write,
 // every inbound payload is Zod-validated BEFORE it surfaces to the caller —
-// the SDK does NOT swallow validation errors (per Plan-007:340 / I-007-3-T4).
+// the SDK does NOT swallow validation errors (per `Plan-007 §Phase 3: session.* Handlers + SDK Zod Layer` T-007p-3-2 / I-007-3-T4).
 //
 // Spec coverage:
 //   * Spec-007 line 56 — "typed JSON-RPC client transport" surface owed to
@@ -14,12 +14,12 @@
 //     CREATE (transport-layer + Zod wrapping primitive).
 //   * Plan-007 lines 309-322 — `JsonRpcClient` class signature contract
 //     (constructor + `call<P, R>` + `subscribe<T>`).
-//   * MCP TypeScript SDK pattern (Plan-007:309 reference; see
+//   * MCP TypeScript SDK pattern (`Plan-007 §Phase 3: session.* Handlers + SDK Zod Layer` T-007p-3-2 reference; see
 //     https://github.com/modelcontextprotocol/typescript-sdk) — separation
 //     of envelope-layer client from byte-framing transport.
 //
 // Invariants this module enforces at the client boundary (mirrors the
-// daemon-side registry/dispatch invariants from Plan-007:95-117):
+// daemon-side registry/dispatch invariants from `Plan-007 §I-007-6 — Namespace registry rejects duplicate method-name registration` + `Plan-007 §I-007-9 — Method names conform to the canonical format declared in api-payload-contracts.md`):
 //   * Caller-side params validation: `paramsSchema.parse(params)` runs
 //     BEFORE the wire envelope is constructed. A caller passing a malformed
 //     `params` value fails fast with a typed `JsonRpcSchemaError` and never
@@ -41,7 +41,7 @@
 //     handle Content-Length-prefixed LSP framing per Spec-007 §Wire Format.
 //     This module works at the JSON-RPC envelope layer above framing.
 //   * Implement the `daemon.hello` handshake. `opts.protocolVersion` is
-//     attached to every outgoing request envelope per Spec-007:54
+//     attached to every outgoing request envelope per `Spec-007 §Wire Format`
 //     ("every request except health checks must carry it"); the actual
 //     handshake (`call("daemon.hello", ...)`) is the caller's concern,
 //     typically wired by the bootstrap code that instantiates the client.
@@ -430,7 +430,7 @@ function completeSubscriptionWithError<T>(state: SubscriptionState<T>, error: Er
 export interface JsonRpcClientOptions {
   /**
    * The protocol version attached to every outgoing JSON-RPC request
-   * envelope per Spec-007:54 ("every request except health checks must
+   * envelope per `Spec-007 §Wire Format` ("every request except health checks must
    * carry it"). ISO 8601 `YYYY-MM-DD` date-string per
    * api-payload-contracts.md §Tier 1 (cont.): Plan-007 (BL-102 ratified
    * 2026-05-01).
@@ -552,7 +552,7 @@ export class JsonRpcClient {
    *      coalesced inbound frame can be dispatched against the new id.
    *
    * The `protocolVersion` from constructor opts is attached to every
-   * outgoing envelope per Spec-007:54.
+   * outgoing envelope per `Spec-007 §Wire Format`.
    *
    * @throws JsonRpcSchemaError - When `params` fail caller-side validation
    *   (phase: `"params"`) or `result` fails server-side validation
@@ -693,7 +693,7 @@ export class JsonRpcClient {
    * @param method - The dotted-namespace subscribe method (e.g.
    *   `session.subscribe`).
    * @param params - The subscribe payload. Type-erased at this layer
-   *   (`unknown`) per the Plan-007:509 contract — typed wrappers
+   *   (`unknown`) per the `Plan-007 §Phase 3: session.* Handlers + SDK Zod Layer` Tasks contract (T-007p-3-4) — typed wrappers
    *   (Plan-001 Phase 5) narrow per-method.
    * @param valueSchema - Zod schema for the per-notification `value` shape.
    *   Every inbound `$/subscription/notify` is validated against this

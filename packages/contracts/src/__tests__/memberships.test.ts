@@ -191,7 +191,7 @@ describe("MembershipStateSchema (re-exported; lifecycle states per session.ts:18
 //   }
 //
 // Four-action union. NO `sessionId` (membershipId is globally-unique). NO
-// `reason` (Spec-002:48 routes audit detail to session events, not the
+// `reason` (`Spec-002 §Required Behavior` routes audit detail to session events, not the
 // request body). `newRole` is REQUIRED on `change_role`, FORBIDDEN on the
 // other three variants (the `.strict()` guard on each enforces).
 //
@@ -214,8 +214,8 @@ describe("MembershipUpdateSchema (C3: discriminated union per Spec-002 line 83)"
     }
   });
 
-  it("accepts change_role payload with newRole='owner' (Spec-002:49 owner-elevation path)", () => {
-    // Owner elevation is an EXPLICIT spec-permitted path (Spec-002:49):
+  it("accepts change_role payload with newRole='owner' (Spec-002 §Required Behavior owner-elevation path)", () => {
+    // Owner elevation is an EXPLICIT spec-permitted path (`Spec-002 §Required Behavior`):
     // an existing owner CAN promote another active member to owner.
     // Schema admits it; the "only existing owners may promote" guard is
     // a service-layer check owned by Plan-002 Phase 2 T2.3 P6, NOT a
@@ -365,7 +365,7 @@ describe("MembershipUpdateSchema (C3: discriminated union per Spec-002 line 83)"
   // ----------------------------------------------------------------------
   //
   // The canonical wire form per api-payload-contracts.md:417-427 omits both
-  // `sessionId` (membershipId is globally unique) and `reason` (Spec-002:48
+  // `sessionId` (membershipId is globally unique) and `reason` (`Spec-002 §Required Behavior`
   // routes audit detail to session-event payloads owned by Plan-006). The
   // `.strict()` guard on each variant rejects them at parse time. These
   // tests pin the canonical surface — if a future edit ever drops

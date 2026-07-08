@@ -11,11 +11,11 @@
 // consumers.
 //
 // Coverage map (cite → block):
-//   • AC1 (Spec-005:204) — a mock fully implementing `ProviderDriver` (all 10
+//   • AC1 (`Spec-005 §Acceptance Criteria`) — a mock fully implementing `ProviderDriver` (all 10
 //     ops, correctly-typed params + returns) compiles with no session-domain
 //     change. The compile is the assertion; a runtime smoke confirms the mock
 //     is constructable and a method returns the expected shape.
-//   • AC2 (Spec-005:205) — a capability flag outside the 7-flag
+//   • AC2 (`Spec-005 §Acceptance Criteria`) — a capability flag outside the 7-flag
 //     `DriverCapabilityFlag` union is a TS error (`@ts-expect-error`, self-
 //     verifying via TS2578 if the invalid flag ever became valid).
 //   • I-005-5 — narrowing a `DriverResumeResult` to `status: "failed"` makes
@@ -30,7 +30,7 @@
 //     leaf `IdempotencyClassSchema` parse valid shapes and reject invalid ones
 //     (including `.strict()` extra-key rejection on the result-envelope schemas;
 //     `ProviderToolMetadataSchema`, by contrast, STRIPS unknown keys per
-//     Spec-005:64 forward-compat). Every untrusted free-form string these
+//     `Spec-005 §Default Behavior` forward-compat). Every untrusted free-form string these
 //     schemas parse is length / non-whitespace / NUL-bounded via
 //     `wireFreeFormString` — exercised per field below.
 //
@@ -41,9 +41,9 @@
 // uses no `expectTypeOf` / `assertType` helper, so the compile-time assertions
 // here are typed-binding + `@ts-expect-error`, exactly as the siblings do.
 //
-// Refs: Spec-005:204 (AC1 — driver implementable with no session-domain change),
-// Spec-005:205 (AC2 — off-union capability flag is a type error), Spec-005:69
-// (resume-failure surfacing), Spec-005:174 (idempotency default), Plan-005
+// Refs: `Spec-005 §Acceptance Criteria` (AC1 — driver implementable with no session-domain change),
+// `Spec-005 §Acceptance Criteria` (AC2 — off-union capability flag is a type error), `Spec-005 §Fallback Behavior`
+// (resume-failure surfacing), `Spec-005 §idempotency_class` (idempotency default), Plan-005
 // Phase 1, I-005-3, I-005-5.
 import { describe, expect, it } from "vitest";
 
@@ -89,7 +89,7 @@ const RUN_ID = RUN_UUID as RunId;
 const CHANNEL_ID = CHANNEL_UUID as ChannelId;
 
 // ===========================================================================
-// AC1 (Spec-005:204) — a mock fully implementing `ProviderDriver` compiles.
+// AC1 (`Spec-005 §Acceptance Criteria`) — a mock fully implementing `ProviderDriver` compiles.
 // ===========================================================================
 //
 // The class below implements ALL 10 operations with correctly-typed params and
@@ -174,7 +174,7 @@ class MockProviderDriver implements ProviderDriver {
   }
 }
 
-describe("ProviderDriver contract — AC1 (Spec-005:204): a mock implements all 10 ops", () => {
+describe("ProviderDriver contract — AC1 (Spec-005 §Acceptance Criteria): a mock implements all 10 ops", () => {
   // Type-level proof that the mock satisfies the contract interface: assigning
   // it to a `ProviderDriver`-typed binding will fail to compile if any of the
   // 10 method signatures drifts from the contract. This is the AC1 assertion;
@@ -238,7 +238,7 @@ describe("ProviderDriver contract — AC1 (Spec-005:204): a mock implements all 
     expect(result.status).toBe("applied");
   });
 
-  it("rejects a steer intervention with an empty payload (compile-time, Spec-005:46)", () => {
+  it("rejects a steer intervention with an empty payload (compile-time, Spec-005 §Required Behavior)", () => {
     // @ts-expect-error — `steer` is coupled to SteerPayload; `content` is
     // mandatory, so the empty `payload: {}` below makes this assignment a type
     // error (an empty payload is structurally unrepresentable for `steer`).
@@ -291,7 +291,7 @@ describe("ProviderDriver contract — AC1 (Spec-005:204): a mock implements all 
 });
 
 // ===========================================================================
-// AC2 (Spec-005:205) — a capability flag outside the 7-flag union is a TS error.
+// AC2 (`Spec-005 §Acceptance Criteria`) — a capability flag outside the 7-flag union is a TS error.
 // ===========================================================================
 //
 // `DriverCapabilities.flags` is `Record<DriverCapabilityFlag, boolean>`. The
@@ -304,7 +304,7 @@ describe("ProviderDriver contract — AC1 (Spec-005:204): a mock implements all 
 // No `as any` / `as never` escape hatch is used — that would silence the very
 // error this case exists to surface.
 
-describe("ProviderDriver contract — AC2 (Spec-005:205): off-union capability flag is a type error", () => {
+describe("ProviderDriver contract — AC2 (Spec-005 §Acceptance Criteria): off-union capability flag is a type error", () => {
   it("rejects a capability flag outside the 7-flag DriverCapabilityFlag union at compile time", () => {
     const flagsWithExtra: DriverCapabilities["flags"] = {
       resume: true,
@@ -354,7 +354,7 @@ describe("ProviderDriver contract — AC2 (Spec-005:205): off-union capability f
 // has NO `bindingId`; the `resumed` variant carries `bindingId` and no failure
 // signal. So a resume CANNOT return a binding while signalling failure — the
 // type system forbids conflating a failed resume with a successful one
-// (Spec-005:69: resume failure must surface provider-failure detail + a visible
+// (`Spec-005 §Fallback Behavior`: resume failure must surface provider-failure detail + a visible
 // recovery-needed condition, and must NOT silently create a replacement
 // session under the same canonical run).
 
@@ -415,7 +415,7 @@ describe("ProviderDriver contract — I-005-5: failed resume cannot carry a bind
 // This package's first TRANSFORMING schema (Input ≠ Output): an OMITTED
 // `idempotency_class` defaults to `manual_reconcile_only` on the OUTPUT (a
 // driver may omit it at ingress; the daemon-side normalized shape requires it).
-// Spec-005:174 — an undeclared class is NOT a contract violation; the safe
+// `Spec-005 §idempotency_class` — an undeclared class is NOT a contract violation; the safe
 // default applies at the normalization seam.
 
 describe("ProviderToolMetadataSchema — I-005-3: ingress→normalized idempotency default", () => {
@@ -463,9 +463,9 @@ describe("ProviderToolMetadataSchema — I-005-3: ingress→normalized idempoten
     ).toBe(false);
   });
 
-  it("strips an unknown extra key (Spec-005:64 forward-compat — unknown fields ignored)", () => {
+  it("strips an unknown extra key (Spec-005 §Default Behavior forward-compat — unknown fields ignored)", () => {
     // The extensible tool-metadata DECLARATION surface must IGNORE unknown keys
-    // (Spec-005:64), in deliberate contrast to the `.strict()` result envelopes.
+    // (`Spec-005 §Default Behavior`), in deliberate contrast to the `.strict()` result envelopes.
     // The load-bearing assertion is ABSENCE of the unknown key from the
     // normalized output (`toEqual`, not a `success`-only check) — a passthrough
     // schema would also `success`, so only checking the exact output shape

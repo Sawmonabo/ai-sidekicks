@@ -1,6 +1,6 @@
 ---
 name: ripple-check
-description: Use when about to push or stage doc-corpus changes that other docs cite — heading move / rename / archival, Mermaid / table / list set-membership change, line-citation drift suspicion, identifier or path rename, plan-readiness audit pre-merge, or a Codex finding suggesting the static hooks missed a residual semantic class. Audits the residual the deterministic hooks (lychee, path-canonical-ripple, mermaid-set-coherence, cite-target-existence) cannot enforce. Author-invoked only — never runs from CI.
+description: Use when about to push or stage doc-corpus changes that other docs cite — heading move / rename / archival, Mermaid / table / list set-membership change, line-citation drift suspicion, identifier or path rename, plan-readiness audit pre-merge, or a Codex finding suggesting the static hooks missed a residual semantic class. Audits the residual the deterministic hooks (lychee, path-canonical-ripple, mermaid-set-coherence, cite-target-existence + #symbol verification, label-cite §Heading verification + raw-form denies) cannot enforce. Author-invoked only — never runs from CI.
 ---
 
 # ripple-check
@@ -15,10 +15,10 @@ You are the orchestrator. You do not write findings yourself — you decompose t
 
 ## Why this skill exists
 
-The static pre-commit + CI hooks (`lychee`, `path-canonical-ripple`, `mermaid-set-coherence`, `cite-target-existence`) catch the deterministic 80% — they always fire, run in <5s, and gate via branch protection. They cannot catch the semantic 20%:
+The static pre-commit + CI hooks (`lychee`, `path-canonical-ripple`, `mermaid-set-coherence`, `cite-target-existence` — including `#symbol` verification + the volatile-tree line-pin deny — and `label-cite` — `§Heading` verification + the raw code→docs deny) catch the deterministic 80% — they always fire, run in <5s, and gate via branch protection. They cannot catch the semantic 20%:
 
 - **CAT-05 (broader)** — set-quantifier claims expressed in tables / lists, not the narrow Mermaid + prose-enumeration shape the hook enforces.
-- **CAT-07** — line-citation drift when both old and new lines are non-empty (`Spec-027:6 → :5`).
+- **CAT-07** — line-citation drift when both old and new lines are non-empty (`Spec-027:6 → :5`) — in `.md` citers; code citers now use gate-verified anchors, so their residual is semantic drift UNDER an intact anchor.
 - **Cross-doc narrative coherence** — "ADR-022 says X; Plan-022 implicitly assumes ¬X." Spans multiple catalog rows and is keyed on a _semantic relationship_, not a single structural action.
 
 The PR #27 post-mortem found two distinct failure modes — heading-move recall by surface label (CAT-03) and set-quantifier invalidation (CAT-05) — that escaped the author's adversarial pass but were caught by isolated-context subagents. This skill institutionalizes that pattern, while explicitly preserving the catalog's structural-action keying for the four catalog-row subagents (A–D) and using a fifth audit-layer subagent (E) for residuals that span rows.
@@ -64,31 +64,23 @@ Override the diff source. Default is `git diff HEAD` ∪ `git diff --cached` (wo
    | An H1–H6 heading was deleted / added / moved between files | **Subagent B** (CAT-03 / CAT-04) | `ripple-check-heading-move` |
    | An H1–H6 heading text was edited in place (slug change) | **Subagent B** (CAT-03 / CAT-04) | (same as above) |
    | A Mermaid graph node, table row, or list bullet was added or removed | **Subagent C** (CAT-05 broad) | `ripple-check-set-quantifier` |
-   | A staged governance doc (spec / plan / ADR — or a label-less domain / architecture / ops doc) is cited from elsewhere by line — in other `.md` docs **or** in `packages/**`+`apps/**` code comments | **Subagent D** (CAT-06 / CAT-07) | `ripple-check-line-cite` |
+   | A staged governance doc is cited by line from other `.md` docs (docs→docs `:NNN`, incl. label forms) | **Subagent D** (CAT-06 / CAT-07) | `ripple-check-line-cite` |
+   | A staged doc's HEADINGS are renamed / deleted while cited via backticked `§Heading` anchors (in `.md` or code) | **Subagent B** (CAT-03 / CAT-04) | `ripple-check-heading-move` |
+   | A staged code file's EXPORTED SYMBOLS are renamed / removed while cited via `#symbol` anchors in docs | **Subagent A** (CAT-02) | `ripple-check-path-identifier` |
    | Any modified `.md` file is referenced by other docs | **Subagent E** (cross-doc coherence) | `ripple-check-cross-doc` |
 
    CAT-08 (outbound HTTP / file-link breakage) and CAT-09 (table-total arithmetic drift) fire no subagent — each is fully covered by a deterministic hook: `lychee` at CI for CAT-08, and `table-total-coherence` at pre-commit + CI for CAT-09. (A marked-table row change still dispatches Subagent C for its broader CAT-05 set-quantifier ripple; only the within-document arithmetic is the hook's deterministic slice.)
 
-   **Subagent D inbound enumeration — code comments are in scope.** A line-shifting edit to a governance doc silently invalidates inbound line-cites in BOTH other `.md` docs **and** `packages/**`+`apps/**` code comments. Code cites the amended doc two ways: by **label token** (`Spec-003:178`) and by **path / basename** (`docs/domain/session-model.md:61-77`, `api-payload-contracts.md:120`) — the latter is the ONLY form for a label-less domain / architecture / ops doc. The deterministic `label-cite` floor (pre-commit + CI) already re-checks the colon forms it can resolve (`Spec-NNN:LL` and the `docs/`-rooted `docs/…md:LL`), but by design it cannot see the line-word forms, the bare-basename form, or any non-empty line-shift (CAT-07). So when the diff amends a governance doc, build Subagent D's inbound cite list across BOTH surfaces and BOTH cite forms:
-   1. **Identify the amended doc by token AND path.** Label token (when the doc has one): `docs/specs/003-…` → `Spec-003`, `docs/plans/007-…` → `Plan-007`, `docs/decisions/018-…` → `ADR-018`. Plus its repo-relative path (`docs/domain/session-model.md`) and basename (`session-model.md`) — a domain / architecture / ops doc has only these.
-   2. **Grep the code tree for the token AND the basename** (coarse pre-filter — refine in step 3; escape dots in the basename):
+   **Subagent D inbound enumeration — `.md` AND code citers.** A line-shifting edit to a governance doc silently invalidates inbound line-cites in other `.md` docs AND in `packages/**`+`apps/**` code comments. Build D's inbound list from BOTH surfaces across every line-bearing form:
+   1. **Identify the amended doc by token AND path.** Label token (when the doc has one): `docs/specs/003-…` → `Spec-003`, `docs/plans/007-…` → `Plan-007`, `docs/decisions/018-…` → `ADR-018`. Plus its repo-relative path (`docs/domain/session-model.md`) and basename (`session-model.md`) — a domain / architecture / ops doc has only these. Grep BOTH the `.md` corpus and the code tree (`packages/` + `apps/`, `*.ts|*.tsx|*.mts|*.cts`, excluding `dist/`) for the token and the basename.
+   2. **Keep every line-bearing form** in `.md` and code citers: colon `Spec-003:178`; line-word `Spec-003 line 178` / `lines 81, 107-113`; parenthesized `(line 178)`; named-section `§Acceptance Criteria line 81`; acceptance-criterion `AC4:108`; full path `docs/domain/session-model.md:61-77`; bare basename `api-payload-contracts.md:120`; and their line-word variants.
+   3. **Normalize** each hit to `<doc-path>:NNN` — a range / list (`lines 81, 107-113`, `:61-77`) expands to one entry per endpoint. Pass the union as Subagent D's inbound list, tagging each entry's origin (`.md` vs code).
 
-      ```bash
-      # label token (skip for a label-less doc):
-      grep -rnE '(Spec|Plan|ADR)-[0-9]{3}' packages apps --exclude-dir=dist \
-        --include='*.ts' --include='*.tsx' --include='*.mts' --include='*.cts'
-      # path / basename — e.g. an amended docs/domain/session-model.md:
-      grep -rnE 'session-model\.md' packages apps --exclude-dir=dist \
-        --include='*.ts' --include='*.tsx' --include='*.mts' --include='*.cts'
-      ```
+   Post-2026-07 sweep, NEW code-side raw cites in the colon and docs-path spellings are denied at pre-commit + CI and the backticked `§Heading` anchors (label `Spec-NNN §…` and path `docs/….md §…` forms) are gate-verified — but two code-side populations remain live and gate-invisible, so the code tree STAYS in D's enumeration: the line-word spelling (`Spec-003 line 128` — ~362 occurrences at 2026-07-08; the deny sees only colon-adjacent forms) and the bare-basename `.md:NN` wire-doc annotation class (label-less architecture-doc targets). Both are documented in CAT-07. Additionally enumerate inbound ANCHOR exposure:
+   - For each renamed / deleted **heading** in the diff: `grep -rn "§ *<old-heading>"` over `**/*.md` AND `packages/ apps/` (backticked and unbackticked) — route hits to Subagent B.
+   - For each renamed / removed **export**: `grep -rn "#<oldName>\b"` over `docs/` and root md — route hits to Subagent A.
 
-   3. **Keep every line-bearing form**, not just the floor-covered colon forms:
-      - **Token forms:** colon `Spec-003:178`; line-word `Spec-003 line 178` / `lines 81, 107-113`; parenthesized `(line 178)`; named-section `§Acceptance Criteria line 81`; acceptance-criterion `AC4:108`.
-      - **Path / basename forms:** full path `docs/domain/session-model.md:61-77`; bare basename `api-payload-contracts.md:120`; and their line-word variants `…md line N` / `…md (line N)`.
-
-      Drop bare mentions with no line (`Spec-NNN §Foo`, `per Spec-NNN`, a path with no `:NNN`) — there is no cited line to drift. Enumerating colon-only here would merely re-cover the floor and let the line-word AND bare-basename residual fall through BOTH layers — the exact gap (#139 was 11/41 line-word cites) this audit exists to close.
-
-   4. **Normalize** each hit to `<doc-path>:NNN` — the amended doc's path paired with the cited line; a range / list (`lines 81, 107-113`, `:61-77`) expands to one entry per endpoint — and concatenate with the `.md` inbound citers. Pass the union as Subagent D's inbound list, tagging each entry's origin (`.md` vs code) so the subagent can name the citing surface in its narrative.
+   Drop bare mentions with neither line nor anchor (a path or token with no `:NNN`, no `§`, no `#symbol`) — there is nothing cited to drift.
 
 ### Phase 1 — Parallel subagent dispatch
 
@@ -96,7 +88,7 @@ Dispatch the queued subagents in a **single message** with multiple `Agent` tool
 
 For each subagent:
 
-- Construct the `prompt` parameter as a plain text payload containing the runtime data the agent expects (its `## Inputs` section in `.claude/agents/ripple-check-<role>.md` is the source of truth). At minimum: the modified-file list and the diff hunks scoped to the agent's axis. Axis-specific additions: registry path (A), recent lychee output (B, optional), confirmation that `mermaid-set-coherence` already passed (C), the inbound `<file>:NNN` cite list spanning `.md` and code citers (D; built per the Phase 0 step 4 enumeration recipe), the list of dependent docs (E).
+- Construct the `prompt` parameter as a plain text payload containing the runtime data the agent expects (its `## Inputs` section in `.claude/agents/ripple-check-<role>.md` is the source of truth). At minimum: the modified-file list and the diff hunks scoped to the agent's axis. Axis-specific additions: registry path (A), recent lychee output (B, optional), confirmation that `mermaid-set-coherence` already passed (C), the inbound `<file>:NNN` cite list spanning `.md` AND code citers, each entry origin-tagged (D; built per the Phase 0 enumeration recipe — B and E payloads additionally carry the heading / symbol anchor-exposure lists from the same recipe), the list of dependent docs (E).
 - Pass hunks, not the full repo — context discipline is load-bearing for parallel cost and signal-to-noise.
 - The shared output schema and behavioral contract are inlined into each agent's system prompt. Do NOT restate the schema in the dispatch prompt.
 - For `--with-fixes` mode, pass `isolation: "worktree"` to each `Agent` call. Subagents in worktree mode write file edits but do **not** run `git` (their definitions intentionally omit the `Bash` tool); the orchestrator extracts the diff in Phase 3.

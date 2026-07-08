@@ -69,7 +69,7 @@ describe("label-cite — token → path resolution", () => {
 });
 
 describe("label-cite — the deterministic floor (checkLabelCiteTargets)", () => {
-  it("ACCEPTS a colon cite that points at a non-empty in-range line", () => {
+  it("DENIES a raw colon cite even at a non-empty in-range line (post-sweep ratchet)", () => {
     const { root, cleanup } = setupRepo({
       "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
       "packages/runtime-daemon/src/node.ts": "// see Spec-003:2 for the attach handshake.\n",
@@ -78,13 +78,15 @@ describe("label-cite — the deterministic floor (checkLabelCiteTargets)", () =>
       const violations = withRepoRoot(root, () =>
         checkLabelCiteTargets([resolve(root, "packages/runtime-daemon/src/node.ts")]),
       );
-      expect(violations).toEqual([]);
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("raw-line-cite-into-governance-doc");
+      expect(violations[0].cite.rawTarget).toBe("Spec-003:2");
     } finally {
       cleanup();
     }
   });
 
-  it("FLAGS a colon cite whose target line is out of range", () => {
+  it("DENIES a raw colon cite whose target line is out of range (deny, not floor)", () => {
     const { root, cleanup } = setupRepo({
       "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
       "packages/runtime-daemon/src/node.ts": "// see Spec-003:99 for the attach handshake.\n",
@@ -94,14 +96,14 @@ describe("label-cite — the deterministic floor (checkLabelCiteTargets)", () =>
         checkLabelCiteTargets([resolve(root, "packages/runtime-daemon/src/node.ts")]),
       );
       expect(violations).toHaveLength(1);
-      expect(violations[0].reason).toBe("line-out-of-range");
+      expect(violations[0].reason).toBe("raw-line-cite-into-governance-doc");
       expect(violations[0].cite.rawTarget).toBe("Spec-003:99");
     } finally {
       cleanup();
     }
   });
 
-  it("FLAGS a colon cite whose target line is whitespace-only", () => {
+  it("DENIES a raw colon cite whose target line is whitespace-only", () => {
     const { root, cleanup } = setupRepo({
       "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
       "packages/runtime-daemon/src/node.ts": "// see Spec-003:6 for the attach handshake.\n",
@@ -111,13 +113,13 @@ describe("label-cite — the deterministic floor (checkLabelCiteTargets)", () =>
         checkLabelCiteTargets([resolve(root, "packages/runtime-daemon/src/node.ts")]),
       );
       expect(violations).toHaveLength(1);
-      expect(violations[0].reason).toBe("target-line-empty");
+      expect(violations[0].reason).toBe("raw-line-cite-into-governance-doc");
     } finally {
       cleanup();
     }
   });
 
-  it("FLAGS a cite to a governance doc that does not exist (missing-target-file)", () => {
+  it("DENIES a raw cite to a governance doc that does not exist (deny fires before read)", () => {
     // Spec-028 has no doc — a cite to a nonexistent/deleted doc is a real
     // defect; the resolver returns a sentinel path no reader can open.
     const { root, cleanup } = setupRepo({
@@ -129,14 +131,14 @@ describe("label-cite — the deterministic floor (checkLabelCiteTargets)", () =>
         checkLabelCiteTargets([resolve(root, "packages/runtime-daemon/src/node.ts")]),
       );
       expect(violations).toHaveLength(1);
-      expect(violations[0].reason).toBe("missing-target-file");
+      expect(violations[0].reason).toBe("raw-line-cite-into-governance-doc");
       expect(violations[0].cite.rawTarget).toBe("Spec-028:1");
     } finally {
       cleanup();
     }
   });
 
-  it("validates BOTH endpoints of a range cite and isolates the bad one", () => {
+  it("DENIES a range cite exactly ONCE (extraction expands endpoints; the deny dedupes)", () => {
     const { root, cleanup } = setupRepo({
       "docs/specs/006-event-taxonomy.md": FIVE_LINE_DOC,
       "packages/contracts/src/event.ts": "// Spec-006:2-99 spans the taxonomy block.\n",
@@ -145,11 +147,8 @@ describe("label-cite — the deterministic floor (checkLabelCiteTargets)", () =>
       const violations = withRepoRoot(root, () =>
         checkLabelCiteTargets([resolve(root, "packages/contracts/src/event.ts")]),
       );
-      const outOfRange = violations.filter((v) => v.reason === "line-out-of-range");
-      expect(outOfRange).toHaveLength(1);
-      expect(outOfRange[0].cite.targetLine).toBe(99);
-      // The valid start endpoint (:2) produced no violation.
       expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("raw-line-cite-into-governance-doc");
     } finally {
       cleanup();
     }
@@ -172,7 +171,7 @@ describe("label-cite — the deterministic floor (checkLabelCiteTargets)", () =>
 });
 
 describe("label-cite — docs-path form (floors label-LESS docs: domain / architecture / ops)", () => {
-  it("ACCEPTS a `docs/...md:LL` cite at a non-empty in-range line of a label-less doc", () => {
+  it("DENIES a raw `docs/...md:LL` cite even at a non-empty in-range line (ratchet)", () => {
     // session-model.md carries no Spec/Plan/ADR token; the path form is the ONLY
     // floor that reaches it. This is the class the colon-only floor could not see
     // (the SessionBootstrap / session-projector cites the advisor surfaced).
@@ -184,13 +183,14 @@ describe("label-cite — docs-path form (floors label-LESS docs: domain / archit
       const violations = withRepoRoot(root, () =>
         checkLabelCiteTargets([resolve(root, "packages/runtime-daemon/src/types.ts")]),
       );
-      expect(violations).toEqual([]);
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("raw-line-cite-into-governance-doc");
     } finally {
       cleanup();
     }
   });
 
-  it("FLAGS a `docs/...md:LL` cite whose line is out of range", () => {
+  it("DENIES a raw `docs/...md:LL` cite whose line is out of range", () => {
     const { root, cleanup } = setupRepo({
       "docs/domain/session-model.md": FIVE_LINE_DOC,
       "packages/runtime-daemon/src/types.ts": "// `docs/domain/session-model.md:99` drifted.\n",
@@ -200,14 +200,14 @@ describe("label-cite — docs-path form (floors label-LESS docs: domain / archit
         checkLabelCiteTargets([resolve(root, "packages/runtime-daemon/src/types.ts")]),
       );
       expect(violations).toHaveLength(1);
-      expect(violations[0].reason).toBe("line-out-of-range");
+      expect(violations[0].reason).toBe("raw-line-cite-into-governance-doc");
       expect(violations[0].cite.rawTarget).toBe("docs/domain/session-model.md:99");
     } finally {
       cleanup();
     }
   });
 
-  it("validates BOTH endpoints of a `docs/...md:LL-LL` range cite (the :61-77 shape)", () => {
+  it("DENIES a `docs/...md:LL-LL` range cite exactly ONCE (dedupe)", () => {
     const { root, cleanup } = setupRepo({
       "docs/domain/session-model.md": FIVE_LINE_DOC,
       "packages/runtime-daemon/src/types.ts": "// `docs/domain/session-model.md:2-99` span.\n",
@@ -217,14 +217,13 @@ describe("label-cite — docs-path form (floors label-LESS docs: domain / archit
         checkLabelCiteTargets([resolve(root, "packages/runtime-daemon/src/types.ts")]),
       );
       expect(violations).toHaveLength(1);
-      expect(violations[0].reason).toBe("line-out-of-range");
-      expect(violations[0].cite.targetLine).toBe(99);
+      expect(violations[0].reason).toBe("raw-line-cite-into-governance-doc");
     } finally {
       cleanup();
     }
   });
 
-  it("FLAGS a cite to a `docs/` path that does not exist (rename / delete signal)", () => {
+  it("DENIES a raw cite to a `docs/` path that does not exist (deny fires before read)", () => {
     const { root, cleanup } = setupRepo({
       "docs/domain/session-model.md": FIVE_LINE_DOC,
       "packages/runtime-daemon/src/types.ts": "// `docs/domain/renamed-away.md:1` is stale.\n",
@@ -234,13 +233,13 @@ describe("label-cite — docs-path form (floors label-LESS docs: domain / archit
         checkLabelCiteTargets([resolve(root, "packages/runtime-daemon/src/types.ts")]),
       );
       expect(violations).toHaveLength(1);
-      expect(violations[0].reason).toBe("missing-target-file");
+      expect(violations[0].reason).toBe("raw-line-cite-into-governance-doc");
     } finally {
       cleanup();
     }
   });
 
-  it("FLAGS a multi-segment `docs/architecture/contracts/...md:LL` cite (any-depth)", () => {
+  it("DENIES a multi-segment `docs/architecture/contracts/...md:LL` cite (any-depth)", () => {
     // The two-segment `architecture/contracts` path is repo-root-resolvable and
     // MUST be floored. An out-of-range hit is load-bearing: it proves the regex
     // MATCHED the deep path (an unmatched cite yields 0 violations, which is
@@ -256,7 +255,7 @@ describe("label-cite — docs-path form (floors label-LESS docs: domain / archit
         checkLabelCiteTargets([resolve(root, "packages/contracts/src/x.ts")]),
       );
       expect(violations).toHaveLength(1);
-      expect(violations[0].reason).toBe("line-out-of-range");
+      expect(violations[0].reason).toBe("raw-line-cite-into-governance-doc");
       expect(violations[0].cite.rawTarget).toBe(
         "docs/architecture/contracts/error-contracts.md:99",
       );
@@ -265,7 +264,7 @@ describe("label-cite — docs-path form (floors label-LESS docs: domain / archit
     }
   });
 
-  it("ACCEPTS a multi-segment `docs/...md:LL` cite at a valid in-range line", () => {
+  it("DENIES a multi-segment `docs/...md:LL` cite even at a valid in-range line", () => {
     const { root, cleanup } = setupRepo({
       "docs/architecture/contracts/error-contracts.md": FIVE_LINE_DOC,
       "packages/contracts/src/x.ts":
@@ -275,7 +274,8 @@ describe("label-cite — docs-path form (floors label-LESS docs: domain / archit
       const violations = withRepoRoot(root, () =>
         checkLabelCiteTargets([resolve(root, "packages/contracts/src/x.ts")]),
       );
-      expect(violations).toHaveLength(0);
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("raw-line-cite-into-governance-doc");
     } finally {
       cleanup();
     }
@@ -371,7 +371,8 @@ describe("label-cite — formatter", () => {
       const out = formatLabelCiteViolations(violations);
       expect(out).toContain("label-cite:");
       expect(out).toContain("Spec-003:99");
-      expect(out).toContain("line-out-of-range");
+      expect(out).toContain("raw-line-cite-into-governance-doc");
+      expect(out).toContain("§Heading");
       expect(out).toContain("1 violation(s)");
     } finally {
       cleanup();
@@ -566,6 +567,221 @@ describe("section-anchor cites — fenced citer content excluded (md only)", () 
         checkSectionCites([resolve(root, "docs/plans/009-y.md")]),
       );
       expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe("path-section anchor cites (`docs/….md §Heading` — label-LESS governance docs)", () => {
+  it("passes a backticked path-form §-cite whose heading exists in the target doc", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/domain/session-model.md": "# Session Model\n\n## State Model\n\nbody\n",
+      "packages/runtime-daemon/src/types.ts":
+        "// State names track `docs/domain/session-model.md §State Model`.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/runtime-daemon/src/types.ts")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("flags section-not-found when the path-form heading was renamed away", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/domain/session-model.md": "# Session Model\n\n## Lifecycle Model\n\nbody\n",
+      "packages/runtime-daemon/src/types.ts":
+        "// State names track `docs/domain/session-model.md §State Model`.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/runtime-daemon/src/types.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("section-not-found");
+      expect(violations[0].detail).toContain("Lifecycle Model");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("flags missing-target-file when the path-form doc does not exist", () => {
+    const { root, cleanup } = setupRepo({
+      "packages/runtime-daemon/src/types.ts":
+        "// State names track `docs/domain/renamed-away.md §State Model`.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/runtime-daemon/src/types.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("missing-target-file");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("verifies path-form §-cites in MARKDOWN citers too (checkSectionCites)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/domain/session-model.md": "# Session Model\n\n## State Model\n\nbody\n",
+      "docs/plans/001-x.md":
+        "# Plan\n\nPer `docs/domain/session-model.md §State Model` states are enumerated.\n",
+    });
+    try {
+      const clean = withRepoRoot(root, () =>
+        checkSectionCites([resolve(root, "docs/plans/001-x.md")]),
+      );
+      expect(clean).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("flags a dead path-form heading in a MARKDOWN citer (checkSectionCites)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/domain/session-model.md": "# Session Model\n\n## Lifecycle Model\n\nbody\n",
+      "docs/plans/001-x.md":
+        "# Plan\n\nPer `docs/domain/session-model.md §State Model` states are enumerated.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkSectionCites([resolve(root, "docs/plans/001-x.md")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("section-not-found");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("does not match an unbackticked path-form § mention (zero-FP contract)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/domain/session-model.md": "# Session Model\n\n## State Model\n\nbody\n",
+      "packages/runtime-daemon/src/types.ts":
+        "// Refs: docs/domain/session-model.md §Totally Renamed Heading\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/runtime-daemon/src/types.ts")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("matches a heading whose doc spelling carries inline code ticks (normalize strips them)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/005-provider.md": "# Spec\n\n### `idempotency_class`\n\nbody\n",
+      "packages/contracts/src/provider.ts":
+        "// Defaults per `Spec-005 §idempotency_class` when undeclared.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/contracts/src/provider.ts")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe("deny-detail remediation names the form that exists for the target", () => {
+  it("recommends `Spec-NNN §Heading` for a denied label-form raw cite", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/016-x.md": FIVE_LINE_DOC,
+      "packages/x/src/f.ts": "// Spec-016:3 governs this.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/x/src/f.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].detail).toContain("`Spec-NNN §Heading`");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("recommends the backticked `docs/….md §Heading` form for a denied docs-path raw cite (label-less target)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/domain/session-model.md": FIVE_LINE_DOC,
+      "packages/x/src/f.ts": "// docs/domain/session-model.md:3 governs this.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/x/src/f.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].detail).toContain("`docs/domain/session-model.md §Heading`");
+      expect(violations[0].detail).not.toContain("`Spec-NNN §Heading`");
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe("frozen trees exempt from the raw-cite deny (AGENTS.md: raw `:NNN` stays legal there)", () => {
+  it("does not deny a code cite into docs/reference/", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/reference/paseo/overview.md": FIVE_LINE_DOC,
+      "packages/x/src/f.ts": "// upstream precedent: docs/reference/paseo/overview.md:3\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/x/src/f.ts")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("does not deny a code cite into docs/archive/", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/archive/backlog-archive.md": FIVE_LINE_DOC,
+      "packages/x/src/f.ts": "// closed as docs/archive/backlog-archive.md:2\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/x/src/f.ts")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("still FLOORS a frozen cite: out-of-range line fails loudly (legality ≠ blind trust)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/reference/paseo/overview.md": FIVE_LINE_DOC,
+      "packages/x/src/f.ts": "// upstream precedent: docs/reference/paseo/overview.md:999\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/x/src/f.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("line-out-of-range");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("still FLOORS a frozen cite: missing target file fails loudly", () => {
+    const { root, cleanup } = setupRepo({
+      "packages/x/src/f.ts": "// upstream precedent: docs/reference/renamed-away.md:3\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/x/src/f.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("missing-target-file");
     } finally {
       cleanup();
     }

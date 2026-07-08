@@ -65,7 +65,7 @@ Doc-first for new plans; plan-readiness audit gates; the Status Promotion Gate; 
 3. Reviewer finding-locations (`file.ts:45-52`) — ephemeral diff-anchored review output keeps `file:line` (the right tool); committed EXAMPLES of them use `<file>:<start>-<end>` placeholder form.
 4. Docs-prose label cites (`Spec-NNN:LL` in `.md`) and docs→docs `.md:NNN` — stay, per decision 6; §-form and anchor links are convention-forward.
 
-**Residuals** (named, counted 2026-07-07; owners after this refinement):
+**Residuals** (named, counted 2026-07-07; owners after this refinement — design-time census: the PR-4 sweep itself moved these numbers; post-sweep actuals live in failure-mode-catalog.md CAT-07):
 
 | Residual | Size | Owner |
 | --- | --- | --- |

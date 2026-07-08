@@ -25,8 +25,8 @@
 //
 //   We merge both: the 3 outer api-payload-contracts.md fields plus a nested
 //   `metadata` sub-object holding the 5 Spec-002 fields. ALL 5 metadata fields
-//   are REQUIRED — the keys are always present in the payload per Spec-002:59
-//   ("must include at minimum") and Spec-002:84 (canonical 5-field list).
+//   are REQUIRED — the keys are always present in the payload per `Spec-002 §Default Behavior`
+//   ("must include at minimum") and `Spec-002 §Interfaces And Contracts` (canonical 5-field list).
 //   `focusedSessionId` and `focusedChannelId` accept explicit `null` (NOT
 //   undefined, NOT absent) so heartbeats can fire when no session/channel is
 //   focused without omitting the wire key. The no-focus case is serialized as
@@ -203,9 +203,9 @@ export const DEVICE_TYPE_MAX_LEN = 64;
 // regardless of whether the user is currently focused on a session or
 // channel; the no-focus case ships `null` and the schema accepts it.
 //
-// Why nullable, not optional: Spec-002:59 ("must include at minimum:
+// Why nullable, not optional: `Spec-002 §Default Behavior` ("must include at minimum:
 // deviceType, focusedSessionId, focusedChannelId, lastActivityAt,
-// appVisible") and Spec-002:84 (canonical 5-field list) bind the FIELD SET
+// appVisible") and `Spec-002 §Interfaces And Contracts` (canonical 5-field list) bind the FIELD SET
 // — the floor, not "candidate fields some of which may be absent". The
 // `.nullable()` shape preserves "5 keys always present" while admitting
 // the no-focus runtime case. `.optional()` would let producers omit the

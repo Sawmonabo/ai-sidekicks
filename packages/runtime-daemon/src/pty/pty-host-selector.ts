@@ -20,7 +20,7 @@
 // fallback when the sidecar binary is not resolvable. macOS/Linux
 // remain on `NodePtyHost` primary at Phase 5 and beyond.
 //
-// Env-var override grammar (F-024-2-07 / Plan-024:126)
+// Env-var override grammar (F-024-2-07 / the `Plan-024 §Implementation Steps` step-9 selector bullet)
 // ----------------------------------------------------
 //
 // `AIS_PTY_BACKEND` is **case-sensitive lowercase**:
@@ -72,7 +72,8 @@ import { createRustSidecarPtyHost, PtyBackendUnavailableError } from "./rust-sid
  *
  * Case-sensitive lowercase. Any string outside this union (including
  * empty string, uppercase variants, typos) is "unrecognized" and falls
- * back to the platform default with a `console.warn` per Plan-024:126.
+ * back to the platform default with a `console.warn` per the
+ * `Plan-024 §Implementation Steps` step-9 selector bullet.
  */
 export type PtyBackendName = "rust-sidecar" | "node-pty";
 
@@ -264,7 +265,8 @@ export function selectPtyHost(deps?: Partial<PtyHostSelectorDeps>): PtyHost {
   }
 
   // Unrecognized value (mixed-case, typo, empty string, etc). Per
-  // Plan-024:126 we emit a warn AND fall back to the platform default
+  // the `Plan-024 §Implementation Steps` step-9 selector bullet we emit a
+  // warn AND fall back to the platform default
   // — silent fallback would hide operator misconfig.
   resolved.warn(`AIS_PTY_BACKEND='${envValue}' unrecognized; falling back to platform default`);
   return platformDefault(resolved);

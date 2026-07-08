@@ -22,7 +22,7 @@
 //
 // Plus behavioral coverage of the T3.4 projection surface:
 //   * Shape conformance (C5): the returned envelope round-trips cleanly through
-//     `ChannelListResponseSchema` — proves "response shape matches Spec-002:87
+//     `ChannelListResponseSchema` — proves "response shape matches `Spec-002 §Interfaces And Contracts`
 //     projection".
 //   * Determinism: the same `sessionId` yields a byte-identical channel `id`
 //     across two separate `list()` calls (the projection holds no state).
@@ -252,7 +252,7 @@ describe("ChannelListProjection.list", () => {
     // is actually exercised (a silently-null result would otherwise bypass it).
     expect(result).not.toBeNull();
     // `.parse` throws on any drift — proves the projected shape matches the
-    // canonical Spec-002:87 wire contract (strict object, optional `name`
+    // canonical `Spec-002 §Interfaces And Contracts` wire contract (strict object, optional `name`
     // present, non-negative-integer `participantCount`, branded ids).
     const parsed: ChannelListResponse = ChannelListResponseSchema.parse(result!);
     expect(parsed.channels).toHaveLength(1);

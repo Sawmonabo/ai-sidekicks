@@ -25,7 +25,7 @@
 //   `runtimeContributor` is a contract break and requires the spec edit
 //   FIRST per AGENTS.md "doc-first ordering".
 //
-//   Spec-024:96 independently uses a snake_case form for `session_role`; that
+//   `Spec-024 §Target-Side Authentication And Cedar Evaluation` independently uses a snake_case form for `session_role`; that
 //   spec is owned by Plan-027 (cross-node dispatch) and the namespace
 //   collision is reconciled there.
 //

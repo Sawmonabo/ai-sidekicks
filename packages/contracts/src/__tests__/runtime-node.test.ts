@@ -632,16 +632,16 @@ describe("RuntimeNodeDetachResponseSchema (C3: null no-content payload)", () => 
 //
 // The `expectedSevenFromSpec006` array is the test's independent source of truth,
 // each entry mapped to its Spec-006 table row:
-//   • runtime_node.registered          — Spec-006:407
-//   • runtime_node.online              — Spec-006:408
-//   • runtime_node.degraded            — Spec-006:409
-//   • runtime_node.offline             — Spec-006:410
-//   • runtime_node.revoked             — Spec-006:411
-//   • runtime_node.capability_declared — Spec-006:412
-//   • runtime_node.capability_updated  — Spec-006:413
-// The 2 `session.clock_*` rows (Spec-006:414-415) are DELIBERATELY ABSENT: they
+//   • runtime_node.registered          — `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`
+//   • runtime_node.online              — `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`
+//   • runtime_node.degraded            — `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`
+//   • runtime_node.offline             — `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`
+//   • runtime_node.revoked             — `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`
+//   • runtime_node.capability_declared — `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`
+//   • runtime_node.capability_updated  — `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`
+// The 2 `session.clock_*` rows (`Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`) are DELIBERATELY ABSENT: they
 // share the `runtime_node_lifecycle` category but retain the `session.` prefix by
-// name-preservation (Spec-006:417 / ADR-018 §Decision #8) and were promoted
+// name-preservation (`Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` / ADR-018 §Decision #8) and were promoted
 // from Spec-015 §Reserved Events.
 const expectedSevenFromSpec006 = [
   "runtime_node.registered",
@@ -658,7 +658,7 @@ describe("RUNTIME_NODE_EVENT_NAMES (C4: 7-name runtime_node.* taxonomy)", () => 
     // Order-independent SET equality: sort both sides so a reorder of either the
     // export tuple or the spec table does not spuriously fail, while a
     // missing/extra/renamed name does (the membership IS the contract per
-    // Spec-006:407-413). A spread is required because the export is `readonly` and
+    // `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`). A spread is required because the export is `readonly` and
     // `.sort()` mutates in place.
     expect([...RUNTIME_NODE_EVENT_NAMES].sort()).toEqual([...expectedSevenFromSpec006].sort());
   });
@@ -673,14 +673,14 @@ describe("RUNTIME_NODE_EVENT_NAMES (C4: 7-name runtime_node.* taxonomy)", () => 
 
   it("every entry carries the runtime_node. prefix (catches a session.clock_* leak)", () => {
     // The prefix guard is the discriminating assertion: if a `session.clock_*`
-    // name (Spec-006:414-415) leaked into the set it would fail here even if the
+    // name (`Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`) leaked into the set it would fail here even if the
     // count stayed at 7, because those names retain the `session.` prefix.
     for (const eventName of RUNTIME_NODE_EVENT_NAMES) {
       expect(eventName.startsWith("runtime_node.")).toBe(true);
     }
   });
 
-  it("excludes the session.clock_* pair (name-preservation boundary, Spec-006:414-417)", () => {
+  it("excludes the session.clock_* pair (name-preservation boundary, Spec-006 §Runtime Node Lifecycle (`runtime_node_lifecycle`))", () => {
     // Explicit negative: the two same-category clock events are NOT in the set.
     expect(RUNTIME_NODE_EVENT_NAMES).not.toContain("session.clock_unsynced");
     expect(RUNTIME_NODE_EVENT_NAMES).not.toContain("session.clock_corrected");
@@ -703,7 +703,7 @@ describe("RUNTIME_NODE_EVENT_NAMES (C4: 7-name runtime_node.* taxonomy)", () => 
 // This block is a Plan-003 CONSUMER-SIDE conformance anchor, NOT a re-test of
 // Plan-001's error-schema matrix. I-003-1 ("Attach is admit-not-eject for
 // below-floor daemons") requires that a below-floor write returns a *typed*
-// `VERSION_FLOOR_EXCEEDED` (Spec-003:53, Spec-003 AC4:130; ADR-018 §Decision
+// `VERSION_FLOOR_EXCEEDED` (`Spec-003 §Required Behavior`, `Spec-003 §Acceptance Criteria` AC4; ADR-018 §Decision
 // #4 / §Decision #10). The concrete realization of that typed error is the
 // Plan-001-owned `VersionFloorExceededError` / `VersionFloorExceededErrorSchema`
 // / `VERSION_FLOOR_EXCEEDED_CODE` in `error.ts`. The two assertions here pin
@@ -719,10 +719,10 @@ describe("RUNTIME_NODE_EVENT_NAMES (C4: 7-name runtime_node.* taxonomy)", () => 
 // PHASE-3 TRIPWIRE: only the typed-CONTRACT conformance proven here ships in
 // Plan-003 Phase 1. The RUNTIME admit-not-eject behavior — the attach service
 // actually returning this error on a below-floor write and then admitting the
-// daemon read-only (Spec-003 AC4:130) — lands at Plan-003 Phase 3 (P3/P4).
+// daemon read-only (`Spec-003 §Acceptance Criteria` AC4) — lands at Plan-003 Phase 3 (P3/P4).
 //
-// Cites: Spec-003:53, Spec-003 AC4:130, I-003-1, ADR-018 §Decision #4 /
-// §Decision #10, docs/architecture/contracts/error-contracts.md:377.
+// Cites: `Spec-003 §Required Behavior`, `Spec-003 §Acceptance Criteria` AC4, I-003-1, ADR-018 §Decision #4 /
+// §Decision #10, `docs/architecture/contracts/error-contracts.md §Version`.
 describe("VersionFloorExceededErrorSchema (C5: VERSION_FLOOR_EXCEEDED typed-contract conformance — Plan-003 consumer anchor)", () => {
   it("pins the wire code literal to the value registered in error-contracts.md:377", () => {
     // The expected string is single-sourced from the INDEPENDENT registry —
@@ -765,7 +765,7 @@ describe("VersionFloorExceededErrorSchema (C5: VERSION_FLOOR_EXCEEDED typed-cont
 
     // ADR-018 §Decision #10: the typed floor error carries a human-readable
     // upgrade path so the read-only-admitted daemon can surface remediation
-    // (graceful degradation, not ejection — I-003-1 / Spec-003:53). Assert the
+    // (graceful degradation, not ejection — I-003-1 / `Spec-003 §Required Behavior`). Assert the
     // schema PRESERVES it through a parse rather than dropping the optional field.
     if (result.success) {
       expect(result.data.details.upgradePath).toBe(belowFloorRejection.details.upgradePath);
@@ -778,7 +778,7 @@ describe("VersionFloorExceededErrorSchema (C5: VERSION_FLOOR_EXCEEDED typed-cont
 // --------------------------------------------------------------------------
 //
 // Backstops the 5 daemon-reachable per-event PAYLOAD shapes authored in Plan-003
-// Phase 2 (CP-003-1; Spec-006:407-413): `registered`, `online`, `offline`,
+// Phase 2 (CP-003-1; `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`): `registered`, `online`, `offline`,
 // `capability_declared`, `capability_updated`. These validate the
 // `EventEnvelope.payload` CONTENTS only — the integrity envelope + discriminated-
 // union registration are Plan-006 Tier 4. The discriminating coverage:

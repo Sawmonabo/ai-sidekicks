@@ -17,7 +17,7 @@
 // state in Phase 2). The gate is node-scoped; the emitted online event is
 // session-scoped (Model B). The full rationale lives on the method below.
 //
-// "Validate the capability declaration" (plan §341 / Spec-003:58) means a
+// "Validate the capability declaration" (plan §341 / `Spec-003 §Default Behavior`) means a
 // SCHEMA-VALID declaration, NOT an allow-list of known keys: Spec-003's
 // least-privilege rule is that only explicitly declared capabilities are
 // schedulable — the declaration IS the schedulability allow-list, there is no
@@ -131,7 +131,7 @@ export class NodeCapabilityService {
     // plan §341 forbids the per-session update spam session-scoping would produce).
     // The daemon-side I-003-2 `online` gate (T2.4) is correspondingly node-scoped:
     // it reads THIS durable row ("has this node declared?"), satisfied across serial
-    // re-attaches (Spec-003:140) — it does NOT scan a per-session capability_declared
+    // re-attaches (`Spec-003 §Resolved Questions and V1 Scope Decisions`) — it does NOT scan a per-session capability_declared
     // event stream (which this node-keyed dedup would starve).
     this.#selectCapabilityStmt = db.prepare(
       `SELECT capability_value
@@ -162,7 +162,7 @@ export class NodeCapabilityService {
     // node-keyed no-op that emits NO event (Model B), so a node that already declared
     // (row present) but re-declares as a no-op must still online. Gating on the event
     // would resurface Model A at the emission layer; gating on the row makes
-    // "has this node declared?" correct across serial re-attaches (Spec-003:140).
+    // "has this node declared?" correct across serial re-attaches (`Spec-003 §Resolved Questions and V1 Scope Decisions`).
     this.#nodeHasAnyCapabilityStmt = db.prepare(
       `SELECT 1 FROM node_capabilities WHERE node_id = @node_id LIMIT 1`,
     );
@@ -246,7 +246,7 @@ export class NodeCapabilityService {
    * Bring a node `online` — the I-003-2 ordering gate (Plan-003 §Phase 2 / T2.4).
    * Emits `runtime_node.online` (the registering→online transition) IFF the node
    * has previously declared at least one capability; before declaration succeeds
-   * the node remains in its non-online (`registering`) state (Spec-003:57). Returns
+   * the node remains in its non-online (`registering`) state (`Spec-003 §Default Behavior`). Returns
    * `true` when the gate is satisfied and the event was emitted, `false` when no
    * declaration exists (no event emitted).
    *
@@ -257,7 +257,7 @@ export class NodeCapabilityService {
    * (T2.2 / Model B), so a node that already declared (row present) but re-declares
    * as a no-op would NEVER online if the gate keyed on the event — Model A
    * resurfacing at the emission layer. Keying on the durable ROW makes
-   * "has this node declared?" correct across serial re-attaches (Spec-003:140),
+   * "has this node declared?" correct across serial re-attaches (`Spec-003 §Resolved Questions and V1 Scope Decisions`),
    * consistent with T2.2's node-scoped change-detection dedup. The control-plane
    * attach gate (T3.2) is a DISTINCT surface reading relayed events, not this
    * daemon-local table.
@@ -297,7 +297,7 @@ export class NodeCapabilityService {
       this.#nodeHasAnyCapabilityStmt.get({ node_id: input.nodeId }) !== undefined;
     if (!hasDeclaredCapability) {
       // The I-003-2 precondition is unmet: emit nothing, the node stays in its
-      // non-online (registering) state (Spec-003:57).
+      // non-online (registering) state (`Spec-003 §Default Behavior`).
       return false;
     }
     // The durable declaration row exists → emit the registering→online transition

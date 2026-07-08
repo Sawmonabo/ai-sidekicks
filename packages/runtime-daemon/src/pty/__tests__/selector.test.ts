@@ -347,7 +347,7 @@ describe("selectPtyHost — unrecognized AIS_PTY_BACKEND values fall back with w
       reason: "leading whitespace — F-024-2-07 grammar is verbatim, no trimming",
     },
     { value: "invalid", reason: "arbitrary unrecognized value" },
-    { value: "", reason: "empty string is unrecognized per Plan-024:126" },
+    { value: "", reason: "empty string is unrecognized per Plan-024 §Implementation Steps" },
   ];
 
   for (const { value, reason } of UNRECOGNIZED_CASES) {
@@ -361,7 +361,7 @@ describe("selectPtyHost — unrecognized AIS_PTY_BACKEND values fall back with w
       expect(ctx.createNodePtyHost).toHaveBeenCalledTimes(1);
 
       // Load-bearing: warn fires with the canonical message format
-      // documented in Plan-024:126:
+      // documented in the `Plan-024 §Implementation Steps` step-9 selector bullet:
       //   `AIS_PTY_BACKEND='<value>' unrecognized; falling back to platform default`
       expect(ctx.warn).toHaveBeenCalledTimes(1);
       expect(ctx.warn).toHaveBeenCalledWith(

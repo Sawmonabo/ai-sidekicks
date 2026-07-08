@@ -211,11 +211,11 @@ describe("JoinModeSchema (canonical wire form is SPACED 'runtime contributor')",
 // All 5 metadata keys MUST be present at parse time. `focusedSessionId` and
 // `focusedChannelId` are nullable (the value may be `null` when the user is
 // not focused on a session/channel) — the KEYS are always present per
-// Spec-002:59 ("must include at minimum") and Spec-002:84 (canonical 5-field
+// `Spec-002 §Default Behavior` ("must include at minimum") and `Spec-002 §Interfaces And Contracts` (canonical 5-field
 // list). The no-focus case is serialized as `null` on the wire; an absent
 // key is REJECTED. `undefined` is also rejected to pin against future drift
 // to `.nullish()` (which would re-admit the absent-key shape the schema
-// explicitly rejects — Spec-002:59 binds the FIELD SET, the floor, so the
+// explicitly rejects — `Spec-002 §Default Behavior` binds the FIELD SET, the floor, so the
 // nullable-on-no-focus encoding is the spec-faithful interpretation).
 //
 // `deviceId` and `metadata.deviceType` compose `wireFreeFormString` (NUL-byte
@@ -276,7 +276,7 @@ describe("PresenceHeartbeatSchema (C4: 5 metadata fields per Spec-002 line 84)",
   );
 
   // ----------------------------------------------------------------------
-  // Metadata fields — ALL 5 keys REQUIRED at parse time per Spec-002:59,84.
+  // Metadata fields — ALL 5 keys REQUIRED at parse time per `Spec-002 §Default Behavior` + `Spec-002 §Interfaces And Contracts`.
   // focusedSessionId / focusedChannelId additionally accept explicit null
   // as their value (nullable shape); absent key and `undefined` value are
   // both REJECTED.
@@ -289,7 +289,7 @@ describe("PresenceHeartbeatSchema (C4: 5 metadata fields per Spec-002 line 84)",
     "lastActivityAt",
     "appVisible",
   ] as const)(
-    "rejects heartbeat with metadata field KEY ABSENT: %s (all 5 keys required per Spec-002:59,84)",
+    "rejects heartbeat with metadata field KEY ABSENT: %s (all 5 keys required per Spec-002 §Default Behavior + §Interfaces And Contracts)",
     (field) => {
       const valid = buildHeartbeatPayload();
       const brokenMetadata = { ...valid.metadata } as Record<string, unknown>;
@@ -347,7 +347,7 @@ describe("PresenceHeartbeatSchema (C4: 5 metadata fields per Spec-002 line 84)",
   it("rejects heartbeat with focusedSessionId: undefined (.nullable() admits null but NOT undefined)", () => {
     // Pin against future drift to `.nullish()` — that shape would re-admit
     // the absent-key case (zod treats `undefined` as "absent" semantically),
-    // which the schema explicitly rejects per the Spec-002:59 field-set floor.
+    // which the schema explicitly rejects per the `Spec-002 §Default Behavior` field-set floor.
     const valid = buildHeartbeatPayload();
     const broken = {
       ...valid,

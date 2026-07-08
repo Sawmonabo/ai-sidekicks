@@ -174,7 +174,7 @@ describe("NodePtyHost — Windows kill-translation (I-024-1)", () => {
 // Idempotency — kill after the child has already exited
 // ----------------------------------------------------------------------------
 
-describe("NodePtyHost — idempotency of kill after child exit (Plan-024:122)", () => {
+describe("NodePtyHost — idempotency of kill after child exit (step-8 kill bullet, Plan-024 §Implementation Steps)", () => {
   it("kill() on an already-exited session re-emits onExit from cache and does NOT call any FFI", async () => {
     const { session_id } = await ctx.host.spawn(SAMPLE_SPAWN);
 

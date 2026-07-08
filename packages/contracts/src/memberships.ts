@@ -22,7 +22,7 @@
 //   2. Discriminant is `change_role` (snake_case), NOT `role-change`
 //      (kebab-case). The canonical wire form binds the literal string;
 //      Plan-002 §I-002-1 verification (P6 test row) uses `change_role`
-//      directly. The brief English gloss at Plan-002:134 is informal
+//      directly. The brief English gloss at `Plan-002 §Test And Verification Plan` is informal
 //      summary, not the wire string.
 //
 //   3. NO `sessionId` field. `MembershipId` is a globally-unique UUID
@@ -44,7 +44,7 @@
 //      owner to promote another active member via
 //      `{action: "change_role", newRole: "owner"}`. The "only existing
 //      owners may elevate" guard is a SERVICE-LAYER check owned by
-//      Plan-002 Phase 2 T2.3 (verified by P6 in Plan-002:155), NOT a
+//      Plan-002 Phase 2 T2.3 (verified by P6 in `Plan-002 §Control Plane Layer (packages/control-plane/)`), NOT a
 //      schema constraint. Using `NonOwnerMembershipRoleSchema` here
 //      would break owner-elevation entirely.
 //

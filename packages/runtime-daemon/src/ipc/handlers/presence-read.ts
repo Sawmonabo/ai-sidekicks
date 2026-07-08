@@ -56,7 +56,7 @@
 // `session.*` surface; Plan-002 registers the `presence.*` namespace
 // against the same ratified FORMAT (Plan-002 line 95 / CP-002-2). The
 // method string is derived from the namespace + the canonical
-// `PresenceRead` payload type (Spec-002:86) per the
+// `PresenceRead` payload type (`Spec-002 §Interfaces And Contracts`) per the
 // `session.read` → `session-read.ts` file/payload/method 3-way precedent.
 
 import type {

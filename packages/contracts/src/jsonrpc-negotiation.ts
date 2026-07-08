@@ -105,7 +105,7 @@ export const SUPPORTED_PROTOCOLS_MAX_LEN = 32;
 
 /**
  * The canonical regex for an ISO 8601 `YYYY-MM-DD` date-string. Exported
- * so the substrate's envelope-level enforcement gate (Spec-007:54 per-
+ * so the substrate's envelope-level enforcement gate (`Spec-007 §Wire Format` per-
  * request `protocolVersion` field, see `local-ipc-gateway.ts#dispatchFrame`)
  * shares the EXACT shape that `ProtocolVersionSchema` validates inside
  * `daemon.hello` payloads — a single source of truth prevents drift
@@ -142,7 +142,7 @@ const NegotiationFreeFormString = z.string().min(1).max(NEGOTIATION_FIELD_MAX_LE
  *
  * Required fields:
  *   * `protocolVersion` — the client's PRIMARY proposed protocol version
- *     (Spec-007:54 per-request requirement). The daemon uses this as a
+ *     (`Spec-007 §Wire Format` per-request requirement). The daemon uses this as a
  *     fallback when `supportedProtocols` is absent.
  *
  * Optional fields:
@@ -224,7 +224,7 @@ export type NegotiationIncompatibleReason =
  *
  *   * `compatible === true`  → all dispatches allowed (read + mutating)
  *   * `compatible === false` → read-only dispatches allowed; mutating
- *                              dispatches refused per Spec-007:67-68 + I-007-1
+ *                              dispatches refused per `Spec-007 §Fallback Behavior` + I-007-1
  *
  * Required fields:
  *   * `compatible` — the gate's primary read.

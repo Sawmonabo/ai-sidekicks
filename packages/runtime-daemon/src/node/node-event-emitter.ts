@@ -21,7 +21,7 @@
 //   * Reconciles the two fields that appear in BOTH the envelope and the
 //     payload (`sessionId`, `actor`): one input value populates both, so a
 //     caller cannot make the envelope and payload disagree. `sessionId` is
-//     REQUIRED at this boundary (Spec-006:403 — the daemon always populates
+//     REQUIRED at this boundary (`Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` — the daemon always populates
 //     the session_id of the attachment a `runtime_node.*` event describes),
 //     even though the payload schemas type it `.optional()` to mirror the
 //     Spec-006 base.
@@ -156,7 +156,7 @@ type RuntimeNodeEventPayload =
 // Shared envelope-level inputs every emit method carries.
 interface RuntimeNodeEmitBase {
   // REQUIRED here even though the payload schema types it optional — the
-  // daemon always populates the session_id (Spec-006:403). Also the
+  // daemon always populates the session_id (`Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`). Also the
   // sequence-allocation partition key.
   readonly sessionId: string;
   // EventEnvelope free-form actor (`participant_id | agent_id | null`).
@@ -226,7 +226,7 @@ export class RuntimeNodeEventEmitter {
   }
 
   /**
-   * Emit `runtime_node.registered` (Spec-006:407). Returns the persisted
+   * Emit `runtime_node.registered` (`Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`). Returns the persisted
    * `AppendableEvent` so the caller (T2.1 registry) can read the assigned
    * `sequence` / `id`.
    */
@@ -245,7 +245,7 @@ export class RuntimeNodeEventEmitter {
   }
 
   /**
-   * Emit `runtime_node.online` (Spec-006:408). The T2.4 ordering gate only
+   * Emit `runtime_node.online` (`Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`). The T2.4 ordering gate only
    * calls this AFTER a successful `runtime_node.capability_declared`
    * (I-003-2) — the gate lives in the producer, not here.
    */
@@ -261,7 +261,7 @@ export class RuntimeNodeEventEmitter {
   }
 
   /**
-   * Emit `runtime_node.offline` (Spec-006:410). Phase 2's T2.5 detach
+   * Emit `runtime_node.offline` (`Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`). Phase 2's T2.5 detach
    * producer passes `reason: "explicit_shutdown"`; the heartbeat-driven
    * reasons are Phase 3.
    */
@@ -279,7 +279,7 @@ export class RuntimeNodeEventEmitter {
   }
 
   /**
-   * Emit `runtime_node.capability_declared` (Spec-006:412). Reduced base +
+   * Emit `runtime_node.capability_declared` (`Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`). Reduced base +
    * `{capability, capabilityDetails}` — capability events are NOT NodeState
    * transitions, so they carry no `previousState`/`newState: NodeState`.
    */
@@ -296,7 +296,7 @@ export class RuntimeNodeEventEmitter {
   }
 
   /**
-   * Emit `runtime_node.capability_updated` (Spec-006:413). Here
+   * Emit `runtime_node.capability_updated` (`Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`). Here
    * `previousState`/`newState` are interim-opaque CapabilityDetails
    * SNAPSHOTS (NOT NodeState) — Plan-006 Tier 4 binds the canonical
    * `CapabilityDetails`.

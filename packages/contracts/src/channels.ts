@@ -33,7 +33,7 @@
 //
 // Why `name?` is optional and what it encodes:
 //
-//   Spec-002:87 explicitly writes `name?: string` (the `?` is verbatim).
+//   `Spec-002 §Interfaces And Contracts` explicitly writes `name?: string` (the `?` is verbatim).
 //   The bootstrap "main" channel itself is NOT born from a `ChannelCreated`
 //   event — it is a projected structural invariant, derived deterministically
 //   from the session (id = `deriveMainChannelId(sessionId)`, channel-id.ts),
@@ -86,7 +86,7 @@
 //
 // No channel creation contracts here:
 //
-//   The DAG task title and Spec-002:87 verbatim ("Channel creation is
+//   The DAG task title and `Spec-002 §Interfaces And Contracts` verbatim ("Channel creation is
 //   handled by Plan-016") foreclose `ChannelCreate` / `ChannelMute` /
 //   `ChannelArchive` / similar mutation surfaces in this file. Plan-016
 //   (multi-agent-channels-and-orchestration) owns the channel-mutation

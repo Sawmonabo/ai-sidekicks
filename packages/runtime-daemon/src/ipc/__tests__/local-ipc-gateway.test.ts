@@ -27,9 +27,9 @@
 //                   audit trace remains complete.
 //   * W-007p-2-T5 — 1MB max-message-size enforcement (per F-007p-2-05).
 //                   Body > 1MB → connection close + `-32600` error
-//                   frame, per Plan-007:700. The mapping is wired
+//                   frame, per `Plan-007 §Phase 2 — Wire Substrate (W-007p-2-T1..T11)`. The mapping is wired
 //                   at `jsonrpc-error-mapping.ts:175-199` (oversized_body
-//                   → -32600 InvalidRequest per Plan-007:448).
+//                   → -32600 InvalidRequest per `Plan-007 §Phase 2: Wire Substrate` Tasks, T-007p-2-2).
 //   * W-007p-2-T6 — Content-Length framing parser correctness:
 //                   single message, multi-message buffer,
 //                   partial-buffer wait, malformed framing.
@@ -84,7 +84,7 @@ import { passthroughSchema } from "./__fixtures__/zod-schemas.js";
 
 /**
  * Canonical envelope-level `protocolVersion` for gateway-routed test
- * fixtures. Spec-007:54 (BL-102 ratified 2026-05-01) requires every
+ * fixtures. `Spec-007 §Wire Format` (BL-102 ratified 2026-05-01) requires every
  * non-handshake request to carry an ISO 8601 `YYYY-MM-DD` date-string.
  * The substrate enforces this BEFORE handler dispatch
  * (`local-ipc-gateway.ts#dispatchFrame` Step 3.5); fixtures below mirror
@@ -551,10 +551,10 @@ describe("W-007p-2-T5 — 1MB max-message-size enforcement", () => {
         // The gateway emits the error frame BEFORE destroying the
         // socket, so we expect either:
         //   * a parse-able error frame in `received` AND a subsequent
-        //     close (best-effort emit + tear-down per plan §377), OR
+        //     close (best-effort emit + tear-down per the same T-007p-2-2 row), OR
         //   * close-only when the kernel already shut the socket
         //     before the error frame's flush completed (race).
-        // Plan-007:377 mandates the error-frame surface; we assert it
+        // `Plan-007 §Phase 2: Wire Substrate` (T-007p-2-2 oversized-body row) mandates the error-frame surface; we assert it
         // here and let the test fail loudly if the implementation
         // tears down without writing.
         expect(racer).not.toBe("closed");
@@ -562,7 +562,7 @@ describe("W-007p-2-T5 — 1MB max-message-size enforcement", () => {
           const response = decodeOneFrame(racer.acc) as JsonRpcErrorResponse;
           expect(response.jsonrpc).toBe(JSONRPC_VERSION);
           expect(response.id).toBeNull();
-          // Plan-specified error code per Plan-007:448 + Plan-007:700: -32600
+          // Plan-specified error code per `Plan-007 §Phase 2: Wire Substrate` Tasks (T-007p-2-2) + `Plan-007 §Phase 2 — Wire Substrate (W-007p-2-T1..T11)`: -32600
           // InvalidRequest (oversized_body framing path). Mapping wired
           // at jsonrpc-error-mapping.ts §framingErrorDataType.
           expect(response.error.code).toBe(JsonRpcErrorCode.InvalidRequest);

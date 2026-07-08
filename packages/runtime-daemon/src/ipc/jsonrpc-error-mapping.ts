@@ -106,7 +106,7 @@ import { SessionNotFoundError } from "./session-errors.js";
  *     the body either. → `-32700 ParseError`.
  *   * `"oversized_body"` — declared `Content-Length` exceeded
  *     `MAX_MESSAGE_BYTES`. The framing parser successfully read the
- *     header but refuses to read the body. Per Plan-007:448 + W-007p-2-T5,
+ *     header but refuses to read the body. Per `Plan-007 §Phase 2: Wire Substrate` Tasks (T-007p-2-2) + W-007p-2-T5,
  *     this is structurally an "Invalid Request" (the request envelope
  *     itself is malformed-by-being-too-large, not malformed-as-JSON).
  *     → `-32600 InvalidRequest` per JSON-RPC §5.1 ("The JSON sent is not
@@ -130,7 +130,7 @@ import { SessionNotFoundError } from "./session-errors.js";
  *   * `"invalid_protocol_version"` — request envelope is structurally
  *     valid (jsonrpc / method / id-shape all pass) but the per-request
  *     `protocolVersion` field is missing, the wrong type, or fails the
- *     ISO 8601 `YYYY-MM-DD` shape per Spec-007:54 (BL-102 ratification).
+ *     ISO 8601 `YYYY-MM-DD` shape per `Spec-007 §Wire Format` (BL-102 ratification).
  *     The substrate refuses dispatch BEFORE the handler runs (I-007-7).
  *     → `-32600 InvalidRequest` per spec §5.1 ("The JSON sent is not a
  *     valid Request object" — a request missing a wire-mandated field
@@ -187,7 +187,7 @@ function mapFramingErrorCode(code: string): JsonRpcErrorCodeValue {
  * The `invalid_protocol_version` row projects to the registered
  * transport-layer code `transport.invalid_protocol_version` (per
  * error-contracts.md §Plan-007 Tier 1 Domain Identifiers + §Transport).
- * This is the substrate-side enforcement of Spec-007:54's per-request
+ * This is the substrate-side enforcement of `Spec-007 §Wire Format`'s per-request
  * `protocolVersion` field requirement — the field is part of the wire
  * envelope contract, so its absence / wrong type / bad format is a
  * TRANSPORT failure (peer mis-using the wire layer), distinct from
