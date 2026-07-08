@@ -412,8 +412,17 @@ export async function rebuildManifest({
     // fetchPrDetails BEFORE this filter — a truncated file list cannot
     // prove governance-only, so it stays fail-closed.
     const filePaths = (details.files ?? []).map((f) => f.path);
-    const governanceOnly =
-      filePaths.length > 0 && filePaths.every((p) => p.startsWith("docs/") || !p.includes("/"));
+    // Root-level is NOT equivalent to governance: Plan-001 T1.1/T1.4 ship
+    // root config files (package.json, pnpm-workspace.yaml,
+    // eslint.config.mjs, …) as real shipment targets (Codex P2 round 3).
+    // Only root markdown + the two dot-config governance files the real
+    // #1 closure PR carries qualify; any other root file (or any non-docs/
+    // directory) sends the candidate through synthesis.
+    const governanceRootFiles = new Set([".gitignore", ".markdownlint-cli2.yaml"]);
+    const isGovernancePath = (p) =>
+      p.startsWith("docs/") ||
+      (!p.includes("/") && (p.endsWith(".md") || governanceRootFiles.has(p)));
+    const governanceOnly = filePaths.length > 0 && filePaths.every(isGovernancePath);
     if (governanceOnly) {
       const existingEntry = existingEntryByPr.get(pr);
       if (existingEntry) {

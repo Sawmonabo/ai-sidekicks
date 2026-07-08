@@ -1104,6 +1104,53 @@ test("rebuildManifest reuses the on-disk entry for a governance-only title match
   }
 });
 
+test("rebuildManifest does NOT skip a root-config shipment (Plan-001 T1.1 class — Codex r3)", async () => {
+  // Root-level is not governance: T1.1 ships package.json,
+  // pnpm-workspace.yaml, turbo.json etc. as its actual Files targets. A
+  // docs+root-config candidate must synthesize, not skip.
+  const tmp = mkdtempSync(join(tmpdir(), "rsm-e2e-"));
+  try {
+    const planDir = join(tmp, "docs", "plans");
+    mkdirSync(planDir, { recursive: true });
+    writeFileSync(join(planDir, "001-shared-session-core.md"), PLAN_TEMPLATE);
+
+    const ghRunner = makeGhRunner({
+      prList: [90],
+      prDetails: {
+        90: {
+          title: "feat(repo): Plan-001 Phase 1 T1.1 workspace root scaffolding",
+          body: "Ships the pnpm workspace root.",
+          mergedAt: "2026-04-26T10:00:00Z",
+          mergeCommit: { oid: "abc9876fedc0123" },
+          changedFiles: 3,
+          files: [
+            { path: "package.json" },
+            { path: "pnpm-workspace.yaml" },
+            { path: "docs/plans/001-shared-session-core.md" },
+          ],
+        },
+      },
+    });
+
+    const stdout = makeCaptureStream();
+    const stderr = makeCaptureStream();
+    const r = await rebuildManifest({
+      plan: "001",
+      dryRun: true,
+      force: false,
+      ghRunner,
+      plansDir: planDir,
+      stdout,
+      stderr,
+    });
+    assert.doesNotMatch(stderr.text(), /governance-only/);
+    assert.match(stdout.text(), /task: T1\.1/); // synthesized, not dropped
+    assert.equal(r.exitCode, 0);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 test("rebuildManifest does NOT skip a deploy/-only shipment (material work outside MATERIAL_PATH_PREFIXES — Codex r2)", async () => {
   // Plan-025's T-025d-14-1 ships only deploy/self-host/* — a real shipment
   // with zero packages/apps/.github paths. The governance-only predicate

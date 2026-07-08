@@ -79,6 +79,20 @@ test("surveyPhase: parsed T1.1 does NOT cover an unparseable T1.10 row (boundary
   assert.match(result.omissions[0], /T1\.10/);
 });
 
+test("surveyPhase: parsed T-025 does NOT cover a lettered T-025d-14-1 row (letters extend ids — Codex r3)", () => {
+  const section = `### Phase 1 — Example
+
+#### Tasks
+
+- **T-025 — parsed fine**
+- ***T-025d-14-1 — lettered id the extractor cannot parse***
+`;
+  const result = surveyPhase(section);
+  assert.ok(result.ids.includes("T-025") || result.ids.length >= 1);
+  assert.equal(result.omissions.length, 1);
+  assert.match(result.omissions[0], /T-025d-14-1/);
+});
+
 test("surveyPhase: boundary rule does not over-fire — ids followed by em-dash/space/paren still count as covered", () => {
   const section = `### Phase 1 — Example
 

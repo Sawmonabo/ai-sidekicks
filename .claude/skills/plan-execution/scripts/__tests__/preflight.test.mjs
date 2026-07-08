@@ -2788,6 +2788,16 @@ test("gateStatusPromotion halts review and draft with the promotion message", ()
   }
 });
 
+test("gateStatusPromotion ignores Status-shaped table rows in the body (header-region scope — Codex r3)", () => {
+  // Missing header row + an embedded example table later in the body must
+  // NOT green-light the plan.
+  const source =
+    "# Plan-001\n\nno header table\n\n## Some Section\n\n| Field | Value |\n| --- | --- |\n| **Status** | `approved` |\n";
+  const r = gateStatusPromotion(source, "p.md");
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /status unreadable/);
+});
+
 test("gateStatusPromotion fails closed on a missing/unparseable Status row", () => {
   const r = gateStatusPromotion("# Plan-001\n\nno header table here\n", "p.md");
   assert.equal(r.ok, false);

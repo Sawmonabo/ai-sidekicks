@@ -2638,7 +2638,14 @@ export function gatePreconditions(phaseSection, planFile, phaseNumber, opts = {}
 // --allow-unpromoted is the explicit authoring-time escape for inspecting
 // draft/review plans, mirroring --allow-stale-manifest.
 export function gateStatusPromotion(planSource, planFile) {
-  const row = planSource.match(/^\|\s*\*\*Status\*\*\s*\|\s*`?([a-z][a-z-]*)`?\s*\|/m);
+  // Scope the search to the plan header — everything before the first `##`
+  // section heading. A whole-document match could hit an embedded example
+  // or matrix row (`| **Status** | approved |`) later in the body and
+  // green-light a plan whose actual header row is missing — the exact
+  // fail-open the gate documents against (Codex P2 round 3).
+  const sectionStart = planSource.search(/^## /m);
+  const headerRegion = sectionStart === -1 ? planSource : planSource.slice(0, sectionStart);
+  const row = headerRegion.match(/^\|\s*\*\*Status\*\*\s*\|\s*`?([a-z][a-z-]*)`?\s*\|/m);
   if (!row) {
     return {
       ok: false,
@@ -2690,16 +2697,18 @@ export function gateStatusPromotion(planSource, planFile) {
 const SURVEY_ORACLE_RE = /^(?:-\s+(?:\[[ xX]\]\s+)?\*{1,3}T[-\d]|#####\s+T[-\d])/;
 
 // Reconciliation is boundary-aware, not substring: parsed `T1.1` must not
-// cover an oracle row for `T1.10` (a bare `includes` lets the extractor
-// miss T1.10 while the screen stays green — Codex P2 round 2). An id
-// occurrence only counts when NOT followed by an id-extending character
-// (digit, `.`, `-`): `**T1.1 —` matches; the `T1.1` prefix inside `T1.10`
-// does not. Erring toward "not covered" is the fail-closed direction — a
-// false anomaly is visible; a false pass is the miss class this screen
-// exists to catch.
+// cover an oracle row for `T1.10`, nor parsed `T-025` one for
+// `T-025d-14-1` (a bare `includes` lets the extractor miss the longer id
+// while the screen stays green — Codex P2 rounds 2-3). An id occurrence
+// only counts when NOT followed by an id-extending character — digit,
+// letter, `_`, `.`, `-` (the corpus uses lettered ids: `T-007p…`,
+// `T-025d…`): `**T1.1 —` matches; the prefix inside `T1.10` or
+// `T-025d-…` does not. Erring toward "not covered" is the fail-closed
+// direction — a false anomaly is visible; a false pass is the miss class
+// this screen exists to catch.
 function idOccursWithBoundary(line, id) {
   const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`${escaped}(?![\\d.-])`).test(line);
+  return new RegExp(`${escaped}(?![\\w.-])`).test(line);
 }
 
 export function surveyPhase(phaseSection) {
