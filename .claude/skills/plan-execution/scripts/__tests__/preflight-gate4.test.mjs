@@ -996,7 +996,7 @@ test("runPreflight surfaces sizeClass on the explicit-phase success path", () =>
 test("CLI prints size-class as stdout line 2 (line 1 UNCHANGED; spawn — the bin guard requires it)", () => {
   const cli = spawnSync(
     process.execPath,
-    [SIZE_CLASS_PREFLIGHT_CLI, PASSING_S_PLAN, "1", "--allow-stale-manifest"],
+    [SIZE_CLASS_PREFLIGHT_CLI, PASSING_S_PLAN, "1", "--allow-stale-manifest", "--allow-unpromoted"],
     { encoding: "utf8" },
   );
   assert.equal(cli.status, 0, `status=${cli.status} stdout=${cli.stdout} stderr=${cli.stderr}`);
@@ -1016,7 +1016,7 @@ test("auto-walk (a): S-class grammar defect selects the phase with warnings ridi
 test("auto-walk (a) CLI: two-line stdout contract + demoted warnings on STDERR", () => {
   const cliWalk = spawnSync(
     process.execPath,
-    [SIZE_CLASS_PREFLIGHT_CLI, GRAMMAR_S_PLAN, "--allow-stale-manifest"],
+    [SIZE_CLASS_PREFLIGHT_CLI, GRAMMAR_S_PLAN, "--allow-stale-manifest", "--allow-unpromoted"],
     { encoding: "utf8" },
   );
   assert.equal(
@@ -1252,6 +1252,7 @@ test("CLI folds demoted warnings INTO the stdout halt text (Codex, PR #190)", ()
       WARNINGS_CARRY_WALK_PLAN,
       "1",
       "--allow-stale-manifest",
+      "--allow-unpromoted",
     ],
     { encoding: "utf8" },
   );

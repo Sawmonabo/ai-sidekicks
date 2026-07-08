@@ -49,10 +49,10 @@ import {
   validateEntry,
   serializeEntry,
 } from "./lib/manifest.mjs";
-// Single source for the material-path classification — G6 (manifest
-// freshness), the CI lane-boundary guard, and this tool must agree on what
-// counts as a shipment-shaped diff or their candidate populations drift.
-import { MATERIAL_PATH_PREFIXES } from "./preflight.mjs";
+// NOTE: this tool deliberately does NOT reuse preflight's
+// MATERIAL_PATH_PREFIXES for its governance-only skip — "not under a
+// material prefix" is not "not a shipment" (deploy/-only plan tasks exist:
+// Plan-025 T-025d-14-1). See the predicate comment at the skip site.
 
 // ---------- arg parsing ----------
 
@@ -390,32 +390,42 @@ export async function rebuildManifest({
       continue;
     }
     const details = fetchPrDetails({ pr, ghRunner });
-    // Docs-only title matches are not shipments: G6's freshness population
-    // counts only PRs touching MATERIAL_PATH_PREFIXES, so a docs PR whose
-    // title names the plan (doc-first closure PRs #1/#29 are the Plan-001
-    // shapes) must not enter synthesis — its squash text has no Phase/T
-    // markers and it validation-fails as noise (exit 5) on every from-
-    // scratch rebuild. When such a PR already has an on-disk manifest
-    // entry, that ground truth is REUSED verbatim (mirroring the body-only
-    // reuse path) rather than re-synthesized — synthesis would produce the
-    // same phase-0/empty-task failure the filter exists to remove (Codex
-    // P2, PR #192). The exit-7 truncation halt fires in fetchPrDetails
-    // BEFORE this filter — a truncated file list cannot prove docs-only,
-    // so it stays fail-closed.
+    // Governance-only title matches are not shipments: a doc-first closure
+    // PR whose title names the plan (Plan-001's #1/#29 shapes) must not
+    // enter synthesis — its squash text has no Phase/T markers and it
+    // validation-fails as noise (exit 5) on every from-scratch rebuild.
+    // The predicate is deliberately NARROWER than !MATERIAL_PATH_PREFIXES
+    // (Codex P2 round 2, PR #192): plans ship material work outside those
+    // prefixes too — Plan-025's T-025d-14-1 targets only deploy/self-host/*
+    // — so "no material prefix" cannot mean "not a shipment". Skip ONLY
+    // when every changed path is a governance surface: under docs/, or a
+    // root-level file (#1 carries .gitignore + .markdownlint-cli2.yaml
+    // alongside 90 markdown files). Anything else (deploy/, tools/, a new
+    // top-level root) synthesizes normally and, at worst, surfaces as an
+    // honest validation failure instead of a silent omission. Known limit
+    // (documented in the contract appendix): a hypothetical shipment task
+    // whose Files: are ALL root-level would be mis-skipped — no plan in
+    // the corpus declares one. When a governance-only PR already has an
+    // on-disk manifest entry, that ground truth is REUSED verbatim
+    // (mirroring the body-only reuse path) rather than re-synthesized
+    // (Codex P2 round 1). The exit-7 truncation halt fires in
+    // fetchPrDetails BEFORE this filter — a truncated file list cannot
+    // prove governance-only, so it stays fail-closed.
     const filePaths = (details.files ?? []).map((f) => f.path);
-    const materialFileCount = filePaths.filter((p) =>
-      MATERIAL_PATH_PREFIXES.some((prefix) => p.startsWith(prefix)),
-    ).length;
-    if (materialFileCount === 0) {
+    const governanceOnly =
+      filePaths.length > 0 && filePaths.every((p) => p.startsWith("docs/") || !p.includes("/"));
+    if (governanceOnly) {
       const existingEntry = existingEntryByPr.get(pr);
       if (existingEntry) {
         stderr.write(
-          `reused existing manifest entry (docs-only title match): PR #${pr} — "${title}"\n`,
+          `reused existing manifest entry (governance-only title match): PR #${pr} — "${title}"\n`,
         );
         built.push({ entry: existingEntry, ambiguities: [], reused: true });
         continue;
       }
-      stderr.write(`skipped (docs-only title match, no material paths): PR #${pr} — "${title}"\n`);
+      stderr.write(
+        `skipped (governance-only title match: docs/ + root files): PR #${pr} — "${title}"\n`,
+      );
       continue;
     }
     built.push(buildEntryFromPr({ pr, details, plan }));

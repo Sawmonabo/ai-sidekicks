@@ -4,11 +4,11 @@ The orchestrator invokes this tool at Phase 0 of plan-execution. It is the autho
 
 ## Invocation
 
-    node .claude/skills/plan-execution/scripts/preflight.mjs <plan-file> [phase] [--allow-stale-manifest]
+    node .claude/skills/plan-execution/scripts/preflight.mjs <plan-file> [phase] [--allow-stale-manifest] [--allow-unpromoted]
 
 When `phase` is omitted, the tool walks the plan's Implementation Phase Sequence and resolves to the first un-shipped phase whose preconditions all pass. When provided, it validates the specified phase explicitly (used when the user override-supplies a phase number).
 
-`--allow-stale-manifest` skips Gate 6 (manifest freshness) — the only gate with a CLI escape, because it is the only gate whose pass depends on network reachability rather than repo state. The skip is logged to stderr so a bypassed run is never silent. Programmatic callers (`runPreflight`) get the inverse default: `checkFreshness: false` unless opted in, so fixture-driven test suites stay network-free; `main()` always passes `checkFreshness: !allowStaleManifest`.
+`--allow-stale-manifest` skips Gate 6 (manifest freshness), whose pass depends on network reachability rather than repo state. `--allow-unpromoted` skips Gate 7 (status promotion) for authoring-time inspection of `draft` / `review` plans — the campaign's own plan-022 verification runs are the use case. Both skips log to stderr so a bypassed run is never silent. Programmatic callers (`runPreflight`) get the inverse defaults (`checkFreshness: false`, `checkStatusPromotion: false` unless opted in) so fixture-driven test suites stay network-free and gate-focused; `main()` always passes `checkFreshness: !allowStaleManifest` and `checkStatusPromotion: !allowUnpromoted`.
 
 The tool MUST be run from the repo root (Gate 5 `pr_merged` and `adr_accepted` resolvers and Gate 6's freshness cross-check shell out to `gh` / read `docs/decisions/`, which expect the cwd's git remote and repo layout).
 
@@ -173,6 +173,10 @@ Outcome table:
 - `gh pr list` returns exactly `FRESHNESS_FETCH_LIMIT` rows → **halt** (possible truncation; mirrors rebuild's exit-6 saturation sentinel).
 - Per-PR file list truncated (`files.length < changedFiles`, the GraphQL `files(first: 100)` ceiling) → **halt** (mirrors rebuild's exit-7 discipline; an unclassifiable candidate cannot be assumed doc-only).
 
+### Gate 7 — Plan status promotion (plan-level; executed before the phase walk)
+
+Reads the plan's header-table `| **Status** | \`x\` |`row (the`000-plan-template`shape).`approved`and`completed`pass;`draft`/`review`halt with the promotion remediation (a`completed`plan still halts truthfully at Gate 3 — all phases shipped). A missing or unparseable Status row halts (fail closed). Rationale: the corpus promotion gate (CLAUDE.md §Current State, AGENTS.md §Doc-First Discipline) admits a plan's first code PR only after`review`→`approved`, but Gate 2 verifies only the AUDIT fact — before this gate an audit-complete `review`plan cleared preflight end-to-end and the pipeline would scaffold a code branch off an unpromoted plan (Codex P2, PR #193). Runs immediately after Gate 2, before the phase walk and before Gate 6's`gh`calls, so the halt path is network-free. CLI escape:`--allow-unpromoted` (stderr-logged); promotion itself stays a human act — this gate only makes skipping it explicit instead of silent.
+
 ## Survey mode
 
     node .claude/skills/plan-execution/scripts/preflight.mjs --survey
@@ -182,13 +186,15 @@ Corpus-wide extractor screen — no plan file, no gates, no network. Iterates ev
 - **omission** — an oracle row no parsed id appears on: the extractor missed a real task row (the phase-falsely-shipped class; this direction caught the second-`#### Tasks`-block bug on PR #190).
 - **phantom** — a parsed id absent from every oracle row: the extractor invented a task (Gate 3 would see the phase as never shippable).
 
+Reconciliation is boundary-aware, not substring: an id occurrence counts only when not followed by an id-extending character (digit, `.`, `-`), so a parsed `T1.1` cannot cover an unparseable `T1.10` row (Codex P2, PR #192 round 2). Erring toward "not covered" is the fail-closed direction — a false anomaly is visible, a false pass is the miss class the screen exists for.
+
 Output: one line per walked plan (`P<N> <class>(<id-count>)` per phase), the S/M/L distribution, zero-phase plans as **notices** (they are invisible to `walkPhases`; a normal preflight run on one exits 2 fail-closed — the notice names the gap without failing the survey), and the anomaly list. Exit `0` clean / `1` on any anomaly — authoring and extractor-refactor workflows gate on it, and `preflight-survey.test.mjs` runs the real-corpus screen in CI (ci.yml's skill-test step) so a newly authored plan with an unparseable Tasks-block shape fails the PR that introduces it. The oracle is a screen, not a proof: a truncated-id parse whose prefix appears on the same row can still hide.
 
 ## Manifest rebuild — legacy-PR appendix
 
 `rebuild-shipment-manifest.mjs --plan 001` from scratch (manifest lost) synthesizes candidates from squash text, and the pre-title-token-mandate era leaves two irreducible classes:
 
-- **Docs-only title matches** (PRs #1, #29 — doc-first closure and audit-split PRs whose titles cite Plan-001) are skipped automatically since the material-path filter (`skipped (docs-only title match, no material paths)`) — same `MATERIAL_PATH_PREFIXES` predicate as Gate 6, imported from preflight.mjs.
+- **Governance-only title matches** (PRs #1, #29 — doc-first closure and audit-split PRs whose titles cite Plan-001) are skipped automatically by the governance-only filter (`skipped (governance-only title match: docs/ + root files)`): every changed path is under `docs/` or root-level (#1 carries root `.gitignore` + `.markdownlint-cli2.yaml` beside its markdown). The predicate is deliberately NARROWER than "no `MATERIAL_PATH_PREFIXES` path" — plans ship material work outside those prefixes (Plan-025's T-025d-14-1 targets only `deploy/self-host/*`), so a deploy/-only shipment synthesizes normally instead of being dropped (Codex P2, PR #192 round 2). Known limit: a shipment task whose `Files:` were ALL root-level would be mis-skipped; no plan in the corpus declares one, and the skip line names the PR so an operator can hand-enter it.
 - **Real shipments whose squash text carries no parseable Phase/T markers** validation-fail synthesis and need operator attribution. Their correct values, recorded here from the live Plan-001 manifest so a disaster rebuild is copy-paste instead of archaeology (files[] re-fetches mechanically via `gh pr view N --json files`):
 
 | PR  | phase | task         | sha       | merged_at  |

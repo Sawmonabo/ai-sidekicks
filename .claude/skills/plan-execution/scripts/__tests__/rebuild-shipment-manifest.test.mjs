@@ -985,9 +985,9 @@ test("rebuildManifest --include-body-matches routes >100-file candidates to oper
   }
 });
 
-// ---------- docs-only title-match skip (material-path filter) ----------
+// ---------- governance-only title-match skip (docs/ + root files) ----------
 
-test("rebuildManifest skips a docs-only title match instead of validation-failing it", async () => {
+test("rebuildManifest skips a governance-only title match instead of validation-failing it", async () => {
   const tmp = mkdtempSync(join(tmpdir(), "rsm-e2e-"));
   try {
     const planDir = join(tmp, "docs", "plans");
@@ -998,9 +998,11 @@ test("rebuildManifest skips a docs-only title match instead of validation-failin
       prList: [30, 61],
       prDetails: {
         30: SAMPLE_DETAILS,
-        // Mirrors real PR #1: token in title, docs + root files only — no
-        // parseable Phase/T markers, so pre-filter it exit-5-noised every
-        // from-scratch rebuild.
+        // Mirrors real PR #1: token in title, docs + root files only (#1
+        // also carries root .gitignore + .markdownlint-cli2.yaml — root
+        // files are governance, not shipment paths) — no parseable Phase/T
+        // markers, so pre-filter it exit-5-noised every from-scratch
+        // rebuild.
         61: {
           title: "docs: V1 doc-first phase closure — Plan-001 PR #1 unblocked",
           body: "Closes BL-100.",
@@ -1010,7 +1012,7 @@ test("rebuildManifest skips a docs-only title match instead of validation-failin
           files: [
             { path: "docs/decisions/023-v1-ci-cd-and-release-automation.md" },
             { path: "README.md" },
-            { path: "AGENTS.md" },
+            { path: ".gitignore" },
           ],
         },
       },
@@ -1028,17 +1030,20 @@ test("rebuildManifest skips a docs-only title match instead of validation-failin
       stderr,
     });
     assert.equal(r.exitCode, 0); // no validation failures — the docs PR never entered synthesis
-    assert.match(stderr.text(), /skipped \(docs-only title match, no material paths\): PR #61/);
+    assert.match(
+      stderr.text(),
+      /skipped \(governance-only title match: docs\/ \+ root files\): PR #61/,
+    );
     assert.doesNotMatch(stdout.text(), /^\s*pr: 61$/m);
     assert.match(stdout.text(), /task: T5\.1/); // the material shipment still synthesizes
     // dry-run stdout stays a pure YAML stream
-    assert.doesNotMatch(stdout.text(), /skipped \(docs-only/);
+    assert.doesNotMatch(stdout.text(), /skipped \(governance-only/);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
 });
 
-test("rebuildManifest reuses the on-disk entry for a docs-only title match instead of re-synthesizing", async () => {
+test("rebuildManifest reuses the on-disk entry for a governance-only title match instead of re-synthesizing", async () => {
   const tmp = mkdtempSync(join(tmpdir(), "rsm-e2e-"));
   try {
     const planDir = join(tmp, "docs", "plans");
@@ -1088,9 +1093,59 @@ test("rebuildManifest reuses the on-disk entry for a docs-only title match inste
       stderr,
     });
     assert.equal(r.exitCode, 0); // exit 5 here would mean the entry was re-synthesized
-    assert.match(stderr.text(), /reused existing manifest entry \(docs-only title match\): PR #61/);
-    assert.doesNotMatch(stderr.text(), /skipped \(docs-only title match/);
+    assert.match(
+      stderr.text(),
+      /reused existing manifest entry \(governance-only title match\): PR #61/,
+    );
+    assert.doesNotMatch(stderr.text(), /skipped \(governance-only title match/);
     assert.match(stdout.text(), /task: T5\.9/); // the ground-truth entry rides through verbatim
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("rebuildManifest does NOT skip a deploy/-only shipment (material work outside MATERIAL_PATH_PREFIXES — Codex r2)", async () => {
+  // Plan-025's T-025d-14-1 ships only deploy/self-host/* — a real shipment
+  // with zero packages/apps/.github paths. The governance-only predicate
+  // must let it synthesize (visible entry or honest validation failure),
+  // never silently drop it from a disaster rebuild.
+  const tmp = mkdtempSync(join(tmpdir(), "rsm-e2e-"));
+  try {
+    const planDir = join(tmp, "docs", "plans");
+    mkdirSync(planDir, { recursive: true });
+    writeFileSync(join(planDir, "001-shared-session-core.md"), PLAN_TEMPLATE);
+
+    const ghRunner = makeGhRunner({
+      prList: [88],
+      prDetails: {
+        88: {
+          title: "feat(relay): Plan-001 Phase 5 T5.8 reference compose",
+          body: "Ships the self-host compose file.",
+          mergedAt: "2026-05-20T10:00:00Z",
+          mergeCommit: { oid: "feedbeefcafe123" },
+          changedFiles: 2,
+          files: [
+            { path: "deploy/self-host/docker-compose.yml" },
+            { path: "deploy/self-host/pg-cert-init.sh" },
+          ],
+        },
+      },
+    });
+
+    const stdout = makeCaptureStream();
+    const stderr = makeCaptureStream();
+    const r = await rebuildManifest({
+      plan: "001",
+      dryRun: true,
+      force: false,
+      ghRunner,
+      plansDir: planDir,
+      stdout,
+      stderr,
+    });
+    assert.doesNotMatch(stderr.text(), /governance-only/);
+    assert.match(stdout.text(), /task: T5\.8/); // synthesized, not dropped
+    assert.equal(r.exitCode, 0);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }

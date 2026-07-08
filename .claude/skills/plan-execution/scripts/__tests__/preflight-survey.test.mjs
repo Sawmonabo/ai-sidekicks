@@ -61,6 +61,38 @@ test("surveyPhase: bold-italic task row surfaces as omission (oracle looser than
   assert.match(result.omissions[0], /T1\.9/);
 });
 
+test("surveyPhase: parsed T1.1 does NOT cover an unparseable T1.10 row (boundary-aware reconciliation — Codex r2)", () => {
+  // With bare substring matching, the `T1.1` prefix inside `T1.10` marked the
+  // bold-italic row as covered and the screen stayed green on a real
+  // extractor miss. The boundary rule (id not followed by digit / `.` / `-`)
+  // must surface it as an omission.
+  const section = `### Phase 1 — Example
+
+#### Tasks
+
+- **T1.1 — parsed fine**
+- ***T1.10 — bold-italic row the extractor cannot parse***
+`;
+  const result = surveyPhase(section);
+  assert.deepEqual(result.ids, ["T1.1"]);
+  assert.equal(result.omissions.length, 1);
+  assert.match(result.omissions[0], /T1\.10/);
+});
+
+test("surveyPhase: boundary rule does not over-fire — ids followed by em-dash/space/paren still count as covered", () => {
+  const section = `### Phase 1 — Example
+
+#### Tasks
+
+- **T1.1 — plain**
+- **T1.2** (Files: \`packages/a/x.ts\`) — parenthesized
+`;
+  const result = surveyPhase(section);
+  assert.deepEqual(result.ids, ["T1.1", "T1.2"]);
+  assert.deepEqual(result.omissions, []);
+  assert.deepEqual(result.phantoms, []);
+});
+
 test("surveyPhase: star-in-title rows stay covered (the PR #190 miss class, now parsed)", () => {
   const section = `### Phase 1 — Example
 

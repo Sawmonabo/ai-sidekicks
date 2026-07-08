@@ -27,6 +27,7 @@ import {
   shippedTaskIdsForPhase,
   gateProjectLocality,
   gateAuditCheckbox,
+  gateStatusPromotion,
   gatePhaseAuditCheckbox,
   gateTasksBlockCites,
   gatePhaseUnshipped,
@@ -2682,11 +2683,16 @@ shipped: []
 ### Notes
 `,
   );
-  const r = spawnSync(process.execPath, [PREFLIGHT_CLI, planFile, "2", "--allow-stale-manifest"], {
-    encoding: "utf8",
-  });
+  const r = spawnSync(
+    process.execPath,
+    [PREFLIGHT_CLI, planFile, "2", "--allow-stale-manifest", "--allow-unpromoted"],
+    {
+      encoding: "utf8",
+    },
+  );
   assert.equal(r.status, 1, `status=${r.status} stdout=${r.stdout} stderr=${r.stderr}`);
   assert.match(r.stderr, /Gate 6 \(manifest freshness\) SKIPPED via --allow-stale-manifest/);
+  assert.match(r.stderr, /Gate 7 \(status promotion\) SKIPPED via --allow-unpromoted/);
   assert.match(r.stdout, /precondition unmet/i);
   assert.match(r.stdout, /Plan-99 not found/);
 });
@@ -2750,4 +2756,92 @@ shipped:
   const r = runPreflight(planFile, 2, { repoRoot: repo, skillMd });
   assert.equal(r.exit, 0, `exit was ${r.exit}; stdout=${r.stdout}; stderr=${r.stderr}`);
   assert.equal(r.stdout, "2");
+});
+
+// ---------- Gate 7 — plan status promotion ----------
+// The corpus promotion gate (review → approved before first code PR) had no
+// mechanical enforcement: Gate 2 verifies the audit fact, nothing verified
+// promotion, so an audit-complete review-status plan cleared preflight
+// end-to-end (Codex P2, PR #193). These pin the gate + the CLI default-ON /
+// --allow-unpromoted escape.
+
+const statusPlan = (status) => `# Plan-001
+
+| Field | Value |
+| --- | --- |
+| **Status** | \`${status}\` |
+| **NNN** | \`001\` |
+`;
+
+test("gateStatusPromotion passes approved and completed", () => {
+  assert.equal(gateStatusPromotion(statusPlan("approved"), "p.md").ok, true);
+  assert.equal(gateStatusPromotion(statusPlan("completed"), "p.md").ok, true);
+});
+
+test("gateStatusPromotion halts review and draft with the promotion message", () => {
+  for (const status of ["review", "draft"]) {
+    const r = gateStatusPromotion(statusPlan(status), "docs/plans/001-test.md");
+    assert.equal(r.ok, false);
+    assert.match(r.halt, /plan not promoted \(Gate 7\)/);
+    assert.match(r.halt, new RegExp(`Status is \\\`${status}\\\``));
+    assert.match(r.halt, /--allow-unpromoted/);
+  }
+});
+
+test("gateStatusPromotion fails closed on a missing/unparseable Status row", () => {
+  const r = gateStatusPromotion("# Plan-001\n\nno header table here\n", "p.md");
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /status unreadable/);
+});
+
+test("gateStatusPromotion reads the unbackticked Status cell too", () => {
+  const source = "# Plan-001\n\n| Field | Value |\n| --- | --- |\n| **Status** | approved |\n";
+  assert.equal(gateStatusPromotion(source, "p.md").ok, true);
+});
+
+test("runPreflight enforces Gate 7 only when checkStatusPromotion is set (CLI default), and the halt precedes the phase walk", () => {
+  const repo = makeTempRepo();
+  const skillMd = join(repo, ".claude", "skills", "plan-execution", "SKILL.md");
+  writeFileSync(skillMd, `---\nname: test\nrequires_files: []\n---\n\nbody`);
+  const planFile = join(repo, "docs", "plans", "001-test.md");
+  // Review-status plan with a ticked audit box and NO phase sections: Gate 7
+  // must halt before the "no Phase headers" exit-2 path, proving placement.
+  writeFileSync(
+    planFile,
+    `# Plan-001\n\n| Field | Value |\n| --- | --- |\n| **Status** | \`review\` |\n\n## Preconditions\n\n- [x] **Plan-readiness audit complete per runbook.\n`,
+  );
+  const gated = runPreflight(planFile, undefined, {
+    repoRoot: repo,
+    skillMd,
+    checkStatusPromotion: true,
+  });
+  assert.equal(gated.exit, 1);
+  assert.match(gated.stdout, /plan not promoted \(Gate 7\)/);
+  // Programmatic default (checkStatusPromotion unset) skips the gate and
+  // falls through to the phase walk's exit-2 — the pre-Gate-7 behavior.
+  const ungated = runPreflight(planFile, undefined, { repoRoot: repo, skillMd });
+  assert.equal(ungated.exit, 2);
+});
+
+test("CLI entry: review-status plan halts at Gate 7 by default; --allow-unpromoted skips loudly", () => {
+  const repo = makeTempRepo();
+  const skillMd = join(repo, ".claude", "skills", "plan-execution", "SKILL.md");
+  writeFileSync(skillMd, `---\nname: test\nrequires_files: []\n---\n\nbody`);
+  const planFile = join(repo, "docs", "plans", "001-test.md");
+  writeFileSync(
+    planFile,
+    `# Plan-001\n\n| Field | Value |\n| --- | --- |\n| **Status** | \`review\` |\n\n## Preconditions\n\n- [x] **Plan-readiness audit complete per runbook.\n`,
+  );
+  // Gate 7 fires before Gate 6, so no --allow-stale-manifest is needed —
+  // the halt path stays network-free by construction.
+  const gated = spawnSync(process.execPath, [PREFLIGHT_CLI, planFile], { encoding: "utf8" });
+  assert.equal(gated.status, 1, `status=${gated.status} stdout=${gated.stdout}`);
+  assert.match(gated.stdout, /plan not promoted \(Gate 7\)/);
+  const skipped = spawnSync(
+    process.execPath,
+    [PREFLIGHT_CLI, planFile, "--allow-unpromoted", "--allow-stale-manifest"],
+    { encoding: "utf8" },
+  );
+  assert.match(skipped.stderr, /Gate 7 \(status promotion\) SKIPPED via --allow-unpromoted/);
+  assert.doesNotMatch(String(skipped.stdout), /plan not promoted/);
 });
