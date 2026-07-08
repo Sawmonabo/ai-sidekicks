@@ -1796,3 +1796,16 @@ test("runHousekeeper: malformed PRs block in multi-candidate path also exits 5 (
     rmSync(tmpRepo, { recursive: true, force: true });
   }
 });
+
+test("extractFileReferences extracts the path from a #symbol-suffixed reference", () => {
+  const result = extractFileReferences({
+    references:
+      "`packages/runtime-daemon/src/bootstrap/secure-defaults-events.ts#registerSecureDefaults`",
+    summary: "",
+    repoRoot: REPO_ROOT,
+    entryFile: ENTRY_FILE,
+  });
+  assert.ok(
+    result.files.includes("packages/runtime-daemon/src/bootstrap/secure-defaults-events.ts"),
+  );
+});

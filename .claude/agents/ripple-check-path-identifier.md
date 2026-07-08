@@ -105,7 +105,9 @@ The residual class you're hunting:
    - For excludes, run a second `Grep` over the exclude scope and subtract those file paths from the results.
    - Look in code blocks AND prose AND heading-cite contexts — the residual is where the hook's regex didn't fire because the form appeared inside a fence or in a context the hook doesn't scan.
 
-3. **Categorize each finding** into one of: `registry-without-rename` (registry entry exists but no rename in diff), `rename-without-registry` (rename in diff, no registry entry — most common), `surviving-deprecated` (registry entry exists, rename happened, but a deprecated form survives somewhere), `ambiguous` (the rename is not yet final or the canonical form is contested — escalate via `BLOCKED`).
+3. **Symbol-anchor inbound sweep (CAT-02).** A renamed / removed export invalidates docs `#oldName` cites — on every identifier rename in the diff, `Grep` `docs/` and the root md files for `#<oldName>` (the docs→code anchor form `<file>:<lines>`-era cites were converted to). The gate verifies these at pre-commit, so a hit here usually means the rename commit forgot the citer sweep — surface it as `error` with the corrected `#newName` form.
+
+4. **Categorize each finding** into one of: `registry-without-rename` (registry entry exists but no rename in diff), `rename-without-registry` (rename in diff, no registry entry — most common), `surviving-deprecated` (registry entry exists, rename happened, but a deprecated form survives somewhere), `ambiguous` (the rename is not yet final or the canonical form is contested — escalate via `BLOCKED`).
 
 ## Severity calibration
 
