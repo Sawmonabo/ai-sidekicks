@@ -70,7 +70,7 @@
 //     `Spec-003 §Acceptance Criteria` AC2 needs degraded/offline nodes visible) — LEFT-JOINed with the
 //     heartbeat-owned presence axis (NULL until the node's first beat) and
 //     carrying a per-row `readOnly` verdict derived AT READ TIME via the SAME
-//     `#deriveReadOnly` comparator attach uses (AC4 line 130 — the read-side
+//     `#deriveReadOnly` comparator attach uses (`Spec-003 §Acceptance Criteria` AC4 — the read-side
 //     surfacing of admit-not-eject, I-003-1). Joins THIS class rather than a
 //     second service: the roster is a projection over the SAME
 //     `runtime_node_attachments` row lifecycle attach / detach /

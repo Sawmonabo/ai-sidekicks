@@ -207,8 +207,8 @@ export class InviteExpiredException extends Error {
 
 /**
  * Thrown by `revokeInvite` when the acting participant is not an active owner
- * of the invite's session (`Spec-002 §Invite Revocation`, owner-only per the
- * security-architecture.md Permission Matrix). The ownership check mirrors
+ * of the invite's session (`Spec-002 §Invite Revocation`, owner-only per
+ * `docs/architecture/security-architecture.md §Permission Matrix (Task 5.4)`). The ownership check mirrors
  * `MembershipService.updateMembership`'s active-owner gate. The transport
  * layer maps this to an authorization failure (HTTP 403 / tRPC `FORBIDDEN`).
  */
@@ -404,7 +404,7 @@ export class InviteService {
    * UNIQUE constraint (Plan-002 Phase 1 migration) backs single-use semantics
    * that T2.2 enforces on accept.
    *
-   * Owner-authorization (security-architecture.md §Permission Matrix,
+   * Owner-authorization (`docs/architecture/security-architecture.md §Permission Matrix (Task 5.4)`,
    * `Spec-002 §Invite Revocation` — "Invite participants" is owner-only): issuance is
    * gated on the AUTHENTICATED actor, NOT the body. The actor must hold an
    * active `owner` membership in the target session — the same active-owner
@@ -473,7 +473,7 @@ export class InviteService {
       // must not be inverted.
       await tx.query("SELECT id FROM sessions WHERE id = $1 FOR UPDATE", [validated.sessionId]);
 
-      // Owner-authorization (security-architecture.md §Permission Matrix,
+      // Owner-authorization (`docs/architecture/security-architecture.md §Permission Matrix (Task 5.4)`,
       // `Spec-002 §Invite Revocation` — "Invite participants" is owner-only). Same
       // active-owner predicate revokeInvite / MembershipService.updateMembership
       // use: the actor must hold a `session_memberships` row in THIS session
