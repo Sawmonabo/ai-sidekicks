@@ -324,7 +324,7 @@ export const IdempotencyClassSchema: z.ZodType<IdempotencyClass, IdempotencyClas
 // `idempotency_class` is OPTIONAL: a driver MAY omit it and an undeclared class
 // is NOT a contract violation. Were the field required at ingress, Zod would
 // reject a conformant-but-silent driver BEFORE the default could apply,
-// defeating `Spec-005 §`idempotency_class``.
+// defeating `Spec-005 §idempotency_class`.
 export interface ProviderToolMetadata {
   name: string;
   idempotency_class?: IdempotencyClass | undefined;

@@ -13,6 +13,12 @@
 //      and the heading is VERIFIED against the doc's current headings
 //      (exact-after-normalize) — the durable anchor form. Markdown citers get
 //      the same verification via checkSectionCites.
+//   4. PATH-SECTION form — backticked `` `docs/<path>.md §Heading` `` — the
+//      durable anchor for label-LESS governance docs (domain / architecture /
+//      operations), which have no Spec/Plan/ADR token to hang a §-cite on.
+//      Same heading verification as form 3 (Codex review, PR #189: without
+//      this, the path+§ replacements the deny recommends would be
+//      gate-invisible and rot silently on a heading rename).
 //
 // Why deny instead of floor: a line-cite floor (non-empty, in-range) passes
 // vacuously on semantic drift — `Spec-003:73 → :77` after a +4-line insertion
@@ -68,6 +74,15 @@ const LABEL_CITE_RE = /\b(Spec|Plan|ADR)-(\d{3}):(\d+(?:\s*[,-]\s*\d+)*)/g;
 // heading text in a REQUIRED gate (unbounded heading matches over comment prose
 // would over-match; unbackticked forms stay audit-layer via /ripple-check).
 const SECTION_CITE_RE = /`(Spec|Plan|ADR)-(\d{3}) §([^`]+)`/g;
+
+// Backticked path-form §Heading cite — the durable anchor for label-LESS
+// governance docs. Path shape mirrors DOCS_PATH_CITE_RE (repo-root `docs/`,
+// any depth); the backtick boundary and `[^`]+` heading span mirror
+// SECTION_CITE_RE. A heading whose in-doc spelling carries inline code ticks
+// (`### \`idempotency_class\``) is cited WITHOUT the inner ticks — an inner
+// backtick would terminate the anchor span — and still matches because
+// normalizeTokenForMatch strips them from both sides.
+const PATH_SECTION_CITE_RE = /`(docs\/(?:[a-z][a-z-]*\/)*[A-Za-z0-9._-]+\.md) §([^`]+)`/g;
 
 // Ported from preflight.mjs findSectionHeading/normalizeTokenForMatch — port,
 // don't reinvent: exact-after-normalize so `§Token` cannot prefix-match
@@ -264,6 +279,22 @@ function extractLabelCitesFrom(
         section: m[3],
       });
     }
+
+    // Pass 4 — backticked path-section form (`` `docs/domain/x.md §Heading` ``).
+    // The label-less analogue of pass 3: the path resolves directly from repo
+    // root; a deleted / renamed-away doc surfaces as missing-target-file, a
+    // renamed heading as section-not-found.
+    PATH_SECTION_CITE_RE.lastIndex = 0;
+    while ((m = PATH_SECTION_CITE_RE.exec(line)) !== null) {
+      cites.push({
+        file: citingFile,
+        line: i + 1,
+        rawTarget: `${m[1]} §${m[2]}`,
+        targetPath: resolve(repoRoot, m[1]),
+        targetLine: 0,
+        section: m[2],
+      });
+    }
   }
   return cites;
 }
@@ -328,11 +359,17 @@ export function checkLabelCiteTargets(
       const deniedKey = `${c.file}:${c.line}:${c.targetPath}`;
       if (!deniedRawCites.has(deniedKey)) {
         deniedRawCites.add(deniedKey);
+        // Name the durable form that EXISTS for the target: a docs-path raw
+        // cite points at a label-less doc, so recommending `Spec-NNN §Heading`
+        // would prescribe a token the target does not have (Codex, PR #189).
+        const docsPathForm = c.rawTarget.startsWith("docs/");
+        const durableForm = docsPathForm
+          ? `\`${c.rawTarget.replace(/:\d+$/, "")} §Heading\``
+          : "`Spec-NNN §Heading`";
         violations.push({
           cite: c,
           reason: "raw-line-cite-into-governance-doc",
-          detail:
-            "cite the backticked `Spec-NNN §Heading` form instead (AGENTS.md §Durable-Cite Rule) — governance line numbers shift on every amendment",
+          detail: `cite the backticked ${durableForm} form instead (AGENTS.md §Durable-Cite Rule) — governance line numbers shift on every amendment`,
         });
       }
     }
@@ -372,7 +409,7 @@ export function formatLabelCiteViolations(violations: CiteViolation[]): string {
   }
   lines.push("");
   lines.push(
-    `label-cite: ${violations.length} violation(s). Raw governance line-cites in code are denied — cite the backticked \`Spec-NNN §Heading\` anchor form instead, and verify §-anchors name a real heading (AGENTS.md §Durable-Cite Rule).`,
+    `label-cite: ${violations.length} violation(s). Raw governance line-cites in code are denied — cite the backticked \`Spec-NNN §Heading\` anchor form (label-less docs: \`docs/<path>.md §Heading\`) instead, and verify §-anchors name a real heading (AGENTS.md §Durable-Cite Rule).`,
   );
   return lines.join("\n");
 }

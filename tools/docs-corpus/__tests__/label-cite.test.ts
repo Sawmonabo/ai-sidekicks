@@ -572,3 +572,155 @@ describe("section-anchor cites — fenced citer content excluded (md only)", () 
     }
   });
 });
+
+describe("path-section anchor cites (`docs/….md §Heading` — label-LESS governance docs)", () => {
+  it("passes a backticked path-form §-cite whose heading exists in the target doc", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/domain/session-model.md": "# Session Model\n\n## State Model\n\nbody\n",
+      "packages/runtime-daemon/src/types.ts":
+        "// State names track `docs/domain/session-model.md §State Model`.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/runtime-daemon/src/types.ts")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("flags section-not-found when the path-form heading was renamed away", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/domain/session-model.md": "# Session Model\n\n## Lifecycle Model\n\nbody\n",
+      "packages/runtime-daemon/src/types.ts":
+        "// State names track `docs/domain/session-model.md §State Model`.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/runtime-daemon/src/types.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("section-not-found");
+      expect(violations[0].detail).toContain("Lifecycle Model");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("flags missing-target-file when the path-form doc does not exist", () => {
+    const { root, cleanup } = setupRepo({
+      "packages/runtime-daemon/src/types.ts":
+        "// State names track `docs/domain/renamed-away.md §State Model`.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/runtime-daemon/src/types.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("missing-target-file");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("verifies path-form §-cites in MARKDOWN citers too (checkSectionCites)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/domain/session-model.md": "# Session Model\n\n## State Model\n\nbody\n",
+      "docs/plans/001-x.md":
+        "# Plan\n\nPer `docs/domain/session-model.md §State Model` states are enumerated.\n",
+    });
+    try {
+      const clean = withRepoRoot(root, () =>
+        checkSectionCites([resolve(root, "docs/plans/001-x.md")]),
+      );
+      expect(clean).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("flags a dead path-form heading in a MARKDOWN citer (checkSectionCites)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/domain/session-model.md": "# Session Model\n\n## Lifecycle Model\n\nbody\n",
+      "docs/plans/001-x.md":
+        "# Plan\n\nPer `docs/domain/session-model.md §State Model` states are enumerated.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkSectionCites([resolve(root, "docs/plans/001-x.md")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("section-not-found");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("does not match an unbackticked path-form § mention (zero-FP contract)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/domain/session-model.md": "# Session Model\n\n## State Model\n\nbody\n",
+      "packages/runtime-daemon/src/types.ts":
+        "// Refs: docs/domain/session-model.md §Totally Renamed Heading\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/runtime-daemon/src/types.ts")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("matches a heading whose doc spelling carries inline code ticks (normalize strips them)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/005-provider.md": "# Spec\n\n### `idempotency_class`\n\nbody\n",
+      "packages/contracts/src/provider.ts":
+        "// Defaults per `Spec-005 §idempotency_class` when undeclared.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/contracts/src/provider.ts")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe("deny-detail remediation names the form that exists for the target", () => {
+  it("recommends `Spec-NNN §Heading` for a denied label-form raw cite", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/016-x.md": FIVE_LINE_DOC,
+      "packages/x/src/f.ts": "// Spec-016:3 governs this.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/x/src/f.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].detail).toContain("`Spec-NNN §Heading`");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("recommends the backticked `docs/….md §Heading` form for a denied docs-path raw cite (label-less target)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/domain/session-model.md": FIVE_LINE_DOC,
+      "packages/x/src/f.ts": "// docs/domain/session-model.md:3 governs this.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/x/src/f.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].detail).toContain("`docs/domain/session-model.md §Heading`");
+      expect(violations[0].detail).not.toContain("`Spec-NNN §Heading`");
+    } finally {
+      cleanup();
+    }
+  });
+});

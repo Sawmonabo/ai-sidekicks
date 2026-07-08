@@ -43,7 +43,7 @@
 //
 // Refs: `Spec-005 §Acceptance Criteria` (AC1 — driver implementable with no session-domain change),
 // `Spec-005 §Acceptance Criteria` (AC2 — off-union capability flag is a type error), `Spec-005 §Fallback Behavior`
-// (resume-failure surfacing), `Spec-005 §`idempotency_class`` (idempotency default), Plan-005
+// (resume-failure surfacing), `Spec-005 §idempotency_class` (idempotency default), Plan-005
 // Phase 1, I-005-3, I-005-5.
 import { describe, expect, it } from "vitest";
 
@@ -415,7 +415,7 @@ describe("ProviderDriver contract — I-005-5: failed resume cannot carry a bind
 // This package's first TRANSFORMING schema (Input ≠ Output): an OMITTED
 // `idempotency_class` defaults to `manual_reconcile_only` on the OUTPUT (a
 // driver may omit it at ingress; the daemon-side normalized shape requires it).
-// `Spec-005 §`idempotency_class`` — an undeclared class is NOT a contract violation; the safe
+// `Spec-005 §idempotency_class` — an undeclared class is NOT a contract violation; the safe
 // default applies at the normalization seam.
 
 describe("ProviderToolMetadataSchema — I-005-3: ingress→normalized idempotency default", () => {

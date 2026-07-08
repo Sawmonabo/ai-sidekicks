@@ -5,7 +5,7 @@
 //     `window.sidekicks` preload bridge on mount and renders the returned
 //     session id.
 // The reject-branch render is a task acceptance criterion (T5.2(d), per
-// ``docs/plans/001-shared-session-core.md §T5.1 — `sessionClient.ts` daemon + control-plane transport``), not a Spec-001 AC. Spec-001
+// `docs/plans/001-shared-session-core.md §T5.1 — sessionClient.ts daemon + control-plane transport`), not a Spec-001 AC. Spec-001
 // AC4 (join semantics) is T5.1's `sessionClient.join` responsibility — see
 // the plan body's T5.1 row at line 379.
 //

@@ -186,7 +186,7 @@ Highest-activity presence reduction, participant projection assembly, and stable
   - Files: `packages/control-plane/src/presence/presence-aggregation-service.ts` (CREATE)
   - Spec coverage: Spec-018:41 (aggregate device presence), Spec-018:49,50 (presence summary + precedence), Spec-018:56 (conservative no-false-offline)
   - Verifies invariant: I-018-4, I-018-5
-  - Consumes: per-device presence rows via the T3.2 accessor (NOT the recency-collapsing `packages/control-plane/src/presence/presence-register-service.ts#readPresence` — F-018-3-01); `PRESENCE_SUMMARY_PRECEDENCE` (T1.4)
+  - Consumes: per-device presence rows via the T3.2 accessor (NOT the recency-collapsing `readPresence` accessor on `packages/control-plane/src/presence/presence-register-service.ts#PresenceRegisterService` — F-018-3-01); `PRESENCE_SUMMARY_PRECEDENCE` (T1.4)
   - Note: authors a new highest-activity reduction; the shipped `readPresence` collapses by recency and MUST NOT be reused for the summary.
   - Decided: D-018-4 (`lastSeen` = winning precedence-device's value) — ratified Tier-5.
 - **T3.2 — Per-device presence read accessor on the substrate.**

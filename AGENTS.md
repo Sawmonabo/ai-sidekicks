@@ -60,7 +60,7 @@ When claims depend on recent data (post-knowledge-cutoff or fast-moving librarie
 Cite volatile targets by durable form, not raw line number:
 
 - **Code under `packages/` + `apps/`** — `` `<path>.ts#<exportedSymbol>` `` (repo-relative path, `#`, an exported identifier or test name present in the file). New raw `` `<path>.ts:NNN` `` line-pins into these trees are denied by the docs-corpus gate.
-- **Specs / plans / ADRs** (cited from code comments or docs) — `` `Spec-NNN §Heading` `` (backticked; § + the exact heading text; likewise `Plan-NNN §…` / `ADR-NNN §…`). The gate verifies the heading exists in the resolved doc.
+- **Specs / plans / ADRs** (cited from code comments or docs) — `` `Spec-NNN §Heading` `` (backticked; § + the exact heading text; likewise `Plan-NNN §…` / `ADR-NNN §…`). The gate verifies the heading exists in the resolved doc. A label-less governance doc (domain / architecture / operations) takes the same anchor with its path in place of the token — `` `docs/<path>.md §Heading` `` — gate-verified the same way. A heading whose in-doc spelling carries inline code ticks is cited WITHOUT them (an inner backtick would terminate the anchor); the gate's normalize-match accepts either spelling.
 - **Docs → docs** — markdown link + `#fragment` anchor (lychee-floored) in preference to `file.md:NNN`.
 - **Raw `:NNN` stays legal for frozen content** (`docs/archive/`, `docs/reference/`) and for grandfathered legacy cites — convert those opportunistically whenever the citing line is touched.
 

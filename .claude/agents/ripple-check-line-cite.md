@@ -1,7 +1,7 @@
 ---
 name: ripple-check-line-cite
 color: blue
-description: Internal subagent for the /ripple-check orchestrator only. Do not invoke directly — the orchestrator dispatches this subagent in parallel with siblings to audit a doc-corpus diff for CAT-06 (line-cite truncation floor — hook-covered residual) and CAT-07 (line-cite semantic drift — audit-only residual) ripple. The orchestrator passes diff hunks and the inbound `:NNN` cite list from `.md` citers (label forms included) via the prompt parameter; this subagent returns one JSON object with findings.
+description: Internal subagent for the /ripple-check orchestrator only. Do not invoke directly — the orchestrator dispatches this subagent in parallel with siblings to audit a doc-corpus diff for CAT-06 (line-cite truncation floor — hook-covered residual) and CAT-07 (line-cite semantic drift — audit-only residual) ripple. The orchestrator passes diff hunks and the inbound `:NNN` cite list (spanning `.md` and `packages/**`+`apps/**` code citers) via the prompt parameter; this subagent returns one JSON object with findings.
 model: inherit
 tools:
   - Read
@@ -21,7 +21,7 @@ The orchestrator passes you:
 
 - A list of modified files (repo-relative paths) — the cite TARGETS.
 - The diff hunks for those files (so you can compute line-shift offsets).
-- The list of inbound `<file>:NNN` cites that point at any modified file — from elsewhere in the `.md` corpus, across all line-bearing forms (colon `Spec-003:178`, line-word `Spec-003 line 178`, parenthesized `(line 178)`, named-section `§… line 81`, `AC4:108`, full-path and bare-basename `.md` forms), normalized to `<doc-path>:NNN`. Code comments no longer carry raw governance line-cites (the post-2026-07 sweep converted them to gate-verified `§Heading` anchors; heading-anchor exposure routes to Subagent B).
+- The list of inbound `<file>:NNN` cites that point at any modified file — from elsewhere in the `.md` corpus **and** from `packages/**`+`apps/**` code comments, across all line-bearing forms (colon `Spec-003:178`, line-word `Spec-003 line 178`, parenthesized `(line 178)`, named-section `§… line 81`, `AC4:108`, full-path and bare-basename `.md` forms), normalized to `<doc-path>:NNN` and tagged by origin (`.md` vs code). The post-2026-07 sweep converted the code tree's COLON-form cites to gate-verified `§Heading` anchors and the gate denies new colon/path raw forms — but the line-word spelling and the bare-basename class remain live in code and gate-invisible, so code citers stay in scope. Audit a code citer exactly as a `.md` citer: read the citing comment for what it claims, read the target line for what it now says. Heading-anchor exposure routes to Subagent B.
 
 If any input is missing or unparseable, return `exit_state: NEEDS_CONTEXT` with a `narrative` describing the gap.
 
@@ -54,7 +54,7 @@ Return **a single JSON object as the final message**. The orchestrator parses on
 | `findings` | array | yes (may be empty) | One entry per finding. Empty `[]` is valid when `exit_state=DONE` |
 | `findings[].severity` | enum: `error` \| `warning` \| `info` | yes | `error` = must fix; `warning` = should fix; `info` = heads-up |
 | `findings[].catalog_row` | string | yes | `CAT-07` for the primary semantic-drift case; `CAT-06` ONLY when you find something the `cite-target-existence` hook should have caught but did not (a hook bug worth surfacing as a Known Gap) |
-| `findings[].file` | string (repo-relative) | yes | The CITING `.md` doc holding the inbound cite, not the target file |
+| `findings[].file` | string (repo-relative) | yes | The CITING file (the `.md` doc **or** `packages/**`+`apps/**` code file holding the inbound cite), not the target file |
 | `findings[].line` | integer | no | Line of the citing reference; omit for whole-file findings |
 | `findings[].description` | string | yes | Concrete problem statement: what does the citing prose claim, what does the target line now say, why the mismatch |
 | `findings[].suggested_fix` | string | required when `severity=error`; recommended otherwise | Free-form prose or a unified-diff snippet. The orchestrator does NOT parse it programmatically in default mode |
