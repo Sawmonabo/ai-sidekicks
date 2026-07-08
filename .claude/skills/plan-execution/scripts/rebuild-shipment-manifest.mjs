@@ -49,6 +49,12 @@ import {
   validateEntry,
   serializeEntry,
 } from "./lib/manifest.mjs";
+import { MATERIAL_PATH_PREFIXES } from "./preflight.mjs";
+// MATERIAL_PATH_PREFIXES is one HALF of the skip predicate: a material
+// path forces synthesis (fail-open toward validation), but its absence
+// alone never justifies a skip — deploy/-only plan tasks exist
+// (Plan-025 T-025d-14-1). The other half is the synthesizer's own task
+// discriminator. See the predicate comment at the skip site.
 
 // ---------- arg parsing ----------
 
@@ -159,8 +165,16 @@ export function parsePhaseFromPr({ title, body, plan }) {
 // mixed Plan-NNN refs surface as ambiguity for operator confirmation
 // rather than auto-mapping.
 export function parseTaskFromPr({ title, body, plan }) {
-  const planScopedPattern = new RegExp(`\\bT-${plan}p?-\\d+-\\d+\\b`, "g");
-  const tnmPattern = /\bT\d+\.\d+\b/g;
+  // The optional series letter covers every corpus id family: T-007p-2-4
+  // (primary), T-025d-14-1 (deploy), and future letters — the survey's
+  // boundary rule already treats letters as id-extending characters, so the
+  // extractor must parse what the boundary protects (Codex P2 round 4).
+  const planScopedPattern = new RegExp(`\\bT-${plan}[a-z]?-\\d+-\\d+\\b`, "g");
+  // Multi-segment: Plan-001's TN.M (T5.1) and Plan-022's TN.M.K (T22.4.4)
+  // are both live corpus grammars — a two-segment-only pattern silently
+  // TRUNCATES T22.4.4 to "T22.4" and writes a wrong manifest task id
+  // (surfaced by the Codex-r4 docs-only shipment test).
+  const tnmPattern = /\bT\d+\.\d+(?:\.\d+)*\b/g;
   const planRefPattern = /\bPlan-(\d{3})\b/g;
   const found = new Set();
   for (const text of [title, body]) {
@@ -386,6 +400,41 @@ export async function rebuildManifest({
       continue;
     }
     const details = fetchPrDetails({ pr, ghRunner });
+    // A title-tokened PR is a shipment iff the synthesizer can anchor a
+    // manifest entry on it. File shape cannot make that call — three Codex
+    // rounds each broke a path allow-list (deploy/-only shipments, root
+    // config shipments like Plan-001 T1.1/T1.4, docs-only shipment tasks
+    // like Plan-022 T22.4.4/T22.4.5) — so the skip keys on the
+    // synthesizer's own discriminator instead: a candidate with NO
+    // plan-scoped task token in title/body AND no MATERIAL_PATH_PREFIXES
+    // path is a governance/closure PR (Plan-001's #1/#29 shapes: doc-first
+    // closure, plan-doc restructures), not a shipment. Everything else
+    // synthesizes: a docs-only PR that names its task ships a real entry,
+    // and a token-less MATERIAL PR still enters synthesis and
+    // validation-fails loudly (the legacy-PR appendix owns those shapes)
+    // instead of skipping silently. When a skipped PR already has an
+    // on-disk manifest entry, that ground truth is REUSED verbatim
+    // (mirroring the body-only reuse path) rather than re-synthesized
+    // (Codex P2 round 1). The exit-7 truncation halt fires in
+    // fetchPrDetails BEFORE this filter — a truncated file list cannot
+    // prove anything, so it stays fail-closed.
+    const filePaths = (details.files ?? []).map((f) => f.path);
+    const taskToken = parseTaskFromPr({ ...details, plan });
+    const hasMaterialPath = filePaths.some((path) =>
+      MATERIAL_PATH_PREFIXES.some((prefix) => path.startsWith(prefix)),
+    );
+    if (taskToken === null && !hasMaterialPath) {
+      const existingEntry = existingEntryByPr.get(pr);
+      if (existingEntry) {
+        stderr.write(
+          `reused existing manifest entry (no task token, no material paths): PR #${pr} — "${title}"\n`,
+        );
+        built.push({ entry: existingEntry, ambiguities: [], reused: true });
+        continue;
+      }
+      stderr.write(`skipped (no task token, no material paths): PR #${pr} — "${title}"\n`);
+      continue;
+    }
     built.push(buildEntryFromPr({ pr, details, plan }));
   }
 

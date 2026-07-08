@@ -176,6 +176,15 @@ test("parseTaskFromPr: dedupes across title and body", () => {
   assert.equal(r, "T5.1");
 });
 
+test("parseTaskFromPr: extracts lettered-series T-NNNx-N-N form (deploy series — Codex r4)", () => {
+  const r = parseTaskFromPr({
+    title: "feat(deploy): Plan-025 T-025d-14-1 self-host compose",
+    body: null,
+    plan: "025",
+  });
+  assert.equal(r, "T-025d-14-1");
+});
+
 test("parseTaskFromPr: returns null when no task ID", () => {
   assert.equal(parseTaskFromPr({ title: "Phase 1 bootstrap", body: null, plan: "001" }), null);
 });
@@ -980,6 +989,262 @@ test("rebuildManifest --include-body-matches routes >100-file candidates to oper
     assert.match(out, /^#\s+pr: 42$/m);
     assert.match(out, /unresolved: file list truncated at the 100-file GraphQL page/);
     assert.doesNotMatch(out, /^\s*pr: 42$/m); // never a live shipped[] entry with partial files
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+// ---------- governance/closure skip (no task token + no material paths) ----------
+
+test("rebuildManifest skips a no-token/no-material closure PR instead of validation-failing it", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "rsm-e2e-"));
+  try {
+    const planDir = join(tmp, "docs", "plans");
+    mkdirSync(planDir, { recursive: true });
+    writeFileSync(join(planDir, "001-shared-session-core.md"), PLAN_TEMPLATE);
+
+    const ghRunner = makeGhRunner({
+      prList: [30, 61],
+      prDetails: {
+        30: SAMPLE_DETAILS,
+        // Mirrors real PR #1: token in title, docs + root files only (#1
+        // also carries root .gitignore + .markdownlint-cli2.yaml — root
+        // files are governance, not shipment paths) — no parseable Phase/T
+        // markers, so pre-filter it exit-5-noised every from-scratch
+        // rebuild.
+        61: {
+          title: "docs: V1 doc-first phase closure — Plan-001 PR #1 unblocked",
+          body: "Closes BL-100.",
+          mergedAt: "2026-04-26T10:00:00Z",
+          mergeCommit: { oid: "1234567deadbeef" },
+          changedFiles: 3,
+          files: [
+            { path: "docs/decisions/023-v1-ci-cd-and-release-automation.md" },
+            { path: "README.md" },
+            { path: ".gitignore" },
+          ],
+        },
+      },
+    });
+
+    const stdout = makeCaptureStream();
+    const stderr = makeCaptureStream();
+    const r = await rebuildManifest({
+      plan: "001",
+      dryRun: true,
+      force: false,
+      ghRunner,
+      plansDir: planDir,
+      stdout,
+      stderr,
+    });
+    assert.equal(r.exitCode, 0); // no validation failures — the docs PR never entered synthesis
+    assert.match(stderr.text(), /skipped \(no task token, no material paths\): PR #61/);
+    assert.doesNotMatch(stdout.text(), /^\s*pr: 61$/m);
+    assert.match(stdout.text(), /task: T5\.1/); // the material shipment still synthesizes
+    // dry-run stdout stays a pure YAML stream
+    assert.doesNotMatch(stdout.text(), /skipped \(no task token/);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("rebuildManifest reuses the on-disk entry for a skipped closure PR instead of re-synthesizing", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "rsm-e2e-"));
+  try {
+    const planDir = join(tmp, "docs", "plans");
+    mkdirSync(planDir, { recursive: true });
+    const planWithEntry = PLAN_TEMPLATE.replace(
+      "shipped: []",
+      `shipped:
+  - phase: 5
+    task: T5.9
+    pr: 61
+    sha: 1234567
+    merged_at: 2026-04-26
+    files:
+      - docs/decisions/023-v1-ci-cd-and-release-automation.md
+    verifies_invariant: []
+    spec_coverage: []
+    notes: |
+      Ground-truth entry the classifier must not outrank.`,
+    );
+    writeFileSync(join(planDir, "001-shared-session-core.md"), planWithEntry);
+
+    const ghRunner = makeGhRunner({
+      prList: [61],
+      prDetails: {
+        61: {
+          // Deliberately marker-less (the #1/#29 class): synthesis would
+          // yield phase 0 / empty task and exit-5 — reuse must win instead.
+          title: "docs: V1 doc-first phase closure for Plan-001",
+          body: "Docs-only, but already recorded on disk.",
+          mergedAt: "2026-04-26T10:00:00Z",
+          mergeCommit: { oid: "1234567deadbeef" },
+          changedFiles: 1,
+          files: [{ path: "docs/decisions/023-v1-ci-cd-and-release-automation.md" }],
+        },
+      },
+    });
+
+    const stdout = makeCaptureStream();
+    const stderr = makeCaptureStream();
+    const r = await rebuildManifest({
+      plan: "001",
+      dryRun: true,
+      force: false,
+      ghRunner,
+      plansDir: planDir,
+      stdout,
+      stderr,
+    });
+    assert.equal(r.exitCode, 0); // exit 5 here would mean the entry was re-synthesized
+    assert.match(
+      stderr.text(),
+      /reused existing manifest entry \(no task token, no material paths\): PR #61/,
+    );
+    assert.doesNotMatch(stderr.text(), /skipped \(no task token/);
+    assert.match(stdout.text(), /task: T5\.9/); // the ground-truth entry rides through verbatim
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("rebuildManifest does NOT skip a docs-only shipment task (Plan-022 T22.4.4 class — Codex r4)", async () => {
+  // Docs-only + a plan-scoped task token in the title = a real shipment
+  // (Plan-022 T22.4.4/T22.4.5 declare Files: entirely under docs/). The
+  // task discriminator, not file shape, decides.
+  const tmp = mkdtempSync(join(tmpdir(), "rsm-e2e-"));
+  try {
+    const planDir = join(tmp, "docs", "plans");
+    mkdirSync(planDir, { recursive: true });
+    writeFileSync(join(planDir, "022-data-retention-and-gdpr.md"), PLAN_TEMPLATE);
+
+    const ghRunner = makeGhRunner({
+      prList: [95],
+      prDetails: {
+        95: {
+          title: "docs(repo): Plan-022 T22.4.4 error-code + api-payload docs",
+          body: "Documents the gdpr.endpoint_not_v1 error surface (Plan-022 Phase 4).",
+          mergedAt: "2026-07-01T10:00:00Z",
+          mergeCommit: { oid: "def4567abc89012" },
+          changedFiles: 2,
+          files: [
+            { path: "docs/architecture/contracts/error-contracts.md" },
+            { path: "docs/plans/022-data-retention-and-gdpr.md" },
+          ],
+        },
+      },
+    });
+
+    const stdout = makeCaptureStream();
+    const stderr = makeCaptureStream();
+    const r = await rebuildManifest({
+      plan: "022",
+      dryRun: true,
+      force: false,
+      ghRunner,
+      plansDir: planDir,
+      stdout,
+      stderr,
+    });
+    assert.doesNotMatch(stderr.text(), /no task token/);
+    assert.match(stdout.text(), /task: T22\.4\.4/);
+    assert.equal(r.exitCode, 0);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("rebuildManifest does NOT skip a root-config shipment (Plan-001 T1.1 class — Codex r3)", async () => {
+  // Root-level is not governance: T1.1 ships package.json,
+  // pnpm-workspace.yaml, turbo.json etc. as its actual Files targets. A
+  // docs+root-config candidate must synthesize, not skip.
+  const tmp = mkdtempSync(join(tmpdir(), "rsm-e2e-"));
+  try {
+    const planDir = join(tmp, "docs", "plans");
+    mkdirSync(planDir, { recursive: true });
+    writeFileSync(join(planDir, "001-shared-session-core.md"), PLAN_TEMPLATE);
+
+    const ghRunner = makeGhRunner({
+      prList: [90],
+      prDetails: {
+        90: {
+          title: "feat(repo): Plan-001 Phase 1 T1.1 workspace root scaffolding",
+          body: "Ships the pnpm workspace root.",
+          mergedAt: "2026-04-26T10:00:00Z",
+          mergeCommit: { oid: "abc9876fedc0123" },
+          changedFiles: 3,
+          files: [
+            { path: "package.json" },
+            { path: "pnpm-workspace.yaml" },
+            { path: "docs/plans/001-shared-session-core.md" },
+          ],
+        },
+      },
+    });
+
+    const stdout = makeCaptureStream();
+    const stderr = makeCaptureStream();
+    const r = await rebuildManifest({
+      plan: "001",
+      dryRun: true,
+      force: false,
+      ghRunner,
+      plansDir: planDir,
+      stdout,
+      stderr,
+    });
+    assert.doesNotMatch(stderr.text(), /no task token/);
+    assert.match(stdout.text(), /task: T1\.1/); // synthesized, not dropped
+    assert.equal(r.exitCode, 0);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("rebuildManifest does NOT skip a deploy/-only shipment (material work outside MATERIAL_PATH_PREFIXES — Codex r2)", async () => {
+  // Plan-025's T-025d-14-1 ships only deploy/self-host/* — a real shipment
+  // with zero packages/apps/.github paths. The closure-skip predicate
+  // must let it synthesize (visible entry or honest validation failure),
+  // never silently drop it from a disaster rebuild.
+  const tmp = mkdtempSync(join(tmpdir(), "rsm-e2e-"));
+  try {
+    const planDir = join(tmp, "docs", "plans");
+    mkdirSync(planDir, { recursive: true });
+    writeFileSync(join(planDir, "001-shared-session-core.md"), PLAN_TEMPLATE);
+
+    const ghRunner = makeGhRunner({
+      prList: [88],
+      prDetails: {
+        88: {
+          title: "feat(relay): Plan-001 Phase 5 T5.8 reference compose",
+          body: "Ships the self-host compose file.",
+          mergedAt: "2026-05-20T10:00:00Z",
+          mergeCommit: { oid: "feedbeefcafe123" },
+          changedFiles: 2,
+          files: [
+            { path: "deploy/self-host/docker-compose.yml" },
+            { path: "deploy/self-host/pg-cert-init.sh" },
+          ],
+        },
+      },
+    });
+
+    const stdout = makeCaptureStream();
+    const stderr = makeCaptureStream();
+    const r = await rebuildManifest({
+      plan: "001",
+      dryRun: true,
+      force: false,
+      ghRunner,
+      plansDir: planDir,
+      stdout,
+      stderr,
+    });
+    assert.doesNotMatch(stderr.text(), /no task token/);
+    assert.match(stdout.text(), /task: T5\.8/); // synthesized, not dropped
+    assert.equal(r.exitCode, 0);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }

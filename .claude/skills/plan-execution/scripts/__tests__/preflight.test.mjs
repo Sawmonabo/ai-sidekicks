@@ -3,7 +3,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -27,6 +27,7 @@ import {
   shippedTaskIdsForPhase,
   gateProjectLocality,
   gateAuditCheckbox,
+  gateStatusPromotion,
   gatePhaseAuditCheckbox,
   gateTasksBlockCites,
   gatePhaseUnshipped,
@@ -2682,11 +2683,16 @@ shipped: []
 ### Notes
 `,
   );
-  const r = spawnSync(process.execPath, [PREFLIGHT_CLI, planFile, "2", "--allow-stale-manifest"], {
-    encoding: "utf8",
-  });
+  const r = spawnSync(
+    process.execPath,
+    [PREFLIGHT_CLI, planFile, "2", "--allow-stale-manifest", "--allow-unpromoted"],
+    {
+      encoding: "utf8",
+    },
+  );
   assert.equal(r.status, 1, `status=${r.status} stdout=${r.stdout} stderr=${r.stderr}`);
   assert.match(r.stderr, /Gate 6 \(manifest freshness\) SKIPPED via --allow-stale-manifest/);
+  assert.match(r.stderr, /Gate 7 \(status promotion\) SKIPPED via --allow-unpromoted/);
   assert.match(r.stdout, /precondition unmet/i);
   assert.match(r.stdout, /Plan-99 not found/);
 });
@@ -2750,4 +2756,223 @@ shipped:
   const r = runPreflight(planFile, 2, { repoRoot: repo, skillMd });
   assert.equal(r.exit, 0, `exit was ${r.exit}; stdout=${r.stdout}; stderr=${r.stderr}`);
   assert.equal(r.stdout, "2");
+});
+
+// ---------- Gate 7 — plan status promotion ----------
+// The corpus promotion gate (review → approved before first code PR) had no
+// mechanical enforcement: Gate 2 verifies the audit fact, nothing verified
+// promotion, so an audit-complete review-status plan cleared preflight
+// end-to-end (Codex P2, PR #193). These pin the gate + the CLI default-ON /
+// --allow-unpromoted escape.
+
+const statusPlan = (status) => `# Plan-001
+
+| Field | Value |
+| --- | --- |
+| **Status** | \`${status}\` |
+| **NNN** | \`001\` |
+`;
+
+test("gateStatusPromotion passes approved and completed", () => {
+  assert.equal(gateStatusPromotion(statusPlan("approved"), "p.md").ok, true);
+  assert.equal(gateStatusPromotion(statusPlan("completed"), "p.md").ok, true);
+});
+
+test("gateStatusPromotion halts review and draft with the promotion message", () => {
+  for (const status of ["review", "draft"]) {
+    const r = gateStatusPromotion(statusPlan(status), "docs/plans/001-test.md");
+    assert.equal(r.ok, false);
+    assert.match(r.halt, /plan not promoted \(Gate 7\)/);
+    assert.match(r.halt, new RegExp(`Status is \\\`${status}\\\``));
+    assert.match(r.halt, /--allow-unpromoted/);
+  }
+});
+
+// ---------- external_plan_phase_merged (R-phase gates — Codex r4, PR #193) ----------
+
+function writeRPhaseUpstream(dir, { shipR2 = false } = {}) {
+  const manifestTasks = shipR2
+    ? "  - phase: 5\n    task: [T-007r-2-1, T-007r-2-2]\n    pr: 99\n    sha: abc1234\n    merged_at: 2026-08-01\n    files:\n      - packages/runtime-daemon/src/bootstrap/daemon-key-store.ts\n    verifies_invariant: []\n    spec_coverage: []\n    notes: |\n      R2 shipped under integer phase 5.\n"
+    : "  - phase: 1\n    task: [T-007p-1-1]\n    pr: 16\n    sha: 49f1116\n    merged_at: 2026-04-29\n    files:\n      - packages/runtime-daemon/src/bootstrap/secure-defaults.ts\n    verifies_invariant: []\n    spec_coverage: []\n    notes: |\n      Phase 1 only.\n";
+  const upstream = `# Plan-007 — Fixture
+
+| Field | Value |
+| --- | --- |
+| **Status** | \`approved\` |
+
+## Implementation Phase Sequence
+
+### Phase 1 — Shipped Substrate
+
+#### Tasks
+
+- **T-007p-1-1 — substrate.**
+
+### Phase R2 — Secure Defaults (Tier 4)
+
+#### Tasks
+
+- **T-007r-2-1** (Files: \`packages/runtime-daemon/src/bootstrap/secure-defaults.ts\` EXTEND) — config keys.
+- **T-007r-2-2** (Files: \`packages/runtime-daemon/src/bootstrap/daemon-key-store.ts\`) — DaemonKeyStore interface.
+
+## Progress Log
+
+### Shipment Manifest
+
+\`\`\`yaml
+manifest_schema_version: 1
+shipped:
+${manifestTasks}\`\`\`
+`;
+  writeFileSync(join(dir, "007-fixture.md"), upstream);
+}
+
+test("findSectionBoundary: a remainder heading (### Phase R2) bounds the preceding numbered phase", () => {
+  const body = "\nbody of phase 3\n\n### Phase R1 — Remainder\n\nmore";
+  const idx = findSectionBoundary(body);
+  assert.ok(idx > 0);
+  assert.equal(body.slice(idx).startsWith("### Phase R1"), true);
+});
+
+test("external_plan_phase_merged: R-phase gate halts while the R-section tasks are unshipped", () => {
+  const tmp = mkdtempSync(join(tmpdir(), "pf-rphase-"));
+  try {
+    const planDir = join(tmp, "docs", "plans");
+    mkdirSync(planDir, { recursive: true });
+    writeRPhaseUpstream(planDir, { shipR2: false });
+    const r = resolvePrecondition(
+      { type: "external_plan_phase_merged", plan: 7, phase: "R2" },
+      { repoRoot: tmp },
+    );
+    assert.equal(r.ok, false);
+    assert.match(r.halt, /Phase R2 not shipped — missing tasks: T-007r-2-1, T-007r-2-2/);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("external_plan_phase_merged: R-phase gate passes once the tasks ship under ANY integer phase", () => {
+  const tmp = mkdtempSync(join(tmpdir(), "pf-rphase-"));
+  try {
+    const planDir = join(tmp, "docs", "plans");
+    mkdirSync(planDir, { recursive: true });
+    writeRPhaseUpstream(planDir, { shipR2: true });
+    const r = resolvePrecondition(
+      { type: "external_plan_phase_merged", plan: 7, phase: "R2" },
+      { repoRoot: tmp },
+    );
+    assert.equal(r.ok, true);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("external_plan_phase_merged: missing R-section fails closed", () => {
+  const tmp = mkdtempSync(join(tmpdir(), "pf-rphase-"));
+  try {
+    const planDir = join(tmp, "docs", "plans");
+    mkdirSync(planDir, { recursive: true });
+    writeRPhaseUpstream(planDir, { shipR2: false });
+    const r = resolvePrecondition(
+      { type: "external_plan_phase_merged", plan: 7, phase: "R9" },
+      { repoRoot: tmp },
+    );
+    assert.equal(r.ok, false);
+    assert.match(r.halt, /no "### Phase R9" section/);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("external_plan_phase_merged: integer phase delegates to plan_phase semantics", () => {
+  const tmp = mkdtempSync(join(tmpdir(), "pf-rphase-"));
+  try {
+    const planDir = join(tmp, "docs", "plans");
+    mkdirSync(planDir, { recursive: true });
+    writeRPhaseUpstream(planDir, { shipR2: false });
+    const r = resolvePrecondition(
+      { type: "external_plan_phase_merged", plan: 7, phase: 1 },
+      { repoRoot: tmp },
+    );
+    assert.equal(r.ok, true); // Phase 1's declared T-007p-1-1 is in the manifest
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("external_plan_phase_merged: malformed phase value halts loudly", () => {
+  const r = resolvePrecondition(
+    { type: "external_plan_phase_merged", plan: 7, phase: "banana" },
+    { repoRoot: "/nonexistent" },
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /unsupported phase value/);
+});
+
+test("gateStatusPromotion ignores Status-shaped table rows in the body (header-region scope — Codex r3)", () => {
+  // Missing header row + an embedded example table later in the body must
+  // NOT green-light the plan.
+  const source =
+    "# Plan-001\n\nno header table\n\n## Some Section\n\n| Field | Value |\n| --- | --- |\n| **Status** | `approved` |\n";
+  const r = gateStatusPromotion(source, "p.md");
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /status unreadable/);
+});
+
+test("gateStatusPromotion fails closed on a missing/unparseable Status row", () => {
+  const r = gateStatusPromotion("# Plan-001\n\nno header table here\n", "p.md");
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /status unreadable/);
+});
+
+test("gateStatusPromotion reads the unbackticked Status cell too", () => {
+  const source = "# Plan-001\n\n| Field | Value |\n| --- | --- |\n| **Status** | approved |\n";
+  assert.equal(gateStatusPromotion(source, "p.md").ok, true);
+});
+
+test("runPreflight enforces Gate 7 only when checkStatusPromotion is set (CLI default), and the halt precedes the phase walk", () => {
+  const repo = makeTempRepo();
+  const skillMd = join(repo, ".claude", "skills", "plan-execution", "SKILL.md");
+  writeFileSync(skillMd, `---\nname: test\nrequires_files: []\n---\n\nbody`);
+  const planFile = join(repo, "docs", "plans", "001-test.md");
+  // Review-status plan with a ticked audit box and NO phase sections: Gate 7
+  // must halt before the "no Phase headers" exit-2 path, proving placement.
+  writeFileSync(
+    planFile,
+    `# Plan-001\n\n| Field | Value |\n| --- | --- |\n| **Status** | \`review\` |\n\n## Preconditions\n\n- [x] **Plan-readiness audit complete per runbook.\n`,
+  );
+  const gated = runPreflight(planFile, undefined, {
+    repoRoot: repo,
+    skillMd,
+    checkStatusPromotion: true,
+  });
+  assert.equal(gated.exit, 1);
+  assert.match(gated.stdout, /plan not promoted \(Gate 7\)/);
+  // Programmatic default (checkStatusPromotion unset) skips the gate and
+  // falls through to the phase walk's exit-2 — the pre-Gate-7 behavior.
+  const ungated = runPreflight(planFile, undefined, { repoRoot: repo, skillMd });
+  assert.equal(ungated.exit, 2);
+});
+
+test("CLI entry: review-status plan halts at Gate 7 by default; --allow-unpromoted skips loudly", () => {
+  const repo = makeTempRepo();
+  const skillMd = join(repo, ".claude", "skills", "plan-execution", "SKILL.md");
+  writeFileSync(skillMd, `---\nname: test\nrequires_files: []\n---\n\nbody`);
+  const planFile = join(repo, "docs", "plans", "001-test.md");
+  writeFileSync(
+    planFile,
+    `# Plan-001\n\n| Field | Value |\n| --- | --- |\n| **Status** | \`review\` |\n\n## Preconditions\n\n- [x] **Plan-readiness audit complete per runbook.\n`,
+  );
+  // Gate 7 fires before Gate 6, so no --allow-stale-manifest is needed —
+  // the halt path stays network-free by construction.
+  const gated = spawnSync(process.execPath, [PREFLIGHT_CLI, planFile], { encoding: "utf8" });
+  assert.equal(gated.status, 1, `status=${gated.status} stdout=${gated.stdout}`);
+  assert.match(gated.stdout, /plan not promoted \(Gate 7\)/);
+  const skipped = spawnSync(
+    process.execPath,
+    [PREFLIGHT_CLI, planFile, "--allow-unpromoted", "--allow-stale-manifest"],
+    { encoding: "utf8" },
+  );
+  assert.match(skipped.stderr, /Gate 7 \(status promotion\) SKIPPED via --allow-unpromoted/);
+  assert.doesNotMatch(String(skipped.stdout), /plan not promoted/);
 });

@@ -115,7 +115,13 @@ export function findSectionBoundary(body) {
         fenceChar = "";
         fenceLen = 0;
       }
-    } else if (fenceChar === "" && (/^### Phase \d+/.test(line) || /^## /.test(line))) {
+      // Remainder headings (`### Phase R2`) are real section boundaries too:
+      // digit-only matching made the preceding numbered phase swallow the
+      // R-section, so its declared-task set absorbed the R-series ids and a
+      // shipped numbered phase classified partially_shipped forever (latent
+      // Plan-007 Phase 3 false-halt; surfaced by the external_plan_phase_merged
+      // work, Codex P2 PR #193 round 4).
+    } else if (fenceChar === "" && (/^### Phase R?\d+/.test(line) || /^## /.test(line))) {
       return offset;
     }
     offset += line.length + 1; // +1 restores the "\n" consumed by split
@@ -2422,6 +2428,98 @@ export function resolvePrecondition(
         halt: `Plan-${entry.plan} has not shipped yet (no shipment-manifest entries) — cross-tier substrate unavailable`,
       };
     }
+    case "external_plan_phase_merged": {
+      // Corpus-declared structured form for cross-plan phase gates (Plan-007's
+      // R-section YAML blocks already carry it). Two phase shapes:
+      //   - integer (`phase: 2`) — identical semantics to the prose-derived
+      //     plan_phase entry; delegate.
+      //   - remainder string (`phase: R2`) — R-phases are real plan sections
+      //     (`### Phase R2 — …`) but can never appear as a manifest phase key
+      //     (validateEntry forces positive integers), so phase-key equality is
+      //     structurally unanswerable. The checkable truth is TASK-SET
+      //     membership: the R-section's declared task ids (T-007r-2-*) must
+      //     all appear in the upstream manifest's shipped task lists under
+      //     WHATEVER integer phase the R-series ships as. Halts today while
+      //     the tasks are unshipped; passes when they land — no manifest
+      //     schema change, no upstream renumbering (Codex P2, PR #193 round 4:
+      //     the prose-only R2 gate left plan-022 Phase 1 mechanically open).
+      if (typeof entry.phase === "number") {
+        return resolvePrecondition(
+          { type: "plan_phase", plan: entry.plan, phase: entry.phase, status: "merged" },
+          { repoRoot },
+        );
+      }
+      if (typeof entry.phase !== "string" || !/^R\d+$/.test(entry.phase)) {
+        return {
+          ok: false,
+          halt: `external_plan_phase_merged: unsupported phase value ${JSON.stringify(entry.phase)} (expected an integer or "R<n>")`,
+        };
+      }
+      const planDir = resolve(repoRoot, "docs", "plans");
+      const planMatches = findPaddedFiles(planDir, entry.plan);
+      if (planMatches.length === 0) {
+        return { ok: false, halt: `Plan-${entry.plan} not found in docs/plans/` };
+      }
+      if (planMatches.length > 1) {
+        return {
+          ok: false,
+          halt: `Plan-${entry.plan} resolves to multiple files in docs/plans/: ${planMatches.map((p) => basename(p)).join(", ")}. Rename or remove the duplicate.`,
+        };
+      }
+      const source = readFileSync(planMatches[0], "utf8");
+      const section = extractPhaseSection(source, entry.phase);
+      if (!section) {
+        return {
+          ok: false,
+          halt: `Plan-${entry.plan} has no "### Phase ${entry.phase}" section — cannot evaluate external_plan_phase_merged (fail closed)`,
+        };
+      }
+      const declared = extractDeclaredTaskIds(section);
+      if (declared.length === 0) {
+        return {
+          ok: false,
+          halt: `Plan-${entry.plan} Phase ${entry.phase} declares no parseable task ids — cannot verify shipment (fail closed)`,
+        };
+      }
+      const manifest = parseManifestBlock(source);
+      if (!manifest.ok) {
+        return {
+          ok: false,
+          halt: `Plan-${entry.plan} shipment manifest unparseable (${manifest.reason}) — cannot evaluate Phase ${entry.phase} gate`,
+        };
+      }
+      if (manifest.version > MANIFEST_SCHEMA_VERSION) {
+        // Opaque-pass, mirroring plan_phase's future-schema disposition.
+        return { ok: true };
+      }
+      // Schema-validate every entry BEFORE trusting its task list — a
+      // syntactically parsed but invalid entry (phase: "5" string, bad sha)
+      // must halt, mirroring plan_phase's manifest_invalid_entries path;
+      // collecting ids from unvalidated entries was fail-open relative to the
+      // integer route (Codex P2, PR #192 round 6).
+      const invalidEntryIndexes = [];
+      for (let i = 0; i < manifest.shipped.length; i++) {
+        if (!validateEntry(manifest.shipped[i]).ok) invalidEntryIndexes.push(i);
+      }
+      if (invalidEntryIndexes.length > 0) {
+        return {
+          ok: false,
+          halt: `Plan-${entry.plan} shipment manifest has invalid entries (index ${invalidEntryIndexes.join(", ")}) — fix the manifest before Phase ${entry.phase} can gate on it`,
+        };
+      }
+      const shippedTaskIds = new Set();
+      for (const shippedEntry of manifest.shipped) {
+        for (const taskId of [].concat(shippedEntry.task ?? [])) {
+          if (taskId) shippedTaskIds.add(taskId);
+        }
+      }
+      const missing = declared.filter((taskId) => !shippedTaskIds.has(taskId));
+      if (missing.length === 0) return { ok: true };
+      return {
+        ok: false,
+        halt: `Plan-${entry.plan} Phase ${entry.phase} not shipped — missing tasks: ${missing.join(", ")}`,
+      };
+    }
     case "cross_plan_carve_out": {
       const xplanPath = resolve(repoRoot, "docs", "architecture", "cross-plan-dependencies.md");
       let source;
@@ -2625,6 +2723,183 @@ export function gatePreconditions(phaseSection, planFile, phaseNumber, opts = {}
   return { ok: true };
 }
 
+// ---------- corpus survey (--survey) ----------
+//
+// Gate 7 — plan status promotion. The corpus promotion gate (CLAUDE.md
+// §Current State; AGENTS.md §Doc-First Discipline) admits a plan's first
+// code PR only after `review` → `approved`, with review notes addressed.
+// Preflight predated mechanical enforcement: Gate 2 verifies the AUDIT
+// fact, but nothing verified the PROMOTION fact, so a review-status plan
+// with a ticked audit checkbox cleared preflight end-to-end and the
+// pipeline would scaffold a code branch off an unpromoted plan (Codex P2,
+// PR #193). Reads the header-table `| **Status** | \`x\` |` row (the
+// 000-plan-template shape every plan carries). `approved` and `completed`
+// pass — a completed plan still halts later at Gate 3 (all phases
+// shipped), which is the truthful message for it. A missing or
+// unparseable row halts (fail closed). CLI runs default the gate ON;
+// --allow-unpromoted is the explicit authoring-time escape for inspecting
+// draft/review plans, mirroring --allow-stale-manifest.
+export function gateStatusPromotion(planSource, planFile) {
+  // Scope the search to the plan header — everything before the first `##`
+  // section heading. A whole-document match could hit an embedded example
+  // or matrix row (`| **Status** | approved |`) later in the body and
+  // green-light a plan whose actual header row is missing — the exact
+  // fail-open the gate documents against (Codex P2 round 3).
+  const sectionStart = planSource.search(/^## /m);
+  const headerRegion = sectionStart === -1 ? planSource : planSource.slice(0, sectionStart);
+  const row = headerRegion.match(/^\|\s*\*\*Status\*\*\s*\|\s*`?([a-z][a-z-]*)`?\s*\|/m);
+  if (!row) {
+    return {
+      ok: false,
+      halt: [
+        "## Preflight halt: plan status unreadable (Gate 7)",
+        "",
+        `Plan ${planFile} has no parseable header-table Status row`,
+        "(expected the 000-plan-template shape: | **Status** | `approved` |).",
+        "Fail closed: cannot verify the review → approved promotion gate.",
+      ].join("\n"),
+    };
+  }
+  const status = row[1];
+  if (status === "approved" || status === "completed") return { ok: true };
+  return {
+    ok: false,
+    halt: [
+      "## Preflight halt: plan not promoted (Gate 7)",
+      "",
+      `Plan ${planFile} header Status is \`${status}\`; code dispatch requires \`approved\`.`,
+      "Promotion is the human gate — address review notes, flip the Status row",
+      "(CLAUDE.md §When Writing Documents: status promotion is load-bearing),",
+      "then re-run. For authoring-time inspection of a draft/review plan, use",
+      "--allow-unpromoted (skip is logged to stderr).",
+    ].join("\n"),
+  };
+}
+
+// Two-sided anomaly screen over every real plan, institutionalizing the
+// omission survey that caught the second-`#### Tasks`-block bug on PR #190
+// (an extractor blind spot Codex's 11 rounds had not surfaced). Runs the
+// production extractors over docs/plans/NNN-*.md and compares against a
+// DELIBERATELY LOOSER raw oracle — a task-shaped line opens as a top-level
+// bullet (optional GFM checkbox, 1-3 asterisks) or `#####` heading whose
+// bold/heading token BEGINS `T<digit>`/`T-`. Head-anchored on purpose:
+// Tasks blocks carry top-level detail bullets (`- **Step:** ... T3.6 ...`,
+// Plan-003) that mention task ids in prose — an anywhere-on-line oracle
+// flags those as false omissions. Looser than the extractor in exactly the
+// dimensions that have failed before: no closing-`**` tail (star-in-title,
+// PR #190) and 1-3 asterisks (bold-italic rows), so both historical miss
+// classes still surface as omissions. Both directions must reconcile:
+//   omission — an oracle line no parsed id appears on (the extractor
+//     missed a real task row; the phase-falsely-shipped class);
+//   phantom  — a parsed id absent from every oracle line (the extractor
+//     invented a task; Gate 3 would see the phase as never shippable).
+// The oracle is a screen, not a proof — see the boundary note below.
+// Contract: ../references/preflight-contract.md § Survey mode.
+
+const SURVEY_ORACLE_RE = /^(?:-\s+(?:\[[ xX]\]\s+)?\*{1,3}T[-\d]|#####\s+T[-\d])/;
+
+// Reconciliation compares HEAD ids exactly, not row substrings. The lineage
+// (Codex P2 rounds 2-5): bare `includes` let parsed `T1.1` cover a `T1.10`
+// row; a digit-only boundary let `T-025` cover `T-025d-14-1`; and ANY
+// whole-row scan lets a parsed `T2.1` cover an unparseable
+// `- ***T2.7 — depends on T2.1***` row via the cross-reference in its tail.
+// SURVEY_ORACLE_RE only admits id-HEADED rows, so the row's leading task id
+// is well-defined: extract it (id chars `[\w.-]`, trailing `.`/`-` prose
+// punctuation trimmed) and require EXACT membership both ways. Erring
+// toward "not covered" is the fail-closed direction — a false anomaly is
+// visible; a false pass is the miss class this screen exists to catch.
+function oracleHeadTaskId(line) {
+  const match = line.match(/\bT-?\d[\w.-]*/);
+  return match ? match[0].replace(/[.-]+$/, "") : null;
+}
+
+export function surveyPhase(phaseSection) {
+  const ids = extractDeclaredTaskIds(phaseSection);
+  const sizeClass = classifyPhaseSize(ids, extractDeclaredFilePaths(phaseSection));
+  const block = extractTasksBlock(phaseSection);
+  const oracleLines =
+    block === null ? [] : block.split("\n").filter((line) => SURVEY_ORACLE_RE.test(line));
+  const headIds = new Set(oracleLines.map(oracleHeadTaskId).filter(Boolean));
+  const parsedIds = new Set(ids);
+  const omissions = oracleLines.filter((line) => !parsedIds.has(oracleHeadTaskId(line)));
+  const phantoms = ids.filter((id) => !headIds.has(id));
+  return { ids, sizeClass, oracleLines, omissions, phantoms };
+}
+
+export function surveyCorpus({ repoRoot = REPO_ROOT } = {}) {
+  const plansDir = resolve(repoRoot, "docs", "plans");
+  const planFileNames = readdirSync(plansDir)
+    .filter((name) => /^\d{3}-.+\.md$/.test(name) && !name.startsWith("000-"))
+    .sort();
+  const reportLines = [];
+  const notices = [];
+  const anomalies = [];
+  const distribution = { S: 0, M: 0, L: 0 };
+  let phaseCount = 0;
+  for (const name of planFileNames) {
+    const source = readFileSync(resolve(plansDir, name), "utf8");
+    const phases = walkPhases(source);
+    if (phases.length === 0) {
+      // Zero phases is a NOTICE, not an anomaly: the plan is invisible to
+      // the phase walker (preflight exits 2 on it), which is fail-closed —
+      // but an operator running the survey should see the gap by name.
+      notices.push(`${name}: no \`### Phase N\` headings — invisible to walkPhases`);
+      continue;
+    }
+    const phaseSummaries = [];
+    // Remainder phases (### Phase R2) are invisible to walkPhases by design
+    // (the dispatch walker is numeric), but the external_plan_phase_merged
+    // gate now READS their task ids — a malformed R-task row must not merge
+    // behind a green survey and only surface at downstream gate-eval time
+    // (Codex P2, PR #192 round 6). Survey them alongside the numeric walk.
+    const remainderLabels = [...source.matchAll(/^### Phase (R\d+)\b/gm)].map((m) => m[1]);
+    const allPhaseLabels = [...phases.map(({ number }) => number), ...remainderLabels];
+    for (const label of allPhaseLabels) {
+      const section = extractPhaseSection(source, label) ?? "";
+      const result = surveyPhase(section);
+      phaseCount += 1;
+      distribution[result.sizeClass] += 1;
+      phaseSummaries.push(`P${label} ${result.sizeClass}(${result.ids.length})`);
+      for (const line of result.omissions) {
+        anomalies.push(
+          `${name} Phase ${label} [omission] task-shaped row not parsed: ${line.trim()}`,
+        );
+      }
+      for (const id of result.phantoms) {
+        anomalies.push(`${name} Phase ${label} [phantom] parsed id on no task-shaped row: ${id}`);
+      }
+    }
+    reportLines.push(`${name}: ${allPhaseLabels.length} phase(s) — ${phaseSummaries.join(" ")}`);
+  }
+  return {
+    planCount: planFileNames.length,
+    phaseCount,
+    distribution,
+    reportLines,
+    notices,
+    anomalies,
+  };
+}
+
+export function formatSurvey(survey) {
+  const lines = [...survey.reportLines];
+  lines.push(
+    `distribution: L=${survey.distribution.L} M=${survey.distribution.M} S=${survey.distribution.S} ` +
+      `across ${survey.phaseCount} phase(s) in ${survey.planCount} plan(s)`,
+  );
+  if (survey.notices.length) {
+    lines.push(`notices (${survey.notices.length}):`);
+    for (const notice of survey.notices) lines.push(`  - ${notice}`);
+  }
+  if (survey.anomalies.length) {
+    lines.push(`anomalies (${survey.anomalies.length}):`);
+    for (const anomaly of survey.anomalies) lines.push(`  - ${anomaly}`);
+  } else {
+    lines.push("anomalies: none");
+  }
+  return lines.join("\n");
+}
+
 // ---------- orchestration ----------
 
 function _checkPhase(planSource, planNumber, phase, planFile, opts) {
@@ -2680,7 +2955,12 @@ function _checkPhase(planSource, planNumber, phase, planFile, opts) {
 export function runPreflight(
   planFile,
   phaseArg,
-  { repoRoot = REPO_ROOT, skillMd = SKILL_MD, checkFreshness = false } = {},
+  {
+    repoRoot = REPO_ROOT,
+    skillMd = SKILL_MD,
+    checkFreshness = false,
+    checkStatusPromotion = false,
+  } = {},
 ) {
   const g1 = gateProjectLocality({ repoRoot, skillMd });
   if (!g1.ok) return { exit: 1, stdout: g1.halt };
@@ -2694,6 +2974,15 @@ export function runPreflight(
 
   const g2 = gateAuditCheckbox(planSource, planFile);
   if (!g2.ok) return { exit: 1, stdout: g2.halt };
+
+  // Gate 7 sits with the plan-level gates, before the phase walk: promotion
+  // is a plan property, and halting here keeps the CLI status check
+  // network-free (it fires before Gate 6's gh calls). Same CLI-on /
+  // programmatic-opt-in split as checkFreshness.
+  if (checkStatusPromotion) {
+    const g7 = gateStatusPromotion(planSource, planFile);
+    if (!g7.ok) return { exit: 1, stdout: g7.halt };
+  }
 
   const planNumber = extractPlanNumber(planFile);
   if (planNumber === null) return { exit: 2, stderr: `bad plan filename: ${basename(planFile)}` };
@@ -2784,17 +3073,41 @@ export function runPreflight(
 
 async function main() {
   const args = process.argv.slice(2);
-  const knownFlags = new Set(["--allow-stale-manifest", "--help", "-h"]);
+  const knownFlags = new Set([
+    "--allow-stale-manifest",
+    "--allow-unpromoted",
+    "--help",
+    "-h",
+    "--survey",
+  ]);
   const unknownFlags = args.filter((a) => a.startsWith("-") && !knownFlags.has(a));
   if (unknownFlags.length > 0) {
     process.stderr.write(`unknown flag(s): ${unknownFlags.join(", ")}\n`);
     process.exit(2);
   }
+  if (args.includes("--survey")) {
+    // Corpus-wide extractor screen; no plan file, no gates, no network.
+    // Exit 1 on any two-sided anomaly so authoring/refactor workflows can
+    // gate on it. Strictly solo: a mixed invocation like
+    // `preflight.mjs <plan> <phase> --survey` must NOT silently take the
+    // survey path — the caller asked for a gated phase check, and exiting
+    // on survey cleanliness alone would green-light an unvetted phase
+    // (Codex P2, PR #192). Contract: ../references/preflight-contract.md
+    // § Survey mode.
+    if (args.length !== 1) {
+      process.stderr.write("--survey runs alone — it takes no plan file, phase, or other flags\n");
+      process.exit(2);
+    }
+    const survey = surveyCorpus();
+    process.stdout.write(formatSurvey(survey) + "\n");
+    process.exit(survey.anomalies.length > 0 ? 1 : 0);
+  }
   const allowStaleManifest = args.includes("--allow-stale-manifest");
+  const allowUnpromoted = args.includes("--allow-unpromoted");
   const positional = args.filter((a) => !a.startsWith("-"));
   if (positional.length === 0 || args.includes("--help") || args.includes("-h")) {
     process.stderr.write(
-      "Usage: node preflight.mjs <plan-file> [phase-number] [--allow-stale-manifest]\n" +
+      "Usage: node preflight.mjs <plan-file> [phase-number] [--allow-stale-manifest] [--allow-unpromoted] | --survey\n" +
         "See ../references/preflight-contract.md.\n",
     );
     process.exit(2);
@@ -2810,7 +3123,13 @@ async function main() {
       "preflight: Gate 6 (manifest freshness) SKIPPED via --allow-stale-manifest\n",
     );
   }
-  const result = runPreflight(planFile, phaseArg, { checkFreshness: !allowStaleManifest });
+  if (allowUnpromoted) {
+    process.stderr.write("preflight: Gate 7 (status promotion) SKIPPED via --allow-unpromoted\n");
+  }
+  const result = runPreflight(planFile, phaseArg, {
+    checkFreshness: !allowStaleManifest,
+    checkStatusPromotion: !allowUnpromoted,
+  });
   const warningLines = (result.warnings ?? []).map(
     (w) => `  - [${w.kind}] ${[w.taskId, w.field, w.message].filter(Boolean).join(" ")}`,
   );
