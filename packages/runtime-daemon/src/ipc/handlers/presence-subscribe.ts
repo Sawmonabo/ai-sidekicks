@@ -156,7 +156,7 @@ export interface PresenceSubscribeDeps {
    * `sub.onCancel` to propagate teardown upstream when the wire client
    * cancels, the transport disconnects, or `cancelSubscription` runs.
    *
-   * **Re-entrant safety precondition** (Plan-007 plan-line-131): the
+   * **Re-entrant safety precondition** (`Plan-007 §I-007-11 — LocalSubscriptionProducer<T>.onCancel fires across all externally-imposed cancel paths`): the
    * returned `unsubscribe` callback MAY be invoked synchronously from
    * inside the `onUpdate` call stack (a live-tail `sub.next()` failure
    * cancels the subscription, firing registered `onCancel` handlers —
@@ -267,7 +267,7 @@ export interface PresenceSubscribeDeps {
  *      for the full microtask-vs-check-phase rationale.)
  *   4. Register the upstream-detach `unsubscribe` via `sub.onCancel` so
  *      wire-cancel / transport-disconnect / trusted-internal teardown all
- *      propagate cleanup upstream (Plan-007 plan-line-131 leak invariant).
+ *      propagate cleanup upstream (the Plan-007 §I-007-11 leak invariant).
  *   5. Return `{ subscriptionId }` — the wire client routes inbound
  *      `$/subscription/notify` frames keyed by it.
  *
@@ -344,7 +344,7 @@ export function registerPresenceSubscribe(
           replayBuffer.push(update);
         }
       });
-      // Register the upstream-detach callback (Plan-007 plan-line-131 leak
+      // Register the upstream-detach callback (the Plan-007 §I-007-11 leak
       // invariant). If a wire-cancel or transport-disconnect lands after this
       // point, the streaming primitive fires `unsubscribe` so the upstream
       // presence source detaches. Registration here (after the synchronous

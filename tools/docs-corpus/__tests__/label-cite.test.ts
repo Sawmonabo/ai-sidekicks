@@ -891,6 +891,88 @@ describe("line-word + bare-basename deny in code citers (CAT-07 ratchet)", () =>
       cleanup();
     }
   });
+
+  it("DENIES the adjectival hyphen spelling (Spec-003 line-48 payload)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+      "packages/p/src/i.ts": "// Spec-003 line-48 payload components are standing facts.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/p/src/i.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("line-anchored-cite-in-code");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("remediation for a durable-path-tail deny says drop-the-locator, not §Heading nesting", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/domain/session-model.md": "# M\n\n## State Model\n\nbody\n",
+      "packages/p/src/j.ts":
+        "// `docs/domain/session-model.md §State Model` lines 61-77 moved here.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/p/src/j.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].detail).toContain("drop the appended line locator");
+      expect(violations[0].detail).not.toContain("` §Heading`");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("floors a frozen §-segment cite against the anchored line, not the §-segment number", () => {
+    // `§RFC 9110 line 2`: the 9110 is heading text; the pin is line 2. A
+    // first-digit parse would check line 9110 and false-fail a valid cite.
+    const { root, cleanup } = setupRepo({
+      "docs/reference/rfc.md": FIVE_LINE_DOC,
+      "packages/p/src/k.ts": "// docs/reference/rfc.md §RFC 9110 line 2 quotes the norm.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/p/src/k.ts")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("floors EVERY endpoint of a frozen range/list anchor (stale 999 fails)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/reference/excerpt.md": FIVE_LINE_DOC,
+      "packages/p/src/l.ts": "// docs/reference/excerpt.md lines 2, 999 quote upstream.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/p/src/l.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("line-out-of-range");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("does NOT deny .md:NN inside non-comment code strings (fixture/diagnostic FP guard)", () => {
+    const { root, cleanup } = setupRepo({
+      "packages/p/src/m.ts":
+        'const rendered = expectFormat("README.md:12");\nconst u = "https://x.test/session-model.md line 3";\n',
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/p/src/m.ts")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
 });
 
 describe("deny-detail remediation names the form that exists for the target", () => {

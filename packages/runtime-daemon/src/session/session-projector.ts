@@ -16,7 +16,7 @@
 // `deriveMainChannelId` from `@ai-sidekicks/contracts` (RFC 9562 §5.8
 // UUIDv8). This matches the Spec-001 §Acceptance Criteria AC1 invariant —
 // every newly-created session has a stable id, an owner membership, and a
-// default channel. Per Plan-001 plan-line-129 the bootstrap is "single
+// default channel. Per the `Plan-001 §Test And Verification Plan` D1 row the bootstrap is "single
 // SessionCreated event yields snapshot with owner membership and main
 // channel" — the projector synthesizes both rather than waiting for a
 // separate `channel.created` envelope. The main channel is a PROJECTED
@@ -146,7 +146,7 @@ function bootstrapFromCreated(event: StoredEvent): DaemonSessionSnapshot {
   // (system-emitted) and the owner's identity arrives in the `membership.
   // joined` event.
   //
-  // Plan-001 plan-line-129 D1 says "Single SessionCreated event yields
+  // The `Plan-001 §Test And Verification Plan` D1 row says "Single SessionCreated event yields
   // snapshot with owner membership and main channel". The only way to
   // honor that within Plan-001 PR #3's pre-IPC, in-process callers is to
   // let the caller stuff the owner participant id into `actor` as a

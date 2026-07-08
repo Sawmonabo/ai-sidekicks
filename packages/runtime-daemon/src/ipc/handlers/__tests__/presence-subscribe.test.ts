@@ -412,7 +412,7 @@ describe("presence.subscribe — replay-flush + live-tail crash guards", () => {
   });
 });
 
-describe("presence.subscribe — wires upstream unsubscribe via sub.onCancel (Plan-007 plan-line-131 streaming-leak invariant)", () => {
+describe("presence.subscribe — wires upstream unsubscribe via sub.onCancel (Plan-007 §I-007-11 streaming-leak invariant)", () => {
   it("wire-cancel (`$/subscription/cancel` from the same transport) fires the upstream unsubscribe", async () => {
     // The handler-binding path registers the unsubscribe via
     // `sub.onCancel(unsubscribe)`; the primitive's wire-cancel path (the

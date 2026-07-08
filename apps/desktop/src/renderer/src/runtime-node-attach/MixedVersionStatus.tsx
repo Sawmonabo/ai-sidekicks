@@ -29,7 +29,7 @@
 //     against the session's `min_client_version` floor … admitted in
 //     read-only state"): consumed, not derived — the verification's OUTPUT is
 //     the `readOnly` flag this view projects, and the typed refusal it
-//     surfaces is the line-53 verdict on a subsequent version-sensitive
+//     surfaces is the `Spec-003 §Required Behavior` verdict on a subsequent version-sensitive
 //     domain write (e.g. a capability declaration via `capabilityupdate`).
 //
 // I-003-1 (admit-not-eject) — the invariant this task verifies
@@ -85,7 +85,7 @@
 // revocation-terminality guard, attach-service.ts:634-636) and that refuses
 // re-attach terminally. Rendering a revoked node as "detached" would mask a
 // trust decision as a clean disconnect and invite a doomed re-attach — the
-// same masking the Spec-003 line-72 never-mask stance forbids between health
+// same masking the `Spec-003 §Default Behavior` never-mask stance forbids between health
 // axes. The AC's three-way distinction (read-only / read-write / detached)
 // stays satisfied — those three remain pairwise distinguishable; the fourth
 // token is what totality over the shipped 5-value enum honestly requires.
@@ -163,8 +163,8 @@ const VERSION_FLOOR_EXCEEDED_WIRE_CODE: VersionFloorExceededCode = "version.floo
  *
  * `writeAttemptRejection` is the caught outcome of the most recent
  * version-sensitive domain write the parent routed through this node (e.g.
- * the registered `runtimenode.capabilityupdate` mutation — the Spec-003
- * line-53 example), or `null` when no refused write has been observed.
+ * the registered `runtimenode.capabilityupdate` mutation — the
+ * `Spec-003 §Required Behavior` example), or `null` when no refused write has been observed.
  * Typed `unknown`, NOT a narrowed envelope type, because that is what the
  * parent actually holds — a `catch` binding — and because RECOGNITION
  * AUTHORITY lives in this indicator (`isVersionFloorExceededRejection`

@@ -149,9 +149,9 @@ const RUNTIME_NODE_ATTACH_PROCEDURE = "runtimenode.attach";
 
 /**
  * The node's attach self-description: `RuntimeNodeAttachRequest`
- * (runtime-node.ts:124-131) MINUS the target `sessionId` — i.e. the Spec-003
- * line-48 payload components (node identity, declared capabilities, health,
- * trust context) without the session the view targets.
+ * (runtime-node.ts:124-131) MINUS the target `sessionId` — i.e. the
+ * `Spec-003 §Required Behavior` payload components (node identity, declared
+ * capabilities, health, trust context) without the session the view targets.
  *
  * Derived via `Omit` rather than re-declared so it tracks the shipped wire
  * contract BY CONSTRUCTION: `{ ...attachDraft, sessionId }` in the click
@@ -307,8 +307,8 @@ export function AttachFlow({ sessionId, attachDraft }: AttachFlowProps): React.J
         // (width subtyping; a pre-typed variable bypasses excess-property
         // checking), and under a draft-LAST spread that stray runtime
         // `sessionId` key would silently re-target the wire call away from
-        // the rendered "target session" line — defeating the header's line-50
-        // guarantee on a trust-bearing action. Do NOT "tidy" this into
+        // the rendered "target session" line — defeating the header's
+        // `Spec-003 §Required Behavior` target-session guarantee on a trust-bearing action. Do NOT "tidy" this into
         // `{ sessionId, ...attachDraft }`.
         const attachmentResponse = await attachRuntimeNode(RUNTIME_NODE_ATTACH_PROCEDURE, {
           ...attachDraft,
@@ -324,7 +324,7 @@ export function AttachFlow({ sessionId, attachDraft }: AttachFlowProps): React.J
   };
 
   // The node's attach declaration, rendered on EVERY branch — the four
-  // Spec-003 line-48 payload components are the node's standing
+  // `Spec-003 §Required Behavior` payload components are the node's standing
   // self-description, relevant before (idle), during (pending), and after
   // (resolved/rejected) the call. The "target session" line makes the
   // no-recreation posture visible: the attach is INTO this existing live

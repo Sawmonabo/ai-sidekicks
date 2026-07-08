@@ -418,8 +418,9 @@ describe("InviteService.acceptInvite — P3 (expired -> invite.expired regardles
   });
 
   // Reclassification completeness — DISTINCT from the claim-authoritative path
-  // above. Here the token claim's expires_at is in the FUTURE (so the line-112
-  // claim check does NOT fire), but the persisted `session_invites.state` is
+  // above. Here the token claim's expires_at is in the FUTURE (so the
+  // §Token Security Properties expiry-authoritative check does NOT fire), but
+  // the persisted `session_invites.state` is
   // 'expired' (the CHECK admits it — migrations/0002-session-invites.ts). The
   // single-use UPDATE matches zero rows and the zero-row reclassification must
   // surface invite.expired, NOT invite.already_accepted. This path is latent in

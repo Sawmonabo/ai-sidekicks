@@ -8,7 +8,7 @@
 //       - "ingest creates / updates a presence row" (the heartbeat-reception
 //         side of the 15s cadence — this service IS where a beat lands).
 //       - "STALENESS_SWEEP_INTERVAL_MS is exported and finer than the 15s
-//         cadence" — pins the line-61 "set finer than the 15s cadence" claim
+//         cadence" — pins the `Spec-003 §Default Behavior` "set finer than the 15s cadence" claim
 //         that derives FROM the §Default Behavior cadence, giving it a concrete
 //         numeric anchor rather than resting on framing alone.
 //
@@ -215,9 +215,9 @@ describe("HeartbeatService — ingest (`Spec-003 §Default Behavior`)", () => {
   });
 
   it("exports STALENESS_SWEEP_INTERVAL_MS finer than the 15s heartbeat cadence (`Spec-003 §Default Behavior` heartbeat-cadence -> sweep-derivation bound)", () => {
-    // The line-61 timing guarantee ("recorded within one sweep interval of a
+    // The `Spec-003 §Default Behavior` timing guarantee ("recorded within one sweep interval of a
     // threshold crossing", "set finer than the 15s cadence") derives from the
-    // line-59 cadence. Pin it numerically: the constant is exported (T3.8's
+    // §Default Behavior 15s cadence. Pin it numerically: the constant is exported (T3.8's
     // scheduler imports it) and is strictly finer than 15s.
     expect(STALENESS_SWEEP_INTERVAL_MS).toBe(5_000);
     expect(STALENESS_SWEEP_INTERVAL_MS).toBeLessThan(15_000);

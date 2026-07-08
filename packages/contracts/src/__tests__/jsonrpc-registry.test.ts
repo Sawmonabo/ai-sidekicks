@@ -57,7 +57,7 @@ describe("METHOD_NAME_FORMAT — canonical JSON-RPC method-name format (BL-142)"
     // Roots stay lowercase — the "didn't over-loosen" guard.
     "Session.create", // uppercase root
     "textDocument.didOpen", // camelCase ROOT (LSP-style; rejected by the ratified regex)
-    "runtimeNode.capabilityUpdate", // camelCase root (the line-558 trap)
+    "runtimeNode.capabilityUpdate", // camelCase root (the registry's lowercase-root trap)
     // Structural rejections enumerated by the ratification.
     "sessionCreate", // no namespace dot
     "session/create", // slash separator (HTTP-path conflation)
