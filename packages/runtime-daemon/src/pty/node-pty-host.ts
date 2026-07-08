@@ -83,7 +83,7 @@ import { defaultSpawnTaskkill, type TaskkillResult } from "./taskkill-windows.js
 //
 // If the upstream `node-pty` v1 beta tightens or relaxes these shapes
 // in a future release, update this block to match. The package.json
-// pin (`^1.2.0-beta.12` per Plan-024 line 93) caps the drift surface.
+// pin (`^1.2.0-beta.12` per `Plan-024 §Target Areas`) caps the drift surface.
 
 /** Shape of a single PTY-child wrapper as returned by `node-pty.spawn`. */
 export interface NodePtyChild {

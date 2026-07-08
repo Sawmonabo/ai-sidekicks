@@ -20,7 +20,7 @@
 //     Method-Name Registry) ∪ `METHOD_NAME_LSP_REGEX` (daemon-local
 //     LSP-style `$/`-prefixed; separate follow-up).
 //
-// W-tests covered here (per Plan-007 §Phase 2 lines 379-381):
+// W-tests covered here (per `Plan-007 §Phase 2 — Wire Substrate (W-007p-2-T1..T11)`):
 //   * W-007p-2-T7 — Method-not-found namespace-isolation. Invoking an
 //                   unregistered method (e.g. `not.registered`) returns
 //                   `RegistryDispatchError("method_not_found")` which
@@ -291,8 +291,8 @@ describe("I-007-9 — method-name format validation", () => {
     "presence.subscribe",
     "run.stream.notify",
     // camelCase tails (BL-142): lowercase root + camelCase tail segment, per
-    // api-payload-contracts.md §JSON-RPC Method-Name Registry (line 334 cites
-    // `settings.effectiveRead` / `driver.listCapabilities` as permitted).
+    // `docs/architecture/contracts/api-payload-contracts.md §JSON-RPC Method-Name Registry (Tier 1 Ratified)`
+    // (names `settings.effectiveRead` / `driver.listCapabilities` as permitted).
     "settings.effectiveRead",
     "driver.listCapabilities",
     "$/subscription/notify",

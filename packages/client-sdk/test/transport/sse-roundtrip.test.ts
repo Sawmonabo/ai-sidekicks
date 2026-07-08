@@ -1,6 +1,7 @@
 // Plan-008 §Phase 1 §T-008b-1-T12: client-sdk SSE round-trip integration test.
 //
-// Per plan body line 248, this is the "highest-value Phase 1 test" — it
+// Per the plan's T-008b-1-T12 test row, this is the "highest-value Phase 1
+// test" — it
 // proves the F-008b-1-09 unblock contract: that Plan-001 Phase 5's
 // `sessionClient.subscribe` can consume the Phase 1 control-plane SSE
 // substrate without modification. The test stubs that future production
@@ -9,8 +10,8 @@
 // instance.
 //
 // SSE wire frame ratified per
-// docs/architecture/contracts/api-payload-contracts.md §SSE Wire Frame
-// (Tier 1 Ratified, lines 268-283): Content-Type text/event-stream; one
+// `docs/architecture/contracts/api-payload-contracts.md §SSE Wire Frame (Tier 1 Ratified)`:
+// Content-Type text/event-stream; one
 // EventEnvelope per `data:` line as single-line JSON; `id:` carries
 // EventCursor; `retry: 5000`; heartbeat every 15s; tRPC fetch adapter
 // handles SSE natively per BL-104. The assertions below pin that shape
@@ -52,7 +53,7 @@
 // Posture choices documented for review-time:
 //
 //   * Path: `test/transport/...` (NOT `src/transport/__tests__/...`) per
-//     plan body §T-008b-1-5 line 222. The deviation from the package's
+//     the plan's T-008b-1-5 task row. The deviation from the package's
 //     `src/__tests__/` discovery glob is deliberate — it signals
 //     "integration test crossing a workspace boundary" — distinct from
 //     in-package unit tests under `src/transport/__tests__/`. The

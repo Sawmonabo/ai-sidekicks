@@ -144,7 +144,7 @@ describe("NodePtyHost — Windows kill-translation (I-024-1)", () => {
     await ctx.host.kill(session_id, "SIGKILL");
 
     // SIGKILL is immediate hard-stop — no graceful CTRL_BREAK_EVENT
-    // first per Plan-024 §Step 8 line 120.
+    // first per the `Plan-024 §Implementation Steps` step-8 kill bullet.
     expect(ctx.mockTaskkill).toHaveBeenCalledTimes(1);
     expect(ctx.mockTaskkill).toHaveBeenCalledWith(12345);
 
@@ -174,7 +174,7 @@ describe("NodePtyHost — Windows kill-translation (I-024-1)", () => {
 // Idempotency — kill after the child has already exited
 // ----------------------------------------------------------------------------
 
-describe("NodePtyHost — idempotency of kill after child exit (step-8 kill bullet, Plan-024 §Implementation Steps)", () => {
+describe("NodePtyHost — idempotency of kill after child exit (step-8 kill bullet, `Plan-024 §Implementation Steps`)", () => {
   it("kill() on an already-exited session re-emits onExit from cache and does NOT call any FFI", async () => {
     const { session_id } = await ctx.host.spawn(SAMPLE_SPAWN);
 

@@ -7,25 +7,25 @@
 // control-plane-only `roster` query (T5.0d).
 //
 // Spec coverage:
-//   * Spec-003 line 82 — `RuntimeNodeAttach` fields (sessionId, participantId,
+//   * `Spec-003 §Interfaces And Contracts` — `RuntimeNodeAttach` fields (sessionId, participantId,
 //     nodeId, clientVersion, capabilities, healthState). `attach()` below
 //     threads `RuntimeNodeAttachRequestSchema` / `RuntimeNodeAttachResponse-
 //     Schema`; the server-derived `readOnly` PERMISSION verdict and the
 //     `state` LIVENESS axis ride the response through unchanged (the SDK does
 //     NOT compute `readOnly`; the Phase-3 attach service does — runtime-node.ts
 //     §Design note).
-//   * Spec-003 line 83 — `RuntimeNodeHeartbeat` updates presence and health.
+//   * `Spec-003 §Interfaces And Contracts` — `RuntimeNodeHeartbeat` updates presence and health.
 //     `heartbeat()` carries the daemon's 2-value `healthState` and unwraps the
 //     no-content `z.null()` response (`RuntimeNodeHeartbeatResponseSchema`).
-//   * Spec-003 line 84 — `RuntimeNodeCapabilityUpdate` add/remove/health
+//   * `Spec-003 §Interfaces And Contracts` — `RuntimeNodeCapabilityUpdate` add/remove/health
 //     variants. `capabilityUpdate()` threads the FULL-REPLACEMENT `capabilities`
 //     map (removals by omission, additions by presence) plus the optional
 //     `healthChanges` 2-value-health transition, and unwraps the
 //     `{nodeId, state, updatedAt}` content response.
-//   * Spec-003 line 85 — `RuntimeNodeDetach` retires a node. `detach()` carries
+//   * `Spec-003 §Interfaces And Contracts` — `RuntimeNodeDetach` retires a node. `detach()` carries
 //     the `nodeId` (+ optional audit `reason`) and unwraps the no-content
 //     `z.null()` response (`RuntimeNodeDetachResponseSchema`).
-//   * Spec-003 line 86 + the §Interfaces And Contracts amendment (lines 90-94)
+//   * `Spec-003 §Interfaces And Contracts` (incl. the roster-read amendment)
 //     — `RuntimeNodeRoster` returns the session's full node roster via the
 //     control-plane-only `runtimenode.roster` query. `roster()` below (the
 //     control-plane factory ONLY) threads `RuntimeNodeRosterRequestSchema` /
@@ -265,7 +265,7 @@ export interface ControlPlaneRuntimeNodeClientOptions {
  * this NAMED extension, keeping the shared contract honest and giving
  * control-plane consumers a stable type to hold.
  *
- * `roster` resolves the faithful both-axes projection (Spec-003 lines 90-94):
+ * `roster` resolves the faithful both-axes projection (`Spec-003 §Interfaces And Contracts`):
  * every `runtime_node_attachments` row for the session — slot `state`
  * verbatim, nullable liveness `healthState` / `lastHeartbeatAt` (NULL until
  * the node's first heartbeat lands), and the per-row read-time `readOnly`
@@ -290,7 +290,7 @@ export interface ControlPlaneRuntimeNodeClient extends RuntimeNodeClient {
  * surface through this one class:
  *   * `version.floor_exceeded` — a below-floor read-only node's capability
  *     WRITE refusal (the typed `VERSION_FLOOR_EXCEEDED`, I-003-1 / ADR-018
- *     §Decision #4 / Spec-003 line 130). A consumer (e.g. Plan-003 T4.4) asserts
+ *     §Decision #4 / `Spec-003 §Acceptance Criteria` (AC4)). A consumer (e.g. Plan-003 T4.4) asserts
  *     this branch via `error.code === VERSION_FLOOR_EXCEEDED_CODE` (imported
  *     from `@ai-sidekicks/contracts`) — this SDK deliberately does NOT import or
  *     hardcode that constant, so the surface stays decoupled from any single

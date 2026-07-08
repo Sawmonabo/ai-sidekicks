@@ -34,7 +34,7 @@
 // the factory has no querier to misuse.
 //
 // Refs: docs/plans/003-runtime-node-attach.md §T3.8 + §T5.0c, Spec-003
-//       line 52 (the control plane coordinates discovery/presence; execution
+//       `Spec-003 §Required Behavior` (the control plane coordinates discovery/presence; execution
 //       stays local) + §Interfaces And Contracts 2026-06-09 amendment lines
 //       90-94 (the roster-read pin: first query, control-plane tRPC only),
 //       ADR-014 (tRPC control-plane API), CP-003-2 (transport
@@ -238,7 +238,7 @@ export function createRuntimeNodeRouter(deps: RuntimeNodeRouterDeps): RuntimeNod
           //     attachment, or the I-003-2 registering->online guard;
           //   - VersionFloorExceededException — the below-floor read-only node's
           //     write-refusal (the typed `VERSION_FLOOR_EXCEEDED`, I-003-1 /
-          //     ADR-018 §Decision #4 / Spec-003 line 130).
+          //     ADR-018 §Decision #4 / `Spec-003 §Acceptance Criteria` AC4).
           // Preserve the typed exception on `cause` so the shared
           // `errorFormatter` projects it onto `shape.data.aisError` via the
           // `AisWireException` base; any other throw rethrows unchanged.

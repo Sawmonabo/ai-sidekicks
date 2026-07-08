@@ -42,7 +42,7 @@
 // caller test still passed.
 //
 // Refs: docs/plans/003-runtime-node-attach.md §T3.8 + §T3.4, ADR-014, ADR-018
-//       §Decision #4, Spec-003 line 130, Spec-001 §Limit Enforcement,
+//       §Decision #4, `Spec-003 §Acceptance Criteria` AC4, Spec-001 §Limit Enforcement,
 //       error-contracts.md §Runtime Node + §Version,
 //       packages/control-plane/src/server/host.ts (the t.mergeRouters
 //       composition), ../../ais-wire-exception.ts (the base — the formatter
@@ -351,7 +351,7 @@ describe("errorFormatter projection — AisWireException base covers all subtype
     // below-floor client_version (1.0): the read-only verdict the write-gate
     // re-derives. The capability WRITE is refused with the typed
     // VersionFloorExceededException, which the catch-arm maps to CONFLICT and the
-    // shared formatter projects onto error.data.aisError (Spec-003 line 130 /
+    // shared formatter projects onto error.data.aisError (`Spec-003 §Acceptance Criteria` AC4 /
     // ADR-018 §Decision #4 / I-003-1).
     const querier = adaptPGlite(pg);
     await seedParticipant(querier, PARTICIPANT_ID);

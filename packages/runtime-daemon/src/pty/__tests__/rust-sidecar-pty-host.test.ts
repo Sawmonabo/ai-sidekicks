@@ -3038,7 +3038,7 @@ describe("RustSidecarPtyHost — stale child lifecycle events do not clobber the
 //     replacement's sessions.
 // ----------------------------------------------------------------------------
 
-describe("RustSidecarPtyHost — crash-time per-session onExit (ADR-019 §Decision item 9)", () => {
+describe("RustSidecarPtyHost — crash-time per-session onExit (`ADR-019 §Decision` item 9)", () => {
   it("handleChildExit fires onExit(-1) for every active session and empties the session map", async () => {
     const fake = makeFakeChild();
     const host = new RustSidecarPtyHost({

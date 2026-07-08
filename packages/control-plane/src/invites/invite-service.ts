@@ -3,9 +3,9 @@
 // Responsibilities (T2.1, issuance path):
 //   * createInvite — mint a PASETO v4.local invite token whose payload is
 //                    `{session_id, inviter_id, join_mode, expires_at, jti}`
-//                    (Spec-002 §Token Security Properties line 113), then
+//                    (`Spec-002 §Token Security Properties`), then
 //                    INSERT a `session_invites` row carrying ONLY the SHA-256
-//                    hash of the token (line 111 — plaintext is never
+//                    hash of the token (hash storage — plaintext is never
 //                    persisted) with `state = 'pending'`. Returns the
 //                    plaintext token to the caller exactly once for out-of-band
 //                    link delivery (Spec-002 §Invite Delivery).
@@ -14,19 +14,19 @@
 //   * acceptInvite — decrypt the presented PASETO v4.local token under the
 //                    key ring's ACTIVE key, recover the claim payload, look up
 //                    the `session_invites` row by SHA-256(token), enforce
-//                    expiry (Spec-002 line 112, claim is authoritative),
-//                    revocation (line 139), and single-use (line 109) under
+//                    expiry (`Spec-002 §Token Security Properties`, claim is authoritative),
+//                    revocation (`Spec-002 §Invite Revocation`), and single-use (`Spec-002 §Token Security Properties`) under
 //                    ONE transaction, then transition `pending -> accepted`
 //                    AND create the active `session_memberships` row in that
 //                    same commit boundary (AC1).
-//   * revokeInvite — owner-authorized (Spec-002 line 142), STATE-ONLY
-//                    transition `state -> 'revoked'` (line 138, immediacy).
+//   * revokeInvite — owner-authorized (`Spec-002 §Invite Revocation`), STATE-ONLY
+//                    transition `state -> 'revoked'` (immediacy).
 //                    NO audit event is emitted and NO event log is written:
 //                    per ADR-017 the control plane has NO event log, and the
 //                    `invite.revoked` audit event is deferred to Plan-006
 //                    Tier 4 (daemon-side) per CP-002-6. The Phase 2 deliverable
 //                    is the coordination-state transition, full stop.
-//   * Expiry validation (Spec-002 line 112) is a shared helper consumed by the
+//   * Expiry validation (`Spec-002 §Token Security Properties`) is a shared helper consumed by the
 //     accept path; the `expires_at` PASETO claim — not the DB column — is the
 //     authoritative source per the spec ("validates the `expires_at` claim in
 //     the PASETO payload on every access").
@@ -60,13 +60,13 @@
 //     `daemon_signature` integrity column (that `Buffer.alloc(32)` placeholder
 //     is a runtime-daemon SQLite convention and does not belong here). The
 //     `invite.revoked` audit event is deferred to Plan-006 Tier 4 (daemon-side,
-//     gated on Plan-008-remainder Tier 5 relay sync) per CP-002-6; Spec-002
-//     line 141 is satisfied there, not in Phase 2.
+//     gated on Plan-008-remainder Tier 5 relay sync) per CP-002-6;
+//     `Spec-002 §Invite Revocation` is satisfied there, not in Phase 2.
 //   * Rate limiting (Spec-002 §Rate Limiting) — not an issuance/accept
 //     correctness concern; owned downstream (framework / Plan-005 surface).
 //
-// Refs: Spec-002 §Token Security Properties (lines 107-113), §Invite Delivery
-// (lines 91-99), §Invite Revocation (lines 138-142), Plan-002 Phase 2,
+// Refs: `Spec-002 §Token Security Properties`, `Spec-002 §Invite Delivery`,
+// `Spec-002 §Invite Revocation`, Plan-002 Phase 2,
 // ADR-010 (PASETO auth stack), ADR-017 (control plane has no event log),
 // CP-002-6 (audit emission deferred to Tier 4).
 
@@ -105,7 +105,7 @@ import { createPgPoolQuerier } from "../sessions/session-directory-service.js";
 import type { Querier } from "../sessions/migration-runner.js";
 
 // --------------------------------------------------------------------------
-// Typed errors — Plan-002 Phase 2 §Goal line 267.
+// Typed errors — `Plan-002 §Phase 2 — Control-Plane Invite And Membership Services`.
 // --------------------------------------------------------------------------
 //
 // Defined inline, mirroring the `ResourceLimitExceededException` idiom in
@@ -124,16 +124,16 @@ import type { Querier } from "../sessions/migration-runner.js";
 /** Stable wire code for an invite token that decodes to no live invite row. */
 export const INVITE_NOT_FOUND_CODE = "invite.not_found" as const;
 
-/** Stable wire code for the single-use guard (Spec-002 line 109). */
+/** Stable wire code for the single-use guard (`Spec-002 §Token Security Properties`). */
 export const INVITE_ALREADY_ACCEPTED_CODE = "invite.already_accepted" as const;
 
-/** Stable wire code for an accept against a revoked invite (Spec-002 line 139). */
+/** Stable wire code for an accept against a revoked invite (`Spec-002 §Invite Revocation`). */
 export const INVITE_REVOKED_CODE = "invite.revoked" as const;
 
-/** Stable wire code for the expiry guard (Spec-002 line 112). */
+/** Stable wire code for the expiry guard (`Spec-002 §Token Security Properties`). */
 export const INVITE_EXPIRED_CODE = "invite.expired" as const;
 
-/** Stable wire code for the owner-only revoke authorization (Spec-002 line 142). */
+/** Stable wire code for the owner-only revoke authorization (`Spec-002 §Invite Revocation`). */
 export const INVITE_PERMISSION_DENIED_CODE = "invite.permission_denied" as const;
 
 /**
@@ -161,7 +161,7 @@ export class InviteNotFoundException extends Error {
  * (`state = 'accepted'`). Single-use is enforced atomically via a conditional
  * `UPDATE ... WHERE state = 'pending'`; a zero-row update is re-classified by
  * re-reading the row's state, and an `accepted` row surfaces here (Spec-002
- * line 109: "Subsequent attempts to use the same token return an 'invite
+ * `Spec-002 §Token Security Properties`: "Subsequent attempts to use the same token return an 'invite
  * already accepted' error").
  */
 export class InviteAlreadyAcceptedException extends Error {
@@ -177,7 +177,7 @@ export class InviteAlreadyAcceptedException extends Error {
  * Thrown by `acceptInvite` when the invite has been revoked
  * (`state = 'revoked'`). NO membership mutation occurs (P2). A revoked invite
  * can never be accepted, so a revoked participant cannot re-join without a NEW
- * invite (P8). Spec-002 line 139: "A revoked token that is subsequently
+ * invite (P8). `Spec-002 §Invite Revocation`: "A revoked token that is subsequently
  * clicked returns a clear error."
  */
 export class InviteRevokedException extends Error {
@@ -191,7 +191,7 @@ export class InviteRevokedException extends Error {
 
 /**
  * Thrown by `acceptInvite` when the token's `expires_at` claim is in the past
- * (Spec-002 line 112). The claim — not the DB `state` — is authoritative:
+ * (`Spec-002 §Token Security Properties`). The claim — not the DB `state` — is authoritative:
  * "Expired tokens return an 'invite expired' error regardless of database
  * state." Checked before the revoked / single-use branches so an expired token
  * surfaces expiry first.
@@ -207,8 +207,8 @@ export class InviteExpiredException extends Error {
 
 /**
  * Thrown by `revokeInvite` when the acting participant is not an active owner
- * of the invite's session (Spec-002 line 142, owner-only per the
- * security-architecture.md Permission Matrix). The ownership check mirrors
+ * of the invite's session (`Spec-002 §Invite Revocation`, owner-only per
+ * `docs/architecture/security-architecture.md §Permission Matrix (Task 5.4)`). The ownership check mirrors
  * `MembershipService.updateMembership`'s active-owner gate. The transport
  * layer maps this to an authorization failure (HTTP 403 / tRPC `FORBIDDEN`).
  */
@@ -222,16 +222,16 @@ export class InvitePermissionDeniedException extends Error {
 }
 
 // --------------------------------------------------------------------------
-// Token entropy — Spec-002 §Token Security Properties line 110
+// Token entropy — `Spec-002 §Token Security Properties`
 // --------------------------------------------------------------------------
 //
 // "The PASETO payload includes 256-bit CSPRNG randomness (... `crypto.
 // randomBytes(32)`)." 256 bits = 32 bytes. This randomness IS the `jti`
-// claim (line 113): the four other payload fields (`session_id`,
+// claim (the §Token Security Properties unique-token bullet): the four other payload fields (`session_id`,
 // `inviter_id`, `join_mode`, `expires_at`) are all caller-supplied semantic
 // values, so `jti` is the ONLY field that can carry the spec's entropy
-// floor. A UUID v4 `jti` would supply only 122 bits and fail line 110;
-// 32 CSPRNG bytes satisfy line 110 (entropy) and line 113 (unique token
+// floor. A UUID v4 `jti` would supply only 122 bits and fail the entropy
+// floor; 32 CSPRNG bytes satisfy both §Token Security Properties bullets (entropy + unique token
 // identifier for single-use / revocation lookup) in one field.
 //
 // The PASETO v4.local envelope's own per-call nonce (32 bytes, minted inside
@@ -240,12 +240,12 @@ export class InvitePermissionDeniedException extends Error {
 const TOKEN_ENTROPY_BYTES = 32;
 
 // --------------------------------------------------------------------------
-// Token claim payload — Spec-002 §Token Security Properties line 113
+// Token claim payload — `Spec-002 §Token Security Properties`
 // --------------------------------------------------------------------------
 //
 // `{session_id, inviter_id, join_mode, expires_at, jti}` — encrypted inside
 // the PASETO v4.local envelope. Field names are snake_case to match the
-// spec's verbatim wire-claim shape (line 113); they are independent of the
+// spec's verbatim wire-claim shape (§Token Security Properties); they are independent of the
 // camelCase `InviteCreate` contract field names. T2.2's accept path decodes
 // this exact shape, so the claim contract is shared across both tasks.
 interface InviteTokenClaims {
@@ -274,7 +274,7 @@ interface InviteRow {
 // the single-use UPDATE matches zero rows), and `join_mode` (read from the
 // ROW — it becomes the activated membership's role). The session is taken from
 // the token claim (`claims.session_id`) and expiry from the claim
-// (`claims.expires_at`, authoritative per line 112), so neither is selected
+// (`claims.expires_at`, authoritative per §Token Security Properties), so neither is selected
 // here. Mirrors the `InviteRow` projection convention above.
 interface InviteAcceptRow {
   readonly id: string;
@@ -294,7 +294,7 @@ function toIsoString(value: Date | string): string {
 }
 
 // --------------------------------------------------------------------------
-// Expiry validation (Spec-002 §Token Security Properties line 112)
+// Expiry validation (`Spec-002 §Token Security Properties`)
 // --------------------------------------------------------------------------
 //
 // "The server validates the `expires_at` claim in the PASETO payload on every
@@ -317,7 +317,7 @@ function isExpiredClaim(expiresAtClaim: string, now: Date): boolean {
 // --------------------------------------------------------------------------
 //
 // The decrypted bytes are the UTF-8 JSON of `InviteTokenClaims` (the exact
-// shape `createInvite` encrypted, line 113). A payload that does not parse to
+// shape `createInvite` encrypted, §Token Security Properties). A payload that does not parse to
 // the expected shape is treated as a not-found invite — a well-formed v4.local
 // envelope under our active key but with a foreign payload shape is not an
 // invite this service issued. Returns `undefined` on any structural failure;
@@ -375,13 +375,14 @@ export class InviteService {
    *      `InviteCreateSchema.parse(...)` (fail-fast; mirrors the boundary-
    *      validation idiom). A malformed `sessionId` / `inviter` / `joinMode`
    *      / `expiresAt` throws a `ZodError` before any token is minted.
-   *   2. Generate 256-bit CSPRNG entropy as the `jti` (Spec-002 line 110).
+   *   2. Generate 256-bit CSPRNG entropy as the `jti` (`Spec-002 §Token Security Properties`).
    *   3. Assemble the `{session_id, inviter_id, join_mode, expires_at, jti}`
-   *      claim payload (line 113), serialize to UTF-8 bytes, and encrypt
+   *      claim payload (`Spec-002 §Token Security Properties`), serialize to UTF-8 bytes, and encrypt
    *      with PASETO v4.local under the key ring's ACTIVE key. The plaintext
    *      claim bytes never leave this method; the returned token is the
    *      opaque encrypted envelope.
-   *   4. Compute the SHA-256 hash of the token string (line 111) and INSERT
+   *   4. Compute the SHA-256 hash of the token string (§Token Security
+   *      Properties: only the hash is persisted) and INSERT
    *      a `session_invites` row carrying ONLY that hash, `state = 'pending'`.
    *      The plaintext token is NEVER written to the database.
    *   5. Return `{inviteId, token, expiresAt}` — the plaintext token is
@@ -396,22 +397,22 @@ export class InviteService {
    * throw, so a torn write (FK violation on a stale `sessionId`/`inviter`,
    * connection drop) leaves no half-written invite row.
    *
-   * Hash-storage property (Spec-002 line 111, verified by P5 in T2.2): the
+   * Hash-storage property (`Spec-002 §Token Security Properties`, verified by P5 in T2.2): the
    * `token_hash` column receives `SHA-256(token)` as a hex digest; the
    * plaintext `token` appears only in the return value and the in-memory
    * claim assembly, never in a SQL parameter. The `session_invites.token_hash`
    * UNIQUE constraint (Plan-002 Phase 1 migration) backs single-use semantics
    * that T2.2 enforces on accept.
    *
-   * Owner-authorization (security-architecture.md §Permission Matrix row 299,
-   * Spec-002 line 142 — "Invite participants" is owner-only): issuance is
+   * Owner-authorization (`docs/architecture/security-architecture.md §Permission Matrix (Task 5.4)`,
+   * `Spec-002 §Invite Revocation` — "Invite participants" is owner-only): issuance is
    * gated on the AUTHENTICATED actor, NOT the body. The actor must hold an
    * active `owner` membership in the target session — the same active-owner
    * predicate `revokeInvite` / `MembershipService.updateMembership` use — so a
    * non-owner member (or non-member) cannot mint a token by supplying their
    * own participant id. The check runs inside the issuance transaction under
    * the parent session lock, BEFORE the INSERT, so a denied caller writes no
-   * row. The body `inviter` field is informational (Spec-002 line 80) and must
+   * row. The body `inviter` field is informational (`Spec-002 §Interfaces And Contracts`) and must
    * EQUAL the authenticated actor: Spec-002 §Interfaces And Contracts defines
    * no delegated-issuance contract, so V1 binds the body `inviter` to the
    * authenticated actor and a mismatch is denied (this is distinct from the
@@ -420,7 +421,7 @@ export class InviteService {
    * already records the authenticated active owner, so both are left unchanged.
    *
    * @param actorParticipantId the AUTHENTICATED participant issuing the invite.
-   *   `InviteCreate` carries an `inviter` field (Spec-002 line 80), but that
+   *   `InviteCreate` carries an `inviter` field (`Spec-002 §Interfaces And Contracts`), but that
    *   field is attacker-controllable, so the issuing identity is passed
    *   explicitly and gated here, mirroring `revokeInvite` /
    *   `MembershipService.updateMembership`'s actor-as-parameter convention.
@@ -434,12 +435,12 @@ export class InviteService {
     // material is generated or any row is written.
     const validated: InviteCreate = InviteCreateSchema.parse(input);
 
-    // (2) 256-bit CSPRNG `jti` (Spec-002 line 110). base64url keeps the
+    // (2) 256-bit CSPRNG `jti` (`Spec-002 §Token Security Properties`). base64url keeps the
     // claim payload compact and URL-safe; the value is opaque single-use /
     // revocation-lookup identity, never parsed for structure.
     const jti: string = randomBytes(TOKEN_ENTROPY_BYTES).toString("base64url");
 
-    // (3) Assemble + encrypt the claim payload (Spec-002 line 113). The
+    // (3) Assemble + encrypt the claim payload (`Spec-002 §Token Security Properties`). The
     // active key is pulled from the injected ring; KeyRing guarantees it is
     // exactly 32 bytes (its construction-time invariant), which is the
     // `encryptV4Local` v4.local key-length requirement.
@@ -454,7 +455,7 @@ export class InviteService {
     const activeKey: Uint8Array = this.#keyRing.active().key;
     const token: string = encryptV4Local(claimBytes, activeKey);
 
-    // (4) Hash-storage (Spec-002 line 111): persist ONLY SHA-256(token). The
+    // (4) Hash-storage (`Spec-002 §Token Security Properties`): persist ONLY SHA-256(token). The
     // plaintext `token` is never passed as a SQL parameter. Hex digest is the
     // canonical Postgres-text form for a hash and matches the repo's existing
     // `createHash(...).digest()` idiom (runtime-daemon session-projector.ts).
@@ -472,8 +473,8 @@ export class InviteService {
       // must not be inverted.
       await tx.query("SELECT id FROM sessions WHERE id = $1 FOR UPDATE", [validated.sessionId]);
 
-      // Owner-authorization (security-architecture.md §Permission Matrix row
-      // 299, Spec-002 line 142 — "Invite participants" is owner-only). Same
+      // Owner-authorization (`docs/architecture/security-architecture.md §Permission Matrix (Task 5.4)`,
+      // `Spec-002 §Invite Revocation` — "Invite participants" is owner-only). Same
       // active-owner predicate revokeInvite / MembershipService.updateMembership
       // use: the actor must hold a `session_memberships` row in THIS session
       // with role 'owner' and state 'active'. The body `inviter` is
@@ -490,7 +491,7 @@ export class InviteService {
         actorRow !== undefined && actorRow.role === "owner" && actorRow.state === "active";
       if (!actorIsActiveOwner) {
         throw new InvitePermissionDeniedException(
-          `InviteService.createInvite: participant ${String(actorParticipantId)} is not an active owner of session ${String(validated.sessionId)}; only the session owner may invite participants (security-architecture.md §Permission Matrix row 299, Spec-002 line 142).`,
+          `InviteService.createInvite: participant ${String(actorParticipantId)} is not an active owner of session ${String(validated.sessionId)}; only the session owner may invite participants (security-architecture.md §Permission Matrix; Spec-002 §Invite Revocation).`,
         );
       }
 
@@ -563,20 +564,20 @@ export class InviteService {
    *      oracle).
    *   3. Recover the `InviteTokenClaims` payload; a structurally-foreign
    *      payload maps to not-found.
-   *   4. Compute `SHA-256(token)` and look up the row (line 111: only the hash
+   *   4. Compute `SHA-256(token)` and look up the row (§Token Security Properties: only the hash
    *      is stored, so lookup is by hash). No row -> not-found.
-   *   5. Expiry (Spec-002 line 112): the token's `expires_at` CLAIM — not the
+   *   5. Expiry (`Spec-002 §Token Security Properties`): the token's `expires_at` CLAIM — not the
    *      DB `state` — is authoritative. An expired claim throws
    *      `InviteExpiredException` regardless of DB state, BEFORE the
    *      revoked / single-use branches.
-   *   6. Single-use atomicity (line 109): a conditional
+   *   6. Single-use atomicity (§Token Security Properties): a conditional
    *      `UPDATE ... SET state = 'accepted' WHERE id = $1 AND state = 'pending'
    *      RETURNING ...` claims the invite. A non-zero row count means THIS call
    *      won the transition (no TOCTOU gap between a read and the write). A
    *      zero-row update re-reads the row's state to pick the right typed
    *      error — `revoked` -> `InviteRevokedException` (P2, no membership
    *      mutation), `accepted` -> `InviteAlreadyAcceptedException` (P4).
-   *   7. Membership create-or-activate (Spec-002 line 42): in the SAME
+   *   7. Membership create-or-activate (`Spec-002 §Required Behavior`): in the SAME
    *      transaction, upsert the `session_memberships` row keyed on the claim's
    *      `session_id` and the accepting participant. `ON CONFLICT
    *      (session_id, participant_id) DO UPDATE` reactivates an INACTIVE
@@ -602,7 +603,7 @@ export class InviteService {
    * no event log. The participant-join event is daemon-side (Plan-006 Tier 4).
    *
    * @param acceptingParticipantId the authenticated participant accepting the
-   *   invite. `InviteAccept` carries only the token (Spec-002 line 81 — the
+   *   invite. `InviteAccept` carries only the token (`Spec-002 §Interfaces And Contracts` — the
    *   wire request is token-only), so the accepting identity is passed
    *   explicitly, mirroring `MembershipService.updateMembership`'s
    *   actor-as-parameter convention. The participant is bound at the
@@ -641,11 +642,12 @@ export class InviteService {
       );
     }
 
-    // (4) Look up the row by SHA-256(token) (line 111 — only the hash is
+    // (4) Look up the row by SHA-256(token) (§Token Security Properties — only the hash is
     // stored). The plaintext token is never passed to SQL.
     const tokenHash: string = createHash("sha256").update(validated.token).digest("hex");
 
-    // (5) Expiry is evaluated against the CLAIM (authoritative per line 112),
+    // (5) Expiry is evaluated against the CLAIM (authoritative per §Token
+    // Security Properties),
     // computed once outside the transaction; `now` is captured here so the
     // expiry decision is stable across the whole accept.
     const now = new Date();
@@ -676,16 +678,17 @@ export class InviteService {
         );
       }
 
-      // (5) Expiry FIRST — "regardless of database state" (line 112). An
+      // (5) Expiry FIRST — "regardless of database state" (§Token Security
+      // Properties). An
       // expired token throws expiry even if the row is still `pending`, and
       // even if it were revoked/accepted.
       if (isExpiredClaim(claims.expires_at, now)) {
         throw new InviteExpiredException(
-          `InviteService.acceptInvite: invite ${inviteRow.id} expired at ${claims.expires_at} (Spec-002 line 112).`,
+          `InviteService.acceptInvite: invite ${inviteRow.id} expired at ${claims.expires_at} (Spec-002 §Token Security Properties).`,
         );
       }
 
-      // (6) Single-use atomicity (line 109). The conditional UPDATE claims the
+      // (6) Single-use atomicity (§Token Security Properties). The conditional UPDATE claims the
       // invite iff it is still `pending`; RETURNING confirms THIS call won the
       // transition. No read-then-write TOCTOU gap.
       const claimUpdate = await transaction.query<{ id: string }>(
@@ -702,28 +705,28 @@ export class InviteService {
         // because we throw before the INSERT); otherwise already-accepted (P4).
         if (inviteRow.state === "revoked") {
           throw new InviteRevokedException(
-            `InviteService.acceptInvite: invite ${inviteRow.id} has been revoked (Spec-002 line 139).`,
+            `InviteService.acceptInvite: invite ${inviteRow.id} has been revoked (Spec-002 §Invite Revocation).`,
           );
         }
         // A persisted `expired` row reclassifies to expiry, not already-accepted
         // (the `session_invites.state` CHECK admits 'expired' — see
         // migrations/0002-session-invites.ts). This branch is LATENT until a
         // DB-side expiry sweep lands: today the claim-authoritative expiry check
-        // above (Spec-002 line 112) fires first, so no `expired` row is reachable
+        // above (`Spec-002 §Token Security Properties`) fires first, so no `expired` row is reachable
         // at runtime. It exists so the reclassification stays complete — an
         // expired row surfaces invite.expired, never invite.already_accepted.
         if (inviteRow.state === "expired") {
           throw new InviteExpiredException(
-            `InviteService.acceptInvite: invite ${inviteRow.id} is in a persisted expired state (Spec-002 line 112).`,
+            `InviteService.acceptInvite: invite ${inviteRow.id} is in a persisted expired state (Spec-002 §Token Security Properties).`,
           );
         }
         throw new InviteAlreadyAcceptedException(
-          `InviteService.acceptInvite: invite ${inviteRow.id} has already been accepted (Spec-002 line 109).`,
+          `InviteService.acceptInvite: invite ${inviteRow.id} has already been accepted (Spec-002 §Token Security Properties).`,
         );
       }
 
       // (7) Create OR ACTIVATE the membership in the SAME transaction (AC1,
-      // Spec-002 line 42 "Accepting an invite must create or activate
+      // `Spec-002 §Required Behavior` "Accepting an invite must create or activate
       // membership"). Three cases, all handled by one upsert:
       //   * No existing row -> INSERT (state='active', role=join_mode).
       //   * Existing row NOT active (pending/suspended/revoked) -> ACTIVATE:
@@ -789,7 +792,7 @@ export class InviteService {
   }
 
   /**
-   * Revoke an invite — owner-authorized (Spec-002 line 142), STATE-ONLY.
+   * Revoke an invite — owner-authorized (`Spec-002 §Invite Revocation`), STATE-ONLY.
    *
    * Flow:
    *   1. Validate the full `InviteRevoke` input at the trust boundary
@@ -798,16 +801,16 @@ export class InviteService {
    *      event), but `reason` is NOT persisted and NOT emitted — there is no
    *      column for it and no Phase 2 event to carry it.
    *   2. Under one transaction: lock the parent session row, verify the actor
-   *      holds active `owner` membership in that session (Spec-002 line 142,
+   *      holds active `owner` membership in that session (`Spec-002 §Invite Revocation`,
    *      owner-only — same active-owner gate
    *      `MembershipService.updateMembership` uses), then
    *      `UPDATE session_invites SET state = 'revoked' WHERE id = $1 AND
-   *      session_id = $2 AND state = 'pending'` (line 138, immediacy). The
+   *      session_id = $2 AND state = 'pending'` (`Spec-002 §Invite Revocation`, immediacy). The
    *      `session_id` predicate ties the invite to the session whose ownership
    *      was just checked, so a caller cannot revoke an invite from a session
    *      they do not own by naming a mismatched `sessionId`. The
    *      `state = 'pending'` predicate makes revoke a no-op on a row already in
-   *      a TERMINAL state (accepted/revoked/expired, Spec-002 line 155) — a
+   *      a TERMINAL state (accepted/revoked/expired, `Spec-002 §State And Data Implications`) — a
    *      revoke can never overwrite a durable terminal state (e.g. clobber an
    *      `accepted` row back to `revoked`, which would mask a created
    *      membership and mis-classify a token reuse as `invite.revoked`).
@@ -822,7 +825,7 @@ export class InviteService {
    * invite — this state transition is the durable enforcement point.
    *
    * @param actorParticipantId the participant requesting the revocation.
-   *   `InviteRevoke` carries no actor field (Spec-002 line 82 shape is
+   *   `InviteRevoke` carries no actor field (`Spec-002 §Interfaces And Contracts` shape is
    *   `{sessionId, inviteId, reason?}`), so identity is passed explicitly,
    *   mirroring `MembershipService.updateMembership`.
    * @returns the post-revoke invite projection, or `null` if no invite matches
@@ -845,7 +848,7 @@ export class InviteService {
         validated.sessionId,
       ]);
 
-      // Owner-authorization (Spec-002 line 142). Same active-owner predicate
+      // Owner-authorization (`Spec-002 §Invite Revocation`). Same active-owner predicate
       // MembershipService.updateMembership uses: the actor must hold a
       // `session_memberships` row in THIS session with role 'owner' and state
       // 'active'. A non-owner (or a non-member) is denied before any mutation.
@@ -859,15 +862,15 @@ export class InviteService {
         actorRow !== undefined && actorRow.role === "owner" && actorRow.state === "active";
       if (!actorIsActiveOwner) {
         throw new InvitePermissionDeniedException(
-          `InviteService.revokeInvite: participant ${String(actorParticipantId)} is not an active owner of session ${String(validated.sessionId)}; only the session owner may revoke invites (Spec-002 line 142).`,
+          `InviteService.revokeInvite: participant ${String(actorParticipantId)} is not an active owner of session ${String(validated.sessionId)}; only the session owner may revoke invites (Spec-002 §Invite Revocation).`,
         );
       }
 
-      // STATE-ONLY transition (line 138, immediacy). The `session_id` predicate
+      // STATE-ONLY transition (§Invite Revocation immediacy). The `session_id` predicate
       // ties the invite to the just-authorized session. The `state = 'pending'`
       // predicate (mirroring acceptInvite's single-use guard) makes revoke a
       // no-op on a TERMINAL row, so it can never overwrite a durable
-      // accepted/revoked/expired state (Spec-002 line 155). No `reason` column
+      // accepted/revoked/expired state (`Spec-002 §State And Data Implications`). No `reason` column
       // is written; no event is emitted (ADR-017).
       const revokeUpdate = await transaction.query<{ id: string; state: string }>(
         `UPDATE session_invites
@@ -881,7 +884,7 @@ export class InviteService {
         // Zero rows matched: either no invite with this id in this session, or
         // an invite no longer in the revocable `pending` state (already
         // accepted/revoked/expired — those are TERMINAL and durable per
-        // Spec-002 line 155, so revoke leaves them untouched). The wire layer
+        // `Spec-002 §State And Data Implications`, so revoke leaves them untouched). The wire layer
         // maps `null` to a typed not-found; an owner revoking a non-existent /
         // cross-session / already-terminal invite id is not an authorization
         // failure.

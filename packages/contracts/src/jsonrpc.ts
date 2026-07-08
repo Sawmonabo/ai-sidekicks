@@ -10,8 +10,7 @@
 // `packages/runtime-daemon/src/ipc/local-ipc-gateway.ts`.
 //
 // Spec coverage:
-//   * Spec-007 §Wire Format (docs/specs/007-local-ipc-and-daemon-control.md
-//     lines 50-56) — JSON-RPC 2.0 + LSP-style Content-Length framing.
+//   * `Spec-007 §Wire Format` — JSON-RPC 2.0 + LSP-style Content-Length framing.
 //   * ADR-009 (docs/decisions/009-json-rpc-ipc-wire-format.md) — wire-format
 //     decision rationale.
 //
@@ -112,7 +111,7 @@ export type JsonRpcId = string | number | null;
  * JSON-RPC 2.0 request envelope.
  *
  * `protocolVersion` is the Spec-007 §Wire Format per-request field
- * (line 54 — every request except health checks must carry it). Typed as
+ * (`Spec-007 §Wire Format` — every request except health checks must carry it). Typed as
  * an ISO 8601 `YYYY-MM-DD` date-string per api-payload-contracts.md
  * §Tier 1 (cont.): Plan-007 (BL-102 ratified 2026-05-01). Optional because
  * health checks omit it per `Spec-007 §Wire Format`.

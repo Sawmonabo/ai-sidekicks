@@ -1,7 +1,7 @@
 // SecureDefaultOverrideEmitter — single-emit-per-startup audit-event surface.
 //
 // This module owns the I-007-4 invariant (canonical text in
-// docs/plans/007-local-ipc-and-daemon-control.md §Invariants lines 84-87):
+// `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`, I-007-4):
 // every override emits exactly one `security.default.override=<behavior>`
 // log event per startup — not per request, not per event batch. Per-request
 // emission would flood the audit log and obscure single-event audit
@@ -32,12 +32,12 @@
 // — Plan-007 owns the emitter; Plan-006 owns the taxonomy row; both can
 // evolve independently without coupling.
 //
-// Spec tension noted for the reviewer: Spec-027 line 81 frames the
+// Spec tension noted for the reviewer: `Spec-027 §Fallback Behavior` frames the
 // event as `security.default.override=<behavior>` (Example 5 emits
 // `security.default.override=insecure_bind`, suggesting `<behavior>`
-// is a string token), while line 138 declares `behavior` as integer
-// 1–10 in the structured payload schema. The audit cite explicitly
-// dictates the payload shape from line 138; this module honors that
+// is a string token), while `Spec-027 §Interfaces And Contracts` declares
+// `behavior` as integer 1–10 in the structured payload schema. The audit
+// cite explicitly dictates the payload shape from that contract; this module honors that
 // tie-breaker. The string-token form is a stdout/log-line rendering
 // concern, not a structured-payload concern, and is owned by the
 // banner / log-format consumer (T-007p-1-3 / Plan-026). The
@@ -65,16 +65,17 @@
 
 /**
  * `security.default.override` event payload, audit-derived from
- * Spec-027 line 138. `row` is OPTIONAL — the `7a`/`7b` sub-row
+ * `Spec-027 §Interfaces And Contracts`. `row` is OPTIONAL — the `7a`/`7b` sub-row
  * discriminator is supplied only for behavior 7 and omitted for the
  * single-integer behaviors (rows 2, 5, 6, 8, 9 carry no sub-row). When
  * present it is typed as `string` rather than narrowed to `"7a" | "7b"`
- * because line 138 names rows 2, 5, 6, 8, 9 in the same breath —
+ * because the `Spec-027 §Interfaces And Contracts` schema names rows
+ * 2, 5, 6, 8, 9 in the same breath —
  * pre-narrowing the type would lock it to a Tier-1 assumption that
  * excludes the broader override surface. Tightening (if appropriate) is
  * owed to CP-007-5's taxonomy registration.
  *
- * `behavior` is the integer override identity (1–10) per line 138;
+ * `behavior` is the integer override identity (1–10) per that schema;
  * dedupe (I-007-4) keys on this field. Two emissions sharing the
  * same `behavior` integer are the same override and collapse to one
  * sink call, regardless of differing `row` / `effective_value` /

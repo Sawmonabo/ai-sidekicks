@@ -4,13 +4,13 @@
 // runtime nodes attached to the active session — one `RuntimeNodeRosterEntry`
 // per `runtime_node_attachments` row, exactly as the registered
 // `runtimenode.roster` read returns it — and visually distinguishes the three
-// status facets the wire entry carries (api-payload-contracts.md:551-561;
+// status facets the wire entry carries (`docs/architecture/contracts/api-payload-contracts.md §Tier 3: Plan-003 — Runtime Node Attach (Task 4.4)`;
 // runtime-node.ts:560-570):
 //   • `state: NodeState` — the SLOT axis (registering|online|degraded|offline|
 //     revoked, runtime-node.ts:86), `runtime_node_attachments.state` carried
 //     verbatim with all five values: the read is a faithful projection with no
-//     server-side hiding (Spec-003 §Interfaces And Contracts amendment, lines
-//     90-94). AC2 distinguishability (Spec-003 line 128): a `degraded`/
+//     server-side hiding (`Spec-003 §Interfaces And Contracts` amendment).
+//     AC2 distinguishability (`Spec-003 §Acceptance Criteria`): a `degraded`/
 //     `offline` node renders with a degraded/offline indicator, NOT a
 //     disappearance — a healthy `online` node is visually distinct from one
 //     that is not.
@@ -29,7 +29,7 @@
 //     for why the roster MUST never hide such a node. A node may be `online`
 //     AND `readOnly` at once (the axes are independent); all are rendered.
 //
-// NEVER-MASK (Spec-003 line 72): the two HEALTH axes (`state`, `healthState`)
+// NEVER-MASK (`Spec-003 §Default Behavior`): the two HEALTH axes (`state`, `healthState`)
 // have distinct owners — the slot axis vs the heartbeat sweep — and this view
 // renders BOTH, verbatim, side by side. It computes NO collapsed/"effective"
 // health scalar, so a recovery on one axis can never mask a degradation on the
@@ -39,21 +39,21 @@
 // presenting both.
 //
 // Spec-003 coverage:
-//   • §AC2 (line 128, "a degraded or offline node remains distinguishable from
+//   • `Spec-003 §Acceptance Criteria` AC2 ("a degraded or offline node remains distinguishable from
 //     a healthy online node"): the per-node row renders BOTH health axes as
 //     labeled indicators, and a `degraded`/`offline` node (on either axis) is
 //     kept in the rendered set with those indicators rather than removed (see
 //     the I-003-1 admit-not-eject note).
-//   • §AC3 (line 129, "multiple runtime nodes can coexist in one session
+//   • `Spec-003 §Acceptance Criteria` AC3 ("multiple runtime nodes can coexist in one session
 //     without changing session identity"): the roster renders a SET
 //     (`nodes.map(...)`), not a singleton. The `sessionId` prop scopes the
 //     read; the roster never mutates it, so adding a second (e.g. below-floor)
 //     node changes the rendered set, not the session identity. This is the
 //     MULTI-NODE requirement.
-//   • Spec-003 line 49 ("multiple runtime nodes per session"): same set-render
+//   • `Spec-003 §Required Behavior` ("multiple runtime nodes per session"): same set-render
 //     — the component is structurally a list over the session's attached
 //     nodes, one entry per `runtime_node_attachments` row.
-//   • Spec-003 line 76 ("capability-validation failure keeps the node
+//   • `Spec-003 §Fallback Behavior` ("capability-validation failure keeps the node
 //     degraded/offline, distinguishable from healthy"): a node that failed
 //     capability validation arrives in the read with `state: "degraded"` (the
 //     §Fallback-Behavior axis — capability-validation failure leaves the node
@@ -70,7 +70,7 @@
 // rendered set with their indicators — never filtered out. There is
 // deliberately NO `.filter(...)` that drops a node by `state`, `healthState`,
 // or `readOnly`; the roster renders every node the read returns (the server
-// side is equally unfiltered — Spec-003 line 92's "every row, no server-side
+// side is equally unfiltered — `Spec-003 §Interfaces And Contracts`'s "every row, no server-side
 // hiding" visibility clause). A future reader must NOT add a "hide
 // offline/below-floor nodes" filter: that would violate I-003-1's
 // admit-not-eject guarantee and break the AC2 distinguishability this view
@@ -83,11 +83,11 @@
 //   transport differences appropriate to runtime-node state:
 //     • The DECODED roster snapshot is read through the GENERIC control-plane
 //       surface `window.sidekicks.controlPlane.call(...)` — the roster is
-//       control-plane-owned cross-node coordination state (Spec-003 line 52;
+//       control-plane-owned cross-node coordination state (`Spec-003 §Required Behavior`;
 //       shared-postgres-schema.md `runtime_node_attachments` /
 //       `runtime_node_presence`), NOT `daemon.call`: `runtimenode.roster` is
 //       registered control-plane tRPC ONLY (a daemon knows only itself), per
-//       the registry row (api-payload-contracts.md:579).
+//       the registry row (`docs/architecture/contracts/api-payload-contracts.md §Runtime-Node Method-Name Registry (Tier 3)`).
 //     • Live health TRANSITIONS arrive on `window.sidekicks.daemon.subscribe(
 //       <runtime_node.* event>, handler)` — the daemon authors the
 //       daemon-reachable `runtime_node.*` lifecycle events (the registered
@@ -114,11 +114,12 @@
 //   `runtimenode.roster` is a REGISTERED wire contract, not a deferral. The
 //   Runtime-Node Method-Name Registry exposes five `runtimenode.*` methods —
 //   four mutations (`attach`/`heartbeat`/`capabilityupdate`/`detach`) plus
-//   this namespace-first `query` (the registry table at
-//   api-payload-contracts.md:573-579, roster row :571; procedure-type
-//   paragraph :568) — with the request/response wire shapes at
-//   api-payload-contracts.md:544-564 and the contract pinned in Spec-003
-//   §Interfaces And Contracts (line 86; amendment lines 90-94). Server truth:
+//   this namespace-first `query` (the registry table, roster row, and
+//   procedure-type paragraph in
+//   `docs/architecture/contracts/api-payload-contracts.md §Runtime-Node Method-Name Registry (Tier 3)`)
+//   — with the request/response wire shapes at
+//   `docs/architecture/contracts/api-payload-contracts.md §Tier 3: Plan-003 — Runtime Node Attach (Task 4.4)` and the contract pinned in
+//   `Spec-003 §Interfaces And Contracts`. Server truth:
 //   `AttachService.readRoster` (attach-service.ts:1000-1059), mounted as the
 //   router's first `.query()` (runtime-node-router.factory.ts:268-287); the
 //   Node-side SDK arm (`runtimeNodeClient.ts` control-plane `roster`, T5.0d)
@@ -174,7 +175,7 @@ import type {
 //
 // `ROSTER_READ_PROCEDURE` — the REGISTERED control-plane procedure for the
 // reconciled roster read (presence × slot): registry row
-// api-payload-contracts.md:579 (`query`, control-plane tRPC ONLY — the
+// `docs/architecture/contracts/api-payload-contracts.md §Runtime-Node Method-Name Registry (Tier 3)` (`query`, control-plane tRPC ONLY — the
 // namespace's first and only query; its four siblings are mutations), served
 // by `AttachService.readRoster` via the router's first `.query()`
 // (runtime-node-router.factory.ts:268-287). Hardcoded as a local `const` per
@@ -513,10 +514,11 @@ export function NodeRoster({ sessionId }: NodeRosterProps): React.JSX.Element {
 
   if (rosterViewState.kind === "loaded") {
     // One row per node (AC3 set-render). Each row distinguishes all three wire
-    // facets — the two HEALTH axes verbatim (never-mask, Spec-003 line 72)
+    // facets — the two HEALTH axes verbatim (never-mask, `Spec-003 §Default Behavior`)
     // plus the permission verdict:
     //   • slot `state` — `online` vs `degraded`/`offline`/`registering`/
-    //     `revoked` (AC2 + line 76 capability-degraded distinguishability).
+    //     `revoked` (AC2 + the `Spec-003 §Fallback Behavior` capability-degrade
+    //     distinguishability).
     //   • liveness `healthState` + `lastHeartbeatAt` — the sweep-owned
     //     presence verdict, rendered verbatim and SEPARATELY from `state` (no
     //     collapsed/"effective" scalar is computed, so a recovery on one axis

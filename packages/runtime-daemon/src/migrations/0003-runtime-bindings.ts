@@ -57,7 +57,7 @@
 //     is satisfied by a typed return-value contract from `resumeSession()`
 //     (T3.1/T3.6), not by persisted column state.
 //   * No FK to a local `sessions` table — sessions are shared-Postgres-only
-//     per shared-postgres-schema.md:43. Session-level lookups compose the
+//     per `docs/architecture/schemas/shared-postgres-schema.md §Sessions and Membership (Plan-001, Plan-002)`. Session-level lookups compose the
 //     caller-supplied active-run ids (the daemon's event-sourced run-state
 //     projection — there is no `runs` table) with the store's binding-by-run
 //     lookups (campaign B6 gloss; the batch `findByRuns` lands with the

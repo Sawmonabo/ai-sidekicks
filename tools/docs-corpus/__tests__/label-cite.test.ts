@@ -297,12 +297,16 @@ describe("label-cite — exclusions (must never flag; required-gate false-positi
     }
   }
 
-  it("does NOT match the line-word form (Spec-003 line 5) — that is audit-layer (CAT-07)", () => {
-    expect(extractFrom("// Spec-003 line 5 describes the floor.\n")).toEqual([]);
+  it("line-word form (Spec-003 line 5) IS extracted in code citers — pass-5 deny (was audit-layer pre-ratchet)", () => {
+    const cites = extractFrom("// Spec-003 line 5 describes the floor.\n");
+    expect(cites).toHaveLength(1);
+    expect(cites[0].lineWordDeny).toBe(true);
   });
 
-  it("does NOT match a parenthesized line phrase (Spec-003 §AC1 (line 5))", () => {
-    expect(extractFrom("//   • Spec-003 §AC1 (line 5, an attach race):\n")).toEqual([]);
+  it("parenthesized line phrase (Spec-003 §AC1 (line 5)) IS extracted in code citers — pass-5 deny", () => {
+    const cites = extractFrom("//   • Spec-003 §AC1 (line 5, an attach race):\n");
+    expect(cites).toHaveLength(1);
+    expect(cites[0].lineWordDeny).toBe(true);
   });
 
   it("does NOT match a markdown-link where the token is link text", () => {
@@ -682,6 +686,351 @@ describe("path-section anchor cites (`docs/….md §Heading` — label-LESS gove
     try {
       const violations = withRepoRoot(root, () =>
         checkLabelCiteTargets([resolve(root, "packages/contracts/src/provider.ts")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe("line-word + bare-basename deny in code citers (CAT-07 ratchet)", () => {
+  it("DENIES a docs-rooted §-heading cite with a trailing line anchor in a code file", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/plans/021-x.md": FIVE_LINE_DOC,
+      "packages/p/src/a.ts":
+        "// See docs/plans/021-x.md §Tier 1 Partial PR Sequence > Phase 1 line 259.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/p/src/a.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("line-anchored-cite-in-code");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("DENIES a label line-word cite in a code file", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/021-x.md": FIVE_LINE_DOC,
+      "packages/p/src/a.ts": "// per Spec-021 line 2 the bind address is loopback.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/p/src/a.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("line-anchored-cite-in-code");
+      expect(violations[0].detail).toContain("§Heading");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("DENIES the lines-list, parenthesized, and §-section+line variants", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/plans/022-y.md": FIVE_LINE_DOC,
+      "docs/decisions/014-z.md": FIVE_LINE_DOC,
+      "docs/specs/027-w.md": FIVE_LINE_DOC,
+      "packages/p/src/b.ts": [
+        "// Plan-022 lines 2, 3-4 cover retention.",
+        "// ADR-014 (line 2) picked tRPC.",
+        "// Spec-027 §Bind-Address line 3 pins the default.",
+        "",
+      ].join("\n"),
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/p/src/b.ts")]),
+      );
+      expect(violations).toHaveLength(3);
+      expect(violations.every((v) => v.reason === "line-anchored-cite-in-code")).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("DENIES bare-basename colon and line-word forms", () => {
+    const { root, cleanup } = setupRepo({
+      "packages/p/src/c.ts": [
+        "// api-payload-contracts.md:120 documents the envelope.",
+        "// session-model.md line 61 defines membership.",
+        "",
+      ].join("\n"),
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/p/src/c.ts")]),
+      );
+      expect(violations).toHaveLength(2);
+      expect(violations.every((v) => v.reason === "line-anchored-cite-in-code")).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("DENIES a docs-rooted line-word cite (colon form is pass 2's; line-word slips it)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/domain/session-model.md": FIVE_LINE_DOC,
+      "packages/p/src/d.ts": "// docs/domain/session-model.md line 3 defines membership.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/p/src/d.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("line-anchored-cite-in-code");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("does NOT fire in markdown citers (docs corpus keeps its own conventions)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/021-x.md": FIVE_LINE_DOC,
+      "docs/architecture/note.md": "Per Spec-021 line 2 the bind address is loopback.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "docs/architecture/note.md")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("does NOT fire on durable §-forms, prose without a line anchor, or 'outlines'", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/021-x.md": "# X\n\n## Bind Address\n\nbody\n",
+      "packages/p/src/e.ts": [
+        "// `Spec-021 §Bind Address` is the durable form.",
+        "// Plan-022 Phase 4 ships the stubs.",
+        "// Spec-021 outlines 3 tiers.",
+        "",
+      ].join("\n"),
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/p/src/e.ts")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("keeps frozen-tree line-word cites legal (parity with the colon-form carve-out)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/reference/excerpt.md": FIVE_LINE_DOC,
+      "packages/p/src/f.ts": "// docs/reference/excerpt.md line 2 quotes upstream.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/p/src/f.ts")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("FLOORS a frozen-tree line-word cite: a deleted target still fails loudly", () => {
+    // Legal ≠ unchecked (parity with the colon-form frozen carve-out): the
+    // line-word spelling into docs/reference/ is exempt from the deny, but a
+    // missing file or out-of-range pin must surface, not vanish from every
+    // check (Codex, PR #195 — pass 6 previously dropped the match entirely).
+    const { root, cleanup } = setupRepo({
+      "packages/p/src/f.ts": "// docs/reference/gone.md line 3 quotes upstream.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/p/src/f.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("missing-target-file");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("DENIES a line locator appended after a backticked durable label cite", () => {
+    // The durable spelling does not launder a pin: `` `Spec-021 §Bind
+    // Address` line 2 `` re-enters the CAT-07 class through the closing
+    // backtick unless the deny looks past it (Codex, PR #195).
+    const { root, cleanup } = setupRepo({
+      "docs/specs/021-x.md": "# X\n\n## Bind Address\n\nbody\n",
+      "packages/p/src/g.ts": "// `Spec-021 §Bind Address` line 2 pins the default.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/p/src/g.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("line-anchored-cite-in-code");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("DENIES a line-word tail after a backticked docs-path cite", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/domain/session-model.md": "# M\n\n## State Model\n\nbody\n",
+      "packages/p/src/h.ts":
+        "// `docs/domain/session-model.md §State Model` lines 61-77 moved here.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/p/src/h.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("line-anchored-cite-in-code");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("DENIES the adjectival hyphen spelling (Spec-003 line-48 payload)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+      "packages/p/src/i.ts": "// Spec-003 line-48 payload components are standing facts.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/p/src/i.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("line-anchored-cite-in-code");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("remediation for a durable-path-tail deny says drop-the-locator, not §Heading nesting", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/domain/session-model.md": "# M\n\n## State Model\n\nbody\n",
+      "packages/p/src/j.ts":
+        "// `docs/domain/session-model.md §State Model` lines 61-77 moved here.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/p/src/j.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].detail).toContain("drop the appended line locator");
+      expect(violations[0].detail).not.toContain("` §Heading`");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("floors a frozen §-segment cite against the anchored line, not the §-segment number", () => {
+    // `§RFC 9110 line 2`: the 9110 is heading text; the pin is line 2. A
+    // first-digit parse would check line 9110 and false-fail a valid cite.
+    const { root, cleanup } = setupRepo({
+      "docs/reference/rfc.md": FIVE_LINE_DOC,
+      "packages/p/src/k.ts": "// docs/reference/rfc.md §RFC 9110 line 2 quotes the norm.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/p/src/k.ts")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("floors EVERY endpoint of a frozen range/list anchor (stale 999 fails)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/reference/excerpt.md": FIVE_LINE_DOC,
+      "packages/p/src/l.ts": "// docs/reference/excerpt.md lines 2, 999 quote upstream.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/p/src/l.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("line-out-of-range");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("DENIES the comma-separated spelling (Spec-003, line 5)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+      "packages/p/src/n.ts": "// Per Spec-003, line 5 the attach handshake is versioned.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/p/src/n.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("line-anchored-cite-in-code");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("DENIES a line pin after a LONG § heading (bridge spans real heading lengths)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/plans/003-runtime-node-attach.md": FIVE_LINE_DOC,
+      "packages/p/src/o.ts":
+        "// Plan-003 §T5.3 — Mixed-version status indicator (below-floor read-only surfacing) line 600 moved.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/p/src/o.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("line-anchored-cite-in-code");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("DENIES a pin on an unstarred block-comment interior line (cross-line /* state)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+      "packages/p/src/q.ts": "/*\n  Spec-003 line 5 governs the handshake.\n*/\nconst x = 1;\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/p/src/q.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("line-anchored-cite-in-code");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("does NOT treat // inside a quoted string as a comment opener", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+      "packages/p/src/r.ts": 'const fixture = "foo// Spec-003 line 5";\n',
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/p/src/r.ts")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("does NOT deny .md:NN inside non-comment code strings (fixture/diagnostic FP guard)", () => {
+    const { root, cleanup } = setupRepo({
+      "packages/p/src/m.ts":
+        'const rendered = expectFormat("README.md:12");\nconst u = "https://x.test/session-model.md line 3";\n',
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/p/src/m.ts")]),
       );
       expect(violations).toHaveLength(0);
     } finally {

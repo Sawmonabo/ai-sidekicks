@@ -40,10 +40,12 @@
 //     node after detach, and a reconnect register resolves the SAME identity with
 //     `established_at` preserved from the first registration.
 //
-// Spec coverage: Spec-003 line 78 (disconnected node keeps membership; reconnect
-// under same identity — the T2.5 detach path), line 91 (durable runtime-node
-// records), line 109 (node identity stable across reconnect), line 115 (no implicit
-// capability exposure on attach), AC1 (line 120). Verifies invariant: I-003-3
+// Spec coverage: `Spec-003 §Fallback Behavior` (disconnected node keeps membership; reconnect
+// under same identity — the T2.5 detach path), `Spec-003 §State And Data
+// Implications` (durable runtime-node records), `Spec-003 §Implementation
+// Notes` (node identity stable across reconnect), `Spec-003 §Pitfalls To
+// Avoid` (no implicit capability exposure on attach), and
+// `Spec-003 §Acceptance Criteria` AC1. Verifies invariant: I-003-3
 // (registration records a node without mutating membership; detach does not revoke
 // membership).
 
@@ -259,7 +261,7 @@ describe("NodeRegistry — I-003-3 (registration does not mutate session_members
 // ----------------------------------------------------------------------------
 
 describe("NodeRegistry — emits runtime_node.registered (Spec-006 §Runtime Node Lifecycle (`runtime_node_lifecycle`))", () => {
-  it("lands exactly one runtime_node.registered event with the Spec-006 §Runtime Node Lifecycle (`runtime_node_lifecycle`) payload shape and exposes NO capability (Spec-003 §Pitfalls To Avoid)", () => {
+  it("lands exactly one runtime_node.registered event with the Spec-006 §Runtime Node Lifecycle (`runtime_node_lifecycle`) payload shape and exposes NO capability (`Spec-003 §Pitfalls To Avoid`)", () => {
     const registry: NodeRegistry = makeRegistry();
     registry.register({
       nodeId: NODE_ID,

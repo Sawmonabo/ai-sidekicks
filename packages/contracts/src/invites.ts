@@ -1,6 +1,6 @@
 // Invite contracts — request/response payloads for Plan-002 Phase 1 (invite
 // issuance, acceptance, and revocation). These shapes implement the wire
-// surface described in Spec-002 §Interfaces And Contracts (lines 78-89).
+// surface described in `Spec-002 §Interfaces And Contracts`.
 //
 // Branded ID pattern mirrors session.ts (`SessionId`, `ParticipantId`, …):
 // runtime is a plain UUID string, the brand is a TypeScript-only nominal type
@@ -17,10 +17,10 @@
 //   `JoinMode` / `JoinModeSchema` is the canonical enum consumed by
 //   `InviteCreate.joinMode` (this file). It is declared in presence.ts
 //   because the canonical wire-doc authority for `JoinMode` lives in
-//   `api-payload-contracts.md` §Presence (line 120) adjacent to the
-//   `JoinMode` definition; the spec reference is Spec-002 line 45. The
+//   `docs/architecture/contracts/api-payload-contracts.md §Shared Enums` adjacent to the
+//   `JoinMode` definition; the spec reference is `Spec-002 §Required Behavior`. The
 //   SPACED wire form `"runtime contributor"` is preserved verbatim from
-//   api-payload-contracts.md line 121, mirroring the `MembershipRole`
+//   `docs/architecture/contracts/api-payload-contracts.md §Shared Enums`, mirroring the `MembershipRole`
 //   enum in session.ts:153. Editing to `runtime_contributor` /
 //   `runtimeContributor` is a contract break and requires the spec edit
 //   FIRST per AGENTS.md "doc-first ordering".
@@ -29,8 +29,8 @@
 //   spec is owned by Plan-027 (cross-node dispatch) and the namespace
 //   collision is reconciled there.
 //
-// Refs: Spec-002 §Interfaces And Contracts (lines 78-89), §Token Security
-// Properties (lines 107-113), Plan-002 Phase 1, ADR-018 (versioning),
+// Refs: `Spec-002 §Interfaces And Contracts`, `Spec-002 §Token Security Properties`,
+// Plan-002 Phase 1, ADR-018 (versioning),
 // ADR-022 (toolchain — Zod 4.x).
 import { z } from "zod";
 
@@ -64,14 +64,14 @@ export const InviteIdSchema: z.ZodType<InviteId, InviteId> =
   brandedUuidIdSchema<InviteId>("InviteId");
 
 // --------------------------------------------------------------------------
-// InviteState — invite lifecycle enum (Spec-002 line 43)
+// InviteState — invite lifecycle enum (`Spec-002 §Required Behavior`)
 // --------------------------------------------------------------------------
 //
 // Lifecycle states are EXACTLY `{pending, accepted, revoked, expired}`.
 // Declining is implicit in V1 (the invitee simply does not click the
 // shareable link); there is no explicit `declined` state in V1.
 // Adding `declined` here is a contract break and requires a spec edit
-// (Spec-002 line 43) FIRST per AGENTS.md "doc-first ordering".
+// (`Spec-002 §Required Behavior`) FIRST per AGENTS.md "doc-first ordering".
 
 export type InviteState = "pending" | "accepted" | "revoked" | "expired";
 export const InviteStateSchema: z.ZodType<InviteState> = z.enum([
@@ -99,15 +99,15 @@ export const INVITE_REVOKE_REASON_MAX_LEN = 512;
 export const INVITE_TOKEN_MAX_LEN = 4096;
 
 // --------------------------------------------------------------------------
-// InviteCreate — Spec-002 line 80
+// InviteCreate — `Spec-002 §Interfaces And Contracts`
 // --------------------------------------------------------------------------
 //
 // "`InviteCreate` must include session id, inviter, proposed join mode, and
-// expiry." — Spec-002 line 80. The four required fields are:
+// expiry." — `Spec-002 §Interfaces And Contracts`. The four required fields are:
 //   * sessionId — the session being invited into
 //   * inviter   — the participant issuing the invite
 //   * joinMode  — proposed join mode (see JoinModeSchema, imported from presence.ts)
-//   * expiresAt — invite expiry timestamp (default `7d`, per Spec-002 line 56)
+//   * expiresAt — invite expiry timestamp (default `7d`, per `Spec-002 §Default Behavior`)
 //
 // `expiresAt` matches the ISO 8601 convention from session.ts
 // (`z.iso.datetime({ offset: true })`) — wire form is a string, not a
@@ -132,13 +132,13 @@ export const InviteCreateSchema: z.ZodType<InviteCreate, InviteCreate> = z
   .strict();
 
 // --------------------------------------------------------------------------
-// InviteAccept — Spec-002 lines 81, 107-113
+// InviteAccept — `Spec-002 §Interfaces And Contracts`, `Spec-002 §Token Security Properties`
 // --------------------------------------------------------------------------
 //
 // "`InviteAccept` must create active membership and emit participant join
-// events." — Spec-002 line 81. The wire request carries ONLY the opaque
-// PASETO v4.local token (per Spec-002 §Token Security Properties lines
-// 107-113); the service layer is responsible for token decoding, signature
+// events." — `Spec-002 §Interfaces And Contracts`. The wire request carries ONLY the opaque
+// PASETO v4.local token (per `Spec-002 §Token Security Properties`);
+// the service layer is responsible for token decoding, signature
 // verification, expiry enforcement, and single-use atomicity. No token-
 // handling logic belongs at the contract layer.
 //
@@ -160,14 +160,14 @@ export const InviteAcceptSchema: z.ZodType<InviteAccept, InviteAccept> = z
   .strict();
 
 // --------------------------------------------------------------------------
-// InviteRevoke — Spec-002 line 82
+// InviteRevoke — `Spec-002 §Interfaces And Contracts`
 // --------------------------------------------------------------------------
 //
-// Exact wire shape (verbatim from Spec-002 line 82):
+// Exact wire shape (verbatim from `Spec-002 §Interfaces And Contracts`):
 //   `{sessionId: SessionId, inviteId: InviteId, reason?: string}`
 //
 // The optional `reason` field is a user-supplied free-form string captured
-// for the audit log (Spec-002 §Invite Revocation, line 141: "Revocation
+// for the audit log (`Spec-002 §Invite Revocation`: "Revocation
 // events are recorded in session history for audit"). `wireFreeFormString`
 // applies the standard trust-boundary checks (length cap, whitespace-only
 // rejection, NUL-byte rejection) — same stance applied to `identityHandle`
@@ -221,8 +221,8 @@ export const InviteRevokeSchema: z.ZodType<InviteRevoke, InviteRevoke> = z
 //
 // `{inviteId, token, expiresAt}`. The `token` is the PLAINTEXT PASETO v4.local
 // string handed to the caller exactly once for out-of-band link delivery
-// (Spec-002 §Invite Delivery); only its SHA-256 hash is persisted (Spec-002
-// line 111). The token is a producer-supplied base64url blob, so it uses a
+// (Spec-002 §Invite Delivery); only its SHA-256 hash is persisted
+// (`Spec-002 §Token Security Properties`). The token is a producer-supplied base64url blob, so it uses a
 // plain `z.string()` (NOT `wireFreeFormString`) — same stance as the
 // `InviteAccept.token` request field above. `expiresAt` matches the ISO 8601
 // convention used by `InviteCreate.expiresAt` (`z.iso.datetime({ offset:

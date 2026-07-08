@@ -48,9 +48,10 @@
 //     durable events, so their schemas are V1.1-gated on the node-identity
 //     anchor (ADR-017). Phase 2 defines the 5 schema-backed shapes only.
 //
-// Refs: Plan-003 (Runtime Node Attach) §Phase 2 / T2.3, Spec-003 line 99
-// (capability/trust changes emitted as session events), Spec-006 lines
-// 407-413 (per-event payload shapes), invariant I-003-4 (`monotonic_ns` is
+// Refs: Plan-003 (Runtime Node Attach) §Phase 2 / T2.3, `Spec-003 §State And Data Implications`
+// (capability/trust changes emitted as session events),
+// `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` (per-event
+// payload shapes), invariant I-003-4 (`monotonic_ns` is
 // within-daemon debug data, not the replay key — the replay key is
 // `sequence`).
 

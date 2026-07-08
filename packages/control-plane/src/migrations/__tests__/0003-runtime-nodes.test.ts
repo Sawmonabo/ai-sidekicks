@@ -18,7 +18,7 @@
 //        (`information_schema.columns`, sorted).
 //   P4 — `state` CHECK accepts EXACTLY the five lifecycle states
 //        {registering, online, degraded, offline, revoked} and rejects an
-//        out-of-set value (Spec-003 line 98; `state` CHECK in
+//        out-of-set value (`Spec-003 §Interfaces And Contracts`; `state` CHECK in
 //        `shared-postgres-schema.md` §Runtime Node Attachments).
 //   P5 — `health_state` CHECK on `runtime_node_presence` accepts {online,
 //        degraded, offline} and rejects an out-of-set value.
@@ -93,7 +93,7 @@
 // `internal/` extraction would add more indirection than it removes; if the
 // call-site count grows further, revisit the extraction trade-off.
 //
-// Refs: Plan-003 Phase 3 T3.1, Spec-003 §Default Behavior line 91 (durable
+// Refs: Plan-003 Phase 3 T3.1, `Spec-003 §State And Data Implications` (durable
 // runtime-node records for reconnect/audit),
 // docs/architecture/schemas/shared-postgres-schema.md §Runtime Node
 // Attachments (Plan-003).
@@ -353,7 +353,7 @@ describe("0003-runtime-nodes migration (P3 — exact column set)", () => {
 // ----------------------------------------------------------------------------
 
 describe("0003-runtime-nodes migration (P4 — state CHECK pins {registering, online, degraded, offline, revoked})", () => {
-  // Spec-003 line 98 + the `state` CHECK in shared-postgres-schema.md §Runtime
+  // `Spec-003 §Interfaces And Contracts` + the `state` CHECK in shared-postgres-schema.md §Runtime
   // Node Attachments: the attachment lifecycle is EXACTLY {registering, online,
   // degraded, offline, revoked}. Each valid state is inserted with a DISTINCT
   // node_id so the partial-active unique index (which constrains the active
@@ -367,7 +367,7 @@ describe("0003-runtime-nodes migration (P4 — state CHECK pins {registering, on
   });
 
   for (const [index, state] of VALID_STATES.entries()) {
-    it(`accepts state = '${state}' (canonical lifecycle per Spec-003 line 98)`, async () => {
+    it(`accepts state = '${state}' (canonical lifecycle per Spec-003 §Interfaces And Contracts)`, async () => {
       await expect(
         ctx.querier.query(
           `INSERT INTO runtime_node_attachments

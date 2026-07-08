@@ -20,7 +20,7 @@
 //     const bumped above the SQL CHECK literal would pass Zod but fail the DB
 //     CHECK — making this test fail. The coherence is enforced, not commented.
 //
-// Refs: Plan-005 §Phase 2 / T2.2, Spec-005 line 55, invariant I-005-1.
+// Refs: Plan-005 §Phase 2 / T2.2, `Spec-005 §Required Behavior`, invariant I-005-1.
 
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";

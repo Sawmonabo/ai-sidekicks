@@ -155,7 +155,7 @@ describe("selectPtyHost — env unset, Phase 2 default-Node on all platforms", (
   });
 
   it("returns NodePtyHost on platform=win32 when env-var is undefined (Phase 2 default-Node holds on Windows too)", () => {
-    // Load-bearing for Plan-024 §Step 9 line 124: at Phase 2 the
+    // Load-bearing for the `Plan-024 §Implementation Steps` step-9 selector bullet: at Phase 2 the
     // Windows path MUST still return NodePtyHost. The selector default-
     // flip to `RustSidecarPtyHost` is Phase 5 work; if a future change
     // accidentally adds the platform branch early, this test breaks
@@ -200,8 +200,8 @@ describe("selectPtyHost — AIS_PTY_BACKEND=node-pty", () => {
 
 describe("selectPtyHost — AIS_PTY_BACKEND=rust-sidecar (Phase 3 wiring)", () => {
   it("returns the RustSidecarPtyHost from the factory and does NOT warn", () => {
-    // Phase 3 wiring (per Plan-024 §Implementation Step 9 lines 123–
-    // 126 + F-024-2-02): the env-var IS honored, and the
+    // Phase 3 wiring (per the `Plan-024 §Implementation Steps` step-9
+    // selector bullet + F-024-2-02): the env-var IS honored, and the
     // rust-sidecar branch routes through the factory rather than
     // throwing. The previous Phase 2 "not yet wired" assertion is
     // replaced by this round-trip identity check.

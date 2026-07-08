@@ -3,7 +3,7 @@
 // operations owed to the desktop renderer + CLI consumers.
 //
 // Spec coverage:
-//   * Spec-002 §AC1 (line 178) — an invited participant joins an active
+//   * `Spec-002 §Acceptance Criteria` (AC1) — an invited participant joins an active
 //     session without resetting active runs. At the SDK transport boundary
 //     (this file), the load-bearing surface is that `acceptInvite` is a PURE
 //     membership operation: it issues exactly the `invite.accept` call and
@@ -12,7 +12,7 @@
 //     "active runs survive" guarantee) is verified at the services layer per
 //     Plan-002 Phase 2 / Phase 3 — the SDK layer cannot reset a run because
 //     it never issues a run-touching method.
-//   * Spec-002 line 87 + §AC1 — `ChannelList` returns the bootstrap `main`
+//   * `Spec-002 §Interfaces And Contracts` + §AC1 — `ChannelList` returns the bootstrap `main`
 //     channel for an existing session. `listChannels()` below; the bootstrap
 //     channel id is the deterministic `deriveMainChannelId(sessionId)`
 //     (CP-002-7 shared derivation), NOT a stored/event-sourced id.

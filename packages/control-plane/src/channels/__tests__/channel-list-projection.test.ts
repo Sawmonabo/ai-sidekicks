@@ -1,7 +1,7 @@
 // ChannelListProjection tests — Plan-002 Phase 3 (T3.4).
 //
 // Coverage (mapped to the dispatched spec_coverage):
-//   I3 (the headline AC; Spec-002 §Interfaces And Contracts line 87, C5 + I3):
+//   I3 (the headline AC; `Spec-002 §Interfaces And Contracts`, C5 + I3):
 //       for an existing session, the `ChannelList` projection returns the
 //       bootstrap "main" channel — exactly one channel, named "main", state
 //       "active", with a valid UUID id. The bootstrap main channel is a
@@ -11,7 +11,7 @@
 //       channels table; the projection SYNTHESIZES this channel from its own
 //       data (the `sessions` row + the `session_memberships` count), which is
 //       correct because every session that exists has the bootstrap main
-//       channel by that invariant (Plan-002 line 94: "projects whatever
+//       channel by that invariant (`Plan-002 §API And Transport Changes`: "projects whatever
 //       channels currently exist regardless of who created them"). See
 //       channel-list-projection.ts header.
 //   AC1 (partial; Spec-002 AC1): the default-channel projection is LIVE (the

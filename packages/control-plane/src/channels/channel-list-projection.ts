@@ -1,7 +1,7 @@
 // ChannelListProjection — Plan-002 Phase 3 (T3.4).
 //
-// Responsibilities (per Spec-002 §Interfaces And Contracts line 87 + Plan-002
-// §API And Transport Changes line 94, C5 + I3):
+// Responsibilities (per `Spec-002 §Interfaces And Contracts` +
+// `Plan-002 §API And Transport Changes`, C5 + I3):
 //   * list — the `ChannelList` read-only projection. Given a
 //     `ChannelListRequest {sessionId}`, return the channels that currently
 //     exist for the session as a strict-shaped `ChannelListResponse`.
@@ -22,7 +22,7 @@
 //   (session-directory-service.ts:469) precisely because channel metadata is
 //   not a control-plane concern.
 //
-//   Plan-002 line 94 states the projection "projects whatever channels
+//   `Plan-002 §API And Transport Changes` states the projection "projects whatever channels
 //   currently exist regardless of who created them"; because the bootstrap
 //   main channel always exists logically for any session that exists, this
 //   projection SYNTHESIZES exactly that one channel from the control plane's
@@ -31,7 +31,7 @@
 //   not — and must not — add a channels table or depend on
 //   `@ai-sidekicks/runtime-daemon`; runtime user-channel creation
 //   (`ChannelCreate`, additional channels) is owned by Plan-016 at Tier 6
-//   (Spec-002 line 87).
+//   (`Spec-002 §Interfaces And Contracts`).
 //
 // Idiom: this mirrors `SessionDirectoryService` (session-directory-service.ts)
 //   — a class with a constructor-injected `Querier` so the same body runs
@@ -65,7 +65,7 @@ import type { Querier } from "../sessions/migration-runner.js";
 
 // The bootstrap channel is the live default channel, so its state is "active".
 // `ChannelState` is `"active" | "muted" | "archived"` (contracts session.ts:189
-// / api-payload-contracts.md:174); "muted"/"archived" are runtime mutations
+// / `docs/architecture/contracts/api-payload-contracts.md §Shared Enums`); "muted"/"archived" are runtime mutations
 // owned by Plan-016, never the bootstrap default.
 // The `: ChannelState` annotation is a compile-time tripwire — a typo or a
 // future 4th channel state fails compile at this declaration (mirroring the

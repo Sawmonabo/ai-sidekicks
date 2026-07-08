@@ -1,7 +1,7 @@
 // `session.join` JSON-RPC handler — Plan-007 Phase 3 (T-007p-3-1).
 //
 // Spec coverage:
-//   * Spec-007 §Required Behavior + §Interfaces And Contracts (lines 71-78) —
+//   * `Spec-007 §Required Behavior` + `Spec-007 §Interfaces And Contracts` —
 //     `session.join` is the V1 vertical-slice mutating method that admits a
 //     participant into an existing session. A peer process opens a
 //     connection, completes the `daemon.hello` handshake, then dispatches
@@ -12,7 +12,7 @@
 //     method name with the correct mutating-flag.
 //
 // Invariants this module participates in (canonical text in
-// docs/plans/007-local-ipc-and-daemon-control.md §Invariants lines 95-117):
+// `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`, I-007-6 through I-007-9):
 //   * I-007-1 / I-007-6 / I-007-7 / I-007-8 — same posture as the
 //     `session.create` slice. See `session-create.ts` for the canonical
 //     write-up; this file inherits the same registry-side guarantees.
@@ -38,9 +38,9 @@
 //   * Test coverage — owned by T-007p-3-4 (sibling task).
 //
 // Method-name format ratified: dotted-camelCase per
-// docs/architecture/contracts/api-payload-contracts.md §JSON-RPC Method-Name
-// Registry (Tier 1 Ratified, lines 291-331). The `register` call site below
-// passes `"session.join"`, which matches the canonical regex.
+// `docs/architecture/contracts/api-payload-contracts.md §JSON-RPC Method-Name Registry (Tier 1 Ratified)`.
+// The `register` call site below passes `"session.join"`, which matches the
+// canonical regex.
 
 import type {
   Handler,

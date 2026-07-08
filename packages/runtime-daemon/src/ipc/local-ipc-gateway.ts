@@ -2,16 +2,15 @@
 // framing for the local daemon (Plan-007 Phase 2, T-007p-2-1).
 //
 // Spec coverage:
-//   * Spec-007 §Wire Format (docs/specs/007-local-ipc-and-daemon-control.md
-//     lines 50-56) — JSON-RPC 2.0 + `Content-Length: <byte-count>\r\n\r\n`
+//   * `Spec-007 §Wire Format` — JSON-RPC 2.0 + `Content-Length: <byte-count>\r\n\r\n`
 //     framing; max message size 1 MB; JSON via JSON.stringify/parse.
-//   * Spec-007 §Required Behavior (line 43-46) — OS-local default transport
+//   * `Spec-007 §Required Behavior` — OS-local default transport
 //     (Unix domain socket on Unix-like; named pipe on Windows).
 //   * ADR-009 (docs/decisions/009-json-rpc-ipc-wire-format.md) — wire-
 //     format decision rationale.
 //
 // Invariants this module owns at the substrate boundary (canonical text in
-// docs/plans/007-local-ipc-and-daemon-control.md §Invariants lines 101-111):
+// `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`, I-007-7 and I-007-8):
 //   * I-007-7 (schema validation runs before handler dispatch) — substrate-
 //     side: the framing parser must reject malformed frames at the
 //     boundary so handlers never see garbage payloads. Only well-formed
@@ -81,7 +80,7 @@ import { mapJsonRpcError } from "./jsonrpc-error-mapping.js";
 // --------------------------------------------------------------------------
 
 /**
- * 1 MB max message size per Spec-007 §Wire Format line 53 ("Maximum message
+ * 1 MB max message size per `Spec-007 §Wire Format` ("Maximum message
  * size: 1 MB") and F-007p-2-11 (substrate-side hard-coded constant).
  *
  * "1 MB" is interpreted as 1,000,000 bytes (decimal MB) following the
@@ -228,7 +227,7 @@ export class FramingError extends Error {
  * Parse a single LSP-style Content-Length-framed message from the head of
  * the supplied buffer.
  *
- * Frame grammar (Spec-007 §Wire Format line 52):
+ * Frame grammar (`Spec-007 §Wire Format`):
  *   `Content-Length: <byte-count>\r\n\r\n<body>`
  *
  * Multi-byte safety: `Content-Length` is BYTES, not characters. A UTF-8
@@ -242,7 +241,7 @@ export class FramingError extends Error {
  * named pipe) — the caller resumes accumulation.
  *
  * Throws `FramingError` on:
- *   * Header lacks `Content-Length` (per Spec-007 line 52, the only
+ *   * Header lacks `Content-Length` (per `Spec-007 §Wire Format`, the only
  *     header the framing recognizes; future LSP-compatible additions
  *     would require a Phase 2 amendment).
  *   * Content-Length value is not a non-negative integer.
@@ -335,7 +334,7 @@ export function parseFrame(buffer: Buffer): ParseFrameResult {
  * inbound check, leaving the daemon's logs without provenance.
  */
 export function encodeFrame(envelope: JsonRpcMessage): Buffer {
-  // JSON.stringify is the documented serialization per Spec-007 line 55
+  // JSON.stringify is the documented serialization per `Spec-007 §Wire Format`
   // ("JSON via JSON.stringify/JSON.parse. No binary serialization.").
   const bodyText = JSON.stringify(envelope);
   const bodyBytes = Buffer.from(bodyText, "utf8");
@@ -454,7 +453,7 @@ function extractContentLength(headerText: string): number {
  * an arbitrary thrown value before it leaves the daemon as a JSON-RPC
  * `error.message` string.
  *
- * I-007-8 (canonical text in plan §Invariants lines 107-111): "Stack
+ * I-007-8 (canonical text in plan §Invariants, I-007-8): "Stack
  * traces and secrets MUST never leak through the response." This helper
  * is the substrate-side enforcement seam — every error-emission path
  * passes its thrown value through here before constructing the
@@ -766,7 +765,7 @@ export class LocalIpcGateway {
       throw new Error("LocalIpcGateway.start: gateway already started");
     }
 
-    // I-007-1 (canonical text in plan §Invariants lines 65-69):
+    // I-007-1 (canonical text in plan §Invariants, I-007-1):
     // `SecureDefaults.load(config)` MUST run before any daemon listener
     // binds. Phase 1's `assertLoadedForBind()` is the seam this gateway
     // hooks. Calling it FIRST means a misconfigured bootstrap surfaces
@@ -1001,7 +1000,7 @@ export class LocalIpcGateway {
     // structural requirements at this layer are "is it a JSON-RPC
     // envelope at all?" — full param-schema validation runs INSIDE
     // the registry's dispatch (T-3) per I-007-7 (canonical text in
-    // plan §Invariants lines 101-105).
+    // plan §Invariants, I-007-7).
     //
     // Envelope-shape failures wrap as a `FramingError` with the
     // synthetic `"invalid_envelope"` code so they map to JSON-RPC
@@ -1078,8 +1077,8 @@ export class LocalIpcGateway {
     const requestId: JsonRpcId = isNotification ? null : extractIdSafely(envelope);
     const params = envelope["params"];
 
-    // Step 3.5: enforce per-request `protocolVersion` per Spec-007 §Wire
-    // Format line 54 (BL-102 ratified 2026-05-01). The substrate refuses
+    // Step 3.5: enforce per-request `protocolVersion` per
+    // `Spec-007 §Wire Format` (BL-102 ratified 2026-05-01). The substrate refuses
     // dispatch BEFORE the handler runs (I-007-7 substrate-side: every
     // request that reaches the registry MUST carry a wire-shape-valid
     // `protocolVersion` field on the JSON-RPC envelope itself). The

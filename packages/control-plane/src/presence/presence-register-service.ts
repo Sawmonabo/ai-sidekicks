@@ -7,8 +7,8 @@
 //     its own `Y.Doc` + `Awareness` instance whose LOCAL state holds that
 //     client's presence; subsequent heartbeats from the same tuple update that
 //     same local state in place. NO SQLite or Postgres write occurs — the live
-//     CRDT state lives in memory only (Spec-002 §Default Behavior line 58,
-//     §State And Data Implications line 157, Plan-002 §Invariants I-002-3).
+//     CRDT state lives in memory only (`Spec-002 §Default Behavior`,
+//     §State And Data Implications, Plan-002 §Invariants I-002-3).
 //     T3.2: each local heartbeat ALSO serializes the client's Awareness slot
 //     and publishes it on the cross-node fan-out (so peer nodes see this
 //     participant), and (re)arms the reconnect-grace timer for that client.
@@ -27,7 +27,7 @@
 //     from the fan-out (leak-free shutdown).
 //
 // Why Yjs Awareness, not a plain Map (I-002-3 is explicit about the CRDT):
-//   Plan-002 line 118 mandates "Use Yjs Awareness (`y-protocols/awareness`) as
+//   `Plan-002 §Implementation Steps` mandates "Use Yjs Awareness (`y-protocols/awareness`) as
 //   the presence CRDT" and I-002-3 names the "Yjs Awareness CRDT" as the live
 //   surface. A `y-protocols/awareness` `Awareness` instance is fundamentally a
 //   SINGLE-local-client holder: it borrows one numeric `clientID` from its
@@ -50,7 +50,7 @@
 //     (`encodeAwarenessUpdate(awareness, [doc.clientID])`), applied on peers
 //     via `applyAwarenessUpdate`. It is EPHEMERAL CRDT state, NEVER a persisted
 //     presence row (I-002-3). The production transport is Postgres
-//     `LISTEN/NOTIFY` (ADR-008, Spec-002 line 61) over a transient CHANNEL name
+//     `LISTEN/NOTIFY` (ADR-008, `Spec-002 §Default Behavior`) over a transient CHANNEL name
 //     (`presence_fanout`) — NOT a row in any table. There is NO
 //     `INSERT INTO presence_*` anywhere; the only Postgres surface this service
 //     touches is the NOTIFY channel, which carries bytes, not rows.
@@ -180,8 +180,8 @@
 //     substrate + T3.3); this service is the in-process ingest/query/fan-out
 //     core.
 //
-// Refs: Spec-002 §Default Behavior (lines 57, 58, 61), §Fallback Behavior
-// (line 73), §State And Data Implications (line 157); Plan-002 §Phase 3,
+// Refs: `Spec-002 §Default Behavior`, `Spec-002 §Fallback Behavior`,
+// `Spec-002 §State And Data Implications`; Plan-002 §Phase 3,
 // §Invariants I-002-3; ADR-008 (presence transport — Postgres LISTEN/NOTIFY);
 // docs/architecture/contracts/api-payload-contracts.md §Tier 2 — Plan-002
 // (PresenceHeartbeat / PresenceUpdate / PresenceRead wire forms).
@@ -212,10 +212,10 @@ import * as Y from "yjs";
 import { z } from "zod";
 
 // --------------------------------------------------------------------------
-// Reconnect-grace timing — defaults per Spec-002 line 57.
+// Reconnect-grace timing — defaults per `Spec-002 §Default Behavior`.
 // --------------------------------------------------------------------------
 //
-// Spec-002 line 57: "Presence heartbeat default interval is 15s, with a
+// `Spec-002 §Default Behavior`: "Presence heartbeat default interval is 15s, with a
 // reconnect grace window of 45s before offline." Read as a TWO-threshold
 // machine (the brief's restated AC — "missed heartbeat moves a participant to
 // reconnecting before offline (45s grace window)" — favors this reading):
@@ -373,7 +373,7 @@ const PresenceLocalStateSchema = z.object({
 
 // This is the value `setLocalState(...)` writes into the per-client Awareness
 // slot and `getStates()` reads back. It mirrors the metadata the heartbeat
-// carries (Spec-002 line 84) plus the resolved presence `state` and the
+// carries (`Spec-002 §Interfaces And Contracts`) plus the resolved presence `state` and the
 // `originNodeId` of the node that ingested it. T3.2's
 // `encodeAwarenessUpdate(awareness, [doc.clientID])` serializes exactly this
 // object for cross-node fan-out, so the shape is shared across both the local
@@ -500,7 +500,7 @@ export interface PresenceRegisterServiceOptions {
   // a deterministic origin and so two test services can be given distinct
   // node ids.
   readonly nodeId?: string;
-  // Reconnect-grace timing (Spec-002 line 57 defaults: 15s / 45s). Read as the
+  // Reconnect-grace timing (`Spec-002 §Default Behavior` defaults: 15s / 45s). Read as the
   // delay (ms) from the LAST heartbeat to the `reconnecting` and `offline`
   // transitions respectively. `offlineAfterMs` MUST be >= `reconnectingAfterMs`
   // for the two-step machine to be well-ordered.
@@ -1276,7 +1276,7 @@ export class InMemoryPresencePubSub implements PresencePubSub {
 }
 
 // --------------------------------------------------------------------------
-// Production fan-out — Postgres LISTEN/NOTIFY (ADR-008, Spec-002 line 61).
+// Production fan-out — Postgres LISTEN/NOTIFY (ADR-008, `Spec-002 §Default Behavior`).
 // --------------------------------------------------------------------------
 //
 // Wires the cross-node fan-out to a Postgres `LISTEN/NOTIFY` channel. The

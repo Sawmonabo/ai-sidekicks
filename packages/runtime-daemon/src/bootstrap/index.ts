@@ -3,8 +3,8 @@
 // gateway will consume.
 //
 // This module owns the I-007-1 invariant at its orchestrator surface
-// (canonical text in docs/plans/007-local-ipc-and-daemon-control.md
-// §Invariants lines 65-69):
+// (canonical text in
+// `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`, I-007-1):
 //   `SecureDefaults.load(config)` MUST run before any daemon listener
 //   binds. Attempting to bind a listener before `SecureDefaults.load`
 //   completes is a programmer error and MUST throw.

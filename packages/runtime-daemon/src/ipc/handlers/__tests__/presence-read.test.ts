@@ -1,7 +1,7 @@
 // `presence.read` JSON-RPC handler test suite — Plan-002 Phase 3 (T3.3).
 //
 // Spec coverage:
-//   * Spec-002 §Interfaces And Contracts line 86 — `PresenceRead`
+//   * `Spec-002 §Interfaces And Contracts` — `PresenceRead`
 //     (JSON-RPC, local IPC): local clients read current presence state for
 //     a session. This suite exercises the handler's registry-binding
 //     boundary (round-trip through `MethodRegistry.dispatch`, correct
@@ -10,7 +10,7 @@
 //     under the Plan-007-partial wire substrate.
 //
 // Invariants verified (canonical text in
-// docs/plans/007-local-ipc-and-daemon-control.md §Invariants lines 95-117):
+// `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`, I-007-6 through I-007-9):
 //   * I-007-6 — duplicate `registerPresenceRead` throws
 //     `RegistryRegistrationError("duplicate_method")` at register-time.
 //   * I-007-7 — schema-validates-before-dispatch: a malformed `presence.read`

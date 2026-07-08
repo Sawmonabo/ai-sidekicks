@@ -14,8 +14,8 @@
 //      survive every transform stage.
 //
 // The canonical schema source-of-truth is
-// `docs/architecture/schemas/shared-postgres-schema.md` — the `session_invites`
-// block (lines 92-111) is reproduced VERBATIM below including `-- Owner:` and
+// `docs/architecture/schemas/shared-postgres-schema.md §Session Invites (Plan-002)` —
+// the `session_invites` block is reproduced VERBATIM below including `-- Owner:` and
 // per-column comments so the inline constant stays in lockstep with the
 // canonical doc. Any column-shape edit (add/remove/rename/CHECK change) MUST
 // land first in the canonical doc per AGENTS.md "doc-first ordering".
@@ -29,7 +29,7 @@
 // §Session Invites):
 //
 //   * session_invites — invite records, durable until terminal state per
-//                       Spec-002 §State And Data Implications line 155.
+//                       `Spec-002 §State And Data Implications`.
 //                       FK references `sessions(id)` (Plan-001) and
 //                       `participants(id)` (Plan-001 anchor + Plan-018
 //                       additive extensions). Created AFTER 0001 because
@@ -68,8 +68,8 @@
 // I-002-3 — Presence is ephemeral, verified by omission
 // ----------------------------------------------------------------------------
 //
-// Per Plan-002 §Invariants I-002-3 (and Spec-002 §State And Data Implications
-// line 157), presence state (Yjs Awareness CRDT) is in-memory only and MUST
+// Per Plan-002 §Invariants I-002-3 (and `Spec-002 §State And Data Implications`),
+// presence state (Yjs Awareness CRDT) is in-memory only and MUST
 // NOT be persisted to a durable Postgres table. This migration creates
 // `session_invites` ONLY — no presence-state table is created here, and no
 // future column on `session_invites` carries presence-summary data. The
@@ -84,11 +84,11 @@
 // Token trust boundary
 // ----------------------------------------------------------------------------
 //
-// Per Spec-002 §Token Security Properties (lines 107-113), the raw PASETO
+// Per `Spec-002 §Token Security Properties`, the raw PASETO
 // v4.local token is NEVER persisted: the control plane stores only the
 // SHA-256 hash in `session_invites.token_hash`. The UNIQUE constraint on
 // `token_hash` is the storage-layer enforcement of single-use semantics
-// (Spec-002 line 109: "A token is consumed on first successful accept... The
+// (`Spec-002 §Token Security Properties`: "A token is consumed on first successful accept... The
 // control plane sets the invite state to `accepted` atomically").
 //
 // ----------------------------------------------------------------------------

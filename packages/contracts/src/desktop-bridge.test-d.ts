@@ -1,7 +1,7 @@
 // Conditional-type negative test against the `SidekicksBridge` interface.
 //
 // Verifies invariant (Plan-023 Phase 1 T-023p-1-4):
-//   Spec-023 §Acceptance Criteria line 592 — "No auth material (daemon
+//   `Spec-023 §Acceptance Criteria` — "No auth material (daemon
 //   session token, PASETO tokens, DPoP key, WebAuthn PRF output) appears
 //   on the `window.sidekicks` surface — verified by a negative contract
 //   test against the bridge's exposed type."

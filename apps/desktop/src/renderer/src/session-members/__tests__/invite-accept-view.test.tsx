@@ -1,19 +1,19 @@
 // Plan-002 Phase 6 T6.3 — InviteAcceptView renderer unit suite (Tier 2).
 //
 // Single-client component smoke for the invite-acceptance surface, per
-// Plan-002 Phase 6 §Goal (line 378) + §Verification (line 179): Phase 6
+// `Plan-002 §Phase 6 — Renderer (Tier 2)` Goal + `Plan-002 §Verification`: Phase 6
 // component tests + single-client smoke prove the invite-acceptance UI renders
 // via the preload bridge (the two-client end-to-end smoke is deferred to
 // Tier 8 per CP-002-5). The phrasing here paraphrases both anchors; it is not a
 // verbatim quotation of either.
 //
 // Spec coverage:
-//   • Spec-002 §AC1 (line 178, an invited participant joins an active session)
-//     + §Interfaces And Contracts line 81 (`InviteAccept` creates active
+//   • `Spec-002 §Acceptance Criteria` AC1 (an invited participant joins an active session)
+//     + §Interfaces And Contracts (`InviteAccept` creates active
 //     membership): the resolved-branch test asserts the view renders the
 //     joined-membership facts (sessionId, role, membership state, membershipId)
 //     that the `invite.accept` wire call returns.
-//   • Spec-002 §Token Security Properties (lines 107-113): the view carries ONLY
+//   • `Spec-002 §Token Security Properties`: the view carries ONLY
 //     the opaque `token` prop into the request; this suite passes a mock token
 //     and asserts it round-trips in the `daemon.call("invite.accept", {token})`
 //     params — the renderer never decodes/verifies the token (Spec-023 §Trust

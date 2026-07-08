@@ -9,7 +9,7 @@
 // this module's API-internal guard.
 //
 // Invariants this module enforces (canonical text in
-// docs/plans/007-local-ipc-and-daemon-control.md §Invariants lines 61-118):
+// `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`, I-007-1 through I-007-9):
 //   * I-007-1 (load-before-bind, API-internal guard): `effectiveSettings()`
 //     throws if called before `load()` resolves.
 //   * I-007-2 (fail-closed on invalid security settings, including

@@ -6,7 +6,7 @@
 // Postgres surfaces but must NEVER duplicate-CREATE them, and it must NOT
 // prematurely create its OWN Phase-3 Postgres tables during Phase 1. This file
 // is the structural guard for that "reads, does not CREATE" obligation
-// (docs/plans/003-runtime-node-attach.md §Phase 1 T1.7, lines 290-296). It is
+// (`docs/plans/003-runtime-node-attach.md §Phase 1 — Node Contracts + Migrations`, T1.7). It is
 // assertion-only: it CREATEs nothing, it introspects the schema the shipped
 // control-plane migrations already produce.
 //
@@ -22,7 +22,7 @@
 //       invariant).
 //   (2) `sessions.min_client_version` exists and is TEXT — Plan-003's attach
 //       flow READS the per-session version floor from this Plan-001
-//       forward-declared column (ADR-018 §Decision #4; Spec-003 line 53;
+//       forward-declared column (ADR-018 §Decision #4; `Spec-003 §Required Behavior`;
 //       packages/control-plane/src/migrations/0001-initial.ts line 104).
 //   (3) Plan-003's OWN Postgres tables (`runtime_node_attachments`,
 //       `runtime_node_presence`) are ABSENT after Phase 1 — they are
@@ -91,7 +91,7 @@
 // `0002-session-invites.test.ts` — each carrying its own local copy. Revisit
 // the extraction trade-off if the call-site count grows.
 //
-// Refs: docs/plans/003-runtime-node-attach.md §Phase 1 T1.7 (lines 290-296);
+// Refs: `docs/plans/003-runtime-node-attach.md §Phase 1 — Node Contracts + Migrations` (T1.7);
 // docs/architecture/cross-plan-dependencies.md §1 Table Ownership Map (the
 // `participants` + `sessions.min_client_version` forward-declared-split rows,
 // and the Plan-003 SQLite/Postgres ownership row); docs/architecture/schemas/
@@ -203,8 +203,8 @@ describe("Plan-003 T1.7 upstream-anchor guard (reads, does not CREATE — cross-
 
   it("(2) sessions.min_client_version exists and is TEXT (Plan-003 reads the floor)", async () => {
     // Plan-003 attach-time floor check reads the per-session version floor from
-    // this Plan-001 forward-declared column (ADR-018 §Decision #4; Spec-003
-    // line 53). Assert the column exists exactly once and its canonical
+    // this Plan-001 forward-declared column (ADR-018 §Decision #4;
+    // `Spec-003 §Required Behavior`). Assert the column exists exactly once and its canonical
     // information_schema data_type is `text`.
     const columnProbe = await ctx.querier.query<{ data_type: string }>(
       `SELECT data_type FROM information_schema.columns

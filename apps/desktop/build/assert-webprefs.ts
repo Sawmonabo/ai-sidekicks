@@ -2,11 +2,11 @@
 // `webPreferences` key still appears with the required literal value in
 // `apps/desktop/src/main/window.ts`. Drift fails the build.
 //
-// Plan-023 §Done Checklist line 356: "Build-time assertion script
+// `Plan-023 §Done Checklist`: "Build-time assertion script
 // (`assert-webprefs.ts`) greps the factory for each value and fails the build
 // on drift."
 //
-// Spec-023 §Pitfalls To Avoid line 579: `nodeIntegration: true` or
+// `Spec-023 §Pitfalls To Avoid`: `nodeIntegration: true` or
 // `sandbox: false` MUST be a build-time error.
 //
 // Regex-based matching (not literal-string) tolerates Prettier-driven
@@ -32,8 +32,7 @@ interface LockedCheck {
   readonly pattern: RegExp;
 }
 
-// Spec-023 §Security Hardening Baseline (docs/specs/023-desktop-shell-and-renderer.md
-// lines 104-116, verbatim):
+// `Spec-023 §Security Hardening Baseline` (verbatim):
 //
 //   contextIsolation: true,          // must be true
 //   sandbox: true,                   // must be true
@@ -81,7 +80,7 @@ const CHECKS: readonly LockedCheck[] = [
 // values verbatim (e.g., `sandbox: true`, `nodeIntegration: false`) as part of
 // in-code references — without sanitization, the regex could match those
 // comment occurrences instead of the live `webPreferences` object literal,
-// defeating Spec-023 §Pitfalls To Avoid line 579.
+// defeating `Spec-023 §Pitfalls To Avoid`.
 //
 // This handles `/* ... */` block comments (including multi-line) and `//` line
 // comments. Edge cases like comment markers inside string literals or regex

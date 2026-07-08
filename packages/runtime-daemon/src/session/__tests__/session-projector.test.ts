@@ -43,7 +43,7 @@ describe("session-projector — D1 (bootstrap projection)", () => {
     if (snapshot === null) return; // type guard for TS
 
     expect(snapshot.sessionId).toBe(SESSION_ID);
-    // Spec-001 line 53: a newly created session starts in `provisioning`.
+    // `Spec-001 §Default Behavior`: a newly created session starts in `provisioning`.
     // Plan-006 will land the `session.activated` event handler that
     // transitions to `active`.
     expect(snapshot.state).toBe("provisioning");
@@ -138,7 +138,7 @@ describe("session-projector — D1 (bootstrap projection)", () => {
 //
 // The bootstrap projection synthesizes the implicit main channel from
 // `session.created` rather than waiting for an explicit `channel.created`
-// envelope. This matches Plan-001 plan-line-129 D1 ("single SessionCreated
+// envelope. This matches the `Plan-001 §Test And Verification Plan` D1 row ("single SessionCreated
 // event yields snapshot with owner membership and main channel"). Plan-006
 // may later emit an explicit `channel.created` for the main channel as
 // part of a real audit-log flow — when that happens, the projector MUST

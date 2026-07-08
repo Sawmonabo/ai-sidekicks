@@ -2,7 +2,7 @@
 // daemon JSON-RPC transport (Option A — daemon-as-gateway; single transport).
 //
 // Spec coverage exercised here (T5.1 axis — the SDK transport boundary):
-//   * I1 / Spec-002 AC1 (line 178) — an invited participant joins an active
+//   * I1 / `Spec-002 §Acceptance Criteria` (AC1) — an invited participant joins an active
 //     session without resetting active runs. Interpreted at the SDK layer:
 //     `acceptInvite` is a PURE membership operation — it issues exactly the
 //     `invite.accept` call and returns the schema-validated response, with NO
@@ -10,7 +10,7 @@
 //     actual "active runs survive" guarantee — is verified at the services
 //     layer per Plan-002 Phase 2 / Phase 3; the SDK cannot reset a run because
 //     it never issues a run-touching method.)
-//   * I3 / Spec-002 line 87 + AC1 — `ChannelList` returns the bootstrap `main`
+//   * I3 / `Spec-002 §Interfaces And Contracts` + AC1 — `ChannelList` returns the bootstrap `main`
 //     channel for an existing session. The bootstrap channel id is the
 //     deterministic `deriveMainChannelId(sessionId)` (CP-002-7 shared
 //     derivation), used in BOTH the scripted response AND the assertion so the
@@ -248,10 +248,10 @@ describe("I1 / Spec-002 AC1 — invited participant joins an active session with
 
 // ---------------------------------------------------------------------------
 // I3 — ChannelList returns the bootstrap main channel for an existing session
-// (Spec-002 line 87 + AC1) — daemon factory
+// (`Spec-002 §Interfaces And Contracts` + AC1) — daemon factory
 // ---------------------------------------------------------------------------
 
-describe("I3 / Spec-002 line 87 + AC1 — ChannelList returns the bootstrap main channel for an existing session (daemon factory)", () => {
+describe("I3 / `Spec-002 §Interfaces And Contracts` + AC1 — ChannelList returns the bootstrap main channel for an existing session (daemon factory)", () => {
   it("daemon factory: listChannels returns a projection whose channels include the deterministically-derived bootstrap main channel", async () => {
     // The bootstrap `main` channel's id is a PURE FUNCTION of the session id
     // (CP-002-7 — deriveMainChannelId is THE shared derivation consumed by both
@@ -554,8 +554,8 @@ describe("control-plane factory — deferred to Tier 5 (NotImplementedAtTier2Err
 
 // ---------------------------------------------------------------------------
 // I2 / Spec-002 AC2 — Membership remains durable across a presence offline →
-// online cycle (Plan-002 I2, line 173; Spec-002 AC2, line 179; worked example
-// line 162) — daemon factory.
+// online cycle (`Plan-002 §SDK And Integration Layer (packages/client-sdk/, integration)` (I2);
+// `Spec-002 §Acceptance Criteria` (AC2); worked example `Spec-002 §Example Flows`) — daemon factory.
 //
 // The load-bearing axis is MEMBERSHIP/PRESENCE SEPARATION, NOT durability-
 // enforcement. Durability is the CONTROL-PLANE's guarantee, verified at
@@ -689,8 +689,8 @@ describe("I2 / Spec-002 AC2 — Membership durable across presence offline → o
     expect(yielded.map((u) => u.awarenessState[0])).toEqual([1, 2, 3]);
 
     // (narrative bracket, light) Membership unmutated by the presence cycle —
-    // the "membership remains active while presence cycles" narrative (Spec-002
-    // line 162). Non-vacuous ONLY because it is paired with the wire-trace
+    // the "membership remains active while presence cycles" narrative
+    // (`Spec-002 §Example Flows`). Non-vacuous ONLY because it is paired with the wire-trace
     // assertion above (the mock would echo any scripted value; the wire trace
     // is what proves no mutation was even attempted).
     expect(membership.membershipId).toBe(MEMBERSHIP_ID);

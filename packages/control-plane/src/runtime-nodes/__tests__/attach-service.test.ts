@@ -2,26 +2,26 @@
 // Phase 3, T3.2 + T3.3 + T3.5 + T3.7) — plus the readRoster projection suite
 // (Plan-003 Phase 5, T5.0c; the trailing describe blocks).
 //
-// Spec-003 line 47 (attach is a separate step from membership acceptance) / line
-// 49 (multiple runtime nodes per session) / line 50 (attach must not require
-// session recreation) / line 51 (detach/offline must not revoke membership by
-// default) / line 53 (version-floor admission) / line 69 (an explicit `detach`
+// `Spec-003 §Required Behavior` (attach is a separate step from membership
+// acceptance; multiple runtime nodes per session; attach must not require
+// session recreation; detach/offline must not revoke membership by default;
+// version-floor admission) / `Spec-003 §Default Behavior` (an explicit `detach`
 // retires the node) + Plan-003 §Invariants I-003-1 / I-003-3 / I-003-5.
 //
-// readRoster (T5.0c): Spec-003 line 128 (AC2 — degraded/offline distinguishable
-// from healthy online) / line 129 (AC3 — multiple nodes coexist without
-// changing session identity) / line 49 (multiple runtime nodes per session) /
-// line 76 (a capability-degraded node stays visible, not treated as healthy) /
-// line 130 (AC4 — the derived readOnly verdict surfaced on read) / line 72
-// (both health axes verbatim, never collapsed) + §Interfaces And Contracts
-// 2026-06-09 amendment lines 90-94 (visibility / nullability / derived
-// readOnly / never-mask / ADR-017 non-collision).
+// readRoster (T5.0c): `Spec-003 §Acceptance Criteria` (AC2 — degraded/offline
+// distinguishable from healthy online; AC3 — multiple nodes coexist without
+// changing session identity; AC4 — the derived readOnly verdict surfaced on
+// read) / `Spec-003 §Required Behavior` (multiple runtime nodes per session) /
+// `Spec-003 §Fallback Behavior` (a capability-degraded node stays visible, not
+// treated as healthy) / `Spec-003 §Default Behavior` (both health axes verbatim,
+// never collapsed) + `Spec-003 §Interfaces And Contracts` 2026-06-09 amendment
+// (visibility / nullability / derived readOnly / never-mask / ADR-017 non-collision).
 //
-// P1 (Spec-003 line 53): a session whose `min_client_version` floor is NULL
+// P1 (`Spec-003 §Required Behavior`): a session whose `min_client_version` floor is NULL
 //     ("no floor") admits EVERY daemon version with `readOnly = false`. The
 //     attachment row is created in the `registering` liveness state.
 //
-// P2 / P3 (Spec-003 line 53 / I-003-1, T3.3): a non-NULL floor compares the
+// P2 / P3 (`Spec-003 §Required Behavior` / I-003-1, T3.3): a non-NULL floor compares the
 //     daemon's `clientVersion` numerically (MAJOR.MINOR).
 //     P2 (client_version >= floor) — admit read-write (`readOnly = false`).
 //     P3 (client_version  < floor) — admit READ-ONLY (`readOnly = true`); the
@@ -30,12 +30,12 @@
 //     string compare; a malformed floor is rejected at the read-time parse (it is
 //     NOT silently admitted).
 //
-// P5 (Spec-003 line 49 + AC line 129 / I-003-3, T3.5 — characterization only):
+// P5 (`Spec-003 §Required Behavior` + AC3 / I-003-3, T3.5 — characterization only):
 //     two DISTINCT nodes attach to the SAME session and both land as active
 //     `registering` rows (the `(node_id, session_id)` arbiter + the per-node
 //     active index admit multi-node-per-session), while the `sessions` row stays
 //     byte-for-byte identical and uncreated (attach never writes `sessions` —
-//     Spec-003 line 50, no recreation). No production change: the shipped T3.2
+//     `Spec-003 §Required Behavior`, no recreation). No production change: the shipped T3.2
 //     path already satisfies this.
 //
 // P9 (I-003-5, single active attachment):
@@ -50,20 +50,20 @@
 //     `RuntimeNodeAttachRevokedException` — never reactivated.
 //
 // P7 / P8 (I-003-3, attach-membership separation — Plan-003 test matrix):
-//     P7 (Spec-003 line 47 — `RuntimeNodeAttach MUST NOT mutate
+//     P7 (`Spec-003 §Required Behavior` — `RuntimeNodeAttach MUST NOT mutate
 //         session_memberships`) is verified by the shipped attach I-003-3 test
 //         (the "leaves a co-resident session_memberships row byte-for-byte
 //         unchanged after a successful attach" block below) — no separate P7 test
 //         is added here, the existing attach test IS P7.
-//     P8 (Spec-003 line 51 — `RuntimeNodeDetach leaves session_memberships
+//     P8 (`Spec-003 §Required Behavior` — `RuntimeNodeDetach leaves session_memberships
 //         unchanged`; an offline/detached node retains its membership) is the new
 //         detach happy-path test below. Asserted along the SAME two disjoint
 //         mutation modes as the attach I-003-3 test (byte-identity snapshot +
 //         total count).
 //
-// detach correctness (T3.7, Spec-003 line 69 "an explicit `detach` retires the
+// detach correctness (T3.7, `Spec-003 §Default Behavior` "an explicit `detach` retires the
 //     node"; I-003-5 single-active resolution): detach writes the terminal state
-//     `offline` ONLY (it is NOT a `revoked` producer — Spec-003 line 70). The new
+//     `offline` ONLY (it is NOT a `revoked` producer — `Spec-003 §Default Behavior`). The new
 //     detach block covers the slot+liveness `-> offline` transition (P8 happy
 //     path), the LOAD-BEARING revoked-not-flipped guard (the active-state filter
 //     protects P10 revocation-terminality), idempotent re-detach, the never-
@@ -130,8 +130,8 @@ const PARTICIPANT_ID: ParticipantId = "01970000-0000-7000-8000-0000000f0001" as 
 // A SECOND participant for the cross-owner reconnect block: a DIFFERENT
 // participant attempting to reattach a node to a session whose existing
 // `(node_id, session_id)` row is owned by `PARTICIPANT_ID`. The owner is
-// immutable across reconnect (Spec-003 line 116), so this reattach is refused
-// and the row's owner stays `PARTICIPANT_ID` (Spec-003 line 123 — never destroy
+// immutable across reconnect (`Spec-003 §Implementation Notes`), so this reattach is refused
+// and the row's owner stays `PARTICIPANT_ID` (`Spec-003 §Pitfalls To Avoid` — never destroy
 // node provenance).
 const OTHER_PARTICIPANT_ID: ParticipantId = "01970000-0000-7000-8000-0000000f0002" as ParticipantId;
 const NODE_ID: NodeId = "node-alpha-01" as NodeId;
@@ -331,7 +331,7 @@ async function readAttachmentRow(
 
 // Read an attachment row's `participant_id` (the owner) for the reconnect
 // provenance assertions: the same-owner reconnect must leave it unchanged, and a
-// cross-owner reconnect must NOT overwrite it (Spec-003 line 123). Returns
+// cross-owner reconnect must NOT overwrite it (`Spec-003 §Pitfalls To Avoid`). Returns
 // `undefined` when no row exists for the `(node_id, session_id)` pair.
 async function readAttachmentOwner(
   querier: Querier,
@@ -680,8 +680,8 @@ describe("AttachService — P9b (reconnect reactivates an offline row)", () => {
 // P9 owner-immutability — reconnect must not destroy node provenance
 // ----------------------------------------------------------------------------
 //
-// Spec-003 line 116 (node identity must be STABLE across reconnect if the same
-// local daemon is reattaching) + line 123 (§Pitfalls — destroying historical
+// `Spec-003 §Implementation Notes` (node identity must be STABLE across reconnect if the same
+// local daemon is reattaching) + `Spec-003 §Pitfalls To Avoid` (destroying historical
 // node provenance when a node reconnects is PROHIBITED) + Plan-003 §Invariants
 // I-003-5 (the `(node_id, session_id)` index is the upsert ON CONFLICT target for
 // the reconnect path).
@@ -696,12 +696,12 @@ describe("AttachService — P9b (reconnect reactivates an offline row)", () => {
 //       removal must not break the happy path or drop the owner); and
 //   (4) CROSS-owner reconnect is REFUSED with the typed conflict, and the row's
 //       owner is STILL the original participant (provenance preserved, not
-//       overwritten) — the data-integrity guarantee Spec-003 line 123 mandates.
+//       overwritten) — the data-integrity guarantee `Spec-003 §Pitfalls To Avoid` mandates.
 // (Cases 2 and 3 of the matrix — the cross-session active conflict and the
 // revoked refusal — are the P9a and P10 blocks above; they remain regression
 // guards for the SET/WHERE change and are not duplicated here.)
 
-describe("AttachService — P9 owner-immutability (reconnect preserves node provenance, Spec-003 lines 116/123)", () => {
+describe("AttachService — P9 owner-immutability (reconnect preserves node provenance, `Spec-003 §Implementation Notes` + `Spec-003 §Pitfalls To Avoid`)", () => {
   it("reconnects a SAME-participant node after detach (offline -> registering) and leaves the owner participant unchanged", async () => {
     // The legitimate P9 reconnect, end-to-end through the service: the SAME
     // participant attaches node N, detaches it (slot -> offline), then reattaches.
@@ -739,7 +739,7 @@ describe("AttachService — P9 owner-immutability (reconnect preserves node prov
     );
   });
 
-  it("refuses a CROSS-owner reconnect to the same session with the typed conflict and preserves the original owner (Spec-003 line 123)", async () => {
+  it("refuses a CROSS-owner reconnect to the same session with the typed conflict and preserves the original owner (`Spec-003 §Pitfalls To Avoid`)", async () => {
     // The data-integrity bug this fix closes: participant A attaches node N to
     // session S and detaches it (slot -> offline); participant B (the SAME session
     // S) then attempts to attach node N. The ON CONFLICT (node_id, session_id)
@@ -747,7 +747,7 @@ describe("AttachService — P9 owner-immutability (reconnect preserves node prov
     // conjunct is false (existing owner A != B), so the update is suppressed (zero
     // RETURNING rows) and the zero-row verify discriminates the cross-owner cause
     // -> the typed conflict refusal. Crucially, the original owner A is NOT
-    // overwritten (Spec-003 line 123 — never destroy historical node provenance).
+    // overwritten (`Spec-003 §Pitfalls To Avoid` — never destroy historical node provenance).
     await seedParticipant(ctx.querier, PARTICIPANT_ID);
     await seedParticipant(ctx.querier, OTHER_PARTICIPANT_ID);
     await seedSession(ctx.querier, SESSION_ID);
@@ -776,7 +776,7 @@ describe("AttachService — P9 owner-immutability (reconnect preserves node prov
     expect((error as Error).message).toContain(String(SESSION_ID));
     expect((error as Error).message).not.toContain(String(PARTICIPANT_ID));
 
-    // PROVENANCE PRESERVED (the load-bearing Spec-003 line 123 property): the
+    // PROVENANCE PRESERVED (the load-bearing `Spec-003 §Pitfalls To Avoid` property): the
     // transaction rolled back and the row's owner is STILL A — B did NOT overwrite
     // it. The row also stays offline (the suppressed DO UPDATE did not reactivate
     // it), and there is exactly one row (no duplicate inserted).
@@ -842,10 +842,10 @@ describe("AttachService — P9 owner-immutability (reconnect preserves node prov
 });
 
 // ----------------------------------------------------------------------------
-// P1 — NULL-floor unconditional admission (Spec-003 line 53)
+// P1 — NULL-floor unconditional admission (`Spec-003 §Required Behavior`)
 // ----------------------------------------------------------------------------
 
-describe("AttachService — P1 (NULL-floor unconditional admission, Spec-003 line 53)", () => {
+describe("AttachService — P1 (NULL-floor unconditional admission, `Spec-003 §Required Behavior`)", () => {
   it("admits a fresh attach with readOnly=false and state=registering when the session floor is NULL", async () => {
     await seedParticipant(ctx.querier, PARTICIPANT_ID);
     // No min_client_version => NULL floor => no version gate.
@@ -873,7 +873,7 @@ describe("AttachService — P1 (NULL-floor unconditional admission, Spec-003 lin
 });
 
 // ----------------------------------------------------------------------------
-// P2 / P3 — version-floor comparison (Spec-003 line 53 / I-003-1)
+// P2 / P3 — version-floor comparison (`Spec-003 §Required Behavior` / I-003-1)
 // ----------------------------------------------------------------------------
 //
 // P2 (client_version >= floor): admit read-write (readOnly === false).
@@ -894,7 +894,7 @@ describe("AttachService — P1 (NULL-floor unconditional admission, Spec-003 lin
 // is a plain nullable TEXT column (0001-initial.ts line 104 — no DB CHECK), so a
 // regex-invalid floor seeds fine and the ONLY guard is the read-time parse.
 
-describe("AttachService — P2/P3 (version-floor comparison, Spec-003 line 53 / I-003-1)", () => {
+describe("AttachService — P2/P3 (version-floor comparison, `Spec-003 §Required Behavior` / I-003-1)", () => {
   it("admits a daemon BELOW a non-NULL floor in read-only state (P3 — admit-not-eject, I-003-1)", async () => {
     // Below-floor (client 1.0 < floor 2.0): admit READ-ONLY, never eject. The
     // write refusal (VERSION_FLOOR_EXCEEDED) on this read-only daemon's next
@@ -1018,12 +1018,12 @@ describe("AttachService — P2/P3 (version-floor comparison, Spec-003 line 53 / 
 });
 
 // ----------------------------------------------------------------------------
-// P5 — multi-node coexistence (Spec-003 line 49 + AC line 129; I-003-3 identity)
+// P5 — multi-node coexistence (`Spec-003 §Required Behavior` + AC3; I-003-3 identity)
 // ----------------------------------------------------------------------------
 //
-// P5 (Spec-003 line 49 "support multiple runtime nodes per session" + line 50
+// P5 (`Spec-003 §Required Behavior` "support multiple runtime nodes per session" + `Spec-003 §Required Behavior`
 //     "attach must not require session recreation"; the acceptance criterion at
-//     Spec-003 line 129 "Multiple runtime nodes can coexist in one session
+//     `Spec-003 §Acceptance Criteria` "Multiple runtime nodes can coexist in one session
 //     without changing session identity"; Plan-003 §Invariants I-003-3): two
 //     DISTINCT nodes attaching to the SAME session both land as active rows, and
 //     the attach path mutates nothing on `sessions` (no UPDATE, no recreate).
@@ -1047,7 +1047,7 @@ describe("AttachService — P2/P3 (version-floor comparison, Spec-003 line 53 / 
 //     `sessions` row is created. This is the multi-node complement to T3.2's
 //     single-attach I-003-3 guard, extended to the `sessions` table itself.
 
-describe("AttachService — P5 (multi-node coexistence, Spec-003 line 49 + AC; I-003-3 session identity)", () => {
+describe("AttachService — P5 (multi-node coexistence, `Spec-003 §Required Behavior` + AC; I-003-3 session identity)", () => {
   it("admits two distinct nodes as co-active attachments in one session and leaves the sessions row byte-for-byte unchanged", async () => {
     await seedParticipant(ctx.querier, PARTICIPANT_ID);
     // A NULL-floor session (no version gate) — both daemons are admitted
@@ -1114,7 +1114,7 @@ describe("AttachService — P5 (multi-node coexistence, Spec-003 line 49 + AC; I
     // clause): the sessions row is byte-for-byte identical after both attaches
     // (no UPDATE to id / state / min_client_version / any column), and still
     // exactly ONE session row exists (attach did NOT recreate the session —
-    // Spec-003 line 50).
+    // `Spec-003 §Required Behavior`).
     const sessionAfterProbe = await ctx.querier.query<Record<string, unknown>>(
       "SELECT * FROM sessions WHERE id = $1",
       [SESSION_ID],
@@ -1203,8 +1203,8 @@ describe("AttachService — I-003-3 (attach must not mutate session_memberships)
 // P7/P8 + detach (offline transition) — T3.7
 // ----------------------------------------------------------------------------
 //
-// Spec-003 line 51 (detach/offline must NOT revoke membership by default — P8 /
-// I-003-3) + line 69 (an explicit `detach` retires the node) + line 70 (`revoked`
+// `Spec-003 §Required Behavior` (detach/offline must NOT revoke membership by default — P8 /
+// I-003-3) + `Spec-003 §Default Behavior` (an explicit `detach` retires the node; `revoked`
 // is authority-issued, never self-asserted — so detach writes `offline` ONLY) +
 // Plan-003 §Invariants I-003-3 (attach-membership separation) / I-003-5 (detach
 // resolves the node's SINGLE active attachment by `nodeId` alone).
@@ -1216,10 +1216,10 @@ describe("AttachService — I-003-3 (attach must not mutate session_memberships)
 // membership no-mutation; (b) the LOAD-BEARING revoked-not-flipped guard; (c)
 // idempotent re-detach; (d) the never-attached no-op; (e) the presence-absent
 // UPDATE-only no-op. P7 (attach must not mutate session_memberships, Spec-003
-// line 47) is the SHIPPED attach I-003-3 test above — not re-tested here.
+// `Spec-003 §Required Behavior`) is the SHIPPED attach I-003-3 test above — not re-tested here.
 
 describe("AttachService — P7/P8 + detach (offline transition, T3.7)", () => {
-  it("retires an active node to offline on both axes and leaves session_memberships byte-for-byte unchanged (P8, Spec-003 line 51 / I-003-3)", async () => {
+  it("retires an active node to offline on both axes and leaves session_memberships byte-for-byte unchanged (P8, `Spec-003 §Required Behavior` / I-003-3)", async () => {
     await seedParticipant(ctx.querier, PARTICIPANT_ID);
     await seedSession(ctx.querier, SESSION_ID);
     // An ACTIVE attachment (slot axis) + a presence row (liveness axis), both
@@ -1231,7 +1231,7 @@ describe("AttachService — P7/P8 + detach (offline transition, T3.7)", () => {
       state: "online",
     });
     await seedPresence(ctx.querier, { nodeId: NODE_ID, healthState: "online" });
-    // A membership row co-resident in the session. Spec-003 line 51: an explicit
+    // A membership row co-resident in the session. `Spec-003 §Required Behavior`: an explicit
     // detach (or offline) must NOT revoke this membership — the detach flow must
     // touch ONLY runtime_node_attachments + runtime_node_presence.
     const membershipId = await seedMembership(ctx.querier, {
@@ -1272,7 +1272,7 @@ describe("AttachService — P7/P8 + detach (offline transition, T3.7)", () => {
     // P8 / I-003-3: the co-resident membership row is byte-for-byte unchanged AND
     // the total membership count is unchanged — the two disjoint mutation modes
     // (in-place UPDATE vs stray INSERT/DELETE), mirroring the attach I-003-3 test.
-    // An offline/detached node retains its membership (Spec-003 line 51).
+    // An offline/detached node retains its membership (`Spec-003 §Required Behavior`).
     const membershipAfter = await readMembershipRow(ctx.querier, membershipId);
     expect(membershipAfter).toEqual(membershipBefore);
     expect(await countMemberships(ctx.querier)).toBe(1);
@@ -1283,7 +1283,7 @@ describe("AttachService — P7/P8 + detach (offline transition, T3.7)", () => {
     // ('registering','online','degraded')` active-state guard is dropped from
     // detach's slot UPDATE. A `revoked` row is INACTIVE (outside the partial
     // active index), so detach must NOT match it — `revoked` is terminal
-    // (Spec-003 line 70; attach's P10 reads it to refuse re-attach). A naive
+    // (`Spec-003 §Default Behavior`; attach's P10 reads it to refuse re-attach). A naive
     // `WHERE node_id = $1` (no state guard) would corrupt revoked -> offline,
     // silently breaking revocation-terminality. No presence row is seeded (a
     // revoked node need not have heartbeated).
@@ -1368,7 +1368,7 @@ describe("AttachService — P7/P8 + detach (offline transition, T3.7)", () => {
 // ----------------------------------------------------------------------------
 //
 // Spec-003 §Default-Behavior `capabilityupdate` amendment + §Fallback Behavior
-// (capability-validation failure leaves the node `degraded`) + lines 52/57 (the
+// (capability-validation failure leaves the node `degraded`) + `Spec-003 §Required Behavior` / `Spec-003 §Default Behavior` (the
 // control plane is NOT the daemon-side capability-declaration authority) +
 // Plan-003 §Invariants I-003-2 (cannot drive registering -> online) / I-003-3
 // (no session_memberships mutation) / I-003-5 (single active attachment) +
@@ -1462,7 +1462,7 @@ describe("AttachService — updateCapabilities (discovery-snapshot refresh, T3.9
     // guard to "registering && state !== degraded" would wrongly throw here.
     //
     // Load-bearing: it is the request->response asymmetry demonstration
-    // (Spec-003 line 72). `response.state` is the broad 5-value `NodeState` and
+    // (`Spec-003 §Default Behavior`). `response.state` is the broad 5-value `NodeState` and
     // here takes `registering` — a value the 2-value request `healthChanges.state`
     // enum (online|degraded) CANNOT express. No other test exercises a response
     // state outside the request enum, so this is the asymmetry's only pin.
@@ -1493,7 +1493,7 @@ describe("AttachService — updateCapabilities (discovery-snapshot refresh, T3.9
     // The ONE residual I-003-2 state-context guard: a `registering` attachment
     // cannot be brought `online` via capability update — bringing a node online
     // requires a daemon-side capability declaration, which the control plane is
-    // not the authority for (Spec-003 lines 52/57). The wire VALUE `online` is
+    // not the authority for (`Spec-003 §Required Behavior` + `Spec-003 §Default Behavior`). The wire VALUE `online` is
     // legal (the 2-value health enum); only its application to a registering row
     // is refused.
     await seedParticipant(ctx.querier, PARTICIPANT_ID);
@@ -1527,7 +1527,7 @@ describe("AttachService — updateCapabilities (discovery-snapshot refresh, T3.9
     expect(after).toEqual(before);
   });
 
-  it("ALLOWS registering -> degraded (Spec-003 §Fallback Behavior — pins the guard's narrowness)", async () => {
+  it("ALLOWS registering -> degraded (`Spec-003 §Fallback Behavior` — pins the guard's narrowness)", async () => {
     // EXPLICITLY ALLOWED — the guard is the SINGLE registering->online case, NOT
     // a blanket registering->* refusal. A capability-validation failure leaves
     // the node `degraded` (Spec-003 §Fallback Behavior), so registering ->
@@ -1554,7 +1554,7 @@ describe("AttachService — updateCapabilities (discovery-snapshot refresh, T3.9
   it("ALLOWS degraded -> online (the control-plane guard blocks ONLY the direct registering->online edge)", async () => {
     // EXPLICITLY ALLOWED — the `online <-> degraded` capability-health axis is
     // the permitted transition (Spec-003 §Fallback Behavior). The I-003-2 guard
-    // blocks ONLY the direct `registering -> online` edge (Spec-003 line 65), so
+    // blocks ONLY the direct `registering -> online` edge (`Spec-003 §Default Behavior`), so
     // `degraded -> online` is permitted because `degraded` is already PAST that
     // gate. Note: a node can reach `degraded` via `registering -> degraded` (the
     // capability-validation-failed Fallback path) WITHOUT ever having been
@@ -1631,7 +1631,7 @@ describe("AttachService — updateCapabilities (discovery-snapshot refresh, T3.9
     // "does NOT flip a revoked attachment" test, applied to capability update. A
     // `revoked` row is INACTIVE (outside `state IN ('registering','online',
     // 'degraded')`), so the resolver must NOT match it — `revoked` is terminal
-    // (Spec-003 line 70; attach's P10 reads it to refuse re-attach). The offline
+    // (`Spec-003 §Default Behavior`; attach's P10 reads it to refuse re-attach). The offline
     // test above covers the band mechanism generically; this pins `revoked`
     // SPECIFICALLY, so a future edit widening the band to include `revoked` (which
     // would let a capability update silently resurrect a revoked node) is caught.
@@ -1788,7 +1788,7 @@ describe("AttachService — updateCapabilities (discovery-snapshot refresh, T3.9
 // updateCapabilities — version-floor write-refusal (P4 / I-003-1, T3.4)
 // ----------------------------------------------------------------------------
 //
-// Spec-003 line 130 (the sole spec authority): a daemon attaching below the
+// `Spec-003 §Acceptance Criteria` (the sole spec authority): a daemon attaching below the
 // session's `min_client_version` is admitted READ-ONLY, surfaces typed
 // `VERSION_FLOOR_EXCEEDED` on any subsequent WRITE attempt, and is NEVER ejected
 // for the floor mismatch (ADR-018 §Decision #4) + Plan-003 §Invariants I-003-1.
@@ -1807,7 +1807,7 @@ describe("AttachService — updateCapabilities (discovery-snapshot refresh, T3.9
 // NULL-floor session admits every write (no gate at all).
 
 describe("AttachService — updateCapabilities version-floor write-refusal (P4 / I-003-1, T3.4)", () => {
-  it("refuses a below-floor (read-only) node's capability write with typed VERSION_FLOOR_EXCEEDED and leaves it JOINED (Spec-003 line 130 / I-003-1)", async () => {
+  it("refuses a below-floor (read-only) node's capability write with typed VERSION_FLOOR_EXCEEDED and leaves it JOINED (`Spec-003 §Acceptance Criteria` / I-003-1)", async () => {
     // Full lifecycle through the real admission path: a floored session
     // (floor 2.0) admits a below-floor daemon (client 1.0) READ-ONLY at attach
     // (T3.3), then the daemon's capability WRITE is refused (T3.4).
@@ -1967,22 +1967,23 @@ describe("AttachService — updateCapabilities version-floor write-refusal (P4 /
 // readRoster — the session roster projection (T5.0c)
 // ----------------------------------------------------------------------------
 //
-// Spec-003 §Interfaces And Contracts 2026-06-09 amendment (lines 90-94): the
+// `Spec-003 §Interfaces And Contracts` 2026-06-09 amendment: the
 // roster read returns EVERY `runtime_node_attachments` row for the session —
-// all five `state` values verbatim, no server-side hiding (line 92; AC2 line
-// 128 needs degraded/offline visible) — LEFT-JOINs the heartbeat-owned
+// all five `state` values verbatim, no server-side hiding (`Spec-003
+// §Interfaces And Contracts`; AC2 needs degraded/offline visible) —
+// LEFT-JOINs the heartbeat-owned
 // presence axis (NULL until the first beat), derives `readOnly` per row at
 // read time from the stored `client_version` vs the session's CURRENT
-// `min_client_version` floor (AC4 line 130 / I-003-1 — the read-side surfacing
+// `min_client_version` floor (AC4 / I-003-1 — the read-side surfacing
 // of admit-not-eject), and carries BOTH health axes verbatim with no collapsed
-// scalar (line 72 — reconciliation is the client's render-time concern). The
+// scalar (`Spec-003 §Default Behavior` — reconciliation is the client's render-time concern). The
 // read NEVER derives staleness (the T3.6 sweep stays the single
 // liveness-derivation writer) and writes NOTHING (I-003-3: no
 // session_memberships access; ADR-017: no durable event — structural, the
 // control plane has no event log).
 //
 // The blocks below pin: all-five-states visibility (offline/revoked included);
-// attach -> roster end-to-end multi-node coexistence (AC3 line 129 / line 49);
+// attach -> roster end-to-end multi-node coexistence (AC3 / `Spec-003 §Required Behavior`);
 // axis independence in BOTH directions plus the verbatim heartbeat clock; the
 // no-staleness-derivation property; the per-row derived readOnly verdict
 // (below/at floor in ONE roster + the NULL-floor branch); pre-first-heartbeat
@@ -1992,13 +1993,13 @@ describe("AttachService — updateCapabilities version-floor write-refusal (P4 /
 // `client_version`.
 
 describe("AttachService — readRoster (roster projection, T5.0c)", () => {
-  it("returns EVERY attachment row for the session — offline and revoked included — with all five states verbatim (AC2, Spec-003 lines 128/92; line 76)", async () => {
+  it("returns EVERY attachment row for the session — offline and revoked included — with all five states verbatim (AC2, `Spec-003 §Acceptance Criteria` + `Spec-003 §Interfaces And Contracts`; `Spec-003 §Fallback Behavior`)", async () => {
     // One session, five DISTINCT nodes, one in each NodeState. Distinct
     // node_ids never collide on the per-node active index (three active rows
     // are fine), and the `(node_id, session_id)` arbiter sees five distinct
     // pairs. The roster must surface all five rows with their states verbatim:
     // a `degraded` node stays visible and is NOT presented as healthy (Spec-003
-    // line 76), and `offline` / `revoked` rows are NOT hidden server-side —
+    // `Spec-003 §Fallback Behavior`), and `offline` / `revoked` rows are NOT hidden server-side —
     // AC2's distinguishability needs every state observable.
     await seedParticipant(ctx.querier, PARTICIPANT_ID);
     await seedSession(ctx.querier, SESSION_ID);
@@ -2023,7 +2024,7 @@ describe("AttachService — readRoster (roster projection, T5.0c)", () => {
     }
   });
 
-  it("projects multiple coexisting nodes attached through the REAL attach path with per-node identity intact (AC3, Spec-003 lines 129/49)", async () => {
+  it("projects multiple coexisting nodes attached through the REAL attach path with per-node identity intact (AC3, `Spec-003 §Acceptance Criteria` + `Spec-003 §Required Behavior`)", async () => {
     // End-to-end write -> read coherence: two nodes attach through the real
     // service path (not seeds) with DIFFERENT capability maps, then the roster
     // returns both entries each carrying its OWN identity + fields — per-node
@@ -2056,7 +2057,7 @@ describe("AttachService — readRoster (roster projection, T5.0c)", () => {
     expect(betaEntry?.healthState).toBeNull();
   });
 
-  it("round-trips DISAGREEING axes verbatim in both directions and carries the heartbeat clock untouched (Spec-003 line 72 — never collapse, never mask)", async () => {
+  it("round-trips DISAGREEING axes verbatim in both directions and carries the heartbeat clock untouched (`Spec-003 §Default Behavior` — never collapse, never mask)", async () => {
     // Axis independence, both directions in ONE roster:
     //   - node A: slot `online` + swept liveness `offline` (the
     //     swept-offline-but-still-attached shape — the sweep writes only
@@ -2112,7 +2113,7 @@ describe("AttachService — readRoster (roster projection, T5.0c)", () => {
     // health_state is still `online` (the sweep has not run). The roster must
     // report `online` verbatim: deriving `degraded`/`offline` from heartbeat
     // age at read time would make readRoster a second, racing liveness author
-    // (Spec-003 lines 61/72/92 — the T3.6 sweep owns that derivation).
+    // (`Spec-003 §Default Behavior` + `Spec-003 §Interfaces And Contracts` — the T3.6 sweep owns that derivation).
     await seedParticipant(ctx.querier, PARTICIPANT_ID);
     await seedSession(ctx.querier, SESSION_ID);
     await seedAttachment(ctx.querier, {
@@ -2135,7 +2136,7 @@ describe("AttachService — readRoster (roster projection, T5.0c)", () => {
     expect(entry?.healthState).toBe("online");
   });
 
-  it("derives readOnly PER ROW — below-floor true with state untouched, at-floor false in the SAME roster (AC4, Spec-003 line 130 / I-003-1)", async () => {
+  it("derives readOnly PER ROW — below-floor true with state untouched, at-floor false in the SAME roster (AC4, `Spec-003 §Acceptance Criteria` / I-003-1)", async () => {
     // A floored session (2.0) holding two nodes: one attached at a below-floor
     // client_version (1.0), one at-floor (2.0). The roster derives the verdict
     // per row from the STORED version vs the CURRENT floor — the same

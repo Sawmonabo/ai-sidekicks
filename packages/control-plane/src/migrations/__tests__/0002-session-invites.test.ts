@@ -6,12 +6,12 @@
 //   T1 — table exists after applying v1 + v2 (probe `information_schema.tables`).
 //   T2 — `schema_migrations` carries both (1, ...) and (2, 'Session invites table').
 //   T3 — `join_mode` CHECK rejects snake_case `runtime_contributor` and accepts
-//        the SPACED canonical wire form `runtime contributor` (Spec-002 line 45,
+//        the SPACED canonical wire form `runtime contributor` (`Spec-002 §Required Behavior`,
 //        canonical `MembershipRole`/`JoinMode` in
 //        `packages/contracts/src/{session,presence}.ts`).
 //   T4 — `state` CHECK accepts EXACTLY the four V1 lifecycle states
 //        `{pending, accepted, revoked, expired}` and rejects `declined`
-//        (Spec-002 line 43; pinned at the contract layer by
+//        (`Spec-002 §Required Behavior`; pinned at the contract layer by
 //        `InviteStateSchema` test C2).
 //   T5 — `session_id` FK and `inviter_id` FK are enforced (FK violation
 //        surfaces a Postgres `23503 foreign_key_violation`).
@@ -31,7 +31,7 @@
 //        outer probe stopped recognizing pre-applied versions).
 //   T8 — `token_hash` UNIQUE constraint rejects a duplicate-`token_hash`
 //        INSERT — the storage-layer enforcement of single-use semantics
-//        (Spec-002 line 109 / migration file `Token trust boundary` section
+//        (`Spec-002 §Token Security Properties` / migration file `Token trust boundary` section
 //        at lines 81-90).
 //
 // ----------------------------------------------------------------------------
@@ -82,8 +82,8 @@
 // the call-site count grows beyond the current three, revisit the
 // extraction trade-off.
 //
-// Refs: Plan-002 Phase 1 T1.5, Spec-002 §Required Behavior line 43, §State
-// And Data Implications lines 155-157, Plan-002 §Invariants I-002-3.
+// Refs: Plan-002 Phase 1 T1.5, `Spec-002 §Required Behavior`,
+// `Spec-002 §State And Data Implications`, Plan-002 §Invariants I-002-3.
 
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -294,7 +294,7 @@ describe("0002-session-invites migration (T2 — schema_migrations anchor rows)"
 
 describe("0002-session-invites migration (T3 — join_mode CHECK pins canonical wire form)", () => {
   // The SPACED `runtime contributor` literal is the canonical wire form per
-  // Spec-002 line 45, `MembershipRole` in `packages/contracts/src/session.ts`,
+  // `Spec-002 §Required Behavior`, `MembershipRole` in `packages/contracts/src/session.ts`,
   // and `JoinMode` in `packages/contracts/src/presence.ts`. The SPACED
   // canonical wire form is also pinned at the contract layer; the migration
   // is the second place it has to be right. A regression that swapped the
@@ -305,7 +305,7 @@ describe("0002-session-invites migration (T3 — join_mode CHECK pins canonical 
     await seedSessionAndInviter(ctx.querier);
   });
 
-  it("accepts SPACED 'runtime contributor' (canonical wire form per Spec-002 line 45)", async () => {
+  it("accepts SPACED 'runtime contributor' (canonical wire form per `Spec-002 §Required Behavior`)", async () => {
     await expect(
       ctx.querier.query(
         `INSERT INTO session_invites
@@ -336,7 +336,7 @@ describe("0002-session-invites migration (T3 — join_mode CHECK pins canonical 
 // ----------------------------------------------------------------------------
 
 describe("0002-session-invites migration (T4 — state CHECK pins {pending, accepted, revoked, expired})", () => {
-  // Spec-002 line 43: invite lifecycle is EXACTLY {pending, accepted, revoked,
+  // `Spec-002 §Required Behavior`: invite lifecycle is EXACTLY {pending, accepted, revoked,
   // expired} — no `declined` state. C2 in `packages/contracts/src/__tests__/
   // invites.test.ts` pins the same set at the contract layer; this test
   // mirrors the assertion at the storage layer.
@@ -348,7 +348,7 @@ describe("0002-session-invites migration (T4 — state CHECK pins {pending, acce
   });
 
   for (const state of EXPECTED_STATES) {
-    it(`accepts state = '${state}' (canonical V1 lifecycle per Spec-002 line 43)`, async () => {
+    it(`accepts state = '${state}' (canonical V1 lifecycle per Spec-002 §Required Behavior)`, async () => {
       await expect(
         ctx.querier.query(
           `INSERT INTO session_invites
@@ -360,7 +360,7 @@ describe("0002-session-invites migration (T4 — state CHECK pins {pending, acce
     });
   }
 
-  it("rejects 'declined' — V1 declining is implicit, not an explicit state (Spec-002 line 43)", async () => {
+  it("rejects 'declined' — V1 declining is implicit, not an explicit state (`Spec-002 §Required Behavior`)", async () => {
     await expect(
       ctx.querier.query(
         `INSERT INTO session_invites
@@ -418,7 +418,7 @@ describe("0002-session-invites migration (T5 — FK constraints enforced)", () =
 describe("0002-session-invites migration (T6 — I-002-3 ephemeral-presence by omission)", () => {
   it("creates no '%presence%' table in the public schema after applying v1 + v2", async () => {
     // Plan-002 §Invariants I-002-3: presence state MUST live in memory only.
-    // Spec-002 §State And Data Implications line 157: presence data is never
+    // `Spec-002 §State And Data Implications`: presence data is never
     // written to SQLite or Postgres. The broader regression (P10 in Plan-002
     // §Test Plan) lives in T2.5's `migration-shape.test.ts` and surveys the
     // entire schema; this local guard defends the boundary that THIS
@@ -502,7 +502,7 @@ describe("0002-session-invites migration (T7 — applyMigrations cross-path catc
 // ----------------------------------------------------------------------------
 
 describe("0002-session-invites migration (T8 — token_hash UNIQUE pins single-use semantics)", () => {
-  // Spec-002 §Token Security Properties line 109: "A token is consumed on
+  // `Spec-002 §Token Security Properties`: "A token is consumed on
   // first successful accept... The control plane sets the invite state to
   // `accepted` atomically." The `token_hash TEXT NOT NULL UNIQUE` constraint
   // (`0002-session-invites.ts` line 110, `Token trust boundary` section at

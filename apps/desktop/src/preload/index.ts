@@ -14,7 +14,7 @@
 //     locked by `apps/desktop/src/main/window.ts`); the bridge is the only
 //     surface the renderer can reach.
 //
-// Spec-023 §Acceptance Criteria line 592 — "No auth material on
+// `Spec-023 §Acceptance Criteria` — "No auth material on
 // `window.sidekicks`" — is enforced TYPEWISE by the conditional-type test
 // `packages/contracts/src/desktop-bridge.test-d.ts`. The runtime side here is
 // trivial because the renderer can only consume what the static type contract
@@ -22,7 +22,7 @@
 //
 // See:
 //   • docs/specs/023-desktop-shell-and-renderer.md §Preload Bridge Contract
-//   • docs/plans/023-desktop-shell-and-renderer.md §Tier 1 Partial PR Sequence > Phase 1 line 259
+//   • `docs/plans/023-desktop-shell-and-renderer.md §Tier 1 Partial PR Sequence` (Phase 1, the preload bullet)
 //   • packages/contracts/src/desktop-bridge.ts
 
 import { contextBridge } from "electron";

@@ -33,9 +33,9 @@
 // forbids exporting a shared test fixture from `packages/control-plane/`).
 //
 // Refs: docs/plans/003-runtime-node-attach.md §T3.8 + §T5.0c, ADR-014,
-//       docs/architecture/contracts/api-payload-contracts.md §Runtime-Node
-//       Method-Name Registry (the roster registry row at line 562 — query,
-//       control-plane tRPC only — and the procedure-type paragraph at line 564).
+//       `docs/architecture/contracts/api-payload-contracts.md §Runtime-Node Method-Name Registry (Tier 3)`
+//       (the roster registry row — query, control-plane tRPC only — and the
+//       procedure-type paragraph).
 
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { TRPCError } from "@trpc/server";

@@ -59,9 +59,10 @@ import { AisWireException } from "../ais-wire-exception.js";
  *      layer; the service catches that and rethrows this typed refusal. TRANSIENT
  *      — the node may attach elsewhere once it detaches from its current active
  *      session.
- *   2. Cross-owner same-session reconnect (Spec-003 line 116 — a reconnect is the
- *      same local daemon, so the owner participant is IMMUTABLE; Spec-003 line
- *      123 — never destroy historical node provenance on reconnect). A DIFFERENT
+ *   2. Cross-owner same-session reconnect (`Spec-003 §Implementation Notes` —
+ *      a reconnect is the same local daemon, so the owner participant is
+ *      IMMUTABLE; `Spec-003 §Pitfalls To Avoid` — never destroy historical
+ *      node provenance on reconnect). A DIFFERENT
  *      participant attempts to reattach to an existing `(node_id, session_id)` row
  *      owned by another participant. The upsert's DO UPDATE
  *      `WHERE ... participant_id = EXCLUDED.participant_id` suppresses the update
@@ -117,15 +118,15 @@ export class RuntimeNodeAttachRevokedException extends AisWireException {
  *      `runtime_node_presence.health_state` and leaves the attachment SLOT active,
  *      so a swept-offline-but-still-attached node is still resolved by the
  *      active-band lookup and CAN still receive a capability update (the two axes
- *      reconcile at READ time — Spec-003 line 72). This mirrors `attach`'s
+ *      reconcile at READ time — `Spec-003 §Default Behavior`). This mirrors `attach`'s
  *      defensive posture (the service does not assume the router pre-validated the
  *      node's liveness).
  *   2. The I-003-2 state-context guard: the request would drive a `registering`
  *      attachment to `online`. The wire VALUE `online` is legal (the 2-value
  *      `RuntimeNodeHealthState`), but applying it to a still-`registering`
  *      attachment is not — bringing a node `online` requires a successful
- *      DAEMON-side capability declaration (Spec-003 line 57), and the control
- *      plane is not the declaration authority (Spec-003 line 52). The permitted
+ *      DAEMON-side capability declaration (`Spec-003 §Default Behavior`), and the control
+ *      plane is not the declaration authority (`Spec-003 §Required Behavior`). The permitted
  *      capability-health axis is `online <-> degraded` (Spec-003 §Fallback
  *      Behavior). The other I-003-2 illegal transitions (`offline`/`revoked`)
  *      never reach this method: `healthChanges.state` is the 2-value enum, so
@@ -154,14 +155,14 @@ export class RuntimeNodeCapabilityUpdateConflictException extends AisWireExcepti
  * one admitted READ-ONLY at attach because its `clientVersion` is below the
  * session's `min_client_version` floor (T3.3) — attempts the capability WRITE.
  * This is the typed `VERSION_FLOOR_EXCEEDED` write-refusal (I-003-1 / ADR-018
- * §Decision #4 / Spec-003 line 130): the node was admitted (admit-not-eject) and
+ * §Decision #4 / `Spec-003 §Acceptance Criteria` AC4): the node was admitted (admit-not-eject) and
  * its reads succeed, but the write is refused. The throw rolls the transaction
  * back, leaving the attachment row byte-for-byte unchanged, so the node stays
  * JOINED — never ejected for the floor mismatch.
  *
  * Code+message-only (NO `details`) — and this is DELIBERATE, not an oversight
  * (Option A, advisor-reviewed + user-ratified):
- *   - Spec-003 line 130 and ADR-018 §Decision #4 mandate only a TYPED
+ *   - `Spec-003 §Acceptance Criteria` AC4 and ADR-018 §Decision #4 mandate only a TYPED
  *     `VERSION_FLOOR_EXCEEDED` on write — neither requires structured details.
  *   - The strict `VersionBoundExceededDetails` schema in `@ai-sidekicks/contracts`
  *     (which the `VersionFloorExceededError` HTTP `ErrorResponse` sibling carries

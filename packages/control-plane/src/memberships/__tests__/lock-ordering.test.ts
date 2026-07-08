@@ -494,8 +494,8 @@ describe("MembershipService.updateMembership — lock-ordering (P9, I-002-4)", (
 // (C) InviteService.createInvite — issuance caller (I-002-4).
 // ----------------------------------------------------------------------------
 //
-// The owner-only issuance gate (security-architecture.md §Permission Matrix
-// row 299, Spec-002 line 142) reads `session_memberships` to authorize the
+// The owner-only issuance gate (security-architecture.md §Permission Matrix,
+// `Spec-002 §Invite Revocation`) reads `session_memberships` to authorize the
 // actor INSIDE the issuance transaction. That read must run UNDER the parent
 // session lock so a concurrent ownership change cannot race the gate (the same
 // TOCTOU the accept/revoke paths close). Unlike block A (where createInvite is

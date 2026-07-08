@@ -8,18 +8,18 @@
 // sibling).
 //
 // Spec coverage:
-//   * Spec-007 §Required Behavior line 47
+//   * `Spec-007 §Required Behavior`
 //     (docs/specs/007-local-ipc-and-daemon-control.md) — "Local IPC must
 //     support protocol version negotiation before mutating operations are
 //     accepted."
-//   * Spec-007 §Fallback Behavior lines 67-68 — "If version negotiation
+//   * `Spec-007 §Fallback Behavior` — "If version negotiation
 //     fails, read-only compatibility may continue, but mutating operations
 //     must be blocked until versions are compatible."
-//   * Spec-007 §Interfaces And Contracts line 73 —
+//   * `Spec-007 §Interfaces And Contracts` —
 //     "`DaemonHello` and `DaemonHelloAck` must perform version negotiation."
 //
 // Invariants this file's interface enforces (canonical text in
-// docs/plans/007-local-ipc-and-daemon-control.md §Invariants lines 95-117):
+// `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`, I-007-6 through I-007-9):
 //   * I-007-7 — schema validation runs before handler dispatch. The
 //     `DaemonHelloRequestSchema` / `DaemonHelloAckSchema` are registered
 //     against the registry surface so the standard schema-validates-before-

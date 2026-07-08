@@ -5,7 +5,7 @@
 // custom-protocol handler (`sidekicks://`), deep-link routing, auto-updater,
 // crash reporter, and second-instance focus handling against this same surface.
 //
-// See docs/plans/023-desktop-shell-and-renderer.md §Tier 1 Partial PR Sequence > Phase 1 line 257.
+// See `docs/plans/023-desktop-shell-and-renderer.md §Tier 1 Partial PR Sequence` (Phase 1, the main-entrypoint bullet).
 
 import { queryObjects } from "node:v8";
 import { setTimeout as wait } from "node:timers/promises";
@@ -39,7 +39,7 @@ const gotTheLock = app.requestSingleInstanceLock();
 // actually executes and registers `window.sidekicks`), queries the
 // renderer for the Spec-023 §Security Hardening Baseline runtime invariants
 // (sidekicks defined; require / process / global all undefined — the full
-// Spec-023 §Acceptance Criteria line 602 set), prints a single-line JSON
+// `Spec-023 §Acceptance Criteria` set), prints a single-line JSON
 // probe to stdout tagged with `[SIDEKICKS_SMOKE_PROBE]`, and exits. The
 // smoke test at `apps/desktop/test/launch.smoke.test.ts` parses that line.
 //
@@ -84,8 +84,8 @@ const gotTheLock = app.requestSingleInstanceLock();
 //   `webContents.executeJavaScript(...)` call, and the `about:blank` URL
 //   string) is physically absent from the shipped bundle. The "no test
 //   machinery in production binaries" property is not a verbatim Spec-023
-//   bullet but a derived invariant from Spec-023 §Trust Stance (renderer-
-//   untrusted; line 82) + §Pitfalls To Avoid (line 579: "`nodeIntegration:
+//   bullet but a derived invariant from `Spec-023 §Trust Stance` (renderer-
+//   untrusted) + §Pitfalls To Avoid ("`nodeIntegration:
 //   true` or `sandbox: false` in any window must be treated as a build-
 //   time error") — release binaries must not embed code paths that
 //   weaken those guarantees, and a test-probe path that calls
@@ -223,7 +223,7 @@ if (!gotTheLock) {
           // runtime invariants (sandbox: true + nodeIntegration: false +
           // contextIsolation: true should produce: `sidekicks` typeof
           // "object"; `require` / `process` / `global` all typeof
-          // "undefined" — the full Spec-023 §Acceptance Criteria line 602
+          // "undefined" — the full `Spec-023 §Acceptance Criteria`
           // set). `JSON.stringify` is `executeJavaScript`'s required
           // serialization shape — `executeJavaScript` returns a thenable
           // resolving to the expression's value, which we then println-tag

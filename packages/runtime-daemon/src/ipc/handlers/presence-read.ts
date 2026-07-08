@@ -1,7 +1,7 @@
 // `presence.read` JSON-RPC handler — Plan-002 Phase 3 (T3.3).
 //
 // Spec coverage:
-//   * Spec-002 §Interfaces And Contracts line 86 — "`PresenceRead`
+//   * `Spec-002 §Interfaces And Contracts` — "`PresenceRead`
 //     (JSON-RPC, local IPC) — local clients read current presence state
 //     for a session." A peer process opens a connection, completes the
 //     `daemon.hello` handshake (Plan-007 Phase 2), then dispatches
@@ -14,7 +14,7 @@
 //     (`presence.subscribe`) slice.
 //
 // Invariants this module participates in (canonical text in
-// docs/plans/007-local-ipc-and-daemon-control.md §Invariants lines 95-117):
+// `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`, I-007-6 through I-007-9):
 //   * I-007-1 / I-007-6 / I-007-7 / I-007-8 — same posture as the
 //     `session.read` slice. See `session-create.ts` for the canonical
 //     write-up; this file inherits the same registry-side guarantees
@@ -49,12 +49,12 @@
 //     The `read` path is a pure projection query and emits nothing.
 //
 // Method-name format ratified: dotted-camelCase per
-// docs/architecture/contracts/api-payload-contracts.md §JSON-RPC Method-Name
-// Registry (Tier 1 Ratified, lines 311-351). The canonical regex
+// `docs/architecture/contracts/api-payload-contracts.md §JSON-RPC Method-Name Registry (Tier 1 Ratified)`.
+// The canonical regex
 // `/^[a-z][a-z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/` accepts `"presence.read"`. The
-// method-name TABLE at lines 327-336 enumerates only Plan-007 Phase 3's
+// method-name TABLE there enumerates only Plan-007 Phase 3's
 // `session.*` surface; Plan-002 registers the `presence.*` namespace
-// against the same ratified FORMAT (Plan-002 line 95 / CP-002-2). The
+// against the same ratified FORMAT (`Plan-002 §API And Transport Changes` / CP-002-2). The
 // method string is derived from the namespace + the canonical
 // `PresenceRead` payload type (`Spec-002 §Interfaces And Contracts`) per the
 // `session.read` → `session-read.ts` file/payload/method 3-way precedent.

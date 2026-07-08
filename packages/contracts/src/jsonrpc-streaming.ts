@@ -10,21 +10,20 @@
 // sibling).
 //
 // Spec coverage:
-//   * Spec-007 §Wire Format (docs/specs/007-local-ipc-and-daemon-control.md
-//     lines 50-56) — JSON-RPC 2.0 + LSP-style framing. The streaming
+//   * `Spec-007 §Wire Format` — JSON-RPC 2.0 + LSP-style framing. The streaming
 //     primitive uses LSP-style `$/`-prefixed method names for system
 //     notifications (mirrors LSP's `$/cancelRequest` convention).
-//   * Spec-007 §Required Behavior (lines 43-47) — Local IPC supports the
+//   * `Spec-007 §Required Behavior` — Local IPC supports the
 //     bidirectional stream of notifications a streaming subscription
 //     produces.
-//   * Plan-007 §Tier-1 Implementation Tasks line 271 (T-007p-2-5) —
+//   * `Plan-007 §Phase 2: Wire Substrate` (T-007p-2-5) —
 //     "Streaming primitive `LocalSubscriptionProducer<T>` shipped on top of T-1's
 //     wire substrate + T-3's registry."
 //   * F-007p-2-14 — Phase 2 ships the PRIMITIVE only; handler binding
 //     (`session.subscribe`) lands in Phase 3 (T-007p-3-1).
 //
 // Invariants this file's interface enforces (canonical text in
-// docs/plans/007-local-ipc-and-daemon-control.md §Invariants lines 95-117):
+// `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`, I-007-6 through I-007-9):
 //   * I-007-7 — schema validation runs before handler dispatch. Streaming
 //     analog: every emitted `$/subscription/notify` value MUST conform to
 //     the per-subscription `valueSchema` BEFORE the gateway sends the
@@ -49,7 +48,7 @@
 //     values into the `LocalSubscriptionProducer<T>` returned by the primitive.
 //   * The CLIENT-SIDE `LocalSubscriptionConsumer<T>` shape (with `next(): Promise<T>`,
 //     `cancel(): Promise<void>`, `[Symbol.asyncIterator]`) — owned by
-//     Plan-007 Phase 3 client-sdk (lines 324-329 of plans/007). The
+//     `Plan-007 §Client SDK + CLI (packages/client-sdk/, apps/cli/)`. The
 //     SERVER-SIDE producer interface (`LocalSubscriptionProducer<T>` in this
 //     file) is intentionally distinct from the CLIENT-SIDE consumer
 //     (`LocalSubscriptionConsumer<T>`) — BL-115 (landed 2026-05-19) renamed
@@ -110,7 +109,7 @@ import { z } from "zod";
  * LSP-style streaming method-name taxonomy is canonical in code;
  * api-payload-contracts.md does not maintain a doc-side mirror. The
  * dotted-camelCase regex ratified at §JSON-RPC Method-Name Registry
- * (lines 291-331) is intentionally limited to user-namespace methods
+ * is intentionally limited to user-namespace methods
  * and excludes the `$/`-prefixed system namespace by design.
  *
  * Important: this method is OUTBOUND-ONLY (server-emitted). The streaming

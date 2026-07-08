@@ -3,13 +3,13 @@
 // inbound handling (Plan-007 Phase 2, T-007p-2-5).
 //
 // Spec coverage:
-//   * Spec-007 §Required Behavior (lines 43-47) + §Wire Format (lines 50-56)
+//   * `Spec-007 §Required Behavior` + `Spec-007 §Wire Format`
 //     (docs/specs/007-local-ipc-and-daemon-control.md) — Local IPC supports
 //     bidirectional streaming notifications; the wire envelope is the same
 //     `Content-Length`-framed JSON-RPC envelope as request/response.
 //
 // Invariants this module owns at the streaming boundary (canonical text in
-// docs/plans/007-local-ipc-and-daemon-control.md §Invariants lines 95-117):
+// `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`, I-007-6 through I-007-9):
 //   * I-007-7 (schema validation runs before handler dispatch) streaming
 //     analog: every emitted `$/subscription/notify` value MUST conform to
 //     the per-subscription `valueSchema` BEFORE the gateway sends the

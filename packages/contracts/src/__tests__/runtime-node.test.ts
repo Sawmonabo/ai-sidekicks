@@ -1,15 +1,15 @@
 // Plan-003 PR #135 — Test C1: `RuntimeNodeAttach` request/response contract.
 //
-// Backstops Spec-003 line 82 (RuntimeNodeAttach required fields) and Spec-003
-// line 53 (`client_version` floor field — the daemon's reported version, which
+// Backstops `Spec-003 §Interfaces And Contracts` (RuntimeNodeAttach required fields) and
+// `Spec-003 §Required Behavior` (`client_version` floor field — the daemon's reported version, which
 // the Phase-3 attach service floor-compares against `sessions.min_client_version`
 // per ADR-018 §Decision #4 / I-003-1). T1.1 ships only the contract SURFACE;
-// these tests pin the wire shape (api-payload-contracts.md:503-516).
+// these tests pin the wire shape (`docs/architecture/contracts/api-payload-contracts.md §Tier 3: Plan-003 — Runtime Node Attach (Task 4.4)`).
 //
 // Coverage shape:
 //   • RuntimeNodeAttachRequestSchema ACCEPTS a payload with all required fields
 //     including `clientVersion`
-//   • REJECTS payloads missing `clientVersion` (Spec-003 line 53 floor field),
+//   • REJECTS payloads missing `clientVersion` (`Spec-003 §Required Behavior` floor field),
 //     missing `nodeId`, with an out-of-enum `healthState`, and with an unknown
 //     extra key (the `.strict()` drift guard)
 //   • clientVersion is the branded MAJOR.MINOR semver (EventEnvelopeVersion),
@@ -21,7 +21,7 @@
 //   • NodeId is a non-UUID opaque brand (catch #2): a plain non-empty string is
 //     accepted, empty/oversize rejected — it does NOT require UUID format
 //   • NodeState is exactly the 5-value liveness enum aligned with the
-//     `runtime_node_attachments.state` CHECK (shared-postgres-schema.md:202-203)
+//     `runtime_node_attachments.state` CHECK (`docs/architecture/schemas/shared-postgres-schema.md §Runtime Node Attachments (Plan-003)`)
 //   • RuntimeNodeHealthState is exactly the 2-value daemon-reported health enum
 //     (catch #10 — the hoisted shared wire enum, distinct from NodeState)
 import { describe, expect, it } from "vitest";
@@ -93,7 +93,7 @@ describe("RuntimeNodeAttachRequestSchema (C1: required fields)", () => {
     expect(RuntimeNodeAttachRequestSchema.safeParse(buildValidAttachRequest()).success).toBe(true);
   });
 
-  it("rejects a payload missing clientVersion (Spec-003 line 53 floor field)", () => {
+  it("rejects a payload missing clientVersion (`Spec-003 §Required Behavior` floor field)", () => {
     const { clientVersion: _omitted, ...withoutClientVersion } = buildValidAttachRequest();
     expect(RuntimeNodeAttachRequestSchema.safeParse(withoutClientVersion).success).toBe(false);
   });
@@ -224,7 +224,7 @@ describe("NodeIdSchema (catch #2: non-UUID opaque daemon-assigned brand)", () =>
   });
 });
 
-describe("NodeStateSchema (5-value liveness enum; shared-postgres-schema.md:202-203)", () => {
+describe("NodeStateSchema (5-value liveness enum; `docs/architecture/schemas/shared-postgres-schema.md §Runtime Node Attachments (Plan-003`))", () => {
   it.each(["registering", "online", "degraded", "offline", "revoked"])(
     "accepts the liveness value %s",
     (value) => {
@@ -251,8 +251,8 @@ describe("RuntimeNodeHealthStateSchema (catch #10: 2-value daemon-reported healt
 // Plan-003 PR #135 — Test C2: `RuntimeNodeCapabilityUpdate` request/response.
 // --------------------------------------------------------------------------
 //
-// Backstops Spec-003 line 84 (capability additions, removals, AND health
-// changes) and Spec-003 line 65 (2026-06-04 `capabilityupdate` amendment — the
+// Backstops `Spec-003 §Interfaces And Contracts` (capability additions, removals, AND health
+// changes) and `Spec-003 §Default Behavior` (2026-06-04 `capabilityupdate` amendment — the
 // daemon self-report axis is `online ↔ degraded`). The `capabilities` map is a
 // FULL REPLACEMENT set — additions and removals are both expressed by the new
 // map (removal = key omitted), so the add-only and removal cases differ only in
@@ -261,7 +261,7 @@ describe("RuntimeNodeHealthStateSchema (catch #10: 2-value daemon-reported healt
 // (online|degraded) — the SAME self-report axis as `attach`/`heartbeat`, NOT the
 // broad 5-value `NodeState` (narrowed by T3.0; `offline`/`revoked` are owned by
 // other authorities and are unrepresentable here, I-003-2 least-privilege).
-// Wire shape pinned: api-payload-contracts.md:525-535.
+// Wire shape pinned: `docs/architecture/contracts/api-payload-contracts.md §Tier 3: Plan-003 — Runtime Node Attach (Task 4.4)`.
 const buildValidCapabilityUpdateRequest = () => ({
   nodeId: NodeIdSchema.parse(NODE_ID),
   capabilities: { "feature.x": { enabled: true } },
@@ -315,14 +315,14 @@ describe("RuntimeNodeCapabilityUpdateRequestSchema (C2: additions / removals / h
     // PROVES `healthChanges.state` is wired to the 2-value
     // RuntimeNodeHealthStateSchema and NOT the 5-value NodeStateSchema (T3.0
     // narrowing): `registering`/`offline`/`revoked` are valid NodeState liveness
-    // positions (shared-postgres-schema.md:202-203) but are EXCLUDED from the
+    // positions (`docs/architecture/schemas/shared-postgres-schema.md §Runtime Node Attachments (Plan-003)`) but are EXCLUDED from the
     // 2-value daemon-reported wire-health enum, so a daemon self-report carrying
     // one is now UNCONSTRUCTABLE at the schema boundary rather than runtime-
     // accepted. Each rejected arm maps to an authority a daemon self-report is
     // not:
     //   • `registering` — the `registering → online` transition is driven by a
     //     successful daemon-side capability DECLARATION, NOT by `capabilityupdate`
-    //     (Spec-003 line 57; the amendment at line 65 forbids `capabilityupdate`
+    //     (`Spec-003 §Default Behavior`; the amendment forbids `capabilityupdate`
     //     driving `registering → online`). This narrowing is the contract-surface
     //     enforcement; the runtime transition-gating is Plan-003 T3.9.
     //   • `offline` — server-derived liveness-death (the staleness sweep,
@@ -330,8 +330,8 @@ describe("RuntimeNodeCapabilityUpdateRequestSchema (C2: additions / removals / h
     //   • `revoked` — an authority-issued trust decision (detach/admin, Plan-003
     //     T3.7), never self-asserted.
     // This is the proof of I-003-2's least-privilege corollary (a daemon self-
-    // report cannot assert liveness-death or revocation). Spec-003 line 57
-    // (online requires a daemon-side capability declaration) + line 65 (2026-06-04
+    // report cannot assert liveness-death or revocation). `Spec-003 §Default Behavior`
+    // (online requires a daemon-side capability declaration; the 2026-06-04
     // `capabilityupdate` amendment — the self-report axis is `online ↔ degraded`).
     for (const state of ["registering", "offline", "revoked"] as const) {
       const update = {
@@ -460,7 +460,7 @@ describe("RuntimeNodeCapabilityUpdateResponseSchema (C2: nodeId + state + update
 // Plan-003 PR #135 — Test C6: `RuntimeNodeHeartbeat` request + null response.
 // --------------------------------------------------------------------------
 //
-// Backstops the heartbeat wire shape (api-payload-contracts.md:518-523,576):
+// Backstops the heartbeat wire shape (`docs/architecture/contracts/api-payload-contracts.md §Tier 3: Plan-003 — Runtime Node Attach (Task 4.4)`, `docs/architecture/contracts/api-payload-contracts.md §Runtime-Node Method-Name Registry (Tier 3)`):
 // a `nodeId` + a 2-value `healthState`, and a `null` response payload (NOT a
 // 204 empty body — the resolver returns `null`, serialized as a 200 success
 // envelope). The discriminating test is the 2-value health-enum boundary: a
@@ -504,7 +504,7 @@ describe("RuntimeNodeHeartbeatRequestSchema (C6: nodeId + 2-value healthState)",
 
   it("rejects NodeState liveness values that are NOT 2-value health values (mis-wire guard)", () => {
     // `offline`/`registering`/`revoked` are valid 5-value NodeState liveness
-    // positions (shared-postgres-schema.md:202-203) but are EXCLUDED from the
+    // positions (`docs/architecture/schemas/shared-postgres-schema.md §Runtime Node Attachments (Plan-003)`) but are EXCLUDED from the
     // 2-value daemon-reported wire-health enum. If `healthState` were mis-wired
     // to the 5-value `NodeStateSchema` these would be ACCEPTED — this loop
     // catches that mis-wire and PARALLELS the capability-update 2-value reject
@@ -543,7 +543,7 @@ describe("RuntimeNodeHeartbeatResponseSchema (C6: null no-content payload)", () 
 // Plan-003 PR #135 — Test C3: `RuntimeNodeDetach` request + null response.
 // --------------------------------------------------------------------------
 //
-// Backstops the detach wire shape (api-payload-contracts.md:537-542,574): a
+// Backstops the detach wire shape (`docs/architecture/contracts/api-payload-contracts.md §Tier 3: Plan-003 — Runtime Node Attach (Task 4.4)`, `docs/architecture/contracts/api-payload-contracts.md §Runtime-Node Method-Name Registry (Tier 3)`): a
 // `nodeId` + an OPTIONAL free-form `reason`, and a `null` response payload. The
 // `reason` field composes `wireFreeFormString` (session.ts:118), so it inherits
 // the trust-boundary guards — these mirror the four `InviteRevoke.reason` /
@@ -624,7 +624,7 @@ describe("RuntimeNodeDetachResponseSchema (C3: null no-content payload)", () => 
 //
 // C4 acceptance criterion: the exported 7-name `runtime_node.*` set is exactly
 // equal (as a sorted set) to the 7 names in the Runtime Node Lifecycle taxonomy
-// table at Spec-006 lines 407-413 — neither superset nor subset. The SET
+// table at `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` — neither superset nor subset. The SET
 // MEMBERSHIP is the contract (additions MINOR, removals MAJOR under ADR-018
 // §Decision #8), not the declaration order, so the equality is asserted
 // order-independently against a hardcoded expected-7 array re-derived from the
@@ -654,7 +654,7 @@ const expectedSevenFromSpec006 = [
 ];
 
 describe("RUNTIME_NODE_EVENT_NAMES (C4: 7-name runtime_node.* taxonomy)", () => {
-  it("is exactly the sorted set of the 7 names in Spec-006 lines 407-413", () => {
+  it("is exactly the sorted set of the 7 names in `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle`)", () => {
     // Order-independent SET equality: sort both sides so a reorder of either the
     // export tuple or the spec table does not spuriously fail, while a
     // missing/extra/renamed name does (the membership IS the contract per
@@ -724,9 +724,9 @@ describe("RUNTIME_NODE_EVENT_NAMES (C4: 7-name runtime_node.* taxonomy)", () => 
 // Cites: `Spec-003 §Required Behavior`, `Spec-003 §Acceptance Criteria` AC4, I-003-1, ADR-018 §Decision #4 /
 // §Decision #10, `docs/architecture/contracts/error-contracts.md §Version`.
 describe("VersionFloorExceededErrorSchema (C5: VERSION_FLOOR_EXCEEDED typed-contract conformance — Plan-003 consumer anchor)", () => {
-  it("pins the wire code literal to the value registered in error-contracts.md:377", () => {
+  it("pins the wire code literal to the value registered in `docs/architecture/contracts/error-contracts.md §Version`", () => {
     // The expected string is single-sourced from the INDEPENDENT registry —
-    // error-contracts.md:377 maps the typed `VERSION_FLOOR_EXCEEDED` name to the
+    // `docs/architecture/contracts/error-contracts.md §Version` maps the typed `VERSION_FLOOR_EXCEEDED` name to the
     // dotted wire code `version.floor_exceeded` (ADR-018 §Decision #10 mandates
     // registration there). That doc, NOT `error.ts`, is the source of the
     // expected value here, so this pin detects drift in `error.ts` rather than
@@ -998,7 +998,7 @@ describe("RuntimeNodeCapabilityDeclaredPayloadSchema (C7: reduced base + {capabi
 
   it("REJECTS a newState key (reduced base omits the NodeState-transition fields)", () => {
     // Discriminating reduced-base proof: capability events are NOT NodeState
-    // transitions (the canonical payload, api-payload-contracts.md:1020, carries no
+    // transitions (the canonical payload, `docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy`, carries no
     // base NodeState fields). A `newState` key is therefore an unknown key under
     // `.strict()` — its presence rejects.
     const broken = { ...buildValidCapabilityDeclaredPayload(), newState: "online" };
@@ -1147,13 +1147,13 @@ describe("RuntimeNodeCapabilityUpdatedPayloadSchema (C7: reduced base + {capabil
 // Plan-003 Phase 5 — T5.0b: `RuntimeNodeRoster` request / entry / response.
 // --------------------------------------------------------------------------
 //
-// Backstops the roster wire shape (api-payload-contracts.md:544-564; registry
-// row :566) pinned in Spec-003 §Interfaces And Contracts (2026-06-09
-// amendment, lines 90-94): request `{ sessionId }`, the nine-field both-axes
+// Backstops the roster wire shape (`docs/architecture/contracts/api-payload-contracts.md §Tier 3: Plan-003 — Runtime Node Attach (Task 4.4)`; registry
+// row in `docs/architecture/contracts/api-payload-contracts.md §Runtime-Node Method-Name Registry (Tier 3)`) pinned in Spec-003 §Interfaces And Contracts (2026-06-09
+// amendment): request `{ sessionId }`, the nine-field both-axes
 // entry, and response `{ nodes: RuntimeNodeRosterEntry[] }`. Spec coverage:
-// Spec-003 line 72 (both health axes carried verbatim — no collapsed scalar),
-// line 128 (AC2 — `degraded`/`offline` representable and distinguishable on
-// the wire), line 129 (AC3 — multiple nodes coexist in one roster), line 49
+// `Spec-003 §Default Behavior` (both health axes carried verbatim — no collapsed scalar),
+// `Spec-003 §Acceptance Criteria` AC2 (`degraded`/`offline` representable and distinguishable on
+// the wire) + AC3 (multiple nodes coexist in one roster), and `Spec-003 §Required Behavior`
 // (multiple runtime nodes per session — `nodes[]`). The discriminating enum
 // coverage runs BOTH directions: `healthState` ACCEPTING `offline` proves it
 // is not mis-wired to the 2-value `RuntimeNodeHealthStateSchema` (which
@@ -1240,7 +1240,7 @@ describe("RuntimeNodeRosterEntrySchema (T5.0b: nine-field both-axes entry)", () 
   );
 
   it("accepts an entry whose axes disagree (state degraded + healthState online)", () => {
-    // Spec-003 line 72 never-mask stance: the schema imposes NO cross-field
+    // `Spec-003 §Default Behavior` never-mask stance: the schema imposes NO cross-field
     // constraint between the slot and liveness axes — reconciliation is the
     // client's render-time concern, never the wire's.
     const disagreeingAxes = {

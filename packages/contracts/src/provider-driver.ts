@@ -178,7 +178,7 @@ export interface InterruptRunParams {
   runId: RunId;
   // `?: T | undefined` per the package idiom under `exactOptionalPropertyTypes`
   // (session.ts:252-257). Load-bearing here: T4.2 pairs `InterruptRunParamsSchema`
-  // (Plan-005 line 294), whose Zod `.optional()` infers `string | undefined` — the
+  // (`Plan-005 §Phase 4 — Client SDK exposure + degraded-fallback`), whose Zod `.optional()` infers `string | undefined` — the
   // explicit `| undefined` keeps the interface and the inferred schema output aligned.
   reason?: string | undefined;
 }
@@ -395,7 +395,7 @@ export interface GetCapabilitiesResult {
 //
 // `InterventionType` is DEFINED here (co-located per CP-005-6): Plan-005 is its
 // lowest-tier author, and Plan-004 Tier 5 imports it from this contract. Mirrors
-// api-payload-contracts.md § Shared Enums line 149 verbatim.
+// `docs/architecture/contracts/api-payload-contracts.md §Shared Enums` verbatim.
 export type InterventionType = "steer" | "interrupt" | "cancel";
 
 // Nominal TS — daemon-constructed param. Discriminated union over `type`: each
@@ -432,7 +432,7 @@ export interface CancelPayload {
 // by convention. Intentionally a flat object, NOT a `status`-discriminated union
 // like the sibling `DriverResumeResult`: that envelope's variants carry different
 // REQUIRED fields, whereas these two differ only by one optional field — the flat
-// shape mirrors the ratified api-payload-contracts.md:725 envelope (Phase-4
+// shape mirrors the ratified `docs/architecture/contracts/api-payload-contracts.md §Plan-005 — Provider Driver Contract (Internal Interface)` envelope (Phase-4
 // decision #3). Non-transforming object → double-`T` annotation per
 // session.ts:289-294.
 export interface DriverInterventionResult {

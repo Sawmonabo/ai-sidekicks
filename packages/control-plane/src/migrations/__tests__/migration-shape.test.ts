@@ -3,7 +3,7 @@
 // Plan-002 §Test Plan P10 names a "migration SHAPE regression": Plan-002's v2
 // migration must add EXACTLY the durable surface it claims (`session_invites`)
 // and introduce NO presence-state table — I-002-3 (presence is in-memory only;
-// Spec-002 §State And Data Implications line 157, Plan-002 §Invariants I-002-3).
+// `Spec-002 §State And Data Implications`, Plan-002 §Invariants I-002-3).
 //
 // ----------------------------------------------------------------------------
 // Division of labor with `0002-session-invites.test.ts` T6 — NOT duplication
@@ -48,7 +48,7 @@
 // boundary the canonical `applyMigrations` uses, inlined here).
 //
 // Refs: Plan-002 §Test Plan P10, Plan-002 §Invariants I-002-3, Spec-002
-// §State And Data Implications line 157, `0002-session-invites.test.ts` T6
+// §State And Data Implications, `0002-session-invites.test.ts` T6
 // (the complementary per-migration `%presence%` probe).
 
 import { PGlite, type Transaction } from "@electric-sql/pglite";

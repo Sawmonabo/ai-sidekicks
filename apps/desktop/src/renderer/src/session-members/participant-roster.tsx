@@ -1,11 +1,11 @@
 // Plan-002 Phase 6 T6.2 (Tier 2) — renderer ParticipantRoster component.
 //
 // Spec-002 coverage:
-//   • §AC1 (line 178, an invited participant joins an already active session):
+//   • `Spec-002 §Acceptance Criteria` AC1 (an invited participant joins an already active session):
 //     this view is the renderer surface that renders the joined-membership
 //     roster — every participant the daemon's presence projection reports for
 //     the session, including those who joined via the T6.1 invite-accept path.
-//   • §AC2 (line 179, "Membership remains durable when presence goes offline
+//   • `Spec-002 §Acceptance Criteria` AC2 ("Membership remains durable when presence goes offline
 //     and later returns"): the roster renders members with `state: "offline"`
 //     because `offline` is a first-class `PresenceState` (presence.ts:122) — a
 //     participant whose presence drops appears with an `offline` indicator
@@ -15,8 +15,8 @@
 //     `membership.*` to reconstruct durability (that would be a contract
 //     expansion outside this task's scope — `membership.*` is intentionally
 //     NOT consumed here).
-//   • §Interfaces And Contracts line 85 ("`PresenceUpdate` … daemon pushes
-//     serialized Yjs Awareness state to local clients") + line 86 ("`PresenceRead`
+//   • §Interfaces And Contracts ("`PresenceUpdate` … daemon pushes
+//     serialized Yjs Awareness state to local clients"; "`PresenceRead`
 //     … local clients read current presence state for a session"): the two wire
 //     surfaces this view composes. See the Option-C design note below for WHY
 //     the two are composed the way they are.
@@ -28,7 +28,7 @@
 //   correct design, exactly as T6.1's shorthand did. The subscribe-only design
 //   it implies is WRONG because the `presence.subscribe` stream delivers
 //   `PresenceUpdate = { sessionId, awarenessState: Uint8Array }` (presence.ts:280-283)
-//   — an OPAQUE serialized Yjs Awareness CRDT delta (Spec-002 line 85). You
+//   — an OPAQUE serialized Yjs Awareness CRDT delta (`Spec-002 §Interfaces And Contracts`). You
 //   cannot render per-participant presence indicators from that blob without a
 //   Yjs awareness decoder, and there is NO decode precedent anywhere in the
 //   repo. Adding `y-protocols` (or any Yjs decode) to the renderer would be
@@ -36,8 +36,8 @@
 //   encoding, for a Tier-1 stub that throws — and it would breach the
 //   renderer-untrusted import allowlist below.
 //
-//   The DECODED per-participant list comes from `presence.read` (Spec-002
-//   line 86): `daemon.call("presence.read", { sessionId })` →
+//   The DECODED per-participant list comes from `presence.read`
+//   (`Spec-002 §Interfaces And Contracts`): `daemon.call("presence.read", { sessionId })` →
 //   `PresenceReadResponse = { participants: Array<{ participantId, state, lastSeen }> }`
 //   (presence.ts:309-329), where `PresenceState = "online" | "idle" |
 //   "reconnecting" | "offline"` (presence.ts:122). That decoded shape is what

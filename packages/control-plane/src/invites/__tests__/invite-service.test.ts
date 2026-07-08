@@ -1,25 +1,25 @@
 // InviteService accept/revoke + hash-storage tests — Plan-002 Phase 2 (T2.2).
 //
 // Coverage (Plan-002 §Test Plan rows, mapped to the dispatched spec_coverage):
-//   P1 (AC1, Spec-002 line 81): a valid accept transitions the invite
+//   P1 (AC1, `Spec-002 §Interfaces And Contracts`): a valid accept transitions the invite
 //      `pending -> accepted` AND creates an ACTIVE `session_memberships` row in
 //      the same transaction.
-//   P2 (Spec-002 line 139): accepting a REVOKED invite throws
+//   P2 (`Spec-002 §Invite Revocation`): accepting a REVOKED invite throws
 //      `invite.revoked` and creates / mutates NO membership row.
-//   P3 (Spec-002 line 112): an EXPIRED token throws `invite.expired`
+//   P3 (`Spec-002 §Token Security Properties`): an EXPIRED token throws `invite.expired`
 //      regardless of the DB `state` (asserted against a still-`pending` row).
-//   P4 (Spec-002 line 109): a SECOND accept of the same token (same jti)
+//   P4 (`Spec-002 §Token Security Properties`): a SECOND accept of the same token (same jti)
 //      throws `invite.already_accepted`; the first accept already consumed it.
-//   P5 (Spec-002 line 111): the persisted `token_hash` equals
+//   P5 (`Spec-002 §Token Security Properties`): the persisted `token_hash` equals
 //      `SHA-256(token)` and the plaintext token appears in NO column. The
 //      hash-storage test lands HERE per the audit (NOT in T2.1).
-//   P8 (Spec-002 line 138/139): a revoked invite can never be accepted, so a
+//   P8 (`Spec-002 §Invite Revocation`): a revoked invite can never be accepted, so a
 //      revoked participant cannot re-join without a NEW invite — revoke then
 //      accept the SAME token throws `invite.revoked`.
-//   Owner-authorization (Spec-002 line 142): a NON-owner revoke throws
+//   Owner-authorization (`Spec-002 §Invite Revocation`): a NON-owner revoke throws
 //      `invite.permission_denied` and leaves the invite `state` unchanged; an
-//      OWNER revoke transitions `state -> 'revoked'` (also exercises line 138
-//      immediacy).
+//      OWNER revoke transitions `state -> 'revoked'` (also exercises the
+//      §Invite Revocation immediacy).
 //
 // Harness: the in-process PGlite pattern from
 // `memberships/__tests__/membership-service.test.ts` — a fresh ephemeral
@@ -124,8 +124,8 @@ function isPGlite(handle: PGlite | Transaction): handle is PGlite {
 // ----------------------------------------------------------------------------
 //
 // The claim payload is byte-for-byte the `{session_id, inviter_id, join_mode,
-// expires_at, jti}` shape `InviteService.createInvite` encrypts (Spec-002
-// line 113). The token is minted with the SAME `KeyRing` active key the
+// expires_at, jti}` shape `InviteService.createInvite` encrypts
+// (`Spec-002 §Token Security Properties`). The token is minted with the SAME `KeyRing` active key the
 // service holds, then the row is seeded directly via INSERT carrying ONLY
 // `SHA-256(token)` — matching the issuance write so the accept path's
 // hash-lookup resolves. Seeding the row directly (rather than calling
@@ -386,7 +386,7 @@ describe("InviteService.acceptInvite — P3 (expired -> invite.expired regardles
     await seedSession(ctx.querier, SESSION_ID);
 
     // Token claim's expires_at is in the PAST; the DB row is still `pending`
-    // with a matching past expiry. Per Spec-002 line 112 the CLAIM is
+    // with a matching past expiry. Per `Spec-002 §Token Security Properties` the CLAIM is
     // authoritative and an expired token is rejected regardless of DB state.
     const pastExpiry: string = isoOffset(-60 * 1000);
     const minted: MintedInvite = mintInviteToken(ctx.keyRing, {
@@ -418,8 +418,9 @@ describe("InviteService.acceptInvite — P3 (expired -> invite.expired regardles
   });
 
   // Reclassification completeness — DISTINCT from the claim-authoritative path
-  // above. Here the token claim's expires_at is in the FUTURE (so the line-112
-  // claim check does NOT fire), but the persisted `session_invites.state` is
+  // above. Here the token claim's expires_at is in the FUTURE (so the
+  // §Token Security Properties expiry-authoritative check does NOT fire), but
+  // the persisted `session_invites.state` is
   // 'expired' (the CHECK admits it — migrations/0002-session-invites.ts). The
   // single-use UPDATE matches zero rows and the zero-row reclassification must
   // surface invite.expired, NOT invite.already_accepted. This path is latent in
@@ -496,7 +497,7 @@ describe("InviteService.acceptInvite — P4 (single-use: second accept -> invite
     expect(afterFirst?.state).toBe("accepted");
 
     // Second accept of the SAME token (same jti) is rejected as already
-    // accepted — single-use (Spec-002 line 109).
+    // accepted — single-use (`Spec-002 §Token Security Properties`).
     const error = await ctx.service
       .acceptInvite(INVITEE_PARTICIPANT_ID, { token: minted.token })
       .catch((e: unknown) => e);
@@ -524,7 +525,7 @@ describe("InviteService — P5 (hash storage: token_hash == SHA-256(token), plai
     await seedParticipant(ctx.querier, OWNER_PARTICIPANT_ID);
     await seedSession(ctx.querier, SESSION_ID);
     // The issuer must be an active OWNER of the session (security-architecture.md
-    // §Permission Matrix row 299, Spec-002 line 142). Seed that membership so
+    // §Permission Matrix, `Spec-002 §Invite Revocation`). Seed that membership so
     // the issuance gate admits the call.
     await seedMembership(ctx.querier, {
       sessionId: SESSION_ID,
@@ -541,7 +542,7 @@ describe("InviteService — P5 (hash storage: token_hash == SHA-256(token), plai
     });
 
     // The stored token_hash equals SHA-256 of the plaintext token the caller
-    // received (Spec-002 line 111).
+    // received (`Spec-002 §Token Security Properties`).
     const expectedHash: string = createHash("sha256").update(created.token).digest("hex");
     const row = await ctx.querier.query<{
       id: string;
@@ -579,8 +580,8 @@ describe("InviteService — P5 (hash storage: token_hash == SHA-256(token), plai
 });
 
 // ----------------------------------------------------------------------------
-// createInvite owner-authorization (security-architecture.md §Permission Matrix
-// row 299, Spec-002 line 142 — "Invite participants" is owner-only)
+// createInvite owner-authorization (security-architecture.md §Permission Matrix,
+// `Spec-002 §Invite Revocation` — "Invite participants" is owner-only)
 // ----------------------------------------------------------------------------
 //
 // Issuance is gated on the AUTHENTICATED actor, not the body. The body
@@ -603,7 +604,7 @@ async function countInvitesForSession(querier: Querier, sessionId: string): Prom
   return probe.rows[0]?.n ?? -1;
 }
 
-describe("InviteService.createInvite — owner-authorization (Spec-002 line 142, Permission Matrix row 299)", () => {
+describe("InviteService.createInvite — owner-authorization (`Spec-002 §Invite Revocation`, Permission Matrix)", () => {
   it("a non-owner ACTIVE member issuing for themselves throws invite.permission_denied and writes no invite row", async () => {
     await seedParticipant(ctx.querier, OWNER_PARTICIPANT_ID);
     await seedParticipant(ctx.querier, NON_OWNER_PARTICIPANT_ID);
@@ -780,20 +781,20 @@ describe("InviteService — P8 (revoked invite cannot be accepted: no re-join wi
 });
 
 // ----------------------------------------------------------------------------
-// revoke must not overwrite a TERMINAL invite state (Spec-002 lines 109, 155)
+// revoke must not overwrite a TERMINAL invite state (`Spec-002 §Token Security Properties` + `Spec-002 §State And Data Implications`)
 // ----------------------------------------------------------------------------
 //
 // Drives the REAL accept -> revoke -> reuse round-trip through the service
 // (not a direct DB poke). After a token is consumed (invite `accepted`,
-// single-use per line 109), an owner revoke MUST be a no-op: `accepted` is a
-// TERMINAL, durable state (line 155). The load-bearing assertion is the
+// single-use per `Spec-002 §Token Security Properties`), an owner revoke MUST be a no-op: `accepted` is a
+// TERMINAL, durable state (`Spec-002 §State And Data Implications`). The load-bearing assertion is the
 // SECOND accept (token reuse) — it must classify as `invite.already_accepted`,
 // NOT `invite.revoked`. With the revoke guard missing, the revoke would clobber
 // `accepted -> revoked`, the durable single-use record would be lost, and the
 // reuse would surface `invite.revoked` — masking that a membership was already
 // created.
 
-describe("InviteService.revokeInvite — does not overwrite an accepted (terminal) invite (Spec-002 lines 109, 155)", () => {
+describe("InviteService.revokeInvite — does not overwrite an accepted (terminal) invite (`Spec-002 §Token Security Properties` + `Spec-002 §State And Data Implications`)", () => {
   it("accept -> revoke (no-op) -> reuse still classifies as invite.already_accepted, not invite.revoked", async () => {
     await seedParticipant(ctx.querier, OWNER_PARTICIPANT_ID);
     await seedParticipant(ctx.querier, INVITEE_PARTICIPANT_ID);
@@ -821,7 +822,7 @@ describe("InviteService.revokeInvite — does not overwrite an accepted (termina
     });
 
     // (1) The invitee accepts: invite `pending -> accepted` and an ACTIVE
-    // membership is created in the same transaction (Spec-002 line 81).
+    // membership is created in the same transaction (`Spec-002 §Interfaces And Contracts`).
     const accepted = await ctx.service.acceptInvite(INVITEE_PARTICIPANT_ID, {
       token: minted.token,
     });
@@ -834,7 +835,7 @@ describe("InviteService.revokeInvite — does not overwrite an accepted (termina
     // (2) The owner now revokes the SAME invite. The `state = 'pending'` guard
     // means the now-`accepted` row matches 0 rows, so revoke is a no-op: it
     // returns `null` (the not-found wire mapping) and MUST NOT clobber the
-    // durable terminal `accepted` state back to `revoked` (Spec-002 line 155).
+    // durable terminal `accepted` state back to `revoked` (`Spec-002 §State And Data Implications`).
     const revokeResult = await ctx.service.revokeInvite(OWNER_PARTICIPANT_ID, {
       sessionId: SESSION_ID,
       inviteId,
@@ -856,10 +857,10 @@ describe("InviteService.revokeInvite — does not overwrite an accepted (termina
 });
 
 // ----------------------------------------------------------------------------
-// Owner-authorization (Spec-002 line 142) — owner-only revoke
+// Owner-authorization (`Spec-002 §Invite Revocation`) — owner-only revoke
 // ----------------------------------------------------------------------------
 
-describe("InviteService.revokeInvite — owner-authorization (Spec-002 line 142)", () => {
+describe("InviteService.revokeInvite — owner-authorization (`Spec-002 §Invite Revocation`)", () => {
   it("a NON-owner revoke throws invite.permission_denied and leaves the invite state unchanged", async () => {
     await seedParticipant(ctx.querier, OWNER_PARTICIPANT_ID);
     await seedParticipant(ctx.querier, NON_OWNER_PARTICIPANT_ID);
@@ -892,7 +893,7 @@ describe("InviteService.revokeInvite — owner-authorization (Spec-002 line 142)
       expiresAt: isoOffset(24 * 60 * 60 * 1000),
     });
 
-    // A non-owner (collaborator) attempts to revoke. Spec-002 line 142:
+    // A non-owner (collaborator) attempts to revoke. `Spec-002 §Invite Revocation`:
     // owner-only. MUST throw the typed permission error.
     const error = await ctx.service
       .revokeInvite(NON_OWNER_PARTICIPANT_ID, { sessionId: SESSION_ID, inviteId })
@@ -906,7 +907,7 @@ describe("InviteService.revokeInvite — owner-authorization (Spec-002 line 142)
     expect(afterInvite?.state).toBe("pending");
   });
 
-  it("an OWNER revoke transitions the invite state -> 'revoked' (line 138 immediacy)", async () => {
+  it("an OWNER revoke transitions the invite state -> 'revoked' (§Invite Revocation immediacy)", async () => {
     await seedParticipant(ctx.querier, OWNER_PARTICIPANT_ID);
     await seedSession(ctx.querier, SESSION_ID);
     await seedMembership(ctx.querier, {
@@ -942,7 +943,7 @@ describe("InviteService.revokeInvite — owner-authorization (Spec-002 line 142)
     expect(result?.inviteId).toBe(inviteId);
     expect(result?.state).toBe("revoked");
 
-    // Immediacy (line 138): the row is `revoked` immediately after the call.
+    // Immediacy (§Invite Revocation): the row is `revoked` immediately after the call.
     const afterInvite = await readInviteRow(ctx.querier, inviteId);
     expect(afterInvite?.state).toBe("revoked");
 
@@ -963,7 +964,7 @@ describe("InviteService.revokeInvite — owner-authorization (Spec-002 line 142)
 // Accept must never downgrade an already-active membership (I-002-2 guard)
 // ----------------------------------------------------------------------------
 //
-// Regression for the create-or-activate semantics (Spec-002 line 42): a sole
+// Regression for the create-or-activate semantics (`Spec-002 §Required Behavior`): a sole
 // active OWNER who accepts a `collaborator` invite for their own session must
 // NOT be downgraded to `collaborator`. An unconditional `role = EXCLUDED.role`
 // upsert would drop the session to zero active owners — the unrecoverable

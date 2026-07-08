@@ -2,18 +2,18 @@
 // per-connection mutating-op gate (Plan-007 Phase 2, T-007p-2-4).
 //
 // Spec coverage:
-//   * Spec-007 §Required Behavior line 47
+//   * `Spec-007 §Required Behavior`
 //     (docs/specs/007-local-ipc-and-daemon-control.md) — "Local IPC must
 //     support protocol version negotiation before mutating operations are
 //     accepted."
-//   * Spec-007 §Fallback Behavior lines 67-68 — "If version negotiation
+//   * `Spec-007 §Fallback Behavior` — "If version negotiation
 //     fails, read-only compatibility may continue, but mutating operations
 //     must be blocked until versions are compatible."
-//   * Spec-007 §Interfaces And Contracts line 73 — "`DaemonHello` and
+//   * `Spec-007 §Interfaces And Contracts` — "`DaemonHello` and
 //     `DaemonHelloAck` must perform version negotiation."
 //
 // Invariants this module owns at the negotiation boundary (canonical text in
-// docs/plans/007-local-ipc-and-daemon-control.md §Invariants lines 95-117):
+// `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`, I-007-6 through I-007-9):
 //   * I-007-7 — schema validation runs before handler dispatch. Achieved by
 //     registering `DaemonHelloSchema` against the registry surface; the
 //     standard schema-validates-before-dispatch path applies to the

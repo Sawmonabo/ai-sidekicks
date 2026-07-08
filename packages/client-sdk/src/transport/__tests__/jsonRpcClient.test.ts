@@ -1,7 +1,7 @@
 // I-007-3-T4 — SDK Zod-wrapper test suite (T-007p-3-4).
 //
 // Spec coverage:
-//   * Spec-007 line 56 — typed JSON-RPC client transport surface owed to
+//   * `Spec-007 §Wire Format` — typed JSON-RPC client transport surface owed to
 //     desktop renderer + CLI consumers
 //     (docs/specs/007-local-ipc-and-daemon-control.md).
 //   * Plan-007 §Cross-Plan Obligations CP-007-4 — `transport/jsonRpcClient.ts`

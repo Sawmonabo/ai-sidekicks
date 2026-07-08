@@ -5,7 +5,7 @@
 // runtime-node.ts:124-131; the field at :129, realized as the interim-opaque
 // two-arg `z.record(z.string(), z.unknown())` at :164). `AttachFlow` composes
 // it so the user sees what the node declares BEFORE and WHILE it attaches
-// (Spec-003 line 48 — "Attach must include node identity, declared
+// (`Spec-003 §Required Behavior` — "Attach must include node identity, declared
 // capabilities, health, and trust context"); the prop contract is the
 // contract shape itself, so the view is equally consumable standalone (e.g. a
 // future roster-detail surface rendering an attached node's
@@ -27,11 +27,11 @@
 // capability map arrives as a prop; this view renders what is DECLARED and
 // neither validates nor declares:
 //   • Declaration AUTHORITY is the daemon-side node-capability service
-//     (Spec-003 line 57 — a node defaults `online` only after capability
+//     (`Spec-003 §Default Behavior` — a node defaults `online` only after capability
 //     declaration succeeds; Plan-003 §Invariants I-003-2). A future editor
 //     must NOT add capability validation here: a capability-validation
 //     FAILURE surfaces as the node's `degraded`/`offline` state on the
-//     roster's slot axis (Spec-003 line 76; rendered by the sibling
+//     roster's slot axis (`Spec-003 §Fallback Behavior`; rendered by the sibling
 //     NodeRoster), never as this view second-guessing the declared map.
 //   • Capability VALUES are interim-opaque `unknown` until Plan-006 Tier 4
 //     binds the canonical `CapabilityDetails` over the capability fields
@@ -113,7 +113,7 @@ function formatCapabilityValue(declaredValue: unknown): string {
 /**
  * Renders a runtime node's declared capability set: one row per declared
  * capability (name + formatted value), or an explicit "nothing declared"
- * state for the empty map — the least-privilege default (Spec-003 line 58)
+ * state for the empty map — the least-privilege default (`Spec-003 §Default Behavior`)
  * is a fact worth rendering, not blank space.
  *
  * Purely presentational: no bridge access, no hooks — see the file header

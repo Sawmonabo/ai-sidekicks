@@ -1,14 +1,14 @@
 // W-007p-2-T1 + T8 — ProtocolNegotiator test suite (T-007p-2-6).
 //
 // Spec coverage:
-//   * Spec-007 §Required Behavior line 47
+//   * `Spec-007 §Required Behavior`
 //     (docs/specs/007-local-ipc-and-daemon-control.md) — "Local IPC must
 //     support protocol version negotiation before mutating operations
 //     are accepted."
-//   * Spec-007 §Fallback Behavior lines 67-68 — "If version negotiation
+//   * `Spec-007 §Fallback Behavior` — "If version negotiation
 //     fails, read-only compatibility may continue, but mutating
 //     operations must be blocked until versions are compatible."
-//   * Spec-007 §Interfaces And Contracts line 73 — "`DaemonHello` and
+//   * `Spec-007 §Interfaces And Contracts` — "`DaemonHello` and
 //     `DaemonHelloAck` must perform version negotiation."
 //
 // Invariants verified here (canonical text in
@@ -20,7 +20,7 @@
 //     standard schema-validates-before-dispatch path (registered with
 //     `DaemonHelloSchema` / `DaemonHelloAckSchema`).
 //
-// W-tests covered here (per Plan-007 §Phase 2 lines 373 + 380):
+// W-tests covered here (per `Plan-007 §Phase 2 — Wire Substrate (W-007p-2-T1..T11)`):
 //   * W-007p-2-T1 — Handshake + version-negotiation compatibility.
 //                   `DaemonHello` / `DaemonHelloAck` exchange yields
 //                   `compatible: true` when intersection is non-empty;
@@ -275,7 +275,7 @@ describe("W-007p-2-T8 — mutating-op gate when version-mismatch", () => {
     expect(result).toStrictEqual({ ok: true });
   });
 
-  it("after INCOMPATIBLE handshake, read methods still pass + mutating methods refused (Spec-007 §Fallback Behavior)", async () => {
+  it("after INCOMPATIBLE handshake, read methods still pass + mutating methods refused (`Spec-007 §Fallback Behavior`)", async () => {
     const { raw, gated } = makeFixture();
     raw.register(
       "math.read",

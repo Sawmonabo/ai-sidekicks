@@ -13,10 +13,10 @@
 //      Baseline `nodeIntegration: false` + `sandbox: true` combination
 //      successfully prevented any Node API leak into the renderer).
 //   4. `window.process` is `undefined` — the second of the three Node-
-//      API-leak globals named by Spec-023 §Acceptance Criteria line 602.
+//      API-leak globals named by `Spec-023 §Acceptance Criteria`.
 //   5. `window.global` is `undefined` — the third Node-API-leak global
-//      named by Spec-023 §Acceptance Criteria line 602. With this third
-//      assertion the Tier 1 smoke covers the full Spec-023 line 602 set
+//      named by `Spec-023 §Acceptance Criteria`. With this third
+//      assertion the Tier 1 smoke covers the full `Spec-023 §Acceptance Criteria` set
 //      (`require` / `process` / `global`); the Tier 8 Playwright E2E
 //      suite repeats the assertion across packaged-binary surfaces, but
 //      the Tier 1 substrate is the load-bearing single-source-of-truth.
@@ -351,7 +351,7 @@ describe("Plan-023 Phase 1 — substrate-boots smoke", () => {
       expect(probe.probe.sidekicks).toBe("object");
 
       // Invariant 3: `window.require` is `undefined` — i.e., no Node API
-      // leak into the renderer. Spec-023 §Acceptance Criteria line 602:
+      // leak into the renderer. `Spec-023 §Acceptance Criteria`:
       // "Renderer attempts to access `require`, `process`, or `global`
       // return `undefined` — verified by runtime assertion in a sandbox
       // test." If this drifts to `"function"`, `nodeIntegration: true`
@@ -359,12 +359,12 @@ describe("Plan-023 Phase 1 — substrate-boots smoke", () => {
       expect(probe.probe.require).toBe("undefined");
 
       // Invariant 4: `window.process` is `undefined` — the second of the
-      // three Node-API-leak globals named by Spec-023 §Acceptance Criteria
-      // line 602 (require / process / global).
+      // three Node-API-leak globals named by `Spec-023 §Acceptance Criteria`
+      // (require / process / global).
       expect(probe.probe.process).toBe("undefined");
 
       // Invariant 5: `window.global` is `undefined` — the third Node-API-
-      // leak global named by Spec-023 §Acceptance Criteria line 602. Tier 1
+      // leak global named by `Spec-023 §Acceptance Criteria`. Tier 1
       // covers the full set of three at this single smoke layer; the Tier 8
       // Playwright `_electron` E2E suite repeats the assertion across the
       // packaged-binary surfaces (signed installer, asar bundle, autoupdate
