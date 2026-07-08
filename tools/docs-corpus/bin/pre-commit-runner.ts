@@ -41,10 +41,16 @@ import {
 } from "../lib/cite-target-existence.ts";
 import {
   expandToInboundCiteCorpus,
+  findGovernanceCitersOfCode,
   getRepoRoot,
   makeIndexAwareReader,
 } from "../lib/inbound-cite-discovery.ts";
-import { checkLabelCiteTargets, formatLabelCiteViolations } from "../lib/label-cite.ts";
+import {
+  checkLabelCiteTargets,
+  checkSectionCites,
+  extractLabelCites,
+  formatLabelCiteViolations,
+} from "../lib/label-cite.ts";
 import { checkMermaidSetCoherence, formatMermaidViolations } from "../lib/mermaid-set-coherence.ts";
 import {
   checkPathCanonicalRipple,
@@ -160,10 +166,25 @@ export function runChecks(args: string[]): RunChecksResult {
     const reader = makeIndexAwareReader(repoRoot, stagedAbsolute);
 
     if (stagedMd.length > 0) {
-      const expanded = expandToInboundCiteCorpus(stagedMd, repoRoot, reader);
+      // §-form citers reach the expansion via the extractor callback — their
+      // cite shape lives in label-cite, not extractCites (a staged heading
+      // rename must pull in the unstaged `Spec-NNN §Old Heading` citer).
+      const sectionCiteTargets = (candidate: string): string[] =>
+        extractLabelCites(candidate, reader)
+          .filter((cite) => cite.section !== undefined)
+          .map((cite) => cite.targetPath);
+      const expanded = expandToInboundCiteCorpus(stagedMd, repoRoot, reader, sectionCiteTargets);
       const citeHits = checkCiteTargetExistence(expanded, reader);
       if (citeHits.length > 0) {
         messages.push(formatCiteTargetViolations(citeHits));
+        exitCode = 1;
+      }
+      // Backticked `Spec-NNN §Heading` cites in DOCS verify against the
+      // resolved doc's headings, same as code citers — a section-only walk
+      // (raw label-form md floors stay cite-target-existence's beat above).
+      const sectionHits = checkSectionCites(expanded, reader);
+      if (sectionHits.length > 0) {
+        messages.push(formatLabelCiteViolations(sectionHits));
         exitCode = 1;
       }
     }
@@ -190,6 +211,22 @@ export function runChecks(args: string[]): RunChecksResult {
       if (labelHits.length > 0) {
         messages.push(formatLabelCiteViolations(labelHits));
         exitCode = 1;
+      }
+
+      // C-lite reverse-direction advisory (never blocks): a staged code file
+      // that governance docs cite may have moved/removed the cited content —
+      // tell the developer which citers to eyeball. CI's full sweep remains
+      // the enforcement backstop.
+      const reverseCiters = findGovernanceCitersOfCode(stagedCode, repoRoot, reader);
+      if (reverseCiters.size > 0) {
+        const warnLines = [
+          "WARNING (advisory): staged code is cited by governance docs — if this edit moved or removed the cited content, update the citing docs:",
+        ];
+        for (const [citer, targets] of reverseCiters) {
+          warnLines.push(`  ${citer} → ${targets.join(", ")}`);
+        }
+        messages.push(warnLines.join("\n"));
+        // exitCode deliberately NOT set.
       }
     }
   }

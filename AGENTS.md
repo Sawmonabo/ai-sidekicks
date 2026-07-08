@@ -55,6 +55,19 @@ A hostile reviewer should be able to follow every citation to a primary source t
 
 When claims depend on recent data (post-knowledge-cutoff or fast-moving libraries), spawn the most capable model available as a research subagent and verify with `WebSearch` / `WebFetch` against current-year primary sources before recommendations land.
 
+### Durable-Cite Rule (repo-internal citations)
+
+Cite volatile targets by durable form, not raw line number:
+
+- **Code under `packages/` + `apps/`** — `` `<path>.ts#<exportedSymbol>` `` (repo-relative path, `#`, an exported identifier or test name present in the file). New raw `` `<path>.ts:NNN` `` line-pins into these trees are denied by the docs-corpus gate.
+- **Specs / plans / ADRs** (cited from code comments or docs) — `` `Spec-NNN §Heading` `` (backticked; § + the exact heading text; likewise `Plan-NNN §…` / `ADR-NNN §…`). The gate verifies the heading exists in the resolved doc.
+- **Docs → docs** — markdown link + `#fragment` anchor (lychee-floored) in preference to `file.md:NNN`.
+- **Raw `:NNN` stays legal for frozen content** (`docs/archive/`, `docs/reference/`) and for grandfathered legacy cites — convert those opportunistically whenever the citing line is touched.
+
+A durable cite may carry a free advisory locator — e.g. `` `packages/contracts/src/session.ts#SessionSubscribeRequest` (near the wire-contract comment banner) `` — no gate reads the parenthetical. (That example is live: the gate verifies it on every commit.)
+
+Three adjacent namespaces are deliberately OUTSIDE this rule: (1) plan Tasks-block cite grammar (`Spec-NNN row N`, AC forms, line hints) — preflight Gate 4 + the plan-readiness audit runbook own that lifecycle, and docs→docs cites retain all their existing forms; (2) ephemeral locators — reviewer finding-locations, subagent briefs, and housekeeper manifest line-ranges keep `file:line` (they anchor to a diff or a run, not to the corpus; committed EXAMPLES of them use the `<file>:<start>-<end>` placeholder shape, which no gate parses); (3) code→code cites in code comments — convention-forward `#symbol` is preferred for new ones, but no gate applies.
+
 ## Subagent Dispatch Convention
 
 When dispatching parallel research subagents, ensure file targets are disjoint to avoid Read-modify-write race conditions on shared files (e.g., `docs/backlog.md`). When multiple tasks must touch the same file, dispatch serially.

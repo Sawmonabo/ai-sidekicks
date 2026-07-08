@@ -63,7 +63,7 @@
 //
 // I-002-3 reminder — presence is in-memory only:
 //
-//   `Plan-002 §Invariants I-002-3` and Spec-002 lines 155-157 declare
+//   `Plan-002 §Invariants` row I-002-3 and Spec-002 lines 155-157 declare
 //   presence state (Yjs Awareness CRDT) MUST live in memory only and MUST
 //   be garbage-collected on disconnect. These schemas are for WIRE TRANSIT
 //   ONLY; they MUST NOT be persisted to SQLite or Postgres. P10 in

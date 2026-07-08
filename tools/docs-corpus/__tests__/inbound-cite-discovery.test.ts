@@ -4,8 +4,13 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { execSync } from "node:child_process";
 
-import { expandToInboundCiteCorpus, makeIndexAwareReader } from "../lib/inbound-cite-discovery.ts";
+import {
+  expandToInboundCiteCorpus,
+  findGovernanceCitersOfCode,
+  makeIndexAwareReader,
+} from "../lib/inbound-cite-discovery.ts";
 import { extractCites } from "../lib/cite-target-existence.ts";
+import { extractLabelCites } from "../lib/label-cite.ts";
 
 function setupRepo(files: Record<string, string>): { root: string; cleanup: () => void } {
   const root = mkdtempSync(resolve(tmpdir(), "icd-"));
@@ -391,6 +396,80 @@ describe("inbound-cite-discovery — governance-corpus inbound expansion", () =>
       // is not in the index and so is invisible to extractCites.
       expect(cites).toHaveLength(1);
       expect(cites[0].targetLine).toBe(2);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe("findGovernanceCitersOfCode — reverse-direction advisory", () => {
+  it("maps a governance citer to its staged-code rawTargets", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/plans/001-x.md":
+        "# Plan-001\n\nThe parser lives at `packages/foo/src/bar.ts#doThing`.\n",
+      "docs/plans/002-y.md": "# Plan-002\n\nNo code cites here.\n",
+      "packages/foo/src/bar.ts": "export function doThing(): void {}\n",
+    });
+    try {
+      const citers = withRepoRoot(root, () =>
+        findGovernanceCitersOfCode([resolve(root, "packages/foo/src/bar.ts")]),
+      );
+      expect(citers.size).toBe(1);
+      expect(citers.get("docs/plans/001-x.md")).toEqual(["packages/foo/src/bar.ts#doThing"]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("returns an empty map when the staged code file is uncited", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/plans/001-x.md":
+        "# Plan-001\n\nThe parser lives at `packages/foo/src/bar.ts#doThing`.\n",
+      "packages/foo/src/other.ts": "export function other(): void {}\n",
+    });
+    try {
+      const citers = withRepoRoot(root, () =>
+        findGovernanceCitersOfCode([resolve(root, "packages/foo/src/other.ts")]),
+      );
+      expect(citers.size).toBe(0);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe("expandToInboundCiteCorpus — section-cite citers (extraCiteTargets)", () => {
+  it("includes an unstaged §-form citer of a staged spec when the extractor is supplied", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md": "# Spec\n\n## Wire Format\n\nbody\n",
+      // The citer references the LABEL TOKEN only — never the spec's basename,
+      // so basename-only grep needles cannot reach it.
+      "docs/plans/009-y.md": "# Plan\n\nPer `Spec-003 §Wire Format` the frame is LSP-style.\n",
+    });
+    try {
+      const staged = [resolve(root, "docs/specs/003-runtime-node-attach.md")];
+      const sectionTargets = (candidate: string): string[] =>
+        withRepoRoot(root, () => extractLabelCites(candidate))
+          .filter((c) => c.section !== undefined)
+          .map((c) => c.targetPath);
+      const expanded = withRepoRoot(root, () =>
+        expandToInboundCiteCorpus(staged, undefined, undefined, sectionTargets),
+      );
+      expect(expanded).toContain(resolve(root, "docs/plans/009-y.md"));
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("does not include the §-form citer without the extractor (line/symbol cites only)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md": "# Spec\n\n## Wire Format\n\nbody\n",
+      "docs/plans/009-y.md": "# Plan\n\nPer `Spec-003 §Wire Format` the frame is LSP-style.\n",
+    });
+    try {
+      const staged = [resolve(root, "docs/specs/003-runtime-node-attach.md")];
+      const expanded = withRepoRoot(root, () => expandToInboundCiteCorpus(staged));
+      expect(expanded).not.toContain(resolve(root, "docs/plans/009-y.md"));
     } finally {
       cleanup();
     }

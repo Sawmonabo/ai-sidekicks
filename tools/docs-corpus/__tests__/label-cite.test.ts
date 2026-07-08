@@ -6,6 +6,7 @@ import { execSync } from "node:child_process";
 import {
   extractLabelCites,
   checkLabelCiteTargets,
+  checkSectionCites,
   formatLabelCiteViolations,
 } from "../lib/label-cite.ts";
 
@@ -379,5 +380,194 @@ describe("label-cite — formatter", () => {
 
   it("returns empty string for no violations", () => {
     expect(formatLabelCiteViolations([])).toBe("");
+  });
+});
+
+describe("section-anchor cites", () => {
+  it("passes `Spec-NNN §Heading` when the heading exists", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md": "# Spec\n\n## Wire Format\n\nbody\n",
+      "packages/runtime-daemon/src/node.ts":
+        "// Per `Spec-003 §Wire Format` the frame is LSP-style.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/runtime-daemon/src/node.ts")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("fails with section-not-found when the heading is absent", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md": "# Spec\n\n## Something Else\n\nbody\n",
+      "packages/runtime-daemon/src/node.ts":
+        "// Per `Spec-003 §Wire Format` the frame is LSP-style.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/runtime-daemon/src/node.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("section-not-found");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("section-not-found detail suggests the doc's nearest headings (self-heal)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md": "# Spec\n\n## Wire Format v2\n\nbody\n",
+      "packages/runtime-daemon/src/node.ts":
+        "// Per `Spec-003 §Wire Format` the frame is LSP-style.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/runtime-daemon/src/node.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].detail).toContain("Wire Format v2");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("normalizes case + punctuation exactly like preflight (— vs -)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/016-budget.md": "# Spec\n\n## Budget–Ledger Rules\n\nbody\n",
+      "packages/runtime-daemon/src/budget.ts":
+        "// Per `Spec-016 §Budget-Ledger Rules` spend is capped.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/runtime-daemon/src/budget.ts")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("does not match an unbackticked § form (zero-FP contract)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md": "# Spec\n\n## Wire Format\n\nbody\n",
+      "packages/runtime-daemon/src/node.ts":
+        "// Per Spec-003 §Wire Format the frame is LSP-style.\n",
+    });
+    try {
+      const sectionCites = withRepoRoot(root, () =>
+        extractLabelCites(resolve(root, "packages/runtime-daemon/src/node.ts")),
+      ).filter((c) => c.rawTarget.includes("§"));
+      expect(sectionCites).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("resolves the doc via the NNN glob and reports missing-target-file for a dead token", () => {
+    const { root, cleanup } = setupRepo({
+      "packages/runtime-daemon/src/node.ts": "// Per `Spec-999 §Anything` this never resolves.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/runtime-daemon/src/node.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("missing-target-file");
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe("checkSectionCites — section-anchor verification for markdown citers", () => {
+  it("passes a doc-to-doc `Spec-NNN §Heading` cite whose heading exists", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md": "# Spec\n\n## Wire Format\n\nbody\n",
+      "docs/plans/001-x.md": "# Plan\n\nPer `Spec-003 §Wire Format` the frame is LSP-style.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkSectionCites([resolve(root, "docs/plans/001-x.md")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("flags section-not-found for a doc-to-doc cite with a dead heading", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md": "# Spec\n\n## Something Else\n\nbody\n",
+      "docs/plans/001-x.md": "# Plan\n\nPer `Spec-003 §Wire Format` the frame is LSP-style.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkSectionCites([resolve(root, "docs/plans/001-x.md")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("section-not-found");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("ignores raw label-form cites (md label floors stay cite-target-existence's beat)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md": "line one\n",
+      "docs/plans/001-x.md":
+        "# Plan\n\nPer Spec-003:999 (raw form — out of range, NOT this check's scope).\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkSectionCites([resolve(root, "docs/plans/001-x.md")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe("section-anchor cites — fenced headings excluded", () => {
+  it("does not accept a heading that only exists inside a code fence", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md":
+        "# Spec\n\n## Other Section\n\n```markdown\n## Wire Format\n```\n\nbody\n",
+      "packages/runtime-daemon/src/node.ts":
+        "// Per `Spec-003 §Wire Format` the frame is LSP-style.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/runtime-daemon/src/node.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("section-not-found");
+      // The self-heal suggestions list real headings only — never fence content.
+      expect(violations[0].detail).toContain("Other Section");
+      expect(violations[0].detail).not.toContain("Wire Format |");
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe("section-anchor cites — fenced citer content excluded (md only)", () => {
+  it("does not extract a §-cite from a fenced example block in a markdown citer", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md": "# Spec\n\n## Wire Format\n\nbody\n",
+      "docs/plans/009-y.md":
+        "# Plan\n\n```markdown\nPer `Spec-003 §Old Heading` — illustrative only.\n```\n\nprose\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkSectionCites([resolve(root, "docs/plans/009-y.md")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
   });
 });

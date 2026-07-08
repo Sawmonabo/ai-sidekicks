@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { writeFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { writeFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -231,6 +231,105 @@ describe("pre-commit-runner — bin-script direct-invocation guard", () => {
       expect(combined).toContain("missing-target-file");
     } finally {
       rmSync(fixtureDir, { recursive: true });
+    }
+  });
+});
+
+describe("pre-commit-runner — reverse-direction advisory", () => {
+  it("warns (without blocking) when staged code is cited by governance docs", () => {
+    const { root, cleanup } = setupRepo({
+      // `draft` → manifest-presence guard exempts this plan (see describe note).
+      "docs/plans/001-x.md":
+        "# Plan-001\n\n| **Status** | `draft` |\n\nThe parser lives at `packages/foo/src/bar.ts#doThing`.\n",
+      "packages/foo/src/bar.ts": "export function doThing(): void {}\n",
+      // checkPathCanonicalRipple roots on process.cwd() (not REPO_ROOT) and
+      // fails closed on a missing registry — this test chdirs into the
+      // fixture, so give it an empty registry.
+      "tools/docs-corpus/canonical-paths.json": '{ "paths": [] }\n',
+    });
+    // isCodeFile keys on repo-relative paths (`packages/…`), matching
+    // lefthook's invocation from the repo root — so run from the fixture root
+    // with a relative arg, unlike the md-lane tests above (absolute args).
+    // realpath the root first: macOS mkdtemp returns a /var → /private/var
+    // symlink, and process.cwd() after chdir is physical, so a symlinked
+    // REPO_ROOT would never match cwd-resolved staged paths.
+    const previousCwd = process.cwd();
+    const physicalRoot = realpathSync(root);
+    try {
+      process.chdir(physicalRoot);
+      const result = withRepoRoot(physicalRoot, () => runChecks(["packages/foo/src/bar.ts"]));
+      expect(result.exitCode).toBe(0); // advisory only — never blocks
+      const joined = result.messages.join("\n");
+      expect(joined).toContain("staged code is cited by governance docs");
+      expect(joined).toContain("docs/plans/001-x.md");
+    } finally {
+      process.chdir(previousCwd);
+      cleanup();
+    }
+  });
+});
+
+describe("pre-commit-runner — markdown section-anchor cites", () => {
+  it("flags a staged doc citing a dead `§Heading` (section-not-found)", () => {
+    const { root, cleanup } = setupRepo({
+      // `draft` → manifest-presence guard exempts this plan (see describe note).
+      "docs/plans/002-test.md":
+        "# Plan-002\n\n| **Status** | `draft` |\n\nPer `Spec-003 §Wire Format` the frame is LSP-style.\n",
+      "docs/specs/003-runtime-node-attach.md":
+        "# Spec\n\n| **Status** | `draft` |\n\n## Something Else\n\nbody\n",
+    });
+    try {
+      const result = withRepoRoot(root, () => runChecks([resolve(root, "docs/plans/002-test.md")]));
+      expect(result.exitCode).toBe(1);
+      const joined = result.messages.join("\n");
+      expect(joined).toContain("section-not-found");
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe("pre-commit-runner — inbound section-cite ripple", () => {
+  it("catches an unstaged citer's dead §-cite when the staged spec renamed the heading", () => {
+    // Codex repro (PR #188 round 2): stage ONLY the spec whose heading was
+    // renamed; the unstaged plan cites the OLD heading via `Spec-003 §…`.
+    // Without §-aware inbound expansion the runner exits 0 and CI catches it
+    // post-push — the exact PR #97 gap shape, for section anchors.
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md":
+        "# Spec\n\n| **Status** | `draft` |\n\n## Frame Format\n\nbody\n",
+      // `draft` → manifest-presence guard exempts this plan (see describe note).
+      "docs/plans/009-y.md":
+        "# Plan-009\n\n| **Status** | `draft` |\n\nPer `Spec-003 §Wire Format` the frame is LSP-style.\n",
+    });
+    try {
+      const result = withRepoRoot(root, () =>
+        runChecks([resolve(root, "docs/specs/003-runtime-node-attach.md")]),
+      );
+      expect(result.exitCode).toBe(1);
+      const joined = result.messages.join("\n");
+      expect(joined).toContain("section-not-found");
+      expect(joined).toContain("docs/plans/009-y.md");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("stays green when the staged spec still carries the cited heading", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md":
+        "# Spec\n\n| **Status** | `draft` |\n\n## Wire Format\n\nbody\n",
+      "docs/plans/009-y.md":
+        "# Plan-009\n\n| **Status** | `draft` |\n\nPer `Spec-003 §Wire Format` the frame is LSP-style.\n",
+    });
+    try {
+      const result = withRepoRoot(root, () =>
+        runChecks([resolve(root, "docs/specs/003-runtime-node-attach.md")]),
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.messages).toEqual([]);
+    } finally {
+      cleanup();
     }
   });
 });
