@@ -282,6 +282,8 @@ Audit-derived task decomposition. The 11 Implementation Steps regroup into five 
 
 ### Phase 2 — Per-participant crypto primitives (Steps 3–6)
 
+**Precondition:** Phase 1 merged (Steps 3–6 build on the Step-1–2 master-key custody, and T22.1.1 lands the `@noble`/`sodium-native` crypto dependencies these primitives import).
+
 #### Tasks
 
 - **T22.2.1 — Participant key generator (random DEK).**
@@ -307,6 +309,8 @@ Audit-derived task decomposition. The 11 Implementation Steps regroup into five 
 
 ### Phase 3 — Write-path integration (Steps 7–8)
 
+**Precondition:** Phase 2 merged (Steps 7–8 integrate the per-participant primitives from Steps 3–6 into the write path).
+
 #### Tasks
 
 - **T22.3.1 — Pure `splitPii` partition.**
@@ -321,6 +325,8 @@ Audit-derived task decomposition. The 11 Implementation Steps regroup into five 
   - Consumes: Plan-001's shipped `0001-initial.ts` (verify it already carries `pii_payload` + the `participant_keys` table per CP-022-5).
 
 ### Phase 4 — GDPR stub surface (Steps 9–10)
+
+**Precondition:** Phase 3 merged (Steps 9–10 surface data the Step-7–8 write path persists).
 
 #### Tasks
 
@@ -353,6 +359,8 @@ Audit-derived task decomposition. The 11 Implementation Steps regroup into five 
   - Consumes: the `participant_keys` schema (T22.2.3 / T22.3.2).
 
 ### Phase 5 — Cross-plan fan-out: Path-2 FK-severance migration + alignment checkpoint (Step 11)
+
+**Precondition:** Phase 4 merged (the Step-11 alignment checkpoint audits the full Phases 1–4 surface).
 
 #### Tasks
 
