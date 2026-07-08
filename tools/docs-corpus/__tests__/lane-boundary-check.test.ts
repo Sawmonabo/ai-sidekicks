@@ -97,18 +97,32 @@ describe("checkLaneBoundary", () => {
     expect(result.ok).toBe(false);
     expect(result.failures).toHaveLength(1);
     expect(result.failures[0]).toContain("Plan-004");
-    expect(result.failures[0]).toContain("(feat|fix)/plan-004-*");
+    expect(result.failures[0]).toContain("<type>/plan-004-*");
     expect(result.failures[0]).toContain("CONTRIBUTING.md");
   });
 
-  it("fails when the branch is plan-scoped for a DIFFERENT plan than the title cites", () => {
+  it("fails when the branch is plan-scoped for a DIFFERENT plan than the title cites (branch plan invisible to G6 — Codex r5)", () => {
     const result = checkLaneBoundary({
       title: "feat(daemon): Plan-004 run lifecycle handlers",
       branch: "feat/plan-007-ipc-host",
       changedFiles: [materialFile],
     });
     expect(result.ok).toBe(false);
-    expect(result.failures[0]).toContain("Plan-004");
+    expect(result.failures).toHaveLength(1);
+    // The inverse rule fires: the branch-declared Plan-007 shipment would be
+    // invisible to G6's title search even though Plan-004 is properly cited.
+    expect(result.failures[0]).toContain("plan-007");
+    expect(result.failures[0]).toContain("does not cite Plan-007");
+    expect(result.failures[0]).toContain("(it cites Plan-004)");
+  });
+
+  it("passes any CONTRIBUTING §Type-segment branch type as a lane-1 shape (chore/plan-024 workflow-only task — Codex r5)", () => {
+    const result = checkLaneBoundary({
+      title: "chore(ci): Plan-024 sidecar cross-compile workflow",
+      branch: "chore/plan-024-sidecar-build",
+      changedFiles: [".github/workflows/sidecar-build.yml"],
+    });
+    expect(result).toEqual({ ok: true, failures: [], advisories: [] });
   });
 
   it("multi-token: the branch declares one plan; the other needs its plan-doc edit", () => {
@@ -149,13 +163,56 @@ describe("checkLaneBoundary", () => {
     expect(result.failures[0]).toContain("This is a revert");
   });
 
-  it("passes a material revert that carries the manifest reconciliation (plan-doc edit)", () => {
+  it("passes a material revert whose plan-doc patch actually touches manifest content", () => {
+    const result = checkLaneBoundary({
+      title: 'Revert "feat(daemon): Plan-004 run lifecycle handlers"',
+      branch: "revert-199-feat/plan-004-run-handlers",
+      changedFiles: [materialFile, "docs/plans/004-agent-runs-and-lifecycle.md"],
+      filePatches: new Map([
+        [
+          "docs/plans/004-agent-runs-and-lifecycle.md",
+          "@@ -410,7 +410,0 @@ ### Shipment Manifest\n-  - phase: 2\n-    task: T2.1\n-    pr: 199\n-    sha: abc1234\n",
+        ],
+      ]),
+    });
+    expect(result).toEqual({ ok: true, failures: [], advisories: [] });
+  });
+
+  it("fails a material revert whose plan-doc edit is prose-only (file presence is not reconciliation — Codex r5)", () => {
+    const result = checkLaneBoundary({
+      title: 'Revert "feat(daemon): Plan-004 run lifecycle handlers"',
+      branch: "revert-199-feat/plan-004-run-handlers",
+      changedFiles: [materialFile, "docs/plans/004-agent-runs-and-lifecycle.md"],
+      filePatches: new Map([
+        [
+          "docs/plans/004-agent-runs-and-lifecycle.md",
+          "@@ -12,1 +12,1 @@ ## Overview\n-typo\n+fixed typo\n",
+        ],
+      ]),
+    });
+    expect(result.ok).toBe(false);
+    expect(result.failures).toHaveLength(1);
+    expect(result.failures[0]).toContain("carries no manifest reconciliation");
+  });
+
+  it("fails a material revert when no patch content is available (fail closed)", () => {
     const result = checkLaneBoundary({
       title: 'Revert "feat(daemon): Plan-004 run lifecycle handlers"',
       branch: "revert-199-feat/plan-004-run-handlers",
       changedFiles: [materialFile, "docs/plans/004-agent-runs-and-lifecycle.md"],
     });
-    expect(result).toEqual({ ok: true, failures: [], advisories: [] });
+    expect(result.ok).toBe(false);
+  });
+
+  it("recognizes Conventional revert subjects (revert(repo): — in-family, PR #49) via the plan-scoped branch shortcut being void", () => {
+    const result = checkLaneBoundary({
+      title: "revert(daemon): Plan-004 undo run handlers",
+      branch: "fix/plan-004-revert-handlers",
+      changedFiles: [materialFile],
+    });
+    expect(result.ok).toBe(false);
+    expect(result.failures).toHaveLength(1);
+    expect(result.failures[0]).toContain("This is a revert");
   });
 
   it("passes a docs-only revert (token in title, no material paths — invisible to G6)", () => {
@@ -227,6 +284,28 @@ describe("runLaneBoundaryCheck (stdin parsing + annotations)", () => {
     );
     expect(exitCode).toBe(0);
     expect(message).toContain("::warning title=lane-boundary advisory::");
+  });
+
+  it("parses JSON lines ({filename, patch}) and honors revert manifest reconciliation through them", () => {
+    const manifestPatch =
+      "@@ -410,4 +410,0 @@ ### Shipment Manifest\\n-  - phase: 2\\n-    pr: 199\\n";
+    const { exitCode } = runLaneBoundaryCheck(
+      'Revert "feat(daemon): Plan-004 run lifecycle handlers"',
+      "revert-199-feat/plan-004-run-handlers",
+      `{"filename": "packages/runtime-daemon/src/a.ts", "patch": ""}\n` +
+        `{"filename": "docs/plans/004-agent-runs-and-lifecycle.md", "patch": "${manifestPatch}"}\n`,
+    );
+    expect(exitCode).toBe(0);
+  });
+
+  it("halts (exit 1) on a malformed JSON changed-file line instead of misreading it as a path", () => {
+    const { exitCode, message } = runLaneBoundaryCheck(
+      "feat(daemon): Plan-004 run handlers",
+      "feat/plan-004-run-handlers",
+      '{"filename": "packages/a.ts", broken\n',
+    );
+    expect(exitCode).toBe(1);
+    expect(message).toContain("malformed JSON changed-file line");
   });
 
   it("emits ::error:: and exit 1 for the tokenless material diff on a plan-scoped branch", () => {
