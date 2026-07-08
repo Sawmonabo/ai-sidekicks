@@ -404,3 +404,132 @@ describe("durable-cite rule — Codex round-1 hardening (PR #188)", () => {
     }
   });
 });
+
+describe("durable-cite rule — Codex round-4 hardening (PR #188)", () => {
+  it("denies a BARE (unbackticked) volatile line-pin, one violation per site", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/plans/001-x.md":
+        "# Plan\n\nModify packages/foo/src/bar.ts:24,35,59 rewritten to event names.\n",
+      "packages/foo/src/bar.ts": "export function doThing(): void {}\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/plans/001-x.md")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("raw-line-cite-into-volatile-code");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("skips bare volatile pins inside code fences (quoted-example carve-out)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/plans/001-x.md":
+        '# Plan\n\n```js\n  summary: "Modify packages/foo/src/bar.ts:24,35,59",\n```\n\nprose\n',
+      "packages/foo/src/bar.ts": "export function doThing(): void {}\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/plans/001-x.md")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("leaves a bare NON-volatile path mention unextracted", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/plans/001-x.md": "# Plan\n\nSee tools/foo.ts:12 for the helper.\n",
+      "tools/foo.ts": "export function helper(): void {}\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/plans/001-x.md")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("denies a raw line-pin into a volatile .rs target", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/plans/001-x.md":
+        "# Plan\n\nSee `packages/sidecar-rust-pty/src/framing.rs:42` for the codec.\n",
+      "packages/sidecar-rust-pty/src/framing.rs": "pub struct FrameCodec;\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/plans/001-x.md")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("raw-line-cite-into-volatile-code");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("keeps EXTERNAL .rs line cites invisible (no floor — they cite upstream sources)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/decisions/021-x.md":
+        "# ADR\n\nkeyring-rs hardcodes it at `src/windows.rs:413` (not tunable).\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/decisions/021-x.md")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("verifies a #symbol cite into a volatile .rs target", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/plans/001-x.md":
+        "# Plan\n\nFraming per `packages/sidecar-rust-pty/src/framing.rs#FrameCodec`.\n",
+      "packages/sidecar-rust-pty/src/framing.rs": "pub struct FrameCodec;\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/plans/001-x.md")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("flags symbol-not-found for a dead #symbol into a volatile .rs target", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/plans/001-x.md":
+        "# Plan\n\nFraming per `packages/sidecar-rust-pty/src/framing.rs#GoneCodec`.\n",
+      "packages/sidecar-rust-pty/src/framing.rs": "pub struct FrameCodec;\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/plans/001-x.md")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("symbol-not-found");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("keeps EXTERNAL .rs #symbol cites invisible", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/decisions/021-x.md": "# ADR\n\nSee `src/windows.rs#CredWrite` upstream.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/decisions/021-x.md")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+});

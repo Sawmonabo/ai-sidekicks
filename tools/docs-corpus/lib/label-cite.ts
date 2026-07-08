@@ -100,14 +100,27 @@ function normalizeTokenForMatch(token: string): string {
   return token.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-export function verifySectionHeading(docContent: string, sectionName: string): boolean {
-  const target = normalizeTokenForMatch(sectionName);
+// Real document headings only: a `## Heading` line inside a ```/~~~ fence is
+// example content, not a section — counting it would keep a §-cite "verified"
+// after the real section was renamed away (Codex review, PR #188 round 4).
+function listDocHeadings(docContent: string): string[] {
+  const headings: string[] = [];
+  let insideFence = false;
   for (const line of docContent.split("\n")) {
-    if (/^#+\s+/.test(line)) {
-      if (normalizeTokenForMatch(line.replace(/^#+\s+/, "")) === target) return true;
+    if (/^\s*(?:```|~~~)/.test(line)) {
+      insideFence = !insideFence;
+      continue;
+    }
+    if (!insideFence && /^#+\s+/.test(line)) {
+      headings.push(line.replace(/^#+\s+/, "").trim());
     }
   }
-  return false;
+  return headings;
+}
+
+export function verifySectionHeading(docContent: string, sectionName: string): boolean {
+  const target = normalizeTokenForMatch(sectionName);
+  return listDocHeadings(docContent).some((heading) => normalizeTokenForMatch(heading) === target);
 }
 
 // Docs-path form: a repo-root-relative governance path with a line suffix,
@@ -291,10 +304,7 @@ function sectionViolation(c: Cite, reader: FileContentReader): CiteViolation | n
   // Self-heal detail: a §-cite usually breaks because the heading was
   // RENAMED — list the doc's current headings (prefix-matched first,
   // else the first few) so the citer's fix is self-serve.
-  const headings = content
-    .split("\n")
-    .filter((l) => /^#+\s+/.test(l))
-    .map((l) => l.replace(/^#+\s+/, "").trim());
+  const headings = listDocHeadings(content);
   const target = normalizeTokenForMatch(section);
   const near = headings.filter((h) => {
     const n = normalizeTokenForMatch(h);

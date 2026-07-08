@@ -51,7 +51,14 @@ const defaultReader: FileContentReader = (absolutePath) => readFileSync(absolute
 // under these prefixes rot on every edit and are denied in favor of the
 // `path#exportedSymbol` form.
 const VOLATILE_CODE_PREFIXES = ["packages/", "apps/"];
-const symbolRe = /`([\w./-]+\.(?:ts|tsx|js|mjs|mts|cts))#([A-Za-z_$][\w$]*)`/g;
+// `.rs` targets get VOLATILE-TREE-ONLY semantics in both extractors below:
+// repo Rust lives under packages/ (sidecar-rust-pty), while most `.rs` doc
+// mentions cite EXTERNAL library sources (`src/windows.rs:413` in ADR-021) —
+// flooring those would chase paths that never existed in this repo. So a
+// volatile `.rs` line-pin is denied, a volatile `.rs#symbol` is verified, and
+// a non-volatile `.rs` mention stays gate-invisible (Codex review, PR #188
+// round 4).
+const symbolRe = /`([\w./-]+\.(?:ts|tsx|js|mjs|mts|cts|rs))#([A-Za-z_$][\w$]*)`/g;
 
 function findRepoRoot(): string {
   // Termination via parent-equals-current rather than `dir !== "/"` so the walk
@@ -89,15 +96,30 @@ export function extractCites(
   // get checked as citers; codeRe decides which cite TARGETS get extracted
   // from md. The two filters are orthogonal — widening extraction never
   // widens the citer lane.
-  const codeRe = /`([\w./-]+\.(?:ts|tsx|js|mjs|mts|cts|md)):(\d+(?:\s*[,-]\s*\d+)*)`/g;
+  const codeRe = /`([\w./-]+\.(?:ts|tsx|js|mjs|mts|cts|rs|md)):(\d+(?:\s*[,-]\s*\d+)*)`/g;
   // Markdown-link form with a CODE-extension target — extracted solely for the
   // volatile deny (see the pass below).
-  const linkCodeRe = /\]\(([^)]+\.(?:ts|tsx|js|mjs|mts|cts))\)\s*:\s*([\d,\s-]+)/g;
+  const linkCodeRe = /\]\(([^)]+\.(?:ts|tsx|js|mjs|mts|cts|rs))\)\s*:\s*([\d,\s-]+)/g;
+  // BARE (unbackticked, unlinked) volatile line-pins. Anchored on the volatile
+  // prefixes themselves, so plain prose paths (`tools/foo.ts:12`) and longer
+  // paths whose tail merely contains `packages/` (the `/` in the lookbehind)
+  // stay invisible — this pass exists ONLY to deny the raw form the other two
+  // passes cannot see (Codex review, PR #188 round 4).
+  const bareVolatileRe =
+    /(?<![`[\w/.-])((?:packages|apps)\/[\w./-]+\.(?:ts|tsx|js|mjs|mts|cts|rs)):(\d+(?:\s*[,-]\s*\d+)*)/g;
   const repoRoot = getRepoRoot();
 
   const lines = content.split("\n");
+  // Fence tracking feeds ONLY the bare-volatile pass below: fenced content is
+  // quoted-example territory (a doc quoting a test fixture or manifest entry
+  // verbatim), so the bare deny must not chase it. The backtick / link /
+  // symbol passes deliberately stay fence-blind — they predate the fence
+  // distinction, and narrowing them could silently uncover cites the floor
+  // checks today.
+  let insideFence = false;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+    if (/^\s*(?:```|~~~)/.test(line)) insideFence = !insideFence;
     let m: RegExpExecArray | null;
     while ((m = linkRe.exec(line)) !== null) {
       const relTarget = m[1].trim();
@@ -142,10 +164,14 @@ export function extractCites(
       // cite is not "code under packages/" per AGENTS.md §Durable-Cite Rule,
       // so `.md` targets keep floor semantics.
       const repoRelativeTarget = relative(repoRoot, candidate).split(sep).join("/");
+      const underVolatileTree = VOLATILE_CODE_PREFIXES.some((prefix) =>
+        repoRelativeTarget.startsWith(prefix),
+      );
       const isVolatileCode =
-        isPathShaped &&
-        !repoRelativeTarget.endsWith(".md") &&
-        VOLATILE_CODE_PREFIXES.some((prefix) => repoRelativeTarget.startsWith(prefix));
+        isPathShaped && !repoRelativeTarget.endsWith(".md") && underVolatileTree;
+      // Non-volatile `.rs` mentions cite external sources — skip (see the
+      // volatile-tree-only note above symbolRe).
+      if (repoRelativeTarget.endsWith(".rs") && !underVolatileTree) continue;
       if (!(isPathShaped || existsSync(candidate))) continue;
       const lineList: number[] = [];
       for (const token of m[2].split(/[,\s]+/).filter(Boolean)) {
@@ -162,6 +188,30 @@ export function extractCites(
           targetPath: candidate,
           targetLine,
           ...(isVolatileCode ? { volatileCodeTarget: true } : {}),
+        });
+      }
+    }
+    // BARE volatile line-pins (`packages/foo.ts:24,35,59` with no backticks
+    // and no link) — deny-only, per endpoint, deduped by the caller. Skipped
+    // inside fences (see the fence-tracking note above the loop).
+    bareVolatileRe.lastIndex = 0;
+    while (!insideFence && (m = bareVolatileRe.exec(line)) !== null) {
+      const bareTargetName = m[1];
+      const lineList: number[] = [];
+      for (const token of m[2].split(/[,\s]+/).filter(Boolean)) {
+        for (const part of token.split("-")) {
+          const n = Number.parseInt(part, 10);
+          if (Number.isFinite(n) && n > 0) lineList.push(n);
+        }
+      }
+      for (const targetLine of lineList) {
+        cites.push({
+          file: citingFile,
+          line: i + 1,
+          rawTarget: `${bareTargetName}:${targetLine}`,
+          targetPath: resolve(repoRoot, bareTargetName),
+          targetLine,
+          volatileCodeTarget: true,
         });
       }
     }
@@ -206,6 +256,14 @@ export function extractCites(
       const symbolTargetName = m[1];
       const symbolCandidate = resolve(repoRoot, symbolTargetName);
       if (!(symbolTargetName.includes("/") || existsSync(symbolCandidate))) continue;
+      // Non-volatile `.rs` symbol mentions cite external sources — skip (see
+      // the volatile-tree-only note above symbolRe).
+      const symbolRepoRelative = relative(repoRoot, symbolCandidate).split(sep).join("/");
+      if (
+        symbolRepoRelative.endsWith(".rs") &&
+        !VOLATILE_CODE_PREFIXES.some((prefix) => symbolRepoRelative.startsWith(prefix))
+      )
+        continue;
       cites.push({
         file: citingFile,
         line: i + 1,

@@ -530,3 +530,26 @@ describe("checkSectionCites — section-anchor verification for markdown citers"
     }
   });
 });
+
+describe("section-anchor cites — fenced headings excluded", () => {
+  it("does not accept a heading that only exists inside a code fence", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md":
+        "# Spec\n\n## Other Section\n\n```markdown\n## Wire Format\n```\n\nbody\n",
+      "packages/runtime-daemon/src/node.ts":
+        "// Per `Spec-003 §Wire Format` the frame is LSP-style.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/runtime-daemon/src/node.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("section-not-found");
+      // The self-heal suggestions list real headings only — never fence content.
+      expect(violations[0].detail).toContain("Other Section");
+      expect(violations[0].detail).not.toContain("Wire Format |");
+    } finally {
+      cleanup();
+    }
+  });
+});
