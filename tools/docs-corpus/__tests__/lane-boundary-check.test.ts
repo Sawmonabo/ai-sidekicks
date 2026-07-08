@@ -125,6 +125,15 @@ describe("checkLaneBoundary", () => {
     expect(result).toEqual({ ok: true, failures: [], advisories: [] });
   });
 
+  it("passes the test/ scaffold branch type for test-only material shipments (Codex r6)", () => {
+    const result = checkLaneBoundary({
+      title: "test(daemon): Plan-004 run-handler conformance suite",
+      branch: "test/plan-004-conformance",
+      changedFiles: ["packages/runtime-daemon/src/__tests__/run-handlers.test.ts"],
+    });
+    expect(result).toEqual({ ok: true, failures: [], advisories: [] });
+  });
+
   it("multi-token: the branch declares one plan; the other needs its plan-doc edit", () => {
     const result = checkLaneBoundary({
       title: "feat(daemon): Plan-004 + Plan-007 handler split",

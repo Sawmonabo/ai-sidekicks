@@ -42,8 +42,9 @@ Based on [Conventional Branch](https://conventional-branch.github.io/) with a lo
 | `release/` | Release preparation            | `release/v0.1.0`                        |
 | `chore/`   | Build / tooling / dependencies | `chore/bump-pnpm`                       |
 | `docs/`    | Documentation-only             | `docs/add-observability-adr`            |
+| `test/`    | Test-only additions            | `test/plan-004-conformance`             |
 
-`docs/` is a local extension. Conventional Branch defines five types; we add `docs/` for legibility — `docs/audit-realignment` reads correctly while `chore/audit-realignment` undersells doc work.
+`docs/` and `test/` are local extensions. Conventional Branch defines five types; we add `docs/` for legibility — `docs/audit-realignment` reads correctly while `chore/audit-realignment` undersells doc work — and `test/` to mirror the Conventional Commits `test:` commit type, which the plan-execution scaffold already names as a branch type for test-only plan shipments.
 
 Short-form types are pinned (`feat/`, `fix/`) — do not use the long forms (`feature/`, `bugfix/`) so the branch type matches the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) commit type 1:1.
 

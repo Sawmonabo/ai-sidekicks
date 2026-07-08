@@ -65,10 +65,12 @@ export const MATERIAL_PATH_PREFIXES: readonly string[] = ["packages/", "apps/", 
 const TITLE_TOKEN_RE = /\bplan-(\d{3})\b/gi;
 
 // CONTRIBUTING §Topic segment: plan-scoped work embeds `plan-NNN-` in the
-// topic under ANY §Type-segment type (feat|fix|hotfix|chore|docs — e.g. a
-// workflow-only plan task legitimately rides `chore/plan-024-...`; Codex
-// P2, round 5). `release/` carries version topics, never plan topics.
-const LANE1_BRANCH_RE = /^(feat|fix|hotfix|chore|docs)\/plan-(\d{3})-/;
+// topic under ANY §Type-segment type (feat|fix|hotfix|chore|docs|test —
+// e.g. a workflow-only plan task legitimately rides `chore/plan-024-...`,
+// and the plan-execution scaffold names `test` for test-only shipments;
+// Codex P2, rounds 5-6). `release/` carries version topics, never plan
+// topics.
+const LANE1_BRANCH_RE = /^(feat|fix|hotfix|chore|docs|test)\/plan-(\d{3})-/;
 
 // GitHub's default revert title plus the Conventional Commits `revert` type
 // (bare, scoped, or breaking — `revert(repo): ...` is in-family, PR #49).
@@ -83,7 +85,7 @@ const MANIFEST_PATCH_RE =
   /^[+-].*\b(?:pr|sha|merged_at|task|phase|manifest_schema_version):\s|^[+-]\s*shipped:|^[+-]\s*### Shipment Manifest|^@@[^\n]*Shipment Manifest/m;
 
 function lane1BranchRe(planNumber: string): RegExp {
-  return new RegExp(`^(feat|fix|hotfix|chore|docs)/plan-${planNumber}-`);
+  return new RegExp(`^(feat|fix|hotfix|chore|docs|test)/plan-${planNumber}-`);
 }
 
 export interface LaneBoundaryInput {
