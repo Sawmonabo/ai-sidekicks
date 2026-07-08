@@ -1080,6 +1080,38 @@ test("G4 tiering: subject-mismatch stays a HARD error even for size-class S (Cod
   assert.ok(!G4_GRAMMAR_DEMOTE_KINDS.has("subject-mismatch-in-range"));
 });
 
+test("G4 tiering: demotion re-applies the existence floor — no-anchor kinds naming a missing spec stay hard (Codex, PR #190)", () => {
+  const missingSpecNoAnchor = [
+    "#### Tasks",
+    "",
+    "- **T-1** — Plan-local id at anchor position, absent spec",
+    "  - **Spec coverage:** Spec-999 C5",
+    "  - **Verifies invariant:** I-1",
+    "",
+  ].join("\n");
+  assert.equal(gateTasksBlockCites(missingSpecNoAnchor, "016", 1, { sizeClass: "S" }).ok, false);
+  // Same no-anchor kind on an EXISTING spec still demotes — the guard is an
+  // existence floor, not a blanket re-hardening.
+  const existingSpecNoAnchor = [
+    "#### Tasks",
+    "",
+    "- **T-1** — Plan-local id at anchor position, existing spec",
+    "  - **Spec coverage:** Spec-002 C5",
+    "  - **Verifies invariant:** I-1",
+    "",
+  ].join("\n");
+  const r = gateTasksBlockCites(existingSpecNoAnchor, "016", 1, { sizeClass: "S" });
+  assert.equal(r.ok, true, `expected demote-pass; got halt:\n${r.halt}`);
+  assert.ok(r.warnings.length >= 1);
+});
+
+test("extractDeclaredFilePaths counts extensionless root config files (Codex, PR #190)", () => {
+  const paths = extractDeclaredFilePaths("Files: Dockerfile, .nvmrc, `packages/a/src/x.ts`");
+  assert.ok(paths.includes("Dockerfile"));
+  assert.ok(paths.includes(".nvmrc"));
+  assert.equal(classifyPhaseSize(["T1", "T2"], paths), "L");
+});
+
 test("classifyPhaseSize: root-level files count as non-exempt targets — package.json forces L (Codex, PR #190)", () => {
   const paths = extractDeclaredFilePaths("Files: package.json, `packages/a/src/x.ts`");
   assert.ok(paths.includes("package.json"), "slash-less root file must be path-shaped");

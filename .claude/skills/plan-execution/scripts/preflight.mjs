@@ -466,7 +466,15 @@ export function extractDeclaredFilePaths(phaseSection) {
       // extension (`package.json`) — dropping those hid root tooling/config
       // targets from the fail-closed non-exempt check (Codex, PR #190).
       const pathShaped =
-        /^[\w.@-]+(\/[\w.@*-]+)+\/?$/.test(cleaned) || /^[\w@-][\w.@-]*\.\w+$/.test(cleaned);
+        /^[\w.@-]+(\/[\w.@*-]+)+\/?$/.test(cleaned) ||
+        /^[\w@-][\w.@-]*\.\w+$/.test(cleaned) ||
+        // Extensionless root config/tooling files: dotfiles (.nvmrc,
+        // .gitignore) and the well-known bare names — dropping them hid
+        // repo-root tooling targets from the fail-closed check (Codex, PR #190).
+        /^\.[\w.-]+$/.test(cleaned) ||
+        /^(?:Dockerfile|Makefile|Justfile|Procfile|Brewfile|Vagrantfile|LICENSE|NOTICE|CODEOWNERS)$/.test(
+          cleaned,
+        );
       if (pathShaped && !paths.includes(cleaned)) paths.push(cleaned);
     }
   }
@@ -2192,10 +2200,20 @@ export function gateTasksBlockCites(phaseSection, planNumber, phaseNumber, opts 
   // kind outside the fail-closed demote set stay hard for every class. The
   // Gate-4 token-presence floor above stays hard for all classes.
   const demoteGrammar = opts.sizeClass === "S" || opts.sizeClass === "M";
+  // Existence floor survives demotion: a no-anchor parse failure (compound
+  // range with multi-subject, plan-local id at anchor position, unparseable
+  // tail, …) never reaches the verifier, so the spec-file existence check it
+  // skipped is re-applied HERE — every Spec-NNN the raw payload names must
+  // resolve to exactly one file or the finding stays hard for every class
+  // (family closure for Codex rounds 9-10, PR #190).
+  const demotionKeepsExistenceFloor = (f) =>
+    [...String(f.raw ?? "").matchAll(/\bSpec-(\d{1,4})\b/g)].every(
+      ([, num]) => findPaddedFiles(specsDir, Number(num)).length === 1,
+    );
   const demoted = [];
   const blockingFailures = allFailures.filter((f) => {
     if ((f.severity ?? "error") !== "error") return false;
-    if (demoteGrammar && G4_GRAMMAR_DEMOTE_KINDS.has(f.kind)) {
+    if (demoteGrammar && G4_GRAMMAR_DEMOTE_KINDS.has(f.kind) && demotionKeepsExistenceFloor(f)) {
       demoted.push(f);
       return false;
     }
