@@ -395,7 +395,9 @@ export function classifyPhaseSize(declaredTaskIds, targetPaths) {
     if (targetPaths.length === 0) return "L";
     const roots = new Set();
     for (const p of targetPaths) {
-      const m = /^(packages\/[^/]+|apps\/[^/]+)\//.exec(p);
+      // (\/|$) — a bare `packages/a` (no trailing slash) is still that root
+      // (Codex, PR #190: `Files: packages/a, apps/b` counted zero roots → M).
+      const m = /^(packages\/[^/]+|apps\/[^/]+)(\/|$)/.exec(p);
       if (m) roots.add(m[1]);
     }
     if (roots.size <= 1) return "M";
@@ -407,13 +409,21 @@ export function classifyPhaseSize(declaredTaskIds, targetPaths) {
 // + parenthesized inline). Path-shaped tokens only; dedup, order-stable.
 export function extractDeclaredFilePaths(phaseSection) {
   const paths = [];
-  // Capture to the next task-metadata separator (`;`) or end of line — NOT the
-  // first `)`: inline annotations like `a.ts (CREATE) + b.ts` would truncate
-  // the clause and drop the second root (Codex, PR #190).
-  const fieldRe = /\bFiles:\s*([^\n;]+)/g;
+  // Capture the whole line, then truncate at the first KNOWN metadata marker —
+  // not at every `;` (audited rows also use semicolons BETWEEN paths: `x.ts
+  // (NEW); apps/b/y.ts (EXTEND)`), and not at the first `)` (inline
+  // annotations like `a.ts (CREATE) + b.ts` would drop the second root). An
+  // unknown future marker leaks its path-shaped tokens into the target list,
+  // which can only widen the root set — the fail-closed direction (Codex ×2,
+  // PR #190).
+  const fieldRe = /\bFiles:\s*([^\n]+)/g;
+  const metadataMarker =
+    /;\s*(?:Spec coverage|Verifies invariant|Consumes|Provides|Wires|Acceptance|Depends on|Rollback)\s*:/;
   let m;
   while ((m = fieldRe.exec(phaseSection)) !== null) {
-    for (const token of m[1].split(/[,\s]+/)) {
+    const markerHit = metadataMarker.exec(m[1]);
+    const clause = markerHit ? m[1].slice(0, markerHit.index) : m[1];
+    for (const token of clause.split(/[,\s]+/)) {
       // Trailing sentence punctuation (`pty-host.ts\`.`) would fail the path
       // regex and silently drop the package root from classification. Markup
       // strip is EDGE-anchored so glob stars inside a path survive.
@@ -2720,25 +2730,32 @@ async function main() {
     );
   }
   const result = runPreflight(planFile, phaseArg, { checkFreshness: !allowStaleManifest });
-  if (result.stdout) process.stdout.write(result.stdout + "\n");
+  const warningLines = (result.warnings ?? []).map(
+    (w) => `  - [${w.kind}] ${[w.taskId, w.field, w.message].filter(Boolean).join(" ")}`,
+  );
+  // Halt warnings fold INTO the stdout halt text: the orchestrator contract
+  // surfaces stdout verbatim on non-zero exit, so stderr-only warnings would
+  // vanish on the exact recovery paths they were added for (Codex, PR #190).
+  if (result.stdout) {
+    const haltWarningsBlock =
+      result.exit !== 0 && warningLines.length
+        ? `\n\nDemoted grammar warnings (non-blocking, carried by the halt):\n${warningLines.join("\n")}`
+        : "";
+    process.stdout.write(result.stdout + haltWarningsBlock + "\n");
+  }
   // Line 2 of the success contract (delta D-5): the phase's size class drives
   // the ceremony map in SKILL.md § Size-Classed Ceremony.
   if (result.exit === 0 && result.sizeClass)
     process.stdout.write(`size-class: ${result.sizeClass}\n`);
-  // Demoted grammar findings are non-blocking but NEVER silent — stderr keeps the
-  // stdout contract at exactly two lines while the author still sees the drift.
-  // Printed on halt exits too: an explicit-phase or walk halt must not hide
-  // warnings its phases demoted (Codex, PR #190).
-  if (result.warnings?.length) {
-    const classPrefix = result.sizeClass ? `size-class ${result.sizeClass} ` : "";
+  // Success path: demoted findings are non-blocking but NEVER silent — stderr
+  // keeps the success stdout contract at exactly two lines while the author
+  // still sees the drift.
+  if (result.exit === 0 && warningLines.length) {
     process.stderr.write(
-      `preflight: ${classPrefix}demoted ${result.warnings.length} grammar finding(s) to warnings:\n`,
+      `preflight: size-class ${result.sizeClass} demoted ${warningLines.length} grammar finding(s) to warnings:\n` +
+        warningLines.join("\n") +
+        "\n",
     );
-    for (const w of result.warnings) {
-      process.stderr.write(
-        `  - [${w.kind}] ${[w.taskId, w.field, w.message].filter(Boolean).join(" ")}\n`,
-      );
-    }
   }
   if (result.stderr) process.stderr.write(result.stderr + "\n");
   process.exit(result.exit);

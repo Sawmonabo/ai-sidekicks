@@ -1060,6 +1060,24 @@ test("extractDeclaredFilePaths strips trailing sentence punctuation (Codex PR #1
   );
 });
 
+test("classifyPhaseSize: bare packages/<name> and apps/<name> tokens are root-bearing (Codex, PR #190)", () => {
+  assert.equal(classifyPhaseSize(["T1", "T2"], ["packages/a", "apps/b"]), "L");
+  assert.equal(classifyPhaseSize(["T1", "T2"], ["packages/a"]), "M");
+});
+
+test("extractDeclaredFilePaths keeps semicolon-separated paths, still truncating at metadata markers (Codex, PR #190)", () => {
+  assert.deepEqual(
+    extractDeclaredFilePaths("Files: packages/a/src/x.ts (NEW); apps/b/src/y.ts (EXTEND)"),
+    ["packages/a/src/x.ts", "apps/b/src/y.ts"],
+  );
+  assert.deepEqual(
+    extractDeclaredFilePaths(
+      "(Files: `packages/a/src/x.ts`; Verifies invariant: docs/specs/002-x.md)",
+    ),
+    ["packages/a/src/x.ts"],
+  );
+});
+
 test("classifyPhaseSize: 2-3 tasks with ZERO parsed paths fail closed to L; docs-only keeps M (Codex, PR #190)", () => {
   assert.equal(classifyPhaseSize(["T1", "T2", "T3"], []), "L");
   assert.equal(classifyPhaseSize(["T1", "T2"], ["docs/specs/002-x.md"]), "M");
@@ -1075,7 +1093,7 @@ test("explicit-phase halt still surfaces the phase's demoted warnings (Codex, PR
   );
 });
 
-test("CLI prints demoted warnings on stderr even when halting (Codex, PR #190)", () => {
+test("CLI folds demoted warnings INTO the stdout halt text (Codex, PR #190)", () => {
   const spawned = spawnSync(
     process.execPath,
     [
@@ -1087,7 +1105,10 @@ test("CLI prints demoted warnings on stderr even when halting (Codex, PR #190)",
     { encoding: "utf8" },
   );
   assert.equal(spawned.status, 1);
-  assert.match(spawned.stderr, /\[unparseable-cite\]/);
+  // Orchestrators surface stdout verbatim on non-zero exit — the warnings
+  // must live there, not on stderr where that contract never looks.
+  assert.match(spawned.stdout, /Demoted grammar warnings \(non-blocking, carried by the halt\):/);
+  assert.match(spawned.stdout, /\[unparseable-cite\]/);
 });
 
 test("auto-walk carries demoted warnings from SKIPPED phases into the selection (Codex PR #190)", () => {
