@@ -1078,6 +1078,23 @@ test("extractDeclaredFilePaths keeps semicolon-separated paths, still truncating
   );
 });
 
+test("extractDeclaredFilePaths stops at BOLD metadata labels — cite prose slash-tokens stay out (Codex, PR #190)", () => {
+  assert.deepEqual(
+    extractDeclaredFilePaths(
+      "- **Files:** `packages/a/src/x.ts` **Spec coverage:** Spec-002 §Rate Limiting (20/session/hr + membership/presence)",
+    ),
+    ["packages/a/src/x.ts"],
+  );
+  // `Files: none` + trailing cite prose must yield ZERO paths (fail-closed L),
+  // not a nonzero non-code list that would award M.
+  assert.deepEqual(
+    extractDeclaredFilePaths(
+      "- **Files:** none **Spec coverage:** Spec-002 line 88 (20/session/hr)",
+    ),
+    [],
+  );
+});
+
 test("classifyPhaseSize: 2-3 tasks with ZERO parsed paths fail closed to L; docs-only keeps M (Codex, PR #190)", () => {
   assert.equal(classifyPhaseSize(["T1", "T2", "T3"], []), "L");
   assert.equal(classifyPhaseSize(["T1", "T2"], ["docs/specs/002-x.md"]), "M");

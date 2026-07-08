@@ -417,8 +417,14 @@ export function extractDeclaredFilePaths(phaseSection) {
   // which can only widen the root set — the fail-closed direction (Codex ×2,
   // PR #190).
   const fieldRe = /\bFiles:\s*([^\n]+)/g;
-  const metadataMarker =
-    /;\s*(?:Spec coverage|Verifies invariant|Consumes|Provides|Wires|Acceptance|Depends on|Rollback)\s*:/;
+  // Two marker shapes end the clause: `; Label:` (inline rows) and `**Label`
+  // (sub-header rows whose fields share one line) — without the bold stop,
+  // cite prose after `**Spec coverage:**` leaks slash-shaped tokens like
+  // `20/session/hr` into the target list, turning a should-be-fail-closed-L
+  // phase into M via nonzero non-code paths (Codex, PR #190).
+  const fieldLabels =
+    "Spec coverage|Verifies invariant|Consumes|Provides|Wires|Acceptance|Depends on|Rollback";
+  const metadataMarker = new RegExp(`;\\s*(?:${fieldLabels})\\s*:|\\*\\*\\s*(?:${fieldLabels})`);
   let m;
   while ((m = fieldRe.exec(phaseSection)) !== null) {
     const markerHit = metadataMarker.exec(m[1]);
