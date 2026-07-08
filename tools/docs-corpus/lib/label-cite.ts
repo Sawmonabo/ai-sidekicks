@@ -46,7 +46,12 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { type Cite, type CiteViolation, type FileContentReader } from "./cite-target-existence.ts";
+import {
+  checkCite,
+  type Cite,
+  type CiteViolation,
+  type FileContentReader,
+} from "./cite-target-existence.ts";
 import { getRepoRoot } from "./inbound-cite-discovery.ts";
 
 // Label token → governance tree. The number is NOT shared across token types
@@ -364,9 +369,17 @@ export function checkLabelCiteTargets(
       // Frozen trees keep raw `:NNN` legality (AGENTS.md §Durable-Cite Rule):
       // archive / reference content never shifts after landing, so a line pin
       // there cannot rot — and those docs carry no live headings to anchor.
-      // Label tokens never resolve into these trees (TOKEN_DIRS), so the
-      // prefix test on the raw docs-path form covers every reachable case.
-      if (FROZEN_DOC_PREFIXES.some((prefix) => c.rawTarget.startsWith(prefix))) continue;
+      // Legality is not blind trust: the pre-ratchet FLOOR still validates the
+      // pin (missing file / out-of-range / blank line), so a typo like
+      // `docs/reference/foo.md:999` fails loudly instead of vanishing from
+      // every check (Codex review, PR #189 round 3). Label tokens never
+      // resolve into these trees (TOKEN_DIRS), so the prefix test on the raw
+      // docs-path form covers every reachable case.
+      if (FROZEN_DOC_PREFIXES.some((prefix) => c.rawTarget.startsWith(prefix))) {
+        const floorViolation = checkCite(c, reader);
+        if (floorViolation) violations.push(floorViolation);
+        continue;
+      }
       const deniedKey = `${c.file}:${c.line}:${c.targetPath}`;
       if (!deniedRawCites.has(deniedKey)) {
         deniedRawCites.add(deniedKey);

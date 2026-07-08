@@ -755,4 +755,35 @@ describe("frozen trees exempt from the raw-cite deny (AGENTS.md: raw `:NNN` stay
       cleanup();
     }
   });
+
+  it("still FLOORS a frozen cite: out-of-range line fails loudly (legality ≠ blind trust)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/reference/paseo/overview.md": FIVE_LINE_DOC,
+      "packages/x/src/f.ts": "// upstream precedent: docs/reference/paseo/overview.md:999\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/x/src/f.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("line-out-of-range");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("still FLOORS a frozen cite: missing target file fails loudly", () => {
+    const { root, cleanup } = setupRepo({
+      "packages/x/src/f.ts": "// upstream precedent: docs/reference/renamed-away.md:3\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/x/src/f.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("missing-target-file");
+    } finally {
+      cleanup();
+    }
+  });
 });
