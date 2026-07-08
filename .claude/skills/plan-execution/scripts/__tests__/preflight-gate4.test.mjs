@@ -19,6 +19,7 @@ import {
   runPreflight,
   classifyPhaseSize,
   extractDeclaredFilePaths,
+  extractDeclaredTaskIds,
 } from "../preflight.mjs";
 
 const FIXTURE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "preflight-gate4-fixtures");
@@ -857,8 +858,28 @@ test("classifyPhaseSize: >3 tasks is L even in one root", () => {
   assert.equal(classifyPhaseSize(["T1", "T2", "T3", "T4"], ["packages/a/src/x.ts"]), "L");
 });
 
-test("classifyPhaseSize: degenerate 0-task phase classifies S", () => {
-  assert.equal(classifyPhaseSize([], []), "S");
+test("classifyPhaseSize: zero parsed task IDs FAILS CLOSED to L (unrecognized shape gets full ceremony)", () => {
+  assert.equal(classifyPhaseSize([], []), "L");
+});
+
+test("extractDeclaredTaskIds parses the em-dash-inside-bold row shape audited plans use (Codex P1, PR #190)", () => {
+  const block = [
+    "#### Tasks",
+    "",
+    "- **T1.1 — `repo.ts` contract core: branded IDs + canonical enums.**",
+    "- **T1.2 — `RepoAttach` + `RepoMountRead` schemas.**",
+    "- **T-100-1.3** — bold-closes-after-id shape still parses",
+    "",
+  ].join("\n");
+  assert.deepEqual(extractDeclaredTaskIds(block), ["T-100-1.3", "T1.1", "T1.2"]);
+});
+
+test("extractDeclaredFilePaths survives inline annotations between paths (Codex, PR #190)", () => {
+  const paths = extractDeclaredFilePaths(
+    "Files: `packages/a/src/x.ts` (CREATE) + `apps/b/src/y.ts` (EXTEND); Verifies invariant: I-1",
+  );
+  assert.deepEqual(paths, ["packages/a/src/x.ts", "apps/b/src/y.ts"]);
+  assert.equal(classifyPhaseSize(["T1", "T2"], paths), "L");
 });
 
 test("extractDeclaredFilePaths covers the sub-header bold-field layout and strips markup", () => {

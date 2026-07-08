@@ -437,7 +437,7 @@ Route findings by the `Round-trip target:` value: with `Round-trip target: <task
 
 ### Phase D.5 — Merge transition
 
-After Phase D returns "all reviewers DONE", the orchestrator transitions the feature PR from `draft` to `ready`, waits for CI to go green, waits for the Codex external reviewer's verdict on the HEAD commit, and squash-merges into `develop`. This phase is the explicit bridge between Phase D (subagent review complete) and Phase E (post-merge housekeeping); without it, the orchestrator has no documented step that creates the merged commit Phase E depends on. The five steps run in this exact order:
+After Phase D returns "all reviewers DONE" — or, for an S-class run (which skips Phase D per § Size-Classed Ceremony), after the merged Phase-C review returns DONE — the orchestrator transitions the feature PR from `draft` to `ready`, waits for CI to go green, waits for the Codex external reviewer's verdict on the HEAD commit, and squash-merges into `develop`. This phase is the explicit bridge between Phase D (subagent review complete) and Phase E (post-merge housekeeping); without it, the orchestrator has no documented step that creates the merged commit Phase E depends on. The five steps run in this exact order:
 
 1. **Mark PR ready for review** — `gh pr ready <PR#>` (no-op if already ready). The required-conversation-resolution branch protection takes effect at this point; any unresolved review threads block the merge in step 4.
 2. **Wait for CI to go green** — `gh pr checks <PR#> --watch --interval 10` blocks until every required check returns SUCCESS. On any FAILURE, halt Phase D.5 and surface the failed check + logs to the user (CI red is not auto-fixed — the user decides whether to round-trip Phase B/C, manual fix, or abort).
@@ -571,7 +571,7 @@ Preflight emits the phase's size class (S / M / L — definition + rationale: `d
 | M | code-reviewer + spec-reviewer | Both reviewers re-run at PR scope | As today (script → subagent → validator → gated PR) | existence-hard, grammar→warnings |
 | L | All three reviewers | All three at PR scope | As today | full grammar hard-gate |
 
-**Escalation (one-way, per run):** any ACTIONABLE finding escalates the class one step for the remainder of the run — S→M adds the spec-reviewer from the next review round; M→L adds the code-quality-reviewer and a separate Phase D. Record each escalation in the PR body's Review Notes. The docs-only and small-task collapse rules in Phase C still apply within a class (they never ADD reviewers back).
+**Escalation (one-way, per run):** any ACTIONABLE finding escalates the class one step for the remainder of the run — S→M adds the spec-reviewer from the next review round; M→L adds the code-quality-reviewer and a separate Phase D. Record each escalation in the PR body's Review Notes. The small-task collapse rule still applies within a class (it only ever REMOVES the spec-reviewer from an M/L set). The docs-only rule is a SUBSTITUTION, not a collapse: at EVERY class — S included — a docs-only task swaps the class's reviewer set for the spec-reviewer alone, because code-quality and code-reviewer don't apply to prose and an S-class docs task must not lose its only applicable review.
 
 ## TaskCreate Hygiene
 

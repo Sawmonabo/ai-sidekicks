@@ -358,7 +358,10 @@ export function extractDeclaredTaskIds(phaseSection) {
   if (block === null) return [];
   const ids = new Set();
   for (const m of block.matchAll(/^#####\s+(T[-a-zA-Z0-9.]+)\b/gm)) ids.add(m[1]);
-  for (const m of block.matchAll(/^-\s+\*\*(T[-a-zA-Z0-9.]+)\*\*/gm)) ids.add(m[1]);
+  // Two bullet shapes: `- **T-100-1.1** — title` (bold closes after the id)
+  // and `- **T1.1 — title**` (em-dash + title INSIDE the bold — the shape
+  // audited plans like Plan-009/016 use). [^*\n]* spans the intra-bold tail.
+  for (const m of block.matchAll(/^-\s+\*\*(T[-a-zA-Z0-9.]+)\b[^*\n]*\*\*/gm)) ids.add(m[1]);
   return [...ids].sort();
 }
 
@@ -368,6 +371,11 @@ export function extractDeclaredTaskIds(phaseSection) {
 // L: everything else. Drives G4 strictness here and the ceremony map in
 // SKILL.md § Size-Classed Ceremony; Codex + CI are invariant across classes.
 export function classifyPhaseSize(declaredTaskIds, targetPaths) {
+  // FAIL CLOSED on zero parsed IDs: an empty list means the extractor did not
+  // recognize the Tasks-block shape (not that the phase is small) — classify L
+  // so an unrecognized future shape gets the FULL ceremony, never a skipped
+  // reviewer set + demoted G4 (Codex P1, PR #190).
+  if (declaredTaskIds.length === 0) return "L";
   if (declaredTaskIds.length <= 1) return "S";
   if (declaredTaskIds.length <= 3) {
     const roots = new Set();
@@ -384,7 +392,10 @@ export function classifyPhaseSize(declaredTaskIds, targetPaths) {
 // + parenthesized inline). Path-shaped tokens only; dedup, order-stable.
 export function extractDeclaredFilePaths(phaseSection) {
   const paths = [];
-  const fieldRe = /\bFiles:\s*([^\n;)]+)/g;
+  // Capture to the next task-metadata separator (`;`) or end of line — NOT the
+  // first `)`: inline annotations like `a.ts (CREATE) + b.ts` would truncate
+  // the clause and drop the second root (Codex, PR #190).
+  const fieldRe = /\bFiles:\s*([^\n;]+)/g;
   let m;
   while ((m = fieldRe.exec(phaseSection)) !== null) {
     for (const token of m[1].split(/[,\s]+/)) {
@@ -393,7 +404,7 @@ export function extractDeclaredFilePaths(phaseSection) {
       const cleaned = token
         .replace(/[`*]/g, "")
         .trim()
-        .replace(/[.,;:!?]+$/, "");
+        .replace(/[.,;:!?)\]]+$/, "");
       if (/^[\w.@-]+(\/[\w.@-]+)+\.\w+$/.test(cleaned) && !paths.includes(cleaned))
         paths.push(cleaned);
     }
