@@ -138,7 +138,7 @@ Run the preflight tool with the plan file (and optional explicit phase if the us
 node .claude/skills/plan-execution/scripts/preflight.mjs docs/plans/NNN-*.md [phase-number]
 ```
 
-The tool resolves the next-up phase, runs all mechanical gates (project-locality, audit checkbox, phase un-shipped, tasks-block G4 cites, phase preconditions, manifest freshness), and emits the phase number on `stdout` when it passes. Full contract: [`references/preflight-contract.md`](references/preflight-contract.md). Gate 6 (manifest freshness) cross-checks the plan's Shipment Manifest against merged `Plan-NNN in:title` PRs touching material paths (`packages/`, `apps/`, `.github/`) and halts on drift; `--allow-stale-manifest` is the explicit offline escape — never pass it on a normal run.
+The tool resolves the next-up phase, runs all mechanical gates (project-locality, audit checkbox, phase un-shipped, tasks-block G4 cites, phase preconditions, manifest freshness), and emits the phase number on `stdout` line 1 and `size-class: S|M|L` on line 2 when it passes — record the class; it drives the ceremony map (§ Size-Classed Ceremony below). Full contract: [`references/preflight-contract.md`](references/preflight-contract.md). Gate 6 (manifest freshness) cross-checks the plan's Shipment Manifest against merged `Plan-NNN in:title` PRs touching material paths (`packages/`, `apps/`, `.github/`) and halts on drift; `--allow-stale-manifest` is the explicit offline escape — never pass it on a normal run.
 
 **On non-zero exit:** halt with `RESULT: NEEDS_CONTEXT` and surface the tool's `stdout` verbatim — the message is self-contained (failure type, file paths, remediation hint). Do not paraphrase; the message is the contract.
 
@@ -369,7 +369,7 @@ After all tasks at this level are committed (sequential) or merged (worktree), a
 
 ### Phase C — Per-task review pipeline
 
-After each task's implementer (or contract-author) returns `DONE`, BEFORE that task is committed/merged into the PR branch, dispatch the three reviewers IN PARALLEL (single message, three `Agent(...)` blocks). Each reviewer is briefed with:
+After each task's implementer (or contract-author) returns `DONE`, BEFORE that task is committed/merged into the PR branch, dispatch the three reviewers IN PARALLEL (subject to § Size-Classed Ceremony — S dispatches code-reviewer only, M two, L all three) (single message, per-class `Agent(...)` blocks). Each reviewer is briefed with:
 
 - The task's `title`, `target_paths`, `spec_coverage`, `verifies_invariant`, `acceptance_criteria`, `contract_consumes`/`contract_provides`, `consumes_resolution`, `blocked_on`. (`consumes_resolution[symbol]` is the spec-reviewer's source-of-truth for the "right shape" check against `contract_consumes` symbols — without it, the agent-definition's contract-consumes shape-check has no datum to compare against.)
 - The task-scoped diff. Sequential mode: `git diff` against `HEAD` (staged + unstaged for `target_paths`). Worktree mode: `git diff <PR-branch>...<task-branch> -- <target_paths>`.
@@ -405,7 +405,7 @@ For tasks whose diff is exclusively `.md` files under `docs/`, dispatch only the
 
 ### Phase D — Final review pipeline
 
-After all DAG levels are complete (every task is DONE and committed/merged into the PR branch), dispatch the three reviewers ONE MORE TIME in parallel, scoped to the FULL PR diff (`git diff develop...HEAD`). Each reviewer's brief carries:
+After all DAG levels are complete (every task is DONE and committed/merged into the PR branch), dispatch the three reviewers ONE MORE TIME in parallel (L only in full; M re-runs its two; S skips Phase D — its Phase C review was PR-scope by construction, per § Size-Classed Ceremony), scoped to the FULL PR diff (`git diff develop...HEAD`). Each reviewer's brief carries:
 
 - The full PR diff (`git diff develop...HEAD`) — for integration-coverage assessment.
 - The YAML DAG block from the PR description (provides `target_paths` per task — the first-level filter for `Round-trip target` resolution).
@@ -456,7 +456,7 @@ After step 5 returns success, advance to Phase E. The squash-commit SHA + merged
 
 Phase E fires AFTER Phase D.5 step 4 (`git switch develop && git pull --ff-only`) returns success — i.e., the orchestrator's local `develop` is at the new squash-commit. Phase E updates the §6 NS catalog and the plan's `Done Checklist` so the catalog stays a faithful index of what shipped. The housekeeping commit lands via its own gated squash-merge PR (steps 7-8) so the no-direct-push-to-develop guarantee from § Hard rules → "Invocation as durable authorization" is preserved end-to-end. The housekeeper is a 7th plan-execution role (color: blue, tools: Read/Grep/Glob/Edit/Write); see `references/post-merge-housekeeper-contract.md` for the full contract.
 
-The phase has 8 steps in this exact order — DO NOT reorder; step 6 (shipment-manifest entry) explicitly moves AFTER housekeeping per spec §6.1 design choice (a single commit bundles housekeeping + manifest entry so the post-merge state is atomic):
+The phase has 8 steps in this exact order — DO NOT reorder; step 6 (shipment-manifest entry) explicitly moves AFTER housekeeping per spec §6.1 design choice (a single commit bundles housekeeping + manifest entry so the post-merge state is atomic). For S-class runs, steps 4–5 are replaced by the orchestrator direct-apply mode (contract § S-class direct-apply mode); steps 1–3 and 6–8 are unchanged:
 
 1. **Run candidate-lookup** over `docs/architecture/cross-plan-dependencies.md` §6 per the four heading-only matching rules below (canonical here — state-recovery.md and the housekeeper contract defer to this list): [^d7]
    - Rule 1: Plan + Phase match (e.g., diff touches `docs/plans/024-rust-pty-sidecar.md` + commit cites Phase 1 → match `### NS-NN: Plan-024 Phase 1 — ...`)
@@ -560,6 +560,18 @@ Reviewers tag every finding with one of three severity labels:
 - **ACTIONABLE** — must fix to merge; round-trips immediately.
 
 Full routing rules per reviewer role, examples, "no label" recovery, and the round-trip cap rationale live in [`references/failure-modes.md` § Findings Discipline](references/failure-modes.md#findings-discipline). The three-label discipline replaces the prior binary OBSERVATION/ACTIONABLE scheme, which conflated VERIFICATION (no-op narrative) with POLISH (real fix needed) and bucketed both as "skip" — surfacing the failure mode in Plan-007 PR #19, where 10 of 11 OBSERVATIONs were verification statements but 1 was a real polish finding (citation drift) deferred only because of the bucket name.
+
+## Size-Classed Ceremony
+
+Preflight emits the phase's size class (S / M / L — definition + rationale: `docs/superpowers/specs/2026-07-06-plan-execution-refinement-design.md` §5; classifier: `scripts/preflight.mjs` `classifyPhaseSize`). The class scales the review + housekeeping ceremony. **Codex gate (Phase D.5) and CI are invariant across classes.**
+
+| Class | Per-task review (Phase C) | PR-scope review (Phase D) | Housekeeping (Phase E) | G4 |
+| --- | --- | --- | --- | --- |
+| S | code-reviewer only | MERGED into Phase C — the single task's diff IS the PR diff; do not re-run (`validate-review-response.mjs` runs WITHOUT `--phase=D`: the Round-trip stamp requirement is Phase-D-only, and the single task is the only possible target) | Second PR as usual, but the orchestrator applies the deterministic edits directly — no housekeeper-subagent dispatch (delta D-4: the entry's `sha` records the squash commit, unknowable pre-merge; contract § S-class direct-apply mode); merge on CLEAN per the doc-only precedent | existence-hard, grammar→warnings (surfaced on stderr — never silent) |
+| M | code-reviewer + spec-reviewer | Both reviewers re-run at PR scope | As today (script → subagent → validator → gated PR) | existence-hard, grammar→warnings |
+| L | All three reviewers | All three at PR scope | As today | full grammar hard-gate |
+
+**Escalation (one-way, per run):** any ACTIONABLE finding escalates the class one step for the remainder of the run — S→M adds the spec-reviewer from the next review round; M→L adds the code-quality-reviewer and a separate Phase D. Record each escalation in the PR body's Review Notes. The docs-only and small-task collapse rules in Phase C still apply within a class (they never ADD reviewers back).
 
 ## TaskCreate Hygiene
 
