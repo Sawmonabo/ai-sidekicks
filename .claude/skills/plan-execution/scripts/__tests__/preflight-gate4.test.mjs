@@ -1105,6 +1105,32 @@ test("G4 tiering: demotion re-applies the existence floor — no-anchor kinds na
   assert.ok(r.warnings.length >= 1);
 });
 
+test("G4 tiering: sub-token failures inherit the segment's Spec for the existence floor (Codex, PR #190)", () => {
+  const missingSpecCompoundRange = [
+    "#### Tasks",
+    "",
+    "- **T-1** — Compound range on an absent spec",
+    "  - **Spec coverage:** Spec-999 lines 13-14 (Foo/Bar)",
+    "  - **Verifies invariant:** I-1",
+    "",
+  ].join("\n");
+  assert.equal(
+    gateTasksBlockCites(missingSpecCompoundRange, "016", 1, { sizeClass: "S" }).ok,
+    false,
+  );
+  const existingSpecCompoundRange = missingSpecCompoundRange.replace("Spec-999", "Spec-002");
+  const r = gateTasksBlockCites(existingSpecCompoundRange, "016", 1, { sizeClass: "S" });
+  assert.equal(r.ok, true, `expected demote-pass; got halt:\n${r.halt}`);
+  assert.equal(r.warnings[0].kind, "compound-range-multi-subject");
+});
+
+test("extractDeclaredFilePaths counts bare root tooling directories (Codex, PR #190)", () => {
+  const paths = extractDeclaredFilePaths("Files: tools/, scripts, `packages/a/src/x.ts`");
+  assert.ok(paths.includes("tools/"));
+  assert.ok(paths.includes("scripts"));
+  assert.equal(classifyPhaseSize(["T1", "T2"], paths), "L");
+});
+
 test("extractDeclaredFilePaths counts extensionless root config files (Codex, PR #190)", () => {
   const paths = extractDeclaredFilePaths("Files: Dockerfile, .nvmrc, `packages/a/src/x.ts`");
   assert.ok(paths.includes("Dockerfile"));

@@ -474,7 +474,12 @@ export function extractDeclaredFilePaths(phaseSection) {
         /^\.[\w.-]+$/.test(cleaned) ||
         /^(?:Dockerfile|Makefile|Justfile|Procfile|Brewfile|Vagrantfile|LICENSE|NOTICE|CODEOWNERS)$/.test(
           cleaned,
-        );
+        ) ||
+        // Single-segment directories (`tools/`) and the bare root tooling dir
+        // names — a directory-valued repo-root target must reach the
+        // fail-closed non-exempt check (Codex, PR #190).
+        /^[\w.@-]+\/$/.test(cleaned) ||
+        /^(?:tools|scripts)$/.test(cleaned);
       if (pathShaped && !paths.includes(cleaned)) paths.push(cleaned);
     }
   }
@@ -1178,6 +1183,23 @@ function makeFailure(kind, raw, message, remediation, severity = "error") {
 // descriptor, Plan-local-ID at first anchor position, phantom-section
 // (verified later by verifyAnchorAgainstSpec).
 function parseSpecSegment(segment) {
+  const result = parseSpecSegmentInner(segment);
+  // Stamp the segment's Spec number on every failure: sub-token failures
+  // (compound-range-multi-subject and friends) carry only the sub-token as
+  // `raw` (`lines 13-14 (…)`), so the demote gate's existence floor could not
+  // see which Spec the segment named (Codex, PR #190 round 11).
+  const specMatch = segment.match(/\bSpec-(\d{1,4})\b/);
+  if (specMatch) {
+    const spec = Number(specMatch[1]);
+    return {
+      anchors: result.anchors,
+      failures: result.failures.map((f) => ({ ...f, spec: f.spec ?? spec })),
+    };
+  }
+  return result;
+}
+
+function parseSpecSegmentInner(segment) {
   const nsMatch = segment.match(/^Spec-(\d+)\b\s*(.*)$/s);
   if (!nsMatch) {
     return {
@@ -2206,10 +2228,11 @@ export function gateTasksBlockCites(phaseSection, planNumber, phaseNumber, opts 
   // skipped is re-applied HERE — every Spec-NNN the raw payload names must
   // resolve to exactly one file or the finding stays hard for every class
   // (family closure for Codex rounds 9-10, PR #190).
-  const demotionKeepsExistenceFloor = (f) =>
-    [...String(f.raw ?? "").matchAll(/\bSpec-(\d{1,4})\b/g)].every(
-      ([, num]) => findPaddedFiles(specsDir, Number(num)).length === 1,
-    );
+  const demotionKeepsExistenceFloor = (f) => {
+    const named = [...String(f.raw ?? "").matchAll(/\bSpec-(\d{1,4})\b/g)].map((m) => Number(m[1]));
+    if (f.spec != null) named.push(Number(f.spec));
+    return named.every((num) => findPaddedFiles(specsDir, num).length === 1);
+  };
   const demoted = [];
   const blockingFailures = allFailures.filter((f) => {
     if ((f.severity ?? "error") !== "error") return false;
