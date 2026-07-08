@@ -37,11 +37,12 @@ Ship the V1 **schema and write-path** of the Spec-022 crypto-shredding model so 
 
 ## Preconditions
 
+- [x] **Plan-readiness audit complete per [runbook](../operations/plan-implementation-readiness-audit-runbook.md)** — Tier-5 audit (2026-05-30, PR #129): D-022-1..8 ratified in [§Ratified Design Decisions](#ratified-design-decisions-tier-5-audit-2026-05-30) and folded into the plan body; audit-derived five-phase `#### Tasks` structure (18 Tasks); companion Spec-022 amendments landed in the same audit PR. (Row recorded 2026-07-08: PR #129 predates the normalized Gate-2 checkbox-row convention — Tier-6 C-6-08, 2026-06-12 — and the omission surfaced when the phase-heading normalization made the plan visible to preflight's Gate 2.)
 - [x] Spec-022 is approved (this plan is paired with it)
 - [x] ADR-015 V1 Feature Scope Definition is accepted (places GDPR schema readiness as V1 surface requirement)
 - [x] `@noble/hashes` and `@noble/ciphers` crypto-library decision ([ADR-010 §Decision point 3](../decisions/010-paseto-webauthn-mls-auth.md#decision) / [security-architecture.md §Relay Authentication And Encryption](../architecture/security-architecture.md#relay-authentication-and-encryption-task-53) — already fixed to `@noble` v2.x for V1; `@noble/hashes` v2.x supplies Argon2id for the KEK, so the KEK needs no second crypto dependency — and the random per-participant content DEK needs no KDF at all)
 - [x] [ADR-021: CLI Identity Key Storage Custody](../decisions/021-cli-identity-key-storage-custody.md) is accepted — defines the version-byte XChaCha20-Poly1305 envelope and Argon2id-KEK custody model this plan's daemon `daemon-master.enc` extends
-- [ ] Plan-001 is authored and accepts the forward-declaration (actioned in Session 4 per BL-054)
+- [x] Plan-001 is authored and accepts the forward-declaration (actioned in Session 4 per BL-054; Plan-001 is `completed` — all five phases shipped — and its §Cross-Plan Forward-Declared Schema carries `participant_keys` per BL-089, so the box was stale-unticked drift)
 - [x] PII classification is a call-site decision owned by the emitter, not a Spec-006 registry attribute. Spec-006 does not carry a `pii:true|false` per-event-type flag — the splitter consumes the emitter's explicit split of `{payload, piiPayload}` on each write. See §Scope for rationale.
 
 ## Target Areas
@@ -178,15 +179,15 @@ Behavioral invariants this plan must preserve; the §Implementation Phase Sequen
 - **I-022-11 — Canonical bytes exclude `pii_payload`.** Canonical-bytes-under-signature exclude `pii_payload`; only `pii_ciphertext_digest` inside `payload` commits to PII. (Spec-006 §Canonical Serialization Rules.) Tasks: T22.3.1.
 - **I-022-12 — Digest embedded before signing (Plan-006-owned).** `pii_ciphertext_digest = BLAKE3(ciphertext)` is embedded in `payload` before canonicalization/signing by Plan-006's `pii-indirection.ts`. (Plan-006 §PII Columns 7-step; Spec-022 §Signature Safety Under Shred.) Tasks: T22.2.4, T22.3.1.
 - **I-022-13 — `splitPii` is pure.** `splitPii` performs no encryption, digest, or IO; the same input yields the same partition. Tasks: T22.3.1.
-- **I-022-14 — Key destruction renders PII irrecoverable.** The per-participant content key is a random DEK with **no derivation**, so after the Path-1 `participant_keys` row DELETE no surviving secret — credential, **identity record**, retained signature, digest, or master key — recovers plaintext PII. (A credential- or identity-derived key would survive the row-DELETE via its surviving source secret; the random-DEK construction (D-022-2) is what makes this invariant hold.) (Spec-022 §Signature Safety Under Shred; Spec-022:387 AC#5.) Tasks: T22.3.1, T22.5.1.
+- **I-022-14 — Key destruction renders PII irrecoverable.** The per-participant content key is a random DEK with **no derivation**, so after the Path-1 `participant_keys` row DELETE no surviving secret — credential, **identity record**, retained signature, digest, or master key — recovers plaintext PII. (A credential- or identity-derived key would survive the row-DELETE via its surviving source secret; the random-DEK construction (D-022-2) is what makes this invariant hold.) (Spec-022 §Signature Safety Under Shred; Spec-022:387 AC#5.) Tasks: T22.3.1, T22.6.1.
 - **I-022-15 — Stubs return not-implemented unconditionally.** The three `gdpr.*` methods return the not-implemented error independent of request body or caller in V1 (per the [Spec-022 §V1 Erasure Scope Boundary](../specs/022-data-retention-and-gdpr.md#v1-erasure-scope-boundary) scope decision). Tasks: T22.4.1, T22.4.3.
 - **I-022-16 — Single-owned stub registration.** Each `gdpr.*` method is registered exactly once on Plan-007's `MethodRegistry`. Tasks: T22.4.1, T22.4.2.
 - **I-022-17 — Standard discriminator, dotted project code.** The stub rides the standard JSON-RPC `-32603` discriminator (NOT a custom numeric code — per [error-contracts.md:39](../architecture/contracts/error-contracts.md) the project mints no numeric domain codes) with the registered project code `data.type = "gdpr.endpoint_not_v1"`; consumers discriminate on `data.type`. (ADR-009; D-022-3; mirrors `transport.unavailable`.) Tasks: T22.4.4, T22.4.1.
 - **I-022-18 — Schema doc matches wrap cipher.** `local-sqlite-schema.md` documents `encrypted_key_blob` as XChaCha20-Poly1305-wrapped (matching the migration), not AES-256-GCM. Tasks: T22.4.5.
-- **I-022-19 — Reciprocal completeness.** Every CP-022-1..7 has a reciprocal entry in its owner plan; no one-sided cross-plan edge ships. For CP-022-6 (the `REFERENCES participants(id)` Path-2 closure), every **in-tier** owner carries a live reciprocal and every **out-of-tier / archived** owner (Plan-027, BL-070) carries a forward-declared disposition naming the obligation — so the closure is complete with no silent gap. (cross-plan-deps §3.) Tasks: T22.5.1.
-- **I-022-20 — Cascade-free crypto-shred.** `participant_keys` carries no foreign-key cascade that blocks a Path-1 row DELETE. (Spec-022 §Shred Fan-Out; Plan-001 migration.) Tasks: T22.3.2, T22.5.1.
-- **I-022-21 — No phantom PII columns.** Every column named in the §PII Data Map resolves to a real column in its owner plan's schema. (D-022-4.) Tasks: T22.5.1.
-- **I-022-22 — Ordered shred fan-out.** The V1.1 shred handler executes Path 1 → Path 2 → Path 3 with `participant.purged` emitted last. (Spec-022 §Ordering And Atomicity.) Tasks: T22.5.1.
+- **I-022-19 — Reciprocal completeness.** Every CP-022-1..7 has a reciprocal entry in its owner plan; no one-sided cross-plan edge ships. For CP-022-6 (the `REFERENCES participants(id)` Path-2 closure), every **in-tier** owner carries a live reciprocal and every **out-of-tier / archived** owner (Plan-027, BL-070) carries a forward-declared disposition naming the obligation — so the closure is complete with no silent gap. (cross-plan-deps §3.) Tasks: T22.6.1.
+- **I-022-20 — Cascade-free crypto-shred.** `participant_keys` carries no foreign-key cascade that blocks a Path-1 row DELETE. (Spec-022 §Shred Fan-Out; Plan-001 migration.) Tasks: T22.3.2, T22.6.1.
+- **I-022-21 — No phantom PII columns.** Every column named in the §PII Data Map resolves to a real column in its owner plan's schema. (D-022-4.) Tasks: T22.6.1.
+- **I-022-22 — Ordered shred fan-out.** The V1.1 shred handler executes Path 1 → Path 2 → Path 3 with `participant.purged` emitted last. (Spec-022 §Ordering And Atomicity.) Tasks: T22.6.1.
 
 ## Cross-Plan Obligations
 
@@ -242,13 +243,21 @@ The Open Decisions surfaced at the Tier-5 user-review pause are ratified below a
     - **Path 2 before Path 3** — hard-delete the Postgres participant record before clearing diagnostic buckets so a diagnostic-bucket reader cannot re-derive PII via Postgres JOIN during the bucket-flush window.
     - **`participant.purged` last** — the aggregate event is the durable audit artifact of the whole operation; emitting it before all three paths complete would misrepresent completion state.
 
-    **V1 code: the Path-2 FK-severance migration (T22.5.2) only; the shred-fan-out _orchestration handler_ is V1.1+.** Path 2's one V1 deliverable is the schema substrate that makes the future handler's anonymization FK-safe — the `ON DELETE SET NULL` relaxation of the two in-V1 anonymize-class FKs (`session_invites.inviter_id`, `session_memberships.participant_id`), authored as control-plane migration **T22.5.2** per D-022-7 (the `revoked_*` FKs are BL-070-forward-declared, born nullable when that item builds). Beyond that migration the step lands zero code — it is a cross-plan alignment checkpoint (T22.5.1) that verifies: (a) Plan-001's `participant_keys` schema emits no foreign-key cascade barrier blocking a Path 1 DELETE; (b) the complete `REFERENCES participants(id)` inbound-FK closure (CP-022-6) — not just Plan-018's tables — is enumerable from [shared-postgres-schema.md](../architecture/schemas/shared-postgres-schema.md) and each live target exposes its deletion/anonymization path (the forward-declared Plan-027/BL-070 rows are verified at their own build/audit, not here); (c) Plan-020's diagnostic-bucket tables accept per-participant-id scoped flush as Path 3 targets; (d) Plan-006's `event.shredded` emission on Path 1 completion is wired per Plan-006 §Shred Fan-Out Cross-References. The reciprocal obligations on Plan-001/006/018/019/002/020 are **encoded now** as [§Cross-Plan Obligations](#cross-plan-obligations) CP-022-5/6/7 (not deferred to a V1.1 checkpoint); each owner plan carries its half. This step verifies they remain in sync at code time.
+    **V1 code: the Path-2 FK-severance migration (T22.5.2) only; the shred-fan-out _orchestration handler_ is V1.1+.** Path 2's one V1 deliverable is the schema substrate that makes the future handler's anonymization FK-safe — the `ON DELETE SET NULL` relaxation of the two in-V1 anonymize-class FKs (`session_invites.inviter_id`, `session_memberships.participant_id`), authored as control-plane migration **T22.5.2** per D-022-7 (the `revoked_*` FKs are BL-070-forward-declared, born nullable when that item builds). Beyond that migration the step lands zero code — it is a cross-plan alignment checkpoint (T22.6.1) that verifies: (a) Plan-001's `participant_keys` schema emits no foreign-key cascade barrier blocking a Path 1 DELETE; (b) the complete `REFERENCES participants(id)` inbound-FK closure (CP-022-6) — not just Plan-018's tables — is enumerable from [shared-postgres-schema.md](../architecture/schemas/shared-postgres-schema.md) and each live target exposes its deletion/anonymization path (the forward-declared Plan-027/BL-070 rows are verified at their own build/audit, not here); (c) Plan-020's diagnostic-bucket tables accept per-participant-id scoped flush as Path 3 targets; (d) Plan-006's `event.shredded` emission on Path 1 completion is wired per Plan-006 §Shred Fan-Out Cross-References. The reciprocal obligations on Plan-001/006/018/019/002/020 are **encoded now** as [§Cross-Plan Obligations](#cross-plan-obligations) CP-022-5/6/7 (not deferred to a V1.1 checkpoint); each owner plan carries its half. This step verifies they remain in sync at code time.
 
 ## Implementation Phase Sequence
 
-Audit-derived task decomposition. The 11 Implementation Steps regroup into five buildable clusters (custody, per-participant crypto, write-path, stub surface, cross-plan fan-out); **18 Tasks** total. Each Task row carries the fields the plan-execution plan-analyst consumes verbatim: **Files**, **Spec coverage**, **Verifies invariant**, **Consumes** (upstream symbols/rows + provider); the former **BLOCKED-ON** / **CONFIRM-AT-PAUSE** markers were all resolved at the Tier-5 pause (see [§Ratified Design Decisions](#ratified-design-decisions-tier-5-audit-2026-05-30)). Sequencing maps to §Rollout Order. Header-level ADR promotion and the Done-Checklist rewrite are corpus edits already applied, not code Tasks.
+Audit-derived task decomposition. The 11 Implementation Steps regroup into six buildable phases (custody, per-participant crypto, write-path, stub surface, cross-plan fan-out, alignment checkpoint); **18 Tasks** total. Each Task row carries the fields the plan-execution plan-analyst consumes verbatim: **Files**, **Spec coverage**, **Verifies invariant**, **Consumes** (upstream symbols/rows + provider); the former **BLOCKED-ON** / **CONFIRM-AT-PAUSE** markers were all resolved at the Tier-5 pause (see [§Ratified Design Decisions](#ratified-design-decisions-tier-5-audit-2026-05-30)). Sequencing maps to §Rollout Order. Header-level ADR promotion and the Done-Checklist rewrite are corpus edits already applied, not code Tasks.
 
-### Cluster 1 — Daemon master-key custody (Steps 1–2)
+### Phase 1 — Daemon master-key custody (Steps 1–2)
+
+**Precondition:** Plan-007 Phase R2 merged — T-007r-2-4 ships the `DaemonKeyStore` interface + test-only stub at `bootstrap/daemon-key-store.ts` (CP-007-8); this phase's `OsKeystoreSealedDaemonKeyStore` (T22.1.2) implements that interface and must not author Plan-007's file.
+
+<!-- prettier-ignore -->
+```yaml
+preconditions:
+  - { type: external_plan_phase_merged, plan: 007, phase: R2 }
+```
 
 #### Tasks
 
@@ -279,7 +288,9 @@ Audit-derived task decomposition. The 11 Implementation Steps regroup into five 
   - Verifies invariant: I-022-5, I-022-6
   - Consumes: `sodium-native` (T22.1.1).
 
-### Cluster 2 — Per-participant crypto primitives (Steps 3–6)
+### Phase 2 — Per-participant crypto primitives (Steps 3–6)
+
+**Precondition:** Phase 1 merged (Steps 3–6 build on the Step-1–2 master-key custody, and T22.1.1 lands the `@noble`/`sodium-native` crypto dependencies these primitives import) + Plan-006 Phase 2 merged (T2.4 ships the `PiiEncryptor` interface and `PiiPayloadCiphertext` brand that this phase's `pii-codec.ts` implements — CP-022-1 / CP-006-1).
 
 #### Tasks
 
@@ -304,7 +315,9 @@ Audit-derived task decomposition. The 11 Implementation Steps regroup into five 
   - Verifies invariant: I-022-8, I-022-12
   - Consumes: `@noble/ciphers` AES-256-GCM (T22.1.1); Plan-006's `PiiEncryptor` interface + branded `PiiPayloadCiphertext` (CP-022-1 / CP-006-1, shipped via NS-16).
 
-### Cluster 3 — Write-path integration (Steps 7–8)
+### Phase 3 — Write-path integration (Steps 7–8)
+
+**Precondition:** Phase 2 merged (Steps 7–8 integrate the per-participant primitives from Steps 3–6 into the write path).
 
 #### Tasks
 
@@ -319,7 +332,9 @@ Audit-derived task decomposition. The 11 Implementation Steps regroup into five 
   - Verifies invariant: I-022-20
   - Consumes: Plan-001's shipped `0001-initial.ts` (verify it already carries `pii_payload` + the `participant_keys` table per CP-022-5).
 
-### Cluster 4 — GDPR stub surface (Steps 9–10)
+### Phase 4 — GDPR stub surface (Steps 9–10)
+
+**Precondition:** Plan-007 Phase 2 merged (the JSON-RPC `MethodRegistry` the `gdpr.*` stubs register on, per D-022-3 — already shipped, PR #17). No in-plan gate: §Parallelization Notes — Step 9 is fully parallelizable with every other Plan-022 step.
 
 #### Tasks
 
@@ -351,20 +366,29 @@ Audit-derived task decomposition. The 11 Implementation Steps regroup into five 
   - Verifies invariant: I-022-18
   - Consumes: the `participant_keys` schema (T22.2.3 / T22.3.2).
 
-### Cluster 5 — Cross-plan fan-out: Path-2 FK-severance migration + alignment checkpoint (Step 11)
+### Phase 5 — Cross-plan fan-out: Path-2 FK-severance migration (Step 11)
+
+**Precondition:** None within Plan-022 — T22.5.2 touches only `packages/control-plane` and depends on Plan-001's shipped `session_memberships` + Plan-002's shipped `session_invites` (§Parallelization Notes; it parallelizes with every other Plan-022 step).
 
 #### Tasks
 
-- **T22.5.1 — Shred fan-out alignment checkpoint (V1 code = 0).**
-  - Files: verification-only — no code land; the cross-plan alignment per Implementation Step 11
-  - Spec coverage: Spec-022 §Shred Fan-Out, §Ordering And Atomicity
-  - Verifies invariant: I-022-14, I-022-19, I-022-20, I-022-21, I-022-22
-  - Consumes: the CP-022-5/6/7 reciprocals (Plan-001/006/018/019/002/020 + Plan-003 for the CP-022-6 closure). Confirms the Step-11 Path-2 owner attribution across the complete `REFERENCES participants(id)` inbound-FK closure (`session_invites`→Plan-002, `notification_preferences`→Plan-019, `runtime_node_attachments`→Plan-003; forward-declared `cross_node_dispatch_coordination`→Plan-027, `revoked_*`→BL-070); encode-now CP-022-6 live reciprocals (fix-in-place at swap), forward-declared dispositions named.
 - **T22.5.2 — Path-2 anonymize-FK severance migration (V1 schema substrate).**
   - Files: `packages/control-plane/src/migrations/00NN-participant-fk-severance.ts` (CREATE; `NNNN` assigned by append-order) + `packages/control-plane/src/sessions/migration-runner.ts` (EXTEND — append `{ version: N, sql }` in landing order)
   - Spec coverage: Spec-022:408 (the `ON DELETE SET NULL` relaxation is enumerated **In V1**), Spec-022 §Shred Fan-Out Path-2 FK-safety; D-022-7
   - Verifies invariant: (none directly — the FK-safety schema substrate for the Path-2 anonymization; the I-022-22 ordered-fan-out handler that performs the anonymization is V1.1)
   - Consumes: Plan-001's shipped `session_memberships` + Plan-002's shipped `session_invites` (control-plane Postgres, already at runner v1/v2); the `migration-runner.ts` append seam. Relaxes **only** the two in-V1 anonymize FKs (`session_invites.inviter_id`, `session_memberships.participant_id`) to nullable + `ON DELETE SET NULL`; `revoked_jtis`/`revoked_token_families` are BL-070-forward-declared (born nullable at their own build — no ALTER over a not-yet-created table). Version integer assigned at build by append-order (after the other Tier-5 control-plane migrations land), not pinned — see [cross-plan §5](../architecture/cross-plan-dependencies.md#5-canonical-build-order) landing-order note.
+
+### Phase 6 — Shred fan-out alignment checkpoint (V1 code = 0)
+
+**Precondition:** Phase 3 merged + Phase 4 merged + Phase 5 merged (the checkpoint's Consumes span the CP-022-5/6/7 reciprocals per I-022-19..22, so it audits the encoded reciprocals and Path-2 owner attribution only after every other Plan-022 lane lands; Phase 3 merged implies Phases 1–2 via their own gates).
+
+#### Tasks
+
+- **T22.6.1 — Shred fan-out alignment checkpoint (V1 code = 0).**
+  - Files: verification-only — no code land; the cross-plan alignment per Implementation Step 11
+  - Spec coverage: Spec-022 §Shred Fan-Out, §Ordering And Atomicity
+  - Verifies invariant: I-022-14, I-022-19, I-022-20, I-022-21, I-022-22
+  - Consumes: the CP-022-5/6/7 reciprocals (Plan-001/006/018/019/002/020 + Plan-003 for the CP-022-6 closure). Confirms the Step-11 Path-2 owner attribution across the complete `REFERENCES participants(id)` inbound-FK closure (`session_invites`→Plan-002, `notification_preferences`→Plan-019, `runtime_node_attachments`→Plan-003; forward-declared `cross_node_dispatch_coordination`→Plan-027, `revoked_*`→BL-070); encode-now CP-022-6 live reciprocals (fix-in-place at swap), forward-declared dispositions named.
 
 ## Parallelization Notes
 
