@@ -79,6 +79,20 @@ test("surveyPhase: parsed T1.1 does NOT cover an unparseable T1.10 row (boundary
   assert.match(result.omissions[0], /T1\.10/);
 });
 
+test("surveyPhase: a cross-reference in an unparseable row's tail does NOT cover it (head-id equality — Codex r5)", () => {
+  const section = `### Phase 2 — Example
+
+#### Tasks
+
+- **T2.1 — parsed fine**
+- ***T2.7 — depends on T2.1***
+`;
+  const result = surveyPhase(section);
+  assert.ok(result.ids.includes("T2.1"));
+  assert.equal(result.omissions.length, 1);
+  assert.match(result.omissions[0], /T2\.7/);
+});
+
 test("surveyPhase: parsed T-025 does NOT cover a lettered T-025d-14-1 row (letters extend ids — Codex r3)", () => {
   const section = `### Phase 1 — Example
 

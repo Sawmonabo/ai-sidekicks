@@ -2779,19 +2779,19 @@ export function gateStatusPromotion(planSource, planFile) {
 
 const SURVEY_ORACLE_RE = /^(?:-\s+(?:\[[ xX]\]\s+)?\*{1,3}T[-\d]|#####\s+T[-\d])/;
 
-// Reconciliation is boundary-aware, not substring: parsed `T1.1` must not
-// cover an oracle row for `T1.10`, nor parsed `T-025` one for
-// `T-025d-14-1` (a bare `includes` lets the extractor miss the longer id
-// while the screen stays green — Codex P2 rounds 2-3). An id occurrence
-// only counts when NOT followed by an id-extending character — digit,
-// letter, `_`, `.`, `-` (the corpus uses lettered ids: `T-007p…`,
-// `T-025d…`): `**T1.1 —` matches; the prefix inside `T1.10` or
-// `T-025d-…` does not. Erring toward "not covered" is the fail-closed
-// direction — a false anomaly is visible; a false pass is the miss class
-// this screen exists to catch.
-function idOccursWithBoundary(line, id) {
-  const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`${escaped}(?![\\w.-])`).test(line);
+// Reconciliation compares HEAD ids exactly, not row substrings. The lineage
+// (Codex P2 rounds 2-5): bare `includes` let parsed `T1.1` cover a `T1.10`
+// row; a digit-only boundary let `T-025` cover `T-025d-14-1`; and ANY
+// whole-row scan lets a parsed `T2.1` cover an unparseable
+// `- ***T2.7 — depends on T2.1***` row via the cross-reference in its tail.
+// SURVEY_ORACLE_RE only admits id-HEADED rows, so the row's leading task id
+// is well-defined: extract it (id chars `[\w.-]`, trailing `.`/`-` prose
+// punctuation trimmed) and require EXACT membership both ways. Erring
+// toward "not covered" is the fail-closed direction — a false anomaly is
+// visible; a false pass is the miss class this screen exists to catch.
+function oracleHeadTaskId(line) {
+  const match = line.match(/\bT-?\d[\w.-]*/);
+  return match ? match[0].replace(/[.-]+$/, "") : null;
 }
 
 export function surveyPhase(phaseSection) {
@@ -2800,8 +2800,10 @@ export function surveyPhase(phaseSection) {
   const block = extractTasksBlock(phaseSection);
   const oracleLines =
     block === null ? [] : block.split("\n").filter((line) => SURVEY_ORACLE_RE.test(line));
-  const omissions = oracleLines.filter((line) => !ids.some((id) => idOccursWithBoundary(line, id)));
-  const phantoms = ids.filter((id) => !oracleLines.some((line) => idOccursWithBoundary(line, id)));
+  const headIds = new Set(oracleLines.map(oracleHeadTaskId).filter(Boolean));
+  const parsedIds = new Set(ids);
+  const omissions = oracleLines.filter((line) => !parsedIds.has(oracleHeadTaskId(line)));
+  const phantoms = ids.filter((id) => !headIds.has(id));
   return { ids, sizeClass, oracleLines, omissions, phantoms };
 }
 
