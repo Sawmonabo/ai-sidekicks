@@ -388,4 +388,19 @@ describe("durable-cite rule — Codex round-1 hardening (PR #188)", () => {
       cleanup();
     }
   });
+  it("denies a dot-segment-traversal spelling (`docs/../packages/…`) — volatility tests the RESOLVED path", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/plans/001-x.md": "# Plan\n\nSee `docs/../packages/foo/src/bar.ts:12` for detail.\n",
+      "packages/foo/src/bar.ts": "export function doThing(): void {}\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/plans/001-x.md")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("raw-line-cite-into-volatile-code");
+    } finally {
+      cleanup();
+    }
+  });
 });

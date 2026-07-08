@@ -132,20 +132,20 @@ export function extractCites(
     // would generate false positives until basename-resolution is reworked.
     while ((m = codeRe.exec(line)) !== null) {
       const targetName = m[1];
-      // Strip `./` self-reference prefixes before the volatile-prefix test:
-      // `./packages/x.ts` resolves identically to `packages/x.ts`, so an
-      // unnormalized startsWith would let the spelling bypass the deny
-      // (Codex review, PR #188).
-      const normalizedTargetName = targetName.replace(/^(?:\.\/)+/, "");
-      const candidate = resolve(repoRoot, normalizedTargetName);
-      const isPathShaped = normalizedTargetName.includes("/");
+      const candidate = resolve(repoRoot, targetName);
+      const isPathShaped = targetName.includes("/");
+      // Volatility derives from the RESOLVED repo-relative path, never the
+      // raw spelling: `./packages/…`, `docs/../packages/…` and friends all
+      // resolve to the same target, and prefix-testing any raw string
+      // invites spelling bypasses (Codex review, PR #188 rounds 1 + 3).
       // The volatile deny covers CODE targets only — a `packages/**/*.md:NN`
       // cite is not "code under packages/" per AGENTS.md §Durable-Cite Rule,
       // so `.md` targets keep floor semantics.
+      const repoRelativeTarget = relative(repoRoot, candidate).split(sep).join("/");
       const isVolatileCode =
         isPathShaped &&
-        !normalizedTargetName.endsWith(".md") &&
-        VOLATILE_CODE_PREFIXES.some((prefix) => normalizedTargetName.startsWith(prefix));
+        !repoRelativeTarget.endsWith(".md") &&
+        VOLATILE_CODE_PREFIXES.some((prefix) => repoRelativeTarget.startsWith(prefix));
       if (!(isPathShaped || existsSync(candidate))) continue;
       const lineList: number[] = [];
       for (const token of m[2].split(/[,\s]+/).filter(Boolean)) {
