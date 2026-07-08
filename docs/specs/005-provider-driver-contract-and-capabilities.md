@@ -64,8 +64,6 @@ This spec covers required driver operations, capability advertisement, normalize
 - Unknown capability fields are ignored (tolerant reader). The declared `contractVersion` is a change-detection signal — the daemon records it at attach and compares it on refresh to detect contract drift and invalidate capability snapshots — not a negotiation surface: the daemon never version-gates its behavior on it, and additive contract evolution with tolerant reading replaces negotiated feature-unlocking.
 - The runtime must only surface controls that correspond to supported capabilities for the active run.
 
-<a id="fallback-behavior-resume"></a>
-
 ## Fallback Behavior
 
 - If a driver cannot resume a previously persisted handle, it must surface `provider failure` detail and a visible `recovery-needed` condition; it must not silently create a replacement provider session under the same canonical run. Recovery conditions form the closed `RecoveryCondition` set — `recovery-needed` (generic: operator reconciliation required) and `reauth-required` (the provider session or credential expired: detected mid-run via the provider's typed auth-failure signals or at resume/probe time; remediation is re-authenticating the provider CLI on the runtime node, after which recovery may retry). The named type is declared once in [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) and referenced at every carrying surface.

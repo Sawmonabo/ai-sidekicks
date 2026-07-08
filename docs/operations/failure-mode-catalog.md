@@ -94,7 +94,7 @@ The catalog is the single source of truth. Hooks, skills, and audit-prompts refe
 
 | Field | Value |
 | --- | --- |
-| Structural Action | A line cite that still RESOLVES but no longer means what it meant: a `file.md:NNN` cite (in a doc — including the label-form `Spec-NNN:LL` in doc prose, 693 occ @ 2026-07-07, and the bare-basename `.md:NN` wire-doc annotations in `packages/**` code, 72 occ) whose target line moved within the file; or a durable-form cite whose anchor survived while the CONTENT changed contract — the section under a cited `§Heading` was rewritten, or an exported symbol kept its name with different semantics. |
+| Structural Action | A line cite that still RESOLVES but no longer means what it meant: a `file.md:NNN` cite (in a doc — including the label-form `Spec-NNN:LL` in doc prose, 661 occ @ 2026-07-07, and the bare-basename `.md:NN` wire-doc annotations in `packages/**` code, 79 occ) whose target line moved within the file; or a durable-form cite whose anchor survived while the CONTENT changed contract — the section under a cited `§Heading` was rewritten, or an exported symbol kept its name with different semantics. |
 | Surface-Label Aliases | "shifted lines", "edited above", "evolved file". |
 | Detection Layer | **audit only** — explicitly residual under static analysis. |
 | Hook | None possible without semantic understanding (NLP / model invocation). The floor (docs→docs `:NNN`) + anchor-survival is CAT-06's beat; the SEMANTIC drift under an intact `§Heading` / `#symbol` anchor stays audit-only (this row). |
