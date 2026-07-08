@@ -1,70 +1,46 @@
-// label-cite — verifies governance line-citations embedded in code comments
-// point at a non-empty line of the governing doc. (Named for its original
-// LABEL-form scope; it now also floors the DOCS-PATH form — see below.) Both
-// forms route through the SAME checkCite() the markdown path uses:
+// label-cite — enforces the Durable-Cite Rule for governance citations in code
+// comments (AGENTS.md §Durable-Cite Rule). Post-sweep (2026-07, PR-4 of the
+// plan-execution refinement campaign) the regime is deny+verify, not a floor:
 //
-//   1. LABEL form — `Spec-NNN:LL`, `Plan-NNN:LL`, `ADR-NNN:LL`; the token
-//      resolves to its doc via the `NNN-` glob over docs/{specs,plans,decisions}.
-//   2. DOCS-PATH form — a repo-root-relative governance path with a line suffix,
-//      `` `docs/<subtree>/<file>.md:LL` `` (e.g. `docs/domain/session-model.md:61-77`).
-//      This is the ONLY floor reachable for docs that carry no label token —
-//      domain / architecture / operations docs are not `Spec/Plan/ADR-NNN`.
+//   1. LABEL form — `Spec-NNN:LL`, `Plan-NNN:LL`, `ADR-NNN:LL` — DENIED. The
+//      2026-07 sweep converted all 259 pre-existing occurrences to the section
+//      form, so every raw match is NEW; the violation names the durable form.
+//   2. DOCS-PATH form — `` `docs/<subtree>/<file>.md:LL` `` — DENIED, same
+//      ratchet (this was the only line-pin shape reachable for label-less
+//      domain / architecture / operations docs).
 //   3. SECTION form — backticked `` `Spec-NNN §Heading` `` (likewise Plan/ADR);
-//      the token resolves via the same NNN glob and the heading is verified
-//      against the doc's current headings (exact-after-normalize) — the durable
-//      anchor form per AGENTS.md §Durable-Cite Rule.
+//      the token resolves via the `NNN-` glob over docs/{specs,plans,decisions}
+//      and the heading is VERIFIED against the doc's current headings
+//      (exact-after-normalize) — the durable anchor form. Markdown citers get
+//      the same verification via checkSectionCites.
 //
-// This is the CODE-COMMENT analogue of cite-target-existence's `file.md:NNN`
-// check. The deterministic walk only ever reached `.md` governance docs, so a
-// spec amendment that shifted line numbers silently invalidated every such cite
-// living in `packages/**` + `apps/**` TypeScript — the gap PR #139's ~40-cite
-// hand sweep across 8 code/test files exposed. Resolving the cite to its doc and
-// running checkCite() enforces the floor (truncation / rename / delete /
-// out-of-range / empty-line) for code cites too.
+// Why deny instead of floor: a line-cite floor (non-empty, in-range) passes
+// vacuously on semantic drift — `Spec-003:73 → :77` after a +4-line insertion
+// still resolves to a non-empty line — so every governance amendment silently
+// rotted the code-comment cites (the gap PR #139's ~40-cite hand sweep across
+// 8 code/test files exposed). §Heading anchors survive line shifts and fail
+// LOUDLY (section-not-found) when the heading itself changes.
 //
 // SCOPE — high-confidence, repo-root-resolvable forms ONLY, by design. The
 // matcher runs in a REQUIRED gate (lefthook pre-commit + the `docs-corpus-gate`
 // CI job), where a false positive breaks correct commits for every developer —
-// strictly worse than the gap it closes. So it matches exactly two shapes:
-//   • the unambiguous token-adjacent `Spec-NNN:LL` label shape, and
-//   • the `docs/`-rooted path-colon shape, anchored on the governance-corpus
-//     root — so a package-relative code-to-code ref (`internal/branded.ts:25`,
-//     no `docs/` root) is never matched, which is exactly the FP that flooring
-//     all backtick path-cites would have minted (it resolves wrong from repo
-//     root). Three fuzzier classes stay one layer up in /ripple-check (Subagent
-//     D, CAT-07) — the audit layer where liberal, LLM-driven enumeration is safe
-//     and non-blocking:
-//       – line-WORD forms (`Spec-003 line 178`, `§Acceptance Criteria line 81`):
-//         a bare `line N` near a governance token is mis-readable (`chunks/foo.js
-//         line 812` adjacent to a Spec comment must never mint `Spec-NNN:812`),
-//         and cross-line token inheritance is unsafe in a blocking check.
-//       – BARE-BASENAME path cites (`api-payload-contracts.md:120`, no `docs/`
-//         prefix): basename → path resolution is ambiguous (`template.md` exists
-//         in several subtrees), so it cannot be made zero-FP in a required gate.
-//       – RELATIVE `docs/` paths (`../docs/x.md:5`) and in-package `docs/` dirs
-//         (`src/docs/y.md:5`): not repo-root-resolvable, and the lookbehind
-//         rejects the leading `/`, so they fall through to Layer-B's basename
-//         grep (which catches them regardless of prefix). A repo-root
-//         `docs/…md:LL` of ANY depth — incl. `docs/architecture/contracts/…` —
-//         IS floored above and never reaches this layer.
-//       – SEMANTIC line shift (below) — no static check can see it.
-// This is the repo's own CAT-06 (deterministic floor) / CAT-07 (audit-only
-// residual) split; see docs/operations/failure-mode-catalog.md.
-//
-// Like cite-target-existence, this catches the FLOOR only — NOT semantic line
-// shift. `Spec-003:73 → :77` after a +4-line insertion still resolves to a
-// non-empty line 77, so the floor passes; that shift is the CAT-07 residual,
-// audit-only by design (no static check can see it without reading content).
+// strictly worse than the gap it closes. So it matches exactly the two raw
+// shapes above (token-adjacent label; `docs/`-rooted path-colon — a
+// package-relative code-to-code ref like `internal/branded.ts:25` has no
+// `docs/` root and is never matched). The fuzzier classes stay one layer up in
+// the RESCOPED audit layer (/ripple-check; failure-mode-catalog.md CAT-06/07,
+// 2026-07 definitions): heading renames vs `§Heading` cites route to Subagent
+// B, export renames vs `#symbol` cites to Subagent A, and the remaining
+// line-cite residual — docs→docs `:NNN` in `.md` citers plus the bare-basename
+// `.md:NN` wire-doc annotations in code (ambiguous to resolve statically, so
+// never gate-floored) — to Subagent D. Semantic drift UNDER an intact anchor
+// (a section rewritten without renaming its heading) is likewise audit-only:
+// no static check can see it without reading content.
 
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 
-import {
-  checkCite,
-  type Cite,
-  type CiteViolation,
-  type FileContentReader,
-} from "./cite-target-existence.ts";
+import { type Cite, type CiteViolation, type FileContentReader } from "./cite-target-existence.ts";
 import { getRepoRoot } from "./inbound-cite-discovery.ts";
 
 // Label token → governance tree. The number is NOT shared across token types
@@ -336,6 +312,7 @@ export function checkLabelCiteTargets(
 ): CiteViolation[] {
   const repoRoot = getRepoRoot();
   const violations: CiteViolation[] = [];
+  const deniedRawCites = new Set<string>();
   for (const f of files) {
     for (const c of extractLabelCitesFrom(f, repoRoot, reader)) {
       if (c.section !== undefined) {
@@ -343,8 +320,21 @@ export function checkLabelCiteTargets(
         if (sectionV) violations.push(sectionV);
         continue;
       }
-      const v = checkCite(c, reader);
-      if (v) violations.push(v);
+      // Post-sweep ratchet (2026-07-06): zero raw line-cites remain in code, so
+      // every raw match is NEW — deny with the durable-form remediation.
+      // extractLabelCitesFrom expands range/list cites into one Cite per line
+      // number; dedupe on citing line + resolved doc so `Spec-016:81-83` yields
+      // ONE violation, not three.
+      const deniedKey = `${c.file}:${c.line}:${c.targetPath}`;
+      if (!deniedRawCites.has(deniedKey)) {
+        deniedRawCites.add(deniedKey);
+        violations.push({
+          cite: c,
+          reason: "raw-line-cite-into-governance-doc",
+          detail:
+            "cite the backticked `Spec-NNN §Heading` form instead (AGENTS.md §Durable-Cite Rule) — governance line numbers shift on every amendment",
+        });
+      }
     }
   }
   return violations;
@@ -382,7 +372,7 @@ export function formatLabelCiteViolations(violations: CiteViolation[]): string {
   }
   lines.push("");
   lines.push(
-    `label-cite: ${violations.length} violation(s). A governance line-cite in code points at a missing, empty, or out-of-range line. Update the line number, or document the move in the commit message.`,
+    `label-cite: ${violations.length} violation(s). Raw governance line-cites in code are denied — cite the backticked \`Spec-NNN §Heading\` anchor form instead, and verify §-anchors name a real heading (AGENTS.md §Durable-Cite Rule).`,
   );
   return lines.join("\n");
 }

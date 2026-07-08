@@ -9,7 +9,11 @@
 // Citation forms recognized:
 //   - [Plan-001](../plans/001-shared-session-core.md):12         (markdown link with trailing :N)
 //   - [Plan-001](../plans/001-shared-session-core.md):12, 55, 121
-//   - `session.ts:408`                                            (inline-code with :N)
+//   - `session.ts:408`             (inline-code with :N — legacy docs→docs-only
+//                                   form; a code target under packages/|apps/
+//                                   cited this way is DENIED)
+//   - `path/to/file.ts#symbol`     (docs→code durable anchor — the symbol must
+//                                   be present in the target file)
 
 import { readFileSync, existsSync } from "node:fs";
 import { dirname, relative, resolve, isAbsolute, sep } from "node:path";
@@ -32,6 +36,7 @@ export interface CiteViolation {
     | "line-out-of-range"
     | "target-line-empty"
     | "raw-line-cite-into-volatile-code"
+    | "raw-line-cite-into-governance-doc"
     | "symbol-not-found"
     | "section-not-found";
   detail: string;
