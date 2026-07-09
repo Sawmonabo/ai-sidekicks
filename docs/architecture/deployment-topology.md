@@ -105,9 +105,9 @@ Envelope (batching is a design baseline, not a future enhancement): **25 conns �
 
 ## Horizontal Scaling Strategy
 
-**Control plane:** stateless Node.js processes behind a load balancer. Session affinity is not required because all state lives in Postgres. Scale horizontally by adding processes.
+**Control plane:** stateless Node.js processes behind a load balancer. Session affinity is not required because all state lives in Postgres or the artifact-relay blob store (digest-addressed object storage per [Spec-014 §Cross-Node Artifact Relay (V1)](../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1)) — neither is process-local. Scale horizontally by adding processes.
 
-**Relay:** stateless WebSocket proxies. MLS encryption means the relay holds no session state. Scale by adding relay instances with DNS-based routing.
+**Relay:** stateless WebSocket proxies for the message path — E2EE frames (pairwise X25519 + XChaCha20-Poly1305 in V1 per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md)) mean the relay processes hold no session state. The artifact relay's pinned ciphertext is durable state, but it lives in the shared blob store (object storage), not in proxy processes — blob reachability follows the shared store, not instance affinity. Scale by adding relay instances with DNS-based routing.
 
 **Local daemon:** runs on each participant's machine. No scaling needed — it is per-machine by design.
 
@@ -119,7 +119,7 @@ Envelope (batching is a design baseline, not a future enhancement): **25 conns �
 
 **Connection pool sizing:** 10 connections per control-plane process, max 100 total.
 
-**Backup:** automated daily snapshots + WAL archiving for point-in-time recovery.
+**Backup:** automated daily snapshots + WAL archiving for point-in-time recovery — with one carve-out: `artifact_relay_recipients` wrapped-CEK rows are excluded from long-lived snapshots/WAL retention (or the backups must themselves be crypto-shreddable), and PITR windows must not exceed the crypto-shred guarantee for those rows, so a GDPR erasure cannot be resurrected from backup ([Spec-014 §State And Data Implications](../specs/014-artifacts-files-and-attachments.md#state-and-data-implications); the matching exclusion note sits on the table in [shared-postgres-schema.md §Artifact Relay Blob Store](./schemas/shared-postgres-schema.md#artifact-relay-blob-store-plan-014)).
 
 ## Capacity Targets
 
@@ -132,15 +132,16 @@ Envelope (batching is a design baseline, not a future enhancement): **25 conns �
 | Events per second (read) | 2,000 |
 | Relay connections | 2,000 concurrent |
 | Session event log size | 100,000 events/session lifetime (50,000 active before compaction per Spec-006) |
+| Artifact relay storage | 10 GB per node default (`node_relay_storage_max`, operator-tunable); retention tiers ≤ 30 d per [Spec-014](../specs/014-artifacts-files-and-attachments.md#size-quota-retention-normative-defaults-operator-tunable) |
 
 ## Infrastructure Requirements
 
-| Component                   | CPU      | Memory | Disk                      |
-| --------------------------- | -------- | ------ | ------------------------- |
-| Control plane (per process) | 1 vCPU   | 512 MB | —                         |
-| Postgres                    | 4 vCPU   | 8 GB   | 100 GB SSD                |
-| Relay (per process)         | 1 vCPU   | 256 MB | —                         |
-| Local daemon (per machine)  | 0.5 vCPU | 256 MB | 1 GB (SQLite + artifacts) |
+| Component | CPU | Memory | Disk |
+| --- | --- | --- | --- |
+| Control plane (per process) | 1 vCPU | 512 MB | — |
+| Postgres | 4 vCPU | 8 GB | 100 GB SSD |
+| Relay (per process) | 1 vCPU | 256 MB | — (artifact blob store: object storage sized by `node_relay_storage_max`, default 10 GB/node, per Spec-014) |
+| Local daemon (per machine) | 0.5 vCPU | 256 MB | 1 GB (SQLite + artifacts) |
 
 ### Local Daemon Memory Instrumentation And Budget Triggers
 

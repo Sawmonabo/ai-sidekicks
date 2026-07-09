@@ -2170,15 +2170,15 @@ Plan-011's gitflow PR-preparation and diff-attribution surface is exposed as fou
 
 ```ts
 // --- ArtifactManifest: the persisted manifest record — the OCI-inspired envelope (Spec-014
-//     line 72) plus the daemon-persisted `visibility`/`state`/`metadata` fields (not in line 72).
+//     line 78) plus the daemon-persisted `visibility`/`state`/`metadata` fields (not in line 78).
 //     Defined once here (the `ArtifactManifest` shape Plan-014 Task 1 mints in
-//     packages/contracts/src/artifacts/); ArtifactPublish returns it (Spec-014 line 68),
-//     ArtifactRead returns it plus a payload handle/inline (Spec-014 line 69). 1:1 with the
+//     packages/contracts/src/artifacts/); ArtifactPublish returns it (Spec-014 line 74),
+//     ArtifactRead returns it plus a payload handle/inline (Spec-014 line 75). 1:1 with the
 //     `artifact_manifests` row — each field a dedicated column (D-014-2), incl. `annotations`
 //     as a first-class OCI string→string map, never folded into freeform `metadata`. Plan-011's
 //     DiffArtifact (artifactType: "diff") rides this envelope per CP-014-1 / CP-011-2. ---
 
-// artifactType discriminator (Spec-014 line 73) — the five Spec-014:41 families (file, diff, summary,
+// artifactType discriminator (Spec-014 line 79) — the five Spec-014:41 families (file, diff, summary,
 // log, design) plus workflow_output, the Spec-017:237 (Tier-8) workflow phase-output type. Spec-014:41
 // admits "at least" the five families, so the sixth value is additive, not a families-list rewrite (D-014-4).
 type ArtifactType = "file" | "diff" | "summary" | "log" | "design" | "workflow_output";
@@ -2187,43 +2187,43 @@ interface ArtifactManifest {
   id: ArtifactId;
   sessionId: SessionId;
   runId?: RunId;
-  artifactType: ArtifactType; // discriminator — Spec-014 line 73 (D-014-4: file|diff|summary|log|design|workflow_output)
+  artifactType: ArtifactType; // discriminator — Spec-014 line 79 (D-014-4: file|diff|summary|log|design|workflow_output)
   digest: string; // OCI `digest` (SHA-256) = SQLite content_hash — required: a content-addressed manifest always has one (I-014-1)
   size: number; // OCI manifest-descriptor `size` (payload byte length) = SQLite size_bytes — server-derived, always present
   annotations: Record<string, string>; // OCI `annotations` string-map = SQLite annotations (NOT NULL DEFAULT '{}') — distinct from freeform `metadata`
-  subject?: ArtifactId; // OCI `subject`: present only on a derivative (redacted/summarized) manifest → source manifest (I-014-2, Spec-014 line 84)
+  subject?: ArtifactId; // OCI `subject`: present only on a derivative (redacted/summarized) manifest → source manifest (I-014-2, Spec-014 line 145)
   visibility: ArtifactVisibility;
   state: ArtifactState;
-  replicationStatus?: string; // = SQLite `replication_status` (A-014-3): V1 writes `pending_replication` while a shared artifact awaits deferred payload transfer, absent otherwise; open set, no closed union (Spec-014:61 names only `pending_replication`; mirrors the at-rest no-CHECK column)
+  replicationStatus?: "pending_replication" | "pinned" | "over_cap" | "quota_exceeded" | "expired"; // = SQLite `replication_status` (A-014-3; value set spec-named by the 2026-07-08 relay amendment — Spec-014:66 grants the `pending_replication` fallback; the full set is spec-named in [Spec-014 §Wire-format additivity](../../specs/014-artifacts-files-and-attachments.md#wire-format-additivity) and mirrors the at-rest CHECK column). Absent = local-only artifact.
   metadata: Record<string, unknown>; // freeform daemon-side provenance/media-type — distinct from the OCI `annotations` map above
   createdAt: string;
 }
 
-// ArtifactPublish — Spec-014 line 68: "must return artifact id and manifest metadata."
+// ArtifactPublish — Spec-014 line 74: "must return artifact id and manifest metadata."
 interface ArtifactPublishRequest {
   sessionId: SessionId;
   runId?: RunId;
-  artifactType: ArtifactType; // discriminator — see ArtifactManifest.artifactType (Spec-014 line 73; D-014-4)
+  artifactType: ArtifactType; // discriminator — see ArtifactManifest.artifactType (Spec-014 line 79; D-014-4)
   visibility: ArtifactVisibility;
   payload: Uint8Array | string;
   mediaType: string; // MIME type
   // --- producer-supplied OCI envelope inputs (D-014-3). `size`/`digest` are NOT here:
   //     the daemon derives size_bytes + content_hash from `payload`. ---
-  subject?: ArtifactId; // OCI `subject`: set when publishing a derivative (redacted/summarized) form → points to the source manifest (I-014-2, Spec-014 line 84); omit for originals
+  subject?: ArtifactId; // OCI `subject`: set when publishing a derivative (redacted/summarized) form → points to the source manifest (I-014-2, Spec-014 line 145); omit for originals
   annotations?: Record<string, string>; // OCI `annotations` string-map persisted to artifact_manifests.annotations; distinct from freeform `metadata`
   metadata?: Record<string, unknown>;
 }
 interface ArtifactPublishResponse {
-  manifest: ArtifactManifest; // embedded manifest metadata (Spec-014 line 68); manifest.id is the artifact id, manifest.digest the content hash — no resolvable-URL indirection (D-014-3)
+  manifest: ArtifactManifest; // embedded manifest metadata (Spec-014 line 74); manifest.id is the artifact id, manifest.digest the content hash — no resolvable-URL indirection (D-014-3)
 }
 
-// ArtifactRead — Spec-014 line 69: "must return manifest plus retrievable payload handle or inline content."
+// ArtifactRead — Spec-014 line 75: "must return manifest plus retrievable payload handle or inline content."
 interface ArtifactReadRequest {
   artifactId: ArtifactId;
   includePayload?: boolean; // default false, returns handle only
 }
 interface ArtifactReadResponse {
-  manifest: ArtifactManifest; // the same envelope ArtifactPublish embeds (Spec-014 line 69)
+  manifest: ArtifactManifest; // the same envelope ArtifactPublish embeds (Spec-014 line 75)
   payloadHandle?: string; // CAS key or URL for deferred retrieval
   payload?: Uint8Array; // only if includePayload=true and size permits
 }
@@ -2253,9 +2253,16 @@ interface AttachmentIngestResponse {
   contentHash: string;
   normalizedName: string;
 }
+
+// --- Cross-node artifact relay methods (2026-07-08 ADR-015 amendment): the
+//     ArtifactUploadInit / ArtifactUploadChunk / ArtifactUploadComplete /
+//     ArtifactFetchAuthorize request/response schemas land with Plan-014
+//     Tasks 7-10 after that plan's readiness-audit delta. Spec-014 §Interfaces
+//     names the methods; Spec-014 §Cross-Node Artifact Relay (V1) is the
+//     normative design. Deliberately not typed here yet — no invented shapes. ---
 ```
 
-> **Tier-7 audit (NS-19) — ratified design (Plan-014 → `approved`).** The ArtifactPublish/ArtifactRead pair now composes a single named `ArtifactManifest` envelope (Spec-014 line 72) instead of inlining and duplicating the fields — this is the `ArtifactManifest` shape Plan-014 Task 1 mints, and the envelope Plan-011's `DiffArtifact` (`artifactType: "diff"`) rides per CP-014-1 / CP-011-2 (Plan-011 consumes the envelope **concept**, unchanged, not a flat field layout). `ArtifactPublishResponse` embeds `manifest: ArtifactManifest` per Spec-014 line 68 ("must return artifact id **and manifest metadata**") — this **replaces the prior `manifestUrl` pointer**, which was drift from that "must" clause: line 69 grants handle/inline latitude to the **payload** on _Read_ only, never to the manifest, so both responses return the manifest metadata inline (D-014-3 — resolved by aligning the wire to the spec, not an owner decision). `ArtifactReadResponse` is `manifest` + `payloadHandle?`/`payload?` (Spec-014 line 69). The wire envelope mirrors the `artifact_manifests` row in [Local SQLite Schema](../schemas/local-sqlite-schema.md) 1:1: `digest`/`size` are **required** on the wire because a content-addressed manifest always carries both (I-014-1), and the at-rest `content_hash`/`size_bytes` columns are correspondingly **`NOT NULL`** — each producer (AttachmentIngest, ArtifactPublish) computes the SHA-256 + byte length from its own payload and inserts its manifest with both columns set in the same transaction as the payload-ref, and AttachmentIngest and ArtifactPublish are independent producers (the `artifactId` `AttachmentIngestResponse` returns resolves from the ingest-written manifest, not a later publish), so there is no payload-less manifest to reconcile (D-014-1). `annotations` is a dedicated OCI string→string column (D-014-2; at-rest `NOT NULL DEFAULT '{}'`), required on the wire, never folded into freeform `metadata`. The at-rest `replication_status` column (nullable) surfaces as the optional `replicationStatus?` wire field (A-014-3 — V1 writes `pending_replication` while a shared artifact awaits deferred payload transfer; open set, no closed union, mirroring the at-rest no-CHECK stance). Producer inputs are closed too (D-014-3): `ArtifactPublishRequest` accepts `subject?` (so a Task-4 I-014-2 derivative names its source at publish) and `annotations?`, while `size`/`digest` stay server-derived from `payload` — otherwise the `annotations` column and derivative `subject` would be write-dead. This wire edit + the `local-sqlite-schema.md` artifact edit + Plan-014 CP-014-1 / Task 3 form one whole-or-not bundle.
+> **Tier-7 audit (NS-19) — ratified design (Plan-014 → `approved`).** The ArtifactPublish/ArtifactRead pair now composes a single named `ArtifactManifest` envelope (Spec-014 line 78) instead of inlining and duplicating the fields — this is the `ArtifactManifest` shape Plan-014 Task 1 mints, and the envelope Plan-011's `DiffArtifact` (`artifactType: "diff"`) rides per CP-014-1 / CP-011-2 (Plan-011 consumes the envelope **concept**, unchanged, not a flat field layout). `ArtifactPublishResponse` embeds `manifest: ArtifactManifest` per Spec-014 line 74 ("must return artifact id **and manifest metadata**") — this **replaces the prior `manifestUrl` pointer**, which was drift from that "must" clause: line 75 grants handle/inline latitude to the **payload** on _Read_ only, never to the manifest, so both responses return the manifest metadata inline (D-014-3 — resolved by aligning the wire to the spec, not an owner decision). `ArtifactReadResponse` is `manifest` + `payloadHandle?`/`payload?` (Spec-014 line 75). The wire envelope mirrors the `artifact_manifests` row in [Local SQLite Schema](../schemas/local-sqlite-schema.md) 1:1: `digest`/`size` are **required** on the wire because a content-addressed manifest always carries both (I-014-1), and the at-rest `content_hash`/`size_bytes` columns are correspondingly **`NOT NULL`** — each producer (AttachmentIngest, ArtifactPublish) computes the SHA-256 + byte length from its own payload and inserts its manifest with both columns set in the same transaction as the payload-ref, and AttachmentIngest and ArtifactPublish are independent producers (the `artifactId` `AttachmentIngestResponse` returns resolves from the ingest-written manifest, not a later publish), so there is no payload-less manifest to reconcile (D-014-1). `annotations` is a dedicated OCI string→string column (D-014-2; at-rest `NOT NULL DEFAULT '{}'`), required on the wire, never folded into freeform `metadata`. The at-rest `replication_status` column (nullable) surfaces as the optional `replicationStatus?` wire field (A-014-3 — V1 writes `pending_replication` while a shared artifact awaits deferred payload transfer; open set, no closed union, mirroring the at-rest no-CHECK stance). _(2026-07-08: the deferred refinement arrived — the [Spec-014 §Cross-Node Artifact Relay (V1)](../../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1) amendment spec-names `pending_replication | pinned | over_cap | quota_exceeded | expired`, the at-rest column now carries the matching CHECK, and the wire field is the closed union above — the open-set stance in this dated record is superseded; the field stays optional.)_ Producer inputs are closed too (D-014-3): `ArtifactPublishRequest` accepts `subject?` (so a Task-4 I-014-2 derivative names its source at publish) and `annotations?`, while `size`/`digest` stay server-derived from `payload` — otherwise the `annotations` column and derivative `subject` would be write-dead. This wire edit + the `local-sqlite-schema.md` artifact edit + Plan-014 CP-014-1 / Task 3 form one whole-or-not bundle.
 
 ### Plan-015 — Persistence Recovery And Replay
 

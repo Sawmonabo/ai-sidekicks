@@ -43,7 +43,7 @@ Ship the Spec-023 Electron desktop shell and React + Vite renderer as a three-pr
 - **The CLI client.** CLI first-run onboarding lives in Plan-026; CLI session surfaces are owned by a separate plan. Plan-023 is desktop-only.
 - **Mobile or browser-hosted renderer surfaces.** Out of V1 per ADR-015; out of Spec-007 scope; out of this plan's scope.
 - **Provider-driver protocols.** Owned by Spec-005.
-- **Workflow authoring UX.** Owned by the V1.1 workflow-engine track per ADR-015; Plan-023 does not compose a workflow-authoring view.
+- **Workflow authoring UX.** Owned by the workflow-engine track — V1 feature 17 since the ADR-015 amendment 2026-04-22 (Spec-017 / Plan-017, Tier 8); Plan-023 does not compose a workflow-authoring view.
 - **MSIX (Windows Store) distribution.** V1 ships NSIS + MSI direct-download; MSIX is a V1.1 re-evaluation per Spec-023 §Open Questions.
 - **Reproducible builds.** Not claimed by V1 per Spec-023 §Open Questions; neither `electron-builder` nor `electron-vite` guarantees bit-reproducibility.
 - **Snap / Flatpak packaging.** V1 ships `.AppImage` + `.deb` + `.rpm`; Snap / Flatpak is a user-demand-gated follow-up per Spec-023 §Open Questions.

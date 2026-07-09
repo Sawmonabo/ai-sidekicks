@@ -2,7 +2,7 @@
 
 Canonical schema for the collaboration control plane's shared Postgres database.
 
-**Storage boundary:** Shared session metadata, invites, memberships, presence history, session directory, and cross-node coordination records. See [Data Architecture](../data-architecture.md).
+**Storage boundary:** Shared session metadata, invites, memberships, presence history, session directory, cross-node coordination records, and artifact-relay blob-store coordination state (blob metadata + per-participant wrapped content keys; the ciphertext chunk bytes themselves live in the deployment's object store, never in Postgres — [Spec-014 §Cross-Node Artifact Relay (V1)](../../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1)). See [Data Architecture](../data-architecture.md).
 
 ---
 
@@ -10,7 +10,7 @@ Canonical schema for the collaboration control plane's shared Postgres database.
 
 Per [ADR-017: Shared Event-Sourcing Scope](../../decisions/017-shared-event-sourcing-scope.md), this schema declares the following invariants that constrain all downstream table additions:
 
-1. **Coordination records only.** Shared Postgres stores session metadata, memberships, invites, presence history, runtime-node attachments, session-directory entries, relay-connection records, notification preferences, health snapshots, event-log anchors (Merkle-root witnesses, not event payloads), and cross-node dispatch coordination rows. It does **not** store event payloads.
+1. **Coordination records only.** Shared Postgres stores session metadata, memberships, invites, presence history, runtime-node attachments, session-directory entries, relay-connection records, notification preferences, health snapshots, event-log anchors (Merkle-root witnesses, not event payloads), cross-node dispatch coordination rows, and artifact-relay blob-store coordination rows (blob metadata + per-participant wrapped CEKs — ciphertext key envelopes and delivery/lease state, never event payloads and never the chunk bytes, which live in the deployment's object store). It does **not** store event payloads.
 2. **No `session_events_shared`, `session_events_global`, or equivalent cross-participant event table exists in V1.** The absence is intentional, not an oversight. Grepping this file for `session_events_shared` must return this invariant note — never a table definition. Proposals to add one are out of V1 scope.
 3. **Per-daemon local `session_events` is authoritative** per ADR-017 and [local-sqlite-schema.md](./local-sqlite-schema.md). Each daemon owns its own event log with its own monotonic sequence number; cross-participant audit is federated via log export and merge per [Data Architecture §Federated audit model](../data-architecture.md#event-sourcing-scope).
 4. **Supersession gates.** Introducing a shared session-event table requires (a) an ADR superseding ADR-017, and (b) completion of the MLS promotion gates named in [ADR-010 §MLS Promotion Criteria](../../decisions/010-paseto-webauthn-mls-auth.md) — audit visibility, interop tests, and the 4-week soak requirement — because a shared event table is meaningful only if payload-level privacy is carried by group-keyed encryption rather than per-pair PASETO wrapping.
@@ -289,6 +289,61 @@ CREATE TABLE relay_seen_ephemeral_keys (
 );
 
 CREATE INDEX idx_relay_seen_ephemeral_keys_session ON relay_seen_ephemeral_keys(session_id);
+```
+
+---
+
+## Artifact Relay Blob Store (Plan-014)
+
+Coordination state for the [Spec-014 §Cross-Node Artifact Relay (V1)](../../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1) eager-pin store-and-forward: blob metadata, per-participant wrapped content-encryption keys (CEKs), delivery refcounts, and fetch grace leases. The ciphertext **chunk bytes never enter Postgres** — they live in the deployment's object store (invariant (1) above); these tables hold only key envelopes and lifecycle state, so a relay operator (or a Postgres compromise) yields ciphertext coordinates but no decryption capability. Both participant references join the [Spec-022 §Shred Fan-Out](../../specs/022-data-retention-and-gdpr.md#shred-fan-out) Path-2 `REFERENCES participants(id)` closure (CP-022-6): `artifact_relay_recipients.participant_id` is hard-DELETE class (dropping the row IS the wrapped-CEK crypto-shred), and `artifact_relay_blobs.publisher_participant_id` is anonymize class (born nullable + `ON DELETE SET NULL` — the blob survives to refcount-zero/TTL so other participants' availability is unaffected by the publisher's erasure).
+
+```sql
+-- Owner: Plan-014
+-- Blob lifecycle: state 'pending_replication' at upload-init → 'pinned' when every chunk is
+-- relay-acknowledged (the offline-availability guarantee attaches ONLY to 'pinned');
+-- 'over_cap' / 'quota_exceeded' record honest degradation (publisher-local only, never pinned);
+-- 'expired' records TTL/eviction. Value set = the Spec-014 replicationStatus wire enum
+-- (the A-014-3 "deferred owner refinement," now spec-named by the 2026-07-08 amendment).
+-- Deletion triggers: refcount-zero (all intended recipients fetched) OR expires_at, whichever
+-- first; hourly async sweep + 90% node-storage watermark eviction (delivered/nearest-TTL first).
+CREATE TABLE artifact_relay_blobs (
+  ciphertext_digest        TEXT PRIMARY KEY,   -- multihash-prefixed (sha256:…) whole-ciphertext digest; CAS key, one row per stored blob
+  session_id               UUID NOT NULL REFERENCES sessions(id),
+  publisher_participant_id UUID REFERENCES participants(id) ON DELETE SET NULL,  -- anonymize-class (CP-022-6); NULL after publisher erasure
+  size_bytes               BIGINT NOT NULL,
+  chunk_size_bytes         INTEGER NOT NULL,   -- fixed 8 MiB in V1 (Spec-014 artifact_relay_chunk_bytes)
+  chunk_count              INTEGER NOT NULL,
+  retention_tier           TEXT NOT NULL DEFAULT 'default'
+                           CHECK(retention_tier IN ('volatile', 'default', 'extended')),
+  state                    TEXT NOT NULL DEFAULT 'pending_replication'
+                           CHECK(state IN ('pending_replication', 'pinned', 'over_cap', 'quota_exceeded', 'expired')),
+  expires_at               TIMESTAMPTZ NOT NULL,          -- tier-derived TTL deletion trigger
+  created_at               TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_artifact_relay_blobs_session ON artifact_relay_blobs(session_id);
+CREATE INDEX idx_artifact_relay_blobs_expires ON artifact_relay_blobs(expires_at);
+
+-- Owner: Plan-014
+-- One row per (blob, intended recipient): carries that participant's wrapped CEK (encrypted to
+-- their X25519 key — the relay cannot unwrap), delivery state (delivered_at NULL = undelivered;
+-- refcount-zero = zero NULLs remain for the blob), and the in-flight fetch grace lease
+-- (GC must not evict the blob while a lease is live). Hard-DELETE class in the CP-022-6 closure:
+-- deleting a participant's rows IS the crypto-shred (their reach to the CEK is destroyed) and
+-- simultaneously removes them from the intended-recipient set, keeping refcount semantics
+-- consistent after erasure. Wrapped-CEK rows are excluded from long-lived backups (or the backup
+-- itself is crypto-shreddable) per Spec-014 §State And Data Implications — otherwise shred is
+-- incomplete.
+CREATE TABLE artifact_relay_recipients (
+  ciphertext_digest TEXT NOT NULL REFERENCES artifact_relay_blobs(ciphertext_digest) ON DELETE CASCADE,
+  participant_id    UUID NOT NULL REFERENCES participants(id),  -- hard-DELETE class (CP-022-6)
+  wrapped_cek       BYTEA NOT NULL,     -- CEK wrapped to the participant's X25519 key; ~100 bytes
+  delivered_at      TIMESTAMPTZ,        -- NULL = not yet fetched-and-verified by this recipient
+  lease_expires_at  TIMESTAMPTZ,        -- in-flight resumable-fetch grace lease; NULL when no fetch in flight
+  PRIMARY KEY (ciphertext_digest, participant_id)
+);
+
+CREATE INDEX idx_artifact_relay_recipients_participant ON artifact_relay_recipients(participant_id);
 ```
 
 ---

@@ -32,7 +32,7 @@ This spec covers:
 - Session creation, invite redemption, or membership changes (covered by [Spec-001](./001-shared-session-core.md), [Spec-002](./002-invite-membership-and-presence.md)).
 - Relay encryption protocol (covered by [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md) and [Spec-008](./008-control-plane-relay-and-session-join.md)).
 - Provider-driver-specific payload shapes (covered by [Spec-005](./005-provider-driver-contract-and-capabilities.md)).
-- Cross-node shared artifacts and file replication (V1.1 per [ADR-015](../decisions/015-v1-feature-scope-definition.md); cross-node artifact movement within a single dispatch is in scope here only as the artifact carried on a dispatch result).
+- Cross-node shared artifacts and file replication (V1 since the [ADR-015 amendment 2026-07-08](../decisions/015-v1-feature-scope-definition.md#amendment-2026-07-08-v11-deferred-features-3--2-cross-node-shared-artifacts-pulled-into-v1), but owned by [Spec-014 §Cross-Node Artifact Relay](./014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1), not this spec; cross-node artifact movement within a single dispatch is in scope here only as the artifact carried on a dispatch result).
 
 ## Domain Dependencies
 

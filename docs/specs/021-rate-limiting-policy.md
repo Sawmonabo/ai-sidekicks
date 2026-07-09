@@ -5,7 +5,7 @@
 | **Status** | `approved` |
 | **NNN** | `021` |
 | **Slug** | `rate-limiting-policy` |
-| **Date** | `2026-04-15` (amended 2026-06-10, Tier-6 readiness audit; amended 2026-07-02, capability-enhancement campaign B8 — `presence.heartbeat` V1-enforcement status) |
+| **Date** | `2026-04-15` (amended 2026-06-10, Tier-6 readiness audit; amended 2026-07-02, capability-enhancement campaign B8 — `presence.heartbeat` V1-enforcement status; amended 2026-07-08 — four artifact-relay rows per the [ADR-015 cross-node amendment](../decisions/015-v1-feature-scope-definition.md#amendment-2026-07-08-v11-deferred-features-3--2-cross-node-shared-artifacts-pulled-into-v1); byte/storage quotas stay Spec-014-owned) |
 | **Author(s)** | `Codex` |
 | **Depends On** | [Deployment Topology](../architecture/deployment-topology.md), [Security Architecture](../architecture/security-architecture.md) |
 | **Implementation Plan** | [Plan-021: Rate Limiting Policy](../plans/021-rate-limiting-policy.md) |
@@ -68,6 +68,10 @@ This registry is the **single enumeration** of every enforced limit (Tier-6 audi
 | `event.subscribe` | Event subscribe (SSE) | 5 concurrent | — | per participant | authenticated | — | concurrency_cap |
 | `approval.resolve` | Approval resolve | 30/min | 60s | per participant | authenticated | ✓ | sliding_window — dormant in V1 (see registry semantics below) |
 | `artifact.publish` | Artifact publish | 20/min | 60s | per session | authenticated | — | sliding_window |
+| `artifact.upload.init` | Artifact relay upload init | 20/min | 60s | per session | authenticated | — | sliding_window — matches `artifact.publish` cadence; one resumable upload per pinned publish ([Spec-014 §Cross-Node Artifact Relay (V1)](./014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1)) |
+| `artifact.upload.chunk` | Artifact relay chunk upload | 300/min | 60s | per session | authenticated | — | sliding_window — 8 MiB chunks ⇒ ≈2.4 GiB/min request ceiling; bytes are additionally governed by the Spec-014 storage quotas |
+| `artifact.fetch.authorize` | Artifact fetch-token mint | 60/min | 60s | per participant | authenticated | ✓ | sliding_window — short-lived DPoP-bound tokens are re-minted on resume |
+| `artifact.fetch.chunk` | Artifact relay chunk fetch | 600/min | 60s | per participant | authenticated | ✓ | sliding_window — resumable multi-chunk fetch; bytes governed by Spec-014 quotas |
 | `health.check` | Health check | 120/min | 60s | per IP | anonymous | — | sliding_window |
 | `ws.message` | WebSocket messages | 60/min | 60s | per participant | authenticated | ✓ | sliding_window |
 | `keypackage.upload` | KeyPackage uploads (V1.1+) | 5/hr | 1h | per user | authenticated | — | sliding_window — applies once MLS ships per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md); no KeyPackage endpoint exists in V1 |
