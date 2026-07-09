@@ -213,13 +213,13 @@ V1 ships 23 core features across CLI and Desktop GUI per [ADR-015: V1 Feature Sc
 | 22 | Execution postures and sandbox profiles | Per-run sandbox posture as an authorization input, provider-uniform presets — governing amendments in-tree (B20 merged via #175; B3 merged 2026-07-05) — residual gate: `review → approved` re-promotion (W1.5) |
 | 23 | Realtime voice channels | Reserved and capability-gated on upstream Codex realtime-flag stabilization — governing amendments in-tree (B6 landed 2026-07-06; B1 merged via #173) — residual gate: the amended specs' `review → approved` re-promotion (W1.5) |
 
-**V1.1 additions:** MLS relay E2EE, email invite delivery, cross-node shared artifacts, plus the criterion-gated workflow subfeatures named in ADR-015.
+**V1.1 additions:** MLS relay E2EE, email invite delivery, cross-node shared artifacts, plus the criterion-gated sub-feature commitments named in ADR-015 (workflow BIND channel reuse; `human`-phase default timeout; automated GDPR erasure endpoint).
 
 ---
 
 ## Build Order
 
-Implementation follows the tiered dependency graph defined in [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md). V1 spans 27 implementation plans (a pending 28th — Plan-028 for feature #18's MCP governance — lands with the campaign's B18 bundle, and MCP-governance code is gated on it); Plan-001 Shared Session Core is `completed`, six plans are in `review` (Plan-004, Plan-008, Plan-017 Workflow Authoring, Plan-018, Plan-022, Plan-025 Self-Hostable Node Relay), and the rest are `approved`.
+Implementation follows the tiered dependency graph defined in [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md). V1 spans 27 implementation plans (a pending 28th — Plan-028 for feature #18's MCP governance — lands with the campaign's B18 bundle, and MCP-governance code is gated on it); Plan-001 Shared Session Core is `completed`, five plans are in `review` (Plan-004, Plan-008, Plan-017 Workflow Authoring, Plan-018, Plan-025 Self-Hostable Node Relay), and the rest are `approved`.
 
 ```
 Tier 1  ► Plan-001  Shared Session Core
@@ -262,7 +262,7 @@ Each tier's prerequisites are the prior tier's completion. See [`docs/architectu
 
 Current documentation corpus:
 
-- **27 V1 implementation plans** (+ pending Plan-028 for feature #18, campaign B18) with step-by-step build instructions; 20 are `approved`, Plan-001 is `completed`, and 6 are in `review` (Plan-004, Plan-008, Plan-017, Plan-018, Plan-022, Plan-025)
+- **27 V1 implementation plans** (+ pending Plan-028 for feature #18, campaign B18) with step-by-step build instructions; 21 are `approved`, Plan-001 is `completed`, and 5 are in `review` (Plan-004, Plan-008, Plan-017, Plan-018, Plan-025)
 - **27 specifications** covering every original feature and cross-cutting concern (22 `approved`; 5 — Spec-005/006/012/015/016 — in `review` carrying campaign amendments until the W1.5 batch re-promotion restores `approved`) — the six campaign features are doc-gated: feature #18's Spec-028 is pending the B18 bundle, and features #19–#23's governing spec amendments land via the campaign's B1/B2/B3/B6/B20 bundles (B1 merged via #173, B3 merged 2026-07-05, B20 merged via #175, B6 landed 2026-07-06 — the amended specs pending the W1.5 batch `review → approved` re-promotion; feature #19's B2 and feature #18's B18 queued), so implementation of #18–#23 waits on the named bundles, not the existing corpus
 - **12 domain models** (run state machine, intervention model, participant model, workflow model, etc.)
 - **16 architecture documents** (schemas, contracts, security, deployment, dependencies)

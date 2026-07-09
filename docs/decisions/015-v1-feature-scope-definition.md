@@ -6,9 +6,9 @@
 | **Type** | `Type 1 (two-way door)` |
 | **Domain** | `Scope / Product` |
 | **Date** | `2026-04-17` |
-| **Amended** | `2026-04-22` (workflow V1.1 → V1 per BL-097); `2026-07-02` (V1 scope 17 → 23 per the capability-enhancement campaign — see §Amendment History) |
+| **Amended** | `2026-04-22` (workflow V1.1 → V1 per BL-097); `2026-07-02` (V1 scope 17 → 23 per the capability-enhancement campaign — see §Amendment History); `2026-07-08` (V1.1 criterion-gated commitments 2 → 3: automated GDPR erasure endpoint per BL-139 — see §Amendment History) |
 | **Author(s)** | `Claude (AI-assisted)` |
-| **Reviewers** | `Accepted 2026-04-17`; amendments accepted `2026-04-22`, `2026-07-02` |
+| **Reviewers** | `Accepted 2026-04-17`; amendments accepted `2026-04-22`, `2026-07-02`, `2026-07-08` |
 
 ## Context
 
@@ -31,7 +31,7 @@ The pre-implementation audit completed 2026-04-16 before any implementation plan
 
 ## Decision
 
-V1 consists of **23 features** (amended 2026-07-02 per the capability-enhancement campaign — was 17 from the 2026-04-22 BL-097 amendment and 16 at 2026-04-17 acceptance; see §Amendment History). V1.1 defers **3 features** and carries **2 criterion-gated sub-feature commitments** (see §V1.1 Criterion-Gated Commitments below). Everything else inferable from the product vision is out of scope for the V1 horizon and carries a V2 label for future re-evaluation.
+V1 consists of **23 features** (amended 2026-07-02 per the capability-enhancement campaign — was 17 from the 2026-04-22 BL-097 amendment and 16 at 2026-04-17 acceptance; see §Amendment History). V1.1 defers **3 features** and carries **3 criterion-gated sub-feature commitments** (see §V1.1 Criterion-Gated Commitments below). Everything else inferable from the product vision is out of scope for the V1 horizon and carries a V2 label for future re-evaluation.
 
 ### V1 Features (23)
 
@@ -92,6 +92,16 @@ Reconsider the `HumanPhaseConfig` default-timeout policy once a notification-rou
 - (a) **Notification-routing V1.x feature shipped:** daemon can route a "human phase escalated" event to an actual human recipient (not telemetry-only).
 
 Until (a) is met, V1's required typed `timeout: "none" | Duration` opt-in (per Spec-017 SA-10) stands: authors must type either `"none"` or an explicit duration. A 7-day soft-cap + escalate default was considered and rejected for V1 because without notification routing the escalate path fires a `workflow.human_phase_escalated` event to telemetry but does not page a human — a "guardrail that looks like protection but isn't" (silent-failure class, directly violating C-12 Loud-errors invariant). The V1 stance matches modern durable-execution convention: Temporal Workflow Execution Timeout defaults to ∞ and authors opt in explicitly ([Temporal — Managing very long-running workflows](https://temporal.io/blog/very-long-running-workflows), accessed 2026-04-22); Argo suspend primitives are indefinite-by-default ([Argo Workflows — Suspending walk-through](https://argo-workflows.readthedocs.io/en/latest/walk-through/suspending/)).
+
+**C3 — Automated GDPR erasure endpoint (committed V1.1):**
+
+Promote the V1 `gdpr.*` stubs (schema + write path ship in V1; the three daemon JSON-RPC methods refuse with `-32603` + `data.type: "gdpr.endpoint_not_v1"` per Plan-022 D-022-3) to automated deletion/export/purge handlers in V1.1, contingent on **all three** criteria (per BL-139, transplanted from [Plan-022 §Non-Goals](../plans/022-data-retention-and-gdpr.md#non-goals); paired spec-side record: [Spec-022 §V1 Erasure Scope Boundary](../specs/022-data-retention-and-gdpr.md#v1-erasure-scope-boundary), which enumerates the promotion criteria via Plan-022 §Non-Goals):
+
+- (i) **Fan-out closure complete:** every CP-022-6 fan-out target's owner plan has shipped its table + Path-2 reciprocal — the automated shred spans the full `REFERENCES participants(id)` closure (nine rows over Plan-001/002/003/018/019 + forward-declared Plan-027/BL-070), several of which are unbuilt until later tiers, AND
+- (ii) **FK-safety migration landed:** the D-022-7 `ON DELETE SET NULL` forward ALTER relaxing the anonymize-class FKs has landed, AND
+- (iii) **Equivalence proof:** cross-store fan-out equivalence tests prove no closure row is missed.
+
+**Rationale for criterion-gated deferral (not inclusion at V1):** (a) **cross-tier completeness** — with later-tier owner tables unbuilt, a V1 automated endpoint would necessarily be partial and report success on an incomplete fan-out (the silent-failure class the C-12 Loud-errors invariant exists to block); (b) **protection-over-automation** — V1 erasure is satisfiable by hand (crypto-shred = `DELETE FROM participant_keys`; Postgres severance = the D-022-7 migration), so a data-subject request is honorable in V1 via the [GDPR Manual Erasure Runbook](../operations/gdpr-manual-erasure-runbook.md) without risking a half-built automated path. If (i)–(iii) are satisfied, the automated handlers ship in V1.1, replacing the stub refusals additively; until then the deferral stands as scoped in Plan-022 §Non-Goals.
 
 ### V2 (Out of Scope for the V1 Horizon)
 
@@ -325,6 +335,29 @@ Remote provider transports and provider-native subagents were adopted in the sam
 - [README.md](../../README.md) — the §V1 Scope feature census (prose count + enumerated table) extended to 23
 - [CLAUDE.md](../../CLAUDE.md) — the repository-summary "V1 ships 17 features … across 27 implementation plans" line: the 17 → 23 feature ripple is applied **in this amendment's PR** together with an explicit pending-28th clause on the plan axis (feature #18's Plan-028 gates MCP-governance code); only the plan-count reconciliation (27 → 28) completes when Plan-028 lands with the campaign's B18 bundle
 
+### Amendment 2026-07-08: V1.1 criterion-gated commitments 2 → 3 (automated GDPR erasure endpoint, per BL-139)
+
+**What changed:**
+
+|  | Before (2026-07-02) | After (2026-07-08) |
+| --- | --- | --- |
+| V1 feature count | 23 | 23 (unchanged) |
+| V1.1 deferred features | 3 | 3 (unchanged) |
+| V1.1 criterion-gated commitments | 2 (BIND multi-phase channel reuse; human-phase default timeout) | **3** (added C3: automated GDPR erasure endpoint) |
+
+**Why:** The Tier-5 plan-readiness audit's Codex review (PR #129, round-5 GDPR hardening) surfaced that the automated GDPR deletion/export/purge endpoint — a compliance-relevant V1→V1.1 deferral — was recorded only in Plan-022/Spec-022 §Non-Goals, while the project's criterion-gated-deferral discipline places durable V1→V1.1 commitments in this ADR. BL-139 tracked the fold-in. The promotion criteria (i)–(iii) and the (a)/(b) deferral rationale are transplanted from Plan-022 §Non-Goals; the interim operator path is the [GDPR Manual Erasure Runbook](../operations/gdpr-manual-erasure-runbook.md).
+
+**How decided:** No new scope decision — this amendment relocates an already-ratified deferral (Plan-022 D-022-3 stubs + §Non-Goals criteria, ratified at the Tier-5 audit) into the scope ADR so the durable record no longer lives only in plan/spec Non-Goals. Recorded alongside Plan-022's `review → approved` promotion (Tier-5 audit amendments D-022-1..8 reviewed and accepted 2026-07-08).
+
+**Cross-references that consume this amendment:**
+
+- [Plan-022 §Non-Goals](../plans/022-data-retention-and-gdpr.md#non-goals) — the source criteria (i)–(iii) + rationale (a)/(b); Plan-022 promoted `review → approved` in the same PR
+- [Spec-022 §V1 Erasure Scope Boundary](../specs/022-data-retention-and-gdpr.md#v1-erasure-scope-boundary) — the paired spec-side deferral record (Spec-022 §Non-Goals lists unrelated exclusions; the erasure-automation deferral and its criteria pointer live in the scope-boundary section)
+- [GDPR Manual Erasure Runbook](../operations/gdpr-manual-erasure-runbook.md) — the interim V1 operator procedure named by rationale (b)
+- [Backlog Archive](../archive/backlog-archive.md) — BL-139 closed by this amendment
+- [docs/architecture/v1-feature-scope.md](../architecture/v1-feature-scope.md) — the §V1.1 census sentence re-derived for 3 commitments (count + per-commitment spec ties)
+- [README.md](../../README.md) — the §Features "V1.1 additions" enumeration re-derived to include the non-workflow C3 commitment
+
 ## Decision Log
 
 | Date | Event | Notes |
@@ -333,3 +366,4 @@ Remote provider transports and provider-native subagents were adopted in the sam
 | 2026-04-17 | Accepted | ADR accepted as the governing V1 scope definition |
 | 2026-04-22 | Amended | Workflow promoted V1.1 → V1 per BL-097; feature count 16 → 17; V1.1 deferred-feature count 4 → 3; added 2 V1.1 criterion-gated commitments (BIND multi-phase channel reuse; human-phase default timeout). Amendment grounded in Wave 1 + Wave 2 research; primary-source citations consolidated in §References → §Research Conducted; rationale and cross-reference list in §Amendment History. |
 | 2026-07-02 | Amended — V1 scope 17 → 23 features (R4 + R8) | Capability-enhancement campaign: feature count 17 → 23; added #18 MCP server configuration and governance (net-new Spec-028 + Plan-028, R4), #19 session time-travel, #20 session goals, #21 session callback tools, #22 execution postures and sandbox profiles, #23 realtime voice channels (capability-gated on the upstream Codex realtime flag). Remote transports and provider-native subagents amend existing features (Spec-024 / Spec-016) rather than minting numbers. V1.1 deferred-feature count (3) and criterion-gated commitments (2) unchanged; count re-derived by enumerating the §Decision table rows. Rationale, Before/After table, and cross-reference list in §Amendment History (amendment 2026-07-02). ADR stays `accepted`. |
+| 2026-07-08 | Amended — V1.1 criterion-gated commitments 2 → 3 (BL-139) | Added C3 (automated GDPR erasure endpoint, committed V1.1) with promotion criteria (i)–(iii) transplanted from Plan-022 §Non-Goals; deferral rationale (cross-tier fan-out completeness; protection-over-automation) recorded in §V1.1 Criterion-Gated Commitments; interim manual-erasure runbook named. V1 feature count (23) and V1.1 deferred-feature count (3) unchanged. Recorded alongside Plan-022 `review → approved` promotion; closes BL-139. ADR stays `accepted`. |

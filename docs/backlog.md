@@ -25,7 +25,7 @@ This file is the active development backlog for the product defined in [vision.m
 - `P0` — blocks all implementation or blocks a critical feature
 - `P1` — blocks a specific feature or must resolve before v1
 - `P2` — should resolve before v1 ship
-- `P3` — should resolve before v1 ship; lower urgency than `P2` (revisit-trigger BLs, post-v1-polish surfaces, deferred-but-tracked enhancements). Active P3 usage: none; archive entries BL-110/115/116/117/119/120/121 all closed at P3. Uniform semantics: "tracked but not blocking" across every active and closed P3 entry.
+- `P3` — should resolve before v1 ship; lower urgency than `P2` (revisit-trigger BLs, post-v1-polish surfaces, deferred-but-tracked enhancements). Active P3 usage: BL-122/123/124/131/134; archive entries BL-110/115/116/117/119/120/121 all closed at P3. Uniform semantics: "tracked but not blocking" across every active and closed P3 entry.
 
 ---
 
@@ -141,18 +141,6 @@ The items below were surfaced by the [plan-readiness-audit Tier 1](./operations/
 - Summary: Plan-007 R3-PR-a (CLI delivery — the `sidekicks` first-class delivery track per Spec-007:41) pins `clipanion@4.0.0-rc.4` as an exact-version dependency because as of 2026-05-28 the v4 line has not shipped a stable release (latest tag is `4.0.0-rc.4`; v3.x is the last stable line). The v4 type-safety improvements over v3 (typed positional-argument inference, typed `Command.Option.String`/`Boolean` decorators, drop of the v3 unsafe `@Command.Path` decorator) are load-bearing for the V1 typed CLI commands (`sidekicks daemon start|stop|status` per F-007r-3-09). The exact-RC pin is the hardened choice — caret ranges (`^4.0.0-rc.4`) would auto-upgrade across RC drops with potentially breaking type-API changes between release candidates; an exact pin freezes the surface against an audited RC. When upstream ships a stable `4.x.x` (or `4.0.0` final), bump the pin, run the R3-T1..R3-T8 CLI test slice against the stable build, and ratify the lockfile shift.
 - Exit Criteria: (a) Upstream clipanion ships a stable v4 release tag (`4.0.0` or first stable `4.x.x`); (b) Plan-007 R3-PR-a's `apps/cli/package.json` clipanion pin updated from `4.0.0-rc.4` to the stable release (exact-version pin preserved); (c) `pnpm install` regenerates `pnpm-lock.yaml` with the new resolved version; (d) the R3-T1..R3-T8 CLI test slice (per T-007r-3-15 slice-a) passes against the stable build with no migration-only behavior deltas; (e) Plan-007 §Decision Log entry records the RC-to-stable bump + date + any migration notes from the upstream changelog.
 - Revisit Trigger: Upstream clipanion stable v4 release announced (the dominant trigger — file the bump PR within one week); OR a Plan-007 R3-PR-a follow-up surfaces an RC-vs-stable behavior delta during V1 hardening (e.g., a regression report against `4.0.0-rc.4` that an RC bump or stable release would fix); OR a subsequent V1 CLI plan (post-Plan-007) requires a clipanion-API surface only exposed by stable v4 (e.g., an `onError` hook or a typed-environment-variable decorator that the RC does not yet expose).
-
----
-
-### BL-139: ADR-015 §V1.1 criterion-gated-commitment entry for the automated GDPR endpoint
-
-- Status: `todo`
-- Priority: `P2`
-- Owner: `unassigned`
-- References: [ADR-015 V1 Feature Scope Definition](./decisions/015-v1-feature-scope-definition.md), [Plan-022 §Non-Goals](./plans/022-data-retention-and-gdpr.md#non-goals), [Spec-022 §Non-Goals](./specs/022-data-retention-and-gdpr.md#non-goals) — surfaced at the Tier-5 plan-readiness audit (PR #129) Codex review (round-5 GDPR hardening)
-- Summary: The automated GDPR deletion/export/purge endpoint is a V1→V1.1 deferral. Per the project's criterion-gated-deferral discipline, a V1→V1.1 deferral of a compliance-relevant capability should carry a named criterion-gated commitment in ADR-015 (the V1-scope ADR), not only in the plan/spec Non-Goals. Plan-022 §Non-Goals now names the (a)/(b) deferral reasoning + (i)/(ii)/(iii) promotion criteria; this item folds an equivalent criterion-gated-commitment entry into ADR-015 §V1.1 so the scope ADR is the durable record.
-- Exit Criteria: (a) ADR-015 carries a V1.1 criterion-gated-commitment entry for the automated GDPR endpoint naming the (i)/(ii)/(iii) promotion criteria from Plan-022 §Non-Goals; (b) the entry cross-links Plan-022 + Spec-022 §Non-Goals; (c) the deferral is no longer recorded only in plan/spec Non-Goals.
-- Revisit Trigger: ADR-015 is next edited; OR V1.1 scope planning begins; OR the GDPR endpoint promotion criteria are met.
 
 ---
 
