@@ -317,7 +317,7 @@ CREATE TABLE artifact_relay_blobs (
                            CHECK(retention_tier IN ('volatile', 'default', 'extended')),
   state                    TEXT NOT NULL DEFAULT 'pending_replication'
                            CHECK(state IN ('pending_replication', 'pinned', 'expired')),
-  expires_at               TIMESTAMPTZ NOT NULL,          -- tier-derived TTL deletion trigger
+  expires_at               TIMESTAMPTZ NOT NULL,          -- tier-derived TTL deletion trigger; re-anchored to now + tier TTL on every successful re-pin (Spec-014 Publish steps 3-4: a re-pin is a fresh grant of the same bytes)
   created_at               TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
