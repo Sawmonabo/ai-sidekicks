@@ -41,6 +41,8 @@ Execute the three paths **strictly in order** — `Path 1 → Path 2 → Path 3`
 
 1. Delete the per-participant key: `DELETE FROM participant_keys WHERE participant_id = :pid;` (daemon-local SQLite). This destroys the AES-256-GCM key; every `pii_payload` ciphertext the participant authored, across every session, becomes permanently unrecoverable. (`participant_keys` is a separate table from the signed event chain, so this DELETE does not affect hash-chain integrity.)
 
+2. Delete the durable artifact-encryption key: `DELETE FROM artifact_encryption_keys WHERE participant_id = :pid;` (daemon-local SQLite, **on every node the participant runs** — the store is per-daemon). This destroys the X25519 private half that unwraps relay-held CEKs, completing the crypto-shred whose Postgres half is the Path-2 `artifact_relay_recipients` DELETE ([Spec-014 §Cross-Node Artifact Relay (V1)](../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1) Delete step 9). Skip if absent — the table lands with Plan-014 Tasks 7–10 (Tier 7); a participant who never published or received a shared artifact has no row.
+
 The `event.shredded` audit artifact **records this Path-1 crypto-shred**, but it is **emitted later — after Path 3** — so the "shredded" marker never precedes the diagnostic-bucket flush (the Path 3 buckets hold _plaintext_ PII until flushed). Emit it under [§Emit the audit events](#emit-the-audit-events) below, **not here** ([Spec-022 §Shred Fan-Out](../specs/022-data-retention-and-gdpr.md#shred-fan-out), Path 3 ordering).
 
 _Idempotency:_ a re-run where the key row is already gone affects zero rows.
