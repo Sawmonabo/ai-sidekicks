@@ -356,6 +356,18 @@ describe("CLI (spawned — the direct-invocation path tests cannot reach via imp
     expect(run.status).toBe(1);
     expect(String(run.stdout)).toContain("::error title=lane-boundary violation::");
   });
+
+  it("exits 1 on a deploy/-only diff with an undeclared plan title (deploy/ is material — Plan-025 T-025d-14-1 class)", () => {
+    const run = spawnCli(
+      {
+        PR_TITLE: "chore(repo): self-host compose tweaks mentioning Plan-025",
+        PR_BRANCH: "chore/self-host-compose",
+      },
+      "deploy/self-host/docker-compose.yml\n",
+    );
+    expect(run.status).toBe(1);
+    expect(String(run.stdout)).toContain("::error title=lane-boundary violation::");
+  });
 });
 
 describe("G6 sync contract", () => {

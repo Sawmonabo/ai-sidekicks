@@ -678,9 +678,11 @@ export function gateAuditCheckbox(planSource, planFile) {
 // so they are invisible to this gate BY DESIGN — only lane-1 plan-task shipments
 // participate in manifest freshness.
 // (2) only PRs whose diff touches a MATERIAL_PATH_PREFIXES path count —
-// packages/ + apps/ are the ownership map's code families, and .github/ covers
+// packages/ + apps/ are the ownership map's code families, .github/ covers
 // workflow-only shipments (Plan-024 T-024-4-1 ships sidecar-build.yml alone;
-// Codex P2 on PR #182). The inverted form (material = anything outside docs/)
+// Codex P2 on PR #182), and deploy/ covers self-host compose shipments
+// (Plan-025 T-025d-14-1 ships deploy/self-host/* alone — formerly the G6
+// blind spot). The inverted form (material = anything outside docs/)
 // was rejected on corpus evidence: governance PRs whose titles cite plans also
 // touch root files (PR #1 ships .gitignore/README.md/AGENTS.md under a
 // Plan-001 title), so exclude-docs would permanently false-halt Plan-001;
@@ -698,7 +700,7 @@ export const FRESHNESS_FETCH_LIMIT = 100;
 // constant (the CI lane guard must classify "material" exactly as G6 does);
 // a deep-equality test in tools/docs-corpus/__tests__/lane-boundary-check.test.ts
 // fails CI on divergence.
-export const MATERIAL_PATH_PREFIXES = ["packages/", "apps/", ".github/"];
+export const MATERIAL_PATH_PREFIXES = ["packages/", "apps/", ".github/", "deploy/"];
 
 export function gateManifestFreshness(planSource, planNumber) {
   const manifest = parseManifestBlock(planSource);
