@@ -328,7 +328,9 @@ CREATE INDEX idx_artifact_relay_blobs_expires ON artifact_relay_blobs(expires_at
 -- One row per (blob, intended recipient node): carries the wrapped CEK for one attested (participant, node) — encrypted to that node's DURABLE artifact-encryption X25519 key (Spec-014 Publish step 3; never the ADR-010 session-ephemeral keys, which are zeroed at session end and would orphan the CEK on restart), thumbprint-tagged so the fetching daemon selects the right private key after restart/rotation — the relay cannot unwrap;
 -- per Spec-014 Publish step 3 this row is the wrapped CEK's ONLY store, never the durable artifact.published event — deleting it is a true shred), delivery state (delivered_at NULL = undelivered;
 -- refcount-zero = zero NULLs remain for the blob across every (participant, node) row — a participant's
--- second node keeps the blob alive until it fetches or TTL), and the in-flight fetch grace lease
+-- second node keeps the blob alive until it fetches or TTL; delivered_at is written ONLY by the
+-- authenticated ArtifactFetchComplete ack that follows client-side chunk/commitment/CAS verification,
+-- never inferred from the last chunk GET — Spec-014 Fetch step 6), and the in-flight fetch grace lease
 -- (GC must not evict the blob while a lease is live). Hard-DELETE class in the CP-022-6 closure:
 -- deleting a participant's rows IS the crypto-shred (their reach to the CEK is destroyed) and
 -- simultaneously removes them from the intended-recipient set, keeping refcount semantics
@@ -341,7 +343,7 @@ CREATE TABLE artifact_relay_recipients (
   participant_id    UUID NOT NULL REFERENCES participants(id),  -- hard-DELETE class (CP-022-6); erasure removes ALL of a participant's node rows
   node_id           TEXT NOT NULL,      -- daemon-assigned node identifier (runtime_node_* convention); per-node delivery tracking
   wrapped_cek       BYTEA NOT NULL,     -- CEK wrapped to this node's durable artifact-encryption X25519 key; ~100 bytes
-  key_thumbprint    TEXT NOT NULL,      -- thumbprint of the wrapping public key (post-restart/rotation key selection)
+  key_thumbprint    TEXT NOT NULL,      -- thumbprint of the wrapping public key; the recipient retains that key (even once retired) until this row is delivered or TTL-expired
   delivered_at      TIMESTAMPTZ,        -- NULL = not yet fetched-and-verified by this recipient node
   lease_expires_at  TIMESTAMPTZ,        -- in-flight resumable-fetch grace lease; NULL when no fetch in flight
   PRIMARY KEY (ciphertext_digest, participant_id, node_id)

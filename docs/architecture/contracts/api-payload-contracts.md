@@ -2191,7 +2191,7 @@ interface ArtifactManifest {
   digest: string; // OCI `digest` (SHA-256) = SQLite content_hash — required: a content-addressed manifest always has one (I-014-1)
   size: number; // OCI manifest-descriptor `size` (payload byte length) = SQLite size_bytes — server-derived, always present
   annotations: Record<string, string>; // OCI `annotations` string-map = SQLite annotations (NOT NULL DEFAULT '{}') — distinct from freeform `metadata`
-  subject?: ArtifactId; // OCI `subject`: present only on a derivative (redacted/summarized) manifest → source manifest (I-014-2, Spec-014 line 145)
+  subject?: ArtifactId; // OCI `subject`: present only on a derivative (redacted/summarized) manifest → source manifest (I-014-2, Spec-014 line 147)
   visibility: ArtifactVisibility;
   state: ArtifactState;
   replicationStatus?: "pending_replication" | "pinned" | "over_cap" | "quota_exceeded" | "expired"; // = SQLite `replication_status` (A-014-3; value set spec-named by the 2026-07-08 relay amendment — Spec-014:66 grants the `pending_replication` fallback; the full set is spec-named in [Spec-014 §Wire-format additivity](../../specs/014-artifacts-files-and-attachments.md#wire-format-additivity) and mirrors the at-rest CHECK column). Absent = local-only artifact.
@@ -2209,7 +2209,7 @@ interface ArtifactPublishRequest {
   mediaType: string; // MIME type
   // --- producer-supplied OCI envelope inputs (D-014-3). `size`/`digest` are NOT here:
   //     the daemon derives size_bytes + content_hash from `payload`. ---
-  subject?: ArtifactId; // OCI `subject`: set when publishing a derivative (redacted/summarized) form → points to the source manifest (I-014-2, Spec-014 line 145); omit for originals
+  subject?: ArtifactId; // OCI `subject`: set when publishing a derivative (redacted/summarized) form → points to the source manifest (I-014-2, Spec-014 line 147); omit for originals
   annotations?: Record<string, string>; // OCI `annotations` string-map persisted to artifact_manifests.annotations; distinct from freeform `metadata`
   metadata?: Record<string, unknown>;
 }
@@ -2256,9 +2256,9 @@ interface AttachmentIngestResponse {
 
 // --- Cross-node artifact relay methods (2026-07-08 ADR-015 amendment): the
 //     ArtifactUploadInit / ArtifactUploadChunk / ArtifactUploadComplete /
-//     ArtifactFetchAuthorize request/response schemas land with Plan-014
+//     ArtifactFetchAuthorize / ArtifactFetchComplete request/response schemas land with Plan-014
 //     Tasks 7-10 after that plan's readiness-audit delta. Spec-014 §Interfaces names the methods;
-//     Spec-014 §Cross-Node Artifact Relay (V1) is the normative design — ArtifactUploadInit carries the relay-visible lifecycle envelope (digest, size, chunk accounting, retentionTier, wrapped-CEK recipient entries) as authenticated plaintext; ArtifactFetchAuthorizeResponse returns the calling node's relay-held wrapped CEK (thumbprint-selected; CEKs wrap to durable per-(participant, node) artifact-encryption keys, never session-ephemeral keys), and the artifact.published event carries the signed cekCommitment, never wrapped CEKs (Spec-014 Publish steps 1/3/4).
+//     Spec-014 §Cross-Node Artifact Relay (V1) is the normative design — ArtifactUploadInit carries the relay-visible lifecycle envelope (digest, size, chunk accounting, retentionTier, wrapped-CEK recipient entries) as authenticated plaintext; ArtifactFetchAuthorizeResponse returns the calling node's relay-held wrapped CEK (thumbprint-selected; CEKs wrap to durable per-(participant, node) artifact-encryption keys, never session-ephemeral keys), ArtifactFetchComplete is the authenticated post-verification ack that alone writes delivered_at (never inferred from a chunk GET); the artifact.published event carries the signed cekCommitment, never wrapped CEKs (Spec-014 Publish steps 1/3/4, Fetch step 6).
 //     Deliberately not typed here yet — no invented shapes. ---
 ```
 

@@ -72,6 +72,7 @@ This registry is the **single enumeration** of every enforced limit (Tier-6 audi
 | `artifact.upload.chunk` | Artifact relay chunk upload | 300/min | 60s | per session | authenticated | — | sliding_window — 8 MiB chunks ⇒ ≈2.4 GiB/min request ceiling; bytes are additionally governed by the Spec-014 storage quotas |
 | `artifact.fetch.authorize` | Artifact fetch-token mint | 60/min | 60s | per participant | authenticated | ✓ | sliding_window — short-lived DPoP-bound tokens are re-minted on resume |
 | `artifact.fetch.chunk` | Artifact relay chunk fetch | 600/min | 60s | per participant | authenticated | ✓ | sliding_window — resumable multi-chunk fetch; bytes governed by Spec-014 quotas |
+| `artifact.fetch.complete` | Artifact fetch-complete ack | 60/min | 60s | per participant | authenticated | ✓ | sliding_window — one post-verification acknowledgement per completed fetch (mirrors the `artifact.fetch.authorize` cadence); the ack is what sets `delivered_at` and drives refcount GC ([Spec-014 §Cross-Node Artifact Relay (V1)](./014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1) Fetch step 6) |
 | `health.check` | Health check | 120/min | 60s | per IP | anonymous | — | sliding_window |
 | `ws.message` | WebSocket messages | 60/min | 60s | per participant | authenticated | ✓ | sliding_window |
 | `keypackage.upload` | KeyPackage uploads (V1.1+) | 5/hr | 1h | per user | authenticated | — | sliding_window — applies once MLS ships per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md); no KeyPackage endpoint exists in V1 |
