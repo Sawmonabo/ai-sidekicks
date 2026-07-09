@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| **Status** | `review` |
+| **Status** | `approved` |
 | **NNN** | `022` |
 | **Slug** | `data-retention-and-gdpr` |
 | **Date** | `2026-04-17` |
@@ -448,6 +448,8 @@ shipped: []
 ### Notes
 
 <!-- Per-PR human commentary (round-trips, learnings, partial-ship details). Append-only. -->
+
+- **2026-07-08 — `review → approved` promotion.** The Tier-5 audit amendments (PR #129: D-022-1..8 ratified in §Ratified Design Decisions) were reviewed and accepted 2026-07-08; the plan body has been stable since the audit (mechanical touches only — manifest scaffold, cite sweeps, PR #193 phase-heading normalization). Preconditions 7/7 hold; cross-referenced docs are promoted (Spec-022 `approved`, ADR-010/015/021 `accepted`, Plan-001 `completed`). The companion ADR-015 amendment (§V1.1 C3 — automated GDPR erasure endpoint) landed in the same PR, closing BL-139.
 
 ## Done Checklist
 

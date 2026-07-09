@@ -93,7 +93,7 @@ Four parallel verification passes (phantom hunt across all 27 plans + ownership 
 
 ### 3.3 Execution-state constraints (verified census)
 
-- Plans in `review` today: 004, 008, 017, 018, 022, 025 (README census, corroborated twice). Plans `approved` + unshipped among targets: 006, 012, 015, 016, 027. Plan-005 `approved` with Phases 1–2 shipped. Plan-024 `approved` with Phases 1–3 shipped (manifest sealed through T-024-3-5; the I-024-1/I-024-2 kill wire-through was a documented follow-up).
+- Plans in `review` today: 004, 008, 017, 018, 022, 025 (README census, corroborated twice; snapshot 2026-07-01 — Plan-022 promoted `review` → `approved` 2026-07-08). Plans `approved` + unshipped among targets: 006, 012, 015, 016, 027. Plan-005 `approved` with Phases 1–2 shipped. Plan-024 `approved` with Phases 1–3 shipped (manifest sealed through T-024-3-5; the I-024-1/I-024-2 kill wire-through was a documented follow-up).
 - `CP-005-7` and `CP-016-9` reciprocal-obligation tags exist in the plan files and their relationships are **already represented** in dep-map §3 — the :154 Plan-012 row names the `interactive_request` feed into the CP-012-6 normalizer (CP-005-7's reciprocal) and the :160 Plan-016 row names the `usage_telemetry` feed into the BudgetAccountant (CP-016-9). The campaign **enriches those row annotations with the explicit CP tags** (B10, B15); no new edges are minted — a provider-side Plan-005→Plan-012 edge would be a wrong-direction Tier-4→Tier-6 back-edge (adversarial corpus pass, 2026-07-02).
 - Open backlog adjacency: BL-108 (procurement; gates NS-09/NS-10 only — **not** the new Phase 3B), BL-144, BL-145 (disjoint, §1.2).
 

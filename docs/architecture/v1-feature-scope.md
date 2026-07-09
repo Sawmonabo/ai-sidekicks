@@ -44,7 +44,7 @@ Features with a governing spec already written that defer implementation past V1
 | 2 | Email invite delivery | V1 uses shareable-link tokens; email delivery adds an external-service dependency with no category-positioning payoff for V1. | [Spec-002](../specs/002-invite-membership-and-presence.md) |
 | 3 | Cross-node shared artifacts | Local artifact publication (feature 14) ships in V1; the shared-artifact relay layer is incremental scope on top of relay core. | [Spec-014](../specs/014-artifacts-files-and-attachments.md) (local portion is V1; cross-node is V1.1) |
 
-Additionally, [ADR-015 §V1.1 Criterion-Gated Commitments](../decisions/015-v1-feature-scope-definition.md#v11-criterion-gated-commitments) carries 2 sub-feature commitments (BIND multi-phase channel reuse; `human` phase default-timeout behavior) with named promotion criteria tied to Spec-017 (Feature 17).
+Additionally, [ADR-015 §V1.1 Criterion-Gated Commitments](../decisions/015-v1-feature-scope-definition.md#v11-criterion-gated-commitments) carries 3 sub-feature commitments with named promotion criteria: BIND multi-phase channel reuse and `human` phase default-timeout behavior (both tied to Spec-017, Feature 17), plus the automated GDPR erasure endpoint (committed V1.1 2026-07-08 per BL-139; criteria in [Plan-022 §Non-Goals](../plans/022-data-retention-and-gdpr.md#non-goals), spec-side record [Spec-022 §V1 Erasure Scope Boundary](../specs/022-data-retention-and-gdpr.md#v1-erasure-scope-boundary)).
 
 ## V2 (Out of Scope for the V1 Horizon)
 
