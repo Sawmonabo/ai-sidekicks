@@ -395,7 +395,7 @@ Remote provider transports and provider-native subagents were adopted in the sam
 **Cross-references that consume this amendment:**
 
 - [Spec-014 §Cross-Node Artifact Relay (V1)](../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1) — the normative design: publish/fetch/delete flows, integrity + authorization models, size/quota/TTL parameters, failure-mode table, wire-format additivity
-- [Spec-021](../specs/021-rate-limiting-policy.md) — five artifact-relay registry rows (`artifact.upload.init`, `artifact.upload.chunk`, `artifact.fetch.authorize`, `artifact.fetch.chunk`, `artifact.fetch.complete`)
+- [Spec-021](../specs/021-rate-limiting-policy.md) — six artifact-relay registry rows (`artifact.upload.init`, `artifact.upload.chunk`, `artifact.upload.complete`, `artifact.fetch.authorize`, `artifact.fetch.chunk`, `artifact.fetch.complete`)
 - [Plan-014](../plans/014-artifacts-files-and-attachments.md) — implementation growth: relay-pin upload, authenticated fetch, GC/quota accounting, erasure fan-out integration
 - [docs/architecture/v1-feature-scope.md](../architecture/v1-feature-scope.md) — V1.1 census re-derived (deferred 3 → 2; commitments 3 → 4)
 - [README.md](../../README.md) — feature-14 row + V1.1 enumerations re-derived
