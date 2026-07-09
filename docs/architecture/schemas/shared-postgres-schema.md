@@ -2,7 +2,7 @@
 
 Canonical schema for the collaboration control plane's shared Postgres database.
 
-**Storage boundary:** Shared session metadata, invites, memberships, presence history, session directory, cross-node coordination records, and artifact-relay blob-store coordination state (blob metadata + per-participant wrapped content keys; the ciphertext chunk bytes themselves live in the deployment's object store, never in Postgres — [Spec-014 §Cross-Node Artifact Relay (V1)](../../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1)). See [Data Architecture](../data-architecture.md).
+**Storage boundary:** Shared session metadata, invites, memberships, presence history, session directory, cross-node coordination records, and artifact-relay blob-store coordination state (blob metadata + per-`(participant, node)` wrapped content keys; the ciphertext chunk bytes themselves live in the deployment's object store, never in Postgres — [Spec-014 §Cross-Node Artifact Relay (V1)](../../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1)). See [Data Architecture](../data-architecture.md).
 
 ---
 
@@ -325,22 +325,26 @@ CREATE INDEX idx_artifact_relay_blobs_session ON artifact_relay_blobs(session_id
 CREATE INDEX idx_artifact_relay_blobs_expires ON artifact_relay_blobs(expires_at);
 
 -- Owner: Plan-014
--- One row per (blob, intended recipient): carries that participant's wrapped CEK (encrypted to their X25519 key — the relay cannot unwrap;
+-- One row per (blob, intended recipient node): carries the wrapped CEK for one attested (participant, node) — encrypted to that node's DURABLE artifact-encryption X25519 key (Spec-014 Publish step 3; never the ADR-010 session-ephemeral keys, which are zeroed at session end and would orphan the CEK on restart), thumbprint-tagged so the fetching daemon selects the right private key after restart/rotation — the relay cannot unwrap;
 -- per Spec-014 Publish step 3 this row is the wrapped CEK's ONLY store, never the durable artifact.published event — deleting it is a true shred), delivery state (delivered_at NULL = undelivered;
--- refcount-zero = zero NULLs remain for the blob), and the in-flight fetch grace lease
+-- refcount-zero = zero NULLs remain for the blob across every (participant, node) row — a participant's
+-- second node keeps the blob alive until it fetches or TTL), and the in-flight fetch grace lease
 -- (GC must not evict the blob while a lease is live). Hard-DELETE class in the CP-022-6 closure:
 -- deleting a participant's rows IS the crypto-shred (their reach to the CEK is destroyed) and
 -- simultaneously removes them from the intended-recipient set, keeping refcount semantics
--- consistent after erasure. Wrapped-CEK rows are excluded from long-lived backups (or the backup
--- itself is crypto-shreddable) per Spec-014 §State And Data Implications — otherwise shred is
--- incomplete.
+-- consistent after erasure. Backup honesty (Spec-014 §State And Data Implications): Postgres
+-- PITR/WAL archiving is database-wide — rows cannot be excluded — so either the backup/PITR
+-- window is bounded ≤ the erasure SLA (30 d relay-TTL ceiling), or wrapped_cek is stored under a
+-- separately-destroyable KEK (Spec-022 §Daemon Master Key precedent); otherwise shred is incomplete.
 CREATE TABLE artifact_relay_recipients (
   ciphertext_digest TEXT NOT NULL REFERENCES artifact_relay_blobs(ciphertext_digest) ON DELETE CASCADE,
-  participant_id    UUID NOT NULL REFERENCES participants(id),  -- hard-DELETE class (CP-022-6)
-  wrapped_cek       BYTEA NOT NULL,     -- CEK wrapped to the participant's X25519 key; ~100 bytes
-  delivered_at      TIMESTAMPTZ,        -- NULL = not yet fetched-and-verified by this recipient
+  participant_id    UUID NOT NULL REFERENCES participants(id),  -- hard-DELETE class (CP-022-6); erasure removes ALL of a participant's node rows
+  node_id           TEXT NOT NULL,      -- daemon-assigned node identifier (runtime_node_* convention); per-node delivery tracking
+  wrapped_cek       BYTEA NOT NULL,     -- CEK wrapped to this node's durable artifact-encryption X25519 key; ~100 bytes
+  key_thumbprint    TEXT NOT NULL,      -- thumbprint of the wrapping public key (post-restart/rotation key selection)
+  delivered_at      TIMESTAMPTZ,        -- NULL = not yet fetched-and-verified by this recipient node
   lease_expires_at  TIMESTAMPTZ,        -- in-flight resumable-fetch grace lease; NULL when no fetch in flight
-  PRIMARY KEY (ciphertext_digest, participant_id)
+  PRIMARY KEY (ciphertext_digest, participant_id, node_id)
 );
 
 CREATE INDEX idx_artifact_relay_recipients_participant ON artifact_relay_recipients(participant_id);

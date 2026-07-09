@@ -541,6 +541,25 @@ CREATE TABLE artifact_payload_refs (
 );
 
 CREATE INDEX idx_artifact_payload_refs_manifest ON artifact_payload_refs(manifest_id);
+
+-- Owner: Plan-014 (2026-07-09 cross-node relay amendment)
+-- The daemon-local durable artifact-encryption keypair — one row per participant on this node
+-- (node scoping is the database itself: each daemon holds its own store). Relay CEKs are wrapped
+-- to this key, NEVER to the ADR-010 session-ephemeral X25519 keys (those are zeroed at session
+-- end — wrapping to them would orphan every relay-held CEK on the first restart and silently
+-- void the offline-fetch guarantee). The private half is wrapped by the Spec-022 daemon master
+-- key (same custody + backup-exclusion posture as participant_keys); the public half is announced
+-- in-session as an Ed25519-identity-signed attestation (Spec-014 Publish step 3). Rotation
+-- replaces the keypair in place (rotated_at set); CEKs wrapped to the retired key heal via
+-- publisher re-publish, the same path as late join.
+CREATE TABLE artifact_encryption_keys (
+  participant_id        TEXT NOT NULL PRIMARY KEY,
+  encrypted_private_key BLOB NOT NULL,   -- X25519 private half, master-key-wrapped (nonce || ciphertext || tag — the D-022-2 wire form)
+  public_key            BLOB NOT NULL,   -- X25519 public half (attested to session peers)
+  key_thumbprint        TEXT NOT NULL,   -- matches artifact_relay_recipients.key_thumbprint (post-restart/rotation key selection)
+  created_at            TEXT NOT NULL,
+  rotated_at            TEXT
+);
 ```
 
 > **Tier-7 audit (NS-19) — ratified design (Plan-014 → `approved`).** `artifact_manifests.subject` (OCI `subject`, self-referential FK — derivative-not-mutation per I-014-2, guarded by a table-level `CHECK(subject IS NULL OR subject <> id)` so no manifest is its own subject — a derivative must point to a _distinct_ source, the same self-reference guard pattern as `run_links` parent≠child), `artifact_manifests.size_bytes` (OCI manifest-descriptor `size`), and `artifact_manifests.annotations` (OCI `annotations`, a first-class string→string map per the [OCI image-manifest spec](https://github.com/opencontainers/image-spec/blob/main/manifest.md)) realize the OCI envelope per D-014-1. **`content_hash`/`size_bytes` are `NOT NULL`:** a content-addressed manifest's `digest` is intrinsic to its identity (I-014-1), and each producer (Plan-014 Task 2 AttachmentIngest, Task 3 ArtifactPublish) computes the SHA-256 + byte length from its own payload and inserts its manifest with both columns set in the same transaction as the payload-ref — the two are independent producers, each writing its own manifest (so the `artifactId` AttachmentIngest returns resolves from the ingest-written manifest, not a later publish), so neither is ever NULL and no payload-less manifest is ever read — this is 1:1 with the **required** `digest`/`size` fields on the `ArtifactManifest` wire shape ([api-payload-contracts.md](../contracts/api-payload-contracts.md)). **D-014-2 (OCI `annotations` reciprocity):** `annotations` is its own column rather than riding inside `metadata` JSON, so the at-rest shape is 1:1 with the wire — `ArtifactReadResponse.annotations` is a field distinct from `metadata` in [api-payload-contracts.md](../contracts/api-payload-contracts.md) — and consistent with `subject`/`size_bytes` getting dedicated columns; `metadata` stays purely freeform. `artifact_manifests.replication_status` (A-014-3) realizes the Spec-014:66 manifest-first replication surface — the column exists (spec-required: shared artifacts replicate manifest-first with deferred payload, Spec-014:66/192), nullable, and V1 writes the spec-named `pending_replication` while a shared artifact awaits payload transfer; it surfaces on the wire as the optional `ArtifactManifest.replicationStatus?` field (1:1 at-rest↔wire). It carried **no multi-state `CHECK`** at the audit: Spec-014:66 named only `pending_replication` ("or equivalent"), so terminal/failed values were a deferred owner refinement — none was invented there (anti-fabrication). This schema edit + the `api-payload-contracts.md` artifact-wire edit + Plan-014 CP-014-1 landed as one ratified bundle in the NS-19 audit swap. **(2026-07-08: the deferred refinement arrived — the [Spec-014 §Cross-Node Artifact Relay (V1)](../../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1) amendment spec-names the full value set `pending_replication | pinned | over_cap | quota_exceeded | expired`, so the CHECK above now exists; the wire mirror stays `ArtifactManifest.replicationStatus?`.)**

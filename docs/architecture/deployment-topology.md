@@ -119,7 +119,7 @@ Envelope (batching is a design baseline, not a future enhancement): **25 conns �
 
 **Connection pool sizing:** 10 connections per control-plane process, max 100 total.
 
-**Backup:** automated daily snapshots + WAL archiving for point-in-time recovery — with one carve-out: `artifact_relay_recipients` wrapped-CEK rows are excluded from long-lived snapshots/WAL retention (or the backups must themselves be crypto-shreddable), and PITR windows must not exceed the crypto-shred guarantee for those rows, so a GDPR erasure cannot be resurrected from backup ([Spec-014 §State And Data Implications](../specs/014-artifacts-files-and-attachments.md#state-and-data-implications); the matching exclusion note sits on the table in [shared-postgres-schema.md §Artifact Relay Blob Store](./schemas/shared-postgres-schema.md#artifact-relay-blob-store-plan-014)).
+**Backup:** automated daily snapshots + WAL archiving for point-in-time recovery — with one carve-out for `artifact_relay_recipients` wrapped-CEK rows: because PITR/WAL archiving is database-wide (rows cannot be excluded), either the backup/PITR retention window is bounded at or below the erasure SLA (≤ the 30 d relay-TTL ceiling), or the wrapped-CEK envelopes are stored under a separately-destroyable KEK so restored backups yield unusable ciphertext (the Spec-022 §Daemon Master Key custody precedent) — so a GDPR erasure cannot be resurrected from backup ([Spec-014 §State And Data Implications](../specs/014-artifacts-files-and-attachments.md#state-and-data-implications); the matching exclusion note sits on the table in [shared-postgres-schema.md §Artifact Relay Blob Store](./schemas/shared-postgres-schema.md#artifact-relay-blob-store-plan-014)).
 
 ## Capacity Targets
 

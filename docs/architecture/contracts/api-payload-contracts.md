@@ -2258,7 +2258,7 @@ interface AttachmentIngestResponse {
 //     ArtifactUploadInit / ArtifactUploadChunk / ArtifactUploadComplete /
 //     ArtifactFetchAuthorize request/response schemas land with Plan-014
 //     Tasks 7-10 after that plan's readiness-audit delta. Spec-014 §Interfaces names the methods;
-//     Spec-014 §Cross-Node Artifact Relay (V1) is the normative design — ArtifactFetchAuthorizeResponse returns the caller's relay-held wrapped CEK alongside the DPoP-bound fetch token, and the artifact.published event carries the signed cekCommitment, never wrapped CEKs (Spec-014 Publish steps 1/3).
+//     Spec-014 §Cross-Node Artifact Relay (V1) is the normative design — ArtifactUploadInit carries the relay-visible lifecycle envelope (digest, size, chunk accounting, retentionTier, wrapped-CEK recipient entries) as authenticated plaintext; ArtifactFetchAuthorizeResponse returns the calling node's relay-held wrapped CEK (thumbprint-selected; CEKs wrap to durable per-(participant, node) artifact-encryption keys, never session-ephemeral keys), and the artifact.published event carries the signed cekCommitment, never wrapped CEKs (Spec-014 Publish steps 1/3/4).
 //     Deliberately not typed here yet — no invented shapes. ---
 ```
 

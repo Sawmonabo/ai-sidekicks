@@ -30,7 +30,7 @@ The Collaboration Control Plane exists to share session coordination state acros
 | `Invite And Membership Service` | Creates invites, accepts joins, changes roles, and revokes membership. |
 | `Presence Service` | Tracks participant and node presence heartbeats and disconnect grace windows. |
 | `Relay Broker` | Helps clients and nodes establish shared-session connectivity without taking over execution. |
-| `Artifact Relay Blob Store` | Holds eagerly pinned, digest-addressed E2EE artifact ciphertext chunks and per-participant wrapped CEKs with refcount/TTL GC and quota accounting; never holds decryption-capable key material ([Spec-014 §Cross-Node Artifact Relay (V1)](../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1); lands with Plan-014 Tasks 7–10). |
+| `Artifact Relay Blob Store` | Holds eagerly pinned, digest-addressed E2EE artifact ciphertext chunks and per-`(participant, node)` wrapped CEKs (durable artifact keys) with refcount/TTL GC and quota accounting; never holds decryption-capable key material ([Spec-014 §Cross-Node Artifact Relay (V1)](../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1); lands with Plan-014 Tasks 7–10). |
 | `Notification Service` | Delivers attention, invite, and session-level notifications. |
 | `Shared Metadata Store` | Persists collaboration state used across participants and nodes. |
 
