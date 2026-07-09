@@ -5,7 +5,7 @@
 | **Status** | `approved` |
 | **NNN** | `021` |
 | **Slug** | `rate-limiting-policy` |
-| **Date** | `2026-04-15` (amended 2026-06-10, Tier-6 readiness audit; amended 2026-07-02, capability-enhancement campaign B8 — `presence.heartbeat` V1-enforcement status; amended 2026-07-08 — four artifact-relay rows per the [ADR-015 cross-node amendment](../decisions/015-v1-feature-scope-definition.md#amendment-2026-07-08-v11-deferred-features-3--2-cross-node-shared-artifacts-pulled-into-v1); byte/storage quotas stay Spec-014-owned) |
+| **Date** | `2026-04-15` (amended 2026-06-10, Tier-6 readiness audit; amended 2026-07-02, capability-enhancement campaign B8 — `presence.heartbeat` V1-enforcement status; amended 2026-07-08 — four artifact-relay rows per the [ADR-015 cross-node amendment](../decisions/015-v1-feature-scope-definition.md#amendment-2026-07-08-v11-deferred-features-3--2-cross-node-shared-artifacts-pulled-into-v1); amended 2026-07-09 — a fifth relay row, `artifact.fetch.complete`, for Spec-014's ack-driven delivery; byte/storage quotas stay Spec-014-owned) |
 | **Author(s)** | `Codex` |
 | **Depends On** | [Deployment Topology](../architecture/deployment-topology.md), [Security Architecture](../architecture/security-architecture.md) |
 | **Implementation Plan** | [Plan-021: Rate Limiting Policy](../plans/021-rate-limiting-policy.md) |

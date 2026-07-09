@@ -330,7 +330,9 @@ CREATE INDEX idx_artifact_relay_blobs_expires ON artifact_relay_blobs(expires_at
 -- refcount-zero = zero NULLs remain for the blob across every (participant, node) row — a participant's
 -- second node keeps the blob alive until it fetches or TTL; delivered_at is written ONLY by the
 -- authenticated ArtifactFetchComplete ack that follows client-side chunk/commitment/CAS verification,
--- never inferred from the last chunk GET — Spec-014 Fetch step 6), and the in-flight fetch grace lease
+-- never inferred from the last chunk GET — Spec-014 Fetch step 6; the acked row is resolved from the
+-- fetch token's own (participant, node) DPoP-bound claims, never a caller-supplied node_id, so one node
+-- cannot mark a sibling delivered, and the write is idempotent), and the in-flight fetch grace lease
 -- (GC must not evict the blob while a lease is live). Hard-DELETE class in the CP-022-6 closure:
 -- deleting a participant's rows IS the crypto-shred (their reach to the CEK is destroyed) and
 -- simultaneously removes them from the intended-recipient set, keeping refcount semantics

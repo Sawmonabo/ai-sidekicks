@@ -199,6 +199,7 @@ export type RateLimitEndpointGroup =
   | "artifact.upload.chunk" // 2026-07-08 cross-node relay amendment (Spec-014); Plan-014 self-wires at Tier 7
   | "artifact.fetch.authorize" // 2026-07-08 cross-node relay amendment (Spec-014); Plan-014 self-wires at Tier 7
   | "artifact.fetch.chunk" // 2026-07-08 cross-node relay amendment (Spec-014); Plan-014 self-wires at Tier 7
+  | "artifact.fetch.complete" // 2026-07-09 ack-driven delivery (Spec-014 Fetch step 6); Plan-014 self-wires at Tier 7
   | "health.check"
   | "ws.message"
   | "keypackage.upload"; // V1.1+ stub — no V1 endpoint exists
@@ -454,7 +455,7 @@ Concurrency-cap 429s send only the truthful subset `X-RateLimit-Limit` + `X-Rate
 | `invite.create_session` / `invite.create_participant` / `invite.accept` / `invite.redeem_ip` / `invite.pending_cap` | Plan-002 | Plan-002 Phase 4 self-wires per [BL-120](../backlog.md) (NOT this plan; pending-cap is store-side) |
 | `approval.resolve` | — (dormant in V1) | No V1 wiring surface: Plan-012's transport is daemon JSON-RPC only (D-012-5; api-payload §Approval Method-Name Registry) and Spec-021 excludes daemon IPC from rate limiting (§Scope, §Non-Goals, AC). Row stays priced/reserved; [BL-145](../backlog.md) re-arms it on the Spec-021 §ADR Triggers topology condition |
 | `artifact.publish` | Plan-014 (Tier 7) | Plan-014 self-wires at Tier 7 per [BL-146](../backlog.md) (mirrors BL-120) |
-| `artifact.upload.init` / `artifact.upload.chunk` / `artifact.fetch.authorize` / `artifact.fetch.chunk` | Plan-014 (Tier 7) | Plan-014 self-wires at Tier 7 with the relay upload/fetch routes (2026-07-08 Spec-021 cross-node relay amendment; scope folded into [BL-146](../backlog.md), mirroring the `artifact.publish` row) |
+| `artifact.upload.init` / `artifact.upload.chunk` / `artifact.fetch.authorize` / `artifact.fetch.chunk` / `artifact.fetch.complete` | Plan-014 (Tier 7) | Plan-014 self-wires at Tier 7 with the relay upload/fetch routes (2026-07-08 Spec-021 cross-node relay amendment, extended 2026-07-09 with the fetch-complete ack; scope folded into [BL-146](../backlog.md), mirroring the `artifact.publish` row) |
 | `ws.message` | Plan-008 R3 relay (hosted) / Plan-025 (self-host) | Plan-021 T21.3-4 via CP-008-9 (hosted); Plan-025 steps 7-8 (self-host) |
 | `auth.endpoint` / `unauthenticated.request` | Plan-018/Plan-008 auth + unauthenticated procedures | Plan-021 T21.3-6 (fallback buckets + auth group over shipped procedures) |
 | `keypackage.upload` | none in V1 | not wired (V1.1+ stub) |
