@@ -17,6 +17,8 @@ import {
 } from "../bin/lane-boundary-check.ts";
 // The skill script is plain ESM with a direct-invocation guard, so importing
 // it here executes nothing.
+// @ts-expect-error TS7016 — the skill script ships no declarations; this test
+// only reads one exported const, and the parity assertion types it locally.
 import { MATERIAL_PATH_PREFIXES as G6_MATERIAL_PATH_PREFIXES } from "../../../.claude/skills/plan-execution/scripts/preflight.mjs";
 
 const BIN_PATH = fileURLToPath(new URL("../bin/lane-boundary-check.ts", import.meta.url));
