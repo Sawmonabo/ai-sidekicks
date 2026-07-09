@@ -238,11 +238,15 @@ The data map enumerates **every** PII-carrying path reachable from `DELETE /part
 | Table | Column | PII Type | Retention | Shredding |
 | --- | --- | --- | --- | --- |
 | `session_events` (SQLite) | `pii_payload` | User messages, file paths, code snippets | 90 days (full) / indefinite (audit stub) | Crypto-shred via participant key deletion |
+| `artifact_encryption_keys` (SQLite, daemon-local) | `encrypted_private_key` | Key material — per-`(participant, node)` durable artifact-encryption X25519 private key (master-key-wrapped); unwraps relay-held artifact CEKs | Participant lifetime (active); rotation-retired rows until `retired_at + 30 d + 48 h` | Row DELETE on participant erasure, active + retired together ([§Shred Fan-Out](#shred-fan-out) Path 1; [Spec-014 §Cross-Node Artifact Relay (V1)](014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1) Delete step 9) |
+| `artifact_manifests` (SQLite) | `relay_cek_ciphertext` | Key material — publisher-retained per-artifact CEK (master-key-wrapped); decrypts the relay-pinned ciphertext copy | Artifact lifetime; NULL unless relay-pinned | Dies with the manifest row on artifact deletion, or with daemon master-key destruction ([§Daemon Master Key](#daemon-master-key)); deliberately not a per-participant sweep — see the artifact-payload posture note below |
 | `participants` (PG) | `display_name` | Name | Account lifetime | DELETE row on account deletion |
 | `participants` (PG) | `identity_ref` | Email/OAuth ID | Account lifetime | DELETE row on account deletion |
 | `identity_mappings` (PG) | `external_id` | Provider-specific ID | Account lifetime | DELETE row on account deletion |
 | `session_invites` (PG) | `token_hash` | Invite token hash | Invite lifetime | DELETE row on invite expiry/revocation |
 | `notification_preferences` (PG) | `preference_value` | Notification settings | Account lifetime | DELETE row on account deletion |
+
+> **Artifact-payload posture (2026-07-09 relay amendment).** Artifact manifests and their CAS payloads (`artifact_manifests` + `artifact_payload_refs`, and the relay's TTL-bounded ciphertext copy) are deliberately **not** per-participant erasure paths: an artifact is work-product published into a shared session — a session record under the same recipient-relative reading the shred posture already relies on ([Spec-014 §Cross-Node Artifact Relay (V1)](014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1) Delete step 9) — deletable and redactable while its publisher is active via artifact deletion and the derivative model. Erasure severs the participant's **reach**: Path 1 destroys their decryption capability (`participant_keys`, `artifact_encryption_keys`), Path 2 hard-DELETEs their relay recipient rows, and relay ciphertext dies by delivery refcount or TTL. The publisher-retained `relay_cek_ciphertext` (row above) stays sealed under the daemon master key beside the CAS plaintext it encrypts — it grants nothing the publishing machine does not already hold, and it dies with the manifest row or the master key.
 
 **Bounded-retention diagnostic tier (daemon-local, non-canonical per [Spec-020 §Required Behavior](020-observability-and-failure-recovery.md#required-behavior)):**
 
@@ -274,8 +278,8 @@ This section verifies end-to-end GDPR coverage across both storage tiers.
 - **90-day retention**: Verified. The event compaction policy ([Spec-006](006-session-event-taxonomy-and-audit-log.md)) compacts events older than 90 days; PII is stripped at compaction, leaving only audit stubs.
 - **Purge lifecycle**: Verified. Session states `purge_requested` and `purged` exist in the [Session Model](../domain/session-model.md) with transitions `archived -> purge_requested -> purged` and `closed -> purge_requested -> purged`.
 - **Right to erasure**: Participant deletion triggers the following sequence:
-  1. Crypto-shred via key deletion (DELETE from `participant_keys`)
-  2. DELETE Postgres PII rows (`participants`, `identity_mappings`, `notification_preferences`)
+  1. Crypto-shred via key deletion (DELETE from `participant_keys` and `artifact_encryption_keys`, active + retired rows together)
+  2. DELETE Postgres PII rows across the full `REFERENCES participants(id)` inbound-FK closure plus the identity-keyed rate-limit rows (per-table dispositions in [§Shred Fan-Out](#shred-fan-out) Path 2)
   3. Revoke all session memberships (anonymize membership references via `ON DELETE SET NULL` — see [§Shred Fan-Out](#shred-fan-out) Path 2 FK-safety)
   4. Emit `participant.purged` event for audit trail (see [Spec-006 §Participant Lifecycle](006-session-event-taxonomy-and-audit-log.md#participant-lifecycle-participant_lifecycle))
 

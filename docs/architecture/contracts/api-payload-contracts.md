@@ -2170,16 +2170,16 @@ Plan-011's gitflow PR-preparation and diff-attribution surface is exposed as fou
 
 ```ts
 // --- ArtifactManifest: the persisted manifest record — the OCI-inspired envelope (Spec-014
-//     line 78) plus the daemon-persisted `visibility`/`state`/`metadata` fields (not in line 78).
+//     §Interfaces And Contracts) plus the daemon-persisted `visibility`/`state`/`metadata` fields (not in the spec envelope).
 //     Defined once here (the `ArtifactManifest` shape Plan-014 Task 1 mints in
-//     packages/contracts/src/artifacts/); ArtifactPublish returns it (Spec-014 line 74),
-//     ArtifactRead returns it plus a payload handle/inline (Spec-014 line 75). 1:1 with the
-//     `artifact_manifests` row — each field a dedicated column (D-014-2), incl. `annotations`
+//     packages/contracts/src/artifacts/); ArtifactPublish returns it (Spec-014 §Interfaces And Contracts),
+//     ArtifactRead returns it plus a payload handle/inline (same spec section). 1:1 with the
+//     `artifact_manifests` row's wire-shareable fields — each a dedicated column (D-014-2; the daemon-secret `relay_cek_ciphertext` column never rides the wire), incl. `annotations`
 //     as a first-class OCI string→string map, never folded into freeform `metadata`. Plan-011's
 //     DiffArtifact (artifactType: "diff") rides this envelope per CP-014-1 / CP-011-2. ---
 
-// artifactType discriminator (Spec-014 line 79) — the five Spec-014:41 families (file, diff, summary,
-// log, design) plus workflow_output, the Spec-017:237 (Tier-8) workflow phase-output type. Spec-014:41
+// artifactType discriminator (Spec-014 §Interfaces And Contracts) — the five Spec-014 §Required Behavior families (file, diff, summary,
+// log, design) plus workflow_output, the Spec-017 §Output Mode Specification (Tier-8) workflow phase-output type. Spec-014 §Required Behavior
 // admits "at least" the five families, so the sixth value is additive, not a families-list rewrite (D-014-4).
 type ArtifactType = "file" | "diff" | "summary" | "log" | "design" | "workflow_output";
 
@@ -2187,43 +2187,43 @@ interface ArtifactManifest {
   id: ArtifactId;
   sessionId: SessionId;
   runId?: RunId;
-  artifactType: ArtifactType; // discriminator — Spec-014 line 79 (D-014-4: file|diff|summary|log|design|workflow_output)
+  artifactType: ArtifactType; // discriminator — Spec-014 §Interfaces And Contracts (D-014-4: file|diff|summary|log|design|workflow_output)
   digest: string; // OCI `digest` (SHA-256) = SQLite content_hash — required: a content-addressed manifest always has one (I-014-1)
   size: number; // OCI manifest-descriptor `size` (payload byte length) = SQLite size_bytes — server-derived, always present
   annotations: Record<string, string>; // OCI `annotations` string-map = SQLite annotations (NOT NULL DEFAULT '{}') — distinct from freeform `metadata`
-  subject?: ArtifactId; // OCI `subject`: present only on a derivative (redacted/summarized) manifest → source manifest (I-014-2, Spec-014 line 147)
+  subject?: ArtifactId; // OCI `subject`: present only on a derivative (redacted/summarized) manifest → source manifest (I-014-2, Spec-014 §State And Data Implications)
   visibility: ArtifactVisibility;
   state: ArtifactState;
-  replicationStatus?: "pending_replication" | "pinned" | "over_cap" | "quota_exceeded" | "expired"; // = SQLite `replication_status` (A-014-3; value set spec-named by the 2026-07-08 relay amendment — Spec-014:66 grants the `pending_replication` fallback; the full set is spec-named in [Spec-014 §Wire-format additivity](../../specs/014-artifacts-files-and-attachments.md#wire-format-additivity) and mirrors the at-rest CHECK column). Absent = local-only artifact.
+  replicationStatus?: "pending_replication" | "pinned" | "over_cap" | "quota_exceeded" | "expired"; // = SQLite `replication_status` (A-014-3; value set spec-named by the 2026-07-08 relay amendment — Spec-014 §Fallback Behavior grants the `pending_replication` fallback; the full set is spec-named in [Spec-014 §Wire-format additivity](../../specs/014-artifacts-files-and-attachments.md#wire-format-additivity) and mirrors the at-rest CHECK column). Absent = local-only artifact.
   metadata: Record<string, unknown>; // freeform daemon-side provenance/media-type — distinct from the OCI `annotations` map above
   createdAt: string;
 }
 
-// ArtifactPublish — Spec-014 line 74: "must return artifact id and manifest metadata."
+// ArtifactPublish — Spec-014 §Interfaces And Contracts: "must return artifact id and manifest metadata."
 interface ArtifactPublishRequest {
   sessionId: SessionId;
   runId?: RunId;
-  artifactType: ArtifactType; // discriminator — see ArtifactManifest.artifactType (Spec-014 line 79; D-014-4)
+  artifactType: ArtifactType; // discriminator — see ArtifactManifest.artifactType (Spec-014 §Interfaces And Contracts; D-014-4)
   visibility: ArtifactVisibility;
   payload: Uint8Array | string;
   mediaType: string; // MIME type
   // --- producer-supplied OCI envelope inputs (D-014-3). `size`/`digest` are NOT here:
   //     the daemon derives size_bytes + content_hash from `payload`. ---
-  subject?: ArtifactId; // OCI `subject`: set when publishing a derivative (redacted/summarized) form → points to the source manifest (I-014-2, Spec-014 line 147); omit for originals
+  subject?: ArtifactId; // OCI `subject`: set when publishing a derivative (redacted/summarized) form → points to the source manifest (I-014-2, Spec-014 §State And Data Implications); omit for originals
   annotations?: Record<string, string>; // OCI `annotations` string-map persisted to artifact_manifests.annotations; distinct from freeform `metadata`
   metadata?: Record<string, unknown>;
 }
 interface ArtifactPublishResponse {
-  manifest: ArtifactManifest; // embedded manifest metadata (Spec-014 line 74); manifest.id is the artifact id, manifest.digest the content hash — no resolvable-URL indirection (D-014-3)
+  manifest: ArtifactManifest; // embedded manifest metadata (Spec-014 §Interfaces And Contracts); manifest.id is the artifact id, manifest.digest the content hash — no resolvable-URL indirection (D-014-3)
 }
 
-// ArtifactRead — Spec-014 line 75: "must return manifest plus retrievable payload handle or inline content."
+// ArtifactRead — Spec-014 §Interfaces And Contracts: "must return manifest plus retrievable payload handle or inline content."
 interface ArtifactReadRequest {
   artifactId: ArtifactId;
   includePayload?: boolean; // default false, returns handle only
 }
 interface ArtifactReadResponse {
-  manifest: ArtifactManifest; // the same envelope ArtifactPublish embeds (Spec-014 line 75)
+  manifest: ArtifactManifest; // the same envelope ArtifactPublish embeds (Spec-014 §Interfaces And Contracts)
   payloadHandle?: string; // CAS key or URL for deferred retrieval
   payload?: Uint8Array; // only if includePayload=true and size permits
 }

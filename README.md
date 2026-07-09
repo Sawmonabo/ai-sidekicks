@@ -258,7 +258,7 @@ Each tier's prerequisites are the prior tier's completion. See [`docs/architectu
 
 ## Project Status
 
-**Phase: Tier 2-4 code execution underway; plan-readiness audits complete through Tier 7.**
+**Phase: Tier 2-4 code execution underway; plan-readiness audits complete through Tier 7 — except Plan-014's reopened relay delta (the 2026-07-08 scope growth re-opened its Preconditions checkbox: Tasks 7–10 await the readiness-audit delta; Tasks 1–6 stay covered).**
 
 Current documentation corpus:
 

@@ -503,14 +503,15 @@ CREATE INDEX idx_pr_preparations_branch ON pr_preparations(branch_context_id);
 -- Tier-7 audit (NS-19): + subject, size_bytes, annotations realize the OCI manifest envelope (D-014-1, D-014-2);
 --   + replication_status realizes the Spec-014:66 manifest-first replication surface (A-014-3) — nullable;
 --   the multi-state CHECK the audit deferred (anti-fabrication) arrived 2026-07-08: the cross-node relay
---   amendment spec-names the full value set (Spec-014 §Cross-Node Artifact Relay (V1)); see note below.
+--   amendment spec-names the full value set (Spec-014 §Cross-Node Artifact Relay (V1)); see note below;
+--   + relay_cek_ciphertext arrived 2026-07-09 (publisher-retained CEK, Spec-014 Publish step 1).
 CREATE TABLE artifact_manifests (
   id                 TEXT PRIMARY KEY,
   session_id         TEXT NOT NULL,
   run_id             TEXT,
-  artifact_type      TEXT NOT NULL              -- Spec-014:79 discriminator (D-014-4)
+  artifact_type      TEXT NOT NULL              -- Spec-014 §Interfaces And Contracts discriminator (D-014-4)
                      CHECK(artifact_type IN ('file', 'diff', 'summary', 'log', 'design', 'workflow_output')),
-  subject            TEXT REFERENCES artifact_manifests(id),  -- OCI `subject`: NULL for originals; a derivative (redacted/summarized shareable form) points to its source manifest, never an in-place UPDATE of the original (I-014-2, Spec-014 line 147, A-014-4)
+  subject            TEXT REFERENCES artifact_manifests(id),  -- OCI `subject`: NULL for originals; a derivative (redacted/summarized shareable form) points to its source manifest, never an in-place UPDATE of the original (I-014-2, Spec-014 §State And Data Implications, A-014-4)
   visibility         TEXT NOT NULL DEFAULT 'local-only'
                      CHECK(visibility IN ('local-only', 'shared')),
   state              TEXT NOT NULL DEFAULT 'pending'
@@ -520,6 +521,7 @@ CREATE TABLE artifact_manifests (
   annotations        TEXT NOT NULL DEFAULT '{}', -- OCI `annotations`: JSON-encoded string→string map (first-class OCI manifest property, not freeform `metadata`) — D-014-1, D-014-2
   replication_status TEXT                        -- A-014-3 surface; value set spec-named by the 2026-07-08 relay amendment (mirrors ArtifactManifest.replicationStatus?: pending_replication while payload transfer is pending; pinned once every chunk is relay-acknowledged — the offline-availability guarantee attaches only then; over_cap / quota_exceeded = honest publisher-local degradation; expired = TTL/eviction). NULL = local-only artifact with no replication surface.
                      CHECK(replication_status IN ('pending_replication', 'pinned', 'over_cap', 'quota_exceeded', 'expired')),
+  relay_cek_ciphertext BLOB,                  -- publisher-retained CEK for the relay pin, wrapped by the Spec-022 daemon master key; NULL unless relay-pinned. Re-publish re-wraps this SAME CEK for new recipients (the pinned ciphertext is under it; the relay holds only recipient-wrapped copies) — without it the publisher could not extend late-join access except by re-encrypting + re-uploading under a fresh key. Deliberately not a per-participant erasure target: dies with the manifest row or the daemon master key (Spec-022 §PII Data Map artifact-payload posture). Spec-014 Publish step 1.
   metadata           TEXT NOT NULL DEFAULT '{}', -- JSON: freeform daemon-side provenance/media-type/etc. — distinct from the OCI `annotations` map (own column above)
   created_at         TEXT NOT NULL,
   CHECK(subject IS NULL OR subject <> id)        -- I-014-2: a derivative points to a *distinct* source manifest, never itself (no self-referential subject; same guard pattern as run_links parent<>child)
