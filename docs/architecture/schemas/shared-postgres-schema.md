@@ -300,7 +300,7 @@ Coordination state for the [Spec-014 §Cross-Node Artifact Relay (V1)](../../spe
 ```sql
 -- Owner: Plan-014
 -- Blob lifecycle: state 'pending_replication' at upload-init → 'pinned' when every chunk is
--- relay-acknowledged (the offline-availability guarantee attaches ONLY to 'pinned');
+-- relay-acknowledged AND the finalize has re-hashed the assembled ciphertext to equal ciphertext_digest — the CAS key is verified, never trusted; a re-pin re-verifies the stored copy, so re-publish repairs at-rest corruption (the offline-availability guarantee attaches ONLY to 'pinned');
 -- 'expired' records TTL/eviction. Value set = the storage-lifecycle SUBSET of the Spec-014 replicationStatus wire enum:
 -- the degradation states ('over_cap' / 'quota_exceeded') mean NO relay upload happened (Spec-014 failure table), so
 -- they never create a blob row — they live only on the artifact manifest (SQLite replication_status + the wire field).
