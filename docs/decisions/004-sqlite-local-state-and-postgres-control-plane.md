@@ -148,8 +148,9 @@ JSON files are too weak for replay-heavy, event-oriented runtime truth. A single
 
 ## Decision Log
 
-| Date       | Event        | Notes                                                           |
-| ---------- | ------------ | --------------------------------------------------------------- |
-| 2026-04-14 | Proposed     | Initial draft                                                   |
+| Date | Event | Notes |
+| --- | --- | --- |
+| 2026-04-14 | Proposed | Initial draft |
 | 2026-04-14 | Re-baselined | Reviewer assignment and acceptance validation remain incomplete |
-| 2026-04-15 | Accepted     | ADR accepted                                                    |
+| 2026-04-15 | Accepted | ADR accepted |
+| 2026-07-08 | Reaffirmed | Cross-node artifact pull-forward ([ADR-015 amendment 2026-07-08](./015-v1-feature-scope-definition.md#amendment-2026-07-08-v11-deferred-features-3--2-cross-node-shared-artifacts-pulled-into-v1)) conforms to this split: shared-artifact ciphertext lives in the relay object store ([Spec-014 §Cross-Node Artifact Relay](../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1)), while Postgres gains only coordination rows + per-participant wrapped CEKs (`artifact_relay_blobs`, `artifact_relay_recipients`) — no payload bytes cross into either database, and the SQLite-local / Postgres-shared boundary holds unchanged |

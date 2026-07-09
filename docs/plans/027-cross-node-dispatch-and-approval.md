@@ -22,7 +22,7 @@ This plan covers the caller-side dispatch client, target-side dispatch intake an
 
 ## Non-Goals
 
-- Cross-node shared artifact replication beyond the result payload of a single dispatch; that remains V1.1 scope per ADR-015.
+- Cross-node shared artifact replication beyond the result payload of a single dispatch; that is V1 scope since the [ADR-015 amendment 2026-07-08](../decisions/015-v1-feature-scope-definition.md#amendment-2026-07-08-v11-deferred-features-3--2-cross-node-shared-artifacts-pulled-into-v1) but owned by Plan-014's relay legs ([Spec-014 §Cross-Node Artifact Relay](../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1)), not this plan.
 - MLS group-encrypted relay upgrade; V1 uses pairwise X25519 + XChaCha20-Poly1305 via Plan-008 / ADR-010.
 - Long-lived delegated approval roles. V1 approval is target-node-owner scoped.
 - Replacing own-node scheduling. Own-node execution stays on the Plan-004 / Plan-005 path.

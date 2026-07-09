@@ -60,7 +60,7 @@ The control plane uses a dual-transport architecture per [ADR-014](../decisions/
 - Membership management (add, remove, role changes)
 - Invite lifecycle (create, revoke, accept)
 - Approval operations (request, resolve, escalate)
-- Artifact metadata (publish, query, reference)
+- Artifact metadata (publish, query, reference) — artifact ciphertext chunk upload/fetch (resumable chunk PUTs + authenticated per-chunk GETs) rides the [Spec-014 §Cross-Node Artifact Relay (V1)](./014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1) blob-store surface, owned by Spec-014 and not restated here
 - Relay negotiation (`negotiateRelay` — returns the relay endpoint + short-lived `connectionToken`; the subsequent WSS binary frame exchange is separate, per §Relay Negotiation)
 - Health checks
 

@@ -21,7 +21,7 @@ Define the Node.js self-hostable relay that implements the v2 relay protocol as 
 In scope:
 
 - Node.js runtime, HTTP server, and WebSocket transport host for the v2 relay protocol.
-- Postgres as the single persistence dependency for shared state (membership, invites, presence, relay sequencing).
+- Postgres as the single persistence dependency for shared **database** state (membership, invites, presence, relay sequencing). (Forward, Plan-014-gated: the cross-node artifact relay adds an object-storage surface — filesystem-backed volume or S3-compatible service — to this deployment's composition when Plan-014's relay legs land; see [Plan-025 §Data And Storage Changes](../plans/025-self-hostable-node-relay.md#data-and-storage-changes) CP-014-3 and [Spec-014 §Cross-Node Artifact Relay (V1)](./014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1).)
 - Rate-limiter backend: `rate-limiter-flexible` on Postgres, behind the deployment-aware abstraction from [Spec-021](./021-rate-limiting-policy.md).
 - PASETO v4.public verification of access tokens at the relay boundary.
 - `docker-compose.yml`-based single-command deployment for operators (the file itself ships in [BL-080](../archive/backlog-archive.md) Plan-025).
@@ -112,15 +112,16 @@ Out of scope (see Non-Goals for full list):
   - `OTEL_EXPORTER_OTLP_ENDPOINT` — optional OTLP endpoint for opt-in distributed tracing.
   - `LOG_LEVEL` — `info` by default; `debug` available but must not leak token material.
   - `SHUTDOWN_DRAIN_TIMEOUT_MS` — default `30000`.
+  - (Forward, Plan-014-gated) `node_relay_storage_max`, the retention-tier TTL presets, and the artifact quota knobs join this surface when the cross-node artifact relay legs land ([Spec-014 §Size, quota, retention](./014-artifacts-files-and-attachments.md#size-quota-retention-normative-defaults-operator-tunable); CP-014-3).
 - **Reference `docker-compose.yml`** — ships in [BL-080](../archive/backlog-archive.md) Plan-025. Must use Compose Specification (no top-level `version:` field — [Compose Spec 2025](https://docs.docker.com/reference/compose-file/legacy-versions/) deprecated it) and must use `depends_on` with `condition: service_healthy` and `restart: true` so the relay waits for Postgres and restarts on its recovery.
 
 ## State And Data Implications
 
-- All persistent **database** state lives in Postgres. The relay container's only durable on-disk state is the relay's `./data` named volume — the first-run admin token at `./data/admin-token` (the bearer secret, [Spec-027](./027-self-host-secure-defaults.md#required-behavior) Row 3; `0600`) and, under `DEPLOY_MODE=lan`, the `./data/trust/` internal-CA fingerprint `fingerprint.txt` (the public pin, Row 1; `0600`) alongside the `first-run.complete` sentinel — all of which MUST survive container recreation ([Plan-025 §Data And Storage Changes](../plans/025-self-hostable-node-relay.md)); the secret is held at the `./data` root, separate from the `./data/trust/` publishable trust material, and beyond that volume and ephemeral logs the container holds no durable disk state.
+- All persistent **database** state lives in Postgres. The relay container's only durable on-disk state is the relay's `./data` named volume — the first-run admin token at `./data/admin-token` (the bearer secret, [Spec-027](./027-self-host-secure-defaults.md#required-behavior) Row 3; `0600`) and, under `DEPLOY_MODE=lan`, the `./data/trust/` internal-CA fingerprint `fingerprint.txt` (the public pin, Row 1; `0600`) alongside the `first-run.complete` sentinel — all of which MUST survive container recreation ([Plan-025 §Data And Storage Changes](../plans/025-self-hostable-node-relay.md)); the secret is held at the `./data` root, separate from the `./data/trust/` publishable trust material, and beyond that volume and ephemeral logs the container holds no durable disk state. (Forward, Plan-014-gated: the artifact-relay composition adds a blob-store volume or S3-compatible service for pinned E2EE artifact ciphertext — object storage outside both the database boundary and the relay container's own disk — per [Spec-014 §Cross-Node Artifact Relay (V1)](./014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1) and CP-014-3.)
 - Postgres schema is shared with the hosted backend; migrations are authored once and apply to both deployments. [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md) names Postgres as the shared control-plane persistence.
 - Rate-limiter state uses its own tables (namespaced `ratelimit_*`) managed by `rate-limiter-flexible`. These tables do not participate in the main schema migration sequence.
 - Audit log, session events, and participant state persist in the shared schema (see Spec-006 for event taxonomy).
-- The relay is stateless at the process level beyond in-flight WebSocket connection bookkeeping held in memory — a restart drops connections; clients reconnect per Spec-008.
+- The relay is stateless at the process level beyond in-flight WebSocket connection bookkeeping held in memory — a restart drops connections; clients reconnect per Spec-008. (The artifact blob-store surface, once composed per CP-014-3, keeps its state in the object store, not in the relay process — restarts still lose nothing but connections.)
 
 ## Example Flows
 

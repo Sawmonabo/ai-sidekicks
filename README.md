@@ -169,8 +169,8 @@ The CLI (`sidekicks`) is the first client delivery track — it proves the typed
 | Language | TypeScript (daemon, CLI, desktop, contracts) |
 | Desktop Shell | Electron |
 | Desktop UI | React + Vite |
-| Local Database | SQLite (WAL mode, 48 tables) |
-| Shared Database | Postgres (19 tables) |
+| Local Database | SQLite (WAL mode, 50 tables) |
+| Shared Database | Postgres (21 tables) |
 | Auth | PASETO v4 (access + refresh), WebAuthn, DPoP |
 | Relay Encryption | X25519 + XChaCha20-Poly1305 (V1), MLS RFC 9420 (V2) |
 | State Machines | XState v5 |
@@ -202,7 +202,7 @@ V1 ships 23 core features across CLI and Desktop GUI per [ADR-015: V1 Feature Sc
 | 11 | Local daemon + CLI | First client over the typed SDK |
 | 12 | Presence | Online / idle / offline awareness |
 | 13 | Event audit log | Event-sourced persistence backbone |
-| 14 | Local artifacts | Diffs, files, and attachments |
+| 14 | Artifacts (local + cross-node) | Diffs, files, and attachments; shared artifacts stay fetchable while the publishing node is offline via an eager relay pin of E2EE ciphertext (ADR-015 amendment 2026-07-08) |
 | 15 | Desktop GUI | Electron shell + React/Vite renderer over the same typed SDK |
 | 16 | Multi-agent channels | Cross-agent coordination primitives per [Spec-016](docs/specs/016-multi-agent-channels-and-orchestration.md) |
 | 17 | Workflow authoring and execution | Full workflow engine per [Spec-017](docs/specs/017-workflow-authoring-and-execution.md) |
@@ -213,13 +213,13 @@ V1 ships 23 core features across CLI and Desktop GUI per [ADR-015: V1 Feature Sc
 | 22 | Execution postures and sandbox profiles | Per-run sandbox posture as an authorization input, provider-uniform presets — governing amendments in-tree (B20 merged via #175; B3 merged 2026-07-05) — residual gate: `review → approved` re-promotion (W1.5) |
 | 23 | Realtime voice channels | Reserved and capability-gated on upstream Codex realtime-flag stabilization — governing amendments in-tree (B6 landed 2026-07-06; B1 merged via #173) — residual gate: the amended specs' `review → approved` re-promotion (W1.5) |
 
-**V1.1 additions:** MLS relay E2EE, email invite delivery, cross-node shared artifacts, plus the criterion-gated sub-feature commitments named in ADR-015 (workflow BIND channel reuse; `human`-phase default timeout; automated GDPR erasure endpoint).
+**V1.1 additions:** MLS relay E2EE and email invite delivery (cross-node shared artifacts moved into V1 per the ADR-015 amendment 2026-07-08), plus the criterion-gated sub-feature commitments named in ADR-015 (workflow BIND channel reuse; `human`-phase default timeout; automated GDPR erasure endpoint; direct-first artifact fetch).
 
 ---
 
 ## Build Order
 
-Implementation follows the tiered dependency graph defined in [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md). V1 spans 27 implementation plans (a pending 28th — Plan-028 for feature #18's MCP governance — lands with the campaign's B18 bundle, and MCP-governance code is gated on it); Plan-001 Shared Session Core is `completed`, five plans are in `review` (Plan-004, Plan-008, Plan-017 Workflow Authoring, Plan-018, Plan-025 Self-Hostable Node Relay), and the rest are `approved`.
+Implementation follows the tiered dependency graph defined in [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md). V1 spans 27 implementation plans (a pending 28th — Plan-028 for feature #18's MCP governance — lands with the campaign's B18 bundle, and MCP-governance code is gated on it); Plan-001 Shared Session Core is `completed`, six plans are in `review` (Plan-004, Plan-008, Plan-014 Artifacts — re-opened 2026-07-08 for the cross-node relay scope growth, Plan-017 Workflow Authoring, Plan-018, Plan-025 Self-Hostable Node Relay), and the rest are `approved`.
 
 ```
 Tier 1  ► Plan-001  Shared Session Core
@@ -258,12 +258,12 @@ Each tier's prerequisites are the prior tier's completion. See [`docs/architectu
 
 ## Project Status
 
-**Phase: Tier 2-4 code execution underway; plan-readiness audits complete through Tier 7.**
+**Phase: Tier 2-4 code execution underway; plan-readiness audits complete through Tier 7 — except Plan-014's reopened relay delta (the 2026-07-08 scope growth re-opened its Preconditions checkbox: Tasks 7–10 await the readiness-audit delta; Tasks 1–6 stay covered).**
 
 Current documentation corpus:
 
-- **27 V1 implementation plans** (+ pending Plan-028 for feature #18, campaign B18) with step-by-step build instructions; 21 are `approved`, Plan-001 is `completed`, and 5 are in `review` (Plan-004, Plan-008, Plan-017, Plan-018, Plan-025)
-- **27 specifications** covering every original feature and cross-cutting concern (22 `approved`; 5 — Spec-005/006/012/015/016 — in `review` carrying campaign amendments until the W1.5 batch re-promotion restores `approved`) — the six campaign features are doc-gated: feature #18's Spec-028 is pending the B18 bundle, and features #19–#23's governing spec amendments land via the campaign's B1/B2/B3/B6/B20 bundles (B1 merged via #173, B3 merged 2026-07-05, B20 merged via #175, B6 landed 2026-07-06 — the amended specs pending the W1.5 batch `review → approved` re-promotion; feature #19's B2 and feature #18's B18 queued), so implementation of #18–#23 waits on the named bundles, not the existing corpus
+- **27 V1 implementation plans** (+ pending Plan-028 for feature #18, campaign B18) with step-by-step build instructions; 20 are `approved`, Plan-001 is `completed`, and 6 are in `review` (Plan-004, Plan-008, Plan-014, Plan-017, Plan-018, Plan-025)
+- **27 specifications** covering every original feature and cross-cutting concern (21 `approved`; 6 — Spec-005/006/012/014/015/016 — in `review`: Spec-005/006/012/015/016 carry campaign amendments until the W1.5 batch re-promotion restores `approved`, and Spec-014 re-opened 2026-07-08 for the cross-node artifact relay design) — the six campaign features are doc-gated: feature #18's Spec-028 is pending the B18 bundle, and features #19–#23's governing spec amendments land via the campaign's B1/B2/B3/B6/B20 bundles (B1 merged via #173, B3 merged 2026-07-05, B20 merged via #175, B6 landed 2026-07-06 — the amended specs pending the W1.5 batch `review → approved` re-promotion; feature #19's B2 and feature #18's B18 queued), so implementation of #18–#23 waits on the named bundles, not the existing corpus
 - **12 domain models** (run state machine, intervention model, participant model, workflow model, etc.)
 - **16 architecture documents** (schemas, contracts, security, deployment, dependencies)
 - **11 operations runbooks** (CLI commands, SLOs, on-call routing, self-host secure defaults)

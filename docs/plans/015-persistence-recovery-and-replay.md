@@ -90,8 +90,8 @@ Target paths below assume the canonical implementation topology defined in [Cont
   - **Spec coverage:** Required Behavior — restart "projection rebuild from canonical events" (`docs/specs/015-persistence-recovery-and-replay.md:48-49`); "Replay must be possible without client memory or ad hoc transcript reconstruction" (`docs/specs/015-persistence-recovery-and-replay.md:52`); Interfaces — `ReplayReadAfterCursor` / `ProjectionRebuild` idempotent (`docs/specs/015-persistence-recovery-and-replay.md:71-72`); Acceptance Criterion (`docs/specs/015-persistence-recovery-and-replay.md:348`).
   - **Verifies invariant:** I-015-2
   - **Consumes (by SHAPE):**
-    - `ReplayReadAfterCursor` { sessionId, afterSequence, limit } → { events: EventEnvelope[], nextSequence, hasMore } ← `docs/architecture/contracts/api-payload-contracts.md:2278-2286` (replay uses a sequence-position cursor `afterSequence: number`, intentionally distinct from `EventReadAfterCursor`'s opaque `EventCursor` brand — ratified D-015-1).
-    - `ProjectionRebuild` { sessionId, force } → { sessionId, rebuiltProjections, asOfSequence } ← `docs/architecture/contracts/api-payload-contracts.md:2290-2297`.
+    - `ReplayReadAfterCursor` { sessionId, afterSequence, limit } → { events: EventEnvelope[], nextSequence, hasMore } ← `docs/architecture/contracts/api-payload-contracts.md:2285-2293` (replay uses a sequence-position cursor `afterSequence: number`, intentionally distinct from `EventReadAfterCursor`'s opaque `EventCursor` brand — ratified D-015-1).
+    - `ProjectionRebuild` { sessionId, force } → { sessionId, rebuiltProjections, asOfSequence } ← `docs/architecture/contracts/api-payload-contracts.md:2297-2304`.
     - `EventEnvelope` (incl. `version: EventEnvelopeVersion` "MAJOR.MINOR" at line 1009) ← `docs/architecture/contracts/api-payload-contracts.md:1044-1056`; ADR-018 versioning decisions (semver #1 line 35, floor #3 line 39, upcaster #6 line 45) `docs/decisions/018-cross-version-compatibility.md:35-51`.
     - `session_events` canonical log + `replay_cursors` state machine ← [`session_events`](../architecture/schemas/local-sqlite-schema.md#session-events-plan-001-extended-by-plans-006-015) + [`replay_cursors`](../architecture/schemas/local-sqlite-schema.md#gdpr-and-recovery-tables-spec-022-plan-015).
     - Event-log replay obligation ← Plan-006 (event log) `docs/architecture/cross-plan-dependencies.md:157`.
@@ -104,7 +104,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
   - **Ownership note:** `runtime-binding-store.ts` is Owner=Plan-005, Extender=Plan-015 ("extends the store with recovery-aware persistence methods") per `docs/architecture/cross-plan-dependencies.md:87`. Plan-015 must EXTEND, not re-CREATE — Plan-005 Phase 2 is the upstream producer.
   - **Consumes (by SHAPE):**
     - `runtime-binding-store.ts` (Plan-005-owned module) ← `docs/architecture/cross-plan-dependencies.md:87`.
-    - `RuntimeBindingRead` { runId } → { runId, driverName, contractVersion, resumeHandle?, runtimeMetadata } ← `docs/architecture/contracts/api-payload-contracts.md:2301-2309`.
+    - `RuntimeBindingRead` { runId } → { runId, driverName, contractVersion, resumeHandle?, runtimeMetadata } ← `docs/architecture/contracts/api-payload-contracts.md:2308-2316`.
     - `DriverResumeResult` discriminated union incl. `recoveryCondition: RecoveryCondition` ← `docs/architecture/contracts/api-payload-contracts.md:795-802`; Spec-005 §Fallback Behavior `docs/specs/015-persistence-recovery-and-replay.md:124`.
     - `RunFailureCategory` ∈ {provider failure, transport failure, local persistence failure, projection failure} ← `docs/architecture/contracts/api-payload-contracts.md:142-146`.
     - `tool.replayed` / `tool.skipped_during_recovery` event types (category `tool_activity`), registered in Spec-006, taxonomy tracked by BL-064 ← `docs/specs/015-persistence-recovery-and-replay.md:128-135`.
@@ -117,7 +117,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
   - **Verifies invariant:** I-015-3
   - **Ownership note:** renderer slot `apps/desktop/src/renderer/src/recovery-status/` is Plan-015's extender slot under Plan-023 per `docs/architecture/cross-plan-dependencies.md:101`.
   - **Consumes (by SHAPE):**
-    - `RecoveryStatusRead` → { overall, sessions: [{ state, lastReplayedSequence, failureCategory, recoveryCondition }] } ← `docs/architecture/contracts/api-payload-contracts.md:2258-2271`.
+    - `RecoveryStatusRead` → { overall, sessions: [{ state, lastReplayedSequence, failureCategory, recoveryCondition }] } ← `docs/architecture/contracts/api-payload-contracts.md:2270-2283`.
     - `RunFailureCategory` enum ← `docs/architecture/contracts/api-payload-contracts.md:142-146`.
     - `RecoveryCondition` (`"recovery-needed" | "reauth-required"`) ← `docs/architecture/contracts/api-payload-contracts.md:813`.
     - renderer host slot ← Plan-023 `docs/architecture/cross-plan-dependencies.md:101`.
@@ -150,7 +150,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 ## Ratified Design Decisions (Tier-7 audit)
 
-- **D-015-1 — `ReplayReadAfterCursor` retains a sequence-position cursor (`afterSequence: number`), not the `EventCursor` brand.** The replay read advances over the canonical `session_events.sequence` integer (the `replay_cursors.last_sequence` state machine), so a numeric sequence position is the natural cursor and makes idempotent rebuild (I-015-2) trivially verifiable. The sibling `EventReadAfterCursor` uses the opaque `EventCursor` brand because client-facing event reads must tolerate cursor-format evolution (Plan-006). The two read models intentionally differ; reconciling them to a single brand is a non-blocking refinement **not** adopted in V1 — `api-payload-contracts.md:2278-2281` keeps `afterSequence: number`. This resolves the cursor-model reconcile the audit flagged as a non-blocking owner decision.
+- **D-015-1 — `ReplayReadAfterCursor` retains a sequence-position cursor (`afterSequence: number`), not the `EventCursor` brand.** The replay read advances over the canonical `session_events.sequence` integer (the `replay_cursors.last_sequence` state machine), so a numeric sequence position is the natural cursor and makes idempotent rebuild (I-015-2) trivially verifiable. The sibling `EventReadAfterCursor` uses the opaque `EventCursor` brand because client-facing event reads must tolerate cursor-format evolution (Plan-006). The two read models intentionally differ; reconciling them to a single brand is a non-blocking refinement **not** adopted in V1 — `api-payload-contracts.md:2285-2288` keeps `afterSequence: number`. This resolves the cursor-model reconcile the audit flagged as a non-blocking owner decision.
 
 ## Progress Log
 

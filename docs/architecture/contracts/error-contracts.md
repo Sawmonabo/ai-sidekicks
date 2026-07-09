@@ -291,11 +291,16 @@ Ephemeral-clone lifecycle errors (Plan-010 D-010-4, Tier-6 audit). Same sanitiza
 
 ### Artifact
 
-| Code                     | Description                                             | HTTP Status |
-| ------------------------ | ------------------------------------------------------- | ----------- |
-| `artifact.not_found`     | Artifact does not exist                                 | 404         |
-| `artifact.too_large`     | Artifact exceeds the maximum allowed size               | 413         |
-| `artifact.hash_mismatch` | Artifact content hash does not match the expected value | 409         |
+| Code | Description | HTTP Status |
+| --- | --- | --- |
+| `artifact.not_found` | Artifact does not exist | 404 |
+| `artifact.too_large` | Artifact exceeds the maximum allowed size | 413 |
+| `artifact.hash_mismatch` | Artifact content hash does not match the expected value | 409 |
+| `artifact.relay_expired` | Relay blob TTL-expired or evicted; payload no longer fetchable from the relay (reserved — registers with Plan-014 Tasks 7–10 per [Spec-014 §Failure modes](../../specs/014-artifacts-files-and-attachments.md#failure-modes-normative-responses)) | 410 |
+| `artifact.fetch_unauthorized` | Artifact fetch token refused: non-member, expired, or DPoP-unbound (reserved — registers with Plan-014 Tasks 7–10 per [Spec-014 §Failure modes](../../specs/014-artifacts-files-and-attachments.md#failure-modes-normative-responses)) | 403 |
+| `artifact.no_access_key` | Authenticated session member has no `artifact_relay_recipients` row for the requested digest — a `(participant, node)` that joined after publish (membership-epoch scoping, Spec-014 Publish step 3); deliberately distinct from `artifact.fetch_unauthorized` so clients can surface the remedy (publisher re-publish while online) instead of treating it as an auth failure (reserved — registers with Plan-014 Tasks 7–10 per [Spec-014 §Cross-Node Artifact Relay (V1)](../../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1)) | 404 |
+
+Chunk-integrity mismatch on relay fetch reuses `artifact.hash_mismatch` (409). The three reserved rows are named by Spec-014's 2026-07-08 cross-node relay amendment (the no-access-key row by its 2026-07-09 extension) and become live registrations with Plan-014's relay legs after that plan's readiness-audit delta.
 
 ### Workflow
 

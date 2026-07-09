@@ -64,7 +64,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 ## Cross-Plan Obligations
 
 - **CP-011-1 (consumes)** — Imports `BranchContextId` and reads/extends the `branch_contexts` row owned by Plan-010 (cross-plan-dependencies §1; Plan-010 CP-010-6). Plan-011 extends via ALTER + service access, never by editing Plan-010's git/ module.
-- **CP-011-2 (consumes)** — Uses `artifact_manifests` + the OCI envelope and the `artifacts/` module owned by Plan-014 (cross-plan-dependencies §2 line 88; Spec-014 line 83). DiffArtifact rides as artifactType `"diff"` under that envelope.
+- **CP-011-2 (consumes)** — Uses `artifact_manifests` + the OCI envelope and the `artifacts/` module owned by Plan-014 (cross-plan-dependencies §2 line 88; Spec-014 line 146). DiffArtifact rides as artifactType `"diff"` under that envelope.
 
 ## Implementation Steps
 
@@ -85,7 +85,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
    - **Spec coverage:** Spec-011 line 42 (diff provenance to producing run); line 43 (`artifactType: "diff"` in the Spec-014 envelope); line 44 (labeled workspace-level fallback); line 45 (Agent Trace + git trailers); line 52 / line 58 (the two attribution modes); AC line 174.
    - **Verifies invariant:** I-011-1 — workspace-fallback never labeled run-attributed.
    - **Consumes:**
-     - `artifact_manifests` + OCI envelope, `artifactType: "diff"` ← Plan-014 provider ([`artifact_manifests`](../architecture/schemas/local-sqlite-schema.md#artifact-tables-plan-014); Spec-014 lines 72-73, return-cite line 83) — SHAPE verified: `"diff"` admitted by the artifactType discriminator.
+     - `artifact_manifests` + OCI envelope, `artifactType: "diff"` ← Plan-014 provider ([`artifact_manifests`](../architecture/schemas/local-sqlite-schema.md#artifact-tables-plan-014); Spec-014 lines 78-79, return-cite line 146) — SHAPE verified: `"diff"` admitted by the artifactType discriminator.
      - `diff_artifacts` table (CREATE, Plan-011-owned) — fully specified ([`diff_artifacts`](../architecture/schemas/local-sqlite-schema.md#workspace-and-git-tables-plan-009-plan-010-plan-011): FK to artifact_manifests, `run_id` (nullable — present for `run_attributed`, null for `workspace_fallback`) + `workspace_id` (nullable mirror, `REFERENCES workspaces(id)` — present for `workspace_fallback`, null for `run_attributed`; the durable workspace-level provenance Spec-011:44 mandates, D-011-4), both guarded by the symmetric biconditional `CHECK((attribution_mode = 'run_attributed' AND run_id IS NOT NULL AND workspace_id IS NULL) OR (attribution_mode = 'workspace_fallback' AND run_id IS NULL AND workspace_id IS NOT NULL))` per Spec-011:44/58, attribution_mode, base_ref, head_ref).
      - `attributionMode` enum ← **RESOLVED (D-011-2)**: canonicalized to the Spec vocabulary `run_attributed` / `workspace_fallback` in both contract (api-payload-contracts.md `attributionMode: "run_attributed" | "workspace_fallback"`) and schema (local-sqlite-schema.md `CHECK(attribution_mode IN ('run_attributed', 'workspace_fallback'))`), matching the AC-174 Spec vocabulary. The prior `agent_trace`/`git_diff` pair is dropped.
 

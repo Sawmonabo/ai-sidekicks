@@ -30,6 +30,7 @@ The Collaboration Control Plane exists to share session coordination state acros
 | `Invite And Membership Service` | Creates invites, accepts joins, changes roles, and revokes membership. |
 | `Presence Service` | Tracks participant and node presence heartbeats and disconnect grace windows. |
 | `Relay Broker` | Helps clients and nodes establish shared-session connectivity without taking over execution. |
+| `Artifact Relay Blob Store` | Holds eagerly pinned, digest-addressed E2EE artifact ciphertext chunks and per-`(participant, node)` wrapped CEKs (durable artifact keys) with refcount/TTL GC and quota accounting; never holds decryption-capable key material ([Spec-014 §Cross-Node Artifact Relay (V1)](../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1); lands with Plan-014 Tasks 7–10). |
 | `Notification Service` | Delivers attention, invite, and session-level notifications. |
 | `Shared Metadata Store` | Persists collaboration state used across participants and nodes. |
 
@@ -46,7 +47,7 @@ The Collaboration Control Plane exists to share session coordination state acros
 3. The invite and membership service updates session directory and shared metadata state.
 4. The presence service receives heartbeats from clients and runtime nodes.
 5. Relay setup and notification delivery occur as side services around the same session metadata.
-6. Local Runtime Daemons continue to execute work and push only the coordination data needed by the control plane.
+6. Local Runtime Daemons continue to execute work and push the coordination data the control plane needs — plus, at `artifact.publish` of a shared artifact, participant-encrypted ciphertext for relay pinning ([Spec-014 §Cross-Node Artifact Relay (V1)](../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1)); the control plane never receives plaintext payloads or decryption-capable keys.
 
 ## Trust Boundaries
 

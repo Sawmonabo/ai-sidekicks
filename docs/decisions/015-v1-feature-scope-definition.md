@@ -6,7 +6,7 @@
 | **Type** | `Type 1 (two-way door)` |
 | **Domain** | `Scope / Product` |
 | **Date** | `2026-04-17` |
-| **Amended** | `2026-04-22` (workflow V1.1 → V1 per BL-097); `2026-07-02` (V1 scope 17 → 23 per the capability-enhancement campaign — see §Amendment History); `2026-07-08` (V1.1 criterion-gated commitments 2 → 3: automated GDPR erasure endpoint per BL-139 — see §Amendment History) |
+| **Amended** | `2026-04-22` (workflow V1.1 → V1 per BL-097); `2026-07-02` (V1 scope 17 → 23 per the capability-enhancement campaign — see §Amendment History); `2026-07-08` (V1.1 criterion-gated commitments 2 → 3: automated GDPR erasure endpoint per BL-139 — see §Amendment History); `2026-07-08` (V1.1 deferred features 3 → 2: cross-node shared artifacts pulled into V1 as feature-14 scope growth; commitments 3 → 4 with C4 direct-first fetch — see §Amendment History) |
 | **Author(s)** | `Claude (AI-assisted)` |
 | **Reviewers** | `Accepted 2026-04-17`; amendments accepted `2026-04-22`, `2026-07-02`, `2026-07-08` |
 
@@ -31,7 +31,7 @@ The pre-implementation audit completed 2026-04-16 before any implementation plan
 
 ## Decision
 
-V1 consists of **23 features** (amended 2026-07-02 per the capability-enhancement campaign — was 17 from the 2026-04-22 BL-097 amendment and 16 at 2026-04-17 acceptance; see §Amendment History). V1.1 defers **3 features** and carries **3 criterion-gated sub-feature commitments** (see §V1.1 Criterion-Gated Commitments below). Everything else inferable from the product vision is out of scope for the V1 horizon and carries a V2 label for future re-evaluation.
+V1 consists of **23 features** (amended 2026-07-02 per the capability-enhancement campaign — was 17 from the 2026-04-22 BL-097 amendment and 16 at 2026-04-17 acceptance; see §Amendment History). V1.1 defers **2 features** (amended 2026-07-08: cross-node shared artifacts pulled into V1 as feature-14 scope growth) and carries **4 criterion-gated sub-feature commitments** (see §V1.1 Criterion-Gated Commitments below). Everything else inferable from the product vision is out of scope for the V1 horizon and carries a V2 label for future re-evaluation.
 
 ### V1 Features (23)
 
@@ -50,7 +50,7 @@ V1 consists of **23 features** (amended 2026-07-02 per the capability-enhancemen
 | 11 | Local daemon with CLI | [Spec-007](../specs/007-local-ipc-and-daemon-control.md) |
 | 12 | Presence (online/idle/offline) | [Spec-002](../specs/002-invite-membership-and-presence.md) |
 | 13 | Event audit log | [Spec-006](../specs/006-session-event-taxonomy-and-audit-log.md) |
-| 14 | Artifact publication (local) | [Spec-014](../specs/014-artifacts-files-and-attachments.md) |
+| 14 | Artifact publication (local + cross-node shared) | [Spec-014](../specs/014-artifacts-files-and-attachments.md); cross-node payload availability pulled forward from V1.1 (amendment 2026-07-08 — see §Amendment History): eager relay pin of participant-encrypted chunked ciphertext at publish + authenticated `(participant, node)`-scoped fetch against per-node wrapped CEKs, so a shared-visible artifact stays fetchable while the publishing node is offline; normative design in [Spec-014 §Cross-Node Artifact Relay (V1)](../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1); direct-first fetch is criterion-gated (C4 below) |
 | 15 | Desktop GUI | Spec-023 (from BL-041) |
 | 16 | Multi-Agent Channels | [Spec-016](../specs/016-multi-agent-channels-and-orchestration.md) |
 | 17 | Workflow authoring and execution (full engine) | [Spec-017](../specs/017-workflow-authoring-and-execution.md); V1 engine scope per BL-097 resolution (see §Amendment History) covers DAG executor, all four phase types (`single-agent`, `automated`, `multi-agent` OWN-only, `human`), all four gate types, parallel execution with `ParallelJoinPolicy`, resource pools, and 23 workflow event types — full contract pinned in Spec-017 + Plan-017 (31 amendments SA-1…SA-31 from BL-097 research: 27 land in Spec-017 body; SA-24/29/30/31 land in Plan-017 per implementation-detail separation; primary sources consolidated in §Research Conducted). |
@@ -61,13 +61,14 @@ V1 consists of **23 features** (amended 2026-07-02 per the capability-enhancemen
 | 22 | Execution postures and sandbox profiles | [Spec-012](../specs/012-approvals-permissions-and-trust-boundaries.md) (`executionPosture` authorization semantics — B20 amendment, merged via PR #175), [Spec-005](../specs/005-provider-driver-contract-and-capabilities.md) (posture shape — campaign B3, merged in-tree 2026-07-05); residual gate for both specs = `review → approved` promotion, the W1.5 gate / Task 28 |
 | 23 | Realtime voice channels (capability-gated) | [Spec-016](../specs/016-multi-agent-channels-and-orchestration.md) (V1-scope-decision reservation — landed 2026-07-06 via the campaign's B6 bundle, §Resolved Questions), [Spec-006](../specs/006-session-event-taxonomy-and-audit-log.md) (reserved `realtime_*` family — B1 amendment, merged in-tree via PR #173; residual gate = Spec-006's `review → approved` promotion — the W1.5 re-promotion gate, campaign Task 28; both in-tree — residual gate = the specs' `review → approved` promotion via that W1.5 gate); gated on upstream Codex realtime-flag stabilization (named external gate — no Claude-leg emulation claimed) |
 
-### V1.1 Features (3, deferred)
+### V1.1 Features (2, deferred)
 
 | # | Feature | Deferral Rationale |
 | --- | --- | --- |
 | 1 | MLS relay E2EE | Pending audit of an MLS implementation (OpenMLS, mls-rs, or a post-audit TypeScript implementation); V1 ships pairwise X25519 + XChaCha20-Poly1305 per [ADR-010](./010-paseto-webauthn-mls-auth.md). |
 | 2 | Email invite delivery | V1 uses shareable-link tokens; email delivery adds an external-service dependency with no category-positioning payoff. |
-| 3 | Cross-node shared artifacts | Local artifact publication ships in V1; shared-artifact relay is incremental scope on top of relay core. |
+
+(Cross-node shared artifacts — formerly row 3 — moved into V1 as feature-14 scope growth per the 2026-07-08 amendment; its only remaining deferred leg is the C4 direct-first fetch optimization below.)
 
 ### V1.1 Criterion-Gated Commitments
 
@@ -97,11 +98,19 @@ Until (a) is met, V1's required typed `timeout: "none" | Duration` opt-in (per S
 
 Promote the V1 `gdpr.*` stubs (schema + write path ship in V1; the three daemon JSON-RPC methods refuse with `-32603` + `data.type: "gdpr.endpoint_not_v1"` per Plan-022 D-022-3) to automated deletion/export/purge handlers in V1.1, contingent on **all three** criteria (per BL-139, transplanted from [Plan-022 §Non-Goals](../plans/022-data-retention-and-gdpr.md#non-goals); paired spec-side record: [Spec-022 §V1 Erasure Scope Boundary](../specs/022-data-retention-and-gdpr.md#v1-erasure-scope-boundary), which enumerates the promotion criteria via Plan-022 §Non-Goals):
 
-- (i) **Fan-out closure complete:** every CP-022-6 fan-out target's owner plan has shipped its table + Path-2 reciprocal — the automated shred spans the full `REFERENCES participants(id)` closure (nine rows over Plan-001/002/003/018/019 + forward-declared Plan-027/BL-070), several of which are unbuilt until later tiers, AND
+- (i) **Fan-out closure complete:** every CP-022-6 fan-out target's owner plan has shipped its table + Path-2 reciprocal — the automated shred spans the full `REFERENCES participants(id)` closure (eleven rows over Plan-001/002/003/014/018/019 + forward-declared Plan-027/BL-070; Plan-014's two `artifact_relay_*` rows joined 2026-07-08 with the cross-node relay amendment), several of which are unbuilt until later tiers, AND
 - (ii) **FK-safety migration landed:** the D-022-7 `ON DELETE SET NULL` forward ALTER relaxing the anonymize-class FKs has landed, AND
 - (iii) **Equivalence proof:** cross-store fan-out equivalence tests prove no closure row is missed.
 
 **Rationale for criterion-gated deferral (not inclusion at V1):** (a) **cross-tier completeness** — with later-tier owner tables unbuilt, a V1 automated endpoint would necessarily be partial and report success on an incomplete fan-out (the silent-failure class the C-12 Loud-errors invariant exists to block); (b) **protection-over-automation** — V1 erasure is satisfiable by hand (crypto-shred = `DELETE FROM participant_keys`; Postgres severance = the D-022-7 migration), so a data-subject request is honorable in V1 via the [GDPR Manual Erasure Runbook](../operations/gdpr-manual-erasure-runbook.md) without risking a half-built automated path. If (i)–(iii) are satisfied, the automated handlers ship in V1.1, replacing the stub refusals additively; until then the deferral stands as scoped in Plan-022 §Non-Goals.
+
+**C4 — Direct-first artifact fetch (committed V1.x):**
+
+Add the direct device-to-device fetch leg to the cross-node artifact relay (feature 14 as amended 2026-07-08): fetch the payload from the publishing daemon when it is reachable, with the eagerly pinned relay copy as the guaranteed fallback. Single promotion criterion:
+
+- (a) **Direct daemon transport shipped:** a daemon-to-daemon direct data channel (reachability signaling plus NAT traversal or LAN peer discovery) exists as a shipped, spec-governed transport primitive.
+
+**Rationale for criterion-gated deferral (not inclusion at V1):** the eager relay pin already delivers the user-facing guarantee — a shared-visible artifact is fetchable while its publisher is offline — so the direct leg buys only publisher-online latency and relay-bandwidth savings. V1 ships no direct daemon-to-daemon data path (cross-node traffic is relay-mediated: [Spec-024](../specs/024-cross-node-dispatch-and-approval.md) delivers dispatch via the relay's pairwise-encrypted payload channel, and [deployment-topology.md](../architecture/deployment-topology.md) defines remote access as `Relay-Assisted Remote Access`), and building NAT traversal solely for an optimization would couple feature 14 to an unshipped transport subsystem. The [Spec-014 §Cross-Node Artifact Relay (V1)](../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1) wire format ships V1-ready for the direct leg (`replicationStatus` pin states, digest addressing, per-chunk signed manifest), so C4 lands additively with no wire or schema break — the magic-wormhole/Syncthing precedent, where direct and relay transports coexist behind one addressing scheme.
 
 ### V2 (Out of Scope for the V1 Horizon)
 
@@ -174,6 +183,16 @@ The antithesis assumes V1 launch speed is the dominant cost. For this product, l
 ## References
 
 ### Research Conducted
+
+**2026-07-08 amendment (cross-node artifact relay) sources** — the seven-axis survey behind the 2026-07-08 §Amendment History entry; the full set (~25 primaries) lands in [Spec-014 §References](../specs/014-artifacts-files-and-attachments.md#references) per the dual-mapping precedent the 2026-04-22 amendment established:
+
+- [Wire Security Whitepaper](https://wire-docs.wire.com/download/Wire+Security+Whitepaper.pdf) + [AWS KMS data keys](https://docs.aws.amazon.com/kms/latest/developerguide/data-keys.html) — one-ciphertext-upload with per-recipient key fan-out; the envelope-encryption model the relay adopts
+- [Matrix MSC3916 — authentication for media](https://github.com/matrix-org/matrix-spec-proposals/blob/main/proposals/3916-authentication-for-media.md) + [Synapse media repository](https://matrix-org.github.io/synapse/latest/media_repository.html) — the capability-URL → authenticated-media retrofit, and the lazy remote-media-cache availability gap that rules out cache-on-miss pinning
+- ["Missing Salamanders"](https://lotte.chir.rs/2024/08/17/Missing-Salamanders-Matrix-Media-can-be-decrypted-to-multiple-valid-plaintexts-using-different-keys/), [Albertini et al. (USENIX Security 2022)](https://www.usenix.org/conference/usenixsecurity22/presentation/albertini), and [Len, Grubbs, Ristenpart (USENIX Security 2021)](https://www.usenix.org/conference/usenixsecurity21/presentation/len) — the key non-commitment attack class; grounds the signed `cekCommitment` requirement (AEAD alone is not key-committing)
+- [tus resumable-upload protocol 1.0](https://tus.io/protocols/resumable-upload/1-0-x) + [S3 multipart upload](https://docs.aws.amazon.com/AmazonS3/latest/userguide/mpuoverview.html) — chunked resumable transfer, received-set/offset discovery, incomplete-upload reaping
+- [RFC 9449 DPoP](https://datatracker.ietf.org/doc/html/rfc9449) + [W3C TAG capability-URLs finding](https://www.w3.org/2001/tag/doc/capability-urls/) + [Firefox Send shutdown notice (Mozilla Blog, 2020-09-17)](https://blog.mozilla.org/en/uncategorized/update-on-firefox-send-and-firefox-notes/) — sender-constrained authenticated fetch; the first-party abuse post-mortem ("ship malware and conduct spear phishing attacks") behind prohibiting capability URLs
+- [NIST SP 800-88 Rev. 2](https://csrc.nist.gov/pubs/sp/800/88/r2/final) + [CJEU _EDPS v SRB_ (4 Sept 2025)](https://curia.europa.eu/site/upload/docs/application/pdf/2025-09/cp250107en.pdf) — Cryptographic Erase and the recipient-relative personal-data reading framing the relay-ciphertext GDPR posture
+- [Bitwarden Send lifespan](https://bitwarden.com/help/send-lifespan/) + [IPFS garbage collection](https://blog.logrocket.com/guide-ipfs-garbage-collection/) + [Synapse issue #3339](https://github.com/matrix-org/synapse/issues/3339) — TTL tiers, watermark GC, and the build-your-own-quota gap
 
 **2026-07-02 amendment (campaign B8) sources:**
 
@@ -358,6 +377,31 @@ Remote provider transports and provider-native subagents were adopted in the sam
 - [docs/architecture/v1-feature-scope.md](../architecture/v1-feature-scope.md) — the §V1.1 census sentence re-derived for 3 commitments (count + per-commitment spec ties)
 - [README.md](../../README.md) — the §Features "V1.1 additions" enumeration re-derived to include the non-workflow C3 commitment
 
+### Amendment 2026-07-08: V1.1 deferred features 3 → 2 (cross-node shared artifacts pulled into V1)
+
+**What changed:**
+
+|  | Before (2026-07-08, after the BL-139 amendment) | After (2026-07-08, this amendment) |
+| --- | --- | --- |
+| V1 feature count | 23 | 23 (unchanged — cross-node sharing amends feature 14 per the 2026-07-02 feature-vs-amendment rule; no number minted) |
+| Feature 14 | Artifact publication (local); cross-node shared artifacts deferred to V1.1 | **Artifact publication (local + cross-node shared)** — payload availability with the publisher offline is a V1 guarantee |
+| V1.1 deferred features | 3 (MLS, email invite, cross-node artifacts) | **2** (MLS, email invite) |
+| V1.1 criterion-gated commitments | 3 (C1 BIND; C2 human-phase timeout; C3 GDPR erasure endpoint) | **4** (added C4: direct-first artifact fetch, gated on a shipped direct daemon transport) |
+
+**Why:** The 2026-07-08 V1→V1.1 deferral review found the cross-node row the weakest of the three deferrals: its own rationale ("incremental scope on top of relay core") concedes that the enabling infrastructure ships in V1, and a cross-machine collaboration product whose shared artifacts become unfetchable the moment the publishing laptop sleeps undercuts the §Thesis category positioning. The owner ruled the feature must ship in V1, production-hardened, and explicitly rejected publisher-online-only fetch as under-hardened. A seven-axis primary-source survey grounded the selected architecture: E2EE messenger attachment models (Signal / WhatsApp / Wire — all store ciphertext server-side until delivered and fan out only the key inside the E2EE event); Matrix media (authenticated media per MSC3916, and the lazy remote-media-cache availability gap that rules out cache-on-miss pinning); relay-assisted P2P tools (magic-wormhole / croc / Syncthing — synchronous pipes that prove the untrusted-ciphertext-relay trust model but cannot serve an absent peer); resumable-upload protocols (tus, S3 multipart — chunking, per-chunk integrity, incomplete-upload reaping); retention/quota/abuse envelopes (Firefox Send's anonymous capability-URL abuse post-mortem; Bitwarden Send / Synapse / IPFS quota-TTL-GC norms); GDPR treatment of relay-held ciphertext (NIST SP 800-88 Cryptographic Erase, Art 5(1)(e) storage limitation, CJEU _EDPS v SRB_ recipient-relative reading — defensible, not settled); and integrity/authorization (signed-manifest digest binding, RFC 9449 DPoP, W3C TAG capability-URL guidance). Selected: **eager relay pin at publish** (chunked, participant-encrypted, digest-addressed ciphertext — offline availability as a guarantee, not luck) + **authenticated `(participant, node)`-scoped DPoP-bound fetch** (no capability URLs; the token's node half selects the wrapped CEK and attributes the delivery ack) + **refcount/TTL GC with per-`(participant, node)` CEK wrapping and participant crypto-shred**. Rejected: publisher-online-only (fails the availability property); lazy cache-on-miss (fails it whenever no remote peer fetched before the publisher left); a V1 direct-first leg (requires an unshipped direct transport — carved out as C4). Normative design: [Spec-014 §Cross-Node Artifact Relay (V1)](../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1); request-rate rows: [Spec-021](../specs/021-rate-limiting-policy.md).
+
+**How decided:** Owner directive 2026-07-08 (pull forward into V1; hardened production design; publisher-online-only variant rejected), applied through the same four-criteria staff-level analysis as prior amendments (architectural correctness, modern 2025–2026 practice, regression surface, vulnerability surface) over the survey evidence. The relay holds ciphertext + per-`(participant, node)` wrapped keys only — it is trusted to hold bytes, never to read them (the existing relay trust model); integrity binds blob → signed publish event (not blob → itself), so a malicious relay cannot substitute content; the manifest's signed `cekCommitment` closes the non-committing-AEAD multi-plaintext class (a malicious publisher cannot target different plaintexts at different recipients); wrapped CEKs are relay-held per-recipient rows — never carried in the immutable event log — so participant erasure remains a true crypto-shred, and they wrap to **durable per-node artifact-encryption keys** (Spec-022 master-key custody; announced as Ed25519-identity-signed attestations), never to the ADR-010 session-ephemeral X25519 keys whose zeroization would orphan every relay-held CEK on restart (2026-07-09 Codex-round-2 hardening — with the per-node delivery refcount, the PITR-bounded/KEK-destroyable backup posture, and the relay-visible lifecycle envelope recorded in Spec-014 §Resolved Questions); the abuse surface is closed by authenticated-participant-only fetch plus quota/TTL envelopes.
+
+**Cross-references that consume this amendment:**
+
+- [Spec-014 §Cross-Node Artifact Relay (V1)](../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1) — the normative design: publish/fetch/delete flows, integrity + authorization models, size/quota/TTL parameters, failure-mode table, wire-format additivity
+- [Spec-021](../specs/021-rate-limiting-policy.md) — six artifact-relay registry rows (`artifact.upload.init`, `artifact.upload.chunk`, `artifact.upload.complete`, `artifact.fetch.authorize`, `artifact.fetch.chunk`, `artifact.fetch.complete`)
+- [Plan-014](../plans/014-artifacts-files-and-attachments.md) — implementation growth: relay-pin upload, authenticated fetch, GC/quota accounting, erasure fan-out integration
+- [docs/architecture/v1-feature-scope.md](../architecture/v1-feature-scope.md) — V1.1 census re-derived (deferred 3 → 2; commitments 3 → 4)
+- [README.md](../../README.md) — feature-14 row + V1.1 enumerations re-derived
+- [Spec-017 §Resolved Questions and V1 Scope Decisions](../specs/017-workflow-authoring-and-execution.md#resolved-questions-and-v1-scope-decisions) — the workflow-scoped commitments-count aside re-derived (the aside now records four ADR commitments, two of them non-workflow)
+- [cross-plan-dependencies.md](../architecture/cross-plan-dependencies.md) — artifact-relay resource-ownership rows (Plan-014 CREATEs the relay blob surface; dependent plans EXTEND)
+
 ## Decision Log
 
 | Date | Event | Notes |
@@ -367,3 +411,4 @@ Remote provider transports and provider-native subagents were adopted in the sam
 | 2026-04-22 | Amended | Workflow promoted V1.1 → V1 per BL-097; feature count 16 → 17; V1.1 deferred-feature count 4 → 3; added 2 V1.1 criterion-gated commitments (BIND multi-phase channel reuse; human-phase default timeout). Amendment grounded in Wave 1 + Wave 2 research; primary-source citations consolidated in §References → §Research Conducted; rationale and cross-reference list in §Amendment History. |
 | 2026-07-02 | Amended — V1 scope 17 → 23 features (R4 + R8) | Capability-enhancement campaign: feature count 17 → 23; added #18 MCP server configuration and governance (net-new Spec-028 + Plan-028, R4), #19 session time-travel, #20 session goals, #21 session callback tools, #22 execution postures and sandbox profiles, #23 realtime voice channels (capability-gated on the upstream Codex realtime flag). Remote transports and provider-native subagents amend existing features (Spec-024 / Spec-016) rather than minting numbers. V1.1 deferred-feature count (3) and criterion-gated commitments (2) unchanged; count re-derived by enumerating the §Decision table rows. Rationale, Before/After table, and cross-reference list in §Amendment History (amendment 2026-07-02). ADR stays `accepted`. |
 | 2026-07-08 | Amended — V1.1 criterion-gated commitments 2 → 3 (BL-139) | Added C3 (automated GDPR erasure endpoint, committed V1.1) with promotion criteria (i)–(iii) transplanted from Plan-022 §Non-Goals; deferral rationale (cross-tier fan-out completeness; protection-over-automation) recorded in §V1.1 Criterion-Gated Commitments; interim manual-erasure runbook named. V1 feature count (23) and V1.1 deferred-feature count (3) unchanged. Recorded alongside Plan-022 `review → approved` promotion; closes BL-139. ADR stays `accepted`. |
+| 2026-07-08 | Amended — V1.1 deferred features 3 → 2 (cross-node shared artifacts → V1) | Cross-node shared artifacts pulled into V1 as feature-14 scope growth (no feature number minted, per the 2026-07-02 feature-vs-amendment rule) by owner directive: eager relay pin of participant-encrypted chunked ciphertext at publish + authenticated `(participant, node)`-scoped DPoP-bound fetch + refcount/TTL GC with per-`(participant, node)` wrapped CEKs and participant crypto-shred — a shared-visible artifact stays fetchable while its publisher is offline. Publisher-online-only fetch and lazy cache-on-miss pinning rejected (both fail the availability property). Added C4 (direct-first artifact fetch, committed V1.x, gated on a shipped direct daemon transport) — commitments 3 → 4. V1 feature count (23) unchanged. Normative design in Spec-014 §Cross-Node Artifact Relay (V1); request-rate rows in Spec-021; implementation via Plan-014 growth. ADR stays `accepted`. |

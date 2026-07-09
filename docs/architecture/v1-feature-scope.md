@@ -23,7 +23,7 @@ Every V1 feature has a governing spec, with the following campaign-pending excep
 | 11 | Local daemon with CLI | [Spec-007](../specs/007-local-ipc-and-daemon-control.md) |
 | 12 | Presence (online/idle/offline) | [Spec-002](../specs/002-invite-membership-and-presence.md) |
 | 13 | Event audit log | [Spec-006](../specs/006-session-event-taxonomy-and-audit-log.md) |
-| 14 | Artifact publication (local) | [Spec-014](../specs/014-artifacts-files-and-attachments.md) |
+| 14 | Artifact publication (local + cross-node shared) | [Spec-014](../specs/014-artifacts-files-and-attachments.md) — cross-node payload availability pulled forward from V1.1 per the [ADR-015 amendment 2026-07-08](../decisions/015-v1-feature-scope-definition.md#amendment-2026-07-08-v11-deferred-features-3--2-cross-node-shared-artifacts-pulled-into-v1): eager relay pin of E2EE ciphertext at publish, fetchable while the publishing node is offline; direct-first fetch stays criterion-gated (C4) |
 | 15 | Desktop GUI | [Spec-023: Desktop Shell and Renderer](../specs/023-desktop-shell-and-renderer.md) |
 | 16 | Multi-Agent Channels | [Spec-016](../specs/016-multi-agent-channels-and-orchestration.md) (V1-readiness review per BL-042) |
 | 17 | Workflow authoring and execution (full engine) | [Spec-017](../specs/017-workflow-authoring-and-execution.md) (promoted V1.1→V1 per BL-097) |
@@ -34,7 +34,7 @@ Every V1 feature has a governing spec, with the following campaign-pending excep
 | 22 | Execution postures and sandbox profiles | [Spec-012](../specs/012-approvals-permissions-and-trust-boundaries.md) (`executionPosture` authorization semantics — 2026-07-02 B20 amendment, **in-tree**: merged via PR #175; residual gate = Spec-012 `review → approved` promotion, the W1.5 gate / Task 28) + [Spec-005](../specs/005-provider-driver-contract-and-capabilities.md) (driver legs — campaign B3, **in-tree**: merged 2026-07-05; residual gate = Spec-005 `review → approved` promotion, the W1.5 gate / Task 28) |
 | 23 | Realtime voice channels (capability-gated) | [Spec-016](../specs/016-multi-agent-channels-and-orchestration.md) (V1-scope-decision reservation — campaign B6, **in-tree**: landed 2026-07-06, Spec-016 §Resolved Questions) + [Spec-006](../specs/006-session-event-taxonomy-and-audit-log.md) (reserved `realtime_*` family — 2026-07-02 B1 amendment, **in-tree**: merged via PR #173, residual gate = Spec-006 `review → approved` promotion — the W1.5 re-promotion gate / Task 28); gated on upstream Codex realtime-flag stabilization |
 
-## V1.1 Features (3, Deferred)
+## V1.1 Features (2, Deferred)
 
 Features with a governing spec already written that defer implementation past V1 on well-named gates.
 
@@ -42,9 +42,10 @@ Features with a governing spec already written that defer implementation past V1
 | --- | --- | --- | --- |
 | 1 | MLS relay E2EE | Pending audit of an MLS implementation (OpenMLS, mls-rs, or a post-audit TypeScript implementation); V1 ships pairwise X25519 + XChaCha20-Poly1305 per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md). | [Spec-008](../specs/008-control-plane-relay-and-session-join.md) |
 | 2 | Email invite delivery | V1 uses shareable-link tokens; email delivery adds an external-service dependency with no category-positioning payoff for V1. | [Spec-002](../specs/002-invite-membership-and-presence.md) |
-| 3 | Cross-node shared artifacts | Local artifact publication (feature 14) ships in V1; the shared-artifact relay layer is incremental scope on top of relay core. | [Spec-014](../specs/014-artifacts-files-and-attachments.md) (local portion is V1; cross-node is V1.1) |
 
-Additionally, [ADR-015 §V1.1 Criterion-Gated Commitments](../decisions/015-v1-feature-scope-definition.md#v11-criterion-gated-commitments) carries 3 sub-feature commitments with named promotion criteria: BIND multi-phase channel reuse and `human` phase default-timeout behavior (both tied to Spec-017, Feature 17), plus the automated GDPR erasure endpoint (committed V1.1 2026-07-08 per BL-139; criteria in [Plan-022 §Non-Goals](../plans/022-data-retention-and-gdpr.md#non-goals), spec-side record [Spec-022 §V1 Erasure Scope Boundary](../specs/022-data-retention-and-gdpr.md#v1-erasure-scope-boundary)).
+(Cross-node shared artifacts — formerly the third row — moved into V1 as feature-14 scope growth per the [ADR-015 amendment 2026-07-08](../decisions/015-v1-feature-scope-definition.md#amendment-2026-07-08-v11-deferred-features-3--2-cross-node-shared-artifacts-pulled-into-v1); the only deferred leg remaining is the C4 direct-first fetch optimization below.)
+
+Additionally, [ADR-015 §V1.1 Criterion-Gated Commitments](../decisions/015-v1-feature-scope-definition.md#v11-criterion-gated-commitments) carries 4 sub-feature commitments with named promotion criteria: BIND multi-phase channel reuse and `human` phase default-timeout behavior (both tied to Spec-017, Feature 17), the automated GDPR erasure endpoint (committed V1.1 2026-07-08 per BL-139; criteria in [Plan-022 §Non-Goals](../plans/022-data-retention-and-gdpr.md#non-goals), spec-side record [Spec-022 §V1 Erasure Scope Boundary](../specs/022-data-retention-and-gdpr.md#v1-erasure-scope-boundary)), plus direct-first artifact fetch (C4, added 2026-07-08 with the cross-node pull-forward; tied to Spec-014, Feature 14; gated on a shipped direct daemon-to-daemon transport).
 
 ## V2 (Out of Scope for the V1 Horizon)
 
@@ -91,7 +92,7 @@ Cross-cutting V1 specs that multiple V1 features depend on. These are required b
 ## Spec Coverage Assessment
 
 - **V1 features:** all 23 have a governing spec, with one pending exception — feature #18's Spec-028 is authored by the capability-enhancement campaign's B18 bundle and is not yet in the corpus (see its row above), and features #19–#23 are governed by existing specs whose amendments land via the named campaign bundles in their rows — doc-gated until those bundles merge (B1 merged via #173, B3 merged 2026-07-05, B20 merged via #175, B6 landed 2026-07-06 — the amended specs pending the W1.5 batch `review → approved` re-promotion; feature #19's B2 queued). Of the original 17 — Spec-023 (Desktop Shell + Renderer) landed per BL-041, Spec-016 (Multi-Agent Channels) completed its V1-readiness review per BL-042, and Spec-017 (Workflow authoring and execution) carries 27 of 31 amendments from BL-097 Wave 1+2 research in its body (SA-1…SA-23, SA-25, SA-26, SA-27, SA-28); SA-24/29/30/31 land in Plan-017 per implementation-detail separation.
-- **V1.1 features:** all 3 have a governing spec referenced above. The MLS spec surface (Spec-008) is being rewritten to declare pairwise-first for V1 and MLS as the V1.1 upgrade per BL-048.
+- **V1.1 features:** both have a governing spec referenced above. The MLS spec surface (Spec-008) is being rewritten to declare pairwise-first for V1 and MLS as the V1.1 upgrade per BL-048.
 - **V2 features:** intentionally uncovered. V2 scope decisions are made post-V1 and add specs as needed.
 
 ## Backlog Coverage Assessment
@@ -100,7 +101,7 @@ All V1 features and supporting V1 specs have corresponding implementation plans,
 
 ## References
 
-- [ADR-015: V1 Feature Scope Definition](../decisions/015-v1-feature-scope-definition.md) — the governing decision for this triage (amended 2026-04-22 per BL-097 — workflow V1.1→V1, feature count 16→17).
+- [ADR-015: V1 Feature Scope Definition](../decisions/015-v1-feature-scope-definition.md) — the governing decision for this triage (amended 2026-04-22 per BL-097 — workflow V1.1→V1, feature count 16→17; amended 2026-07-08 — cross-node shared artifacts V1.1→V1 as feature-14 scope growth, V1.1 deferrals 3→2).
 - [ADR-016: Electron Desktop Shell](../decisions/016-electron-desktop-shell.md) — enables V1 feature 15 (Desktop GUI).
 - [ADR-019: Windows V1 Tier and PTY Sidecar Strategy](../decisions/019-windows-v1-tier-and-pty-sidecar.md) — Windows V1 tier decision.
 - [ADR-020: V1 Deployment Model and OSS License](../decisions/020-v1-deployment-model-and-oss-license.md) — the two V1 deployment options.
