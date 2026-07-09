@@ -301,9 +301,9 @@ Coordination state for the [Spec-014 §Cross-Node Artifact Relay (V1)](../../spe
 -- Owner: Plan-014
 -- Blob lifecycle: state 'pending_replication' at upload-init → 'pinned' when every chunk is
 -- relay-acknowledged (the offline-availability guarantee attaches ONLY to 'pinned');
--- 'over_cap' / 'quota_exceeded' record honest degradation (publisher-local only, never pinned);
--- 'expired' records TTL/eviction. Value set = the Spec-014 replicationStatus wire enum
--- (the A-014-3 "deferred owner refinement," now spec-named by the 2026-07-08 amendment).
+-- 'expired' records TTL/eviction. Value set = the storage-lifecycle SUBSET of the Spec-014 replicationStatus wire enum:
+-- the degradation states ('over_cap' / 'quota_exceeded') mean NO relay upload happened (Spec-014 failure table), so
+-- they never create a blob row — they live only on the artifact manifest (SQLite replication_status + the wire field).
 -- Deletion triggers: refcount-zero (all intended recipients fetched) OR expires_at, whichever
 -- first; hourly async sweep + 90% node-storage watermark eviction (delivered/nearest-TTL first).
 CREATE TABLE artifact_relay_blobs (
@@ -316,7 +316,7 @@ CREATE TABLE artifact_relay_blobs (
   retention_tier           TEXT NOT NULL DEFAULT 'default'
                            CHECK(retention_tier IN ('volatile', 'default', 'extended')),
   state                    TEXT NOT NULL DEFAULT 'pending_replication'
-                           CHECK(state IN ('pending_replication', 'pinned', 'over_cap', 'quota_exceeded', 'expired')),
+                           CHECK(state IN ('pending_replication', 'pinned', 'expired')),
   expires_at               TIMESTAMPTZ NOT NULL,          -- tier-derived TTL deletion trigger
   created_at               TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -325,8 +325,8 @@ CREATE INDEX idx_artifact_relay_blobs_session ON artifact_relay_blobs(session_id
 CREATE INDEX idx_artifact_relay_blobs_expires ON artifact_relay_blobs(expires_at);
 
 -- Owner: Plan-014
--- One row per (blob, intended recipient): carries that participant's wrapped CEK (encrypted to
--- their X25519 key — the relay cannot unwrap), delivery state (delivered_at NULL = undelivered;
+-- One row per (blob, intended recipient): carries that participant's wrapped CEK (encrypted to their X25519 key — the relay cannot unwrap;
+-- per Spec-014 Publish step 3 this row is the wrapped CEK's ONLY store, never the durable artifact.published event — deleting it is a true shred), delivery state (delivered_at NULL = undelivered;
 -- refcount-zero = zero NULLs remain for the blob), and the in-flight fetch grace lease
 -- (GC must not evict the blob while a lease is live). Hard-DELETE class in the CP-022-6 closure:
 -- deleting a participant's rows IS the crypto-shred (their reach to the CEK is destroyed) and
