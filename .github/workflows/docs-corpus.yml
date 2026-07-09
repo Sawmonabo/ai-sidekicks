@@ -237,8 +237,8 @@ jobs:
     name: lane boundary — plan-title token (required)
     # Enforces the lane-1 title-token boundary from CONTRIBUTING.md §How Code
     # Lands: a PR whose title cites `Plan-NNN` (case-insensitive) while its
-    # diff touches material paths (packages/ + apps/ + .github/ — G6's
-    # MATERIAL_PATH_PREFIXES) must DECLARE lane-1 shipment for that plan —
+    # diff touches material paths (packages/ + apps/ + .github/ + deploy/ —
+    # G6's MATERIAL_PATH_PREFIXES) must DECLARE lane-1 shipment for that plan —
     # a plan-scoped branch (<type>/plan-NNN-*, any CONTRIBUTING §Type-segment
     # type) or a docs/plans/NNN-*.md edit in the same diff. The Shipment
     # Manifest entry cannot be required in-PR (its sha: field is this PR's

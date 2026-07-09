@@ -58,7 +58,12 @@ import { fileURLToPath } from "node:url";
 // (G6's MATERIAL_PATH_PREFIXES): the guard must classify "material" exactly
 // as the gate does or the boundary drifts. Enforced by a deep-equality test
 // in `__tests__/lane-boundary-check.test.ts`, not by this comment.
-export const MATERIAL_PATH_PREFIXES: readonly string[] = ["packages/", "apps/", ".github/"];
+export const MATERIAL_PATH_PREFIXES: readonly string[] = [
+  "packages/",
+  "apps/",
+  ".github/",
+  "deploy/",
+];
 
 // Case-insensitive; `\b` on both sides keeps `workplan-001` and 4-digit
 // `plan-0011` shapes out, matching the 3-digit padded form G6 searches.

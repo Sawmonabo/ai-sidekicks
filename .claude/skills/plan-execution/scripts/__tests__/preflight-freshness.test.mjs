@@ -188,6 +188,27 @@ test("workflow-only PR counts as material (Plan-024 T-024-4-1 class)", () => {
   assert.match(r.halt, /PR #200/);
 });
 
+test("deploy/-only PR counts as material (Plan-025 T-025d-14-1 class)", () => {
+  // Plan-025's T-025d-14-1 ships only deploy/self-host/* (compose file +
+  // cert-init script). Before deploy/ joined MATERIAL_PATH_PREFIXES the gate
+  // classified such a shipment doc-only — the G6 blind spot the token-first
+  // rebuild redesign (PR #192 rounds 2-4) could only work around downstream.
+  stubGh({
+    listResult: [
+      {
+        number: 210,
+        title: "feat(relay): self-host compose reference (Plan-025 T-025d-14-1)",
+        mergedAt: "2026-08-01T00:00:00Z",
+      },
+    ],
+    viewFilesByPr: { 210: { files: ["deploy/self-host/docker-compose.yml"] } },
+  });
+  const r = gateManifestFreshness(PLAN_SOURCE, 1);
+  assert.equal(r.ok, false);
+  assert.equal(r.kind, "manifest_stale");
+  assert.match(r.halt, /PR #210/);
+});
+
 // ============================================================
 // Fail-closed paths
 // ============================================================

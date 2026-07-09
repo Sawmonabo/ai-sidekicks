@@ -1203,11 +1203,13 @@ test("rebuildManifest does NOT skip a root-config shipment (Plan-001 T1.1 class 
   }
 });
 
-test("rebuildManifest does NOT skip a deploy/-only shipment (material work outside MATERIAL_PATH_PREFIXES — Codex r2)", async () => {
-  // Plan-025's T-025d-14-1 ships only deploy/self-host/* — a real shipment
-  // with zero packages/apps/.github paths. The closure-skip predicate
-  // must let it synthesize (visible entry or honest validation failure),
-  // never silently drop it from a disaster rebuild.
+test("rebuildManifest does NOT skip a deploy/-only shipment (token path; deploy/ now also material — Codex r2)", async () => {
+  // Plan-025's T-025d-14-1 ships only deploy/self-host/* — a real shipment.
+  // When this test landed (Codex r2, PR #192) deploy/ sat OUTSIDE
+  // MATERIAL_PATH_PREFIXES and only the task-token half of the closure-skip
+  // predicate kept the candidate visible; deploy/ has since joined the
+  // prefixes, so both halves now agree: synthesize (visible entry or honest
+  // validation failure), never silently drop it from a disaster rebuild.
   const tmp = mkdtempSync(join(tmpdir(), "rsm-e2e-"));
   try {
     const planDir = join(tmp, "docs", "plans");
@@ -1245,6 +1247,50 @@ test("rebuildManifest does NOT skip a deploy/-only shipment (material work outsi
     assert.doesNotMatch(stderr.text(), /no task token/);
     assert.match(stdout.text(), /task: T5\.8/); // synthesized, not dropped
     assert.equal(r.exitCode, 0);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("rebuildManifest validation-fails a token-less deploy/-only candidate loudly instead of skipping (deploy/ is material)", async () => {
+  // With deploy/ inside MATERIAL_PATH_PREFIXES, a deploy/-only candidate
+  // carrying no plan-scoped task token is a token-less MATERIAL candidate:
+  // it enters synthesis and validation-fails loudly (exit 5, legacy-PR
+  // appendix territory) rather than skipping as a governance/closure PR.
+  const tmp = mkdtempSync(join(tmpdir(), "rsm-e2e-"));
+  try {
+    const planDir = join(tmp, "docs", "plans");
+    mkdirSync(planDir, { recursive: true });
+    writeFileSync(join(planDir, "001-shared-session-core.md"), PLAN_TEMPLATE);
+
+    const ghRunner = makeGhRunner({
+      prList: [91],
+      prDetails: {
+        91: {
+          title: "chore(relay): compose cleanup naming Plan-001",
+          body: "Adjusts the self-host compose file.",
+          mergedAt: "2026-05-22T10:00:00Z",
+          mergeCommit: { oid: "cafef00dbeef456" },
+          changedFiles: 1,
+          files: [{ path: "deploy/self-host/docker-compose.yml" }],
+        },
+      },
+    });
+
+    const stdout = makeCaptureStream();
+    const stderr = makeCaptureStream();
+    const r = await rebuildManifest({
+      plan: "001",
+      dryRun: true,
+      force: false,
+      ghRunner,
+      plansDir: planDir,
+      stdout,
+      stderr,
+    });
+    assert.doesNotMatch(stderr.text(), /skipped \(no task token, no material paths\): PR #91/);
+    assert.equal(r.exitCode, 5);
+    assert.match(r.message, /PR #91/);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
