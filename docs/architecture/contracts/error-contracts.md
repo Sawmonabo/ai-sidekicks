@@ -250,7 +250,8 @@ Shared-terminal write-lease refusals (Spec-003 §Required Behavior, campaign B4 
 | Code | Description | HTTP Status |
 | --- | --- | --- |
 | `pty.control_not_held` | Terminal write or `session.releaseControl` attempted without holding the shared-terminal write lease — take control first (null-holder-refuses-writes) | 409 |
-| `pty.control_held_by_other` | `session.takeControl` refused: another participant holds the lease; `data.fields.holderParticipantId` names the holder — handoff is explicit (holder releases, then take) | 409 |
+| `pty.control_held_by_other` | `session.takeControl` refused: another participant holds the lease; `data.fields.holderParticipantId` names the holder on the JSON-RPC surface, mirrored as `details.holderParticipantId` on the HTTP `ErrorResponse` envelope (same value on both surfaces, via the canonical envelope's structured-context field) — handoff is explicit (holder releases, then take) | 409 |
+| `pty.permission_denied` | `session.takeControl` by a role outside the authorized set (owner/collaborator — the Security Architecture permission-matrix 'Take/release terminal control' row); evaluated before any lease-state comparison, so unauthorized callers never receive holder identity. `session.releaseControl` is deliberately exempt — release is holder-gated (`pty.control_not_held`), never role-gated, so a mid-hold role demotion cannot strand the lease. Domain authz code, HTTP row per the `membership.permission_denied` convention. | 403 |
 
 ### Workspace
 

@@ -561,9 +561,9 @@ interface RuntimeNodeRosterEntry {
 }
 interface RuntimeNodeRosterResponse {
   nodes: RuntimeNodeRosterEntry[]; // one entry per runtime_node_attachments row for the session — bounded by distinct nodes ever attached (UNIQUE(node_id, session_id)); both health axes carried verbatim, never collapsed into one scalar (reconciliation is the CLIENT's render-time concern — the Spec-003 line-73 never-mask stance)
-  // Shared-terminal write-lease holder (Spec-003 §Required Behavior, campaign B4): null = lease
-  // free (writes refused — null-holder-refuses-writes). Session coordination state projected
-  // faithfully, same never-mask stance as the node rows above.
+  // Shared-terminal write-lease holder (Spec-003 §Required Behavior, campaign B4): null = lease free (writes refused — null-holder-refuses-writes).
+  // Source: the terminal-owning daemon is the lease authority and sole producer — it publishes every transition to the control plane, which persists the current holder as a per-session coordination record (the same coordination-record tier as `runtime_node_presence`; pinned by the Plan-024 Phase 3B lease leg — campaign B16 — which also extends this roster read's projection beyond today's attachments × presence join).
+  // Session coordination state projected faithfully, same never-mask stance as the node rows above.
   controlHolder: ParticipantId | null;
 }
 ```
@@ -595,7 +595,7 @@ The shared-terminal write lease ([Spec-003 §Required Behavior](../../specs/003-
 
 ```ts
 interface SessionTakeControlRequest {
-  sessionId: SessionId;
+  sessionId: SessionId; // no caller-participant field on either transport — the principal binds per the transport rule below
 }
 
 interface SessionTakeControlResponse {
@@ -603,7 +603,7 @@ interface SessionTakeControlResponse {
 }
 
 interface SessionReleaseControlRequest {
-  sessionId: SessionId;
+  sessionId: SessionId; // no caller-participant field on either transport — the principal binds per the transport rule below
 }
 
 interface SessionReleaseControlResponse {
@@ -611,7 +611,7 @@ interface SessionReleaseControlResponse {
 }
 ```
 
-Refusals are typed in [Error Contracts §PTY](./error-contracts.md#pty): a take while another participant holds the lease returns `pty.control_held_by_other` with `data.fields.holderParticipantId`; a terminal write with no lease held returns `pty.control_not_held`. A release by a non-holder is likewise `pty.control_not_held` (releasing nothing is not idempotent-success — it signals a caller-state bug); a take by the current holder is idempotent success — no transition occurs and nothing broadcasts. Every successful transition broadcasts `pty.control_changed` ([Spec-006 census](../../specs/006-session-event-taxonomy-and-audit-log.md#pty-control-session_lifecycle)), authored by the terminal-owning daemon.
+Refusals are typed in [Error Contracts §PTY](./error-contracts.md#pty): role authorization precedes lease state — `session.takeControl` is owner/collaborator-only per the [Security Architecture permission matrix](../security-architecture.md#permission-matrix-task-54) row 'Take/release terminal control', refused `pty.permission_denied` (403) for viewers and runtime contributors before any lease-state comparison, so an unauthorized caller never receives holder identity (release is holder-gated, not role-gated — a holder demoted mid-hold can still relinquish); a take while another participant holds the lease returns `pty.control_held_by_other` with `data.fields.holderParticipantId`; a terminal write with no lease held returns `pty.control_not_held`. A release by a non-holder is likewise `pty.control_not_held` (releasing nothing is not idempotent-success — it signals a caller-state bug); a take by the current holder is idempotent success — no transition occurs and nothing broadcasts. Every successful transition broadcasts `pty.control_changed` ([Spec-006 census](../../specs/006-session-event-taxonomy-and-audit-log.md#pty-control-session_lifecycle)), authored by the terminal-owning daemon. Neither request carries a caller-participant field — the principal binds per transport: control-plane tRPC callers are the verified PASETO `sub` ([§Authenticated Principal And Authorization Model](#authenticated-principal-and-authorization-model)), and local daemon JSON-RPC callers bind to the daemon's recorded **node-owner participant** — the same absent-actor rule `ApprovalResolveRequest.approver` documents (absent on the local socket → the daemon's owner binding; every runtime node has exactly one owning participant per [runtime-node-model](../../domain/runtime-node-model.md)) — so `controlHolder`, the idempotent self-retake comparison, and the non-holder-release refusal are well-defined on both transports.
 
 ---
 
