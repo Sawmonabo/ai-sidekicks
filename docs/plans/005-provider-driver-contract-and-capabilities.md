@@ -111,7 +111,7 @@ See [Local SQLite Schema §Driver and Runtime Binding Tables](../architecture/sc
   - Files: `packages/contracts/src/provider-driver.ts` (extend T1.1)
   - Spec coverage: Spec-005:54 (7-flag enumeration + `pause` exclusion rationale per ADR-011), :56 (undeclared = unsupported)
   - Verifies invariant: I-005-2 (undeclared capability = unsupported)
-  - Consumes: api-payload-contracts.md:175 (`type DriverCapabilityFlag` anchor), :952 (`interface DriverCapabilities` anchor)
+  - Consumes: api-payload-contracts.md:175 (`type DriverCapabilityFlag` anchor), :953 (`interface DriverCapabilities` anchor)
   - Flags (7): `resume`, `steer`, `interactive_requests`, `mcp`, `tool_calls`, `reasoning_stream`, `model_mutation`. `pause` is intentionally excluded per Spec-005:54 + ADR-011.
   - Estimate: 1 PR (combined with T1.1)
 
@@ -481,7 +481,7 @@ This PR corrects the provenance cites at their source: this plan (L12 / T1.1 / T
 
 **PR #157 (2026-06-15) — `InterventionDriverResult` → `DriverInterventionResult` naming canonicalization.**
 
-Phase 1's T1.4 code authoring surfaced an internal naming inconsistency in the canonical contract doc: the two sibling driver result-envelope types used different conventions. `DriverResumeResult` (api-payload-contracts.md:835) leads with the `Driver` prefix, but its explicit sibling — the `applyIntervention` envelope at :762 — buried the qualifier in the middle as `InterventionDriverResult`. The doc is the defect; the fix is the doc, and Phase 1 code then mirrors the corrected doc (doc-first preserved).
+Phase 1's T1.4 code authoring surfaced an internal naming inconsistency in the canonical contract doc: the two sibling driver result-envelope types used different conventions. `DriverResumeResult` (api-payload-contracts.md:836) leads with the `Driver` prefix, but its explicit sibling — the `applyIntervention` envelope at :762 — buried the qualifier in the middle as `InterventionDriverResult`. The doc is the defect; the fix is the doc, and Phase 1 code then mirrors the corrected doc (doc-first preserved).
 
 Canonicalized to the `Driver`-prefixed form `DriverInterventionResult`, which aligns with (a) its explicit sibling `DriverResumeResult` (T1.6 — the plan itself calls this shape the "sibling" of T1.4's), (b) the `X` + `XSchema` pairing convention (the Zod schema is `DriverInterventionResultSchema`, T1.4), and (c) the `Driver`-prefixed contract family in this surface (`DriverCapabilityFlag`, `DriverCapabilities`). Renamed at source across `api-payload-contracts.md` (the `ProviderDriver.applyIntervention` return at :660 + the `interface` declaration at :762), this plan (T1.4 / T1.6 `Consumes:` cites + the §Done Checklist doc-mirror item), [Plan-004](./004-queue-steer-pause-resume.md) (the §Dependencies cell, `CP-004-1`, and the two T2.6 mapping-task consume cites), and [queue-and-intervention-model.md](../domain/queue-and-intervention-model.md) (the §Boundary note). Zero behavioral change — the `{ status: 'applied' | 'degraded'; fallbackAction? }` shape is untouched; only the type's name changes.
 

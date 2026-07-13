@@ -776,6 +776,7 @@ interface DriverInterventionResult {
 interface RollbackToParams {
   sessionId: SessionId;
   position: number;
+  bindingId: string; // leg key (campaign B2) — the run's live provider binding, the same per-binding addressing as SetSessionGoalParams below: run→bindings is 1:many in the shipped store, so `sessionId` alone cannot name the target leg. The DAEMON resolves the run's live binding at dispatch (client rollback payloads never carry it — clients address the run); a fork-composed rollback then repoints the live binding via `DriverRollbackResult.applied.bindingId`.
 }
 
 type DriverRollbackResult =
@@ -1373,6 +1374,22 @@ interface RunStateChangeEvent {
   timestamp: string;
 }
 
+// Forward, NON-STATE rollback event (Spec-006 §Run Lifecycle, its per-type row; campaign B2). The
+// structural type is owned here by the rollback intervention contract: `targetPosition` carries the
+// same value the accepted `applyIntervention('rollback', {targetPosition})` supplied, so the request
+// and the durable event serialize identically (Spec-004 §Required Behavior). Non-terminal — zero
+// interaction with the at-most-once terminal backstop — and deliberately NO
+// previousState/currentState: a rollback is not a state transition, and fabricating one would
+// corrupt the transition stream consumers replay. Rides `run.subscribeState` alongside
+// `RunStateChangeEvent` (the RPC table below).
+interface RunRolledBackEvent {
+  sessionId: SessionId;
+  runId: RunId;
+  runVersion: number; // the post-rollback progression value — the rollback application advanced it
+  channelId?: ChannelId;
+  targetPosition: number; // the turn-boundary rewind anchor (normalized session position)
+}
+
 // Provider-initiated mid-run asks (Spec-006 §Driver Ask Events, 2026-07-02 B1 amendment): the third
 // `interactive_request` subfamily. `state` is the closed DriverAskState enum and MUST equal the emitting
 // event type's suffix (requested / responded / expired / canceled — a mismatch is an emitter bug, fail
@@ -1441,10 +1458,10 @@ Plan-004's queue / intervention / pause-resume operations are exposed as eight `
 | `run.intervene` | `mutation` | `InterventionRequestPayload` | `InterventionRequestResponse` |
 | `run.pause` | `mutation` | `RunPauseRequest` | `RunControlAck` |
 | `run.resume` | `mutation` | `RunResumeRequest` | `RunControlAck` |
-| `run.subscribeState` | `subscription` | `RunStateSubscribeRequest` | `RunStateChangeEvent` (stream) |
+| `run.subscribeState` | `subscription` | `RunStateSubscribeRequest` | `RunStateChangeEvent \| RunRolledBackEvent` (stream) |
 | `run.subscribeQueue` | `subscription` | `RunQueueSubscribeRequest` | `QueueItemSummary` (stream) |
 
-`run.queueList` is the only `query` (idempotent read); the five mutations are state-changing per the tRPC procedure-type convention in §Tier 1 (cont.): Plan-008 above. The two `subscription`s stream their payload type per emission rather than returning a single response — `run.subscribeState` streams `RunStateChangeEvent` (carrying the `runVersion` comparand clients pass back as `expectedRunVersion`), and `run.subscribeQueue` streams the existing `QueueItemSummary` projection (no separate queue-change event type is introduced). All request/response shapes are the interfaces defined directly above; the canonical Zod schemas live in `packages/contracts/src/runControl.ts` (CP-004-3) per the §Source-of-Truth Policy.
+`run.queueList` is the only `query` (idempotent read); the five mutations are state-changing per the tRPC procedure-type convention in §Tier 1 (cont.): Plan-008 above. The two `subscription`s stream their payload type per emission rather than returning a single response — `run.subscribeState` streams `RunStateChangeEvent | RunRolledBackEvent` (the state shape carries the `runVersion` comparand clients pass back as `expectedRunVersion`; the per-type non-state rollback arm — campaign B2, Spec-006 §Run Lifecycle — rides the same stream so subscribers observe position rewinds without a fabricated transition), and `run.subscribeQueue` streams the existing `QueueItemSummary` projection (no separate queue-change event type is introduced). All request/response shapes are the interfaces defined directly above; the canonical Zod schemas live in `packages/contracts/src/runControl.ts` (CP-004-3) per the §Source-of-Truth Policy.
 
 ### Plan-008 — Control-Plane Relay And Session Join
 
