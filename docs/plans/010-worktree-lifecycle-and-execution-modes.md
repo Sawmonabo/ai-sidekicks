@@ -339,7 +339,7 @@ Contracts: see [API Payload Contracts](../architecture/contracts/api-payload-con
   - **Files:** this plan §Test And Verification Plan (the manual row below)
   - The "manual verification of worktree lifecycle from create through retire" row is executable only when Plan-023 Tier 8 wires the live bridge; per the Plan-003 T5.4 / Plan-009 T4.5 precedent the row is dispositioned NOW (deferred-to-Tier-8, tracked on the Plan-023 remainder) rather than silently skipped.
   - **Tests:** n/a (disposition record).
-  - **Spec coverage:** Spec-010 AC1 (line 114 — end-to-end leg is the Tier-8 manual scope)
+  - **Spec coverage:** Spec-010 AC1 (line 127 — end-to-end leg is the Tier-8 manual scope)
   - **Verifies invariant:** none (disposition record — the manual end-to-end leg executes at Plan-023 Tier 8)
   - **Consumes:** live `window.sidekicks` backend ← Plan-023 Tier 8 remainder (tracked-not-satisfied — CP-010-10)
 
