@@ -562,7 +562,7 @@ interface RuntimeNodeRosterEntry {
 interface RuntimeNodeRosterResponse {
   nodes: RuntimeNodeRosterEntry[]; // one entry per runtime_node_attachments row for the session — bounded by distinct nodes ever attached (UNIQUE(node_id, session_id)); both health axes carried verbatim, never collapsed into one scalar (reconciliation is the CLIENT's render-time concern — the Spec-003 line-73 never-mask stance)
   // Shared-terminal write-lease holder (Spec-003 §Required Behavior, campaign B4): null = lease free (writes refused — null-holder-refuses-writes).
-  // Source: the terminal-owning daemon is the lease authority and sole producer — it publishes every transition to the control plane, which persists the current holder as a per-session coordination record (the same coordination-record tier as `runtime_node_presence`; pinned by the Plan-024 Phase 3B lease leg — campaign B16 — which also extends this roster read's projection beyond today's attachments × presence join).
+  // Source: the terminal-owning daemon is the lease authority and sole producer — it publishes every transition to the control plane, which persists the current holder in `session_terminal_leases` (shared Postgres; durable coordination record, same tier as `runtime_node_presence`, holder cleared on the auto-release presence/attachment drop; table forward-assigned in cross-plan-dependencies §3 to the Plan-024 Phase 3B lease leg — campaign B16 — whose additive migration ships it and extends this roster read's projection beyond today's attachments × presence join).
   // Session coordination state projected faithfully, same never-mask stance as the node rows above.
   controlHolder: ParticipantId | null;
 }
