@@ -67,7 +67,7 @@ Intervention states (6 canonical states):
 | From | To | Trigger | Condition |
 | --- | --- | --- | --- |
 | `requested` | `accepted` | Valid target, authorized | Target run is in a state that accepts this intervention type |
-| `requested` | `rejected` | Invalid target, unauthorized, or static capability refusal | Target run state incompatible, participant lacks permission, or the type has no documented fallback under a driver capability exclusion (`driver.capability_unsupported` — §Driver Result To Lifecycle Mapping) |
+| `requested` | `rejected` | Invalid target, unauthorized, static capability refusal, or fail-closed pre-dispatch refusal | Target run state incompatible, participant lacks permission, the type has no documented fallback under a driver capability exclusion (`driver.capability_unsupported` — §Driver Result To Lifecycle Mapping), or a rollback fail-closed pre-dispatch refusal (campaign B2 — [Spec-004 §Required Behavior](../specs/004-queue-steer-pause-resume.md#required-behavior): Spec-010 restore precondition unmet, or a terminal-source rollback's execution root `busy` under another run) |
 | `requested` | `expired` | Version guard mismatch | `expectedRunVersion` does not match current run version |
 | `accepted` | `applied` | Driver successfully executed | Provider confirmed the intervention took effect |
 | `accepted` | `degraded` | Driver fallback used, or multi-leg partial effect | Driver does not support this type natively and the orchestration layer fell back; or a later leg failed after a confirmed earlier leg (rollback file leg, campaign B2) |
