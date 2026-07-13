@@ -2778,6 +2778,59 @@ export function gateStatusPromotion(planSource, planFile) {
   };
 }
 
+// Gate 7's second check — the plan-governance Preconditions boxes. The
+// 000-plan-template §Preconditions trio below is the human-ticked doc-first
+// gate (CLAUDE.md §When Writing Documents, AGENTS.md §Doc-First Discipline):
+// a W1 spec-amendment flip records `approved → review` on the SPEC and
+// re-opens the plan's paired-spec box, but the plan's own header Status stays
+// `approved`, so the status row alone green-lights dispatch against an
+// un-promoted spec (Codex P2, PR #202). Prefix-matched: authors append dated
+// gate notes after the box text (`- [ ] Paired spec is approved — re-opened
+// 2026-07-13: …`). Deliberately NOT every unchecked box in the section:
+// plans also carry scoped upstream-dependency boxes (Plan-023's "(Tier 8
+// remainder only.)" boxes, Plan-024's procurement boxes gating only Phases
+// 4-5) whose unchecked state must not halt phases they do not gate — that
+// subset gating belongs to per-phase `preconditions:` blocks (Gate 5). The
+// template quartet's fourth box (plan-readiness audit) already halts at
+// Gate 2.
+const GOVERNANCE_PRECONDITION_PREFIXES = [
+  "Paired spec is approved",
+  "Required ADRs are accepted",
+  "Blocking open questions are resolved",
+];
+
+export function gatePlanPreconditionBoxes(planSource, planFile) {
+  const section = planSource.match(/^## Preconditions[^\n]*\n([\s\S]*?)(?=^## |(?![\s\S]))/m);
+  if (!section) return { ok: true };
+  const unchecked = [];
+  for (const line of section[1].split("\n")) {
+    const box = line.match(/^- \[ \] \**(.+)$/);
+    if (!box) continue;
+    if (GOVERNANCE_PRECONDITION_PREFIXES.some((prefix) => box[1].startsWith(prefix))) {
+      unchecked.push(line.length > 140 ? `${line.slice(0, 137)}...` : line);
+    }
+  }
+  if (unchecked.length === 0) return { ok: true };
+  return {
+    ok: false,
+    halt: [
+      "## Preflight halt: plan-governance precondition unchecked (Gate 7)",
+      "",
+      `Plan ${planFile} has unchecked plan-governance Preconditions box(es):`,
+      ...unchecked.map((line) => `  ${line}`),
+      "",
+      "These 000-plan-template §Preconditions boxes gate ALL code dispatch for",
+      "the plan: an unchecked box records that the paired spec / required ADRs /",
+      "blocking questions are not in the promoted state code may build on",
+      "(AGENTS.md §Doc-First Discipline). Re-check the box only when the gate",
+      "its note names has cleared (e.g. a batch spec re-promotion). Scoped",
+      "upstream-dependency boxes are not matched by this gate — phase-scoped",
+      "gating belongs in per-phase `preconditions:` blocks. For authoring-time",
+      "inspection, use --allow-unpromoted (skip is logged to stderr).",
+    ].join("\n"),
+  };
+}
+
 // Two-sided anomaly screen over every real plan, institutionalizing the
 // omission survey that caught the second-`#### Tasks`-block bug on PR #190
 // (an extractor blind spot Codex's 11 rounds had not surfaced). Runs the
@@ -2984,6 +3037,8 @@ export function runPreflight(
   if (checkStatusPromotion) {
     const g7 = gateStatusPromotion(planSource, planFile);
     if (!g7.ok) return { exit: 1, stdout: g7.halt };
+    const g7boxes = gatePlanPreconditionBoxes(planSource, planFile);
+    if (!g7boxes.ok) return { exit: 1, stdout: g7boxes.halt };
   }
 
   const planNumber = extractPlanNumber(planFile);
@@ -3126,7 +3181,9 @@ async function main() {
     );
   }
   if (allowUnpromoted) {
-    process.stderr.write("preflight: Gate 7 (status promotion) SKIPPED via --allow-unpromoted\n");
+    process.stderr.write(
+      "preflight: Gate 7 (status promotion + governance preconditions) SKIPPED via --allow-unpromoted\n",
+    );
   }
   const result = runPreflight(planFile, phaseArg, {
     checkFreshness: !allowStaleManifest,

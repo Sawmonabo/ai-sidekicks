@@ -30,7 +30,7 @@ This plan covers (a) the shared `ProviderDriver` interface + capability-flag sch
 
 ## Preconditions
 
-- [x] Paired spec is approved (campaign B3 note, 2026-07-05: Spec-005 is temporarily `review` for the amendment window — this box records the Tier-4 audit-time state; code dispatch for amendment surfaces stays blocked until the campaign's Task-28 batch re-promotion restores `approved`)
+- [ ] Paired spec is approved — re-opened 2026-07-13 (class sweep; supersedes the checked-box campaign B3 note of 2026-07-05, which recorded the Tier-4 audit-time state): Spec-005 is temporarily `review` for the amendment window, so this precondition is not currently satisfied. Tasks tracing to the previously-approved Spec-005 content (the Tier-4 audit basis) stay covered; amendment-surface code dispatch waits for the campaign's Task-28 batch re-promotion to restore `approved`, which re-checks this box.
 - [x] Required ADRs are accepted (verified: ADR-005 `accepted`, ADR-011 `accepted`, ADR-015 `accepted`, ADR-017 `accepted`)
 - [x] Blocking open questions are resolved or explicitly deferred
 - [x] Plan-001 Phase 3 migration runner shipped

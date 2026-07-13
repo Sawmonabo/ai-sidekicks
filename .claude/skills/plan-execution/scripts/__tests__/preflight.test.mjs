@@ -28,6 +28,7 @@ import {
   gateProjectLocality,
   gateAuditCheckbox,
   gateStatusPromotion,
+  gatePlanPreconditionBoxes,
   gatePhaseAuditCheckbox,
   gateTasksBlockCites,
   gatePhaseUnshipped,
@@ -2692,7 +2693,10 @@ shipped: []
   );
   assert.equal(r.status, 1, `status=${r.status} stdout=${r.stdout} stderr=${r.stderr}`);
   assert.match(r.stderr, /Gate 6 \(manifest freshness\) SKIPPED via --allow-stale-manifest/);
-  assert.match(r.stderr, /Gate 7 \(status promotion\) SKIPPED via --allow-unpromoted/);
+  assert.match(
+    r.stderr,
+    /Gate 7 \(status promotion \+ governance preconditions\) SKIPPED via --allow-unpromoted/,
+  );
   assert.match(r.stdout, /precondition unmet/i);
   assert.match(r.stdout, /Plan-99 not found/);
 });
@@ -2786,6 +2790,108 @@ test("gateStatusPromotion halts review and draft with the promotion message", ()
     assert.match(r.halt, new RegExp(`Status is \\\`${status}\\\``));
     assert.match(r.halt, /--allow-unpromoted/);
   }
+});
+
+// Gate 7's governance-precondition scan: an `approved`-status plan whose
+// paired-spec box was re-opened by a W1 spec flip cleared the status row and
+// dispatched code against a `review` spec (Codex P2, PR #202). These pin the
+// prefix-matched template trio, the note-suffix tolerance, and the deliberate
+// non-match of scoped upstream-dependency boxes.
+
+const preconditionsPlan = (boxes) => `# Plan-001
+
+| Field | Value |
+| --- | --- |
+| **Status** | \`approved\` |
+
+## Preconditions
+
+${boxes}
+
+## Objective
+
+body
+`;
+
+test("gatePlanPreconditionBoxes passes when the governance trio is checked", () => {
+  const r = gatePlanPreconditionBoxes(
+    preconditionsPlan(
+      "- [x] Paired spec is approved\n- [x] Required ADRs are accepted\n- [x] Blocking open questions are resolved or explicitly deferred",
+    ),
+    "p.md",
+  );
+  assert.equal(r.ok, true);
+});
+
+test("gatePlanPreconditionBoxes halts on an unchecked paired-spec box, note suffix included", () => {
+  const r = gatePlanPreconditionBoxes(
+    preconditionsPlan(
+      "- [ ] Paired spec is approved — **re-opened 2026-07-13:** Spec-010 is temporarily `review`.\n- [x] Required ADRs are accepted",
+    ),
+    "docs/plans/010-test.md",
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /plan-governance precondition unchecked \(Gate 7\)/);
+  assert.match(r.halt, /Paired spec is approved/);
+  assert.match(r.halt, /--allow-unpromoted/);
+});
+
+test("gatePlanPreconditionBoxes matches the punctuation-suffixed and bold-wrapped template variants", () => {
+  // Plan-027 spells the box `- [ ] Paired spec is approved. — …` (trailing
+  // period); prefix matching must not depend on the author's punctuation.
+  const punctuated = gatePlanPreconditionBoxes(
+    preconditionsPlan("- [ ] Paired spec is approved. — re-opened 2026-07-13."),
+    "p.md",
+  );
+  assert.equal(punctuated.ok, false);
+  const bold = gatePlanPreconditionBoxes(
+    preconditionsPlan("- [ ] **Required ADRs are accepted** — ADR-025 pending."),
+    "p.md",
+  );
+  assert.equal(bold.ok, false);
+});
+
+test("gatePlanPreconditionBoxes ignores scoped upstream-dependency boxes and other sections", () => {
+  // Plan-023/024-style boxes gate specific phases via their prose, not the
+  // whole plan — the governance scan must not halt on them. Unchecked task
+  // checkboxes outside §Preconditions are likewise out of scope.
+  const r = gatePlanPreconditionBoxes(
+    preconditionsPlan(
+      "- [x] Paired spec is approved\n- [ ] **(Tier 8 remainder only.)** Plan-007 exposes the daemon lifecycle API.\n- [ ] Apple Developer Program enrollment procured.",
+    ) + "\n## Tasks\n\n- [ ] **T1.1 — build the thing**\n",
+    "p.md",
+  );
+  assert.equal(r.ok, true);
+});
+
+test("gatePlanPreconditionBoxes passes a plan with no Preconditions section", () => {
+  assert.equal(gatePlanPreconditionBoxes(statusPlan("approved"), "p.md").ok, true);
+});
+
+test("runPreflight halts on an unchecked governance box under checkStatusPromotion, before the phase walk", () => {
+  const repo = makeTempRepo();
+  const skillMd = join(repo, ".claude", "skills", "plan-execution", "SKILL.md");
+  writeFileSync(skillMd, `---\nname: test\nrequires_files: []\n---\n\nbody`);
+  const planFile = join(repo, "docs", "plans", "010-test.md");
+  // Approved status + ticked audit box + unchecked paired-spec box and NO
+  // phase sections: the box halt must precede the "no Phase headers" exit-2
+  // path — the exact fail-open Codex reproduced on Plan-010 (status row
+  // green, box unchecked, Phase 1 selected).
+  writeFileSync(
+    planFile,
+    `# Plan-010\n\n| Field | Value |\n| --- | --- |\n| **Status** | \`approved\` |\n\n## Preconditions\n\n- [ ] Paired spec is approved — re-opened 2026-07-13.\n- [x] **Plan-readiness audit complete per runbook.\n`,
+  );
+  const gated = runPreflight(planFile, undefined, {
+    repoRoot: repo,
+    skillMd,
+    checkStatusPromotion: true,
+  });
+  assert.equal(gated.exit, 1);
+  assert.match(gated.stdout, /plan-governance precondition unchecked \(Gate 7\)/);
+  // Programmatic default (checkStatusPromotion unset) skips the scan and
+  // falls through to the phase walk's exit-2, keeping fixture suites green.
+  const ungated = runPreflight(planFile, undefined, { repoRoot: repo, skillMd });
+  assert.equal(ungated.exit, 2);
 });
 
 // ---------- external_plan_phase_merged (R-phase gates — Codex r4, PR #193) ----------
@@ -2973,6 +3079,9 @@ test("CLI entry: review-status plan halts at Gate 7 by default; --allow-unpromot
     [PREFLIGHT_CLI, planFile, "--allow-unpromoted", "--allow-stale-manifest"],
     { encoding: "utf8" },
   );
-  assert.match(skipped.stderr, /Gate 7 \(status promotion\) SKIPPED via --allow-unpromoted/);
+  assert.match(
+    skipped.stderr,
+    /Gate 7 \(status promotion \+ governance preconditions\) SKIPPED via --allow-unpromoted/,
+  );
   assert.doesNotMatch(String(skipped.stdout), /plan not promoted/);
 });
