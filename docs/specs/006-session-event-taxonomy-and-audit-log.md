@@ -550,7 +550,7 @@ Shared-terminal write-lease transitions ([Spec-003 §Required Behavior](./003-ru
 
 | Type | Description | Payload |
 | --- | --- | --- |
-| `pty.control_changed` | The shared-terminal write lease changed hands or was freed. `holderParticipantId: null` means the lease is free (writes refused until re-acquired). | `{sessionId, holderParticipantId: ParticipantId \| null, previousHolderParticipantId: ParticipantId \| null, reason: 'taken' \| 'released' \| 'auto_released_disconnect'}` |
+| `pty.control_changed` | The shared-terminal write lease changed hands or was freed. `holderParticipantId: null` means the lease is free (writes refused until re-acquired). | `{sessionId, holderParticipantId: ParticipantId \| null, previousHolderParticipantId: ParticipantId \| null, reason: 'taken' \| 'released' \| 'auto_released_disconnect' \| 'auto_released_role_downgrade'}` |
 
 ### Reserved Family: `realtime_*`
 

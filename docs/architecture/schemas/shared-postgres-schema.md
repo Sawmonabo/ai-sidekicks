@@ -10,7 +10,7 @@ Canonical schema for the collaboration control plane's shared Postgres database.
 
 Per [ADR-017: Shared Event-Sourcing Scope](../../decisions/017-shared-event-sourcing-scope.md), this schema declares the following invariants that constrain all downstream table additions:
 
-1. **Coordination records only.** Shared Postgres stores session metadata, memberships, invites, presence history, runtime-node attachments, session-directory entries, relay-connection records, notification preferences, health snapshots, event-log anchors (Merkle-root witnesses, not event payloads), cross-node dispatch coordination rows, and artifact-relay blob-store coordination rows (blob metadata + per-participant wrapped CEKs — ciphertext key envelopes and delivery/lease state, never event payloads and never the chunk bytes, which live in the deployment's object store). It does **not** store event payloads.
+1. **Coordination records only.** Shared Postgres stores session metadata, memberships, invites, presence history, runtime-node attachments, session-directory entries, relay-connection records, notification preferences, health snapshots, event-log anchors (Merkle-root witnesses, not event payloads), cross-node dispatch coordination rows, session terminal-lease coordination rows (current holder only — the `pty.control_changed` event stream stays daemon-local), and artifact-relay blob-store coordination rows (blob metadata + per-participant wrapped CEKs — ciphertext key envelopes and delivery/lease state, never event payloads and never the chunk bytes, which live in the deployment's object store). It does **not** store event payloads.
 2. **No `session_events_shared`, `session_events_global`, or equivalent cross-participant event table exists in V1.** The absence is intentional, not an oversight. Grepping this file for `session_events_shared` must return this invariant note — never a table definition. Proposals to add one are out of V1 scope.
 3. **Per-daemon local `session_events` is authoritative** per ADR-017 and [local-sqlite-schema.md](./local-sqlite-schema.md). Each daemon owns its own event log with its own monotonic sequence number; cross-participant audit is federated via log export and merge per [Data Architecture §Federated audit model](../data-architecture.md#event-sourcing-scope).
 4. **Supersession gates.** Introducing a shared session-event table requires (a) an ADR superseding ADR-017, and (b) completion of the MLS promotion gates named in [ADR-010 §MLS Promotion Criteria](../../decisions/010-paseto-webauthn-mls-auth.md) — audit visibility, interop tests, and the 4-week soak requirement — because a shared event table is meaningful only if payload-level privacy is carried by group-keyed encryption rather than per-pair PASETO wrapping.
@@ -500,6 +500,27 @@ CREATE INDEX idx_event_log_anchors_node ON event_log_anchors(node_id, anchored_a
 ```
 
 **Verification**: an audit reader resolves the emitting daemon's Ed25519 public key from the session participant roster (keyed by `node_id` with validity windows for rotation per [ADR-010](../../decisions/010-paseto-webauthn-mls-auth.md)) and checks `root_signature` against `merkle_root`. Anchor cadence defaults (`ANCHOR_INTERVAL_EVENTS = 1000` events or `ANCHOR_INTERVAL_SECONDS = 300` seconds, whichever first) are set in [Spec-006 § Integrity Protocol](../../specs/006-session-event-taxonomy-and-audit-log.md#integrity-protocol).
+
+---
+
+## Session Terminal Lease (Plan-024)
+
+Per-session shared-terminal write-lease coordination record ([Spec-003 §Required Behavior](../../specs/003-runtime-node-attach.md#required-behavior), campaign B4) — the current holder only, projected by the `runtimenode.roster` join as `RuntimeNodeRosterResponse.controlHolder`. **Forward-declared:** the additive migration ships with the Plan-024 Phase 3B lease leg (campaign B16), per the [cross-plan-dependencies §3 forward assignment](../cross-plan-dependencies.md); the DDL is pinned here so the roster projection, the erasure fan-out, and the Phase 3B migration share one canonical shape. Invariant-compliant by construction: a single current-state row per session (same coordination tier as `runtime_node_presence`), never an event log — the `pty.control_changed` transition stream stays in the daemon-local event store per ADR-017.
+
+```sql
+-- Owner: Plan-024 (Phase 3B / campaign B16 ships the additive migration)
+CREATE TABLE session_terminal_leases (
+  session_id            UUID PRIMARY KEY REFERENCES sessions(id),
+  holder_participant_id UUID REFERENCES participants(id) ON DELETE SET NULL,  -- NULL = lease free (writes refused; Spec-003 null-holder-refuses-writes)
+  transitioned_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_session_terminal_leases_holder ON session_terminal_leases(holder_participant_id);
+```
+
+**Write model (single producer).** The terminal-owning daemon is the sole lease authority ([Spec-003 §Required Behavior](../../specs/003-runtime-node-attach.md#required-behavior)): it adjudicates every take/release and publishes each transition over its attach transport; the control plane persists what the daemon publishes (per-session upsert). Because exactly one daemon owns a session's terminal, writes to a given row are serialized at the producer — no cross-writer lock ordering exists on this table. The holder is cleared by the daemon-published auto-releases (holder presence/attachment drop; holder role downgrade out of the authorized set — Spec-003), and `idx_session_terminal_leases_holder` serves exactly the three holder-keyed sweeps: presence-drop clear, role-downgrade clear, and the erasure selector below.
+
+**GDPR erasure (anonymize via `ON DELETE SET NULL` — the sixth anonymize-class FK).** `holder_participant_id` is born nullable + `ON DELETE SET NULL` at its Phase 3B build (no ALTER — the table does not exist before that migration, the same born-correct pattern as `artifact_relay_blobs.publisher_participant_id`). A participant hard-DELETE auto-nulls the holder, which IS the correct lease semantics — the lease frees (null-holder-refuses-writes, fail-closed) while the row survives as session coordination state; the daemon's own presence-drop auto-release converges on the same NULL, so erasure and auto-release are idempotent with each other. Canonical dispositions: [Spec-022 §Shred Fan-Out](../../specs/022-data-retention-and-gdpr.md#shred-fan-out); operator verification in the [GDPR Manual Erasure Runbook](../../operations/gdpr-manual-erasure-runbook.md).
 
 ---
 
