@@ -32,7 +32,7 @@ Plan-006 is the canonical emitter of the `event_maintenance` and `audit_integrit
 
 ## Preconditions
 
-- [x] Paired spec is approved — **dated gate note (2026-07-06, campaign class-completion via B6):** the paired spec is temporarily `review` for its campaign amendment window (B1 amendment, 2026-07-02); this box records the audit-time state, and code dispatch for amendment surfaces stays blocked until the campaign's Task-28 / W1.5 batch re-promotion restores `approved`.
+- [ ] Paired spec is approved — **re-opened 2026-07-13 (class sweep; supersedes the 2026-07-06 checked-box gate note):** the paired spec is temporarily `review` for its campaign amendment window (B1 amendment, 2026-07-02), so this precondition is not currently satisfied. Tasks tracing to the previously-approved Spec-006 content (the audit basis) stay covered; amendment-surface code dispatch waits for the campaign's Task-28 / W1.5 batch re-promotion to restore `approved`, which re-checks this box.
 - [x] Required ADRs are accepted
 - [x] Blocking open questions are resolved or explicitly deferred
 - [x] **Plan-readiness audit complete per [`docs/operations/plan-implementation-readiness-audit-runbook.md`](../operations/plan-implementation-readiness-audit-runbook.md)** — Tier 4 audit (NS-16 / PR #124), audit synthesis 2026-05-28; per-task Gate-4 traceability sub-bullets (a `Spec coverage` + `Verifies invariant` pair on each Phase 1–4 task) completed 2026-06-14 — the audit's per-task-traceability deliverable, outstanding from the 2026-05-28 synthesis; see [Status Promotion Gate §1](../operations/plan-implementation-readiness-audit-runbook.md#status-promotion-gate).

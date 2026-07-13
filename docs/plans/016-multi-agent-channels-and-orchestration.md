@@ -31,7 +31,7 @@ This plan covers channel creation and lifecycle, the agent attach/detach/config 
 
 ## Preconditions
 
-- [x] Paired spec is approved — **campaign gate note (2026-07-06, B6): Spec-016 returned to `review` for the B6 amendment window, so this precondition is NOT currently satisfied; goal/budget/subagent code dispatch waits for the campaign W1.5 batch re-promotion, which restores `approved` and retires this note.**
+- [ ] Paired spec is approved — **re-opened 2026-07-13 (class sweep — the box now records the unsatisfied state its 2026-07-06 B6 note already declared): Spec-016 is `review` for the B6 amendment window; goal/budget/subagent code dispatch waits for the campaign W1.5 batch re-promotion, which restores `approved` and re-checks this box.**
 - [x] Required ADRs are accepted
 - [x] Blocking open questions are resolved or explicitly deferred
 - [x] **Plan-readiness audit complete per [runbook](../operations/plan-implementation-readiness-audit-runbook.md)** — Tier-6 audit (2026-06-10), this rewrite: 76 findings adjudicated (A-016-1..31) ratifying D-016-1..20; four-phase `#### Tasks` structure authored; Spec-016 / Spec-006 (census 126 → 130) / Spec-023 / domain-doc / run-state-machine amendments landed in the same audit PR.
