@@ -550,7 +550,7 @@ Shared-terminal write-lease transitions ([Spec-003 §Required Behavior](./003-ru
 
 | Type | Description | Payload |
 | --- | --- | --- |
-| `pty.control_changed` | The shared-terminal write lease changed hands or was freed. `holderParticipantId: null` means the lease is free (writes refused until re-acquired). | `{sessionId, holderParticipantId: ParticipantId \| null, previousHolderParticipantId: ParticipantId \| null, reason: 'taken' \| 'released' \| 'auto_released_disconnect' \| 'auto_released_role_downgrade'}` |
+| `pty.control_changed` | The shared-terminal write lease changed hands or was freed. `holderParticipantId: null` means the lease is free (writes refused until re-acquired). Authored by the terminal-owning daemon on **every** lease transition — take (`taken`), holder release (`released`), disconnect auto-release (`auto_released_disconnect`), and the authorization-loss force-clear (`auto_released_authorization_lost`: a `membership.role_changed` out of the authorized set, `membership.suspended`, or `membership.revoked` strips the holder, per [Spec-003 §Required Behavior](003-runtime-node-attach.md#required-behavior)); the lease record never changes without this event, so clients and replay always see a forced release. | `{sessionId, holderParticipantId: ParticipantId \| null, previousHolderParticipantId: ParticipantId \| null, reason: 'taken' \| 'released' \| 'auto_released_disconnect' \| 'auto_released_authorization_lost'}` |
 
 ### Reserved Family: `realtime_*`
 

@@ -307,7 +307,7 @@ Candidate implementations under evaluation include OpenMLS (Rust, MIT) and mls-r
 | Send messages / create runs | Yes | Yes (with approval) | No | No |
 | Queue work items | Yes | Yes | No | No |
 | Steer/interrupt/cancel runs | Yes | Yes (own runs) | No | No |
-| Take terminal control (release is holder-gated, role-independent — a holder demoted mid-hold can still relinquish during the demotion-signal window, and the downgrade itself force-clears an active lease on arrival at the lease authority, per Spec-003 §Required Behavior) | Yes | Yes | No | No |
+| Take terminal control (release is holder-gated, role-independent — a holder stripped of authorization mid-hold, by demotion, suspension, or revocation, can still relinquish during the signal-propagation window, and the membership transition itself force-clears an active lease on arrival at the lease authority, per Spec-003 §Required Behavior) | Yes | Yes | No | No |
 | Set/clear session goal | Yes | Yes | No | No |
 | **Approvals** |  |  |  |  |
 | Configure approval policies | Yes | No | No | No |
