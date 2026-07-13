@@ -106,7 +106,7 @@ CREATE TABLE interventions (
   state                  TEXT NOT NULL DEFAULT 'requested'
                          CHECK(state IN ('requested', 'accepted', 'applied', 'rejected', 'degraded', 'expired')),
   payload                TEXT NOT NULL DEFAULT '{}', -- JSON: type-specific fields
-  expected_run_version   INTEGER NOT NULL,           -- MANDATORY fail-closed comparand (Spec-004:67 / Plan-004 D-004-2)
+  expected_run_version   INTEGER NOT NULL,           -- MANDATORY fail-closed comparand (Spec-004 §Interfaces And Contracts / Plan-004 D-004-2)
   client_idempotency_key TEXT NOT NULL,              -- MANDATORY requester-generated UUID (participant client or daemon system-origination); replay-or-conflict intervention dedupe (Spec-005 §Required Behavior, campaign B3)
   result                 TEXT,                       -- JSON: outcome details
   initiator_id           TEXT,                       -- participant or system

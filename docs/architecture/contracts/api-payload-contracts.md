@@ -646,9 +646,9 @@ Refusals are typed in [Error Contracts §PTY](./error-contracts.md#pty): role au
 // §Default Behavior forward-compat: "Unknown capability fields are ignored (tolerant
 // reader)" — campaign B3 re-framed contractVersion as change-detection, not negotiation),
 // while the result envelopes reject unknown keys (`.strict()`);
-// and all eight untrusted provider-output free-form strings (`ProviderToolMetadata.name`/`.description`,
+// and all nine untrusted provider-output free-form strings (`ProviderToolMetadata.name`/`.description`,
 // `DriverInterventionResult.fallbackAction`, `DriverResumeResult.bindingId`/`.providerFailureDetail`,
-// `DriverRollbackResult.fallbackAction`, `DriverGoalResult.fallbackAction`,
+// `DriverRollbackResult.fallbackAction`/`.bindingId`, `DriverGoalResult.fallbackAction`,
 // `DriverAuthProbeResult.detail`) — each on a Zod-validated result envelope or `ProviderToolMetadata`
 // above — are runtime-bounded (length + non-whitespace + NUL-rejection) via the package's `wireFreeFormString`
 // helper — Zod constraints not expressible in these TS interface shapes.
@@ -781,7 +781,7 @@ interface RollbackToParams {
 type DriverRollbackResult =
   // A successful rollback without a confirmed floor is structurally inexpressible (mirrors
   // `DriverResumeResult`): position-compares consume it per Spec-015 via campaign B5/B14.
-  | { status: "applied"; sessionPosition: number; bindingId?: string } // sessionPosition: REQUIRED driver-confirmed post-rollback position — the new authoritative recovery floor. bindingId (campaign B2): present iff the mechanism minted a new provider binding for the same run (Claude fork-composed leg) — the daemon repoints the run's live binding on receipt; absent on an in-place rollback (Codex thread/rollback)
+  | { status: "applied"; sessionPosition: number; bindingId?: string } // sessionPosition: REQUIRED driver-confirmed post-rollback position — the new authoritative recovery floor. bindingId (campaign B2): present iff the mechanism minted a new provider binding for the same run (Claude fork-composed leg) — the daemon repoints the run's live binding on receipt; absent on an in-place rollback (Codex thread/rollback); runtime-bounded (length + non-whitespace + NUL-rejection) like `DriverResumeResult.bindingId` — the trust-boundary header's nine-string enumeration above
   | { status: "degraded"; fallbackAction?: string };
 
 // Session-goal injection (campaign B3). `goalText` is the daemon-rendered textual form of the
@@ -1318,7 +1318,7 @@ type InterventionRequestPayload =
 interface InterventionRequestResponse {
   interventionId: InterventionId;
   state: InterventionState;
-  runVersion: number; // post-application run counter (D-004-1) — the caller threads this into the next intervention's `expectedRunVersion`. Carried on the response because an applied native steer advances the run version WITHOUT a `run.*` state change (Spec-004:90), so for that path the response is the only place the caller can read the fresh comparand.
+  runVersion: number; // post-application run counter (D-004-1) — the caller threads this into the next intervention's `expectedRunVersion`. Carried on the response because an applied native steer advances the run version WITHOUT a `run.*` state change (Spec-004 §Driver-Level Steer Mechanics), so for that path the response is the only place the caller can read the fresh comparand.
   result?: Record<string, unknown>;
 }
 
@@ -1394,7 +1394,7 @@ interface DriverAskEvent {
   response?: unknown;
 }
 
-// Run-control mutations (Spec-004:43-45). `pause` interrupts the active run + persists conversation/run
+// Run-control mutations (Spec-004 §Required Behavior). `pause` interrupts the active run + persists conversation/run
 // state + queues a resume (orchestration-layer, never driver-gated per I-004-10); `resume` returns the
 // `paused` run to active execution with the SAME run id. Both carry a MANDATORY `expectedRunVersion`
 // optimistic-concurrency guard with the SAME fail-closed semantics as InterventionRequestPayload: a stale
