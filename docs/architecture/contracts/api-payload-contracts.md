@@ -146,7 +146,7 @@ type RunFailureCategory =
   | "projection failure";
 
 type QueueItemState = "queued" | "admitted" | "superseded" | "canceled" | "expired";
-type InterventionType = "steer" | "interrupt" | "cancel";
+type InterventionType = "steer" | "interrupt" | "cancel" | "rollback"; // rollback: campaign B2 (Spec-004 §Required Behavior). Code-mirror gate: the shipped provider-driver.ts union stays three-membered until the campaign's Plan-005 bundle widens union + consumers together (same gate pattern as DriverCapabilityFlag below)
 type InterventionState = "requested" | "accepted" | "applied" | "rejected" | "degraded" | "expired";
 
 type ApprovalCategory =
@@ -181,7 +181,7 @@ type DriverCapabilityFlag =
   | "reasoning_stream"
   | "model_mutation"
   | "structured_output" // schema-constrained final output (Spec-005 §Per-Driver Capability Matrix, campaign B3)
-  | "rollback" // conversation rollback via rollbackTo (campaign B3; the rollback InterventionType is Spec-004 content, campaign B2)
+  | "rollback" // conversation rollback via rollbackTo (campaign B3; the rollback InterventionType member landed via campaign B2)
   | "session_goals" // setSessionGoal / clearSessionGoal (campaign B3)
   | "callback_tools" // daemon-curated callback-tool registry (campaign B3)
   | "subagents" // provider-native in-session subagents under subagentPolicy (campaign B3)
@@ -718,7 +718,10 @@ interface InterruptRunParams {
 // Behavior, campaign B3): the daemon dedupes on it (replay-or-conflict), and it rides
 // through to the driver so provider-remote invocations that honor dedupe keys receive
 // it (the `compensable` propagation pattern, Spec-005 §Tool Metadata). Same field set
-// as the InterventionRequestPayload union below.
+// as the steer / interrupt / cancel arms of the InterventionRequestPayload union below —
+// the `rollback` arm (campaign B2) deliberately has NO ApplyInterventionParams counterpart:
+// its driver leg is the dedicated capability-gated `rollbackTo` parity operation
+// (§Plan-005 below; Spec-004 §Interfaces And Contracts).
 type ApplyInterventionParams =
   | {
       type: "steer";
@@ -778,7 +781,7 @@ interface RollbackToParams {
 type DriverRollbackResult =
   // A successful rollback without a confirmed floor is structurally inexpressible (mirrors
   // `DriverResumeResult`): position-compares consume it per Spec-015 via campaign B5/B14.
-  | { status: "applied"; sessionPosition: number } // REQUIRED driver-confirmed post-rollback position — the new authoritative recovery floor
+  | { status: "applied"; sessionPosition: number; bindingId?: string } // sessionPosition: REQUIRED driver-confirmed post-rollback position — the new authoritative recovery floor. bindingId (campaign B2): present iff the mechanism minted a new provider binding for the same run (Claude fork-composed leg) — the daemon repoints the run's live binding on receipt; absent on an in-place rollback (Codex thread/rollback)
   | { status: "degraded"; fallbackAction?: string };
 
 // Session-goal injection (campaign B3). `goalText` is the daemon-rendered textual form of the
@@ -796,7 +799,7 @@ interface SetSessionGoalParams {
   // posture relaunch mints a new binding for the same run) — so the BINDING is the leg key,
   // matching the durable intent's per-leg map. The driver resolves its provider session from
   // the binding it established at createSession/resumeSession (DriverResumeResult already
-  // returns bindingId); runId rides along for run-scoped context and telemetry.
+  // returns bindingId; a fork-composed rollback repoints it via DriverRollbackResult.applied.bindingId — campaign B2); runId rides along for run-scoped context and telemetry.
   bindingId: string;
   runId: RunId;
   goalText: string;
@@ -1297,6 +1300,16 @@ type InterventionRequestPayload =
       expectedRunVersion: number;
       clientIdempotencyKey: string;
       reason?: string;
+    }
+  | {
+      // campaign B2 (Spec-004 §Required Behavior). Full wire member — same guards, same
+      // lifecycle — but the driver leg is the dedicated `rollbackTo` parity operation
+      // (RollbackToParams below), never an ApplyInterventionParams arm.
+      type: "rollback";
+      targetRunId: RunId;
+      expectedRunVersion: number;
+      clientIdempotencyKey: string;
+      targetPosition: number; // normalized session position (RollbackToParams.position vocabulary); the accepted value serializes identically onto run.rolled_back (Spec-006 §Run Lifecycle)
     };
 
 // On an idempotent replay (same clientIdempotencyKey, identical payload) this response is
@@ -1305,7 +1318,7 @@ type InterventionRequestPayload =
 interface InterventionRequestResponse {
   interventionId: InterventionId;
   state: InterventionState;
-  runVersion: number; // post-application run counter (D-004-1) — the caller threads this into the next intervention's `expectedRunVersion`. Carried on the response because an applied native steer advances the run version WITHOUT a `run.*` state change (Spec-004:85), so for that path the response is the only place the caller can read the fresh comparand.
+  runVersion: number; // post-application run counter (D-004-1) — the caller threads this into the next intervention's `expectedRunVersion`. Carried on the response because an applied native steer advances the run version WITHOUT a `run.*` state change (Spec-004:90), so for that path the response is the only place the caller can read the fresh comparand.
   result?: Record<string, unknown>;
 }
 
@@ -1316,7 +1329,7 @@ interface InterventionRequestResponse {
 // reason for the failure without re-querying the driver. Plan-005 CP-005-5; Plan-006 Phase 3 audit.
 interface RunStateChangeEvent {
   runId: RunId;
-  runVersion: number; // run-progression counter (D-004-1): the optimistic-concurrency comparand clients read via run.subscribeState and pass back as `expectedRunVersion`. Advances on every run progression, applied interventions included. A no-state-change advance (e.g. native steer) is NOT emitted as a discrete run.subscribeState event (no transition to record, Spec-004:85), so a non-intervening subscriber may hold a stale comparand until its next guarded request is correctly rejected `expired`, whereupon it re-reads run-state and retries (reject→re-read→retry; V1 adds no broadcast push for no-state-change bumps — Spec-006 §Security Events / Run Lifecycle). Distinct from the immutable EventEnvelope `.version` (Spec-006 §EventEnvelope Version Semantics) — that is the wire-contract semver; this is the run aggregate's concurrency token.
+  runVersion: number; // run-progression counter (D-004-1): the optimistic-concurrency comparand clients read via run.subscribeState and pass back as `expectedRunVersion`. Advances on every run progression, applied interventions included. A no-state-change advance (e.g. native steer) is NOT emitted as a discrete run.subscribeState event (no transition to record, Spec-004:90), so a non-intervening subscriber may hold a stale comparand until its next guarded request is correctly rejected `expired`, whereupon it re-reads run-state and retries (reject→re-read→retry; V1 adds no broadcast push for no-state-change bumps — Spec-006 §Security Events / Run Lifecycle). Distinct from the immutable EventEnvelope `.version` (Spec-006 §EventEnvelope Version Semantics) — that is the wire-contract semver; this is the run aggregate's concurrency token.
   previousState: RunState;
   currentState: RunState;
   failureCategory?: RunFailureCategory;
@@ -1381,7 +1394,7 @@ interface DriverAskEvent {
   response?: unknown;
 }
 
-// Run-control mutations (Spec-004:41-43). `pause` interrupts the active run + persists conversation/run
+// Run-control mutations (Spec-004:43-45). `pause` interrupts the active run + persists conversation/run
 // state + queues a resume (orchestration-layer, never driver-gated per I-004-10); `resume` returns the
 // `paused` run to active execution with the SAME run id. Both carry a MANDATORY `expectedRunVersion`
 // optimistic-concurrency guard with the SAME fail-closed semantics as InterventionRequestPayload: a stale

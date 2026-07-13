@@ -59,7 +59,7 @@ Intervention states (6 canonical states):
 | `accepted` | Determined to be valid for the target. |
 | `applied` | Successfully changed runtime or scheduling state. |
 | `rejected` | Determined to be invalid or unauthorized. Authorization failure produces `rejected`. |
-| `degraded` | The driver does not support the intervention type and the orchestration layer fell back (e.g., steer degrades to queue + interrupt for providers without native steer). |
+| `degraded` | The intervention took partial or fallback effect, with the outcome detail naming what degraded: the driver does not support the type natively and the orchestration layer fell back (e.g., steer degrades to queue + interrupt), or a multi-leg intervention's later leg failed after a confirmed earlier leg (rollback's file leg after a confirmed conversation rewind — campaign B2). |
 | `expired` | No longer meaningful because the target state changed first. Version guard mismatch produces `expired`. |
 
 ### Intervention State Transition Table
@@ -67,10 +67,10 @@ Intervention states (6 canonical states):
 | From | To | Trigger | Condition |
 | --- | --- | --- | --- |
 | `requested` | `accepted` | Valid target, authorized | Target run is in a state that accepts this intervention type |
-| `requested` | `rejected` | Invalid target or unauthorized | Target run state incompatible, or participant lacks permission |
+| `requested` | `rejected` | Invalid target, unauthorized, or static capability refusal | Target run state incompatible, participant lacks permission, or the type has no documented fallback under a driver capability exclusion (`driver.capability_unsupported` — §Driver Result To Lifecycle Mapping) |
 | `requested` | `expired` | Version guard mismatch | `expectedRunVersion` does not match current run version |
 | `accepted` | `applied` | Driver successfully executed | Provider confirmed the intervention took effect |
-| `accepted` | `degraded` | Driver fallback used | Driver does not support this type natively; orchestration layer fell back |
+| `accepted` | `degraded` | Driver fallback used, or multi-leg partial effect | Driver does not support this type natively and the orchestration layer fell back; or a later leg failed after a confirmed earlier leg (rollback file leg, campaign B2) |
 | `accepted` | `expired` | Target state changed | Run transitioned between accept and apply (e.g., run completed before steer could be applied) |
 
 ## Intervention Entity Relationship
@@ -92,6 +92,7 @@ Intervention payloads are a discriminated union by type:
 - `steer`: `{targetRunId, expectedTurnId?, expectedRunVersion, clientIdempotencyKey, content, attachments?}`
 - `interrupt`: `{targetRunId, expectedRunVersion, clientIdempotencyKey, reason?}`
 - `cancel`: `{targetRunId, expectedRunVersion, clientIdempotencyKey, reason?}`
+- `rollback` (campaign B2): `{targetRunId, expectedRunVersion, clientIdempotencyKey, targetPosition}` — `targetPosition` is the normalized session position (a `number`) of the turn boundary to rewind to ([Spec-004 §Required Behavior](../specs/004-queue-steer-pause-resume.md#required-behavior))
 
 All intervention types carry a **mandatory** version guard (`expectedRunVersion`) — the guard is **fail-closed**: the comparand is required on every intervention request and an absent comparand is **rejected**, never applied (an optional guard would let a caller bypass stale-replay protection by omitting the field). See [Spec-004 §Interfaces And Contracts](../specs/004-queue-steer-pause-resume.md) and [Plan-004 D-004-2](../plans/004-queue-steer-pause-resume.md#ratified-design-decisions-tier-5-audit-2026-05-30). A guard mismatch produces `expired`. An authorization failure produces `rejected`.
 
@@ -130,7 +131,18 @@ The following field inventory maps each intervention payload to the canonical so
 | `clientIdempotencyKey` | yes | `InterventionRequestPayload` | `ApplyInterventionParams.clientIdempotencyKey` |
 | `reason` | no | `InterventionRequestPayload` (optional) | `CancelPayload.reason` (optional) |
 
+**`rollback` payload (campaign B2):**
+
+| Field | Required | Source: API Contracts | Source: Spec-005 driver boundary |
+| --- | --- | --- | --- |
+| `targetRunId` | yes | `InterventionRequestPayload` | daemon-resolved — the driver leg is addressed by provider session, not run (`RollbackToParams.sessionId`) |
+| `expectedRunVersion` | yes | `InterventionRequestPayload` | daemon-enforced pre-dispatch (Plan-004 D-004-2); never forwarded to the driver |
+| `clientIdempotencyKey` | yes | `InterventionRequestPayload` | daemon-enforced replay-or-conflict; never forwarded to the driver |
+| `targetPosition` | yes | `InterventionRequestPayload` | `RollbackToParams.position` |
+
 Note: The `ApplyInterventionParams` interface in Spec-005 splits the payload into `targetRunId`, `expectedRunVersion`, and `clientIdempotencyKey` at the top level and routes the remaining type-specific fields through `SteerPayload`, `InterruptPayload`, or `CancelPayload`. The `InterventionRequestPayload` in the API contracts flattens all fields into a single discriminated union. Both representations carry the same field set per intervention type. The `DriverInterventionResult` returned by the driver uses `status: 'applied' | 'degraded'` — the orchestration layer maps this to the full 6-state lifecycle per the normative table below.
+
+The `rollback` type (campaign B2) is the deliberate exception at the driver boundary: it is a full member of the `InterventionRequestPayload` union on the client→daemon wire, but its driver leg dispatches through the dedicated capability-gated `rollbackTo(RollbackToParams {sessionId, position})` parity operation returning `DriverRollbackResult` — not through `ApplyInterventionParams` ([Spec-004 §Interfaces And Contracts](../specs/004-queue-steer-pause-resume.md#interfaces-and-contracts), campaign B2; operation contract per [Spec-005](../specs/005-provider-driver-contract-and-capabilities.md), campaign B3). The daemon enforces both guards pre-dispatch and translates `targetRunId` into the run's bound provider session, which is why neither guard field appears in `RollbackToParams`. `DriverRollbackResult` maps into the same 6-state lifecycle per the normative table below (`applied {sessionPosition, bindingId?}` → `applied`, the optional `bindingId` repointing the run's live binding when the mechanism forked; `degraded {fallbackAction?}` → `degraded`), and the daemon's file-restore leg (Spec-010 turn-boundary snapshots, campaign B21) composes fail-closed around the driver leg per [Spec-004 §Required Behavior](../specs/004-queue-steer-pause-resume.md#required-behavior).
 
 ## Driver Result To Lifecycle Mapping
 
@@ -142,9 +154,9 @@ The driver-result and intervention-lifecycle vocabularies are distinct and map n
 | `rejected` | daemon (pre-dispatch) | Authorization failure or invalid target — the driver is never invoked |
 | `expired` | daemon | `expectedRunVersion` guard mismatch (pre-dispatch), or target state changed between accept and apply |
 | `applied` | driver → daemon | Driver returned `status: 'applied'` — the intervention took effect natively |
-| `degraded` | driver → daemon | Driver returned `status: 'degraded'` — the type is unsupported at the driver boundary and the orchestration layer fell back (`fallbackAction`) |
+| `degraded` | driver → daemon; or daemon (post-driver) | Driver returned `status: 'degraded'` — the type is unsupported at the driver boundary and the orchestration layer fell back (`fallbackAction`); or the daemon renders a multi-leg partial outcome — a rollback file leg failing after the driver's confirmed conversation leg (campaign B2), the outcome detail naming the partial state |
 
-Static capability refusal is a separate, earlier surface with a narrow carve-out: the daemon MAY refuse dispatch outright with `driver.capability_unsupported` ONLY for an intervention type that has no documented orchestration fallback under the excluded flag. A type with a documented fallback — e.g. `steer` under Claude's `steer: false`, which degrades to the queue+interrupt composite per Spec-005 §Per-Driver Capability Matrix — MUST enter the lifecycle and terminate `degraded`, so the fallback is recorded on the intervention row (`fallbackAction`); static refusal never substitutes for a documented degraded path ([Plan-005](../plans/005-provider-driver-contract-and-capabilities.md) adjudicates the static/dynamic split within that rule).
+Static capability refusal is a separate, earlier surface with a narrow carve-out: the daemon MAY refuse dispatch outright with `driver.capability_unsupported` ONLY for an intervention type that has no documented orchestration fallback under the excluded flag. A type with a documented fallback — e.g. `steer` under Claude's `steer: false`, which degrades to the queue+interrupt composite per Spec-005 §Per-Driver Capability Matrix — MUST enter the lifecycle and terminate `degraded`, so the fallback is recorded on the intervention row (`fallbackAction`); static refusal never substitutes for a documented degraded path ([Plan-005](../plans/005-provider-driver-contract-and-capabilities.md) adjudicates the static/dynamic split within that rule). `rollback` (campaign B2) sits on the static side of that split: it has **no documented orchestration fallback** — a synthesized rollback (replaying truncated history into a fresh run) would violate [Spec-004 §Required Behavior](../specs/004-queue-steer-pause-resume.md#required-behavior)'s same-run resurrection invariant — so a driver whose capabilities exclude the `rollback` flag is refused statically with `driver.capability_unsupported`, recorded as lifecycle `rejected`.
 
 ## Boundary: Interventions vs Interactive Requests
 
@@ -153,6 +165,7 @@ Static capability refusal is a separate, earlier surface with a narrow carve-out
 - The two never overlap: a steer targets a `running` state, a response targets a `waiting_for_input` state.
 - `interrupt` intervention targets `running` specifically — it stops active computation.
 - `cancel` intervention targets any non-terminal state — it ends the run regardless of whether it is `running`, `paused`, or waiting.
+- `rollback` intervention (campaign B2) targets `paused`, the two waiting states (voiding the pending approval or input block), and the three terminal states — the only intervention legal against a terminal run; a `running` target is paused first ([Spec-004 §Required Behavior](../specs/004-queue-steer-pause-resume.md#required-behavior); [Run State Machine §Rollback Transitions](run-state-machine.md#rollback-transitions-campaign-b2)).
 - Queue-item cancellation (`QueueItemCancel`) is separate from `cancel` intervention — `QueueItemCancel` targets queue items that have not yet been admitted as runs, while `cancel` intervention targets runs that already exist in the run state machine.
 
 ## Example Flows

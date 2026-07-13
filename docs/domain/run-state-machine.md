@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Define the canonical lifecycle of a run so queueing, steering, pause and resume, approvals, interruption, and failure semantics are unambiguous.
+Define the canonical lifecycle of a run so queueing, steering, pause and resume, approvals, interruption, rollback, and failure semantics are unambiguous.
 
 ## Scope
 
@@ -12,7 +12,7 @@ This document covers run states, transition rules, and the meaning of control ac
 
 - `RunState`: the authoritative lifecycle state of a run.
 - `BlockingState`: a non-terminal run state that requires external input before normal progress can continue.
-- `TerminalState`: a run state from which the run does not continue.
+- `TerminalState`: a run state from which the run does not continue under normal forward execution. The only exit is the `rollback` intervention (§Rollback Transitions, campaign B2), which re-opens the same run at an earlier position.
 - `RunFailureCategory`: a machine-readable classification that explains why a run failed or degraded without creating a new run state.
 - `RecoveryCondition`: a derived signal that explains whether recovery still requires operator or participant action.
 - `RunHealthSignal`: a derived signal such as `stuck-suspected` that helps operators reason about a live run without changing the canonical `RunState`.
@@ -31,7 +31,7 @@ The run state machine is the source of truth for execution lifecycle semantics.
 ## Invariants
 
 - A run has exactly one current state at a time.
-- A run enters exactly one terminal state.
+- A run enters at most one terminal state per execution epoch — the interval between rollback applications (campaign B2). A rollback out of a terminal state re-opens the run, and any later terminal event carries a higher `runVersion`, so the at-most-once terminal emission keyed on `(runId, runVersion)` ([Spec-006 §Run Lifecycle](../specs/006-session-event-taxonomy-and-audit-log.md#run-lifecycle-run_lifecycle), campaign B1) is preserved across epochs. Absent rollback, a run enters exactly one terminal state.
 - `resume` is valid only from `paused`.
 - Reattach after reconnect is not the same thing as `resume`.
 - Waiting for approval or input keeps the same run id; it does not create a replacement run.
@@ -78,6 +78,11 @@ Primary allowed transitions:
 - `waiting_for_approval -> failed` (provider or transport failure while waiting)
 - `waiting_for_input -> failed` (provider or transport failure while waiting)
 - `paused -> failed` (resume handle lost or recovery exhausted)
+- `waiting_for_approval -> paused` (rollback intervention — campaign B2)
+- `waiting_for_input -> paused` (rollback intervention — campaign B2)
+- `completed -> paused` (rollback intervention; the only exit from a terminal state — campaign B2)
+- `interrupted -> paused` (rollback intervention; the only exit from a terminal state — campaign B2)
+- `failed -> paused` (rollback intervention; the only exit from a terminal state — campaign B2)
 
 ## Recovery Transitions
 
@@ -92,6 +97,17 @@ Decision rule — `interrupted` vs `failed` vs `waiting_for_input` during recove
 - `interrupted`: the run had a pending user-initiated stop. The user's intent was to end the run; recovery honours that intent — this outcome takes precedence over the other two.
 - `failed`: recovery itself fails with no prior user-initiated stop. The run did not end on its own terms.
 - `waiting_for_input`: recovery resumed the provider session but the reported position diverged from the daemon-recorded position; the local log is authoritative and a human decides how to reconcile (`recovery-needed` — Spec-015 §Fallback Behavior, campaign B5).
+
+## Rollback Transitions (campaign B2)
+
+The `rollback` intervention ([Spec-004 §Required Behavior](../specs/004-queue-steer-pause-resume.md#required-behavior) — R8 run time-travel, V1 feature #19) rewinds a run to an earlier turn boundary within the same run id. Rollback is legal from `paused`, `waiting_for_approval`, `waiting_for_input`, and the three terminal states, and always lands the run in `paused` at the rewound position:
+
+- From `paused`: rollback applies in place — the run stays `paused` at the new position. No self-transition row exists (§Implementation Note); the position change is carried by the forward `run.rolled_back` event, not a state transition.
+- From `waiting_for_approval` / `waiting_for_input`: rollback voids the pending block — the awaited approval or input request is canceled as moot when the turn that raised it is rewound — and the run transitions to `paused`.
+- From `completed` / `interrupted` / `failed`: rollback is the only exit from a terminal state. The run re-opens in `paused`; any later terminal event carries a higher `runVersion` (§Invariants).
+- From `running`: not directly legal — the orchestration layer first pauses the run (the existing pause path: interrupt + persist), then applies rollback from `paused` (pause-first, [Spec-004 §Required Behavior](../specs/004-queue-steer-pause-resume.md#required-behavior)); the pause is an unguarded internal sub-step of the atomic rollback application, whose `expectedRunVersion` guard was evaluated once at admission against the pre-pause version.
+
+Every rollback whose **conversation leg is confirmed** appends a forward `run.rolled_back` event ([Spec-006 §Run Lifecycle](../specs/006-session-event-taxonomy-and-audit-log.md#run-lifecycle-run_lifecycle)), advances `runVersion`, and lands the run in `paused` — **including a rollback whose file leg subsequently fails**: the intervention outcome reports the partial state, but the run state follows the confirmed conversation rewind, because recording anything else would silently diverge the daemon's position from the provider's ([Spec-004 §Required Behavior](../specs/004-queue-steer-pause-resume.md#required-behavior)). A state-changing rollback (terminal-exit or waiting-void) emits the `run.paused` state event for its transition alongside `run.rolled_back`; an in-place rollback from `paused` emits only `run.rolled_back` (no transition to record). The authoritative log never truncates or rewrites, and rolled-back turns stay queryable history marked superseded by projection ([ADR-017 Decision Log, 2026-07-02](../decisions/017-shared-event-sourcing-scope.md#decision-log)).
 
 ## Complete Transition Table
 
@@ -118,6 +134,11 @@ The following table is the single authoritative reference for every allowed run 
 | `paused` | `running` | Resume intervention | Resume handle valid and provider ready |
 | `paused` | `interrupted` | Interrupt or cancel intervention | User-initiated stop while paused |
 | `paused` | `failed` | Resume failure | Resume handle lost or recovery exhausted |
+| `waiting_for_approval` | `paused` | Rollback intervention | Conversation-leg-confirmed rollback voids the pending approval block (`approval.canceled`) and rewinds to `targetPosition`; the run lands `paused` (§Rollback Transitions, campaign B2) |
+| `waiting_for_input` | `paused` | Rollback intervention | Conversation-leg-confirmed rollback voids the pending input block (`driver_ask.canceled`) and rewinds to `targetPosition`; the run lands `paused` (§Rollback Transitions, campaign B2) |
+| `completed` | `paused` | Rollback intervention | Terminal-exit rollback re-opens the run at `targetPosition`; any later terminal event carries a higher `runVersion` (§Rollback Transitions, campaign B2) |
+| `interrupted` | `paused` | Rollback intervention | Terminal-exit rollback re-opens the run at `targetPosition`; any later terminal event carries a higher `runVersion` (§Rollback Transitions, campaign B2) |
+| `failed` | `paused` | Rollback intervention | Terminal-exit rollback re-opens the run at `targetPosition`; any later terminal event carries a higher `runVersion` (§Rollback Transitions, campaign B2) |
 | `queued` | `failed` | Startup reconciliation | Recovery fails with no prior user-initiated stop |
 | `queued` | `interrupted` | Startup reconciliation | Pending user-initiated stop recorded before crash |
 | `starting` | `failed` | Startup reconciliation | Recovery fails with no prior user-initiated stop |
@@ -157,6 +178,7 @@ The canonical run lifecycle has one failure terminal state: `failed`. Additional
 - Example: A daemon restarts during execution. Startup reconciliation detects the stale run and dispatches corrective commands to resume or fail it.
 - Example: A user stops an active run. The run transitions directly from `running` to `interrupted`.
 - Example: A user cancels a run via `applyIntervention(type: "cancel")`. The cancel intervention maps to the `interrupted` terminal state — cancel is a user-initiated interruption distinct from queue-level `QueueItemCancel`.
+- Example: A completed run is rolled back via `applyIntervention(type: "rollback")`. The run re-opens in `paused` at `targetPosition` with a forward `run.rolled_back` event appended (plus the `run.paused` state event for the `completed → paused` transition) and later turns marked superseded by projection; the user steers, resumes, and the run completes again — the second `run.completed` carries a higher `runVersion` (campaign B2).
 
 ## Child-Run Behavior
 
@@ -188,8 +210,8 @@ Implementation uses a hybrid approach: XState v5 for internal transition logic a
 Validation against the complete transition table:
 
 - All transitions are deterministic: a given trigger combined with its guard condition produces exactly one target state. No ambiguous transitions exist.
-- Guards required: version checks for interventions (ensuring stale interventions do not apply), recovery eligibility checks (determining whether a stale run can be safely resumed or must fail), and child-run independence guards (ensuring no code path auto-propagates a parent state change to children — non-cascade per §Child-Run Behavior; Tier-6 audit, Plan-016 A-016-17).
-- No self-transitions or history states are required. Every transition moves the run to a different state.
+- Guards required: version checks for interventions (ensuring stale interventions do not apply), recovery eligibility checks (determining whether a stale run can be safely resumed or must fail), rollback state-gating guards (legal source states per §Rollback Transitions with pause-first for `running` — campaign B2), and child-run independence guards (ensuring no code path auto-propagates a parent state change to children — non-cascade per §Child-Run Behavior; Tier-6 audit, Plan-016 A-016-17).
+- No self-transitions or history states are required. Every transition moves the run to a different state (a rollback applied from `paused` is not a transition — the run stays `paused` and the position change rides the forward `run.rolled_back` event, §Rollback Transitions).
 - The complete transition table is expressible in both XState v5 (as an explicit transition map with guard functions) and as a TypeScript discriminated union (where each state variant enumerates its valid next states at compile time).
 
 ## Related Specs
