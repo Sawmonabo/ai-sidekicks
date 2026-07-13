@@ -174,13 +174,13 @@ Every doc task's final steps invoke this procedure with its own branch/commit/fi
 
 ### Task 8: B7 — Spec-024 bundle (after Task 5)
 
-**Design contract:** §4 B7. **Files:** Modify `docs/specs/024-cross-node-dispatch-and-approval.md`.
+**Design contract:** §4 B7. **Files:** Modify `docs/specs/024-cross-node-dispatch-and-approval.md` (+ `docs/plans/027-cross-node-dispatch-and-approval.md` precondition gate note; `docs/plans/025-self-hostable-node-relay.md` 1-line inbound-cite bump). _Authoring note (2026-07-12 re-author on post-delta develop): the predicate landed **run-scoped** as `runHasPendingCrossNodeDispatch(runId)` — reconciled to the B6-landed Plan-016 T2.7 seam (PR #181), superseding the design's session-scoped name; the dispatch record carries its originating `runId`. The originally-recorded `packages/contracts/src/invites.ts` colon-cite heal was dropped: the develop durable-cite sweep had already anchor-formed that cite, leaving zero code-file hunks in this bundle._
 
-**Interfaces:** Consumes Task 5 (B3's `structured_output` capability flag, C-13 — the dispatch-result typing cites it). Produces — P1-3 session-half (idle-reap exemption for pending outbound dispatch; `sessionHasPendingCrossNodeDispatch` hard-skip; new AC after :228); R8 transport-parity note (cross-node dispatch = the Claude remote leg; dispatch results adopt C-13 `structured_output` typing). Table + schema row deliberately NOT here (Task 19/B17 owns them). Consumed by Task 19.
+**Interfaces:** Consumes Task 5 (B3's `structured_output` capability flag, C-13 — the dispatch-result typing cites it). Produces — P1-3 session-half (idle-reap exemption for pending outbound dispatch; `runHasPendingCrossNodeDispatch(runId)` hard-skip — run-scoped, landed name per B6's Plan-016 T2.7 seam; a new AC following the partner-detach AC); R8 transport-parity note (cross-node dispatch = the Claude remote leg; dispatch results adopt C-13 `structured_output` typing). Table + schema row deliberately NOT here (Task 19/B17 owns them). Consumed by Task 19.
 
-- [ ] **Step 1:** SBP-1 bundle=`b7`, branch=`docs/b7-spec024-liveness-transport`. Confirm Task 5 is merged (the `structured_output` flag exists).
-- [ ] **Step 2:** Author per Design §4 B7; re-verify :139/:228.
-- [ ] **Step 3:** SBP-3/4/5/6 — subject `docs(repo): spec-024 — dispatch liveness + transport parity (b7)`, trailer `Refs: Spec-024`.
+- [x] **Step 1:** SBP-1 bundle=`b7`, branch=`docs/b7-spec024-liveness-transport`. Confirm Task 5 is merged (the `structured_output` flag exists).
+- [x] **Step 2:** Author per Design §4 B7; re-verify :139/:228.
+- [x] **Step 3:** SBP-3/4/5/6 — subject `docs(repo): spec-024 — dispatch liveness + transport parity (b7)`, trailer `Refs: Spec-024`.
 
 ### Task 9: B8 — ADR bundle (one PR, five Decision-Log rows)
 
@@ -302,7 +302,7 @@ Every doc task's final steps invoke this procedure with its own branch/commit/fi
 
 **Design contract:** §4 W2 table, B17 row. **Files:** Modify `docs/plans/027-cross-node-dispatch-and-approval.md`, `docs/architecture/schemas/local-sqlite-schema.md` (`cross_node_pending_dispatch` row), `docs/architecture/cross-plan-dependencies.md` (§1 table-cell append; Plan-027→Plan-016 §3 edge).
 
-**Interfaces:** Consumes Task 8; **serialized after Task 15** — both edit `docs/architecture/schemas/local-sqlite-schema.md` (B11's backstop-index mirror lands first; the adversarial passes flagged this as the one unserialized same-wave co-edit, now a DAG edge). Produces — the pending-dispatch table (INSERT-before-relay-write ordering) + schema row; `sessionDispatchLiveness.ts` hard-skip predicate; **P-3 fix** (`runtime-node/` → `node/`). Consumed by Task 22.
+**Interfaces:** Consumes Task 8; **serialized after Task 15** — both edit `docs/architecture/schemas/local-sqlite-schema.md` (B11's backstop-index mirror lands first; the adversarial passes flagged this as the one unserialized same-wave co-edit, now a DAG edge). Produces — the pending-dispatch table (INSERT-before-relay-write ordering) + schema row; `sessionDispatchLiveness.ts` hard-skip predicate (module name coined under the superseded session-scoped design — confirm or rename, e.g. `dispatchLiveness.ts`, at execution; the predicate itself is run-scoped, `runHasPendingCrossNodeDispatch(runId)`, per B6's Plan-016 T2.7 seam); **P-3 fix** (`runtime-node/` → `node/`). Consumed by Task 22.
 
 - [ ] **Step 1:** SBP-1 bundle=`b17`, branch=`docs/b17-plan027-dispatch-liveness`. Confirm Task 15 is merged; rebase on current `develop` and re-check the schema-doc region before merge.
 - [ ] **Step 2:** Author per the B17 row; re-verify Plan-027 :48 (P-3 site); note the Plan-012 run-half seam (B13) in the amendment text; classification declared.

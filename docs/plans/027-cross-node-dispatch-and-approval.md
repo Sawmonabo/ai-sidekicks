@@ -29,7 +29,7 @@ This plan covers the caller-side dispatch client, target-side dispatch intake an
 
 ## Preconditions
 
-- [x] Paired spec is approved.
+- [x] Paired spec is approved. — **dated gate note (2026-07-06):** Spec-024 is temporarily `review` while the campaign B7 amendment (dispatch-liveness session half + transport-parity note) sits in its review window; the campaign plan's Task 28 batch re-promotion restores `approved` after the W1.5 spec gate, and this plan's code dispatch stays blocked until that restoration.
 - [x] Required ADRs are accepted.
 - [x] Blocking open questions are resolved or explicitly deferred.
 - [ ] Plan-003 has landed runtime-node attachment, roster, and capability declaration persistence.
