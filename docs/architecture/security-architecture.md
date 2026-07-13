@@ -289,35 +289,36 @@ Candidate implementations under evaluation include OpenMLS (Rust, MIT) and mls-r
 
 ### Permission Matrix (Task 5.4)
 
-| Action                        | `owner` | `collaborator`      | `runtime contributor` | `viewer` |
-| ----------------------------- | ------- | ------------------- | --------------------- | -------- |
-| **Session lifecycle**         |         |                     |                       |          |
-| Create session                | Yes     | No                  | No                    | No       |
-| Archive/close session         | Yes     | No                  | No                    | No       |
-| Configure session settings    | Yes     | No                  | No                    | No       |
-| **Membership**                |         |                     |                       |          |
-| Invite participants           | Yes     | No                  | No                    | No       |
-| Elevate member role           | Yes     | No                  | No                    | No       |
-| Suspend/revoke member         | Yes     | No                  | No                    | No       |
-| **Runtime nodes**             |         |                     |                       |          |
-| Attach own runtime node       | Yes     | Yes                 | Yes                   | No       |
-| Detach own runtime node       | Yes     | Yes                 | Yes                   | No       |
-| Detach another's runtime node | Yes     | No                  | No                    | No       |
-| **Runs and messaging**        |         |                     |                       |          |
-| Send messages / create runs   | Yes     | Yes (with approval) | No                    | No       |
-| Queue work items              | Yes     | Yes                 | No                    | No       |
-| Steer/interrupt/cancel runs   | Yes     | Yes (own runs)      | No                    | No       |
-| Set/clear session goal        | Yes     | Yes                 | No                    | No       |
-| **Approvals**                 |         |                     |                       |          |
-| Configure approval policies   | Yes     | No                  | No                    | No       |
-| Resolve approval requests     | Yes     | Yes (own scope)     | No                    | No       |
-| **Artifacts and workspace**   |         |                     |                       |          |
-| Publish artifacts             | Yes     | Yes                 | No                    | No       |
-| Attach repositories           | Yes     | Yes                 | No                    | No       |
-| **Read access**               |         |                     |                       |          |
-| Read timeline                 | Yes     | Yes                 | Yes (own node)        | Yes      |
-| Read artifacts                | Yes     | Yes                 | Yes (own node)        | Yes      |
-| Read presence                 | Yes     | Yes                 | Yes                   | Yes      |
+| Action | `owner` | `collaborator` | `runtime contributor` | `viewer` |
+| --- | --- | --- | --- | --- |
+| **Session lifecycle** |  |  |  |  |
+| Create session | Yes | No | No | No |
+| Archive/close session | Yes | No | No | No |
+| Configure session settings | Yes | No | No | No |
+| **Membership** |  |  |  |  |
+| Invite participants | Yes | No | No | No |
+| Elevate member role | Yes | No | No | No |
+| Suspend/revoke member | Yes | No | No | No |
+| **Runtime nodes** |  |  |  |  |
+| Attach own runtime node | Yes | Yes | Yes | No |
+| Detach own runtime node | Yes | Yes | Yes | No |
+| Detach another's runtime node | Yes | No | No | No |
+| **Runs and messaging** |  |  |  |  |
+| Send messages / create runs | Yes | Yes (with approval) | No | No |
+| Queue work items | Yes | Yes | No | No |
+| Steer/interrupt/cancel runs | Yes | Yes (own runs) | No | No |
+| Take terminal control (release is holder-gated, role-independent — a holder stripped of authorization mid-hold, by demotion, suspension, or revocation, can still relinquish during the signal-propagation window, and the membership transition itself force-clears an active lease on arrival at the lease authority, per Spec-003 §Required Behavior) | Yes | Yes | No | No |
+| Set/clear session goal | Yes | Yes | No | No |
+| **Approvals** |  |  |  |  |
+| Configure approval policies | Yes | No | No | No |
+| Resolve approval requests | Yes | Yes (own scope) | No | No |
+| **Artifacts and workspace** |  |  |  |  |
+| Publish artifacts | Yes | Yes | No | No |
+| Attach repositories | Yes | Yes | No | No |
+| **Read access** |  |  |  |  |
+| Read timeline | Yes | Yes | Yes (own node) | Yes |
+| Read artifacts | Yes | Yes | Yes (own node) | Yes |
+| Read presence | Yes | Yes | Yes | Yes |
 
 **Actions requiring approval regardless of role:**
 

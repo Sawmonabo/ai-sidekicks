@@ -544,13 +544,21 @@ Payload shape: `{nodeId, bundleId, bundleVersion}` (base). Per-event payload ext
 
 > See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed payload definitions.
 
+### PTY Control (`session_lifecycle`)
+
+Shared-terminal write-lease transitions ([Spec-003 §Required Behavior](./003-runtime-node-attach.md#required-behavior), campaign B4 2026-07-06). Authored by the terminal-owning daemon on every lease transition — take, release, and the auto-release it derives from the holder's presence/attachment drop. Family `session_lifecycle`: a session-surface control-state change, the same family as the channel mute/unmute rows (no new census category).
+
+| Type | Description | Payload |
+| --- | --- | --- |
+| `pty.control_changed` | The shared-terminal write lease changed hands or was freed. `holderParticipantId: null` means the lease is free (writes refused until re-acquired). Authored by the terminal-owning daemon on **every** lease transition — take (`taken`), holder release (`released`), disconnect auto-release (`auto_released_disconnect`), and the authorization-loss force-clear (`auto_released_authorization_lost`: a `membership.role_changed` out of the authorized set, `membership.suspended`, or `membership.revoked` strips the holder, per [Spec-003 §Required Behavior](003-runtime-node-attach.md#required-behavior)); the lease record never changes without this event, so clients and replay always see a forced release. | `{sessionId, holderParticipantId: ParticipantId \| null, previousHolderParticipantId: ParticipantId \| null, reason: 'taken' \| 'released' \| 'auto_released_disconnect' \| 'auto_released_authorization_lost'}` |
+
 ### Reserved Family: `realtime_*`
 
 Reserved, no types registered (B1): realtime/voice channel events are gated behind the R8 capability gate — the upstream provider realtime flag has not stabilized, so no emitter, payload shape, or type enumeration is invented here. The family name is reserved in the census so a future registration is additive rather than a rename.
 
 ### Event Type Summary
 
-Total enumerated event types: **140** <!-- corpus:total-check column="Count" prose-total="Total enumerated event types" -->
+Total enumerated event types: **141** <!-- corpus:total-check column="Count" prose-total="Total enumerated event types" -->
 
 | Category | Count | Types |
 | --- | --- | --- |
@@ -578,8 +586,9 @@ Total enumerated event types: **140** <!-- corpus:total-check column="Count" pro
 | `security_events` | 4 | `security.default.override`, `security.update.available`, `daemon.master_key_source`, `daemon.pii_split_ambiguous` |
 | `event_maintenance` | 3 | `schema.migrated`, `event.compacted`, `event.shredded` |
 | `policy_events` | 2 | `policy_bundle.loaded`, `policy_bundle.rejected` |
+| `session_lifecycle` (pty) | 1 | `pty.control_changed` (B4) |
 | _reserved:_ `realtime_*` | 0 | reserved family, no types registered — gated on upstream realtime-flag stabilization (R8, B1) |
-| **Total** | **140** | Exceeds Forge's 69-type baseline by 103% |
+| **Total** | **141** | Exceeds Forge's 69-type baseline by 104% |
 
 ## Integrity Protocol
 

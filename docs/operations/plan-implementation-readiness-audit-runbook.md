@@ -531,7 +531,7 @@ Total enumerated event types: **130** <!-- corpus:total-check column="Count" pro
 | **Total** | **130** | ...   |
 ```
 
-`prose-total` reconciles two phrasings: the colon form above (`<label>: N`, number after the label) and the prefix form `N-<label>` (number before the label, as Plan-006 restates it: `**140-event type registry across 19 categories**`). Declare one `prose-total` per restatement the table's total is also stated in.
+`prose-total` reconciles two phrasings: the colon form above (`<label>: N`, number after the label) and the prefix form `N-<label>` (number before the label, as Plan-006 restates it: `**141-event type registry across 19 categories**`). Declare one `prose-total` per restatement the table's total is also stated in.
 
 The cross-document agreement (step 2) and the prose-restatement reciprocity remain judgment work here — no regex catches a fact restated in different words across documents.
 

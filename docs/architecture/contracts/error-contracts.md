@@ -243,6 +243,16 @@ These codes are registry-only (code + message; no structured `details`): no acce
 | `runtimenode.attach_revoked` | Runtime node's attachment to this session was revoked; revocation is terminal (Plan-003 T3.2 P10) | 409 |
 | `runtimenode.capabilityupdate_conflict` | Runtime node has no active attachment to refresh, or cannot be brought online via capability update (online requires a daemon-side capability declaration) — coordination-snapshot refresh refused (Plan-003 I-003-2 / T3.9) | 409 |
 
+### PTY
+
+Shared-terminal write-lease refusals (Spec-003 §Required Behavior, campaign B4 2026-07-06). The lease is exclusive per session: exactly one participant holds terminal control at a time, and no holder means writes are refused (fail-closed).
+
+| Code | Description | HTTP Status |
+| --- | --- | --- |
+| `pty.control_not_held` | Terminal write or `session.releaseControl` attempted without holding the shared-terminal write lease — take control first (null-holder-refuses-writes) | 409 |
+| `pty.control_held_by_other` | `session.takeControl` refused: another participant holds the lease; `data.fields.holderParticipantId` names the holder on the JSON-RPC surface, mirrored as `details.holderParticipantId` on the HTTP `ErrorResponse` envelope (same value on both surfaces, via the canonical envelope's structured-context field) — handoff is explicit (holder releases, then take) | 409 |
+| `pty.permission_denied` | `session.takeControl` by a role outside the authorized set (owner/collaborator — the Security Architecture permission-matrix 'Take terminal control' row); evaluated before any lease-state comparison — the refusal is role-determined and stable, never varying with mutable lease state (holder identity is session-visible presence metadata via `pty.control_changed` and the roster's `controlHolder`; the ordering is authorization hygiene, not secrecy). `session.releaseControl` is deliberately exempt — release is holder-gated (`pty.control_not_held`), never role-gated: during the authorization-loss propagation window (demotion, suspension, or revocation in flight) the affected holder's own release must not be refused, and on arrival at the lease authority the membership transition force-clears the lease anyway (Spec-003 §Required Behavior, `reason: 'auto_released_authorization_lost'`), so no de-authorized hold outlives the signal. Domain authz code, HTTP row per the `membership.permission_denied` convention. | 403 |
+
 ### Workspace
 
 | Code | Description | HTTP Status |
@@ -386,7 +396,7 @@ Cross-version compatibility errors per [ADR-018](../../decisions/018-cross-versi
 
 1. **JSON-RPC daemon handshake** (version negotiation, [Spec-007](../../specs/007-local-ipc-and-daemon-control.md)): it is a `DaemonHelloAck.reason` discriminator **string** — _not_ a `details` payload (see [§Negotiation Refusals](#negotiation-refusals), where the row is `n/a (DaemonHelloAck.reason field)`). The handshake's structured detail, when present, rides the separate JSON-RPC `data.fields` channel of the [two-layer envelope](#two-layer-envelope-shape).
 2. **Control-plane peer-floor validation** (Plan-002+ invite-acceptance validating a peer's client floor — the canonical emit site of `VersionFloorExceededError` per `packages/contracts/src/error.ts`): it carries the strict two-sided `VersionBoundExceededDetails` (`attemptedVersion` + `acceptedRange.{min,max}`) in an HTTP `ErrorResponse`, describing the receiver's accepted version range.
-3. **Control-plane runtime-node write-refusal** ([Spec-003](../../specs/003-runtime-node-attach.md) line 123 / [ADR-018](../../decisions/018-cross-version-compatibility.md) §Decision #4 — a below-floor node admitted read-only at attach is refused on its later capability write): it is **code+message-only**. The session floor is one-sided (`sessions.min_client_version`, with no `max` anywhere), so the two-sided `VersionBoundExceededDetails` schema of surface (2) cannot be populated; the daemon already learned its read-only verdict at attach; and the `message` carries leak-free upgrade context (the node id, the daemon's declared client version, and the session floor).
+3. **Control-plane runtime-node write-refusal** ([Spec-003 §Required Behavior](../../specs/003-runtime-node-attach.md#required-behavior) / [ADR-018](../../decisions/018-cross-version-compatibility.md) §Decision #4 — a below-floor node admitted read-only at attach is refused on its later capability write): it is **code+message-only**. The session floor is one-sided (`sessions.min_client_version`, with no `max` anywhere), so the two-sided `VersionBoundExceededDetails` schema of surface (2) cannot be populated; the daemon already learned its read-only verdict at attach; and the `message` carries leak-free upgrade context (the node id, the daemon's declared client version, and the session floor).
 
 The canonical `ErrorResponse` envelope makes `details` optional, so surfaces (2) and (3) are both valid `ErrorResponse` forms.
 
