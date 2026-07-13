@@ -248,7 +248,7 @@ The build-metadata rejection above is grounded in the SemVer specification itsel
 -- kSecAttrAccessibleWhenUnlockedThisDeviceOnly on macOS / CRED_TYPE_GENERIC
 -- CRED_PERSIST_LOCAL_MACHINE on Windows / Secret Service via libsecret +
 -- kwallet6 + keyutils fallback on Linux). Public key is registered in the
--- session participant roster at join time per Spec-006:602. Sealed-key storage
+-- session participant roster at join time per Spec-006:611. Sealed-key storage
 -- lives in local SQLite (NOT shared-Postgres sessions) per ADR-004 SQLite-
 -- local-state boundary — daemon-private secrets are per-machine.
 CREATE TABLE daemon_signing_keys (

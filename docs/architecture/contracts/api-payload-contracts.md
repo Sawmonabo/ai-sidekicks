@@ -560,7 +560,11 @@ interface RuntimeNodeRosterEntry {
   attachedAt: string;
 }
 interface RuntimeNodeRosterResponse {
-  nodes: RuntimeNodeRosterEntry[]; // one entry per runtime_node_attachments row for the session — bounded by distinct nodes ever attached (UNIQUE(node_id, session_id)); both health axes carried verbatim, never collapsed into one scalar (reconciliation is the CLIENT's render-time concern — the Spec-003 line-72 never-mask stance)
+  nodes: RuntimeNodeRosterEntry[]; // one entry per runtime_node_attachments row for the session — bounded by distinct nodes ever attached (UNIQUE(node_id, session_id)); both health axes carried verbatim, never collapsed into one scalar (reconciliation is the CLIENT's render-time concern — the Spec-003 line-73 never-mask stance)
+  // Shared-terminal write-lease holder (Spec-003 §Required Behavior, campaign B4): null = lease
+  // free (writes refused — null-holder-refuses-writes). Session coordination state projected
+  // faithfully, same never-mask stance as the node rows above.
+  controlHolder: ParticipantId | null;
 }
 ```
 
@@ -568,7 +572,7 @@ interface RuntimeNodeRosterResponse {
 
 Plan-003's runtime-node operations are exposed as five methods — four state-changing operations plus one roster read (`runtimenode.roster`, added 2026-06-09 by the user-directed Plan-003 Phase 5 scope expansion, PR #150). Method-name strings are `dotted-camelCase` per the canonical `METHOD_NAME_FORMAT` ratified in §Tier 1 (cont.): Plan-007 above (the `register(method, …)` guard at the regex constant) — the same convention shared across Plan-007's JSON-RPC daemon IPC (mechanically regex-enforced at register time) and Plan-008's tRPC control-plane procedures, so the SDK call-site shape (`client.runtimenode.attach({ … })`) is symmetric across transports. Plan-003 registers the four mutation handlers under the Plan-007-partial daemon IPC substrate, and the same four also cross the Plan-008 control-plane transport as `runtimenode.*` tRPC procedures the sibling `runtimeNodeRouter` mounts (Plan-003 T3.8); `runtimenode.roster` is **control-plane tRPC ONLY** (Plan-003 T5.0c) — the roster is control-plane-owned cross-node state (a daemon knows only itself), so the read deliberately does not ride the daemon JSON-RPC transport the four mutations share. The registry table below is the canonical source for both transports (per [Plan-003 §Dependencies](../../plans/003-runtime-node-attach.md)).
 
-The `runtimenode` namespace token is the concatenated domain noun — distinct from the `runtime_node.*` **event** taxonomy (the 7 lifecycle events in [Spec-006 §Runtime Node Lifecycle](../../specs/006-session-event-taxonomy-and-audit-log.md)). The underscore `runtime_node.*` form is a valid _event_ name but is **rejected** as a _method_ name by `METHOD_NAME_FORMAT` (no underscores). `runtimenode.capabilityupdate` is the system's first multi-word procedure: it uses an all-lowercase run-on form within the `dotted-camelCase` regex (the regex permits camelCase in tail segments — `runtimenode.capabilityUpdate` would also be legal — but Plan-003 chose the run-on style to match the uniform single-verb arity of the `session.*` surface; the regex also permits a 3-segment `noun.sub.verb` form, reserved for a future nested-router need).
+The `runtimenode` namespace token is the concatenated domain noun — distinct from the `runtime_node.*` **event** taxonomy (the 7 lifecycle events in [Spec-006 §Runtime Node Lifecycle](../../specs/006-session-event-taxonomy-and-audit-log.md)). The underscore `runtime_node.*` form is a valid _event_ name but is **rejected** as a _method_ name by `METHOD_NAME_FORMAT` (no underscores). `runtimenode.capabilityupdate` is the system's first multi-word procedure: it uses an all-lowercase run-on form within the `dotted-camelCase` regex (the regex permits camelCase in tail segments — `runtimenode.capabilityUpdate` would also be legal — but Plan-003 chose the run-on style to match the then-uniform single-verb arity of the `session.*` surface (since extended: the campaign's `session.goalUpdate`/`session.goalClear` (B6) and `session.takeControl`/`session.releaseControl` (B4) carry the camelCase-tail form the method-name grammar equally permits); the regex also permits a 3-segment `noun.sub.verb` form, reserved for a future nested-router need).
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
@@ -578,7 +582,36 @@ The `runtimenode` namespace token is the concatenated domain noun — distinct f
 | `runtimenode.detach` | `mutation` | `RuntimeNodeDetachRequest` | `null` — HTTP 200 `{ result: { data: null } }` (tRPC) / `result: null` (JSON-RPC); `RuntimeNodeDetachResponseSchema` (`z.null()`) |
 | `runtimenode.roster` | `query` | `RuntimeNodeRosterRequest` | `RuntimeNodeRosterResponse` — control-plane tRPC ONLY (no daemon JSON-RPC registration; added 2026-06-09, PR #150) |
 
-The four dual-transport methods (`attach`/`heartbeat`/`capabilityupdate`/`detach`) are `mutation`s (state-changing, non-idempotent) per the tRPC procedure-type convention in §Tier 1 (cont.): Plan-008 above; `runtimenode.roster` is the namespace's first — and only — `query` (an idempotent read: it projects the `runtime_node_attachments` × `runtime_node_presence` coordination records and writes nothing, so it authors no durable `runtime_node.*` event and does not collide with the [ADR-017 §Server-Derived Runtime-Node Lifecycle Events](../../decisions/017-shared-event-sourcing-scope.md#server-derived-runtime-node-lifecycle-events) V1.1 gate, which governs durable event authorship, not coordination-record reads), and it is mounted on the control-plane transport only (Plan-003 T5.0c). The request/response shapes are the interfaces defined directly above; the canonical Zod schemas live in `packages/contracts/` per the §Source-of-Truth Policy. `heartbeat` and `detach` carry a `null` response payload, not an empty `204` body: their resolvers return `null`, which tRPC serializes as an ordinary HTTP 200 success envelope `{ result: { data: null } }` (the control-plane router uses the default transformer, so there is no `data.json` wrapper). This matters because the SDK's `parseTrpcResult` calls `response.json()` on every 2xx response — a `204` with an empty body would throw `SyntaxError`, whereas `{ result: { data: null } }` parses cleanly and `z.null()` validates the extracted `null`. Over the JSON-RPC daemon transport — where JSON-RPC 2.0 requires a `result` member on success — they return `result: null`. Both transports are validated by the canonical `RuntimeNodeHeartbeatResponseSchema` / `RuntimeNodeDetachResponseSchema` (`z.null()`), so the SDK's `JsonRpcClient.call` (daemon) and the tRPC client both have a concrete result schema to pass (Plan-003 T1.3 / T4.1).
+The four dual-transport methods (`attach`/`heartbeat`/`capabilityupdate`/`detach`) are `mutation`s (state-changing, non-idempotent) per the tRPC procedure-type convention in §Tier 1 (cont.): Plan-008 above; `runtimenode.roster` is the namespace's first — and only — `query` (an idempotent read: it projects the `runtime_node_attachments` × `runtime_node_presence` coordination records — plus, per campaign B4, the session's shared-terminal `controlHolder` lease state (daemon-enforced; its control-plane coordination record is pinned by the Plan-024 Phase 3B leg) — and writes nothing, so it authors no durable `runtime_node.*` event and does not collide with the [ADR-017 §Server-Derived Runtime-Node Lifecycle Events](../../decisions/017-shared-event-sourcing-scope.md#server-derived-runtime-node-lifecycle-events) V1.1 gate, which governs durable event authorship, not coordination-record reads), and it is mounted on the control-plane transport only (Plan-003 T5.0c). The request/response shapes are the interfaces defined directly above; the canonical Zod schemas live in `packages/contracts/` per the §Source-of-Truth Policy. `heartbeat` and `detach` carry a `null` response payload, not an empty `204` body: their resolvers return `null`, which tRPC serializes as an ordinary HTTP 200 success envelope `{ result: { data: null } }` (the control-plane router uses the default transformer, so there is no `data.json` wrapper). This matters because the SDK's `parseTrpcResult` calls `response.json()` on every 2xx response — a `204` with an empty body would throw `SyntaxError`, whereas `{ result: { data: null } }` parses cleanly and `z.null()` validates the extracted `null`. Over the JSON-RPC daemon transport — where JSON-RPC 2.0 requires a `result` member on success — they return `result: null`. Both transports are validated by the canonical `RuntimeNodeHeartbeatResponseSchema` / `RuntimeNodeDetachResponseSchema` (`z.null()`), so the SDK's `JsonRpcClient.call` (daemon) and the tRPC client both have a concrete result schema to pass (Plan-003 T1.3 / T4.1).
+
+### Session Terminal-Control Method Registry (Tier 3, campaign B4)
+
+The shared-terminal write lease ([Spec-003 §Required Behavior](../../specs/003-runtime-node-attach.md#required-behavior), campaign B4 2026-07-06) exposes two `session.*` methods. Both are dual-transport `mutation`s mirroring the four `runtimenode.*` mutations above — daemon JSON-RPC for local participants, control-plane tRPC for remote ones — because the lease is enforced by the terminal-owning daemon while `controlHolder` is session coordination state control-plane-connected clients render from the `runtimenode.roster` projection (`RuntimeNodeRosterResponse.controlHolder`; daemon-transport clients fold `pty.control_changed` and the mutation responses).
+
+| Method | Procedure type | Request schema | Response schema |
+| --- | --- | --- | --- |
+| `session.takeControl` | `mutation` | `SessionTakeControlRequest` | `SessionTakeControlResponse` |
+| `session.releaseControl` | `mutation` | `SessionReleaseControlRequest` | `SessionReleaseControlResponse` |
+
+```ts
+interface SessionTakeControlRequest {
+  sessionId: SessionId;
+}
+
+interface SessionTakeControlResponse {
+  controlHolder: ParticipantId; // the caller — first-acquire-holds succeeded
+}
+
+interface SessionReleaseControlRequest {
+  sessionId: SessionId;
+}
+
+interface SessionReleaseControlResponse {
+  controlHolder: null; // lease freed; next writer must take explicitly
+}
+```
+
+Refusals are typed in [Error Contracts §PTY](./error-contracts.md#pty): a take while another participant holds the lease returns `pty.control_held_by_other` with `data.fields.holderParticipantId`; a terminal write with no lease held returns `pty.control_not_held`. A release by a non-holder is likewise `pty.control_not_held` (releasing nothing is not idempotent-success — it signals a caller-state bug); a take by the current holder is idempotent success — no transition occurs and nothing broadcasts. Every successful transition broadcasts `pty.control_changed` ([Spec-006 census](../../specs/006-session-event-taxonomy-and-audit-log.md#pty-control-session_lifecycle)), authored by the terminal-owning daemon.
 
 ---
 
@@ -1068,7 +1101,7 @@ type EventCategory =
   // Extended per Spec-006 §Runtime Node Lifecycle, §Recovery Events, §Participant Lifecycle,
   // §Audit Integrity, §Security Events, §Event Maintenance, §Policy Events,
   // §Channel Arbitration, §Onboarding Lifecycle, §Cross-Node Dispatch (19 categories total
-  // per Spec-006 §Event Type Summary line 551; 140 event types per line 553 (140 per the 2026-07-02 B1 amendment) — the Tier-5
+  // per Spec-006 §Event Type Summary line 559; 141 event types per line 561 (140 per the 2026-07-02 B1 amendment, +1 `pty.control_changed` per the 2026-07-06 B4 amendment) — the Tier-5
   // readiness-audit swap registered daemon.master_key_source + daemon.pii_split_ambiguous
   // under the existing security_events category, Plan-022 D-022-5, and the Tier-6 swap
   // added approval.canceled (D-012-8) plus four Plan-016 types (A-016-6, D-016-10/11/12),

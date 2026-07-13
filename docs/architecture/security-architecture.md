@@ -307,6 +307,7 @@ Candidate implementations under evaluation include OpenMLS (Rust, MIT) and mls-r
 | Send messages / create runs   | Yes     | Yes (with approval) | No                    | No       |
 | Queue work items              | Yes     | Yes                 | No                    | No       |
 | Steer/interrupt/cancel runs   | Yes     | Yes (own runs)      | No                    | No       |
+| Take/release terminal control | Yes     | Yes                 | No                    | No       |
 | Set/clear session goal        | Yes     | Yes                 | No                    | No       |
 | **Approvals**                 |         |                     |                       |          |
 | Configure approval policies   | Yes     | No                  | No                    | No       |

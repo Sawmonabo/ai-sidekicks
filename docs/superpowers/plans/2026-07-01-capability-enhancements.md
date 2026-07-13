@@ -216,14 +216,14 @@ Every doc task's final steps invoke this procedure with its own branch/commit/fi
 
 ### Task 12: B4 — Spec-003 PTY-lease bundle (after Tasks 3 + 5)
 
-**Design contract:** §4 B4. **Files:** Modify `docs/specs/003-runtime-node-attach.md`, `docs/architecture/contracts/api-payload-contracts.md` (:554 Runtime-Node registry section), `docs/architecture/contracts/error-contracts.md` (new `### PTY` section), `docs/specs/006-session-event-taxonomy-and-audit-log.md` (the `pty.control_changed` census row — registered by its definer, +1 with arithmetic bump).
+**Design contract:** §4 B4. **Files:** Modify `docs/specs/003-runtime-node-attach.md`, `docs/architecture/contracts/api-payload-contracts.md` (:554 Runtime-Node registry section), `docs/architecture/contracts/error-contracts.md` (new `### PTY` section), `docs/specs/006-session-event-taxonomy-and-audit-log.md` (the `pty.control_changed` census row — registered by its definer, +1 with arithmetic bump). _Authoring note (2026-07-12, re-authored on post-#188 develop): registry landed as a sibling §Session Terminal-Control registry at the post-delta position :587 (the `controlHolder` roster field at :567); census row landed as a `session_lifecycle` (pty) family (no new census category), total re-derived by row count (141); the write-lease enforcement point is the daemon terminal-write boundary (the sidecar `WriteRequest` frame carries no participant field — cited in durable `#WriteRequest` form per the Durable-Cite Rule); the original bundle's 22 code-file cite bumps were dropped wholesale (develop's durable-cite sweeps already rewrote those regions — the bundle is docs-only); error-contracts' pre-existing stale `Spec-003 line 123` cite was converted opportunistically to §Required Behavior anchor form; co-edits — security-architecture permission-matrix row, census-count dependents re-derived fresh._
 
 **Interfaces:** Consumes Task 3 (census baseline) + Task 5 (api-payload/error-contracts baselines — shared files, hence the serialization). Produces — `session.takeControl`/`session.releaseControl`, `controlHolder` roster projection, `pty.control_changed` event, first-acquire-holds/null-holder-refuses-writes/auto-release-on-disconnect, error codes `ControlNotHeld` + `ControlHeldByOther { holderParticipantId }`. Consumed by Task 18 (T-024-3B-3).
 
-- [ ] **Step 1:** SBP-1 bundle=`b4`, branch=`docs/b4-spec003-pty-lease`. Confirm Tasks 3 and 5 are merged; rebase on current `develop`.
-- [ ] **Step 2:** Author per Design §4 B4; re-verify :53/:92/:130 (Spec-003) and the post-B3 line position of api-payload's :554 section.
-- [ ] **Step 3:** Census bump: Spec-006 total re-derived by row count; ripple-check.
-- [ ] **Step 4:** SBP-3/4/5/6 — subject `docs(repo): spec-003 pty write-lease + census row (b4)`, trailer `Refs: Spec-003, Spec-006`.
+- [x] **Step 1:** SBP-1 bundle=`b4`, branch=`docs/b4-spec003-pty-lease`. Confirm Tasks 3 and 5 are merged; rebase on current `develop`.
+- [x] **Step 2:** Author per Design §4 B4; re-verify :53/:92/:130 (Spec-003) and the post-B3 line position of api-payload's :554 section.
+- [x] **Step 3:** Census bump: Spec-006 total re-derived by row count; ripple-check.
+- [x] **Step 4:** SBP-3/4/5/6 — subject `docs(repo): spec-003 pty write-lease + census row (b4)`, trailer `Refs: Spec-003, Spec-006`.
 
 ### Task 28: W1.5 — batch spec re-promotion gate (after Tasks 3–12; wave-positioned here, numbered post-DAG-freeze)
 
