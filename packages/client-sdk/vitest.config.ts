@@ -19,6 +19,17 @@ export default defineConfig({
     environment: "node",
     passWithNoTests: false,
     reporters: ["default"],
+    // Mirrors `packages/control-plane/vitest.config.ts`: the integration
+    // tests under `test/` boot a fresh PGlite per test, and the first
+    // `beforeEach` in a worker pays the cold WASM compile + migrations.
+    // On a loaded CI runner that one-time cost can clear vitest's bare
+    // 10000ms hook default (observed 10407ms on `ubuntu-latest` /
+    // node 22.12, 2026-07-17, `runtimeNodeClient.integration.test.ts`
+    // — warm siblings then run in 1.4-4s). 15000/30000 gives ~3x
+    // headroom over the worst-observed cost and matches the
+    // control-plane values adopted for this same WASM-DB test class.
+    testTimeout: 15000,
+    hookTimeout: 30000,
   },
   // Resolve workspace deps to TS source (not stale dist/) under test via the
   // providers' `@ai-sidekicks/source` export condition. Node env = Vite SSR
