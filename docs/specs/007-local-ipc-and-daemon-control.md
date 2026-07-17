@@ -87,7 +87,7 @@ This spec covers transport choice, version negotiation, request and stream seman
 
 ## Example Flows
 
-- `Example: The desktop renderer starts while the daemon is not running. The shell launches the daemon, negotiates protocol version via the typed client SDK, and then exposes renderer-accessible capabilities via the preload bridge per `Spec-023 §Trust Stance`; the renderer is not a direct daemon client.`
+- `Example: The desktop renderer starts while the daemon is not running. The shell launches the daemon, negotiates protocol version via the typed client SDK, and then exposes renderer-accessible capabilities via the preload bridge per Spec-023 §Trust Stance; the renderer is not a direct daemon client.`
 - `Example: The CLI requests a run-state subscription through the same client SDK and receives canonical updates without duplicating daemon logic.`
 
 ## Implementation Notes
