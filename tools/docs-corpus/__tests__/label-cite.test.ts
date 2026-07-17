@@ -9,6 +9,7 @@ import {
   checkMarkdownVolatileCites,
   checkSectionCites,
   formatLabelCiteViolations,
+  verifySectionHeading,
 } from "../lib/label-cite.ts";
 
 function setupRepo(files: Record<string, string>): { root: string; cleanup: () => void } {
@@ -1707,5 +1708,147 @@ describe("label-cite — markdown volatile-cite deny (checkMarkdownVolatileCites
       "docs/architecture/security-architecture.md",
     );
     expect(violations).toHaveLength(1);
+  });
+});
+
+describe("label-cite — round-3 spellings: paren titles, path fragments, structural floor discriminators", () => {
+  function mdViolations(files: Record<string, string>, citer: string) {
+    const { root, cleanup } = setupRepo(files);
+    try {
+      return withRepoRoot(root, () => checkMarkdownVolatileCites([resolve(root, citer)]));
+    } finally {
+      cleanup();
+    }
+  }
+
+  it("DENIES a paren-titled link destination — the third CommonMark title delimiter", () => {
+    const violations = mdViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+        "docs/plans/003-runtime-node-attach.md":
+          "# Plan-003\n\nSee [the spec](../specs/003-runtime-node-attach.md (attach spec)):2 for admission.\n",
+      },
+      "docs/plans/003-runtime-node-attach.md",
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0].reason).toBe("line-anchored-cite-in-docs");
+  });
+
+  it("FLOORS a paren-titled frozen link per endpoint (character sniffing would skip it)", () => {
+    const violations = mdViolations(
+      {
+        "docs/archive/backlog-archive.md": FIVE_LINE_DOC,
+        "docs/architecture/security-architecture.md":
+          "Closed in [history](../archive/backlog-archive.md (BL log)):999 back then.\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0].reason).toBe("line-out-of-range");
+  });
+
+  it("DENIES a fragment-bearing docs-path colon cite (`docs/x.md#a:NN`)", () => {
+    const violations = mdViolations(
+      {
+        "docs/domain/session-model.md": FIVE_LINE_DOC,
+        "docs/architecture/security-architecture.md":
+          "Rows per docs/domain/session-model.md#participants:3 rot on amendment.\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0].reason).toBe("line-anchored-cite-in-docs");
+  });
+
+  it("FLOORS fragment-bearing frozen docs-path pins, backticked included (codeRe cannot parse a fragment)", () => {
+    const violations = mdViolations(
+      {
+        "docs/archive/backlog-archive.md": FIVE_LINE_DOC,
+        "docs/architecture/security-architecture.md":
+          "Closed per docs/archive/backlog-archive.md#bl-100:999 and `docs/archive/backlog-archive.md#bl-100:999` alike.\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(violations).toHaveLength(2);
+    expect(violations.every((v) => v.reason === "line-out-of-range")).toBe(true);
+  });
+
+  it("DENIES a fragment-bearing relative-path line-word cite", () => {
+    const violations = mdViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+        "docs/plans/003-runtime-node-attach.md":
+          "# Plan-003\n\nAdmission per ../specs/003-runtime-node-attach.md#attach line 4 today.\n",
+      },
+      "docs/plans/003-runtime-node-attach.md",
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0].reason).toBe("line-anchored-cite-in-docs");
+  });
+});
+
+describe("label-cite — shared CommonMark fence tracker across heading collection and the floor lane", () => {
+  it("an info-string delimiter line inside a fence neither closes it nor reopens it over real headings", () => {
+    const doc = [
+      "# Doc",
+      "",
+      "```text",
+      "```ts",
+      "## Fenced Example Heading",
+      "```",
+      "",
+      "## Real Heading",
+      "",
+    ].join("\n");
+    expect(verifySectionHeading(doc, "Real Heading")).toBe(true);
+    expect(verifySectionHeading(doc, "Fenced Example Heading")).toBe(false);
+  });
+
+  it("a blockquote-nested fence exempts its (lazily unquoted) content from heading collection", () => {
+    const doc = [
+      "# Doc",
+      "",
+      "> ```text",
+      "## Lazily Quoted Example",
+      "> ```",
+      "",
+      "## Real Heading",
+      "",
+    ].join("\n");
+    expect(verifySectionHeading(doc, "Real Heading")).toBe(true);
+    expect(verifySectionHeading(doc, "Lazily Quoted Example")).toBe(false);
+  });
+
+  it("floor lane: a fenced example with an interior info-string line stays exempt — and the same cite outside a fence still fails", () => {
+    const fencedExample = [
+      "# Security",
+      "",
+      "```text",
+      "```ts",
+      "Per `Spec-003 §No Such Heading` — illustrative only.",
+      "```",
+      "",
+      "prose after the fence.",
+      "",
+    ].join("\n");
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+      "docs/architecture/security-architecture.md": fencedExample,
+      "docs/architecture/deployment-architecture.md":
+        "Per `Spec-003 §No Such Heading` — a live cite, not an example.\n",
+    });
+    try {
+      const fencedViolations = withRepoRoot(root, () =>
+        checkSectionCites([resolve(root, "docs/architecture/security-architecture.md")]),
+      );
+      expect(fencedViolations).toHaveLength(0);
+      const liveViolations = withRepoRoot(root, () =>
+        checkSectionCites([resolve(root, "docs/architecture/deployment-architecture.md")]),
+      );
+      expect(liveViolations).toHaveLength(1);
+      expect(liveViolations[0].reason).toBe("section-not-found");
+    } finally {
+      cleanup();
+    }
   });
 });

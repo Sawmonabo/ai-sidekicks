@@ -416,3 +416,75 @@ describe("pre-commit-runner — markdown volatile-cite deny wiring", () => {
     }
   });
 });
+
+describe("pre-commit-runner — commit-snapshot (index) reads across every lane", () => {
+  // isCodeFile keys on repo-relative paths (`packages/…`), matching
+  // lefthook's invocation from the repo root — so the code-lane pair chdirs
+  // into the (realpathed — macOS /var symlink) fixture root and passes
+  // relative args, exactly like the reverse-direction advisory test above.
+  function runCodeLane(files: Record<string, string>, worktreeOverride: string, citer: string) {
+    const { root, cleanup } = setupRepo({
+      ...files,
+      "tools/docs-corpus/canonical-paths.json": '{ "paths": [] }\n',
+    });
+    const previousCwd = process.cwd();
+    const physicalRoot = realpathSync(root);
+    try {
+      writeFileSync(resolve(physicalRoot, citer), worktreeOverride);
+      process.chdir(physicalRoot);
+      return withRepoRoot(physicalRoot, () => runChecks([citer]));
+    } finally {
+      process.chdir(previousCwd);
+      cleanup();
+    }
+  }
+
+  it("code lane: denies the STAGED (index) content even when the worktree already fixed it", () => {
+    const result = runCodeLane(
+      {
+        "docs/specs/003-runtime-node-attach.md": "# Spec\n\n## Attach\n\nline five\n",
+        "packages/x/src/f.ts": "// admission is governed by Spec-003 line 4 today\n",
+      },
+      "// admission is governed by `Spec-003 §Attach` today\n",
+      "packages/x/src/f.ts",
+    );
+    expect(result.exitCode).toBe(1);
+    expect(result.messages.join("\n")).toContain("line-anchored-cite-in-code");
+  });
+
+  it("code lane: passes clean STAGED content regardless of raw-cite WIP in the worktree", () => {
+    const result = runCodeLane(
+      {
+        "docs/specs/003-runtime-node-attach.md": "# Spec\n\n## Attach\n\nline five\n",
+        "packages/x/src/f.ts": "// admission is governed by `Spec-003 §Attach` today\n",
+      },
+      "// admission is governed by Spec-003 line 4 today\n",
+      "packages/x/src/f.ts",
+    );
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("§-verification reads the STAGED target: a coherent staged rename passes despite a stale worktree target", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md": "# Spec\n\n## Renamed Heading\n\nbody\n",
+      "docs/architecture/security-architecture.md":
+        "Admission per `Spec-003 §Renamed Heading` today.\n",
+    });
+    try {
+      // Worktree regresses the target to the OLD heading without restaging —
+      // a worktree read would report section-not-found; the staged pair is
+      // coherent and must pass.
+      writeFileSync(
+        resolve(root, "docs/specs/003-runtime-node-attach.md"),
+        "# Spec\n\n## Old Heading\n\nbody\n",
+      );
+      const result = withRepoRoot(root, () =>
+        runChecks([resolve(root, "docs/architecture/security-architecture.md")]),
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.messages).toEqual([]);
+    } finally {
+      cleanup();
+    }
+  });
+});

@@ -55,6 +55,11 @@ import {
   type CiteViolation,
   type FileContentReader,
 } from "./cite-target-existence.ts";
+import {
+  advanceFenceState,
+  type OpenFenceState,
+  stripBlockquotePrefix,
+} from "./markdown-fences.ts";
 import { getRepoRoot } from "./inbound-cite-discovery.ts";
 
 // Label token → governance tree. The number is NOT shared across token types
@@ -115,17 +120,19 @@ const PLAN_GRAMMAR_MARKER_RE = /\*\*(Spec coverage|Verifies invariant):\*\*/;
 // Markdown-link form with a trailing line list — `[x](../plans/001-y.md):12`
 // plus every valid CommonMark destination spelling of the same pin: the
 // fragment (`…y.md#anchor):12`), the angle-bracketed destination
-// (`(<../plans/001-y.md>):12`), and the titled destination
-// (`(../plans/001-y.md "title"):12`) — a fragment / bracket / title does not
-// durable-ize an appended line locator, and the narrow bare-destination
-// grammar let those spellings bypass the deny (Codex, PR #207 rounds 1-2).
-// The locator digits must sit FLUSH against the colon, the same
+// (`(<../plans/001-y.md>):12`), and the titled destination in all three
+// CommonMark title delimiters (`(../plans/001-y.md "title"):12`, `'title'`,
+// `(title)`) — a fragment / bracket / title does not durable-ize an appended
+// line locator, and the narrow bare-destination grammar let those spellings
+// bypass the deny (Codex, PR #207 rounds 1-2; the paren-title delimiter
+// closed proactively in round 3 — CommonMark admits it alongside the quote
+// forms). The locator digits must sit FLUSH against the colon, the same
 // value-vs-locator boundary as the label and docs-path forms
 // (`[Limit](x.md): 25 participants` quotes a value and never fires). Target
 // resolves relative to the citing file's directory; fragment and title are
 // non-capturing and never affect resolution.
 const LINK_COLON_CITE_RE =
-  /\]\(\s*<?([^)#>"'\s]+\.md)(?:#[^)>"'\s]*)?>?(?:\s+(?:"[^"]*"|'[^']*'))?\s*\)\s*:(\d+(?:\s*[,-]\s*\d+)*)/g;
+  /\]\(\s*<?([^)#>"'\s]+\.md)(?:#[^)>"'\s]*)?>?(?:\s+(?:"[^"]*"|'[^']*'|\([^()]*\)))?\s*\)\s*:(\d+(?:\s*[,-]\s*\d+)*)/g;
 
 const defaultReader: FileContentReader = (absolutePath) => readFileSync(absolutePath, "utf8");
 
@@ -190,15 +197,20 @@ function normalizeTokenForMatch(token: string): string {
 // Real document headings only: a `## Heading` line inside a ```/~~~ fence is
 // example content, not a section — counting it would keep a §-cite "verified"
 // after the real section was renamed away (Codex review, PR #188 round 4).
+// Fence state comes from the shared tracker, so blockquote-nested fences and
+// info-string closer lines are handled exactly like the deny loop; heading
+// collection itself stays on the RAW line — a blockquoted `> ## Heading` is
+// quoted example prose, not a citable section.
 function listDocHeadings(docContent: string): string[] {
   const headings: string[] = [];
-  let insideFence = false;
+  let openFence: OpenFenceState = null;
   for (const line of docContent.split("\n")) {
-    if (/^\s*(?:```|~~~)/.test(line)) {
-      insideFence = !insideFence;
+    const advanced = advanceFenceState(stripBlockquotePrefix(line), openFence);
+    if (advanced.isDelimiterLine) {
+      openFence = advanced.openFence;
       continue;
     }
-    if (!insideFence && /^#+\s+/.test(line)) {
+    if (openFence === null && /^#+\s+/.test(line)) {
       headings.push(line.replace(/^#+\s+/, "").trim());
     }
   }
@@ -224,9 +236,15 @@ export function verifySectionHeading(docContent: string, sectionName: string): b
 // cleanly from repo root, so the match stays zero-FP regardless of depth.
 // Capture 1 is the path; capture 2 is the same number-list tail as the label
 // form. The filename allows the `NNN-kebab` and `dotted.name` shapes the corpus
-// uses.
+// uses. An optional non-capturing `#fragment` between `.md` and the colon
+// keeps the fragment-bearing spelling (`docs/x.md#anchor:12`) inside the
+// match — a fragment does not durable-ize an appended line locator, and
+// requiring `.md` flush against the colon let that spelling bypass both the
+// deny and the frozen floor (the same evasion class Codex flagged for the
+// markdown-link form, PR #207 round 2; closed for the bare-path form in
+// round 3). The path capture stays fragment-free so resolution is unchanged.
 const DOCS_PATH_CITE_RE =
-  /(?<![\w/.-])(docs\/(?:[a-z][a-z-]*\/)*[A-Za-z0-9._-]+\.md):(\d+(?:\s*[,-]\s*\d+)*)/g;
+  /(?<![\w/.-])(docs\/(?:[a-z][a-z-]*\/)*[A-Za-z0-9._-]+\.md)(?:#[^\s:`)\]]*)?:(\d+(?:\s*[,-]\s*\d+)*)/g;
 
 // Passes 5-6 (CODE citers only) — the CAT-07 ratchet closing the line-word and
 // bare-basename residual (2026-07 sweep, PR-E of the hardening follow-ups):
@@ -262,9 +280,15 @@ const LABEL_LINE_WORD_RE =
 // pin and still denied. The lookbehind keeps mid-path fragments from
 // matching twice. The `[-\s]+` separator, `[,;:]` punctuation, {0,200}
 // bridge, and trailing range/list group mirror pass 5 (hyphen spellings;
-// comma variants; long headings; full-anchor rawTarget).
+// comma variants; long headings; full-anchor rawTarget). The optional
+// non-capturing `#fragment` after `.md` mirrors DOCS_PATH_CITE_RE: a
+// fragment between path and locator (`x.md#anchor:12`, `x.md#anchor line
+// 12`) does not durable-ize the pin, and path-flush grammars let it slip
+// (PR #207 round 3, same class as the round-2 link-destination findings).
+// The `)`/`]` exclusions keep the fragment from crossing a link's closing
+// paren, so link destinations remain LINK_COLON_CITE_RE's beat alone.
 const MD_LINE_ANCHOR_RE =
-  /(?<![\w/.-])([A-Za-z0-9._/-]+\.md)(:\d+|(?:\s+§[^\n`]{0,200}?)?`?\s*[,;:]?\s*\(?\s*\blines?[-\s]+\d+(?:\s*[,-]\s*\d+)*)/g;
+  /(?<![\w/.-])([A-Za-z0-9._/-]+\.md)(?:#[^\s:`)\]]*)?(:\d+|(?:\s+§[^\n`]{0,200}?)?`?\s*[,;:]?\s*\(?\s*\blines?[-\s]+\d+(?:\s*[,-]\s*\d+)*)/g;
 
 // Memoize the directory listing per absolute governance tree so a file with N
 // label cites does at most one readdir per tree (3 trees total) instead of one
@@ -490,13 +514,12 @@ function extractLabelCitesFrom(
   repoRoot: string,
   reader: FileContentReader,
 ): Cite[] {
-  // Resolve to absolute before reading: the index-aware reader keys its
-  // staged-set membership test on absolute paths, so a relative citer path
-  // would miss the set and read the git index instead of the developer's
-  // working tree — making a same-commit cite fix invisible to the gate. The
-  // displayed `file` below keeps the original (relative) path for a clean,
-  // clickable message. `resolve()` is idempotent for already-absolute inputs
-  // (the test harness passes absolute temp paths), so this is a no-op there.
+  // Resolve to absolute before reading: FileContentReader implementations
+  // take absolute paths (the index-aware reader converts to a repo-relative
+  // `git show :path` internally), while the displayed `file` below keeps the
+  // original (relative) path for a clean, clickable message. `resolve()` is
+  // idempotent for already-absolute inputs (the test harness passes absolute
+  // temp paths), so this is a no-op there.
   const content = reader(resolve(citingFile));
   const cites: Cite[] = [];
   const lines = content.split("\n");
@@ -517,14 +540,17 @@ function extractLabelCitesFrom(
   // regexes join-scan. Spans of 3+ lines (blank comment line between label
   // and locator) stay audit-layer residual.
   let previousCommentText: string | null = null;
-  let insideFence = false;
+  let openFence: OpenFenceState = null;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    if (trackFences && /^\s*(?:```|~~~)/.test(line)) {
-      insideFence = !insideFence;
-      continue;
+    if (trackFences) {
+      const advanced = advanceFenceState(stripBlockquotePrefix(line), openFence);
+      if (advanced.isDelimiterLine) {
+        openFence = advanced.openFence;
+        continue;
+      }
+      if (openFence !== null) continue;
     }
-    if (insideFence) continue;
     let m: RegExpExecArray | null;
 
     // Pass 1 — label form (`Spec-003:178`). Token resolves via the NNN glob.
@@ -959,36 +985,19 @@ export function checkMarkdownVolatileCites(
       }
     };
 
-    // Fence tracking strips blockquote containers first (`> ```text` opens a
-    // fence inside a quoted example) and closes only on a matching delimiter —
-    // same character, at least the opener's length, per CommonMark — so a
-    // `~~~` line cannot close a backtick fence and a longer opener needs an
-    // equal-or-longer closer (Codex, PR #207). Quote DEPTH is deliberately not
-    // matched between opener and closer — the pragmatic bound for this
-    // illustrative-example exemption.
-    let openFence: { marker: string; length: number } | null = null;
+    // Fence tracking via the shared CommonMark tracker (blockquote-stripped
+    // input; delimiter-matched, whitespace-only closers — see
+    // advanceFenceState). A delimiter line of either kind breaks wrap
+    // adjacency: the label half of a wrapped cite cannot sit on the far side
+    // of a fence boundary from its locator.
+    let openFence: OpenFenceState = null;
     let previousProseLine: string | null = null;
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      const unquoted = line.replace(/^(?:\s*>)+\s?/, "");
-      const fenceDelimiter = /^\s*(`{3,}|~{3,})(.*)$/.exec(unquoted);
-      if (fenceDelimiter !== null) {
-        if (openFence === null) {
-          // An opener may carry an info string (` ```ts `).
-          openFence = { marker: fenceDelimiter[1][0], length: fenceDelimiter[1].length };
-        } else if (
-          fenceDelimiter[1][0] === openFence.marker &&
-          fenceDelimiter[1].length >= openFence.length &&
-          fenceDelimiter[2].trim() === ""
-        ) {
-          // A CLOSER is delimiter + whitespace only (CommonMark): a
-          // delimiter-looking line with trailing text inside a fence
-          // (` ```ts ` shown as example content) is fence content, not a
-          // close — treating it as one would scan the rest of the example
-          // and let the real closer REOPEN the fence over following prose
-          // (Codex, PR #207 round 2).
-          openFence = null;
-        }
+      const unquoted = stripBlockquotePrefix(line);
+      const advanced = advanceFenceState(unquoted, openFence);
+      if (advanced.isDelimiterLine) {
+        openFence = advanced.openFence;
         previousProseLine = null;
         continue;
       }
@@ -1012,15 +1021,22 @@ export function checkMarkdownVolatileCites(
         denyVolatile(f, i + 1, m[0].trim());
       }
 
-      // Docs-path colon. Frozen: bare spellings floor here; backticked
+      // Docs-path colon. Frozen: bare spellings floor here; backticked PLAIN
       // spellings are codeRe-floored by extractCites — skipped to avoid
-      // reporting the same broken pin twice.
+      // reporting the same broken pin twice. The skip is conditioned on what
+      // extractCites can actually parse: codeRe's path class has no `#`, so
+      // a fragment-bearing backticked pin (`` `docs/archive/x.md#a:12` ``)
+      // floors HERE or nowhere — the same parseability trap Codex flagged
+      // for the link form (PR #207 round 2; fragment analog closed in
+      // round 3). The path capture is fragment-free, so any `#` in the
+      // match text is the fragment.
       DOCS_PATH_CITE_RE.lastIndex = 0;
       while ((m = DOCS_PATH_CITE_RE.exec(line)) !== null) {
         const docsPath = m[1];
         if (FROZEN_DOC_PREFIXES.some((prefix) => docsPath.startsWith(prefix))) {
           const backtickedSpelling = m.index > 0 && line[m.index - 1] === "`";
-          if (!backtickedSpelling) {
+          const fragmentBearing = m[0].includes("#");
+          if (!backtickedSpelling || fragmentBearing) {
             floorFrozenEndpoints(f, i + 1, m[0], docsPath, expandLineSpec(m[2]));
           }
           continue;
@@ -1043,11 +1059,16 @@ export function checkMarkdownVolatileCites(
         // docs→docs rule and stays audit-layer.
         if (!targetRepoRelative.startsWith("docs/")) continue;
         if (FROZEN_DOC_PREFIXES.some((prefix) => targetRepoRelative.startsWith(prefix))) {
-          // extractCites' linkRe floors only the PLAIN spelling — it cannot
-          // parse fragments, angle brackets, or titles, so frozen pins in
-          // those spellings floor HERE or nowhere (Codex, PR #207 round 2).
-          // The plain spelling still skips, avoiding a double report.
-          if (/[<#"']/.test(m[0])) {
+          // extractCites' linkRe floors only the PLAIN spelling — a
+          // destination ending `.md` flush against the closing paren, no
+          // fragment / angle bracket / title — so frozen pins in every other
+          // spelling floor HERE or nowhere (Codex, PR #207 round 2). The
+          // discriminator tests that structure directly rather than sniffing
+          // for marker characters, so a spelling the character sniff missed
+          // (the paren-delimited title carries none of `<#"'`) cannot slip
+          // between the two floors (round 3).
+          const plainLinkSpelling = /\]\([^)]*\.md\)\s*:/.test(m[0]);
+          if (!plainLinkSpelling) {
             floorFrozenEndpoints(f, i + 1, m[0].trim(), targetRepoRelative, expandLineSpec(m[2]));
           }
           continue;

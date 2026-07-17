@@ -32,7 +32,6 @@
 // Opt-in by marker, within-document only. See `../lib/table-total-coherence.ts`.
 
 import { readFileSync, realpathSync, statSync } from "node:fs";
-import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -155,17 +154,29 @@ export function runChecks(args: string[]): RunChecksResult {
     }
   }
 
-  // Cite-target floor for BOTH surfaces (markdown `file.md:NNN` + code
-  // `Spec-NNN:LL`) shares one index-aware reader so a commit that amends a
-  // spec AND fixes its dependent cites validates the STAGED spec, not the
-  // worktree. Argv-staged paths (md + code) read the working tree (the
-  // developer's explicit opt-in); auto-expanded governance citers read the git
-  // index (`git show :path`) so unstaged WIP and worktree-only deletions do not
-  // leak into validation. Build the reader once and share it across both.
+  // Every cite check below validates the COMMIT, not the editor buffer: ONE
+  // commit-snapshot reader serves floors, §-verification, and both volatile-
+  // cite denies. Citers and targets alike read the git INDEX
+  // (`git show :path`) — the staged blob is what ships, so a raw cite that is
+  // staged-but-fixed-only-in-worktree still blocks, clean staged content is
+  // never blamed for unstaged WIP, and a staged heading rename verifies
+  // against the staged target (Codex, PR #207 round 2 for the md deny;
+  // extended to every pass in round 3 — a split-reader runner re-opens the
+  // same staged-vs-worktree divergence in whichever lane keeps the worktree
+  // read). Untracked ad-hoc argv files (probes, previews) have no index
+  // entry and fall back to disk. CI invokes this same runner on a clean
+  // checkout where index and worktree are identical, so the reader is
+  // invocation-agnostic.
   if (stagedMd.length > 0 || stagedCode.length > 0) {
     const repoRoot = getRepoRoot();
-    const stagedAbsolute = new Set([...stagedMd, ...stagedCode].map((p) => resolve(p)));
-    const reader = makeIndexAwareReader(repoRoot, stagedAbsolute);
+    const indexReader = makeIndexAwareReader(repoRoot, new Set());
+    const reader: FileContentReader = (absolutePath) => {
+      try {
+        return indexReader(absolutePath);
+      } catch {
+        return readFileSync(absolutePath, "utf8");
+      }
+    };
 
     if (stagedMd.length > 0) {
       // §-form citers reach the expansion via the extractor callback — their
@@ -199,22 +210,9 @@ export function runChecks(args: string[]): RunChecksResult {
       // a bystander commit for an unstaged citer's pre-existing pin would
       // block developers on debt they did not write. CI passes the full
       // tracked md tree through this same runner, so corpus-wide enforcement
-      // still holds on every PR.
-      // Introduction denies validate the COMMIT, not the editor buffer:
-      // staged citers read the git INDEX (`git show :path`), so a raw cite
-      // that is staged-but-fixed-only-in-worktree still blocks, and clean
-      // staged content is never blamed for unstaged WIP (Codex, PR #207
-      // round 2). Untracked ad-hoc argv files (probes, previews) have no
-      // index entry and fall back to disk.
-      const indexReader = makeIndexAwareReader(repoRoot, new Set());
-      const introductionDenyReader: FileContentReader = (absolutePath) => {
-        try {
-          return indexReader(absolutePath);
-        } catch {
-          return readFileSync(absolutePath, "utf8");
-        }
-      };
-      const mdDenyHits = checkMarkdownVolatileCites(stagedMd, introductionDenyReader);
+      // still holds on every PR. Content comes from the shared commit-
+      // snapshot (index-first) reader above.
+      const mdDenyHits = checkMarkdownVolatileCites(stagedMd, reader);
       if (mdDenyHits.length > 0) {
         messages.push(formatLabelCiteViolations(mdDenyHits));
         exitCode = 1;
@@ -223,10 +221,10 @@ export function runChecks(args: string[]): RunChecksResult {
 
     if (stagedCode.length > 0) {
       // Governance LABEL cites (`Spec-NNN:LL`) — the deterministic floor the
-      // markdown-only walk never reached. checkLabelCiteTargets resolves each
-      // citer to an absolute path internally, so the shared index-aware reader's
-      // staged-set test (keyed on absolute paths) matches and reads the working
-      // tree rather than the index. No inbound-expansion for code: CI's full-tree
+      // markdown-only walk never reached. Citers and their resolved doc
+      // targets both read the shared commit-snapshot reader: the code lane's
+      // deny (passes 5-6) gates introduction on the staged blob exactly like
+      // the md deny above. No inbound-expansion for code: CI's full-tree
       // sweep re-checks every code cite on each PR, the backstop for the doc-
       // only-amend case (a spec shifts with no code file staged), so code-side
       // inbound discovery would only duplicate it.

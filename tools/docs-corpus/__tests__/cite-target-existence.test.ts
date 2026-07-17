@@ -552,3 +552,83 @@ describe("durable-cite rule — Codex round-4 hardening (PR #188)", () => {
     }
   });
 });
+
+describe("cite-target-existence — flush-digit locator boundary + shared fence tracker (round 3)", () => {
+  it("a colon-space numeric VALUE after an md link is prose, not a floor-checked pin", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/016-x.md": "# Spec\n\nshort\n",
+      "docs/note.md": "Cap per [Limit](specs/016-x.md): 25 participants today.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/note.md")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("a colon-space numeric VALUE after a code link is prose, not a volatile-tree deny", () => {
+    const { root, cleanup } = setupRepo({
+      "packages/foo/src/bar.ts": "export function doThing(): void {}\n",
+      "docs/note.md": "Touched [the parser](../packages/foo/src/bar.ts): 25 call sites.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/note.md")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("the flush-digit md link pin still floors (boundary tightening removes values, not pins)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/016-x.md": "# Spec\n\nshort\n",
+      "docs/note.md": "Cap per [Limit](specs/016-x.md):25 today.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/note.md")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("line-out-of-range");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("bare-volatile pass: an interior info-string delimiter line does not flip the fence off, and the same pin outside the fence still denies", () => {
+    const fenced = [
+      "# Note",
+      "",
+      "```text",
+      "```ts",
+      "packages/foo/src/bar.ts:99 — illustrative fixture row",
+      "```",
+      "",
+      "prose after the fence.",
+      "",
+    ].join("\n");
+    const live = "# Note\n\npackages/foo/src/bar.ts:99 is a live pin.\n";
+    const { root, cleanup } = setupRepo({
+      "packages/foo/src/bar.ts": "export function doThing(): void {}\n",
+      "docs/fenced.md": fenced,
+      "docs/live.md": live,
+    });
+    try {
+      const fencedViolations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/fenced.md")]),
+      );
+      expect(fencedViolations).toHaveLength(0);
+      const liveViolations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/live.md")]),
+      );
+      expect(liveViolations).toHaveLength(1);
+    } finally {
+      cleanup();
+    }
+  });
+});
