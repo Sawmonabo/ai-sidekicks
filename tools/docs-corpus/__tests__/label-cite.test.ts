@@ -6,8 +6,10 @@ import { execSync } from "node:child_process";
 import {
   extractLabelCites,
   checkLabelCiteTargets,
+  checkMarkdownVolatileCites,
   checkSectionCites,
   formatLabelCiteViolations,
+  verifySectionHeading,
 } from "../lib/label-cite.ts";
 
 function setupRepo(files: Record<string, string>): { root: string; cleanup: () => void } {
@@ -1131,6 +1133,1011 @@ describe("frozen trees exempt from the raw-cite deny (AGENTS.md: raw `:NNN` stay
       );
       expect(violations).toHaveLength(1);
       expect(violations[0].reason).toBe("missing-target-file");
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe("label-cite — code-lane wrap-split pair scan (CAT-07 wrapped-cite gap)", () => {
+  function codeViolations(files: Record<string, string>, citer: string) {
+    const { root, cleanup } = setupRepo(files);
+    try {
+      return withRepoRoot(root, () => checkLabelCiteTargets([resolve(root, citer)]));
+    } finally {
+      cleanup();
+    }
+  }
+
+  it("DENIES a label cite wrapped across two comment lines, reported at the first line", () => {
+    const violations = codeViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+        "packages/x/src/f.ts":
+          "const a = 1;\n// governed by Spec-003\n// line 4 of the admission flow\n",
+      },
+      "packages/x/src/f.ts",
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0].reason).toBe("line-anchored-cite-in-code");
+    expect(violations[0].cite.line).toBe(2);
+    expect(violations[0].cite.rawTarget).toBe("Spec-003 line 4");
+  });
+
+  it("DENIES a wrapped §-hybrid (label + §Heading on one line, locator on the next)", () => {
+    const violations = codeViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+        "packages/x/src/f.ts": "// per Spec-003 §Required\n// line 4 the daemon defers\n",
+      },
+      "packages/x/src/f.ts",
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0].reason).toBe("line-anchored-cite-in-code");
+  });
+
+  it("DENIES a wrapped docs-path line-word cite", () => {
+    const violations = codeViolations(
+      {
+        "docs/domain/session-model.md": FIVE_LINE_DOC,
+        "packages/x/src/f.ts":
+          "// mapping per docs/domain/session-model.md\n// line 3 (participant row)\n",
+      },
+      "packages/x/src/f.ts",
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0].reason).toBe("line-anchored-cite-in-code");
+    expect(violations[0].cite.line).toBe(1);
+  });
+
+  it("does NOT pair across an intervening non-comment line (adjacency reset)", () => {
+    const violations = codeViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+        "packages/x/src/f.ts":
+          "// governed by Spec-003\nconst a = 1;\n// line 4 is unrelated prose\n",
+      },
+      "packages/x/src/f.ts",
+    );
+    expect(violations).toEqual([]);
+  });
+
+  it("does NOT double-report a cite wholly inside one line through the pair scan", () => {
+    const violations = codeViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+        "packages/x/src/f.ts":
+          "// see Spec-003 line 4 for admission\n// unrelated follow-up comment\n",
+      },
+      "packages/x/src/f.ts",
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0].cite.line).toBe(1);
+  });
+
+  it("FLOORS a wrapped frozen-tree pin instead of denying (out-of-range fails loudly)", () => {
+    const brokenPin = codeViolations(
+      {
+        "docs/archive/backlog-archive.md": FIVE_LINE_DOC,
+        "packages/x/src/f.ts":
+          "// closed via docs/archive/backlog-archive.md\n// line 99 (BL-100)\n",
+      },
+      "packages/x/src/f.ts",
+    );
+    expect(brokenPin).toHaveLength(1);
+    expect(brokenPin[0].reason).toBe("line-out-of-range");
+    const validPin = codeViolations(
+      {
+        "docs/archive/backlog-archive.md": FIVE_LINE_DOC,
+        "packages/x/src/f.ts":
+          "// closed via docs/archive/backlog-archive.md\n// line 2 (BL-100)\n",
+      },
+      "packages/x/src/f.ts",
+    );
+    expect(validPin).toEqual([]);
+  });
+
+  it("stays quiet on a durable §-anchor followed by digit-less 'line' prose", () => {
+    const violations = codeViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": "# Spec-003\n\n## Attach\n\ntext\n",
+        "packages/x/src/f.ts": "// per `Spec-003 §Attach`\n// the line count stays bounded\n",
+      },
+      "packages/x/src/f.ts",
+    );
+    expect(violations).toEqual([]);
+  });
+
+  it("does NOT pair a comment line with a trailing comment on a CODE line", () => {
+    // `// See Spec-003` followed by `const limit = 5; // line 5 …` must not
+    // join into a phantom wrapped cite — pairing requires both sides to be
+    // comment-ONLY lines (Codex, PR #207).
+    const violations = codeViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+        "packages/x/src/f.ts": "// See Spec-003\nconst limit = 5; // line 5 is the local limit\n",
+      },
+      "packages/x/src/f.ts",
+    );
+    expect(violations).toEqual([]);
+  });
+
+  it("DENIES single-line spaced- and paren-colon label spellings in comments", () => {
+    const violations = codeViolations(
+      {
+        "docs/specs/022-data-retention-and-gdpr.md": FIVE_LINE_DOC,
+        "packages/x/src/f.ts":
+          "// sealed per Spec-022 :2 exactly\n// Spec coverage: Spec-022 §Daemon Master Key (:2-3, substrate)\n",
+      },
+      "packages/x/src/f.ts",
+    );
+    expect(violations).toHaveLength(2);
+    expect(violations.every((v) => v.reason === "line-anchored-cite-in-code")).toBe(true);
+  });
+
+  it("DENIES a wrapped cite in a JSDoc block (leaders stripped before the join)", () => {
+    // ` * governed by Spec-003` / ` * line 4` must join WITHOUT the second
+    // line's `*` leader — the decorated join (`Spec-003 * line 4`) dodged
+    // every wrap regex (Codex, PR #207 round 2).
+    const violations = codeViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+        "packages/x/src/f.ts":
+          "/**\n * governed by Spec-003\n * line 4 of the admission flow\n */\nexport const a = 1;\n",
+      },
+      "packages/x/src/f.ts",
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0].reason).toBe("line-anchored-cite-in-code");
+    expect(violations[0].cite.line).toBe(2);
+  });
+});
+
+describe("label-cite — markdown volatile-cite deny (checkMarkdownVolatileCites)", () => {
+  function mdViolations(files: Record<string, string>, citer: string) {
+    const { root, cleanup } = setupRepo(files);
+    try {
+      return withRepoRoot(root, () => checkMarkdownVolatileCites([resolve(root, citer)]));
+    } finally {
+      cleanup();
+    }
+  }
+
+  it("DENIES a raw label colon cite in md prose", () => {
+    const violations = mdViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+        "docs/architecture/security-architecture.md": "Attach admission per Spec-003:2 today.\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0].reason).toBe("line-anchored-cite-in-docs");
+    expect(violations[0].cite.rawTarget).toBe("Spec-003:2");
+  });
+
+  it("DENIES a docs-path colon cite and a bare-basename colon cite", () => {
+    const violations = mdViolations(
+      {
+        "docs/domain/session-model.md": FIVE_LINE_DOC,
+        "docs/architecture/security-architecture.md":
+          "Rows per docs/domain/session-model.md:3 and session-model.md:4 both rot.\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(violations).toHaveLength(2);
+    expect(violations.every((v) => v.reason === "line-anchored-cite-in-docs")).toBe(true);
+  });
+
+  it("DENIES a markdown-link colon cite (target resolved citer-relative)", () => {
+    const violations = mdViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+        "docs/plans/003-runtime-node-attach.md":
+          "# Plan-003\n\nSee [the spec](../specs/003-runtime-node-attach.md):2 for admission.\n",
+      },
+      "docs/plans/003-runtime-node-attach.md",
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0].reason).toBe("line-anchored-cite-in-docs");
+  });
+
+  it("DENIES label line-word spellings, including the §-hybrid", () => {
+    const violations = mdViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+        "docs/architecture/security-architecture.md":
+          "Spec-003 line 2 governs admission.\nSpec-003 §Required Behavior line 4 defers idle holders.\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(violations).toHaveLength(2);
+    expect(violations.every((v) => v.reason === "line-anchored-cite-in-docs")).toBe(true);
+  });
+
+  it("DENIES a wrap-split label pair and reports the pair's first line", () => {
+    const violations = mdViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+        "docs/architecture/security-architecture.md":
+          "intro text\nadmission is governed by Spec-003\nline 4 which defers idle holders.\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0].cite.line).toBe(2);
+  });
+
+  it("does NOT pair across a blank line or a fence boundary", () => {
+    const violations = mdViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+        "docs/architecture/security-architecture.md":
+          "governed by Spec-003\n\nline 4 is unrelated prose\ngoverned by Spec-003\n```\nline 4 fenced example\n```\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(violations).toEqual([]);
+  });
+
+  it("exempts a line carrying the cite-shape-example waiver marker", () => {
+    const violations = mdViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+        "docs/operations/failure-mode-catalog.md":
+          "Example drift: Spec-003:2 → :3 after an insertion. <!-- cite-shape-example -->\n",
+      },
+      "docs/operations/failure-mode-catalog.md",
+    );
+    expect(violations).toEqual([]);
+  });
+
+  it("exempts fenced blocks", () => {
+    const violations = mdViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+        "docs/architecture/security-architecture.md": "```\nSpec-003:2 quoted example\n```\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(violations).toEqual([]);
+  });
+
+  it("exempts plan grammar MARKER lines only — a marker-less plan table row is denied", () => {
+    // Gate 4 (plan-execution preflight) keys on the BOLD markers, so exactly
+    // those lines — including marker-bearing table rows — are its parse
+    // boundary. A plan table row WITHOUT a marker (invariant / dependency /
+    // decision-log tables) is ordinary prose to Gate 4 and stays denied
+    // (Codex, PR #207 — the blanket `|`-row exemption let invariant-table
+    // cites through).
+    const planViolations = mdViolations(
+      {
+        "docs/specs/011-x.md": FIVE_LINE_DOC,
+        "docs/plans/011-x.md":
+          "# Plan-011\n\n- **Spec coverage:** Spec-011 line 2 (admission); line 3 (deferral)\n| T1 | **Verifies invariant:** Spec-011:4 |\n| I-011-1 | per Spec-011:4 |\n",
+      },
+      "docs/plans/011-x.md",
+    );
+    expect(planViolations).toHaveLength(1);
+    expect(planViolations[0].cite.line).toBe(5);
+    expect(planViolations[0].reason).toBe("line-anchored-cite-in-docs");
+    const specViolations = mdViolations(
+      {
+        "docs/specs/011-x.md": FIVE_LINE_DOC,
+        "docs/specs/012-y.md":
+          "- **Spec coverage:** Spec-011 line 2 (admission)\n| row | Spec-011:4 |\n",
+      },
+      "docs/specs/012-y.md",
+    );
+    expect(specViolations).toHaveLength(2);
+  });
+
+  it("exempts the named citer trees (superpowers campaign logs, .claude harness docs)", () => {
+    const superpowersViolations = mdViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+        "docs/superpowers/plans/2026-07-01-campaign.md":
+          "Bundle B4 amends Spec-003:2 and Spec-003 line 4.\n",
+      },
+      "docs/superpowers/plans/2026-07-01-campaign.md",
+    );
+    expect(superpowersViolations).toEqual([]);
+    const harnessViolations = mdViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+        ".claude/skills/ripple-check/SKILL.md": "CAT-07 example: Spec-003:2 → :3 drift.\n",
+      },
+      ".claude/skills/ripple-check/SKILL.md",
+    );
+    expect(harnessViolations).toEqual([]);
+  });
+
+  it("FLOORS bare frozen-target pins (colon and line-word) instead of denying", () => {
+    const brokenPins = mdViolations(
+      {
+        "docs/archive/backlog-archive.md": FIVE_LINE_DOC,
+        "docs/architecture/security-architecture.md":
+          "Closed via docs/archive/backlog-archive.md:99 and docs/archive/backlog-archive.md line 98.\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(brokenPins).toHaveLength(2);
+    expect(brokenPins.every((v) => v.reason === "line-out-of-range")).toBe(true);
+    const validPins = mdViolations(
+      {
+        "docs/archive/backlog-archive.md": FIVE_LINE_DOC,
+        "docs/architecture/security-architecture.md":
+          "Closed via docs/archive/backlog-archive.md:2 and docs/archive/backlog-archive.md line 3.\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(validPins).toEqual([]);
+  });
+
+  it("skips backticked and link-form frozen pins (extractCites already floors those)", () => {
+    const violations = mdViolations(
+      {
+        "docs/archive/backlog-archive.md": FIVE_LINE_DOC,
+        "docs/architecture/security-architecture.md":
+          "Closed via `docs/archive/backlog-archive.md:99` and [the archive](../archive/backlog-archive.md):99.\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(violations).toEqual([]);
+  });
+
+  it("stays quiet on durable §-anchor forms and bare non-docs slashed paths", () => {
+    // A bare slashed non-docs path is a repo-root mention of a
+    // non-governance file (the corpus cites by repo-root path) — it is NOT
+    // resolved citer-relative into docs/ (that resolution is reserved for
+    // explicitly relative `../` / `./` spellings).
+    const violations = mdViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": "# Spec-003\n\n## Attach\n\ntext\n",
+        "docs/architecture/security-architecture.md":
+          "Per `Spec-003 §Attach` and `docs/specs/003-runtime-node-attach.md §Attach`; packages/x/readme.md line 5 is not corpus.\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(violations).toEqual([]);
+  });
+
+  it("DENIES explicitly relative line-word spellings that resolve into docs/", () => {
+    const violations = mdViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+        "docs/plans/003-runtime-node-attach.md":
+          "# Plan-003\n\nAdmission per ../specs/003-runtime-node-attach.md line 2 as shipped.\n",
+      },
+      "docs/plans/003-runtime-node-attach.md",
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0].reason).toBe("line-anchored-cite-in-docs");
+  });
+
+  it("resolves relative spellings OUT of docs/ to quiet, and relative frozen pins to the floor", () => {
+    const outsideDocs = mdViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+        "tools/notes.md": "scratch",
+        "docs/plans/003-runtime-node-attach.md":
+          "# Plan-003\n\nSee ../../tools/notes.md line 9 for tooling notes.\n",
+      },
+      "docs/plans/003-runtime-node-attach.md",
+    );
+    expect(outsideDocs).toEqual([]);
+    const frozenRelative = mdViolations(
+      {
+        "docs/archive/backlog-archive.md": FIVE_LINE_DOC,
+        "docs/plans/003-runtime-node-attach.md":
+          "# Plan-003\n\nClosed via ../archive/backlog-archive.md line 99 (BL-100).\n",
+      },
+      "docs/plans/003-runtime-node-attach.md",
+    );
+    expect(frozenRelative).toHaveLength(1);
+    expect(frozenRelative[0].reason).toBe("line-out-of-range");
+  });
+
+  it("DENIES a line locator appended to a fragment link", () => {
+    // `[…](../specs/022-x.md#pii-data-map):251-254` — the fragment does not
+    // durable-ize the appended line locator (Codex, PR #207).
+    const violations = mdViolations(
+      {
+        "docs/specs/022-data-retention-and-gdpr.md": FIVE_LINE_DOC,
+        "docs/plans/022-data-retention-and-gdpr.md":
+          "# Plan-022\n\nMirrors [Spec-022 §PII Data Map](../specs/022-data-retention-and-gdpr.md#pii-data-map):2-3, reconciled at swap.\n",
+      },
+      "docs/plans/022-data-retention-and-gdpr.md",
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0].reason).toBe("line-anchored-cite-in-docs");
+  });
+
+  it("DENIES the spaced-, tight-, and paren-colon label spellings", () => {
+    const violations = mdViolations(
+      {
+        "docs/specs/022-data-retention-and-gdpr.md": FIVE_LINE_DOC,
+        "docs/architecture/security-architecture.md":
+          "Sealed per Spec-022 :2 exactly.\nSealed per Spec-022 §Daemon Master Key :2 exactly.\nUnresolved per Spec-022 §Resolved Questions:3; only performance.\nSpec coverage: Spec-022 §Relay Negotiation (:2-3, substrate).\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(violations).toHaveLength(4);
+    expect(violations.every((v) => v.reason === "line-anchored-cite-in-docs")).toBe(true);
+  });
+
+  it("stays quiet on prose quoting a numeric VALUE after a §-anchor (colon-space)", () => {
+    // `§Scheduler Limits: 25` quotes the section's VALUE — the flush-digits
+    // requirement keeps value quotes out of the deny.
+    const violations = mdViolations(
+      {
+        "docs/specs/016-multi-agent-channels-and-orchestration.md": FIVE_LINE_DOC,
+        "docs/architecture/contracts/error-contracts.md":
+          'Caps per Spec-016 §Scheduler Limits: 25 concurrent runs.\nPlan-001 §CP-001-1 names "second bounded timeout: 2 s" for shutdown.\n',
+      },
+      "docs/architecture/contracts/error-contracts.md",
+    );
+    expect(violations).toEqual([]);
+  });
+
+  it("DENIES a blockquoted wrap-split pair (quote leaders stripped in the join)", () => {
+    // `> governed by Spec-003` / `> line 4` — blockquoted PROSE is not
+    // exempt; only fenced blocks are (Codex, PR #207 round 2).
+    const violations = mdViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+        "docs/architecture/security-architecture.md":
+          "> governed by Spec-003\n> line 4 which defers idle holders\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0].reason).toBe("line-anchored-cite-in-docs");
+  });
+
+  it("DENIES angle-bracketed and titled link destinations with locators", () => {
+    const violations = mdViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+        "docs/plans/003-runtime-node-attach.md":
+          '# Plan-003\n\nSee [spec](<../specs/003-runtime-node-attach.md>):2 and [spec](../specs/003-runtime-node-attach.md "attach spec"):2.\n',
+      },
+      "docs/plans/003-runtime-node-attach.md",
+    );
+    expect(violations).toHaveLength(2);
+    expect(violations.every((v) => v.reason === "line-anchored-cite-in-docs")).toBe(true);
+  });
+
+  it("stays quiet on a colon-space VALUE after a markdown link, and on non-docs link targets", () => {
+    const violations = mdViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+        "tools/notes.md": "scratch",
+        "docs/plans/003-runtime-node-attach.md":
+          "# Plan-003\n\nCaps per [the spec](../specs/003-runtime-node-attach.md): 25 participants.\nSee [notes](../../tools/notes.md):5 for tooling details.\n",
+      },
+      "docs/plans/003-runtime-node-attach.md",
+    );
+    expect(violations).toEqual([]);
+  });
+
+  it("treats an info-string delimiter inside a fence as content, not a closer", () => {
+    // ` ```ts ` shown INSIDE a ```text example is fence content: closing
+    // fences carry only whitespace after the delimiter (Codex, PR #207
+    // round 2). The cite inside stays exempt; prose after the real close
+    // scans normally.
+    const violations = mdViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+        "docs/architecture/security-architecture.md":
+          "```text\n```ts\nSpec-003:2 still fenced\n```\nSpec-003 line 2 after the real close.\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0].cite.line).toBe(5);
+  });
+
+  it("DENIES a spaced/tight-colon cite across a >100-char §-bridge", () => {
+    const longBridge =
+      "Participant Keys (random per-participant DEK plus KEK-wrap back-fill owed superseding the credential-derived legacy";
+    const violations = mdViolations(
+      {
+        "docs/specs/022-data-retention-and-gdpr.md": FIVE_LINE_DOC,
+        "docs/plans/022-data-retention-and-gdpr.md": `# Plan-022\n\n- Spec coverage: Spec-022 §${longBridge} :2 wording)\n`,
+      },
+      "docs/plans/022-data-retention-and-gdpr.md",
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0].reason).toBe("line-anchored-cite-in-docs");
+  });
+
+  it("FLOORS fragment-bearing frozen links instead of skipping them", () => {
+    const outOfRange = mdViolations(
+      {
+        "docs/archive/backlog-archive.md": FIVE_LINE_DOC,
+        "docs/plans/003-runtime-node-attach.md":
+          "# Plan-003\n\nClosed via [history](../archive/backlog-archive.md#bl-100):999 back then.\n",
+      },
+      "docs/plans/003-runtime-node-attach.md",
+    );
+    expect(outOfRange).toHaveLength(1);
+    expect(outOfRange[0].reason).toBe("line-out-of-range");
+    const validPin = mdViolations(
+      {
+        "docs/archive/backlog-archive.md": FIVE_LINE_DOC,
+        "docs/plans/003-runtime-node-attach.md":
+          "# Plan-003\n\nClosed via [history](../archive/backlog-archive.md#bl-100):2 back then.\n",
+      },
+      "docs/plans/003-runtime-node-attach.md",
+    );
+    expect(validPin).toEqual([]);
+  });
+
+  it("exempts a fence nested inside a block quote, honoring delimiter type and length", () => {
+    // `> ```text` opens a fence inside a quoted example (Codex, PR #207); a
+    // `~~~` line cannot close it, and a longer opener needs an
+    // equal-or-longer closer of the same character.
+    const quotedFence = mdViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+        "docs/architecture/security-architecture.md":
+          "> ```text\n> Spec-003:2 quoted example\n> ```\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(quotedFence).toEqual([]);
+    const mismatchedDelimiter = mdViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+        "docs/architecture/security-architecture.md":
+          "````\n~~~\nSpec-003:2 still fenced (a tilde line cannot close a backtick fence)\n````\nSpec-003 line 2 after the real close.\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(mismatchedDelimiter).toHaveLength(1);
+    expect(mismatchedDelimiter[0].cite.line).toBe(5);
+  });
+
+  it("dedupes an identical cite repeated on one line", () => {
+    const violations = mdViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+        "docs/architecture/security-architecture.md": "Spec-003:2 and again Spec-003:2 here.\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(violations).toHaveLength(1);
+  });
+});
+
+describe("label-cite — round-3 spellings: paren titles, path fragments, structural floor discriminators", () => {
+  function mdViolations(files: Record<string, string>, citer: string) {
+    const { root, cleanup } = setupRepo(files);
+    try {
+      return withRepoRoot(root, () => checkMarkdownVolatileCites([resolve(root, citer)]));
+    } finally {
+      cleanup();
+    }
+  }
+
+  it("DENIES a paren-titled link destination — the third CommonMark title delimiter", () => {
+    const violations = mdViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+        "docs/plans/003-runtime-node-attach.md":
+          "# Plan-003\n\nSee [the spec](../specs/003-runtime-node-attach.md (attach spec)):2 for admission.\n",
+      },
+      "docs/plans/003-runtime-node-attach.md",
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0].reason).toBe("line-anchored-cite-in-docs");
+  });
+
+  it("FLOORS a paren-titled frozen link per endpoint (character sniffing would skip it)", () => {
+    const violations = mdViolations(
+      {
+        "docs/archive/backlog-archive.md": FIVE_LINE_DOC,
+        "docs/architecture/security-architecture.md":
+          "Closed in [history](../archive/backlog-archive.md (BL log)):999 back then.\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0].reason).toBe("line-out-of-range");
+  });
+
+  it("DENIES a fragment-bearing docs-path colon cite (`docs/x.md#a:NN`)", () => {
+    const violations = mdViolations(
+      {
+        "docs/domain/session-model.md": FIVE_LINE_DOC,
+        "docs/architecture/security-architecture.md":
+          "Rows per docs/domain/session-model.md#participants:3 rot on amendment.\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0].reason).toBe("line-anchored-cite-in-docs");
+  });
+
+  it("FLOORS fragment-bearing frozen docs-path pins, backticked included (codeRe cannot parse a fragment)", () => {
+    const violations = mdViolations(
+      {
+        "docs/archive/backlog-archive.md": FIVE_LINE_DOC,
+        "docs/architecture/security-architecture.md":
+          "Closed per docs/archive/backlog-archive.md#bl-100:999 and `docs/archive/backlog-archive.md#bl-100:999` alike.\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(violations).toHaveLength(2);
+    expect(violations.every((v) => v.reason === "line-out-of-range")).toBe(true);
+  });
+
+  it("DENIES a fragment-bearing relative-path line-word cite", () => {
+    const violations = mdViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+        "docs/plans/003-runtime-node-attach.md":
+          "# Plan-003\n\nAdmission per ../specs/003-runtime-node-attach.md#attach line 4 today.\n",
+      },
+      "docs/plans/003-runtime-node-attach.md",
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0].reason).toBe("line-anchored-cite-in-docs");
+  });
+});
+
+describe("label-cite — shared CommonMark fence tracker across heading collection and the floor lane", () => {
+  it("an info-string delimiter line inside a fence neither closes it nor reopens it over real headings", () => {
+    const doc = [
+      "# Doc",
+      "",
+      "```text",
+      "```ts",
+      "## Fenced Example Heading",
+      "```",
+      "",
+      "## Real Heading",
+      "",
+    ].join("\n");
+    expect(verifySectionHeading(doc, "Real Heading")).toBe(true);
+    expect(verifySectionHeading(doc, "Fenced Example Heading")).toBe(false);
+  });
+
+  it("a blockquote-nested fence exempts its (lazily unquoted) content from heading collection", () => {
+    const doc = [
+      "# Doc",
+      "",
+      "> ```text",
+      "## Lazily Quoted Example",
+      "> ```",
+      "",
+      "## Real Heading",
+      "",
+    ].join("\n");
+    expect(verifySectionHeading(doc, "Real Heading")).toBe(true);
+    expect(verifySectionHeading(doc, "Lazily Quoted Example")).toBe(false);
+  });
+
+  it("floor lane: a fenced example with an interior info-string line stays exempt — and the same cite outside a fence still fails", () => {
+    const fencedExample = [
+      "# Security",
+      "",
+      "```text",
+      "```ts",
+      "Per `Spec-003 §No Such Heading` — illustrative only.",
+      "```",
+      "",
+      "prose after the fence.",
+      "",
+    ].join("\n");
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+      "docs/architecture/security-architecture.md": fencedExample,
+      "docs/architecture/deployment-architecture.md":
+        "Per `Spec-003 §No Such Heading` — a live cite, not an example.\n",
+    });
+    try {
+      const fencedViolations = withRepoRoot(root, () =>
+        checkSectionCites([resolve(root, "docs/architecture/security-architecture.md")]),
+      );
+      expect(fencedViolations).toHaveLength(0);
+      const liveViolations = withRepoRoot(root, () =>
+        checkSectionCites([resolve(root, "docs/architecture/deployment-architecture.md")]),
+      );
+      expect(liveViolations).toHaveLength(1);
+      expect(liveViolations[0].reason).toBe("section-not-found");
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe("label-cite — round-4 spellings: inline-code bridges, dot segments, fence indentation", () => {
+  function mdViolations(files: Record<string, string>, citer: string) {
+    const { root, cleanup } = setupRepo(files);
+    try {
+      return withRepoRoot(root, () => checkMarkdownVolatileCites([resolve(root, citer)]));
+    } finally {
+      cleanup();
+    }
+  }
+
+  it("DENIES a §-bridged colon cite whose heading carries an inline-code span", () => {
+    const violations = mdViolations(
+      {
+        "docs/architecture/security-architecture.md":
+          "Per Plan-024 §I-024-1 — Windows kill semantics translate at `PtyHost.kill`:47 today.\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0].reason).toBe("line-anchored-cite-in-docs");
+  });
+
+  it("DENIES a colon locator appended after a durable backticked anchor", () => {
+    const violations = mdViolations(
+      {
+        "docs/architecture/security-architecture.md":
+          "Bind rules per `Spec-021 §Bind Address`:47 today.\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(violations).toHaveLength(1);
+  });
+
+  it("does NOT fire on a durable anchor whose heading contains a colon, nor on span-internal colons", () => {
+    const violations = mdViolations(
+      {
+        "docs/architecture/security-architecture.md":
+          "Per `Plan-008 §Phase 1: Bootstrap (scaffold)` and `Spec-012 §Limits` — config uses `retry: 3` today.\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(violations).toHaveLength(0);
+  });
+
+  it("DENIES a line-word cite whose §-bridge crosses an inline-code span", () => {
+    const violations = mdViolations(
+      {
+        "docs/architecture/security-architecture.md":
+          "Spec-027 §Uses `PtyHost.kill` helper line 94 governs teardown.\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(violations).toHaveLength(1);
+  });
+
+  it("DENIES dot-segment docs spellings on their RESOLVED target (colon + line-word)", () => {
+    const violations = mdViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+        "docs/architecture/security-architecture.md":
+          "Per docs/archive/../specs/003-runtime-node-attach.md:2 and docs/archive/../specs/003-runtime-node-attach.md line 2 alike.\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(violations).toHaveLength(2);
+    expect(violations.every((v) => v.reason === "line-anchored-cite-in-docs")).toBe(true);
+  });
+
+  it("FLOORS a dot-segment spelling that RESOLVES into a frozen tree", () => {
+    const violations = mdViolations(
+      {
+        "docs/archive/backlog-archive.md": FIVE_LINE_DOC,
+        "docs/architecture/security-architecture.md":
+          "Closed per docs/specs/../archive/backlog-archive.md line 999 back then.\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0].reason).toBe("line-out-of-range");
+  });
+
+  it("code lane: DENIES a dot-segment docs line-word cite in a comment", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+      "packages/x/src/f.ts":
+        "// per docs/archive/../specs/003-runtime-node-attach.md line 2 today\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/x/src/f.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("line-anchored-cite-in-code");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("a four-space-indented delimiter is indented-code CONTENT, not a fence opener", () => {
+    const violations = mdViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+        "docs/architecture/security-architecture.md":
+          "# Doc\n\n    ```\nAttach per Spec-003:2 today.\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(violations).toHaveLength(1);
+  });
+
+  it("a three-space-indented fence still opens and exempts its content", () => {
+    const violations = mdViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+        "docs/architecture/security-architecture.md":
+          "# Doc\n\n   ```text\nAttach per Spec-003:2 example.\n   ```\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(violations).toHaveLength(0);
+  });
+});
+
+describe("label-cite — round-4 bridge constraints: no cross-§ gluing, tick parity, task pins", () => {
+  function mdViolations(files: Record<string, string>, citer: string) {
+    const { root, cleanup } = setupRepo(files);
+    try {
+      return withRepoRoot(root, () => checkMarkdownVolatileCites([resolve(root, citer)]));
+    } finally {
+      cleanup();
+    }
+  }
+
+  it("does NOT glue a §-bridge across a second § to a later ref's line-word locator", () => {
+    const violations = mdViolations(
+      {
+        "docs/architecture/security-architecture.md":
+          "Per Spec-006 §Security Events ownership of `security.default.override`; the Tier 1 §Done Checklist line 910 entry is separate.\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(violations).toHaveLength(0);
+  });
+
+  it("does NOT glue across an inline-code span that carries its own §-anchor", () => {
+    const violations = mdViolations(
+      {
+        "docs/architecture/security-architecture.md":
+          "Reads the floor (ADR-018 §Decision #4; `Spec-003 §Required Behavior`; created at line 104).\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(violations).toHaveLength(0);
+  });
+
+  it("does NOT start a raw-cite match from a label inside a durable anchor (tick parity)", () => {
+    const violations = mdViolations(
+      {
+        "docs/architecture/security-architecture.md":
+          "The schema (`Spec-025 §Interfaces And Contracts` defines `RELAY_BIND` with default `0.0.0.0:8787`) is operator-overridable, and the init step (`Spec-027 §Example Flows`) runs chown 0:999 on the key.\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(violations).toHaveLength(0);
+  });
+
+  it("keeps the hyphenated HISTORICAL compound quiet while the adjectival spelling still denies", () => {
+    const quiet = mdViolations(
+      {
+        "docs/architecture/security-architecture.md":
+          "Inverted the test (Spec-003 §References grounding; `runtime-node.test.ts`, then-lines 306-319 preserved).\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(quiet).toHaveLength(0);
+    const denied = mdViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+        "docs/architecture/security-architecture.md": "Spec-003 line-2 payload governs attach.\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(denied).toHaveLength(1);
+  });
+
+  it("DENIES a task-coordinate colon pin and stays quiet on colon-space task prose", () => {
+    const denied = mdViolations(
+      {
+        "docs/architecture/security-architecture.md":
+          "The obligation is satisfied (Plan-008 T-008r-3-5 + Plan-018 T4.5:251) upstream.\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(denied).toHaveLength(1);
+    expect(denied[0].reason).toBe("line-anchored-cite-in-docs");
+    const quiet = mdViolations(
+      {
+        "docs/architecture/security-architecture.md": "Plan-003 T3.4: the test asserts 5 states.\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(quiet).toHaveLength(0);
+  });
+
+  it("DENIES a colon locator appended after a durable PATH anchor, and after a plain-label anchor", () => {
+    const violations = mdViolations(
+      {
+        "docs/domain/session-model.md": FIVE_LINE_DOC,
+        "docs/architecture/security-architecture.md":
+          "Lifecycle per `docs/domain/session-model.md §Session Lifecycle`:2 and floors per `Spec-021`:47 today.\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(violations).toHaveLength(2);
+    expect(violations.every((v) => v.reason === "line-anchored-cite-in-docs")).toBe(true);
+  });
+
+  it("FLOORS the appended-colon pin on a FROZEN path anchor instead of denying", () => {
+    const violations = mdViolations(
+      {
+        "docs/archive/backlog-archive.md": FIVE_LINE_DOC,
+        "docs/architecture/security-architecture.md":
+          "Closed per `docs/archive/backlog-archive.md §BL-105`:999 back then.\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0].reason).toBe("line-out-of-range");
+  });
+
+  it("a backtick-fence opener with a backtick in its info string is NOT a delimiter", () => {
+    // CommonMark 4.5: inline code, not a fence — the following prose stays
+    // under the deny instead of being exempted as fence content.
+    const denied = mdViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+        "docs/architecture/security-architecture.md":
+          "# Doc\n\n```ts`x\nAttach per Spec-003:2 today.\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(denied).toHaveLength(1);
+    const quiet = mdViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+        "docs/architecture/security-architecture.md":
+          "# Doc\n\n~~~ts`x\nAttach per Spec-003:2 example.\n~~~\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(quiet).toHaveLength(0);
+  });
+
+  it("a four-space-indented blockquote marker is indented code, not a quoted fence", () => {
+    const denied = mdViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+        "docs/architecture/security-architecture.md":
+          "# Doc\n\n    > ```\nAttach per Spec-003:2 today.\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(denied).toHaveLength(1);
+    const quiet = mdViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+        "docs/architecture/security-architecture.md":
+          "# Doc\n\n   > ```text\n   > Attach per Spec-003:2 example.\n   > ```\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(quiet).toHaveLength(0);
+  });
+
+  it("code lane: DENIES the appended-colon anchor spelling in a comment", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/021-security.md": "# Spec\n\n## Bind Address\n\nbody\n",
+      "packages/x/src/f.ts": "// bind rules per `Spec-021 §Bind Address`:47 today\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkLabelCiteTargets([resolve(root, "packages/x/src/f.ts")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("line-anchored-cite-in-code");
     } finally {
       cleanup();
     }

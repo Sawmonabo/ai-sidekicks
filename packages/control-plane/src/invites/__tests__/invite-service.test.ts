@@ -846,8 +846,9 @@ describe("InviteService.revokeInvite — does not overwrite an accepted (termina
 
     // (3) Token reuse: a SECOND accept of the same token. This is the
     // load-bearing assertion — the single-use record survived the revoke
-    // attempt, so reuse classifies as `invite.already_accepted` (Spec-002 line
-    // 109), NOT `invite.revoked`. A clobbered row would surface the wrong code.
+    // attempt, so reuse classifies as `invite.already_accepted`
+    // (`Spec-002 §Token Security Properties`), NOT `invite.revoked`. A
+    // clobbered row would surface the wrong code.
     const error = await ctx.service
       .acceptInvite(INVITEE_PARTICIPANT_ID, { token: minted.token })
       .catch((e: unknown) => e);

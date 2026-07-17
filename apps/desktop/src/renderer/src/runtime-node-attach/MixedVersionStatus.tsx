@@ -213,8 +213,8 @@ const ACCESS_STATUS_LABELS: Record<NodeAccessStatus, string> = {
 //   • `state: "revoked"` resolves to its own verdict, never `detached` (the
 //     header's masking argument).
 //   • The three GROUPED case labels — `registering | online | degraded` — are
-//     exactly the ACTIVE attachment set (I-003-5, Plan-003 §Invariants line
-//     67: "offline and revoked are inactive"; the `idx_node_attachments_active`
+//     exactly the ACTIVE attachment set (I-003-5, `Plan-003 §Invariants`:
+//     "offline and revoked are inactive"; the `idx_node_attachments_active`
 //     partial-index predicate), so the verdict is the PERMISSION axis
 //     verbatim: `readOnly` distinguishes below-floor from at-floor. Liveness
 //     and slot-health rendering stay the sibling NodeRoster's mandate — this

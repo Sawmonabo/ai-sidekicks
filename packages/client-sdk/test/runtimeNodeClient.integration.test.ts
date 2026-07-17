@@ -697,8 +697,9 @@ describe("I2 / `Spec-003 §Acceptance Criteria` (AC2) + `Spec-003 §Fallback Beh
     });
     expect(contrastRecover.state).toBe("online");
 
-    // (4) DISTINGUISHABILITY through the client (the AC2 thesis, Spec-003 line
-    // 128): the latest client-observable `NodeState` for A reads `degraded`
+    // (4) DISTINGUISHABILITY through the client (the AC2 thesis, per
+    // `Spec-003 §Acceptance Criteria`): the latest client-observable
+    // `NodeState` for A reads `degraded`
     // while B's reads `online` — and A is NOT absent. The absence probe is a
     // capabilities-only `capabilityUpdate` (no `healthChanges`): it must still
     // RESOLVE A's single active attachment — a retired slot (detach/revoke)

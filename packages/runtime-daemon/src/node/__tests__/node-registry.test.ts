@@ -41,10 +41,10 @@
 //     `established_at` preserved from the first registration.
 //
 // Spec coverage: `Spec-003 §Fallback Behavior` (disconnected node keeps membership; reconnect
-// under same identity — the T2.5 detach path), `Spec-003 §State And Data
-// Implications` (durable runtime-node records), `Spec-003 §Implementation
-// Notes` (node identity stable across reconnect), `Spec-003 §Pitfalls To
-// Avoid` (no implicit capability exposure on attach), and
+// under same identity — the T2.5 detach path), `Spec-003 §State And Data Implications`
+// (durable runtime-node records), `Spec-003 §Implementation Notes`
+// (node identity stable across reconnect), `Spec-003 §Pitfalls To Avoid`
+// (no implicit capability exposure on attach), and
 // `Spec-003 §Acceptance Criteria` AC1. Verifies invariant: I-003-3
 // (registration records a node without mutating membership; detach does not revoke
 // membership).

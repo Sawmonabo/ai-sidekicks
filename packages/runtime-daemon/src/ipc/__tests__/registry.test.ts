@@ -6,8 +6,7 @@
 //     surface owed to Plan-026 and Tier 4 namespace plans.
 //
 // Invariants verified here (canonical text in
-// docs/plans/007-local-ipc-and-daemon-control.md §Invariants lines
-// 95-117):
+// `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`):
 //   * I-007-6 — duplicate method-name registration MUST be rejected at
 //     register-time (synchronous), not at dispatch-time.
 //   * I-007-7 — schema validation runs BEFORE handler dispatch. Handler

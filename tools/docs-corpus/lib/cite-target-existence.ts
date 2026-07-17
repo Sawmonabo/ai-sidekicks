@@ -18,6 +18,12 @@
 import { readFileSync, existsSync } from "node:fs";
 import { dirname, relative, resolve, isAbsolute, sep } from "node:path";
 
+import {
+  advanceFenceState,
+  type OpenFenceState,
+  stripBlockquotePrefix,
+} from "./markdown-fences.ts";
+
 export interface Cite {
   file: string;
   line: number;
@@ -40,7 +46,8 @@ export interface CiteViolation {
     | "raw-line-cite-into-governance-doc"
     | "symbol-not-found"
     | "section-not-found"
-    | "line-anchored-cite-in-code";
+    | "line-anchored-cite-in-code"
+    | "line-anchored-cite-in-docs";
   detail: string;
 }
 
@@ -95,7 +102,13 @@ export function extractCites(
   const content = reader(citingFile);
   const cites: Cite[] = [];
   const baseDir = dirname(citingFile);
-  const linkRe = /\]\(([^)]+\.md)\)\s*:\s*([\d,\s-]+)/g;
+  // Locator digits sit FLUSH against the colon in every pass here — the same
+  // value-vs-locator boundary as label-cite's deny regexes. Colon-space after
+  // a link quotes a numeric VALUE (`[Limit](x.md): 25 participants`), and the
+  // earlier `\s*([\d,\s-]+)` tail floor-checked (linkRe) or DENIED (linkCodeRe)
+  // that legal idiom whenever the number happened to parse as a line
+  // (PR #207 round 3, surfaced by the round-3 negative-control probe).
+  const linkRe = /\]\(([^)]+\.md)\)\s*:(\d+(?:\s*[,-]\s*\d+)*)/g;
   // codeRe's tail is the same number-list grammar linkRe uses, so
   // `` `packages/x.ts:24,35` `` / `` `x.ts:10-99` `` stop being invisible.
   // Extension set: the runner's CODE_FILE_RE (ts|tsx|mts|cts) plus js|mjs|md —
@@ -106,7 +119,7 @@ export function extractCites(
   const codeRe = /`([\w./-]+\.(?:ts|tsx|js|mjs|mts|cts|rs|md)):(\d+(?:\s*[,-]\s*\d+)*)`/g;
   // Markdown-link form with a CODE-extension target — extracted solely for the
   // volatile deny (see the pass below).
-  const linkCodeRe = /\]\(([^)]+\.(?:ts|tsx|js|mjs|mts|cts|rs))\)\s*:\s*([\d,\s-]+)/g;
+  const linkCodeRe = /\]\(([^)]+\.(?:ts|tsx|js|mjs|mts|cts|rs))\)\s*:(\d+(?:\s*[,-]\s*\d+)*)/g;
   // BARE (unbackticked, unlinked) volatile line-pins. Matches ANY path-shaped
   // token (≥1 slash), then the loop resolves it and denies ONLY volatile-tree
   // targets — the same resolve-then-test posture as the backticked pass, so
@@ -125,11 +138,16 @@ export function extractCites(
   // verbatim), so the bare deny must not chase it. The backtick / link /
   // symbol passes deliberately stay fence-blind — they predate the fence
   // distinction, and narrowing them could silently uncover cites the floor
-  // checks today.
-  let insideFence = false;
+  // checks today. State comes from the shared CommonMark tracker (blockquote-
+  // stripped input, delimiter-matched whitespace-only closers) — the naive
+  // toggle it replaces flipped on info-string lines and never saw
+  // blockquote-nested fences (PR #207 round 3).
+  let openFence: OpenFenceState = null;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    if (/^\s*(?:```|~~~)/.test(line)) insideFence = !insideFence;
+    const advanced = advanceFenceState(stripBlockquotePrefix(line), openFence);
+    openFence = advanced.openFence;
+    const insideFence = openFence !== null || advanced.isDelimiterLine;
     let m: RegExpExecArray | null;
     while ((m = linkRe.exec(line)) !== null) {
       const relTarget = m[1].trim();

@@ -12,8 +12,7 @@
 //     `DaemonHelloAck` must perform version negotiation."
 //
 // Invariants verified here (canonical text in
-// docs/plans/007-local-ipc-and-daemon-control.md §Invariants lines
-// 95-117):
+// `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`):
 //   * I-007-1 (fail-closed) — pre-handshake mutating dispatch is
 //     refused; read-only dispatch is always allowed.
 //   * I-007-7 — the handshake envelopes themselves go through the

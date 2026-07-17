@@ -333,3 +333,227 @@ describe("pre-commit-runner — inbound section-cite ripple", () => {
     }
   });
 });
+
+describe("pre-commit-runner — markdown volatile-cite deny wiring", () => {
+  it("exits 1 when a STAGED md citer carries a volatile line cite", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md": "# Spec\n\nline three\nline four\nline five\n",
+      "docs/architecture/security-architecture.md":
+        "Attach admission is governed by Spec-003 line 4 today.\n",
+    });
+    try {
+      const result = withRepoRoot(root, () =>
+        runChecks([resolve(root, "docs/architecture/security-architecture.md")]),
+      );
+      expect(result.exitCode).toBe(1);
+      expect(result.messages.join("\n")).toContain("line-anchored-cite-in-docs");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("does NOT deny an UNSTAGED expanded citer's pre-existing volatile cite (introduction-gating scope)", () => {
+    // The unstaged citer's link-colon cite pulls it into the expanded floor
+    // set (valid pin → floor passes); the deny must skip it — it gates what
+    // the staged commit INTRODUCES, not a bystander's pre-existing debt.
+    const { root, cleanup } = setupRepo({
+      "docs/domain/session-model.md": "# Session model\n\nparticipant rows\n",
+      "docs/architecture/security-architecture.md":
+        "See [the rows](../domain/session-model.md):3 for the participant table.\n",
+    });
+    try {
+      const result = withRepoRoot(root, () =>
+        runChecks([resolve(root, "docs/domain/session-model.md")]),
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.messages).toEqual([]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("denies the STAGED (index) content even when the worktree already fixed it", () => {
+    // Introduction denies validate the COMMIT: a raw cite that is staged and
+    // then fixed only in the working tree still blocks — the forbidden blob
+    // is what ships (Codex, PR #207 round 2).
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md": "# Spec\n\n## Attach\n\nline five\n",
+      "docs/architecture/security-architecture.md":
+        "Attach admission is governed by Spec-003 line 4 today.\n",
+    });
+    try {
+      writeFileSync(
+        resolve(root, "docs/architecture/security-architecture.md"),
+        "Attach admission is governed by `Spec-003 §Attach` today.\n",
+      );
+      const result = withRepoRoot(root, () =>
+        runChecks([resolve(root, "docs/architecture/security-architecture.md")]),
+      );
+      expect(result.exitCode).toBe(1);
+      expect(result.messages.join("\n")).toContain("line-anchored-cite-in-docs");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("passes clean STAGED content regardless of raw-cite WIP in the worktree", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md": "# Spec\n\n## Attach\n\nline five\n",
+      "docs/architecture/security-architecture.md":
+        "Attach admission is governed by `Spec-003 §Attach` today.\n",
+    });
+    try {
+      writeFileSync(
+        resolve(root, "docs/architecture/security-architecture.md"),
+        "Attach admission is governed by Spec-003 line 4 today.\n",
+      );
+      const result = withRepoRoot(root, () =>
+        runChecks([resolve(root, "docs/architecture/security-architecture.md")]),
+      );
+      expect(result.exitCode).toBe(0);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe("pre-commit-runner — commit-snapshot (index) reads across every lane", () => {
+  // isCodeFile keys on repo-relative paths (`packages/…`), matching
+  // lefthook's invocation from the repo root — so the code-lane pair chdirs
+  // into the (realpathed — macOS /var symlink) fixture root and passes
+  // relative args, exactly like the reverse-direction advisory test above.
+  function runCodeLane(files: Record<string, string>, worktreeOverride: string, citer: string) {
+    const { root, cleanup } = setupRepo({
+      ...files,
+      "tools/docs-corpus/canonical-paths.json": '{ "paths": [] }\n',
+    });
+    const previousCwd = process.cwd();
+    const physicalRoot = realpathSync(root);
+    try {
+      writeFileSync(resolve(physicalRoot, citer), worktreeOverride);
+      process.chdir(physicalRoot);
+      return withRepoRoot(physicalRoot, () => runChecks([citer]));
+    } finally {
+      process.chdir(previousCwd);
+      cleanup();
+    }
+  }
+
+  it("code lane: denies the STAGED (index) content even when the worktree already fixed it", () => {
+    const result = runCodeLane(
+      {
+        "docs/specs/003-runtime-node-attach.md": "# Spec\n\n## Attach\n\nline five\n",
+        "packages/x/src/f.ts": "// admission is governed by Spec-003 line 4 today\n",
+      },
+      "// admission is governed by `Spec-003 §Attach` today\n",
+      "packages/x/src/f.ts",
+    );
+    expect(result.exitCode).toBe(1);
+    expect(result.messages.join("\n")).toContain("line-anchored-cite-in-code");
+  });
+
+  it("code lane: passes clean STAGED content regardless of raw-cite WIP in the worktree", () => {
+    const result = runCodeLane(
+      {
+        "docs/specs/003-runtime-node-attach.md": "# Spec\n\n## Attach\n\nline five\n",
+        "packages/x/src/f.ts": "// admission is governed by `Spec-003 §Attach` today\n",
+      },
+      "// admission is governed by Spec-003 line 4 today\n",
+      "packages/x/src/f.ts",
+    );
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("§-verification reads the STAGED target: a coherent staged rename passes despite a stale worktree target", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md": "# Spec\n\n## Renamed Heading\n\nbody\n",
+      "docs/architecture/security-architecture.md":
+        "Admission per `Spec-003 §Renamed Heading` today.\n",
+    });
+    try {
+      // Worktree regresses the target to the OLD heading without restaging —
+      // a worktree read would report section-not-found; the staged pair is
+      // coherent and must pass.
+      writeFileSync(
+        resolve(root, "docs/specs/003-runtime-node-attach.md"),
+        "# Spec\n\n## Old Heading\n\nbody\n",
+      );
+      const result = withRepoRoot(root, () =>
+        runChecks([resolve(root, "docs/architecture/security-architecture.md")]),
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.messages).toEqual([]);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe("pre-commit-runner — staged-deletion vs untracked fallback (commit-snapshot reader)", () => {
+  it("a staged DELETION of a cited target fails missing-target-file even when the worktree copy is restored", () => {
+    const { root, cleanup } = setupRepoCommitted({
+      "docs/specs/003-runtime-node-attach.md": "# Spec\n\n## Attach\n\nbody\n",
+      "docs/architecture/security-architecture.md": "Admission per `Spec-003 §Attach` today.\n",
+    });
+    try {
+      execSync("git rm -q docs/specs/003-runtime-node-attach.md", { cwd: root });
+      // Restore the worktree copy WITHOUT re-adding: the index still stages
+      // the deletion, so the commit would remove the cited target — the old
+      // disk fallback validated this restored copy and passed. (git rm also
+      // prunes the emptied parent directory; recreate it first.)
+      mkdirSync(resolve(root, "docs/specs"), { recursive: true });
+      writeFileSync(
+        resolve(root, "docs/specs/003-runtime-node-attach.md"),
+        "# Spec\n\n## Attach\n\nbody\n",
+      );
+      const result = withRepoRoot(root, () =>
+        runChecks([resolve(root, "docs/architecture/security-architecture.md")]),
+      );
+      expect(result.exitCode).toBe(1);
+      expect(result.messages.join("\n")).toContain("missing-target-file");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("a genuinely untracked argv file still validates via the disk fallback", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md": "# Spec\n\nline three\nline four\nline five\n",
+    });
+    try {
+      writeFileSync(
+        resolve(root, "docs/probe.md"),
+        "Attach admission is governed by Spec-003 line 4 today.\n",
+      );
+      const result = withRepoRoot(root, () => runChecks([resolve(root, "docs/probe.md")]));
+      expect(result.exitCode).toBe(1);
+      expect(result.messages.join("\n")).toContain("line-anchored-cite-in-docs");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("a staged citer citing an UNTRACKED target fails missing-target-file (no disk fallback for non-argv paths)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/architecture/security-architecture.md": "Admission per `Spec-003 §Attach` today.\n",
+    });
+    try {
+      // The target exists ONLY in the worktree — never added. The commit
+      // this gate protects would ship a citation to a file it omits; the
+      // earlier HEAD-presence rule classified this never-committed target
+      // as a probe file and disk-validated it (Codex, PR #207 round 4).
+      mkdirSync(resolve(root, "docs/specs"), { recursive: true });
+      writeFileSync(
+        resolve(root, "docs/specs/003-runtime-node-attach.md"),
+        "# Spec\n\n## Attach\n\nbody\n",
+      );
+      const result = withRepoRoot(root, () =>
+        runChecks([resolve(root, "docs/architecture/security-architecture.md")]),
+      );
+      expect(result.exitCode).toBe(1);
+      expect(result.messages.join("\n")).toContain("missing-target-file");
+    } finally {
+      cleanup();
+    }
+  });
+});

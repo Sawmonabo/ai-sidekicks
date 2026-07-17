@@ -285,7 +285,7 @@ The 2026-04-22 amendment promoting Feature 17 (Workflow authoring and execution)
 ### Provenance
 
 - Pre-implementation architecture audit — session `2026-04-16-arch-audit-163537`. The audit surfaced the Multi-Agent Channels and Desktop GUI scope inconsistencies against vision signaling; this ADR is the declarative scope decision that closes those inconsistencies.
-- BL-097 scope-drift reconciliation (opened 2026-04-21; resolved via this amendment 2026-04-22) reconciled Spec-017:40 subset claim against ADR-015 row 4 + v1-feature-scope.md:39 V1.1 deferral. Resolution path selected was γ-iii (full workflow engine at V1) after D1/D2 decisions resolved and Wave 2 confirmed implementation readiness.
+- BL-097 scope-drift reconciliation (opened 2026-04-21; resolved via this amendment 2026-04-22) reconciled `Spec-017 §Non-Goals` subset claim against ADR-015 row 4 + `docs/architecture/v1-feature-scope.md §V1.1 Features (2, Deferred)` V1.1 deferral. Resolution path selected was γ-iii (full workflow engine at V1) after D1/D2 decisions resolved and Wave 2 confirmed implementation readiness.
 
 ## Amendment History
 
@@ -300,9 +300,9 @@ This section records material amendments to this ADR. Each amendment preserves t
 | V1 feature count | 16 | **17** (added Feature 17: Workflow authoring and execution) |
 | V1.1 deferred features | 4 (MLS, email invite, cross-node artifacts, workflow) | **3** (MLS, email invite, cross-node artifacts) |
 | V1.1 criterion-gated commitments | 0 | **2** (BIND multi-phase channel reuse; human-phase default-timeout) |
-| Spec-017 status | Deferred V1.1 (conflicted with Spec-017:40 subset claim) | Authoritative V1 (31 amendments SA-1…SA-31 split: 27 land in Spec-017 body; SA-24/29/30/31 land in Plan-017 per implementation-detail separation) |
+| Spec-017 status | Deferred V1.1 (conflicted with `Spec-017 §Non-Goals` subset claim) | Authoritative V1 (31 amendments SA-1…SA-31 split: 27 land in Spec-017 body; SA-24/29/30/31 land in Plan-017 per implementation-detail separation) |
 
-**Why:** BL-097 opened 2026-04-21 surfaced a direct contradiction — Spec-017:40 declared a V1 workflow subset (single-agent + automated + all 4 gates + sequential), while ADR-015 row 4 and `v1-feature-scope.md:39` declared the entire workflow feature was V1.1-deferred. Three resolution paths were on the table (α — keep subset, β — declare all-V1.1, γ-i/ii/iii — expand V1 scope to full engine). The user selected γ-iii (full engine) on the basis that post-V1 retrofit of phase-type additions, parallel execution, and durable human-phase resumption is architecturally heavier than V1-native implementation. Wave 1 + Wave 2 research confirmed:
+**Why:** BL-097 opened 2026-04-21 surfaced a direct contradiction — `Spec-017 §Non-Goals` declared a V1 workflow subset (single-agent + automated + all 4 gates + sequential), while ADR-015 row 4 and `docs/architecture/v1-feature-scope.md §V1.1 Features (2, Deferred)` declared the entire workflow feature was V1.1-deferred. Three resolution paths were on the table (α — keep subset, β — declare all-V1.1, γ-i/ii/iii — expand V1 scope to full engine). The user selected γ-iii (full engine) on the basis that post-V1 retrofit of phase-type additions, parallel execution, and durable human-phase resumption is architecturally heavier than V1-native implementation. Wave 1 + Wave 2 research confirmed:
 
 1. **Freeze-regret evidence** (Pass D): every surveyed workflow system (Airflow, Dagger, GitHub Actions, n8n, Temporal, Argo, CircleCI) paid breaking-change cost retrofitting features that V1-native implementation would have covered additively. Three freeze-regret patterns were identified — additive enum expansion (safe) vs. replacement expansion (breaking, e.g., [Dagger CUE→SDK 2023 rewrite](https://dagger.io/blog/ending-cue-support/)) vs. execution-model commitment (deprecate-within-releases, e.g., [Airflow SubDAG → TaskGroup migration](https://github.com/apache/airflow/issues/12292)).
 2. **Security invariant grounding** (Pass E): 7 testable security invariants I1–I7 close the workflow-engine vulnerability class at V1 contract time (argv-only execution, typed substitution, typed approver capability, secrets-by-reference, content-addressed external refs, human-upload OWASP minimums, append-only approval history). These are expensive to retrofit — they shape the parameter-substitution model and state-access boundary.
@@ -313,7 +313,7 @@ This section records material amendments to this ADR. Each amendment preserves t
 **Cross-references that consume this amendment:**
 
 - [v1-feature-scope.md](../architecture/v1-feature-scope.md) — mirror amendment (BL-097 task #29)
-- [Spec-017](../specs/017-workflow-authoring-and-execution.md) — body rewrite to carry 27 of 31 amendments (SA-1…SA-23, SA-25, SA-26, SA-27, SA-28; SA-24/29/30/31 land in Plan-017 per BL-097 task #27); §Non-Goals line 40 V1/V1.1 subset language removed
+- [Spec-017](../specs/017-workflow-authoring-and-execution.md) — body rewrite to carry 27 of 31 amendments (SA-1…SA-23, SA-25, SA-26, SA-27, SA-28; SA-24/29/30/31 land in Plan-017 per BL-097 task #27); `Spec-017 §Non-Goals` V1/V1.1 subset language removed
 - [Plan-017](../plans/017-workflow-authoring-and-execution.md) — design-section rewrite (BL-097 task #28)
 - [ADR-017: Shared Event Sourcing Scope](./017-shared-event-sourcing-scope.md) — "16 features" reference updated to "17" (BL-097 task #30)
 - [ADR-020: V1 Deployment Model and OSS License](./020-v1-deployment-model-and-oss-license.md) — "16-feature surface" → "17-feature surface" (BL-097 task #30)

@@ -380,9 +380,9 @@ export function AttachFlow({ sessionId, attachDraft }: AttachFlowProps): React.J
     // `RuntimeNodeAttachResponse` DTO (runtime-node.ts:169-174), no local
     // view-model:
     //   • `state` is the server-derived `NodeState` AS RETURNED — a fresh
-    //     attachment is typically `registering`, NOT `online` (Spec-003 line
-    //     57: nodes default online only after the daemon-side capability
-    //     declaration succeeds; I-003-2). Attach-success MUST NOT be
+    //     attachment is typically `registering`, NOT `online` — per
+    //     `Spec-003 §Default Behavior`, nodes default online only after the
+    //     daemon-side capability declaration succeeds (I-003-2). Attach-success MUST NOT be
     //     presented as node-healthy, so no "online"/"healthy" copy is
     //     synthesized here.
     //   • `readOnly` is the attach-time floor verdict (`Spec-003 §Required Behavior`: a

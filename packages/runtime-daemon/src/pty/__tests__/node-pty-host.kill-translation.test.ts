@@ -1,7 +1,8 @@
 // Test K1 — Windows kill-translation at `PtyHost.kill` (per I-024-1).
 //
-// Asserts the Windows-only kill-translation matrix from Plan-024 §Step 8
-// (lines 117-122) at the unit-of-behavior layer:
+// Asserts the Windows-only kill-translation matrix from
+// `Plan-024 §I-024-1 — Windows kill semantics translate at PtyHost.kill, not portable-pty default`
+// at the unit-of-behavior layer:
 //
 //   * `SIGINT` ⇒ `GenerateConsoleCtrlEvent(CTRL_C_EVENT=0, child.pid)`
 //      — NEVER routes to `taskkill`; NEVER calls `process.kill`.

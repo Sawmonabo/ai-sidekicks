@@ -549,8 +549,8 @@ export class InviteService {
   /**
    * Accept a presented invite token: enforce expiry / revocation / single-use,
    * then transition the invite `pending -> accepted` AND create the active
-   * `session_memberships` row, all under ONE transaction (AC1, Spec-002 line
-   * 81).
+   * `session_memberships` row, all under ONE transaction
+   * (AC1, `Spec-002 §Interfaces And Contracts`).
    *
    * Flow:
    *   1. Validate the `InviteAccept` input at the trust boundary

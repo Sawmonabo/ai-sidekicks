@@ -166,6 +166,38 @@ export function makeIndexAwareReader(
   };
 }
 
+// Commit-snapshot reader: the git INDEX is the single source of truth for
+// what the commit will contain, for every path — citers and targets alike.
+// The disk fallback exists ONLY for the runner's EXPLICIT input files
+// (ad-hoc probe and preview argv): any other index miss surfaces as
+// missing-target-file, whatever the worktree holds. That one rule closes
+// both observed evasions — a STAGED DELETION whose worktree copy was
+// restored (round 3: the earlier catch-all fallback validated the restored
+// copy while the commit deleted the target) and a staged citer citing an
+// UNTRACKED target (round 4: the HEAD-presence probe that replaced the
+// catch-all classified never-committed targets as probe files and read
+// them from disk, §-verifying a citation the commit leaves broken; Codex,
+// PR #207). An untracked file the operator NAMED as input is the probe
+// case and stays disk-readable — it is the invocation's subject, not a
+// resolved citation target.
+export function makeCommitSnapshotReader(
+  repoRoot: string,
+  explicitInputFiles: Iterable<string> = [],
+): FileContentReader {
+  const indexReader = makeIndexAwareReader(repoRoot, new Set());
+  const explicitInputs = new Set([...explicitInputFiles].map((inputPath) => resolve(inputPath)));
+  return (absolutePath) => {
+    try {
+      return indexReader(absolutePath);
+    } catch (indexError) {
+      if (explicitInputs.has(resolve(absolutePath))) {
+        return readFileSync(absolutePath, "utf8");
+      }
+      throw indexError;
+    }
+  };
+}
+
 // Grep needles for one staged file: always its basename; for a governance doc
 // in a label-token tree (`docs/specs/016-…` → `Spec-016`), ALSO the token —
 // §-form citers reference the token, never the filename, so basename-only

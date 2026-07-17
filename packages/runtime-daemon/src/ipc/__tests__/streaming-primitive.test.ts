@@ -7,8 +7,7 @@
 //     `Content-Length`-framed JSON-RPC envelope.
 //
 // Invariants verified here (canonical text in
-// docs/plans/007-local-ipc-and-daemon-control.md §Invariants lines
-// 95-117):
+// `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`):
 //   * I-007-7 streaming analog — every emitted `$/subscription/notify`
 //     value must conform to the per-subscription `valueSchema` BEFORE
 //     the gateway sends the frame. Validation failure throws

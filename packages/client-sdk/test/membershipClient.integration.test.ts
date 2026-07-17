@@ -603,8 +603,9 @@ describe("I2 / Spec-002 AC2 — Membership durable across presence offline → o
       {
         method: "invite.accept",
         buildResult: (): unknown => ({
-          // The durable membership fact (the bracket/context per Spec-002 line
-          // 162): an `InviteAcceptResponse` whose membership is `active`.
+          // The durable membership fact (the bracket/context per
+          // `Spec-002 §Example Flows`): an `InviteAcceptResponse` whose
+          // membership is `active`.
           inviteId: INVITE_ID,
           membershipId: MEMBERSHIP_ID,
           sessionId: SESSION_ID,

@@ -62,8 +62,8 @@
 //     `registerPresenceSubscribe` step 3 JSDoc) is the daemon-side half of
 //     this invariant (the SDK-side synchronous dispatcher-entry registration
 //     is the paired half).
-//   * The `Plan-007 §I-007-11 — LocalSubscriptionProducer<T>.onCancel fires
-//     across all externally-imposed cancel paths` streaming-leak invariant
+//   * The `Plan-007 §I-007-11 — LocalSubscriptionProducer<T>.onCancel fires across all externally-imposed cancel paths`
+//     streaming-leak invariant
 //     (its why-load-bearing clause names Plan-002 `presence.*` explicitly) —
 //     the upstream-detach callback
 //     returned by `subscribeToPresence` is registered via `sub.onCancel`

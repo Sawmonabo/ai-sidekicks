@@ -32,7 +32,6 @@
 // Opt-in by marker, within-document only. See `../lib/table-total-coherence.ts`.
 
 import { realpathSync, statSync } from "node:fs";
-import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -43,10 +42,11 @@ import {
   expandToInboundCiteCorpus,
   findGovernanceCitersOfCode,
   getRepoRoot,
-  makeIndexAwareReader,
+  makeCommitSnapshotReader,
 } from "../lib/inbound-cite-discovery.ts";
 import {
   checkLabelCiteTargets,
+  checkMarkdownVolatileCites,
   checkSectionCites,
   extractLabelCites,
   formatLabelCiteViolations,
@@ -153,17 +153,24 @@ export function runChecks(args: string[]): RunChecksResult {
     }
   }
 
-  // Cite-target floor for BOTH surfaces (markdown `file.md:NNN` + code
-  // `Spec-NNN:LL`) shares one index-aware reader so a commit that amends a
-  // spec AND fixes its dependent cites validates the STAGED spec, not the
-  // worktree. Argv-staged paths (md + code) read the working tree (the
-  // developer's explicit opt-in); auto-expanded governance citers read the git
-  // index (`git show :path`) so unstaged WIP and worktree-only deletions do not
-  // leak into validation. Build the reader once and share it across both.
+  // Every cite check below validates the COMMIT, not the editor buffer: ONE
+  // commit-snapshot reader serves floors, §-verification, and both volatile-
+  // cite denies. Citers and targets alike read the git INDEX
+  // (`git show :path`) — the staged blob is what ships, so a raw cite that is
+  // staged-but-fixed-only-in-worktree still blocks, clean staged content is
+  // never blamed for unstaged WIP, and a staged heading rename verifies
+  // against the staged target (Codex, PR #207 round 2 for the md deny;
+  // extended to every pass in round 3 — a split-reader runner re-opens the
+  // same staged-vs-worktree divergence in whichever lane keeps the worktree
+  // read). The disk fallback applies ONLY to files named in THIS
+  // invocation's argv (probes, previews) — any other index miss throws, so
+  // neither a staged deletion with a restored worktree copy nor a staged
+  // citer citing an untracked target can pass (see makeCommitSnapshotReader,
+  // rounds 3-4). CI invokes this same runner on a clean checkout where
+  // index and worktree are identical, so the reader is invocation-agnostic.
   if (stagedMd.length > 0 || stagedCode.length > 0) {
     const repoRoot = getRepoRoot();
-    const stagedAbsolute = new Set([...stagedMd, ...stagedCode].map((p) => resolve(p)));
-    const reader = makeIndexAwareReader(repoRoot, stagedAbsolute);
+    const reader = makeCommitSnapshotReader(repoRoot, args);
 
     if (stagedMd.length > 0) {
       // §-form citers reach the expansion via the extractor callback — their
@@ -181,20 +188,37 @@ export function runChecks(args: string[]): RunChecksResult {
       }
       // Backticked `Spec-NNN §Heading` cites in DOCS verify against the
       // resolved doc's headings, same as code citers — a section-only walk
-      // (raw label-form md floors stay cite-target-existence's beat above).
+      // (frozen-pin md floors stay cite-target-existence's beat above; raw
+      // volatile md spellings are the deny's beat below).
       const sectionHits = checkSectionCites(expanded, reader);
       if (sectionHits.length > 0) {
         messages.push(formatLabelCiteViolations(sectionHits));
+        exitCode = 1;
+      }
+      // Volatile line-cite DENY for md citers (post-sweep ratchet, 2026-07
+      // corpus-wide sweep): raw label / docs-path / link colon and line-word
+      // spellings — including wrap-split pairs — are denied outside the named
+      // exemptions (frozen targets, exempt citer trees, plan Tasks-block
+      // grammar, waiver-marked example lines, fences). Scoped to argv-staged
+      // md, NOT the expanded corpus: the deny gates INTRODUCTION, and blaming
+      // a bystander commit for an unstaged citer's pre-existing pin would
+      // block developers on debt they did not write. CI passes the full
+      // tracked md tree through this same runner, so corpus-wide enforcement
+      // still holds on every PR. Content comes from the shared commit-
+      // snapshot (index-first) reader above.
+      const mdDenyHits = checkMarkdownVolatileCites(stagedMd, reader);
+      if (mdDenyHits.length > 0) {
+        messages.push(formatLabelCiteViolations(mdDenyHits));
         exitCode = 1;
       }
     }
 
     if (stagedCode.length > 0) {
       // Governance LABEL cites (`Spec-NNN:LL`) — the deterministic floor the
-      // markdown-only walk never reached. checkLabelCiteTargets resolves each
-      // citer to an absolute path internally, so the shared index-aware reader's
-      // staged-set test (keyed on absolute paths) matches and reads the working
-      // tree rather than the index. No inbound-expansion for code: CI's full-tree
+      // markdown-only walk never reached. Citers and their resolved doc
+      // targets both read the shared commit-snapshot reader: the code lane's
+      // deny (passes 5-6) gates introduction on the staged blob exactly like
+      // the md deny above. No inbound-expansion for code: CI's full-tree
       // sweep re-checks every code cite on each PR, the backstop for the doc-
       // only-amend case (a spec shifts with no code file staged), so code-side
       // inbound discovery would only duplicate it.
@@ -205,8 +229,10 @@ export function runChecks(args: string[]): RunChecksResult {
       // package-relative code-to-code refs that dominate comments
       // (`internal/branded.ts:25` → `packages/contracts/src/internal/branded.ts`).
       // The lone governance path-cite in code was normalized to the LABEL form;
-      // path + line-word forms are audit-layer (CAT-07) via /ripple-check — the
-      // same CAT-06/CAT-07 split governance docs already use.
+      // NEW path / basename line-word spellings are denied by label-cite
+      // passes 5-6 (CAT-07 ratchet), wrap-split pairs included — the
+      // audit-layer residual via /ripple-check is what no static key reaches
+      // (label-less continuations; semantic drift under an intact anchor).
       const labelHits = checkLabelCiteTargets(stagedCode, reader);
       if (labelHits.length > 0) {
         messages.push(formatLabelCiteViolations(labelHits));

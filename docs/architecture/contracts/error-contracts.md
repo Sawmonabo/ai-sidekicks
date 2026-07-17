@@ -62,7 +62,7 @@ The numeric `code` is the JSON-RPC spec-mandated discriminator. The `data.type` 
 | --- | --- | --- |
 | `unknown_setting` | `-32602` | Bootstrap rejected an unrecognized SecureDefaults config key (per F-007p-1-2 + T-007p-1-4) |
 | `transport.unavailable` | `-32603` | Loopback-fallback transport requested without operator opt-in (per F-007p-2-09 Tier 1 conservative gate) |
-| `transport.message_too_large` | `-32600` | Inbound frame exceeded the 1MB body cap (per F-007p-2-05; the spec-required InvalidRequest classification per Plan-007:448 mapping). Distinct from Spec-001's `resource.limit_exceeded` (HTTP-429 domain quota saturation): a 413-semantic peer mis-framing of the wire layer. |
+| `transport.message_too_large` | `-32600` | Inbound frame exceeded the 1MB body cap (per F-007p-2-05; the spec-required InvalidRequest classification per `Plan-007 §Tasks` (T-007p-2-2) mapping). Distinct from Spec-001's `resource.limit_exceeded` (HTTP-429 domain quota saturation): a 413-semantic peer mis-framing of the wire layer. |
 | `transport.invalid_protocol_version` | `-32600` | Per-request envelope-level `protocolVersion` field violates `Spec-007 §Wire Format` (BL-102 ratified): missing, wrong type, or fails the ISO 8601 `YYYY-MM-DD` shape. The substrate `dispatchFrame` gate in `packages/runtime-daemon/src/ipc/local-ipc-gateway.ts#LocalIpcGateway` enforces per I-007-7 BEFORE handler dispatch; the handshake (`daemon.hello`) is exempt because the negotiation parameter rides in `params.protocolVersion`. Distinct from `protocol.version_mismatch` (NegotiationError, registry-side gate for incompatible negotiated versions on subsequent mutating ops): the wire-layer envelope shape gate fires once-per-frame, the registry-side gate fires once-per-incompatible-mutating-op. |
 
 `data.fields` shape per code:
@@ -82,7 +82,7 @@ The numeric `code` is the JSON-RPC spec-mandated discriminator. The `data.type` 
 | `version.ceiling_exceeded` | n/a (DaemonHelloAck.reason field) | DaemonHelloAck | Client above daemon's lex-max supported version |
 | `protocol.handshake_already_completed` | n/a (DaemonHelloAck.reason field) | DaemonHelloAck | Second `daemon.hello` on a connection with latched outcome |
 | `protocol.handshake_required` | `-32600` | NegotiationError | Mutating dispatch attempted in `pre` state (I-007-1) |
-| `protocol.version_mismatch` | `-32600` | NegotiationError | Mutating dispatch attempted in `done-incompatible` state (Spec-007:67-68) |
+| `protocol.version_mismatch` | `-32600` | NegotiationError | Mutating dispatch attempted in `done-incompatible` state (`Spec-007 §Fallback Behavior`) |
 
 ### Plan-022 Tier 5 Domain Identifiers
 
@@ -154,7 +154,7 @@ Daemon-local run-queue control codes (Plan-004). Run-control authority is daemon
 
 ### Intervention
 
-Intervention request-admission codes ([Spec-005 §Required Behavior](../../specs/005-provider-driver-contract-and-capabilities.md), campaign B3). Intervention **outcomes** deliberately resolve via the six-state lifecycle (`rejected` / `expired` / `degraded` are states, not error codes — [queue-and-intervention-model.md §Driver Result To Lifecycle Mapping](../../domain/queue-and-intervention-model.md#driver-result-to-lifecycle-mapping)); this namespace covers only request-level refusals that never produce an intervention row. The token deliberately collides with no `intervention.*` durable event name (`requested`/`accepted`/`applied`/`rejected`/`degraded`/`expired` — the never-collide rule, D-012-4 convention).
+Intervention request-admission codes ([Spec-005 §Required Behavior](../../specs/005-provider-driver-contract-and-capabilities.md#required-behavior), campaign B3). Intervention **outcomes** deliberately resolve via the six-state lifecycle (`rejected` / `expired` / `degraded` are states, not error codes — [queue-and-intervention-model.md §Driver Result To Lifecycle Mapping](../../domain/queue-and-intervention-model.md#driver-result-to-lifecycle-mapping)); this namespace covers only request-level refusals that never produce an intervention row. The token deliberately collides with no `intervention.*` durable event name (`requested`/`accepted`/`applied`/`rejected`/`degraded`/`expired` — the never-collide rule, D-012-4 convention).
 
 | Code | Description | HTTP Status |
 | --- | --- | --- |
@@ -172,11 +172,11 @@ Channel lifecycle codes (Plan-016, Tier-6 audit D-016-16). Daemon-only authority
 
 ### Orchestration
 
-Orchestration admission-refusal codes (Plan-016, Tier-6 audit D-016-16). Every code is a zero-residue create-time refusal — no run row, no queue item, no partial state survives the rejection (I-016-8); the daemon additionally records the refusal durably via the `orchestration.rejected` event (Spec-016:91 "records the refusal visibly"). The event name `orchestration.rejected` and these error codes share a root but no token collides with an event name. The parent-run-missing case reuses §Run `run.not_found` (no new semantic — D-016-16).
+Orchestration admission-refusal codes (Plan-016, Tier-6 audit D-016-16). Every code is a zero-residue create-time refusal — no run row, no queue item, no partial state survives the rejection (I-016-8); the daemon additionally records the refusal durably via the `orchestration.rejected` event (`Spec-016 §Example Flows` "records the refusal visibly"). The event name `orchestration.rejected` and these error codes share a root but no token collides with an event name. The parent-run-missing case reuses §Run `run.not_found` (no new semantic — D-016-16).
 
 | Code | Description | HTTP Status |
 | --- | --- | --- |
-| `orchestration.depth_exceeded` | Creating run is itself a child — V1 permits exactly one level of run nesting (Spec-016:57; `data.fields`: `parentRunId`, `maxDepth: 1`) | 409 |
+| `orchestration.depth_exceeded` | Creating run is itself a child — V1 permits exactly one level of run nesting (`Spec-016 §Default Behavior`; `data.fields`: `parentRunId`, `maxDepth: 1`) | 409 |
 | `orchestration.active_child_limit_exceeded` | Parent already has the configured number of active children (`data.fields`: `parentRunId`, `limit`, `activeChildCount`) | 429 |
 | `orchestration.pending_limit_exceeded` | Session already has the maximum pending orchestration-created runs (Spec-016 §Scheduler Limits; `data.fields`: `limit`) | 429 |
 | `orchestration.channel_limit_exceeded` | Admitting the run would open a new executing channel beyond the maximum concurrently executing channels (Spec-016 §Scheduler Limits; `data.fields`: `limit`) — the run may instead be held `queued`; this code fires only when the target channel's queue is also exhausted (a busy target channel with a full queue is `orchestration.queue_depth_exceeded` regardless of the executing-channel count) | 429 |
@@ -192,7 +192,7 @@ Agent-surface codes (Plan-016, Tier-6 audit A-016-2 / D-016-16).
 | Code | Description | HTTP Status |
 | --- | --- | --- |
 | `agent.not_found` | Agent does not exist in the session (`data.fields`: `agentId`) | 404 |
-| `agent.not_ready` | Agent is not in the `ready` lifecycle state (`configured` / `disabled` / `archived` per [agent-channel-and-run-model.md §Lifecycle](../../domain/agent-channel-and-run-model.md)) or its driver is unavailable, so it cannot take a run (`data.fields`: `agentId`, `state`) | 409 |
+| `agent.not_ready` | Agent is not in the `ready` lifecycle state (`configured` / `disabled` / `archived` per [agent-channel-and-run-model.md §Lifecycle](../../domain/agent-channel-and-run-model.md#lifecycle)) or its driver is unavailable, so it cannot take a run (`data.fields`: `agentId`, `state`) | 409 |
 
 ### Approval
 
@@ -260,7 +260,7 @@ Shared-terminal write-lease refusals (Spec-003 §Required Behavior, campaign B4 
 | `workspace.not_found` | Workspace does not exist | 404 |
 | `workspace.provisioning_failed` | Workspace provisioning failed due to an internal error | 500 |
 | `workspace.mode_unsupported` | Requested execution mode is not supported for this workspace | 400 |
-| `workspace.stale` | Workspace execution root is unavailable; new write runs are blocked until repair (Spec-009 line 59; thrown by the Plan-009 `assertWritable` write gate, CP-009-3) | 409 |
+| `workspace.stale` | Workspace execution root is unavailable; new write runs are blocked until repair (`Spec-009 §Fallback Behavior`; thrown by the Plan-009 `assertWritable` write gate, CP-009-3) | 409 |
 | `workspace.branch_mismatch` | `branch` mode bind-only verification failed: the main checkout's current branch does not match the requested branch context; the daemon never switches branches in the main checkout (Spec-010 §Resolved Questions; Plan-010 D-010-9, Tier-6 audit) | 409 |
 | `workspace.busy` | Workspace execution root is held by an active run; one holding run at a time in V1 (Spec-010 §State And Data Implications; Plan-010 D-010-16, Tier-6 audit) | 409 |
 | `workspace.execution_root_unresolved` | A repo-bound run reached the setup gate with no resolved execution root for the workspace's selected mode and root preparation failed; the run parks in `starting` (Spec-010 §Fallback Behavior; Plan-010 D-010-16, Tier-6 audit) | 409 |
@@ -273,8 +273,8 @@ Repo-mount attach/detach/resolution errors (Plan-009 D-009-3, Tier-6 audit). The
 | Code | Description | HTTP Status |
 | --- | --- | --- |
 | `repo.not_found` | Repo mount does not exist | 404 |
-| `repo.root_resolution_failed` | Canonical repository root could not be resolved for the supplied path; attach fails explicitly rather than guessing (Spec-009 line 58) | 422 |
-| `repo.outside_trust_envelope` | Path or workspace binding resolves outside the session's declared local trust envelope (Spec-009 line 45 + §Local Trust Envelope) | 403 |
+| `repo.root_resolution_failed` | Canonical repository root could not be resolved for the supplied path; attach fails explicitly rather than guessing (`Spec-009 §Fallback Behavior`) | 422 |
+| `repo.outside_trust_envelope` | Path or workspace binding resolves outside the session's declared local trust envelope (`Spec-009 §Required Behavior` + §Local Trust Envelope) | 403 |
 | `repo.already_attached` | The resolved canonical root is already actively attached to this session on the same owning node (node-scoped active-mount uniqueness, Plan-009 D-009-7) | 409 |
 | `repo.detach_conflict` | Detach refused while a dependent workspace is `busy`; no force-detach in V1 (Spec-009 §Detach Semantics) | 409 |
 
@@ -350,7 +350,7 @@ Wire-level codes describing peer mis-use of the framing/handshake layer. Distinc
 | --- | --- | --- |
 | `transport.unavailable` | Requested transport (e.g. loopback fallback) is not enabled for this daemon process per its conservative-default gate (Plan-007 F-007p-2-09) | 503 |
 | `transport.message_too_large` | Inbound frame's declared body length exceeded the 1MB cap, or daemon-side outbound build exceeded it (Plan-007 F-007p-2-05/F-007p-2-11). 413 semantic. | 413 |
-| `transport.invalid_protocol_version` | Per-request envelope-level `protocolVersion` field violates Spec-007:54 (BL-102 ratification): the field is missing, the wrong JS type, or fails the ISO 8601 `YYYY-MM-DD` shape. Substrate-side gate; fires BEFORE handler dispatch (I-007-7). Distinct from `version.floor_exceeded` / `version.ceiling_exceeded` (registry-side handshake-incompatibility) and from `protocol.version_mismatch` (registry-side mutating-op gate after handshake declared incompatible). 400 semantic. | 400 |
+| `transport.invalid_protocol_version` | Per-request envelope-level `protocolVersion` field violates `Spec-007 §Wire Format` (BL-102 ratification): the field is missing, the wrong JS type, or fails the ISO 8601 `YYYY-MM-DD` shape. Substrate-side gate; fires BEFORE handler dispatch (I-007-7). Distinct from `version.floor_exceeded` / `version.ceiling_exceeded` (registry-side handshake-incompatibility) and from `protocol.version_mismatch` (registry-side mutating-op gate after handshake declared incompatible). 400 semantic. | 400 |
 
 ### Resource
 
