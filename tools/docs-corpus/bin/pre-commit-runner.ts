@@ -47,6 +47,7 @@ import {
 } from "../lib/inbound-cite-discovery.ts";
 import {
   checkLabelCiteTargets,
+  checkMarkdownVolatileCites,
   checkSectionCites,
   extractLabelCites,
   formatLabelCiteViolations,
@@ -181,10 +182,26 @@ export function runChecks(args: string[]): RunChecksResult {
       }
       // Backticked `Spec-NNN §Heading` cites in DOCS verify against the
       // resolved doc's headings, same as code citers — a section-only walk
-      // (raw label-form md floors stay cite-target-existence's beat above).
+      // (frozen-pin md floors stay cite-target-existence's beat above; raw
+      // volatile md spellings are the deny's beat below).
       const sectionHits = checkSectionCites(expanded, reader);
       if (sectionHits.length > 0) {
         messages.push(formatLabelCiteViolations(sectionHits));
+        exitCode = 1;
+      }
+      // Volatile line-cite DENY for md citers (post-sweep ratchet, 2026-07
+      // corpus-wide sweep): raw label / docs-path / link colon and line-word
+      // spellings — including wrap-split pairs — are denied outside the named
+      // exemptions (frozen targets, exempt citer trees, plan Tasks-block
+      // grammar, waiver-marked example lines, fences). Scoped to argv-staged
+      // md, NOT the expanded corpus: the deny gates INTRODUCTION, and blaming
+      // a bystander commit for an unstaged citer's pre-existing pin would
+      // block developers on debt they did not write. CI passes the full
+      // tracked md tree through this same runner, so corpus-wide enforcement
+      // still holds on every PR.
+      const mdDenyHits = checkMarkdownVolatileCites(stagedMd, reader);
+      if (mdDenyHits.length > 0) {
+        messages.push(formatLabelCiteViolations(mdDenyHits));
         exitCode = 1;
       }
     }
@@ -205,8 +222,10 @@ export function runChecks(args: string[]): RunChecksResult {
       // package-relative code-to-code refs that dominate comments
       // (`internal/branded.ts:25` → `packages/contracts/src/internal/branded.ts`).
       // The lone governance path-cite in code was normalized to the LABEL form;
-      // path + line-word forms are audit-layer (CAT-07) via /ripple-check — the
-      // same CAT-06/CAT-07 split governance docs already use.
+      // NEW path / basename line-word spellings are denied by label-cite
+      // passes 5-6 (CAT-07 ratchet), wrap-split pairs included — the
+      // audit-layer residual via /ripple-check is what no static key reaches
+      // (label-less continuations; semantic drift under an intact anchor).
       const labelHits = checkLabelCiteTargets(stagedCode, reader);
       if (labelHits.length > 0) {
         messages.push(formatLabelCiteViolations(labelHits));

@@ -37,14 +37,17 @@
 // the RESCOPED audit layer (/ripple-check; failure-mode-catalog.md CAT-06/07,
 // 2026-07 definitions): heading renames vs `§Heading` cites route to Subagent
 // B, export renames vs `#symbol` cites to Subagent A, and the remaining
-// line-cite residual — docs→docs `:NNN` in `.md` citers plus the bare-basename
-// `.md:NN` wire-doc annotations in code (ambiguous to resolve statically, so
-// never gate-floored) — to Subagent D. Semantic drift UNDER an intact anchor
-// (a section rewritten without renaming its heading) is likewise audit-only:
-// no static check can see it without reading content.
+// line-cite residual to Subagent D. Post the 2026-07-16 corpus-wide sweep that
+// residual SHRANK: docs→docs volatile line cites are now DENIED in md citers
+// too (checkMarkdownVolatileCites — every spelling incl. wrap-split pairs),
+// leaving Subagent D the plan Tasks-block grammar (Gate-4-owned), the waivered
+// illustrative examples, the superpowers provenance logs, and package-relative
+// non-docs paths in code. Semantic drift UNDER an intact anchor (a section
+// rewritten without renaming its heading) is likewise audit-only: no static
+// check can see it without reading content.
 
 import { readFileSync, readdirSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, relative, resolve, sep } from "node:path";
 
 import {
   checkCite,
@@ -67,6 +70,49 @@ const TOKEN_DIRS: Record<string, string> = {
 // §Durable-Cite Rule: archive / reference material never shifts after
 // landing), so the code-citer deny must not fire on them.
 const FROZEN_DOC_PREFIXES = ["docs/archive/", "docs/reference/"];
+
+// ---- Markdown-lane volatile-cite deny (2026-07 corpus-wide sweep) ----------
+//
+// Post-sweep the docs corpus carries ZERO volatile doc→doc line cites outside
+// the named exemptions, so every new match in an md citer is a fresh line pin
+// that rots on the target's next amendment — denied with the durable-form
+// remediation, exactly like the code lane (checkMarkdownVolatileCites below).
+
+// Per-line waiver for ILLUSTRATIVE cite-shape examples only (failure-mode
+// catalog rows, rule-text examples). A line carrying the marker is exempt from
+// the md-lane deny; the marker is visible in review, so exemptions stay
+// deliberate. It is NOT an escape hatch for real cites.
+const CITE_SHAPE_EXAMPLE_MARKER = "<!-- cite-shape-example -->";
+
+// Citer trees exempt from the md-lane deny: docs/superpowers/ campaign logs
+// are dated design-time records whose positional cites are provenance
+// (positions at authoring time), not live claims. The .claude/ harness tree
+// (skills, agents, rules) is rule text dense with illustrative cite shapes —
+// staging one of those files must not trip the deny. Frozen trees are already
+// excluded from per-file checks by the runner; listed here for defense in
+// depth so a direct library caller gets the same answer.
+const MD_DENY_EXEMPT_CITER_PREFIXES = [
+  "docs/superpowers/",
+  "docs/archive/",
+  "docs/reference/",
+  ".claude/",
+];
+
+// Plan Tasks-block cite grammar stays legal (AGENTS.md §Durable-Cite Rule,
+// namespace carve-out (1)): plan-execution preflight Gate 4 parses and
+// SEMANTICALLY VERIFIES `**Spec coverage:**` / `**Verifies invariant:**`
+// payload line hints (`AC-X (line NN)`), and plan tables (TDD test lists,
+// coverage matrices) carry the same audit-runbook-owned grammar. Line-level
+// rule: in a docs/plans/ citer, a line carrying either payload marker or
+// forming a table row is exempt. Payloads are one physical line in corpus
+// practice; a wrapped payload would surface as a deny and belongs on one line.
+const PLAN_GRAMMAR_MARKER_RE = /\*\*(Spec coverage|Verifies invariant):\*\*/;
+
+// Markdown-link form with a trailing line list — `[x](../plans/001-y.md):12` —
+// the linked spelling of the raw line pin (cite-target-existence floors it;
+// the md-lane deny must cover the same shape). Target resolves relative to the
+// citing file's directory.
+const LINK_COLON_CITE_RE = /\]\(([^)]+\.md)\)\s*:\s*(\d+(?:\s*[,-]\s*\d+)*)/g;
 
 const defaultReader: FileContentReader = (absolutePath) => readFileSync(absolutePath, "utf8");
 
@@ -146,8 +192,9 @@ const DOCS_PATH_CITE_RE =
 // bare-basename residual (2026-07 sweep, PR-E of the hardening follow-ups):
 // with the swept code trees at zero occurrences, every new match is a fresh
 // gate-invisible line anchor and is denied outright with the durable-form
-// remediation. Markdown citers are exempt — the docs corpus keeps its own
-// conventions and the /ripple-check audit lane owns CAT-07 there.
+// remediation. Markdown citers get their own deny via
+// checkMarkdownVolatileCites (2026-07-16 corpus-wide sweep) — the md corpus no
+// longer keeps raw line-cite conventions outside the named exemptions.
 //
 // Pass 5 — label line-word: `Spec-021 line 128`, `Plan-022 lines 81, 107-113`,
 // `ADR-014 (line 60)`, and the §-section+line hybrid `Spec-027 §Bind-Address
@@ -320,6 +367,65 @@ function extractCommentText(
   return { text: sawComment ? collected : null, insideBlockAfter: inBlock };
 }
 
+// Route one MD_LINE_ANCHOR_RE match — pass 6 and the wrap-split pair scans
+// share this routing so the two entry points cannot drift.
+// Colon-form means `:NNN` directly — `.md: line 5` (colon + line-word,
+// reachable via the [,;:] separator) is a line-word spelling and must stay
+// here, not be misrouted to pass 2 and vanish.
+// Scope: bare basenames and repo-root docs/ paths only. Path-y non-corpus
+// refs (node_modules/x/docs/y.md:3, src/docs/y.md:5) stay audit-layer — this
+// is a required gate and those are the FP guards the pass-2 lookbehind
+// already promised (kept green by the test suite's exclusion block).
+// Docs-rooted colon forms are pass 2's match (raw-line-cite deny / frozen
+// carve-out); firing here too would double-report the line.
+// Frozen trees keep their line anchors legal (parity with the raw colon
+// carve-out): the content never shifts, so the pin cannot rot. Legal ≠
+// unchecked — route the cite through the pre-ratchet FLOOR (no lineWordDeny;
+// per-endpoint target lines) so a deleted frozen doc or out-of-range pin
+// still fails loudly, exactly like the colon form does in
+// checkLabelCiteTargets' frozen branch (Codex, PR #195 — pass 6 previously
+// dropped these matches entirely). Anchor numbers are the digits AFTER the
+// line-word — a §-segment number (`§RFC 9110 line 20`) is part of the
+// heading, not a pin — and every range / list endpoint floors, matching the
+// colon form's per-endpoint expansion (Codex, PR #195 round 2).
+function pushMdAnchorCite(
+  cites: Cite[],
+  citingFile: string,
+  oneBasedLine: number,
+  repoRoot: string,
+  m: RegExpExecArray,
+): void {
+  const mdPath = m[1];
+  const colonForm = /^:\d/.test(m[2]);
+  if (mdPath.includes("/") && !mdPath.startsWith("docs/")) return;
+  if (colonForm && mdPath.startsWith("docs/")) return;
+  // rawTarget is display + dedupe only — collapse the double space the
+  // wrap-scan join manufactures (prev text keeps its trailing space, the
+  // join adds one, curr keeps its leading space).
+  const rawTargetDisplay = m[0].trim().replace(/\s+/g, " ");
+  if (FROZEN_DOC_PREFIXES.some((prefix) => mdPath.startsWith(prefix))) {
+    const lineWordTail = m[2].slice(m[2].search(/\blines?\b/));
+    for (const endpointMatch of lineWordTail.matchAll(/\d+/g)) {
+      cites.push({
+        file: citingFile,
+        line: oneBasedLine,
+        rawTarget: rawTargetDisplay,
+        targetPath: resolve(repoRoot, mdPath),
+        targetLine: Number(endpointMatch[0]),
+      });
+    }
+    return;
+  }
+  cites.push({
+    file: citingFile,
+    line: oneBasedLine,
+    rawTarget: rawTargetDisplay,
+    targetPath: mdPath.startsWith("docs/") ? resolve(repoRoot, mdPath) : "",
+    targetLine: 0,
+    lineWordDeny: true,
+  });
+}
+
 function extractLabelCitesFrom(
   citingFile: string,
   repoRoot: string,
@@ -343,6 +449,15 @@ function extractLabelCitesFrom(
   const trackFences = citingFile.endsWith(".md");
   // Cross-line `/* … */` state for the code-citer comment lexer (passes 5-6).
   let insideBlockComment = false;
+  // Previous line's comment text (null when that line had none) — the
+  // wrap-split pair scan joins adjacent comment lines to catch a cite whose
+  // label / path half and `line N` locator sit on opposite sides of a comment
+  // wrap, the shape every single-line pass is blind to (the CAT-07 wrapped-
+  // cite Known Gap, closed by the 2026-07 corpus sweep). Colon forms cannot
+  // wrap — `Spec-003:178` has no interior whitespace — so only the line-word
+  // regexes join-scan. Spans of 3+ lines (blank comment line between label
+  // and locator) stay audit-layer residual.
+  let previousCommentText: string | null = null;
   let insideFence = false;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -424,7 +539,40 @@ function extractLabelCitesFrom(
     if (!trackFences) {
       const scanText = extractCommentText(line, insideBlockComment);
       insideBlockComment = scanText.insideBlockAfter;
-      if (scanText.text === null) continue;
+      if (scanText.text === null) {
+        // A non-comment line breaks comment adjacency — a label two lines up
+        // is not the antecedent of a locator below intervening code.
+        previousCommentText = null;
+        continue;
+      }
+      // Wrap-split pair scan: deny line-word matches that SPAN the join
+      // boundary. Matches wholly inside either line are the single-line
+      // passes' beat (the boundary test excludes them), so nothing
+      // double-reports. The reported line is the pair's FIRST line — where
+      // the wrapped cite starts.
+      if (previousCommentText !== null) {
+        const joined = `${previousCommentText} ${scanText.text}`;
+        const boundary = previousCommentText.length;
+        for (const wrapRe of [LABEL_LINE_WORD_RE, MD_LINE_ANCHOR_RE]) {
+          wrapRe.lastIndex = 0;
+          while ((m = wrapRe.exec(joined)) !== null) {
+            if (m.index >= boundary || m.index + m[0].length <= boundary + 1) continue;
+            if (wrapRe === LABEL_LINE_WORD_RE) {
+              cites.push({
+                file: citingFile,
+                line: i,
+                rawTarget: m[0].trim().replace(/\s+/g, " "),
+                targetPath: resolveLabelTarget(repoRoot, m[1], m[2]),
+                targetLine: 0,
+                lineWordDeny: true,
+              });
+            } else {
+              pushMdAnchorCite(cites, citingFile, i, repoRoot, m);
+            }
+          }
+        }
+      }
+      previousCommentText = scanText.text;
       LABEL_LINE_WORD_RE.lastIndex = 0;
       while ((m = LABEL_LINE_WORD_RE.exec(scanText.text)) !== null) {
         cites.push({
@@ -438,52 +586,7 @@ function extractLabelCitesFrom(
       }
       MD_LINE_ANCHOR_RE.lastIndex = 0;
       while ((m = MD_LINE_ANCHOR_RE.exec(scanText.text)) !== null) {
-        const mdPath = m[1];
-        // Colon-form means `:NNN` directly — `.md: line 5` (colon + line-word,
-        // reachable via the [,;:] separator) is a line-word spelling and must
-        // stay in pass 6, not be misrouted to pass 2 and vanish.
-        const colonForm = /^:\d/.test(m[2]);
-        // Scope: bare basenames and repo-root docs/ paths only. Path-y
-        // non-corpus refs (node_modules/x/docs/y.md:3, src/docs/y.md:5) stay
-        // audit-layer — this is a required gate and those are the FP guards
-        // the pass-2 lookbehind already promised (kept green by this test
-        // suite's exclusion block).
-        if (mdPath.includes("/") && !mdPath.startsWith("docs/")) continue;
-        // Docs-rooted colon forms are pass 2's match (raw-line-cite deny /
-        // frozen carve-out); firing here too would double-report the line.
-        if (colonForm && mdPath.startsWith("docs/")) continue;
-        // Frozen trees keep their line anchors legal (parity with the raw
-        // colon carve-out): the content never shifts, so the pin cannot rot.
-        // Legal ≠ unchecked — route the cite through the pre-ratchet FLOOR
-        // (no lineWordDeny; first endpoint as the target line) so a deleted
-        // frozen doc or out-of-range pin still fails loudly, exactly like the
-        // colon form does in checkLabelCiteTargets' frozen branch (Codex,
-        // PR #195 — pass 6 previously dropped these matches entirely).
-        if (FROZEN_DOC_PREFIXES.some((prefix) => mdPath.startsWith(prefix))) {
-          // Anchor numbers are the digits AFTER the line-word — a §-segment
-          // number (`§RFC 9110 line 20`) is part of the heading, not a pin —
-          // and every range / list endpoint floors, matching the colon form's
-          // per-endpoint expansion (Codex, PR #195 round 2).
-          const lineWordTail = m[2].slice(m[2].search(/\blines?\b/));
-          for (const endpointMatch of lineWordTail.matchAll(/\d+/g)) {
-            cites.push({
-              file: citingFile,
-              line: i + 1,
-              rawTarget: m[0].trim(),
-              targetPath: resolve(repoRoot, mdPath),
-              targetLine: Number(endpointMatch[0]),
-            });
-          }
-          continue;
-        }
-        cites.push({
-          file: citingFile,
-          line: i + 1,
-          rawTarget: m[0].trim(),
-          targetPath: mdPath.startsWith("docs/") ? resolve(repoRoot, mdPath) : "",
-          targetLine: 0,
-          lineWordDeny: true,
-        });
+        pushMdAnchorCite(cites, citingFile, i + 1, repoRoot, m);
       }
     }
   }
@@ -607,12 +710,13 @@ export function checkLabelCiteTargets(
   return violations;
 }
 
-// Section-anchor verification for MARKDOWN citers. Docs legally carry raw
-// label-form line cites in prose (their floor is cite-target-existence's
-// beat), so the md lane must NOT route through checkLabelCiteTargets — this
-// narrower walk extracts ONLY the backticked `Spec-NNN §Heading` form and
-// verifies the heading, closing the docs-to-docs gap the Durable-Cite Rule
-// promises (Codex review, PR #188).
+// Section-anchor verification for MARKDOWN citers. The md lane still must
+// NOT route through checkLabelCiteTargets — its deny copy, docs-path
+// handling, and comment lexing are code-lane-specific — so this narrower
+// walk extracts ONLY the backticked §-anchor forms and verifies the heading,
+// closing the docs-to-docs gap the Durable-Cite Rule promises (Codex review,
+// PR #188). Raw volatile line cites in md are checkMarkdownVolatileCites'
+// beat (deny, post-sweep); frozen-pin floors stay cite-target-existence's.
 export function checkSectionCites(
   files: string[],
   reader: FileContentReader = defaultReader,
@@ -629,6 +733,211 @@ export function checkSectionCites(
   return violations;
 }
 
+// Volatile-cite DENY for MARKDOWN citers — the md-lane ratchet (2026-07
+// corpus-wide sweep). The sweep converted every doc→doc line cite outside the
+// named exemptions to the durable §-anchor form, so — exactly like the code
+// lane's post-sweep passes — every new match is a fresh line pin that rots on
+// the target's next amendment. Denied spellings: raw label colon
+// (`Spec-003:178`, backticked or not), docs-path colon
+// (`docs/domain/x.md:61`), markdown-link colon (`[x](../specs/003-y.md):12`),
+// label line-word (`Spec-003 line 178`), `.md` path / basename line-word
+// (`session-model.md line 61`), and the wrap-split spelling of the line-word
+// forms (label / path half at one line's end, `line N` locator opening the
+// next). Colon forms cannot wrap — no interior whitespace — so only the
+// line-word regexes join-scan.
+//
+// Exemptions — each deliberate, each visible in review:
+//   - EXEMPT CITER TREES (MD_DENY_EXEMPT_CITER_PREFIXES): superpowers
+//     campaign logs are dated provenance; .claude/ harness docs are rule text
+//     full of cite-shape examples; frozen trees are defense in depth.
+//   - PLAN TASKS-BLOCK GRAMMAR: in docs/plans/ citers, payload-marker lines
+//     (PLAN_GRAMMAR_MARKER_RE) and `|`-table rows — plan-execution preflight
+//     Gate 4 owns and semantically verifies that grammar (AGENTS.md
+//     §Durable-Cite Rule, namespace carve-out (1)).
+//   - WAIVER MARKER: a line carrying CITE_SHAPE_EXAMPLE_MARKER is an
+//     illustrative cite-shape example (failure-mode-catalog rows, rule text).
+//   - FENCED BLOCKS: quoted example content, never authoritative cites.
+//   - FROZEN TARGETS (docs/archive/, docs/reference/): pins cannot rot.
+//     Legal ≠ unchecked — bare docs-path colon and line-word spellings route
+//     through the pre-ratchet FLOOR here (extractCites' bare pass is
+//     code-extensions-only, so nothing else validates them); backticked and
+//     markdown-link spellings are already floored by extractCites (codeRe /
+//     linkRe) and are skipped here so a broken pin reports once, not twice.
+//
+// Label-less bare continuations (`; line 41 (…)` under an earlier line's
+// label) and `AC-N:LL` shorthands have no label adjacency for a required
+// gate to key on — the sweep converted them and they stay audit-layer
+// residual (CAT-07), same as semantic drift under an intact anchor.
+export function checkMarkdownVolatileCites(
+  files: string[],
+  reader: FileContentReader = defaultReader,
+): CiteViolation[] {
+  const repoRoot = getRepoRoot();
+  const violations: CiteViolation[] = [];
+  const deniedRawCites = new Set<string>();
+
+  const denyVolatile = (citingFile: string, oneBasedLine: number, rawSpelling: string): void => {
+    // Display + dedupe string only — collapse the double space the
+    // wrap-scan join manufactures.
+    const rawTarget = rawSpelling.replace(/\s+/g, " ");
+    const dedupeKey = `${citingFile}:${oneBasedLine}:${rawTarget}`;
+    if (deniedRawCites.has(dedupeKey)) return;
+    deniedRawCites.add(dedupeKey);
+    violations.push({
+      cite: { file: citingFile, line: oneBasedLine, rawTarget, targetPath: "", targetLine: 0 },
+      reason: "line-anchored-cite-in-docs",
+      detail: `volatile line cite '${rawTarget}' in a docs citer rots on the target's next amendment — cite the durable \`Spec-NNN §Heading\` form (label-less docs: \`docs/<tree>/<file>.md §Heading\`) instead (AGENTS.md §Durable-Cite Rule; 2026-07 corpus sweep)`,
+    });
+  };
+
+  const floorFrozenEndpoints = (
+    citingFile: string,
+    oneBasedLine: number,
+    rawSpelling: string,
+    frozenDocsPath: string,
+    endpoints: Iterable<number>,
+  ): void => {
+    for (const targetLine of endpoints) {
+      const floorViolation = checkCite(
+        {
+          file: citingFile,
+          line: oneBasedLine,
+          rawTarget: rawSpelling,
+          targetPath: resolve(repoRoot, frozenDocsPath),
+          targetLine,
+        },
+        reader,
+      );
+      if (floorViolation) violations.push(floorViolation);
+    }
+  };
+
+  for (const f of files) {
+    if (!f.endsWith(".md")) continue;
+    const absoluteCiter = resolve(f);
+    const repoRelativeCiter = relative(repoRoot, absoluteCiter).split(sep).join("/");
+    if (MD_DENY_EXEMPT_CITER_PREFIXES.some((prefix) => repoRelativeCiter.startsWith(prefix))) {
+      continue;
+    }
+    const planGrammarCiter = repoRelativeCiter.startsWith("docs/plans/");
+    let content: string;
+    try {
+      content = reader(absoluteCiter);
+    } catch {
+      // Deleted-in-index / unreadable citer: nothing staged to scan.
+      continue;
+    }
+    const lines = content.split("\n");
+
+    // Line-word scan shared by the single-line pass and the wrap-split pair
+    // scan. spanBoundary null = single-line; otherwise only matches SPANNING
+    // the join boundary count (wholly-inside matches are the single-line
+    // pass's beat — nothing double-reports).
+    const scanLineWordForms = (
+      scanText: string,
+      oneBasedLine: number,
+      spanBoundary: number | null,
+    ): void => {
+      for (const lineWordRe of [LABEL_LINE_WORD_RE, MD_LINE_ANCHOR_RE]) {
+        lineWordRe.lastIndex = 0;
+        let match: RegExpExecArray | null;
+        while ((match = lineWordRe.exec(scanText)) !== null) {
+          if (
+            spanBoundary !== null &&
+            (match.index >= spanBoundary || match.index + match[0].length <= spanBoundary + 1)
+          ) {
+            continue;
+          }
+          if (lineWordRe === LABEL_LINE_WORD_RE) {
+            denyVolatile(f, oneBasedLine, match[0].trim());
+            continue;
+          }
+          // Same scope guards as the code lane's pushMdAnchorCite: non-docs
+          // slashed paths stay audit-layer; docs-rooted colon forms are the
+          // docs-path pass's beat above; frozen line-word pins floor.
+          const mdPath = match[1];
+          const colonForm = /^:\d/.test(match[2]);
+          if (mdPath.includes("/") && !mdPath.startsWith("docs/")) continue;
+          if (colonForm && mdPath.startsWith("docs/")) continue;
+          if (FROZEN_DOC_PREFIXES.some((prefix) => mdPath.startsWith(prefix))) {
+            const lineWordTail = match[2].slice(match[2].search(/\blines?\b/));
+            const endpoints = [...lineWordTail.matchAll(/\d+/g)].map((d) => Number(d[0]));
+            floorFrozenEndpoints(f, oneBasedLine, match[0].trim(), mdPath, endpoints);
+            continue;
+          }
+          denyVolatile(f, oneBasedLine, match[0].trim());
+        }
+      }
+    };
+
+    let insideFence = false;
+    let previousProseLine: string | null = null;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (/^\s*(?:```|~~~)/.test(line)) {
+        insideFence = !insideFence;
+        previousProseLine = null;
+        continue;
+      }
+      if (insideFence) continue;
+      if (line.includes(CITE_SHAPE_EXAMPLE_MARKER)) {
+        previousProseLine = null;
+        continue;
+      }
+      if (planGrammarCiter && (PLAN_GRAMMAR_MARKER_RE.test(line) || /^\s*\|/.test(line))) {
+        previousProseLine = null;
+        continue;
+      }
+      let m: RegExpExecArray | null;
+
+      // Raw label colon — targets resolve under TOKEN_DIRS, never frozen.
+      LABEL_CITE_RE.lastIndex = 0;
+      while ((m = LABEL_CITE_RE.exec(line)) !== null) {
+        denyVolatile(f, i + 1, m[0].trim());
+      }
+
+      // Docs-path colon. Frozen: bare spellings floor here; backticked
+      // spellings are codeRe-floored by extractCites — skipped to avoid
+      // reporting the same broken pin twice.
+      DOCS_PATH_CITE_RE.lastIndex = 0;
+      while ((m = DOCS_PATH_CITE_RE.exec(line)) !== null) {
+        const docsPath = m[1];
+        if (FROZEN_DOC_PREFIXES.some((prefix) => docsPath.startsWith(prefix))) {
+          const backtickedSpelling = m.index > 0 && line[m.index - 1] === "`";
+          if (!backtickedSpelling) {
+            floorFrozenEndpoints(f, i + 1, m[0], docsPath, expandLineSpec(m[2]));
+          }
+          continue;
+        }
+        denyVolatile(f, i + 1, m[0].trim());
+      }
+
+      // Markdown-link colon — the target resolves citer-relative, exactly
+      // like extractCites' linkRe (which already floors every endpoint,
+      // frozen included — the deny adds the ratchet for volatile targets).
+      LINK_COLON_CITE_RE.lastIndex = 0;
+      while ((m = LINK_COLON_CITE_RE.exec(line)) !== null) {
+        const linkTarget = m[1].trim();
+        if (/^https?:/.test(linkTarget)) continue;
+        const targetRepoRelative = relative(repoRoot, resolve(dirname(absoluteCiter), linkTarget))
+          .split(sep)
+          .join("/");
+        if (FROZEN_DOC_PREFIXES.some((prefix) => targetRepoRelative.startsWith(prefix))) {
+          continue;
+        }
+        denyVolatile(f, i + 1, m[0].trim());
+      }
+
+      scanLineWordForms(line, i + 1, null);
+      if (previousProseLine !== null) {
+        scanLineWordForms(`${previousProseLine} ${line}`, i, previousProseLine.length);
+      }
+      previousProseLine = line;
+    }
+  }
+  return violations;
+}
+
 export function formatLabelCiteViolations(violations: CiteViolation[]): string {
   if (violations.length === 0) return "";
   const lines: string[] = [];
@@ -639,7 +948,7 @@ export function formatLabelCiteViolations(violations: CiteViolation[]): string {
   }
   lines.push("");
   lines.push(
-    `label-cite: ${violations.length} violation(s). Raw governance line-cites in code are denied — cite the backticked \`Spec-NNN §Heading\` anchor form (label-less docs: \`docs/<path>.md §Heading\`) instead, and verify §-anchors name a real heading (AGENTS.md §Durable-Cite Rule).`,
+    `label-cite: ${violations.length} violation(s). Raw governance line-cites in code and docs are denied — cite the backticked \`Spec-NNN §Heading\` anchor form (label-less docs: \`docs/<path>.md §Heading\`) instead, and verify §-anchors name a real heading (AGENTS.md §Durable-Cite Rule).`,
   );
   return lines.join("\n");
 }

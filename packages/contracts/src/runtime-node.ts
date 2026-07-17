@@ -805,8 +805,9 @@ export const RUNTIME_NODE_CAPABILITY_KEY_MAX_LEN = 128;
 // the daemon always populates it for `runtime_node.*` events (`Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`,
 // "carry the session_id of the attachment they describe"), but the SCHEMA mirrors
 // the spec's optional base. `actor` is the EventEnvelope free-form actor
-// (`participant_id | agent_id | null` per api-payload-contracts.md §EventEnvelope
-// line 783), realized with `wireFreeFormString(...).nullable().optional()` — the
+// (`participant_id | agent_id | null` per the actor field under
+// `docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy`),
+// realized with `wireFreeFormString(...).nullable().optional()` — the
 // SAME wire field as `EventEnvelope.actor` (event.ts:243), so it reuses the
 // shared `EVENT_FIELD_MAX_LEN` cap (a wire field above the 2-consumer hoist bar),
 // NOT a branded `ParticipantId`.
@@ -842,13 +843,13 @@ const buildRuntimeNodeCapabilityBaseShape = () => ({
 // --------------------------------------------------------------------------
 //
 // `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` ("base + {capabilities[], nodeVersion, platform}"). Emitted by the
-// T2.1 node-registry when a node is accepted into the roster (Spec-003 §Attach
-// Protocol). Field-type rationale (so reviewers verify, not re-derive):
+// T2.1 node-registry when a node is accepted into the roster (`Spec-003 §Required Behavior`,
+// attach admission). Field-type rationale (so reviewers verify, not re-derive):
 //   • `capabilities` = `z.record(z.string(), z.unknown())` — a lossless snapshot
 //     of the declared capability map, mirroring `RuntimeNodeAttachRequest.
-//     capabilities` (line 164) VERBATIM. Departs from Spec-006's informal
-//     `capabilities[]` table gloss (an array notation) in favor of the typed
-//     line-164 record shape, which governs per typed-source-over-table-gloss.
+//     capabilities` (the schema above in this file) VERBATIM. Departs from Spec-006's
+//     informal `capabilities[]` table gloss (an array notation) in favor of that typed
+//     record shape, which governs per typed-source-over-table-gloss.
 //     Forward-compatible: Plan-006 Tier 4 can tighten `unknown` → the canonical
 //     `CapabilityDetails` with no SHAPE change.
 //   • `nodeVersion` = bounded free string, NOT `EventEnvelopeVersion` — it is the
@@ -947,8 +948,9 @@ export const RuntimeNodeOfflinePayloadSchema: z.ZodType<RuntimeNodeOfflinePayloa
 // capability-service when a node declares a new capability after registration.
 //
 // NAMING NOTE — this `RuntimeNodeCapabilityDeclaredPayload` is a SUPERSET of the
-// canonical interface of the same name in api-payload-contracts.md §Plan-006
-// (line 984), which lists the EXTENSION fields only (`capability`,
+// canonical interface of the same name under
+// `docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy`,
+// which lists the EXTENSION fields only (`capability`,
 // `capabilityDetails`). Our schema = Spec-006's REDUCED base (`{sessionId?,
 // nodeId, actor?}`) + that doc's extension fields; it does not contradict the
 // canonical interface, it carries the base the canonical doc's extension-only

@@ -169,7 +169,7 @@ The tier 1 and tier 2 blobs are byte-identical; tier 1 is cache, tier 2 is the a
 - `version`: `0x01` for PRF-KEK branch, `0x02` for Argon2id-passphrase-KEK branch. The remaining parameter fields are zeroed under the PRF branch.
 - `salt`: 16 bytes, generated once with `randombytes_buf` and persisted. Salt is not a secret.
 - `nonce`: 24-byte XChaCha20-Poly1305 nonce.
-- `ciphertext||tag`: XChaCha20-Poly1305-AEAD of the 32-byte master key. AAD is the **full 50-byte header** (every byte preceding the AEAD body — `version`, KDF params, `salt`, and `nonce`), binding the `version` KEK-branch discriminator byte so a flipped version byte fails authentication and branch-confusion downgrade is blocked (ADR-021:71; I-022-4; ratified D-022-1(b), resolving the prior 25-byte-vs-50-byte inconsistency in favour of the full header).
+- `ciphertext||tag`: XChaCha20-Poly1305-AEAD of the 32-byte master key. AAD is the **full 50-byte header** (every byte preceding the AEAD body — `version`, KDF params, `salt`, and `nonce`), binding the `version` KEK-branch discriminator byte so a flipped version byte fails authentication and branch-confusion downgrade is blocked (`ADR-021 §Tier 2 — Argon2id-encrypted file (fallback)`; I-022-4; ratified D-022-1(b), resolving the prior 25-byte-vs-50-byte inconsistency in favour of the full header).
 
 Total: 50-byte header + 48-byte AEAD body = 98 bytes per envelope (matches [ADR-021](../decisions/021-cli-identity-key-storage-custody.md)'s Tier 2 file format).
 

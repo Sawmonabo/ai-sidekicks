@@ -40,7 +40,8 @@ export interface CiteViolation {
     | "raw-line-cite-into-governance-doc"
     | "symbol-not-found"
     | "section-not-found"
-    | "line-anchored-cite-in-code";
+    | "line-anchored-cite-in-code"
+    | "line-anchored-cite-in-docs";
   detail: string;
 }
 

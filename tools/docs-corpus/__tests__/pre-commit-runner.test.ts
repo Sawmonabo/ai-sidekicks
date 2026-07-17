@@ -333,3 +333,42 @@ describe("pre-commit-runner — inbound section-cite ripple", () => {
     }
   });
 });
+
+describe("pre-commit-runner — markdown volatile-cite deny wiring", () => {
+  it("exits 1 when a STAGED md citer carries a volatile line cite", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md": "# Spec\n\nline three\nline four\nline five\n",
+      "docs/architecture/security-architecture.md":
+        "Attach admission is governed by Spec-003 line 4 today.\n",
+    });
+    try {
+      const result = withRepoRoot(root, () =>
+        runChecks([resolve(root, "docs/architecture/security-architecture.md")]),
+      );
+      expect(result.exitCode).toBe(1);
+      expect(result.messages.join("\n")).toContain("line-anchored-cite-in-docs");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("does NOT deny an UNSTAGED expanded citer's pre-existing volatile cite (introduction-gating scope)", () => {
+    // The unstaged citer's link-colon cite pulls it into the expanded floor
+    // set (valid pin → floor passes); the deny must skip it — it gates what
+    // the staged commit INTRODUCES, not a bystander's pre-existing debt.
+    const { root, cleanup } = setupRepo({
+      "docs/domain/session-model.md": "# Session model\n\nparticipant rows\n",
+      "docs/architecture/security-architecture.md":
+        "See [the rows](../domain/session-model.md):3 for the participant table.\n",
+    });
+    try {
+      const result = withRepoRoot(root, () =>
+        runChecks([resolve(root, "docs/domain/session-model.md")]),
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.messages).toEqual([]);
+    } finally {
+      cleanup();
+    }
+  });
+});
