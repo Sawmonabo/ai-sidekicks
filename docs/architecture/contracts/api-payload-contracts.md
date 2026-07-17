@@ -1310,7 +1310,7 @@ type InterventionRequestPayload =
       targetRunId: RunId;
       expectedRunVersion: number;
       clientIdempotencyKey: string;
-      targetPosition: number; // normalized session position (RollbackToParams.position vocabulary); the accepted value serializes identically onto run.rolled_back (Spec-006 §Run Lifecycle)
+      targetPosition: number; // normalized session position (RollbackToParams.position vocabulary), domain-validated fail-closed at admission: an integer ≥ 0 (Zod int + nonnegative at parse) naming a recorded turn boundary of the target run strictly below its current position — daemon boundary-existence check, Spec-004 §Required Behavior. Serializes onto run.rolled_back identically on the confirmed path; a confirmed-floor mismatch degrade records the driver-confirmed position instead (the event never lies about the landing position)
     };
 
 // On an idempotent replay (same clientIdempotencyKey, identical payload) this response is
@@ -1376,8 +1376,8 @@ interface RunStateChangeEvent {
 
 // Forward, NON-STATE rollback event (Spec-006 §Run Lifecycle, its per-type row; campaign B2). The
 // structural type is owned here by the rollback intervention contract: `targetPosition` carries the
-// same value the accepted `applyIntervention('rollback', {targetPosition})` supplied, so the request
-// and the durable event serialize identically (Spec-004 §Required Behavior). Non-terminal — zero
+// accepted `applyIntervention('rollback', {targetPosition})` value on the confirmed path — a confirmed-floor
+// mismatch degrade records the driver-confirmed landing position instead (Spec-004 §Required Behavior). Non-terminal — zero
 // interaction with the at-most-once terminal backstop — and deliberately NO
 // previousState/currentState: a rollback is not a state transition, and fabricating one would
 // corrupt the transition stream consumers replay. Rides `run.subscribeState` alongside
@@ -1387,7 +1387,7 @@ interface RunRolledBackEvent {
   runId: RunId;
   runVersion: number; // the post-rollback progression value — the rollback application advanced it
   channelId?: ChannelId;
-  targetPosition: number; // the turn-boundary rewind anchor (normalized session position)
+  targetPosition: number; // the turn-boundary rewind anchor the run landed at (normalized session position; equals the request's targetPosition on the confirmed path — Spec-004 §Required Behavior)
 }
 
 // Provider-initiated mid-run asks (Spec-006 §Driver Ask Events, 2026-07-02 B1 amendment): the third
