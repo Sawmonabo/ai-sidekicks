@@ -145,7 +145,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 ## Risks And Blockers
 
-- Snapshot compaction cadence remains unresolved and may affect rebuild performance (correctness is compaction-independent per Spec-015 §Resolved Questions:355; only rebuild performance is affected)
+- Snapshot compaction cadence remains unresolved and may affect rebuild performance (correctness is compaction-independent per `Spec-015 §Resolved Questions and V1 Scope Decisions`; only rebuild performance is affected)
 - Recovery ordering mistakes can admit mutable work before canonical local truth is trustworthy
 
 ## Ratified Design Decisions (Tier-7 audit)

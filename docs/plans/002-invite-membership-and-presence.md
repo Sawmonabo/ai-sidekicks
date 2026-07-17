@@ -141,7 +141,7 @@ The TDD test list below is enumerated and ordered by implementation dependency. 
 | C2 | `Invite lifecycle states enum is exactly {pending, accepted, revoked, expired}` | no `declined` state in V1 | line 43 |
 | C3 | `MembershipUpdate.action discriminated union covers {change_role, suspend, revoke, reactivate}` | mutation contract | line 83 |
 | C4 | `PresenceHeartbeat payload carries the 5 required metadata fields` | `{deviceType, focusedSessionId, focusedChannelId, lastActivityAt, appVisible}` | line 84 |
-| C5 | `ChannelList response shape matches Spec-002:87 projection` | read-only projection contract | line 87 |
+| C5 | `ChannelList response shape matches the Spec-002 §Interfaces And Contracts projection` | read-only projection contract | `Spec-002 §Interfaces And Contracts` |
 
 ### Control Plane Layer (`packages/control-plane/`)
 

@@ -180,7 +180,7 @@ The TDD test list below is enumerated and ordered by implementation dependency. 
 | C1 | `RuntimeNodeAttach payload validates required fields including client_version` | request schema | line 83 (required fields), line 53 (client_version) |
 | C2 | `RuntimeNodeCapabilityUpdate payload supports add/remove/health-change variants` | mutation contract | line 84 |
 | C3 | `RuntimeNodeDetach payload validates session id + node id + reason` | retire contract | line 85 |
-| C4 | `runtime_node.* event names exactly match the 7-event taxonomy in Spec-006` | taxonomy conformance | Spec-006 §Runtime Node Lifecycle (lines 407–413) |
+| C4 | `runtime_node.* event names exactly match the 7-event taxonomy in Spec-006` | taxonomy conformance | `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` |
 | C5 | `VERSION_FLOOR_EXCEEDED error contract matches ADR-018 typed shape` | error contract | line 53, AC4 |
 | C6 | `RuntimeNodeHeartbeat payload validates node id + health state` | presence-update contract | line 83 |
 
@@ -188,7 +188,7 @@ The TDD test list below is enumerated and ordered by implementation dependency. 
 
 | ID | Test | Asserts | Spec-003 AC / MUST |
 | --- | --- | --- | --- |
-| D1 | `Node registry persists node identity across daemon restart` | stable identity (Spec-003 line 120) | AC1 |
+| D1 | `Node registry persists node identity across daemon restart` | stable identity (`Spec-003 §Implementation Notes`) | AC1 |
 | D2 | `Capability declaration service emits runtime_node.capability_declared on success` | event emission | line 103 |
 | D3 | `runtime_node.online MUST NOT emit until runtime_node.capability_declared lands` | I-003-2 ordering invariant | I-003-2, line 58 |
 | D4 | `Detach emits runtime_node.offline; subsequent reconnect under same node id succeeds` | reconnect identity | line 79, line 120 |

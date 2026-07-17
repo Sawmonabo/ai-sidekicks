@@ -101,18 +101,25 @@ const MD_DENY_EXEMPT_CITER_PREFIXES = [
 // Plan Tasks-block cite grammar stays legal (AGENTS.md §Durable-Cite Rule,
 // namespace carve-out (1)): plan-execution preflight Gate 4 parses and
 // SEMANTICALLY VERIFIES `**Spec coverage:**` / `**Verifies invariant:**`
-// payload line hints (`AC-X (line NN)`), and plan tables (TDD test lists,
-// coverage matrices) carry the same audit-runbook-owned grammar. Line-level
-// rule: in a docs/plans/ citer, a line carrying either payload marker or
-// forming a table row is exempt. Payloads are one physical line in corpus
-// practice; a wrapped payload would surface as a deny and belongs on one line.
+// payload line hints (`AC-X (line NN)`). Line-level rule: in a docs/plans/
+// citer, ONLY a line carrying either payload marker is exempt — including a
+// table row that embeds the marker in a cell (task/coverage matrices). A plan
+// table row WITHOUT the marker is ordinary prose to this gate: invariant,
+// dependency, decision-log, and progress tables sit outside Gate 4's parse
+// surface and must cite durably (Codex, PR #207 — the bare table-row
+// disjunct over-exempted every plan table). Payloads are one physical line
+// in corpus practice; a wrapped payload would surface as a deny and belongs
+// on one line.
 const PLAN_GRAMMAR_MARKER_RE = /\*\*(Spec coverage|Verifies invariant):\*\*/;
 
-// Markdown-link form with a trailing line list — `[x](../plans/001-y.md):12` —
-// the linked spelling of the raw line pin (cite-target-existence floors it;
-// the md-lane deny must cover the same shape). Target resolves relative to the
-// citing file's directory.
-const LINK_COLON_CITE_RE = /\]\(([^)]+\.md)\)\s*:\s*(\d+(?:\s*[,-]\s*\d+)*)/g;
+// Markdown-link form with a trailing line list — `[x](../plans/001-y.md):12`
+// and the fragment spelling `[x](../plans/001-y.md#anchor):12` — the linked
+// spellings of the raw line pin (cite-target-existence floors the bare one;
+// the md-lane deny must cover both — a fragment does not durable-ize an
+// appended line locator; Codex, PR #207). Target resolves relative to the
+// citing file's directory; the fragment is non-capturing and never affects
+// resolution.
+const LINK_COLON_CITE_RE = /\]\(([^)#]+\.md)(?:#[^)]*)?\)\s*:\s*(\d+(?:\s*[,-]\s*\d+)*)/g;
 
 const defaultReader: FileContentReader = (absolutePath) => readFileSync(absolutePath, "utf8");
 
@@ -125,6 +132,28 @@ const defaultReader: FileContentReader = (absolutePath) => readFileSync(absolute
 // `:81,107`) but NOT a bare trailing space-separated integer (`:5 7`), so prose
 // after the cite cannot be swallowed into a spurious second line number.
 const LABEL_CITE_RE = /\b(Spec|Plan|ADR)-(\d{3}):(\d+(?:\s*[,-]\s*\d+)*)/g;
+
+// Legacy label spellings LABEL_CITE_RE's flush colon misses (Codex, PR #207;
+// widened in the same PR after the corpus census surfaced the § variants):
+//   - spaced colon           `Spec-022 :146`, `Spec-022 §Daemon Master Key :146`
+//   - §-bridged tight colon  `Spec-015 §Resolved Questions:355`
+//   - §-bridged paren colon  `Spec-008 §Relay Negotiation (:176-183, …)`
+//   - paren colon, no §      `Spec-022 (:146`
+// Branch A requires the §-bridge and then admits any colon spelling (tight,
+// spaced, or parenthesized); branch B has no bridge and requires whitespace
+// before the (optionally parenthesized) colon, so LABEL_CITE_RE's flush-colon
+// beat (`Spec-022:146`) is never double-reported. The bridge excludes colons,
+// backticks, brackets, and newlines, so a durable backticked §-anchor whose
+// HEADING contains a colon (`` `Plan-008 §Phase 1: Bootstrap (…)` ``) never
+// fires — the digits requirement after the colon rejects prose continuations
+// ("…: Bootstrap"). The locator digits must sit FLUSH against the colon: every
+// live line-cite spelling is flush (`:355`, ` :146`, `(:176-183`), while prose
+// quoting a numeric VALUE out of a section writes colon-space (`§Scheduler
+// Limits: 25`, `"Participants per session: 10"`, `timeout: 2 s`) — the flush
+// requirement is what keeps those quotes out of a required deny. The tail is
+// the same number-list shape as the flush-colon form.
+const LABEL_SPACED_COLON_CITE_RE =
+  /\b(Spec|Plan|ADR)-(\d{3})(?:\s+§[^:`\]\n]{0,100}?\s*\(?\s*:|\s+\(?\s*:)(\d+(?:\s*[,-]\s*\d+)*)/g;
 
 // Backticked-only §Heading form — backticks are the zero-FP boundary for the
 // heading text in a REQUIRED gate (unbounded heading matches over comment prose
@@ -312,13 +341,14 @@ function pushExpandedCites(
 function extractCommentText(
   line: string,
   insideBlockComment: boolean,
-): { text: string | null; insideBlockAfter: boolean } {
+): { text: string | null; insideBlockAfter: boolean; commentOnly: boolean } {
   if (line.trimStart().startsWith("--")) {
     // SQL comment line (migration template interiors) — whole line scans.
-    return { text: line, insideBlockAfter: insideBlockComment };
+    return { text: line, insideBlockAfter: insideBlockComment, commentOnly: true };
   }
   let collected = "";
   let sawComment = false;
+  let sawCode = false;
   let inBlock = insideBlockComment;
   let quote: string | null = null;
   let i = 0;
@@ -338,6 +368,7 @@ function extractCommentText(
     }
     const ch = line[i];
     if (quote !== null) {
+      sawCode = true;
       if (ch === "\\") {
         i += 2;
         continue;
@@ -347,6 +378,7 @@ function extractCommentText(
       continue;
     }
     if (ch === '"' || ch === "'" || ch === "`") {
+      sawCode = true;
       quote = ch;
       i += 1;
       continue;
@@ -362,9 +394,18 @@ function extractCommentText(
       i += 2;
       continue;
     }
+    if (!/\s/.test(ch)) sawCode = true;
     i += 1;
   }
-  return { text: sawComment ? collected : null, insideBlockAfter: inBlock };
+  return {
+    text: sawComment ? collected : null,
+    insideBlockAfter: inBlock,
+    // commentOnly gates WRAP PAIRING only: a mixed code+comment line still
+    // scans single-line, but its trailing comment never joins a neighboring
+    // comment line — `// See Spec-003` above `const limit = 5; // line 5`
+    // must not fuse into a phantom `Spec-003 line 5` cite (Codex, PR #207).
+    commentOnly: sawComment && !sawCode,
+  };
 }
 
 // Route one MD_LINE_ANCHOR_RE match — pass 6 and the wrap-split pair scans
@@ -549,15 +590,17 @@ function extractLabelCitesFrom(
       // boundary. Matches wholly inside either line are the single-line
       // passes' beat (the boundary test excludes them), so nothing
       // double-reports. The reported line is the pair's FIRST line — where
-      // the wrapped cite starts.
-      if (previousCommentText !== null) {
+      // the wrapped cite starts. Pairing requires BOTH sides to be
+      // comment-ONLY lines: a trailing comment on a code line never joins
+      // (third documented bound — Codex, PR #207).
+      if (previousCommentText !== null && scanText.commentOnly) {
         const joined = `${previousCommentText} ${scanText.text}`;
         const boundary = previousCommentText.length;
-        for (const wrapRe of [LABEL_LINE_WORD_RE, MD_LINE_ANCHOR_RE]) {
+        for (const wrapRe of [LABEL_LINE_WORD_RE, LABEL_SPACED_COLON_CITE_RE, MD_LINE_ANCHOR_RE]) {
           wrapRe.lastIndex = 0;
           while ((m = wrapRe.exec(joined)) !== null) {
             if (m.index >= boundary || m.index + m[0].length <= boundary + 1) continue;
-            if (wrapRe === LABEL_LINE_WORD_RE) {
+            if (wrapRe !== MD_LINE_ANCHOR_RE) {
               cites.push({
                 file: citingFile,
                 line: i,
@@ -572,17 +615,19 @@ function extractLabelCitesFrom(
           }
         }
       }
-      previousCommentText = scanText.text;
-      LABEL_LINE_WORD_RE.lastIndex = 0;
-      while ((m = LABEL_LINE_WORD_RE.exec(scanText.text)) !== null) {
-        cites.push({
-          file: citingFile,
-          line: i + 1,
-          rawTarget: m[0].trim(),
-          targetPath: resolveLabelTarget(repoRoot, m[1], m[2]),
-          targetLine: 0,
-          lineWordDeny: true,
-        });
+      previousCommentText = scanText.commentOnly ? scanText.text : null;
+      for (const labelRe of [LABEL_LINE_WORD_RE, LABEL_SPACED_COLON_CITE_RE]) {
+        labelRe.lastIndex = 0;
+        while ((m = labelRe.exec(scanText.text)) !== null) {
+          cites.push({
+            file: citingFile,
+            line: i + 1,
+            rawTarget: m[0].trim(),
+            targetPath: resolveLabelTarget(repoRoot, m[1], m[2]),
+            targetLine: 0,
+            lineWordDeny: true,
+          });
+        }
       }
       MD_LINE_ANCHOR_RE.lastIndex = 0;
       while ((m = MD_LINE_ANCHOR_RE.exec(scanText.text)) !== null) {
@@ -838,7 +883,11 @@ export function checkMarkdownVolatileCites(
       oneBasedLine: number,
       spanBoundary: number | null,
     ): void => {
-      for (const lineWordRe of [LABEL_LINE_WORD_RE, MD_LINE_ANCHOR_RE]) {
+      for (const lineWordRe of [
+        LABEL_LINE_WORD_RE,
+        LABEL_SPACED_COLON_CITE_RE,
+        MD_LINE_ANCHOR_RE,
+      ]) {
         lineWordRe.lastIndex = 0;
         let match: RegExpExecArray | null;
         while ((match = lineWordRe.exec(scanText)) !== null) {
@@ -848,20 +897,42 @@ export function checkMarkdownVolatileCites(
           ) {
             continue;
           }
-          if (lineWordRe === LABEL_LINE_WORD_RE) {
+          if (lineWordRe !== MD_LINE_ANCHOR_RE) {
             denyVolatile(f, oneBasedLine, match[0].trim());
             continue;
           }
-          // Same scope guards as the code lane's pushMdAnchorCite: non-docs
-          // slashed paths stay audit-layer; docs-rooted colon forms are the
-          // docs-path pass's beat above; frozen line-word pins floor.
-          const mdPath = match[1];
+          // Same scope guards as the code lane's pushMdAnchorCite, plus
+          // md-citer RELATIVE-path resolution: `../specs/003-x.md:12` resolves
+          // against the citing file's directory exactly like the markdown-link
+          // pass, so the relative spelling of a governance target cannot dodge
+          // the deny (Codex, PR #207). Only EXPLICITLY relative spellings
+          // (`../`, `./`) resolve citer-relative — the corpus cites files by
+          // repo-root path, so a bare slashed non-docs path (`packages/x/
+          // readme.md line 5`) is a repo-root mention of a non-governance file
+          // and out of the docs→docs deny's scope, not a citer-relative path
+          // that happens to land inside docs/. Paths resolving outside docs/
+          // stay audit-layer. Colon forms on RAW docs-rooted spellings are the
+          // docs-path pass's beat above; relative colon spellings are NOT
+          // (DOCS_PATH_CITE_RE never matches them), so they route here.
+          // Frozen pins floor — colon and line-word tails alike.
+          let mdPath = match[1];
           const colonForm = /^:\d/.test(match[2]);
-          if (mdPath.includes("/") && !mdPath.startsWith("docs/")) continue;
-          if (colonForm && mdPath.startsWith("docs/")) continue;
+          const rawDocsRooted = mdPath.startsWith("docs/");
+          if (/^\.\.?\//.test(mdPath)) {
+            const resolvedTarget = relative(repoRoot, resolve(dirname(absoluteCiter), mdPath))
+              .split(sep)
+              .join("/");
+            if (!resolvedTarget.startsWith("docs/")) continue;
+            mdPath = resolvedTarget;
+          } else if (mdPath.includes("/") && !rawDocsRooted) {
+            continue;
+          }
+          if (colonForm && rawDocsRooted) continue;
           if (FROZEN_DOC_PREFIXES.some((prefix) => mdPath.startsWith(prefix))) {
-            const lineWordTail = match[2].slice(match[2].search(/\blines?\b/));
-            const endpoints = [...lineWordTail.matchAll(/\d+/g)].map((d) => Number(d[0]));
+            const locatorTail = colonForm
+              ? match[2]
+              : match[2].slice(match[2].search(/\blines?\b/));
+            const endpoints = [...locatorTail.matchAll(/\d+/g)].map((d) => Number(d[0]));
             floorFrozenEndpoints(f, oneBasedLine, match[0].trim(), mdPath, endpoints);
             continue;
           }
@@ -870,27 +941,46 @@ export function checkMarkdownVolatileCites(
       }
     };
 
-    let insideFence = false;
+    // Fence tracking strips blockquote containers first (`> ```text` opens a
+    // fence inside a quoted example) and closes only on a matching delimiter —
+    // same character, at least the opener's length, per CommonMark — so a
+    // `~~~` line cannot close a backtick fence and a longer opener needs an
+    // equal-or-longer closer (Codex, PR #207). Quote DEPTH is deliberately not
+    // matched between opener and closer — the pragmatic bound for this
+    // illustrative-example exemption.
+    let openFence: { marker: string; length: number } | null = null;
     let previousProseLine: string | null = null;
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      if (/^\s*(?:```|~~~)/.test(line)) {
-        insideFence = !insideFence;
+      const unquoted = line.replace(/^(?:\s*>)+\s?/, "");
+      const fenceDelimiter = /^\s*(`{3,}|~{3,})/.exec(unquoted);
+      if (fenceDelimiter !== null) {
+        if (openFence === null) {
+          openFence = { marker: fenceDelimiter[1][0], length: fenceDelimiter[1].length };
+        } else if (
+          fenceDelimiter[1][0] === openFence.marker &&
+          fenceDelimiter[1].length >= openFence.length
+        ) {
+          openFence = null;
+        }
         previousProseLine = null;
         continue;
       }
-      if (insideFence) continue;
+      if (openFence !== null) continue;
       if (line.includes(CITE_SHAPE_EXAMPLE_MARKER)) {
         previousProseLine = null;
         continue;
       }
-      if (planGrammarCiter && (PLAN_GRAMMAR_MARKER_RE.test(line) || /^\s*\|/.test(line))) {
+      if (planGrammarCiter && PLAN_GRAMMAR_MARKER_RE.test(line)) {
         previousProseLine = null;
         continue;
       }
       let m: RegExpExecArray | null;
 
       // Raw label colon — targets resolve under TOKEN_DIRS, never frozen.
+      // (The spaced-colon spelling — `Spec-022 §Daemon Master Key :146` —
+      // is LABEL_SPACED_COLON_CITE_RE's beat inside scanLineWordForms, which
+      // runs on every prose line below.)
       LABEL_CITE_RE.lastIndex = 0;
       while ((m = LABEL_CITE_RE.exec(line)) !== null) {
         denyVolatile(f, i + 1, m[0].trim());
