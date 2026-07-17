@@ -371,4 +371,48 @@ describe("pre-commit-runner — markdown volatile-cite deny wiring", () => {
       cleanup();
     }
   });
+
+  it("denies the STAGED (index) content even when the worktree already fixed it", () => {
+    // Introduction denies validate the COMMIT: a raw cite that is staged and
+    // then fixed only in the working tree still blocks — the forbidden blob
+    // is what ships (Codex, PR #207 round 2).
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md": "# Spec\n\n## Attach\n\nline five\n",
+      "docs/architecture/security-architecture.md":
+        "Attach admission is governed by Spec-003 line 4 today.\n",
+    });
+    try {
+      writeFileSync(
+        resolve(root, "docs/architecture/security-architecture.md"),
+        "Attach admission is governed by `Spec-003 §Attach` today.\n",
+      );
+      const result = withRepoRoot(root, () =>
+        runChecks([resolve(root, "docs/architecture/security-architecture.md")]),
+      );
+      expect(result.exitCode).toBe(1);
+      expect(result.messages.join("\n")).toContain("line-anchored-cite-in-docs");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("passes clean STAGED content regardless of raw-cite WIP in the worktree", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md": "# Spec\n\n## Attach\n\nline five\n",
+      "docs/architecture/security-architecture.md":
+        "Attach admission is governed by `Spec-003 §Attach` today.\n",
+    });
+    try {
+      writeFileSync(
+        resolve(root, "docs/architecture/security-architecture.md"),
+        "Attach admission is governed by Spec-003 line 4 today.\n",
+      );
+      const result = withRepoRoot(root, () =>
+        runChecks([resolve(root, "docs/architecture/security-architecture.md")]),
+      );
+      expect(result.exitCode).toBe(0);
+    } finally {
+      cleanup();
+    }
+  });
 });

@@ -297,7 +297,7 @@ preconditions:
 
 - **T22.2.1 — Participant key generator (random DEK).**
   - Files: `packages/runtime-daemon/src/crypto/participant-key-generator.ts` (CREATE)
-  - Spec coverage: Spec-022 §Participant Keys (random per-participant DEK + KEK-wrap — back-fill owed, supersedes the credential-derived :117 wording); Spec-022 §Signature Safety Under Shred (crypto-shred precondition)
+  - Spec coverage: Spec-022 §Participant Keys (random per-participant DEK + KEK-wrap — back-fill owed, supersedes the prior credential-derived wording); Spec-022 §Signature Safety Under Shred (crypto-shred precondition)
   - Verifies invariant: I-022-7
   - Consumes: `@noble/ciphers` CSPRNG (`randomBytes`, T22.1.1). No KDF, no Plan-018 secret.
 - **T22.2.2 — Wrap codec (XChaCha20-Poly1305).**

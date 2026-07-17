@@ -113,13 +113,19 @@ const MD_DENY_EXEMPT_CITER_PREFIXES = [
 const PLAN_GRAMMAR_MARKER_RE = /\*\*(Spec coverage|Verifies invariant):\*\*/;
 
 // Markdown-link form with a trailing line list — `[x](../plans/001-y.md):12`
-// and the fragment spelling `[x](../plans/001-y.md#anchor):12` — the linked
-// spellings of the raw line pin (cite-target-existence floors the bare one;
-// the md-lane deny must cover both — a fragment does not durable-ize an
-// appended line locator; Codex, PR #207). Target resolves relative to the
-// citing file's directory; the fragment is non-capturing and never affects
-// resolution.
-const LINK_COLON_CITE_RE = /\]\(([^)#]+\.md)(?:#[^)]*)?\)\s*:\s*(\d+(?:\s*[,-]\s*\d+)*)/g;
+// plus every valid CommonMark destination spelling of the same pin: the
+// fragment (`…y.md#anchor):12`), the angle-bracketed destination
+// (`(<../plans/001-y.md>):12`), and the titled destination
+// (`(../plans/001-y.md "title"):12`) — a fragment / bracket / title does not
+// durable-ize an appended line locator, and the narrow bare-destination
+// grammar let those spellings bypass the deny (Codex, PR #207 rounds 1-2).
+// The locator digits must sit FLUSH against the colon, the same
+// value-vs-locator boundary as the label and docs-path forms
+// (`[Limit](x.md): 25 participants` quotes a value and never fires). Target
+// resolves relative to the citing file's directory; fragment and title are
+// non-capturing and never affect resolution.
+const LINK_COLON_CITE_RE =
+  /\]\(\s*<?([^)#>"'\s]+\.md)(?:#[^)>"'\s]*)?>?(?:\s+(?:"[^"]*"|'[^']*'))?\s*\)\s*:(\d+(?:\s*[,-]\s*\d+)*)/g;
 
 const defaultReader: FileContentReader = (absolutePath) => readFileSync(absolutePath, "utf8");
 
@@ -152,8 +158,13 @@ const LABEL_CITE_RE = /\b(Spec|Plan|ADR)-(\d{3}):(\d+(?:\s*[,-]\s*\d+)*)/g;
 // Limits: 25`, `"Participants per session: 10"`, `timeout: 2 s`) — the flush
 // requirement is what keeps those quotes out of a required deny. The tail is
 // the same number-list shape as the flush-colon form.
+// The §-bridge is UNCAPPED: its character class cannot cross a colon, a
+// backtick, a bracket, or the line end, so the scan is already bounded by
+// the first such delimiter — a length cap only manufactured an escape for
+// long parenthetical bridges (a live 107-char instance sat unmatched in the
+// claimed zero-residue corpus; Codex, PR #207 round 2).
 const LABEL_SPACED_COLON_CITE_RE =
-  /\b(Spec|Plan|ADR)-(\d{3})(?:\s+§[^:`\]\n]{0,100}?\s*\(?\s*:|\s+\(?\s*:)(\d+(?:\s*[,-]\s*\d+)*)/g;
+  /\b(Spec|Plan|ADR)-(\d{3})(?:\s+§[^:`\]\n]*?\s*\(?\s*:|\s+\(?\s*:)(\d+(?:\s*[,-]\s*\d+)*)/g;
 
 // Backticked-only §Heading form — backticks are the zero-FP boundary for the
 // heading text in a REQUIRED gate (unbounded heading matches over comment prose
@@ -345,6 +356,13 @@ function extractCommentText(
   if (line.trimStart().startsWith("--")) {
     // SQL comment line (migration template interiors) — whole line scans.
     return { text: line, insideBlockAfter: insideBlockComment, commentOnly: true };
+  }
+  // JSDoc/block-comment interior lines carry a `*` leader that would land in
+  // the middle of a wrap-scan join (`governed by Spec-003 * line 4`) and
+  // dodge every wrap regex — strip the decoration before scanning (Codex,
+  // PR #207 round 2). `(?!\/)` leaves a lone `*/` closer intact.
+  if (insideBlockComment) {
+    line = line.replace(/^\s*\*+(?!\/)\s?/, "");
   }
   let collected = "";
   let sawComment = false;
@@ -953,14 +971,22 @@ export function checkMarkdownVolatileCites(
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const unquoted = line.replace(/^(?:\s*>)+\s?/, "");
-      const fenceDelimiter = /^\s*(`{3,}|~{3,})/.exec(unquoted);
+      const fenceDelimiter = /^\s*(`{3,}|~{3,})(.*)$/.exec(unquoted);
       if (fenceDelimiter !== null) {
         if (openFence === null) {
+          // An opener may carry an info string (` ```ts `).
           openFence = { marker: fenceDelimiter[1][0], length: fenceDelimiter[1].length };
         } else if (
           fenceDelimiter[1][0] === openFence.marker &&
-          fenceDelimiter[1].length >= openFence.length
+          fenceDelimiter[1].length >= openFence.length &&
+          fenceDelimiter[2].trim() === ""
         ) {
+          // A CLOSER is delimiter + whitespace only (CommonMark): a
+          // delimiter-looking line with trailing text inside a fence
+          // (` ```ts ` shown as example content) is fence content, not a
+          // close — treating it as one would scan the rest of the example
+          // and let the real closer REOPEN the fence over following prose
+          // (Codex, PR #207 round 2).
           openFence = null;
         }
         previousProseLine = null;
@@ -1012,17 +1038,34 @@ export function checkMarkdownVolatileCites(
         const targetRepoRelative = relative(repoRoot, resolve(dirname(absoluteCiter), linkTarget))
           .split(sep)
           .join("/");
+        // Same scope as every other pass: the deny covers governance targets
+        // under docs/ — a linked line pin into a non-docs .md is outside the
+        // docs→docs rule and stays audit-layer.
+        if (!targetRepoRelative.startsWith("docs/")) continue;
         if (FROZEN_DOC_PREFIXES.some((prefix) => targetRepoRelative.startsWith(prefix))) {
+          // extractCites' linkRe floors only the PLAIN spelling — it cannot
+          // parse fragments, angle brackets, or titles, so frozen pins in
+          // those spellings floor HERE or nowhere (Codex, PR #207 round 2).
+          // The plain spelling still skips, avoiding a double report.
+          if (/[<#"']/.test(m[0])) {
+            floorFrozenEndpoints(f, i + 1, m[0].trim(), targetRepoRelative, expandLineSpec(m[2]));
+          }
           continue;
         }
         denyVolatile(f, i + 1, m[0].trim());
       }
 
       scanLineWordForms(line, i + 1, null);
+      // Wrap pairing joins the UNQUOTED forms: an ordinary blockquoted cite
+      // split as `> governed by Spec-003` / `> line 4` would otherwise keep
+      // the second `>` between label and locator and dodge every wrap regex
+      // (Codex, PR #207 round 2). Blockquoted prose is NOT exempt — only
+      // fenced blocks are — and single-line scans are unaffected (a leading
+      // `>` never interrupts an in-line match).
       if (previousProseLine !== null) {
-        scanLineWordForms(`${previousProseLine} ${line}`, i, previousProseLine.length);
+        scanLineWordForms(`${previousProseLine} ${unquoted}`, i, previousProseLine.length);
       }
-      previousProseLine = line;
+      previousProseLine = unquoted;
     }
   }
   return violations;

@@ -31,12 +31,13 @@
 // summary asserting a count while its own column summed to a different one).
 // Opt-in by marker, within-document only. See `../lib/table-total-coherence.ts`.
 
-import { realpathSync, statSync } from "node:fs";
+import { readFileSync, realpathSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
   checkCiteTargetExistence,
+  type FileContentReader,
   formatCiteTargetViolations,
 } from "../lib/cite-target-existence.ts";
 import {
@@ -199,7 +200,21 @@ export function runChecks(args: string[]): RunChecksResult {
       // block developers on debt they did not write. CI passes the full
       // tracked md tree through this same runner, so corpus-wide enforcement
       // still holds on every PR.
-      const mdDenyHits = checkMarkdownVolatileCites(stagedMd, reader);
+      // Introduction denies validate the COMMIT, not the editor buffer:
+      // staged citers read the git INDEX (`git show :path`), so a raw cite
+      // that is staged-but-fixed-only-in-worktree still blocks, and clean
+      // staged content is never blamed for unstaged WIP (Codex, PR #207
+      // round 2). Untracked ad-hoc argv files (probes, previews) have no
+      // index entry and fall back to disk.
+      const indexReader = makeIndexAwareReader(repoRoot, new Set());
+      const introductionDenyReader: FileContentReader = (absolutePath) => {
+        try {
+          return indexReader(absolutePath);
+        } catch {
+          return readFileSync(absolutePath, "utf8");
+        }
+      };
+      const mdDenyHits = checkMarkdownVolatileCites(stagedMd, introductionDenyReader);
       if (mdDenyHits.length > 0) {
         messages.push(formatLabelCiteViolations(mdDenyHits));
         exitCode = 1;

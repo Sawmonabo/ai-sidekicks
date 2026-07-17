@@ -133,8 +133,8 @@ export function isCanonicalMethodName(method: string): boolean {
  *     call with the same method name. Synchronous throw at register-time.
  *   * `"invalid_method_name"` — I-007-9 enforcement: the method-name
  *     string did not match the canonical dotted-camelCase regex (per
- *     api-payload-contracts.md §JSON-RPC Method-Name Registry, lines
- *     291-331) OR the sibling LSP-style `$/`-prefixed regex.
+ *     `docs/architecture/contracts/api-payload-contracts.md §JSON-RPC Method-Name Registry (Tier 1 Ratified)`)
+ *     OR the sibling LSP-style `$/`-prefixed regex.
  */
 export type RegistryRegistrationCode = "duplicate_method" | "invalid_method_name";
 
