@@ -289,7 +289,7 @@ Several semantic stages (set-quantifier reverification, line-cite sweep, ready-s
 
 NS-12 precedent (`cross-plan-dependencies.md` §6, NS-12 entry):
 
-> `- Status: \`completed\` (resolved YYYY-MM-DD via PR #<N> — <one-line resolution narrative>)`
+> ``- Status: `completed` (resolved YYYY-MM-DD via PR #<N> — <one-line resolution narrative>)``
 
 The atomic value is backticked (`` `completed` ``); the parenthetical resolution prose is one line, the same shape NS-12 uses inline. The script writes `<TODO subagent prose>` as a placeholder; the subagent replaces it with composed prose matching NS-12 tone.
 

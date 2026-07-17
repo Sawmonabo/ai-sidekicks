@@ -297,7 +297,7 @@ If T5.1 has already shipped (PR #34 per spec §3a.1's NS-02 example), the first 
 
 - [ ] **Step 3: Update NS-02's `- Status:` to reflect `PRs:` recompute**
 
-Per spec §3a.2 matrix row "≥1 checked, ≥1 unchecked, no upstream-blocked": `- Status: \`in_progress\` (last shipped: PR #<N>, YYYY-MM-DD)`.
+Per spec §3a.2 matrix row "≥1 checked, ≥1 unchecked, no upstream-blocked": ``- Status: `in_progress` (last shipped: PR #<N>, YYYY-MM-DD)``.
 
 - [ ] **Step 4: Verify the block parses correctly**
 
@@ -328,7 +328,7 @@ NS-04 is a cross-plan PR pair, internally a 3-step sequence (per its `- Type:` q
 
 Adjust task-ids and descriptions to match Plan-024 §Phase 2 + Plan-001 §T5.4's actual breakdown — read those plan sections before authoring (they are the source of truth, not the spec's example wording).
 
-- [ ] **Step 3: Update NS-04's `- Status:`** per spec §3a.2 matrix: if all unchecked → `\`todo\``; if any blocked-upstream → `\`blocked\``.
+- [ ] **Step 3: Update NS-04's `- Status:`** per spec §3a.2 matrix: if all unchecked → `` `todo` ``; if any blocked-upstream → `` `blocked` ``.
 
 - [ ] **Step 4: Verify block grammar**
 
@@ -401,7 +401,7 @@ Modify the line authored in Task 1.2: change `:::ready` → `:::completed`.
 grep -A 8 "^### NS-23" docs/architecture/cross-plan-dependencies.md && grep "NS23\[" docs/architecture/cross-plan-dependencies.md
 ```
 
-Expected: heading body shows `Status: \`completed\` (...)`, mermaid line shows `NS23[...]:::completed`.
+Expected: heading body shows ``Status: `completed` (...)``, mermaid line shows `NS23[...]:::completed`.
 
 ### Task 1.7: Run pre-commit hooks and commit
 
@@ -891,7 +891,7 @@ test("parseSubFields returns null sub-fields when absent (don't throw)", () => {
 
 - [ ] **Step 2: Run (FAIL — function not defined).**
 
-- [ ] **Step 3: Implement.** Walk lines, match `^- (Status|Type|Priority|Upstream|References|Summary|Exit Criteria): (.+)$`. For Status / Priority extract the backticked atomic via secondary regex `^\`([^\`]+)\`(?:\s+(.+))?$`against the captured value, returning`{ atomic, prose | null }`. Return an object with one key per known sub-field, `null` for absent fields.
+- [ ] **Step 3: Implement.** Walk lines, match `^- (Status|Type|Priority|Upstream|References|Summary|Exit Criteria): (.+)$`. For Status / Priority extract the backticked atomic via secondary regex ``^`([^`]+)`(?:\s+(.+))?$`` against the captured value, returning `{ atomic, prose | null }`. Return an object with one key per known sub-field, `null` for absent fields.
 
 - [ ] **Step 4: Run (PASS).**
 
@@ -2031,7 +2031,7 @@ Rationale (A10): Tasks 3.11 + 3.15 (`applyStatusFlip`, `writeManifest`) emit `to
 
 **Files:**
 
-- Modify: post-merge-housekeeper.mjs (add `if (import.meta.url === \`file://${process.argv[1]}\`)` block at bottom)
+- Modify: post-merge-housekeeper.mjs (add ``if (import.meta.url === `file://${process.argv[1]}`)`` block at bottom)
 
 - [ ] **Step 1: Add the CLI entrypoint**
 
@@ -2571,7 +2571,7 @@ The plan-execution housekeeper subagent and its companion script (`scripts/post-
 
 ## Status format
 
-NS-12 precedent (cross-plan-dependencies.md:454):
+NS-12 precedent (the `- Status:` line of [cross-plan-dependencies.md §NS-12](../../architecture/cross-plan-dependencies.md#ns-12-plan-001-phase-5-split-amendment--phase-5-dep-alignment)):
 
 > `- Status: \`completed\` (resolved YYYY-MM-DD via PR #<N> — <one-line resolution narrative>)`
 
