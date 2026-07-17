@@ -387,7 +387,7 @@ Bidirectional cross-link: Plan-005 §Dependencies row should name "Plan-024 Phas
 
 ### CP-024-2 — Plan-020 Tier 8 crash-rate telemetry
 
-Plan-020 (Tier 8) owns `health_snapshots` (Postgres) and the diagnostic SQLite buckets `driver_raw_events`, `command_output`, `tool_traces`, `reasoning_detail` per cross-plan-deps:56. ADR-019 §Success Criteria row 4 names "Crash reporting pipeline"; Plan-020 owns the pipeline. Plan-024 Phase 5's `≤ 0.01/1,000 sidecar-originated crash rate` measurement runs at Plan-020 wall-clock per [ADR-019 §Substrate Promotion Window](../decisions/019-windows-v1-tier-and-pty-sidecar.md#substrate-promotion-window) (BL-106 resolution): the measurement is calendar-bound to ADR-019 check date 2026-10-01 and gates substrate-promotion close, not Plan-024 `status: completed`.
+Plan-020 (Tier 8) owns `health_snapshots` (Postgres) and the diagnostic SQLite buckets `driver_raw_events`, `command_output`, `tool_traces`, `reasoning_detail` per the Plan-020 row in the `docs/architecture/cross-plan-dependencies.md §Uncontested Tables` ownership map. ADR-019 §Success Criteria row 4 names "Crash reporting pipeline"; Plan-020 owns the pipeline. Plan-024 Phase 5's `≤ 0.01/1,000 sidecar-originated crash rate` measurement runs at Plan-020 wall-clock per [ADR-019 §Substrate Promotion Window](../decisions/019-windows-v1-tier-and-pty-sidecar.md#substrate-promotion-window) (BL-106 resolution): the measurement is calendar-bound to ADR-019 check date 2026-10-01 and gates substrate-promotion close, not Plan-024 `status: completed`.
 
 ### CP-024-3 — SmartScreen reputation telemetry
 
