@@ -441,8 +441,9 @@ export class AttachService {
       //     to this `(node_id, session_id)` row is SUPPRESSED (-> zero RETURNING
       //     rows), the same zero-row mechanism the revoked case uses. This is why
       //     `participant_id` is NOT in the SET list: reassigning the owner on a
-      //     cross-owner reconnect would destroy node provenance (Spec-003 line
-      //     123 — never destroy historical node provenance when a node reconnects).
+      //     cross-owner reconnect would destroy node provenance
+      //     (`Spec-003 §Pitfalls To Avoid` — never destroy historical node
+      //     provenance when a node reconnects).
       // (`EXCLUDED.participant_id` in a DO UPDATE WHERE is valid Postgres — it
       // refers to the would-be-inserted row's value.)
       //
