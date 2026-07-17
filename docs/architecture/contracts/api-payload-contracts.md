@@ -782,7 +782,7 @@ interface RollbackToParams {
 type DriverRollbackResult =
   // A successful rollback without a confirmed floor is structurally inexpressible (mirrors
   // `DriverResumeResult`): position-compares consume it per Spec-015 via campaign B5/B14.
-  | { status: "applied"; sessionPosition: number; bindingId?: string } // sessionPosition: REQUIRED driver-confirmed post-rollback position — the new authoritative recovery floor. bindingId (campaign B2): present iff the mechanism minted a new provider binding for the same run (Claude fork-composed leg) — the daemon repoints the run's live binding on receipt; absent on an in-place rollback (Codex thread/rollback); runtime-bounded (length + non-whitespace + NUL-rejection) like `DriverResumeResult.bindingId` — the trust-boundary header's nine-string enumeration above
+  | { status: "applied"; sessionPosition: number; bindingId?: string } // sessionPosition: REQUIRED driver-confirmed post-rollback position — the new authoritative recovery floor. Untrusted driver output: the daemon domain-validates it like the request target (integer ≥ 0, recorded boundary, strictly below the pre-rollback position) before trusting it — an invalid or no-op report is a no-rewind failure, never a run.rolled_back (Spec-004 §Required Behavior). bindingId (campaign B2): present iff the mechanism minted a new provider binding for the same run (Claude fork-composed leg) — the store-minted surrogate of a binding row already registered (provider resume_handle + runtime metadata) through the relaunch pattern's write seam before the result returned, never itself a resume handle; the daemon repoints the run's live binding on receipt; absent on an in-place rollback (Codex thread/rollback); runtime-bounded (length + non-whitespace + NUL-rejection) like `DriverResumeResult.bindingId` — the trust-boundary header's nine-string enumeration above
   | { status: "degraded"; fallbackAction?: string };
 
 // Session-goal injection (campaign B3). `goalText` is the daemon-rendered textual form of the
@@ -1310,7 +1310,7 @@ type InterventionRequestPayload =
       targetRunId: RunId;
       expectedRunVersion: number;
       clientIdempotencyKey: string;
-      targetPosition: number; // normalized session position (RollbackToParams.position vocabulary), domain-validated fail-closed at admission: an integer ≥ 0 (Zod int + nonnegative at parse) naming a recorded turn boundary of the target run strictly below its current position — daemon boundary-existence check, Spec-004 §Required Behavior. Serializes onto run.rolled_back identically on the confirmed path; a confirmed-floor mismatch degrade records the driver-confirmed position instead (the event never lies about the landing position)
+      targetPosition: number; // normalized session position (RollbackToParams.position vocabulary), domain-validated fail-closed at admission: an integer ≥ 0 (Zod int + nonnegative at parse) naming a recorded turn boundary of the target run strictly below its current position — daemon boundary-existence check, Spec-004 §Required Behavior; current-position targets admissible solely as the file-leg recovery carve-out. Serializes onto run.rolled_back identically on the confirmed path; a confirmed-floor mismatch degrade records the driver-confirmed position instead (the event never lies about the landing position)
     };
 
 // On an idempotent replay (same clientIdempotencyKey, identical payload) this response is
