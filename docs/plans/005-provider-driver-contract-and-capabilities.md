@@ -99,8 +99,8 @@ See [Local SQLite Schema §Driver and Runtime Binding Tables](../architecture/sc
 
 - **T1.1** — Author the 10-operation `ProviderDriver` interface in `packages/contracts/src/provider-driver.ts`.
   - Files: `packages/contracts/src/provider-driver.ts` (new)
-  - Spec coverage: `Spec-005 §Required Behavior` (normalized contract), :45 (10-op surface), :77 (Required driver operations anchor)
-  - Verifies invariant: I-005-1 (driver authority remains local)
+  - **Spec coverage:** `Spec-005 §Required Behavior` (normalized contract), :45 (10-op surface), :77 (Required driver operations anchor)
+  - **Verifies invariant:** I-005-1 (driver authority remains local)
   - Consumes: `SessionId` / `ChannelId` from `packages/contracts/src/session.ts` (Plan-001 Phase 2, Tier 1 — shipped); `PtyHost` contract from `packages/contracts/src/pty-host.ts` (Plan-024 Phase 2, Tier 1 — shipped); typed shape at `docs/architecture/contracts/api-payload-contracts.md §Plan-005 — Provider Driver Contract (Internal Interface)` (`interface ProviderDriver`)
   - Provides: the 10-op `ProviderDriver` interface **and** the `type RunId` brand (`string & { readonly __brand: "RunId" }`), co-located in `provider-driver.ts` per CP-005-6. `RunId` is NOT consumed from `session.ts` (Plan-001 ships no run-domain symbol); its lowest-tier consumer is this Plan-005 (Tier 4 — the `ProviderDriver` method params `startRun` / `interruptRun` / `applyIntervention` / `respondToRequest`), so it originates here. The paired `RunIdSchema` co-locates at T4.2 (its first consumer, `InterruptRunParamsSchema`); this task ships the `type` only.
   - Canonical method names (long-form): `createSession`, `resumeSession`, `startRun`, `interruptRun`, `applyIntervention`, `respondToRequest`, `closeSession`, `listModels`, `listModes`, `getCapabilities`
@@ -109,16 +109,16 @@ See [Local SQLite Schema §Driver and Runtime Binding Tables](../architecture/sc
 
 - **T1.2** — Author the 7-flag `DriverCapabilityFlag` literal-union type and `DriverCapabilities` shape in `packages/contracts/src/provider-driver.ts`.
   - Files: `packages/contracts/src/provider-driver.ts` (extend T1.1)
-  - Spec coverage: `Spec-005 §Required Behavior` (7-flag enumeration + `pause` exclusion rationale per ADR-011), :56 (undeclared = unsupported)
-  - Verifies invariant: I-005-2 (undeclared capability = unsupported)
+  - **Spec coverage:** `Spec-005 §Required Behavior` (7-flag enumeration + `pause` exclusion rationale per ADR-011), :56 (undeclared = unsupported)
+  - **Verifies invariant:** I-005-2 (undeclared capability = unsupported)
   - Consumes: `docs/architecture/contracts/api-payload-contracts.md §Shared Enums` (`type DriverCapabilityFlag` anchor), `docs/architecture/contracts/api-payload-contracts.md §Plan-005 — Provider Driver Contract (Internal Interface)` (`interface DriverCapabilities` anchor)
   - Flags (7): `resume`, `steer`, `interactive_requests`, `mcp`, `tool_calls`, `reasoning_stream`, `model_mutation`. `pause` is intentionally excluded per `Spec-005 §Required Behavior` + ADR-011.
   - Estimate: 1 PR (combined with T1.1)
 
 - **T1.3** — Author the per-tool `IdempotencyClass` enum, `ProviderToolMetadata` shape, and `GetCapabilitiesResult` wrapper in `packages/contracts/src/provider-driver.ts`. Keep `DriverCapabilities` semantically pure (`{flags, contractVersion}`); introduce `GetCapabilitiesResult` as the typed return of `getCapabilities()` so per-tool metadata travels alongside whole-driver capability flags in a single round-trip without conflating the two concepts.
   - Files: `packages/contracts/src/provider-driver.ts` (extend T1.1/T1.2); `docs/architecture/contracts/api-payload-contracts.md` (doc-mirror update at line 948 — leave `interface DriverCapabilities` shape unchanged; add new `interface ProviderToolMetadata` (ingress) + `interface NormalizedProviderToolMetadata` (normalized) + `interface GetCapabilitiesResult` shapes immediately after)
-  - Spec coverage: `Spec-005 §Required Behavior` (three-value enum required), :160-162 (semantic separation between Driver capabilities and Tool metadata), :172 (`manual_reconcile_only` conservative default); `Spec-015 §Idempotency Classes and Recovery Behavior` (`### Idempotency Classes and Recovery Behavior` — recovery dispatch consumer), `Spec-015 §Idempotency Classes and Recovery Behavior` (`manual_reconcile_only` recovery-needed handoff)
-  - Verifies invariant: I-005-3 (undeclared `idempotency_class` defaults to `manual_reconcile_only`)
+  - **Spec coverage:** `Spec-005 §Required Behavior` (three-value enum required), :160-162 (semantic separation between Driver capabilities and Tool metadata), :172 (`manual_reconcile_only` conservative default); `Spec-015 §Idempotency Classes and Recovery Behavior` (`### Idempotency Classes and Recovery Behavior` — recovery dispatch consumer), `Spec-015 §Idempotency Classes and Recovery Behavior` (`manual_reconcile_only` recovery-needed handoff)
+  - **Verifies invariant:** I-005-3 (undeclared `idempotency_class` defaults to `manual_reconcile_only`)
   - Consumes: Spec-005 §Tool Metadata anchor; Spec-015 §Idempotency Protocol
   - Provides: `IdempotencyClass = "idempotent" \| "compensable" \| "manual_reconcile_only"`; `ProviderToolMetadataSchema = z.object({ name: z.string(), idempotency_class: IdempotencyClassSchema.optional().default("manual_reconcile_only"), description: z.string().optional() })`; `ProviderToolMetadata = z.input<typeof ProviderToolMetadataSchema>` (INGRESS — `idempotency_class` OPTIONAL: what a driver declares via `getCapabilities()`; an omitting driver is accepted, NOT rejected, since a required field would reject a conformant-but-silent driver before the default could apply per `Spec-005 §idempotency_class`); `NormalizedProviderToolMetadata = z.output<typeof ProviderToolMetadataSchema>` (NORMALIZED — `idempotency_class` REQUIRED after the schema's `.default("manual_reconcile_only")` applies at parse time; the only tool-metadata shape that crosses the persistence / event-payload boundary, so the type system forbids persisting or emitting an un-normalized value); `GetCapabilitiesResult = { capabilities: DriverCapabilities; tools: ProviderToolMetadata[] }` (ingress wrapper — semantically aligned with `Spec-005 §Tool Metadata` and MCP 2026 / LSP capability-vs-tool-list separation precedent)
   - Modern-precedent rationale: MCP 2026-07-28 release candidate separates `initialize` server-capabilities response from `tools/list` request; LSP separates `ServerCapabilities` from registered tool surfaces. The wrapper return preserves the 10-op interface count from `Spec-005 §Interfaces And Contracts` while honoring the two-concept separation.
@@ -126,23 +126,23 @@ See [Local SQLite Schema §Driver and Runtime Binding Tables](../architecture/sc
 
 - **T1.4** — Author `ApplyInterventionParams` + Zod-validated `DriverInterventionResultSchema` in `packages/contracts/src/provider-driver.ts`.
   - Files: `packages/contracts/src/provider-driver.ts` (extend T1.1)
-  - Spec coverage: `Spec-005 §Required Behavior` (generic dispatcher + degraded-fallback contract); ADR-011 (generic intervention dispatch)
-  - Verifies invariant: I-005-4 (`applyIntervention` returns `degraded` for unsupported intervention types)
+  - **Spec coverage:** `Spec-005 §Required Behavior` (generic dispatcher + degraded-fallback contract); ADR-011 (generic intervention dispatch)
+  - **Verifies invariant:** I-005-4 (`applyIntervention` returns `degraded` for unsupported intervention types)
   - Consumes: `docs/architecture/contracts/api-payload-contracts.md §Plan-005 — Provider Driver Contract (Internal Interface)` (`type ApplyInterventionParams` anchor), `docs/architecture/contracts/api-payload-contracts.md §Plan-005 — Provider Driver Contract (Internal Interface)` (`interface DriverInterventionResult` anchor), `docs/architecture/contracts/api-payload-contracts.md §Shared Enums` (cross-cutting `InterventionType` enum — resolution: co-locate the `InterventionType` re-export in `provider-driver.ts` since Plan-004's `runControl.ts` ships at Tier 5; Plan-004 imports the enum from Plan-005 at Tier 4)
   - Provides: `DriverInterventionResultSchema = z.object({ status: z.enum(['applied', 'degraded']), fallbackAction: z.string().optional() })`; `DriverInterventionResult = z.infer<typeof DriverInterventionResultSchema>` (Zod-validated wire envelope per Phase 4 ratified shape; distinct from orchestration `InterventionState` lifecycle enum per LSP/MCP separation-of-concerns precedent)
   - Estimate: 1 PR
 
 - **T1.5** — Author contract-conformance test scaffolding in `packages/contracts/src/__tests__/provider-driver.test.ts`.
   - Files: `packages/contracts/src/__tests__/provider-driver.test.ts` (new)
-  - Spec coverage: Spec-005 AC1 (`Spec-005 §Acceptance Criteria` — type-only conformance: a mock driver implementing the interface should compile and not require session-domain changes); Spec-005 AC2 (`Spec-005 §Acceptance Criteria` — capability-flag exhaustiveness: a flag not in the 7-flag enum should produce a type error)
-  - Verifies invariant: I-005-1, I-005-2, I-005-3, I-005-4, I-005-5
+  - **Spec coverage:** Spec-005 AC1 (`Spec-005 §Acceptance Criteria` — type-only conformance: a mock driver implementing the interface should compile and not require session-domain changes); Spec-005 AC2 (`Spec-005 §Acceptance Criteria` — capability-flag exhaustiveness: a flag not in the 7-flag enum should produce a type error)
+  - **Verifies invariant:** I-005-1, I-005-2, I-005-3, I-005-4, I-005-5
   - Notes: Phase 1 tests are type-system tests + a minimal mock-driver scaffold. Behavioral conformance tests (resume-handle round-trip, capability refresh) ship in Phase 2-3. Type-level enforcement of I-005-5 is verified here: a mock driver whose `resumeSession` returns `void` on the failure path must produce a TS compile error against the T1.6 `DriverResumeResult` discriminated-union return type.
   - Estimate: 1 PR
 
 - **T1.6** — Author the `DriverResumeResult` discriminated-union return shape for `resumeSession()` in `packages/contracts/src/provider-driver.ts`. Pattern matches existing `DriverInterventionResult` (T1.4): a `status`-discriminated union with explicit success and failure variants, validated via Zod.
   - Files: `packages/contracts/src/provider-driver.ts` (extend T1.1/T1.4); `docs/architecture/contracts/api-payload-contracts.md` (doc-mirror — add `interface DriverResumeResult` near the existing `DriverInterventionResult` shape)
-  - Spec coverage: `Spec-005 §Fallback Behavior` (resume-handle failure surfaces `provider failure` detail + `recovery-needed` condition; MUST NOT silently create replacement provider session); `Spec-005 §Acceptance Criteria` (AC3)
-  - Verifies invariant: I-005-5 (the discriminated-union shape makes silent-replacement structurally inexpressible — the failure variant has no `bindingId` field, so a successful resume cannot be conflated with a failed one)
+  - **Spec coverage:** `Spec-005 §Fallback Behavior` (resume-handle failure surfaces `provider failure` detail + `recovery-needed` condition; MUST NOT silently create replacement provider session); `Spec-005 §Acceptance Criteria` (AC3)
+  - **Verifies invariant:** I-005-5 (the discriminated-union shape makes silent-replacement structurally inexpressible — the failure variant has no `bindingId` field, so a successful resume cannot be conflated with a failed one)
   - Consumes: T1.1 `resumeSession` signature anchor; `docs/architecture/contracts/api-payload-contracts.md §Plan-005 — Provider Driver Contract (Internal Interface)` `interface DriverInterventionResult` precedent (sibling shape)
   - Provides: `DriverResumeResultSchema = z.discriminatedUnion('status', [z.object({ status: z.literal('resumed'), bindingId: z.string() }), z.object({ status: z.literal('failed'), recoveryCondition: z.literal('recovery-needed'), providerFailureDetail: z.string() })])`; `DriverResumeResult = z.infer<typeof DriverResumeResultSchema>`. `resumeSession()` signature becomes `(handle: string) => Promise<DriverResumeResult>` rather than the (Spec-005-silent) implicit throw-on-failure pattern. Timestamps live on `runtime_bindings.updated_at` (T2.1); the result shape carries only the discriminated-union semantic payload.
   - Modern-precedent rationale: Discriminated-union result types (success | failure) over thrown exceptions for expected-failure paths — the pattern used by Rust's `Result<T,E>` and by API SDKs that prefer structured error responses (Stripe SDK, AWS SDK) over throwing. Matches existing `DriverInterventionResult` (`{status: 'applied' | 'degraded'}`) precedent in this contract.
@@ -158,8 +158,8 @@ See [Local SQLite Schema §Driver and Runtime Binding Tables](../architecture/sc
 
 - **T2.1** — Author the SQLite migration creating `runtime_bindings` + `driver_capabilities`.
   - Files: `packages/runtime-daemon/src/migrations/0003-runtime-bindings.ts` (new; `0003` is the next free migration number — `0001-initial.ts` + `0002-runtime-node.ts` are the only existing migrations); `packages/runtime-daemon/src/session/migration-runner.ts` (modify — register the version-3 guarded block: import the new SQL constant and add a `hasMigrationApplied(db, 3)` `db.transaction(...).immediate()` block mirroring the version-1/2 blocks. The runner is a hand-written per-version guarded sequence, deliberately NOT a registry loop — see its module docstring — so a new migration module is dead code until registered here; without this edit the migration never executes); `docs/architecture/schemas/local-sqlite-schema.md` (verify column definitions match the `runtime_bindings` block at lines 156-171 under the `## Driver and Runtime Binding Tables (Plan-005)` header at line 145)
-  - Spec coverage: `Spec-005 §Required Behavior` (driver-contract operations imply persistence of provider session handles), :55 (drivers persist provider-owned resume handles separately from canonical ids)
-  - Verifies invariant: — (migration is structural; invariants apply at runtime)
+  - **Spec coverage:** `Spec-005 §Required Behavior` (driver-contract operations imply persistence of provider session handles), :55 (drivers persist provider-owned resume handles separately from canonical ids)
+  - **Verifies invariant:** — (migration is structural; invariants apply at runtime)
   - Consumes: Plan-001 Phase 3 migration runner (`packages/runtime-daemon/src/session/migration-runner.ts`, shipped — `applyMigrations` hand-written per-version guarded blocks + `openDatabase` canonical handle factory)
   - Provides: `runtime_bindings` table (`id` TEXT PK, `run_id` TEXT NOT NULL, `driver_name` TEXT NOT NULL, `contract_version` TEXT NOT NULL, `resume_handle` TEXT nullable, `runtime_metadata` TEXT NOT NULL DEFAULT `'{}'`, `created_at` TEXT NOT NULL, `updated_at` TEXT NOT NULL; index `idx_runtime_bindings_run` on `run_id`) + `driver_capabilities` table (`driver_name` TEXT NOT NULL, `capability_flag` TEXT NOT NULL CHECK IN (`'resume'`, `'steer'`, `'interactive_requests'`, `'mcp'`, `'tool_calls'`, `'reasoning_stream'`, `'model_mutation'`), `supported` INTEGER NOT NULL DEFAULT 0, `refreshed_at` TEXT NOT NULL, PRIMARY KEY (`driver_name`, `capability_flag`)) + `driver_tools` table (`driver_name` TEXT NOT NULL, `tool_name` TEXT NOT NULL, `idempotency_class` TEXT NOT NULL CHECK IN (`'idempotent'`, `'compensable'`, `'manual_reconcile_only'`), `description` TEXT nullable, `refreshed_at` TEXT NOT NULL, PRIMARY KEY (`driver_name`, `tool_name`)) + `driver_contract_meta` table (`driver_name` TEXT PRIMARY KEY, `contract_version` TEXT NOT NULL, `refreshed_at` TEXT NOT NULL). Migration matches canonical [local-sqlite-schema.md §Driver and Runtime Binding Tables](../architecture/schemas/local-sqlite-schema.md#driver-and-runtime-binding-tables-plan-005) exactly for `runtime_bindings` + `driver_capabilities` as shipped (campaign B3 note, 2026-07-05: the canonical block has since gained the `cli_version_raw`/`cli_version_semver` pair on `runtime_bindings` + `driver_contract_meta` and widened the `capability_flag` CHECK to the twelve-flag union, thirteen with B6's `cost_cap` — the catch-up migration is the campaign code leg, so migration 0003 matches the pre-B3 canonical); `driver_tools` is the new co-owned per-tool-metadata surface (crash-recovery `idempotency_class` lookup per `Spec-005 §Recovery Consequences` cannot round-trip the driver, so per-tool `idempotency_class` is persisted as normalized per-tool rows rather than a JSON blob — `(driver_name, tool_name)` composite PK mirrors the `(driver_name, capability_flag)` shape of `driver_capabilities`); `driver_contract_meta` is the per-driver parent holding the single `contract_version` that cold-start hydration (T2.4) needs to reconstruct `GetCapabilitiesResult.capabilities.contractVersion` without round-tripping the driver — kept out of `driver_capabilities` to avoid denormalizing the version across the per-flag rows, and distinct from the per-run `runtime_bindings.contract_version`. No FK to non-existent local `sessions` table (sessions is shared-Postgres-only per [shared-postgres-schema.md §Sessions and Membership (Plan-001, Plan-002)](../architecture/schemas/shared-postgres-schema.md#sessions-and-membership-plan-001-plan-002)); session-level lookups compose the caller-supplied active-run ids (Plan-004's event-sourced run-state projection — there is no `runs` table) with the store's `findByRuns(runIds)` per the T2.2 seam below, intersected with the process supervisor's live provider-process registry — the liveness authority (`runtime_bindings` persists no liveness by design: a persisted flag would claim live across a daemon crash; superseded pre-relaunch rows never enumerate).
   - Note: `recovery_state` / `recovery_needed` columns do NOT belong on `runtime_bindings` — Plan-015 owns the `recovery_checkpoints` table at `docs/architecture/schemas/local-sqlite-schema.md §GDPR and Recovery Tables (Spec-022, Plan-015)` for row-level recovery state per CP-005-1 (recovery-aware persistence extension contract). Plan-005's invariant I-005-5 (resume-failure surfaces recovery-needed) is satisfied via a typed return-value contract from `resumeSession()` (T3.1, T3.6), which Plan-015's recovery dispatcher consumes and surfaces on the existing `run.failed` event with `recoveryCondition: 'recovery-needed'` per `Spec-006 §Run Lifecycle (run_lifecycle)` — no separate driver event, no persisted column state.
@@ -168,32 +168,32 @@ See [Local SQLite Schema §Driver and Runtime Binding Tables](../architecture/sc
 
 - **T2.2** — Author `RuntimeBindingStore` CRUD class.
   - Files: `packages/runtime-daemon/src/provider/runtime-binding-store.ts` (new)
-  - Spec coverage: `Spec-005 §Required Behavior` (provider-owned resume handles persisted separately from session/run ids)
-  - Verifies invariant: I-005-1 (driver authority local — store is daemon-resident)
+  - **Spec coverage:** `Spec-005 §Required Behavior` (provider-owned resume handles persisted separately from session/run ids)
+  - **Verifies invariant:** I-005-1 (driver authority local — store is daemon-resident)
   - Consumes: T2.1 migration; better-sqlite3 client (existing in `packages/runtime-daemon/src/session/`)
   - Provides: `RuntimeBindingStore` with methods `create(input)`, `findById(id)`, `findByRun(runId)`, `update(id, patch)`, `delete(id)`. `runtime_bindings` has no `session_id` column and no liveness column per canonical schema, and run state is event-sourced (no `runs` table to join) — so session-level resolution is a composition: the caller supplies the session's active run ids from the daemon's run-state projection, and the store owns **`findByRuns(runIds)`** (campaign B6, 2026-07-06; the batch form of `findByRun`) returning their binding rows — ALL rows for those runs, superseded pre-relaunch history included: the store has no liveness column by design, so the CALLER owns the liveness intersection (Plan-016 T2.10 intersects the returned rows with the process supervisor's live provider-process registry — one current binding per active run — before fan-out; a dead or superseded row never reaches delivery). Daemon-local by design: it feeds T2.10's local synchronous ack barrier (live legs = active runs × these rows ∩ the supervisor registry; legs on other runtime nodes converge via Spec-016's goal-at-turn-dispatch precondition), an owned API so all-or-nothing delivery is never built on persona rows or ad-hoc queries. Code mirror: the shipped store exposes `findByRun` only — the batch method lands with the campaign's Plan-005 bundle, and Plan-016 T2.10's code dispatch is gated on it (same gate as the driver goal methods). Extension points for Plan-015 per CP-005-1 are declared as public-but-not-overridden method seams (e.g., `findResumableBindings(...)` is intentionally exposed as a queryable surface that Plan-015 extends with recovery-aware predicates).
   - Estimate: 1-2 PRs
 
 - **T2.3** — Author `ProviderRegistry` class.
   - Files: `packages/runtime-daemon/src/provider/provider-registry.ts` (new)
-  - Spec coverage: `Spec-005 §Required Behavior` (every provider integration must implement a normalized driver contract), :56 (runtime treats undeclared capabilities as unsupported)
-  - Verifies invariant: I-005-2 (undeclared capability = unsupported — enforced by registry capability check)
+  - **Spec coverage:** `Spec-005 §Required Behavior` (every provider integration must implement a normalized driver contract), :56 (runtime treats undeclared capabilities as unsupported)
+  - **Verifies invariant:** I-005-2 (undeclared capability = unsupported — enforced by registry capability check)
   - Consumes: T1.1-T1.4 contracts; T2.2 RuntimeBindingStore
   - Provides: `ProviderRegistry` with `register(driverInstance)`, `lookup(driverId)`, `checkCapability(driverId, flag)`, `listAvailable()`. Registry enforces capability-flag gating ONLY for direct capability-bound methods (e.g. a future `driver.steer` direct entrypoint, or `driver.getCapabilities` itself when called against an unregistered driver) — `applyIntervention` is **excluded from pre-dispatch gating** because its intervention-type-aware degraded-fallback per [ADR-011](../decisions/011-generic-intervention-dispatch.md) must reach the driver to return `{ status: 'degraded', fallbackAction }` (`Spec-005 §Required Behavior`). Direct capability-bound calls against undeclared flags throw `driver.capability_unsupported` (`docs/architecture/contracts/error-contracts.md §Driver`) before reaching the driver; `applyIntervention` reaches the driver regardless of `(type → capability flag)` mapping so the driver-side dispatcher can return the typed degraded envelope (T3.7 verifies this for Claude `steer: false`).
   - Estimate: 1 PR
 
 - **T2.4** — Author `driver_capabilities` cache writer logic.
   - Files: `packages/runtime-daemon/src/provider/driver-capabilities-writer.ts` (new); `packages/contracts/src/provider-driver.ts` (modify — hoist the existing `DriverCapabilityFlag` union to a runtime `DRIVER_CAPABILITY_FLAGS` `as const`, re-deriving the union via `(typeof DRIVER_CAPABILITY_FLAGS)[number]`, so the write-seam guard, migration-0003 CHECK, and integration fixtures share one canonical flag source (7 flags as shipped; the campaign B3 amendment widened the canonical union to twelve and B6 adds `cost_cap` (thirteen) — the code-side re-derivation rides the campaign code leg). Contract-preserving type-companion refactor of an already-shipped declaration — byte-equivalent union, NOT a provider-output Zod schema; the `assertValidCapabilityFlags` guard stays at the write seam in `provider-output-validation.ts` per the T2.1 provider-output validation obligation)
-  - Spec coverage: `Spec-005 §Required Behavior` (undeclared capabilities = unsupported — drives the cache-as-source-of-truth pattern); ADR-005 (normalized driver interface)
-  - Verifies invariant: I-005-2
+  - **Spec coverage:** `Spec-005 §Required Behavior` (undeclared capabilities = unsupported — drives the cache-as-source-of-truth pattern); ADR-005 (normalized driver interface)
+  - **Verifies invariant:** I-005-2
   - Consumes: T1.2 DriverCapabilities shape; T2.1 `driver_capabilities` + `driver_tools` + `driver_contract_meta` tables; T2.3 ProviderRegistry
   - Provides: Writes per-driver capability data on driver registration + on capability-refresh events, in one transaction across THREE per-driver-keyed tables: (1) per-flag rows to `driver_capabilities` (one row per `DriverCapabilityFlag` enum value with `supported INTEGER 0/1` and `refreshed_at`; thirteen values post-B3/B6, seven as shipped); (2) per-tool rows to `driver_tools` (one row per `NormalizedProviderToolMetadata` — the post-`.default()` shape, since the NOT NULL `idempotency_class` CHECK-enum column structurally rejects an un-normalized value — plus optional `description` and `refreshed_at`) so the daemon's two-phase command-receipt protocol (`Spec-005 §Recovery Consequences`) can read `idempotency_class` at crash-recovery dispatch time without round-tripping the driver; (3) ONE row to `driver_contract_meta` (`driver_name` PK, `contract_version`, `refreshed_at`) holding the driver's advertised capability-contract version. The contract version lives in its own per-driver table — NOT denormalized across the per-flag `driver_capabilities` rows, and distinct from `runtime_bindings.contract_version` (which is the version bound to a specific RUN, not the driver's advertised cache version). Reads on cold-start cache hydration join all three tables keyed by `driver_name` to reconstruct `GetCapabilitiesResult = { capabilities: { flags, contractVersion }, tools: ProviderToolMetadata[] }` — `contractVersion` comes from `driver_contract_meta`, so `listCapabilities()` returns the advertised version after a daemon restart WITHOUT round-tripping the driver (the cache-as-source-of-truth path; campaign B3 adds the cached `cliVersion` pair to that reconstruction, with a NULL pair treated as a cache miss). Refresh trigger emits `runtime_node.capability_updated` event per `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` (existing event surface; payload `previousState` / `newState` carry the reconstructed wrapper-shape contents) — see CP-005-5.
   - Estimate: 1 PR
 
 - **T2.5** — Author Phase 2 integration tests (RuntimeBindingStore + ProviderRegistry + capability-writer round-trip).
   - Files: `packages/runtime-daemon/src/provider/__tests__/phase-2-integration.test.ts` (new)
-  - Spec coverage: `Spec-005 §Required Behavior` (capability gating); `Spec-005 §Required Behavior` (resume-handle persistence)
-  - Verifies invariant: I-005-1, I-005-2
+  - **Spec coverage:** `Spec-005 §Required Behavior` (capability gating); `Spec-005 §Required Behavior` (resume-handle persistence)
+  - **Verifies invariant:** I-005-1, I-005-2
   - Notes: Tests use the real SQLite client (better-sqlite3 in-memory) per the no-mock-database policy (test-engineering memory). Migration applied at test setup.
   - Estimate: 1 PR
 
@@ -227,40 +227,40 @@ See [Local SQLite Schema §Driver and Runtime Binding Tables](../architecture/sc
 
 - **T3.1** — Author Codex driver entry + lifecycle methods.
   - Files: `packages/runtime-daemon/src/provider/drivers/codex/index.ts` (new), `packages/runtime-daemon/src/provider/drivers/codex/lifecycle.ts` (new)
-  - Spec coverage: `Spec-005 §Required Behavior` (10-op contract surface); `Spec-005 §Fallback Behavior` (resume-handle failure surfaces recovery-needed condition — AC3)
-  - Verifies invariant: I-005-5 (resume-failure returns typed `recovery-needed` condition; no silent session replacement)
+  - **Spec coverage:** `Spec-005 §Required Behavior` (10-op contract surface); `Spec-005 §Fallback Behavior` (resume-handle failure surfaces recovery-needed condition — AC3)
+  - **Verifies invariant:** I-005-5 (resume-failure returns typed `recovery-needed` condition; no silent session replacement)
   - Consumes: T1.1 ProviderDriver interface; Plan-024 PtyHost contract from `packages/contracts/src/pty-host.ts` (Tier 1, shipped); Codex /resume substrate (PtyHost-based persistent process)
   - Provides: `createSession`, `resumeSession`, `startRun`, `interruptRun`, `closeSession` for Codex
   - Estimate: 2 PRs
 
 - **T3.2** — Author Codex intervention dispatcher.
   - Files: `packages/runtime-daemon/src/provider/drivers/codex/intervention.ts` (new)
-  - Spec coverage: `Spec-005 §Required Behavior` (generic dispatcher + degraded-fallback); ADR-011 (generic intervention dispatch)
-  - Verifies invariant: I-005-4 (degraded result for unsupported intervention types)
+  - **Spec coverage:** `Spec-005 §Required Behavior` (generic dispatcher + degraded-fallback); ADR-011 (generic intervention dispatch)
+  - **Verifies invariant:** I-005-4 (degraded result for unsupported intervention types)
   - Consumes: T1.4 ApplyInterventionParams + DriverInterventionResultSchema; T1.2 capability flags
   - Provides: `applyIntervention(params)` for Codex — routes to native steer/interrupt/cancel handlers; returns `{ status: 'degraded', fallbackAction: 'queue_and_interrupt' }` when an intervention type maps to a capability flag the driver declared `false` (Codex declares all three intervention-relevant flags `true`; the degraded path is exercised more in T3.7 Claude where `steer: false`).
   - Estimate: 1 PR
 
 - **T3.3** — Author Codex capability declaration + refresh.
   - Files: `packages/runtime-daemon/src/provider/drivers/codex/capabilities.ts` (new)
-  - Spec coverage: `Spec-005 §Required Behavior` (7-flag declaration); :56 (undeclared = unsupported)
-  - Verifies invariant: I-005-2
+  - **Spec coverage:** `Spec-005 §Required Behavior` (7-flag declaration); :56 (undeclared = unsupported)
+  - **Verifies invariant:** I-005-2
   - Consumes: T1.2 DriverCapabilities; T1.3 GetCapabilitiesResult wrapper; T2.4 driver_capabilities writer
   - Provides: `getCapabilities()` for Codex returning the V1 `GetCapabilitiesResult` wrapper with declared capability flags (matrix above) + Codex-declared per-tool metadata array. Refresh trigger emits `runtime_node.capability_updated` event per `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` (existing event surface; payload `previousState` / `newState` carry the wrapper-shape contents) — see CP-005-5.
   - Estimate: 1 PR
 
 - **T3.4** — Author Codex per-tool metadata declaration.
   - Files: `packages/runtime-daemon/src/provider/drivers/codex/tools.ts` (new)
-  - Spec coverage: `Spec-005 §Required Behavior` (per-tool idempotency_class required), :172 (manual_reconcile_only conservative default)
-  - Verifies invariant: I-005-3
+  - **Spec coverage:** `Spec-005 §Required Behavior` (per-tool idempotency_class required), :172 (manual_reconcile_only conservative default)
+  - **Verifies invariant:** I-005-3
   - Consumes: T1.3 IdempotencyClass + ProviderToolMetadata
   - Provides: Codex tool list with explicit `idempotency_class` annotations (any tool not annotated defaults to `manual_reconcile_only` per I-005-3)
   - Estimate: 1 PR
 
 - **T3.5** — Author Codex event normalizer.
   - Files: `packages/runtime-daemon/src/provider/drivers/codex/event-normalizer.ts` (new)
-  - Spec coverage: `Spec-005 §Required Behavior` (drivers emit normalized runtime events, not provider-native types); :91-97 (required normalized event families)
-  - Verifies invariant: — (normalization is structural; family-level coverage verified by Plan-006 taxonomy tests)
+  - **Spec coverage:** `Spec-005 §Required Behavior` (drivers emit normalized runtime events, not provider-native types); :91-97 (required normalized event families)
+  - **Verifies invariant:** — (normalization is structural; family-level coverage verified by Plan-006 taxonomy tests)
   - Consumes: Plan-006 normalized event-family contract (`packages/contracts/src/event.ts`, Tier 1 — shipped)
   - Provides: Mapping from Codex-native event types to Plan-006 normalized families (`run_lifecycle`, `assistant_output`, `tool_activity`, `interactive_request`, `artifact_publication`, `usage_telemetry`)
   - Estimate: 1-2 PRs
@@ -285,55 +285,55 @@ See [Local SQLite Schema §Driver and Runtime Binding Tables](../architecture/sc
 
 - **T4.1** — Author daemon-side `driver.*` IPC handlers (7 client-facing: 6 non-lifecycle verbs + `driver.subscribeEvents`).
   - Files: `packages/runtime-daemon/src/ipc/handlers/driver-handlers.ts` (new); `packages/runtime-daemon/src/ipc/router.ts` (extend registration)
-  - Spec coverage: `Spec-005 §Interfaces And Contracts` (the 10-op surface is the in-daemon `ProviderDriver` interface; the client `driver.*` namespace exposes only the 6 non-lifecycle verbs + `subscribeEvents` per §Phase 4 decision #2)
-  - Verifies invariant: I-005-1 (driver authority local — IPC handlers dispatch to in-daemon ProviderRegistry)
+  - **Spec coverage:** `Spec-005 §Interfaces And Contracts` (the 10-op surface is the in-daemon `ProviderDriver` interface; the client `driver.*` namespace exposes only the 6 non-lifecycle verbs + `subscribeEvents` per §Phase 4 decision #2)
+  - **Verifies invariant:** I-005-1 (driver authority local — IPC handlers dispatch to in-daemon ProviderRegistry)
   - Consumes: T2.3 ProviderRegistry; Plan-007 NamespaceRegistry (Tier 4 — co-tier delivery; CP-007-6 reciprocal); T1.1 ProviderDriver interface
   - Provides: 7 typed client-facing handlers (6 non-lifecycle verbs + `driver.subscribeEvents`) registered against Plan-007's NamespaceRegistry as `driver.{method}` entries; the 4 lifecycle ops (`createSession`/`resumeSession`/`startRun`/`closeSession`) are NOT registered as JSON-RPC methods — the session/run orchestration layer invokes them on the in-daemon `ProviderRegistry` (T2.3)
   - Estimate: 2 PRs
 
 - **T4.2** — Author Zod schemas + Zod-validated wire envelopes at SDK seam.
   - Files: `packages/contracts/src/provider-driver.ts` (extend T1.4 — add the SDK-seam Zod schemas for the remaining client-facing methods, e.g. `ListCapabilitiesResultSchema`, `InterruptRunParamsSchema`, `ListModelsResultSchema`, etc.; the 4 session/run lifecycle ops `createSession`/`resumeSession`/`startRun`/`closeSession` get NO client-facing SDK schema — they are daemon-internal per §Phase 4 decision #2, so no `CreateSessionParamsSchema`/`ResumeSessionParamsSchema` at the client seam)
-  - Spec coverage: `Spec-005 §Required Behavior` (applyIntervention degraded envelope)
-  - Verifies invariant: I-005-4
+  - **Spec coverage:** `Spec-005 §Required Behavior` (applyIntervention degraded envelope)
+  - **Verifies invariant:** I-005-4
   - Consumes: T1.4 DriverInterventionResultSchema; `type RunId` ← T1.1 (the co-located brand)
   - Provides: Full SDK-seam Zod schemas for the 7 client-facing driver.\* methods (6 non-lifecycle verbs + `driver.subscribeEvents`; request + response) **and** the `RunIdSchema` validator (`brandedUuidIdSchema<RunId>("RunId")`), co-located with the `type RunId` brand in `provider-driver.ts` per CP-005-6 — first consumed here by `InterruptRunParamsSchema` (`z.object({ runId: RunIdSchema, … })`). This is `RunIdSchema`'s lowest-tier consumer (Tier 4), so it homes here; Plan-004 (Tier 5) and Plan-012 (Tier 6) import it upward. Authoring it in Plan-004's `runControl.ts` (Tier 5) would be a backward import for this Tier-4 consumer — structurally forbidden.
   - Estimate: 1 PR
 
 - **T4.3** — Author `createDaemonProviderClient` factory.
   - Files: `packages/client-sdk/src/providerClient.ts` (new); `packages/client-sdk/src/index.ts` (export)
-  - Spec coverage: `Spec-005 §Required Behavior` (driver authority local — SDK factory is daemon-only); `Spec-005 §Required Behavior` (the 10-op contract surface is the in-daemon driver interface — the SDK exposes the 6 non-lifecycle client verbs + `subscribeEvents` per §Phase 4 decision #2, not the 4 lifecycle ops)
-  - Verifies invariant: I-005-1
+  - **Spec coverage:** `Spec-005 §Required Behavior` (driver authority local — SDK factory is daemon-only); `Spec-005 §Required Behavior` (the 10-op contract surface is the in-daemon driver interface — the SDK exposes the 6 non-lifecycle client verbs + `subscribeEvents` per §Phase 4 decision #2, not the 4 lifecycle ops)
+  - **Verifies invariant:** I-005-1
   - Consumes: T1.1 ProviderDriver interface; T1.4 DriverInterventionResultSchema; T4.2 SDK-seam schemas; Plan-007 `JsonRpcClient` transport from `packages/client-sdk/src/transport/jsonRpcClient.ts` (Tier 1 — shipped)
   - Provides: `interface DriverClient { listCapabilities(); interruptRun(p); applyIntervention(p); respondToRequest(p); listModels(); listModes(); subscribeEvents(): LocalSubscriptionConsumer<DriverEvent> }` (the 6 non-lifecycle client verbs + `subscribeEvents` = the 7 client-facing methods ratified at §Phase 4 decision #2; the 4 lifecycle ops `createSession`/`resumeSession`/`startRun`/`closeSession` are daemon-internal and deliberately absent from the client interface — exposing them would let a client bypass `runtime_bindings` persistence + canonical run/session event emission) + `createDaemonProviderClient(client: JsonRpcClient): DriverClient` factory. No `createControlPlaneProviderClient` per ratified decision #1.
   - Estimate: 1-2 PRs
 
 - **T4.4** — Author `driver.subscribeEvents` subscription surface.
   - Files: `packages/runtime-daemon/src/ipc/handlers/driver-subscribe.ts` (new); `packages/client-sdk/src/providerClient.ts` (extend T4.3)
-  - Spec coverage: `Spec-005 §Required Behavior` (drivers emit normalized runtime events)
-  - Verifies invariant: I-005-1
+  - **Spec coverage:** `Spec-005 §Required Behavior` (drivers emit normalized runtime events)
+  - **Verifies invariant:** I-005-1
   - Consumes: T1.1 ProviderDriver interface; Plan-007 CP-007-4 `LocalSubscriptionProducer<T>` from `packages/contracts/src/jsonrpc-streaming.ts` (Tier 1 — shipped); T3.5 + T3.10 event normalizers
   - Provides: `driver.subscribeEvents(runId)` returns `LocalSubscriptionProducer<DriverEvent>` on the daemon side and `LocalSubscriptionConsumer<DriverEvent>` on the SDK side per the Plan-007 producer/consumer split.
   - Estimate: 1 PR
 
 - **T4.5** — Author daemon-side capability cache + invalidation.
   - Files: `packages/runtime-daemon/src/provider/capability-cache.ts` (new)
-  - Spec coverage: `Spec-005 §Required Behavior` (undeclared = unsupported)
-  - Verifies invariant: I-005-2
+  - **Spec coverage:** `Spec-005 §Required Behavior` (undeclared = unsupported)
+  - **Verifies invariant:** I-005-2
   - Consumes: T2.4 driver_capabilities writer; T3.3 + T3.8 driver capability declarations
   - Provides: Per-driver capability cache + invalidation on `runtime_node.capability_updated` event (`Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`; subscribed via the daemon's audit-log fanout). SDK `listCapabilities()` reads the cache (no provider round-trip per call).
   - Estimate: 1 PR
 
 - **T4.6** — Author degraded-fallback orchestration unit tests.
   - Files: `packages/client-sdk/src/providerClient.test.ts` (new)
-  - Spec coverage: `Spec-005 §Required Behavior` (degraded envelope); Spec-005 AC2 (`Spec-005 §Acceptance Criteria` — unsupported capability gated)
-  - Verifies invariant: I-005-4, I-005-2
+  - **Spec coverage:** `Spec-005 §Required Behavior` (degraded envelope); Spec-005 AC2 (`Spec-005 §Acceptance Criteria` — unsupported capability gated)
+  - **Verifies invariant:** I-005-4, I-005-2
   - Notes: Tests assert `applyIntervention({ type: 'steer', ...})` against the Claude driver (which declares `steer: false`) returns `{ status: 'degraded', fallbackAction: 'queue_and_interrupt' }` — the client-facing `driver.applyIntervention` path. Tests also assert the in-daemon `ProviderRegistry` capability gate (T2.3) refuses a capability-bound invocation against an undeclared flag BEFORE it reaches the driver (throwing `driver.capability_unsupported`); because the lifecycle ops (`startRun` et al.) are daemon-internal, this gate sits at the orchestration→driver (`ProviderRegistry`) boundary, not at a client JSON-RPC layer.
   - Estimate: 1 PR
 
 - **T4.7** — Author recovery-needed return-value contract tests.
   - Files: `packages/client-sdk/src/providerClient.recovery.test.ts` (new). No Plan-006 amendment needed — recovery-needed reuses the existing `run.failed.recoveryCondition` surface from `Spec-006 §Run Lifecycle (run_lifecycle)` per CP-005-5; the test asserts only the driver's return-value contract, not event emission.
-  - Spec coverage: `Spec-005 §Fallback Behavior` (resume-handle failure → recovery-needed condition); Spec-005 AC3 (`Spec-005 §Acceptance Criteria` — explicit recovery-needed condition rather than silent session replacement)
-  - Verifies invariant: I-005-5
+  - **Spec coverage:** `Spec-005 §Fallback Behavior` (resume-handle failure → recovery-needed condition); Spec-005 AC3 (`Spec-005 §Acceptance Criteria` — explicit recovery-needed condition rather than silent session replacement)
+  - **Verifies invariant:** I-005-5
   - Consumes: T3.1 + T3.6 lifecycle resume-failure paths; `Spec-006 §Run Lifecycle (run_lifecycle)` existing `run.failed` event with `recoveryCondition: 'recovery-needed'`
   - Provides: Test that simulates Codex resume failure and asserts (a) `resumeSession()` returns a typed failure result carrying `recoveryCondition: 'recovery-needed'` and (b) the driver does NOT silently call `createSession()` to replace the failed binding. The downstream `run.failed` event emission (with `recoveryCondition: 'recovery-needed'`) is Plan-015's responsibility and is covered by Plan-015's tier-7 tests; this Phase-4 test verifies only the driver's return-value contract per `Spec-005 §Fallback Behavior` + AC3.
   - Estimate: 1 PR
