@@ -230,6 +230,15 @@ jobs:
           mapfile -t code_files < <(git ls-files 'packages/' 'apps/' | grep -E '\.(ts|tsx|mts|cts)$' | grep -v '/dist/' || true)
           node --experimental-strip-types tools/docs-corpus/bin/pre-commit-runner.ts "${md_files[@]}" "${code_files[@]}"
 
+      - name: plan-cite Gate-4 survey (warn-only)
+        # Corpus-wide Gate-4 cite screen over every walked plan phase. Ships
+        # WARN-ONLY: plain `--survey` prints the citeAnomalies report but exits
+        # 0, because the live corpus still carries pre-existing cite debt (the
+        # 003/004 stale-line re-derivation is tracked as its own cite-audit).
+        # Arm it — swap to `--survey --enforce-cites` — once that audit lands the
+        # corpus cite-clean; see the FLIP CONDITION note in preflight.mjs.
+        run: node .claude/skills/plan-execution/scripts/preflight.mjs --survey
+
       - name: Unit tests for hook implementations
         run: pnpm exec vitest run --root tools/docs-corpus
 

@@ -126,25 +126,25 @@ Shared Zod/TypeScript contracts. No control-plane logic; pure schema. All consum
 
 - **T1.1 — `ParticipantProjectionRead` + `ParticipantProjection` (with `state` field).**
   - Files: `packages/contracts/src/participants/projection.ts` (CREATE), `packages/contracts/src/participants/index.ts` (CREATE barrel)
-  - Spec coverage: `Spec-018 §Interfaces And Contracts` (ParticipantProjectionRead), `Spec-018 §Required Behavior` (display state = id + name + role + membership state + presence summary)
-  - Verifies invariant: I-018-3
+  - **Spec coverage:** Spec-018 §Interfaces And Contracts (ParticipantProjectionRead), Spec-018 §Required Behavior (display state = id + name + role + membership state + presence summary)
+  - **Verifies invariant:** I-018-3
   - Consumes: `ParticipantId`, `SessionId`, `MembershipRole`, `MembershipState` from `packages/contracts/src/session.ts` (shipped); `PresenceState` from `packages/contracts/src/presence.ts` (shipped, Plan-002 NS-26)
   - Note: authors the `state: MembershipState` field the wire-doc illustration omits (CP-018-8); code-canonical per `Spec-018 §Required Behavior`.
 - **T1.2 — `ParticipantStateUpdate` request/response.**
   - Files: `packages/contracts/src/participants/state-update.ts` (CREATE), index barrel (EXTEND)
-  - Spec coverage: `Spec-018 §Interfaces And Contracts` (ParticipantStateUpdate), `Spec-018 §Required Behavior` + `Spec-018 §State And Data Implications` (display-name change MUST NOT rewrite authorship)
-  - Verifies invariant: I-018-3, I-018-7
+  - **Spec coverage:** Spec-018 §Interfaces And Contracts (ParticipantStateUpdate), Spec-018 §Required Behavior, Spec-018 §State And Data Implications (display-name change MUST NOT rewrite authorship)
+  - **Verifies invariant:** I-018-3, I-018-7
   - Consumes: `ParticipantId` (session.ts, shipped)
   - Note: schema is `.strict()` so the request cannot carry an authorship/actor-override field — binds I-018-3 and I-018-7 at the wire boundary.
 - **T1.3 — `PresenceDetailRead` request/response.**
   - Files: `packages/contracts/src/participants/presence-detail.ts` (CREATE), index barrel (EXTEND)
-  - Spec coverage: `Spec-018 §Interfaces And Contracts` (PresenceDetailRead, authz-gated), `Spec-018 §Required Behavior` + `Spec-018 §Default Behavior` (per-device detail)
-  - Verifies invariant: I-018-6
+  - **Spec coverage:** Spec-018 §Interfaces And Contracts (PresenceDetailRead, authz-gated), Spec-018 §Required Behavior, Spec-018 §Default Behavior (per-device detail)
+  - **Verifies invariant:** I-018-6
   - Consumes: `ParticipantId`, `SessionId`, `PresenceState` (shipped)
 - **T1.4 — `PRESENCE_SUMMARY_PRECEDENCE` ordering constant.**
   - Files: `packages/contracts/src/participants/presence-precedence.ts` (CREATE), index barrel (EXTEND)
-  - Spec coverage: `Spec-018 §Default Behavior` (online > idle > reconnecting > offline)
-  - Verifies invariant: I-018-4
+  - **Spec coverage:** Spec-018 §Default Behavior (online > idle > reconnecting > offline)
+  - **Verifies invariant:** I-018-4
   - Consumes: `PresenceState` (shipped Plan-002)
   - Note: distinct from the shipped `PRESENCE_PROGRESSION` degradation table (F-018-3-04 — wrong rank order, ties online/idle); this is the activity-rank used by aggregation.
 
@@ -156,24 +156,24 @@ Control-plane service mapping authenticated identity to one canonical participan
 
 - **T2.1 — Idempotent identity→participant upsert (participant-first FK ordering).**
   - Files: `packages/control-plane/src/participants/participant-mapping-service.ts` (CREATE); migration `packages/control-plane/src/migrations/00NN-participants-identity.ts` (CREATE — `participants` ALTER (+`display_name`, +`identity_ref`, +`metadata`) + `identity_mappings` CREATE; `NNNN` assigned by append-order) wired into the Plan-001-owned `migration-runner.ts` as `{ version: N, sql: PARTICIPANTS_IDENTITY_MIGRATION_SQL }` — appended **after v3** (Plan-003's `0003-runtime-nodes.ts`, the highest pre-Tier-5 control-plane migration; the runner is at v2 `session-invites` today, with v3 forward-declared at Tier 3). Plan-018 lands first of the Tier-5 control-plane migrations (F-008r-C orders it before Plan-008-remainder; Plan-022 T22.5.2 appends last), but the version integer is assigned at build by append-order, **not pinned** ([cross-plan-dependencies.md §5](../architecture/cross-plan-dependencies.md#5-canonical-build-order) Tier-5 migration landing-order note)
-  - Spec coverage: `Spec-018 §Required Behavior` (one identity → one participant per session), `Spec-018 §State And Data Implications` (mapping in shared control-plane storage)
-  - Verifies invariant: I-018-1
+  - **Spec coverage:** Spec-018 §Required Behavior (one identity → one participant per session), Spec-018 §State And Data Implications (mapping in shared control-plane storage)
+  - **Verifies invariant:** I-018-1
   - Consumes: `identity_mappings` / `participants` rows; `ParticipantId` (contracts); `session_memberships` (Plan-002, shipped); `joinSession` (Plan-001, shipped). Repairs the double-mint documented in the `packages/control-plane/src/sessions/session-directory-service.ts#CreateSessionInput` JSDoc (the earlier-draft inline participant auto-mint; per that JSDoc, identity resolution belongs upstream until Plan-018 lands the registration flow — T2.1 is that flow).
   - Decided: D-018-1 (Plan-018-owned `AuthenticatedIdentityContext` shape, CP-018-3) + D-018-2 (`identity_ref` = stable synthetic ref) — both ratified Tier-5; the prior Phase-2 gate is cleared. Uniqueness keys source-forced: `identity_mappings UNIQUE(provider, external_id)`, `participants.identity_ref UNIQUE`, `session_memberships UNIQUE(session_id, participant_id)`.
 - **T2.2 — Default display metadata from authenticated profile.**
   - Files: `participant-mapping-service.ts` (same)
-  - Spec coverage: `Spec-018 §Default Behavior` (display name/metadata seeded from authenticated profile)
-  - Verifies invariant: I-018-1
+  - **Spec coverage:** Spec-018 §Default Behavior (display name/metadata seeded from authenticated profile)
+  - **Verifies invariant:** I-018-1
   - Consumes: `participants.display_name` / `metadata` columns; `authContext.profile` from the Plan-018-owned `AuthenticatedIdentityContext` (CP-018-3 / D-018-1; producer plan populates it)
 - **T2.3 — Placeholder identity on partial profile.**
   - Files: `participant-mapping-service.ts` (same)
-  - Spec coverage: `Spec-018 §Fallback Behavior` (stable placeholder when profile incomplete)
-  - Verifies invariant: I-018-2
+  - **Spec coverage:** Spec-018 §Fallback Behavior (stable placeholder when profile incomplete)
+  - **Verifies invariant:** I-018-2
   - Consumes: `participants` ALTER columns
 - **T2.4 — One-participant-per-session enforcement (`session_memberships UNIQUE` + `joinSession`).**
   - Files: `participant-mapping-service.ts` (same)
-  - Spec coverage: `Spec-018 §Required Behavior`, `Spec-018 §Pitfalls To Avoid` (pitfall: duplicate participants on re-auth)
-  - Verifies invariant: I-018-1
+  - **Spec coverage:** Spec-018 §Required Behavior, Spec-018 §Pitfalls To Avoid (pitfall: duplicate participants on re-auth)
+  - **Verifies invariant:** I-018-1
   - Consumes: `session_memberships` (Plan-002), `joinSession` (Plan-001)
 
 ### Phase 3 — Presence Aggregation & Projection
@@ -184,32 +184,32 @@ Highest-activity presence reduction, participant projection assembly, and stable
 
 - **T3.1 — Highest-activity presence aggregation.**
   - Files: `packages/control-plane/src/presence/presence-aggregation-service.ts` (CREATE)
-  - Spec coverage: `Spec-018 §Required Behavior` (aggregate device presence), `Spec-018 §Default Behavior` (presence summary + precedence), `Spec-018 §Fallback Behavior` (conservative no-false-offline)
-  - Verifies invariant: I-018-4, I-018-5
+  - **Spec coverage:** Spec-018 §Required Behavior (aggregate device presence), Spec-018 §Default Behavior (presence summary + precedence), Spec-018 §Fallback Behavior (conservative no-false-offline)
+  - **Verifies invariant:** I-018-4, I-018-5
   - Consumes: per-device presence rows via the T3.2 accessor (NOT the recency-collapsing `readPresence` accessor on `packages/control-plane/src/presence/presence-register-service.ts#PresenceRegisterService` — F-018-3-01); `PRESENCE_SUMMARY_PRECEDENCE` (T1.4)
   - Note: authors a new highest-activity reduction; the shipped `readPresence` collapses by recency and MUST NOT be reused for the summary.
   - Decided: D-018-4 (`lastSeen` = winning precedence-device's value) — ratified Tier-5.
 - **T3.2 — Per-device presence read accessor on the substrate.**
   - Files: `packages/control-plane/src/presence/presence-register-service.ts` (EXTEND — shipped via Plan-002 NS-26; fix-in-place)
-  - Spec coverage: enabling step for `Spec-018 §Required Behavior` + `Spec-018 §Default Behavior` + `Spec-018 §Interfaces And Contracts`
-  - Verifies invariant: participates in I-018-4; upholds I-002-3 (presence ephemeral — accessor reads the in-memory `#sessions` snapshot, persists nothing)
+  - **Spec coverage:** Spec-018 §Required Behavior, Spec-018 §Default Behavior, Spec-018 §Interfaces And Contracts (enabling step for all three)
+  - **Verifies invariant:** I-018-4 (participates in; upholds Plan-002's I-002-3 — presence ephemeral: accessor reads the in-memory `#sessions` snapshot, persists nothing)
   - Consumes: private `#sessions` per-device snapshots (author-internal exposure; no new table — F-018-3-02)
   - Note: disposition = fix-in-place (D-018-3, ratified); accessor added to the live file.
 - **T3.3 — Participant projection assembly.**
   - Files: `packages/control-plane/src/participants/participant-projection-service.ts` (CREATE)
-  - Spec coverage: `Spec-018 §Required Behavior` (display state), `Spec-018 §Required Behavior` + `Spec-018 §Default Behavior` + `Spec-018 §Interfaces And Contracts` + `Spec-018 §State And Data Implications` (one participant, profile defaults, projection read, stable authorship)
-  - Verifies invariant: I-018-3
+  - **Spec coverage:** Spec-018 §Required Behavior (display state), Spec-018 §Required Behavior, Spec-018 §Default Behavior, Spec-018 §Interfaces And Contracts, Spec-018 §State And Data Implications (one participant, profile defaults, projection read, stable authorship)
+  - **Verifies invariant:** I-018-3
   - Consumes: T3.1 aggregate; `session_memberships` role + state; `participants.display_name`; the `state` field authored in T1.1 (Phase 1 → Phase 3 ordering)
 - **T3.4 — Device-detail presence projection (`PresenceDetailRead`).**
   - Files: `presence-aggregation-service.ts` (EXTEND own file)
-  - Spec coverage: `Spec-018 §Interfaces And Contracts` (device detail), `Spec-018 §Required Behavior` + `Spec-018 §Default Behavior`
-  - Verifies invariant: I-018-4, I-018-6
+  - **Spec coverage:** Spec-018 §Interfaces And Contracts (device detail), Spec-018 §Required Behavior, Spec-018 §Default Behavior
+  - **Verifies invariant:** I-018-4, I-018-6
   - Consumes: T3.2 accessor; T3.1 reduction
   - Decided: D-018-5 (PresenceDetailRead = owner/operator-only) — ratified Tier-5.
 - **T3.5 — Stable-authorship-preserving display update.**
   - Files: `packages/control-plane/src/participants/participant-state-update-service.ts` (CREATE)
-  - Spec coverage: `Spec-018 §Required Behavior` + `Spec-018 §State And Data Implications` (display-name change preserves authorship), `Spec-018 §Interfaces And Contracts` (ParticipantStateUpdate), `Spec-018 §Pitfalls To Avoid` (pitfall: mutable display rewriting history)
-  - Verifies invariant: I-018-3, I-018-7
+  - **Spec coverage:** Spec-018 §Required Behavior, Spec-018 §State And Data Implications (display-name change preserves authorship), Spec-018 §Interfaces And Contracts (ParticipantStateUpdate), Spec-018 §Pitfalls To Avoid (pitfall: mutable display rewriting history)
+  - **Verifies invariant:** I-018-3, I-018-7
   - Consumes: `participants` display-metadata columns
 
 ### Phase 4 — Client Surfaces & Authorization
@@ -220,32 +220,32 @@ Typed SDK (daemon-as-gateway), renderer subtree, CLI commands, and the service-l
 
 - **T4.1 — `participantClient` SDK (daemon-as-gateway).**
   - Files: `packages/client-sdk/src/participantClient.ts` (CREATE), client-sdk index barrel (EXTEND)
-  - Spec coverage: `Spec-018 §Interfaces And Contracts` (the three reads/updates), `Spec-018 §Default Behavior` (presence summary)
-  - Verifies invariant: I-018-8
+  - **Spec coverage:** Spec-018 §Interfaces And Contracts (the three reads/updates), Spec-018 §Default Behavior (presence summary)
+  - **Verifies invariant:** I-018-8
   - Consumes: the three Phase-1 contracts; `JsonRpcClient` (Plan-007 substrate, shipped Tier 1); `participant.*` method strings (CP-018-6, proposed)
   - Note: transport authored daemon-as-gateway (author-with-citation: ADR-008 transport boundary + `packages/client-sdk/src/membershipClient.ts#createDaemonMembershipClient` precedent; `Spec-018 §State And Data Implications`-as-forcing-fact rebutted — membership is equally control-plane-stored yet daemon-proxied — F-018-4-05).
 - **T4.2 — `participants/` renderer subtree.**
   - Files: `apps/desktop/src/renderer/src/participants/` (CREATE) + `apps/desktop/src/renderer/src/participants/__tests__/*.test.tsx`
-  - Spec coverage: `Spec-018 §Required Behavior` (display state, partial), `Spec-018 §Default Behavior` (presence summary)
-  - Verifies invariant: I-018-9
+  - **Spec coverage:** Spec-018 §Required Behavior (display state, partial), Spec-018 §Default Behavior (presence summary)
+  - **Verifies invariant:** I-018-9
   - Consumes: `window.sidekicks` daemon bridge (Spec-023); `presence.subscribe({ sessionId })` (Plan-002, CP-018-9); `participant.*` methods (CP-018-6)
   - Note: single-client RTL component tests ship NOW, mirroring merged NS-29 `apps/desktop/src/renderer/src/session-members/__tests__/participant-roster.test.tsx` (`@testing-library/react` `render`/`screen` + `installMockBridge` `{ daemon: { call, subscribe } }` + bridge-projection assertion). Two-client live-presence E2E defers to the Tier-8 Playwright harness (Plan-023), NOT BL-131 (Plan-003-scoped, premise overtaken by NS-29 — F-018-4-06).
 - **T4.3 — `participants/` CLI commands.**
   - Files: `apps/cli/src/participants/` (CREATE)
-  - Spec coverage: `Spec-018 §Required Behavior` (partial), `Spec-018 §Default Behavior`
-  - Verifies invariant: I-018-8
+  - **Spec coverage:** Spec-018 §Required Behavior (partial), Spec-018 §Default Behavior
+  - **Verifies invariant:** I-018-8
   - Consumes: T4.1 `participantClient`; `apps/cli` harness (Plan-007-remainder Tier 4 scaffold)
   - BLOCKED-ON: Plan-007-remainder Tier 4 `apps/cli` scaffold (`depends_on` ordering, resolved by Tier 4 < Tier 5 — F-018-4-07; not an open decision).
 - **T4.4 — Authorization-gate enforcement binding.**
   - Files: enforced in `presence-aggregation-service.ts` (PresenceDetailRead gate) + `participant-state-update-service.ts` (self-only gate) — no new file
-  - Spec coverage: `Spec-018 §Interfaces And Contracts` (PresenceDetailRead authorized-only), api-payload-contracts self-update self-authz (ADR-007)
-  - Verifies invariant: I-018-6, I-018-7
+  - **Spec coverage:** Spec-018 §Interfaces And Contracts (PresenceDetailRead authorized-only), api-payload-contracts self-update self-authz (ADR-007)
+  - **Verifies invariant:** I-018-6, I-018-7
   - Consumes: `presence.permission_denied` 403 error code (CP-018-7, proposed); ADR-007 permission model
   - Decided: D-018-5 (the gate enforces owner/operator-only) — ratified Tier-5.
 - **T4.5 — `RelayConnectionTokenIssuer` (relay connection-token custody, Plan-018-owned).**
   - Files: `packages/control-plane/src/identity/relay-connection-token-issuer.ts` (CREATE) + `packages/control-plane/src/identity/__tests__/relay-connection-token-issuer.test.ts` (CREATE — `FixtureRelayConnectionTokenIssuer` test double)
-  - Spec coverage: `Spec-008 §Relay Negotiation` (300s-TTL `RelayNegotiationResponse.connectionToken`), `Spec-008 §Relay Negotiation` (connection-token issuance)
-  - Verifies invariant: upholds Plan-008 I-008-5 (relay is zero-knowledge — the PASETO v4.public Ed25519 **sign** executes only inside this Plan-018-owned issuer, never in the verify-only broker); custody-stays-with-producer (OD-008r-3 / CP-018-10)
+  - **Spec coverage:** Spec-008 §Relay Negotiation (300s-TTL `RelayNegotiationResponse.connectionToken`), Spec-008 §Relay Negotiation (connection-token issuance)
+  - **Verifies invariant:** none (custody-stays-with-producer — OD-008r-3 / CP-018-10; upholds Plan-008's I-008-5 — relay is zero-knowledge: the PASETO v4.public Ed25519 **sign** executes only inside this Plan-018-owned issuer, never in the verify-only broker)
   - Consumes: `@ai-sidekicks/crypto-paseto` v4.public sign primitives (Plan-025 Tier 1 Partial, shipped); the `connectionToken` claim shape (Spec-008 §Relay Negotiation)
   - Provides: `RelayConnectionTokenIssuer` + `FixtureRelayConnectionTokenIssuer` — constructor-injected into Plan-008 R3's `RelayNegotiation` endpoint (T-008r-3-6), which authors no sign (reciprocal of CP-008-4 surface (c) / CP-018-10)
   - Behavior: mint the connection token carrying the [Spec-008 §Relay Negotiation](../specs/008-control-plane-relay-and-session-join.md#relay-negotiation) claim shape — `iss` / `sub` (the authenticated `ParticipantId`) / `aud = relay-connect` / `exp` (300s) / `sessionId` / `nodeId` — and bind the negotiated `sessionId` as the PASETO v4 **implicit assertion** at sign (via the `signV4Public` implicit-assertion parameter, `@ai-sidekicks/crypto-paseto`), so a token minted for one session cannot verify on another — the mint half of the R3 WSS verifier gate (Plan-008 T-008r-3-5). Test: the minted token carries every claim and verifies under the matching-`sessionId` implicit assertion but **fails** under a different `sessionId` (cross-channel-mint refusal).
@@ -253,8 +253,8 @@ Typed SDK (daemon-as-gateway), renderer subtree, CLI commands, and the service-l
   - Decided: OD-008r-3 (issuer-surface Plan-018-owned, ratified Tier-5); signing key + custody stay entirely within Plan-018.
 - **T4.6 — `participant.*` daemon-side IPC handlers (daemon-as-gateway proxy).**
   - Files: `packages/runtime-daemon/src/ipc/handlers/participant-projection-read.ts` (CREATE), `packages/runtime-daemon/src/ipc/handlers/participant-state-update.ts` (CREATE), `packages/runtime-daemon/src/ipc/handlers/participant-presence-detail.ts` (CREATE) + register on the Plan-007 namespace `registry.ts` (EXTEND — `participant.*` namespace) + `packages/runtime-daemon/src/ipc/handlers/__tests__/participant-*.test.ts` (CREATE)
-  - Spec coverage: `Spec-018 §Interfaces And Contracts` (the three reads/updates the handlers answer), `Spec-018 §State And Data Implications` (daemon-as-gateway transport boundary, ADR-008)
-  - Verifies invariant: I-018-8 (daemon-as-gateway single transport — the **daemon-side** half: the handlers that ANSWER the `participant.*` calls T4.1's `participantClient` makes)
+  - **Spec coverage:** Spec-018 §Interfaces And Contracts (the three reads/updates the handlers answer), Spec-018 §State And Data Implications (daemon-as-gateway transport boundary, ADR-008)
+  - **Verifies invariant:** I-018-8 (daemon-as-gateway single transport — the **daemon-side** half: the handlers that ANSWER the `participant.*` calls T4.1's `participantClient` makes)
   - Consumes: `participant.*` method strings (CP-018-6); Plan-007's `registry.ts` namespace registry + `MethodRegistry` (Tier-1 substrate, shipped); the control-plane participant projection / state-update / presence-detail services (Phase-1/Phase-3 tasks — the daemon proxies to them per I-018-8); `AuthenticatedIdentityContext` (D-018-1) for gateway identity resolution
   - Provides: the daemon-side `participant.projectionRead` / `participant.stateUpdate` / `participant.presenceDetail` handlers — the counterpart T4.1's client invokes, closing the daemon-as-gateway loop (client → daemon handler → control-plane service); registered under `handlers/` per the [cross-plan-dependencies.md §2 `ipc/` ownership row](../architecture/cross-plan-dependencies.md#2-package-path-ownership-map) (Plan-018 added as a `participant.*` extender at this swap)
   - Note: mirrors the Plan-002 `presence.*` handler-registration precedent (`packages/runtime-daemon/src/ipc/handlers/{presence-subscribe,presence-read}.ts`, NS-26) and the Plan-022 `gdpr-stub-handlers.ts` precedent — each plan that adds a daemon-proxied namespace registers explicit handler files under `handlers/`. **Without this task the `participant.*` method strings T4.1 registers (CP-018-6) have no daemon-side responder — the SDK call resolves to `method-not-found` at runtime** (the F2 round-4 Codex finding). Independent of T4.1–T4.5 for unit-test purposes (handlers test against a stubbed control-plane service), but completes the runtime transport loop the client half assumes.

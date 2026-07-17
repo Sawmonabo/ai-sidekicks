@@ -136,6 +136,35 @@ export function countCites(phaseSection) {
   };
 }
 
+// Survey-layer marker-shape classifier. The dispatch gate keys hasCiteMarkers
+// on countCites (a bare substring count) and MUST stay byte-identical, so this
+// finer classification lives only in --survey. It separates BOLD field markers
+// (`**Spec coverage:**` / `**Verifies invariant:**` — the only shape
+// extractCiteAnchors parses) from UNBOLD/inline field markers (the Plan-007/008
+// `- **T-…** (…; Verifies invariant: …; Spec coverage: …)` style the bold
+// extractor silently skips). Both alternatives are line-anchored to a field
+// position — a bullet head (`- Spec coverage:`) or an inline `;`/`(` delimiter
+// — so a prose sentence mentioning "Spec coverage" without a field colon is
+// never counted. Used by the survey to surface the partial-marker (one side
+// present) and legacy-unbold (marker the bold extractor can't verify) classes.
+export function classifyPhaseMarkers(phaseSection) {
+  const counts = { boldSpec: 0, boldInvariant: 0, unboldSpec: 0, unboldInvariant: 0 };
+  const boldMarker = /\*\*(Spec coverage|Verifies invariant):\*\*/g;
+  for (const match of phaseSection.matchAll(boldMarker)) {
+    if (match[1] === "Spec coverage") counts.boldSpec += 1;
+    else counts.boldInvariant += 1;
+  }
+  // Field position, not wrapped in `**`: a bullet head (`^  - Spec coverage:`)
+  // or an inline `;`/`(` delimiter (`; Verifies invariant:`). The trailing
+  // `(?!\*)` keeps the bold form above from being double-counted here.
+  const unboldMarker = /(?:^\s*[-*]+\s+|[;(]\s*)(Spec coverage|Verifies invariant):(?!\*)/gm;
+  for (const match of phaseSection.matchAll(unboldMarker)) {
+    if (match[1] === "Spec coverage") counts.unboldSpec += 1;
+    else counts.unboldInvariant += 1;
+  }
+  return counts;
+}
+
 export function extractAuditCheckbox(planSource) {
   return /^- \[x\] \*\*Plan-readiness audit complete/m.test(planSource);
 }
@@ -2180,6 +2209,11 @@ export function gateTasksBlockCites(phaseSection, planNumber, phaseNumber, opts 
   if (!(counts.spec_coverage > 0 && counts.verifies_invariant > 0)) {
     return {
       ok: false,
+      // No Spec-coverage / Verifies-invariant markers at all — the audit has
+      // not run on this phase. The survey uses this to skip it (a missing
+      // marker is not a malformed cite); it is distinct from a cite finding.
+      hasCiteMarkers: false,
+      findings: [],
       halt: [
         "## Preflight halt: tasks-block missing G4 cites",
         "",
@@ -2254,7 +2288,12 @@ export function gateTasksBlockCites(phaseSection, planNumber, phaseNumber, opts 
     }
     return true;
   });
-  if (blockingFailures.length === 0) return { ok: true, warnings: demoted };
+  if (blockingFailures.length === 0) {
+    // `findings` carries the full parse+verify set (empty here in the no-sizeClass
+    // survey path; demoted grammar kinds under S/M rides `warnings`). surveyCorpus
+    // reports every finding into its separate citeAnomalies channel.
+    return { ok: true, warnings: demoted, findings: allFailures, hasCiteMarkers: true };
+  }
   const lines = [
     "## Preflight halt: Gate 4 cite-anchor semantic check failed",
     "",
@@ -2282,7 +2321,7 @@ export function gateTasksBlockCites(phaseSection, planNumber, phaseNumber, opts 
   lines.push(
     "Verifier contract:  .claude/skills/plan-execution/references/preflight-contract.md §Gate 4 — Cite Anchor Semantic Check",
   );
-  return { ok: false, halt: lines.join("\n") };
+  return { ok: false, halt: lines.join("\n"), findings: allFailures, hasCiteMarkers: true };
 }
 
 // resolvePrecondition signature is additive-backwards-compatible. The four
@@ -2889,6 +2928,10 @@ export function surveyCorpus({ repoRoot = REPO_ROOT } = {}) {
   const reportLines = [];
   const notices = [];
   const anomalies = [];
+  // Gate-4 cite findings ride a SEPARATE channel from the two-sided
+  // omission/phantom `anomalies` (which the real-corpus guard pins to []).
+  // Warn-only by default; `--survey --enforce-cites` folds them into the exit.
+  const citeAnomalies = [];
   const distribution = { S: 0, M: 0, L: 0 };
   let phaseCount = 0;
   for (const name of planFileNames) {
@@ -2923,6 +2966,54 @@ export function surveyCorpus({ repoRoot = REPO_ROOT } = {}) {
       for (const id of result.phantoms) {
         anomalies.push(`${name} Phase ${label} [phantom] parsed id on no task-shaped row: ${id}`);
       }
+      // Per-phase Gate-4 cite screen (all kinds), written to citeAnomalies.
+      // Fail-closed: a thrown gate is itself an anomaly, never a silent skip.
+      // Phases whose Tasks block carries no cite markers (audit-not-run) are
+      // skipped — hasCiteMarkers guards that.
+      let citeResult;
+      try {
+        citeResult = gateTasksBlockCites(section, name.slice(0, 3), label, { repoRoot });
+      } catch (err) {
+        citeAnomalies.push(
+          `${name} Phase ${label} [cite-check-threw] ${String(err?.message ?? err).slice(0, 160)}`,
+        );
+        citeResult = null;
+      }
+      if (citeResult?.hasCiteMarkers) {
+        for (const finding of citeResult.findings) {
+          const where = finding.taskId ? `${finding.taskId} (${finding.field})` : finding.field;
+          citeAnomalies.push(`${name} Phase ${label} [${finding.kind}] ${where}: ${finding.raw}`);
+        }
+      }
+      // W3/W4 marker-coverage screen (survey-only; the dispatch gate above is
+      // byte-identical). classifyPhaseMarkers is line-anchored, so a narrative
+      // "Spec coverage" prose mention trips neither check. Skipped when the gate
+      // threw (that phase already carries a [cite-check-threw] anomaly).
+      if (citeResult) {
+        const markers = classifyPhaseMarkers(section);
+        const realSpec = markers.boldSpec + markers.unboldSpec;
+        const realInvariant = markers.boldInvariant + markers.unboldInvariant;
+        // W4 legacy-unbold: inline/unbold field markers are invisible to the
+        // bold cite extractor, so their anchors are never verified — a
+        // false-green audit (the Plan-007/008 inline style). countCites can read
+        // > 0 and the extractor still parse nothing.
+        const unboldMarkers = markers.unboldSpec + markers.unboldInvariant;
+        if (unboldMarkers > 0) {
+          citeAnomalies.push(
+            `${name} Phase ${label} [legacy-unbold-marker] ${unboldMarkers} unbold field marker(s) the bold cite extractor does not parse (bold present: ${markers.boldSpec} Spec + ${markers.boldInvariant} invariant)`,
+          );
+        }
+        // W3 partial-marker: exactly one field-marker side present is a partial
+        // audit output (the other side silently dropped). Both sides zero is a
+        // genuine audit-not-run skip; both present is a complete pair.
+        if (realSpec > 0 !== realInvariant > 0) {
+          const present = realSpec > 0 ? "Spec coverage" : "Verifies invariant";
+          const missing = realSpec > 0 ? "Verifies invariant" : "Spec coverage";
+          citeAnomalies.push(
+            `${name} Phase ${label} [markers-partial] has a ${present} marker but no ${missing} marker`,
+          );
+        }
+      }
     }
     reportLines.push(`${name}: ${allPhaseLabels.length} phase(s) — ${phaseSummaries.join(" ")}`);
   }
@@ -2933,6 +3024,7 @@ export function surveyCorpus({ repoRoot = REPO_ROOT } = {}) {
     reportLines,
     notices,
     anomalies,
+    citeAnomalies,
   };
 }
 
@@ -2951,6 +3043,15 @@ export function formatSurvey(survey) {
     for (const anomaly of survey.anomalies) lines.push(`  - ${anomaly}`);
   } else {
     lines.push("anomalies: none");
+  }
+  // Cite anomalies report on their own line group, loudly but separately from
+  // the two-sided `anomalies` — they are warn-only under plain `--survey`.
+  const citeAnomalies = survey.citeAnomalies ?? [];
+  if (citeAnomalies.length) {
+    lines.push(`cite anomalies (${citeAnomalies.length}) [warn-only; arm with --enforce-cites]:`);
+    for (const anomaly of citeAnomalies) lines.push(`  - ${anomaly}`);
+  } else {
+    lines.push("cite anomalies: none");
   }
   return lines.join("\n");
 }
@@ -3136,6 +3237,7 @@ async function main() {
     "--help",
     "-h",
     "--survey",
+    "--enforce-cites",
   ]);
   const unknownFlags = args.filter((a) => a.startsWith("-") && !knownFlags.has(a));
   if (unknownFlags.length > 0) {
@@ -3149,22 +3251,40 @@ async function main() {
     // `preflight.mjs <plan> <phase> --survey` must NOT silently take the
     // survey path — the caller asked for a gated phase check, and exiting
     // on survey cleanliness alone would green-light an unvetted phase
-    // (Codex P2, PR #192). Contract: ../references/preflight-contract.md
-    // § Survey mode.
-    if (args.length !== 1) {
-      process.stderr.write("--survey runs alone — it takes no plan file, phase, or other flags\n");
+    // (Codex P2, PR #192). Only `--enforce-cites` may accompany `--survey`.
+    // Contract: ../references/preflight-contract.md § Survey mode.
+    const surveyExtra = args.filter((a) => a !== "--survey" && a !== "--enforce-cites");
+    if (surveyExtra.length > 0) {
+      process.stderr.write(
+        "--survey runs alone — it takes no plan file, phase, or other flags (only --enforce-cites)\n",
+      );
       process.exit(2);
     }
     const survey = surveyCorpus();
     process.stdout.write(formatSurvey(survey) + "\n");
-    process.exit(survey.anomalies.length > 0 ? 1 : 0);
+    // Two-sided omission/phantom anomalies always gate. Gate-4 cite anomalies
+    // are WARN-ONLY under plain `--survey` and gate only under `--enforce-cites`.
+    //
+    // FLIP CONDITION (warn-only → armed): the docs-corpus CI step runs plain
+    // `--survey` today because the live corpus still carries pre-existing cite
+    // debt (~107 all-kinds findings as of 2026-07-17: the 003/004 stale-line
+    // re-derivation tracked as its own cite-audit, plus the Plan-007/008/023/025
+    // legacy-unbold and partial-marker classes this survey now surfaces). Arm the
+    // gate — swap the CI step to `--survey --enforce-cites`, fold citeAnomalies
+    // into `anomalies`, and update the real-corpus guards in
+    // preflight-survey.test.mjs (REAL-corpus zero-anomaly + `--survey` exit-0) —
+    // only once that debt lands corpus citeAnomalies at 0.
+    const enforceCites = args.includes("--enforce-cites");
+    const blockingCount =
+      survey.anomalies.length + (enforceCites ? survey.citeAnomalies.length : 0);
+    process.exit(blockingCount > 0 ? 1 : 0);
   }
   const allowStaleManifest = args.includes("--allow-stale-manifest");
   const allowUnpromoted = args.includes("--allow-unpromoted");
   const positional = args.filter((a) => !a.startsWith("-"));
   if (positional.length === 0 || args.includes("--help") || args.includes("-h")) {
     process.stderr.write(
-      "Usage: node preflight.mjs <plan-file> [phase-number] [--allow-stale-manifest] [--allow-unpromoted] | --survey\n" +
+      "Usage: node preflight.mjs <plan-file> [phase-number] [--allow-stale-manifest] [--allow-unpromoted] | --survey [--enforce-cites]\n" +
         "See ../references/preflight-contract.md.\n",
     );
     process.exit(2);
