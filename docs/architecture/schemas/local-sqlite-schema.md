@@ -597,7 +597,13 @@ CREATE TABLE approval_requests (
                         )),
   scope                 TEXT NOT NULL,        -- requested scope descriptor
   resource_descriptor   TEXT NOT NULL DEFAULT '{}', -- target resource details (JSON; Spec-012 line 96 'must include')
-  expiry_at             TEXT,                 -- ISO 8601, nullable for no-expiry
+  ask_id                TEXT,                 -- originating driver_ask askId, set iff the request was minted by the
+                                              -- CP-012-6 driver-ask normalizer (Spec-012 §Resolved Questions, Part-B
+                                              -- fail-closed follow-up 2026-07-17); rebuilt from approval.requested.askId
+                                              -- at replay (D-012-6/D-012-7) so outcome/expiry routing to the native
+                                              -- ask survives restart with multiple in-flight asks on one run
+  expiry_at             TEXT,                 -- ISO 8601, nullable for no-expiry (equals the ask's expiresAt when
+                                              -- ask_id is set — the Spec-012 one-shared-deadline rule)
   state                 TEXT NOT NULL DEFAULT 'pending'
                         CHECK(state IN ('pending', 'approved', 'rejected', 'expired', 'canceled')),
   created_at            TEXT NOT NULL,
@@ -607,6 +613,7 @@ CREATE TABLE approval_requests (
 CREATE INDEX idx_approval_requests_run ON approval_requests(run_id);
 CREATE INDEX idx_approval_requests_session ON approval_requests(session_id);
 CREATE INDEX idx_approval_requests_state ON approval_requests(state) WHERE state = 'pending';
+CREATE INDEX idx_approval_requests_ask ON approval_requests(ask_id) WHERE ask_id IS NOT NULL;
 
 -- Owner: Plan-012
 CREATE TABLE approval_resolutions (
