@@ -180,7 +180,7 @@ Behavioral invariants this plan must preserve; the §Implementation Phase Sequen
 - **I-022-11 — Canonical bytes exclude `pii_payload`.** Canonical-bytes-under-signature exclude `pii_payload`; only `pii_ciphertext_digest` inside `payload` commits to PII. (Spec-006 §Canonical Serialization Rules.) Tasks: T22.3.1.
 - **I-022-12 — Digest embedded before signing (Plan-006-owned).** `pii_ciphertext_digest = BLAKE3(ciphertext)` is embedded in `payload` before canonicalization/signing by Plan-006's `pii-indirection.ts`. (Plan-006 §PII Columns 7-step; Spec-022 §Signature Safety Under Shred.) Tasks: T22.2.4, T22.3.1.
 - **I-022-13 — `splitPii` is pure.** `splitPii` performs no encryption, digest, or IO; the same input yields the same partition. Tasks: T22.3.1.
-- **I-022-14 — Key destruction renders PII irrecoverable.** The per-participant content key is a random DEK with **no derivation**, so after the Path-1 `participant_keys` row DELETE no surviving secret — credential, **identity record**, retained signature, digest, or master key — recovers plaintext PII. (A credential- or identity-derived key would survive the row-DELETE via its surviving source secret; the random-DEK construction (D-022-2) is what makes this invariant hold.) (Spec-022 §Signature Safety Under Shred; `Spec-022 §Acceptance Criteria` AC#5.) Tasks: T22.3.1, T22.6.1.
+- **I-022-14 — Key destruction renders PII irrecoverable.** The per-participant content key is a random DEK with **no derivation**, so after the Path-1 `participant_keys` row DELETE no surviving secret — credential, **identity record**, retained signature, digest, or master key — recovers plaintext PII. (A credential- or identity-derived key would survive the row-DELETE via its surviving source secret; the random-DEK construction (D-022-2) is what makes this invariant hold.) (`Spec-022 §Signature Safety Under Shred`;`Spec-022 §Acceptance Criteria` AC#5.) Tasks: T22.3.1, T22.6.1.
 - **I-022-15 — Stubs return not-implemented unconditionally.** The three `gdpr.*` methods return the not-implemented error independent of request body or caller in V1 (per the [Spec-022 §V1 Erasure Scope Boundary](../specs/022-data-retention-and-gdpr.md#v1-erasure-scope-boundary) scope decision). Tasks: T22.4.1, T22.4.3.
 - **I-022-16 — Single-owned stub registration.** Each `gdpr.*` method is registered exactly once on Plan-007's `MethodRegistry`. Tasks: T22.4.1, T22.4.2.
 - **I-022-17 — Standard discriminator, dotted project code.** The stub rides the standard JSON-RPC `-32603` discriminator (NOT a custom numeric code — per `docs/architecture/contracts/error-contracts.md §Numeric Code Space (per JSON-RPC 2.0 §5.1)` the project mints no numeric domain codes) with the registered project code `data.type = "gdpr.endpoint_not_v1"`; consumers discriminate on `data.type`. (ADR-009; D-022-3; mirrors `transport.unavailable`.) Tasks: T22.4.4, T22.4.1.
@@ -297,7 +297,7 @@ preconditions:
 
 - **T22.2.1 — Participant key generator (random DEK).**
   - Files: `packages/runtime-daemon/src/crypto/participant-key-generator.ts` (CREATE)
-  - Spec coverage: Spec-022 §Participant Keys (random per-participant DEK + KEK-wrap — back-fill owed, supersedes the prior credential-derived wording); Spec-022 §Signature Safety Under Shred (crypto-shred precondition)
+  - Spec coverage: `Spec-022 §Participant Keys` (random per-participant DEK + KEK-wrap — back-fill owed, supersedes the prior credential-derived wording); `Spec-022 §Signature Safety Under Shred` (crypto-shred precondition)
   - Verifies invariant: I-022-7
   - Consumes: `@noble/ciphers` CSPRNG (`randomBytes`, T22.1.1). No KDF, no Plan-018 secret.
 - **T22.2.2 — Wrap codec (XChaCha20-Poly1305).**
@@ -324,7 +324,7 @@ preconditions:
 
 - **T22.3.1 — Pure `splitPii` partition.**
   - Files: `packages/runtime-daemon/src/crypto/split-pii.ts` (CREATE)
-  - Spec coverage: `Spec-022 §PII Payload Column Pattern` (PII/non-PII field partition); Spec-006 §Canonical Serialization Rules
+  - Spec coverage: `Spec-022 §PII Payload Column Pattern` (PII/non-PII field partition); `Spec-006 §Canonical Serialization Rules`
   - Verifies invariant: I-022-11, I-022-13, I-022-14
   - Consumes: Plan-006's `EventLogService.append` seam (Tier 4) as the consumer; `pii-codec` (T22.2.4) is injected by Plan-006's `pii-indirection.ts`, never called here.
 - **T22.3.2 — Forward-declare onto Plan-001 migration.**
@@ -341,7 +341,7 @@ preconditions:
 
 - **T22.4.1 — Daemon JSON-RPC stub handlers.**
   - Files: `packages/runtime-daemon/src/ipc/handlers/gdpr-stub-handlers.ts` (CREATE)
-  - Spec coverage: Spec-022 §Non-Goals (post-V1 stubs), `Spec-022 §V1 Erasure Scope Boundary` (unconditional not-implemented); ADR-009 (error envelope)
+  - Spec coverage: `Spec-022 §Non-Goals` (post-V1 stubs), `Spec-022 §V1 Erasure Scope Boundary` (unconditional not-implemented); ADR-009 (error envelope)
   - Verifies invariant: I-022-15, I-022-16, I-022-17
   - Consumes: Plan-007's `MethodRegistry` (JSON-RPC host); the ADR-009 error envelope.
   - Ratified D-022-3: daemon JSON-RPC methods on Plan-007 `MethodRegistry` (transport + names).
@@ -375,7 +375,7 @@ preconditions:
 
 - **T22.5.2 — Path-2 anonymize-FK severance migration (V1 schema substrate).**
   - Files: `packages/control-plane/src/migrations/00NN-participant-fk-severance.ts` (CREATE; `NNNN` assigned by append-order) + `packages/control-plane/src/sessions/migration-runner.ts` (EXTEND — append `{ version: N, sql }` in landing order)
-  - Spec coverage: `Spec-022 §V1 Erasure Scope Boundary` (the `ON DELETE SET NULL` relaxation is enumerated **In V1**), Spec-022 §Shred Fan-Out Path-2 FK-safety; D-022-7
+  - Spec coverage: `Spec-022 §V1 Erasure Scope Boundary` (the `ON DELETE SET NULL` relaxation is enumerated **In V1**), `Spec-022 §Shred Fan-Out` Path-2 FK-safety; D-022-7
   - Verifies invariant: (none directly — the FK-safety schema substrate for the Path-2 anonymization; the I-022-22 ordered-fan-out handler that performs the anonymization is V1.1)
   - Consumes: Plan-001's shipped `session_memberships` + Plan-002's shipped `session_invites` (control-plane Postgres, already at runner v1/v2); the `migration-runner.ts` append seam. Relaxes **only** the two in-V1 anonymize FKs (`session_invites.inviter_id`, `session_memberships.participant_id`) to nullable + `ON DELETE SET NULL`; `revoked_jtis`/`revoked_token_families` are BL-070-forward-declared (born nullable at their own build — no ALTER over a not-yet-created table). Version integer assigned at build by append-order (after the other Tier-5 control-plane migrations land), not pinned — see [cross-plan §5](../architecture/cross-plan-dependencies.md#5-canonical-build-order) landing-order note.
 

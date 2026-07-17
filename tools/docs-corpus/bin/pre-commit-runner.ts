@@ -31,19 +31,18 @@
 // summary asserting a count while its own column summed to a different one).
 // Opt-in by marker, within-document only. See `../lib/table-total-coherence.ts`.
 
-import { readFileSync, realpathSync, statSync } from "node:fs";
+import { realpathSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import {
   checkCiteTargetExistence,
-  type FileContentReader,
   formatCiteTargetViolations,
 } from "../lib/cite-target-existence.ts";
 import {
   expandToInboundCiteCorpus,
   findGovernanceCitersOfCode,
   getRepoRoot,
-  makeIndexAwareReader,
+  makeCommitSnapshotReader,
 } from "../lib/inbound-cite-discovery.ts";
 import {
   checkLabelCiteTargets,
@@ -163,20 +162,15 @@ export function runChecks(args: string[]): RunChecksResult {
   // against the staged target (Codex, PR #207 round 2 for the md deny;
   // extended to every pass in round 3 — a split-reader runner re-opens the
   // same staged-vs-worktree divergence in whichever lane keeps the worktree
-  // read). Untracked ad-hoc argv files (probes, previews) have no index
-  // entry and fall back to disk. CI invokes this same runner on a clean
+  // read). The disk fallback applies ONLY to genuinely untracked argv files
+  // (probes, previews) — a staged DELETION throws instead of reading a
+  // restored worktree copy, so deleting a still-cited target cannot pass
+  // (see makeCommitSnapshotReader). CI invokes this same runner on a clean
   // checkout where index and worktree are identical, so the reader is
   // invocation-agnostic.
   if (stagedMd.length > 0 || stagedCode.length > 0) {
     const repoRoot = getRepoRoot();
-    const indexReader = makeIndexAwareReader(repoRoot, new Set());
-    const reader: FileContentReader = (absolutePath) => {
-      try {
-        return indexReader(absolutePath);
-      } catch {
-        return readFileSync(absolutePath, "utf8");
-      }
-    };
+    const reader = makeCommitSnapshotReader(repoRoot);
 
     if (stagedMd.length > 0) {
       // §-form citers reach the expansion via the extractor callback — their

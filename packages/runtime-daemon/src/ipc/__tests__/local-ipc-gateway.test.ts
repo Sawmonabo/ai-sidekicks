@@ -27,7 +27,7 @@
 //   * W-007p-2-T5 — 1MB max-message-size enforcement (per F-007p-2-05).
 //                   Body > 1MB → connection close + `-32600` error
 //                   frame, per `Plan-007 §Phase 2 — Wire Substrate (W-007p-2-T1..T11)`. The mapping is wired
-//                   at `jsonrpc-error-mapping.ts:175-199` (oversized_body
+//                   in `jsonrpc-error-mapping.ts` (oversized_body
 //                   → -32600 InvalidRequest per `Plan-007 §Phase 2: Wire Substrate` Tasks, T-007p-2-2).
 //   * W-007p-2-T6 — Content-Length framing parser correctness:
 //                   single message, multi-message buffer,

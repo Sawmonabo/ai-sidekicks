@@ -488,3 +488,48 @@ describe("pre-commit-runner — commit-snapshot (index) reads across every lane"
     }
   });
 });
+
+describe("pre-commit-runner — staged-deletion vs untracked fallback (commit-snapshot reader)", () => {
+  it("a staged DELETION of a cited target fails missing-target-file even when the worktree copy is restored", () => {
+    const { root, cleanup } = setupRepoCommitted({
+      "docs/specs/003-runtime-node-attach.md": "# Spec\n\n## Attach\n\nbody\n",
+      "docs/architecture/security-architecture.md": "Admission per `Spec-003 §Attach` today.\n",
+    });
+    try {
+      execSync("git rm -q docs/specs/003-runtime-node-attach.md", { cwd: root });
+      // Restore the worktree copy WITHOUT re-adding: the index still stages
+      // the deletion, so the commit would remove the cited target — the old
+      // disk fallback validated this restored copy and passed. (git rm also
+      // prunes the emptied parent directory; recreate it first.)
+      mkdirSync(resolve(root, "docs/specs"), { recursive: true });
+      writeFileSync(
+        resolve(root, "docs/specs/003-runtime-node-attach.md"),
+        "# Spec\n\n## Attach\n\nbody\n",
+      );
+      const result = withRepoRoot(root, () =>
+        runChecks([resolve(root, "docs/architecture/security-architecture.md")]),
+      );
+      expect(result.exitCode).toBe(1);
+      expect(result.messages.join("\n")).toContain("missing-target-file");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("a genuinely untracked argv file still validates via the disk fallback", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md": "# Spec\n\nline three\nline four\nline five\n",
+    });
+    try {
+      writeFileSync(
+        resolve(root, "docs/probe.md"),
+        "Attach admission is governed by Spec-003 line 4 today.\n",
+      );
+      const result = withRepoRoot(root, () => runChecks([resolve(root, "docs/probe.md")]));
+      expect(result.exitCode).toBe(1);
+      expect(result.messages.join("\n")).toContain("line-anchored-cite-in-docs");
+    } finally {
+      cleanup();
+    }
+  });
+});

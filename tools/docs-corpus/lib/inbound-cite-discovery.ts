@@ -166,6 +166,40 @@ export function makeIndexAwareReader(
   };
 }
 
+// Commit-snapshot reader: the git INDEX is the single source of truth for
+// what the commit will contain, for every path — citers and targets alike.
+// The disk fallback exists ONLY for genuinely untracked files (ad-hoc probe
+// and preview argv): a path absent from the index but present in HEAD is a
+// STAGED DELETION, and falling back to a (possibly restored) worktree copy
+// would let a commit delete a still-cited target while the required gate
+// passes — the index-miss must surface as missing-target-file instead
+// (Codex, PR #207 round 3). HEAD presence is probed once per path and
+// memoized; a repo with no commits yet has no HEAD, `git cat-file -e`
+// fails for every path, and each miss correctly classifies as untracked.
+export function makeCommitSnapshotReader(repoRoot: string): FileContentReader {
+  const indexReader = makeIndexAwareReader(repoRoot, new Set());
+  const headPresence = new Map<string, boolean>();
+  const existsInHead = (relPath: string): boolean => {
+    const cached = headPresence.get(relPath);
+    if (cached !== undefined) return cached;
+    const result = spawnSync("git", ["-C", repoRoot, "cat-file", "-e", `HEAD:${relPath}`], {
+      encoding: "utf8",
+    });
+    const present = result.status === 0;
+    headPresence.set(relPath, present);
+    return present;
+  };
+  return (absolutePath) => {
+    try {
+      return indexReader(absolutePath);
+    } catch (indexError) {
+      const relPath = toRepoRelative(repoRoot, absolutePath);
+      if (existsInHead(relPath)) throw indexError;
+      return readFileSync(absolutePath, "utf8");
+    }
+  };
+}
+
 // Grep needles for one staged file: always its basename; for a governance doc
 // in a label-token tree (`docs/specs/016-…` → `Spec-016`), ALSO the token —
 // §-form citers reference the token, never the filename, so basename-only

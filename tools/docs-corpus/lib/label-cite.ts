@@ -165,13 +165,58 @@ const LABEL_CITE_RE = /\b(Spec|Plan|ADR)-(\d{3}):(\d+(?:\s*[,-]\s*\d+)*)/g;
 // Limits: 25`, `"Participants per session: 10"`, `timeout: 2 s`) — the flush
 // requirement is what keeps those quotes out of a required deny. The tail is
 // the same number-list shape as the flush-colon form.
-// The §-bridge is UNCAPPED: its character class cannot cross a colon, a
-// backtick, a bracket, or the line end, so the scan is already bounded by
-// the first such delimiter — a length cap only manufactured an escape for
-// long parenthetical bridges (a live 107-char instance sat unmatched in the
-// claimed zero-residue corpus; Codex, PR #207 round 2).
+// The §-bridge is UNCAPPED: outside inline-code spans it cannot cross a
+// colon, a backtick, a bracket, a second `§`, or the line end, so the scan
+// is already bounded by the first such delimiter — a length cap only
+// manufactured an escape for long parenthetical bridges (a live 107-char
+// instance sat unmatched in the claimed zero-residue corpus; Codex, PR #207
+// round 2).
+// The bridge DOES cross BALANCED inline-code spans (`` `[^`§]*` ``): corpus
+// headings carry inline code (`… translate at \`PtyHost.kill\` …`), and a
+// raw cite reproducing one (`Plan-024 §… \`PtyHost.kill\`:47`) slipped both
+// lanes when the bridge stopped at the first backtick (Codex, PR #207
+// round 3). A span may contain colons — the flush-digit locator is still
+// required OUTSIDE the span. Three constraints keep the span crossing from
+// gluing UNRELATED text into one match (the first full-tree run at round 4
+// glued matches across sentence boundaries into ports (`0.0.0.0:8787`) and
+// `chown 0:999` values):
+//   - `(?<!\`)` — a label directly preceded by a backtick is the OPENING of
+//     a durable anchor; matching from inside inverts tick parity, so the
+//     "span" alternative pairs the anchor's closing tick with the next
+//     span's OPENER and walks arbitrarily far right. The appended-locator
+//     spelling that lookbehind excludes (`` `Spec-021 §Bind Address`:47 ``)
+//     is DURABLE_LABEL_ANCHOR_COLON_RE's beat below — parity-correct by
+//     construction.
+//   - `§` excluded from the bridge char class AND the span interior — a
+//     second `§` means any later locator belongs to the LATER §-ref, not
+//     this label; label-less §-refs stay audit-layer (CAT-07).
+//   - the third branch admits ONE task-coordinate token between label and
+//     colon (`Plan-018 T4.5:251` — a live escapee the round-4 full-tree run
+//     surfaced); prose task refs (`T3.4: the test`) stay out via the same
+//     flush-digit rule.
+// The residual: a heading whose UNBACKTICKED text contains a colon still
+// cannot be §-bridge-matched in raw form — deliberate (that colon exclusion
+// is what protects prose and durable anchors) and audit-layer (CAT-07).
 const LABEL_SPACED_COLON_CITE_RE =
-  /\b(Spec|Plan|ADR)-(\d{3})(?:\s+§[^:`\]\n]*?\s*\(?\s*:|\s+\(?\s*:)(\d+(?:\s*[,-]\s*\d+)*)/g;
+  /(?<!`)\b(Spec|Plan|ADR)-(\d{3})(?:\s+§(?:[^:`§\]\n]|`[^`§\n]*`)*?\s*\(?\s*:|\s+\(?\s*:|\s+T[\w.-]*\d\s*\(?\s*:)(\d+(?:\s*[,-]\s*\d+)*)/g;
+
+// A colon locator appended AFTER a complete durable backticked anchor
+// (`` `Spec-021 §Bind Address`:47 ``, `` `Spec-003`:12 ``,
+// `` `docs/domain/session-model.md §Session Lifecycle`:61 ``) is the same
+// rot in another spelling — the anchor half is durable, the appended pin is
+// not. Matching the WHOLE anchor keeps tick parity correct (see the
+// lookbehind rationale above). Flush digits after the colon preserve the
+// value-vs-locator boundary (`` `Spec-025 §Limits`: 25 participants ``
+// quotes a value and never fires). Label form carries the same
+// (m[1], m[2]) group shape as the other label regexes so every scan site
+// resolves the target identically; the path form mirrors
+// PATH_SECTION_CITE_RE's docs/-rooted grammar (dot segments cannot parse,
+// so no collapse is needed) and floors frozen-tree pins like the raw colon
+// form instead of denying them.
+const DURABLE_LABEL_ANCHOR_COLON_RE =
+  /`(Spec|Plan|ADR)-(\d{3})(?: §[^`\n]+)?`\s*\(?\s*:(\d+(?:\s*[,-]\s*\d+)*)/g;
+const DURABLE_PATH_ANCHOR_COLON_RE =
+  /`(docs\/(?:[a-z][a-z-]*\/)*[A-Za-z0-9._-]+\.md) §[^`\n]+`\s*\(?\s*:(\d+(?:\s*[,-]\s*\d+)*)/g;
 
 // Backticked-only §Heading form — backticks are the zero-FP boundary for the
 // heading text in a REQUIRED gate (unbounded heading matches over comment prose
@@ -192,6 +237,27 @@ const PATH_SECTION_CITE_RE = /`(docs\/(?:[a-z][a-z-]*\/)*[A-Za-z0-9._-]+\.md) §
 // "Token Security Properties".
 function normalizeTokenForMatch(token: string): string {
   return token.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+// Collapse `.` / `..` segments in a repo-root docs spelling so pass
+// ownership and the frozen carve-out judge the RESOLVED target, not the raw
+// prefix: `docs/archive/../specs/003-x.md` is a volatile specs/ cite wearing
+// a frozen prefix, and DOCS_PATH_CITE_RE can never match a dot segment, so
+// the raw-prefix shortcut both skipped the colon deny (assuming pass-2
+// coverage that cannot exist) and floored the line-word form as frozen
+// (Codex, PR #207 round 3). A `..` walking above the first segment resolves
+// outside docs/ and the caller drops it as out of scope.
+function collapseDotSegments(path: string): string {
+  const segments: string[] = [];
+  for (const segment of path.split("/")) {
+    if (segment === "" || segment === ".") continue;
+    if (segment === "..") {
+      segments.pop();
+      continue;
+    }
+    segments.push(segment);
+  }
+  return segments.join("/");
 }
 
 // Real document headings only: a `## Heading` line inside a ```/~~~ fence is
@@ -268,8 +334,20 @@ const DOCS_PATH_CITE_RE =
 // real long headings (`Plan-003 §T5.3 — Mixed-version status indicator
 // (below-floor read-only surfacing) line 600`), and the trailing group
 // consumes the full range / comma list so rawTarget shows the whole anchor.
+// The §-bridge crosses BALANCED inline-code spans like the spaced-colon form
+// (corpus headings carry inline code; a raw line-word cite reproducing one
+// stopped at the first backtick — Codex, PR #207 round 3); the cap counts
+// alternation units, so a span costs one unit regardless of length.
+// `§` is excluded from the bridge char class AND the span interior — a
+// second `§` hands any later `line N` to the LATER §-ref (the round-4
+// full-tree run glued one label's bridge across a whole sentence to another
+// ref's locator); label-less §-refs stay audit-layer (CAT-07). The `(?<!-)`
+// guard keeps the deliberate hyphenated HISTORICAL compound out
+// (`then-lines 306-319` records where content sat as-of-then — provenance,
+// not a live pin) while the adjectival spelling (`line-48`, hyphen AFTER
+// the word) still matches.
 const LABEL_LINE_WORD_RE =
-  /\b(Spec|Plan|ADR)-(\d{3})(?:\s+§[^\n`]{0,200}?)?`?\s*[,;:]?\s*\(?\s*\blines?[-\s]+\d+(?:\s*[,-]\s*\d+)*/g;
+  /\b(Spec|Plan|ADR)-(\d{3})(?:\s+§(?:[^\n`§]|`[^`§\n]*`){0,200}?)?`?\s*[,;:]?\s*\(?\s*(?<!-)\blines?[-\s]+\d+(?:\s*[,-]\s*\d+)*/g;
 
 // Pass 6 — `.md` path/basename with a line anchor: bare `session-model.md:61`
 // / `api-payload-contracts.md line 120`, and the line-word tail on ANY path
@@ -286,9 +364,11 @@ const LABEL_LINE_WORD_RE =
 // 12`) does not durable-ize the pin, and path-flush grammars let it slip
 // (PR #207 round 3, same class as the round-2 link-destination findings).
 // The `)`/`]` exclusions keep the fragment from crossing a link's closing
-// paren, so link destinations remain LINK_COLON_CITE_RE's beat alone.
+// paren, so link destinations remain LINK_COLON_CITE_RE's beat alone. The
+// §-bridge crosses balanced inline-code spans exactly like pass 5's, with
+// the same second-`§` exclusion and `(?<!-)` historical-compound guard.
 const MD_LINE_ANCHOR_RE =
-  /(?<![\w/.-])([A-Za-z0-9._/-]+\.md)(?:#[^\s:`)\]]*)?(:\d+|(?:\s+§[^\n`]{0,200}?)?`?\s*[,;:]?\s*\(?\s*\blines?[-\s]+\d+(?:\s*[,-]\s*\d+)*)/g;
+  /(?<![\w/.-])([A-Za-z0-9._/-]+\.md)(?:#[^\s:`)\]]*)?(:\d+|(?:\s+§(?:[^\n`§]|`[^`§\n]*`){0,200}?)?`?\s*[,;:]?\s*\(?\s*(?<!-)\blines?[-\s]+\d+(?:\s*[,-]\s*\d+)*)/g;
 
 // Memoize the directory listing per absolute governance tree so a file with N
 // label cites does at most one readdir per tree (3 trees total) instead of one
@@ -471,7 +551,13 @@ function extractCommentText(
 // line-word — a §-segment number (`§RFC 9110 line 20`) is part of the
 // heading, not a pin — and every range / list endpoint floors, matching the
 // colon form's per-endpoint expansion (Codex, PR #195 round 2).
-function pushMdAnchorCite(
+// Route one DURABLE_PATH_ANCHOR_COLON_RE match — the colon locator appended
+// after a durable docs/-rooted path anchor. The path grammar cannot parse dot
+// segments (directory segments admit no dots), so no collapse step exists,
+// and DOCS_PATH_CITE_RE can never claim the match (the § segment breaks its
+// path-flush colon), so there is no pass-2 overlap to skip. Frozen-tree pins
+// floor per endpoint exactly like the raw colon form; volatile targets deny.
+function pushDurablePathAnchorColonCite(
   cites: Cite[],
   citingFile: string,
   oneBasedLine: number,
@@ -479,9 +565,51 @@ function pushMdAnchorCite(
   m: RegExpExecArray,
 ): void {
   const mdPath = m[1];
+  const rawTargetDisplay = m[0].trim().replace(/\s+/g, " ");
+  if (FROZEN_DOC_PREFIXES.some((prefix) => mdPath.startsWith(prefix))) {
+    for (const endpointMatch of m[2].matchAll(/\d+/g)) {
+      cites.push({
+        file: citingFile,
+        line: oneBasedLine,
+        rawTarget: rawTargetDisplay,
+        targetPath: resolve(repoRoot, mdPath),
+        targetLine: Number(endpointMatch[0]),
+      });
+    }
+    return;
+  }
+  cites.push({
+    file: citingFile,
+    line: oneBasedLine,
+    rawTarget: rawTargetDisplay,
+    targetPath: resolve(repoRoot, mdPath),
+    targetLine: 0,
+    lineWordDeny: true,
+  });
+}
+
+function pushMdAnchorCite(
+  cites: Cite[],
+  citingFile: string,
+  oneBasedLine: number,
+  repoRoot: string,
+  m: RegExpExecArray,
+): void {
+  let mdPath = m[1];
   const colonForm = /^:\d/.test(m[2]);
-  if (mdPath.includes("/") && !mdPath.startsWith("docs/")) return;
-  if (colonForm && mdPath.startsWith("docs/")) return;
+  if (mdPath.startsWith("docs/")) {
+    // Same dot-segment collapse as the md lane: pass ownership and the
+    // frozen carve-out judge the resolved target — `docs/archive/../specs/…`
+    // is volatile despite its frozen prefix, and pass 2 can never match a
+    // dot segment, so the colon shortcut applies only to the collapsed-
+    // equals-raw spelling (Codex, PR #207 round 3).
+    const collapsed = collapseDotSegments(mdPath);
+    if (!collapsed.startsWith("docs/")) return;
+    if (colonForm && collapsed === mdPath) return;
+    mdPath = collapsed;
+  } else if (mdPath.includes("/")) {
+    return;
+  }
   // rawTarget is display + dedupe only — collapse the double space the
   // wrap-scan join manufactures (prev text keeps its trailing space, the
   // join adds one, curr keeps its leading space).
@@ -640,11 +768,21 @@ function extractLabelCitesFrom(
       if (previousCommentText !== null && scanText.commentOnly) {
         const joined = `${previousCommentText} ${scanText.text}`;
         const boundary = previousCommentText.length;
-        for (const wrapRe of [LABEL_LINE_WORD_RE, LABEL_SPACED_COLON_CITE_RE, MD_LINE_ANCHOR_RE]) {
+        for (const wrapRe of [
+          LABEL_LINE_WORD_RE,
+          LABEL_SPACED_COLON_CITE_RE,
+          DURABLE_LABEL_ANCHOR_COLON_RE,
+          MD_LINE_ANCHOR_RE,
+          DURABLE_PATH_ANCHOR_COLON_RE,
+        ]) {
           wrapRe.lastIndex = 0;
           while ((m = wrapRe.exec(joined)) !== null) {
             if (m.index >= boundary || m.index + m[0].length <= boundary + 1) continue;
-            if (wrapRe !== MD_LINE_ANCHOR_RE) {
+            if (wrapRe === MD_LINE_ANCHOR_RE) {
+              pushMdAnchorCite(cites, citingFile, i, repoRoot, m);
+            } else if (wrapRe === DURABLE_PATH_ANCHOR_COLON_RE) {
+              pushDurablePathAnchorColonCite(cites, citingFile, i, repoRoot, m);
+            } else {
               cites.push({
                 file: citingFile,
                 line: i,
@@ -653,14 +791,16 @@ function extractLabelCitesFrom(
                 targetLine: 0,
                 lineWordDeny: true,
               });
-            } else {
-              pushMdAnchorCite(cites, citingFile, i, repoRoot, m);
             }
           }
         }
       }
       previousCommentText = scanText.commentOnly ? scanText.text : null;
-      for (const labelRe of [LABEL_LINE_WORD_RE, LABEL_SPACED_COLON_CITE_RE]) {
+      for (const labelRe of [
+        LABEL_LINE_WORD_RE,
+        LABEL_SPACED_COLON_CITE_RE,
+        DURABLE_LABEL_ANCHOR_COLON_RE,
+      ]) {
         labelRe.lastIndex = 0;
         while ((m = labelRe.exec(scanText.text)) !== null) {
           cites.push({
@@ -676,6 +816,10 @@ function extractLabelCitesFrom(
       MD_LINE_ANCHOR_RE.lastIndex = 0;
       while ((m = MD_LINE_ANCHOR_RE.exec(scanText.text)) !== null) {
         pushMdAnchorCite(cites, citingFile, i + 1, repoRoot, m);
+      }
+      DURABLE_PATH_ANCHOR_COLON_RE.lastIndex = 0;
+      while ((m = DURABLE_PATH_ANCHOR_COLON_RE.exec(scanText.text)) !== null) {
+        pushDurablePathAnchorColonCite(cites, citingFile, i + 1, repoRoot, m);
       }
     }
   }
@@ -930,7 +1074,9 @@ export function checkMarkdownVolatileCites(
       for (const lineWordRe of [
         LABEL_LINE_WORD_RE,
         LABEL_SPACED_COLON_CITE_RE,
+        DURABLE_LABEL_ANCHOR_COLON_RE,
         MD_LINE_ANCHOR_RE,
+        DURABLE_PATH_ANCHOR_COLON_RE,
       ]) {
         lineWordRe.lastIndex = 0;
         let match: RegExpExecArray | null;
@@ -939,6 +1085,18 @@ export function checkMarkdownVolatileCites(
             spanBoundary !== null &&
             (match.index >= spanBoundary || match.index + match[0].length <= spanBoundary + 1)
           ) {
+            continue;
+          }
+          if (lineWordRe === DURABLE_PATH_ANCHOR_COLON_RE) {
+            // Same frozen-floor / volatile-deny split as the code lane's
+            // pushDurablePathAnchorColonCite; the grammar is docs/-rooted and
+            // dot-segment-free by construction, so no resolution step exists.
+            if (FROZEN_DOC_PREFIXES.some((prefix) => match[1].startsWith(prefix))) {
+              const endpoints = [...match[2].matchAll(/\d+/g)].map((d) => Number(d[0]));
+              floorFrozenEndpoints(f, oneBasedLine, match[0].trim(), match[1], endpoints);
+            } else {
+              denyVolatile(f, oneBasedLine, match[0].trim());
+            }
             continue;
           }
           if (lineWordRe !== MD_LINE_ANCHOR_RE) {
@@ -961,17 +1119,25 @@ export function checkMarkdownVolatileCites(
           // Frozen pins floor — colon and line-word tails alike.
           let mdPath = match[1];
           const colonForm = /^:\d/.test(match[2]);
-          const rawDocsRooted = mdPath.startsWith("docs/");
           if (/^\.\.?\//.test(mdPath)) {
             const resolvedTarget = relative(repoRoot, resolve(dirname(absoluteCiter), mdPath))
               .split(sep)
               .join("/");
             if (!resolvedTarget.startsWith("docs/")) continue;
             mdPath = resolvedTarget;
-          } else if (mdPath.includes("/") && !rawDocsRooted) {
+          } else if (mdPath.startsWith("docs/")) {
+            // Repo-root docs spelling: judge ownership and freezing on the
+            // COLLAPSED path. Only a dot-segment-free colon spelling is the
+            // docs-path pass's beat (DOCS_PATH_CITE_RE cannot match `..`) —
+            // a dot-segment colon form denies HERE or nowhere (Codex,
+            // PR #207 round 3).
+            const collapsed = collapseDotSegments(mdPath);
+            if (!collapsed.startsWith("docs/")) continue;
+            if (colonForm && collapsed === mdPath) continue;
+            mdPath = collapsed;
+          } else if (mdPath.includes("/")) {
             continue;
           }
-          if (colonForm && rawDocsRooted) continue;
           if (FROZEN_DOC_PREFIXES.some((prefix) => mdPath.startsWith(prefix))) {
             const locatorTail = colonForm
               ? match[2]

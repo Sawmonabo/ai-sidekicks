@@ -234,7 +234,7 @@ A spec-body amendment after promotion (typo, citation, narrowing) does NOT re-tr
 
 ## Per-Phase Audit Semantics
 
-Audit-completeness applies at phase granularity for plans that ship across tiers via the substrate-vs-namespace decomposition pattern (see [cross-plan-dependencies.md §5](../architecture/cross-plan-dependencies.md)). Each phase that opts into the per-phase mechanism declares its status via the `audit_status` precondition entry (see [preflight-contract.md](../../.claude/skills/plan-execution/references/preflight-contract.md) Gate 5); phases without a declaration fall back to the plan-level `Plan-readiness audit complete` checkbox via Gate 2's legacy path. Two values are permitted:
+Audit-completeness applies at phase granularity for plans that ship across tiers via the substrate-vs-namespace decomposition pattern (see [cross-plan-dependencies.md §5](../architecture/cross-plan-dependencies.md#5-canonical-build-order)). Each phase that opts into the per-phase mechanism declares its status via the `audit_status` precondition entry (see [preflight-contract.md](../../.claude/skills/plan-execution/references/preflight-contract.md) Gate 5); phases without a declaration fall back to the plan-level `Plan-readiness audit complete` checkbox via Gate 2's legacy path. Two values are permitted:
 
 | `status` | YAML shape | Meaning |
 | --- | --- | --- |
@@ -245,8 +245,8 @@ Audit-completeness applies at phase granularity for plans that ship across tiers
 
 A phase qualifies as `substrate_exempt` only if ALL THREE hold:
 
-1. **Substrate is single-owned and load-bearing for an earlier-tier consumer** ([Plan-007 §Execution Windows](../plans/007-local-ipc-and-daemon-control.md) criterion (a)). The substrate phase ships infrastructure that a later-tier or sibling plan's behavioral phases depend on; no other plan owns it.
-2. **Namespaces have natural cohesion with their owning plans** ([Plan-007 §Execution Windows](../plans/007-local-ipc-and-daemon-control.md) criterion (b)). The carve-out doesn't fragment a well-scoped plan; it isolates a substrate from later-tier behavior.
+1. **Substrate is single-owned and load-bearing for an earlier-tier consumer** ([Plan-007 §Execution Windows](../plans/007-local-ipc-and-daemon-control.md#execution-windows-v1-carve-out) criterion (a)). The substrate phase ships infrastructure that a later-tier or sibling plan's behavioral phases depend on; no other plan owns it.
+2. **Namespaces have natural cohesion with their owning plans** ([Plan-007 §Execution Windows](../plans/007-local-ipc-and-daemon-control.md#execution-windows-v1-carve-out) criterion (b)). The carve-out doesn't fragment a well-scoped plan; it isolates a substrate from later-tier behavior.
 3. **The phase's Spec coverage declaration is explicitly empty.** Phase §Goal (or sibling block) MUST state "Phase N covers NO Spec-NNN AC at Tier N" (or canonical equivalent: "covers no Spec-NNN acceptance criteria", "substrate is pre-behavior plumbing"). The `#### Tasks` block MUST NOT cite Spec coverage in bracketed-list form (`Spec coverage: [Spec-NNN row M]`). **This criterion is grep-checkable.** A phase that claims any Spec AC coverage is by definition NOT pre-behavior plumbing.
 
 Criteria (1)+(2) are human-judged at audit time and load-bearing in the §5 carve-out entry itself; criterion (3) is mechanically verified by preflight at phase-dispatch time. If a future "substrate" phase claims any Spec AC, it does NOT qualify; the full audit applies regardless of how §5 describes the carve-out.

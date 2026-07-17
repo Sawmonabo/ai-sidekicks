@@ -11,7 +11,7 @@
 
 ## Context
 
-[ADR-010](./010-paseto-webauthn-mls-auth.md) chose a long-term Ed25519 identity key per participant as the cryptographic anchor for the V1 relay encryption layer. That key signs each session's ephemeral X25519 public key inside `SessionKeyBundle`, binding the session key exchange to the participant's control-plane-registered identity ([Spec-008 §Relay Encryption](../specs/008-control-plane-relay-and-session-join.md)).
+[ADR-010](./010-paseto-webauthn-mls-auth.md) chose a long-term Ed25519 identity key per participant as the cryptographic anchor for the V1 relay encryption layer. That key signs each session's ephemeral X25519 public key inside `SessionKeyBundle`, binding the session key exchange to the participant's control-plane-registered identity ([Spec-008 §Relay Encryption](../specs/008-control-plane-relay-and-session-join.md#relay-encryption)).
 
 The desktop client derives (or wraps) its Ed25519 identity key from a WebAuthn/passkey PRF ceremony — the passkey's resident key material never leaves the authenticator, and the derived key is reconstructed per session without hitting disk in plaintext.
 
@@ -107,13 +107,13 @@ The Ed25519 identity key MUST NOT be silently regenerated. Specifically:
 
 - Key generation happens exactly once per workstation, on first CLI identity setup.
 - Any subsequent call path that would return "no identity key found" MUST refuse rather than generate a replacement, unless the operator explicitly passed `cli identity rotate` (V1.x: stolen-key reuse detection; see [§Success Criteria](#success-criteria)).
-- This is load-bearing because a silently rotated Ed25519 key invalidates every `SessionKeyBundle` signature the participant previously published, and the control plane's rejection path ([Spec-008 §Relay Negotiation](../specs/008-control-plane-relay-and-session-join.md)) would drop the participant from all active shared sessions without a recoverable path.
+- This is load-bearing because a silently rotated Ed25519 key invalidates every `SessionKeyBundle` signature the participant previously published, and the control plane's rejection path ([Spec-008 §Relay Negotiation](../specs/008-control-plane-relay-and-session-join.md#relay-negotiation)) would drop the participant from all active shared sessions without a recoverable path.
 
 #### Plaintext-In-Daemon-Memory Only
 
 - The decrypted Ed25519 private key lives only in the daemon process's memory.
 - The CLI binary itself MUST NOT hold the decrypted key — CLI invocations talk to the daemon over the [Spec-007 local IPC contract](../specs/007-local-ipc-and-daemon-control.md) and ask the daemon to perform signing operations on their behalf.
-- This constraint is inherited from [security-architecture.md §Local Daemon Authentication](../architecture/security-architecture.md) and is the reason the session token is required (not optional) — if any CLI binary could silently request the private key over IPC, the daemon's confidentiality boundary would collapse into the IPC surface.
+- This constraint is inherited from [security-architecture.md §Local Daemon Authentication](../architecture/security-architecture.md#local-daemon-authentication-task-51) and is the reason the session token is required (not optional) — if any CLI binary could silently request the private key over IPC, the daemon's confidentiality boundary would collapse into the IPC surface.
 - Secret zeroization at daemon shutdown: the daemon overwrites the decrypted private-key buffer before process exit and on idle-timeout eviction (see [BL-058 forward declaration](../archive/backlog-archive.md)).
 
 ### Platform-Specific Preconditions
@@ -263,9 +263,9 @@ The following are explicitly deferred past V1 and are recorded here so downstrea
 ## References
 
 - [ADR-010: PASETO / WebAuthn / MLS Authentication Stack](./010-paseto-webauthn-mls-auth.md) — defines the Ed25519 identity key this ADR stores.
-- [Spec-008 §Relay Encryption](../specs/008-control-plane-relay-and-session-join.md) — describes the `SessionKeyBundle` Ed25519 signing role.
+- [Spec-008 §Relay Encryption](../specs/008-control-plane-relay-and-session-join.md#relay-encryption) — describes the `SessionKeyBundle` Ed25519 signing role.
 - [Spec-007: Local IPC And Daemon Control](../specs/007-local-ipc-and-daemon-control.md) — session-token contract that bounds CLI access to decrypted key material.
-- [security-architecture.md §Local Daemon Authentication](../architecture/security-architecture.md) — authoritative daemon-auth model whose mode-0600 session token is the transport-layer peer of this ADR's at-rest custody model.
+- [security-architecture.md §Local Daemon Authentication](../architecture/security-architecture.md#local-daemon-authentication-task-51) — authoritative daemon-auth model whose mode-0600 session token is the transport-layer peer of this ADR's at-rest custody model.
 - [`@napi-rs/keyring` v1.2.0](https://github.com/Brooooooklyn/keyring-node) — transport library for tier 1.
 - [`keyring-rs` v3.6.3](https://github.com/open-source-cooperative/keyring-rs) — wrapped backend; `src/windows.rs:413` is the `CRED_PERSIST_ENTERPRISE` hardcoding site.
 - [OWASP Password Storage Cheat Sheet (2026 revision)](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html) — Argon2id parameter source for tier 2.

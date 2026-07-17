@@ -23,7 +23,7 @@
 //   (2) `sessions.min_client_version` exists and is TEXT — Plan-003's attach
 //       flow READS the per-session version floor from this Plan-001
 //       forward-declared column (ADR-018 §Decision #4; `Spec-003 §Required Behavior`;
-//       packages/control-plane/src/migrations/0001-initial.ts line 104).
+//       the `sessions` block in `packages/control-plane/src/migrations/0001-initial.ts`).
 //   (3) Plan-003's OWN Postgres tables (`runtime_node_attachments`,
 //       `runtime_node_presence`) are ABSENT after Phase 1 — they are
 //       Plan-003-owned but created by the FORWARD-DECLARED Phase-3 control-plane

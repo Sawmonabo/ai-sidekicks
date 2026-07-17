@@ -21,7 +21,13 @@ export function advanceFenceState(
   unquotedLine: string,
   openFence: OpenFenceState,
 ): { openFence: OpenFenceState; isDelimiterLine: boolean } {
-  const fenceDelimiter = /^\s*(`{3,}|~{3,})(.*)$/.exec(unquotedLine);
+  // At most three SPACES of indentation (CommonMark): four or more — or a
+  // tab, which expands past the limit — makes the line indented-code
+  // CONTENT, not a delimiter. The earlier `\s*` treated an indented literal
+  // (`    ``` `) as an opener, exempting the ordinary prose after it from
+  // the volatile-cite deny and §-cite extraction until the next delimiter
+  // (Codex, PR #207 round 3).
+  const fenceDelimiter = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(unquotedLine);
   if (fenceDelimiter === null) return { openFence, isDelimiterLine: false };
   if (openFence === null) {
     return {

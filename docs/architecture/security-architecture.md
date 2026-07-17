@@ -69,7 +69,7 @@ These invariants hold regardless of the network path (direct local, relay-mediat
 
 ### Local Daemon Authentication (Task 5.1)
 
-The local daemon uses a layered trust model based on socket reachability **plus** a 256-bit session token. The desktop **renderer is not a direct daemon client** — all renderer-originated requests are brokered by the Desktop Shell via the preload bridge and arrive at the daemon as shell-originated traffic. See [Spec-023 §Trust Stance](../specs/023-desktop-shell-and-renderer.md) and [container-architecture.md §Trust Boundaries](./container-architecture.md) for the canonical renderer-untrusted stance this section aligns with.
+The local daemon uses a layered trust model based on socket reachability **plus** a 256-bit session token. The desktop **renderer is not a direct daemon client** — all renderer-originated requests are brokered by the Desktop Shell via the preload bridge and arrive at the daemon as shell-originated traffic. See [Spec-023 §Trust Stance](../specs/023-desktop-shell-and-renderer.md#trust-stance) and [container-architecture.md §Trust Boundaries](./container-architecture.md#trust-boundaries) for the canonical renderer-untrusted stance this section aligns with.
 
 **Socket reachability model:**
 
@@ -271,7 +271,7 @@ const aead = xchacha20poly1305(sessionKey, nonce, aad); // 16-byte auth tag
 
 #### V1.1+ Relay Encryption: MLS (Planned Upgrade Path)
 
-V1.1 introduces MLS (RFC 9420) via an audited implementation to provide per-message ratcheting, post-compromise security, and O(log N) group rekeying. The upgrade ships behind a feature flag and negotiates cipher suite at session start; the V1 pairwise layer continues to serve sessions whose participants have not yet adopted V1.1. MLS becomes the default relay cipher once all three promotion gates defined in [ADR-010 §Success Criteria — V1.1 MLS Promotion Gates](../decisions/010-paseto-webauthn-mls-auth.md) pass:
+V1.1 introduces MLS (RFC 9420) via an audited implementation to provide per-message ratcheting, post-compromise security, and O(log N) group rekeying. The upgrade ships behind a feature flag and negotiates cipher suite at session start; the V1 pairwise layer continues to serve sessions whose participants have not yet adopted V1.1. MLS becomes the default relay cipher once all three promotion gates defined in [ADR-010 §Success Criteria — V1.1 MLS Promotion Gates](../decisions/010-paseto-webauthn-mls-auth.md#success-criteria) pass:
 
 - External third-party security audit of the selected implementation
 - Interoperability tests against at least one other MLS implementation at a pinned commit
@@ -412,7 +412,7 @@ References:
 
 ### Verification Rules
 
-A read-side verifier runs four checks, in order (the fourth applies only to compacted rows). Any failure halts replay and emits `audit_integrity_failed` per [Spec-006 §Integrity Protocol](../specs/006-session-event-taxonomy-and-audit-log.md):
+A read-side verifier runs four checks, in order (the fourth applies only to compacted rows). Any failure halts replay and emits `audit_integrity_failed` per [Spec-006 §Integrity Protocol](../specs/006-session-event-taxonomy-and-audit-log.md#integrity-protocol):
 
 1. **Chain check.** For each row where `retention_class IS NULL` (un-compacted), recompute `BLAKE3(prev_hash || canonical_bytes(row))` and compare to the stored `row_hash`. Mismatch → `audit_integrity_failed { failureMode: 'hash_mismatch', failurePath: 'inclusion' }` per `Spec-006 §Audit Integrity (audit_integrity)`. For rows where `retention_class = 'audit_stub'`, the original canonical bytes have been discarded by compaction, so per-row chain recomputation against the original is impossible — those rows are instead verified by the anchor check (rule 3, original-existence) AND the stub-signature check (rule 4, stub-authenticity) per [Spec-006 §Post-Compaction Integrity](../specs/006-session-event-taxonomy-and-audit-log.md#post-compaction-integrity).
 2. **Signature check.** For each `retention_class IS NULL` row, verify `daemon_signature` against `canonical_bytes(row)` using the `NodeId`-resolved Ed25519 public key from the session participant roster. If `participant_signature` is present, verify it with the participant's public key. Failure → `audit_integrity_failed { failureMode: 'signature_mismatch', failurePath: 'signature' }`. For `retention_class = 'audit_stub'` rows, the ORIGINAL canonical bytes are gone — per-row signature verification against the original is skipped; original-range tamper-evidence comes from the Ed25519-signed Merkle root checked in rule 3, and post-compaction stub authenticity comes from the per-row `stub_signature` checked in rule 4.

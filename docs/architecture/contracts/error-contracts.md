@@ -154,7 +154,7 @@ Daemon-local run-queue control codes (Plan-004). Run-control authority is daemon
 
 ### Intervention
 
-Intervention request-admission codes ([Spec-005 §Required Behavior](../../specs/005-provider-driver-contract-and-capabilities.md), campaign B3). Intervention **outcomes** deliberately resolve via the six-state lifecycle (`rejected` / `expired` / `degraded` are states, not error codes — [queue-and-intervention-model.md §Driver Result To Lifecycle Mapping](../../domain/queue-and-intervention-model.md#driver-result-to-lifecycle-mapping)); this namespace covers only request-level refusals that never produce an intervention row. The token deliberately collides with no `intervention.*` durable event name (`requested`/`accepted`/`applied`/`rejected`/`degraded`/`expired` — the never-collide rule, D-012-4 convention).
+Intervention request-admission codes ([Spec-005 §Required Behavior](../../specs/005-provider-driver-contract-and-capabilities.md#required-behavior), campaign B3). Intervention **outcomes** deliberately resolve via the six-state lifecycle (`rejected` / `expired` / `degraded` are states, not error codes — [queue-and-intervention-model.md §Driver Result To Lifecycle Mapping](../../domain/queue-and-intervention-model.md#driver-result-to-lifecycle-mapping)); this namespace covers only request-level refusals that never produce an intervention row. The token deliberately collides with no `intervention.*` durable event name (`requested`/`accepted`/`applied`/`rejected`/`degraded`/`expired` — the never-collide rule, D-012-4 convention).
 
 | Code | Description | HTTP Status |
 | --- | --- | --- |
@@ -192,7 +192,7 @@ Agent-surface codes (Plan-016, Tier-6 audit A-016-2 / D-016-16).
 | Code | Description | HTTP Status |
 | --- | --- | --- |
 | `agent.not_found` | Agent does not exist in the session (`data.fields`: `agentId`) | 404 |
-| `agent.not_ready` | Agent is not in the `ready` lifecycle state (`configured` / `disabled` / `archived` per [agent-channel-and-run-model.md §Lifecycle](../../domain/agent-channel-and-run-model.md)) or its driver is unavailable, so it cannot take a run (`data.fields`: `agentId`, `state`) | 409 |
+| `agent.not_ready` | Agent is not in the `ready` lifecycle state (`configured` / `disabled` / `archived` per [agent-channel-and-run-model.md §Lifecycle](../../domain/agent-channel-and-run-model.md#lifecycle)) or its driver is unavailable, so it cannot take a run (`data.fields`: `agentId`, `state`) | 409 |
 
 ### Approval
 
