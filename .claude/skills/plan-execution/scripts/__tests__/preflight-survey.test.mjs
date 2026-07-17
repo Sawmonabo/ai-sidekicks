@@ -274,3 +274,107 @@ test("preflight --survey: exit 1 with anomaly listing on a broken fixture corpus
     rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+// ---------- cite anomalies (per-phase Gate-4 screen) ----------
+//
+// The survey runs gateTasksBlockCites per walked phase and records every
+// finding (all kinds) in a SEPARATE `citeAnomalies` channel, kept out of the
+// two-sided `anomalies` the real-corpus guard pins to []. Warn-only under plain
+// `--survey`; `--enforce-cites` folds them into the exit. Enforcement is
+// fixture-tested only — the live corpus still carries pre-existing cite debt.
+
+const BAD_CITE_PLAN = `### Phase 1 — bad cite
+
+#### Tasks
+
+- **T1.1 — malformed spec-coverage payload**
+  - **Spec coverage:** just prose with no anchor
+  - **Verifies invariant:** none (probe)
+`;
+
+test("surveyCorpus: a malformed cite surfaces in citeAnomalies, not in anomalies", () => {
+  const tmp = makeFixtureCorpus({ "060-bad-cite.md": BAD_CITE_PLAN });
+  try {
+    const survey = surveyCorpus({ repoRoot: tmp });
+    assert.deepEqual(survey.anomalies, []); // two-sided screen stays clean
+    assert.ok(survey.citeAnomalies.length >= 1, "expected a cite anomaly");
+    assert.match(survey.citeAnomalies[0], /060-bad-cite\.md Phase 1 \[unparseable-cite\]/);
+    assert.match(formatSurvey(survey), /cite anomalies \(\d+\) \[warn-only/);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("surveyCorpus: a phase without cite markers is skipped, not a cite anomaly", () => {
+  const tmp = makeFixtureCorpus({ "061-no-markers.md": CLEAN_PHASE });
+  try {
+    const survey = surveyCorpus({ repoRoot: tmp });
+    assert.deepEqual(survey.citeAnomalies, []);
+    assert.match(formatSurvey(survey), /cite anomalies: none/);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("preflight --survey --enforce-cites: warn-only plain vs armed exit on a bad-cite fixture", () => {
+  const tmp = makeFixtureCorpus({ "060-bad-cite.md": BAD_CITE_PLAN });
+  try {
+    // Mirrors the CLI exit formula: plain gates on `anomalies` only;
+    // `--enforce-cites` folds `citeAnomalies` in. The CLI derives repoRoot from
+    // its own location, so a scripted import points at the fixture tree.
+    const runner = join(tmp, "run-enforce.mjs");
+    writeFileSync(
+      runner,
+      `import { surveyCorpus } from ${JSON.stringify(PREFLIGHT)};\n` +
+        `const s = surveyCorpus({ repoRoot: ${JSON.stringify(tmp)} });\n` +
+        `const enforce = process.argv.includes("--enforce-cites");\n` +
+        `process.exit((s.anomalies.length + (enforce ? s.citeAnomalies.length : 0)) > 0 ? 1 : 0);\n`,
+    );
+    const plain = spawnSync(process.execPath, [runner], { encoding: "utf8" });
+    assert.equal(plain.status, 0, "plain survey is warn-only on cite anomalies");
+    const armed = spawnSync(process.execPath, [runner, "--enforce-cites"], { encoding: "utf8" });
+    assert.equal(armed.status, 1, "armed survey gates on cite anomalies");
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("preflight --survey --enforce-cites: clean fixture exits 0 even when armed", () => {
+  const tmp = makeFixtureCorpus({ "061-clean.md": CLEAN_PHASE });
+  try {
+    const runner = join(tmp, "run-enforce.mjs");
+    writeFileSync(
+      runner,
+      `import { surveyCorpus } from ${JSON.stringify(PREFLIGHT)};\n` +
+        `const s = surveyCorpus({ repoRoot: ${JSON.stringify(tmp)} });\n` +
+        `process.exit((s.anomalies.length + s.citeAnomalies.length) > 0 ? 1 : 0);\n`,
+    );
+    const run = spawnSync(process.execPath, [runner], { encoding: "utf8" });
+    assert.equal(run.status, 0, run.stdout + run.stderr);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("preflight --survey --enforce-cites: flag is accepted alongside --survey", () => {
+  // Real-CLI arg-parsing check (not an enforcement check): the flag must not
+  // trip the mixed-invocation guard. Robust to corpus state — asserts the
+  // survey ran and was not rejected, never a specific exit code.
+  const run = spawnSync(process.execPath, [PREFLIGHT, "--survey", "--enforce-cites"], {
+    encoding: "utf8",
+    cwd: REPO_ROOT,
+  });
+  assert.notEqual(run.status, 2, run.stdout + run.stderr);
+  assert.doesNotMatch(run.stderr, /runs alone/);
+  assert.match(run.stdout, /distribution:/);
+});
+
+test("preflight --survey --enforce-cites <plan>: still rejects an extra positional (exit 2)", () => {
+  const run = spawnSync(
+    process.execPath,
+    [PREFLIGHT, "--survey", "--enforce-cites", "docs/plans/001-shared-session-core.md"],
+    { encoding: "utf8", cwd: REPO_ROOT },
+  );
+  assert.equal(run.status, 2, run.stdout + run.stderr);
+  assert.match(run.stderr, /runs alone/);
+});
