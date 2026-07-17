@@ -158,7 +158,7 @@ The following interfaces are normative for this spec:
 
 - `Example 5: Override path — `--insecure` on non-loopback` — operator runs `DAEMON_BIND=0.0.0.0:4317 INSECURE=1 ./daemon`. Daemon prints a one-screen banner: `WARNING: INSECURE MODE ACTIVE. Bind=0.0.0.0:4317 without TLS. Traffic is unencrypted. security.default.override=insecure_bind.` Log event with the same payload is emitted. Daemon starts and serves unencrypted traffic.
 
-- `Example 6: Rollback / freeze attack on `self-update``— operator's local`last_seen_version=127`. Attacker serves an older manifest `version=120`with a validly-signed Ed25519 signature (mirror-serves-stale). CLI rejects with`FATAL: Manifest version 120 < last_seen_version 127 — refusing downgrade.`A fresh manifest with`now > expires_at` would similarly be rejected on the freeze path.
+- `Example 6: Rollback / freeze attack on self-update` — operator's local `last_seen_version=127`. Attacker serves an older manifest `version=120` with a validly-signed Ed25519 signature (mirror-serves-stale). CLI rejects with `FATAL: Manifest version 120 < last_seen_version 127 — refusing downgrade.` A fresh manifest with `now > expires_at` would similarly be rejected on the freeze path.
 
 ## Implementation Notes
 
