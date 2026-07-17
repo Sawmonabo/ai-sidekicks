@@ -264,29 +264,29 @@ preconditions:
 
 - **T22.1.1 — Crypto + custody dependencies.**
   - Files: `packages/runtime-daemon/package.json` (EXTEND)
-  - Spec coverage: `Spec-022 §Daemon Master Key` (@napi-rs/keyring), `Spec-022 §Daemon Master Key` (Argon2id KEK), `Spec-022 §Daemon Master Key` (sodium_mlock)
-  - Verifies invariant: I-022-1
+  - **Spec coverage:** Spec-022 §Daemon Master Key (@napi-rs/keyring), Spec-022 §Daemon Master Key (Argon2id KEK), Spec-022 §Daemon Master Key (sodium_mlock)
+  - **Verifies invariant:** I-022-1
   - Consumes: `@noble/hashes` v2.x (`argon2id`) + `@noble/ciphers` v2.x (per ADR-010 selection + `docs/architecture/security-architecture.md §V1 Relay Encryption: Pairwise X25519 + XChaCha20-Poly1305` version pin, shipped decision); adds `@napi-rs/keyring` v1.2.0, `sodium-native`; removes `keytar`.
 - **T22.1.2 — `OsKeystoreSealedDaemonKeyStore` custody ladder.**
   - Files: `packages/runtime-daemon/src/bootstrap/daemon-key-store.ts` (CREATE)
-  - Spec coverage: `Spec-022 §Daemon Master Key` (plaintext never persisted), `Spec-022 §Daemon Master Key` (Tier-1/Tier-2), `Spec-022 §Daemon Master Key` (Tier-3 refuse)
-  - Verifies invariant: I-022-1, I-022-2
+  - **Spec coverage:** Spec-022 §Daemon Master Key (plaintext never persisted), Spec-022 §Daemon Master Key (Tier-1/Tier-2), Spec-022 §Daemon Master Key (Tier-3 refuse)
+  - **Verifies invariant:** I-022-1, I-022-2
   - Consumes: `@napi-rs/keyring` (T22.1.1); the daemon composition root in the shipped `bootstrap/` dir; Plan-007 CP-007-8 store contract (reciprocates it).
 - **T22.1.3 — Argon2id KEK derivation.**
   - Files: `daemon-key-store.ts` (same)
-  - Spec coverage: `Spec-022 §Daemon Master Key` (Argon2id KEK), `Spec-022 §Daemon Master Key` (PRF forward-decl)
-  - Verifies invariant: I-022-3
+  - **Spec coverage:** Spec-022 §Daemon Master Key (Argon2id KEK), Spec-022 §Daemon Master Key (PRF forward-decl)
+  - **Verifies invariant:** I-022-3
   - Consumes: `@noble/hashes/argon2` `argon2id` (T22.1.1). The WebAuthn-PRF KEK is stubbed as the Plan-023 Tier-8 edge (CP-022-3) — not built in V1.
 - **T22.1.4 — ADR-021 master-envelope codec.**
   - Files: `daemon-key-store.ts` (same); optionally extract `packages/runtime-daemon/src/crypto/master-envelope-codec.ts` (CREATE)
-  - Spec coverage: `Spec-022 §Daemon Master Key` (envelope layout), ADR-021 (version-byte envelope)
-  - Verifies invariant: I-022-3, I-022-4
+  - **Spec coverage:** Spec-022 §Daemon Master Key (envelope layout), ADR-021 (version-byte envelope)
+  - **Verifies invariant:** I-022-3, I-022-4
   - Consumes: `@noble/ciphers` XChaCha20-Poly1305 (T22.1.1); the ADR-021 envelope format.
   - Ratified D-022-1(b): envelope AAD = the 50-byte full header (resolves the Spec-022 nonce-AAD-vs-full-header-AAD self-contradiction under `Spec-022 §Daemon Master Key` in favour of the full-header clause).
 - **T22.1.5 — Memory protection + backup exclusion.**
   - Files: `daemon-key-store.ts` (same)
-  - Spec coverage: `Spec-022 §Daemon Master Key` (mlock/memzero), `Spec-022 §Daemon Master Key` (backup separation)
-  - Verifies invariant: I-022-5, I-022-6
+  - **Spec coverage:** Spec-022 §Daemon Master Key (mlock/memzero), Spec-022 §Daemon Master Key (backup separation)
+  - **Verifies invariant:** I-022-5, I-022-6
   - Consumes: `sodium-native` (T22.1.1).
 
 ### Phase 2 — Per-participant crypto primitives (Steps 3–6)
@@ -297,23 +297,23 @@ preconditions:
 
 - **T22.2.1 — Participant key generator (random DEK).**
   - Files: `packages/runtime-daemon/src/crypto/participant-key-generator.ts` (CREATE)
-  - Spec coverage: `Spec-022 §Participant Keys` (random per-participant DEK + KEK-wrap — back-fill owed, supersedes the prior credential-derived wording); `Spec-022 §Signature Safety Under Shred` (crypto-shred precondition)
-  - Verifies invariant: I-022-7
+  - **Spec coverage:** Spec-022 §Participant Keys (random per-participant DEK + KEK-wrap — back-fill owed, supersedes the prior credential-derived wording); Spec-022 §Signature Safety Under Shred (crypto-shred precondition)
+  - **Verifies invariant:** I-022-7
   - Consumes: `@noble/ciphers` CSPRNG (`randomBytes`, T22.1.1). No KDF, no Plan-018 secret.
 - **T22.2.2 — Wrap codec (XChaCha20-Poly1305).**
   - Files: `packages/runtime-daemon/src/crypto/wrap-codec.ts` (CREATE)
-  - Spec coverage: Spec-022 §Participant Keys (wrap AAD/nonce/wire — author-internal, back-fill owed)
-  - Verifies invariant: I-022-9
+  - **Spec coverage:** Spec-022 §Participant Keys (wrap AAD/nonce/wire — author-internal, back-fill owed)
+  - **Verifies invariant:** I-022-9
   - Consumes: `@noble/ciphers` XChaCha20-Poly1305 (T22.1.1).
 - **T22.2.3 — Participant keys store.**
   - Files: `packages/runtime-daemon/src/crypto/participant-keys-store.ts` (CREATE)
-  - Spec coverage: Spec-022 §Participant Keys; the `participant_keys` schema (T22.3.2)
-  - Verifies invariant: I-022-10
+  - **Spec coverage:** Spec-022 §Participant Keys (`participant_keys` schema, T22.3.2)
+  - **Verifies invariant:** I-022-10
   - Consumes: `wrap-codec` (T22.2.2), `participant-key-generator` (T22.2.1), `participant_keys` table (T22.3.2). `ensureKeyFor(participantId)` is idempotent on `participant_id`, first-write-wins; never mutates `key_version`/`rotated_at`.
 - **T22.2.4 — PII codec = `PiiEncryptor`.**
   - Files: `packages/runtime-daemon/src/crypto/pii-codec.ts` (CREATE)
-  - Spec coverage: Spec-022 §PII Data Map + §Signature Safety Under Shred (PII AAD/nonce/wire — author-internal, back-fill owed); NIST SP 800-38D §8.3
-  - Verifies invariant: I-022-8, I-022-12
+  - **Spec coverage:** Spec-022 §PII Data Map, Spec-022 §Signature Safety Under Shred (PII AAD/nonce/wire — author-internal, back-fill owed; NIST SP 800-38D §8.3)
+  - **Verifies invariant:** I-022-8, I-022-12
   - Consumes: `@noble/ciphers` AES-256-GCM (T22.1.1); Plan-006's `PiiEncryptor` interface + branded `PiiPayloadCiphertext` (CP-022-1 / CP-006-1, shipped via NS-16).
 
 ### Phase 3 — Write-path integration (Steps 7–8)
@@ -324,13 +324,13 @@ preconditions:
 
 - **T22.3.1 — Pure `splitPii` partition.**
   - Files: `packages/runtime-daemon/src/crypto/split-pii.ts` (CREATE)
-  - Spec coverage: `Spec-022 §PII Payload Column Pattern` (PII/non-PII field partition); `Spec-006 §Canonical Serialization Rules`
-  - Verifies invariant: I-022-11, I-022-13, I-022-14
+  - **Spec coverage:** Spec-022 §PII Payload Column Pattern (PII/non-PII field partition); Spec-006 §Canonical Serialization Rules
+  - **Verifies invariant:** I-022-11, I-022-13, I-022-14
   - Consumes: Plan-006's `EventLogService.append` seam (Tier 4) as the consumer; `pii-codec` (T22.2.4) is injected by Plan-006's `pii-indirection.ts`, never called here.
 - **T22.3.2 — Forward-declare onto Plan-001 migration.**
   - Files: `packages/runtime-daemon/src/migrations/0001-initial.ts` (EXTEND — Plan-001-owned, ships at this path)
-  - Spec coverage: `Spec-022 §Schema Requirements` (initial-schema forward-decl)
-  - Verifies invariant: I-022-20
+  - **Spec coverage:** Spec-022 §Schema Requirements (initial-schema forward-decl)
+  - **Verifies invariant:** I-022-20
   - Consumes: Plan-001's shipped `0001-initial.ts` (verify it already carries `pii_payload` + the `participant_keys` table per CP-022-5).
 
 ### Phase 4 — GDPR stub surface (Steps 9–10)
@@ -341,30 +341,30 @@ preconditions:
 
 - **T22.4.1 — Daemon JSON-RPC stub handlers.**
   - Files: `packages/runtime-daemon/src/ipc/handlers/gdpr-stub-handlers.ts` (CREATE)
-  - Spec coverage: `Spec-022 §Non-Goals` (post-V1 stubs), `Spec-022 §V1 Erasure Scope Boundary` (unconditional not-implemented); ADR-009 (error envelope)
-  - Verifies invariant: I-022-15, I-022-16, I-022-17
+  - **Spec coverage:** Spec-022 §Non-Goals (post-V1 stubs), Spec-022 §V1 Erasure Scope Boundary (unconditional not-implemented); ADR-009 (error envelope)
+  - **Verifies invariant:** I-022-15, I-022-16, I-022-17
   - Consumes: Plan-007's `MethodRegistry` (JSON-RPC host); the ADR-009 error envelope.
   - Ratified D-022-3: daemon JSON-RPC methods on Plan-007 `MethodRegistry` (transport + names).
 - **T22.4.2 — Register `gdpr.*` on `MethodRegistry`.**
   - Files: `gdpr-stub-handlers.ts` (same); daemon registry wiring
-  - Spec coverage: `Spec-022 §Acceptance Criteria` (three reserved methods)
-  - Verifies invariant: I-022-16
+  - **Spec coverage:** Spec-022 §Acceptance Criteria (three reserved methods)
+  - **Verifies invariant:** I-022-16
   - Consumes: Plan-007 `MethodRegistry`. Plan-007 reciprocates the namespace registration (surfaced obligation).
 - **T22.4.3 — Unconditional-stub test.**
   - Files: `packages/runtime-daemon/src/ipc/handlers/gdpr-stub-handlers.test.ts` (CREATE)
-  - Spec coverage: `Spec-022 §Acceptance Criteria` (501/not-implemented unconditional)
-  - Verifies invariant: I-022-15
+  - **Spec coverage:** Spec-022 §Acceptance Criteria (501/not-implemented unconditional)
+  - **Verifies invariant:** I-022-15
   - Consumes: the three handlers (T22.4.1).
 - **T22.4.4 — Error-code + api-payload docs.**
   - Files: `docs/architecture/contracts/error-contracts.md` (EXTEND), `docs/architecture/contracts/api-payload-contracts.md` (EXTEND)
-  - Spec coverage: `Spec-022 §Data Export` (the V1 data-subject obligation the V1.1 `gdpr.*` endpoints fulfill; V1 returns the `gdpr.endpoint_not_v1` stub per D-022-3)
-  - Verifies invariant: I-022-17
+  - **Spec coverage:** Spec-022 §Data Export (the V1 data-subject obligation the V1.1 `gdpr.*` endpoints fulfill; V1 returns the `gdpr.endpoint_not_v1` stub per D-022-3)
+  - **Verifies invariant:** I-022-17
   - Consumes: the ADR-009 error envelope.
   - Ratified D-022-3: standard JSON-RPC `-32603` discriminator; `data.type = "gdpr.endpoint_not_v1"` (no custom numeric code — `docs/architecture/contracts/error-contracts.md §Numeric Code Space (per JSON-RPC 2.0 §5.1)`).
 - **T22.4.5 — Schema-doc wrap-cipher correction.**
   - Files: `docs/architecture/schemas/local-sqlite-schema.md` (EXTEND)
-  - Spec coverage: Spec-022 §Participant Keys (XChaCha20-Poly1305 wrap)
-  - Verifies invariant: I-022-18
+  - **Spec coverage:** Spec-022 §Participant Keys (XChaCha20-Poly1305 wrap)
+  - **Verifies invariant:** I-022-18
   - Consumes: the `participant_keys` schema (T22.2.3 / T22.3.2).
 
 ### Phase 5 — Cross-plan fan-out: Path-2 FK-severance migration (Step 11)
@@ -375,8 +375,8 @@ preconditions:
 
 - **T22.5.2 — Path-2 anonymize-FK severance migration (V1 schema substrate).**
   - Files: `packages/control-plane/src/migrations/00NN-participant-fk-severance.ts` (CREATE; `NNNN` assigned by append-order) + `packages/control-plane/src/sessions/migration-runner.ts` (EXTEND — append `{ version: N, sql }` in landing order)
-  - Spec coverage: `Spec-022 §V1 Erasure Scope Boundary` (the `ON DELETE SET NULL` relaxation is enumerated **In V1**), `Spec-022 §Shred Fan-Out` Path-2 FK-safety; D-022-7
-  - Verifies invariant: (none directly — the FK-safety schema substrate for the Path-2 anonymization; the I-022-22 ordered-fan-out handler that performs the anonymization is V1.1)
+  - **Spec coverage:** Spec-022 §V1 Erasure Scope Boundary (the `ON DELETE SET NULL` relaxation is enumerated **In V1**), Spec-022 §Shred Fan-Out (Path-2 FK-safety; D-022-7)
+  - **Verifies invariant:** none (no invariant directly — the FK-safety schema substrate for the Path-2 anonymization; the I-022-22 ordered-fan-out handler that performs the anonymization is V1.1)
   - Consumes: Plan-001's shipped `session_memberships` + Plan-002's shipped `session_invites` (control-plane Postgres, already at runner v1/v2); the `migration-runner.ts` append seam. Relaxes **only** the two in-V1 anonymize FKs (`session_invites.inviter_id`, `session_memberships.participant_id`) to nullable + `ON DELETE SET NULL`; `revoked_jtis`/`revoked_token_families` are BL-070-forward-declared (born nullable at their own build — no ALTER over a not-yet-created table). Version integer assigned at build by append-order (after the other Tier-5 control-plane migrations land), not pinned — see [cross-plan §5](../architecture/cross-plan-dependencies.md#5-canonical-build-order) landing-order note.
 
 ### Phase 6 — Shred fan-out alignment checkpoint (V1 code = 0)
@@ -387,8 +387,8 @@ preconditions:
 
 - **T22.6.1 — Shred fan-out alignment checkpoint (V1 code = 0).**
   - Files: verification-only — no code land; the cross-plan alignment per Implementation Step 11
-  - Spec coverage: Spec-022 §Shred Fan-Out, §Ordering And Atomicity
-  - Verifies invariant: I-022-14, I-022-19, I-022-20, I-022-21, I-022-22
+  - **Spec coverage:** Spec-022 §Shred Fan-Out, Spec-022 §Ordering And Atomicity
+  - **Verifies invariant:** I-022-14, I-022-19, I-022-20, I-022-21, I-022-22
   - Consumes: the CP-022-5/6/7 reciprocals (Plan-001/006/014/018/019/002/020 + Plan-003 for the CP-022-6 closure). Confirms the Step-11 Path-2 owner attribution across the complete `REFERENCES participants(id)` inbound-FK closure (`session_invites`→Plan-002, `notification_preferences`→Plan-019, `runtime_node_attachments`→Plan-003, `artifact_relay_recipients` hard-DELETE + `artifact_relay_blobs.publisher_participant_id` SET NULL→Plan-014 CP-014-2 — the 2026-07-08 relay-amendment rows; forward-declared `cross_node_dispatch_coordination`→Plan-027, `revoked_*`→BL-070) and the Path-1 pair (`participant_keys`→Plan-001, `artifact_encryption_keys`→Plan-014 — both cascade-free row DELETEs); encode-now CP-022-6 live reciprocals (fix-in-place at swap), forward-declared dispositions named.
 
 ## Parallelization Notes

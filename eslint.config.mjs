@@ -8,6 +8,10 @@ export default tseslint.config(
   {
     ignores: [
       "**/dist/**",
+      // electron-vite emits the desktop app's main/preload/renderer bundles to
+      // `apps/desktop/out/`; ignore it like dist/ so a local build's artifacts
+      // don't fail lint (CI lints a clean checkout that has no out/ present).
+      "**/out/**",
       "**/node_modules/**",
       "**/coverage/**",
       "**/.turbo/**",
