@@ -1404,6 +1404,12 @@ interface RunRolledBackEvent {
 // (ISO-8601; optionality is pre-amendment history only), later-state rows echo it unchanged, and expiry
 // resolves per kind — permission → auto-deny (deny-and-continue), input → park-resumable — never an
 // auto-approval (Spec-012 §Resolved Questions and V1 Scope Decisions).
+// Variant-required fields are enforced at the EMISSION seam via the exported per-type refinement
+// (campaign B13's normalizer bundle: `driverAskPayloadRefinementFor(eventType)`, sibling of Plan-012
+// T1.1's `approvalFlowPayloadRefinementFor`): requested ⇒ `expiresAt` (+ `input` for kind 'permission');
+// responded ⇒ `response`; responded / expired / canceled echo the requested row's `expiresAt` when that
+// row carries one (pre-amendment requested rows have none) — a malformed event fails at the emission
+// parse, never at peer/restart projection; base-type optionality admits pre-amendment rows at replay only.
 interface DriverAskEvent {
   sessionId: SessionId;
   runId: RunId;
@@ -1894,10 +1900,13 @@ type InvalidationTrigger = "explicit" | "membership_change" | "node_trust_change
 // remembered ⇒ approvalRequestId / approver / nodeId / rememberedScope / ruleId (+ runId
 // iff rememberedScope.kind = 'run'); rule_revoked ⇒ ruleId / invalidationTrigger —
 // a malformed event fails at the emission parse, never at peer/restart projection (I-012-9).
+// Driver-ask-originated requested rows additionally carry `askId` — required at the CP-012-6
+// normalizer seam (T2.8, the sole such emitter) rather than in the origin-blind payload refinement.
 interface ApprovalFlowEventPayload {
   sessionId: SessionId;
   runId?: RunId; // absent on trust-triggered rule_revoked (no in-flight request)
   approvalRequestId?: ApprovalRequestId; // ditto
+  askId?: string; // present on approval.requested when the request originates from a provider permission ask (Spec-012 §Resolved Questions, Part-B fail-closed follow-up 2026-07-17): the originating DriverAskEvent.askId, persisted at creation as the durable ask↔approval association — restart/replay reconstructs which native ask an outcome or shared-deadline expiry must deny when multiple asks are in flight on one run; required at the CP-012-6 normalizer emission seam (T2.8 — the sole driver-ask-originated requester), never set on direct requests
   category: ApprovalCategory;
   scope: string;
   requestedBy?: string; // present on approval.requested — recorded requester actor (participant or agent actor id, Spec-012 line 58)
@@ -1930,6 +1939,7 @@ interface ApprovalRequestCreateRequest {
   scope: string;
   resourceDescriptor: Record<string, unknown>; // REQUIRED (Spec-012 line 96); audit-grade target descriptor
   expiryAt?: string;
+  askId?: string; // originating DriverAskEvent.askId when created by the CP-012-6 driver-ask normalizer (required at that seam; recorded onto approval.requested — the durable ask↔approval association, one shared deadline expiryAt = the ask's expiresAt, per Spec-012 §Resolved Questions, Part-B fail-closed follow-up 2026-07-17)
 }
 interface ApprovalRequestCreateResponse {
   approvalRequestId: ApprovalRequestId;

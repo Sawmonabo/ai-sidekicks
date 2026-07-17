@@ -79,7 +79,7 @@ Primary allowed transitions:
 - `waiting_for_input -> failed` (provider or transport failure while waiting)
 - `paused -> failed` (resume handle lost or recovery exhausted)
 - `waiting_for_approval -> paused` (rollback intervention — campaign B2)
-- `waiting_for_input -> paused` (rollback intervention — campaign B2)
+- `waiting_for_input -> paused` (rollback intervention — campaign B2; driver input-ask expiry — Spec-012 Part-B fail-closed follow-up, 2026-07-17)
 - `completed -> paused` (rollback intervention; the only exit from a terminal state — campaign B2)
 - `interrupted -> paused` (rollback intervention; the only exit from a terminal state — campaign B2)
 - `failed -> paused` (rollback intervention; the only exit from a terminal state — campaign B2)
@@ -128,7 +128,7 @@ The following table is the single authoritative reference for every allowed run 
 | `waiting_for_approval` | `running` | Approval resolved | Resolution outcome (approved, rejected, or expired) delivered to the run; a rejected or expired outcome continues the run with the action refused — it does not terminate the run (Spec-012 — Tier-6 audit); exception: a denied pre-turn moderation gate (`category: 'gate'`) does not continue — Plan-016's moderation gate system-cancels it with `trigger: 'moderation_denied'` (Spec-016 D-016-10), exiting via the interrupt row below |
 | `waiting_for_approval` | `interrupted` | Interrupt or cancel intervention | User-initiated stop while waiting, or the system-cancel of a denied pre-turn moderation gate (`trigger: 'moderation_denied'` — Spec-016 D-016-10) |
 | `waiting_for_approval` | `failed` | Provider or transport failure | Failure occurs while run is blocked on approval |
-| `waiting_for_input` | `running` | Input received | Valid participant input received |
+| `waiting_for_input` | `running` | Input received | Valid participant input received, or a blocking `user_input` / `mcp_elicitation` approval-category request resolves — rejected/expired outcomes continue-with-refusal (Spec-012, CP-012-5 seam); a driver input-ask expiry never takes this row — it takes the park row below (Spec-012 Part-B fail-closed follow-up, 2026-07-17) |
 | `waiting_for_input` | `interrupted` | Interrupt or cancel intervention | User-initiated stop while waiting |
 | `waiting_for_input` | `failed` | Provider or transport failure | Failure occurs while run is blocked on input |
 | `paused` | `running` | Resume intervention | Resume handle valid and provider ready |
@@ -136,6 +136,7 @@ The following table is the single authoritative reference for every allowed run 
 | `paused` | `failed` | Resume failure | Resume handle lost or recovery exhausted |
 | `waiting_for_approval` | `paused` | Rollback intervention | Conversation-leg-confirmed rollback voids the pending approval block (`approval.canceled`) and rewinds to `targetPosition`; the run lands `paused` (§Rollback Transitions, campaign B2) |
 | `waiting_for_input` | `paused` | Rollback intervention | Conversation-leg-confirmed rollback voids the pending input block (`driver_ask.canceled`) and rewinds to `targetPosition`; the run lands `paused` (§Rollback Transitions, campaign B2) |
+| `waiting_for_input` | `paused` | Driver input-ask expiry | The pending `kind: 'input'` driver ask timed out (`driver_ask.expired`) — no input is fabricated; the run parks in its ordinary resumable `paused` state, driven by the daemon's ask-expiry path, never the approval-outcome seam ([Spec-012 §Resolved Questions and V1 Scope Decisions](../specs/012-approvals-permissions-and-trust-boundaries.md#resolved-questions-and-v1-scope-decisions), Part-B fail-closed follow-up 2026-07-17) |
 | `completed` | `paused` | Rollback intervention | Terminal-exit rollback re-opens the run at `targetPosition`; any later terminal event carries a higher `runVersion` (§Rollback Transitions, campaign B2) |
 | `interrupted` | `paused` | Rollback intervention | Terminal-exit rollback re-opens the run at `targetPosition`; any later terminal event carries a higher `runVersion` (§Rollback Transitions, campaign B2) |
 | `failed` | `paused` | Rollback intervention | Terminal-exit rollback re-opens the run at `targetPosition`; any later terminal event carries a higher `runVersion` (§Rollback Transitions, campaign B2) |
