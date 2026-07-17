@@ -148,7 +148,7 @@ Phases map 1:1 onto the four Implementation Steps. Phase 1 has no unsatisfied up
 
 **Preconditions.**
 
-- [x] Trust-envelope V1 definition ratified — `Spec-009 §Local Trust Envelope (V1 Definition`) (this audit)
+- [x] Trust-envelope V1 definition ratified — `Spec-009 §Local Trust Envelope (V1 Definition)` (this audit)
 - [x] `RepoMountHealth` + `VcsType` shapes ratified — api-payload-contracts.md §Plan-009 (D-009-2, D-009-4)
 - [x] `repo.*` error codes ratified — error-contracts.md §Repo (D-009-3)
 - [x] `RepoDetach` contract ratified — `Spec-009 §Detach Semantics (V1 Definition)` + api-payload-contracts.md §Plan-009 (D-009-6)
@@ -203,12 +203,12 @@ Phases map 1:1 onto the four Implementation Steps. Phase 1 has no unsatisfied up
 
 - **T1.6 — Trust-envelope containment validator.**
   - **Files:** `packages/runtime-daemon/src/workspace/trust-envelope.ts` (CREATE)
-  - Implement `TrustEnvelopeValidator` (class): given a candidate execution root (mount canonical root + optional `directory` from `WorkspaceBindRequest`) and the session's attached-mount canonical roots, return the validated resolved root or throw `TrustEnvelopeViolationError`. Behavior per `Spec-009 §Local Trust Envelope (V1 Definition`): resolve the candidate (absolute + realpath) THEN check containment — symlink resolution precedes the boundary check so a symlink inside the mount pointing outside is caught; containment is path-component-boundary-aware (`/repo-evil` is NOT inside `/repo`); comparison is case-folded on case-insensitive filesystems (win32 per ADR-019); `..` traversal and absolute-path `directory` values that escape the mount root are rejected.
+  - Implement `TrustEnvelopeValidator` (class): given a candidate execution root (mount canonical root + optional `directory` from `WorkspaceBindRequest`) and the session's attached-mount canonical roots, return the validated resolved root or throw `TrustEnvelopeViolationError`. Behavior per `Spec-009 §Local Trust Envelope (V1 Definition)`: resolve the candidate (absolute + realpath) THEN check containment — symlink resolution precedes the boundary check so a symlink inside the mount pointing outside is caught; containment is path-component-boundary-aware (`/repo-evil` is NOT inside `/repo`); comparison is case-folded on case-insensitive filesystems (win32 per ADR-019); `..` traversal and absolute-path `directory` values that escape the mount root are rejected.
   - **Tests:** `packages/runtime-daemon/src/workspace/__tests__/trust-envelope.test.ts` (CREATE; temp-dir + symlink fixtures) — adversarial set: `directory: "../sibling"` rejected; `directory` chain resolving through a symlink to outside the mount root rejected; prefix-collision (`/repo-evil` candidate vs `/repo` envelope) rejected; absolute `directory` outside the root rejected; happy path: nested subdirectory inside the mount root accepted and returned symlink-resolved; mount-root itself accepted; thrown errors are `TrustEnvelopeViolationError` (typed, path-redacted per T1.4).
   - **Acceptance:** no input — traversal, symlink, prefix-collision, absolute escape — yields a validated root outside an attached mount's canonical root.
   - **Spec coverage:** Spec-009 line 45 (reject path traversal or workspace binding outside the declared local trust envelope), Spec-009 line 144 (containment is symlink-resolved, component-boundary-aware, case-folded on case-insensitive filesystems), Spec-009 line 145 (directory resolved against the mount canonical root and re-checked after symlink resolution)
   - **Verifies invariant:** I-009-3
-  - **Consumes:** trust-envelope V1 definition ← `Spec-009 §Local Trust Envelope (V1 Definition`) (ratified by this audit)
+  - **Consumes:** trust-envelope V1 definition ← `Spec-009 §Local Trust Envelope (V1 Definition)` (ratified by this audit)
 
 ### Phase 2 — RepoMount & workspace persistence + projections
 
