@@ -157,7 +157,7 @@ The Linear pattern is retained as the reference architecture for Option A's V1.1
 
 - [Spec-006 — Session Event Taxonomy and Audit Log](../specs/006-session-event-taxonomy-and-audit-log.md) — event taxonomy the per-daemon logs carry.
 - [Spec-015 — Persistence, Recovery, and Replay](../specs/015-persistence-recovery-and-replay.md) — replay semantics over per-daemon logs.
-- [Data Architecture §Event-Sourcing Scope](../architecture/data-architecture.md) — aligned with this ADR.
+- [Data Architecture §Event-Sourcing Scope](../architecture/data-architecture.md#event-sourcing-scope) — aligned with this ADR.
 - [vision.md §Session Engine](../vision.md) — aligned with this ADR.
 
 ## Decision Log

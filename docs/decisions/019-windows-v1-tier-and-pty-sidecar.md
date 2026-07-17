@@ -165,8 +165,8 @@ The four §Success Criteria below are **substrate-promotion gates**, not Plan-02
 The substrate-promotion lifecycle has three stages:
 
 1. **Default-flip ships at Plan-024 Phase 5 T-024-5-2** (`packages/runtime-daemon/src/pty/pty-host-selector.ts` flips the Windows default from `NodePtyHost` to `RustSidecarPtyHost`). Plan-024 `status` flips to `completed` when Phase 5 merges; cross-plan-deps Tier 2 promotion is no longer gated on any subsequent measurement.
-2. **Monitoring window** (2 calendar weeks from default-flip merge, OR until the latest §Success Criteria check date — `2026-12-01` — whichever is later). During the window, the env-var rollback authority per Plan-024 §Rollback Or Fallback remains active: a regression on any §Success Criteria reading triggers a config-only revert (`AIS_PTY_SIDECAR_BIN=node-pty` or selector env override) without a code-revert PR.
-3. **Substrate-promotion close** when every §Success Criteria reading is green at its check date AND the window has elapsed. The env-var rollback authority retires (the selector ignores the override; `RustSidecarPtyHost` is the sole Windows path); a tripwire event per §Tripwires becomes the only path back. Substrate-promotion close is recorded as an ADR-019 §Decision Log entry citing the green readings; it does NOT modify Plan-024's `status`.
+2. **Monitoring window** (2 calendar weeks from default-flip merge, OR until the latest §Success Criteria check date — `2026-12-01` — whichever is later). During the window, the env-var rollback authority per `Plan-024 §Rollback Or Fallback` remains active: a regression on any §Success Criteria reading triggers a config-only revert (`AIS_PTY_SIDECAR_BIN=node-pty` or selector env override) without a code-revert PR.
+3. **Substrate-promotion close** when every §Success Criteria reading is green at its check date AND the window has elapsed. The env-var rollback authority retires (the selector ignores the override; `RustSidecarPtyHost` is the sole Windows path); a tripwire event per §Tripwires becomes the only path back. Substrate-promotion close is recorded as an `ADR-019 §Decision Log` entry citing the green readings; it does NOT modify Plan-024's `status`.
 
 Per [cross-plan-deps §6 NS-10](../architecture/cross-plan-dependencies.md#ns-10-plan-024-phase-5--measurement-substrate), the measurement substrate that produces the §Success Criteria readings is forward-declared at Plan-024 Phase 5 and wired at the owning plan's wall-clock (Plan-005 for `/resume` pass-rate; Plan-020 for crash rate). SmartScreen reputation is treated as an external observation, not an in-product telemetry feed — see §Success Criteria row 3 below.
 
@@ -253,8 +253,8 @@ These metrics gate substrate-promotion close (per §Substrate Promotion Window a
 
 - [V1 Feature Scope](../architecture/v1-feature-scope.md) — Windows-tier row to cite this ADR per BL-039.
 - [Component Architecture: Local Daemon](../architecture/component-architecture-local-daemon.md) — `PtyHost` interface obligation; Rust sidecar as Windows primary.
-- [Deployment Topology §Container and Packaging](../architecture/deployment-topology.md) — binary distribution surface.
-- [Vision §Add Later If Needed](../vision.md) — Rust sidecar row; moved to confirmed V1 component per BL-039.
+- [Deployment Topology §Container and Packaging](../architecture/deployment-topology.md#container-and-packaging) — binary distribution surface.
+- [Vision §Add Later If Needed](../vision.md#add-later-if-needed) — Rust sidecar row; moved to confirmed V1 component per BL-039.
 - [`packages/contracts/src/pty-host.ts`](../../packages/contracts/src/pty-host.ts) — `PtyHost.onExit(sessionId, exitCode, signalCode?)` contract surface; §Decision item 9 codifies the crash-time emit values + ordering against this interface.
 - [`packages/runtime-daemon/src/pty/rust-sidecar-pty-host.ts`](../../packages/runtime-daemon/src/pty/rust-sidecar-pty-host.ts) — `RustSidecarPtyHost.handleChildExit` / `handleChildError` insertion points for §Decision item 9.
 - [BL-111](../archive/backlog-archive.md#bl-111-emit-per-session-onexit-on-rustsidecarptyhost-sidecar-crash) — backlog item closed by §Decision item 9 + the subsequent implementation PR.

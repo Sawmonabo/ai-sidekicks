@@ -130,7 +130,7 @@ For each `false` in the matrix:
 
 - **Codex `reasoning_stream: false`**: reasoning surface shows "unavailable" in timeline UI. No degradation — reasoning simply isn't exposed.
 - **Codex `model_mutation: false`**: model switching requires a new run. The orchestration layer interrupts the current run and starts a new one with the desired model.
-- **Codex `cost_cap: false`**: the native-cap unpriced-family escape refuses reservation on that leg (`orchestration.budget_exhausted`, `reason: 'driver_capless'`, fail-closed — Spec-016 §Cost Derivation And Absent-Cost Semantics). Priced families are unaffected: daemon-ledger accounting needs no provider-side cap.
+- **Codex `cost_cap: false`**: the native-cap unpriced-family escape refuses reservation on that leg (`orchestration.budget_exhausted`, `reason: 'driver_capless'`, fail-closed — `Spec-016 §Cost Derivation And Absent-Cost Semantics`). Priced families are unaffected: daemon-ledger accounting needs no provider-side cap.
 - **Claude `steer: false`**: steer intervention degrades to queue + interrupt (see [Spec-004](../specs/004-queue-steer-pause-resume.md) § Driver-Level Steer Mechanics). InterventionResult state = `degraded`.
 
 And for the `true` cell whose support is narrower than it reads:

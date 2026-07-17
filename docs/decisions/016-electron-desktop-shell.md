@@ -173,7 +173,7 @@ The antithesis wins on bundle size and baseline memory but loses on the one cons
 
 - [Container Architecture](../architecture/container-architecture.md) — renderer-untrusted / shell-trusted / daemon-trusted trust model that this ADR implements.
 - [Component Architecture: Desktop App](../architecture/component-architecture-desktop-app.md) — desktop-specific component decomposition.
-- [Vision §Technology Position](../vision.md) — Electron named as the desktop shell in the Keep section.
+- [Vision §Technology Position](../vision.md#technology-position) — Electron named as the desktop shell in the Keep section.
 
 ## Decision Log
 

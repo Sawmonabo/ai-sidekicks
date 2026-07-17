@@ -170,7 +170,7 @@ classDef completed fill:#ccc,stroke:#666,color:#000
 classDef governance fill:#ffc,stroke:#aa0,color:#000
 ```
 
-The status atomic set is `todo / in_progress / blocked / completed` (line 278). `:::ready` is a CSS class for visual grouping in the mermaid graph — an entry with `Status: \`todo\``whose`Upstream:`is satisfied is in the "ready set" (a derived predicate, not a stored field). The mermaid recolor maps`Status:` atomic → class:
+The status atomic set is `todo / in_progress / blocked / completed` (line 278). `:::ready` is a CSS class for visual grouping in the mermaid graph — an entry with `` Status: `todo` `` whose `Upstream:` is satisfied is in the "ready set" (a derived predicate, not a stored field). The mermaid recolor maps `Status:` atomic → class:
 
 | `Status:` atomic | Mermaid class | Mermaid → derived semantic |
 | --- | --- | --- |

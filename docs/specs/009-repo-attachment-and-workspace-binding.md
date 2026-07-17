@@ -108,7 +108,7 @@ Cleanup triggers (any one is sufficient):
 - Explicit disposal by participant or daemon.
 - TTL expiry (configurable as daemon configuration — not a wire parameter; default 24 hours).
 
-Cleanup is asynchronous. The `ephemeral_clones` table marks the clone `retired` immediately. A background job removes the filesystem clone after the state change. This decouples the user-facing state transition from potentially slow disk I/O. Retiring the clone backing a live (non-archived) `ephemeral clone`-mode workspace's current root returns the owning workspace to `provisioning` via the workspace transition primitives — root unbound, awaiting the next per-run prepare; `stale` is reserved for fault paths such as preparation failures (Spec-010 §Fallback Behavior).
+Cleanup is asynchronous. The `ephemeral_clones` table marks the clone `retired` immediately. A background job removes the filesystem clone after the state change. This decouples the user-facing state transition from potentially slow disk I/O. Retiring the clone backing a live (non-archived) `ephemeral clone`-mode workspace's current root returns the owning workspace to `provisioning` via the workspace transition primitives — root unbound, awaiting the next per-run prepare; `stale` is reserved for fault paths such as preparation failures (`Spec-010 §Fallback Behavior`).
 
 ## Implementation Notes
 
@@ -143,8 +143,8 @@ For repo attachment and workspace binding, the declared local trust envelope of 
 
 - A workspace execution root is inside the envelope iff its fully resolved form (absolute, symlink-resolved, platform-normalized) is path-contained within the fully resolved canonical root of a repo mount attached to the same session. Containment is path-component-boundary-aware (`/repo-evil` is not within `/repo`) and case-folded on case-insensitive filesystems (Windows tier per [ADR-019](../decisions/019-windows-v1-tier-and-pty-sidecar.md)).
 - `WorkspaceBind`'s optional `directory` is resolved against the mount's canonical root and containment is re-checked AFTER symlink resolution; `..` traversal, absolute-path redirection, and symlink escape outside the mount root are rejected with the typed `repo.outside_trust_envelope` error.
-- The node-level trust envelope governed by approval policy (Spec-012 §Default Behavior) is a separate run-time authorization layer; it is not this spec's bind-time validation and is out of scope here.
-- Daemon-provisioned execution roots (Plan-010 worktrees and ephemeral clones under the daemon's execution-roots directory, keyed by the owning repo mount) are inside the envelope by construction: they are daemon-created derivatives of an admitted mount, never user-supplied paths, so the containment rule above governs user-supplied bind paths while provisioned roots are admitted by provenance (Spec-010 §State And Data Implications).
+- The node-level trust envelope governed by approval policy (`Spec-012 §Default Behavior`) is a separate run-time authorization layer; it is not this spec's bind-time validation and is out of scope here.
+- Daemon-provisioned execution roots (Plan-010 worktrees and ephemeral clones under the daemon's execution-roots directory, keyed by the owning repo mount) are inside the envelope by construction: they are daemon-created derivatives of an admitted mount, never user-supplied paths, so the containment rule above governs user-supplied bind paths while provisioned roots are admitted by provenance (`Spec-010 §State And Data Implications`).
 
 ## Repo Mount Health (V1 Definition)
 
@@ -155,7 +155,7 @@ Repo mount health is the daemon-probed reachability of the mount's canonical roo
 `RepoDetach` must accept a repo mount id and transition the mount to `detached` without deleting the durable record (request/response shapes in [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) §Plan-009).
 
 - Detach is refused with `repo.detach_conflict` while any dependent workspace is `busy`; active work must finish or be cancelled first. There is no force-detach in V1.
-- Otherwise, detach transitions the mount to `detached` and archives all dependent workspaces (`workspaces.state -> 'archived'`), emitting `repo.detached` plus one `workspace.archived` per dependent workspace (Spec-006 `session_lifecycle` taxonomy). Archived workspaces remain historically linked to completed runs. Dependent non-terminal worktree and ephemeral-clone rows follow via the Plan-010 asynchronous retirement sweep (Spec-010 §Fallback Behavior — retirement recorded and evented, metadata preserved).
+- Otherwise, detach transitions the mount to `detached` and archives all dependent workspaces (`workspaces.state -> 'archived'`), emitting `repo.detached` plus one `workspace.archived` per dependent workspace (Spec-006 `session_lifecycle` taxonomy). Archived workspaces remain historically linked to completed runs. Dependent non-terminal worktree and ephemeral-clone rows follow via the Plan-010 asynchronous retirement sweep (`Spec-010 §Fallback Behavior` — retirement recorded and evented, metadata preserved).
 - `detached` is terminal for the row: there is no `detached -> attached` transition. Re-attaching the same canonical root creates a NEW repo mount row (the active-mount uniqueness index constrains only `state = 'attached'` rows).
 - The desktop renderer exposes no detach surface in V1; detach is SDK/CLI-surfaced only (renderer behavior is unspecified by this spec).
 

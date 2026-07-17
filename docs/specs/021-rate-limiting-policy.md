@@ -141,7 +141,7 @@ Counter limits — registry rows with enforcement class `sliding_window` — use
 - Rate limit counters are ephemeral and must not be persisted beyond their sliding window.
 - Escalation state (violation counts, active blocks) must be persisted in the rate limiting backend for the duration of the escalation window.
 - Permanent bans must be stored durably and must survive backend restarts. Time-limited admin bans share the same durable store; expiry is row state, not a separate mechanism.
-- GDPR erasure dispositions (Tier-6 audit, D-021-13): `admin_bans` rows are retained under the abuse-prevention legitimate-interest carve-out — erasure must not un-ban an identity — with revoked/expired rows purgeable after 90 days; `rate_limit_escalations` rows for an erased participant are hard-deleted. See [Spec-022 §Shred Fan-Out](./022-data-retention-and-gdpr.md).
+- GDPR erasure dispositions (Tier-6 audit, D-021-13): `admin_bans` rows are retained under the abuse-prevention legitimate-interest carve-out — erasure must not un-ban an identity — with revoked/expired rows purgeable after 90 days; `rate_limit_escalations` rows for an erased participant are hard-deleted. See [Spec-022 §Shred Fan-Out](./022-data-retention-and-gdpr.md#shred-fan-out).
 
 ## Example Flows
 
@@ -184,7 +184,7 @@ Counter limits — registry rows with enforcement class `sliding_window` — use
 ## Resolved Questions and V1 Scope Decisions
 
 - No blocking open questions remain for v1.
-- Tier-6 readiness audit (2026-06-10) resolved: endpoint-group registry unification with canonical keys (D-021-6), stacked invite-redemption limits (D-021-6), elevated-tier redefinition to session-owner with the two-condition eligibility rule (D-021-4), ops-alert realization as alertable telemetry (D-021-7), WebSocket drop-frame overflow semantics (D-021-9), admin-ban expiry + list route (D-021-12), GDPR erasure dispositions (D-021-13), fail-open substrate wording, threshold-approach header definition, and the five-field check shape. Ratified decision bodies live in [Plan-021 §Ratified Design Decisions](../plans/021-rate-limiting-policy.md).
+- Tier-6 readiness audit (2026-06-10) resolved: endpoint-group registry unification with canonical keys (D-021-6), stacked invite-redemption limits (D-021-6), elevated-tier redefinition to session-owner with the two-condition eligibility rule (D-021-4), ops-alert realization as alertable telemetry (D-021-7), WebSocket drop-frame overflow semantics (D-021-9), admin-ban expiry + list route (D-021-12), GDPR erasure dispositions (D-021-13), fail-open substrate wording, threshold-approach header definition, and the five-field check shape. Ratified decision bodies live in [Plan-021 §Ratified Design Decisions](../plans/021-rate-limiting-policy.md#ratified-design-decisions-tier-6-audit).
 
 ## References
 

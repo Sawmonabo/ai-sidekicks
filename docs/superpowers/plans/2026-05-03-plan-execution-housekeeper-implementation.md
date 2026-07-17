@@ -381,7 +381,7 @@ Expected: 7 rows, all unchecked, grammar matches `  - [ ] tier-K — ...`.
 
 - Modify: `docs/architecture/cross-plan-dependencies.md` — NS-23's `- Status:` line authored in Task 1.1
 
-- [ ] **Step 1: Replace `- Status: \`todo\`` with the completed-with-inline-resolution form**
+- [ ] **Step 1: Replace `` - Status: `todo` `` with the completed-with-inline-resolution form**
 
 Per spec §3a.3 NS-23 Exit Criteria, the form is exactly (date pinned to plan-write date 2026-05-03 per P3 fix):
 

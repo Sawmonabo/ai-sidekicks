@@ -65,7 +65,7 @@ The daemon master key that wraps all `participant_keys.encrypted_key_blob` entri
 3. Run a SQLite integrity check against the copied database to determine whether the canonical local store is structurally healthy.
 4. If integrity is healthy, restart the daemon and run `ProjectionRebuild` from canonical events instead of replacing the database.
 5. If integrity fails, restore the last known-good SQLite, WAL, and SHM set from the backup tree at `$XDG_STATE_HOME/ai-sidekicks/backups/` (host) or the operator's bind-mounted backup path (container) per [Spec-015 §Backup Policy](../specs/015-persistence-recovery-and-replay.md#backup-policy), then restart the daemon and allow replay rebuild to run.
-6. If integrity fails AND the backup tree is itself unreadable (catastrophic filesystem loss — not the normal case, since Spec-015 §Backup Policy guarantees daily backups by default), preserve the broken files for later analysis, keep new mutable work blocked, and escalate rather than creating a fresh empty database.
+6. If integrity fails AND the backup tree is itself unreadable (catastrophic filesystem loss — not the normal case, since `Spec-015 §Backup Policy` guarantees daily backups by default), preserve the broken files for later analysis, keep new mutable work blocked, and escalate rather than creating a fresh empty database.
 
 ## Validation
 

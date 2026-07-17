@@ -52,7 +52,7 @@ Agent lifecycle:
 | `disabled`   | The agent exists but cannot currently run.                   |
 | `archived`   | The agent remains in history but is not used for new runs.   |
 
-This 4-state enum is the canonical `AgentState` adopted verbatim by the Plan-016 contract surface (Tier-6 audit, A-016-2). V1 wire mapping: `agent.attach` lands the agent in `ready` (or `configured` when its named default node is not currently attached); `agent.detach` → `disabled`; re-attach → `ready`; `archived` is registered in the contract enum but no V1 wire mutation reaches it. Only a `ready` agent can take a run (`agent.not_ready` otherwise). The agent persona (`name`, `driverName`, `modelId`, `defaultNodeId?`, `config?`) is durable via `agent.*` events ([Spec-006 §Channel and Agent Lifecycle](../specs/006-session-event-taxonomy-and-audit-log.md)).
+This 4-state enum is the canonical `AgentState` adopted verbatim by the Plan-016 contract surface (Tier-6 audit, A-016-2). V1 wire mapping: `agent.attach` lands the agent in `ready` (or `configured` when its named default node is not currently attached); `agent.detach` → `disabled`; re-attach → `ready`; `archived` is registered in the contract enum but no V1 wire mutation reaches it. Only a `ready` agent can take a run (`agent.not_ready` otherwise). The agent persona (`name`, `driverName`, `modelId`, `defaultNodeId?`, `config?`) is durable via `agent.*` events ([Spec-006 §Channel and Agent Lifecycle](../specs/006-session-event-taxonomy-and-audit-log.md#channel-and-agent-lifecycle-session_lifecycle)).
 
 Channel lifecycle:
 
@@ -64,7 +64,7 @@ Channel lifecycle:
 
 Transitions (Tier-6 audit, D-016-12): `active` ↔ `muted` via `channel.mute` / `channel.unmute`; `active` or `muted` → `archived` via `channel.archive` (terminal). Run admission targeting an `archived` channel is refused (`channel.inactive`); a `muted` channel still accepts runs and output — mute suppresses attention surfaces, not execution. The bootstrap `main` channel is projected from the session itself (`deriveMainChannelId`, CP-002-7), never has a stored row or `channel.created` event, and is not mutable by the lifecycle verbs.
 
-Run lifecycle is defined in `run-state-machine.md`. Parent-child run links carry one of three caller-declared link types — `spawn`, `delegate`, `handoff` ([Spec-016 §Interfaces And Contracts](../specs/016-multi-agent-channels-and-orchestration.md), D-016-17) — and V1 nesting is depth-1.
+Run lifecycle is defined in `run-state-machine.md`. Parent-child run links carry one of three caller-declared link types — `spawn`, `delegate`, `handoff` ([Spec-016 §Interfaces And Contracts](../specs/016-multi-agent-channels-and-orchestration.md#interfaces-and-contracts), D-016-17) — and V1 nesting is depth-1.
 
 ## Example Flows
 

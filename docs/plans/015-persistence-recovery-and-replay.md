@@ -82,7 +82,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
     - `session_snapshots` (read-only consumer of `has_compacted_ranges`, `compacted_range_count`) ← Plan-006 owner; `docs/architecture/cross-plan-dependencies.md §1. Table Ownership Map`; [`session_snapshots`](../architecture/schemas/local-sqlite-schema.md#session-snapshots-plan-001-extended-by-plans-006-015).
     - `queue_items` ← Plan-004 owner (queue state), per Plan-015 Dependencies.
     - approval-state table ← Plan-012 owner (approval records), per Plan-015 Dependencies.
-    - `tool.idempotency_class` per-tool declaration ← `Spec-005 §Tool Metadata`, per `Spec-015 §References`.
+    - `tool.idempotency_class` per-tool declaration ← `Spec-005 §Tool Metadata`, per [Spec-015 §References](../specs/015-persistence-recovery-and-replay.md#references).
 
 - [ ] **T15.2 — Implement replay rebuild and idempotent projection restoration on daemon startup.**
   - Build `replay-service.ts` (reads canonical events after a cursor, advancing `replay_cursors`) and the idempotent `ProjectionRebuild` path so a restart deterministically reconstructs projections from canonical events with no client memory. Apply the ADR-018 envelope-version handling (`min_client_version` floor, accept-and-stub, upcaster chain) when replaying mixed-version envelopes — see A-015-3.
@@ -105,7 +105,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
   - **Consumes (by SHAPE):**
     - `runtime-binding-store.ts` (Plan-005-owned module) ← `docs/architecture/cross-plan-dependencies.md §2. Package Path Ownership Map`.
     - `RuntimeBindingRead` { runId } → { runId, driverName, contractVersion, resumeHandle?, runtimeMetadata } ← `docs/architecture/contracts/api-payload-contracts.md §Plan-015 — Persistence Recovery And Replay`.
-    - `DriverResumeResult` discriminated union incl. `recoveryCondition: RecoveryCondition` ← `docs/architecture/contracts/api-payload-contracts.md §Plan-005 — Provider Driver Contract (Internal Interface)`; `Spec-005 §Fallback Behavior`, per `Spec-015 §Idempotency Classes and Recovery Behavior`.
+    - `DriverResumeResult` discriminated union incl. `recoveryCondition: RecoveryCondition` ← `docs/architecture/contracts/api-payload-contracts.md §Plan-005 — Provider Driver Contract (Internal Interface)`; [Spec-005 §Fallback Behavior](../specs/005-provider-driver-contract-and-capabilities.md#fallback-behavior), per `Spec-015 §Idempotency Classes and Recovery Behavior`.
     - `RunFailureCategory` ∈ {provider failure, transport failure, local persistence failure, projection failure} ← `docs/architecture/contracts/api-payload-contracts.md §Shared Enums`.
     - `tool.replayed` / `tool.skipped_during_recovery` event types (category `tool_activity`), registered in Spec-006, taxonomy tracked by BL-064 ← `Spec-015 §Recovery Events`.
     - `command_receipts` in-flight predicate (`started_at IS NOT NULL AND completed_at IS NULL`) ← `Spec-015 §Idempotency Classes and Recovery Behavior`.

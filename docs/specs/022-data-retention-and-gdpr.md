@@ -295,7 +295,7 @@ In V1, before the automated `gdpr.*` endpoint ships (Plan-022 defers it to V1.1)
 
 **Scope.** Every `session_events` row with a non-NULL `pii_payload` authored by or containing the participant's PII. The SQL selector uses the durable participant-id stamp on the event row, not the ciphertext (which is opaque). Membership-level references in other participants' events remain, but their `pii_payload` columns — if any — are encrypted under a different participant's key and are not affected.
 
-**Audit artifact.** One `event.shredded` event emitted per Spec-006 §Event Maintenance carrying `{participantId, affectedSessionIds[], piiPayloadsCleared, shredReason}`. The event's own payload contains no PII; it is retained indefinitely.
+**Audit artifact.** One `event.shredded` event emitted per `Spec-006 §Event Maintenance (event_maintenance)` carrying `{participantId, affectedSessionIds[], piiPayloadsCleared, shredReason}`. The event's own payload contains no PII; it is retained indefinitely.
 
 ### Path 2 — Postgres PII rows (hard DELETE)
 

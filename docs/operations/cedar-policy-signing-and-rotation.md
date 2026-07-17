@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Sign, distribute, verify, and rotate the operator-signed artifacts that underpin Cedar approval policy evaluation: the daemon image plus the build-embedded compiled Cedar policy set it carries (V1 — the policy set carries its own detached signature under the daemon's pinned operator signing algorithm (Ed25519 by default, ECDSA P-256 compliance fallback per ADR-012 §Signing Algorithm), verified on every daemon start before any `PermissionCheck` is served, per the ADR-012 2026-07-02 amendment) and the runtime Cedar policy bundle (V1.1+). Cover the four operational scenarios: signing a new bundle, diagnosing a daemon that refuses to enforce approvals because of signature failure, rotating the operator signing key, and responding to a suspected compromise of the operator signing key.
+Sign, distribute, verify, and rotate the operator-signed artifacts that underpin Cedar approval policy evaluation: the daemon image plus the build-embedded compiled Cedar policy set it carries (V1 — the policy set carries its own detached signature under the daemon's pinned operator signing algorithm (Ed25519 by default, ECDSA P-256 compliance fallback per `ADR-012 §Signing Algorithm`), verified on every daemon start before any `PermissionCheck` is served, per the ADR-012 2026-07-02 amendment) and the runtime Cedar policy bundle (V1.1+). Cover the four operational scenarios: signing a new bundle, diagnosing a daemon that refuses to enforce approvals because of signature failure, rotating the operator signing key, and responding to a suspected compromise of the operator signing key.
 
 ## Symptoms
 
