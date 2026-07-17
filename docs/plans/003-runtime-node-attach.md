@@ -379,7 +379,7 @@ Plan-003 implementation lands as a sequence of small PRs at Tier 3. Phases 1–4
 
 ### Phase 3 — Control-Plane Attach + Heartbeat Services + Version-Floor Enforcement
 
-**Precondition:** Phase 2 merged AND [BL-140](../archive/backlog-archive.md) closed. Phase 2 is satisfied by PR #137. BL-140 carries the `Spec-003 §Default-Behavior` heartbeat degraded→offline threshold + sweep-owner amendment that T3.6/P6 below depend on; with it closed, [Spec-003 §Default Behavior](../specs/003-runtime-node-attach.md#default-behavior) specify `degraded` when the latest heartbeat is older than `30s` and `offline` when older than `60s` under a control-plane staleness sweep, so T3.6 no longer defers those values. The machine-readable `bl_closed` gate below enforces this ordering; the lane is tracked at [cross-plan-dependencies.md §6 NS-32](../architecture/cross-plan-dependencies.md#6-active-next-steps-dag).
+**Precondition:** Phase 2 merged AND [BL-140](../archive/backlog-archive.md) closed. Phase 2 is satisfied by PR #137. BL-140 carries the `Spec-003 §Default Behavior` heartbeat degraded→offline threshold + sweep-owner amendment that T3.6/P6 below depend on; with it closed, [Spec-003 §Default Behavior](../specs/003-runtime-node-attach.md#default-behavior) specify `degraded` when the latest heartbeat is older than `30s` and `offline` when older than `60s` under a control-plane staleness sweep, so T3.6 no longer defers those values. The machine-readable `bl_closed` gate below enforces this ordering; the lane is tracked at [cross-plan-dependencies.md §6 NS-32](../architecture/cross-plan-dependencies.md#6-active-next-steps-dag).
 
 ```yaml
 preconditions:
