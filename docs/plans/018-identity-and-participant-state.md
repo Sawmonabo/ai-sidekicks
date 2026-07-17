@@ -192,7 +192,7 @@ Highest-activity presence reduction, participant projection assembly, and stable
 - **T3.2 — Per-device presence read accessor on the substrate.**
   - Files: `packages/control-plane/src/presence/presence-register-service.ts` (EXTEND — shipped via Plan-002 NS-26; fix-in-place)
   - **Spec coverage:** Spec-018 §Required Behavior, Spec-018 §Default Behavior, Spec-018 §Interfaces And Contracts (enabling step for all three)
-  - **Verifies invariant:** I-018-4 (participates in); I-002-3 (upholds — presence ephemeral — accessor reads the in-memory `#sessions` snapshot, persists nothing)
+  - **Verifies invariant:** I-018-4 (participates in; upholds Plan-002's I-002-3 — presence ephemeral: accessor reads the in-memory `#sessions` snapshot, persists nothing)
   - Consumes: private `#sessions` per-device snapshots (author-internal exposure; no new table — F-018-3-02)
   - Note: disposition = fix-in-place (D-018-3, ratified); accessor added to the live file.
 - **T3.3 — Participant projection assembly.**
@@ -245,7 +245,7 @@ Typed SDK (daemon-as-gateway), renderer subtree, CLI commands, and the service-l
 - **T4.5 — `RelayConnectionTokenIssuer` (relay connection-token custody, Plan-018-owned).**
   - Files: `packages/control-plane/src/identity/relay-connection-token-issuer.ts` (CREATE) + `packages/control-plane/src/identity/__tests__/relay-connection-token-issuer.test.ts` (CREATE — `FixtureRelayConnectionTokenIssuer` test double)
   - **Spec coverage:** Spec-008 §Relay Negotiation (300s-TTL `RelayNegotiationResponse.connectionToken`), Spec-008 §Relay Negotiation (connection-token issuance)
-  - **Verifies invariant:** I-008-5 (upholds Plan-008 invariant — relay is zero-knowledge — the PASETO v4.public Ed25519 **sign** executes only inside this Plan-018-owned issuer, never in the verify-only broker); none (custody-stays-with-producer — OD-008r-3 / CP-018-10)
+  - **Verifies invariant:** none (custody-stays-with-producer — OD-008r-3 / CP-018-10; upholds Plan-008's I-008-5 — relay is zero-knowledge: the PASETO v4.public Ed25519 **sign** executes only inside this Plan-018-owned issuer, never in the verify-only broker)
   - Consumes: `@ai-sidekicks/crypto-paseto` v4.public sign primitives (Plan-025 Tier 1 Partial, shipped); the `connectionToken` claim shape (Spec-008 §Relay Negotiation)
   - Provides: `RelayConnectionTokenIssuer` + `FixtureRelayConnectionTokenIssuer` — constructor-injected into Plan-008 R3's `RelayNegotiation` endpoint (T-008r-3-6), which authors no sign (reciprocal of CP-008-4 surface (c) / CP-018-10)
   - Behavior: mint the connection token carrying the [Spec-008 §Relay Negotiation](../specs/008-control-plane-relay-and-session-join.md#relay-negotiation) claim shape — `iss` / `sub` (the authenticated `ParticipantId`) / `aud = relay-connect` / `exp` (300s) / `sessionId` / `nodeId` — and bind the negotiated `sessionId` as the PASETO v4 **implicit assertion** at sign (via the `signV4Public` implicit-assertion parameter, `@ai-sidekicks/crypto-paseto`), so a token minted for one session cannot verify on another — the mint half of the R3 WSS verifier gate (Plan-008 T-008r-3-5). Test: the minted token carries every claim and verifies under the matching-`sessionId` implicit assertion but **fails** under a different `sessionId` (cross-channel-mint refusal).

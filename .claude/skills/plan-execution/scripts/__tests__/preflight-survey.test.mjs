@@ -20,7 +20,13 @@ import { join, resolve, dirname } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
-import { surveyPhase, surveyCorpus, formatSurvey } from "../preflight.mjs";
+import {
+  surveyPhase,
+  surveyCorpus,
+  formatSurvey,
+  classifyPhaseMarkers,
+  countCites,
+} from "../preflight.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, "..", "..", "..", "..", "..");
@@ -311,6 +317,132 @@ test("surveyCorpus: a phase without cite markers is skipped, not a cite anomaly"
     const survey = surveyCorpus({ repoRoot: tmp });
     assert.deepEqual(survey.citeAnomalies, []);
     assert.match(formatSurvey(survey), /cite anomalies: none/);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+// ---------- W3/W4 marker-coverage classes (partial + legacy-unbold) ----------
+//
+// classifyPhaseMarkers is line-anchored, so it separates real field markers
+// (bold `**Spec coverage:**` and unbold/inline `; Spec coverage:`) from prose
+// that merely mentions the words — the miss that makes the dispatch gate's bare
+// countCites read markers where there are none. Both classes land in the
+// warn-only citeAnomalies channel, never in the two-sided `anomalies`.
+
+test("classifyPhaseMarkers: separates bold, unbold, and prose (line-anchored)", () => {
+  const bold =
+    "  - **Spec coverage:** Spec-005 §Required Behavior\n  - **Verifies invariant:** I-005-1\n";
+  assert.deepEqual(classifyPhaseMarkers(bold), {
+    boldSpec: 1,
+    boldInvariant: 1,
+    unboldSpec: 0,
+    unboldInvariant: 0,
+  });
+
+  const inline = "- **T-1** (Files: a.ts; Verifies invariant: none; Spec coverage: Spec-5 §X)\n";
+  assert.deepEqual(classifyPhaseMarkers(inline), {
+    boldSpec: 0,
+    boldInvariant: 0,
+    unboldSpec: 1,
+    unboldInvariant: 1,
+  });
+
+  // Prose mentions carry no field colon: the bare-substring countCites the
+  // dispatch gate keys on is fooled (spec_coverage === 1), the line-anchored
+  // classifier is not — the W4 prose caution made executable.
+  const prose = "We improved Spec coverage and Verifies invariant discipline this quarter.\n";
+  assert.equal(countCites(prose).spec_coverage, 1);
+  assert.deepEqual(classifyPhaseMarkers(prose), {
+    boldSpec: 0,
+    boldInvariant: 0,
+    unboldSpec: 0,
+    unboldInvariant: 0,
+  });
+});
+
+const SPEC_ONLY_PHASE = `### Phase 1 — spec only
+
+#### Tasks
+
+- **T1.1 — one marker side**
+  - **Spec coverage:** Spec-005 §Required Behavior (probe)
+`;
+
+test("surveyCorpus: a partial-marker phase (Codex repro — spec present, invariant absent) is a [markers-partial] cite anomaly", () => {
+  const tmp = makeFixtureCorpus({ "062-partial.md": SPEC_ONLY_PHASE });
+  try {
+    const survey = surveyCorpus({ repoRoot: tmp });
+    assert.deepEqual(survey.anomalies, []); // two-sided screen stays clean
+    assert.equal(survey.citeAnomalies.length, 1);
+    assert.match(
+      survey.citeAnomalies[0],
+      /062-partial\.md Phase 1 \[markers-partial\] has a Spec coverage marker but no Verifies invariant marker/,
+    );
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+const INVARIANT_ONLY_PHASE = `### Phase 1 — invariant only
+
+#### Tasks
+
+- **T1.1 — substrate scaffold**
+  - **Verifies invariant:** none (substrate)
+`;
+
+test("surveyCorpus: the reverse partial (invariant present, spec absent — the substrate shape) is also [markers-partial]", () => {
+  const tmp = makeFixtureCorpus({ "063-partial-rev.md": INVARIANT_ONLY_PHASE });
+  try {
+    const survey = surveyCorpus({ repoRoot: tmp });
+    assert.deepEqual(survey.anomalies, []);
+    assert.equal(survey.citeAnomalies.length, 1);
+    assert.match(
+      survey.citeAnomalies[0],
+      /063-partial-rev\.md Phase 1 \[markers-partial\] has a Verifies invariant marker but no Spec coverage marker/,
+    );
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+const LEGACY_UNBOLD_PHASE = `### Phase 1 — legacy inline
+
+#### Tasks
+
+- **T-050p-1-1** (Files: \`packages/a/x.ts\`; Verifies invariant: none; Spec coverage: Spec-050 §Required Behavior) — inline unbold markers the bold extractor skips.
+`;
+
+test("surveyCorpus: an inline/unbold-marker phase is a [legacy-unbold-marker] cite anomaly (the Plan-007/008 false-green class)", () => {
+  const tmp = makeFixtureCorpus({ "064-legacy.md": LEGACY_UNBOLD_PHASE });
+  try {
+    const survey = surveyCorpus({ repoRoot: tmp });
+    assert.deepEqual(survey.anomalies, []); // the task-row oracle still reconciles
+    assert.equal(survey.citeAnomalies.length, 1);
+    assert.match(
+      survey.citeAnomalies[0],
+      /064-legacy\.md Phase 1 \[legacy-unbold-marker\] 2 unbold field marker\(s\)/,
+    );
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("surveyCorpus: prose that merely mentions the marker words yields no cite anomaly (line-anchored negative control)", () => {
+  const prosePhase = `### Phase 1 — prose only
+
+#### Tasks
+
+- **T1.1 — real task** (Files: \`packages/a/x.ts\`)
+
+This phase materially improved Spec coverage and Verifies invariant discipline, but names no cite markers.
+`;
+  const tmp = makeFixtureCorpus({ "065-prose.md": prosePhase });
+  try {
+    const survey = surveyCorpus({ repoRoot: tmp });
+    assert.deepEqual(survey.anomalies, []);
+    assert.deepEqual(survey.citeAnomalies, []); // prose ≠ marker
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }

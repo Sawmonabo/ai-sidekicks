@@ -136,6 +136,35 @@ export function countCites(phaseSection) {
   };
 }
 
+// Survey-layer marker-shape classifier. The dispatch gate keys hasCiteMarkers
+// on countCites (a bare substring count) and MUST stay byte-identical, so this
+// finer classification lives only in --survey. It separates BOLD field markers
+// (`**Spec coverage:**` / `**Verifies invariant:**` — the only shape
+// extractCiteAnchors parses) from UNBOLD/inline field markers (the Plan-007/008
+// `- **T-…** (…; Verifies invariant: …; Spec coverage: …)` style the bold
+// extractor silently skips). Both alternatives are line-anchored to a field
+// position — a bullet head (`- Spec coverage:`) or an inline `;`/`(` delimiter
+// — so a prose sentence mentioning "Spec coverage" without a field colon is
+// never counted. Used by the survey to surface the partial-marker (one side
+// present) and legacy-unbold (marker the bold extractor can't verify) classes.
+export function classifyPhaseMarkers(phaseSection) {
+  const counts = { boldSpec: 0, boldInvariant: 0, unboldSpec: 0, unboldInvariant: 0 };
+  const boldMarker = /\*\*(Spec coverage|Verifies invariant):\*\*/g;
+  for (const match of phaseSection.matchAll(boldMarker)) {
+    if (match[1] === "Spec coverage") counts.boldSpec += 1;
+    else counts.boldInvariant += 1;
+  }
+  // Field position, not wrapped in `**`: a bullet head (`^  - Spec coverage:`)
+  // or an inline `;`/`(` delimiter (`; Verifies invariant:`). The trailing
+  // `(?!\*)` keeps the bold form above from being double-counted here.
+  const unboldMarker = /(?:^\s*[-*]+\s+|[;(]\s*)(Spec coverage|Verifies invariant):(?!\*)/gm;
+  for (const match of phaseSection.matchAll(unboldMarker)) {
+    if (match[1] === "Spec coverage") counts.unboldSpec += 1;
+    else counts.unboldInvariant += 1;
+  }
+  return counts;
+}
+
 export function extractAuditCheckbox(planSource) {
   return /^- \[x\] \*\*Plan-readiness audit complete/m.test(planSource);
 }
@@ -2956,6 +2985,35 @@ export function surveyCorpus({ repoRoot = REPO_ROOT } = {}) {
           citeAnomalies.push(`${name} Phase ${label} [${finding.kind}] ${where}: ${finding.raw}`);
         }
       }
+      // W3/W4 marker-coverage screen (survey-only; the dispatch gate above is
+      // byte-identical). classifyPhaseMarkers is line-anchored, so a narrative
+      // "Spec coverage" prose mention trips neither check. Skipped when the gate
+      // threw (that phase already carries a [cite-check-threw] anomaly).
+      if (citeResult) {
+        const markers = classifyPhaseMarkers(section);
+        const realSpec = markers.boldSpec + markers.unboldSpec;
+        const realInvariant = markers.boldInvariant + markers.unboldInvariant;
+        // W4 legacy-unbold: inline/unbold field markers are invisible to the
+        // bold cite extractor, so their anchors are never verified — a
+        // false-green audit (the Plan-007/008 inline style). countCites can read
+        // > 0 and the extractor still parse nothing.
+        const unboldMarkers = markers.unboldSpec + markers.unboldInvariant;
+        if (unboldMarkers > 0) {
+          citeAnomalies.push(
+            `${name} Phase ${label} [legacy-unbold-marker] ${unboldMarkers} unbold field marker(s) the bold cite extractor does not parse (bold present: ${markers.boldSpec} Spec + ${markers.boldInvariant} invariant)`,
+          );
+        }
+        // W3 partial-marker: exactly one field-marker side present is a partial
+        // audit output (the other side silently dropped). Both sides zero is a
+        // genuine audit-not-run skip; both present is a complete pair.
+        if (realSpec > 0 !== realInvariant > 0) {
+          const present = realSpec > 0 ? "Spec coverage" : "Verifies invariant";
+          const missing = realSpec > 0 ? "Verifies invariant" : "Spec coverage";
+          citeAnomalies.push(
+            `${name} Phase ${label} [markers-partial] has a ${present} marker but no ${missing} marker`,
+          );
+        }
+      }
     }
     reportLines.push(`${name}: ${allPhaseLabels.length} phase(s) — ${phaseSummaries.join(" ")}`);
   }
@@ -3209,13 +3267,13 @@ async function main() {
     //
     // FLIP CONDITION (warn-only → armed): the docs-corpus CI step runs plain
     // `--survey` today because the live corpus still carries pre-existing cite
-    // debt (~91 all-kinds findings across 002/003/004/007/008/021/024 as of
-    // 2026-07-17, dominated by the 003/004 stale-line re-derivation tracked as
-    // its own cite-audit). Arm the gate — swap the CI step to
-    // `--survey --enforce-cites`, fold citeAnomalies into `anomalies`, and update
-    // the real-corpus guards in preflight-survey.test.mjs (REAL-corpus
-    // zero-anomaly + `--survey` exit-0) — only once that audit lands corpus
-    // citeAnomalies at 0.
+    // debt (~107 all-kinds findings as of 2026-07-17: the 003/004 stale-line
+    // re-derivation tracked as its own cite-audit, plus the Plan-007/008/023/025
+    // legacy-unbold and partial-marker classes this survey now surfaces). Arm the
+    // gate — swap the CI step to `--survey --enforce-cites`, fold citeAnomalies
+    // into `anomalies`, and update the real-corpus guards in
+    // preflight-survey.test.mjs (REAL-corpus zero-anomaly + `--survey` exit-0) —
+    // only once that debt lands corpus citeAnomalies at 0.
     const enforceCites = args.includes("--enforce-cites");
     const blockingCount =
       survey.anomalies.length + (enforceCites ? survey.citeAnomalies.length : 0);
