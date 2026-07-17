@@ -97,16 +97,16 @@ CREATE TABLE queue_items (
 CREATE INDEX idx_queue_items_session_state ON queue_items(session_id, state);
 CREATE INDEX idx_queue_items_channel ON queue_items(channel_id) WHERE channel_id IS NOT NULL;
 
--- Owner: Plan-004 | Extended by: Spec-005 campaign B3 (client_idempotency_key intervention dedupe)
+-- Owner: Plan-004 | Extended by: Spec-005 campaign B3 (client_idempotency_key intervention dedupe); Spec-004 campaign B2 (rollback type — targetPosition rides the payload JSON, no new column)
 CREATE TABLE interventions (
   id                     TEXT PRIMARY KEY,
   target_run_id          TEXT NOT NULL,
   type                   TEXT NOT NULL
-                         CHECK(type IN ('steer', 'interrupt', 'cancel')),
+                         CHECK(type IN ('steer', 'interrupt', 'cancel', 'rollback')),
   state                  TEXT NOT NULL DEFAULT 'requested'
                          CHECK(state IN ('requested', 'accepted', 'applied', 'rejected', 'degraded', 'expired')),
   payload                TEXT NOT NULL DEFAULT '{}', -- JSON: type-specific fields
-  expected_run_version   INTEGER NOT NULL,           -- MANDATORY fail-closed comparand (Spec-004:63 / Plan-004 D-004-2)
+  expected_run_version   INTEGER NOT NULL,           -- MANDATORY fail-closed comparand (Spec-004 §Interfaces And Contracts / Plan-004 D-004-2)
   client_idempotency_key TEXT NOT NULL,              -- MANDATORY requester-generated UUID (participant client or daemon system-origination); replay-or-conflict intervention dedupe (Spec-005 §Required Behavior, campaign B3)
   result                 TEXT,                       -- JSON: outcome details
   initiator_id           TEXT,                       -- participant or system
@@ -434,7 +434,7 @@ CREATE UNIQUE INDEX idx_branch_contexts_worktree_workspace ON branch_contexts(wo
 -- Owner: Plan-010 (Tier-6 audit, D-010-16)
 -- Per-run execution binding (Spec-010 §State And Data Implications: execution mode as run setup data):
 -- which workspace/mode/root a repo-bound run executes against. run_id is event-sourced (runs live in
--- the event log, not a table) — PRIMARY KEY without FK. released_at stamps run-terminal release.
+-- the event log, not a table) — PRIMARY KEY without FK. released_at stamps run-terminal release; a terminal-source rollback clears it atomically with the run's re-open, and a rollback composite ending without a confirmed rewind restores it (campaign B2 — Spec-004 §Required Behavior; the campaign's Plan-010 bundle owns the implementing task).
 CREATE TABLE run_execution_contexts (
   run_id             TEXT PRIMARY KEY,
   session_id         TEXT NOT NULL,                  -- event-sourced session id (no FK, matching session_id columns elsewhere)

@@ -29,7 +29,7 @@ This plan covers queue persistence, intervention records, run-state transitions,
 
 ## Preconditions
 
-- [x] Paired spec is approved
+- [ ] Paired spec is approved. — **re-opened 2026-07-13:** Spec-004 is temporarily `review` while the campaign B2 amendment (post-interrupt late-event absorption + the `rollback` intervention type) sits in its review window, so this precondition is not currently satisfied and the box is unchecked; per [AGENTS.md](../../AGENTS.md) doc-first discipline that blocks **all** Plan-004 code dispatch (this box is the load-bearing spec-side gate, and the dispatch preflight enforces it mechanically — Gate 7's plan-governance precondition scan halts dispatch while the box is unchecked). The campaign plan's Task 28 batch re-promotion restores `approved` after the W1.5 spec gate and re-checks this box.
 - [x] Required ADRs are accepted
 - [x] Blocking open questions are resolved or explicitly deferred
 - [x] Plan-implementation-readiness audit passed (Tier 5 / NS-17)
@@ -51,16 +51,16 @@ Target paths below assume the canonical implementation topology defined in [Cont
 | --- | --- | --- |
 | **I-004-1** | Queue items are persisted by the runtime before admission; queue creation fails closed (rejects) when persistence is unavailable rather than admitting un-durable work. | T1.4, T2.1 |
 | **I-004-2** | Every intervention outcome (`applied` / `degraded` / `rejected` / `expired`) is durably recorded with a daemon-owned receipt on every path. | T1.4, T2.6, T2.7 |
-| **I-004-3** | Request:dispatch:record cardinality is 1:1:1 — one `applyIntervention` call produces exactly one driver dispatch and exactly one durable record. | T2.4 |
+| **I-004-3** | Request:dispatch:record cardinality is 1:1:1 — one `applyIntervention` call produces exactly one driver dispatch and exactly one durable record. **Amended (campaign B2):** the `rollback` composite from `running` is the sole dispatch-axis exception — one intervention, one durable record, but the atomic application makes two driver-facing calls (the internal pause's interrupt, then the `rollbackTo` conversation leg — [Spec-004 §Required Behavior](../specs/004-queue-steer-pause-resume.md#required-behavior)); B9 reconciles this plan's rollback tasks. | T2.4 |
 | **I-004-4** | `target_run_id` is stable across `waiting` / `blocked` transitions — an intervention never silently retargets to a different run. | T1.4, T1.7, T3.3 |
-| **I-004-5** | Queue admission is FIFO by `created_at ASC`; queue priority is excluded from admission ordering (Spec-004:124). | T2.2 |
-| **I-004-6** | Run-state and queue-item transitions are monotonic — no backward transitions; terminal states are absorbing. | T2.3, T3.4, T3.5, T1.6 |
-| **I-004-7** | Stale-replay version guard: a run-mutating client command — an intervention, `pause`, or `resume` — whose `expectedRunVersion` does **not equal** the current run version is rejected and applies nothing (an intervention transitions `requested → expired`; `pause` / `resume` reject the request with the run left untouched). **Any** mismatch fails closed — stale (older) _or_ anomalous-future — per Spec-004:64 ("a version guard mismatch produces `expired`"); a `<`-only guard would silently admit a future comparand no honest client can hold. **The version comparand is the any-run-progression counter (D-004-1); the guard authors the comparison _behavior_ and the version _derivation_ is fixed by the ratified D-004-1 semantics. The comparand is mandatory (D-004-2, covering interventions + pause/resume) — an absent `expectedRunVersion` is rejected, not skipped.** | T2.8, T3.4, T3.5 (read T1.7) |
+| **I-004-5** | Queue admission is FIFO by `created_at ASC`; queue priority is excluded from admission ordering (Spec-004:142). | T2.2 |
+| **I-004-6** | Run-state and queue-item transitions are monotonic — no backward transitions; terminal states are absorbing — **absent rollback** (campaign B2: the `rollback` intervention is the sole backward/terminal-exit path, [Run State Machine §Rollback Transitions](../domain/run-state-machine.md#rollback-transitions-campaign-b2); the campaign's Plan-004 bundle — B9 — reconciles this plan's rollback tasks). | T2.3, T3.4, T3.5, T1.6 |
+| **I-004-7** | Stale-replay version guard: a run-mutating client command — an intervention, `pause`, or `resume` — whose `expectedRunVersion` does **not equal** the current run version is rejected and applies nothing (an intervention transitions `requested → expired`; `pause` / `resume` reject the request with the run left untouched). **Any** mismatch fails closed — stale (older) _or_ anomalous-future — per Spec-004:68 ("a version guard mismatch produces `expired`"); a `<`-only guard would silently admit a future comparand no honest client can hold. **The version comparand is the any-run-progression counter (D-004-1); the guard authors the comparison _behavior_ and the version _derivation_ is fixed by the ratified D-004-1 semantics. The comparand is mandatory (D-004-2, covering interventions + pause/resume) — an absent `expectedRunVersion` is rejected, not skipped.** | T2.8, T3.4, T3.5 (read T1.7) |
 | **I-004-8** | Intervention authorization uses the verified PASETO `sub` as the Cedar principal; any client-supplied `initiatorId` is informational only and never authoritative. | T2.5 |
 | **I-004-9** | Runtime-truth: the daemon run-state stream is canonical; desktop run-controls render an optimistic projection that is reconciled to the daemon truth on every update. | T4.1, T4.3, T4.4 |
-| **I-004-10** | Capability-gate: only `steer` is gated on the driver steer capability. `pause` / `resume` / `interrupt` / `cancel` are orchestration-layer (daemon-composed) and are **never** capability-gated. | T4.2 |
+| **I-004-10** | Capability-gate: only `steer` is gated on the driver steer capability. `pause` / `resume` / `interrupt` / `cancel` are orchestration-layer (daemon-composed) and are **never** capability-gated. **Amended (campaign B2):** `rollback` is the second capability-gated intervention — statically refused (`driver.capability_unsupported`, no orchestration fallback) when the driver does not declare the `rollback` flag ([Spec-004 §Interfaces And Contracts](../specs/004-queue-steer-pause-resume.md#interfaces-and-contracts)); B9 reconciles this plan's rollback tasks. | T4.2 |
 | **I-004-11** | Bridge-only: the `run-controls/` renderer subtree reaches daemon / control-plane state exclusively via `window.sidekicks`; it never imports `packages/runtime-daemon` or `packages/control-plane` directly. | T4.5 (= CP-004-5) |
-| **I-004-12** | Setup-gate: a run transitions `starting -> running` only after every registered `RunSetupGate.assertRunReady` resolves; a gate refusal parks the run in `starting` (never a silent skip, never `running`), and registered `onRunTerminal` hooks fire exactly once at the run's terminal transition. (Tier-6 audit.) | T3.10 |
+| **I-004-12** | Setup-gate: a run transitions `starting -> running` only after every registered `RunSetupGate.assertRunReady` resolves; a gate refusal parks the run in `starting` (never a silent skip, never `running`), and registered `onRunTerminal` hooks fire exactly once per terminal transition — once per `runVersion` epoch: a campaign-B2 rollback out of a terminal state re-opens the run, and a later terminal fires them again ([Run State Machine §Rollback Transitions](../domain/run-state-machine.md#rollback-transitions-campaign-b2); B9 reconciles). (Tier-6 audit.) | T3.10 |
 
 ## Cross-Plan Obligations
 
@@ -82,8 +82,8 @@ Target paths below assume the canonical implementation topology defined in [Cont
 The Tier-5 plan-readiness audit (NS-17) surfaced three open decisions; all three were ratified at the user-review pause and are folded here as the plan's design of record. The cross-cutting corpus amendments they entail (Spec-004 / Spec-006 version-derivation + emission; `api-payload-contracts.md §Method-Name Registry`; `error-contracts.md`) are executed at swap alongside this `approved → review` flip.
 
 - **D-004-1 (was F-004-2-10) — `version` = any-run-progression counter.** The `expectedRunVersion` stale-replay guard (I-004-7 / T2.8) compares against a run `version` derived as an **any-run-progression counter** (reading (b)): it increments on every run progression — applied interventions included — not only on `run.*` state-machine transitions (reading (a)). **Rationale (the hardened call):** reading (a) fails to catch two steers racing on a still-`running` run (zero new `run.*` events → the second stale steer passes undetected); reading (b) closes that replay window. Plan-004 authors T1.7's accessor _shape_ and T2.8's guard _behavior_; the `version` _derivation_ follows this ratified semantics. Entails a Spec-004 / Spec-006 amendment defining the `version` field on the `run.*` payload + its increment/emission point (executed at swap).
-- **D-004-2 (was F-004-2-06) — `expectedRunVersion` is mandatory (fail-closed).** The comparand is **required** on every intervention request (Spec-004:63 mandatory reading); the absent-comparand case is **rejected**, not applied. An optional comparand would let a caller bypass the stale-replay guard by omitting the field — the hardened reading fails closed. T2.8 authors the present-comparand guard; the absent case rejects. Entails a Spec-004 clarification (executed at swap).
-  - **Scope extension (Tier-5 audit) — the mandatory comparand binds `run.pause` / `run.resume`, not only interventions.** The ratified `RunPauseRequest` / `RunResumeRequest` contracts (`api-payload-contracts.md:1391-1398`) carry the **same mandatory** `expectedRunVersion` guard, with `RunControlAck` echoing the advanced `runVersion` so the caller threads the fresh comparand forward. This **extends D-004-2 beyond its original intervention-only scope**: a stale `pause` replayed against a run that has since progressed is the identical replay hazard the guard exists to close, so the comparand fails closed the same way (T3.4 / T3.5 apply the T2.8 guard before composing). `pause` / `resume` remain **orchestration-layer run-control verbs, not interventions** — they hold no `InterventionType` (`steer | interrupt | cancel`) membership and are not serialized through the intervention queue (ADR-011) — so this is a deliberate cross-cutting extension of the mandatory-comparand obligation, recorded here and reflected in the `api-payload-contracts.md` run-control comment at swap.
+- **D-004-2 (was F-004-2-06) — `expectedRunVersion` is mandatory (fail-closed).** The comparand is **required** on every intervention request (Spec-004:67 mandatory reading); the absent-comparand case is **rejected**, not applied. An optional comparand would let a caller bypass the stale-replay guard by omitting the field — the hardened reading fails closed. T2.8 authors the present-comparand guard; the absent case rejects. Entails a Spec-004 clarification (executed at swap).
+  - **Scope extension (Tier-5 audit) — the mandatory comparand binds `run.pause` / `run.resume`, not only interventions.** The ratified `RunPauseRequest` / `RunResumeRequest` contracts (`api-payload-contracts.md:1421-1428`) carry the **same mandatory** `expectedRunVersion` guard, with `RunControlAck` echoing the advanced `runVersion` so the caller threads the fresh comparand forward. This **extends D-004-2 beyond its original intervention-only scope**: a stale `pause` replayed against a run that has since progressed is the identical replay hazard the guard exists to close, so the comparand fails closed the same way (T3.4 / T3.5 apply the T2.8 guard before composing). `pause` / `resume` remain **orchestration-layer run-control verbs, not interventions** — they hold no `InterventionType` (`steer | interrupt | cancel | rollback`, campaign B2) membership and are not serialized through the intervention queue (ADR-011) — so this is a deliberate cross-cutting extension of the mandatory-comparand obligation, recorded here and reflected in the `api-payload-contracts.md` run-control comment at swap.
 - **D-004-3 (was F-004-4-04) — the eight `run.*` method strings are ratified.** `run.queueList` / `run.queueCreate` / `run.queueCancel` / `run.intervene` / `run.pause` / `run.resume` / `run.subscribeState` / `run.subscribeQueue` (CP-004-4) are the wire contract, registered in `api-payload-contracts.md §Method-Name Registry` at swap. Reciprocal `provides` is recorded on [Plan-007](./007-local-ipc-and-daemon-control.md) (the `run.*` namespace owner) in the cross-plan dependency map.
 
 ## Data And Storage Changes
@@ -120,11 +120,11 @@ The Tier-5 plan-readiness audit (NS-17) surfaced three open decisions; all three
   - **Spec coverage:** Spec-004 §Required Behavior — queue list/create/cancel
   - **Verifies invariant:** I-004-1
   - **Consumes:** `QueueItemState` enum (queued / admitted / superseded / canceled / expired) + branded `QueueItemId` / `RunId` / `SessionId` (in-package)
-- **T1.2 — `InterventionRequestPayload` discriminated union** (`steer` | `interrupt` | `cancel`)
+- **T1.2 — `InterventionRequestPayload` discriminated union** (`steer` | `interrupt` | `cancel` — the shipped pre-B9 shape; the `rollback` arm lands via the campaign's Plan-004 bundle behind the api-payload-contracts code-mirror gate, campaign B2)
   - **Files:** `packages/contracts/src/runControl.ts` (EXTEND)
   - **Spec coverage:** Spec-004 §Required Behavior — intervention request
   - **Verifies invariant:** I-004-4
-  - **Consumes:** `RunId`, `InterventionType` (`'steer' | 'interrupt' | 'cancel'`)
+  - **Consumes:** `RunId`, `InterventionType` (`'steer' | 'interrupt' | 'cancel'` — the shipped pre-B9 union; `'rollback'` joins via the campaign's Plan-005/Plan-004 bundles, campaign B2)
 - **T1.3 — `InterventionRequestResponse` (6 states) + `RunStateChangeEvent` (9 states)**
   - **Files:** `packages/contracts/src/runControl.ts` (EXTEND)
   - **Spec coverage:** Spec-004 §Required Behavior — intervention result + run-state event
@@ -144,7 +144,7 @@ The Tier-5 plan-readiness audit (NS-17) surfaced three open decisions; all three
   - **Files:** `packages/contracts/src/runControl.ts` (EXTEND)
   - **Spec coverage:** Spec-004 §Required Behavior — pause/resume as orchestration triggers
   - **Verifies invariant:** I-004-6, I-004-7
-  - **Consumes:** `RunId`, `RunState`. Authors the two request types `RunPauseRequest { targetRunId: RunId; expectedRunVersion: number }` and `RunResumeRequest { targetRunId: RunId; expectedRunVersion: number }` plus the shared `RunControlAck { runId: RunId; currentState: RunState; runVersion: number }`, matching `api-payload-contracts.md:1391-1405` byte-for-byte. Authored as **separate request types** (not an `InterventionType` member) because `pause` / `resume` are absent from `InterventionType` (`steer | interrupt | cancel`) by design (orchestration-layer, ADR-011) — the client needs a typed trigger distinct from `applyIntervention`. The **mandatory** `expectedRunVersion` carries the stale-replay guard (I-004-7; D-004-2 as extended to pause/resume).
+  - **Consumes:** `RunId`, `RunState`. Authors the two request types `RunPauseRequest { targetRunId: RunId; expectedRunVersion: number }` and `RunResumeRequest { targetRunId: RunId; expectedRunVersion: number }` plus the shared `RunControlAck { runId: RunId; currentState: RunState; runVersion: number }`, matching `api-payload-contracts.md:1421-1435` byte-for-byte. Authored as **separate request types** (not an `InterventionType` member) because `pause` / `resume` are absent from `InterventionType` (`steer | interrupt | cancel | rollback`, campaign B2) by design (orchestration-layer, ADR-011) — the client needs a typed trigger distinct from `applyIntervention`. The **mandatory** `expectedRunVersion` carries the stale-replay guard (I-004-7; D-004-2 as extended to pause/resume).
 - **T1.7 — Run-read accessor `getRun(runId): { version, sessionId, state }`**
   - **Files:** `packages/contracts/src/runControl.ts` (accessor contract, CREATE) + `packages/runtime-daemon/src/session/run-engine.ts` (thin read; engine populates run state in Phase 3)
   - **Spec coverage:** Spec-006:186 (`run.*` event payload `{ sessionId, runId, previousState, newState }`) — run state is event-sourced; no standalone `runs` table (ADR-001 / ADR-017)
@@ -166,7 +166,7 @@ The Tier-5 plan-readiness audit (NS-17) surfaced three open decisions; all three
   - **Consumes:** QueueItem contracts (T1.1); error code `queue.persistence_unavailable` (F-004-2-07 — register in `error-contracts.md`)
 - **T2.2 (Q2) — FIFO admission (`created_at ASC`; priority excluded)**
   - **Files:** `packages/runtime-daemon/src/queue/queue-store.ts` (EXTEND)
-  - **Spec coverage:** Spec-004:124 — FIFO admission; priority excluded from ordering
+  - **Spec coverage:** Spec-004:142 — FIFO admission; priority excluded from ordering
   - **Verifies invariant:** I-004-5
   - **Consumes:** QueueItem store (T2.1)
 - **T2.3 (Q3) — Pre-admission cancellation + supersede / expire transitions**
@@ -196,10 +196,10 @@ The Tier-5 plan-readiness audit (NS-17) surfaced three open decisions; all three
   - **Consumes:** driver capability flags (Plan-005 — CP-004-1)
 - **T2.8 (I5) — Stale-replay version guard + per-outcome event**
   - **Files:** `packages/runtime-daemon/src/interventions/intervention-service.ts` (EXTEND)
-  - **Spec coverage:** Spec-004:63 (`expectedRunVersion` stale-replay guard)
+  - **Spec coverage:** Spec-004:67 (`expectedRunVersion` stale-replay guard)
   - **Verifies invariant:** I-004-7
   - **Consumes:** T1.7 `getRun` accessor (reads current run version)
-  - **Behavior (authored):** read current run version via `getRun(targetRunId)`; if `expectedRunVersion !== current` → transition `requested → expired`, apply nothing, and emit an `intervention.*` event `{ sessionId, interventionId, targetRunId, type, state, actor }`. The guard rejects **any** mismatch — stale (older) _or_ anomalous-future — per Spec-004:64 ("a version guard mismatch produces `expired`"); a `<`-only comparison would silently admit a future comparand no honest client can hold. **Comparand evaluated against the any-run-progression version semantics (D-004-1).** The absent-`expectedRunVersion` case is rejected (fail-closed) per D-004-2 (mandatory).
+  - **Behavior (authored):** read current run version via `getRun(targetRunId)`; if `expectedRunVersion !== current` → transition `requested → expired`, apply nothing, and emit an `intervention.*` event `{ sessionId, interventionId, targetRunId, type, state, actor }`. The guard rejects **any** mismatch — stale (older) _or_ anomalous-future — per Spec-004:68 ("a version guard mismatch produces `expired`"); a `<`-only comparison would silently admit a future comparand no honest client can hold. **Comparand evaluated against the any-run-progression version semantics (D-004-1).** The absent-`expectedRunVersion` case is rejected (fail-closed) per D-004-2 (mandatory).
 
 ### Phase 3 — Run-Engine Orchestration (Interrupt / Pause / Resume / Recover)
 
@@ -227,13 +227,13 @@ The Tier-5 plan-readiness audit (NS-17) surfaced three open decisions; all three
   - **Spec coverage:** Spec-004 §Pause (orchestration-layer) + ADR-011
   - **Verifies invariant:** I-004-6, I-004-7
   - **Consumes:** T1.7 `getRun` accessor (reads current run version)
-  - **Behavior (authored):** apply the **same** stale-replay version guard as T2.8 before composing the pause — read current run version via `getRun(RunPauseRequest.targetRunId)`; reject the request untouched if `RunPauseRequest.expectedRunVersion !== current` (Spec-004:64, mandatory per D-004-2 as extended to pause/resume); otherwise interrupt the active run, persist resumable state, enqueue the resume marker, and acknowledge via `RunControlAck { runId, currentState, runVersion }`.
+  - **Behavior (authored):** apply the **same** stale-replay version guard as T2.8 before composing the pause — read current run version via `getRun(RunPauseRequest.targetRunId)`; reject the request untouched if `RunPauseRequest.expectedRunVersion !== current` (Spec-004:68, mandatory per D-004-2 as extended to pause/resume); otherwise interrupt the active run, persist resumable state, enqueue the resume marker, and acknowledge via `RunControlAck { runId, currentState, runVersion }`.
 - **T3.5 (RESUME) — Resume orchestration** (re-admit the **same** run id from persisted state)
   - **Files:** `run-engine.ts` (EXTEND)
   - **Spec coverage:** Spec-004 §Resume
   - **Verifies invariant:** I-004-4, I-004-6, I-004-7
   - **Consumes:** T1.7 `getRun` accessor (reads current run version)
-  - **Behavior (authored):** apply the **same** stale-replay version guard as T2.8 before composing the resume — reject the request untouched if `RunResumeRequest.expectedRunVersion !== current` (Spec-004:64, mandatory per D-004-2 as extended to pause/resume); otherwise re-admit the **same** run id from persisted state and acknowledge via `RunControlAck { runId, currentState, runVersion }`.
+  - **Behavior (authored):** apply the **same** stale-replay version guard as T2.8 before composing the resume — reject the request untouched if `RunResumeRequest.expectedRunVersion !== current` (Spec-004:68, mandatory per D-004-2 as extended to pause/resume); otherwise re-admit the **same** run id from persisted state and acknowledge via `RunControlAck { runId, currentState, runVersion }`.
 - **T3.6 (RECOVER) — Deterministic restart recovery** (distinguish `failed` vs `interrupted` on daemon restart)
   - **Files:** `run-engine.ts` (EXTEND)
   - **Spec coverage:** Spec-004 §Recovery + Spec-006 replay
@@ -254,7 +254,7 @@ The Tier-5 plan-readiness audit (NS-17) surfaced three open decisions; all three
   - **Files:** `run-engine.ts` (EXTEND)
   - **Spec coverage:** Spec-010 §Fallback Behavior (blocked-in-setup parks the run in `starting`, interruptible) + run-state-machine.md `starting` rows (`starting -> running` fires only after gates pass; `starting -> interrupted` on user stop while parked)
   - **Verifies invariant:** I-004-12
-  - Note: `RunSetupGate` interface `{ assertRunReady(context): Promise<void>; onRunTerminal?(context): Promise<void> }` with an ordered gate array on the run-engine; context carries `{ runId, sessionId, queueItem }` (incl. the T1.1 `workspaceId?`). `queued -> starting` admits the run, then gates execute in registration order BEFORE `driver.startRun`; a gate throw parks the run in `starting` with the typed error surfaced (no `running` transition fires; interrupt/cancel per T3.1/T3.2 applies to parked runs). `onRunTerminal` hooks fire in reverse registration order when the run reaches any terminal state. Plan-004 ships the SEAM with zero registered gates — generic, no Plan-010 knowledge; Plan-010's execution-root gate registers at Tier 6 (Plan-010 D-010-16, reciprocal CP-010-9 — CP-004-8). Tests: gate registration order; gate-throw parks in `starting` with the typed error; zero-gate pass-through; reverse-order terminal hooks fire exactly once; interrupt-while-parked transitions to `interrupted`.
+  - Note: `RunSetupGate` interface `{ assertRunReady(context): Promise<void>; onRunTerminal?(context): Promise<void> }` with an ordered gate array on the run-engine; context carries `{ runId, sessionId, queueItem }` (incl. the T1.1 `workspaceId?`). `queued -> starting` admits the run, then gates execute in registration order BEFORE `driver.startRun`; a gate throw parks the run in `starting` with the typed error surfaced (no `running` transition fires; interrupt/cancel per T3.1/T3.2 applies to parked runs). `onRunTerminal` hooks fire in reverse registration order when the run reaches any terminal state. Plan-004 ships the SEAM with zero registered gates — generic, no Plan-010 knowledge; Plan-010's execution-root gate registers at Tier 6 (Plan-010 D-010-16, reciprocal CP-010-9 — CP-004-8). Tests: gate registration order; gate-throw parks in `starting` with the typed error; zero-gate pass-through; reverse-order terminal hooks fire exactly once (per `runVersion` epoch — campaign B2); interrupt-while-parked transitions to `interrupted`.
 
 > **Tier-6 reciprocal (CP-004-9, doc-only):** when Phase 3 executes, the run-engine also registers Plan-012's approval outcome listener (`registerApprovalOutcomeListener` — blocking/unblocking transitions per the CP-004-9 row) and calls `cancelPendingForRun(runId, cause)` from the same terminal path that fires `onRunTerminal` hooks, so pending approval requests settle as `approval.canceled` instead of dangling (Plan-012 A-6/A-10).
 
@@ -262,7 +262,7 @@ The Tier-5 plan-readiness audit (NS-17) surfaced three open decisions; all three
 
 ### Phase 4 — Desktop Run-Controls
 
-**Goal:** The client SDK + renderer run-controls subtree — optimistic projection reconciled to daemon truth, capability-gated steer only, bridge-only.
+**Goal:** The client SDK + renderer run-controls subtree — optimistic projection reconciled to daemon truth, capability-gated steer only (`rollback`, the second gated control per campaign B2, arrives with B9's tasks), bridge-only.
 
 **Precondition:** Phase 1–3 daemon surface landed; **D-004-3 (`run.*` method strings) ratified** before T4.1 / T4.4 wire calls land. Plan-023 renderer substrate + `window.sidekicks` bridge present.
 
@@ -278,7 +278,7 @@ The Tier-5 plan-readiness audit (NS-17) surfaced three open decisions; all three
   - **Files:** `apps/desktop/src/renderer/src/run-controls/` (CREATE)
   - **Spec coverage:** Spec-004 §Capability + ADR-011 (pause is orchestration, not a driver capability)
   - **Verifies invariant:** I-004-10
-  - **Note:** the §Rollback "disable any false flag" line is a **trap** — only `steer` is gated on driver capability; `pause` / `resume` / `interrupt` / `cancel` are orchestration-layer and are never capability-gated.
+  - **Note:** the §Rollback "disable any false flag" line is a **trap** — of this plan's controls only `steer` is gated on driver capability (the campaign-B2 `rollback` intervention is gated identically but its tasks arrive with B9 — I-004-10 as amended); `pause` / `resume` / `interrupt` / `cancel` are orchestration-layer and are never capability-gated.
 - **T4.3 — Optimistic-vs-runtime-truth reconciliation**
   - **Files:** `apps/desktop/src/renderer/src/run-controls/` (EXTEND)
   - **Spec coverage:** Spec-023:382 (daemon run-state subscription)
@@ -315,11 +315,11 @@ The Tier-5 plan-readiness audit (NS-17) surfaced three open decisions; all three
 
 1. Ship queue persistence and read-only queue visibility
 2. Enable queue mutation and the orchestration-layer run-controls — interrupt, cancel, pause, resume (none capability-gated, I-004-10)
-3. Enable steer where driver capabilities allow — `steer` is the only driver-capability-gated control
+3. Enable steer where driver capabilities allow — `steer` is the only driver-capability-gated control this plan ships (the campaign-B2 `rollback` intervention is gated identically; B9's tasks sequence it)
 
 ## Rollback Or Fallback
 
-- Disable `steer` (the only capability-gated control) if driver-capability handling regresses; queue + the orchestration-layer controls (interrupt, cancel, pause, resume) stay enabled — they are not capability-gated (I-004-10).
+- Disable `steer` (the only capability-gated control this plan ships — I-004-10 as amended; campaign B2's `rollback` joins via B9) if driver-capability handling regresses; queue + the orchestration-layer controls (interrupt, cancel, pause, resume) stay enabled — they are not capability-gated (I-004-10).
 
 ## Risks And Blockers
 
