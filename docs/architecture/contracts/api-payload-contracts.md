@@ -1399,6 +1399,11 @@ interface RunRolledBackEvent {
 // (Spec-006 §Driver Ask Events shape line). `response` appears only on driver_ask.responded rows — the
 // delivered answer (permission decision or structured input) — and post-B1 responded emitters MUST set
 // it (a responded row with no delivered answer is an emitter bug; optionality covers the other three states).
+// `expiresAt` is the bounded fail-closed deadline stamped at ask creation (Spec-012 §Required Behavior,
+// Part-B fail-closed follow-up 2026-07-17): post-amendment driver_ask.requested emitters MUST set it
+// (ISO-8601; optionality is pre-amendment history only), later-state rows echo it unchanged, and expiry
+// resolves per kind — permission → auto-deny (deny-and-continue), input → park-resumable — never an
+// auto-approval (Spec-012 §Resolved Questions and V1 Scope Decisions).
 interface DriverAskEvent {
   sessionId: SessionId;
   runId: RunId;
@@ -1407,6 +1412,7 @@ interface DriverAskEvent {
   toolName?: string;
   prompt?: string;
   input?: unknown;
+  expiresAt?: string;
   state: "requested" | "responded" | "expired" | "canceled";
   response?: unknown;
 }
