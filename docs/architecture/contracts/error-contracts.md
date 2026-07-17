@@ -122,8 +122,8 @@ expect(caught).toMatchObject({
 | `session.not_found` | Session does not exist or is not accessible | 404 |
 | `session.already_closed` | Session has already been closed and cannot be modified | 409 |
 | `session.limit_exceeded` | Session creation rate limit exceeded | 429 |
-| `session.goal_delivery_failed` | A live-leg goal mutation (`session.goalUpdate` / `session.goalClear`) failed at the provider driver — no event appended, no goal change; acked legs reverted to the prior goal (Spec-016 §Session Goals, campaign B6; `data.fields`: `failedBindingIds`, `driverCode`) | 502 |
-| `session.goal_mutation_in_flight` | A goal mutation was refused because a prior goal intent has not converged — whether still applying (legs `pending`/`acked`; the ordinary concurrent-update case) or compensating after a failure (an `acked` leg awaiting revert) — retry after convergence (Spec-016 §Session Goals, campaign B6; `data.fields`: `unconvergedBindingIds` — every not-yet-converged leg, any state) | 409 |
+| `session.goal_delivery_failed` | A live-leg goal mutation (`session.goalUpdate` / `session.goalClear`) failed at the provider driver — no event appended, no goal change; acked legs reverted to the prior goal (`Spec-016 §Session Goals`, campaign B6; `data.fields`: `failedBindingIds`, `driverCode`) | 502 |
+| `session.goal_mutation_in_flight` | A goal mutation was refused because a prior goal intent has not converged — whether still applying (legs `pending`/`acked`; the ordinary concurrent-update case) or compensating after a failure (an `acked` leg awaiting revert) — retry after convergence (`Spec-016 §Session Goals`, campaign B6; `data.fields`: `unconvergedBindingIds` — every not-yet-converged leg, any state) | 409 |
 
 ### Auth
 
@@ -178,11 +178,11 @@ Orchestration admission-refusal codes (Plan-016, Tier-6 audit D-016-16). Every c
 | --- | --- | --- |
 | `orchestration.depth_exceeded` | Creating run is itself a child — V1 permits exactly one level of run nesting (`Spec-016 §Default Behavior`; `data.fields`: `parentRunId`, `maxDepth: 1`) | 409 |
 | `orchestration.active_child_limit_exceeded` | Parent already has the configured number of active children (`data.fields`: `parentRunId`, `limit`, `activeChildCount`) | 429 |
-| `orchestration.pending_limit_exceeded` | Session already has the maximum pending orchestration-created runs (Spec-016 §Scheduler Limits; `data.fields`: `limit`) | 429 |
-| `orchestration.channel_limit_exceeded` | Admitting the run would open a new executing channel beyond the maximum concurrently executing channels (Spec-016 §Scheduler Limits; `data.fields`: `limit`) — the run may instead be held `queued`; this code fires only when the target channel's queue is also exhausted (a busy target channel with a full queue is `orchestration.queue_depth_exceeded` regardless of the executing-channel count) | 429 |
-| `orchestration.queue_depth_exceeded` | Target channel already has an executing run and its queue is at maximum depth, so the run cannot be held `queued` (Spec-016 §Scheduler Limits: 25 per channel, subject to the Spec-001 per-session queue depth; `data.fields`: `channelId`, `limit`, `queuedCount`) | 429 |
+| `orchestration.pending_limit_exceeded` | Session already has the maximum pending orchestration-created runs (`Spec-016 §Scheduler Limits`; `data.fields`: `limit`) | 429 |
+| `orchestration.channel_limit_exceeded` | Admitting the run would open a new executing channel beyond the maximum concurrently executing channels (`Spec-016 §Scheduler Limits`; `data.fields`: `limit`) — the run may instead be held `queued`; this code fires only when the target channel's queue is also exhausted (a busy target channel with a full queue is `orchestration.queue_depth_exceeded` regardless of the executing-channel count) | 429 |
+| `orchestration.queue_depth_exceeded` | Target channel already has an executing run and its queue is at maximum depth, so the run cannot be held `queued` (`Spec-016 §Scheduler Limits`: 25 per channel, subject to the Spec-001 per-session queue depth; `data.fields`: `channelId`, `limit`, `queuedCount`) | 429 |
 | `orchestration.turn_limit_exceeded` | Target agent is at its consecutive-turn limit in the target channel (D-016-8 — the counter resets on an interleaving human or different-agent turn; `data.fields`: `agentId`, `channelId`, `limit`) | 429 |
-| `orchestration.budget_exhausted` | Session cost ceiling reached — admission blocked until the session owner raises the limit; also fired for the unpriced-model-family admission block with `reason: 'unpriced-model'` + `modelFamily` in `data.fields` and the same threshold fields carrying the configured limit + committed spend (observed cost including unpriced terminal debits, plus active reservations), and for native-cap-escape reservation refusals — `reason: 'driver_capless'` when the target leg's driver lacks the `cost_cap` capability (fail-closed, Spec-005 matrix) — where `observedValue` carries committed spend (observed cost including unpriced terminal debits, plus active reservations) (Spec-016 §Budget Policies incl. §Cost Derivation And Absent-Cost Semantics, campaign B6; `data.fields`: `budgetType`, `limitValue`, `observedValue`, `reason?`, `modelFamily?`) | 429 |
+| `orchestration.budget_exhausted` | Session cost ceiling reached — admission blocked until the session owner raises the limit; also fired for the unpriced-model-family admission block with `reason: 'unpriced-model'` + `modelFamily` in `data.fields` and the same threshold fields carrying the configured limit + committed spend (observed cost including unpriced terminal debits, plus active reservations), and for native-cap-escape reservation refusals — `reason: 'driver_capless'` when the target leg's driver lacks the `cost_cap` capability (fail-closed, Spec-005 matrix) — where `observedValue` carries committed spend (observed cost including unpriced terminal debits, plus active reservations) (`Spec-016 §Budget Policies` incl. §Cost Derivation And Absent-Cost Semantics, campaign B6; `data.fields`: `budgetType`, `limitValue`, `observedValue`, `reason?`, `modelFamily?`) | 429 |
 | `orchestration.node_not_local` | `targetNodeId` names a node not attached to this daemon — V1 orchestration is single-node; cross-node dispatch is Spec-024/Plan-027 (D-016-9; `data.fields`: `targetNodeId`) | 422 |
 
 ### Agent
@@ -202,7 +202,7 @@ Agent-surface codes (Plan-016, Tier-6 audit A-016-2 / D-016-16).
 | `approval.already_resolved` | Approval request has already been resolved | 409 |
 | `approval.request_expired` | Approval request has expired and can no longer be resolved | 410 |
 | `approval.request_canceled` | Approval request was canceled (its run ended before resolution) and can no longer be resolved | 409 |
-| `approval.persistence_unavailable` | A permission check or approval mutation was rejected fail-closed because the daemon's approval-persistence layer is unavailable (Spec-012 §Fallback Behavior — the sensitive action must not proceed) | 503 |
+| `approval.persistence_unavailable` | A permission check or approval mutation was rejected fail-closed because the daemon's approval-persistence layer is unavailable (`Spec-012 §Fallback Behavior` — the sensitive action must not proceed) | 503 |
 | `approval.rule_not_found` | Remembered approval rule does not exist | 404 |
 | `approval.rule_already_revoked` | Remembered approval rule has already been revoked | 409 |
 
@@ -245,13 +245,13 @@ These codes are registry-only (code + message; no structured `details`): no acce
 
 ### PTY
 
-Shared-terminal write-lease refusals (Spec-003 §Required Behavior, campaign B4 2026-07-06). The lease is exclusive per session: exactly one participant holds terminal control at a time, and no holder means writes are refused (fail-closed).
+Shared-terminal write-lease refusals (`Spec-003 §Required Behavior`, campaign B4 2026-07-06). The lease is exclusive per session: exactly one participant holds terminal control at a time, and no holder means writes are refused (fail-closed).
 
 | Code | Description | HTTP Status |
 | --- | --- | --- |
 | `pty.control_not_held` | Terminal write or `session.releaseControl` attempted without holding the shared-terminal write lease — take control first (null-holder-refuses-writes) | 409 |
 | `pty.control_held_by_other` | `session.takeControl` refused: another participant holds the lease; `data.fields.holderParticipantId` names the holder on the JSON-RPC surface, mirrored as `details.holderParticipantId` on the HTTP `ErrorResponse` envelope (same value on both surfaces, via the canonical envelope's structured-context field) — handoff is explicit (holder releases, then take) | 409 |
-| `pty.permission_denied` | `session.takeControl` by a role outside the authorized set (owner/collaborator — the Security Architecture permission-matrix 'Take terminal control' row); evaluated before any lease-state comparison — the refusal is role-determined and stable, never varying with mutable lease state (holder identity is session-visible presence metadata via `pty.control_changed` and the roster's `controlHolder`; the ordering is authorization hygiene, not secrecy). `session.releaseControl` is deliberately exempt — release is holder-gated (`pty.control_not_held`), never role-gated: during the authorization-loss propagation window (demotion, suspension, or revocation in flight) the affected holder's own release must not be refused, and on arrival at the lease authority the membership transition force-clears the lease anyway (Spec-003 §Required Behavior, `reason: 'auto_released_authorization_lost'`), so no de-authorized hold outlives the signal. Domain authz code, HTTP row per the `membership.permission_denied` convention. | 403 |
+| `pty.permission_denied` | `session.takeControl` by a role outside the authorized set (owner/collaborator — the Security Architecture permission-matrix 'Take terminal control' row); evaluated before any lease-state comparison — the refusal is role-determined and stable, never varying with mutable lease state (holder identity is session-visible presence metadata via `pty.control_changed` and the roster's `controlHolder`; the ordering is authorization hygiene, not secrecy). `session.releaseControl` is deliberately exempt — release is holder-gated (`pty.control_not_held`), never role-gated: during the authorization-loss propagation window (demotion, suspension, or revocation in flight) the affected holder's own release must not be refused, and on arrival at the lease authority the membership transition force-clears the lease anyway (`Spec-003 §Required Behavior`, `reason: 'auto_released_authorization_lost'`), so no de-authorized hold outlives the signal. Domain authz code, HTTP row per the `membership.permission_denied` convention. | 403 |
 
 ### Workspace
 
@@ -261,9 +261,9 @@ Shared-terminal write-lease refusals (Spec-003 §Required Behavior, campaign B4 
 | `workspace.provisioning_failed` | Workspace provisioning failed due to an internal error | 500 |
 | `workspace.mode_unsupported` | Requested execution mode is not supported for this workspace | 400 |
 | `workspace.stale` | Workspace execution root is unavailable; new write runs are blocked until repair (`Spec-009 §Fallback Behavior`; thrown by the Plan-009 `assertWritable` write gate, CP-009-3) | 409 |
-| `workspace.branch_mismatch` | `branch` mode bind-only verification failed: the main checkout's current branch does not match the requested branch context; the daemon never switches branches in the main checkout (Spec-010 §Resolved Questions; Plan-010 D-010-9, Tier-6 audit) | 409 |
-| `workspace.busy` | Workspace execution root is held by an active run; one holding run at a time in V1 (Spec-010 §State And Data Implications; Plan-010 D-010-16, Tier-6 audit) | 409 |
-| `workspace.execution_root_unresolved` | A repo-bound run reached the setup gate with no resolved execution root for the workspace's selected mode and root preparation failed; the run parks in `starting` (Spec-010 §Fallback Behavior; Plan-010 D-010-16, Tier-6 audit) | 409 |
+| `workspace.branch_mismatch` | `branch` mode bind-only verification failed: the main checkout's current branch does not match the requested branch context; the daemon never switches branches in the main checkout (`Spec-010 §Resolved Questions and V1 Scope Decisions`; Plan-010 D-010-9, Tier-6 audit) | 409 |
+| `workspace.busy` | Workspace execution root is held by an active run; one holding run at a time in V1 (`Spec-010 §State And Data Implications`; Plan-010 D-010-16, Tier-6 audit) | 409 |
+| `workspace.execution_root_unresolved` | A repo-bound run reached the setup gate with no resolved execution root for the workspace's selected mode and root preparation failed; the run parks in `starting` (`Spec-010 §Fallback Behavior`; Plan-010 D-010-16, Tier-6 audit) | 409 |
 | `workspace.branch_name_required` | A writable-mode wire-initiated (pre-run) `repo.executionRootPrepare` omitted `branchName`: the Spec-010 slug rule's derivation inputs (queue-item summary / run id) exist only on the run-setup gate path, so wire prepares must carry the branch (Plan-010 D-010-19, Tier-6 audit) | 400 |
 
 ### Repo
@@ -276,7 +276,7 @@ Repo-mount attach/detach/resolution errors (Plan-009 D-009-3, Tier-6 audit). The
 | `repo.root_resolution_failed` | Canonical repository root could not be resolved for the supplied path; attach fails explicitly rather than guessing (`Spec-009 §Fallback Behavior`) | 422 |
 | `repo.outside_trust_envelope` | Path or workspace binding resolves outside the session's declared local trust envelope (`Spec-009 §Required Behavior` + §Local Trust Envelope) | 403 |
 | `repo.already_attached` | The resolved canonical root is already actively attached to this session on the same owning node (node-scoped active-mount uniqueness, Plan-009 D-009-7) | 409 |
-| `repo.detach_conflict` | Detach refused while a dependent workspace is `busy`; no force-detach in V1 (Spec-009 §Detach Semantics) | 409 |
+| `repo.detach_conflict` | Detach refused while a dependent workspace is `busy`; no force-detach in V1 (`Spec-009 §Detach Semantics (V1 Definition)`) | 409 |
 
 ### Worktree
 
@@ -286,8 +286,8 @@ Worktree lifecycle errors (Plan-010 D-010-4, Tier-6 audit). The `worktree` names
 | --- | --- | --- |
 | `worktree.not_found` | Worktree does not exist | 404 |
 | `worktree.create_failed` | Worktree creation failed (git error, filesystem error, or dynamic worktree unavailability at provisioning time); the owning workspace transitions to `stale` via `failReprovision` and the failure detail rides `workspace.stale` metadata | 500 |
-| `worktree.branch_collision` | Caller-supplied branch name collides with a live checkout on the same mount; user intent is never silently adapted — daemon-derived default names ordinal-suffix instead (Spec-010 §Resolved Questions collision policy) | 409 |
-| `worktree.reuse_conflict` | Explicit reuse candidate is dirty without `acknowledgeDirtyCandidate`, incompatible with the requested branch strategy (never bindable), or no longer live (Spec-010 §Fallback Behavior) | 409 |
+| `worktree.branch_collision` | Caller-supplied branch name collides with a live checkout on the same mount; user intent is never silently adapted — daemon-derived default names ordinal-suffix instead (`Spec-010 §Resolved Questions and V1 Scope Decisions` collision policy) | 409 |
+| `worktree.reuse_conflict` | Explicit reuse candidate is dirty without `acknowledgeDirtyCandidate`, incompatible with the requested branch strategy (never bindable), or no longer live (`Spec-010 §Fallback Behavior`) | 409 |
 | `worktree.retire_conflict` | Retire refused while the worktree is the execution root held by an active run (busy owning workspace) | 409 |
 
 ### Ephemeral Clone
@@ -297,7 +297,7 @@ Ephemeral-clone lifecycle errors (Plan-010 D-010-4, Tier-6 audit). Same sanitiza
 | Code | Description | HTTP Status |
 | --- | --- | --- |
 | `clone.not_found` | Ephemeral clone does not exist | 404 |
-| `clone.prepare_failed` | Ephemeral clone preparation failed; the owning workspace transitions to `stale` via `failReprovision` and the run stays blocked in setup (Spec-010 §Fallback Behavior) | 500 |
+| `clone.prepare_failed` | Ephemeral clone preparation failed; the owning workspace transitions to `stale` via `failReprovision` and the run stays blocked in setup (`Spec-010 §Fallback Behavior`) | 500 |
 
 ### Artifact
 
@@ -327,9 +327,9 @@ Chunk-integrity mismatch on relay fetch reuses `artifact.hash_mismatch` (409). T
 | `driver.unavailable` | Provider driver is currently unavailable | 503 |
 | `driver.capability_unsupported` | Requested capability is not supported by the driver | 400 |
 | `driver.timeout` | Provider driver operation timed out | 504 |
-| `driver.cli_version_unparseable` | The provider CLI's reported version could not be parsed to a semantic version; capability attach/refresh fails closed and runs cannot start on this driver until the provider install is repaired (Spec-005 §Required Behavior, campaign B3 — the `workspace.stale` blocked-until-repair convention) | 409 |
-| `driver.cli_version_below_floor` | The provider CLI's reported version parsed cleanly but is below the configured per-driver minimum floor; capability attach/refresh fails closed until the provider install is upgraded (Spec-005 §Required Behavior, campaign B3 — distinct from `version.floor_exceeded`, which is scoped to client/event-envelope contract floors, not provider CLI installs) | 409 |
-| `driver.not_authenticated` | The zero-turn `probeAuth` did not report `authenticated` (`unauthenticated`, or `indeterminate` treated fail-closed); run admission is refused before any billed turn — remediation is re-authenticating the provider CLI on the runtime node (Spec-005 §Required Behavior, campaign B3). Mid-run credential expiry is the separate `reauth-required` `RecoveryCondition`, not this code | 409 |
+| `driver.cli_version_unparseable` | The provider CLI's reported version could not be parsed to a semantic version; capability attach/refresh fails closed and runs cannot start on this driver until the provider install is repaired (`Spec-005 §Required Behavior`, campaign B3 — the `workspace.stale` blocked-until-repair convention) | 409 |
+| `driver.cli_version_below_floor` | The provider CLI's reported version parsed cleanly but is below the configured per-driver minimum floor; capability attach/refresh fails closed until the provider install is upgraded (`Spec-005 §Required Behavior`, campaign B3 — distinct from `version.floor_exceeded`, which is scoped to client/event-envelope contract floors, not provider CLI installs) | 409 |
+| `driver.not_authenticated` | The zero-turn `probeAuth` did not report `authenticated` (`unauthenticated`, or `indeterminate` treated fail-closed); run admission is refused before any billed turn — remediation is re-authenticating the provider CLI on the runtime node (`Spec-005 §Required Behavior`, campaign B3). Mid-run credential expiry is the separate `reauth-required` `RecoveryCondition`, not this code | 409 |
 
 ### Relay
 
@@ -385,12 +385,12 @@ Operator admin-surface codes (Plan-021 admin-bans API, [D-021-1](../../plans/021
 
 ### Version
 
-Cross-version compatibility errors per [ADR-018](../../decisions/018-cross-version-compatibility.md) §Decision #4. These errors fire when a client, daemon, or event envelope declares a version outside the accepted range for the session or the platform. The wire/persisted envelope version is a semver `MAJOR.MINOR` string per ADR-018 §Decision #1 — numeric form is rejected at validation. Typed error names (`VERSION_FLOOR_EXCEEDED`, `VERSION_CEILING_EXCEEDED`) from ADR-018 map to the dotted registry codes below.
+Cross-version compatibility errors per [ADR-018](../../decisions/018-cross-version-compatibility.md) §Decision #4. These errors fire when a client, daemon, or event envelope declares a version outside the accepted range for the session or the platform. The wire/persisted envelope version is a semver `MAJOR.MINOR` string per `ADR-018 §Decision` #1 — numeric form is rejected at validation. Typed error names (`VERSION_FLOOR_EXCEEDED`, `VERSION_CEILING_EXCEEDED`) from ADR-018 map to the dotted registry codes below.
 
 | Code | Description | HTTP Status |
 | --- | --- | --- |
 | `version.floor_exceeded` | Client attach or event envelope version is below the session's `min_client_version` floor per [ADR-018](../../decisions/018-cross-version-compatibility.md) §Decision #3 / §Decision #4 (typed: `VERSION_FLOOR_EXCEEDED`) | 409 |
-| `version.ceiling_exceeded` | Event envelope version exceeds the maximum supported by the reading party per ADR-018 §Decision #4 (typed: `VERSION_CEILING_EXCEEDED`) | 409 |
+| `version.ceiling_exceeded` | Event envelope version exceeds the maximum supported by the reading party per `ADR-018 §Decision` #4 (typed: `VERSION_CEILING_EXCEEDED`) | 409 |
 
 `version.floor_exceeded` is **surface-polymorphic** — the same wire code carries a different shape on each of its three emitting surfaces:
 
@@ -416,7 +416,7 @@ interface RateLimitResponse {
 }
 ```
 
-All rate-limited endpoints return the `RateLimitResponse` envelope with HTTP status 429. The `resetAt` field provides the absolute timestamp (ISO 8601) when the rate limit window resets, complementing the relative `retryAfter` seconds value. The timing pair is enforcement-class-conditional (Spec-021 §Overflow Response): sliding-window and escalation refusals carry both; concurrency-cap refusals omit both fields and the `Retry-After`/`X-RateLimit-Reset` headers — cap capacity frees when an existing holder releases, not at a known timestamp.
+All rate-limited endpoints return the `RateLimitResponse` envelope with HTTP status 429. The `resetAt` field provides the absolute timestamp (ISO 8601) when the rate limit window resets, complementing the relative `retryAfter` seconds value. The timing pair is enforcement-class-conditional (`Spec-021 §Overflow Response`): sliding-window and escalation refusals carry both; concurrency-cap refusals omit both fields and the `Retry-After`/`X-RateLimit-Reset` headers — cap capacity frees when an existing holder releases, not at a known timestamp.
 
 Rate limit error codes that trigger this response:
 

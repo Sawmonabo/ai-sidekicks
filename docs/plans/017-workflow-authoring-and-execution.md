@@ -64,7 +64,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 ## API And Transport Changes
 
 - Add `WorkflowDefinitionCreate`, `WorkflowDefinitionRead`, `WorkflowVersionRead`, `WorkflowRunStart`, `WorkflowRunRead`, `PhaseOutputRead`, `WorkflowGateResolve`, `HumanPhaseFormDraftSave`, `HumanPhaseFormSubmit`, and `WorkflowGateChainVerify` to shared contracts and the typed client SDK.
-- Carry workflow version ids, `phase_run_id`s (which double as the channel-owning phase id per SA-6), gate states, and parallel-join resolution through timeline events — 5 categories, 23 event types per Spec-017 §Workflow Timeline Integration. Envelope follows [CloudEvents v1.0.2](https://github.com/cloudevents/spec/blob/v1.0.2/cloudevents/spec.md) additive-extension rules; semantic-convention naming aligns with [OpenTelemetry Semantic Conventions for Events](https://github.com/open-telemetry/semantic-conventions/blob/main/docs/general/events.md).
+- Carry workflow version ids, `phase_run_id`s (which double as the channel-owning phase id per SA-6), gate states, and parallel-join resolution through timeline events — 5 categories, 23 event types per `Spec-017 §Workflow Timeline Integration`. Envelope follows [CloudEvents v1.0.2](https://github.com/cloudevents/spec/blob/v1.0.2/cloudevents/spec.md) additive-extension rules; semantic-convention naming aligns with [OpenTelemetry Semantic Conventions for Events](https://github.com/open-telemetry/semantic-conventions/blob/main/docs/general/events.md).
 - Event payload schemas evolve additive-MINOR per [ADR-018](../decisions/018-cross-version-compatibility.md); the `row_hash` + `gate_resolution_id` fields on `workflow.gate_resolved` are such an addition (Pass G §5).
 
 ## Implementation Steps

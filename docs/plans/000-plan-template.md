@@ -140,7 +140,7 @@ Plan-NNN declares the following obligations on adjacent plans (or inherits oblig
 
   - Each PR carries an explicit **Precondition:** line so the merge order
     is reviewer-checkable and so cross-plan obligations have an enforceable
-    merge gate (the Plan-024 §Implementation Phase Sequence shape).
+    merge gate (the `Plan-024 §Implementation Phase Sequence` shape).
   - Each PR cites which §Invariants and §Cross-Plan Obligations entries it
     satisfies. This is what turns a structural promotion into an enforceable
     merge gate (per Plan-001 / Plan-007 / Plan-024 precedent).
@@ -191,7 +191,7 @@ preconditions:
   - { type: plan_phase, plan: 1, phase: 5, status: merged }
 ```
 
-For plans that ship across tiers via the substrate-vs-namespace decomposition pattern (Plan-007 / Plan-008 / Plan-023 carve-outs), use the `audit_status` precondition type. Two values are permitted (see [audit runbook §Per-Phase Audit Semantics](../operations/plan-implementation-readiness-audit-runbook.md)). The YAML examples below are wrapped in `<!-- prettier-ignore -->` so each list item stays on a single line — `parsePreconditionsBlock` parses flow-form entries one line at a time, so a Prettier-wrapped multi-line `{ ... }` mapping silently fails to parse.
+For plans that ship across tiers via the substrate-vs-namespace decomposition pattern (Plan-007 / Plan-008 / Plan-023 carve-outs), use the `audit_status` precondition type. Two values are permitted (see [audit runbook §Per-Phase Audit Semantics](../operations/plan-implementation-readiness-audit-runbook.md#per-phase-audit-semantics)). The YAML examples below are wrapped in `<!-- prettier-ignore -->` so each list item stays on a single line — `parsePreconditionsBlock` parses flow-form entries one line at a time, so a Prettier-wrapped multi-line `{ ... }` mapping silently fails to parse.
 
 <!-- prettier-ignore -->
 ```yaml

@@ -119,7 +119,7 @@ See [Local SQLite Schema §Driver and Runtime Binding Tables](../architecture/sc
   - Files: `packages/contracts/src/provider-driver.ts` (extend T1.1/T1.2); `docs/architecture/contracts/api-payload-contracts.md` (doc-mirror update at line 948 — leave `interface DriverCapabilities` shape unchanged; add new `interface ProviderToolMetadata` (ingress) + `interface NormalizedProviderToolMetadata` (normalized) + `interface GetCapabilitiesResult` shapes immediately after)
   - Spec coverage: `Spec-005 §Required Behavior` (three-value enum required), :160-162 (semantic separation between Driver capabilities and Tool metadata), :172 (`manual_reconcile_only` conservative default); `Spec-015 §Idempotency Classes and Recovery Behavior` (`### Idempotency Classes and Recovery Behavior` — recovery dispatch consumer), `Spec-015 §Idempotency Classes and Recovery Behavior` (`manual_reconcile_only` recovery-needed handoff)
   - Verifies invariant: I-005-3 (undeclared `idempotency_class` defaults to `manual_reconcile_only`)
-  - Consumes: Spec-005 §Tool Metadata anchor; Spec-015 §Idempotency Protocol
+  - Consumes: `Spec-005 §Tool Metadata` anchor; `Spec-015 §Idempotency Protocol`
   - Provides: `IdempotencyClass = "idempotent" \| "compensable" \| "manual_reconcile_only"`; `ProviderToolMetadataSchema = z.object({ name: z.string(), idempotency_class: IdempotencyClassSchema.optional().default("manual_reconcile_only"), description: z.string().optional() })`; `ProviderToolMetadata = z.input<typeof ProviderToolMetadataSchema>` (INGRESS — `idempotency_class` OPTIONAL: what a driver declares via `getCapabilities()`; an omitting driver is accepted, NOT rejected, since a required field would reject a conformant-but-silent driver before the default could apply per `Spec-005 §idempotency_class`); `NormalizedProviderToolMetadata = z.output<typeof ProviderToolMetadataSchema>` (NORMALIZED — `idempotency_class` REQUIRED after the schema's `.default("manual_reconcile_only")` applies at parse time; the only tool-metadata shape that crosses the persistence / event-payload boundary, so the type system forbids persisting or emitting an un-normalized value); `GetCapabilitiesResult = { capabilities: DriverCapabilities; tools: ProviderToolMetadata[] }` (ingress wrapper — semantically aligned with `Spec-005 §Tool Metadata` and MCP 2026 / LSP capability-vs-tool-list separation precedent)
   - Modern-precedent rationale: MCP 2026-07-28 release candidate separates `initialize` server-capabilities response from `tools/list` request; LSP separates `ServerCapabilities` from registered tool surfaces. The wrapper return preserves the 10-op interface count from `Spec-005 §Interfaces And Contracts` while honoring the two-concept separation.
   - Estimate: 1 PR
@@ -203,7 +203,7 @@ See [Local SQLite Schema §Driver and Runtime Binding Tables](../architecture/sc
 
 **Goal:** Implement the two initial drivers (Codex, Claude) against the Phase 1 contract. Both drivers execute as local-runtime-node integrations per `Spec-005 §Required Behavior` (no shared hosted driver service). Codex consumes the Plan-024 `PtyHost` contract for terminal-attached lifecycle.
 
-**Driver capability matrix (V1 declared values per Spec-005 §Per-Driver Capability Matrix):**
+**Driver capability matrix (V1 declared values per `Spec-005 §Per-Driver Capability Matrix`):**
 
 | Capability             | Codex   | Claude  |
 | ---------------------- | ------- | ------- |

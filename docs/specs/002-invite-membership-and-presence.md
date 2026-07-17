@@ -59,7 +59,7 @@ This spec covers invite lifecycle, join-mode assignment, membership role changes
 - Presence heartbeat payload must include at minimum: `deviceType`, `focusedSessionId`, `focusedChannelId`, `lastActivityAt`, `appVisible`.
 - When a runtime contributor's membership is revoked mid-run, active runs on their node are interrupted and the node is detached. When a collaborator's membership is revoked, pending interventions are expired immediately; read access is revoked after a 30-second grace period.
 - Cross-node presence fan-out uses Postgres `LISTEN/NOTIFY` in V1. Redis Pub/Sub is a documented upgrade path for V1.1 if scale demands it.
-- For local IPC (daemon-to-desktop/CLI over JSON-RPC), the daemon exposes a JSON-RPC presence surface (`PresenceUpdate`, `PresenceRead`) that bridges to the Yjs Awareness state. Presence rides the **WebSocket (JSON-RPC 2.0)** collaboration channel to the control plane per [ADR-014](../decisions/014-trpc-control-plane-api.md) / [Spec-008](../specs/008-control-plane-relay-and-session-join.md) §Control-Plane Transport Protocol; the relay WSS connection is reserved for the Spec-008 §Message Framing binary wire frames (E2E session ciphertext) and carries no presence.
+- For local IPC (daemon-to-desktop/CLI over JSON-RPC), the daemon exposes a JSON-RPC presence surface (`PresenceUpdate`, `PresenceRead`) that bridges to the Yjs Awareness state. Presence rides the **WebSocket (JSON-RPC 2.0)** collaboration channel to the control plane per [ADR-014](../decisions/014-trpc-control-plane-api.md) / [Spec-008](../specs/008-control-plane-relay-and-session-join.md) §Control-Plane Transport Protocol; the relay WSS connection is reserved for the `Spec-008 §Message Framing` binary wire frames (E2E session ciphertext) and carries no presence.
 
 ### Heartbeat Transport
 
@@ -154,7 +154,7 @@ The following delivery mechanisms are deferred to V2. All V2 mechanisms will use
 
 - Invite records must be durable until they reach a terminal state (`accepted`, `revoked`, or `expired`).
 - Membership records must survive client restart and presence loss.
-- Presence records are ephemeral (Yjs Awareness CRDT, in-memory only). Durable state-change events under the `presence` category — `presence.online`, `presence.idle`, `presence.reconnecting`, `presence.offline` — are emitted to the session event log for audit per [Spec-006 §Presence](./006-session-event-taxonomy-and-audit-log.md). Presence data itself is never written to SQLite or Postgres.
+- Presence records are ephemeral (Yjs Awareness CRDT, in-memory only). Durable state-change events under the `presence` category — `presence.online`, `presence.idle`, `presence.reconnecting`, `presence.offline` — are emitted to the session event log for audit per [Spec-006 §Presence](./006-session-event-taxonomy-and-audit-log.md#presence-membership_change). Presence data itself is never written to SQLite or Postgres.
 
 ## Example Flows
 

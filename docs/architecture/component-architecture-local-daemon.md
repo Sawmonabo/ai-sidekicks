@@ -20,7 +20,7 @@ The Local Runtime Daemon is the local execution kernel. It must own the parts of
 - execute tools and terminals within local trust policy
 - persist local events, receipts, projections, and runtime bindings
 - expose the local control surface used by the desktop app and CLI
-- push coordination data (presence, relay connectivity, shared-session metadata) to the Collaboration Control Plane: request-response and relay negotiation over tRPC/SSE, presence/collaboration events over WebSocket (JSON-RPC 2.0), and the relay WSS connection over Spec-008 §Message Framing binary wire frames (not JSON-RPC) — per ADR-014 and Spec-008
+- push coordination data (presence, relay connectivity, shared-session metadata) to the Collaboration Control Plane: request-response and relay negotiation over tRPC/SSE, presence/collaboration events over WebSocket (JSON-RPC 2.0), and the relay WSS connection over `Spec-008 §Message Framing` binary wire frames (not JSON-RPC) — per ADR-014 and Spec-008
 - authenticate to the Collaboration Control Plane using PASETO v4 tokens per Spec-008 when pushing presence, relay coordination, and shared session metadata
 
 ## Component Boundaries

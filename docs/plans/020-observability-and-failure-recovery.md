@@ -52,11 +52,11 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 ## PII in Diagnostics
 
-Plan-020 is the implementation surface for [Spec-020 §PII in Diagnostics](../specs/020-observability-and-failure-recovery.md) and must honor the [Spec-022 §PII Data Map](../specs/022-data-retention-and-gdpr.md) classification of diagnostic data. The 4 bounded-retention diagnostic buckets — `driver_raw_events`, `command_output`, `tool_traces`, `reasoning_detail` — are runtime-local stores that may transit raw user content and therefore require TTL-bounded local retention, default-deny outbound telemetry, and opt-in raw-content capture.
+Plan-020 is the implementation surface for [Spec-020 §PII in Diagnostics](../specs/020-observability-and-failure-recovery.md#pii-in-diagnostics) and must honor the [Spec-022 §PII Data Map](../specs/022-data-retention-and-gdpr.md#pii-data-map) classification of diagnostic data. The 4 bounded-retention diagnostic buckets — `driver_raw_events`, `command_output`, `tool_traces`, `reasoning_detail` — are runtime-local stores that may transit raw user content and therefore require TTL-bounded local retention, default-deny outbound telemetry, and opt-in raw-content capture.
 
-- Default TTL: ≤ 7 days per Spec-020 §PII in Diagnostics. Operator-configured overrides > 30 days MUST emit the `retention_policy_override` warning metric on every daemon startup and on each policy read.
+- Default TTL: ≤ 7 days per `Spec-020 §PII in Diagnostics`. Operator-configured overrides > 30 days MUST emit the `retention_policy_override` warning metric on every daemon startup and on each policy read.
 - Default-deny outbound: no diagnostic bucket content MAY leave the daemon host by default. Outbound telemetry carries summary-only signals derived by construction from non-PII inputs (counts, categories, latencies). Raw content transmission is opt-in per bucket.
-- Shred fan-out coverage: each bucket's TTL purge path participates in the crypto-shred fan-out per [Spec-022 §Shred Fan-Out](../specs/022-data-retention-and-gdpr.md) Path 3 (bounded-retention purge) so a participant-purge request triggers purge of any bucket rows authored by the purged participant before the TTL would otherwise expire them.
+- Shred fan-out coverage: each bucket's TTL purge path participates in the crypto-shred fan-out per [Spec-022 §Shred Fan-Out](../specs/022-data-retention-and-gdpr.md#shred-fan-out) Path 3 (bounded-retention purge) so a participant-purge request triggers purge of any bucket rows authored by the purged participant before the TTL would otherwise expire them.
 
 ## Prometheus `/metrics` Exposition (Spec-027 row 9)
 
@@ -80,7 +80,7 @@ Plan-020 owns the daemon-side `/metrics` endpoint required by [Spec-027 row 9](.
 | `backup_success_total` | counter | `kind: "event_end"\|"nightly"\|"manual"` (3 bounded values) | Backup job (Plan-001/BL-063) |
 | `auto_update_check_status` | gauge | none | Update-notify poller (Plan-007 row 7a) — values: `0=ok`, `1=behind`, `2=poll_failed` |
 
-**Rate-limit families are control-plane-side, not daemon-side (Tier-6 audit, Plan-021 D-021-8).** The daemon has no rate-limit enforcer — [Spec-021 §Scope](../specs/021-rate-limiting-policy.md) excludes the local IPC path, and its AC-8 asserts the daemon path is never rate-limited — so the former daemon-side `rate_limit_trip_total{bucket}` family is removed from this table. The canonical rate-limit family set (`rate_limit_trip_total{endpoint,tier}`, `rate_limit_block_total{window_size}`, `rate_limit_backend_error_total{backend}`, `rate_limit_failclosed_total{backend}`, `admin_ban_total{action}`) is owned by [Plan-021](./021-rate-limiting-policy.md#ratified-design-decisions-tier-6-audit), registered + emitted control-plane-side under this section's label invariants (Plan-021 CP-021-4), and exposed on the self-host relay `GET /metrics` by Plan-025 (Spec-027 row 9b); hosted exposition is an explicit V1 gap (Plan-021 D-021-15).
+**Rate-limit families are control-plane-side, not daemon-side (Tier-6 audit, Plan-021 D-021-8).** The daemon has no rate-limit enforcer — [Spec-021 §Scope](../specs/021-rate-limiting-policy.md#scope) excludes the local IPC path, and its AC-8 asserts the daemon path is never rate-limited — so the former daemon-side `rate_limit_trip_total{bucket}` family is removed from this table. The canonical rate-limit family set (`rate_limit_trip_total{endpoint,tier}`, `rate_limit_block_total{window_size}`, `rate_limit_backend_error_total{backend}`, `rate_limit_failclosed_total{backend}`, `admin_ban_total{action}`) is owned by [Plan-021](./021-rate-limiting-policy.md#ratified-design-decisions-tier-6-audit), registered + emitted control-plane-side under this section's label invariants (Plan-021 CP-021-4), and exposed on the self-host relay `GET /metrics` by Plan-025 (Spec-027 row 9b); hosted exposition is an explicit V1 gap (Plan-021 D-021-15).
 
 **PII-free-by-construction invariants.**
 
@@ -129,7 +129,7 @@ Plan-020 owns the daemon-side `/metrics` endpoint required by [Spec-027 row 9](.
 - Retention tests proving compaction of raw diagnostics does not erase canonical failure detail or recovery visibility
 - Outbound-telemetry-default-deny: no diagnostic-bucket row content appears in any outbound payload unless the corresponding per-bucket opt-in is explicitly enabled
 - Raw-content-opt-in-explicit-only: opt-in toggle requires operator acknowledgement and is audited; a flipped toggle does not retroactively release previously-captured data
-- TTL-bucket-purge-coverage: each of the 4 buckets expires rows at or before the configured TTL; participant-purge requests trigger immediate purge of that participant's rows ahead of TTL per [Spec-022 §Shred Fan-Out](../specs/022-data-retention-and-gdpr.md) Path 3
+- TTL-bucket-purge-coverage: each of the 4 buckets expires rows at or before the configured TTL; participant-purge requests trigger immediate purge of that participant's rows ahead of TTL per [Spec-022 §Shred Fan-Out](../specs/022-data-retention-and-gdpr.md#shred-fan-out) Path 3
 - `retention_policy_override` warning emission: any policy read observing TTL > 30 days emits the warning metric on daemon startup and on each policy read
 - **/metrics endpoint secure-default tests (Spec-027 row 9):**
   - Default bind is `127.0.0.1`; a non-loopback `METRICS_BIND` without auth fails at config-parse time with actionable error.
@@ -173,7 +173,7 @@ shipped: []
 
 <!-- Per-PR human commentary (round-trips, learnings, partial-ship details). Append-only. -->
 
-- 2026-06-10 — Tier-6 plan-readiness audit (Plan-021 walk, D-021-8): removed the daemon-side `rate_limit_trip_total{bucket}` family from §Prometheus `/metrics` Exposition (the daemon has no rate-limit enforcer per Spec-021 §Scope / AC-8) and recorded the supersession note pointing at Plan-021's canonical control-plane family set. Daemon family count 6 → 5; cardinality ceiling unchanged. Spec-027 rows 9a/9b reconciled in the same audit pass.
+- 2026-06-10 — Tier-6 plan-readiness audit (Plan-021 walk, D-021-8): removed the daemon-side `rate_limit_trip_total{bucket}` family from §Prometheus `/metrics` Exposition (the daemon has no rate-limit enforcer per `Spec-021 §Scope` / AC-8) and recorded the supersession note pointing at Plan-021's canonical control-plane family set. Daemon family count 6 → 5; cardinality ceiling unchanged. Spec-027 rows 9a/9b reconciled in the same audit pass.
 
 ## Done Checklist
 

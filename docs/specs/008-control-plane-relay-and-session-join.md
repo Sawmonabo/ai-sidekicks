@@ -122,7 +122,7 @@ V1 relay encryption is defined by [ADR-010](../decisions/010-paseto-webauthn-mls
 
 **V1.1+ upgrade path (MLS, RFC 9420):**
 
-MLS via an audited implementation (OpenMLS, mls-rs, or a post-audit TypeScript implementation) is the planned V1.1 relay encryption layer, adding post-compromise security and O(log N) group rekeying. MLS ships behind a feature flag and is promoted to the default cipher once all three promotion gates in [ADR-010 §Success Criteria](../decisions/010-paseto-webauthn-mls-auth.md) pass (external audit, interop testing, production soak). The V1 pairwise layer continues to serve sessions whose participants have not yet adopted V1.1. KeyPackage distribution, group-add/remove, and welcome-message flows will be specified in the V1.1 relay spec revision once implementation selection lands.
+MLS via an audited implementation (OpenMLS, mls-rs, or a post-audit TypeScript implementation) is the planned V1.1 relay encryption layer, adding post-compromise security and O(log N) group rekeying. MLS ships behind a feature flag and is promoted to the default cipher once all three promotion gates in [ADR-010 §Success Criteria](../decisions/010-paseto-webauthn-mls-auth.md#success-criteria) pass (external audit, interop testing, production soak). The V1 pairwise layer continues to serve sessions whose participants have not yet adopted V1.1. KeyPackage distribution, group-add/remove, and welcome-message flows will be specified in the V1.1 relay spec revision once implementation selection lands.
 
 ## Relay Connection Lifecycle
 

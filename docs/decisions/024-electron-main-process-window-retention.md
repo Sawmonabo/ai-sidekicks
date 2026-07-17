@@ -131,7 +131,7 @@ The lifecycle regression test we ship in `apps/desktop/test/lifecycle.gc.test.ts
 
 - **Convention parity with the Electron community.** An inheriting reader's intuition (from Electron tutorials, security checklist, third-party Electron apps) maps directly onto our code.
 - **Defense-in-depth against future Electron internals shift.** If `self_ref_` semantics change, our user-side reference buys diagnostic time at the upgrade boundary.
-- **Honest spec.** Spec-023 §Acceptance Criteria now encodes the observable lifecycle invariant directly (not the falsified "must FAIL when removed" predicate), and cites ADR-024 §Antithesis for the empirical mechanism truth.
+- **Honest spec.** `Spec-023 §Acceptance Criteria` now encodes the observable lifecycle invariant directly (not the falsified "must FAIL when removed" predicate), and cites `ADR-024 §Antithesis — The Strongest Case Against` for the empirical mechanism truth.
 - **Honest test.** `apps/desktop/test/lifecycle.gc.test.ts` asserts the observable contract and explicitly documents in its header that it is a future-regression guard, not a causal-mechanism demonstration.
 
 ### Negative (accepted trade-offs)
