@@ -2083,6 +2083,50 @@ describe("label-cite — round-4 bridge constraints: no cross-§ gluing, tick pa
     expect(violations[0].reason).toBe("line-out-of-range");
   });
 
+  it("a backtick-fence opener with a backtick in its info string is NOT a delimiter", () => {
+    // CommonMark 4.5: inline code, not a fence — the following prose stays
+    // under the deny instead of being exempted as fence content.
+    const denied = mdViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+        "docs/architecture/security-architecture.md":
+          "# Doc\n\n```ts`x\nAttach per Spec-003:2 today.\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(denied).toHaveLength(1);
+    const quiet = mdViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+        "docs/architecture/security-architecture.md":
+          "# Doc\n\n~~~ts`x\nAttach per Spec-003:2 example.\n~~~\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(quiet).toHaveLength(0);
+  });
+
+  it("a four-space-indented blockquote marker is indented code, not a quoted fence", () => {
+    const denied = mdViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+        "docs/architecture/security-architecture.md":
+          "# Doc\n\n    > ```\nAttach per Spec-003:2 today.\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(denied).toHaveLength(1);
+    const quiet = mdViolations(
+      {
+        "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
+        "docs/architecture/security-architecture.md":
+          "# Doc\n\n   > ```text\n   > Attach per Spec-003:2 example.\n   > ```\n",
+      },
+      "docs/architecture/security-architecture.md",
+    );
+    expect(quiet).toHaveLength(0);
+  });
+
   it("code lane: DENIES the appended-colon anchor spelling in a comment", () => {
     const { root, cleanup } = setupRepo({
       "docs/specs/021-security.md": "# Spec\n\n## Bind Address\n\nbody\n",

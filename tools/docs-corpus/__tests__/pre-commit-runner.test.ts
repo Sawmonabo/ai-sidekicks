@@ -532,4 +532,28 @@ describe("pre-commit-runner — staged-deletion vs untracked fallback (commit-sn
       cleanup();
     }
   });
+
+  it("a staged citer citing an UNTRACKED target fails missing-target-file (no disk fallback for non-argv paths)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/architecture/security-architecture.md": "Admission per `Spec-003 §Attach` today.\n",
+    });
+    try {
+      // The target exists ONLY in the worktree — never added. The commit
+      // this gate protects would ship a citation to a file it omits; the
+      // earlier HEAD-presence rule classified this never-committed target
+      // as a probe file and disk-validated it (Codex, PR #207 round 4).
+      mkdirSync(resolve(root, "docs/specs"), { recursive: true });
+      writeFileSync(
+        resolve(root, "docs/specs/003-runtime-node-attach.md"),
+        "# Spec\n\n## Attach\n\nbody\n",
+      );
+      const result = withRepoRoot(root, () =>
+        runChecks([resolve(root, "docs/architecture/security-architecture.md")]),
+      );
+      expect(result.exitCode).toBe(1);
+      expect(result.messages.join("\n")).toContain("missing-target-file");
+    } finally {
+      cleanup();
+    }
+  });
 });

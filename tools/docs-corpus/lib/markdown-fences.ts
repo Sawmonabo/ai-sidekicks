@@ -29,6 +29,15 @@ export function advanceFenceState(
   // (Codex, PR #207 round 3).
   const fenceDelimiter = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(unquotedLine);
   if (fenceDelimiter === null) return { openFence, isDelimiterLine: false };
+  // A backtick fence's info string may not contain a backtick (CommonMark
+  // 4.5) — a ```` ```ts`x ```` line is inline code, not a delimiter, so it
+  // neither opens a fence (which would exempt the following prose from the
+  // volatile-cite deny) nor breaks wrap adjacency. Tilde info strings may
+  // carry backticks. Closers are unaffected: their tail is whitespace-only
+  // (Codex, PR #207 round 4).
+  if (fenceDelimiter[1][0] === "`" && fenceDelimiter[2].includes("`")) {
+    return { openFence, isDelimiterLine: false };
+  }
   if (openFence === null) {
     return {
       openFence: { marker: fenceDelimiter[1][0], length: fenceDelimiter[1].length },
@@ -46,9 +55,15 @@ export function advanceFenceState(
 }
 
 // Strip blockquote containers for FENCE tracking (`> ```text` opens a fence
-// inside a quoted example). Quote DEPTH is deliberately not matched between
-// opener and closer — the pragmatic bound for this illustrative-example
-// exemption, shared by every scanner that tracks fences.
+// inside a quoted example). Each quote level admits at most three SPACES of
+// indentation before its `>` (CommonMark block-quote marker rule) — four or
+// more, or a tab, makes the line indented code, and stripping the marker
+// anyway would hand advanceFenceState a synthetic delimiter that bypasses
+// its own indentation guard and exempts the following prose from the
+// volatile-cite deny (Codex, PR #207 round 4). Quote DEPTH is deliberately
+// not matched between opener and closer — the pragmatic bound for this
+// illustrative-example exemption, shared by every scanner that tracks
+// fences.
 export function stripBlockquotePrefix(line: string): string {
-  return line.replace(/^(?:\s*>)+\s?/, "");
+  return line.replace(/^(?: {0,3}>)+ ?/, "");
 }

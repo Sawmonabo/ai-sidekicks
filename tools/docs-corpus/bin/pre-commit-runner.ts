@@ -162,15 +162,15 @@ export function runChecks(args: string[]): RunChecksResult {
   // against the staged target (Codex, PR #207 round 2 for the md deny;
   // extended to every pass in round 3 — a split-reader runner re-opens the
   // same staged-vs-worktree divergence in whichever lane keeps the worktree
-  // read). The disk fallback applies ONLY to genuinely untracked argv files
-  // (probes, previews) — a staged DELETION throws instead of reading a
-  // restored worktree copy, so deleting a still-cited target cannot pass
-  // (see makeCommitSnapshotReader). CI invokes this same runner on a clean
-  // checkout where index and worktree are identical, so the reader is
-  // invocation-agnostic.
+  // read). The disk fallback applies ONLY to files named in THIS
+  // invocation's argv (probes, previews) — any other index miss throws, so
+  // neither a staged deletion with a restored worktree copy nor a staged
+  // citer citing an untracked target can pass (see makeCommitSnapshotReader,
+  // rounds 3-4). CI invokes this same runner on a clean checkout where
+  // index and worktree are identical, so the reader is invocation-agnostic.
   if (stagedMd.length > 0 || stagedCode.length > 0) {
     const repoRoot = getRepoRoot();
-    const reader = makeCommitSnapshotReader(repoRoot);
+    const reader = makeCommitSnapshotReader(repoRoot, args);
 
     if (stagedMd.length > 0) {
       // §-form citers reach the expansion via the extractor callback — their

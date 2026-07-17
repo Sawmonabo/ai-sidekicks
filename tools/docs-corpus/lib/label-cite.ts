@@ -1091,9 +1091,10 @@ export function checkMarkdownVolatileCites(
             // Same frozen-floor / volatile-deny split as the code lane's
             // pushDurablePathAnchorColonCite; the grammar is docs/-rooted and
             // dot-segment-free by construction, so no resolution step exists.
-            if (FROZEN_DOC_PREFIXES.some((prefix) => match[1].startsWith(prefix))) {
+            const mdPath = match[1];
+            if (FROZEN_DOC_PREFIXES.some((prefix) => mdPath.startsWith(prefix))) {
               const endpoints = [...match[2].matchAll(/\d+/g)].map((d) => Number(d[0]));
-              floorFrozenEndpoints(f, oneBasedLine, match[0].trim(), match[1], endpoints);
+              floorFrozenEndpoints(f, oneBasedLine, match[0].trim(), mdPath, endpoints);
             } else {
               denyVolatile(f, oneBasedLine, match[0].trim());
             }
