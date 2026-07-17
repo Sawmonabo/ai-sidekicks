@@ -51,14 +51,14 @@ Target paths below assume the canonical implementation topology defined in [Cont
 | --- | --- | --- |
 | **I-004-1** | Queue items are persisted by the runtime before admission; queue creation fails closed (rejects) when persistence is unavailable rather than admitting un-durable work. | T1.4, T2.1 |
 | **I-004-2** | Every intervention outcome (`applied` / `degraded` / `rejected` / `expired`) is durably recorded with a daemon-owned receipt on every path. | T1.4, T2.6, T2.7 |
-| **I-004-3** | Request:dispatch:record cardinality is 1:1:1 — one `applyIntervention` call produces exactly one driver dispatch and exactly one durable record. | T2.4 |
+| **I-004-3** | Request:dispatch:record cardinality is 1:1:1 — one `applyIntervention` call produces exactly one driver dispatch and exactly one durable record. **Amended (campaign B2):** the `rollback` composite from `running` is the sole dispatch-axis exception — one intervention, one durable record, but the atomic application makes two driver-facing calls (the internal pause's interrupt, then the `rollbackTo` conversation leg — [Spec-004 §Required Behavior](../specs/004-queue-steer-pause-resume.md#required-behavior)); B9 reconciles this plan's rollback tasks. | T2.4 |
 | **I-004-4** | `target_run_id` is stable across `waiting` / `blocked` transitions — an intervention never silently retargets to a different run. | T1.4, T1.7, T3.3 |
 | **I-004-5** | Queue admission is FIFO by `created_at ASC`; queue priority is excluded from admission ordering (Spec-004:142). | T2.2 |
 | **I-004-6** | Run-state and queue-item transitions are monotonic — no backward transitions; terminal states are absorbing — **absent rollback** (campaign B2: the `rollback` intervention is the sole backward/terminal-exit path, [Run State Machine §Rollback Transitions](../domain/run-state-machine.md#rollback-transitions-campaign-b2); the campaign's Plan-004 bundle — B9 — reconciles this plan's rollback tasks). | T2.3, T3.4, T3.5, T1.6 |
 | **I-004-7** | Stale-replay version guard: a run-mutating client command — an intervention, `pause`, or `resume` — whose `expectedRunVersion` does **not equal** the current run version is rejected and applies nothing (an intervention transitions `requested → expired`; `pause` / `resume` reject the request with the run left untouched). **Any** mismatch fails closed — stale (older) _or_ anomalous-future — per Spec-004:68 ("a version guard mismatch produces `expired`"); a `<`-only guard would silently admit a future comparand no honest client can hold. **The version comparand is the any-run-progression counter (D-004-1); the guard authors the comparison _behavior_ and the version _derivation_ is fixed by the ratified D-004-1 semantics. The comparand is mandatory (D-004-2, covering interventions + pause/resume) — an absent `expectedRunVersion` is rejected, not skipped.** | T2.8, T3.4, T3.5 (read T1.7) |
 | **I-004-8** | Intervention authorization uses the verified PASETO `sub` as the Cedar principal; any client-supplied `initiatorId` is informational only and never authoritative. | T2.5 |
 | **I-004-9** | Runtime-truth: the daemon run-state stream is canonical; desktop run-controls render an optimistic projection that is reconciled to the daemon truth on every update. | T4.1, T4.3, T4.4 |
-| **I-004-10** | Capability-gate: only `steer` is gated on the driver steer capability. `pause` / `resume` / `interrupt` / `cancel` are orchestration-layer (daemon-composed) and are **never** capability-gated. | T4.2 |
+| **I-004-10** | Capability-gate: only `steer` is gated on the driver steer capability. `pause` / `resume` / `interrupt` / `cancel` are orchestration-layer (daemon-composed) and are **never** capability-gated. **Amended (campaign B2):** `rollback` is the second capability-gated intervention — statically refused (`driver.capability_unsupported`, no orchestration fallback) when the driver does not declare the `rollback` flag ([Spec-004 §Interfaces And Contracts](../specs/004-queue-steer-pause-resume.md#interfaces-and-contracts)); B9 reconciles this plan's rollback tasks. | T4.2 |
 | **I-004-11** | Bridge-only: the `run-controls/` renderer subtree reaches daemon / control-plane state exclusively via `window.sidekicks`; it never imports `packages/runtime-daemon` or `packages/control-plane` directly. | T4.5 (= CP-004-5) |
 | **I-004-12** | Setup-gate: a run transitions `starting -> running` only after every registered `RunSetupGate.assertRunReady` resolves; a gate refusal parks the run in `starting` (never a silent skip, never `running`), and registered `onRunTerminal` hooks fire exactly once per terminal transition — once per `runVersion` epoch: a campaign-B2 rollback out of a terminal state re-opens the run, and a later terminal fires them again ([Run State Machine §Rollback Transitions](../domain/run-state-machine.md#rollback-transitions-campaign-b2); B9 reconciles). (Tier-6 audit.) | T3.10 |
 
@@ -262,7 +262,7 @@ The Tier-5 plan-readiness audit (NS-17) surfaced three open decisions; all three
 
 ### Phase 4 — Desktop Run-Controls
 
-**Goal:** The client SDK + renderer run-controls subtree — optimistic projection reconciled to daemon truth, capability-gated steer only, bridge-only.
+**Goal:** The client SDK + renderer run-controls subtree — optimistic projection reconciled to daemon truth, capability-gated steer only (`rollback`, the second gated control per campaign B2, arrives with B9's tasks), bridge-only.
 
 **Precondition:** Phase 1–3 daemon surface landed; **D-004-3 (`run.*` method strings) ratified** before T4.1 / T4.4 wire calls land. Plan-023 renderer substrate + `window.sidekicks` bridge present.
 
@@ -278,7 +278,7 @@ The Tier-5 plan-readiness audit (NS-17) surfaced three open decisions; all three
   - **Files:** `apps/desktop/src/renderer/src/run-controls/` (CREATE)
   - **Spec coverage:** Spec-004 §Capability + ADR-011 (pause is orchestration, not a driver capability)
   - **Verifies invariant:** I-004-10
-  - **Note:** the §Rollback "disable any false flag" line is a **trap** — only `steer` is gated on driver capability; `pause` / `resume` / `interrupt` / `cancel` are orchestration-layer and are never capability-gated.
+  - **Note:** the §Rollback "disable any false flag" line is a **trap** — of this plan's controls only `steer` is gated on driver capability (the campaign-B2 `rollback` intervention is gated identically but its tasks arrive with B9 — I-004-10 as amended); `pause` / `resume` / `interrupt` / `cancel` are orchestration-layer and are never capability-gated.
 - **T4.3 — Optimistic-vs-runtime-truth reconciliation**
   - **Files:** `apps/desktop/src/renderer/src/run-controls/` (EXTEND)
   - **Spec coverage:** Spec-023:382 (daemon run-state subscription)
@@ -315,11 +315,11 @@ The Tier-5 plan-readiness audit (NS-17) surfaced three open decisions; all three
 
 1. Ship queue persistence and read-only queue visibility
 2. Enable queue mutation and the orchestration-layer run-controls — interrupt, cancel, pause, resume (none capability-gated, I-004-10)
-3. Enable steer where driver capabilities allow — `steer` is the only driver-capability-gated control
+3. Enable steer where driver capabilities allow — `steer` is the only driver-capability-gated control this plan ships (the campaign-B2 `rollback` intervention is gated identically; B9's tasks sequence it)
 
 ## Rollback Or Fallback
 
-- Disable `steer` (the only capability-gated control) if driver-capability handling regresses; queue + the orchestration-layer controls (interrupt, cancel, pause, resume) stay enabled — they are not capability-gated (I-004-10).
+- Disable `steer` (the only capability-gated control this plan ships — I-004-10 as amended; campaign B2's `rollback` joins via B9) if driver-capability handling regresses; queue + the orchestration-layer controls (interrupt, cancel, pause, resume) stay enabled — they are not capability-gated (I-004-10).
 
 ## Risks And Blockers
 
