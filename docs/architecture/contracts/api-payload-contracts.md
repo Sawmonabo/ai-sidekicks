@@ -1900,18 +1900,24 @@ type InvalidationTrigger = "explicit" | "membership_change" | "node_trust_change
 // remembered ⇒ approvalRequestId / approver / nodeId / rememberedScope / ruleId (+ runId
 // iff rememberedScope.kind = 'run'); rule_revoked ⇒ ruleId / invalidationTrigger —
 // a malformed event fails at the emission parse, never at peer/restart projection (I-012-9).
-// Driver-ask-originated requested rows additionally carry `askId` — required at the CP-012-6
-// normalizer seam (T2.8, the sole such emitter) rather than in the origin-blind payload refinement.
+// Driver-ask-originated requested rows additionally carry `askId` — its PRESENCE is required at
+// the CP-012-6 normalizer seam (T2.8, the sole such emitter): the origin-blind refinement cannot
+// know whether a requested payload is driver-ask-originated. What the refinement DOES enforce,
+// origin-blind, is the pairing: requested with `askId` present ⇒ `expiryAt` present — the
+// emission-boundary mirror of the `approval_requests` ask-implies-deadline CHECK
+// (local-sqlite-schema.md §Approval Tables) — so an askId-bearing payload missing its shared
+// deadline refuses at the emission parse (I-012-9), never becoming a durable event whose
+// projection would fail the CHECK after the fact with replay unable to rebuild the timeout.
 interface ApprovalFlowEventPayload {
   sessionId: SessionId;
   runId?: RunId; // absent on trust-triggered rule_revoked (no in-flight request)
   approvalRequestId?: ApprovalRequestId; // ditto
-  askId?: string; // present on approval.requested when the request originates from a provider permission ask (Spec-012 §Resolved Questions, Part-B fail-closed follow-up 2026-07-17): the originating DriverAskEvent.askId, persisted at creation as the durable ask↔approval association — restart/replay reconstructs which native ask an outcome or shared-deadline expiry must deny when multiple asks are in flight on one run; required at the CP-012-6 normalizer emission seam (T2.8 — the sole driver-ask-originated requester), never set on direct requests and never client-suppliable (the public ApprovalRequestCreateRequest deliberately carries no askId — trust-boundary note there); persisted on the approval_requests projection row (ask_id — local-sqlite-schema.md §Approval Tables)
+  askId?: string; // present on approval.requested when the request originates from a provider permission ask (Spec-012 §Resolved Questions, Part-B fail-closed follow-up 2026-07-17): the originating DriverAskEvent.askId, persisted at creation as the durable ask↔approval association — restart/replay reconstructs which native ask an outcome or shared-deadline expiry must deny when multiple asks are in flight on one run; required at the CP-012-6 normalizer emission seam (T2.8 — the sole driver-ask-originated requester), never set on direct requests and never client-suppliable (the public ApprovalRequestCreateRequest deliberately carries no askId — trust-boundary note there); persisted on the approval_requests projection row (ask_id — local-sqlite-schema.md §Approval Tables); its presence on a requested payload requires expiryAt alongside it — the refinement-enforced ask-implies-deadline pairing (note above)
   category: ApprovalCategory;
   scope: string;
   requestedBy?: string; // present on approval.requested — recorded requester actor (participant or agent actor id, Spec-012 line 58)
   resourceDescriptor?: Record<string, unknown>; // present on approval.requested — audit-grade target (Spec-012 line 96)
-  expiryAt?: string; // present on approval.requested when the request carries an expiry (D-012-14)
+  expiryAt?: string; // present on approval.requested when the request carries an expiry (D-012-14); required whenever askId is present — the refinement refuses an askId-bearing requested payload without its shared deadline (ask-implies-deadline pairing, note above)
   approver?: ParticipantId; // present on approval.approved / approval.rejected — the recorded resolver (D-012-12); on approval.remembered it is the rule's GRANTOR (rules mint only via resolve-with-remember)
   effectiveScope?: string; // present on approval.approved / approval.rejected — recorded effective scope (≤ requested, I-012-6)
   nodeId?: NodeId; // present on approval.remembered — the rule's bound node (D-012-10 match boundary; not derivable from ruleId on replay)

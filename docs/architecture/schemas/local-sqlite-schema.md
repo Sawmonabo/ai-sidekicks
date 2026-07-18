@@ -612,8 +612,11 @@ CREATE TABLE approval_requests (
                                               -- an ask-associated (normalizer-minted) row always carries the shared
                                               -- deadline: ask_id without expiry_at could never re-arm the durable
                                               -- timeout after restart, re-creating an unbounded pending ask
-                                              -- (Spec-012 Part-B fail-closed follow-up 2026-07-17; the T1.3
-                                              -- migration copies this CHECK verbatim and pins it in its tests)
+                                              -- (Spec-012 Part-B fail-closed follow-up 2026-07-17; replay-side
+                                              -- backstop — the approval-flow emission refinement enforces the same
+                                              -- askId ⇒ expiryAt pairing origin-blind at parse, so an invalid mint
+                                              -- refuses before it is durable; the T1.3 migration copies this CHECK
+                                              -- verbatim and pins it in its tests)
 );
 
 CREATE INDEX idx_approval_requests_run ON approval_requests(run_id);
