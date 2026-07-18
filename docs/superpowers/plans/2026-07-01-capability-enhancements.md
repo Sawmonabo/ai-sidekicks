@@ -250,7 +250,7 @@ Every doc task's final steps invoke this procedure with its own branch/commit/fi
 
 **Design contract:** §4 W2 table, B10 row — every named duty: the 14 corpus-item enrichments (P0-1…P3-4 per row text), P2-5 `Reference:` lines on T3.5–T3.10, the ten CLI-currency duties (C-1, C-4, C-5, C-7, C-8, C-12, C-14, C-16, C-17 + regenerate-bindings rule), and the seven R8 driver legs (rollback with `--replay-user-messages` + identical-cwd resume, goals, callback-tool hosting, `subagentPolicy`, `executionPosture` mapping, transport axis, `realtime_*` suppression). **Files:** Modify `docs/plans/005-provider-driver-contract-and-capabilities.md`, `docs/architecture/cross-plan-dependencies.md` (§2 row `provider/drivers/`; CP-005-7 tag enrichment on the existing §3 :154 row — the edge already exists, Design §3.3; no new edge).
 
-**Interfaces:** Consumes Tasks 3, 5, 7, 10, 25 (the provider-wire docs its P2-5 `Reference:` lines link). Produces the enriched Phase-3/4 task set Plan-005's imminent execution runs. **P-2 fix** (T4.1 → `registry.ts` + `register()`).
+**Interfaces:** Consumes Tasks 3, 5, 7, 10, 25 (the provider-wire docs its P2-5 `Reference:` lines link). Produces the enriched Phase-3/4 task set Plan-005's imminent execution runs. **P-2 fix** (T4.1 → `registry.ts` + `register()`). P2-7 additionally persists the receiver-generated MCP `taskId` on the receipt at send time (the B10 row's Part-B follow-up durable handle, 2026-07-17).
 
 - [ ] **Step 1:** SBP-1 bundle=`b10`, branch=`docs/b10-plan005-driver-tasks`. Confirm Tasks 25 and 28 are merged (the `Reference:` line targets exist — cite-target gate; the W1.5-promoted spec baseline every task cite consumes).
 - [ ] **Step 2:** Author per the B10 row (work the row's list top-to-bottom as a checklist; every item ID named in the amendment text); re-verify Plan-005 :281 (P-2 site).
@@ -282,7 +282,7 @@ Every doc task's final steps invoke this procedure with its own branch/commit/fi
 
 **Design contract:** §4 W2 table, B14 row. **Files:** Modify `docs/plans/015-persistence-recovery-and-replay.md`, `docs/architecture/cross-plan-dependencies.md` (§2 row `src/replay/`).
 
-**Interfaces:** Consumes Tasks 5, 6, 9 (the B8 ADR-017 rollback row the R8 interplay guard cites). Produces — NEW T15.5 (position-compare + HALT-FOR-HUMAN); P3-2 completion-drop guard on T15.2; P3-3 exhaustive switch on T15.3 (I-005-5 → I-015-4); P1-2 recovery caller guard; P2-3 residual (`claimForExecution` CAS named; `already-landed`); P0-6 consume edge; R8 interplay guard (`run.rolled_back` = new authoritative position floor).
+**Interfaces:** Consumes Tasks 5, 6, 9 (the B8 ADR-017 rollback row the R8 interplay guard cites). Produces — NEW T15.5 (position-compare + HALT-FOR-HUMAN); P3-2 completion-drop guard on T15.2; P3-3 exhaustive switch on T15.3 (I-005-5 → I-015-4); P1-2 recovery caller guard; P2-3 residual (`claimForExecution` CAS named; `already-landed`); P0-6 consume edge; R8 interplay guard (`run.rolled_back` = new authoritative position floor); span-classification recording + the two `manual_reconcile_only` carve-outs (task-handle `tasks/get`→`tasks/result` poll; provably-never-dispatched auto-retry) per the B14 row's Part-B follow-up legs (2026-07-17).
 
 - [ ] **Step 1:** SBP-1 bundle=`b14`, branch=`docs/b14-plan015-recovery`. Confirm Task 28 is merged (the W1.5-promoted B3/B5/B8 surfaces this bundle's tasks cite).
 - [ ] **Step 2:** Author per the B14 row; re-verify Plan-015 :87–89; classification declared (default additive).
