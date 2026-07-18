@@ -27,7 +27,7 @@ import {
   classifyPhaseMarkers,
   countCites,
   LEGACY_INLINE_CITE_EXEMPT,
-  extractInlineFloorAnchors,
+  verifyInlineAnchorFloor,
 } from "../preflight.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -656,42 +656,48 @@ test("surveyCorpus: the real 023/025 shape (unbold invariant-only) still diverts
   }
 });
 
-test("extractInlineFloorAnchors: binding labels scope bare § tokens (parser unit)", () => {
-  // Spec label binds a following bare §; Plan / ADR / arch-doc labels RESET the
-  // binding (their § tails are self-references or file-scoped descriptors the
-  // floor deliberately skips); a § with no label at all (external standards,
-  // plan-internal obligation refs) yields no anchor.
-  assert.deepEqual(extractInlineFloorAnchors("Spec-008 AC1 + §Example Flows"), [
-    { kind: "spec-file", spec: 8, raw: "Spec-008" },
-    { kind: "spec-ac", spec: 8, ac: 1, raw: "AC1" },
-    { kind: "spec-section", spec: 8, heading: "Example Flows", raw: "§Example Flows" },
-  ]);
-  assert.deepEqual(
-    extractInlineFloorAnchors(
-      "`Spec-008 §Relay Encryption` + `Plan-008 §Implementation Steps` (sharding)",
-    ),
-    [
-      { kind: "spec-file", spec: 8, raw: "Spec-008" },
-      { kind: "spec-section", spec: 8, heading: "Relay Encryption", raw: "§Relay Encryption" },
-      { kind: "plan-file", plan: 8, raw: "Plan-008" },
-    ],
-  );
-  assert.deepEqual(extractInlineFloorAnchors("I-008-6 (`ADR-010 §Decision`)"), [
-    { kind: "adr-file", adr: 10, raw: "ADR-010" },
-  ]);
-  assert.deepEqual(
-    extractInlineFloorAnchors("`error-contracts.md §Numeric Code Space (per JSON-RPC 2.0 §5.1)`"),
-    [{ kind: "arch-doc-file", file: "error-contracts.md", raw: "error-contracts.md" }],
-  );
-  assert.deepEqual(extractInlineFloorAnchors("§Cross-Plan Obligations CP-007-3"), []);
-  // AC tokens bind to the spec context like § (Codex P2, round 4); an AC with
-  // no spec binding is descriptor text.
-  assert.deepEqual(extractInlineFloorAnchors("Spec-008 AC1 + AC3"), [
-    { kind: "spec-file", spec: 8, raw: "Spec-008" },
-    { kind: "spec-ac", spec: 8, ac: 1, raw: "AC1" },
-    { kind: "spec-ac", spec: 8, ac: 3, raw: "AC3" },
-  ]);
-  assert.deepEqual(extractInlineFloorAnchors("supports AC2's client half"), []);
+test("verifyInlineAnchorFloor: real grammar + salvage discipline (unit — Codex P2, PR #214 round 5)", () => {
+  // The floor parses inline payloads with the REAL Gate-4 grammar (after
+  // backtick strip) and verifies parsed anchors with the REAL verifier —
+  // there is no floor-private token grammar left to under-cover a claim type.
+  const tmp = makeFixtureCorpus({});
+  const row = (payload) =>
+    `### Phase 1 — unit\n\n#### Tasks\n\n- **T-050u-1-1** (Files: \`packages/a/x.ts\`; Verifies invariant: none; Spec coverage: ${payload})\n`;
+  try {
+    // Backticked cite parses after idiom strip; a parenthetical-qualified
+    // heading salvages with zero dropped words (`§Framing` against
+    // `## Framing (V1 Pairwise)`) — clean, no finding.
+    assert.deepEqual(verifyInlineAnchorFloor(row("`Spec-050 §Framing`"), { repoRoot: tmp }), []);
+    // A resolving heading with trailing legacy prose classifies as the
+    // divertable tail kind — never silently accepted, never a hard gate here.
+    const tail = verifyInlineAnchorFloor(row("Spec-050 §Required Behavior extra words"), {
+      repoRoot: tmp,
+    });
+    assert.equal(tail.length, 1, JSON.stringify(tail));
+    assert.equal(tail[0].kind, "legacy-inline-descriptor-tail");
+    assert.match(tail[0].evidence, /resolves §Required Behavior with 2 trailing descriptor/);
+    // Salvage never skips the anchor's primary claim: the section salvages,
+    // but the line anchor re-verifies at full fidelity and still gates.
+    const salvagedLine = verifyInlineAnchorFloor(
+      row("Spec-050 §Required Behavior step 3 line 999"),
+      { repoRoot: tmp },
+    );
+    assert.equal(salvagedLine.length, 1, JSON.stringify(salvagedLine));
+    assert.equal(salvagedLine[0].kind, "inline-anchor-not-found");
+    assert.match(salvagedLine[0].evidence, /line-out-of-range/);
+    // Plan-NNN has no Gate-4 namespace (shape debt on the bold path), but the
+    // floor still existence-checks plan references so a typo'd plan number
+    // cannot hide behind the shape divert.
+    const planRef = verifyInlineAnchorFloor(
+      row("Spec-050 §Required Behavior (extends Plan-999 §Steps)"),
+      { repoRoot: tmp },
+    );
+    assert.equal(planRef.length, 1, JSON.stringify(planRef));
+    assert.equal(planRef[0].kind, "inline-doc-missing");
+    assert.match(planRef[0].evidence, /Plan-999 — plan file resolves to 0 match/);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
 });
 
 const LEGACY_BROKEN_ANCHOR_PHASE = `### Phase 1 — legacy inline broken anchor
@@ -712,7 +718,9 @@ test("surveyCorpus: a broken inline anchor at an exempt path GATES via the ancho
     const survey = surveyCorpus({ repoRoot: tmp });
     assert.ok(
       survey.citeAnomalies.some((anomaly) =>
-        /\[inline-anchor-not-found\].*Spec-50 §Definitely Missing/.test(anomaly),
+        /\[inline-anchor-not-found\].*Spec-050 §Definitely Missing.*section-not-found/.test(
+          anomaly,
+        ),
       ),
       survey.citeAnomalies.join("\n"),
     );
@@ -756,7 +764,8 @@ const LEGACY_TOLERANT_ANCHOR_PHASE = `### Phase 1 — legacy inline tolerant anc
 
 #### Tasks
 
-- **T-054p-1-1** (Files: \`packages/a/v.ts\`; Verifies invariant: none; Spec coverage: Spec-050 §Required Behavior step 3 (probe) + §Framing + AC2) — trailing qualifier words, a parenthetical-qualified heading, and an in-range AC index all resolve.
+- **T-054p-1-1** (Files: \`packages/a/v.ts\`; Verifies invariant: Spec-050 AC2; Spec coverage: \`Spec-050 §Framing\`) — an in-range AC index and a parenthetical-qualified heading both resolve clean.
+- **T-054p-1-2** (Files: \`packages/a/v2.ts\`; Verifies invariant: none; Spec coverage: Spec-050 §Required Behavior step 3 (probe)) — a resolving heading with trailing legacy descriptor words.
 `;
 
 const LEGACY_PHANTOM_AC_PHASE = `### Phase 1 — legacy inline phantom AC
@@ -777,7 +786,7 @@ test("surveyCorpus: a phantom inline AC index at an exempt path GATES via the fl
     const survey = surveyCorpus({ repoRoot: tmp });
     assert.ok(
       survey.citeAnomalies.some((anomaly) =>
-        /\[inline-anchor-not-found\].*Spec-50 AC999.*ac-index-out-of-range/.test(anomaly),
+        /\[inline-anchor-not-found\].*Spec-050 AC999.*ac-index-out-of-range/.test(anomaly),
       ),
       survey.citeAnomalies.join("\n"),
     );
@@ -790,18 +799,82 @@ test("surveyCorpus: a phantom inline AC index at an exempt path GATES via the fl
   }
 });
 
-test("surveyCorpus: the floor tolerates the inline idiom — trailing qualifiers and parenthetical-qualified headings verify", () => {
-  // `§Required Behavior step 3` resolves via cite-side trailing-word strip;
-  // `§Framing` resolves via heading-side parenthetical strip against
-  // `## Framing (V1 Pairwise)`. Only the SHAPE anomaly diverts — the floor
-  // contributes nothing to either channel.
+test("surveyCorpus: floor idiom tolerance — clean anchors stay clean; a descriptor tail DIVERTS with its own printed row (Codex P2, PR #214 round 5)", () => {
+  // `Spec-050 AC2` and backticked `§Framing` (heading-side parenthetical
+  // strip against `## Framing (V1 Pairwise)`, zero dropped words) verify
+  // clean. `§Required Behavior step 3` RESOLVES §Required Behavior but drops
+  // trailing words — that is no longer silently accepted: it diverts as
+  // [legacy-inline-descriptor-tail] beside the shape row, so the tail debt
+  // stays visible while the gated channel stays empty at the exempt path.
   const exemptBase = LEGACY_INLINE_CITE_EXEMPT[0].slice("docs/plans/".length);
   const tmp = makeFixtureCorpus({ [exemptBase]: LEGACY_TOLERANT_ANCHOR_PHASE });
   try {
     const survey = surveyCorpus({ repoRoot: tmp });
     assert.deepEqual(survey.citeAnomalies, [], survey.citeAnomalies.join("\n"));
-    assert.equal(survey.exemptCiteAnomalies.length, 1, survey.exemptCiteAnomalies.join("\n"));
-    assert.match(survey.exemptCiteAnomalies[0], /\[legacy-unbold-marker\]/);
+    assert.equal(survey.exemptCiteAnomalies.length, 2, survey.exemptCiteAnomalies.join("\n"));
+    assert.ok(
+      survey.exemptCiteAnomalies.some((anomaly) => /\[legacy-unbold-marker\]/.test(anomaly)),
+    );
+    assert.ok(
+      survey.exemptCiteAnomalies.some((anomaly) =>
+        /\[legacy-inline-descriptor-tail\].*Required Behavior step 3.*resolves §Required Behavior/.test(
+          anomaly,
+        ),
+      ),
+    );
+    assert.equal(survey.exemptFiles[0].count, 2);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+const LEGACY_LINE_ANCHOR_PHASE = `### Phase 1 — legacy inline line anchor
+
+#### Tasks
+
+- **T-056p-1-1** (Files: \`packages/a/t.ts\`; Verifies invariant: none; Spec coverage: Spec-050 line 999) — legacy row citing a line past the spec's EOF.
+`;
+
+test("surveyCorpus: an out-of-range inline line anchor GATES via the real verifier even at an exempt path (Codex P2, PR #214 round 5)", () => {
+  // Round 5 finding 1: the walker ignored `line N` tokens, so a phantom line
+  // cite was suppressed with the shape. The real grammar parses it as a line
+  // anchor and verifyLineAnchor rejects it — [inline-anchor-not-found] gates.
+  const exemptBase = LEGACY_INLINE_CITE_EXEMPT[0].slice("docs/plans/".length);
+  const tmp = makeFixtureCorpus({ [exemptBase]: LEGACY_LINE_ANCHOR_PHASE });
+  try {
+    const survey = surveyCorpus({ repoRoot: tmp });
+    assert.ok(
+      survey.citeAnomalies.some((anomaly) =>
+        /\[inline-anchor-not-found\].*Spec-050 line 999.*line-out-of-range/.test(anomaly),
+      ),
+      survey.citeAnomalies.join("\n"),
+    );
+    assert.ok(
+      survey.exemptCiteAnomalies.some((anomaly) => /\[legacy-unbold-marker\]/.test(anomaly)),
+      "shape debt still diverts",
+    );
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("surveyCorpus: a descriptor tail at a NON-exempt path GATES (divert is exempt-list-scoped)", () => {
+  // The new kind rides the same kind-scoped divert as the shape kinds: at any
+  // path outside LEGACY_INLINE_CITE_EXEMPT it lands in the gated channel.
+  const tmp = makeFixtureCorpus({ "064-legacy.md": LEGACY_TOLERANT_ANCHOR_PHASE });
+  try {
+    const survey = surveyCorpus({ repoRoot: tmp });
+    assert.ok(
+      survey.citeAnomalies.some((anomaly) =>
+        /\[legacy-inline-descriptor-tail\].*Required Behavior step 3/.test(anomaly),
+      ),
+      survey.citeAnomalies.join("\n"),
+    );
+    assert.ok(
+      survey.citeAnomalies.some((anomaly) => /\[legacy-unbold-marker\]/.test(anomaly)),
+      "shape gates at non-exempt paths too",
+    );
+    assert.deepEqual(survey.exemptCiteAnomalies, []);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }

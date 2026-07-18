@@ -3038,42 +3038,54 @@ export const LEGACY_INLINE_CITE_EXEMPT = [
 export const LEGACY_INLINE_EXEMPT_KINDS = new Set([
   "legacy-unbold-marker",
   "legacy-markers-partial",
+  // A section anchor whose heading RESOLVES but carries trailing legacy
+  // descriptor words the pre-Gate-4 idiom wrote outside parens (`§Trust
+  // Stance — renderer-untrusted enforcement…`). Resolution succeeded, so the
+  // debt is formatting-class: divertable on exempt paths (printed per row),
+  // hard-gating everywhere else (Codex P2, PR #214 round 5).
+  "legacy-inline-descriptor-tail",
 ]);
 
-// ---------- Inline anchor-existence floor (Codex P2, PR #214 round 3) ----------
+// ---------- Inline anchor-existence floor (Codex P2, PR #214 rounds 3-5) ----------
 //
 // The legacy-inline exemption hides marker SHAPE, but the shape divert alone
 // would also hide a broken anchor INSIDE an inline payload (the bold-only
 // extractor never parses them, so `; Spec coverage: Spec-007 §Definitely
-// Missing` used to surface only as divertable [legacy-unbold-marker]). This
-// floor extracts every document-anchored claim an inline payload actually
-// makes and verifies it EXISTS, without imposing the full Gate-4 payload
-// grammar on the pre-Gate-4 inline idiom (backticked labels, em-dash
-// descriptor tails, quoted subjects, `+`-joined sections, free-text
-// invariant descriptions all stay legal — they are formatting debt, owned
-// by the restructure).
+// Missing` used to surface only as divertable [legacy-unbold-marker]).
 //
-// Verified claims (all findings ALWAYS gate — the kinds are not in
-// LEGACY_INLINE_EXEMPT_KINDS):
-//   - `Spec-NNN`     → spec file resolves uniquely            [inline-doc-missing]
-//   - `Spec-NNN §H`  → heading exists in that spec            [inline-anchor-not-found]
-//   - `Spec-NNN ACn` → n-th §Acceptance Criteria bullet exists [inline-anchor-not-found]
-//   - `ADR-NNN`      → ADR file resolves uniquely             [inline-doc-missing]
-//   - `Plan-NNN`     → plan file resolves uniquely            [inline-doc-missing]
-//   - `<name>.md`    → arch-doc basename resolves uniquely    [inline-doc-missing]
+// Design (round-5 redesign): the floor runs the REAL Gate-4 payload grammar
+// (`parseCitePayload`) over each inline payload after two purely-cosmetic
+// idiom normalizations (backtick strip; `docs/**/<name>.md` path collapse),
+// then verifies every anchor that parses with the REAL verifier at FULL
+// fidelity — sections, ACs, line / line-range subanchors, subjects, hints.
+// There is deliberately no floor-private token grammar: rounds 3-5 each
+// found a claim type a hand-rolled walker under-covered (§ sections, ACn,
+// line/lines), which is structural — the real grammar is the only complete
+// enumeration of Gate-4 claim types.
 //
-// Heading verification reuses verifyAnchorAgainstSpec (section-only) with a
-// two-sided tolerance ladder for the inline idiom: trailing qualifier words
-// on the CITE side are stripped longest-prefix-first (`§Relay Connection
-// Lifecycle step 3` → `Relay Connection Lifecycle`), and a trailing
-// parenthetical on the HEADING side is stripped when exact match fails
-// (`### Session Membership Management (V1 Pairwise)` accepts `§Session
-// Membership Management`) — the heading-side strip requires exactly one
-// candidate heading so it can never over-match. Bare `§` tokens bound to a
-// Plan-NNN / ADR-NNN / <name>.md label, or bound to nothing (external
-// standards like `JSON-RPC 2.0 §5.1`, plan-internal `§Cross-Plan
-// Obligations CP-…` refs), name no spec section and are skipped: they are
-// descriptor text, not spec anchors. The BOLD verifier path is untouched.
+// Disposition of results:
+//   - Parsed anchor, verify VALID → clean.
+//   - Parsed section anchor, verify fails, but a longest-prefix of the
+//     section resolves uniquely to a real heading (trailing parenthetical on
+//     the HEADING side stripped when exact match fails — unique-match
+//     guarded, so it can never over-accept):
+//       · zero dropped words → clean (the cite is exact modulo the heading's
+//         own `(Qualifier)` — e.g. `§Session Membership Management` against
+//         `### Session Membership Management (V1 Pairwise)`);
+//       · dropped words remain → [legacy-inline-descriptor-tail]: the anchor
+//         RESOLVES, the tail is legacy formatting — divertable-but-printed on
+//         exempt paths, gating on every other path.
+//   - Any other verify failure → gates ALWAYS: file-resolution reasons map to
+//     [inline-doc-missing], everything else (section-not-found with no
+//     resolving prefix, ac-index-out-of-range, line-out-of-range, …) to
+//     [inline-anchor-not-found]. Neither kind is in LEGACY_INLINE_EXEMPT_KINDS.
+//   - Parse FAILURES are not floor findings: an inline payload that does not
+//     parse under the Gate-4 grammar claims no verifiable anchor — that is
+//     exactly the formatting debt the [legacy-unbold-marker] shape count
+//     already represents (and that kind gates by itself on non-exempt paths).
+//
+// The BOLD verifier path is untouched; the restructure that converts these
+// rows to bold markers moves them onto the full grammar with no floor at all.
 
 // One unbold marker payload per entry, bounded by the compact-inline row
 // grammar: the payload ends at the first `;` or `)` at paren depth 0 (the
@@ -3105,82 +3117,75 @@ export function extractInlineCitePayloads(phaseSection) {
   return payloads;
 }
 
-// Token walker over one inline payload. Document labels BIND the context for
-// bare `§Heading` and `ACn` tokens that follow them; only a Spec-NNN binding
-// makes a following `§` a verifiable spec-section claim or a following `ACn`
-// a verifiable acceptance-criterion claim. The `.md` alternative sits before
-// the AC alternative so a hypothetical `ACn.md` filename is consumed as a
-// filename, not split into an AC token.
-export function extractInlineFloorAnchors(payload) {
-  const anchors = [];
-  let specContext = null;
-  const tokenRe =
-    /\bSpec-(\d{1,4})\b|\bADR-(\d{1,4})\b|\bPlan-(\d{1,4})\b|\b([\w-]+\.md)\b|\bAC(\d{1,4})\b|§\s*([^`(—"+,;)\n]+)/g;
-  for (const match of payload.matchAll(tokenRe)) {
-    if (match[1] !== undefined) {
-      specContext = Number(match[1]);
-      anchors.push({ kind: "spec-file", spec: specContext, raw: match[0] });
-    } else if (match[2] !== undefined) {
-      specContext = null;
-      anchors.push({ kind: "adr-file", adr: Number(match[2]), raw: match[0] });
-    } else if (match[3] !== undefined) {
-      specContext = null;
-      anchors.push({ kind: "plan-file", plan: Number(match[3]), raw: match[0] });
-    } else if (match[4] !== undefined) {
-      specContext = null;
-      anchors.push({ kind: "arch-doc-file", file: match[4], raw: match[0] });
-    } else if (match[5] !== undefined) {
-      // ACn claims the n-th checkbox bullet of the bound spec's §Acceptance
-      // Criteria (Codex P2, PR #214 round 4). It does not reset the binding.
-      if (specContext !== null) {
-        anchors.push({ kind: "spec-ac", spec: specContext, ac: Number(match[5]), raw: match[0] });
-      }
-    } else {
-      const heading = match[6].trim();
-      if (heading && specContext !== null) {
-        anchors.push({ kind: "spec-section", spec: specContext, heading, raw: match[0] });
-      }
-      // Non-spec-bound § / AC tokens are descriptor text — skipped by design.
-    }
-  }
-  return anchors;
+// Two purely-cosmetic inline-idiom transforms so the real grammar can parse
+// what a legacy payload actually claims: backticks are presentation, and a
+// `docs/architecture/**/<name>.md` path collapses to the basename form the
+// arch-doc namespace parses (findArchDocFiles searches recursively, so the
+// collapse is lossless for that namespace — other docs/ trees are NOT
+// collapsed; a path-form cite into them stays unparsed shape debt). Nothing
+// else is rewritten.
+function normalizeInlineIdiom(payload) {
+  return payload
+    .replace(/`/g, "")
+    .replace(/\bdocs\/architecture\/(?:[\w-]+\/)*([\w-]+\.md)\b/g, "$1");
 }
 
-// Heading match with the two-sided tolerance ladder described above.
-function verifyInlineSpecSection(spec, heading, raw, dirs) {
-  const words = heading.split(/\s+/).filter(Boolean);
-  for (let keep = words.length; keep >= 1; keep -= 1) {
-    const candidate = words.slice(0, keep).join(" ");
-    const verdict = verifyAnchorAgainstSpec(
-      { type: "section-only", spec, section: candidate, raw },
-      dirs,
-    );
-    if (verdict.valid) return { valid: true };
-  }
-  // Heading-side trailing-parenthetical strip: `## Heading (Qualifier)`
-  // accepts `§Heading`. Exactly one stripped heading may match, else fail.
+// Verifier reasons that mean the cited DOCUMENT did not resolve (missing /
+// ambiguous / unreadable file), as opposed to a resolved document whose
+// internal anchor failed. Membership routes a floor failure to
+// [inline-doc-missing]; everything else is [inline-anchor-not-found] —
+// fail-closed: an unrecognized reason still gates, just under the
+// anchor-level kind.
+const INLINE_DOC_RESOLUTION_REASONS = new Set([
+  "spec-file-not-found",
+  "spec-file-ambiguous",
+  "spec-file-unreadable",
+  "adr-file-not-found",
+  "adr-file-ambiguous",
+  "arch-doc-not-found",
+  "arch-doc-ambiguous",
+  "cross-plan-deps-file-not-found",
+]);
+
+// Salvage classifier for a `section-not-found` verify failure (Codex P2,
+// PR #214 round 5): walk the cite-side words longest-prefix-first and match
+// each prefix against the spec's real headings, both exact and with a
+// trailing parenthetical stripped (`### Session Membership Management (V1
+// Pairwise)` matches `§Session Membership Management`). A prefix must match
+// exactly ONE heading across both forms — any ambiguity fails the salvage,
+// so it can never over-accept. Returns the FULL heading text so the caller
+// re-verifies the anchor's primary claim against the real verifier; salvage
+// classifies the tail, it never skips a check.
+function salvageSectionHeading(spec, section, dirs) {
   const specMatches = findPaddedFiles(dirs.specsDir, spec);
-  if (specMatches.length !== 1) return { valid: false };
+  if (specMatches.length !== 1) return { resolved: false };
   let source;
   try {
     source = readFileSync(specMatches[0], "utf8");
   } catch {
-    return { valid: false };
+    return { resolved: false };
   }
-  const strippedHeadings = [];
+  const headings = [];
   for (const line of source.split("\n")) {
     if (/^#+\s+/.test(line)) {
-      const text = line.replace(/^#+\s+/, "").replace(/\s*\([^)]*\)\s*$/, "");
-      strippedHeadings.push(text);
+      const full = line.replace(/^#+\s+/, "").trim();
+      headings.push({ full, stripped: full.replace(/\s*\([^)]*\)\s*$/, "") });
     }
   }
+  const words = section.split(/\s+/).filter(Boolean);
   for (let keep = words.length; keep >= 1; keep -= 1) {
     const candidate = normalizeTokenForMatch(words.slice(0, keep).join(" "));
-    const hits = strippedHeadings.filter((h) => normalizeTokenForMatch(h) === candidate);
-    if (hits.length === 1) return { valid: true };
-    if (hits.length > 1) return { valid: false };
+    const hits = headings.filter(
+      (heading) =>
+        normalizeTokenForMatch(heading.full) === candidate ||
+        normalizeTokenForMatch(heading.stripped) === candidate,
+    );
+    if (hits.length === 1) {
+      return { resolved: true, heading: hits[0].full, droppedWords: words.length - keep };
+    }
+    if (hits.length > 1) return { resolved: false };
   }
-  return { valid: false };
+  return { resolved: false };
 }
 
 export function verifyInlineAnchorFloor(phaseSection, { repoRoot = REPO_ROOT } = {}) {
@@ -3193,65 +3198,51 @@ export function verifyInlineAnchorFloor(phaseSection, { repoRoot = REPO_ROOT } =
   const plansDir = resolve(repoRoot, "docs", "plans");
   const findings = [];
   for (const { field, payload, lineNo } of extractInlineCitePayloads(phaseSection)) {
-    for (const anchor of extractInlineFloorAnchors(payload)) {
-      if (anchor.kind === "spec-section") {
-        const verdict = verifyInlineSpecSection(anchor.spec, anchor.heading, anchor.raw, dirs);
-        if (!verdict.valid) {
+    const normalized = normalizeInlineIdiom(payload);
+    const { anchors } = parseCitePayload(normalized);
+    for (const anchor of anchors) {
+      let verdict = verifyAnchorAgainstSpec(anchor, dirs);
+      let droppedWords = 0;
+      let salvagedHeading = null;
+      if (!verdict.valid && verdict.reason === "section-not-found" && anchor.section) {
+        const salvage = salvageSectionHeading(anchor.spec, anchor.section, dirs);
+        if (salvage.resolved) {
+          // Re-verify with the real heading substituted so the anchor's
+          // primary claim (line / line-range / AC / section) still verifies
+          // at full fidelity under the salvaged section.
+          verdict = verifyAnchorAgainstSpec({ ...anchor, section: salvage.heading }, dirs);
+          droppedWords = salvage.droppedWords;
+          salvagedHeading = salvage.heading;
+        }
+      }
+      if (verdict.valid) {
+        if (droppedWords > 0) {
           findings.push({
-            kind: "inline-anchor-not-found",
-            evidence: `inline ${field} (line ${lineNo}): Spec-${anchor.spec} §${anchor.heading} — no such heading (trailing-qualifier and parenthetical tolerance both exhausted)`,
+            kind: "legacy-inline-descriptor-tail",
+            evidence: `inline ${field} (line ${lineNo}): ${String(anchor.raw).trim()} — resolves §${salvagedHeading} with ${droppedWords} trailing descriptor word(s); the restructure moves the tail into a parenthesized descriptor`,
           });
         }
-      } else if (anchor.kind === "spec-ac") {
-        // Pure index-existence form of the real AC verifier: §Acceptance
-        // Criteria must exist and the index must be in bullet range. No
-        // section / line-hint / subject coupling — those belong to the full
-        // Gate-4 grammar, not the floor.
-        const verdict = verifyAnchorAgainstSpec(
-          {
-            type: "ac",
-            spec: anchor.spec,
-            ac: anchor.ac,
-            lineHint: null,
-            section: null,
-            subject: null,
-            raw: anchor.raw,
-          },
-          dirs,
-        );
-        if (!verdict.valid) {
-          findings.push({
-            kind: "inline-anchor-not-found",
-            evidence: `inline ${field} (line ${lineNo}): Spec-${anchor.spec} AC${anchor.ac} — ${verdict.reason}: ${verdict.evidence}`,
-          });
-        }
-      } else {
-        const verifierAnchor =
-          anchor.kind === "spec-file"
-            ? { type: "inline-spec-file", spec: anchor.spec, raw: anchor.raw }
-            : anchor.kind === "adr-file"
-              ? { type: "adr-section", adr: anchor.adr, raw: anchor.raw }
-              : anchor.kind === "arch-doc-file"
-                ? { type: "arch-doc", file: anchor.file, raw: anchor.raw }
-                : null;
-        if (verifierAnchor) {
-          const verdict = verifyAnchorAgainstSpec(verifierAnchor, dirs);
-          if (!verdict.valid) {
-            findings.push({
-              kind: "inline-doc-missing",
-              evidence: `inline ${field} (line ${lineNo}): ${anchor.raw} — ${verdict.reason}: ${verdict.evidence}`,
-            });
-          }
-        } else {
-          // plan-file: the verifier has no plan namespace; resolve directly.
-          const planMatches = findPaddedFiles(plansDir, anchor.plan);
-          if (planMatches.length !== 1) {
-            findings.push({
-              kind: "inline-doc-missing",
-              evidence: `inline ${field} (line ${lineNo}): ${anchor.raw} — plan file resolves to ${planMatches.length} match(es) under docs/plans/`,
-            });
-          }
-        }
+        continue;
+      }
+      findings.push({
+        kind: INLINE_DOC_RESOLUTION_REASONS.has(verdict.reason)
+          ? "inline-doc-missing"
+          : "inline-anchor-not-found",
+        evidence: `inline ${field} (line ${lineNo}): ${String(anchor.raw).trim()} — ${verdict.reason}: ${verdict.evidence}`,
+      });
+    }
+    // Plan-NNN file existence. The Gate-4 grammar has no Plan-NNN namespace
+    // (a Plan-NNN segment is unparseable-cite shape debt on the bold path),
+    // but grandfathered inline payloads legitimately reference sibling
+    // plans, and a typo'd plan number must not hide behind the shape
+    // divert. Existence-only — no section verification across plans.
+    for (const planRef of normalized.matchAll(/\bPlan-(\d{1,4})\b/g)) {
+      const planMatches = findPaddedFiles(plansDir, Number(planRef[1]));
+      if (planMatches.length !== 1) {
+        findings.push({
+          kind: "inline-doc-missing",
+          evidence: `inline ${field} (line ${lineNo}): ${planRef[0]} — plan file resolves to ${planMatches.length} match(es) under docs/plans/`,
+        });
       }
     }
   }
