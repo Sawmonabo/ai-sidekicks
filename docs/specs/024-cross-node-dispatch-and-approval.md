@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| **Status** | `review` |
+| **Status** | `approved` |
 | **NNN** | `024` |
 | **Slug** | `cross-node-dispatch-and-approval` |
 | **Date** | `2026-04-17` |

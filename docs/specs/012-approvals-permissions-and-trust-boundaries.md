@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| **Status** | `review` |
+| **Status** | `approved` |
 | **NNN** | `012` |
 | **Slug** | `approvals-permissions-and-trust-boundaries` |
 | **Date** | `2026-04-14` |
