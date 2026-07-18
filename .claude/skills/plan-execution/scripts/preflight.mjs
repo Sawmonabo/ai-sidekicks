@@ -3002,7 +3002,9 @@ export function surveyPhase(phaseSection) {
 // place yields unparseable-cite noise rather than a verified anchor. Their cite
 // anomalies are DIVERTED out of the `--enforce-cites` exit (still PRINTED every
 // run as visible debt — never a silent skip) until each plan is re-authored into
-// the expanded one-marker-per-line form. Exact repo-relative paths, not a prefix
+// the expanded one-marker-per-line form. The divert is KIND-scoped to the legacy
+// marker-shape classes (LEGACY_INLINE_EXEMPT_KINDS below); verifier findings on
+// parsed cites gate regardless of the exemption. Exact repo-relative paths, not a prefix
 // or glob: a renamed plan drops off the list and trips the stale-exemption ratchet
 // (see surveyCorpus). Removal owner per file — the list itself is the tracking, no
 // backlog item:
@@ -3018,6 +3020,15 @@ export const LEGACY_INLINE_CITE_EXEMPT = [
   "docs/plans/025-self-hostable-node-relay.md",
 ];
 
+// Only the two marker-SHAPE classes the compact-inline legacy style produces are
+// divertable — the survey-side screens that fire on HOW the markers are written,
+// not on what they cite. Verifier findings from parsed cites (`section-not-found`,
+// `unparseable-cite`) and hard failures (`cite-check-threw`) always GATE, exempt
+// path or not: the exemption hides legacy formatting debt, never a broken or
+// unverifiable Spec anchor (Codex P1, PR #214 round 1 — the pre-fix divert was
+// kind-blind and suppressed two live `section-not-found` findings).
+export const LEGACY_INLINE_EXEMPT_KINDS = new Set(["legacy-unbold-marker", "markers-partial"]);
+
 export function surveyCorpus({ repoRoot = REPO_ROOT } = {}) {
   const plansDir = resolve(repoRoot, "docs", "plans");
   const planFileNames = readdirSync(plansDir)
@@ -3030,20 +3041,24 @@ export function surveyCorpus({ repoRoot = REPO_ROOT } = {}) {
   // omission/phantom `anomalies` (which the real-corpus guard pins to []).
   // Warn-only by default; `--survey --enforce-cites` folds them into the exit.
   const citeAnomalies = [];
-  // Cite anomalies from LEGACY_INLINE_CITE_EXEMPT plans divert here: PRINTED as
-  // visible debt but never folded into the --enforce-cites exit. Keyed per plan
-  // basename for the stale-exemption ratchet below (a clean exempt plan fails).
+  // Legacy marker-shape anomalies (LEGACY_INLINE_EXEMPT_KINDS) from
+  // LEGACY_INLINE_CITE_EXEMPT plans divert here: PRINTED as visible debt but never
+  // folded into the --enforce-cites exit. Every other kind gates even on an exempt
+  // path. Keyed per plan basename for the stale-exemption ratchet below (a plan
+  // clean of the DIVERTED classes fails — its exemption is no longer earning its place).
   const exemptCiteAnomalies = [];
   const exemptAnomalyCount = new Map();
   const distribution = { S: 0, M: 0, L: 0 };
   let phaseCount = 0;
   for (const name of planFileNames) {
     const source = readFileSync(resolve(plansDir, name), "utf8");
-    // Route every cite anomaly for this plan: exempt plans divert to the printed
-    // exemptCiteAnomalies channel; all others gate through citeAnomalies.
+    // Route every cite anomaly for this plan: exempt plans divert their legacy
+    // marker-shape kinds (LEGACY_INLINE_EXEMPT_KINDS) to the printed
+    // exemptCiteAnomalies channel; every other kind — and every non-exempt plan —
+    // gates through citeAnomalies.
     const isExempt = LEGACY_INLINE_CITE_EXEMPT.includes(`docs/plans/${name}`);
-    const pushCite = (message) => {
-      if (isExempt) {
+    const pushCite = (kind, message) => {
+      if (isExempt && LEGACY_INLINE_EXEMPT_KINDS.has(kind)) {
         exemptCiteAnomalies.push(message);
         exemptAnomalyCount.set(name, (exemptAnomalyCount.get(name) ?? 0) + 1);
       } else {
@@ -3089,6 +3104,7 @@ export function surveyCorpus({ repoRoot = REPO_ROOT } = {}) {
         citeResult = gateTasksBlockCites(section, name.slice(0, 3), label, { repoRoot });
       } catch (err) {
         pushCite(
+          "cite-check-threw",
           `${name} Phase ${label} [cite-check-threw] ${String(err?.message ?? err).slice(0, 160)}`,
         );
         citeResult = null;
@@ -3096,7 +3112,10 @@ export function surveyCorpus({ repoRoot = REPO_ROOT } = {}) {
       if (citeResult?.hasCiteMarkers) {
         for (const finding of citeResult.findings) {
           const where = finding.taskId ? `${finding.taskId} (${finding.field})` : finding.field;
-          pushCite(`${name} Phase ${label} [${finding.kind}] ${where}: ${finding.raw}`);
+          pushCite(
+            finding.kind,
+            `${name} Phase ${label} [${finding.kind}] ${where}: ${finding.raw}`,
+          );
         }
       }
       // W3/W4 marker-coverage screen (survey-only; the dispatch gate above is
@@ -3114,6 +3133,7 @@ export function surveyCorpus({ repoRoot = REPO_ROOT } = {}) {
         const unboldMarkers = markers.unboldSpec + markers.unboldInvariant;
         if (unboldMarkers > 0) {
           pushCite(
+            "legacy-unbold-marker",
             `${name} Phase ${label} [legacy-unbold-marker] ${unboldMarkers} unbold field marker(s) the bold cite extractor does not parse (bold present: ${markers.boldSpec} Spec + ${markers.boldInvariant} invariant)`,
           );
         }
@@ -3124,6 +3144,7 @@ export function surveyCorpus({ repoRoot = REPO_ROOT } = {}) {
           const present = realSpec > 0 ? "Spec coverage" : "Verifies invariant";
           const missing = realSpec > 0 ? "Verifies invariant" : "Spec coverage";
           pushCite(
+            "markers-partial",
             `${name} Phase ${label} [markers-partial] has a ${present} marker but no ${missing} marker`,
           );
         }

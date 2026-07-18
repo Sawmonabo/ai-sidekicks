@@ -516,21 +516,48 @@ test("preflight --survey --enforce-cites: clean fixture exits 0 even when armed"
   }
 });
 
-test("surveyCorpus: a dirty plan at an exempt path diverts out of the gated channel", () => {
-  // The core carve-out: a legacy-inline cite defect in an exempt plan is suppressed
-  // from the --enforce-cites exit (printed as visible debt) instead of blocking it.
+test("surveyCorpus: legacy marker-shape debt at an exempt path diverts out of the gated channel", () => {
+  // The core carve-out: a LEGACY_INLINE_EXEMPT_KINDS defect ([legacy-unbold-marker]
+  // here) in an exempt plan is suppressed from the --enforce-cites exit (printed as
+  // visible debt) instead of blocking it.
+  const exemptBase = LEGACY_INLINE_CITE_EXEMPT[0].slice("docs/plans/".length);
+  const tmp = makeFixtureCorpus({ [exemptBase]: LEGACY_UNBOLD_PHASE });
+  try {
+    const survey = surveyCorpus({ repoRoot: tmp });
+    assert.deepEqual(
+      survey.citeAnomalies,
+      [],
+      "exempt legacy debt must not reach the gated channel",
+    );
+    assert.equal(survey.exemptCiteAnomalies.length, 1, survey.exemptCiteAnomalies.join("\n"));
+    assert.match(survey.exemptCiteAnomalies[0], /\[legacy-unbold-marker\]/);
+    assert.equal(survey.exemptFiles.length, 1);
+    assert.equal(survey.exemptFiles[0].base, exemptBase);
+    assert.equal(survey.exemptFiles[0].count, 1);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("surveyCorpus: a verifier-class defect at an exempt path GATES — the divert is kind-scoped (Codex P1, PR #214)", () => {
+  // Regression control for the kind-blind divert: the exemption hides only the
+  // legacy marker-SHAPE classes. An extractor/verifier finding (here
+  // [unparseable-cite]; [section-not-found] rides the same finding.kind routing)
+  // lands in the GATED channel even on an exempt path — and with zero legacy-class
+  // debt left, the stale-exemption ratchet fires alongside it.
   const exemptBase = LEGACY_INLINE_CITE_EXEMPT[0].slice("docs/plans/".length);
   const tmp = makeFixtureCorpus({ [exemptBase]: BAD_CITE_PLAN });
   try {
     const survey = surveyCorpus({ repoRoot: tmp });
-    assert.deepEqual(survey.citeAnomalies, [], "exempt cite debt must not reach the gated channel");
+    assert.deepEqual(survey.exemptCiteAnomalies, [], "a verifier-class finding must never divert");
     assert.ok(
-      survey.exemptCiteAnomalies.length >= 1,
-      "exempt cite debt must be diverted and counted",
+      survey.citeAnomalies.some((anomaly) => /\[unparseable-cite\]/.test(anomaly)),
+      survey.citeAnomalies.join("\n"),
     );
-    assert.equal(survey.exemptFiles.length, 1);
-    assert.equal(survey.exemptFiles[0].base, exemptBase);
-    assert.ok(survey.exemptFiles[0].count >= 1);
+    assert.ok(
+      survey.citeAnomalies.some((anomaly) => /\[stale-exemption\]/.test(anomaly)),
+      "no legacy-class debt left means the exemption itself is stale",
+    );
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
