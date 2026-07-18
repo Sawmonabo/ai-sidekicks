@@ -180,9 +180,11 @@ function makeFixtureCorpus(planFiles) {
   // the heading-side trailing-parenthetical tolerance.
   const specsDir = join(tmp, "docs", "specs");
   mkdirSync(specsDir, { recursive: true });
+  // The trailing table pins the row-claim leg (`Spec-050 rows 1 + 7a`);
+  // appended last so the line-anchor fixtures' numbering stays stable.
   writeFileSync(
     join(specsDir, "050-fixture-spec.md"),
-    "# Spec-050: Fixture\n\n## Required Behavior\n\nBody.\n\n## Framing (V1 Pairwise)\n\nBody.\n\n## Acceptance Criteria\n\n- [ ] AC1 body\n- [ ] AC2 body\n",
+    "# Spec-050: Fixture\n\n## Required Behavior\n\nBody.\n\n## Framing (V1 Pairwise)\n\nBody.\n\n## Acceptance Criteria\n\n- [ ] AC1 body\n- [ ] AC2 body\n\n## Behavior Rows\n\n| # | Behavior |\n| --- | --- |\n| 1 | first |\n| 7a | lettered |\n",
   );
   for (const [name, content] of Object.entries(planFiles)) {
     writeFileSync(join(plansDir, name), content);
@@ -916,6 +918,57 @@ test("verifyInlineAnchorFloor: secondary existence sweep (unit — Codex P2, PR 
     // Dedupe: a defect the PRIMARY pass reported is never re-reported by the
     // sweep (negative control for double-reporting).
     assert.equal(floor("Spec-999 §Anything").length, 1);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("verifyInlineAnchorFloor: row claims verify against spec table first-column ids (unit — Codex P2, PR #214 round 7)", () => {
+  const tmp = makeFixtureCorpus({});
+  const row = (payload) =>
+    `### Phase 1 — unit\n\n#### Tasks\n\n- **T-050u-1-1** (Files: \`packages/a/x.ts\`; Verifies invariant: none; Spec coverage: ${payload})\n`;
+  const floor = (payload) => verifyInlineAnchorFloor(row(payload), { repoRoot: tmp });
+  try {
+    // Real row ids — numeric and lettered, `+`/`/` list forms — verify clean.
+    assert.deepEqual(floor("Spec-050 rows 1 + 7a"), []);
+    assert.deepEqual(floor("Spec-050 rows 1/7a"), []);
+    // A bogus row id gates per id (the Codex round-7 scenario).
+    const bogus = floor("Spec-050 rows 1 + 999");
+    assert.equal(bogus.length, 1, JSON.stringify(bogus));
+    assert.equal(bogus[0].kind, "inline-anchor-not-found");
+    assert.match(bogus[0].evidence, /row 999.*row-not-found/);
+    // Prose uses of the word "rows" never tokenize — row ids are digit-led.
+    assert.deepEqual(floor("Spec-050 §Required Behavior (the table rows correlate ids)"), []);
+    // A row under a missing spec folds into that spec's one doc-missing
+    // finding (dedupe parity with §/AC/line).
+    assert.equal(floor("Spec-999 rows 1 + 2").length, 1);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+const LEGACY_ROW_PHASE = `### Phase 1 — legacy inline row anchors
+
+#### Tasks
+
+- **T-058p-1-1** (Files: \`packages/a/r.ts\`; Verifies invariant: none; Spec coverage: Spec-050 rows 1 + 999) — legacy row citing one real and one phantom table row.
+`;
+
+test("surveyCorpus: a phantom table-row cite GATES via the sweep even at an exempt path (Codex P2, PR #214 round 7)", () => {
+  const exemptBase = LEGACY_INLINE_CITE_EXEMPT[0].slice("docs/plans/".length);
+  const tmp = makeFixtureCorpus({ [exemptBase]: LEGACY_ROW_PHASE });
+  try {
+    const survey = surveyCorpus({ repoRoot: tmp });
+    assert.ok(
+      survey.citeAnomalies.some((anomaly) =>
+        /\[inline-anchor-not-found\].*row 999.*row-not-found/.test(anomaly),
+      ),
+      survey.citeAnomalies.join("\n"),
+    );
+    assert.ok(
+      survey.exemptCiteAnomalies.some((anomaly) => /\[legacy-unbold-marker\]/.test(anomaly)),
+      "shape debt still diverts",
+    );
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }

@@ -3087,9 +3087,12 @@ export const LEGACY_INLINE_EXEMPT_KINDS = new Set([
 //     SECONDARY existence sweep walks the full normalized payload —
 //     descriptors, unparsed fragments, post-`;` segments — and verifies
 //     every Spec-NNN / ADR-NNN / Plan-NNN / <name>.md label resolves
-//     uniquely, plus §Heading / ACn / line-N tokens under the nearest
-//     preceding Spec binding (walker-style: Plan / ADR / .md labels reset
-//     the binding). Sweep findings are DEDUPED against the primary pass via
+//     uniquely, plus §Heading / ACn / line-N / row-id tokens under the
+//     nearest preceding Spec binding (walker-style: Plan / ADR / .md /
+//     cross-plan-deps labels reset the binding — their §/row refs are
+//     documentary in the bold grammar). Row claims verify against the
+//     bound spec's table first-column ids (round 7). Sweep findings are
+//     DEDUPED against the primary pass via
 //     coverage sets (a claim the grammar parsed is never re-reported), and
 //     residue § tokens share the same salvage/tail classification, so the
 //     two layers always agree on what a tail is. The sweep is existence-
@@ -3214,6 +3217,31 @@ function salvageSectionHeading(spec, section, dirs) {
   return { resolved: false };
 }
 
+// First-column ids of every markdown table row in the spec (separator rows
+// dropped). Legacy inline row cites (`Spec-027 rows 4 + 10`, `row 7a`)
+// index these ids (Codex P2, PR #214 round 7). Header cells ("#", "Field")
+// are harmless residents of the set — cited row ids are digit-led, so they
+// can never collide with a header word. Returns null when the spec file
+// does not resolve (the label existence check owns that failure).
+function specTableRowIds(spec, dirs) {
+  const specMatches = findPaddedFiles(dirs.specsDir, spec);
+  if (specMatches.length !== 1) return null;
+  let source;
+  try {
+    source = readFileSync(specMatches[0], "utf8");
+  } catch {
+    return null;
+  }
+  const rowIds = new Set();
+  for (const line of source.split("\n")) {
+    if (!line.startsWith("|")) continue;
+    const firstCell = (line.split("|")[1] ?? "").trim().replace(/[*`]/g, "");
+    if (!firstCell || /^:?-{3,}:?$/.test(firstCell)) continue;
+    rowIds.add(firstCell.toLowerCase());
+  }
+  return rowIds;
+}
+
 export function verifyInlineAnchorFloor(phaseSection, { repoRoot = REPO_ROOT } = {}) {
   const dirs = {
     specsDir: resolve(repoRoot, "docs", "specs"),
@@ -3294,12 +3322,17 @@ export function verifyInlineAnchorFloor(phaseSection, { repoRoot = REPO_ROOT } =
     // under that document (one defect, one finding — mirrors the parsed
     // side, where a section-only anchor on a missing spec reports once).
     const missingSpecs = new Set();
-    // The § capture stops before ` line N` / ` lines` / ` ACn` exactly like
-    // the grammar's section prefix does, so those keywords tokenize as their
-    // own claims (and dedupe against parsed line/AC anchors) instead of
-    // polluting the heading text.
+    // The § capture stops before ` line N` / ` lines` / ` ACn` / ` row(s) N`
+    // exactly like the grammar's section prefix does, so those keywords
+    // tokenize as their own claims (and dedupe against parsed anchors)
+    // instead of polluting the heading text. Row ids are digit-led
+    // (`4`, `7a`) with `+` / `/` / `,` list separators — prose uses of the
+    // word "rows" ("the relay_connections rows correlate…") never tokenize.
+    // A bare `cross-plan-deps` namespace token resets the Spec binding like
+    // the other non-spec namespaces: its §N / row M refs are documentary in
+    // the bold grammar and must not verify against a stale Spec context.
     const sweepTokenRe =
-      /\bSpec-(\d{1,4})\b|\bADR-(\d{1,4})\b|\bPlan-(\d{1,4})\b|\b([\w-]+\.md)\b|\bAC(\d{1,4})\b|\blines?\s+(\d+)(?:\s*-\s*(\d+))?|§\s*([^(—"+,;)\n]+?)(?=\s+lines?\s+\d|\s+AC\d|\s*[(—"+,;)\n]|\s*$)/g;
+      /\bSpec-(\d{1,4})\b|\bADR-(\d{1,4})\b|\bPlan-(\d{1,4})\b|\b([\w-]+\.md)\b|\b(cross-plan-deps)\b|\bAC(\d{1,4})\b|\blines?\s+(\d+)(?:\s*-\s*(\d+))?|\brows?\s+(\d+[a-z]?(?:\s*[+/,]\s*\d+[a-z]?)*)|§\s*([^(—"+,;)\n]+?)(?=\s+lines?\s+\d|\s+AC\d|\s+rows?\s+\d|\s*[(—"+,;)\n]|\s*$)/g;
     for (const token of normalized.matchAll(sweepTokenRe)) {
       if (token[1] !== undefined) {
         specBinding = Number(token[1]);
@@ -3356,16 +3389,18 @@ export function verifyInlineAnchorFloor(phaseSection, { repoRoot = REPO_ROOT } =
           }
         }
       } else if (token[5] !== undefined) {
+        specBinding = null;
+      } else if (token[6] !== undefined) {
         if (
           specBinding !== null &&
           !missingSpecs.has(specBinding) &&
-          !coveredAcs.has(`${specBinding}::AC${Number(token[5])}`)
+          !coveredAcs.has(`${specBinding}::AC${Number(token[6])}`)
         ) {
           const verdict = verifyAnchorAgainstSpec(
             {
               type: "ac",
               spec: specBinding,
-              ac: Number(token[5]),
+              ac: Number(token[6]),
               lineHint: null,
               section: null,
               subject: null,
@@ -3380,19 +3415,19 @@ export function verifyInlineAnchorFloor(phaseSection, { repoRoot = REPO_ROOT } =
             });
           }
         }
-      } else if (token[6] !== undefined) {
+      } else if (token[7] !== undefined) {
         if (
           specBinding !== null &&
           !missingSpecs.has(specBinding) &&
-          !coveredLineStarts.has(`${specBinding}::${Number(token[6])}`)
+          !coveredLineStarts.has(`${specBinding}::${Number(token[7])}`)
         ) {
           const lineAnchor =
-            token[7] === undefined
+            token[8] === undefined
               ? {
                   type: "line",
                   spec: specBinding,
                   section: null,
-                  line: Number(token[6]),
+                  line: Number(token[7]),
                   subject: null,
                   raw: token[0],
                 }
@@ -3400,8 +3435,8 @@ export function verifyInlineAnchorFloor(phaseSection, { repoRoot = REPO_ROOT } =
                   type: "line-range",
                   spec: specBinding,
                   section: null,
-                  start: Number(token[6]),
-                  end: Number(token[7]),
+                  start: Number(token[7]),
+                  end: Number(token[8]),
                   subject: null,
                   raw: token[0],
                 };
@@ -3413,8 +3448,28 @@ export function verifyInlineAnchorFloor(phaseSection, { repoRoot = REPO_ROOT } =
             });
           }
         }
-      } else if (token[8] !== undefined) {
-        const heading = token[8].trim();
+      } else if (token[9] !== undefined) {
+        // Row claims index the first-column ids of the bound spec's markdown
+        // tables (`Spec-027 rows 4 + 10` → rows `4` and `10` of the
+        // §Required Behavior table). Each id in the list is its own claim.
+        if (specBinding !== null && !missingSpecs.has(specBinding)) {
+          const rowIds = specTableRowIds(specBinding, dirs);
+          if (rowIds !== null) {
+            for (const rowId of token[9]
+              .split(/[+/,]/)
+              .map((id) => id.trim())
+              .filter(Boolean)) {
+              if (!rowIds.has(rowId.toLowerCase())) {
+                findings.push({
+                  kind: "inline-anchor-not-found",
+                  evidence: `inline ${field} (line ${lineNo}): row ${rowId} (Spec-${String(specBinding).padStart(3, "0")}) — row-not-found: no table row with first-column id '${rowId}' in the spec`,
+                });
+              }
+            }
+          }
+        }
+      } else if (token[10] !== undefined) {
+        const heading = token[10].trim();
         if (
           heading &&
           specBinding !== null &&
