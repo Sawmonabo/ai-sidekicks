@@ -1906,7 +1906,7 @@ interface ApprovalFlowEventPayload {
   sessionId: SessionId;
   runId?: RunId; // absent on trust-triggered rule_revoked (no in-flight request)
   approvalRequestId?: ApprovalRequestId; // ditto
-  askId?: string; // present on approval.requested when the request originates from a provider permission ask (Spec-012 §Resolved Questions, Part-B fail-closed follow-up 2026-07-17): the originating DriverAskEvent.askId, persisted at creation as the durable ask↔approval association — restart/replay reconstructs which native ask an outcome or shared-deadline expiry must deny when multiple asks are in flight on one run; required at the CP-012-6 normalizer emission seam (T2.8 — the sole driver-ask-originated requester), never set on direct requests; persisted on the approval_requests projection row (ask_id — local-sqlite-schema.md §Approval Tables)
+  askId?: string; // present on approval.requested when the request originates from a provider permission ask (Spec-012 §Resolved Questions, Part-B fail-closed follow-up 2026-07-17): the originating DriverAskEvent.askId, persisted at creation as the durable ask↔approval association — restart/replay reconstructs which native ask an outcome or shared-deadline expiry must deny when multiple asks are in flight on one run; required at the CP-012-6 normalizer emission seam (T2.8 — the sole driver-ask-originated requester), never set on direct requests and never client-suppliable (the public ApprovalRequestCreateRequest deliberately carries no askId — trust-boundary note there); persisted on the approval_requests projection row (ask_id — local-sqlite-schema.md §Approval Tables)
   category: ApprovalCategory;
   scope: string;
   requestedBy?: string; // present on approval.requested — recorded requester actor (participant or agent actor id, Spec-012 line 58)
@@ -1933,13 +1933,19 @@ interface ModerationReviewFlaggedPayload {
 }
 
 // ApprovalRequestCreate
+// Trust boundary (Spec-012 §Resolved Questions, Part-B fail-closed follow-up 2026-07-17): this
+// public T3.1 binder shape deliberately carries NO `askId`. The ask↔approval association is
+// never client-suppliable — a caller-forged askId could route another ask's outcome or
+// shared-deadline expiry to the wrong native provider ask. The CP-012-6 driver-ask normalizer
+// (T2.8) supplies the originating askId and the shared deadline (expiryAt = the ask's expiresAt)
+// daemon-internally at the approval-service seam, below this binder; the request schema is
+// strict, so a smuggled askId field is refused at parse rather than silently dropped.
 interface ApprovalRequestCreateRequest {
   runId: RunId;
   category: ApprovalCategory;
   scope: string;
   resourceDescriptor: Record<string, unknown>; // REQUIRED (Spec-012 line 96); audit-grade target descriptor
   expiryAt?: string;
-  askId?: string; // originating DriverAskEvent.askId when created by the CP-012-6 driver-ask normalizer (required at that seam; recorded onto approval.requested — the durable ask↔approval association, one shared deadline expiryAt = the ask's expiresAt, per Spec-012 §Resolved Questions, Part-B fail-closed follow-up 2026-07-17)
 }
 interface ApprovalRequestCreateResponse {
   approvalRequestId: ApprovalRequestId;
