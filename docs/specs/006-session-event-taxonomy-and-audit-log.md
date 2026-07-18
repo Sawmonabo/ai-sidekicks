@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| **Status** | `review` |
+| **Status** | `approved` |
 | **NNN** | `006` |
 | **Slug** | `session-event-taxonomy-and-audit-log` |
 | **Date** | `2026-04-14` |

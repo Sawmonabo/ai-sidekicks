@@ -28,7 +28,7 @@ This plan covers SQLite-backed canonical local persistence, replay services, run
 
 ## Preconditions
 
-- [ ] Paired spec is approved — **re-opened 2026-07-13 (class sweep; supersedes the 2026-07-06 checked-box gate note):** Spec-015 is temporarily `review` while the campaign B5 amendment (reconstruction gate + resume-divergence halt) sits in its review window, so this precondition is not currently satisfied and this plan's code dispatch stays blocked; the campaign plan's Task 28 batch re-promotion restores `approved` after the W1.5 spec gate and re-checks this box.
+- [x] Paired spec is approved — re-checked 2026-07-18 by the campaign Task-28 / W1.5 batch spec re-promotion (supersedes the 2026-07-13 re-open note): Spec-015 returned to `approved`; its campaign amendment window closed.
 - [x] Required ADRs are accepted
 - [x] Blocking open questions are resolved or explicitly deferred
 - [x] **Plan-readiness audit complete per [runbook](../operations/plan-implementation-readiness-audit-runbook.md)** — Tier-7 audit (2026-06-15): 6 findings adjudicated via A-015-1..5; D-015-1 ratified (the `ReplayReadAfterCursor` sequence-position cursor model). §Invariants I-015-1..4 and the `#### Tasks` block were added as audit backfill recording EXISTING relationships — no new contract, so Plan-015 stays `approved`. Companion amendments: api-payload-contracts.md (recovery read shapes), local-sqlite-schema.md (`replay_cursors` / `recovery_checkpoints`), cross-plan-dependencies.md §1.

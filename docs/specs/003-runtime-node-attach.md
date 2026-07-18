@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| **Status** | `review` |
+| **Status** | `approved` |
 | **NNN** | `003` |
 | **Slug** | `runtime-node-attach` |
 | **Date** | `2026-04-14` |

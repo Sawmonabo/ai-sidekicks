@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| **Status** | `review` |
+| **Status** | `approved` |
 | **NNN** | `015` |
 | **Slug** | `persistence-recovery-and-replay` |
 | **Date** | `2026-04-14` |

@@ -30,7 +30,7 @@ This plan covers (a) the shared `ProviderDriver` interface + capability-flag sch
 
 ## Preconditions
 
-- [ ] Paired spec is approved — re-opened 2026-07-13 (class sweep; supersedes the checked-box campaign B3 note of 2026-07-05, which recorded the Tier-4 audit-time state): Spec-005 is temporarily `review` for the amendment window, so this precondition is not currently satisfied. Tasks tracing to the previously-approved Spec-005 content (the Tier-4 audit basis) stay covered; amendment-surface code dispatch waits for the campaign's Task-28 batch re-promotion to restore `approved`, which re-checks this box.
+- [x] Paired spec is approved — re-checked 2026-07-18 by the campaign Task-28 / W1.5 batch spec re-promotion (supersedes the 2026-07-13 re-open note): Spec-005 returned to `approved`; its campaign amendment window closed.
 - [x] Required ADRs are accepted (verified: ADR-005 `accepted`, ADR-011 `accepted`, ADR-015 `accepted`, ADR-017 `accepted`)
 - [x] Blocking open questions are resolved or explicitly deferred
 - [x] Plan-001 Phase 3 migration runner shipped
@@ -372,7 +372,7 @@ See [Local SQLite Schema §Driver and Runtime Binding Tables](../architecture/sc
 - Contract churn while both initial drivers are under construction → mitigated by Phase 1 contract-stabilization gate before Phase 3 starts.
 - Recovery semantics may diverge before enough conformance tests exist → mitigated by I-005-5 invariant + T4.7 explicit recovery-needed return-value contract test.
 - Remote provider APIs can be mistaken for permission to centralize driver execution unless the local-runtime boundary stays explicit in code and docs → mitigated by I-005-1 invariant + `Spec-005 §Required Behavior` reinforcement throughout this plan.
-- Provider rollback/rewind methods are unconfirmed against a live binary — Codex `thread/rollback` is upstream-deprecated beyond the `0.141.0` pin and Claude `--resume-session-at` is binary-probe-only (absent from the live CLI reference) — so before any driver code invoking the provider-side rewind path lands, re-verify the method or its replacement against the then-installed provider binary per [ADR-017](../decisions/017-shared-event-sourcing-scope.md) Decision Log (2026-07-02) + [`codex.md`](../reference/provider-wire/codex.md) / [`claude.md`](../reference/provider-wire/claude.md) (§Gaps recorded). Rollback is feature #19, doc-gated on the campaign's B2 bundle per [cross-plan-dependencies.md](../architecture/cross-plan-dependencies.md) §5.
+- Provider rollback/rewind methods are unconfirmed against a live binary — Codex `thread/rollback` is upstream-deprecated beyond the `0.141.0` pin and Claude `--resume-session-at` is binary-probe-only (absent from the live CLI reference) — so before any driver code invoking the provider-side rewind path lands, re-verify the method or its replacement against the then-installed provider binary per [ADR-017](../decisions/017-shared-event-sourcing-scope.md) Decision Log (2026-07-02) + [`codex.md`](../reference/provider-wire/codex.md) / [`claude.md`](../reference/provider-wire/claude.md) (§Gaps recorded). Rollback is feature #19 — its B2 spec amendment is in-tree (PR #205) with Spec-004 re-promoted `approved` 2026-07-18 via the W1.5 batch gate; rollback dispatch now gates on the B21→B23 turn-snapshot leg before Plan-004 Phase 3 and the campaign's W2 plan-task bundles per [cross-plan-dependencies.md](../architecture/cross-plan-dependencies.md) §5.
 
 ## Invariants
 

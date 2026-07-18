@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| **Status** | `review` |
+| **Status** | `approved` |
 | **NNN** | `005` |
 | **Slug** | `provider-driver-contract-and-capabilities` |
 | **Date** | `2026-04-14` |
