@@ -838,6 +838,7 @@ type DriverResumeResult =
   | {
       status: "failed";
       recoveryCondition: RecoveryCondition;
+      recoverySpanClassification: RecoverySpanClassification; // REQUIRED on this live driver return (Part-B follow-up 2026-07-17, named type below): a resume failure is produced fresh at resume time, never replayed, so a post-amendment driver emits `unclassifiable` when it cannot classify — omission is a schema failure
       providerFailureDetail: string;
     };
 
@@ -850,6 +851,27 @@ type DriverResumeResult =
 // re-authenticating the provider CLI on the runtime node, after which recovery may retry
 // (Spec-005 §Fallback Behavior).
 type RecoveryCondition = "recovery-needed" | "reauth-required";
+
+// Sibling classification of the halted span's CONTENT (Part-B fail-closed follow-up, 2026-07-17):
+// orthogonal to `RecoveryCondition` above — that names why the run needs an operator; this names
+// what the diverged/halted span contains, so policy can tier on blast radius. V1 consumes it as
+// audit metadata ONLY: every divergence still halts for human action (Spec-015 §Fallback
+// Behavior). Recording it makes tiered auto-resolution (auto-resolve `read_only` /
+// `idempotent_write` divergence, always halt `irreversible`) a future policy flip rather than a
+// schema change — a flip gated on the Plan-015 CI divergence-injection tests (with a firing
+// negative control) landing first (campaign B14). `unclassifiable` MUST be handled exactly as
+// `irreversible` — the fail-closed default. REQUIRED form on `DriverResumeResult.failed` above
+// (a live driver return, produced fresh at resume — never replayed — so a post-amendment driver
+// emits `unclassifiable` rather than omit); optional form on the three replay-visible carriers
+// (`RunStateChangeEvent`, `RecoveryStatusReadResponse.sessions[]`, `FailureDetailReadResponse`),
+// whose optionality admits pre-amendment history at replay only.
+// Deliberately NOT widening `RecoveryCondition`: the two axes answer different questions, and
+// conflating them would overload operator-remediation routing.
+type RecoverySpanClassification =
+  | "read_only"
+  | "idempotent_write"
+  | "irreversible"
+  | "unclassifiable";
 
 interface RespondToRequestParams {
   runId: RunId;
@@ -1335,6 +1357,7 @@ interface RunStateChangeEvent {
   currentState: RunState;
   failureCategory?: RunFailureCategory;
   recoveryCondition?: RecoveryCondition; // named type in §Plan-005 above (campaign B3): 'recovery-needed' | 'reauth-required'
+  recoverySpanClassification?: RecoverySpanClassification; // span-content sibling of recoveryCondition (Part-B follow-up 2026-07-17)
   healthSignal?: "stuck-suspected";
   providerFailureDetail?: string; // populated on `run.failed` when failureCategory='provider'
   completionKind?: "turn" | "task"; // on `run.completed`: whether the completion closes a conversational turn or the whole task — optional in the shared shape only for pre-B1 history; post-B1 emitters MUST set it (Spec-006 §Run Lifecycle run-state payload, 2026-07-02 B1 amendment)
@@ -2371,6 +2394,7 @@ interface RecoveryStatusReadResponse {
     lastReplayedSequence?: number;
     failureCategory?: RunFailureCategory;
     recoveryCondition?: RecoveryCondition; // named type in §Plan-005 (campaign B3)
+    recoverySpanClassification?: RecoverySpanClassification; // span-content sibling of recoveryCondition (Part-B follow-up 2026-07-17)
   }>;
 }
 
@@ -2572,6 +2596,7 @@ interface FailureDetailReadResponse {
   runId: RunId;
   failureCategory: RunFailureCategory;
   recoveryCondition?: RecoveryCondition; // named type in §Plan-005 (campaign B3)
+  recoverySpanClassification?: RecoverySpanClassification; // span-content sibling of recoveryCondition (Part-B follow-up 2026-07-17)
   humanSummary: string;
   technicalDetails: Record<string, unknown>;
   occurredAt: string;
