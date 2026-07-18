@@ -27,6 +27,7 @@ import {
   classifyPhaseMarkers,
   countCites,
   LEGACY_INLINE_CITE_EXEMPT,
+  extractInlineCitePayloads,
   verifyInlineAnchorFloor,
 } from "../preflight.mjs";
 
@@ -847,6 +848,93 @@ test("surveyCorpus: an out-of-range inline line anchor GATES via the real verifi
       survey.citeAnomalies.some((anomaly) =>
         /\[inline-anchor-not-found\].*Spec-050 line 999.*line-out-of-range/.test(anomaly),
       ),
+      survey.citeAnomalies.join("\n"),
+    );
+    assert.ok(
+      survey.exemptCiteAnomalies.some((anomaly) => /\[legacy-unbold-marker\]/.test(anomaly)),
+      "shape debt still diverts",
+    );
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("extractInlineCitePayloads: `;` continues the payload unless it introduces a field (Codex P2, PR #214 round 6)", () => {
+  // Gate-4's own grammar uses `;` as a segment separator, so a bare
+  // continuation stays in the payload and reaches the parser; only a
+  // `; <Field>:` intro terminates it.
+  const row =
+    "- **T1** (Files: a.ts; Verifies invariant: none; Spec coverage: Spec-050 §Framing; Spec-999 §Anything) — prose";
+  assert.deepEqual(
+    extractInlineCitePayloads(row).map((p) => [p.field, p.payload]),
+    [
+      ["Verifies invariant", "none"],
+      ["Spec coverage", "Spec-050 §Framing; Spec-999 §Anything"],
+    ],
+  );
+});
+
+test("verifyInlineAnchorFloor: secondary existence sweep (unit — Codex P2, PR #214 round 6)", () => {
+  // Claims OUTSIDE what the grammar parses — unparsed fragments, post-`;`
+  // segments, descriptor text — still existence-verify, deduped against the
+  // primary pass so each defect reports exactly once.
+  const tmp = makeFixtureCorpus({});
+  const row = (payload) =>
+    `### Phase 1 — unit\n\n#### Tasks\n\n- **T-050u-1-1** (Files: \`packages/a/x.ts\`; Verifies invariant: none; Spec coverage: ${payload})\n`;
+  const floor = (payload) => verifyInlineAnchorFloor(row(payload), { repoRoot: tmp });
+  try {
+    // A missing doc inside an unparseable `+` continuation gates once (label
+    // sweep), with the §-under-missing-spec claim folded into it.
+    const mixed = floor("Spec-050 §Required Behavior + Spec-999 §Missing");
+    assert.equal(mixed.length, 1, JSON.stringify(mixed));
+    assert.match(mixed[0].evidence, /Spec-999 — spec-file-not-found/);
+    // A post-`;` segment reaches the parser and its missing doc gates.
+    const semicolon = floor("Spec-050 §Framing; Spec-999 §Anything");
+    assert.equal(semicolon.length, 1, JSON.stringify(semicolon));
+    assert.equal(semicolon[0].kind, "inline-doc-missing");
+    assert.match(semicolon[0].evidence, /Spec-999/);
+    // Labels swallowed into a parsed anchor's descriptor existence-check.
+    const descriptor = floor("Spec-050 §Required Behavior (see ADR-999 and Spec-999)");
+    assert.equal(descriptor.length, 2, JSON.stringify(descriptor));
+    assert.ok(descriptor.some((f) => /ADR-999 — adr-file-not-found/.test(f.evidence)));
+    assert.ok(descriptor.some((f) => /Spec-999 — spec-file-not-found/.test(f.evidence)));
+    // A phantom § in an unparsed fragment gates under the sweep's binding.
+    const residueSection = floor("Spec-050 AC2 + §Definitely Missing");
+    assert.equal(residueSection.length, 1, JSON.stringify(residueSection));
+    assert.equal(residueSection[0].kind, "inline-anchor-not-found");
+    assert.match(residueSection[0].evidence, /§Definitely Missing.*section-not-found/);
+    // A resolving-with-tail § in an unparsed fragment diverts as tail debt.
+    const residueTail = floor("Spec-050 AC2 + §Required Behavior step 3");
+    assert.equal(residueTail.length, 1, JSON.stringify(residueTail));
+    assert.equal(residueTail[0].kind, "legacy-inline-descriptor-tail");
+    // Line claims in unparsed fragments verify: an in-range line beside pure
+    // shape junk is clean; an out-of-range one gates.
+    assert.deepEqual(floor("Spec-050 line 1, junk"), []);
+    const residueLine = floor("Spec-050 line 1, then line 999 junk");
+    assert.equal(residueLine.length, 1, JSON.stringify(residueLine));
+    assert.match(residueLine[0].evidence, /line-out-of-range/);
+    // Dedupe: a defect the PRIMARY pass reported is never re-reported by the
+    // sweep (negative control for double-reporting).
+    assert.equal(floor("Spec-999 §Anything").length, 1);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+const LEGACY_SEMICOLON_PHASE = `### Phase 1 — legacy inline semicolon continuation
+
+#### Tasks
+
+- **T-057p-1-1** (Files: \`packages/a/s.ts\`; Verifies invariant: none; Spec coverage: Spec-050 §Framing; Spec-999 §Anything) — legacy row whose second cite segment sits after a bare semicolon.
+`;
+
+test("surveyCorpus: a missing doc after a bare `;` GATES even at an exempt path (Codex P2, PR #214 round 6)", () => {
+  const exemptBase = LEGACY_INLINE_CITE_EXEMPT[0].slice("docs/plans/".length);
+  const tmp = makeFixtureCorpus({ [exemptBase]: LEGACY_SEMICOLON_PHASE });
+  try {
+    const survey = surveyCorpus({ repoRoot: tmp });
+    assert.ok(
+      survey.citeAnomalies.some((anomaly) => /\[inline-doc-missing\].*Spec-999/.test(anomaly)),
       survey.citeAnomalies.join("\n"),
     );
     assert.ok(

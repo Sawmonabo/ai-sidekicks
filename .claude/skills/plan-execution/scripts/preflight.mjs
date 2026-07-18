@@ -3079,10 +3079,23 @@ export const LEGACY_INLINE_EXEMPT_KINDS = new Set([
 //     [inline-doc-missing], everything else (section-not-found with no
 //     resolving prefix, ac-index-out-of-range, line-out-of-range, …) to
 //     [inline-anchor-not-found]. Neither kind is in LEGACY_INLINE_EXEMPT_KINDS.
-//   - Parse FAILURES are not floor findings: an inline payload that does not
-//     parse under the Gate-4 grammar claims no verifiable anchor — that is
-//     exactly the formatting debt the [legacy-unbold-marker] shape count
-//     already represents (and that kind gates by itself on non-exempt paths).
+//   - Parse FAILURES are not floor findings AS SHAPES: malformation without a
+//     checkable claim is exactly the formatting debt the
+//     [legacy-unbold-marker] shape count already represents (and that kind
+//     gates by itself on non-exempt paths). But the CLAIMS inside unparsed
+//     text do not escape verification (Codex P2, PR #214 round 6): a
+//     SECONDARY existence sweep walks the full normalized payload —
+//     descriptors, unparsed fragments, post-`;` segments — and verifies
+//     every Spec-NNN / ADR-NNN / Plan-NNN / <name>.md label resolves
+//     uniquely, plus §Heading / ACn / line-N tokens under the nearest
+//     preceding Spec binding (walker-style: Plan / ADR / .md labels reset
+//     the binding). Sweep findings are DEDUPED against the primary pass via
+//     coverage sets (a claim the grammar parsed is never re-reported), and
+//     residue § tokens share the same salvage/tail classification, so the
+//     two layers always agree on what a tail is. The sweep is existence-
+//     level by design — full fidelity (subjects, hints, ranges under
+//     sections) remains the primary pass's job, because unparseable text
+//     cannot express those couplings.
 //
 // The BOLD verifier path is untouched; the restructure that converts these
 // rows to bold markers moves them onto the full grammar with no floor at all.
@@ -3091,6 +3104,13 @@ export const LEGACY_INLINE_EXEMPT_KINDS = new Set([
 // grammar: the payload ends at the first `;` or `)` at paren depth 0 (the
 // task-attribute group delimiter — parenthesized descriptors inside the
 // payload balance out) or end of line.
+// A depth-0 `;` ends the payload ONLY when it introduces the next compact-
+// inline FIELD — the Gate-4 grammar itself uses `;` as a segment separator
+// inside one payload, so a bare `; Spec-999 §Missing` continuation must stay
+// part of the payload and reach the parser instead of being silently
+// truncated (Codex P2, PR #214 round 6).
+const INLINE_FIELD_INTRO_RE = /^\s*(?:Files|Verifies invariant|Spec coverage):/;
+
 export function extractInlineCitePayloads(phaseSection) {
   const markerRe = /(?:^\s*[-*]+\s+|[;(]\s*)(Spec coverage|Verifies invariant):(?!\*)/gm;
   const payloads = [];
@@ -3105,7 +3125,13 @@ export function extractInlineCitePayloads(phaseSection) {
       else if (ch === ")") {
         if (depth === 0) break;
         depth -= 1;
-      } else if (ch === ";" && depth === 0) break;
+      } else if (
+        ch === ";" &&
+        depth === 0 &&
+        INLINE_FIELD_INTRO_RE.test(phaseSection.slice(end + 1))
+      ) {
+        break;
+      }
       end += 1;
     }
     payloads.push({
@@ -3200,7 +3226,29 @@ export function verifyInlineAnchorFloor(phaseSection, { repoRoot = REPO_ROOT } =
   for (const { field, payload, lineNo } of extractInlineCitePayloads(phaseSection)) {
     const normalized = normalizeInlineIdiom(payload);
     const { anchors } = parseCitePayload(normalized);
+    // Coverage sets: every claim the PRIMARY pass verified (valid or not) is
+    // excluded from the secondary sweep so no defect is double-reported.
+    const coveredSpecs = new Set();
+    const coveredAdrs = new Set();
+    const coveredFiles = new Set();
+    const coveredSections = new Set();
+    const coveredAcs = new Set();
+    const coveredLineStarts = new Set();
     for (const anchor of anchors) {
+      if (typeof anchor.spec === "number") {
+        coveredSpecs.add(anchor.spec);
+        if (anchor.section) {
+          coveredSections.add(`${anchor.spec}::${normalizeTokenForMatch(anchor.section)}`);
+        }
+        if (typeof anchor.ac === "number") coveredAcs.add(`${anchor.spec}::AC${anchor.ac}`);
+        if (typeof anchor.line === "number")
+          coveredLineStarts.add(`${anchor.spec}::${anchor.line}`);
+        if (typeof anchor.start === "number") {
+          coveredLineStarts.add(`${anchor.spec}::${anchor.start}`);
+        }
+      }
+      if (typeof anchor.adr === "number") coveredAdrs.add(anchor.adr);
+      if (anchor.file) coveredFiles.add(anchor.file);
       let verdict = verifyAnchorAgainstSpec(anchor, dirs);
       let droppedWords = 0;
       let salvagedHeading = null;
@@ -3231,18 +3279,172 @@ export function verifyInlineAnchorFloor(phaseSection, { repoRoot = REPO_ROOT } =
         evidence: `inline ${field} (line ${lineNo}): ${String(anchor.raw).trim()} — ${verdict.reason}: ${verdict.evidence}`,
       });
     }
-    // Plan-NNN file existence. The Gate-4 grammar has no Plan-NNN namespace
-    // (a Plan-NNN segment is unparseable-cite shape debt on the bold path),
-    // but grandfathered inline payloads legitimately reference sibling
-    // plans, and a typo'd plan number must not hide behind the shape
-    // divert. Existence-only — no section verification across plans.
-    for (const planRef of normalized.matchAll(/\bPlan-(\d{1,4})\b/g)) {
-      const planMatches = findPaddedFiles(plansDir, Number(planRef[1]));
-      if (planMatches.length !== 1) {
-        findings.push({
-          kind: "inline-doc-missing",
-          evidence: `inline ${field} (line ${lineNo}): ${planRef[0]} — plan file resolves to ${planMatches.length} match(es) under docs/plans/`,
-        });
+    // SECONDARY existence sweep (Codex P2, PR #214 round 6): binding-aware
+    // token walk over the FULL normalized payload — descriptors, unparsed
+    // fragments, post-`;` segments. Labels always existence-check (a typo'd
+    // document must not hide inside text the grammar rejects or a parsed
+    // anchor's descriptor); §/AC/line tokens verify under the nearest
+    // preceding Spec binding, walker-style (Plan / ADR / .md labels RESET the
+    // binding — their tails are not spec claims). `Plan-NNN` has no Gate-4
+    // namespace, so its existence check lives only here. Everything already
+    // covered by a parsed anchor is skipped via the coverage sets above.
+    let specBinding = null;
+    // Specs whose label existence check FAILED: §/AC/line tokens bound to
+    // them are skipped — the doc-missing finding already covers every claim
+    // under that document (one defect, one finding — mirrors the parsed
+    // side, where a section-only anchor on a missing spec reports once).
+    const missingSpecs = new Set();
+    // The § capture stops before ` line N` / ` lines` / ` ACn` exactly like
+    // the grammar's section prefix does, so those keywords tokenize as their
+    // own claims (and dedupe against parsed line/AC anchors) instead of
+    // polluting the heading text.
+    const sweepTokenRe =
+      /\bSpec-(\d{1,4})\b|\bADR-(\d{1,4})\b|\bPlan-(\d{1,4})\b|\b([\w-]+\.md)\b|\bAC(\d{1,4})\b|\blines?\s+(\d+)(?:\s*-\s*(\d+))?|§\s*([^(—"+,;)\n]+?)(?=\s+lines?\s+\d|\s+AC\d|\s*[(—"+,;)\n]|\s*$)/g;
+    for (const token of normalized.matchAll(sweepTokenRe)) {
+      if (token[1] !== undefined) {
+        specBinding = Number(token[1]);
+        if (!coveredSpecs.has(specBinding)) {
+          // Unknown spec-bearing type: the verifier resolves the file, then
+          // falls through to its no-spec-type pass — a pure existence check.
+          const verdict = verifyAnchorAgainstSpec(
+            { type: "spec-file-existence", spec: specBinding, raw: token[0] },
+            dirs,
+          );
+          if (!verdict.valid) {
+            missingSpecs.add(specBinding);
+            findings.push({
+              kind: "inline-doc-missing",
+              evidence: `inline ${field} (line ${lineNo}): ${token[0]} — ${verdict.reason}: ${verdict.evidence}`,
+            });
+          }
+        }
+      } else if (token[2] !== undefined) {
+        specBinding = null;
+        if (!coveredAdrs.has(Number(token[2]))) {
+          const verdict = verifyAnchorAgainstSpec(
+            { type: "adr-section", adr: Number(token[2]), raw: token[0] },
+            dirs,
+          );
+          if (!verdict.valid) {
+            findings.push({
+              kind: "inline-doc-missing",
+              evidence: `inline ${field} (line ${lineNo}): ${token[0]} — ${verdict.reason}: ${verdict.evidence}`,
+            });
+          }
+        }
+      } else if (token[3] !== undefined) {
+        specBinding = null;
+        const planMatches = findPaddedFiles(plansDir, Number(token[3]));
+        if (planMatches.length !== 1) {
+          findings.push({
+            kind: "inline-doc-missing",
+            evidence: `inline ${field} (line ${lineNo}): ${token[0]} — plan file resolves to ${planMatches.length} match(es) under docs/plans/`,
+          });
+        }
+      } else if (token[4] !== undefined) {
+        specBinding = null;
+        if (!coveredFiles.has(token[4])) {
+          const verdict = verifyAnchorAgainstSpec(
+            { type: "arch-doc", file: token[4], raw: token[0] },
+            dirs,
+          );
+          if (!verdict.valid) {
+            findings.push({
+              kind: "inline-doc-missing",
+              evidence: `inline ${field} (line ${lineNo}): ${token[0]} — ${verdict.reason}: ${verdict.evidence}`,
+            });
+          }
+        }
+      } else if (token[5] !== undefined) {
+        if (
+          specBinding !== null &&
+          !missingSpecs.has(specBinding) &&
+          !coveredAcs.has(`${specBinding}::AC${Number(token[5])}`)
+        ) {
+          const verdict = verifyAnchorAgainstSpec(
+            {
+              type: "ac",
+              spec: specBinding,
+              ac: Number(token[5]),
+              lineHint: null,
+              section: null,
+              subject: null,
+              raw: token[0],
+            },
+            dirs,
+          );
+          if (!verdict.valid) {
+            findings.push({
+              kind: "inline-anchor-not-found",
+              evidence: `inline ${field} (line ${lineNo}): ${token[0]} (Spec-${String(specBinding).padStart(3, "0")}) — ${verdict.reason}: ${verdict.evidence}`,
+            });
+          }
+        }
+      } else if (token[6] !== undefined) {
+        if (
+          specBinding !== null &&
+          !missingSpecs.has(specBinding) &&
+          !coveredLineStarts.has(`${specBinding}::${Number(token[6])}`)
+        ) {
+          const lineAnchor =
+            token[7] === undefined
+              ? {
+                  type: "line",
+                  spec: specBinding,
+                  section: null,
+                  line: Number(token[6]),
+                  subject: null,
+                  raw: token[0],
+                }
+              : {
+                  type: "line-range",
+                  spec: specBinding,
+                  section: null,
+                  start: Number(token[6]),
+                  end: Number(token[7]),
+                  subject: null,
+                  raw: token[0],
+                };
+          const verdict = verifyAnchorAgainstSpec(lineAnchor, dirs);
+          if (!verdict.valid) {
+            findings.push({
+              kind: "inline-anchor-not-found",
+              evidence: `inline ${field} (line ${lineNo}): ${token[0]} (Spec-${String(specBinding).padStart(3, "0")}) — ${verdict.reason}: ${verdict.evidence}`,
+            });
+          }
+        }
+      } else if (token[8] !== undefined) {
+        const heading = token[8].trim();
+        if (
+          heading &&
+          specBinding !== null &&
+          !missingSpecs.has(specBinding) &&
+          !coveredSections.has(`${specBinding}::${normalizeTokenForMatch(heading)}`)
+        ) {
+          const paddedBinding = `Spec-${String(specBinding).padStart(3, "0")}`;
+          const verdict = verifyAnchorAgainstSpec(
+            { type: "section-only", spec: specBinding, section: heading, raw: token[0] },
+            dirs,
+          );
+          if (verdict.valid) continue;
+          if (verdict.reason === "section-not-found") {
+            const salvage = salvageSectionHeading(specBinding, heading, dirs);
+            if (salvage.resolved && salvage.droppedWords === 0) continue;
+            if (salvage.resolved) {
+              findings.push({
+                kind: "legacy-inline-descriptor-tail",
+                evidence: `inline ${field} (line ${lineNo}): §${heading} (${paddedBinding}) — resolves §${salvage.heading} with ${salvage.droppedWords} trailing descriptor word(s); the restructure moves the tail into a parenthesized descriptor`,
+              });
+              continue;
+            }
+          }
+          findings.push({
+            kind: INLINE_DOC_RESOLUTION_REASONS.has(verdict.reason)
+              ? "inline-doc-missing"
+              : "inline-anchor-not-found",
+            evidence: `inline ${field} (line ${lineNo}): §${heading} (${paddedBinding}) — ${verdict.reason}: ${verdict.evidence}`,
+          });
+        }
       }
     }
   }
