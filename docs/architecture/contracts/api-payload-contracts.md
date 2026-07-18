@@ -838,7 +838,7 @@ type DriverResumeResult =
   | {
       status: "failed";
       recoveryCondition: RecoveryCondition;
-      recoverySpanClassification?: RecoverySpanClassification; // span-content sibling (Part-B follow-up 2026-07-17, named type below); post-amendment producers always set it — `unclassifiable` when unknown, never omitted
+      recoverySpanClassification: RecoverySpanClassification; // REQUIRED on this live driver return (Part-B follow-up 2026-07-17, named type below): a resume failure is produced fresh at resume time, never replayed, so a post-amendment driver emits `unclassifiable` when it cannot classify — omission is a schema failure
       providerFailureDetail: string;
     };
 
@@ -860,8 +860,11 @@ type RecoveryCondition = "recovery-needed" | "reauth-required";
 // `idempotent_write` divergence, always halt `irreversible`) a future policy flip rather than a
 // schema change — a flip gated on the Plan-015 CI divergence-injection tests (with a firing
 // negative control) landing first (campaign B14). `unclassifiable` MUST be handled exactly as
-// `irreversible` — the fail-closed default; post-amendment producers emit `unclassifiable`
-// rather than omitting the field (optionality admits pre-amendment history at replay only).
+// `irreversible` — the fail-closed default. REQUIRED form on `DriverResumeResult.failed` above
+// (a live driver return, produced fresh at resume — never replayed — so a post-amendment driver
+// emits `unclassifiable` rather than omit); optional form on the three replay-visible carriers
+// (`RunStateChangeEvent`, `RecoveryStatusReadResponse.sessions[]`, `FailureDetailReadResponse`),
+// whose optionality admits pre-amendment history at replay only.
 // Deliberately NOT widening `RecoveryCondition`: the two axes answer different questions, and
 // conflating them would overload operator-remediation routing.
 type RecoverySpanClassification =
