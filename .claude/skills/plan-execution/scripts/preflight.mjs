@@ -140,7 +140,7 @@ export function countCites(phaseSection) {
 // on countCites (a bare substring count) and MUST stay byte-identical, so this
 // finer classification lives only in --survey. It separates BOLD field markers
 // (`**Spec coverage:**` / `**Verifies invariant:**` — the only shape
-// extractCiteAnchors parses) from UNBOLD/inline field markers (the Plan-007/008
+// extractCiteAnchors parses) from UNBOLD/inline field markers (the Plan-008
 // `- **T-…** (…; Verifies invariant: …; Spec coverage: …)` style the bold
 // extractor silently skips). Both alternatives are line-anchored to a field
 // position — a bullet head (`- Spec coverage:`) or an inline `;`/`(` delimiter
@@ -3010,16 +3010,11 @@ export function surveyPhase(phaseSection) {
 // or glob: a renamed plan drops off the list and trips the stale-exemption ratchet
 // (see surveyCorpus). Removal owner per file — the list itself is the tracking, no
 // backlog item:
-//   007 + 025 — dedicated cite-restructure PR (both already audited; the
-//               compact-inline defect predates this survey's legacy-unbold screen,
-//               so no future readiness audit re-touches them).
 //   008       — its Tier-5-remainder readiness audit.
 //   023       — its Tier-8 readiness audit.
 export const LEGACY_INLINE_CITE_EXEMPT = [
-  "docs/plans/007-local-ipc-and-daemon-control.md",
   "docs/plans/008-control-plane-relay-and-session-join.md",
   "docs/plans/023-desktop-shell-and-renderer.md",
-  "docs/plans/025-self-hostable-node-relay.md",
 ];
 
 // Only the two marker-SHAPE classes the compact-inline legacy style PROVABLY
@@ -3677,7 +3672,7 @@ export function surveyCorpus({ repoRoot = REPO_ROOT } = {}) {
         const realInvariant = markers.boldInvariant + markers.unboldInvariant;
         // W4 legacy-unbold: inline/unbold field markers are invisible to the
         // bold cite extractor, so their anchors are never verified — a
-        // false-green audit (the Plan-007/008 inline style). countCites can read
+        // false-green audit (the Plan-008 inline style). countCites can read
         // > 0 and the extractor still parse nothing.
         const unboldMarkers = markers.unboldSpec + markers.unboldInvariant;
         if (unboldMarkers > 0) {
@@ -4018,7 +4013,7 @@ async function main() {
     //
     // ARMED (2026-07-17): the docs-corpus CI step runs `--survey --enforce-cites`,
     // so citeAnomalies fold into the exit. The live corpus reaches 0 GATED cite
-    // anomalies because the four compact-inline plans (Plan-007/008/023/025) divert
+    // anomalies because the two compact-inline plans (Plan-008/023) divert
     // to the printed exemptCiteAnomalies channel via LEGACY_INLINE_CITE_EXEMPT —
     // their legacy-unbold / partial-marker debt stays visible but non-blocking, and
     // the stale-exemption ratchet fails the moment one is re-authored clean. To

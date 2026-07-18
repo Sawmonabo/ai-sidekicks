@@ -249,7 +249,7 @@ test("surveyCorpus: REAL corpus has zero two-sided anomalies", () => {
 test("surveyCorpus: REAL corpus — gated cite anomalies clean; legacy-inline debt diverted + visible", () => {
   const survey = surveyCorpus({ repoRoot: REPO_ROOT });
   // The gated channel (what --enforce-cites folds into the exit) is empty: the
-  // healed plans carry no cite anomaly, the four compact-inline plans divert out,
+  // healed plans carry no cite anomaly, the two compact-inline plans divert out,
   // and no exemption has gone stale. A regression in any of those lands right here.
   assert.deepEqual(
     survey.citeAnomalies,
@@ -457,7 +457,7 @@ const LEGACY_UNBOLD_PHASE = `### Phase 1 — legacy inline
 - **T-050p-1-1** (Files: \`packages/a/x.ts\`; Verifies invariant: none; Spec coverage: Spec-050 §Required Behavior) — inline unbold markers the bold extractor skips.
 `;
 
-test("surveyCorpus: an inline/unbold-marker phase is a [legacy-unbold-marker] cite anomaly (the Plan-007/008 false-green class)", () => {
+test("surveyCorpus: an inline/unbold-marker phase is a [legacy-unbold-marker] cite anomaly (the Plan-008 false-green class)", () => {
   const tmp = makeFixtureCorpus({ "064-legacy.md": LEGACY_UNBOLD_PHASE });
   try {
     const survey = surveyCorpus({ repoRoot: tmp });
@@ -1175,7 +1175,7 @@ test("surveyCorpus: a clean plan at an exempt path trips the stale-exemption rat
 
 test("preflight --survey --enforce-cites: real corpus exits 0 (armed — clean under enforcement)", () => {
   // The load-bearing arming guard, matching the docs-corpus CI step. With the
-  // six-plan cite heals landed and the four compact-inline plans diverted via
+  // eight-plan cite heals landed and the two compact-inline plans diverted via
   // LEGACY_INLINE_CITE_EXEMPT, the live corpus has zero GATED cite anomalies, so the
   // armed survey exits 0. A future non-exempt plan gaining a cite defect — or an
   // exempt plan re-authored clean (the stale-exemption ratchet) — flips this to

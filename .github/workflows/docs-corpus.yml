@@ -233,8 +233,8 @@ jobs:
       - name: plan-cite Gate-4 survey (enforced)
         # Corpus-wide Gate-4 cite screen over every walked plan phase. ARMED:
         # `--survey --enforce-cites` folds citeAnomalies into the exit, so a new or
-        # edited plan carrying a malformed Gate-4 cite fails the gate. The four
-        # compact-inline legacy plans (Plan-007/008/023/025) are diverted via
+        # edited plan carrying a malformed Gate-4 cite fails the gate. The two
+        # compact-inline legacy plans (Plan-008/023) are diverted via
         # LEGACY_INLINE_CITE_EXEMPT in preflight.mjs — their debt prints as visible
         # but non-blocking, and the stale-exemption ratchet fails the moment one is
         # re-authored clean. See preflight-contract.md § Survey mode exit contract.
