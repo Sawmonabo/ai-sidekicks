@@ -1399,6 +1399,17 @@ interface RunRolledBackEvent {
 // (Spec-006 §Driver Ask Events shape line). `response` appears only on driver_ask.responded rows — the
 // delivered answer (permission decision or structured input) — and post-B1 responded emitters MUST set
 // it (a responded row with no delivered answer is an emitter bug; optionality covers the other three states).
+// `expiresAt` is the bounded fail-closed deadline stamped at ask creation (Spec-012 §Required Behavior,
+// Part-B fail-closed follow-up 2026-07-17): post-amendment driver_ask.requested emitters MUST set it
+// (ISO-8601; optionality is pre-amendment history only), later-state rows echo it unchanged, and expiry
+// resolves per kind — permission → auto-deny (deny-and-continue), input → park-resumable — never an
+// auto-approval (Spec-012 §Resolved Questions and V1 Scope Decisions).
+// Variant-required fields are enforced at the EMISSION seam via the exported per-type refinement
+// (campaign B13's normalizer bundle: `driverAskPayloadRefinementFor(eventType)`, sibling of Plan-012
+// T1.1's `approvalFlowPayloadRefinementFor`): requested ⇒ `expiresAt` (+ `input` for kind 'permission');
+// responded ⇒ `response`; responded / expired / canceled echo the requested row's `expiresAt` when that
+// row carries one (pre-amendment requested rows have none) — a malformed event fails at the emission
+// parse, never at peer/restart projection; base-type optionality admits pre-amendment rows at replay only.
 interface DriverAskEvent {
   sessionId: SessionId;
   runId: RunId;
@@ -1407,6 +1418,7 @@ interface DriverAskEvent {
   toolName?: string;
   prompt?: string;
   input?: unknown;
+  expiresAt?: string;
   state: "requested" | "responded" | "expired" | "canceled";
   response?: unknown;
 }
@@ -1888,15 +1900,24 @@ type InvalidationTrigger = "explicit" | "membership_change" | "node_trust_change
 // remembered ⇒ approvalRequestId / approver / nodeId / rememberedScope / ruleId (+ runId
 // iff rememberedScope.kind = 'run'); rule_revoked ⇒ ruleId / invalidationTrigger —
 // a malformed event fails at the emission parse, never at peer/restart projection (I-012-9).
+// Driver-ask-originated requested rows additionally carry `askId` — its PRESENCE is required at
+// the CP-012-6 normalizer seam (T2.8, the sole such emitter): the origin-blind refinement cannot
+// know whether a requested payload is driver-ask-originated. What the refinement DOES enforce,
+// origin-blind, is the pairing: requested with `askId` present ⇒ `expiryAt` present — the
+// emission-boundary mirror of the `approval_requests` ask-implies-deadline CHECK
+// (local-sqlite-schema.md §Approval Tables) — so an askId-bearing payload missing its shared
+// deadline refuses at the emission parse (I-012-9), never becoming a durable event whose
+// projection would fail the CHECK after the fact with replay unable to rebuild the timeout.
 interface ApprovalFlowEventPayload {
   sessionId: SessionId;
   runId?: RunId; // absent on trust-triggered rule_revoked (no in-flight request)
   approvalRequestId?: ApprovalRequestId; // ditto
+  askId?: string; // present on approval.requested when the request originates from a provider permission ask (Spec-012 §Resolved Questions, Part-B fail-closed follow-up 2026-07-17): the originating DriverAskEvent.askId, persisted at creation as the durable ask↔approval association — restart/replay reconstructs which native ask an outcome or shared-deadline expiry must deny when multiple asks are in flight on one run; required at the CP-012-6 normalizer emission seam (T2.8 — the sole driver-ask-originated requester), never set on direct requests and never client-suppliable (the public ApprovalRequestCreateRequest deliberately carries no askId — trust-boundary note there); persisted on the approval_requests projection row (ask_id — local-sqlite-schema.md §Approval Tables); its presence on a requested payload requires expiryAt alongside it — the refinement-enforced ask-implies-deadline pairing (note above)
   category: ApprovalCategory;
   scope: string;
   requestedBy?: string; // present on approval.requested — recorded requester actor (participant or agent actor id, Spec-012 line 58)
   resourceDescriptor?: Record<string, unknown>; // present on approval.requested — audit-grade target (Spec-012 line 96)
-  expiryAt?: string; // present on approval.requested when the request carries an expiry (D-012-14)
+  expiryAt?: string; // present on approval.requested when the request carries an expiry (D-012-14); required whenever askId is present — the refinement refuses an askId-bearing requested payload without its shared deadline (ask-implies-deadline pairing, note above)
   approver?: ParticipantId; // present on approval.approved / approval.rejected — the recorded resolver (D-012-12); on approval.remembered it is the rule's GRANTOR (rules mint only via resolve-with-remember)
   effectiveScope?: string; // present on approval.approved / approval.rejected — recorded effective scope (≤ requested, I-012-6)
   nodeId?: NodeId; // present on approval.remembered — the rule's bound node (D-012-10 match boundary; not derivable from ruleId on replay)
@@ -1918,6 +1939,13 @@ interface ModerationReviewFlaggedPayload {
 }
 
 // ApprovalRequestCreate
+// Trust boundary (Spec-012 §Resolved Questions, Part-B fail-closed follow-up 2026-07-17): this
+// public T3.1 binder shape deliberately carries NO `askId`. The ask↔approval association is
+// never client-suppliable — a caller-forged askId could route another ask's outcome or
+// shared-deadline expiry to the wrong native provider ask. The CP-012-6 driver-ask normalizer
+// (T2.8) supplies the originating askId and the shared deadline (expiryAt = the ask's expiresAt)
+// daemon-internally at the approval-service seam, below this binder; the request schema is
+// strict, so a smuggled askId field is refused at parse rather than silently dropped.
 interface ApprovalRequestCreateRequest {
   runId: RunId;
   category: ApprovalCategory;

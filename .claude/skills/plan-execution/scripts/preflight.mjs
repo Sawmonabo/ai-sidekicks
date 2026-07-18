@@ -2330,10 +2330,12 @@ export function gateTasksBlockCites(phaseSection, planNumber, phaseNumber, opts 
 // needs phaseSection + phaseNumber to evaluate the substrate_exempt criterion
 // (3) check (Spec-AC-empty sentinel + Tasks-block bracket-form conflict). The
 // bl_closed case (added for the Plan-003 Phase 3 / NS-32 backlog gate) reads
-// only repoRoot — already present — so it too is purely additive.
+// only repoRoot — already present — so it too is purely additive. The
+// precondition_box_checked case (Codex P1, PR #212 round 4) additionally
+// reads planSource, threaded from the phase walk the same way phaseSection is.
 export function resolvePrecondition(
   entry,
-  { repoRoot = REPO_ROOT, phaseSection, phaseNumber } = {},
+  { repoRoot = REPO_ROOT, phaseSection, phaseNumber, planSource } = {},
 ) {
   switch (entry.type) {
     case "pr_merged": {
@@ -2728,6 +2730,67 @@ export function resolvePrecondition(
         halt: `${blId} not found in docs/backlog.md or docs/archive/backlog-archive.md; cannot evaluate bl_closed (mint the backlog item or correct the ref)`,
       };
     }
+    case "precondition_box_checked": {
+      // Puts a named, phase-scoped `## Preconditions` checkbox on the
+      // machine-enforced path. Gate 7's governance scan deliberately matches
+      // only the 000-plan-template trio, so a custom scoped box (a
+      // bundle-authored task leg, a procurement window) is documentation only
+      // until the phase it gates declares this entry. Prefix-matched like the
+      // Gate-7 trio (authors append dated notes after the box text). Fail
+      // closed on every indeterminate shape — missing section, no matching
+      // box, an ambiguous prefix matching several boxes: a declaration error
+      // is never a pass. Introduced for the Spec-012 Part-B ask-expiry legs
+      // (Plan-012 Phase 2 / Plan-004 Phase 3) — Codex P1, PR #212 round 4:
+      // the checkbox alone carried an enforcement claim no gate implemented.
+      if (typeof entry.box !== "string" || entry.box.trim() === "") {
+        return {
+          ok: false,
+          halt: `precondition_box_checked: \`box\` must be a non-empty string, got ${JSON.stringify(entry.box)}`,
+        };
+      }
+      if (typeof planSource !== "string") {
+        return {
+          ok: false,
+          halt: "precondition_box_checked: plan source unavailable to the resolver (internal wiring error; fail closed)",
+        };
+      }
+      const section = extractPreconditionsSection(planSource);
+      if (section === null) {
+        return {
+          ok: false,
+          halt: `precondition_box_checked: plan has no \`## Preconditions\` section — cannot locate box "${entry.box}" (fail closed)`,
+        };
+      }
+      const matches = [];
+      for (const line of section.split("\n")) {
+        const box = line.match(/^- \[([ xX])\] \**(.+)$/);
+        if (!box) continue;
+        if (box[2].startsWith(entry.box)) matches.push({ state: box[1], line });
+      }
+      if (matches.length === 0) {
+        return {
+          ok: false,
+          halt: `precondition_box_checked: no \`## Preconditions\` box starts with "${entry.box}" (fail closed — fix the entry's prefix or add the box)`,
+        };
+      }
+      if (matches.length > 1) {
+        return {
+          ok: false,
+          halt: `precondition_box_checked: prefix "${entry.box}" matches ${matches.length} boxes in \`## Preconditions\` — disambiguate the prefix`,
+        };
+      }
+      if (matches[0].state !== " ") return { ok: true };
+      const boxLine = matches[0].line;
+      return {
+        ok: false,
+        halt: [
+          `precondition_box_checked: box "${entry.box}" is unchecked:`,
+          `  ${boxLine.length > 140 ? `${boxLine.slice(0, 137)}...` : boxLine}`,
+          "The box records work this phase depends on (see its note). Check the",
+          "box only when the gate it names has cleared.",
+        ].join("\n"),
+      };
+    }
     default:
       return { ok: false, halt: `unknown precondition type: ${entry.type}` };
   }
@@ -2829,20 +2892,30 @@ export function gateStatusPromotion(planSource, planFile) {
 // plans also carry scoped upstream-dependency boxes (Plan-023's "(Tier 8
 // remainder only.)" boxes, Plan-024's procurement boxes gating only Phases
 // 4-5) whose unchecked state must not halt phases they do not gate — that
-// subset gating belongs to per-phase `preconditions:` blocks (Gate 5). The
-// template quartet's fourth box (plan-readiness audit) already halts at
-// Gate 2.
+// subset gating belongs to per-phase `preconditions:` blocks (Gate 5), where
+// the `precondition_box_checked` entry type puts a named scoped box on the
+// enforced path. The template quartet's fourth box (plan-readiness audit)
+// already halts at Gate 2.
 const GOVERNANCE_PRECONDITION_PREFIXES = [
   "Paired spec is approved",
   "Required ADRs are accepted",
   "Blocking open questions are resolved",
 ];
 
+// Shared section extractor for the two `## Preconditions` scanners — the
+// Gate-7 governance-box scan below and the Gate-5 `precondition_box_checked`
+// resolver. One regex, one truth: the consumers must never disagree on where
+// the section ends (the next `## ` heading or EOF).
+export function extractPreconditionsSection(planSource) {
+  const m = planSource.match(/^## Preconditions[^\n]*\n([\s\S]*?)(?=^## |(?![\s\S]))/m);
+  return m ? m[1] : null;
+}
+
 export function gatePlanPreconditionBoxes(planSource, planFile) {
-  const section = planSource.match(/^## Preconditions[^\n]*\n([\s\S]*?)(?=^## |(?![\s\S]))/m);
-  if (!section) return { ok: true };
+  const section = extractPreconditionsSection(planSource);
+  if (section === null) return { ok: true };
   const unchecked = [];
-  for (const line of section[1].split("\n")) {
+  for (const line of section.split("\n")) {
     const box = line.match(/^- \[ \] \**(.+)$/);
     if (!box) continue;
     if (GOVERNANCE_PRECONDITION_PREFIXES.some((prefix) => box[1].startsWith(prefix))) {
@@ -2864,8 +2937,10 @@ export function gatePlanPreconditionBoxes(planSource, planFile) {
       "(AGENTS.md §Doc-First Discipline). Re-check the box only when the gate",
       "its note names has cleared (e.g. a batch spec re-promotion). Scoped",
       "upstream-dependency boxes are not matched by this gate — phase-scoped",
-      "gating belongs in per-phase `preconditions:` blocks. For authoring-time",
-      "inspection, use --allow-unpromoted (skip is logged to stderr).",
+      "gating belongs in per-phase `preconditions:` blocks (the",
+      "`precondition_box_checked` entry type names a scoped box). For",
+      "authoring-time inspection, use --allow-unpromoted (skip is logged to",
+      "stderr).",
     ].join("\n"),
   };
 }
@@ -3095,6 +3170,7 @@ function _checkPhase(planSource, planNumber, phase, planFile, opts) {
     ...opts,
     phaseSection: sec,
     phaseNumber: phase.number,
+    planSource,
   });
   if (!g5.ok)
     return {
