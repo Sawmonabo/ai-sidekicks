@@ -563,6 +563,87 @@ test("surveyCorpus: a verifier-class defect at an exempt path GATES — the dive
   }
 });
 
+const LEGACY_INVARIANT_ONLY_PHASE = `### Phase 1 — legacy substrate
+
+#### Tasks
+
+- **T-051p-1-1** (Files: \`packages/a/y.ts\`; Verifies invariant: none) — substrate row with no Spec side, the Plan-023/025 shape.
+`;
+
+test("surveyCorpus: a partial phase with zero bold markers is [legacy-markers-partial] (evidence-carrying kind)", () => {
+  // The evidence split at emission: partiality proven to come from the legacy
+  // inline shape (no bold markers anywhere) gets the legacy kind. At a
+  // NON-exempt path both the unbold screen and the legacy partial still gate.
+  const tmp = makeFixtureCorpus({ "066-legacy-partial.md": LEGACY_INVARIANT_ONLY_PHASE });
+  try {
+    const survey = surveyCorpus({ repoRoot: tmp });
+    assert.deepEqual(survey.anomalies, []);
+    assert.equal(survey.citeAnomalies.length, 2, survey.citeAnomalies.join("\n"));
+    assert.ok(survey.citeAnomalies.some((anomaly) => /\[legacy-unbold-marker\]/.test(anomaly)));
+    assert.ok(
+      survey.citeAnomalies.some((anomaly) =>
+        /\[legacy-markers-partial\] has a Verifies invariant marker but no Spec coverage marker \(all markers unbold/.test(
+          anomaly,
+        ),
+      ),
+      survey.citeAnomalies.join("\n"),
+    );
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("surveyCorpus: a bold-marker partial at an exempt path GATES — half-finished restructures cannot ship (Codex P2, PR #214 round 2)", () => {
+  // A phase holding ONLY a new bold **Spec coverage:** marker classifies as
+  // partial, but the bold marker proves new-grammar authoring, not legacy debt:
+  // the kind stays [markers-partial], which is not in LEGACY_INLINE_EXEMPT_KINDS,
+  // so it lands in the gated channel even on an exempt path — and with zero
+  // diverted legacy debt left, the stale-exemption ratchet fires alongside it.
+  const exemptBase = LEGACY_INLINE_CITE_EXEMPT[0].slice("docs/plans/".length);
+  const tmp = makeFixtureCorpus({ [exemptBase]: SPEC_ONLY_PHASE });
+  try {
+    const survey = surveyCorpus({ repoRoot: tmp });
+    assert.deepEqual(survey.exemptCiteAnomalies, [], "a bold-evidence partial must never divert");
+    assert.ok(
+      survey.citeAnomalies.some((anomaly) =>
+        /\[markers-partial\] has a Spec coverage marker but no Verifies invariant marker \(1 bold marker\(s\) present/.test(
+          anomaly,
+        ),
+      ),
+      survey.citeAnomalies.join("\n"),
+    );
+    assert.ok(
+      survey.citeAnomalies.some((anomaly) => /\[stale-exemption\]/.test(anomaly)),
+      "no diverted legacy debt left means the exemption itself is stale",
+    );
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("surveyCorpus: the real 023/025 shape (unbold invariant-only) still diverts at an exempt path", () => {
+  // Divert control for the evidence split: the live Plan-023/025 Phase-1 shape —
+  // inline Verifies-invariant rows, no Spec side, zero bold markers — must keep
+  // diverting both its [legacy-unbold-marker] and [legacy-markers-partial] rows,
+  // or the split would un-arm the real corpus.
+  const exemptBase = LEGACY_INLINE_CITE_EXEMPT[0].slice("docs/plans/".length);
+  const tmp = makeFixtureCorpus({ [exemptBase]: LEGACY_INVARIANT_ONLY_PHASE });
+  try {
+    const survey = surveyCorpus({ repoRoot: tmp });
+    assert.deepEqual(survey.citeAnomalies, [], survey.citeAnomalies.join("\n"));
+    assert.equal(survey.exemptCiteAnomalies.length, 2, survey.exemptCiteAnomalies.join("\n"));
+    assert.ok(
+      survey.exemptCiteAnomalies.some((anomaly) => /\[legacy-unbold-marker\]/.test(anomaly)),
+    );
+    assert.ok(
+      survey.exemptCiteAnomalies.some((anomaly) => /\[legacy-markers-partial\]/.test(anomaly)),
+    );
+    assert.equal(survey.exemptFiles[0].count, 2);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 test("surveyCorpus: a clean plan at an exempt path trips the stale-exemption ratchet (armed exit 1)", () => {
   // Negative control for the exemption path: an exempt plan re-authored clean must
   // NOT silently keep its carve-out. The survey emits a gated [stale-exemption]

@@ -3020,14 +3020,23 @@ export const LEGACY_INLINE_CITE_EXEMPT = [
   "docs/plans/025-self-hostable-node-relay.md",
 ];
 
-// Only the two marker-SHAPE classes the compact-inline legacy style produces are
-// divertable — the survey-side screens that fire on HOW the markers are written,
-// not on what they cite. Verifier findings from parsed cites (`section-not-found`,
-// `unparseable-cite`) and hard failures (`cite-check-threw`) always GATE, exempt
-// path or not: the exemption hides legacy formatting debt, never a broken or
-// unverifiable Spec anchor (Codex P1, PR #214 round 1 — the pre-fix divert was
-// kind-blind and suppressed two live `section-not-found` findings).
-export const LEGACY_INLINE_EXEMPT_KINDS = new Set(["legacy-unbold-marker", "markers-partial"]);
+// Only the two marker-SHAPE classes the compact-inline legacy style PROVABLY
+// produces are divertable — the survey-side screens that fire on HOW the markers
+// are written, not on what they cite. Verifier findings from parsed cites
+// (`section-not-found`, `unparseable-cite`) and hard failures (`cite-check-threw`)
+// always GATE, exempt path or not: the exemption hides legacy formatting debt,
+// never a broken or unverifiable Spec anchor (Codex P1, PR #214 round 1 — the
+// pre-fix divert was kind-blind and suppressed two live `section-not-found`
+// findings). `legacy-markers-partial` is the evidence-carrying variant of the
+// partial-marker screen: it is emitted only when the partial phase holds ZERO
+// bold markers, so the partiality is proven to come from the legacy inline
+// shape. A partial phase with any bold marker keeps the plain `markers-partial`
+// kind, which is NOT in this set — a half-finished new-grammar restructure of an
+// exempt plan gates instead of shipping silently (Codex P2, PR #214 round 2).
+export const LEGACY_INLINE_EXEMPT_KINDS = new Set([
+  "legacy-unbold-marker",
+  "legacy-markers-partial",
+]);
 
 export function surveyCorpus({ repoRoot = REPO_ROOT } = {}) {
   const plansDir = resolve(repoRoot, "docs", "plans");
@@ -3140,12 +3149,23 @@ export function surveyCorpus({ repoRoot = REPO_ROOT } = {}) {
         // W3 partial-marker: exactly one field-marker side present is a partial
         // audit output (the other side silently dropped). Both sides zero is a
         // genuine audit-not-run skip; both present is a complete pair.
+        // Evidence-split (Codex P2, PR #214 round 2): a partial phase with ZERO
+        // bold markers is proven legacy-inline debt ([legacy-markers-partial],
+        // divertable on exempt paths); ANY bold marker in a partial phase is
+        // new-grammar authoring that must land the complete pair, so it keeps
+        // the always-gating [markers-partial] kind even on an exempt path.
         if (realSpec > 0 !== realInvariant > 0) {
           const present = realSpec > 0 ? "Spec coverage" : "Verifies invariant";
           const missing = realSpec > 0 ? "Verifies invariant" : "Spec coverage";
+          const boldMarkers = markers.boldSpec + markers.boldInvariant;
+          const kind = boldMarkers === 0 ? "legacy-markers-partial" : "markers-partial";
+          const evidence =
+            boldMarkers === 0
+              ? "all markers unbold — the legacy inline shape"
+              : `${boldMarkers} bold marker(s) present — new-grammar authoring must complete the pair`;
           pushCite(
-            "markers-partial",
-            `${name} Phase ${label} [markers-partial] has a ${present} marker but no ${missing} marker`,
+            kind,
+            `${name} Phase ${label} [${kind}] has a ${present} marker but no ${missing} marker (${evidence})`,
           );
         }
       }
