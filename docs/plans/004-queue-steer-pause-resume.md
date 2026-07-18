@@ -118,37 +118,37 @@ The Tier-5 plan-readiness audit (NS-17) surfaced three open decisions; all three
 
 - **T1.1 — QueueItem contracts** (`QueueItemCreate` / `QueueItemList` / `QueueItemCancel` Zod schemas, incl. the Tier-6-amended `QueueItemCreateRequest.workspaceId?` run-binding field per api-payload-contracts.md §Plan-004 — CP-004-8)
   - **Files:** `packages/contracts/src/runControl.ts` (CREATE)
-  - **Spec coverage:** Spec-004 §Required Behavior — queue list/create/cancel
+  - **Spec coverage:** Spec-004 §Interfaces And Contracts (QueueItemCreate / QueueItemList / QueueItemCancel against runtime-owned durable state)
   - **Verifies invariant:** I-004-1
   - **Consumes:** `QueueItemState` enum (queued / admitted / superseded / canceled / expired) + branded `QueueItemId` / `RunId` / `SessionId` (in-package)
 - **T1.2 — `InterventionRequestPayload` discriminated union** (`steer` | `interrupt` | `cancel` — the shipped pre-B9 shape; the `rollback` arm lands via the campaign's Plan-004 bundle behind the api-payload-contracts code-mirror gate, campaign B2)
   - **Files:** `packages/contracts/src/runControl.ts` (EXTEND)
-  - **Spec coverage:** Spec-004 §Required Behavior — intervention request
+  - **Spec coverage:** Spec-004 §Interfaces And Contracts (InterventionRequest — target run id, type, mandatory expectedRunVersion guard)
   - **Verifies invariant:** I-004-4
   - **Consumes:** `RunId`, `InterventionType` (`'steer' | 'interrupt' | 'cancel'` — the shipped pre-B9 union; `'rollback'` joins via the campaign's Plan-005/Plan-004 bundles, campaign B2)
 - **T1.3 — `InterventionRequestResponse` (6 states) + `RunStateChangeEvent` (9 states)**
   - **Files:** `packages/contracts/src/runControl.ts` (EXTEND)
-  - **Spec coverage:** Spec-004 §Required Behavior — intervention result + run-state event
+  - **Spec coverage:** Spec-004 §Interfaces And Contracts (InterventionResult 6-state + RunStateChange event)
   - **Verifies invariant:** I-004-2
   - **Consumes:** `InterventionId` / `RunId`, `InterventionState` (requested / accepted / applied / rejected / degraded / expired), `RunState` (9-state), `RunFailureCategory` (**import** from the Plan-001 / Spec-006 taxonomy — do not redefine)
 - **T1.4 — Migration: `queue_items` + `interventions` tables**
   - **Files:** `packages/runtime-daemon/src/migrations/00NN-queue-and-interventions.ts` (CREATE)
-  - **Spec coverage:** Spec-004 §Storage — queue + intervention persistence
+  - **Spec coverage:** Spec-004 §State And Data Implications (queue items durable storage + intervention audit records)
   - **Verifies invariant:** I-004-1, I-004-2, I-004-3, I-004-4
   - **Consumes:** local SQLite migration runner (Plan-001 substrate)
 - **T1.5 — Migration: `command_receipts` table (forward-declared shell)**
   - **Files:** `packages/runtime-daemon/src/migrations/00NN-queue-and-interventions.ts` (EXTEND)
-  - **Spec coverage:** _none_ — forward-declared shell; column semantics + read model owned by Plan-015 (no fabricated spec anchor, per anti-fabrication rule)
-  - **Verifies invariant:** _none_ (structural shell only) — see CP-004-2
+  - **Spec coverage:** none (forward-declared shell — column semantics + read model owned by Plan-015, no fabricated spec anchor per anti-fabrication rule)
+  - **Verifies invariant:** none (structural shell only — see CP-004-2)
   - **Consumes:** local SQLite migration runner
 - **T1.6 — `RunPauseRequest` / `RunResumeRequest` + `RunControlAck` (client-facing pause/resume trigger)**
   - **Files:** `packages/contracts/src/runControl.ts` (EXTEND)
-  - **Spec coverage:** Spec-004 §Required Behavior — pause/resume as orchestration triggers
+  - **Spec coverage:** Spec-004 §Required Behavior (pause/resume as orchestration-layer triggers)
   - **Verifies invariant:** I-004-6, I-004-7
   - **Consumes:** `RunId`, `RunState`. Authors the two request types `RunPauseRequest { targetRunId: RunId; expectedRunVersion: number }` and `RunResumeRequest { targetRunId: RunId; expectedRunVersion: number }` plus the shared `RunControlAck { runId: RunId; currentState: RunState; runVersion: number }`, matching `docs/architecture/contracts/api-payload-contracts.md §Plan-004 — Queue Steer Pause Resume` byte-for-byte. Authored as **separate request types** (not an `InterventionType` member) because `pause` / `resume` are absent from `InterventionType` (`steer | interrupt | cancel | rollback`, campaign B2) by design (orchestration-layer, ADR-011) — the client needs a typed trigger distinct from `applyIntervention`. The **mandatory** `expectedRunVersion` carries the stale-replay guard (I-004-7; D-004-2 as extended to pause/resume).
 - **T1.7 — Run-read accessor `getRun(runId): { version, sessionId, state }`**
   - **Files:** `packages/contracts/src/runControl.ts` (accessor contract, CREATE) + `packages/runtime-daemon/src/session/run-engine.ts` (thin read; engine populates run state in Phase 3)
-  - **Spec coverage:** Spec-006:186 (`run.*` event payload `{ sessionId, runId, previousState, newState }`) — run state is event-sourced; no standalone `runs` table (ADR-001 / ADR-017)
+  - **Spec coverage:** Spec-006 §Event Type Enumeration (`run.*` run_lifecycle payload — {sessionId, runId, previousState, newState}, event-sourced run state, no standalone runs table); ADR-001; ADR-017
   - **Verifies invariant:** I-004-7 (provides the version comparand for the stale-replay guard) — = CP-004-7 forward-provide
   - **Consumes:** `RunId`, `RunState`. `sessionId` + `state` are derivable from the `Spec-006 §Run Lifecycle (run_lifecycle)` projection. **`version` is the any-run-progression counter ratified as D-004-1** — this task authors the accessor _shape_; the `version` _derivation_ follows the ratified D-004-1 semantics.
 
@@ -162,42 +162,42 @@ The Tier-5 plan-readiness audit (NS-17) surfaced three open decisions; all three
 
 - **T2.1 (Q1) — Queue admission gate (fail-closed when persistence unavailable)**
   - **Files:** `packages/runtime-daemon/src/queue/queue-store.ts` (CREATE)
-  - **Spec coverage:** Spec-004 §Failure + ADR-003:72 (block new queued work when persistence unavailable)
+  - **Spec coverage:** Spec-004 §Fallback Behavior (reject new queue creation when persistence unavailable); ADR-003 §Failure Mode Analysis (block new queued work when persistence unavailable)
   - **Verifies invariant:** I-004-1
   - **Consumes:** QueueItem contracts (T1.1); error code `queue.persistence_unavailable` (F-004-2-07 — register in `error-contracts.md`)
 - **T2.2 (Q2) — FIFO admission (`created_at ASC`; priority excluded)**
   - **Files:** `packages/runtime-daemon/src/queue/queue-store.ts` (EXTEND)
-  - **Spec coverage:** Spec-004:142 — FIFO admission; priority excluded from ordering
+  - **Spec coverage:** Spec-004 §Default Behavior (FIFO admission, created_at ASC); Spec-004 §Resolved Questions and V1 Scope Decisions (queue priority deferred — excluded from ordering)
   - **Verifies invariant:** I-004-5
   - **Consumes:** QueueItem store (T2.1)
 - **T2.3 (Q3) — Pre-admission cancellation + supersede / expire transitions**
   - **Files:** `packages/runtime-daemon/src/queue/queue-store.ts` (EXTEND)
-  - **Spec coverage:** Spec-004 §Queue Lifecycle (5-state queue item)
+  - **Spec coverage:** Spec-004 §Required Behavior (queue items support cancellation before admission; supersede / expire transitions)
   - **Verifies invariant:** I-004-6
   - **Consumes:** `QueueItemState` (T1.1)
 - **T2.4 (I1) — `applyIntervention` generic dispatch (ADR-011)**
   - **Files:** `packages/runtime-daemon/src/interventions/intervention-service.ts` (CREATE)
-  - **Spec coverage:** Spec-004 §Required Behavior + ADR-011 (generic dispatcher — `applyIntervention(type, payload)`)
+  - **Spec coverage:** Spec-004 §Required Behavior (generic intervention dispatch); ADR-011 (applyIntervention(type, payload) generic dispatcher)
   - **Verifies invariant:** I-004-3 (1:1:1 request:dispatch:record)
   - **Consumes:** `InterventionRequestPayload` (T1.2)
 - **T2.5 (I2) — Authorization (Cedar principal = verified PASETO `sub`)**
   - **Files:** `packages/runtime-daemon/src/interventions/intervention-service.ts` (EXTEND)
-  - **Spec coverage:** Spec-004 §Authorization + ADR-012 (Cedar) + ADR-010 (PASETO `sub`)
+  - **Spec coverage:** Spec-004 §Interfaces And Contracts (Cedar principal = verified PASETO sub; initiatorId informational only); ADR-012 (Cedar); ADR-010 (PASETO sub)
   - **Verifies invariant:** I-004-8
   - **Consumes:** verified PASETO claims (from the Plan-001 / Plan-008 auth context); client `initiatorId` is informational only
 - **T2.6 (I3) — Map `DriverInterventionResult` {`applied` | `degraded`} → 6-state**
   - **Files:** `packages/runtime-daemon/src/interventions/intervention-service.ts` (EXTEND)
-  - **Spec coverage:** Spec-004 §Required Behavior — 6 intervention states
+  - **Spec coverage:** Spec-004 §Interfaces And Contracts (InterventionResult 6-state mapping from DriverInterventionResult)
   - **Verifies invariant:** I-004-2
   - **Consumes:** `DriverInterventionResult` (Plan-005 driver contract — CP-004-1), `InterventionState` (T1.3)
 - **T2.7 (I4) — Steer-no-capability degrades to queue + interrupt; durable audit every path**
   - **Files:** `packages/runtime-daemon/src/interventions/intervention-service.ts` (EXTEND)
-  - **Spec coverage:** Spec-004 §Degraded Behavior + Plan-005 capability checks
+  - **Spec coverage:** Spec-004 §Driver-Level Steer Mechanics (steer-no-capability degrades to queue + interrupt, durable audit every path; Plan-005 capability checks)
   - **Verifies invariant:** I-004-2
   - **Consumes:** driver capability flags (Plan-005 — CP-004-1)
 - **T2.8 (I5) — Stale-replay version guard + per-outcome event**
   - **Files:** `packages/runtime-daemon/src/interventions/intervention-service.ts` (EXTEND)
-  - **Spec coverage:** Spec-004:67 (`expectedRunVersion` stale-replay guard)
+  - **Spec coverage:** Spec-004 §Interfaces And Contracts (expectedRunVersion stale-replay guard, mandatory fail-closed)
   - **Verifies invariant:** I-004-7
   - **Consumes:** T1.7 `getRun` accessor (reads current run version)
   - **Behavior (authored):** read current run version via `getRun(targetRunId)`; if `expectedRunVersion !== current` → transition `requested → expired`, apply nothing, and emit an `intervention.*` event `{ sessionId, interventionId, targetRunId, type, state, actor }`. The guard rejects **any** mismatch — stale (older) _or_ anomalous-future — per `Spec-004 §Interfaces And Contracts` ("a version guard mismatch produces `expired`"); a `<`-only comparison would silently admit a future comparand no honest client can hold. **Comparand evaluated against the any-run-progression version semantics (D-004-1).** The absent-`expectedRunVersion` case is rejected (fail-closed) per D-004-2 (mandatory).
@@ -220,44 +220,44 @@ preconditions:
 
 - **T3.1 (INTERRUPT) — Interrupt application** (`running → interrupted`)
   - **Files:** `packages/runtime-daemon/src/session/run-engine.ts` (EXTEND)
-  - **Spec coverage:** Spec-004 §Run-State Transitions — interrupt; Spec-006 `run_lifecycle`
+  - **Spec coverage:** Spec-004 §Required Behavior (interrupt transitions run directly to interrupted); Spec-006 §Event Type Enumeration (run_lifecycle `run.*` taxonomy)
   - **Verifies invariant:** I-004-6
 - **T3.2 (CANCEL) — Cancel application** (`running → interrupted`)
   - **Files:** `run-engine.ts` (EXTEND)
-  - **Spec coverage:** Spec-004 §Run-State Transitions — cancel
+  - **Spec coverage:** Spec-004 §Required Behavior (cancel intervention → interrupted run-terminal)
   - **Verifies invariant:** I-004-6
   - **Note:** the cancel intervention maps the active run to the canonical `interrupted` run-terminal — cancel is a user-initiated interruption, distinct from T3.1's `interrupt` in actor/intent but **not** in run-terminal (per [run-state-machine.md](../domain/run-state-machine.md): "the cancel intervention maps to the `interrupted` terminal state … distinct from queue-level `QueueItemCancel`"; the run terminals are `completed` / `interrupted` / `failed` — there is no `canceled` run-state). `canceled` is a **`QueueItemState`** (queued / admitted / superseded / canceled / expired; T1.1), applied to queued items by the `QueueItemCancel` path (T2.3), never a run-terminal — this task transitions only the run.
 - **T3.3 (WAIT-GUARD) — `waiting` / `blocked` guard (target_run_id stable)**
   - **Files:** `run-engine.ts` (EXTEND)
-  - **Spec coverage:** Spec-004 §Run-State Transitions — waiting / blocked
+  - **Spec coverage:** Spec-004 §State And Data Implications (waiting / blocked stays on the same run id — target_run_id stable)
   - **Verifies invariant:** I-004-4
 - **T3.4 (PAUSE) — Pause orchestration** (compose: interrupt + persist resumable state + enqueue resume marker — **not** driver-dependent)
   - **Files:** `run-engine.ts` (EXTEND)
-  - **Spec coverage:** Spec-004 §Pause (orchestration-layer) + ADR-011
+  - **Spec coverage:** Spec-004 §Required Behavior (pause composes interrupt + persist + queue resume, orchestration-layer); ADR-011 (orchestration dispatch, not a driver capability)
   - **Verifies invariant:** I-004-6, I-004-7
   - **Consumes:** T1.7 `getRun` accessor (reads current run version)
   - **Behavior (authored):** apply the **same** stale-replay version guard as T2.8 before composing the pause — read current run version via `getRun(RunPauseRequest.targetRunId)`; reject the request untouched if `RunPauseRequest.expectedRunVersion !== current` (`Spec-004 §Interfaces And Contracts`, mandatory per D-004-2 as extended to pause/resume); otherwise interrupt the active run, persist resumable state, enqueue the resume marker, and acknowledge via `RunControlAck { runId, currentState, runVersion }`.
 - **T3.5 (RESUME) — Resume orchestration** (re-admit the **same** run id from persisted state)
   - **Files:** `run-engine.ts` (EXTEND)
-  - **Spec coverage:** Spec-004 §Resume
+  - **Spec coverage:** Spec-004 §Required Behavior (resume returns a paused run to active execution, same run id)
   - **Verifies invariant:** I-004-4, I-004-6, I-004-7
   - **Consumes:** T1.7 `getRun` accessor (reads current run version)
   - **Behavior (authored):** apply the **same** stale-replay version guard as T2.8 before composing the resume — reject the request untouched if `RunResumeRequest.expectedRunVersion !== current` (`Spec-004 §Interfaces And Contracts`, mandatory per D-004-2 as extended to pause/resume); otherwise re-admit the **same** run id from persisted state and acknowledge via `RunControlAck { runId, currentState, runVersion }`.
 - **T3.6 (RECOVER) — Deterministic restart recovery** (distinguish `failed` vs `interrupted` on daemon restart)
   - **Files:** `run-engine.ts` (EXTEND)
-  - **Spec coverage:** Spec-004 §Recovery + Spec-006 replay
+  - **Spec coverage:** Spec-004 §Fallback Behavior (deterministic restart recovery — distinguish failed vs interrupted); Spec-006 §Replay Interaction with Compacted Regions (replay on daemon restart)
   - **Verifies invariant:** I-004-2, I-004-6
 - **T3.7 (EMIT) — Emit `run.*` state-change events** (Spec-006 `run_lifecycle` taxonomy)
   - **Files:** `run-engine.ts` (EXTEND)
-  - **Spec coverage:** Spec-006:186 — `run.*` event payload
+  - **Spec coverage:** Spec-006 §Event Type Enumeration (`run.*` state-change event payload)
   - **Verifies invariant:** I-004-2
 - **T3.8 (MAP) — Map intervention outcomes → run-state transitions**
   - **Files:** `run-engine.ts` (EXTEND)
-  - **Spec coverage:** Spec-004 §Required Behavior — outcome → run-state
+  - **Spec coverage:** Spec-004 §Required Behavior (intervention outcome → run-state mapping)
   - **Verifies invariant:** I-004-6
 - **T3.9 (STEER-ROUTE) — Route steer to driver (or degrade per T2.7)**
   - **Files:** `run-engine.ts` (EXTEND)
-  - **Spec coverage:** Spec-004 §Steer + Plan-005 capability
+  - **Spec coverage:** Spec-004 §Driver-Level Steer Mechanics (route steer to driver, or degrade per T2.7; Plan-005 capability)
   - **Verifies invariant:** I-004-2
 - **T3.10 (SETUP-GATE) — Run-setup gate seam: ordered pre-start gates + terminal release hooks (Tier-6 audit)**
   - **Files:** `run-engine.ts` (EXTEND)
@@ -291,34 +291,34 @@ preconditions:
 
 - **T4.1 — `runControlClient.ts` SDK (single daemon-transport factory)**
   - **Files:** `packages/client-sdk/src/runControlClient.ts` (CREATE)
-  - **Spec coverage:** Spec-023:382 (daemon run-state / queue subscriptions) + Spec-004 §Client
+  - **Spec coverage:** Spec-023 §Signature Feature Composition Sketches (Runs View — daemon run-state / queue subscriptions); Spec-004 §Interfaces And Contracts (run-control client surface)
   - **Verifies invariant:** I-004-9
   - **Transport (authored):** a single daemon-transport factory `createDaemonRunControlClient(transport)` riding `window.sidekicks.daemon.call` / `daemon.subscribe`. **Rationale:** run-control authority is daemon-only — `ADR-003 §Decision` ("the daemon will be the authority that applies and records their outcomes"), Assumption #3 (`ADR-003 §Assumptions Audit`), and no control-plane run-control surface exists in the corpus (verified). This **excludes** the `sessionClient.ts` dual-transport pattern; it structurally resembles `membershipClient.ts`'s daemon half (`docs/architecture/cross-plan-dependencies.md §NS-28: Plan-002 Phase 5 — Client SDK Membership Surface`), but the rationale is the source fact, not the precedent.
   - **Consumes:** `window.sidekicks.daemon` bridge (Spec-023); the `run.*` method strings (CP-004-4 — ratified, D-004-3)
 - **T4.2 — Capability-gated steer; pause/resume/interrupt/cancel NEVER gated**
   - **Files:** `apps/desktop/src/renderer/src/run-controls/` (CREATE)
-  - **Spec coverage:** Spec-004 §Capability + ADR-011 (pause is orchestration, not a driver capability)
+  - **Spec coverage:** Spec-004 §Default Behavior (capability-gated steer only; pause/resume orchestration-layer, never driver-gated); ADR-011 (pause is orchestration, not a driver capability)
   - **Verifies invariant:** I-004-10
   - **Note:** the §Rollback "disable any false flag" line is a **trap** — of this plan's controls only `steer` is gated on driver capability (the campaign-B2 `rollback` intervention is gated identically but its tasks arrive with B9 — I-004-10 as amended); `pause` / `resume` / `interrupt` / `cancel` are orchestration-layer and are never capability-gated.
 - **T4.3 — Optimistic-vs-runtime-truth reconciliation**
   - **Files:** `apps/desktop/src/renderer/src/run-controls/` (EXTEND)
-  - **Spec coverage:** Spec-023:382 (daemon run-state subscription)
+  - **Spec coverage:** Spec-023 §Signature Feature Composition Sketches (Runs View — daemon run-state subscription)
   - **Verifies invariant:** I-004-9
   - **Consumes:** daemon run-state subscription — subscribe request shape follows the shipped `subscribePresence → { sessionId }` precedent (`docs/architecture/cross-plan-dependencies.md §NS-29: Plan-002 Phase 6 — Desktop session-members Renderer`)
 - **T4.4 — Surface 9 run-states + 6 intervention-states**
   - **Files:** `apps/desktop/src/renderer/src/run-controls/` (EXTEND)
-  - **Spec coverage:** Spec-004 (9 run + 6 intervention states); **use `failed`, not `errored`** — Spec-023:383 `errored` is non-canonical
+  - **Spec coverage:** Spec-004 §Interfaces And Contracts (surface 9 run-states + 6 intervention-states; canonical terminal is failed, not errored)
   - **Verifies invariant:** I-004-9
   - **Consumes:** `RunState` / `InterventionState` (T1.3); `run.*` subscription channel names (CP-004-4 — ratified, D-004-3)
 - **T4.5 — Bridge-bypass import-restriction**
   - **Files:** `apps/desktop/src/renderer/src/run-controls/` (EXTEND) + import-restriction assertion test
-  - **Spec coverage:** Spec-023:356 (renderer composes via the preload bridge, never bypasses)
+  - **Spec coverage:** Spec-023 §Preload Bridge Contract (renderer composes via the preload bridge, never bypasses)
   - **Verifies invariant:** I-004-11 (= CP-004-5)
   - **Note:** enforces the renderer bridge-discipline rule (`docs/architecture/cross-plan-dependencies.md §2. Package Path Ownership Map`, `apps/desktop/src/renderer/` row) for the `run-controls/` subtree.
 - **T4.6 — Test suite (SDK + orchestration + single-client renderer component tests)**
   - **Files:** `packages/client-sdk/**/*.test.ts` + daemon orchestration integration tests + `apps/desktop/src/renderer/src/run-controls/__tests__/*.test.tsx`
-  - **Spec coverage:** Spec-004 §Test And Verification
-  - **Verifies invariant:** covers I-004-9 / I-004-10 / I-004-11 at the SDK + orchestration + renderer-component layer
+  - **Spec coverage:** Spec-004 §Acceptance Criteria (SDK + orchestration + renderer-component test coverage)
+  - **Verifies invariant:** I-004-9, I-004-10, I-004-11 (SDK + orchestration + renderer-component layer)
   - **Note:** single-client RTL renderer component tests ship **now**, mirroring the merged NS-29 `session-members/participant-roster.test.tsx` precedent (`@testing-library/react` `render`/`screen` + an `installMockBridge` `{ daemon: { call, subscribe } }` mock + the bridge-projection / no-direct-daemon-import assertion, per the `SessionBootstrap.test.tsx` idiom). Only the **multi-client live-run-state E2E** (cross-client daemon-stream reconciliation) defers — to the **Plan-023 Tier-8 IPC dispatcher**, _not_ BL-131 (which is Plan-003-scoped and whose "harness unavailable until Tier 8" premise NS-29 has already overtaken). SDK + orchestration tests are in-scope now.
 
 ## Parallelization Notes

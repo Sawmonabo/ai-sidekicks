@@ -2289,9 +2289,11 @@ export function gateTasksBlockCites(phaseSection, planNumber, phaseNumber, opts 
     return true;
   });
   if (blockingFailures.length === 0) {
-    // `findings` carries the full parse+verify set (empty here in the no-sizeClass
-    // survey path; demoted grammar kinds under S/M rides `warnings`). surveyCorpus
-    // reports every finding into its separate citeAnomalies channel.
+    // `findings` always carries the FULL parse+verify set — demotion moves
+    // entries into `warnings` for the dispatch halt path but never filters
+    // `findings`. surveyCorpus consumes `findings`, so the armed CI survey is
+    // demotion-blind and DELIBERATELY stricter than dispatch for S/M phases
+    // (see preflight-contract.md § Deliberately stricter than dispatch).
     return { ok: true, warnings: demoted, findings: allFailures, hasCiteMarkers: true };
   }
   const lines = [
@@ -2995,6 +2997,587 @@ export function surveyPhase(phaseSection) {
   return { ids, sizeClass, oracleLines, omissions, phantoms };
 }
 
+// Legacy compact-inline plans: each task packs Files / Verifies invariant / Spec
+// coverage onto one bullet line (`- **T-…** (…; Verifies invariant: …; Spec
+// coverage: …) — prose`), a shape the Gate-4 bold cite extractor cannot parse —
+// the marker payload runs to end-of-line through the task prose, so bolding in
+// place yields unparseable-cite noise rather than a verified anchor. Their cite
+// anomalies are DIVERTED out of the `--enforce-cites` exit (still PRINTED every
+// run as visible debt — never a silent skip) until each plan is re-authored into
+// the expanded one-marker-per-line form. The divert is KIND-scoped to the legacy
+// marker-shape classes (LEGACY_INLINE_EXEMPT_KINDS below); verifier findings on
+// parsed cites gate regardless of the exemption. Exact repo-relative paths, not a prefix
+// or glob: a renamed plan drops off the list and trips the stale-exemption ratchet
+// (see surveyCorpus). Removal owner per file — the list itself is the tracking, no
+// backlog item:
+//   007 + 025 — dedicated cite-restructure PR (both already audited; the
+//               compact-inline defect predates this survey's legacy-unbold screen,
+//               so no future readiness audit re-touches them).
+//   008       — its Tier-5-remainder readiness audit.
+//   023       — its Tier-8 readiness audit.
+export const LEGACY_INLINE_CITE_EXEMPT = [
+  "docs/plans/007-local-ipc-and-daemon-control.md",
+  "docs/plans/008-control-plane-relay-and-session-join.md",
+  "docs/plans/023-desktop-shell-and-renderer.md",
+  "docs/plans/025-self-hostable-node-relay.md",
+];
+
+// Only the two marker-SHAPE classes the compact-inline legacy style PROVABLY
+// produces are divertable — the survey-side screens that fire on HOW the markers
+// are written, not on what they cite. Verifier findings from parsed cites
+// (`section-not-found`, `unparseable-cite`) and hard failures (`cite-check-threw`)
+// always GATE, exempt path or not: the exemption hides legacy formatting debt,
+// never a broken or unverifiable Spec anchor (Codex P1, PR #214 round 1 — the
+// pre-fix divert was kind-blind and suppressed two live `section-not-found`
+// findings). `legacy-markers-partial` is the evidence-carrying variant of the
+// partial-marker screen: it is emitted only when the partial phase holds ZERO
+// bold markers, so the partiality is proven to come from the legacy inline
+// shape. A partial phase with any bold marker keeps the plain `markers-partial`
+// kind, which is NOT in this set — a half-finished new-grammar restructure of an
+// exempt plan gates instead of shipping silently (Codex P2, PR #214 round 2).
+export const LEGACY_INLINE_EXEMPT_KINDS = new Set([
+  "legacy-unbold-marker",
+  "legacy-markers-partial",
+  // A section anchor whose heading RESOLVES but carries trailing legacy
+  // descriptor words the pre-Gate-4 idiom wrote outside parens (`§Trust
+  // Stance — renderer-untrusted enforcement…`). Resolution succeeded, so the
+  // debt is formatting-class: divertable on exempt paths (printed per row),
+  // hard-gating everywhere else (Codex P2, PR #214 round 5).
+  "legacy-inline-descriptor-tail",
+]);
+
+// ---------- Inline anchor-existence floor (Codex P2, PR #214 rounds 3-5) ----------
+//
+// The legacy-inline exemption hides marker SHAPE, but the shape divert alone
+// would also hide a broken anchor INSIDE an inline payload (the bold-only
+// extractor never parses them, so `; Spec coverage: Spec-007 §Definitely
+// Missing` used to surface only as divertable [legacy-unbold-marker]).
+//
+// Design (round-5 redesign): the floor runs the REAL Gate-4 payload grammar
+// (`parseCitePayload`) over each inline payload after two purely-cosmetic
+// idiom normalizations (backtick strip; `docs/**/<name>.md` path collapse),
+// then verifies every anchor that parses with the REAL verifier at FULL
+// fidelity — sections, ACs, line / line-range subanchors, subjects, hints.
+// There is deliberately no floor-private token grammar: rounds 3-5 each
+// found a claim type a hand-rolled walker under-covered (§ sections, ACn,
+// line/lines), which is structural — the real grammar is the only complete
+// enumeration of Gate-4 claim types.
+//
+// Disposition of results:
+//   - Parsed anchor, verify VALID → clean.
+//   - Parsed section anchor, verify fails, but a longest-prefix of the
+//     section resolves uniquely to a real heading (trailing parenthetical on
+//     the HEADING side stripped when exact match fails — unique-match
+//     guarded, so it can never over-accept):
+//       · zero dropped words → clean (the cite is exact modulo the heading's
+//         own `(Qualifier)` — e.g. `§Session Membership Management` against
+//         `### Session Membership Management (V1 Pairwise)`);
+//       · dropped words remain → [legacy-inline-descriptor-tail]: the anchor
+//         RESOLVES, the tail is legacy formatting — divertable-but-printed on
+//         exempt paths, gating on every other path.
+//   - Any other verify failure → gates ALWAYS: file-resolution reasons map to
+//     [inline-doc-missing], everything else (section-not-found with no
+//     resolving prefix, ac-index-out-of-range, line-out-of-range, …) to
+//     [inline-anchor-not-found]. Neither kind is in LEGACY_INLINE_EXEMPT_KINDS.
+//   - Parse FAILURES split by semantic class (Codex P2, PR #214 round 8):
+//     SHAPE-class kinds (INLINE_SHAPE_PARSE_KINDS — the text simply did not
+//     match the strict grammar) are not floor findings; that malformation is
+//     exactly the formatting debt the [legacy-unbold-marker] shape count
+//     already represents (and that kind gates by itself on non-exempt
+//     paths). Every OTHER error-severity parse kind — the parse-time defect
+//     classes (namespace-violation, plan-local-id-as-spec-anchor,
+//     compound-range-multi-subject) and any future kind, fail-closed —
+//     routes to [inline-cite-violation] and gates on every path. And the
+//     CLAIMS inside unparsed text do not escape verification (Codex P2,
+//     PR #214 round 6): a SECONDARY existence sweep walks the full
+//     normalized payload —
+//     descriptors, unparsed fragments, post-`;` segments — and verifies
+//     every Spec-NNN / ADR-NNN / Plan-NNN / <name>.md label resolves
+//     uniquely, plus §Heading / ACn / line-N / row-id tokens under the
+//     nearest preceding Spec binding (walker-style: Plan / ADR / .md /
+//     cross-plan-deps labels reset the binding — their §/row refs are
+//     documentary in the bold grammar). Row claims verify against the
+//     bound spec's table first-column ids (round 7). Sweep findings are
+//     DEDUPED against the primary pass via
+//     coverage sets (a claim the grammar parsed is never re-reported), and
+//     residue § tokens share the same salvage/tail classification, so the
+//     two layers always agree on what a tail is. Every salvage-dropped tail
+//     — primary or residue — is itself re-scanned by the sweep before it is
+//     classified as formatting debt, so a checkable claim can never hide in
+//     dropped words (round 8). The sweep is existence-
+//     level by design — full fidelity (subjects, hints, ranges under
+//     sections) remains the primary pass's job, because unparseable text
+//     cannot express those couplings.
+//
+// The BOLD verifier path is untouched; the restructure that converts these
+// rows to bold markers moves them onto the full grammar with no floor at all.
+
+// One unbold marker payload per entry, bounded by the compact-inline row
+// grammar: the payload ends at the first `;` or `)` at paren depth 0 (the
+// task-attribute group delimiter — parenthesized descriptors inside the
+// payload balance out) or end of line.
+// A depth-0 `;` ends the payload ONLY when it introduces the next compact-
+// inline FIELD — the Gate-4 grammar itself uses `;` as a segment separator
+// inside one payload, so a bare `; Spec-999 §Missing` continuation must stay
+// part of the payload and reach the parser instead of being silently
+// truncated (Codex P2, PR #214 round 6).
+const INLINE_FIELD_INTRO_RE = /^\s*(?:Files|Verifies invariant|Spec coverage):/;
+
+export function extractInlineCitePayloads(phaseSection) {
+  const markerRe = /(?:^\s*[-*]+\s+|[;(]\s*)(Spec coverage|Verifies invariant):(?!\*)/gm;
+  const payloads = [];
+  for (const match of phaseSection.matchAll(markerRe)) {
+    let depth = 0;
+    const start = match.index + match[0].length;
+    let end = start;
+    while (end < phaseSection.length) {
+      const ch = phaseSection[end];
+      if (ch === "\n") break;
+      if (ch === "(") depth += 1;
+      else if (ch === ")") {
+        if (depth === 0) break;
+        depth -= 1;
+      } else if (
+        ch === ";" &&
+        depth === 0 &&
+        INLINE_FIELD_INTRO_RE.test(phaseSection.slice(end + 1))
+      ) {
+        break;
+      }
+      end += 1;
+    }
+    payloads.push({
+      field: match[1],
+      payload: phaseSection.slice(start, end).trim(),
+      lineNo: phaseSection.slice(0, match.index).split("\n").length,
+    });
+  }
+  return payloads;
+}
+
+// Two purely-cosmetic inline-idiom transforms so the real grammar can parse
+// what a legacy payload actually claims: backticks are presentation, and a
+// `docs/architecture/**/<name>.md` path collapses to the basename form the
+// arch-doc namespace parses (findArchDocFiles searches recursively, so the
+// collapse is lossless for that namespace — other docs/ trees are NOT
+// collapsed; a path-form cite into them stays unparsed shape debt). Nothing
+// else is rewritten.
+function normalizeInlineIdiom(payload) {
+  return payload
+    .replace(/`/g, "")
+    .replace(/\bdocs\/architecture\/(?:[\w-]+\/)*([\w-]+\.md)\b/g, "$1");
+}
+
+// Verifier reasons that mean the cited DOCUMENT did not resolve (missing /
+// ambiguous / unreadable file), as opposed to a resolved document whose
+// internal anchor failed. Membership routes a floor failure to
+// [inline-doc-missing]; everything else is [inline-anchor-not-found] —
+// fail-closed: an unrecognized reason still gates, just under the
+// anchor-level kind.
+const INLINE_DOC_RESOLUTION_REASONS = new Set([
+  "spec-file-not-found",
+  "spec-file-ambiguous",
+  "spec-file-unreadable",
+  "adr-file-not-found",
+  "adr-file-ambiguous",
+  "arch-doc-not-found",
+  "arch-doc-ambiguous",
+  "cross-plan-deps-file-not-found",
+]);
+
+// Error-severity PARSE-failure kinds that are pure SHAPE debt: the token
+// stream did not match the strict Gate-4 grammar, which on a legacy
+// compact-inline row is exactly the formatting the [legacy-unbold-marker]
+// divert already represents; the secondary existence sweep verifies whatever
+// claims that unparsed text contains. Every error-severity parse kind
+// OUTSIDE this set routes to [inline-cite-violation] and gates on every
+// path (Codex P2, PR #214 round 8): the grammar detects three of the seven
+// post-mortem defect classes at parse time (namespace-violation,
+// plan-local-id-as-spec-anchor, compound-range-multi-subject), and those
+// are affirmative Gate-4 policy violations no existence check can
+// represent — a denied `Plan-NNN:LLL` line cite existence-checks as a
+// clean Plan label. Fail-closed: future error-severity kinds gate unless
+// enumerated here; warn-severity kinds never gate — the floor must not be
+// stricter than Gate 4 itself is on the bold path.
+const INLINE_SHAPE_PARSE_KINDS = new Set([
+  "spec-namespace-malformed",
+  "unparseable-spec-subanchor",
+  "unparseable-cite",
+  "plan-local-id-malformed-trailer",
+]);
+
+// Salvage classifier for a `section-not-found` verify failure (Codex P2,
+// PR #214 round 5): walk the cite-side words longest-prefix-first and match
+// each prefix against the spec's real headings, both exact and with a
+// trailing parenthetical stripped (`### Session Membership Management (V1
+// Pairwise)` matches `§Session Membership Management`). A prefix must match
+// exactly ONE heading across both forms — any ambiguity fails the salvage,
+// so it can never over-accept. Returns the FULL heading text so the caller
+// re-verifies the anchor's primary claim against the real verifier; salvage
+// classifies the tail, it never skips a check.
+function salvageSectionHeading(spec, section, dirs) {
+  const specMatches = findPaddedFiles(dirs.specsDir, spec);
+  if (specMatches.length !== 1) return { resolved: false };
+  let source;
+  try {
+    source = readFileSync(specMatches[0], "utf8");
+  } catch {
+    return { resolved: false };
+  }
+  const headings = [];
+  for (const line of source.split("\n")) {
+    if (/^#+\s+/.test(line)) {
+      const full = line.replace(/^#+\s+/, "").trim();
+      headings.push({ full, stripped: full.replace(/\s*\([^)]*\)\s*$/, "") });
+    }
+  }
+  const words = section.split(/\s+/).filter(Boolean);
+  for (let keep = words.length; keep >= 1; keep -= 1) {
+    const candidate = normalizeTokenForMatch(words.slice(0, keep).join(" "));
+    const hits = headings.filter(
+      (heading) =>
+        normalizeTokenForMatch(heading.full) === candidate ||
+        normalizeTokenForMatch(heading.stripped) === candidate,
+    );
+    if (hits.length === 1) {
+      return { resolved: true, heading: hits[0].full, droppedWords: words.length - keep };
+    }
+    if (hits.length > 1) return { resolved: false };
+  }
+  return { resolved: false };
+}
+
+// First-column ids of every markdown table row in the spec (separator rows
+// dropped). Legacy inline row cites (`Spec-027 rows 4 + 10`, `row 7a`)
+// index these ids (Codex P2, PR #214 round 7). Header cells ("#", "Field")
+// are harmless residents of the set — cited row ids are digit-led, so they
+// can never collide with a header word. Returns null when the spec file
+// does not resolve (the label existence check owns that failure).
+function specTableRowIds(spec, dirs) {
+  const specMatches = findPaddedFiles(dirs.specsDir, spec);
+  if (specMatches.length !== 1) return null;
+  let source;
+  try {
+    source = readFileSync(specMatches[0], "utf8");
+  } catch {
+    return null;
+  }
+  const rowIds = new Set();
+  for (const line of source.split("\n")) {
+    if (!line.startsWith("|")) continue;
+    const firstCell = (line.split("|")[1] ?? "").trim().replace(/[*`]/g, "");
+    if (!firstCell || /^:?-{3,}:?$/.test(firstCell)) continue;
+    rowIds.add(firstCell.toLowerCase());
+  }
+  return rowIds;
+}
+
+export function verifyInlineAnchorFloor(phaseSection, { repoRoot = REPO_ROOT } = {}) {
+  const dirs = {
+    specsDir: resolve(repoRoot, "docs", "specs"),
+    adrsDir: resolve(repoRoot, "docs", "decisions"),
+    archDocsDir: resolve(repoRoot, "docs", "architecture"),
+    crossPlanDepsFile: resolve(repoRoot, "docs", "architecture", "cross-plan-dependencies.md"),
+  };
+  const plansDir = resolve(repoRoot, "docs", "plans");
+  const findings = [];
+  for (const { field, payload, lineNo } of extractInlineCitePayloads(phaseSection)) {
+    const normalized = normalizeInlineIdiom(payload);
+    const { anchors, failures: parseFailures } = parseCitePayload(normalized);
+    // Semantic parse violations gate; shape-class parse failures stay the
+    // divertable formatting debt the marker-shape counts already represent
+    // (see INLINE_SHAPE_PARSE_KINDS).
+    for (const failure of parseFailures) {
+      if (failure.severity !== "error" || INLINE_SHAPE_PARSE_KINDS.has(failure.kind)) {
+        continue;
+      }
+      findings.push({
+        kind: "inline-cite-violation",
+        evidence: `inline ${field} (line ${lineNo}): ${String(failure.raw).trim()} — ${failure.kind}: ${failure.message}`,
+      });
+    }
+    // Coverage sets: every claim the PRIMARY pass verified (valid or not) is
+    // excluded from the secondary sweep so no defect is double-reported.
+    const coveredSpecs = new Set();
+    const coveredAdrs = new Set();
+    const coveredFiles = new Set();
+    const coveredSections = new Set();
+    const coveredAcs = new Set();
+    const coveredLineStarts = new Set();
+    // Specs whose label existence check FAILED anywhere in this payload:
+    // §/AC/line/row tokens bound to them are skipped, and the label itself
+    // is never re-reported — the doc-missing finding already covers every
+    // claim under that document (one defect, one finding — mirrors the
+    // parsed side, where a section-only anchor on a missing spec reports
+    // once). Shared across every sweep over this payload (full-payload walk
+    // and dropped-tail scans) so the layers agree.
+    const missingSpecs = new Set();
+    for (const anchor of anchors) {
+      if (typeof anchor.spec === "number") {
+        coveredSpecs.add(anchor.spec);
+        if (anchor.section) {
+          coveredSections.add(`${anchor.spec}::${normalizeTokenForMatch(anchor.section)}`);
+        }
+        if (typeof anchor.ac === "number") coveredAcs.add(`${anchor.spec}::AC${anchor.ac}`);
+        if (typeof anchor.line === "number")
+          coveredLineStarts.add(`${anchor.spec}::${anchor.line}`);
+        if (typeof anchor.start === "number") {
+          coveredLineStarts.add(`${anchor.spec}::${anchor.start}`);
+        }
+      }
+      if (typeof anchor.adr === "number") coveredAdrs.add(anchor.adr);
+      if (anchor.file) coveredFiles.add(anchor.file);
+      let verdict = verifyAnchorAgainstSpec(anchor, dirs);
+      let droppedWords = 0;
+      let salvagedHeading = null;
+      if (!verdict.valid && verdict.reason === "section-not-found" && anchor.section) {
+        const salvage = salvageSectionHeading(anchor.spec, anchor.section, dirs);
+        if (salvage.resolved) {
+          // Re-verify with the real heading substituted so the anchor's
+          // primary claim (line / line-range / AC / section) still verifies
+          // at full fidelity under the salvaged section.
+          verdict = verifyAnchorAgainstSpec({ ...anchor, section: salvage.heading }, dirs);
+          droppedWords = salvage.droppedWords;
+          salvagedHeading = salvage.heading;
+          // The dropped tail may hide checkable document / anchor claims
+          // (`… and Spec-999 §Missing` — Codex P2, PR #214 round 8): scan it
+          // with the existence sweep under this anchor's Spec binding BEFORE
+          // the tail is classified as formatting debt. Runs regardless of the
+          // re-verify verdict — a failing primary claim does not absolve the
+          // tail's claims.
+          if (salvage.droppedWords > 0) {
+            sweepExistence(
+              anchor.section.split(/\s+/).filter(Boolean).slice(-salvage.droppedWords).join(" "),
+              anchor.spec,
+            );
+          }
+        }
+      }
+      if (verdict.valid) {
+        if (droppedWords > 0) {
+          findings.push({
+            kind: "legacy-inline-descriptor-tail",
+            evidence: `inline ${field} (line ${lineNo}): ${String(anchor.raw).trim()} — resolves §${salvagedHeading} with ${droppedWords} trailing descriptor word(s); the restructure moves the tail into a parenthesized descriptor`,
+          });
+        }
+        continue;
+      }
+      findings.push({
+        kind: INLINE_DOC_RESOLUTION_REASONS.has(verdict.reason)
+          ? "inline-doc-missing"
+          : "inline-anchor-not-found",
+        evidence: `inline ${field} (line ${lineNo}): ${String(anchor.raw).trim()} — ${verdict.reason}: ${verdict.evidence}`,
+      });
+    }
+    // SECONDARY existence sweep (Codex P2, PR #214 rounds 6-8): binding-aware
+    // token walk over a text region — the FULL normalized payload
+    // (descriptors, unparsed fragments, post-`;` segments) and, per round 8,
+    // every salvage-dropped descriptor tail (which may hide checkable
+    // claims). Labels always existence-check (a typo'd document must not
+    // hide inside text the grammar rejects or a parsed anchor's descriptor);
+    // §/AC/line tokens verify under the nearest preceding Spec binding,
+    // walker-style (Plan / ADR / .md labels RESET the binding — their tails
+    // are not spec claims); a dropped-tail scan starts from the salvaging
+    // anchor's binding. `Plan-NNN` has no Gate-4 namespace, so its existence
+    // check lives only here. Everything already covered by a parsed anchor
+    // is skipped via the coverage sets above. Declared as a function so the
+    // primary loop above can call it on dropped tails (block-scope
+    // hoisting); residue-§ tails recurse (bounded: each recursion scans a
+    // strict suffix of the previous text).
+    function sweepExistence(text, initialSpecBinding) {
+      let specBinding = initialSpecBinding;
+      // The § capture stops before ` line N` / ` lines` / ` ACn` / ` row(s) N`
+      // exactly like the grammar's section prefix does, so those keywords
+      // tokenize as their own claims (and dedupe against parsed anchors)
+      // instead of polluting the heading text. Row ids are digit-led
+      // (`4`, `7a`) with `+` / `/` / `,` list separators — prose uses of the
+      // word "rows" ("the relay_connections rows correlate…") never tokenize.
+      // A bare `cross-plan-deps` namespace token resets the Spec binding like
+      // the other non-spec namespaces: its §N / row M refs are documentary in
+      // the bold grammar and must not verify against a stale Spec context.
+      const sweepTokenRe =
+        /\bSpec-(\d{1,4})\b|\bADR-(\d{1,4})\b|\bPlan-(\d{1,4})\b|\b([\w-]+\.md)\b|\b(cross-plan-deps)\b|\bAC(\d{1,4})\b|\blines?\s+(\d+)(?:\s*-\s*(\d+))?|\brows?\s+(\d+[a-z]?(?:\s*[+/,]\s*\d+[a-z]?)*)|§\s*([^(—"+,;)\n]+?)(?=\s+lines?\s+\d|\s+AC\d|\s+rows?\s+\d|\s*[(—"+,;)\n]|\s*$)/g;
+      for (const token of text.matchAll(sweepTokenRe)) {
+        if (token[1] !== undefined) {
+          specBinding = Number(token[1]);
+          if (!coveredSpecs.has(specBinding) && !missingSpecs.has(specBinding)) {
+            // Unknown spec-bearing type: the verifier resolves the file, then
+            // falls through to its no-spec-type pass — a pure existence check.
+            const verdict = verifyAnchorAgainstSpec(
+              { type: "spec-file-existence", spec: specBinding, raw: token[0] },
+              dirs,
+            );
+            if (!verdict.valid) {
+              missingSpecs.add(specBinding);
+              findings.push({
+                kind: "inline-doc-missing",
+                evidence: `inline ${field} (line ${lineNo}): ${token[0]} — ${verdict.reason}: ${verdict.evidence}`,
+              });
+            }
+          }
+        } else if (token[2] !== undefined) {
+          specBinding = null;
+          if (!coveredAdrs.has(Number(token[2]))) {
+            const verdict = verifyAnchorAgainstSpec(
+              { type: "adr-section", adr: Number(token[2]), raw: token[0] },
+              dirs,
+            );
+            if (!verdict.valid) {
+              findings.push({
+                kind: "inline-doc-missing",
+                evidence: `inline ${field} (line ${lineNo}): ${token[0]} — ${verdict.reason}: ${verdict.evidence}`,
+              });
+            }
+          }
+        } else if (token[3] !== undefined) {
+          specBinding = null;
+          const planMatches = findPaddedFiles(plansDir, Number(token[3]));
+          if (planMatches.length !== 1) {
+            findings.push({
+              kind: "inline-doc-missing",
+              evidence: `inline ${field} (line ${lineNo}): ${token[0]} — plan file resolves to ${planMatches.length} match(es) under docs/plans/`,
+            });
+          }
+        } else if (token[4] !== undefined) {
+          specBinding = null;
+          if (!coveredFiles.has(token[4])) {
+            const verdict = verifyAnchorAgainstSpec(
+              { type: "arch-doc", file: token[4], raw: token[0] },
+              dirs,
+            );
+            if (!verdict.valid) {
+              findings.push({
+                kind: "inline-doc-missing",
+                evidence: `inline ${field} (line ${lineNo}): ${token[0]} — ${verdict.reason}: ${verdict.evidence}`,
+              });
+            }
+          }
+        } else if (token[5] !== undefined) {
+          specBinding = null;
+        } else if (token[6] !== undefined) {
+          if (
+            specBinding !== null &&
+            !missingSpecs.has(specBinding) &&
+            !coveredAcs.has(`${specBinding}::AC${Number(token[6])}`)
+          ) {
+            const verdict = verifyAnchorAgainstSpec(
+              {
+                type: "ac",
+                spec: specBinding,
+                ac: Number(token[6]),
+                lineHint: null,
+                section: null,
+                subject: null,
+                raw: token[0],
+              },
+              dirs,
+            );
+            if (!verdict.valid) {
+              findings.push({
+                kind: "inline-anchor-not-found",
+                evidence: `inline ${field} (line ${lineNo}): ${token[0]} (Spec-${String(specBinding).padStart(3, "0")}) — ${verdict.reason}: ${verdict.evidence}`,
+              });
+            }
+          }
+        } else if (token[7] !== undefined) {
+          if (
+            specBinding !== null &&
+            !missingSpecs.has(specBinding) &&
+            !coveredLineStarts.has(`${specBinding}::${Number(token[7])}`)
+          ) {
+            const lineAnchor =
+              token[8] === undefined
+                ? {
+                    type: "line",
+                    spec: specBinding,
+                    section: null,
+                    line: Number(token[7]),
+                    subject: null,
+                    raw: token[0],
+                  }
+                : {
+                    type: "line-range",
+                    spec: specBinding,
+                    section: null,
+                    start: Number(token[7]),
+                    end: Number(token[8]),
+                    subject: null,
+                    raw: token[0],
+                  };
+            const verdict = verifyAnchorAgainstSpec(lineAnchor, dirs);
+            if (!verdict.valid) {
+              findings.push({
+                kind: "inline-anchor-not-found",
+                evidence: `inline ${field} (line ${lineNo}): ${token[0]} (Spec-${String(specBinding).padStart(3, "0")}) — ${verdict.reason}: ${verdict.evidence}`,
+              });
+            }
+          }
+        } else if (token[9] !== undefined) {
+          // Row claims index the first-column ids of the bound spec's markdown
+          // tables (`Spec-027 rows 4 + 10` → rows `4` and `10` of the
+          // §Required Behavior table). Each id in the list is its own claim.
+          if (specBinding !== null && !missingSpecs.has(specBinding)) {
+            const rowIds = specTableRowIds(specBinding, dirs);
+            if (rowIds !== null) {
+              for (const rowId of token[9]
+                .split(/[+/,]/)
+                .map((id) => id.trim())
+                .filter(Boolean)) {
+                if (!rowIds.has(rowId.toLowerCase())) {
+                  findings.push({
+                    kind: "inline-anchor-not-found",
+                    evidence: `inline ${field} (line ${lineNo}): row ${rowId} (Spec-${String(specBinding).padStart(3, "0")}) — row-not-found: no table row with first-column id '${rowId}' in the spec`,
+                  });
+                }
+              }
+            }
+          }
+        } else if (token[10] !== undefined) {
+          const heading = token[10].trim();
+          if (
+            heading &&
+            specBinding !== null &&
+            !missingSpecs.has(specBinding) &&
+            !coveredSections.has(`${specBinding}::${normalizeTokenForMatch(heading)}`)
+          ) {
+            const paddedBinding = `Spec-${String(specBinding).padStart(3, "0")}`;
+            const verdict = verifyAnchorAgainstSpec(
+              { type: "section-only", spec: specBinding, section: heading, raw: token[0] },
+              dirs,
+            );
+            if (verdict.valid) continue;
+            if (verdict.reason === "section-not-found") {
+              const salvage = salvageSectionHeading(specBinding, heading, dirs);
+              if (salvage.resolved && salvage.droppedWords === 0) continue;
+              if (salvage.resolved) {
+                findings.push({
+                  kind: "legacy-inline-descriptor-tail",
+                  evidence: `inline ${field} (line ${lineNo}): §${heading} (${paddedBinding}) — resolves §${salvage.heading} with ${salvage.droppedWords} trailing descriptor word(s); the restructure moves the tail into a parenthesized descriptor`,
+                });
+                // Residue tails get the same round-8 dropped-text scan as the
+                // primary pass — checkable claims never hide behind a tail.
+                sweepExistence(
+                  heading.split(/\s+/).filter(Boolean).slice(-salvage.droppedWords).join(" "),
+                  specBinding,
+                );
+                continue;
+              }
+            }
+            findings.push({
+              kind: INLINE_DOC_RESOLUTION_REASONS.has(verdict.reason)
+                ? "inline-doc-missing"
+                : "inline-anchor-not-found",
+              evidence: `inline ${field} (line ${lineNo}): §${heading} (${paddedBinding}) — ${verdict.reason}: ${verdict.evidence}`,
+            });
+          }
+        }
+      }
+    }
+    sweepExistence(normalized, null);
+  }
+  return findings;
+}
+
 export function surveyCorpus({ repoRoot = REPO_ROOT } = {}) {
   const plansDir = resolve(repoRoot, "docs", "plans");
   const planFileNames = readdirSync(plansDir)
@@ -3007,10 +3590,30 @@ export function surveyCorpus({ repoRoot = REPO_ROOT } = {}) {
   // omission/phantom `anomalies` (which the real-corpus guard pins to []).
   // Warn-only by default; `--survey --enforce-cites` folds them into the exit.
   const citeAnomalies = [];
+  // Legacy marker-shape anomalies (LEGACY_INLINE_EXEMPT_KINDS) from
+  // LEGACY_INLINE_CITE_EXEMPT plans divert here: PRINTED as visible debt but never
+  // folded into the --enforce-cites exit. Every other kind gates even on an exempt
+  // path. Keyed per plan basename for the stale-exemption ratchet below (a plan
+  // clean of the DIVERTED classes fails — its exemption is no longer earning its place).
+  const exemptCiteAnomalies = [];
+  const exemptAnomalyCount = new Map();
   const distribution = { S: 0, M: 0, L: 0 };
   let phaseCount = 0;
   for (const name of planFileNames) {
     const source = readFileSync(resolve(plansDir, name), "utf8");
+    // Route every cite anomaly for this plan: exempt plans divert their legacy
+    // marker-shape kinds (LEGACY_INLINE_EXEMPT_KINDS) to the printed
+    // exemptCiteAnomalies channel; every other kind — and every non-exempt plan —
+    // gates through citeAnomalies.
+    const isExempt = LEGACY_INLINE_CITE_EXEMPT.includes(`docs/plans/${name}`);
+    const pushCite = (kind, message) => {
+      if (isExempt && LEGACY_INLINE_EXEMPT_KINDS.has(kind)) {
+        exemptCiteAnomalies.push(message);
+        exemptAnomalyCount.set(name, (exemptAnomalyCount.get(name) ?? 0) + 1);
+      } else {
+        citeAnomalies.push(message);
+      }
+    };
     const phases = walkPhases(source);
     if (phases.length === 0) {
       // Zero phases is a NOTICE, not an anomaly: the plan is invisible to
@@ -3049,7 +3652,8 @@ export function surveyCorpus({ repoRoot = REPO_ROOT } = {}) {
       try {
         citeResult = gateTasksBlockCites(section, name.slice(0, 3), label, { repoRoot });
       } catch (err) {
-        citeAnomalies.push(
+        pushCite(
+          "cite-check-threw",
           `${name} Phase ${label} [cite-check-threw] ${String(err?.message ?? err).slice(0, 160)}`,
         );
         citeResult = null;
@@ -3057,7 +3661,10 @@ export function surveyCorpus({ repoRoot = REPO_ROOT } = {}) {
       if (citeResult?.hasCiteMarkers) {
         for (const finding of citeResult.findings) {
           const where = finding.taskId ? `${finding.taskId} (${finding.field})` : finding.field;
-          citeAnomalies.push(`${name} Phase ${label} [${finding.kind}] ${where}: ${finding.raw}`);
+          pushCite(
+            finding.kind,
+            `${name} Phase ${label} [${finding.kind}] ${where}: ${finding.raw}`,
+          );
         }
       }
       // W3/W4 marker-coverage screen (survey-only; the dispatch gate above is
@@ -3074,23 +3681,70 @@ export function surveyCorpus({ repoRoot = REPO_ROOT } = {}) {
         // > 0 and the extractor still parse nothing.
         const unboldMarkers = markers.unboldSpec + markers.unboldInvariant;
         if (unboldMarkers > 0) {
-          citeAnomalies.push(
+          pushCite(
+            "legacy-unbold-marker",
             `${name} Phase ${label} [legacy-unbold-marker] ${unboldMarkers} unbold field marker(s) the bold cite extractor does not parse (bold present: ${markers.boldSpec} Spec + ${markers.boldInvariant} invariant)`,
           );
         }
         // W3 partial-marker: exactly one field-marker side present is a partial
         // audit output (the other side silently dropped). Both sides zero is a
         // genuine audit-not-run skip; both present is a complete pair.
+        // Evidence-split (Codex P2, PR #214 round 2): a partial phase with ZERO
+        // bold markers is proven legacy-inline debt ([legacy-markers-partial],
+        // divertable on exempt paths); ANY bold marker in a partial phase is
+        // new-grammar authoring that must land the complete pair, so it keeps
+        // the always-gating [markers-partial] kind even on an exempt path.
         if (realSpec > 0 !== realInvariant > 0) {
           const present = realSpec > 0 ? "Spec coverage" : "Verifies invariant";
           const missing = realSpec > 0 ? "Verifies invariant" : "Spec coverage";
-          citeAnomalies.push(
-            `${name} Phase ${label} [markers-partial] has a ${present} marker but no ${missing} marker`,
+          const boldMarkers = markers.boldSpec + markers.boldInvariant;
+          const kind = boldMarkers === 0 ? "legacy-markers-partial" : "markers-partial";
+          const evidence =
+            boldMarkers === 0
+              ? "all markers unbold — the legacy inline shape"
+              : `${boldMarkers} bold marker(s) present — new-grammar authoring must complete the pair`;
+          pushCite(
+            kind,
+            `${name} Phase ${label} [${kind}] has a ${present} marker but no ${missing} marker (${evidence})`,
           );
         }
       }
+      // Inline anchor-existence floor: document/section claims inside unbold
+      // inline payloads are verified to exist (kinds always gate — never in
+      // LEGACY_INLINE_EXEMPT_KINDS). Independent of gateTasksBlockCites, so it
+      // runs even when the gate threw; its own failure is fail-closed too.
+      try {
+        for (const finding of verifyInlineAnchorFloor(section, { repoRoot })) {
+          pushCite(finding.kind, `${name} Phase ${label} [${finding.kind}] ${finding.evidence}`);
+        }
+      } catch (err) {
+        pushCite(
+          "cite-check-threw",
+          `${name} Phase ${label} [cite-check-threw] inline anchor floor: ${String(err?.message ?? err).slice(0, 160)}`,
+        );
+      }
     }
     reportLines.push(`${name}: ${allPhaseLabels.length} phase(s) — ${phaseSummaries.join(" ")}`);
+  }
+  // Self-deleting ratchet + visible-debt summary, scoped to exempt plans PRESENT in
+  // this corpus. A fixture repoRoot that lacks them is not a re-authoring signal
+  // (skip it), and a renamed/removed plan simply un-exempts its new filename, which
+  // then gates normally and surfaces the rename that way. An exempt plan still
+  // present but emitting NO cite anomaly has been re-authored clean — push a
+  // [stale-exemption] finding into the GATED citeAnomalies channel so it blocks
+  // under --enforce-cites (warn-only under plain --survey) until the entry is
+  // deleted. This is what keeps the exemption list from outliving its debt.
+  const exemptFiles = [];
+  for (const relPath of LEGACY_INLINE_CITE_EXEMPT) {
+    const base = relPath.slice("docs/plans/".length);
+    if (!planFileNames.includes(base)) continue;
+    const count = exemptAnomalyCount.get(base) ?? 0;
+    exemptFiles.push({ base, count });
+    if (count === 0) {
+      citeAnomalies.push(
+        `${base} [stale-exemption] exempt plan scans clean — re-authored; remove it from LEGACY_INLINE_CITE_EXEMPT`,
+      );
+    }
   }
   return {
     planCount: planFileNames.length,
@@ -3100,10 +3754,12 @@ export function surveyCorpus({ repoRoot = REPO_ROOT } = {}) {
     notices,
     anomalies,
     citeAnomalies,
+    exemptCiteAnomalies,
+    exemptFiles,
   };
 }
 
-export function formatSurvey(survey) {
+export function formatSurvey(survey, { enforceCites = false } = {}) {
   const lines = [...survey.reportLines];
   lines.push(
     `distribution: L=${survey.distribution.L} M=${survey.distribution.M} S=${survey.distribution.S} ` +
@@ -3123,10 +3779,28 @@ export function formatSurvey(survey) {
   // the two-sided `anomalies` — they are warn-only under plain `--survey`.
   const citeAnomalies = survey.citeAnomalies ?? [];
   if (citeAnomalies.length) {
-    lines.push(`cite anomalies (${citeAnomalies.length}) [warn-only; arm with --enforce-cites]:`);
+    const tag = enforceCites ? "ENFORCED — folds into exit" : "warn-only; arm with --enforce-cites";
+    lines.push(`cite anomalies (${citeAnomalies.length}) [${tag}]:`);
     for (const anomaly of citeAnomalies) lines.push(`  - ${anomaly}`);
   } else {
     lines.push("cite anomalies: none");
+  }
+  // Legacy-inline exemptions: always PRINTED (visible debt), never folded into the
+  // --enforce-cites exit. A present-but-clean-scanning exemption rides the
+  // citeAnomalies group above as a [stale-exemption] finding, so it DOES gate. An
+  // absent exempt path is skipped upstream (a rename un-exempts the new filename,
+  // which then gates on its own), so it neither prints here nor rides that channel.
+  const exemptFiles = survey.exemptFiles ?? [];
+  if (exemptFiles.length) {
+    const suppressed = (survey.exemptCiteAnomalies ?? []).length;
+    lines.push(
+      `cite-exempt (legacy-inline, ${exemptFiles.length} plan(s), ${suppressed} anomaly(ies) suppressed):`,
+    );
+    for (const { base, count } of exemptFiles) {
+      const note =
+        count === 0 ? "clean — stale entry (ratcheted)" : `${count} anomaly(ies) suppressed`;
+      lines.push(`  - ${base}: ${note}`);
+    }
   }
   return lines.join("\n");
 }
@@ -3337,20 +4011,20 @@ async function main() {
       process.exit(2);
     }
     const survey = surveyCorpus();
-    process.stdout.write(formatSurvey(survey) + "\n");
-    // Two-sided omission/phantom anomalies always gate. Gate-4 cite anomalies
-    // are WARN-ONLY under plain `--survey` and gate only under `--enforce-cites`.
-    //
-    // FLIP CONDITION (warn-only → armed): the docs-corpus CI step runs plain
-    // `--survey` today because the live corpus still carries pre-existing cite
-    // debt (~107 all-kinds findings as of 2026-07-17: the 003/004 stale-line
-    // re-derivation tracked as its own cite-audit, plus the Plan-007/008/023/025
-    // legacy-unbold and partial-marker classes this survey now surfaces). Arm the
-    // gate — swap the CI step to `--survey --enforce-cites`, fold citeAnomalies
-    // into `anomalies`, and update the real-corpus guards in
-    // preflight-survey.test.mjs (REAL-corpus zero-anomaly + `--survey` exit-0) —
-    // only once that debt lands corpus citeAnomalies at 0.
     const enforceCites = args.includes("--enforce-cites");
+    process.stdout.write(formatSurvey(survey, { enforceCites }) + "\n");
+    // Two-sided omission/phantom anomalies always gate. Gate-4 cite anomalies are
+    // WARN-ONLY under plain `--survey` and gate under `--enforce-cites`.
+    //
+    // ARMED (2026-07-17): the docs-corpus CI step runs `--survey --enforce-cites`,
+    // so citeAnomalies fold into the exit. The live corpus reaches 0 GATED cite
+    // anomalies because the four compact-inline plans (Plan-007/008/023/025) divert
+    // to the printed exemptCiteAnomalies channel via LEGACY_INLINE_CITE_EXEMPT —
+    // their legacy-unbold / partial-marker debt stays visible but non-blocking, and
+    // the stale-exemption ratchet fails the moment one is re-authored clean. To
+    // retire an exemption: re-author the plan into expanded one-marker-per-line
+    // cites, then delete its LEGACY_INLINE_CITE_EXEMPT entry (the ratchet enforces
+    // the pairing). Real-corpus guards live in preflight-survey.test.mjs.
     const blockingCount =
       survey.anomalies.length + (enforceCites ? survey.citeAnomalies.length : 0);
     process.exit(blockingCount > 0 ? 1 : 0);
