@@ -27,6 +27,7 @@ import {
   classifyPhaseMarkers,
   countCites,
   LEGACY_INLINE_CITE_EXEMPT,
+  extractInlineFloorAnchors,
 } from "../preflight.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -171,6 +172,17 @@ function makeFixtureCorpus(planFiles) {
   const tmp = mkdtempSync(join(tmpdir(), "survey-corpus-"));
   const plansDir = join(tmp, "docs", "plans");
   mkdirSync(plansDir, { recursive: true });
+  // Inline anchor-existence floor substrate: the legacy-inline fixtures cite
+  // Spec-050, so the fixture tree carries a real spec file — the floor then
+  // verifies file + section existence exactly as it does on the live corpus
+  // (no fixture-only fail-open path). `Framing (V1 Pairwise)` exists to pin
+  // the heading-side trailing-parenthetical tolerance.
+  const specsDir = join(tmp, "docs", "specs");
+  mkdirSync(specsDir, { recursive: true });
+  writeFileSync(
+    join(specsDir, "050-fixture-spec.md"),
+    "# Spec-050: Fixture\n\n## Required Behavior\n\nBody.\n\n## Framing (V1 Pairwise)\n\nBody.\n",
+  );
   for (const [name, content] of Object.entries(planFiles)) {
     writeFileSync(join(plansDir, name), content);
   }
@@ -639,6 +651,117 @@ test("surveyCorpus: the real 023/025 shape (unbold invariant-only) still diverts
       survey.exemptCiteAnomalies.some((anomaly) => /\[legacy-markers-partial\]/.test(anomaly)),
     );
     assert.equal(survey.exemptFiles[0].count, 2);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("extractInlineFloorAnchors: binding labels scope bare § tokens (parser unit)", () => {
+  // Spec label binds a following bare §; Plan / ADR / arch-doc labels RESET the
+  // binding (their § tails are self-references or file-scoped descriptors the
+  // floor deliberately skips); a § with no label at all (external standards,
+  // plan-internal obligation refs) yields no anchor.
+  assert.deepEqual(extractInlineFloorAnchors("Spec-008 AC1 + §Example Flows"), [
+    { kind: "spec-file", spec: 8, raw: "Spec-008" },
+    { kind: "spec-section", spec: 8, heading: "Example Flows", raw: "§Example Flows" },
+  ]);
+  assert.deepEqual(
+    extractInlineFloorAnchors(
+      "`Spec-008 §Relay Encryption` + `Plan-008 §Implementation Steps` (sharding)",
+    ),
+    [
+      { kind: "spec-file", spec: 8, raw: "Spec-008" },
+      { kind: "spec-section", spec: 8, heading: "Relay Encryption", raw: "§Relay Encryption" },
+      { kind: "plan-file", plan: 8, raw: "Plan-008" },
+    ],
+  );
+  assert.deepEqual(extractInlineFloorAnchors("I-008-6 (`ADR-010 §Decision`)"), [
+    { kind: "adr-file", adr: 10, raw: "ADR-010" },
+  ]);
+  assert.deepEqual(
+    extractInlineFloorAnchors("`error-contracts.md §Numeric Code Space (per JSON-RPC 2.0 §5.1)`"),
+    [{ kind: "arch-doc-file", file: "error-contracts.md", raw: "error-contracts.md" }],
+  );
+  assert.deepEqual(extractInlineFloorAnchors("§Cross-Plan Obligations CP-007-3"), []);
+});
+
+const LEGACY_BROKEN_ANCHOR_PHASE = `### Phase 1 — legacy inline broken anchor
+
+#### Tasks
+
+- **T-052p-1-1** (Files: \`packages/a/z.ts\`; Verifies invariant: none; Spec coverage: Spec-050 §Definitely Missing) — legacy row whose inline anchor names a phantom section.
+`;
+
+test("surveyCorpus: a broken inline anchor at an exempt path GATES via the anchor-existence floor (Codex P2, PR #214 round 3)", () => {
+  // The exemption hides marker SHAPE only. An inline payload citing a phantom
+  // section lands [inline-anchor-not-found] in the GATED channel while the
+  // shape debt still diverts — so the ratchet stays quiet but the armed survey
+  // fails on the broken anchor.
+  const exemptBase = LEGACY_INLINE_CITE_EXEMPT[0].slice("docs/plans/".length);
+  const tmp = makeFixtureCorpus({ [exemptBase]: LEGACY_BROKEN_ANCHOR_PHASE });
+  try {
+    const survey = surveyCorpus({ repoRoot: tmp });
+    assert.ok(
+      survey.citeAnomalies.some((anomaly) =>
+        /\[inline-anchor-not-found\].*Spec-50 §Definitely Missing/.test(anomaly),
+      ),
+      survey.citeAnomalies.join("\n"),
+    );
+    assert.ok(
+      survey.exemptCiteAnomalies.some((anomaly) => /\[legacy-unbold-marker\]/.test(anomaly)),
+      "shape debt still diverts",
+    );
+    assert.ok(
+      !survey.citeAnomalies.some((anomaly) => /\[stale-exemption\]/.test(anomaly)),
+      "diverted shape debt keeps the ratchet quiet",
+    );
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+const LEGACY_MISSING_DOC_PHASE = `### Phase 1 — legacy inline missing doc
+
+#### Tasks
+
+- **T-053p-1-1** (Files: \`packages/a/w.ts\`; Verifies invariant: none; Spec coverage: Spec-999 §Anything) — legacy row citing a spec file that does not exist.
+`;
+
+test("surveyCorpus: an inline cite naming a missing document GATES [inline-doc-missing] even at an exempt path", () => {
+  const exemptBase = LEGACY_INLINE_CITE_EXEMPT[0].slice("docs/plans/".length);
+  const tmp = makeFixtureCorpus({ [exemptBase]: LEGACY_MISSING_DOC_PHASE });
+  try {
+    const survey = surveyCorpus({ repoRoot: tmp });
+    assert.ok(
+      survey.citeAnomalies.some((anomaly) =>
+        /\[inline-doc-missing\].*Spec-999.*spec-file-not-found/.test(anomaly),
+      ),
+      survey.citeAnomalies.join("\n"),
+    );
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+const LEGACY_TOLERANT_ANCHOR_PHASE = `### Phase 1 — legacy inline tolerant anchors
+
+#### Tasks
+
+- **T-054p-1-1** (Files: \`packages/a/v.ts\`; Verifies invariant: none; Spec coverage: Spec-050 §Required Behavior step 3 (probe) + §Framing) — trailing qualifier words and a parenthetical-qualified heading both resolve.
+`;
+
+test("surveyCorpus: the floor tolerates the inline idiom — trailing qualifiers and parenthetical-qualified headings verify", () => {
+  // `§Required Behavior step 3` resolves via cite-side trailing-word strip;
+  // `§Framing` resolves via heading-side parenthetical strip against
+  // `## Framing (V1 Pairwise)`. Only the SHAPE anomaly diverts — the floor
+  // contributes nothing to either channel.
+  const exemptBase = LEGACY_INLINE_CITE_EXEMPT[0].slice("docs/plans/".length);
+  const tmp = makeFixtureCorpus({ [exemptBase]: LEGACY_TOLERANT_ANCHOR_PHASE });
+  try {
+    const survey = surveyCorpus({ repoRoot: tmp });
+    assert.deepEqual(survey.citeAnomalies, [], survey.citeAnomalies.join("\n"));
+    assert.equal(survey.exemptCiteAnomalies.length, 1, survey.exemptCiteAnomalies.join("\n"));
+    assert.match(survey.exemptCiteAnomalies[0], /\[legacy-unbold-marker\]/);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }

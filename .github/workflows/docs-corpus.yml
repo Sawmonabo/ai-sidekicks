@@ -238,6 +238,16 @@ jobs:
         # LEGACY_INLINE_CITE_EXEMPT in preflight.mjs — their debt prints as visible
         # but non-blocking, and the stale-exemption ratchet fails the moment one is
         # re-authored clean. See preflight-contract.md § Survey mode exit contract.
+        #
+        # DELIBERATELY STRICTER THAN DISPATCH: the survey folds every Gate-4
+        # finding into the exit, including the grammar kinds that dispatch
+        # preflight demotes to warnings for S/M phases (Size-Classed Ceremony).
+        # Merge time is where grammar debt is cheapest to fix and where letting
+        # it land would re-accumulate the corpus debt this gate exists to hold
+        # at zero; dispatch keeps its S/M demotions so execution is never
+        # blocked on a nit CI accepted before the policy landed. The posture is
+        # asymmetric by design: everything that lands is dispatchable, but a
+        # shape dispatch merely warns on does not land anew.
         run: node .claude/skills/plan-execution/scripts/preflight.mjs --survey --enforce-cites
 
       - name: Unit tests for hook implementations

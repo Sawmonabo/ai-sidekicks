@@ -2289,9 +2289,11 @@ export function gateTasksBlockCites(phaseSection, planNumber, phaseNumber, opts 
     return true;
   });
   if (blockingFailures.length === 0) {
-    // `findings` carries the full parse+verify set (empty here in the no-sizeClass
-    // survey path; demoted grammar kinds under S/M rides `warnings`). surveyCorpus
-    // reports every finding into its separate citeAnomalies channel.
+    // `findings` always carries the FULL parse+verify set — demotion moves
+    // entries into `warnings` for the dispatch halt path but never filters
+    // `findings`. surveyCorpus consumes `findings`, so the armed CI survey is
+    // demotion-blind and DELIBERATELY stricter than dispatch for S/M phases
+    // (see preflight-contract.md § Deliberately stricter than dispatch).
     return { ok: true, warnings: demoted, findings: allFailures, hasCiteMarkers: true };
   }
   const lines = [
@@ -3038,6 +3040,191 @@ export const LEGACY_INLINE_EXEMPT_KINDS = new Set([
   "legacy-markers-partial",
 ]);
 
+// ---------- Inline anchor-existence floor (Codex P2, PR #214 round 3) ----------
+//
+// The legacy-inline exemption hides marker SHAPE, but the shape divert alone
+// would also hide a broken anchor INSIDE an inline payload (the bold-only
+// extractor never parses them, so `; Spec coverage: Spec-007 §Definitely
+// Missing` used to surface only as divertable [legacy-unbold-marker]). This
+// floor extracts every document-anchored claim an inline payload actually
+// makes and verifies it EXISTS, without imposing the full Gate-4 payload
+// grammar on the pre-Gate-4 inline idiom (backticked labels, em-dash
+// descriptor tails, quoted subjects, `+`-joined sections, free-text
+// invariant descriptions all stay legal — they are formatting debt, owned
+// by the restructure).
+//
+// Verified claims (all findings ALWAYS gate — the kinds are not in
+// LEGACY_INLINE_EXEMPT_KINDS):
+//   - `Spec-NNN`     → spec file resolves uniquely            [inline-doc-missing]
+//   - `Spec-NNN §H`  → heading exists in that spec            [inline-anchor-not-found]
+//   - `ADR-NNN`      → ADR file resolves uniquely             [inline-doc-missing]
+//   - `Plan-NNN`     → plan file resolves uniquely            [inline-doc-missing]
+//   - `<name>.md`    → arch-doc basename resolves uniquely    [inline-doc-missing]
+//
+// Heading verification reuses verifyAnchorAgainstSpec (section-only) with a
+// two-sided tolerance ladder for the inline idiom: trailing qualifier words
+// on the CITE side are stripped longest-prefix-first (`§Relay Connection
+// Lifecycle step 3` → `Relay Connection Lifecycle`), and a trailing
+// parenthetical on the HEADING side is stripped when exact match fails
+// (`### Session Membership Management (V1 Pairwise)` accepts `§Session
+// Membership Management`) — the heading-side strip requires exactly one
+// candidate heading so it can never over-match. Bare `§` tokens bound to a
+// Plan-NNN / ADR-NNN / <name>.md label, or bound to nothing (external
+// standards like `JSON-RPC 2.0 §5.1`, plan-internal `§Cross-Plan
+// Obligations CP-…` refs), name no spec section and are skipped: they are
+// descriptor text, not spec anchors. The BOLD verifier path is untouched.
+
+// One unbold marker payload per entry, bounded by the compact-inline row
+// grammar: the payload ends at the first `;` or `)` at paren depth 0 (the
+// task-attribute group delimiter — parenthesized descriptors inside the
+// payload balance out) or end of line.
+export function extractInlineCitePayloads(phaseSection) {
+  const markerRe = /(?:^\s*[-*]+\s+|[;(]\s*)(Spec coverage|Verifies invariant):(?!\*)/gm;
+  const payloads = [];
+  for (const match of phaseSection.matchAll(markerRe)) {
+    let depth = 0;
+    const start = match.index + match[0].length;
+    let end = start;
+    while (end < phaseSection.length) {
+      const ch = phaseSection[end];
+      if (ch === "\n") break;
+      if (ch === "(") depth += 1;
+      else if (ch === ")") {
+        if (depth === 0) break;
+        depth -= 1;
+      } else if (ch === ";" && depth === 0) break;
+      end += 1;
+    }
+    payloads.push({
+      field: match[1],
+      payload: phaseSection.slice(start, end).trim(),
+      lineNo: phaseSection.slice(0, match.index).split("\n").length,
+    });
+  }
+  return payloads;
+}
+
+// Token walker over one inline payload. Document labels BIND the context for
+// bare `§Heading` tokens that follow them; only a Spec-NNN binding makes a
+// following `§` a verifiable spec-section claim.
+export function extractInlineFloorAnchors(payload) {
+  const anchors = [];
+  let specContext = null;
+  const tokenRe =
+    /\bSpec-(\d{1,4})\b|\bADR-(\d{1,4})\b|\bPlan-(\d{1,4})\b|\b([\w-]+\.md)\b|§\s*([^`(—"+,;)\n]+)/g;
+  for (const match of payload.matchAll(tokenRe)) {
+    if (match[1] !== undefined) {
+      specContext = Number(match[1]);
+      anchors.push({ kind: "spec-file", spec: specContext, raw: match[0] });
+    } else if (match[2] !== undefined) {
+      specContext = null;
+      anchors.push({ kind: "adr-file", adr: Number(match[2]), raw: match[0] });
+    } else if (match[3] !== undefined) {
+      specContext = null;
+      anchors.push({ kind: "plan-file", plan: Number(match[3]), raw: match[0] });
+    } else if (match[4] !== undefined) {
+      specContext = null;
+      anchors.push({ kind: "arch-doc-file", file: match[4], raw: match[0] });
+    } else {
+      const heading = match[5].trim();
+      if (heading && specContext !== null) {
+        anchors.push({ kind: "spec-section", spec: specContext, heading, raw: match[0] });
+      }
+      // Non-spec-bound § tokens are descriptor text — skipped by design.
+    }
+  }
+  return anchors;
+}
+
+// Heading match with the two-sided tolerance ladder described above.
+function verifyInlineSpecSection(spec, heading, raw, dirs) {
+  const words = heading.split(/\s+/).filter(Boolean);
+  for (let keep = words.length; keep >= 1; keep -= 1) {
+    const candidate = words.slice(0, keep).join(" ");
+    const verdict = verifyAnchorAgainstSpec(
+      { type: "section-only", spec, section: candidate, raw },
+      dirs,
+    );
+    if (verdict.valid) return { valid: true };
+  }
+  // Heading-side trailing-parenthetical strip: `## Heading (Qualifier)`
+  // accepts `§Heading`. Exactly one stripped heading may match, else fail.
+  const specMatches = findPaddedFiles(dirs.specsDir, spec);
+  if (specMatches.length !== 1) return { valid: false };
+  let source;
+  try {
+    source = readFileSync(specMatches[0], "utf8");
+  } catch {
+    return { valid: false };
+  }
+  const strippedHeadings = [];
+  for (const line of source.split("\n")) {
+    if (/^#+\s+/.test(line)) {
+      const text = line.replace(/^#+\s+/, "").replace(/\s*\([^)]*\)\s*$/, "");
+      strippedHeadings.push(text);
+    }
+  }
+  for (let keep = words.length; keep >= 1; keep -= 1) {
+    const candidate = normalizeTokenForMatch(words.slice(0, keep).join(" "));
+    const hits = strippedHeadings.filter((h) => normalizeTokenForMatch(h) === candidate);
+    if (hits.length === 1) return { valid: true };
+    if (hits.length > 1) return { valid: false };
+  }
+  return { valid: false };
+}
+
+export function verifyInlineAnchorFloor(phaseSection, { repoRoot = REPO_ROOT } = {}) {
+  const dirs = {
+    specsDir: resolve(repoRoot, "docs", "specs"),
+    adrsDir: resolve(repoRoot, "docs", "decisions"),
+    archDocsDir: resolve(repoRoot, "docs", "architecture"),
+    crossPlanDepsFile: resolve(repoRoot, "docs", "architecture", "cross-plan-dependencies.md"),
+  };
+  const plansDir = resolve(repoRoot, "docs", "plans");
+  const findings = [];
+  for (const { field, payload, lineNo } of extractInlineCitePayloads(phaseSection)) {
+    for (const anchor of extractInlineFloorAnchors(payload)) {
+      if (anchor.kind === "spec-section") {
+        const verdict = verifyInlineSpecSection(anchor.spec, anchor.heading, anchor.raw, dirs);
+        if (!verdict.valid) {
+          findings.push({
+            kind: "inline-anchor-not-found",
+            evidence: `inline ${field} (line ${lineNo}): Spec-${anchor.spec} §${anchor.heading} — no such heading (trailing-qualifier and parenthetical tolerance both exhausted)`,
+          });
+        }
+      } else {
+        const verifierAnchor =
+          anchor.kind === "spec-file"
+            ? { type: "inline-spec-file", spec: anchor.spec, raw: anchor.raw }
+            : anchor.kind === "adr-file"
+              ? { type: "adr-section", adr: anchor.adr, raw: anchor.raw }
+              : anchor.kind === "arch-doc-file"
+                ? { type: "arch-doc", file: anchor.file, raw: anchor.raw }
+                : null;
+        if (verifierAnchor) {
+          const verdict = verifyAnchorAgainstSpec(verifierAnchor, dirs);
+          if (!verdict.valid) {
+            findings.push({
+              kind: "inline-doc-missing",
+              evidence: `inline ${field} (line ${lineNo}): ${anchor.raw} — ${verdict.reason}: ${verdict.evidence}`,
+            });
+          }
+        } else {
+          // plan-file: the verifier has no plan namespace; resolve directly.
+          const planMatches = findPaddedFiles(plansDir, anchor.plan);
+          if (planMatches.length !== 1) {
+            findings.push({
+              kind: "inline-doc-missing",
+              evidence: `inline ${field} (line ${lineNo}): ${anchor.raw} — plan file resolves to ${planMatches.length} match(es) under docs/plans/`,
+            });
+          }
+        }
+      }
+    }
+  }
+  return findings;
+}
+
 export function surveyCorpus({ repoRoot = REPO_ROOT } = {}) {
   const plansDir = resolve(repoRoot, "docs", "plans");
   const planFileNames = readdirSync(plansDir)
@@ -3168,6 +3355,20 @@ export function surveyCorpus({ repoRoot = REPO_ROOT } = {}) {
             `${name} Phase ${label} [${kind}] has a ${present} marker but no ${missing} marker (${evidence})`,
           );
         }
+      }
+      // Inline anchor-existence floor: document/section claims inside unbold
+      // inline payloads are verified to exist (kinds always gate — never in
+      // LEGACY_INLINE_EXEMPT_KINDS). Independent of gateTasksBlockCites, so it
+      // runs even when the gate threw; its own failure is fail-closed too.
+      try {
+        for (const finding of verifyInlineAnchorFloor(section, { repoRoot })) {
+          pushCite(finding.kind, `${name} Phase ${label} [${finding.kind}] ${finding.evidence}`);
+        }
+      } catch (err) {
+        pushCite(
+          "cite-check-threw",
+          `${name} Phase ${label} [cite-check-threw] inline anchor floor: ${String(err?.message ?? err).slice(0, 160)}`,
+        );
       }
     }
     reportLines.push(`${name}: ${allPhaseLabels.length} phase(s) — ${phaseSummaries.join(" ")}`);
