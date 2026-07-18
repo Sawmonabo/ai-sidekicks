@@ -607,13 +607,23 @@ CREATE TABLE approval_requests (
   state                 TEXT NOT NULL DEFAULT 'pending'
                         CHECK(state IN ('pending', 'approved', 'rejected', 'expired', 'canceled')),
   created_at            TEXT NOT NULL,
-  updated_at            TEXT NOT NULL         -- last state-transition instant (expiry/cancel carry no resolution row)
+  updated_at            TEXT NOT NULL,        -- last state-transition instant (expiry/cancel carry no resolution row)
+  CHECK (ask_id IS NULL OR expiry_at IS NOT NULL)
+                                              -- an ask-associated (normalizer-minted) row always carries the shared
+                                              -- deadline: ask_id without expiry_at could never re-arm the durable
+                                              -- timeout after restart, re-creating an unbounded pending ask
+                                              -- (Spec-012 Part-B fail-closed follow-up 2026-07-17; the T1.3
+                                              -- migration copies this CHECK verbatim and pins it in its tests)
 );
 
 CREATE INDEX idx_approval_requests_run ON approval_requests(run_id);
 CREATE INDEX idx_approval_requests_session ON approval_requests(session_id);
 CREATE INDEX idx_approval_requests_state ON approval_requests(state) WHERE state = 'pending';
-CREATE INDEX idx_approval_requests_ask ON approval_requests(ask_id) WHERE ask_id IS NOT NULL;
+CREATE UNIQUE INDEX idx_approval_requests_ask ON approval_requests(run_id, ask_id) WHERE ask_id IS NOT NULL;
+-- UNIQUE (run_id, ask_id): exactly one approval row per native ask — a normalizer retry or replay
+-- re-mint collides here instead of persisting a duplicate pending row whose outcome/expiry routing
+-- would then fan out or pick arbitrarily (Spec-012 one ask↔one approval; duplicate-normalization test
+-- rides the T1.3 migration suite)
 
 -- Owner: Plan-012
 CREATE TABLE approval_resolutions (

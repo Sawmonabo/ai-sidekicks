@@ -275,6 +275,18 @@ preconditions:
 
 **Precondition:** Phase 1–3 daemon surface landed; **D-004-3 (`run.*` method strings) ratified** before T4.1 / T4.4 wire calls land. Plan-023 renderer substrate + `window.sidekicks` bridge present.
 
+```yaml
+preconditions:
+  # Machine-enforced form of the phase-1–3 prose (preflight Gate 5). The
+  # Part-B box entry is carried onto this phase too: the auto-walk soft-skips
+  # an ineligible phase and tries later ones, so gating Phase 3 alone would
+  # let the walk select Phase 4 past the unmet park leg.
+  - { type: plan_phase, plan: 004, phase: 1, status: merged }
+  - { type: plan_phase, plan: 004, phase: 2, status: merged }
+  - { type: plan_phase, plan: 004, phase: 3, status: merged }
+  - { type: precondition_box_checked, box: "Driver input-ask park leg authored" }
+```
+
 #### Tasks
 
 - **T4.1 — `runControlClient.ts` SDK (single daemon-transport factory)**
