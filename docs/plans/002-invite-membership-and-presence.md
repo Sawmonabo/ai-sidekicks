@@ -281,7 +281,7 @@ preconditions:
 
 ##### T2.2 — Implement invite acceptance + single-use enforcement + owner-authorized revocation (state-only: `session_invites.state → 'revoked'`) + expiry validation. Does **not** emit audit events — deferred to Plan-006 Tier 4 per [CP-002-6](#cross-plan-obligations) (the control plane has no event log per ADR-017).
 
-**Files:** `packages/control-plane/src/invites/invite-service.ts`, `packages/control-plane/src/invites/__tests__/invite-service.test.ts` **Spec coverage:** Spec-002 AC1, AC3, §Token Security Properties lines 109 (single-use enforcement), 111 (hash storage), 112 (expiry enforcement), §Invite Revocation lines 138 (immediacy), 141 (audit emission — **deferred to Tier 4 per [CP-002-6](#cross-plan-obligations)**, not emitted in Phase 2), 142 (owner-authorization); P1, P2, P3, P4, P8 **Verifies invariant:** none (issuance/acceptance path; revocation durability verified by P8)
+**Files:** `packages/control-plane/src/invites/invite-service.ts`, `packages/control-plane/src/invites/__tests__/invite-service.test.ts` **Spec coverage:** Spec-002 AC1, AC3; Spec-002 §Token Security Properties (single-use enforcement; hash storage; expiry enforcement); Spec-002 §Invite Revocation (immediacy; audit emission — deferred to Tier 4 per CP-002-6, not emitted in Phase 2; owner-authorization); P1, P2, P3, P4, P8 **Verifies invariant:** none (issuance/acceptance path; revocation durability verified by P8)
 
 ##### T2.3 — Implement `membership-service.ts` with `MembershipUpdate` handler; enforce I-002-1 + I-002-2 with typed errors.
 
@@ -324,7 +324,7 @@ _The task ids below were reconciled post-merge to the as-shipped decomposition: 
 
 ##### T3.3c — Hoist `SubscribeAckResponse` generic into `jsonrpc-streaming.ts` (canonical subscribe-init ack), demote `SessionSubscribeResponse` to a one-line alias seam over it (`session-subscribe.ts` untouched), and mint the `presence.subscribe` wire contract (`PresenceSubscribeRequest`/`PresenceSubscribeResponse`) in `presence.ts`.
 
-**Files:** `packages/contracts/src/jsonrpc-streaming.ts`, `packages/contracts/src/session.ts`, `packages/contracts/src/presence.ts` **Spec coverage:** Spec-002 §Interfaces And Contracts line 85 (`presence.subscribe` wire contract — request/response), Spec-007 §Wire Format lines 50-56 (streaming subscribe-init ack primitive) **Verifies invariant:** I-007-7
+**Files:** `packages/contracts/src/jsonrpc-streaming.ts`, `packages/contracts/src/session.ts`, `packages/contracts/src/presence.ts` **Spec coverage:** Spec-002 §Interfaces And Contracts (presence.subscribe wire contract — request/response), Spec-007 §Wire Format (streaming subscribe-init ack primitive) **Verifies invariant:** I-007-7
 
 ##### T3.4a — Add the shared Buffer-free `deriveMainChannelId` UUIDv8 derivation + `MAIN_CHANNEL_NAME` to `packages/contracts/src/channel-id.ts` (RFC 9562 §5.8, `@noble/hashes` for Cloudflare-Workers isomorphism); golden-vector test + ESLint `no-restricted-imports`/`no-restricted-globals` guard keeping contracts `node:crypto`- and Buffer-free.
 

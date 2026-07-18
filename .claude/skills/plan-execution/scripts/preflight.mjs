@@ -2995,6 +2995,29 @@ export function surveyPhase(phaseSection) {
   return { ids, sizeClass, oracleLines, omissions, phantoms };
 }
 
+// Legacy compact-inline plans: each task packs Files / Verifies invariant / Spec
+// coverage onto one bullet line (`- **T-…** (…; Verifies invariant: …; Spec
+// coverage: …) — prose`), a shape the Gate-4 bold cite extractor cannot parse —
+// the marker payload runs to end-of-line through the task prose, so bolding in
+// place yields unparseable-cite noise rather than a verified anchor. Their cite
+// anomalies are DIVERTED out of the `--enforce-cites` exit (still PRINTED every
+// run as visible debt — never a silent skip) until each plan is re-authored into
+// the expanded one-marker-per-line form. Exact repo-relative paths, not a prefix
+// or glob: a renamed plan drops off the list and trips the stale-exemption ratchet
+// (see surveyCorpus). Removal owner per file — the list itself is the tracking, no
+// backlog item:
+//   007 + 025 — dedicated cite-restructure PR (both already audited; the
+//               compact-inline defect predates this survey's legacy-unbold screen,
+//               so no future readiness audit re-touches them).
+//   008       — its Tier-5-remainder readiness audit.
+//   023       — its Tier-8 readiness audit.
+export const LEGACY_INLINE_CITE_EXEMPT = [
+  "docs/plans/007-local-ipc-and-daemon-control.md",
+  "docs/plans/008-control-plane-relay-and-session-join.md",
+  "docs/plans/023-desktop-shell-and-renderer.md",
+  "docs/plans/025-self-hostable-node-relay.md",
+];
+
 export function surveyCorpus({ repoRoot = REPO_ROOT } = {}) {
   const plansDir = resolve(repoRoot, "docs", "plans");
   const planFileNames = readdirSync(plansDir)
@@ -3007,10 +3030,26 @@ export function surveyCorpus({ repoRoot = REPO_ROOT } = {}) {
   // omission/phantom `anomalies` (which the real-corpus guard pins to []).
   // Warn-only by default; `--survey --enforce-cites` folds them into the exit.
   const citeAnomalies = [];
+  // Cite anomalies from LEGACY_INLINE_CITE_EXEMPT plans divert here: PRINTED as
+  // visible debt but never folded into the --enforce-cites exit. Keyed per plan
+  // basename for the stale-exemption ratchet below (a clean exempt plan fails).
+  const exemptCiteAnomalies = [];
+  const exemptAnomalyCount = new Map();
   const distribution = { S: 0, M: 0, L: 0 };
   let phaseCount = 0;
   for (const name of planFileNames) {
     const source = readFileSync(resolve(plansDir, name), "utf8");
+    // Route every cite anomaly for this plan: exempt plans divert to the printed
+    // exemptCiteAnomalies channel; all others gate through citeAnomalies.
+    const isExempt = LEGACY_INLINE_CITE_EXEMPT.includes(`docs/plans/${name}`);
+    const pushCite = (message) => {
+      if (isExempt) {
+        exemptCiteAnomalies.push(message);
+        exemptAnomalyCount.set(name, (exemptAnomalyCount.get(name) ?? 0) + 1);
+      } else {
+        citeAnomalies.push(message);
+      }
+    };
     const phases = walkPhases(source);
     if (phases.length === 0) {
       // Zero phases is a NOTICE, not an anomaly: the plan is invisible to
@@ -3049,7 +3088,7 @@ export function surveyCorpus({ repoRoot = REPO_ROOT } = {}) {
       try {
         citeResult = gateTasksBlockCites(section, name.slice(0, 3), label, { repoRoot });
       } catch (err) {
-        citeAnomalies.push(
+        pushCite(
           `${name} Phase ${label} [cite-check-threw] ${String(err?.message ?? err).slice(0, 160)}`,
         );
         citeResult = null;
@@ -3057,7 +3096,7 @@ export function surveyCorpus({ repoRoot = REPO_ROOT } = {}) {
       if (citeResult?.hasCiteMarkers) {
         for (const finding of citeResult.findings) {
           const where = finding.taskId ? `${finding.taskId} (${finding.field})` : finding.field;
-          citeAnomalies.push(`${name} Phase ${label} [${finding.kind}] ${where}: ${finding.raw}`);
+          pushCite(`${name} Phase ${label} [${finding.kind}] ${where}: ${finding.raw}`);
         }
       }
       // W3/W4 marker-coverage screen (survey-only; the dispatch gate above is
@@ -3074,7 +3113,7 @@ export function surveyCorpus({ repoRoot = REPO_ROOT } = {}) {
         // > 0 and the extractor still parse nothing.
         const unboldMarkers = markers.unboldSpec + markers.unboldInvariant;
         if (unboldMarkers > 0) {
-          citeAnomalies.push(
+          pushCite(
             `${name} Phase ${label} [legacy-unbold-marker] ${unboldMarkers} unbold field marker(s) the bold cite extractor does not parse (bold present: ${markers.boldSpec} Spec + ${markers.boldInvariant} invariant)`,
           );
         }
@@ -3084,13 +3123,33 @@ export function surveyCorpus({ repoRoot = REPO_ROOT } = {}) {
         if (realSpec > 0 !== realInvariant > 0) {
           const present = realSpec > 0 ? "Spec coverage" : "Verifies invariant";
           const missing = realSpec > 0 ? "Verifies invariant" : "Spec coverage";
-          citeAnomalies.push(
+          pushCite(
             `${name} Phase ${label} [markers-partial] has a ${present} marker but no ${missing} marker`,
           );
         }
       }
     }
     reportLines.push(`${name}: ${allPhaseLabels.length} phase(s) — ${phaseSummaries.join(" ")}`);
+  }
+  // Self-deleting ratchet + visible-debt summary, scoped to exempt plans PRESENT in
+  // this corpus. A fixture repoRoot that lacks them is not a re-authoring signal
+  // (skip it), and a renamed/removed plan simply un-exempts its new filename, which
+  // then gates normally and surfaces the rename that way. An exempt plan still
+  // present but emitting NO cite anomaly has been re-authored clean — push a
+  // [stale-exemption] finding into the GATED citeAnomalies channel so it blocks
+  // under --enforce-cites (warn-only under plain --survey) until the entry is
+  // deleted. This is what keeps the exemption list from outliving its debt.
+  const exemptFiles = [];
+  for (const relPath of LEGACY_INLINE_CITE_EXEMPT) {
+    const base = relPath.slice("docs/plans/".length);
+    if (!planFileNames.includes(base)) continue;
+    const count = exemptAnomalyCount.get(base) ?? 0;
+    exemptFiles.push({ base, count });
+    if (count === 0) {
+      citeAnomalies.push(
+        `${base} [stale-exemption] exempt plan scans clean — re-authored; remove it from LEGACY_INLINE_CITE_EXEMPT`,
+      );
+    }
   }
   return {
     planCount: planFileNames.length,
@@ -3100,10 +3159,12 @@ export function surveyCorpus({ repoRoot = REPO_ROOT } = {}) {
     notices,
     anomalies,
     citeAnomalies,
+    exemptCiteAnomalies,
+    exemptFiles,
   };
 }
 
-export function formatSurvey(survey) {
+export function formatSurvey(survey, { enforceCites = false } = {}) {
   const lines = [...survey.reportLines];
   lines.push(
     `distribution: L=${survey.distribution.L} M=${survey.distribution.M} S=${survey.distribution.S} ` +
@@ -3123,10 +3184,28 @@ export function formatSurvey(survey) {
   // the two-sided `anomalies` — they are warn-only under plain `--survey`.
   const citeAnomalies = survey.citeAnomalies ?? [];
   if (citeAnomalies.length) {
-    lines.push(`cite anomalies (${citeAnomalies.length}) [warn-only; arm with --enforce-cites]:`);
+    const tag = enforceCites ? "ENFORCED — folds into exit" : "warn-only; arm with --enforce-cites";
+    lines.push(`cite anomalies (${citeAnomalies.length}) [${tag}]:`);
     for (const anomaly of citeAnomalies) lines.push(`  - ${anomaly}`);
   } else {
     lines.push("cite anomalies: none");
+  }
+  // Legacy-inline exemptions: always PRINTED (visible debt), never folded into the
+  // --enforce-cites exit. A present-but-clean-scanning exemption rides the
+  // citeAnomalies group above as a [stale-exemption] finding, so it DOES gate. An
+  // absent exempt path is skipped upstream (a rename un-exempts the new filename,
+  // which then gates on its own), so it neither prints here nor rides that channel.
+  const exemptFiles = survey.exemptFiles ?? [];
+  if (exemptFiles.length) {
+    const suppressed = (survey.exemptCiteAnomalies ?? []).length;
+    lines.push(
+      `cite-exempt (legacy-inline, ${exemptFiles.length} plan(s), ${suppressed} anomaly(ies) suppressed):`,
+    );
+    for (const { base, count } of exemptFiles) {
+      const note =
+        count === 0 ? "clean — stale entry (ratcheted)" : `${count} anomaly(ies) suppressed`;
+      lines.push(`  - ${base}: ${note}`);
+    }
   }
   return lines.join("\n");
 }
@@ -3337,20 +3416,20 @@ async function main() {
       process.exit(2);
     }
     const survey = surveyCorpus();
-    process.stdout.write(formatSurvey(survey) + "\n");
-    // Two-sided omission/phantom anomalies always gate. Gate-4 cite anomalies
-    // are WARN-ONLY under plain `--survey` and gate only under `--enforce-cites`.
-    //
-    // FLIP CONDITION (warn-only → armed): the docs-corpus CI step runs plain
-    // `--survey` today because the live corpus still carries pre-existing cite
-    // debt (~107 all-kinds findings as of 2026-07-17: the 003/004 stale-line
-    // re-derivation tracked as its own cite-audit, plus the Plan-007/008/023/025
-    // legacy-unbold and partial-marker classes this survey now surfaces). Arm the
-    // gate — swap the CI step to `--survey --enforce-cites`, fold citeAnomalies
-    // into `anomalies`, and update the real-corpus guards in
-    // preflight-survey.test.mjs (REAL-corpus zero-anomaly + `--survey` exit-0) —
-    // only once that debt lands corpus citeAnomalies at 0.
     const enforceCites = args.includes("--enforce-cites");
+    process.stdout.write(formatSurvey(survey, { enforceCites }) + "\n");
+    // Two-sided omission/phantom anomalies always gate. Gate-4 cite anomalies are
+    // WARN-ONLY under plain `--survey` and gate under `--enforce-cites`.
+    //
+    // ARMED (2026-07-17): the docs-corpus CI step runs `--survey --enforce-cites`,
+    // so citeAnomalies fold into the exit. The live corpus reaches 0 GATED cite
+    // anomalies because the four compact-inline plans (Plan-007/008/023/025) divert
+    // to the printed exemptCiteAnomalies channel via LEGACY_INLINE_CITE_EXEMPT —
+    // their legacy-unbold / partial-marker debt stays visible but non-blocking, and
+    // the stale-exemption ratchet fails the moment one is re-authored clean. To
+    // retire an exemption: re-author the plan into expanded one-marker-per-line
+    // cites, then delete its LEGACY_INLINE_CITE_EXEMPT entry (the ratchet enforces
+    // the pairing). Real-corpus guards live in preflight-survey.test.mjs.
     const blockingCount =
       survey.anomalies.length + (enforceCites ? survey.citeAnomalies.length : 0);
     process.exit(blockingCount > 0 ? 1 : 0);

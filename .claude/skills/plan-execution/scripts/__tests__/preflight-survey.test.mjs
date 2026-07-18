@@ -26,6 +26,7 @@ import {
   formatSurvey,
   classifyPhaseMarkers,
   countCites,
+  LEGACY_INLINE_CITE_EXEMPT,
 } from "../preflight.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -228,6 +229,33 @@ test("surveyCorpus: REAL corpus has zero two-sided anomalies", () => {
   );
   assert.ok(survey.planCount >= 27, `expected ≥27 plans, saw ${survey.planCount}`);
   assert.ok(survey.phaseCount >= 63, `expected ≥63 walked phases, saw ${survey.phaseCount}`);
+});
+
+test("surveyCorpus: REAL corpus — gated cite anomalies clean; legacy-inline debt diverted + visible", () => {
+  const survey = surveyCorpus({ repoRoot: REPO_ROOT });
+  // The gated channel (what --enforce-cites folds into the exit) is empty: the
+  // healed plans carry no cite anomaly, the four compact-inline plans divert out,
+  // and no exemption has gone stale. A regression in any of those lands right here.
+  assert.deepEqual(
+    survey.citeAnomalies,
+    [],
+    "gated cite anomalies on the live corpus:\n" + survey.citeAnomalies.join("\n"),
+  );
+  // The diverted debt is real and printed (visible debt), never silently dropped.
+  assert.ok(
+    survey.exemptCiteAnomalies.length > 0,
+    "expected the legacy-inline plans to still carry suppressed cite anomalies",
+  );
+  // Every configured exemption is present in the corpus and still earning its place
+  // (>0 suppressed) — this recovers dead-entry detection (a renamed/removed exempt
+  // plan drops exemptFiles below the list length) and the clean-scan ratchet.
+  assert.equal(survey.exemptFiles.length, LEGACY_INLINE_CITE_EXEMPT.length);
+  for (const { base, count } of survey.exemptFiles) {
+    assert.ok(
+      count > 0,
+      `${base}: exempt but scans clean — remove it from LEGACY_INLINE_CITE_EXEMPT`,
+    );
+  }
 });
 
 // ---------- CLI ----------
@@ -488,17 +516,67 @@ test("preflight --survey --enforce-cites: clean fixture exits 0 even when armed"
   }
 });
 
-test("preflight --survey --enforce-cites: flag is accepted alongside --survey", () => {
-  // Real-CLI arg-parsing check (not an enforcement check): the flag must not
-  // trip the mixed-invocation guard. Robust to corpus state — asserts the
-  // survey ran and was not rejected, never a specific exit code.
+test("surveyCorpus: a dirty plan at an exempt path diverts out of the gated channel", () => {
+  // The core carve-out: a legacy-inline cite defect in an exempt plan is suppressed
+  // from the --enforce-cites exit (printed as visible debt) instead of blocking it.
+  const exemptBase = LEGACY_INLINE_CITE_EXEMPT[0].slice("docs/plans/".length);
+  const tmp = makeFixtureCorpus({ [exemptBase]: BAD_CITE_PLAN });
+  try {
+    const survey = surveyCorpus({ repoRoot: tmp });
+    assert.deepEqual(survey.citeAnomalies, [], "exempt cite debt must not reach the gated channel");
+    assert.ok(
+      survey.exemptCiteAnomalies.length >= 1,
+      "exempt cite debt must be diverted and counted",
+    );
+    assert.equal(survey.exemptFiles.length, 1);
+    assert.equal(survey.exemptFiles[0].base, exemptBase);
+    assert.ok(survey.exemptFiles[0].count >= 1);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("surveyCorpus: a clean plan at an exempt path trips the stale-exemption ratchet (armed exit 1)", () => {
+  // Negative control for the exemption path: an exempt plan re-authored clean must
+  // NOT silently keep its carve-out. The survey emits a gated [stale-exemption]
+  // anomaly, so a "fake-exempt clean file" fails under --enforce-cites — forcing the
+  // list entry's removal rather than letting the exemption outlive its debt.
+  const exemptBase = LEGACY_INLINE_CITE_EXEMPT[0].slice("docs/plans/".length);
+  const tmp = makeFixtureCorpus({ [exemptBase]: CLEAN_PHASE });
+  try {
+    const survey = surveyCorpus({ repoRoot: tmp });
+    assert.equal(survey.citeAnomalies.length, 1, survey.citeAnomalies.join("\n"));
+    assert.match(survey.citeAnomalies[0], /\[stale-exemption\] exempt plan scans clean/);
+    assert.deepEqual(survey.exemptCiteAnomalies, []); // nothing to divert — it's clean
+    const runner = join(tmp, "run-enforce.mjs");
+    writeFileSync(
+      runner,
+      `import { surveyCorpus } from ${JSON.stringify(PREFLIGHT)};\n` +
+        `const s = surveyCorpus({ repoRoot: ${JSON.stringify(tmp)} });\n` +
+        `process.exit((s.anomalies.length + s.citeAnomalies.length) > 0 ? 1 : 0);\n`,
+    );
+    const armed = spawnSync(process.execPath, [runner], { encoding: "utf8" });
+    assert.equal(armed.status, 1, "a clean exempt plan must fail the armed survey");
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("preflight --survey --enforce-cites: real corpus exits 0 (armed — clean under enforcement)", () => {
+  // The load-bearing arming guard, matching the docs-corpus CI step. With the
+  // six-plan cite heals landed and the four compact-inline plans diverted via
+  // LEGACY_INLINE_CITE_EXEMPT, the live corpus has zero GATED cite anomalies, so the
+  // armed survey exits 0. A future non-exempt plan gaining a cite defect — or an
+  // exempt plan re-authored clean (the stale-exemption ratchet) — flips this to
+  // exit 1: enforcement doing its job. The exempt block always prints so the
+  // remaining legacy-inline debt stays visible.
   const run = spawnSync(process.execPath, [PREFLIGHT, "--survey", "--enforce-cites"], {
     encoding: "utf8",
     cwd: REPO_ROOT,
   });
-  assert.notEqual(run.status, 2, run.stdout + run.stderr);
-  assert.doesNotMatch(run.stderr, /runs alone/);
+  assert.equal(run.status, 0, run.stdout + run.stderr);
   assert.match(run.stdout, /distribution:/);
+  assert.match(run.stdout, /cite-exempt \(legacy-inline, \d+ plan\(s\)/);
 });
 
 test("preflight --survey --enforce-cites <plan>: still rejects an extra positional (exit 2)", () => {
