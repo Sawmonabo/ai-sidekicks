@@ -181,7 +181,7 @@ function makeFixtureCorpus(planFiles) {
   mkdirSync(specsDir, { recursive: true });
   writeFileSync(
     join(specsDir, "050-fixture-spec.md"),
-    "# Spec-050: Fixture\n\n## Required Behavior\n\nBody.\n\n## Framing (V1 Pairwise)\n\nBody.\n",
+    "# Spec-050: Fixture\n\n## Required Behavior\n\nBody.\n\n## Framing (V1 Pairwise)\n\nBody.\n\n## Acceptance Criteria\n\n- [ ] AC1 body\n- [ ] AC2 body\n",
   );
   for (const [name, content] of Object.entries(planFiles)) {
     writeFileSync(join(plansDir, name), content);
@@ -663,6 +663,7 @@ test("extractInlineFloorAnchors: binding labels scope bare § tokens (parser uni
   // plan-internal obligation refs) yields no anchor.
   assert.deepEqual(extractInlineFloorAnchors("Spec-008 AC1 + §Example Flows"), [
     { kind: "spec-file", spec: 8, raw: "Spec-008" },
+    { kind: "spec-ac", spec: 8, ac: 1, raw: "AC1" },
     { kind: "spec-section", spec: 8, heading: "Example Flows", raw: "§Example Flows" },
   ]);
   assert.deepEqual(
@@ -683,6 +684,14 @@ test("extractInlineFloorAnchors: binding labels scope bare § tokens (parser uni
     [{ kind: "arch-doc-file", file: "error-contracts.md", raw: "error-contracts.md" }],
   );
   assert.deepEqual(extractInlineFloorAnchors("§Cross-Plan Obligations CP-007-3"), []);
+  // AC tokens bind to the spec context like § (Codex P2, round 4); an AC with
+  // no spec binding is descriptor text.
+  assert.deepEqual(extractInlineFloorAnchors("Spec-008 AC1 + AC3"), [
+    { kind: "spec-file", spec: 8, raw: "Spec-008" },
+    { kind: "spec-ac", spec: 8, ac: 1, raw: "AC1" },
+    { kind: "spec-ac", spec: 8, ac: 3, raw: "AC3" },
+  ]);
+  assert.deepEqual(extractInlineFloorAnchors("supports AC2's client half"), []);
 });
 
 const LEGACY_BROKEN_ANCHOR_PHASE = `### Phase 1 — legacy inline broken anchor
@@ -747,8 +756,39 @@ const LEGACY_TOLERANT_ANCHOR_PHASE = `### Phase 1 — legacy inline tolerant anc
 
 #### Tasks
 
-- **T-054p-1-1** (Files: \`packages/a/v.ts\`; Verifies invariant: none; Spec coverage: Spec-050 §Required Behavior step 3 (probe) + §Framing) — trailing qualifier words and a parenthetical-qualified heading both resolve.
+- **T-054p-1-1** (Files: \`packages/a/v.ts\`; Verifies invariant: none; Spec coverage: Spec-050 §Required Behavior step 3 (probe) + §Framing + AC2) — trailing qualifier words, a parenthetical-qualified heading, and an in-range AC index all resolve.
 `;
+
+const LEGACY_PHANTOM_AC_PHASE = `### Phase 1 — legacy inline phantom AC
+
+#### Tasks
+
+- **T-055p-1-1** (Files: \`packages/a/u.ts\`; Verifies invariant: none; Spec coverage: Spec-050 AC999) — legacy row citing an out-of-range acceptance criterion.
+`;
+
+test("surveyCorpus: a phantom inline AC index at an exempt path GATES via the floor (Codex P2, PR #214 round 4)", () => {
+  // `Spec-050 AC999` resolves the spec file but claims a checkbox bullet that
+  // does not exist — the AC leg of the floor routes it through the real AC
+  // verifier, so it lands [inline-anchor-not-found] in the GATED channel while
+  // the shape debt still diverts.
+  const exemptBase = LEGACY_INLINE_CITE_EXEMPT[0].slice("docs/plans/".length);
+  const tmp = makeFixtureCorpus({ [exemptBase]: LEGACY_PHANTOM_AC_PHASE });
+  try {
+    const survey = surveyCorpus({ repoRoot: tmp });
+    assert.ok(
+      survey.citeAnomalies.some((anomaly) =>
+        /\[inline-anchor-not-found\].*Spec-50 AC999.*ac-index-out-of-range/.test(anomaly),
+      ),
+      survey.citeAnomalies.join("\n"),
+    );
+    assert.ok(
+      survey.exemptCiteAnomalies.some((anomaly) => /\[legacy-unbold-marker\]/.test(anomaly)),
+      "shape debt still diverts",
+    );
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
 
 test("surveyCorpus: the floor tolerates the inline idiom — trailing qualifiers and parenthetical-qualified headings verify", () => {
   // `§Required Behavior step 3` resolves via cite-side trailing-word strip;

@@ -3057,6 +3057,7 @@ export const LEGACY_INLINE_EXEMPT_KINDS = new Set([
 // LEGACY_INLINE_EXEMPT_KINDS):
 //   - `Spec-NNN`     → spec file resolves uniquely            [inline-doc-missing]
 //   - `Spec-NNN §H`  → heading exists in that spec            [inline-anchor-not-found]
+//   - `Spec-NNN ACn` → n-th §Acceptance Criteria bullet exists [inline-anchor-not-found]
 //   - `ADR-NNN`      → ADR file resolves uniquely             [inline-doc-missing]
 //   - `Plan-NNN`     → plan file resolves uniquely            [inline-doc-missing]
 //   - `<name>.md`    → arch-doc basename resolves uniquely    [inline-doc-missing]
@@ -3105,13 +3106,16 @@ export function extractInlineCitePayloads(phaseSection) {
 }
 
 // Token walker over one inline payload. Document labels BIND the context for
-// bare `§Heading` tokens that follow them; only a Spec-NNN binding makes a
-// following `§` a verifiable spec-section claim.
+// bare `§Heading` and `ACn` tokens that follow them; only a Spec-NNN binding
+// makes a following `§` a verifiable spec-section claim or a following `ACn`
+// a verifiable acceptance-criterion claim. The `.md` alternative sits before
+// the AC alternative so a hypothetical `ACn.md` filename is consumed as a
+// filename, not split into an AC token.
 export function extractInlineFloorAnchors(payload) {
   const anchors = [];
   let specContext = null;
   const tokenRe =
-    /\bSpec-(\d{1,4})\b|\bADR-(\d{1,4})\b|\bPlan-(\d{1,4})\b|\b([\w-]+\.md)\b|§\s*([^`(—"+,;)\n]+)/g;
+    /\bSpec-(\d{1,4})\b|\bADR-(\d{1,4})\b|\bPlan-(\d{1,4})\b|\b([\w-]+\.md)\b|\bAC(\d{1,4})\b|§\s*([^`(—"+,;)\n]+)/g;
   for (const match of payload.matchAll(tokenRe)) {
     if (match[1] !== undefined) {
       specContext = Number(match[1]);
@@ -3125,12 +3129,18 @@ export function extractInlineFloorAnchors(payload) {
     } else if (match[4] !== undefined) {
       specContext = null;
       anchors.push({ kind: "arch-doc-file", file: match[4], raw: match[0] });
+    } else if (match[5] !== undefined) {
+      // ACn claims the n-th checkbox bullet of the bound spec's §Acceptance
+      // Criteria (Codex P2, PR #214 round 4). It does not reset the binding.
+      if (specContext !== null) {
+        anchors.push({ kind: "spec-ac", spec: specContext, ac: Number(match[5]), raw: match[0] });
+      }
     } else {
-      const heading = match[5].trim();
+      const heading = match[6].trim();
       if (heading && specContext !== null) {
         anchors.push({ kind: "spec-section", spec: specContext, heading, raw: match[0] });
       }
-      // Non-spec-bound § tokens are descriptor text — skipped by design.
+      // Non-spec-bound § / AC tokens are descriptor text — skipped by design.
     }
   }
   return anchors;
@@ -3190,6 +3200,29 @@ export function verifyInlineAnchorFloor(phaseSection, { repoRoot = REPO_ROOT } =
           findings.push({
             kind: "inline-anchor-not-found",
             evidence: `inline ${field} (line ${lineNo}): Spec-${anchor.spec} §${anchor.heading} — no such heading (trailing-qualifier and parenthetical tolerance both exhausted)`,
+          });
+        }
+      } else if (anchor.kind === "spec-ac") {
+        // Pure index-existence form of the real AC verifier: §Acceptance
+        // Criteria must exist and the index must be in bullet range. No
+        // section / line-hint / subject coupling — those belong to the full
+        // Gate-4 grammar, not the floor.
+        const verdict = verifyAnchorAgainstSpec(
+          {
+            type: "ac",
+            spec: anchor.spec,
+            ac: anchor.ac,
+            lineHint: null,
+            section: null,
+            subject: null,
+            raw: anchor.raw,
+          },
+          dirs,
+        );
+        if (!verdict.valid) {
+          findings.push({
+            kind: "inline-anchor-not-found",
+            evidence: `inline ${field} (line ${lineNo}): Spec-${anchor.spec} AC${anchor.ac} — ${verdict.reason}: ${verdict.evidence}`,
           });
         }
       } else {
