@@ -30,7 +30,7 @@ This plan covers approval records, remembered grants, daemon-side permission che
 ## Preconditions
 
 - [ ] Paired spec is approved — **re-opened 2026-07-13 (class sweep; supersedes the 2026-07-06 checked-box gate note):** the paired spec is temporarily `review` for its campaign amendment window (B20 amendment, PR #175), so this precondition is not currently satisfied. Tasks tracing to the previously-approved Spec-012 content (the audit basis) stay covered; amendment-surface code dispatch waits for the campaign's Task-28 / W1.5 batch re-promotion to restore `approved`, which re-checks this box.
-- [ ] **Driver-ask expiry leg authored (Part-B fail-closed follow-up, 2026-07-17):** [Spec-012 §Resolved Questions and V1 Scope Decisions](../specs/012-approvals-permissions-and-trust-boundaries.md#resolved-questions-and-v1-scope-decisions) requires the bounded ask-expiry machinery — durable timer-OR-answer, per-kind fail-closed outcomes, `driverAskPayloadRefinementFor`, the persisted `ask_id` association — but this plan's Phase 2 task list ends at T2.7: the concrete T2.8 `driver-ask-normalizer.ts` task is authored into this plan by the campaign's B13 bundle (the reciprocal run-engine park-edge task lands in [Plan-004](./004-queue-steer-pause-resume.md) via B9). Phase-2 code does not dispatch while this box is unchecked (Gate 7's plan-governance precondition scan enforces it mechanically); the B13 bundle PR authors T2.8 and checks this box.
+- [ ] **Driver-ask expiry leg authored (Part-B fail-closed follow-up, 2026-07-17):** [Spec-012 §Resolved Questions and V1 Scope Decisions](../specs/012-approvals-permissions-and-trust-boundaries.md#resolved-questions-and-v1-scope-decisions) requires the bounded ask-expiry machinery — durable timer-OR-answer, per-kind fail-closed outcomes, `driverAskPayloadRefinementFor`, the persisted `ask_id` association — but this plan's Phase 2 task list ends at T2.7: the concrete T2.8 `driver-ask-normalizer.ts` task is authored into this plan by the campaign's B13 bundle (the reciprocal run-engine park-edge task lands in [Plan-004](./004-queue-steer-pause-resume.md) via B9). Phase-2 code does not dispatch while this box is unchecked — enforced mechanically by Phase 2's `preconditions:` block (`precondition_box_checked` entry, preflight Gate 5; Gate 7's governance scan deliberately covers only the plan-template trio, so a scoped box needs the phase-level entry); the B13 bundle PR authors T2.8 and checks this box.
 - [x] Required ADRs are accepted
 - [x] Blocking open questions are resolved or explicitly deferred
 - [x] **Plan-readiness audit complete per [runbook](../operations/plan-implementation-readiness-audit-runbook.md)** — Tier-6 audit (2026-06-10), this revision: 64 findings adjudicated across A-1..A-28; four-phase `#### Tasks` structure, §Invariants, §Cross-Plan Obligations, and §Ratified Design Decisions authored; api-payload §Plan-012 + §Approval Method-Name Registry, error-contracts §Approval, Spec-006 `approval.canceled`, ADR-012 clarifications, and the Plan-004/Plan-005/Plan-009/Plan-010/Spec-023 reciprocals landed in the same audit PR.
@@ -181,6 +181,14 @@ Contracts: see [API Payload Contracts](../architecture/contracts/api-payload-con
 - [x] D-012-9 engine + custody ratified (Tier-6 audit — `@cedar-policy/cedar-wasm`, signed compiled policy set, fail-closed start; ADR-012 Decision Log entries)
 - [x] D-012-7/-10/-11/-12/-13/-14/-15 ratified (Tier-6 audit — canonicity, scope semantics, invalidation, approver identity, seam shape, expiry, derived trust inputs)
 - [x] CP-004-9 reciprocal recorded on Plan-004 (run-blocking seam — doc-only until Plan-004 Phase 3 executes)
+
+```yaml
+preconditions:
+  # Machine-enforced subset (preflight Gate 5); the checkbox rows above stay
+  # the human-tracked record, with entries added as they become expressible.
+  - { type: plan_phase, plan: 012, phase: 1, status: merged }
+  - { type: precondition_box_checked, box: "Driver-ask expiry leg authored" }
+```
 
 #### Tasks
 

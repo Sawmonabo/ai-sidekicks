@@ -32,6 +32,8 @@ import {
   gatePhaseAuditCheckbox,
   gateTasksBlockCites,
   gatePhaseUnshipped,
+  gatePreconditions,
+  extractPreconditionsSection,
   resolvePrecondition,
   extractBacklogItemSection,
   setGhImpl,
@@ -2482,6 +2484,124 @@ test("bl_closed zero-pads the ref to match BL-0NN headings", () => {
   );
   const r = resolvePrecondition({ type: "bl_closed", ref: 99 }, { repoRoot: repo });
   assert.equal(r.ok, true);
+});
+
+// ---------- precondition_box_checked (named scoped §Preconditions boxes — Codex r4, PR #212) ----------
+
+const BOX_PLAN_SOURCE = [
+  "# Plan-012 — Approvals",
+  "",
+  "## Preconditions",
+  "",
+  "- [x] Paired spec is approved.",
+  "- [ ] **Driver-ask expiry leg authored (Part-B fail-closed follow-up, 2026-07-17):** T2.8 is authored by the B13 bundle, which checks this box.",
+  "- [x] **Ratified thing done:** dated note appended after the box text.",
+  "",
+  "## Decisions",
+  "",
+  "- [ ] **Driver-ask expiry leg authored decoy outside the Preconditions section**",
+].join("\n");
+
+test("precondition_box_checked halts on an unchecked box, verbatim line included", () => {
+  const r = resolvePrecondition(
+    { type: "precondition_box_checked", box: "Driver-ask expiry leg authored" },
+    { planSource: BOX_PLAN_SOURCE },
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /is unchecked/);
+  assert.match(r.halt, /Driver-ask expiry leg authored \(Part-B/);
+});
+
+test("precondition_box_checked passes on a checked box (bold marker + note-suffix prefix match)", () => {
+  const r = resolvePrecondition(
+    { type: "precondition_box_checked", box: "Ratified thing done" },
+    { planSource: BOX_PLAN_SOURCE },
+  );
+  assert.equal(r.ok, true);
+});
+
+test("precondition_box_checked scopes to ## Preconditions — a same-prefix box in a later section is invisible", () => {
+  // The decoy under ## Decisions must neither rescue the lookup nor trip the
+  // ambiguity halt; only the section's own box is seen.
+  const r = resolvePrecondition(
+    { type: "precondition_box_checked", box: "Driver-ask expiry leg authored" },
+    { planSource: BOX_PLAN_SOURCE },
+  );
+  assert.equal(r.ok, false);
+  assert.doesNotMatch(r.halt, /matches 2 boxes/);
+});
+
+test("precondition_box_checked fails closed when no box matches the prefix", () => {
+  const r = resolvePrecondition(
+    { type: "precondition_box_checked", box: "Nonexistent gate" },
+    { planSource: BOX_PLAN_SOURCE },
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /no `## Preconditions` box starts with/);
+});
+
+test("precondition_box_checked fails closed on an ambiguous prefix", () => {
+  const source = BOX_PLAN_SOURCE.replace(
+    "- [x] **Ratified thing done:** dated note appended after the box text.",
+    [
+      "- [x] **Ratified thing done:** dated note appended after the box text.",
+      "- [ ] **Ratified thing done twice over:** duplicate-prefix sibling.",
+    ].join("\n"),
+  );
+  const r = resolvePrecondition(
+    { type: "precondition_box_checked", box: "Ratified thing done" },
+    { planSource: source },
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /matches 2 boxes/);
+});
+
+test("precondition_box_checked fails closed when the plan has no ## Preconditions section", () => {
+  const r = resolvePrecondition(
+    { type: "precondition_box_checked", box: "Anything" },
+    { planSource: "# Plan\n\n## Tasks\n\n- **T1.1** stub\n" },
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /no `## Preconditions` section/);
+});
+
+test("precondition_box_checked fails closed on an empty box field and on missing planSource", () => {
+  const empty = resolvePrecondition(
+    { type: "precondition_box_checked", box: "" },
+    { planSource: BOX_PLAN_SOURCE },
+  );
+  assert.equal(empty.ok, false);
+  assert.match(empty.halt, /must be a non-empty string/);
+  const missing = resolvePrecondition({ type: "precondition_box_checked", box: "X" }, {});
+  assert.equal(missing.ok, false);
+  assert.match(missing.halt, /plan source unavailable/);
+});
+
+test("gatePreconditions threads planSource so a YAML box entry gates the phase", () => {
+  const phaseSection = [
+    "### Phase 2 — Daemon services",
+    "",
+    "```yaml",
+    "preconditions:",
+    '  - { type: precondition_box_checked, box: "Driver-ask expiry leg authored" }',
+    "```",
+    "",
+    "#### Tasks",
+    "",
+    "- **T2.1** stub",
+  ].join("\n");
+  const r = gatePreconditions(phaseSection, "docs/plans/012-x.md", 2, {
+    planSource: BOX_PLAN_SOURCE,
+  });
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /phase precondition unmet/);
+  assert.match(r.halt, /is unchecked/);
+});
+
+test("extractPreconditionsSection returns the section body and null when absent", () => {
+  assert.match(extractPreconditionsSection(BOX_PLAN_SOURCE), /Driver-ask expiry leg authored/);
+  assert.doesNotMatch(extractPreconditionsSection(BOX_PLAN_SOURCE), /decoy outside/);
+  assert.equal(extractPreconditionsSection("# Plan\n\n## Tasks\n"), null);
 });
 
 // ---------- runPreflight integration with substrate_exempt phase ----------

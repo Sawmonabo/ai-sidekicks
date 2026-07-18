@@ -30,7 +30,7 @@ This plan covers queue persistence, intervention records, run-state transitions,
 ## Preconditions
 
 - [ ] Paired spec is approved. — **re-opened 2026-07-13:** Spec-004 is temporarily `review` while the campaign B2 amendment (post-interrupt late-event absorption + the `rollback` intervention type) sits in its review window, so this precondition is not currently satisfied and the box is unchecked; per [AGENTS.md](../../AGENTS.md) doc-first discipline that blocks **all** Plan-004 code dispatch (this box is the load-bearing spec-side gate, and the dispatch preflight enforces it mechanically — Gate 7's plan-governance precondition scan halts dispatch while the box is unchecked). The campaign plan's Task 28 batch re-promotion restores `approved` after the W1.5 spec gate and re-checks this box.
-- [ ] **Driver input-ask park leg authored (Part-B fail-closed follow-up, 2026-07-17):** [Spec-012 §Resolved Questions and V1 Scope Decisions](../specs/012-approvals-permissions-and-trust-boundaries.md#resolved-questions-and-v1-scope-decisions) and [run-state-machine.md](../domain/run-state-machine.md) require the run-engine to handle `driver_ask.expired` for `kind: 'input'` asks via the `waiting_for_input → paused` park edge, but that task is authored into this plan by the campaign's B9 bundle (reciprocal of Plan-012's B13-authored T2.8 normalizer; the CP-004-9 expired→continue mapping stays approval-pipeline-only). Phase-3 run-engine code does not dispatch while this box is unchecked (Gate 7's plan-governance precondition scan enforces it mechanically); the B9 bundle PR authors the task and checks this box.
+- [ ] **Driver input-ask park leg authored (Part-B fail-closed follow-up, 2026-07-17):** [Spec-012 §Resolved Questions and V1 Scope Decisions](../specs/012-approvals-permissions-and-trust-boundaries.md#resolved-questions-and-v1-scope-decisions) and [run-state-machine.md](../domain/run-state-machine.md) require the run-engine to handle `driver_ask.expired` for `kind: 'input'` asks via the `waiting_for_input → paused` park edge, but that task is authored into this plan by the campaign's B9 bundle (reciprocal of Plan-012's B13-authored T2.8 normalizer; the CP-004-9 expired→continue mapping stays approval-pipeline-only). Phase-3 run-engine code does not dispatch while this box is unchecked — enforced mechanically by Phase 3's `preconditions:` block (`precondition_box_checked` entry, preflight Gate 5; Gate 7's governance scan deliberately covers only the plan-template trio, so a scoped box needs the phase-level entry); the B9 bundle PR authors the task and checks this box.
 - [x] Required ADRs are accepted
 - [x] Blocking open questions are resolved or explicitly deferred
 - [x] Plan-implementation-readiness audit passed (Tier 5 / NS-17)
@@ -207,6 +207,14 @@ The Tier-5 plan-readiness audit (NS-17) surfaced three open decisions; all three
 **Goal:** Wire intervention outcomes into the 9-state run machine; compose pause/resume as orchestration (not a driver capability); deterministic restart recovery.
 
 **Precondition:** Phase 2 intervention service landed. **EXTENDs the Plan-001-owned `session/run-engine.ts` (CP-004-6).**
+
+```yaml
+preconditions:
+  # Machine-enforced form of the prose line above (preflight Gate 5); the
+  # campaign's B9 bundle appends the Plan-010 snapshot-phase entry here.
+  - { type: plan_phase, plan: 004, phase: 2, status: merged }
+  - { type: precondition_box_checked, box: "Driver input-ask park leg authored" }
+```
 
 #### Tasks
 
