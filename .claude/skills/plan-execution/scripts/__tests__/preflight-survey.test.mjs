@@ -999,6 +999,132 @@ test("surveyCorpus: a missing doc after a bare `;` GATES even at an exempt path 
   }
 });
 
+test("verifyInlineAnchorFloor: semantic parse violations gate; shape debt stays silent (unit — Codex P2, PR #214 round 8)", () => {
+  // The fixture plan makes `Plan-050` resolve, so the sweep's label check is
+  // silent and the grammar's parse failure is provably the ONLY signal.
+  const tmp = makeFixtureCorpus({ "050-unit-plan.md": "# Plan-050 unit fixture\n" });
+  const row = (payload) =>
+    `### Phase 1 — unit\n\n#### Tasks\n\n- **T-050u-1-1** (Files: \`packages/a/x.ts\`; Verifies invariant: none; Spec coverage: ${payload})\n`;
+  const floor = (payload) => verifyInlineAnchorFloor(row(payload), { repoRoot: tmp });
+  try {
+    // A denied Plan-NNN:LLL line cite inside a parsed anchor's descriptor is
+    // invisible to the existence sweep (the label resolves; `:243` never
+    // tokenizes) — the namespace-violation parse failure gates it (the
+    // Codex round-8 scenario).
+    const violation = floor("Spec-050 §Required Behavior (see Plan-050:243)");
+    assert.equal(violation.length, 1, JSON.stringify(violation));
+    assert.equal(violation[0].kind, "inline-cite-violation");
+    assert.match(violation[0].evidence, /namespace-violation.*Plan-050:243/);
+    // Second parse-time defect class: a Plan-local row ID cited as a Spec
+    // anchor gates through the same routing.
+    const planLocal = floor("Spec-050 C3");
+    assert.equal(planLocal.length, 1, JSON.stringify(planLocal));
+    assert.equal(planLocal[0].kind, "inline-cite-violation");
+    assert.match(planLocal[0].evidence, /plan-local-id-as-spec-anchor/);
+    // Shape-class parse failures (unparseable continuation prose) stay
+    // silent at the floor — that debt is the marker-shape divert's job.
+    assert.deepEqual(floor("Spec-050 §Required Behavior + banner content extension"), []);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("verifyInlineAnchorFloor: salvage-dropped tails are scanned for claims (unit — Codex P2, PR #214 round 8)", () => {
+  const tmp = makeFixtureCorpus({});
+  const row = (payload) =>
+    `### Phase 1 — unit\n\n#### Tasks\n\n- **T-050u-1-1** (Files: \`packages/a/x.ts\`; Verifies invariant: none; Spec coverage: ${payload})\n`;
+  const floor = (payload) => verifyInlineAnchorFloor(row(payload), { repoRoot: tmp });
+  try {
+    // The Codex round-8 scenario: a checkable label swallowed into the
+    // salvaged section's dropped tail gates instead of hiding behind the
+    // divertable tail classification.
+    const hidden = floor("Spec-050 §Required Behavior and Spec-999 §Missing");
+    assert.equal(hidden.length, 2, JSON.stringify(hidden));
+    assert.ok(hidden.some((f) => f.kind === "legacy-inline-descriptor-tail"));
+    assert.ok(
+      hidden.some((f) => f.kind === "inline-doc-missing" && /Spec-999/.test(f.evidence)),
+      JSON.stringify(hidden),
+    );
+    // A prose-only tail stays pure formatting debt — the scan adds nothing.
+    const prose = floor("Spec-050 §Required Behavior step 3");
+    assert.equal(prose.length, 1, JSON.stringify(prose));
+    assert.equal(prose[0].kind, "legacy-inline-descriptor-tail");
+    // The scan runs even when the anchor's primary claim fails: a failing
+    // line does not absolve the tail's claims.
+    const both = floor("Spec-050 §Required Behavior and Spec-999 §Missing line 999");
+    assert.equal(both.length, 2, JSON.stringify(both));
+    assert.ok(both.some((f) => /line-out-of-range/.test(f.evidence)));
+    assert.ok(
+      both.some((f) => f.kind === "inline-doc-missing" && /Spec-999/.test(f.evidence)),
+      JSON.stringify(both),
+    );
+    // Residue-§ tails found only by the sweep get the same scan (recursion).
+    const residue = floor("Spec-050 AC2 + §Required Behavior and Spec-999 §Missing");
+    assert.equal(residue.length, 2, JSON.stringify(residue));
+    assert.ok(residue.some((f) => f.kind === "legacy-inline-descriptor-tail"));
+    assert.ok(
+      residue.some((f) => f.kind === "inline-doc-missing" && /Spec-999/.test(f.evidence)),
+      JSON.stringify(residue),
+    );
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+const LEGACY_VIOLATION_PHASE = `### Phase 1 — legacy inline namespace violation
+
+#### Tasks
+
+- **T-059p-1-1** (Files: \`packages/a/v.ts\`; Verifies invariant: none; Spec coverage: Spec-050 §Required Behavior (see Plan-007:243)) — legacy row whose descriptor smuggles a denied Plan line cite.
+`;
+
+test("surveyCorpus: a namespace-violation parse failure GATES even at an exempt path (Codex P2, PR #214 round 8)", () => {
+  const exemptBase = LEGACY_INLINE_CITE_EXEMPT[0].slice("docs/plans/".length);
+  const tmp = makeFixtureCorpus({ [exemptBase]: LEGACY_VIOLATION_PHASE });
+  try {
+    const survey = surveyCorpus({ repoRoot: tmp });
+    assert.ok(
+      survey.citeAnomalies.some((anomaly) =>
+        /\[inline-cite-violation\].*namespace-violation/.test(anomaly),
+      ),
+      survey.citeAnomalies.join("\n"),
+    );
+    assert.ok(
+      survey.exemptCiteAnomalies.some((anomaly) => /\[legacy-unbold-marker\]/.test(anomaly)),
+      "shape debt still diverts",
+    );
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+const LEGACY_TAIL_LABEL_PHASE = `### Phase 1 — legacy inline tail-hidden label
+
+#### Tasks
+
+- **T-060p-1-1** (Files: \`packages/a/t.ts\`; Verifies invariant: none; Spec coverage: Spec-050 §Required Behavior and Spec-999 §Missing) — legacy row whose descriptor tail swallows a missing document label.
+`;
+
+test("surveyCorpus: a label hidden in a salvage-dropped tail GATES even at an exempt path (Codex P2, PR #214 round 8)", () => {
+  const exemptBase = LEGACY_INLINE_CITE_EXEMPT[0].slice("docs/plans/".length);
+  const tmp = makeFixtureCorpus({ [exemptBase]: LEGACY_TAIL_LABEL_PHASE });
+  try {
+    const survey = surveyCorpus({ repoRoot: tmp });
+    assert.ok(
+      survey.citeAnomalies.some((anomaly) => /\[inline-doc-missing\].*Spec-999/.test(anomaly)),
+      survey.citeAnomalies.join("\n"),
+    );
+    assert.ok(
+      survey.exemptCiteAnomalies.some((anomaly) =>
+        /\[legacy-inline-descriptor-tail\]/.test(anomaly),
+      ),
+      "the tail itself still diverts",
+    );
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 test("surveyCorpus: a descriptor tail at a NON-exempt path GATES (divert is exempt-list-scoped)", () => {
   // The new kind rides the same kind-scoped divert as the shape kinds: at any
   // path outside LEGACY_INLINE_CITE_EXEMPT it lands in the gated channel.

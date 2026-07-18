@@ -3079,12 +3079,18 @@ export const LEGACY_INLINE_EXEMPT_KINDS = new Set([
 //     [inline-doc-missing], everything else (section-not-found with no
 //     resolving prefix, ac-index-out-of-range, line-out-of-range, …) to
 //     [inline-anchor-not-found]. Neither kind is in LEGACY_INLINE_EXEMPT_KINDS.
-//   - Parse FAILURES are not floor findings AS SHAPES: malformation without a
-//     checkable claim is exactly the formatting debt the
-//     [legacy-unbold-marker] shape count already represents (and that kind
-//     gates by itself on non-exempt paths). But the CLAIMS inside unparsed
-//     text do not escape verification (Codex P2, PR #214 round 6): a
-//     SECONDARY existence sweep walks the full normalized payload —
+//   - Parse FAILURES split by semantic class (Codex P2, PR #214 round 8):
+//     SHAPE-class kinds (INLINE_SHAPE_PARSE_KINDS — the text simply did not
+//     match the strict grammar) are not floor findings; that malformation is
+//     exactly the formatting debt the [legacy-unbold-marker] shape count
+//     already represents (and that kind gates by itself on non-exempt
+//     paths). Every OTHER error-severity parse kind — the parse-time defect
+//     classes (namespace-violation, plan-local-id-as-spec-anchor,
+//     compound-range-multi-subject) and any future kind, fail-closed —
+//     routes to [inline-cite-violation] and gates on every path. And the
+//     CLAIMS inside unparsed text do not escape verification (Codex P2,
+//     PR #214 round 6): a SECONDARY existence sweep walks the full
+//     normalized payload —
 //     descriptors, unparsed fragments, post-`;` segments — and verifies
 //     every Spec-NNN / ADR-NNN / Plan-NNN / <name>.md label resolves
 //     uniquely, plus §Heading / ACn / line-N / row-id tokens under the
@@ -3095,7 +3101,10 @@ export const LEGACY_INLINE_EXEMPT_KINDS = new Set([
 //     DEDUPED against the primary pass via
 //     coverage sets (a claim the grammar parsed is never re-reported), and
 //     residue § tokens share the same salvage/tail classification, so the
-//     two layers always agree on what a tail is. The sweep is existence-
+//     two layers always agree on what a tail is. Every salvage-dropped tail
+//     — primary or residue — is itself re-scanned by the sweep before it is
+//     classified as formatting debt, so a checkable claim can never hide in
+//     dropped words (round 8). The sweep is existence-
 //     level by design — full fidelity (subjects, hints, ranges under
 //     sections) remains the primary pass's job, because unparseable text
 //     cannot express those couplings.
@@ -3176,6 +3185,27 @@ const INLINE_DOC_RESOLUTION_REASONS = new Set([
   "cross-plan-deps-file-not-found",
 ]);
 
+// Error-severity PARSE-failure kinds that are pure SHAPE debt: the token
+// stream did not match the strict Gate-4 grammar, which on a legacy
+// compact-inline row is exactly the formatting the [legacy-unbold-marker]
+// divert already represents; the secondary existence sweep verifies whatever
+// claims that unparsed text contains. Every error-severity parse kind
+// OUTSIDE this set routes to [inline-cite-violation] and gates on every
+// path (Codex P2, PR #214 round 8): the grammar detects three of the seven
+// post-mortem defect classes at parse time (namespace-violation,
+// plan-local-id-as-spec-anchor, compound-range-multi-subject), and those
+// are affirmative Gate-4 policy violations no existence check can
+// represent — a denied `Plan-NNN:LLL` line cite existence-checks as a
+// clean Plan label. Fail-closed: future error-severity kinds gate unless
+// enumerated here; warn-severity kinds never gate — the floor must not be
+// stricter than Gate 4 itself is on the bold path.
+const INLINE_SHAPE_PARSE_KINDS = new Set([
+  "spec-namespace-malformed",
+  "unparseable-spec-subanchor",
+  "unparseable-cite",
+  "plan-local-id-malformed-trailer",
+]);
+
 // Salvage classifier for a `section-not-found` verify failure (Codex P2,
 // PR #214 round 5): walk the cite-side words longest-prefix-first and match
 // each prefix against the spec's real headings, both exact and with a
@@ -3253,7 +3283,19 @@ export function verifyInlineAnchorFloor(phaseSection, { repoRoot = REPO_ROOT } =
   const findings = [];
   for (const { field, payload, lineNo } of extractInlineCitePayloads(phaseSection)) {
     const normalized = normalizeInlineIdiom(payload);
-    const { anchors } = parseCitePayload(normalized);
+    const { anchors, failures: parseFailures } = parseCitePayload(normalized);
+    // Semantic parse violations gate; shape-class parse failures stay the
+    // divertable formatting debt the marker-shape counts already represent
+    // (see INLINE_SHAPE_PARSE_KINDS).
+    for (const failure of parseFailures) {
+      if (failure.severity !== "error" || INLINE_SHAPE_PARSE_KINDS.has(failure.kind)) {
+        continue;
+      }
+      findings.push({
+        kind: "inline-cite-violation",
+        evidence: `inline ${field} (line ${lineNo}): ${String(failure.raw).trim()} — ${failure.kind}: ${failure.message}`,
+      });
+    }
     // Coverage sets: every claim the PRIMARY pass verified (valid or not) is
     // excluded from the secondary sweep so no defect is double-reported.
     const coveredSpecs = new Set();
@@ -3262,6 +3304,14 @@ export function verifyInlineAnchorFloor(phaseSection, { repoRoot = REPO_ROOT } =
     const coveredSections = new Set();
     const coveredAcs = new Set();
     const coveredLineStarts = new Set();
+    // Specs whose label existence check FAILED anywhere in this payload:
+    // §/AC/line/row tokens bound to them are skipped, and the label itself
+    // is never re-reported — the doc-missing finding already covers every
+    // claim under that document (one defect, one finding — mirrors the
+    // parsed side, where a section-only anchor on a missing spec reports
+    // once). Shared across every sweep over this payload (full-payload walk
+    // and dropped-tail scans) so the layers agree.
+    const missingSpecs = new Set();
     for (const anchor of anchors) {
       if (typeof anchor.spec === "number") {
         coveredSpecs.add(anchor.spec);
@@ -3289,6 +3339,18 @@ export function verifyInlineAnchorFloor(phaseSection, { repoRoot = REPO_ROOT } =
           verdict = verifyAnchorAgainstSpec({ ...anchor, section: salvage.heading }, dirs);
           droppedWords = salvage.droppedWords;
           salvagedHeading = salvage.heading;
+          // The dropped tail may hide checkable document / anchor claims
+          // (`… and Spec-999 §Missing` — Codex P2, PR #214 round 8): scan it
+          // with the existence sweep under this anchor's Spec binding BEFORE
+          // the tail is classified as formatting debt. Runs regardless of the
+          // re-verify verdict — a failing primary claim does not absolve the
+          // tail's claims.
+          if (salvage.droppedWords > 0) {
+            sweepExistence(
+              anchor.section.split(/\s+/).filter(Boolean).slice(-salvage.droppedWords).join(" "),
+              anchor.spec,
+            );
+          }
         }
       }
       if (verdict.valid) {
@@ -3307,201 +3369,211 @@ export function verifyInlineAnchorFloor(phaseSection, { repoRoot = REPO_ROOT } =
         evidence: `inline ${field} (line ${lineNo}): ${String(anchor.raw).trim()} — ${verdict.reason}: ${verdict.evidence}`,
       });
     }
-    // SECONDARY existence sweep (Codex P2, PR #214 round 6): binding-aware
-    // token walk over the FULL normalized payload — descriptors, unparsed
-    // fragments, post-`;` segments. Labels always existence-check (a typo'd
-    // document must not hide inside text the grammar rejects or a parsed
-    // anchor's descriptor); §/AC/line tokens verify under the nearest
-    // preceding Spec binding, walker-style (Plan / ADR / .md labels RESET the
-    // binding — their tails are not spec claims). `Plan-NNN` has no Gate-4
-    // namespace, so its existence check lives only here. Everything already
-    // covered by a parsed anchor is skipped via the coverage sets above.
-    let specBinding = null;
-    // Specs whose label existence check FAILED: §/AC/line tokens bound to
-    // them are skipped — the doc-missing finding already covers every claim
-    // under that document (one defect, one finding — mirrors the parsed
-    // side, where a section-only anchor on a missing spec reports once).
-    const missingSpecs = new Set();
-    // The § capture stops before ` line N` / ` lines` / ` ACn` / ` row(s) N`
-    // exactly like the grammar's section prefix does, so those keywords
-    // tokenize as their own claims (and dedupe against parsed anchors)
-    // instead of polluting the heading text. Row ids are digit-led
-    // (`4`, `7a`) with `+` / `/` / `,` list separators — prose uses of the
-    // word "rows" ("the relay_connections rows correlate…") never tokenize.
-    // A bare `cross-plan-deps` namespace token resets the Spec binding like
-    // the other non-spec namespaces: its §N / row M refs are documentary in
-    // the bold grammar and must not verify against a stale Spec context.
-    const sweepTokenRe =
-      /\bSpec-(\d{1,4})\b|\bADR-(\d{1,4})\b|\bPlan-(\d{1,4})\b|\b([\w-]+\.md)\b|\b(cross-plan-deps)\b|\bAC(\d{1,4})\b|\blines?\s+(\d+)(?:\s*-\s*(\d+))?|\brows?\s+(\d+[a-z]?(?:\s*[+/,]\s*\d+[a-z]?)*)|§\s*([^(—"+,;)\n]+?)(?=\s+lines?\s+\d|\s+AC\d|\s+rows?\s+\d|\s*[(—"+,;)\n]|\s*$)/g;
-    for (const token of normalized.matchAll(sweepTokenRe)) {
-      if (token[1] !== undefined) {
-        specBinding = Number(token[1]);
-        if (!coveredSpecs.has(specBinding)) {
-          // Unknown spec-bearing type: the verifier resolves the file, then
-          // falls through to its no-spec-type pass — a pure existence check.
-          const verdict = verifyAnchorAgainstSpec(
-            { type: "spec-file-existence", spec: specBinding, raw: token[0] },
-            dirs,
-          );
-          if (!verdict.valid) {
-            missingSpecs.add(specBinding);
+    // SECONDARY existence sweep (Codex P2, PR #214 rounds 6-8): binding-aware
+    // token walk over a text region — the FULL normalized payload
+    // (descriptors, unparsed fragments, post-`;` segments) and, per round 8,
+    // every salvage-dropped descriptor tail (which may hide checkable
+    // claims). Labels always existence-check (a typo'd document must not
+    // hide inside text the grammar rejects or a parsed anchor's descriptor);
+    // §/AC/line tokens verify under the nearest preceding Spec binding,
+    // walker-style (Plan / ADR / .md labels RESET the binding — their tails
+    // are not spec claims); a dropped-tail scan starts from the salvaging
+    // anchor's binding. `Plan-NNN` has no Gate-4 namespace, so its existence
+    // check lives only here. Everything already covered by a parsed anchor
+    // is skipped via the coverage sets above. Declared as a function so the
+    // primary loop above can call it on dropped tails (block-scope
+    // hoisting); residue-§ tails recurse (bounded: each recursion scans a
+    // strict suffix of the previous text).
+    function sweepExistence(text, initialSpecBinding) {
+      let specBinding = initialSpecBinding;
+      // The § capture stops before ` line N` / ` lines` / ` ACn` / ` row(s) N`
+      // exactly like the grammar's section prefix does, so those keywords
+      // tokenize as their own claims (and dedupe against parsed anchors)
+      // instead of polluting the heading text. Row ids are digit-led
+      // (`4`, `7a`) with `+` / `/` / `,` list separators — prose uses of the
+      // word "rows" ("the relay_connections rows correlate…") never tokenize.
+      // A bare `cross-plan-deps` namespace token resets the Spec binding like
+      // the other non-spec namespaces: its §N / row M refs are documentary in
+      // the bold grammar and must not verify against a stale Spec context.
+      const sweepTokenRe =
+        /\bSpec-(\d{1,4})\b|\bADR-(\d{1,4})\b|\bPlan-(\d{1,4})\b|\b([\w-]+\.md)\b|\b(cross-plan-deps)\b|\bAC(\d{1,4})\b|\blines?\s+(\d+)(?:\s*-\s*(\d+))?|\brows?\s+(\d+[a-z]?(?:\s*[+/,]\s*\d+[a-z]?)*)|§\s*([^(—"+,;)\n]+?)(?=\s+lines?\s+\d|\s+AC\d|\s+rows?\s+\d|\s*[(—"+,;)\n]|\s*$)/g;
+      for (const token of text.matchAll(sweepTokenRe)) {
+        if (token[1] !== undefined) {
+          specBinding = Number(token[1]);
+          if (!coveredSpecs.has(specBinding) && !missingSpecs.has(specBinding)) {
+            // Unknown spec-bearing type: the verifier resolves the file, then
+            // falls through to its no-spec-type pass — a pure existence check.
+            const verdict = verifyAnchorAgainstSpec(
+              { type: "spec-file-existence", spec: specBinding, raw: token[0] },
+              dirs,
+            );
+            if (!verdict.valid) {
+              missingSpecs.add(specBinding);
+              findings.push({
+                kind: "inline-doc-missing",
+                evidence: `inline ${field} (line ${lineNo}): ${token[0]} — ${verdict.reason}: ${verdict.evidence}`,
+              });
+            }
+          }
+        } else if (token[2] !== undefined) {
+          specBinding = null;
+          if (!coveredAdrs.has(Number(token[2]))) {
+            const verdict = verifyAnchorAgainstSpec(
+              { type: "adr-section", adr: Number(token[2]), raw: token[0] },
+              dirs,
+            );
+            if (!verdict.valid) {
+              findings.push({
+                kind: "inline-doc-missing",
+                evidence: `inline ${field} (line ${lineNo}): ${token[0]} — ${verdict.reason}: ${verdict.evidence}`,
+              });
+            }
+          }
+        } else if (token[3] !== undefined) {
+          specBinding = null;
+          const planMatches = findPaddedFiles(plansDir, Number(token[3]));
+          if (planMatches.length !== 1) {
             findings.push({
               kind: "inline-doc-missing",
-              evidence: `inline ${field} (line ${lineNo}): ${token[0]} — ${verdict.reason}: ${verdict.evidence}`,
+              evidence: `inline ${field} (line ${lineNo}): ${token[0]} — plan file resolves to ${planMatches.length} match(es) under docs/plans/`,
             });
           }
-        }
-      } else if (token[2] !== undefined) {
-        specBinding = null;
-        if (!coveredAdrs.has(Number(token[2]))) {
-          const verdict = verifyAnchorAgainstSpec(
-            { type: "adr-section", adr: Number(token[2]), raw: token[0] },
-            dirs,
-          );
-          if (!verdict.valid) {
-            findings.push({
-              kind: "inline-doc-missing",
-              evidence: `inline ${field} (line ${lineNo}): ${token[0]} — ${verdict.reason}: ${verdict.evidence}`,
-            });
+        } else if (token[4] !== undefined) {
+          specBinding = null;
+          if (!coveredFiles.has(token[4])) {
+            const verdict = verifyAnchorAgainstSpec(
+              { type: "arch-doc", file: token[4], raw: token[0] },
+              dirs,
+            );
+            if (!verdict.valid) {
+              findings.push({
+                kind: "inline-doc-missing",
+                evidence: `inline ${field} (line ${lineNo}): ${token[0]} — ${verdict.reason}: ${verdict.evidence}`,
+              });
+            }
           }
-        }
-      } else if (token[3] !== undefined) {
-        specBinding = null;
-        const planMatches = findPaddedFiles(plansDir, Number(token[3]));
-        if (planMatches.length !== 1) {
-          findings.push({
-            kind: "inline-doc-missing",
-            evidence: `inline ${field} (line ${lineNo}): ${token[0]} — plan file resolves to ${planMatches.length} match(es) under docs/plans/`,
-          });
-        }
-      } else if (token[4] !== undefined) {
-        specBinding = null;
-        if (!coveredFiles.has(token[4])) {
-          const verdict = verifyAnchorAgainstSpec(
-            { type: "arch-doc", file: token[4], raw: token[0] },
-            dirs,
-          );
-          if (!verdict.valid) {
-            findings.push({
-              kind: "inline-doc-missing",
-              evidence: `inline ${field} (line ${lineNo}): ${token[0]} — ${verdict.reason}: ${verdict.evidence}`,
-            });
+        } else if (token[5] !== undefined) {
+          specBinding = null;
+        } else if (token[6] !== undefined) {
+          if (
+            specBinding !== null &&
+            !missingSpecs.has(specBinding) &&
+            !coveredAcs.has(`${specBinding}::AC${Number(token[6])}`)
+          ) {
+            const verdict = verifyAnchorAgainstSpec(
+              {
+                type: "ac",
+                spec: specBinding,
+                ac: Number(token[6]),
+                lineHint: null,
+                section: null,
+                subject: null,
+                raw: token[0],
+              },
+              dirs,
+            );
+            if (!verdict.valid) {
+              findings.push({
+                kind: "inline-anchor-not-found",
+                evidence: `inline ${field} (line ${lineNo}): ${token[0]} (Spec-${String(specBinding).padStart(3, "0")}) — ${verdict.reason}: ${verdict.evidence}`,
+              });
+            }
           }
-        }
-      } else if (token[5] !== undefined) {
-        specBinding = null;
-      } else if (token[6] !== undefined) {
-        if (
-          specBinding !== null &&
-          !missingSpecs.has(specBinding) &&
-          !coveredAcs.has(`${specBinding}::AC${Number(token[6])}`)
-        ) {
-          const verdict = verifyAnchorAgainstSpec(
-            {
-              type: "ac",
-              spec: specBinding,
-              ac: Number(token[6]),
-              lineHint: null,
-              section: null,
-              subject: null,
-              raw: token[0],
-            },
-            dirs,
-          );
-          if (!verdict.valid) {
-            findings.push({
-              kind: "inline-anchor-not-found",
-              evidence: `inline ${field} (line ${lineNo}): ${token[0]} (Spec-${String(specBinding).padStart(3, "0")}) — ${verdict.reason}: ${verdict.evidence}`,
-            });
+        } else if (token[7] !== undefined) {
+          if (
+            specBinding !== null &&
+            !missingSpecs.has(specBinding) &&
+            !coveredLineStarts.has(`${specBinding}::${Number(token[7])}`)
+          ) {
+            const lineAnchor =
+              token[8] === undefined
+                ? {
+                    type: "line",
+                    spec: specBinding,
+                    section: null,
+                    line: Number(token[7]),
+                    subject: null,
+                    raw: token[0],
+                  }
+                : {
+                    type: "line-range",
+                    spec: specBinding,
+                    section: null,
+                    start: Number(token[7]),
+                    end: Number(token[8]),
+                    subject: null,
+                    raw: token[0],
+                  };
+            const verdict = verifyAnchorAgainstSpec(lineAnchor, dirs);
+            if (!verdict.valid) {
+              findings.push({
+                kind: "inline-anchor-not-found",
+                evidence: `inline ${field} (line ${lineNo}): ${token[0]} (Spec-${String(specBinding).padStart(3, "0")}) — ${verdict.reason}: ${verdict.evidence}`,
+              });
+            }
           }
-        }
-      } else if (token[7] !== undefined) {
-        if (
-          specBinding !== null &&
-          !missingSpecs.has(specBinding) &&
-          !coveredLineStarts.has(`${specBinding}::${Number(token[7])}`)
-        ) {
-          const lineAnchor =
-            token[8] === undefined
-              ? {
-                  type: "line",
-                  spec: specBinding,
-                  section: null,
-                  line: Number(token[7]),
-                  subject: null,
-                  raw: token[0],
+        } else if (token[9] !== undefined) {
+          // Row claims index the first-column ids of the bound spec's markdown
+          // tables (`Spec-027 rows 4 + 10` → rows `4` and `10` of the
+          // §Required Behavior table). Each id in the list is its own claim.
+          if (specBinding !== null && !missingSpecs.has(specBinding)) {
+            const rowIds = specTableRowIds(specBinding, dirs);
+            if (rowIds !== null) {
+              for (const rowId of token[9]
+                .split(/[+/,]/)
+                .map((id) => id.trim())
+                .filter(Boolean)) {
+                if (!rowIds.has(rowId.toLowerCase())) {
+                  findings.push({
+                    kind: "inline-anchor-not-found",
+                    evidence: `inline ${field} (line ${lineNo}): row ${rowId} (Spec-${String(specBinding).padStart(3, "0")}) — row-not-found: no table row with first-column id '${rowId}' in the spec`,
+                  });
                 }
-              : {
-                  type: "line-range",
-                  spec: specBinding,
-                  section: null,
-                  start: Number(token[7]),
-                  end: Number(token[8]),
-                  subject: null,
-                  raw: token[0],
-                };
-          const verdict = verifyAnchorAgainstSpec(lineAnchor, dirs);
-          if (!verdict.valid) {
-            findings.push({
-              kind: "inline-anchor-not-found",
-              evidence: `inline ${field} (line ${lineNo}): ${token[0]} (Spec-${String(specBinding).padStart(3, "0")}) — ${verdict.reason}: ${verdict.evidence}`,
-            });
-          }
-        }
-      } else if (token[9] !== undefined) {
-        // Row claims index the first-column ids of the bound spec's markdown
-        // tables (`Spec-027 rows 4 + 10` → rows `4` and `10` of the
-        // §Required Behavior table). Each id in the list is its own claim.
-        if (specBinding !== null && !missingSpecs.has(specBinding)) {
-          const rowIds = specTableRowIds(specBinding, dirs);
-          if (rowIds !== null) {
-            for (const rowId of token[9]
-              .split(/[+/,]/)
-              .map((id) => id.trim())
-              .filter(Boolean)) {
-              if (!rowIds.has(rowId.toLowerCase())) {
-                findings.push({
-                  kind: "inline-anchor-not-found",
-                  evidence: `inline ${field} (line ${lineNo}): row ${rowId} (Spec-${String(specBinding).padStart(3, "0")}) — row-not-found: no table row with first-column id '${rowId}' in the spec`,
-                });
               }
             }
           }
-        }
-      } else if (token[10] !== undefined) {
-        const heading = token[10].trim();
-        if (
-          heading &&
-          specBinding !== null &&
-          !missingSpecs.has(specBinding) &&
-          !coveredSections.has(`${specBinding}::${normalizeTokenForMatch(heading)}`)
-        ) {
-          const paddedBinding = `Spec-${String(specBinding).padStart(3, "0")}`;
-          const verdict = verifyAnchorAgainstSpec(
-            { type: "section-only", spec: specBinding, section: heading, raw: token[0] },
-            dirs,
-          );
-          if (verdict.valid) continue;
-          if (verdict.reason === "section-not-found") {
-            const salvage = salvageSectionHeading(specBinding, heading, dirs);
-            if (salvage.resolved && salvage.droppedWords === 0) continue;
-            if (salvage.resolved) {
-              findings.push({
-                kind: "legacy-inline-descriptor-tail",
-                evidence: `inline ${field} (line ${lineNo}): §${heading} (${paddedBinding}) — resolves §${salvage.heading} with ${salvage.droppedWords} trailing descriptor word(s); the restructure moves the tail into a parenthesized descriptor`,
-              });
-              continue;
+        } else if (token[10] !== undefined) {
+          const heading = token[10].trim();
+          if (
+            heading &&
+            specBinding !== null &&
+            !missingSpecs.has(specBinding) &&
+            !coveredSections.has(`${specBinding}::${normalizeTokenForMatch(heading)}`)
+          ) {
+            const paddedBinding = `Spec-${String(specBinding).padStart(3, "0")}`;
+            const verdict = verifyAnchorAgainstSpec(
+              { type: "section-only", spec: specBinding, section: heading, raw: token[0] },
+              dirs,
+            );
+            if (verdict.valid) continue;
+            if (verdict.reason === "section-not-found") {
+              const salvage = salvageSectionHeading(specBinding, heading, dirs);
+              if (salvage.resolved && salvage.droppedWords === 0) continue;
+              if (salvage.resolved) {
+                findings.push({
+                  kind: "legacy-inline-descriptor-tail",
+                  evidence: `inline ${field} (line ${lineNo}): §${heading} (${paddedBinding}) — resolves §${salvage.heading} with ${salvage.droppedWords} trailing descriptor word(s); the restructure moves the tail into a parenthesized descriptor`,
+                });
+                // Residue tails get the same round-8 dropped-text scan as the
+                // primary pass — checkable claims never hide behind a tail.
+                sweepExistence(
+                  heading.split(/\s+/).filter(Boolean).slice(-salvage.droppedWords).join(" "),
+                  specBinding,
+                );
+                continue;
+              }
             }
+            findings.push({
+              kind: INLINE_DOC_RESOLUTION_REASONS.has(verdict.reason)
+                ? "inline-doc-missing"
+                : "inline-anchor-not-found",
+              evidence: `inline ${field} (line ${lineNo}): §${heading} (${paddedBinding}) — ${verdict.reason}: ${verdict.evidence}`,
+            });
           }
-          findings.push({
-            kind: INLINE_DOC_RESOLUTION_REASONS.has(verdict.reason)
-              ? "inline-doc-missing"
-              : "inline-anchor-not-found",
-            evidence: `inline ${field} (line ${lineNo}): §${heading} (${paddedBinding}) — ${verdict.reason}: ${verdict.evidence}`,
-          });
         }
       }
     }
+    sweepExistence(normalized, null);
   }
   return findings;
 }
