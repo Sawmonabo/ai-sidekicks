@@ -218,7 +218,7 @@ interface SessionReadRequest {
 }
 interface SessionReadResponse {
   session: SessionSnapshot;
-  timelineCursors: { earliest: EventCursor; latest: EventCursor; acknowledged?: EventCursor };
+  timelineCursors: { earliest?: EventCursor; latest: EventCursor; acknowledged?: EventCursor }; // earliest optional for version skew (Plan-006 T4.3): a new daemon ALWAYS sets it; absent ⇒ the responder predates the replay floor, so the client treats the floor as unknown (MAY probe from sequence 0, never reject); becomes required at the next MAJOR per ADR-018.
 }
 
 // SessionJoin
