@@ -259,14 +259,14 @@ Every doc task's final steps invoke this procedure with its own branch/commit/fi
 
 ### Task 15: B11 — Plan-006 bundle
 
-**Design contract:** §4 W2 table, B11 row. **Files:** Modify `docs/plans/006-session-event-taxonomy-and-audit-log.md`, `docs/architecture/contracts/api-payload-contracts.md` (:206–209 `timelineCursors.earliest`), `docs/architecture/schemas/local-sqlite-schema.md` (backstop-index mirror), `docs/architecture/cross-plan-dependencies.md` (§2 row `src/events/`).
+**Design contract:** §4 W2 table, B11 row. **Files:** Modify `docs/plans/006-session-event-taxonomy-and-audit-log.md`, `docs/architecture/contracts/api-payload-contracts.md` (`SessionReadResponse.timelineCursors` — `earliest` added; the design's `:206–209` anchor was misattributed, real site re-verified by content), `docs/architecture/schemas/local-sqlite-schema.md` (backstop-index mirror), `docs/architecture/cross-plan-dependencies.md` (§2 row `src/events/` + §5 Tier-4 `timeline/`→`src/events/` reconcile + §5 preamble B11-gate re-tense).
 
 **Interfaces:** Consumes Task 3. Produces — the 35-row event-kind disposition table (Design §3.6 census) + §3.4 current-wire delta rows (no-silent-capability-loss default; every `discard` reasoned) + exhaustiveness-test task; T3.1 publishes `withSessionAppendLock` + the R6 backstop partial unique index (with schema mirror + migration note + fail-loud semantics); T4.3 cursor semantics + `earliest`; **P-6 fix** (CP-006-9 full-pathed). Consumed by Tasks 13, 21.
 
-- [ ] **Step 1:** SBP-1 bundle=`b11`, branch=`docs/b11-plan006-dispositions`. Confirm Task 28 is merged (the W1.5-promoted Spec-006 baseline — B1's registrations — that this bundle's cursor/disposition/lock tasks cite).
-- [ ] **Step 2:** Author per the B11 row; re-verify Plan-006 :407/:487 and api-payload :206–209. Disposition-table inputs: the Design §3.6 35-kind census + the §3.4 delta families (Claude result-subtype/`api_retry`/`worker_shutting_down`/plugin/hook; Codex goals/guardian/`turn/*`/`process/*`/reasoning/realtime).
-- [ ] **Step 3:** Census/table totals re-derived by count; ripple-check; classification declared.
-- [ ] **Step 4:** SBP-3/4/5/6 — subject `docs(repo): plan-006 event-kind dispositions + lock + cursors (b11)`, trailer `Refs: Plan-006, Spec-006`.
+- [x] **Step 1:** SBP-1 bundle=`b11`, branch=`docs/b11-plan006-dispositions`. Confirm Task 28 is merged (the W1.5-promoted Spec-006 baseline — B1's registrations — that this bundle's cursor/disposition/lock tasks cite).
+- [x] **Step 2:** Author per the B11 row; re-verified by content — Plan-006 T4.3 (`replay-service.ts`) + CP-006-9, and api-payload `SessionReadResponse.timelineCursors` (the design's `:407/:487` and `:206–209` anchors had drifted; targeted by content per the anchor-drift ruling). Disposition-table inputs: the Design §3.6 35-kind census + the §3.4 delta families (Claude result-subtype/`api_retry`/`worker_shutting_down`/plugin/hook; Codex goals/guardian/`turn/*`/`process/*`/reasoning/realtime).
+- [x] **Step 3:** Census/table totals re-derived by count (35 normalized kinds; 9 discards; 11 delta families); ripple-check; classification declared (additive — new Phase-1 task T1.8 + EXTENDs to T3.1/T3.5/T4.3; Plan-006 stays `approved`).
+- [x] **Step 4:** SBP-3/4/5/6 — subject `docs(repo): plan-006 event-kind dispositions + lock + cursors (b11)`, trailer `Refs: Plan-006, Spec-006`.
 
 ### Task 16: B13 — Plan-012 bundle (after Task 14 — shared dep-map :154 row; flips → W2.5)
 

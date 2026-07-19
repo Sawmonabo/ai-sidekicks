@@ -102,7 +102,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
    - **Spec coverage:** Spec-011 line 47 (reviewable before execution); line 44 (explicit fallback labeling shown in UI); line 161 (attribution quality is a first-class field, not a UI decoration); AC line 174 (modes distinguished) + AC line 175 (reviewable proposal).
    - **Verifies invariant:** I-011-1 — UI surfaces the fallback label honestly.
    - **Consumes:**
-     - renderer path `apps/desktop/src/renderer/src/diff-review/` ← Plan-011-owned (cross-plan-dependencies §2 line 100) — present/pinned.
+     - renderer path `apps/desktop/src/renderer/src/diff-review/` ← Plan-011-owned (cross-plan-dependencies §2, `apps/desktop/src/renderer/` row) — present/pinned.
      - `gitflowClient` SDK ← Plan-011-owned (`packages/client-sdk/src/gitflowClient.ts`, §Target Areas) — to be authored by this plan; depends on the four `gitflow.*` wire methods (`gitflow.branchContextRead` / `gitflow.diffArtifactCreate` / `gitflow.prPrepare` / `gitflow.gitActionExecute`), RESOLVED via A-011-1 + D-011-5 — the four method names are registered in the canonical method table in api-payload-contracts.md (`dotted-camelCase` per `METHOD_NAME_FORMAT`).
      - attribution-mode + artifact-payload contracts ← consumes the same enum/shapes as Step 2 — RESOLVED via D-011-2 (the `run_attributed`/`workspace_fallback` mode labels are fixed) for the mode-label rendering.
 

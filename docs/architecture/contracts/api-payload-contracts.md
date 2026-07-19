@@ -218,7 +218,7 @@ interface SessionReadRequest {
 }
 interface SessionReadResponse {
   session: SessionSnapshot;
-  timelineCursors: { latest: EventCursor; acknowledged?: EventCursor };
+  timelineCursors: { earliest: EventCursor; latest: EventCursor; acknowledged?: EventCursor };
 }
 
 // SessionJoin

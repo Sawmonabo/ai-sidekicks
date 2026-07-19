@@ -49,7 +49,7 @@ Course-correction consequences applied under R3: ADR-019's tier-2 hardened resyn
 | --- | --- |
 | [AGENTS.md](../../../AGENTS.md) | Citation standard (hostile-reviewer test), research-artifact surface-forward-then-delete, subagent dispatch, §Model Policy cascade |
 | [CLAUDE.md](../../../CLAUDE.md) §Documentation Corpus | Status lifecycles per doc tree; template discipline; backlog discipline |
-| [cross-plan-dependencies.md](../../architecture/cross-plan-dependencies.md):111–125 | §2 Ownership Rule + **Housekeeping Exception** (criteria (a)–(e); Plan-002 PR precedent) — the vehicle for W0 |
+| [cross-plan-dependencies.md](../../architecture/cross-plan-dependencies.md#ownership-rule) | §2 Ownership Rule + **Housekeeping Exception** (criteria (a)–(e); Plan-002 PR precedent) — the vehicle for W0 |
 | [plan-implementation-readiness-audit-runbook.md](../../operations/plan-implementation-readiness-audit-runbook.md):111–120 | **Status Flip Rule** (incl. row 2: additive `#### Tasks` subsections stay `approved`) |
 | [plan-implementation-readiness-audit-runbook.md](../../operations/plan-implementation-readiness-audit-runbook.md):208–218 | **Status Promotion Gate** + :218 targeted re-audit provision — the W2.5 vehicle |
 | [plan-implementation-readiness-audit-runbook.md](../../operations/plan-implementation-readiness-audit-runbook.md):220–233 | **Spec-Status Promotion Gate** + the :233 amendment-flip rule — the W1.5 vehicle (and B18's follow-on Spec-006 re-promotion) |

@@ -220,7 +220,7 @@ Plan-006 owns the `EventEnvelope` contract's integration with [ADR-018](../decis
 
 Plan-006 ships in **four phases**, each phase = one PR. The phase boundaries align with the audit-derived dispatch graph (see [`docs/operations/plan-implementation-readiness-audit-runbook.md`](../operations/plan-implementation-readiness-audit-runbook.md)).
 
-**Phase 1 — Contracts** (T1.1 – T1.7). Widen `packages/contracts/src/event.ts` in place per Plan-001's contracts package layout: `EventCategory` literal union to 19 entries; enumerate all 141 `SessionEventType` literals; author the named `EventEnvelopeSchema`; bind `CapabilityDetails` typed wrapper for `runtime_node.capability_declared` / `runtime_node.capability_updated` payloads (closes Plan-005 CP-005-5); cross-link version-bound errors to Spec-006 + ADR-018; widen api-payload-contracts.md Plan-006 §EventEnvelope block from 16 to 19 categories; confirm envelope-to-`session_events`-column bijection.
+**Phase 1 — Contracts** (T1.1 – T1.8). Widen `packages/contracts/src/event.ts` in place per Plan-001's contracts package layout: `EventCategory` literal union to 19 entries; enumerate all 141 `SessionEventType` literals; author the named `EventEnvelopeSchema`; bind `CapabilityDetails` typed wrapper for `runtime_node.capability_declared` / `runtime_node.capability_updated` payloads (closes Plan-005 CP-005-5); cross-link version-bound errors to Spec-006 + ADR-018; widen api-payload-contracts.md Plan-006 §EventEnvelope block from 16 to 19 categories; confirm envelope-to-`session_events`-column bijection; author the `EVENT_DISPOSITION_BY_KIND` normalized-kind disposition registry + its exhaustiveness test (registry size === 35).
 
 **Phase 2 — Crypto Protocol Core** (T2.1 – T2.7). RFC 8785 JCS canonicalizer with UTF-16 lex-sort field ordering (`Spec-006 §Canonical Serialization Rules` amended in this PR to describe field membership and lex-sort serialization); BLAKE3 hash-chain + Ed25519 signer; golden-vector contract tests (RFC 8785 Appendix-A vectors + project-specific edge cases); PII indirection codec enforcing encrypt → digest → embed → canonicalize → sign sole-write-path; post-shred signature-verification property test; genesis-row backfill migration; **T2.7 — `DaemonSigningKeySource` interface + `OsKeystoreSealedDaemonSigningKeySource` implementation** (user-ratified 2026-05-28; self-contained signing-key custody using OS-keystore-managed master key + sealed BLOB persisted in the new local `daemon_signing_keys` SQLite table per ADR-004 SQLite-local-state boundary — corrected from the pre-Codex-T4-review draft that mis-located the column on shared-Postgres `sessions`).
 
@@ -294,6 +294,89 @@ File: None (verification + JSDoc anchor). Provides: Type-level assertion that ev
 - **Spec coverage:** Spec-006 line 606 (Fields included — the canonical set), local-sqlite-schema.md `session_events`
 - **Verifies invariant:** none (type-level bijection verification; no Phase-1 invariant names T1.7)
 
+##### T1.8 — Normalized-kind disposition registry + exhaustiveness test
+
+File: `packages/contracts/src/event.ts` (EXTEND — add `EVENT_DISPOSITION_BY_KIND` registry) + `packages/contracts/src/__tests__/event-disposition.test.ts` (NEW). Provides: `EVENT_DISPOSITION_BY_KIND: ReadonlyMap<string, EventKindDisposition>` keyed by the normalized event-kind string, where `EventKindDisposition = { disposition: 'adopt' | 'rename' | 'discard'; category?: EventCategory; reason?: string }` — the machine-readable form of the §Event-Kind Disposition Table below over the 35 normalized kinds (the Plan-005 T3.5/T3.10 normalizers — the B10 bundle — consume it as the single source of disposition truth; the nine wire-level discards + the current-wire delta families in that table are the Plan-005 normalizer's wire layer, not registry keys). Plus a Vitest exhaustiveness suite asserting: registry size === 35; every entry's `disposition` is one of the three values; every `adopt`/`rename` names a valid `EventCategory` (T1.1's 19-entry union); every `discard` carries a non-empty `reason`; no census kind is silently absent. The unknown residual — a wire kind outside the census — is not covered here; it is backstopped by the Plan-005 normalizer default-branch diagnostic (B10). Depends: T1.1 (`EventCategory`), T1.2 (category registry). IdempotencyClass: N/A (type/data + test).
+
+- **Spec coverage:** Spec-006 line 559 (Event Type Summary — the taxonomy the dispositions target), Spec-006 line 561 (Total enumerated event types)
+- **Verifies invariant:** none (normalized-kind → taxonomy disposition registry + its exhaustiveness test; asserts total adopt/rename/discard coverage under the no-silent-capability-loss default — no Phase-1 invariant names the normalized-kind disposition census; totality is a test-level assertion, not a named I-006 invariant)
+
+#### Event-Kind Disposition Table (surveyed-runtime normalized census)
+
+The provider drivers (Plan-005) normalize both provider wires into a normalized event vocabulary before the taxonomy maps them onto the 141 `SessionEventType` literals. This table is the **disposition contract** for that mapping: every normalized kind resolves to exactly one disposition — `adopt` (maps to an existing category/family), `rename` (maps under a different canonical name to resolve a wire collision), or `discard` (consumed transiently or dropped) — under a **no-silent-capability-loss default**: `adopt`/`rename` is the default, and every `discard` carries a stated reason, so a capability-bearing kind is never dropped silently. Input census: the 35 normalized kinds verified in the provider-wire reference pass, plus the current-wire delta families the CLI-currency audit added (the C-4 / C-5 / C-6 currency corrections and the Class-B net-new families). Family-level dispositions are used for the delta rows — per-member normalization is Plan-005 T3.5/T3.10 driver detail. Totality over the **known** set is enforced by the T1.8 exhaustiveness test; the **unknown** residual is backstopped at runtime by the Plan-005 T3.5/T3.10 normalizer default-branch diagnostic (the B10 bundle), so an unrecognized wire kind surfaces a diagnostic rather than vanishing. The `rate_limits` collision resolution and the nine explicitly-discarded Claude system subtypes are the boundary inputs that travel with the census.
+
+**Census (35 normalized kinds).**
+
+| # | Normalized kind | Group | Disposition | Target category / reason |
+| --- | --- | --- | --- | --- |
+| 1 | `init` | Inline timeline | adopt | `run_lifecycle` (run-start marker) |
+| 2 | `text_delta` | Inline timeline | adopt | `assistant_output` (`assistant.message` stream) |
+| 3 | `tool_start` | Inline timeline | adopt | `tool_activity` (`tool.invoked`) |
+| 4 | `tool_complete` | Inline timeline | adopt | `tool_activity` (tool-lifecycle completion) |
+| 5 | `turn_start` | Inline timeline | adopt | `run_lifecycle` (turn boundary) |
+| 6 | `turn_complete` | Inline timeline | adopt | `run_lifecycle` (turn complete; `completionKind` turn-vs-task carve per the B1 taxonomy) |
+| 7 | `approval_request` | Inline timeline | adopt | `interactive_request` (`driver_ask.requested`, permission ask) |
+| 8 | `approval_resolved` | Inline timeline | adopt | `approval_flow` (approval resolution) |
+| 9 | `user_input_request` | Inline timeline | adopt | `interactive_request` (`driver_ask.requested`, input ask) |
+| 10 | `user_input_resolved` | Inline timeline | adopt | `interactive_request` (`driver_ask.*` resolution) |
+| 11 | `session_status` | Inline timeline | adopt | `session_lifecycle` (session status) |
+| 12 | `token_usage` | Inline timeline | adopt | `usage_telemetry` (`usage.token_count`) |
+| 13 | `error` | Inline timeline | adopt | `run_lifecycle` (run-failure envelope) |
+| 14 | `todo_update` | Inline timeline | adopt | `tool_activity` (todo-snapshot projection) |
+| 15 | `task_create` | Task mirror | adopt | `tool_activity` (per-task CRUD → per-thread task mirror → `todo_update` snapshots) |
+| 16 | `task_update` | Task mirror | adopt | `tool_activity` (per-task CRUD → task mirror) |
+| 17 | `notification` | Task mirror | adopt | `session_lifecycle` (generic user-facing notice; Codex-fed census kind) |
+| 18 | `api_retry` | Transient retry | adopt | `usage_telemetry` (transient-retry record; Claude `system.api_retry` typed-error enum per C-5 — capability-bearing, never dropped) |
+| 19 | `compact_boundary` | System, no timeline row | adopt | `event_maintenance` (`event.compacted` boundary) |
+| 20 | `rate_limits` | System, no timeline row | rename | `usage_telemetry` (`usage.rate_limit_update`) — the Claude wire string `rate_limit_event` renames onto `rate_limits`: an account-plane quota snapshot, never context-window telemetry |
+| 21 | `model_rerouted` | System, no timeline row | adopt | `usage_telemetry` (mid-run model-reroute telemetry — capability-bearing) |
+| 22 | `thread_renamed` | System, no timeline row | adopt | `session_lifecycle` (session/thread rename) |
+| 23 | `content_block_start` | System, no timeline row | discard | streaming-structural envelope boundary; the wrapped `text_delta` (row 2) carries the durable content — no separate timeline or persistence capability |
+| 24 | `content_block_stop` | System, no timeline row | discard | paired streaming envelope boundary; same reason as row 23 |
+| 25 | `background_task_terminal` | Background/subagent | adopt | `tool_activity` (`subagent.completed` — richer sibling completion; never replaces the tool-lifecycle completion row) |
+| 26 | `background_task_notification` | Background/subagent | adopt | `tool_activity` (non-lifecycle task notice; may carry a durable output-file path) |
+| 27 | `subagent_notification` | Background/subagent | adopt | `tool_activity` (Codex detached-child terminal injected into the parent's next turn) |
+| 28 | `subagent_status` | Background/subagent | adopt | `tool_activity` (subagent-lifecycle row / internal child-thread status) |
+| 29 | `codex_exec_result` | Codex process/terminal | adopt | `tool_activity` (raw exec-output signal — exited-during-wait vs yielded-with-resumable-session) |
+| 30 | `terminal_interaction` | Codex process/terminal | adopt | `tool_activity` (stdin writes to a backgrounded PTY; non-empty stdin redacted from durable metadata) |
+| 31 | `user_text` | Wire echo | adopt | correlation-only — folds into the originating app-sent user-message row via `correlation_id` (delivery confirmation of the pending send; no new persisted type) |
+| 32 | `diff` | Heavy, persisted | adopt | `tool_activity` (payload persisted to SQLite; light meta to client) |
+| 33 | `command_output` | Heavy, persisted | adopt | `tool_activity` (payload persisted; light meta to client) |
+| 34 | `thinking` | Heavy, persisted | adopt | `assistant_output` (`assistant.thinking_update`; payload persisted) |
+| 35 | `proposed_plan` | Heavy, persisted | adopt | `assistant_output` (plan proposal; payload persisted) |
+
+Count: 14 + 3 + 1 + 6 + 4 + 2 + 1 + 4 = **35**.
+
+**Explicitly-discarded boundary subtypes (nine, each reasoned).** These are Claude system-channel wire strings the surveyed parser discards; each is reasoned here under the no-silent-capability-loss default.
+
+| Discarded subtype | Reason |
+| --- | --- |
+| `hook_started` | hook-lifecycle progress; hook execution is daemon-internal orchestration, not an audit-timeline capability |
+| `hook_progress` | intra-hook progress; same daemon-internal-orchestration reason |
+| `hook_response` | hook result consumed by the hook dispatcher, not a timeline capability |
+| `notification` (Claude system-channel subtype) | distinct from the census `notification` kind (row 17, Codex-fed); the user-facing-notice capability is already carried there — this Claude system subtype is redundant transport noise |
+| `files_persisted` | file-write summary; the adopted `diff` (32) / `command_output` (33) rows plus `artifact_publication` already carry the file-change capability |
+| `tool_use_summary` | aggregate over the adopted `tool_start` (3) / `tool_complete` (4) rows; no new capability |
+| `memory_recall` | provider-internal memory-retrieval signal; no audit-timeline capability |
+| `local_command_output` | superseded by the adopted `command_output` (33) kind; the local variant carries no additional capability |
+| `task_progress` | intra-task progress; the adopted `task_create` (15) / `task_update` (16) + `todo_update` snapshots carry the durable task state |
+
+**Current-wire delta families (CLI-currency audit; family-level dispositions).**
+
+| Delta family | Provider | Disposition | Target category / reason |
+| --- | --- | --- | --- |
+| result-subtype (`success` \| `error_max_turns` \| `error_max_budget_usd` \| `error_during_execution` \| `error_max_structured_output_retries`) | Claude | adopt | `run_lifecycle` terminal (`completionKind` / failure-subtype mapping per C-4; `result` only on `success`; driver reads to EOF) |
+| `api_retry` typed-error enum (`authentication_failed` … `unknown` + `retry_delay_ms`) | Claude | adopt | `usage_telemetry` (enriches census row 18; mid-run auth/billing/rate-limit now detectable per C-5; feeds the driver failure-mapping path) |
+| `worker_shutting_down` | Claude | adopt | `run_lifecycle` diagnostic (mid-run worker-shutdown recovery signal — capability-bearing) |
+| plugin family | Claude | adopt | `tool_activity` (plugin invocations as tool-family rows) |
+| hook family | Claude | discard | hook-lifecycle; daemon-internal orchestration, not an audit-timeline capability (consistent with the `hook_*` discards above) |
+| goals (`thread/goal/*`) | Codex | adopt | `session_lifecycle` (the B1 session-goal events — `session.goal_updated` / `session.goal_cleared`) |
+| guardian + `autoApprovalReview` | Codex | adopt | `approval_flow` observability rows (per C-6 — `approvalsReviewer` pinned `"user"`; guardian auto-adjudication is normalized as observability, never a Cedar-pipeline bypass) |
+| `turn/diff` \| `turn/plan` \| `turn/moderationMetadata` | Codex | adopt | `diff` → persisted (32); `plan` → `proposed_plan` (35); `moderationMetadata` → `approval_flow` (`moderation.review_flagged`) |
+| `process/*` | Codex | adopt | `tool_activity` (the `codex_exec_result` (29) / `terminal_interaction` (30) family) |
+| reasoning-delta | Codex | adopt | `assistant_output` (`assistant.thinking_update` reasoning stream) |
+| realtime (`thread/realtime/*`) | Codex | adopt | `realtime_*` reserved family (registered reserved, no emitter until the upstream realtime flag stabilizes; gated per R8, B1) |
+
 ### Phase 2 — Crypto Protocol Core (`packages/runtime-daemon/src/events/`)
 
 #### Tasks
@@ -353,10 +436,10 @@ File: `packages/runtime-daemon/src/events/signing-key-source.ts` (NEW). Provides
 
 ##### T3.1 — Append-path service writing integrity columns + Plan-022 Path 1 shred callback
 
-File: `packages/runtime-daemon/src/events/event-log-service.ts` (NEW). Provides: `EventLogService.append(envelope, options): Promise<{id, sequence, rowHash}>` as the sole append path under per-session mutex; `registerShredCallback(handler: ShredCallback): void` invoked by Plan-022's Path 1 orchestrator after `participant_keys` DELETE commits; refuses any `append()` whose `payload` carries a PII-tagged field without `pii_ciphertext_digest` (surfaces `daemon.pii_split_bypass` typed error). Depends: T2.1, T2.2, T2.4, T2.7; Plan-001 forward-declared columns; Plan-001 `I-001-2` (sequence as canonical replay key). IdempotencyClass: `manual_reconcile_only` per chain-append non-retry-safety.
+File: `packages/runtime-daemon/src/events/event-log-service.ts` (NEW). Provides: `EventLogService.append(envelope, options): Promise<{id, sequence, rowHash}>` as the sole append path under per-session mutex; `registerShredCallback(handler: ShredCallback): void` invoked by Plan-022's Path 1 orchestrator after `participant_keys` DELETE commits; refuses any `append()` whose `payload` carries a PII-tagged field without `pii_ciphertext_digest` (surfaces `daemon.pii_split_bypass` typed error). **Publishes `withSessionAppendLock<T>(sessionId: SessionId, critical: () => Promise<T>): Promise<T>` — the per-session append lock as a wrappable, reentrant primitive: `append()` runs its own write under it, and Plan-004's B9 T3.7 terminal emitter wraps its guard-swap-append in it so the `(runId, runVersion)` terminal check-and-append is atomic against concurrent appends; reentrant — an `append()` issued inside a `withSessionAppendLock` critical section reuses the held lock rather than re-acquiring, so the emitter's wrap never self-deadlocks. New additive migration `0NNN-run-lifecycle-terminal-backstop-index.ts` adds a partial UNIQUE index `idx_session_events_run_terminal_once` on `session_events (json_extract(payload, '$.runId'), json_extract(payload, '$.runVersion')) WHERE category = 'run_lifecycle' AND type IN ('run.completed', 'run.failed', 'run.interrupted')` — the schema-level backstop for the terminal exactly-once property: a second terminal row for the same `(runId, runVersion)` epoch raises a SQLite UNIQUE-constraint error (fail-loud, never a silent append-if-absent API). The index is scoped to the three terminal `run_lifecycle` types — the `completed` / `interrupted` / `failed` terminal run states — so non-terminal `run_lifecycle` rows and every other category insert freely, and NULL `runId` / `runVersion` rows bypass the index (SQLite treats NULLs as distinct); the non-null-key precondition is the Plan-004 B9 T3.7 emitter's leg, and this index is the defense-in-depth backstop behind that guard, not a replacement for it.** Depends: T2.1, T2.2, T2.4, T2.7; Plan-001 forward-declared columns; Plan-001 `I-001-2` (sequence as canonical replay key). IdempotencyClass: `manual_reconcile_only` per chain-append non-retry-safety.
 
-- **Spec coverage:** Spec-006 line 595 (chained to its predecessor), Spec-006 line 769 (sequence numbers), Spec-006 line 609 (pii_ciphertext_digest), Spec-006 line 520 (event.shredded), Spec-006 line 498 (daemon.pii_split_bypass typed error — characterized at the daemon.pii_split_ambiguous row as an append-without-pii_ciphertext_digest hard rejection, distinct from that taxonomy event)
-- **Verifies invariant:** none (append-path service; the write-path and PII-split invariants name Phase 2 pii-indirection.ts, not this task)
+- **Spec coverage:** Spec-006 line 595 (chained to its predecessor), Spec-006 line 769 (sequence numbers), Spec-006 line 609 (pii_ciphertext_digest), Spec-006 line 520 (event.shredded), Spec-006 line 498 (daemon.pii_split_bypass typed error — characterized at the daemon.pii_split_ambiguous row as an append-without-pii_ciphertext_digest hard rejection, distinct from that taxonomy event), Spec-006 line 570 (run_lifecycle terminal-event set — terminal-backstop index scope)
+- **Verifies invariant:** none (append-path service + `withSessionAppendLock` publication + terminal-backstop index; the terminal exactly-once property is enforced primarily by Plan-004's B9 T3.7 emitter, and this index is its schema-level backstop rather than a Plan-006-named invariant; the write-path and PII-split invariants name Phase 2 pii-indirection.ts, not this task)
 
 ##### T3.2 — Compactor with three triggers + anchor-before-compaction protocol + audit-stub format + `retention_class` discriminator (Design B — typed column)
 
@@ -381,9 +464,9 @@ File: `packages/runtime-daemon/src/events/schema-migration-emitter.ts` (NEW); Pl
 
 ##### T3.5 — Phase 3 contract-test suite + end-to-end shred-safety regression (`Plan-006 §Test And Verification Plan` acceptance gate)
 
-Files: Five `__tests__/` files spanning T3.1-T3.4 + shred-safety E2E. Provides: Genesis-and-multi-row chain integrity test; trigger tests for each of the three compaction thresholds; cadence test for the earlier-of rule with the `AnchorPayload` no-`payload`-field TypeScript structural assertion; batch-boundary granularity (1 batch → 1 event) + rollback path + reconcile-on-startup; **E2E: 60+ events with non-null `pii_payload` → compaction pass → Plan-022 Path 1 crypto-shred via `participant_keys` DELETE → `event.shredded` callback → integrity verifier reruns over full chain → all signatures verify, all chain hashes verify, `<pii-shredded>` markers replace PII fields on read.** Depends: T3.1-T3.4; Phase 2; Plan-022's `splitPii()` (mock via fixture if Plan-022 implementation hasn't landed). IdempotencyClass: N/A (test).
+Files: Five `__tests__/` files spanning T3.1-T3.4 + shred-safety E2E. Provides: Genesis-and-multi-row chain integrity test; trigger tests for each of the three compaction thresholds; cadence test for the earlier-of rule with the `AnchorPayload` no-`payload`-field TypeScript structural assertion; batch-boundary granularity (1 batch → 1 event) + rollback path + reconcile-on-startup; **E2E: 60+ events with non-null `pii_payload` → compaction pass → Plan-022 Path 1 crypto-shred via `participant_keys` DELETE → `event.shredded` callback → integrity verifier reruns over full chain → all signatures verify, all chain hashes verify, `<pii-shredded>` markers replace PII fields on read.** **Terminal-backstop index fail-loud test (T3.1's `idx_session_events_run_terminal_once`): a second terminal `run_lifecycle` row (`run.completed` / `run.failed` / `run.interrupted`) carrying the same non-null `(runId, runVersion)` raises a SQLite UNIQUE-constraint error rather than silently absorbing (fail-loud); and the index is correctly scoped — a non-terminal `run_lifecycle` duplicate, a terminal row for a different `(runId, runVersion)`, and two terminal rows with NULL `runId` / `runVersion` all insert freely (the NULL-key case is the Plan-004 B9 T3.7 emitter's non-null precondition, not this index; the emitter-behavior triplet itself rides B9 T3.7, not this suite).** Depends: T3.1-T3.4; Phase 2; Plan-022's `splitPii()` (mock via fixture if Plan-022 implementation hasn't landed). IdempotencyClass: N/A (test).
 
-- **Spec coverage:** Spec-006 line 520 (event.shredded), Spec-006 line 609 (pii_ciphertext_digest), Spec-006 lines 646-648, Spec-006 line 615 (ANCHOR_INTERVAL_EVENTS), Spec-006 line 611 (row_hash), Spec-006 line 518 (schema.migrated)
+- **Spec coverage:** Spec-006 line 520 (event.shredded), Spec-006 line 609 (pii_ciphertext_digest), Spec-006 lines 646-648, Spec-006 line 615 (ANCHOR_INTERVAL_EVENTS), Spec-006 line 611 (row_hash), Spec-006 line 518 (schema.migrated), Spec-006 line 570 (run_lifecycle terminal-event set — backstop-index fail-loud test)
 - **Verifies invariant:** I-006-3-01 (three-layer enforcement — E2E exercises all three layers), I-006-3-02 (AnchorPayload no-payload-field assertion), I-006-3-04 (anchor cadence earlier-of both thresholds)
 
 ### Phase 4 — Read-Side + SDK + Desktop Stub
@@ -406,10 +489,10 @@ Files: `packages/runtime-daemon/src/events/key-reuse-observer.ts` (NEW) + test. 
 
 ##### T4.3 — `replay-service.ts` for `EventReadAfterCursor` + `EventReadWindow`
 
-Files: `packages/runtime-daemon/src/events/replay-service.ts` (NEW) + test. Provides: `readAfterCursor(params): Promise<EventReadAfterCursorResponse>` returning `{events, nextCursor, hasMore}`; `readWindow(params): Promise<EventReadWindowResponse>` bounded by `[fromSequence, toSequence]`; events from compacted regions returned as audit-stub envelopes with `payload.retentionClass === 'audit_stub'` (I-006-4-04 — never silent omission). Depends: T4.6 Zod schemas; Phase 1 contracts; Phase 3 T3.2 compactor format; Plan-001 daemon-migration substrate; `ADR-018 §Decision` #6 + #9 (upcaster chain on read; unknown-MAJOR accept-and-stub). IdempotencyClass: `idempotent` (pure read).
+Files: `packages/runtime-daemon/src/events/replay-service.ts` (NEW) + test. Provides: `readAfterCursor(params): Promise<EventReadAfterCursorResponse>` returning `{events, nextCursor, hasMore}`; `readWindow(params): Promise<EventReadWindowResponse>` bounded by `[fromSequence, toSequence]`; events from compacted regions returned as audit-stub envelopes with `payload.retentionClass === 'audit_stub'` (I-006-4-04 — never silent omission). **Cursor semantics: `readAfterCursor` scans `sequence > cursor.afterSequence` in strict ascending order; `hasMore` is `true` exactly when the page cap leaves rows still beyond `nextCursor`, and `nextCursor` is the last returned event's sequence (an empty page returns the input cursor unchanged with `hasMore: false`). Compacted ranges are gap-inverted — a compacted span is never a hole in the sequence scan; each compacted position surfaces its audit-stub envelope at that exact sequence, so the cursor advances monotonically across compacted ranges and a reader can never step past a compacted region without observing it (the I-006-4-04 no-silent-omission guarantee at the cursor layer). SSE resumption: the `Last-Event-ID` header value is the `afterSequence` cursor — a reconnecting subscriber resumes exactly after its last-delivered sequence, replaying any compacted-as-stub positions it had not yet seen. Also publishes `timelineCursors.earliest: EventCursor` — the oldest replayable sequence (the replay floor): after compaction the floor is the oldest surviving row (an audit-stub once the head of the log has been compacted), so a client reading `SessionReadResponse.timelineCursors` (extended below) bounds its replay window by `[earliest, latest]` and never issues a `readAfterCursor` below a floor that no longer resolves.** Depends: T4.6 Zod schemas; Phase 1 contracts; Phase 3 T3.2 compactor format; Plan-001 daemon-migration substrate; `ADR-018 §Decision` #6 + #9 (upcaster chain on read; unknown-MAJOR accept-and-stub). IdempotencyClass: `idempotent` (pure read).
 
-- **Spec coverage:** Spec-006 line 71 (EventReadAfterCursor), Spec-006 line 72 (EventReadWindow), Spec-006 line 65 (audit-visible stub)
-- **Verifies invariant:** I-006-4-04 (replay across compacted regions returns audit stubs, never silent omission)
+- **Spec coverage:** Spec-006 line 71 (EventReadAfterCursor), Spec-006 line 72 (EventReadWindow), Spec-006 line 65 (audit-visible stub), Spec-006 line 724 (replay cursor tracks compacted ranges)
+- **Verifies invariant:** I-006-4-04 (replay across compacted regions returns audit stubs, never silent omission — reinforced at the cursor layer by gap-inverted monotonic advance)
 
 ##### T4.4 — `session_snapshots` extension with compacted-region cursor state (Reading (a) — additive flag columns only)
 
@@ -484,7 +567,7 @@ Each obligation gets a CP-006-N ID. The Cross-Plan Dependency Graph entry for Pl
 - **CP-006-6 — Plan-001 forward-declared schema is immutable.** Plan-006 Phase 3 reads columns shipped by Plan-001 in `0001-initial.ts` but never re-shapes them. Plan-001 `I-001-3` enforces this. New tables + columns Plan-006 needs (`daemon_signing_keys` table, `session_events.retention_class`, `session_snapshots.{has_compacted_ranges, compacted_range_count}`, `pending_anchor_uploads` table) ship as Plan-006-owned additive migrations at Tier 4, never as modifications to `0001-initial.ts`.
 - **CP-006-7 — Plan-002 amendment for daemon_signing_key generation at session-create.** Plan-002 (Tier 1, closed) reopens via amendment-via-extension PR to extend session-create with `DaemonSigningKeySource.create(sessionId)` call + participant-roster public-key registration. Amendment is scope-limited to call-site + roster row write; no master-key crypto leaks into Plan-002. `Spec-006 §Canonical Serialization Rules` (the daemon public key is the NodeId-resolved public key from the session participant roster used for signature verification) is the governing semantic.
 - **CP-006-8 — Plan-013 audit-stub renderer surface (forward-declared).** Phase 4 T4.8 ships `<CompactedStubSegment>` as the audit-stub render contract per `Spec-006 §Compacted Event Format`. The future Plan-013 (Timeline Rendering And Replay UI) MUST consume — not re-implement. Bidirectional once Plan-013 lands; one-sided forward-declared today (verified via `ls`: `docs/plans/013-*.md` does not exist).
-- **CP-006-9 — Plan-015 recovery-dispatcher consumes T4.3 read-after-cursor.** Plan-015 (Tier 7) recovery path calls `eventClient.readAfterCursor` (or daemon-internal `replay-service.ts:readAfterCursor`) to rebuild projections from the last `replay_cursors.last_sequence` checkpoint. T4.6 Zod schemas are the binding interface.
+- **CP-006-9 — Plan-015 recovery-dispatcher consumes T4.3 read-after-cursor.** Plan-015 (Tier 7) recovery path calls `eventClient.readAfterCursor` (or daemon-internal `packages/runtime-daemon/src/events/replay-service.ts:readAfterCursor` — full-pathed to disambiguate from Plan-015's own `packages/runtime-daemon/src/replay/replay-service.ts`) to rebuild projections from the last `replay_cursors.last_sequence` checkpoint. T4.6 Zod schemas are the binding interface.
 - **CP-006-10 — Plan-020 metrics + dashboard consume audit-integrity events (forward-declared).** Plan-020 (Metrics & Dashboards; Non-Goal of Plan-006 per §Non-Goals) SHOULD consume `audit_integrity_verified`, `audit_integrity_failed`, `key_reuse_detected` for an audit-health dashboard. Binding when Plan-020 is authored.
 
 ## Invariants
