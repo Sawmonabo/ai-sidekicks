@@ -31,7 +31,7 @@ The run state machine is the source of truth for execution lifecycle semantics.
 ## Invariants
 
 - A run has exactly one current state at a time.
-- A run enters at most one terminal state per execution epoch — the interval between rollback applications (campaign B2). A rollback out of a terminal state re-opens the run, and any later terminal event carries a higher `runVersion`, so the at-most-once terminal emission keyed on `(runId, runVersion)` ([Spec-006 §Run Lifecycle](../specs/006-session-event-taxonomy-and-audit-log.md#run-lifecycle-run_lifecycle), campaign B1) is preserved across epochs. Absent rollback, a run enters exactly one terminal state.
+- A run enters at most one terminal state per execution epoch — the interval between accepted `run.rolled_back` rewinds: a confirmed conversation rewind advances the epoch regardless of the file-leg disposition, so a `degraded`-but-confirmed rollback opens a new epoch exactly like an `applied` one ([Spec-004 §Required Behavior](../specs/004-queue-steer-pause-resume.md#required-behavior); campaign B2). A rollback out of a terminal state re-opens the run, and any later terminal event carries a higher `runVersion`, so the at-most-once terminal emission keyed on `(runId, runVersion)` ([Spec-006 §Run Lifecycle](../specs/006-session-event-taxonomy-and-audit-log.md#run-lifecycle-run_lifecycle), campaign B1) is preserved across epochs. Absent rollback, a run enters exactly one terminal state.
 - `resume` is valid only from `paused`.
 - Reattach after reconnect is not the same thing as `resume`.
 - Waiting for approval or input keeps the same run id; it does not create a replacement run.
