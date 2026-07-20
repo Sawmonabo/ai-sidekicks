@@ -1199,11 +1199,28 @@ interface EventEnvelope {
   category: EventCategory;
   type: string; // specific type within category
   actor?: string; // participant_id, agent_id, or null for system
-  payload: Record<string, unknown>;
+  payload: Record<string, unknown>; // category-specific fields; may carry the cross-cutting sourceEpoch (below)
   correlationId?: string;
   causationId?: string;
   version: EventEnvelopeVersion; // semver "MAJOR.MINOR" per ADR-018 §Decision #1 (never numeric)
 }
+
+// sourceEpoch — cross-cutting epoch-attribution payload field (Plan-006 T1.9, the
+// CP-004-12 registration, 2026-07-20; Spec-006 §Event Type Enumeration). Stamped at
+// ingestion by Plan-004 T3.11's late-append leg on pre-rollback-epoch NON-LIFECYCLE
+// rows (the atomic closed-pair driver_ask.requested + driver_ask.canceled late-append
+// included); absent on every current-epoch row — absence means current-epoch, and the
+// stamp is never fabricated at read time. It rides INSIDE payload, so it sits in the
+// RFC 8785 canonical bytes (signed, hash-chained, shred-safe) with no envelope-level
+// field added — the canonical set above is unchanged, no ADR-018 envelope bump — and
+// the audit-stub projection preserves it at compaction (Spec-006 §Compacted Event
+// Format), so Plan-004 T3.14's supersede projection keys cross-epoch rows durably.
+// Execution-epoch semantics are Spec-004-owned (§Required Behavior + Run State
+// Machine §Invariants): 0 before any rollback, advancing with each accepted
+// run.rolled_back rewind regardless of the file-leg disposition. The key name is
+// pinned by SOURCE_EPOCH_PAYLOAD_KEY in packages/contracts/src/event.ts — a rename
+// is forbidden-non-additive per ADR-018 §Decision #8.
+type SourceEpoch = number; // int >= 0 — SourceEpochSchema in packages/contracts/src/event.ts (Plan-006 T1.9)
 
 type EventCategory =
   | "run_lifecycle"
