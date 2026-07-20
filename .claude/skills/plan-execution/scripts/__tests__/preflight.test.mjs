@@ -204,6 +204,79 @@ test("findSectionBoundary skips headings inside fenced code blocks", () => {
   assert.equal(findSectionBoundary("just\nbody\n```\n## fenced\n```\n"), -1);
 });
 
+test("findSectionBoundary skips headings inside multi-line HTML comments", () => {
+  // A commented-out `## ` / `### Phase` line renders as nothing and must not
+  // terminate a section (Codex round-4, PR #224 — shared structural scan).
+  const commented = [
+    "intro",
+    "<!--",
+    "## Not A Boundary",
+    "### Phase 9 — also commented",
+    "-->",
+    "body",
+    "## Real Boundary",
+  ].join("\n");
+  const at = findSectionBoundary(commented);
+  assert.ok(at >= 0 && commented.slice(at).startsWith("## Real Boundary"));
+
+  // A single-line comment is inline content: the next real heading still bounds.
+  const inline = ["intro <!-- note -->", "## Real Boundary"].join("\n");
+  const atInline = findSectionBoundary(inline);
+  assert.ok(atInline >= 0 && inline.slice(atInline).startsWith("## Real Boundary"));
+});
+
+test("findSectionBoundary ignores comment markers inside inline code spans", () => {
+  // Codex round-5, PR #224: prose DISCUSSING comments — "Use `<!--` to
+  // begin a comment" — must not open comment state; under the raw marker
+  // check it consumed every later heading and silently merged phases.
+  const prose = ["intro", "Use `<!--` to begin a comment.", "body", "## Real Boundary"].join("\n");
+  const at = findSectionBoundary(prose);
+  assert.ok(at >= 0 && prose.slice(at).startsWith("## Real Boundary"));
+
+  // A bare inline-code close marker (the mermaid-arrow prose shape,
+  // "reflected in mermaid `-->` edges") is inert either way.
+  const arrow = ["intro", "reflected in mermaid `-->` edges", "## Real Boundary"].join("\n");
+  const atA = findSectionBoundary(arrow);
+  assert.ok(atA >= 0 && arrow.slice(atA).startsWith("## Real Boundary"));
+});
+
+test("findSectionBoundary treats a 4-space-indented ``` as literal, not a fence opener", () => {
+  // CommonMark caps fence-opener indentation at 3 spaces; a ``` inside an
+  // indented code block is literal text. Under an unrestricted \s* opener it
+  // opened phantom fence state and swallowed the real boundary (Codex
+  // round-4, PR #224).
+  const indented = ["intro", "    ```", "    literal", "## Real Boundary"].join("\n");
+  const at = findSectionBoundary(indented);
+  assert.ok(at >= 0 && indented.slice(at).startsWith("## Real Boundary"));
+
+  // 1-3-space indentation still opens a fence (the list-indented shape).
+  const listFence = ["intro", "   ```", "## fenced", "   ```", "## Real Boundary"].join("\n");
+  const atL = findSectionBoundary(listFence);
+  assert.ok(atL >= 0 && listFence.slice(atL).startsWith("## Real Boundary"));
+});
+
+test("findSectionBoundary rejects backtick-fence info strings containing backticks", () => {
+  // Codex round-6, PR #224 (advanceFenceState parity): a ```md`inline line
+  // is inline code, not a fence opener — under the unguarded regex it
+  // opened phantom fence state and swallowed the real boundary.
+  const inlineCode = ["intro", "```md`inline", "prose", "## Real Boundary"].join("\n");
+  const at = findSectionBoundary(inlineCode);
+  assert.ok(at >= 0 && inlineCode.slice(at).startsWith("## Real Boundary"));
+});
+
+test("findSectionBoundary skips raw HTML blocks and multi-line code spans", () => {
+  // Codex round-6, PR #224: a heading-looking line inside a `<script>`
+  // block (CommonMark 4.6 type 1) or a multi-line code span is raw
+  // content, not a section boundary.
+  const html = ["<script>", "## Not A Boundary", "</script>", "## Real Boundary"].join("\n");
+  const atH = findSectionBoundary(html);
+  assert.ok(atH >= 0 && html.slice(atH).startsWith("## Real Boundary"));
+
+  const span = ["a `open", "<!-- masked by the span", "close` b", "## Real Boundary"].join("\n");
+  const atS = findSectionBoundary(span);
+  assert.ok(atS >= 0 && span.slice(atS).startsWith("## Real Boundary"));
+});
+
 test("extractPhaseSection keeps a fenced ## / ### Phase example in the body and bounds only at the real sibling", () => {
   // Fence-awareness regression: a phase whose body shows a fenced markdown
   // example (with `## ` and `### Phase` lines) must not be truncated at that

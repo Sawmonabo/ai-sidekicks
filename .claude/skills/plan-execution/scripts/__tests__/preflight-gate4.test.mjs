@@ -14,6 +14,7 @@ import {
   extractIdentifierTokens,
   parseCitePayload,
   extractCiteAnchors,
+  findSectionHeading,
   verifyAnchorAgainstSpec,
   gateTasksBlockCites,
   runPreflight,
@@ -689,6 +690,443 @@ test("FAIL 44: phantom §-prefix rejects when only a heading substring matches",
   const { verifyFailures } = verifyAll("Spec-002 §Token line 39");
   assert.equal(verifyFailures.length, 1);
   assert.equal(verifyFailures[0].result.reason, "section-not-found");
+});
+
+test("PASS 51: §-cite to a parenthetical-suffixed heading verifies (descriptor split)", () => {
+  // `### Usage Telemetry (usage_telemetry)` — the Spec-006 category-heading
+  // house style. The cite grammar splits a trailing `(...)` off as descriptor,
+  // so the section name arrives paren-less and exact equality against the
+  // full heading can never match; the matcher's paren-stripped fallback must
+  // bind it (PR #222 false-negative: 3 legitimate Plan-005 T4.7 cites
+  // rejected [section-not-found]).
+  const { anchors, parseFailures, verifyFailures } = verifyAll(
+    "Spec-002 §Usage Telemetry (usage_telemetry)",
+  );
+  assert.equal(parseFailures.length, 0);
+  assert.equal(verifyFailures.length, 0);
+  assert.equal(anchors[0].type, "section-only");
+  assert.equal(anchors[0].section, "Usage Telemetry");
+});
+
+test("PASS 52: paren-suffixed heading + line anchor verifies", () => {
+  const { anchors, parseFailures, verifyFailures } = verifyAll(
+    "Spec-002 §Usage Telemetry line 51 (usage.tokens)",
+  );
+  assert.equal(parseFailures.length, 0);
+  assert.equal(verifyFailures.length, 0);
+  assert.equal(anchors[0].line, 51);
+});
+
+test("FAIL 49: heading-prefix cite still rejects against a parenthetical-suffixed heading", () => {
+  // The fallback strips parentheticals from the HEADING side only — it must
+  // not reintroduce the PR #96 `.includes()` prefix laxity. `§Usage` is a
+  // prefix of `Usage Telemetry (usage_telemetry)`, not a paren-only delta.
+  const { verifyFailures } = verifyAll("Spec-002 §Usage line 51");
+  assert.equal(verifyFailures.length, 1);
+  assert.equal(verifyFailures[0].result.reason, "section-not-found");
+});
+
+test("findSectionHeading: exact heading beats paren-stripped fallback", () => {
+  const specLines = ["## Retention (extra)", "body a", "## Retention", "body b"];
+  const hit = findSectionHeading("Retention", specLines);
+  assert.equal(hit.found, true);
+  assert.equal(hit.headingLine, "## Retention");
+});
+
+test("findSectionHeading: fallback fires only on paren-suffixed headings, never on prefixes", () => {
+  const specLines = ["## Token Security Properties", "body"];
+  assert.equal(findSectionHeading("Token", specLines).found, false);
+});
+
+test("findSectionHeading: mid-heading parenthetical stays load-bearing (no synthesized heading)", () => {
+  // Codex P2 on PR #224: a global paren-strip would let `§Postgres Deletion`
+  // match `Postgres (Control Plane) Deletion` — a heading that does not
+  // exist under that name. Only the TRAILING suffix (the one token the cite
+  // grammar's descriptor split loses) may be stripped, so the mid-paren
+  // heading must NOT satisfy the paren-less cite.
+  const specLines = ["## Postgres (Control Plane) Deletion", "body"];
+  assert.equal(findSectionHeading("Postgres Deletion", specLines).found, false);
+  // Matcher-level exact pass still binds the full name (normalization strips
+  // parens symmetrically on both sides in the exact comparison).
+  assert.equal(findSectionHeading("Postgres (Control Plane) Deletion", specLines).found, true);
+});
+
+test("findSectionHeading: ambiguous stripped matches fail closed", () => {
+  // Codex round-2 P2 on PR #224: `§Interface` against `## Interface (V1)` +
+  // `## Interface (V2)` identifies neither heading — the fallback must
+  // reject rather than take the first hit.
+  const specLines = ["## Interface (V1)", "body a", "## Interface (V2)", "body b"];
+  assert.equal(findSectionHeading("Interface", specLines).found, false);
+});
+
+test("findSectionHeading: an explicitly cited suffix disambiguates siblings", () => {
+  // The cited-suffix agreement rule turns the ambiguous pair into a unique
+  // target when the cite names the suffix.
+  const specLines = ["## Interface (V1)", "body a", "## Interface (V2)", "body b"];
+  const hit = findSectionHeading("Interface", specLines, "(V2)");
+  assert.equal(hit.found, true);
+  assert.equal(hit.headingLine, "## Interface (V2)");
+});
+
+test("findSectionHeading: a contradictory cited suffix rejects", () => {
+  // Codex round-2 P2 on PR #224: `§Future Delivery Mechanisms (V1)` must not
+  // verify against the real `### Future Delivery Mechanisms (V2)` heading.
+  const specLines = ["### Future Delivery Mechanisms (V2)", "body"];
+  assert.equal(findSectionHeading("Future Delivery Mechanisms", specLines, "(V1)").found, false);
+});
+
+test("findSectionHeading: two-paren descriptor tail matches on its FIRST group", () => {
+  // The `§X (suffix) (gloss)` marker-line form: the first paren group is the
+  // heading suffix, later groups are free-text gloss (the PR #222 cite shape).
+  const specLines = ["### Usage Telemetry (usage_telemetry)", "body"];
+  const hit = findSectionHeading(
+    "Usage Telemetry",
+    specLines,
+    "(usage_telemetry) (`usage.rate_limit_update`, cost/window fields)",
+  );
+  assert.equal(hit.found, true);
+});
+
+test("findSectionHeading: duplicate identical stripped headings stay first-hit", () => {
+  // Two heading LINES with the same full text are one target, not an
+  // ambiguity — parity with the exact pass's duplicate-heading behavior.
+  const specLines = ["## Retention (audit)", "body a", "## Retention (audit)", "body b"];
+  assert.equal(findSectionHeading("Retention", specLines).found, true);
+});
+
+test("PASS 53: suffix before the line anchor parses the anchor and verifies both", () => {
+  // `§X (suffix) line N` — pre-fix the section-only branch swallowed the
+  // whole tail as descriptor text, so the line anchor vanished (Codex
+  // round-3 P2 on PR #224). The parser now consumes the suffix into
+  // `sectionDescriptor` and the line anchor verifies normally.
+  const { anchors, parseFailures, verifyFailures } = verifyAll(
+    "Spec-002 §Usage Telemetry (usage_telemetry) line 51 (usage.tokens)",
+  );
+  assert.equal(parseFailures.length, 0);
+  assert.equal(verifyFailures.length, 0);
+  assert.equal(anchors[0].type, "line");
+  assert.equal(anchors[0].line, 51);
+  assert.equal(anchors[0].sectionDescriptor, "(usage_telemetry)");
+});
+
+test("FAIL 50: suffix + out-of-range line no longer rides a section-only pass", () => {
+  // The exact false-green Codex flagged: with the line anchor swallowed,
+  // `line 999999` verified as a section-only cite. It must fail as a LINE
+  // cite now.
+  const { verifyFailures } = verifyAll("Spec-002 §Usage Telemetry (usage_telemetry) line 999999");
+  assert.equal(verifyFailures.length, 1);
+  assert.equal(verifyFailures[0].result.reason, "line-out-of-range");
+});
+
+test("FAIL 51: contradictory suffix before a line anchor rejects the section", () => {
+  const { verifyFailures } = verifyAll("Spec-002 §Usage Telemetry (wrong_suffix) line 51");
+  assert.equal(verifyFailures.length, 1);
+  assert.equal(verifyFailures[0].result.reason, "section-not-found");
+});
+
+test("findSectionHeading: suffix comparison preserves punctuation", () => {
+  // Codex round-3 P2 on PR #224: normalizeTokenForMatch strips punctuation,
+  // collapsing `(v1.0)` and `(v10)` — distinct versions — into one token.
+  // The suffix comparator keeps punctuation, so the pair stays ambiguous to
+  // a bare cite and a cited suffix binds only its true sibling.
+  const specLines = ["## Cache (v1.0)", "body a", "## Cache (v10)", "body b"];
+  assert.equal(findSectionHeading("Cache", specLines).found, false);
+  assert.equal(findSectionHeading("Cache", specLines, "(v1.0)").headingLine, "## Cache (v1.0)");
+  assert.equal(findSectionHeading("Cache", specLines, "(v10)").headingLine, "## Cache (v10)");
+  // Single-sibling collapse case: `(v10)` must not repair onto `(v1.0)`.
+  const single = ["## Cache (v1.0)", "body"];
+  assert.equal(findSectionHeading("Cache", single, "(v10)").found, false);
+});
+
+test("findSectionHeading: fenced example headings are not citable targets", () => {
+  // Codex round-3 P2 on PR #224: a `## Phantom (v1)` inside a code fence is
+  // example text, not document structure. The scan mirrors
+  // findSectionBoundary's fence rules (closer = same char, >= run length,
+  // bare remainder), so real headings after the fence still bind.
+  const specLines = [
+    "## Real Section",
+    "```md",
+    "## Phantom (v1)",
+    "```",
+    "## After Fence (real)",
+    "body",
+  ];
+  assert.equal(findSectionHeading("Phantom", specLines).found, false);
+  assert.equal(findSectionHeading("After Fence", specLines).found, true);
+  // Tilde fences and mismatched closers follow the same rules: a backtick
+  // run inside a tilde fence does not close it.
+  const tilde = ["~~~", "```", "## Inside Tilde (x)", "~~~", "## Outside (y)"];
+  assert.equal(findSectionHeading("Inside Tilde", tilde).found, false);
+  assert.equal(findSectionHeading("Outside", tilde).found, true);
+});
+
+test("findSectionHeading: suffixed sibling outranks a bare exact hit; mismatches fail closed", () => {
+  // Codex round-3 P2 on PR #224, calibrated on the one real governance pair
+  // (Spec-020 `## Required Behavior` + `### Required Behavior (policy)`):
+  // a cited suffix that names a real sibling binds it; a descriptor that
+  // matches NO sibling is undecidable (free-text gloss vs wrong suffix)
+  // and rejects rather than silently landing on the bare heading.
+  const specLines = ["## Required Behavior", "body a", "### Required Behavior (policy)", "body b"];
+  assert.equal(
+    findSectionHeading("Required Behavior", specLines).headingLine,
+    "## Required Behavior",
+  );
+  assert.equal(
+    findSectionHeading("Required Behavior", specLines, "(policy)").headingLine,
+    "### Required Behavior (policy)",
+  );
+  assert.equal(findSectionHeading("Required Behavior", specLines, "(nonexistent)").found, false);
+  // The pervasive gloss idiom survives where no suffixed sibling exists:
+  // `§Rate Limiting (20/session/hr)` stays a pass on a bare heading.
+  const glossOnly = ["## Rate Limiting", "body"];
+  assert.equal(findSectionHeading("Rate Limiting", glossOnly, "(20/session/hr)").found, true);
+});
+
+test("findSectionHeading: cited suffix may omit heading-side backticks", () => {
+  // Real corpus shape: `### Contract Layer (\`packages/contracts/\`)` — the
+  // suffix comparator strips markdown code/emphasis markers (but nothing
+  // else), so the cite spells the path without backticks.
+  const specLines = ["### Contract Layer (`packages/contracts/`)", "body"];
+  const hit = findSectionHeading("Contract Layer", specLines, "(packages/contracts/)");
+  assert.equal(hit.found, true);
+});
+
+test("PASS 54: nested-paren heading suffix binds bare and suffixed cites", () => {
+  // Codex round-4 P2 on PR #224, live corpus shape (Plan-008 CP-008-8's
+  // trailing suffix nests markdown-link parens): a `[^)]*` regex truncates
+  // at the inner close, so the balanced walk is required on both the
+  // heading side and the cited-descriptor side. Fixture line 54 is
+  // `### Cache Policy (RFC 9111 (shared cache))`.
+  const bare = verifyAll("Spec-002 §Cache Policy line 56 (cache.directives)");
+  assert.equal(bare.parseFailures.length, 0);
+  assert.equal(bare.verifyFailures.length, 0);
+  const suffixed = verifyAll("Spec-002 §Cache Policy (RFC 9111 (shared cache)) line 56");
+  assert.equal(suffixed.parseFailures.length, 0);
+  assert.equal(suffixed.verifyFailures.length, 0);
+  assert.equal(suffixed.anchors[0].type, "line");
+  assert.equal(suffixed.anchors[0].line, 56);
+  assert.equal(suffixed.anchors[0].sectionDescriptor, "(RFC 9111 (shared cache))");
+});
+
+test("FAIL 52: contradictory nested suffix still rejects", () => {
+  const { verifyFailures } = verifyAll("Spec-002 §Cache Policy (RFC 9111 (private cache)) line 56");
+  assert.equal(verifyFailures.length, 1);
+  assert.equal(verifyFailures[0].result.reason, "section-not-found");
+});
+
+test("findSectionHeading: partial nested suffix is undecidable and rejects", () => {
+  // `(RFC 9111)` against the real `(RFC 9111 (shared cache))` sibling:
+  // agreement is whole-suffix, so a truncated spelling matches no sibling
+  // and fails closed rather than repairing onto the nested heading.
+  const specLines = ["## Cache Policy (RFC 9111 (shared cache))", "body"];
+  assert.equal(
+    findSectionHeading("Cache Policy", specLines, "(RFC 9111 (shared cache))").found,
+    true,
+  );
+  assert.equal(findSectionHeading("Cache Policy", specLines, "(RFC 9111)").found, false);
+});
+
+test("findSectionHeading: indented-code fence literals do not open fence state", () => {
+  // Codex round-4 P2 on PR #224: CommonMark allows at most 3 spaces of
+  // fence-opener indentation — a ``` at 4+ spaces is indented-code literal
+  // text. Under an unrestricted \s* opener it would open phantom fence
+  // state and swallow every later real heading.
+  const specLines = ["Some prose.", "    ```", "    still code", "## After Indented (real)"];
+  assert.equal(findSectionHeading("After Indented", specLines).found, true);
+  // 1-3-space indentation (the Plan-026 list-fence shape) still opens.
+  const listFence = ["   ```", "## Hidden (x)", "   ```", "## Visible (y)"];
+  assert.equal(findSectionHeading("Hidden", listFence).found, false);
+  assert.equal(findSectionHeading("Visible", listFence).found, true);
+});
+
+test("findSectionHeading: headings inside multi-line HTML comments are not citable", () => {
+  // Codex round-4 P2 on PR #224: a commented-out `## Phantom (v1)` renders
+  // as nothing, so neither the exact pass nor the suffix fallback may bind
+  // it — this hole predates the fallback (the exact pass has read comment
+  // interiors since PR #96).
+  const specLines = ["<!--", "## Phantom (v1)", "-->", "## Real (v2)", "body"];
+  assert.equal(findSectionHeading("Phantom", specLines).found, false);
+  assert.equal(findSectionHeading("Phantom", specLines, "(v1)").found, false);
+  assert.equal(findSectionHeading("Real", specLines).found, true);
+  // A single-line comment is inline content, not a state transition.
+  const inline = ["prose <!-- annotation -->", "## Next (n)"];
+  assert.equal(findSectionHeading("Next", inline).found, true);
+  // Comment markers inside a fence are literal — they must not open
+  // comment state that outlives the fence.
+  const commentInFence = ["```", "<!--", "```", "## After (z)"];
+  assert.equal(findSectionHeading("After", commentInFence).found, true);
+});
+
+test("PASS 55: gloss group between the suffix and the line anchor still parses the anchor", () => {
+  // Codex round-5 P2 on PR #224: the multi-group form `§X (suffix) (gloss)
+  // line N` must consume the whole group run and reach the anchor parser.
+  const { anchors, parseFailures, verifyFailures } = verifyAll(
+    "Spec-002 §Usage Telemetry (usage_telemetry) (`usage.tokens` gloss) line 51",
+  );
+  assert.equal(parseFailures.length, 0);
+  assert.equal(verifyFailures.length, 0);
+  assert.equal(anchors[0].type, "line");
+  assert.equal(anchors[0].line, 51);
+  assert.equal(anchors[0].sectionDescriptor, "(usage_telemetry) (`usage.tokens` gloss)");
+});
+
+test("FAIL 53: an impossible line after suffix + gloss groups no longer passes as section-only", () => {
+  const { verifyFailures } = verifyAll(
+    "Spec-002 §Usage Telemetry (usage_telemetry) (gloss) line 999999",
+  );
+  assert.equal(verifyFailures.length, 1);
+  assert.equal(verifyFailures[0].result.reason, "line-out-of-range");
+});
+
+test("re-sectioning latches off the prefix suffix even when the section name repeats", () => {
+  // Codex round-5 P2 on PR #224: `§A (sfx) line N, §B line M, §A line K` —
+  // the third anchor re-declares the section by NAME; it must not inherit
+  // the prefix run's `(sfx)` claim (string equality on the name is not
+  // scope membership).
+  const { anchors, parseFailures } = verifyAll(
+    "Spec-002 §Usage Telemetry (usage_telemetry) line 51, §Acceptance Criteria line 45, §Usage Telemetry line 52",
+  );
+  assert.equal(parseFailures.length, 0);
+  assert.equal(anchors.length, 3);
+  assert.equal(anchors[0].sectionDescriptor, "(usage_telemetry)");
+  assert.equal(anchors[1].sectionDescriptor, null);
+  assert.equal(anchors[2].sectionDescriptor, null);
+});
+
+test("findSectionHeading: ATX closing hashes do not hide the trailing suffix", () => {
+  // Codex round-5 P2 on PR #224: `## Interface (V1) ##` is structurally
+  // `## Interface (V1)`; the closing-hash run must strip before the paren
+  // walk or both bare and suffixed cites fail section-not-found.
+  const specLines = ["## Interface (V1) ##", "body"];
+  assert.equal(findSectionHeading("Interface", specLines).found, true);
+  assert.equal(findSectionHeading("Interface", specLines, "(V1)").found, true);
+  assert.equal(findSectionHeading("Interface", specLines, "(V2)").found, false);
+});
+
+test("findSectionHeading: punctuation-only suffixes survive exact-normalization erasure", () => {
+  // Codex round-5 P2 on PR #224: normalizeTokenForMatch strips `(+)`
+  // entirely, so `## Interface (+)` exact-matches the bare target and
+  // previously skipped candidate collection — letting a contradictory
+  // `(-)` cite pass as free-text gloss. The line now registers as both
+  // exact hit and suffix candidate.
+  const specLines = ["## Interface (+)", "body"];
+  assert.equal(findSectionHeading("Interface", specLines).found, true);
+  assert.equal(findSectionHeading("Interface", specLines, "(+)").found, true);
+  assert.equal(findSectionHeading("Interface", specLines, "(-)").found, false);
+});
+
+test("findSectionHeading: blockquoted fences hide their example headings", () => {
+  // Codex round-5 P2 on PR #224: `> ```md` opens a fence whose
+  // lazy-continuation interior lines (no `>` prefix) are still fenced
+  // content. Prefix handling mirrors tools/docs-corpus/lib/
+  // markdown-fences.ts stripBlockquotePrefix.
+  const specLines = ["> ```md", "## Phantom (v1)", "> ```", "## Real (v2)", "body"];
+  assert.equal(findSectionHeading("Phantom", specLines).found, false);
+  assert.equal(findSectionHeading("Real", specLines).found, true);
+});
+
+test("findSectionHeading: backtick-fence info strings may not contain backticks", () => {
+  // Codex round-6 P2 on PR #224: a ```ts`x line is inline code, not a
+  // fence opener (CommonMark 4.5; advanceFenceState parity) — treating it
+  // as a fence swallowed every later heading until a matching closer.
+  const inlineCode = ["```ts`inline`x", "## Real (v1)", "body"];
+  assert.equal(findSectionHeading("Real", inlineCode).found, true);
+  // A tilde fence's info string MAY carry backticks — it still opens.
+  const tilde = ["~~~ts`x", "## Phantom (v1)", "~~~", "## Real (v2)", "body"];
+  assert.equal(findSectionHeading("Phantom", tilde).found, false);
+  assert.equal(findSectionHeading("Real", tilde).found, true);
+});
+
+test("findSectionHeading: multi-line code spans mask comment markers", () => {
+  // Codex round-6 P2 on PR #224: a code span whose equal-length backtick
+  // runs sit on different lines is code in between — a raw `<!--` there
+  // must not enter comment state and swallow the following headings.
+  const masked = [
+    "prose `span opens",
+    "<!-- this is span text",
+    "and closes` here",
+    "## Real (v1)",
+    "body",
+  ];
+  assert.equal(findSectionHeading("Real", masked).found, true);
+  // An UNCLOSED run is literal backticks, so the `<!--` after it is a real
+  // comment opener — the lookahead decides at open time, never
+  // retroactively.
+  const unclosed = [
+    "prose `never closes",
+    "<!-- opens for real",
+    "## Phantom (v1)",
+    "-->",
+    "## Real (v2)",
+    "body",
+  ];
+  assert.equal(findSectionHeading("Phantom", unclosed).found, false);
+  assert.equal(findSectionHeading("Real", unclosed).found, true);
+});
+
+test("findSectionHeading: ATX headings cap at six hashes", () => {
+  // Codex round-6 P2 on PR #224: `####### Phantom (v1)` is prose, not a
+  // level-7 heading (CommonMark 4.2) — it must not seed the suffix
+  // fallback.
+  const specLines = ["####### Phantom (v1)", "###### Real (v1)", "body"];
+  assert.equal(findSectionHeading("Phantom", specLines).found, false);
+  assert.equal(findSectionHeading("Real", specLines).found, true);
+});
+
+test("findSectionHeading: unbalanced cited descriptor groups reject", () => {
+  // Codex round-6 P2 on PR #224: `§Usage (wrong` starts a suffix claim
+  // that never balances — treating it as a bare cite let the fallback
+  // bind a heading the malformed claim may contradict.
+  const specLines = ["## Usage (v1)", "body"];
+  assert.equal(findSectionHeading("Usage", specLines, "(wrong").found, false);
+  assert.equal(findSectionHeading("Usage", specLines, "(v1)").found, true);
+  // A tail with no leading paren is still the free-text gloss path.
+  const bare = ["## Usage", "body"];
+  assert.equal(findSectionHeading("Usage", bare, "— free-text gloss").found, true);
+});
+
+test("findSectionHeading: underscore emphasis strips only at delimiter positions", () => {
+  // Codex round-6 P2 on PR #224: `## Interface (_V1_)` renders its suffix
+  // as emphasized V1, so `(V1)` must bind — while the interior underscore
+  // of `(usage_telemetry)` is semantic and must stay distinct.
+  const emphasized = ["## Interface (_V1_)", "body"];
+  assert.equal(findSectionHeading("Interface", emphasized, "(V1)").found, true);
+  const snake = ["## Events (usage_telemetry)", "## Events (usagetelemetry)", "body"];
+  const bound = findSectionHeading("Events", snake, "(usage_telemetry)");
+  assert.equal(bound.found, true);
+  assert.equal(bound.headingLine, "## Events (usage_telemetry)");
+  assert.equal(findSectionHeading("Events", snake, "(usage-telemetry)").found, false);
+});
+
+test("findSectionHeading: punctuation-only suffix siblings make a bare cite ambiguous", () => {
+  // Codex round-6 P2 on PR #224: `## Interface (+)` and `## Interface (-)`
+  // both erase to the bare target in the exact comparison, so the exact
+  // slot is reserved for genuinely unsuffixed headings — a bare
+  // `§Interface` cannot silently bind the first sibling.
+  const siblings = ["## Interface (+)", "## Interface (-)", "body"];
+  assert.equal(findSectionHeading("Interface", siblings).found, false);
+  assert.equal(findSectionHeading("Interface", siblings, "(+)").found, true);
+  // A genuinely unsuffixed heading still wins the bare cite outright.
+  const withBare = ["## Interface", "## Interface (V2)", "body"];
+  const bareHit = findSectionHeading("Interface", withBare);
+  assert.equal(bareHit.found, true);
+  assert.equal(bareHit.headingLine, "## Interface");
+});
+
+test("findSectionHeading: raw HTML blocks hide their example headings", () => {
+  // Codex round-6 P2 on PR #224: a `<pre>`/`<script>` block (CommonMark
+  // 4.6 type 1) and a block-tag region ended by a blank line (type 6)
+  // render raw, so a `## Phantom` inside satisfies no cite.
+  const typeOne = ["<pre>", "## Phantom (v1)", "</pre>", "## Real (v2)", "body"];
+  assert.equal(findSectionHeading("Phantom", typeOne).found, false);
+  assert.equal(findSectionHeading("Real", typeOne).found, true);
+  const typeSix = ["<details>", "## Phantom (v1)", "", "## Real (v2)", "body"];
+  assert.equal(findSectionHeading("Phantom", typeSix).found, false);
+  assert.equal(findSectionHeading("Real", typeSix).found, true);
+  // A single-line block (`<!DOCTYPE html>`, type 4) closes on its own
+  // line and must not swallow the document tail.
+  const singleLine = ["<!DOCTYPE html>", "## Real (v1)", "body"];
+  assert.equal(findSectionHeading("Real", singleLine).found, true);
 });
 
 test("FAIL 42: ac-line-hint-wrong-bullet binds the hint to the cited AC-N", () => {
