@@ -255,6 +255,28 @@ test("findSectionBoundary treats a 4-space-indented ``` as literal, not a fence 
   assert.ok(atL >= 0 && listFence.slice(atL).startsWith("## Real Boundary"));
 });
 
+test("findSectionBoundary rejects backtick-fence info strings containing backticks", () => {
+  // Codex round-6, PR #224 (advanceFenceState parity): a ```md`inline line
+  // is inline code, not a fence opener — under the unguarded regex it
+  // opened phantom fence state and swallowed the real boundary.
+  const inlineCode = ["intro", "```md`inline", "prose", "## Real Boundary"].join("\n");
+  const at = findSectionBoundary(inlineCode);
+  assert.ok(at >= 0 && inlineCode.slice(at).startsWith("## Real Boundary"));
+});
+
+test("findSectionBoundary skips raw HTML blocks and multi-line code spans", () => {
+  // Codex round-6, PR #224: a heading-looking line inside a `<script>`
+  // block (CommonMark 4.6 type 1) or a multi-line code span is raw
+  // content, not a section boundary.
+  const html = ["<script>", "## Not A Boundary", "</script>", "## Real Boundary"].join("\n");
+  const atH = findSectionBoundary(html);
+  assert.ok(atH >= 0 && html.slice(atH).startsWith("## Real Boundary"));
+
+  const span = ["a `open", "<!-- masked by the span", "close` b", "## Real Boundary"].join("\n");
+  const atS = findSectionBoundary(span);
+  assert.ok(atS >= 0 && span.slice(atS).startsWith("## Real Boundary"));
+});
+
 test("extractPhaseSection keeps a fenced ## / ### Phase example in the body and bounds only at the real sibling", () => {
   // Fence-awareness regression: a phase whose body shows a fenced markdown
   // example (with `## ` and `### Phase` lines) must not be truncated at that

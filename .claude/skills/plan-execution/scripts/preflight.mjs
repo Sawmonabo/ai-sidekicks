@@ -92,7 +92,8 @@ export function extractPhaseSection(planSource, phaseNumber) {
 
 // Shared per-line structural-scan state for findSectionBoundary and
 // findSectionHeading — one transition function so the two scanners cannot
-// drift (Codex round-4, PR #224). Tracks two kinds of non-content region:
+// drift (Codex round-4, PR #224). Tracks the CommonMark non-content
+// regions that can hide or fabricate headings:
 //
 // Fenced code blocks, per CommonMark: an opening ``` / ~~~ run of length N
 // at AT MOST 3 spaces of indentation (4+ spaces is an indented code block
@@ -100,26 +101,241 @@ export function extractPhaseSection(planSource, phaseNumber) {
 // closing run of the same character and length >= N — bare remainder, no
 // info string — closes, so a longer outer run contains shorter inner runs
 // (a 4-backtick fence wraps 3-backtick lines), matching the nesting plans
-// use. The corpus holds 1-3-space list-indented fences (Plan-026) and no
-// deeper ones, so the flat 0-3 rule is exact for every real doc.
+// use. A BACKTICK fence's info string may not itself contain a backtick
+// (CommonMark 4.5; parity with tools/docs-corpus advanceFenceState —
+// Codex round-6, PR #224): a ```ts`x line is inline code, not a
+// delimiter, and must not swallow the headings that follow. Tilde info
+// strings may carry backticks; closers are unaffected (their tails are
+// whitespace-only). The corpus holds 1-3-space list-indented fences
+// (Plan-026) and no deeper ones, so the flat 0-3 rule is exact for every
+// real doc.
 //
-// Multi-line HTML comments: a commented-out `## Heading` renders as
-// nothing, so it must satisfy neither the exact heading pass nor the
-// suffix fallback, and must not terminate a phase section. A comment
-// opened and closed on ONE line stays content (inline annotation); the
-// interior of a multi-line comment is consumed. Comment markers inside a
-// fence are literal (fence state is checked first); fence markers inside
-// a comment are inert (comment interior is consumed before the opener
-// check). The `--` interior restrictions of the HTML spec are not
-// modeled — this is a structural approximation for lint scanning.
+// Raw HTML blocks (CommonMark 4.6 types 1-6): `<pre>`/`<script>`/
+// `<style>`/`<textarea>` blocks (type 1, closed by the line carrying the
+// matching end tag), multi-line HTML comments (type 2), processing
+// instructions / declarations / CDATA (types 3-5, closed by `?>` / `>` /
+// `]]>`), and block-level tag lines (type 6, closed by the next blank
+// line) all render as raw HTML, so a `## Phantom` inside any of them is
+// not a citable heading and must not terminate a phase section (Codex
+// round-6, PR #224). Type 7 (a lone arbitrary complete tag) is
+// deliberately not modeled: it cannot interrupt a paragraph, so honoring
+// it without paragraph tracking would over-consume prose, and the corpus
+// holds no such blocks. Type-2 comments keep mid-line open semantics (an
+// inline `<!-- ... -->` spanning lines is equally non-rendered); the
+// `--` interior restrictions of the HTML spec are not modeled — this is
+// a structural approximation for lint scanning.
+//
+// Multi-line inline code spans: a span whose equal-length backtick runs
+// sit on different lines is code in between, so a raw `<!--` there is
+// prose, not a comment opener (Codex round-6, PR #224). A run OPENS a
+// span only when an equal-length run closes it before the paragraph can
+// end — the lookahead stops at blank lines, headings, fence delimiters,
+// thematic breaks, list starts, and HTML-block opens, the constructs
+// CommonMark lets interrupt a paragraph — otherwise the run is literal
+// backticks and any `<!--` after it counts. Block precedence holds by
+// construction: a confirmed span's interior can contain none of those
+// interrupters, so no real heading is ever consumed as span content.
 function createStructuralScanState() {
-  return { fenceChar: "", fenceLen: 0, inHtmlComment: false };
+  return { fenceChar: "", fenceLen: 0, htmlBlockClose: null, spanLen: 0 };
 }
 
-// Advances `state` across `line`. Returns true when the line is structural
-// interior/delimiter (fence delimiter, fenced content, comment interior)
-// that no heading scan may read; false when the line is document content.
-function structuralScanConsumes(state, line) {
+// CommonMark 4.6 type-6 tag names (block-level HTML). `pre`/`script`/
+// `style`/`textarea` are type 1 and matched first.
+const HTML_BLOCK_TAGS = new Set([
+  "address",
+  "article",
+  "aside",
+  "base",
+  "basefont",
+  "blockquote",
+  "body",
+  "caption",
+  "center",
+  "col",
+  "colgroup",
+  "dd",
+  "details",
+  "dialog",
+  "dir",
+  "div",
+  "dl",
+  "dt",
+  "fieldset",
+  "figcaption",
+  "figure",
+  "footer",
+  "form",
+  "frame",
+  "frameset",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "head",
+  "header",
+  "hr",
+  "html",
+  "iframe",
+  "legend",
+  "li",
+  "link",
+  "main",
+  "menu",
+  "menuitem",
+  "nav",
+  "noframes",
+  "ol",
+  "optgroup",
+  "option",
+  "p",
+  "param",
+  "search",
+  "section",
+  "summary",
+  "table",
+  "tbody",
+  "td",
+  "tfoot",
+  "th",
+  "thead",
+  "title",
+  "tr",
+  "track",
+  "ul",
+]);
+
+// HTML-block open detection (line-start, <=3-space indent, per CommonMark
+// 4.6). Returns the close-condition kind or null. Comments (type 2) are
+// NOT opened here — their mid-line open semantics live in
+// scanLineContent, and `<!--` matches none of these patterns.
+function htmlBlockOpenKind(content) {
+  if (/^ {0,3}<(?:pre|script|style|textarea)(?=[\s/>]|$)/i.test(content)) return "tag";
+  if (/^ {0,3}<\?/.test(content)) return "pi";
+  if (/^ {0,3}<!\[CDATA\[/.test(content)) return "cdata";
+  if (/^ {0,3}<![A-Za-z]/.test(content)) return "decl";
+  const tagMatch = /^ {0,3}<\/?([A-Za-z][A-Za-z0-9-]*)(?=[\s/>]|$)/.exec(content);
+  if (tagMatch && HTML_BLOCK_TAGS.has(tagMatch[1].toLowerCase())) return "blank";
+  return null;
+}
+
+// Applies an open HTML block's end condition to `line`, clearing the state
+// when it closes. Called from the in-block branch AND on the open line
+// itself — types 1 and 3-5 may open and close on ONE line (`<!DOCTYPE
+// html>`), and skipping the same-line check would swallow the document
+// tail. Close detection reads the raw line: block interiors are raw HTML
+// where backticks have no code-span meaning.
+function advanceHtmlBlockClose(state, line) {
+  if (state.htmlBlockClose === "comment") {
+    if (line.includes("-->")) {
+      state.htmlBlockClose = line.lastIndexOf("<!--") > line.lastIndexOf("-->") ? "comment" : null;
+    }
+    return;
+  }
+  if (state.htmlBlockClose === "blank") {
+    if (/^\s*$/.test(line)) state.htmlBlockClose = null;
+    return;
+  }
+  if (
+    (state.htmlBlockClose === "tag" && /<\/(?:pre|script|style|textarea)>/i.test(line)) ||
+    (state.htmlBlockClose === "pi" && line.includes("?>")) ||
+    (state.htmlBlockClose === "decl" && line.includes(">")) ||
+    (state.htmlBlockClose === "cdata" && line.includes("]]>"))
+  ) {
+    state.htmlBlockClose = null;
+  }
+}
+
+// First backtick run of EXACTLY `length` in `text` (a longer run is not a
+// span closer, per CommonMark), or null.
+function findEqualBacktickRun(text, length) {
+  let i = 0;
+  while (i < text.length) {
+    const start = text.indexOf("`", i);
+    if (start === -1) return null;
+    let end = start;
+    while (end < text.length && text[end] === "`") end += 1;
+    if (end - start === length) return { start, end };
+    i = end;
+  }
+  return null;
+}
+
+// A line that ends the paragraph a tentative code span lives in — the
+// span opener is literal backticks when one of these arrives before its
+// closer. Tested on blockquote-stripped content; quote depth is
+// deliberately transparent, matching the fence tracker's flat rule.
+function isParagraphInterrupter(content) {
+  if (/^\s*$/.test(content)) return true;
+  if (/^ {0,3}#{1,6}(?:\s|$)/.test(content)) return true;
+  if (/^ {0,3}([-_*])(?:[ \t]*\1){2,}[ \t]*$/.test(content)) return true;
+  if (/^ {0,3}(?:[-+*]|\d{1,9}[.)])[ \t]/.test(content)) return true;
+  const fenceMatch = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(content);
+  if (fenceMatch && !(fenceMatch[1][0] === "`" && fenceMatch[2].includes("`"))) return true;
+  return htmlBlockOpenKind(content) !== null;
+}
+
+// Does a backtick run of exactly `length` arrive before a paragraph
+// interrupter? Decides tentative span openers at open time, so an
+// unclosed run never retroactively masks a real `<!--`.
+function multilineSpanCloses(lines, from, length) {
+  for (let i = from; i < lines.length; i += 1) {
+    const content = lines[i].replace(/^(?: {0,3}>)+ ?/, "");
+    if (isParagraphInterrupter(content)) return false;
+    if (findEqualBacktickRun(content, length) !== null) return true;
+  }
+  return false;
+}
+
+// Scans one line's content (or the tail after a multi-line span closer)
+// for code spans and comment openers, mutating `state`. Backtick runs
+// walk left to right: a run pairing with a same-line equal-length run is
+// a same-line span (interior masked); a run whose closer sits on a later
+// line — confirmed via multilineSpanCloses — opens span state and ends
+// the walk; an unclosed run is literal and the walk continues after it.
+// A raw `<!--` in the surviving prose opens comment state; inside
+// backticks it is prose (`use \`<!--\` to open a comment` must not
+// swallow later headings — Codex rounds 5-6, PR #224).
+function scanLineContent(state, lines, index, text) {
+  let prose = "";
+  let i = 0;
+  while (i < text.length) {
+    const runStart = text.indexOf("`", i);
+    if (runStart === -1) {
+      prose += text.slice(i);
+      break;
+    }
+    prose += text.slice(i, runStart);
+    let runEnd = runStart;
+    while (runEnd < text.length && text[runEnd] === "`") runEnd += 1;
+    const runLength = runEnd - runStart;
+    const sameLineCloser = findEqualBacktickRun(text.slice(runEnd), runLength);
+    if (sameLineCloser) {
+      i = runEnd + sameLineCloser.end;
+      continue;
+    }
+    if (multilineSpanCloses(lines, index + 1, runLength)) {
+      state.spanLen = runLength;
+      break;
+    }
+    i = runEnd;
+  }
+  if (prose.lastIndexOf("<!--") > prose.lastIndexOf("-->")) {
+    // The line OPENS an unclosed comment; text before the `<!--` is still
+    // content (a real heading carrying a trailing comment opener keeps its
+    // boundary role — its § match self-excludes on the polluted tail).
+    state.htmlBlockClose = "comment";
+  }
+}
+
+// Advances `state` across `lines[index]`. Returns true when the line is
+// structural interior/delimiter (fence delimiter, fenced content, raw
+// HTML block, multi-line span interior) that no heading scan may read;
+// false when the line is document content. Takes the whole line array:
+// tentative span openers need lookahead to the closer-or-interrupter.
+function structuralScanConsumes(state, lines, index) {
+  const line = lines[index];
   // Blockquote-prefix parity with tools/docs-corpus/lib/markdown-fences.ts
   // `stripBlockquotePrefix`: a quoted fence opener (`> ```md`) with
   // lazy-continuation interior lines hides quoted example headings exactly
@@ -128,25 +344,33 @@ function structuralScanConsumes(state, line) {
   // tracker makes. Fence detection reads the stripped content; heading
   // tests in the callers stay raw, so `> ## quoted` is still not a heading.
   const content = line.replace(/^(?: {0,3}>)+ ?/, "");
-  const fence = /^ {0,3}(`{3,}|~{3,})/.exec(content);
+  const fenceMatch = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(content);
+  const fence =
+    fenceMatch && !(fenceMatch[1][0] === "`" && fenceMatch[2].includes("`")) ? fenceMatch : null;
   if (state.fenceChar !== "") {
     if (
       fence &&
       fence[1][0] === state.fenceChar &&
       fence[1].length >= state.fenceLen &&
-      /^\s*$/.test(content.slice(fence[0].length))
+      /^\s*$/.test(fence[2])
     ) {
       state.fenceChar = "";
       state.fenceLen = 0;
     }
     return true;
   }
-  if (state.inHtmlComment) {
-    // Close detection stays raw: a comment interior is raw HTML where
-    // backticks have no code-span meaning.
-    if (line.includes("-->")) {
-      state.inHtmlComment = line.lastIndexOf("<!--") > line.lastIndexOf("-->");
-    }
+  if (state.htmlBlockClose !== null) {
+    advanceHtmlBlockClose(state, line);
+    return true;
+  }
+  if (state.spanLen > 0) {
+    const closer = findEqualBacktickRun(content, state.spanLen);
+    if (closer === null) return true;
+    state.spanLen = 0;
+    // The rest of the line after the closer is ordinary content and may
+    // itself open a new span or comment; the line as a whole is still
+    // consumed (it starts with span interior, so it cannot be a heading).
+    scanLineContent(state, lines, index, content.slice(closer.end));
     return true;
   }
   if (fence) {
@@ -154,19 +378,13 @@ function structuralScanConsumes(state, line) {
     state.fenceLen = fence[1].length;
     return true;
   }
-  // Inline code spans render literally, so a `<!--` inside backticks is
-  // prose, not a comment opener — without stripping, a doc SAYING
-  // "use `<!--` to open a comment" would swallow every later heading
-  // (Codex round-5, PR #224). Same-length-run matching; over-stripping
-  // degrades to not-entering-comment-state, the pre-comment-aware
-  // behavior, never to swallowed content.
-  const spanStripped = content.replace(/(`+).*?\1/g, "");
-  if (spanStripped.lastIndexOf("<!--") > spanStripped.lastIndexOf("-->")) {
-    // The line OPENS an unclosed comment; text before the `<!--` is still
-    // content (a real heading carrying a trailing comment opener keeps its
-    // boundary role — its § match self-excludes on the polluted tail).
-    state.inHtmlComment = true;
+  const htmlKind = htmlBlockOpenKind(content);
+  if (htmlKind !== null) {
+    state.htmlBlockClose = htmlKind;
+    advanceHtmlBlockClose(state, line);
+    return true;
   }
+  scanLineContent(state, lines, index, content);
   return false;
 }
 
@@ -177,7 +395,9 @@ function structuralScanConsumes(state, line) {
 export function findSectionBoundary(body) {
   let offset = 0;
   const scanState = createStructuralScanState();
-  for (const line of body.split("\n")) {
+  const lines = body.split("\n");
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const line = lines[lineIndex];
     // Remainder headings (`### Phase R2`) are real section boundaries too:
     // digit-only matching made the preceding numbered phase swallow the
     // R-section, so its declared-task set absorbed the R-series ids and a
@@ -185,7 +405,7 @@ export function findSectionBoundary(body) {
     // Plan-007 Phase 3 false-halt; surfaced by the external_plan_phase_merged
     // work, Codex P2 PR #193 round 4).
     if (
-      !structuralScanConsumes(scanState, line) &&
+      !structuralScanConsumes(scanState, lines, lineIndex) &&
       (/^### Phase R?\d+/.test(line) || /^## /.test(line))
     ) {
       return offset;
@@ -2113,9 +2333,18 @@ function normalizeTokenForMatch(tok) {
 // collapse (Codex round-3 P2, PR #224) — and strips only case, whitespace,
 // and markdown code/emphasis markers, so a cite may spell a backticked
 // heading suffix (`### Contract Layer (\`packages/contracts/\`)`) without
-// the backticks.
+// the backticks. Underscores strip ONLY at delimiter positions (a run not
+// flanked by a letter/digit on its outer side — CommonMark forbids
+// intra-word `_` emphasis), so `(_V1_)` is citable as `(V1)` while the
+// semantic interior underscore of `(usage_telemetry)` stays load-bearing
+// and distinct (Codex round-6, PR #224). Underscores strip BEFORE
+// whitespace: removing spaces first could join tokens and disguise
+// delimiter runs as phantom intra-word ones.
 function normalizeSuffixForMatch(tok) {
-  return tok.toLowerCase().replace(/[\s`*]/g, "");
+  return tok
+    .toLowerCase()
+    .replace(/(?<![\p{L}\p{N}])_+|_+(?![\p{L}\p{N}])/gu, "")
+    .replace(/[\s`*]/g, "");
 }
 
 // First parenthetical group of a descriptor tail, balanced: against
@@ -2176,7 +2405,7 @@ export function findSectionHeading(sectionName, specLines, citedDescriptorTail =
   // Deletion` cannot synthesize a match against a real `Postgres (Control
   // Plane) Deletion` heading (Codex P2 on PR #224).
   //
-  // Resolution rules (fail-closed; Codex rounds 2-3, PR #224):
+  // Resolution rules (fail-closed; Codex rounds 2-3 and 6, PR #224):
   // - The cited descriptor's FIRST paren group, when present, is read as a
   //   suffix claim. It binds the same-base heading whose real trailing
   //   suffix agrees (punctuation-preserving compare — `(v1.0)` never
@@ -2184,47 +2413,77 @@ export function findSectionHeading(sectionName, specLines, citedDescriptorTail =
   //   suffixed subsection even when a bare `## Required Behavior` sibling
   //   exists (the one real governance pair, Spec-020), and `§Interface
   //   (V1)` can never repair onto `(V2)`.
+  // - A descriptor that LEADS with `(` but never balances (`§Usage
+  //   (wrong`) is a malformed suffix claim, not a gloss → reject.
   // - With NO suffixed same-base sibling in the doc, a descriptor is free-
   //   text gloss and the bare exact hit stands (the pervasive
   //   `§Rate Limiting (20/session/hr …)` idiom).
   // - With suffixed same-base siblings present, a descriptor matching none
   //   of them is undecidable (gloss vs wrong suffix) → reject.
-  // - A bare cite (no descriptor): exact hit wins; else the stripped-match
-  //   candidates must name exactly ONE distinct heading (punctuation-
-  //   preserving distinctness, so `(v1.0)` / `(v10)` siblings stay
-  //   ambiguous) or the cite is rejected.
+  // - A bare cite (no descriptor): a GENUINELY unsuffixed exact hit wins;
+  //   else the stripped-match candidates must name exactly ONE distinct
+  //   heading (punctuation-preserving distinctness, so `(v1.0)` / `(v10)`
+  //   siblings stay ambiguous — and so do `(+)` / `(-)`, whose full texts
+  //   both normalize to the bare target) or the cite is rejected.
   // The scan reads only structural content (shared structuralScanConsumes
   // state with findSectionBoundary): a fenced example `## Phantom (v1)`,
   // a ``` literal inside 4-space-indented code, and a heading inside a
-  // multi-line HTML comment are none of them citable headings. Suffix
-  // extraction is balanced-paren on both sides, so a nested trailing
-  // suffix (`(RFC 9111 (shared cache))`, the Plan-008 CP-008-8 link
-  // shape) strips and compares as one token.
+  // multi-line HTML comment, raw HTML block, or multi-line code span are
+  // none of them citable headings — and a 7-plus-hash pseudo-heading is
+  // prose (CommonMark caps ATX at six). Suffix extraction is
+  // balanced-paren on both sides, so a nested trailing suffix
+  // (`(RFC 9111 (shared cache))`, the Plan-008 CP-008-8 link shape)
+  // strips and compares as one token.
   // Widens-only vs the pre-fallback matcher: exact matches still win, and
   // the PR #96 heading-prefix laxity does not return.
   const target = normalizeTokenForMatch(sectionName);
   const citedGroup =
     typeof citedDescriptorTail === "string" ? leadingParenGroup(citedDescriptorTail) : null;
   const citedSuffix = citedGroup ? normalizeSuffixForMatch(citedGroup.group) : null;
+  // A descriptor tail that LEADS with `(` but never balances (`§Usage
+  // (wrong`) is a malformed suffix claim, not a bare cite — silently
+  // dropping the claim would let the fallback bind a heading the cite may
+  // contradict (Codex round-6, PR #224). A tail with no leading paren
+  // stays on the free-text gloss path.
+  if (
+    typeof citedDescriptorTail === "string" &&
+    citedDescriptorTail.trimStart().startsWith("(") &&
+    citedGroup === null
+  ) {
+    return { found: false };
+  }
   let exactHit = null;
   const suffixCandidates = [];
   const scanState = createStructuralScanState();
-  for (const line of specLines) {
-    if (structuralScanConsumes(scanState, line) || !/^#+\s+/.test(line)) continue;
+  for (let lineIndex = 0; lineIndex < specLines.length; lineIndex += 1) {
+    const line = specLines[lineIndex];
+    // ATX headings cap at SIX hashes (CommonMark 4.2): `####### Phantom`
+    // is prose and must not seed the suffix fallback (Codex round-6,
+    // PR #224).
+    if (structuralScanConsumes(scanState, specLines, lineIndex) || !/^#{1,6}\s+/.test(line)) {
+      continue;
+    }
     // Optional ATX closing hashes (`## Interface (V1) ##`) would hide the
     // trailing suffix from the paren walk; CommonMark requires whitespace
     // before the closing run, so a heading ending in `C#` keeps its hash
     // (Codex round-5, PR #224).
-    const headingText = line.replace(/^#+\s+/, "").replace(/\s+#+\s*$/, "");
-    if (exactHit === null && normalizeTokenForMatch(headingText) === target) {
+    const headingText = line.replace(/^#{1,6}\s+/, "").replace(/\s+#+\s*$/, "");
+    // A heading carrying a trailing paren suffix is never a GENUINE exact
+    // hit: a punctuation-only suffix (`## Interface (+)`) normalizes away
+    // in the exact comparison, so full-text "exact" matches let a bare
+    // cite bypass the sibling-ambiguity check (`(+)` vs `(-)` both
+    // erase to the target) and let the gloss pass ride an erased suffix.
+    // Suffixed headings register ONLY as suffix candidates; the exact
+    // slot is reserved for headings with no trailing suffix (Codex
+    // rounds 5-6, PR #224).
+    const trailingSuffix = trailingParenSuffix(headingText);
+    if (
+      trailingSuffix === null &&
+      exactHit === null &&
+      normalizeTokenForMatch(headingText) === target
+    ) {
       exactHit = { found: true, headingLine: line.trim() };
     }
-    // No `continue` after an exact hit: a punctuation-only suffix
-    // (`## Interface (+)`) normalizes away in the exact comparison, so the
-    // same line must STILL register as a suffix candidate — otherwise a
-    // contradictory cite (`(-)`) sees zero candidates and passes as
-    // free-text gloss against the `(+)` heading (Codex round-5, PR #224).
-    const trailingSuffix = trailingParenSuffix(headingText);
     if (trailingSuffix) {
       const strippedHeading = headingText.slice(0, trailingSuffix.start).trimEnd();
       if (normalizeTokenForMatch(strippedHeading) === target) {
