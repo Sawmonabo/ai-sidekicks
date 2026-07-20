@@ -147,7 +147,7 @@ CREATE TABLE interventions (
 CREATE INDEX idx_interventions_run ON interventions(target_run_id);
 CREATE INDEX idx_interventions_state ON interventions(state) WHERE state IN ('requested', 'accepted');
 
--- Owner: Plan-004 | Extended by: Plan-015 (recovery + two-phase idempotency protocol, BL-051)
+-- Owner: Plan-004 | Extended by: Plan-015 (recovery + two-phase idempotency protocol, BL-051); Plan-005 (additive nullable mcp_task_id — MCP Tasks durable recovery handle, campaign B10; own Plan-005 migration, never a Plan-004 migration edit)
 CREATE TABLE command_receipts (
   id                TEXT PRIMARY KEY,
   command_id        TEXT NOT NULL UNIQUE,         -- idempotency key (client-supplied)
@@ -160,6 +160,17 @@ CREATE TABLE command_receipts (
   dedupe_key        TEXT,                         -- propagated to remote side for 'compensable' tools
   started_at        TEXT,                         -- set by Phase 2 optimistic CAS; NULL until claimed
   completed_at      TEXT,                         -- set by Phase 3; NULL until terminal-status
+  -- Plan-005 EXTEND (campaign B10; additive nullable, own Plan-005 migration): receiver-generated
+  -- MCP Tasks taskId for a task-augmented MCP call (from the CreateTaskResult acceptance response).
+  -- NULL until the receiver accepts — a crash before that leaves NULL and the call stays on the
+  -- manual_reconcile_only halt. Spec-015 recovery reads this handle and polls tasks/get + tasks/result
+  -- instead of halting (Plan-005 T5.1, the gated Phase 5 — the T3.13 receipt-write seam ships dormant
+  -- until T5.1 lands this column after Plan-004 Phase 1's CREATE; cross-plan-dependencies.md §1
+  -- command_receipts EXTEND row). Bounded like every persisted provider-declared string (the
+  -- runtime_bindings defense-in-depth convention): the taskId is untrusted remote-peer output, so the
+  -- CHECK bounds the SQLite-expressible part and the T5.1 write seam mirrors the same 256 literal.
+  mcp_task_id       TEXT                          -- NULL default; MCP Tasks durable recovery handle
+                    CHECK (mcp_task_id IS NULL OR (length(mcp_task_id) > 0 AND length(mcp_task_id) <= 256 AND instr(mcp_task_id, char(0)) = 0)),
   created_at        TEXT NOT NULL
 );
 
@@ -194,6 +205,7 @@ CREATE TABLE runtime_bindings (
                       CHECK ((cli_version_semver IS NULL) = (cli_version_raw IS NULL) AND (cli_version_semver IS NULL OR (length(cli_version_semver) > 0 AND length(cli_version_semver) <= 64 AND instr(cli_version_semver, char(0)) = 0))),
   resume_handle       TEXT                      -- provider-owned opaque handle
                       CHECK (resume_handle IS NULL OR (length(resume_handle) > 0 AND length(resume_handle) <= 4096 AND instr(resume_handle, char(0)) = 0)),
+  spawn_config        TEXT NOT NULL DEFAULT '{}', -- JSON: daemon-owned record of the spawn-bound configuration realized at process spawn (executionPosture / callbackTools / subagentPolicy / outputSchema + the admitted cap); written at every spawn — the durable source recovery re-reads to reconstruct ResumeSessionParams' data legs without the original client request (function legs re-injected fresh, never stored; campaign B10 T1.7 catch-up migration, Codex rounds 3–4). Daemon-constructed, so no provider-string CHECK — same trust class as runtime_metadata below
   runtime_metadata    TEXT NOT NULL DEFAULT '{}', -- JSON: provider-specific recovery data
   created_at          TEXT NOT NULL,
   updated_at          TEXT NOT NULL

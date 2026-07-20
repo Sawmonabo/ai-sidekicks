@@ -636,7 +636,9 @@ Refusals are typed in [Error Contracts §PTY](./error-contracts.md#pty): role au
 // Zod validates ONLY the surfaces that parse UNTRUSTED
 // provider output (the trust boundary): the result envelopes `DriverInterventionResult`,
 // `DriverResumeResult`, `DriverRollbackResult`, `DriverGoalResult`, and `DriverAuthProbeResult`,
-// and provider-declared `ProviderToolMetadata`.
+// provider-declared `ProviderToolMetadata`, and the driver-normalized `CallbackToolInvocation` /
+// `McpServerStatusEmission` (each built from provider wire output before the daemon-injected
+// seam sees it, campaign B10).
 // `resumeSession` returns the `DriverResumeResult` discriminated union (defined below)
 // to make silent-replacement structurally inexpressible per Spec-005:69.
 // `getCapabilities` returns the `GetCapabilitiesResult` wrapper (defined below) so the
@@ -646,11 +648,14 @@ Refusals are typed in [Error Contracts §PTY](./error-contracts.md#pty): role au
 // §Default Behavior forward-compat: "Unknown capability fields are ignored (tolerant
 // reader)" — campaign B3 re-framed contractVersion as change-detection, not negotiation),
 // while the result envelopes reject unknown keys (`.strict()`);
-// and all nine untrusted provider-output free-form strings (`ProviderToolMetadata.name`/`.description`,
+// and all twelve untrusted provider-output free-form strings (`ProviderToolMetadata.name`/`.description`,
 // `DriverInterventionResult.fallbackAction`, `DriverResumeResult.bindingId`/`.providerFailureDetail`,
 // `DriverRollbackResult.fallbackAction`/`.bindingId`, `DriverGoalResult.fallbackAction`,
-// `DriverAuthProbeResult.detail`) — each on a Zod-validated result envelope or `ProviderToolMetadata`
-// above — are runtime-bounded (length + non-whitespace + NUL-rejection) via the package's `wireFreeFormString`
+// `DriverAuthProbeResult.detail`, `CallbackToolInvocation.toolName`/`.toolCallId`,
+// `McpServerStatusEmission.serverName` — the last three added by campaign B10, Codex rounds 4–5) —
+// each on a Zod-validated result envelope, `ProviderToolMetadata`, or a driver-normalized
+// seam shape (`CallbackToolInvocation` / `McpServerStatusEmission`) below —
+// are runtime-bounded (length + non-whitespace + NUL-rejection) via the package's `wireFreeFormString`
 // helper — Zod constraints not expressible in these TS interface shapes.
 interface ProviderDriver {
   createSession(params: CreateSessionParams): Promise<ProviderSessionHandle>;
@@ -681,6 +686,9 @@ interface CreateSessionParams {
   executionPosture?: ExecutionPosture; // spawn-time posture — provider legs that bind posture at process spawn (Claude `--settings` sandbox) realize it here; the per-run effective posture rides StartRunParams (Spec-005 §Required Behavior, campaign B3)
   callbackTools?: SessionCallbackTool[]; // daemon-curated callback-tool registry exposed into the session (Codex function-form dynamicTools; Claude daemon-hosted ephemeral MCP server via --mcp-config); gated on the callback_tools flag
   subagentPolicy?: SubagentPolicy; // provider-native in-session subagent policy pass-through under the single-supervisor invariant (Spec-016 semantics land via campaign B6); gated on the subagents flag
+  outputSchema?: Record<string, unknown>; // normalized JSON Schema constraining schema-constrained final output (Spec-005 §Per-Driver Capability Matrix structured_output, campaign B10); gated on the structured_output flag. The Claude leg binds it per session at spawn (--json-schema); the Codex leg realizes it per turn via StartRunParams.outputSchema (turn/start.outputSchema). Named consumers: Spec-024 dispatch results, Plan-016 orchestration reads
+  onCallbackToolCall?: (invocation: CallbackToolInvocation) => Promise<CallbackToolResult>; // daemon-injected callback-tool dispatcher (campaign B10); the driver invokes it on a provider callback-tool request and answers the provider with the result. Gated on the callback_tools flag; the daemon-side host routes through Plan-012's Cedar pipeline (CP-005-7 / B13 T2.8). See CallbackToolInvocation below
+  onMcpServerStatus?: McpServerStatusProducer; // daemon-injected MCP server-status sink (campaign B10); the driver emits the per-session MCP server-status census (init) + status-change updates through it as typed McpServerStatusEmission values — the closure is pre-bound to the leg identity (sessionId + bindingId) at spawn and stamps them into the consumer-facing McpServerStatusUpdate (Codex round 5). Producer-only — consumer lands with Spec-028/B18. See McpServerStatusEmission below
 }
 
 interface ResumeSessionParams {
@@ -691,6 +699,19 @@ interface ResumeSessionParams {
   // provider-side hard stop survives daemon restart and session relaunch (Plan-015 recovery resumes
   // bindings through this seam; realized like StartRunParams.admittedCostCapCents on cap-capable legs)
   admittedCostCapCents?: number;
+  // Resume is a FRESH process spawn (the C-12 posture-relaunch precedent), so every spawn-bound
+  // surface CreateSessionParams binds must re-realize here or the resumed leg silently sheds it —
+  // a posture-less resume relaunches UNSANDBOXED, a schema-less one unconstrained (campaign B10,
+  // Codex rounds 3–4). The four DATA legs below are reconstructed by the daemon from the durable
+  // runtime_bindings.spawn_config record (written at every spawn; Plan-005 T1.7) — never from the
+  // original client request, which recovery does not have; the two FUNCTION legs are re-injected
+  // fresh at every spawn (functions are never stored in spawn_config).
+  executionPosture?: ExecutionPosture;
+  callbackTools?: SessionCallbackTool[];
+  subagentPolicy?: SubagentPolicy;
+  outputSchema?: Record<string, unknown>; // the Claude leg re-binds per session at spawn (--json-schema); the Codex leg realizes per turn via StartRunParams.outputSchema
+  onCallbackToolCall?: (invocation: CallbackToolInvocation) => Promise<CallbackToolResult>; // re-injected dispatcher — an omitted rebind would strand provider callback-tool requests unanswered on the resumed leg
+  onMcpServerStatus?: McpServerStatusProducer; // re-injected census sink, pre-bound to the resumed leg's identity — the resumed leg re-emits its init census through it
 }
 
 interface StartRunParams {
@@ -704,6 +725,7 @@ interface StartRunParams {
   agentConfig: Record<string, unknown>;
   conversationHistory?: unknown[];
   executionPosture?: ExecutionPosture; // per-run effective posture — the same object the daemon stamps on run.running (Spec-006 §Run Lifecycle). Codex realizes per-turn (turn/start sandbox params); a provider that binds posture at spawn realizes it at session boundaries, and a mid-session posture change on such a leg resolves via session relaunch, never silent partial application (Spec-005 §Required Behavior, campaign B3)
+  outputSchema?: Record<string, unknown>; // per-turn schema-constrained final output (Codex turn/start.outputSchema); the Claude leg binds it at spawn via CreateSessionParams.outputSchema (--json-schema). Gated on structured_output (Spec-005 §Per-Driver Capability Matrix, campaign B10)
 }
 
 interface InterruptRunParams {
@@ -782,7 +804,7 @@ interface RollbackToParams {
 type DriverRollbackResult =
   // A successful rollback without a confirmed floor is structurally inexpressible (mirrors
   // `DriverResumeResult`): position-compares consume it per Spec-015 via campaign B5/B14.
-  | { status: "applied"; sessionPosition: number; bindingId?: string } // sessionPosition: REQUIRED driver-confirmed post-rollback position — the new authoritative recovery floor. Untrusted driver output: the daemon domain-validates it like the request target (integer ≥ 0, recorded boundary, strictly below the pre-rollback position) before trusting it — an invalid or no-op report is a no-rewind failure, never a run.rolled_back (Spec-004 §Required Behavior). bindingId (campaign B2): present iff the mechanism minted a new provider binding for the same run (Claude fork-composed leg) — the store-minted surrogate of a binding row already registered (provider resume_handle + runtime metadata) through the relaunch pattern's write seam before the result returned, never itself a resume handle; the daemon repoints the run's live binding on receipt; absent on an in-place rollback (Codex thread/rollback); runtime-bounded (length + non-whitespace + NUL-rejection) like `DriverResumeResult.bindingId` — the trust-boundary header's nine-string enumeration above
+  | { status: "applied"; sessionPosition: number; bindingId?: string } // sessionPosition: REQUIRED driver-confirmed post-rollback position — the new authoritative recovery floor. Untrusted driver output: the daemon domain-validates it like the request target (integer ≥ 0, recorded boundary, strictly below the pre-rollback position) before trusting it — an invalid or no-op report is a no-rewind failure, never a run.rolled_back (Spec-004 §Required Behavior). bindingId (campaign B2): present iff the mechanism minted a new provider binding for the same run (Claude fork-composed leg) — the store-minted surrogate of a binding row already registered (provider resume_handle + runtime metadata) through the relaunch pattern's write seam before the result returned, never itself a resume handle; the daemon repoints the run's live binding on receipt; absent on an in-place rollback (Codex thread/rollback); runtime-bounded (length + non-whitespace + NUL-rejection) like `DriverResumeResult.bindingId` — the trust-boundary header's twelve-string enumeration above
   | { status: "degraded"; fallbackAction?: string };
 
 // Session-goal injection (campaign B3). `goalText` is the daemon-rendered textual form of the
@@ -933,6 +955,62 @@ interface SessionCallbackTool {
   inputSchema: Record<string, unknown>; // JSON Schema for the tool's arguments
 }
 
+// Callback-tool dispatch seam (campaign B10, Plan-005 T1.8 / T3.15 leg 3). The daemon injects
+// `onCallbackToolCall` at spawn (CreateSessionParams above); when the provider issues a callback-tool
+// request (Codex `item/tool/call`; the Claude hosted-MCP tool), the driver translates the wire request
+// into a `CallbackToolInvocation`, invokes the injected dispatcher, and answers the provider with the
+// `CallbackToolResult` — no invocation is left unanswered, no approval bypass invented. The daemon-side
+// dispatcher is Plan-005's callback-tool host (`provider/callback-tool-host.ts`), routing every
+// invocation through Plan-012's Cedar approval pipeline via the published `approval.requestCreate` seam
+// (CP-005-7 covers driver-host permission callbacks; B13 T2.8) — Plan-005 authors no Plan-012 symbols —
+// and landing the outcome as an ordinary `tool_activity` row. `CallbackToolInvocation` is normalized at
+// the driver boundary from untrusted provider output; `CallbackToolResult` is daemon-constructed and trusted.
+// Fail-closed availability (Codex round 5): the Cedar route is a Tier-6 consumer seam, so while the
+// daemon has no registered `approval.requestCreate` seam, spawn WITHHOLDS the callbackTools registry
+// (tools not exposed) and the host's runtime backstop answers any stray invocation `denied` + a
+// DriverDiagnosticRecord — never `completed` without Cedar, never unanswered; the allow path activates
+// when Plan-012's seam registers (CP-005-7).
+interface CallbackToolInvocation {
+  toolName: string; // untrusted provider output — wireFreeFormString-bounded (the trust-boundary header's twelve-string enumeration); resolved against the session's registered SessionCallbackTool set, and an UNKNOWN name answers `failed` without dispatch (campaign B10, Codex round 4)
+  arguments: Record<string, unknown>; // validated against the registered tool's inputSchema BEFORE any Cedar round-trip — schema-invalid arguments answer `failed` without dispatch, so malformed provider output never reaches the approval pipeline
+  toolCallId: string; // untrusted provider correlation id — wireFreeFormString-bounded, copied verbatim onto the answered result (tool-event pairing is exact-string match)
+  sessionId: SessionId;
+  runId: RunId;
+}
+type CallbackToolResult =
+  | { status: "completed"; output?: unknown; error?: never }
+  | { status: "denied"; output?: never; error?: string }
+  | { status: "failed"; output?: never; error?: string };
+
+// MCP server-status producer seam (campaign B10, Plan-005 T1.8 / T3.13). Producer-only: the daemon
+// injects `onMcpServerStatus` at spawn (CreateSessionParams above); the driver emits the per-session MCP
+// SERVER inventory (name + status) at init plus status-change updates through it — never an untyped
+// record. Servers only, never a per-server tool-list assumption (support is not visibility, Spec-005
+// §Per-Driver Capability Matrix). Driver telemetry/census surface (DO disposition — no persisted table,
+// no new CREATE owner). The consumer is Spec-028/B18's status-and-health lane, not yet in the corpus, so
+// no consumer semantics are authored here (producer landed, consumer lands with B18).
+type McpServerStatus = "unknown" | "starting" | "connected" | "needs-auth" | "failed";
+// Driver-emitted shape: serverName + status ONLY. The driver NEVER supplies leg identity — the daemon
+// pre-binds the injected producer closure to the leg at spawn (sessionId + the store-minted bindingId,
+// pre-minted before the spawn per the relaunch write-seam pattern), so a driver cannot misattribute —
+// or spoof — another leg's rows, and the init census emitted DURING createSession needs no id the driver
+// does not have (Codex round 5). `serverName` is untrusted provider/CLI output — wireFreeFormString-
+// bounded at the driver normalization seam (the twelve-string enumeration above) before it reaches the
+// producer.
+interface McpServerStatusEmission {
+  serverName: string;
+  status: McpServerStatus;
+}
+// Daemon-stamped consumer-facing record (what the B18 status-and-health lane reads): the pre-bound
+// producer closure stamps the leg identity onto every emission.
+interface McpServerStatusUpdate {
+  sessionId: SessionId;
+  bindingId: string; // leg key (campaign B10, Codex rounds 4–5) — daemon-stamped from the injection context, never driver-supplied; run→bindings is 1:many (the RollbackToParams.bindingId precedent), so statuses key per (binding, server): a relaunched leg's fresh census supersedes its OWN predecessor without clobbering a concurrent live leg's rows
+  serverName: string;
+  status: McpServerStatus;
+}
+type McpServerStatusProducer = (emission: McpServerStatusEmission) => void;
+
 // Provider-native in-session subagent policy (campaign B3; orchestration semantics Spec-016 via
 // campaign B6). Single-supervisor invariant: the daemon is the only cross-session supervisor —
 // provider subagents run in-session only, their usage aggregates into the run's own budgets, and
@@ -981,6 +1059,18 @@ interface DriverCapabilities {
 // protocol during crash recovery (Spec-005 §Tool Metadata; Spec-015 §Idempotency
 // Protocol).
 type IdempotencyClass = "idempotent" | "compensable" | "manual_reconcile_only";
+
+// Durable MCP Tasks recovery handle (campaign B10, Plan-005 T5.1 — the gated Phase 5; T3.13 authors
+// the receipt-write seam dormant, T5.1 lands the column + activates it after Plan-004 Phase 1's
+// `command_receipts` CREATE). A task-augmented MCP call under the experimental MCP 2025-11-25 Tasks
+// utility carries a receiver-generated `taskId` (from the `CreateTaskResult` acceptance response). It
+// is NOT a new RPC payload: the daemon persists it on the receipt as the additive nullable
+// `command_receipts.mcp_task_id` column (Plan-005 EXTENDs Plan-004's table per
+// cross-plan-dependencies.md §1; DDL in local-sqlite-schema.md §Queue and Intervention Tables —
+// bounded ≤256 + non-empty + NUL-reject: the id is untrusted remote-peer output). That column is the
+// durable handle Spec-015 recovery reads to poll `tasks/get` + `tasks/result` instead of halting the
+// `manual_reconcile_only` floor; NULL until the receiver accepts — a crash before that leaves the
+// halt intact (Spec-005 §Recovery Consequences).
 
 // INGRESS shape — what a provider driver DECLARES via `getCapabilities()`. `idempotency_class`
 // is OPTIONAL: a driver MAY omit it and an undeclared class is NOT a contract violation. Were the
