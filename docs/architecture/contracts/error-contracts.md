@@ -400,6 +400,14 @@ Cross-version compatibility errors per [ADR-018](../../decisions/018-cross-versi
 
 The canonical `ErrorResponse` envelope makes `details` optional, so surfaces (2) and (3) are both valid `ErrorResponse` forms.
 
+### Event
+
+Event-replay cursor errors (Plan-006). Like the §Run / §Queue namespaces these ride the daemon JSON-RPC wire with the dotted code as the canonical `data.type` identifier; the HTTP status is the control-plane-notional mapping.
+
+| Code | Description | HTTP Status |
+| --- | --- | --- |
+| `event.cursor_unresolvable` | An `EventCursor` submitted to `readAfterCursor` / `readWindow` cannot be decoded to a log position — `decodeEventCursor` rejects a non-integer or a value `< -1` (a legacy SDK-synthesized UUID, a corrupted cursor) under the Plan-006 T4.3 predecessor-position cursor model (typed: `CURSOR_UNRESOLVABLE`) | 400 |
+
 ---
 
 ## Rate Limiting
