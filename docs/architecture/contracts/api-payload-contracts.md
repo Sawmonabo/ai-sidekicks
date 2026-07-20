@@ -682,6 +682,8 @@ interface CreateSessionParams {
   callbackTools?: SessionCallbackTool[]; // daemon-curated callback-tool registry exposed into the session (Codex function-form dynamicTools; Claude daemon-hosted ephemeral MCP server via --mcp-config); gated on the callback_tools flag
   subagentPolicy?: SubagentPolicy; // provider-native in-session subagent policy pass-through under the single-supervisor invariant (Spec-016 semantics land via campaign B6); gated on the subagents flag
   outputSchema?: Record<string, unknown>; // normalized JSON Schema constraining schema-constrained final output (Spec-005 §Per-Driver Capability Matrix structured_output, campaign B10); gated on the structured_output flag. The Claude leg binds it per session at spawn (--json-schema); the Codex leg realizes it per turn via StartRunParams.outputSchema (turn/start.outputSchema). Named consumers: Spec-024 dispatch results, Plan-016 orchestration reads
+  onCallbackToolCall?: (invocation: CallbackToolInvocation) => Promise<CallbackToolResult>; // daemon-injected callback-tool dispatcher (campaign B10); the driver invokes it on a provider callback-tool request and answers the provider with the result. Gated on the callback_tools flag; the daemon-side host routes through Plan-012's Cedar pipeline (CP-005-7 / B13 T2.8). See CallbackToolInvocation below
+  onMcpServerStatus?: McpServerStatusProducer; // daemon-injected MCP server-status sink (campaign B10); the driver emits the per-session MCP server-status census (init) + status-change updates through it as a typed McpServerStatusUpdate. Producer-only — consumer lands with Spec-028/B18. See McpServerStatusUpdate below
 }
 
 interface ResumeSessionParams {
@@ -934,6 +936,43 @@ interface SessionCallbackTool {
   description: string;
   inputSchema: Record<string, unknown>; // JSON Schema for the tool's arguments
 }
+
+// Callback-tool dispatch seam (campaign B10, Plan-005 T1.8 / T3.15 leg 3). The daemon injects
+// `onCallbackToolCall` at spawn (CreateSessionParams above); when the provider issues a callback-tool
+// request (Codex `item/tool/call`; the Claude hosted-MCP tool), the driver translates the wire request
+// into a `CallbackToolInvocation`, invokes the injected dispatcher, and answers the provider with the
+// `CallbackToolResult` — no invocation is left unanswered, no approval bypass invented. The daemon-side
+// dispatcher is Plan-005's callback-tool host (`provider/callback-tool-host.ts`), routing every
+// invocation through Plan-012's Cedar approval pipeline via the published `approval.requestCreate` seam
+// (CP-005-7 covers driver-host permission callbacks; B13 T2.8) — Plan-005 authors no Plan-012 symbols —
+// and landing the outcome as an ordinary `tool_activity` row. `CallbackToolInvocation` is normalized at
+// the driver boundary from untrusted provider output; `CallbackToolResult` is daemon-constructed and trusted.
+interface CallbackToolInvocation {
+  toolName: string;
+  arguments: Record<string, unknown>;
+  toolCallId: string;
+  sessionId: SessionId;
+  runId: RunId;
+}
+type CallbackToolResult =
+  | { status: "completed"; output?: unknown; error?: never }
+  | { status: "denied"; output?: never; error?: string }
+  | { status: "failed"; output?: never; error?: string };
+
+// MCP server-status producer seam (campaign B10, Plan-005 T1.8 / T3.13). Producer-only: the daemon
+// injects `onMcpServerStatus` at spawn (CreateSessionParams above); the driver emits the per-session MCP
+// SERVER inventory (name + status) at init plus status-change updates as a typed `McpServerStatusUpdate`
+// through it — never an untyped record. Servers only, never a per-server tool-list assumption (support is
+// not visibility, Spec-005 §Per-Driver Capability Matrix). Driver telemetry/census surface (DO disposition
+// — no persisted table, no new CREATE owner). The consumer is Spec-028/B18's status-and-health lane, not
+// yet in the corpus, so no consumer semantics are authored here (producer landed, consumer lands with B18).
+type McpServerStatus = "unknown" | "starting" | "connected" | "needs-auth" | "failed";
+interface McpServerStatusUpdate {
+  sessionId: SessionId;
+  serverName: string;
+  status: McpServerStatus;
+}
+type McpServerStatusProducer = (update: McpServerStatusUpdate) => void;
 
 // Provider-native in-session subagent policy (campaign B3; orchestration semantics Spec-016 via
 // campaign B6). Single-supervisor invariant: the daemon is the only cross-session supervisor —
