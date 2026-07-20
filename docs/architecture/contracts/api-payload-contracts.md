@@ -2716,6 +2716,7 @@ interface TimelineEntry {
   summary: string; // human-readable summary
   timestamp: string;
   childRunSummary?: ChildRunSummary; // if this is a summarized child-run row
+  superseded?: { runId: RunId; sourceEpoch: number; targetPosition: number }; // present exactly when the row's turn is superseded, absence = current (campaign B9 CP-004-13, 2026-07-20) — projection-computed from Plan-004 T3.14's exported supersededTurns(runId); epoch-scoped per Spec-004 §Required Behavior (a re-executed reused ordinal is current); targetPosition = the accepted run.rolled_back rewind cutoff that superseded the row; identical on TimelineRead and TimelineSubscribe replay — live marking of already-delivered rows rides the run.rolled_back boundary entry's carried cutoff, and rows delivered after the boundary arrive with the marker already projection-computed — pre-marked when stamped attribution ranks the row above its epoch's rewind cutoff, unmarked when it ranks into the surviving prefix or belongs to the new epoch — per Spec-013 §Required Behavior
   payload: Record<string, unknown>;
 }
 
