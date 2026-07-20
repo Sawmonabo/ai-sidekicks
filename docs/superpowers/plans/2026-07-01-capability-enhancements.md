@@ -350,9 +350,9 @@ Run one single-plan-scoped re-audit per affected plan, batched as plans land —
 - [ ] Plan-008 (was `review` + B12 content) — same vehicle (unblocks the remainder)
 - [ ] Plan-012 (flipped by B13) — same vehicle
 - [ ] Plan-024 (flipped by B16) — same vehicle
-- [ ] Plan-010 (flipped by B22's new snapshot Phase; its dep-map §3 edge is an independent second trigger) — same vehicle (gates Tasks 13 + 26)
+- [x] Plan-010 (flipped by B22's new snapshot Phase; its dep-map §3 edge is an independent second trigger) — same vehicle (gates Tasks 13 + 26)
 - [ ] Plan-005 (B10's `provider/drivers/` §2 row + :154 annotation) — same vehicle (**the B18 gate**: Task 24 Step 1 waits on this row)
-- [ ] Plan-006 (B11's `src/events/` §2 row) — same vehicle (gates Tasks 13 + 21)
+- [x] Plan-006 (B11's `src/events/` §2 row) — same vehicle (gates Tasks 13 + 21)
 - [ ] Plan-015 (B14's `src/replay/` §2 row) — same vehicle
 - [ ] Plan-016 (B15's :160 annotation + the `session goal` §2 per-file rows) — same vehicle
 - [ ] Plan-027 (B17's §1 cell + §3 edge) — same vehicle (gates Task 22)
