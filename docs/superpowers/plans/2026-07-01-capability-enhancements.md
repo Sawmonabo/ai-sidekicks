@@ -356,7 +356,7 @@ Run one single-plan-scoped re-audit per affected plan, batched as plans land —
 - [x] Plan-006 (B11's `src/events/` §2 row) — same vehicle (gates Tasks 13 + 21)
 - [ ] Plan-015 (B14's `src/replay/` §2 row) — same vehicle
 - [ ] Plan-016 (B15's :160 annotation + the `session goal` §2 per-file rows) — same vehicle
-- [ ] Plan-027 (B17's §1 cell + §3 edge) — same vehicle (gates Task 22)
+- [x] Plan-027 (B17's §1 cell + §3 edge) — same vehicle (gates Task 22)
 
 These five trigger via the runbook's dep-map provision (**any** §1/§2/§3 amendment affecting an already-`approved` plan triggers a targeted re-audit of that plan) — every one of B10/B11/B14/B15/B17 amends the dep-map, so expect all five. The skip path applies only to a W2 PR that lands with zero dep-map amendment and no flip (none expected); record the rationale on the affected plan's row if one materializes
 
