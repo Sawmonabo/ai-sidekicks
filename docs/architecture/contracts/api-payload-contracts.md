@@ -1374,7 +1374,12 @@ type RollbackInterventionResult =
 // The response is discriminated on `interventionType` (campaign B9, Codex round 2) so the SDK-seam +
 // daemon Zod schema parse `result` STRICTLY per type: a `rollback` response validates `result` as
 // RollbackInterventionResult and a malformed rollback result FAILS validation — it never falls through a
-// permissive generic arm (which would let a malformed rollback outcome cross the boundary).
+// permissive generic arm (which would let a malformed rollback outcome cross the boundary). The rollback
+// arm is additionally split by lifecycle state (Codex round 3): a TERMINAL rollback outcome (`applied` /
+// `degraded`) REQUIRES the recorded disposition — Spec-004 needs it for rendering and the same-position
+// file-leg-recovery carve-out reads the recorded outcome — so a disposition-less terminal rollback
+// response fails parse; the non-terminal / non-disposition states (`requested` / `accepted` / `rejected` /
+// `expired`) carry no `result` (a `rejected` cause rides `rejectionReason` above).
 interface InterventionResponseBase {
   interventionId: InterventionId;
   state: InterventionState;
@@ -1384,7 +1389,13 @@ interface InterventionResponseBase {
 type InterventionRequestResponse =
   | (InterventionResponseBase & {
       interventionType: "rollback";
-      result?: RollbackInterventionResult;
+      state: "applied" | "degraded"; // terminal rollback outcomes — the disposition is MANDATORY
+      result: RollbackInterventionResult;
+    })
+  | (InterventionResponseBase & {
+      interventionType: "rollback";
+      state: Exclude<InterventionState, "applied" | "degraded">; // requested / accepted / rejected / expired
+      result?: never; // no disposition exists on these states — a `rejected` cause rides `rejectionReason`
     })
   | (InterventionResponseBase & {
       interventionType: "steer" | "interrupt" | "cancel";
