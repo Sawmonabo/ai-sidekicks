@@ -738,6 +738,19 @@ test("findSectionHeading: fallback fires only on paren-suffixed headings, never 
   assert.equal(findSectionHeading("Token", specLines).found, false);
 });
 
+test("findSectionHeading: mid-heading parenthetical stays load-bearing (no synthesized heading)", () => {
+  // Codex P2 on PR #224: a global paren-strip would let `§Postgres Deletion`
+  // match `Postgres (Control Plane) Deletion` — a heading that does not
+  // exist under that name. Only the TRAILING suffix (the one token the cite
+  // grammar's descriptor split loses) may be stripped, so the mid-paren
+  // heading must NOT satisfy the paren-less cite.
+  const specLines = ["## Postgres (Control Plane) Deletion", "body"];
+  assert.equal(findSectionHeading("Postgres Deletion", specLines).found, false);
+  // Matcher-level exact pass still binds the full name (normalization strips
+  // parens symmetrically on both sides in the exact comparison).
+  assert.equal(findSectionHeading("Postgres (Control Plane) Deletion", specLines).found, true);
+});
+
 test("FAIL 42: ac-line-hint-wrong-bullet binds the hint to the cited AC-N", () => {
   // Fixture AC bullets sit at lines 45 (AC1), 46 (AC2), 47 (AC3). A cite
   // like `AC3 (line 45)` is the false-green class Codex flagged on PR #96

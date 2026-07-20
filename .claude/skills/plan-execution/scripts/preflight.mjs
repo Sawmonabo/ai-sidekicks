@@ -2006,9 +2006,12 @@ export function findSectionHeading(sectionName, specLines) {
   // (usage_telemetry)`, the Spec-006 category-heading house style — parses
   // as `Usage Telemetry` and anchored equality against the full heading
   // can never match. When the exact scan finds nothing, retry with each
-  // heading's parentheticals stripped, mirroring the capture's descriptor
-  // split. Widens-only: exact matches still win, and the fallback only
-  // accepts headings that differ from the cite by parentheticals alone —
+  // heading's TRAILING parenthetical suffix stripped — exactly the one
+  // token the capture loses. A mid-heading parenthetical stays load-bearing,
+  // so `§Postgres Deletion` cannot synthesize a match against a real
+  // `Postgres (Control Plane) Deletion` heading (Codex P2 on PR #224).
+  // Widens-only: exact matches still win, and the fallback only accepts
+  // headings that differ from the cite by the trailing suffix alone —
   // the PR #96 heading-prefix laxity does not return.
   const target = normalizeTokenForMatch(sectionName);
   let parenStrippedHit = null;
@@ -2019,7 +2022,7 @@ export function findSectionHeading(sectionName, specLines) {
         return { found: true, headingLine: line.trim() };
       }
       if (parenStrippedHit === null && headingText.includes("(")) {
-        const strippedHeading = headingText.replace(/\s*\([^)]*\)/g, "");
+        const strippedHeading = headingText.replace(/\s*\([^)]*\)\s*$/, "");
         if (normalizeTokenForMatch(strippedHeading) === target) {
           parenStrippedHit = { found: true, headingLine: line.trim() };
         }
