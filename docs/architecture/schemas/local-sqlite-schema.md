@@ -463,7 +463,7 @@ CREATE TABLE run_execution_contexts (
   execution_mode     TEXT NOT NULL
                      CHECK(execution_mode IN ('read-only', 'branch', 'worktree', 'ephemeral clone')),
   execution_root     TEXT NOT NULL,
-  git_common_dir     TEXT NOT NULL,                  -- `git rev-parse --git-common-dir` (absolute) captured at context creation: the surviving canonical git dir for snapshot-ref ops, so Plan-010 T5.3 ref pruning outlives a worktree retirement of execution_root (worktree mode → main repo git dir; branch/read-only → <root>/.git)
+  git_common_dir     TEXT NOT NULL,                  -- `git rev-parse --git-common-dir` (absolute) captured at context creation: the surviving canonical git dir for snapshot-ref ops, so Plan-010 T5.3 ref pruning outlives a worktree retirement of execution_root (worktree mode → main repo git dir; branch/read-only → <root>/.git; ephemeral clone → the clone's own git dir, refs sharing the clone's disposal lifecycle)
   worktree_id        TEXT REFERENCES worktrees(id),
   ephemeral_clone_id TEXT REFERENCES ephemeral_clones(id),
   branch_context_id  TEXT REFERENCES branch_contexts(id),
