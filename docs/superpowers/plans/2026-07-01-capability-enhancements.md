@@ -463,7 +463,7 @@ Rule: every Design item maps to ≥1 merged task; every net-new file/table has e
 | --- | --- | --- | --- |
 | `control-lease.ts`, `orphan-registry.ts`, `orphan-reaper/`, `child_guard.rs` | Plan-024 | 18 | Plan-024 Ph3B run |
 | `driver-ask-normalizer.ts`, `permission-check-service.bench.ts`, `credential_policy_artifacts` table | Plan-012 | 16 | Plan-012 run |
-| `sessionDispatchLiveness.ts`, `cross_node_pending_dispatch` table | Plan-027 | 19 | Plan-027 run |
+| `dispatch-liveness.ts`, `cross_node_pending_dispatch` table | Plan-027 | 19 | Plan-027 run |
 | driver `__fixtures__/` dirs | Plan-005 | 14 | Plan-005 Ph3 run |
 | turn-snapshot service module(s) | Plan-010 | 20 | **Task 26 (B23)** |
 | `run-engine.ts` (re-tagged CREATE) | Plan-004 | 13 | Plan-004 Ph3 run |
