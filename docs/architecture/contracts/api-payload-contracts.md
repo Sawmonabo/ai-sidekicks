@@ -1409,12 +1409,95 @@ type InterventionRequestPayload =
 // On an idempotent replay (same clientIdempotencyKey, identical payload) this response is
 // reconstructed from the persisted intervention row — same interventionId, current state,
 // current runVersion — never a second application (campaign B3).
-interface InterventionRequestResponse {
+//
+// Rollback-only result surface (campaign B9, mirrors Plan-004 T1.3) — restructured to a discriminated
+// disposition union (Codex round 2) mirroring Spec-004 §Required Behavior's FULL rollback outcome
+// vocabulary: a file-leg-only four-literal cannot express the mandatory no-rewind and skipped-file-leg
+// degradations. Carried ONLY on a `rollback` result (the `applied` / `degraded` states); every
+// non-rollback intervention omits it. Since round 5 the disposition class is ENCODED in the arm types:
+// `applied` admits exactly RollbackAppliedResult (`files-restored` / `conversation-only`) and `degraded`
+// exactly RollbackDegradedResult (the other five) — the per-disposition `(applied)` / `(degraded)`
+// annotations below are that normative mapping, and it is ORTHOGONAL to the rewind grouping (the
+// CONFIRMED-REWIND group spans both states). Two groups, split by whether the conversation leg confirmed
+// a rewind (Codex round 4 — `position-mismatch` belongs to the CONFIRMED group: its rewind DID happen,
+// at the confirmed floor) —
+//   CONFIRMED-REWIND (the conversation leg confirmed a rewind — the forward `run.rolled_back` is
+//   emitted at the confirmed position and the execution epoch ADVANCES, Plan-004 T3.13):
+//     `files-restored`           restore ran to the fixpoint (`applied`)
+//     `files-partially-restored` multi-command restore failed mid-sequence, `failedStep` named — a
+//                                convergent partial (a fresh rollback to the same targetPosition re-runs
+//                                to the fixpoint); NEVER collapsed into `files-unrestored` (`degraded`)
+//     `files-unrestored`         the bound file-restore refused at EXECUTION time (the execution-time
+//                                HEAD re-verify) after the conversation leg already applied (`degraded`)
+//     `conversation-only`        `read-only` mode or a disposed/retired execution root — the file leg
+//                                no-ops (`applied`)
+//     `position-mismatch`        the driver-confirmed floor was valid but ≠ the requested targetPosition:
+//                                the conversation rewound to the CONFIRMED floor (never the requested
+//                                one), the file leg is skipped fail-closed, and the forward event records
+//                                the confirmed position — carries `requestedPosition` +
+//                                `confirmedPosition` (`degraded`)
+//   NO-REWIND (the conversation leg did NOT confirm a rewind — no `run.rolled_back`, the execution
+//   epoch is UNCHANGED, and no file leg ran):
+//     `pause-only`               conversation-leg failure from a `running` source: the internal pause
+//                                applied, the run stays `paused` at its pre-rollback position (`degraded`)
+//     `nothing-applied`          conversation-leg failure from every other source: dispatch occurred, no
+//                                rewind, nothing applied (`degraded`)
+// Root `busy` under another run is NOT a disposition here — it is a pre-dispatch WHOLE-REJECTION
+// (`requested → rejected`, Queue And Intervention Model §Driver Result To Lifecycle Mapping), never a result.
+type RollbackAppliedResult = // full-effect dispositions — legal ONLY under state: "applied"
+  { disposition: "files-restored" } | { disposition: "conversation-only" };
+type RollbackDegradedResult = // partial / zero-effect dispositions — legal ONLY under state: "degraded"
+  | { disposition: "files-partially-restored"; failedStep: string }
+  | { disposition: "files-unrestored" }
+  | { disposition: "pause-only" }
+  | { disposition: "nothing-applied" }
+  | { disposition: "position-mismatch"; requestedPosition: number; confirmedPosition: number };
+type RollbackInterventionResult = RollbackAppliedResult | RollbackDegradedResult;
+// The response is discriminated on `interventionType` (campaign B9, Codex round 2) so the SDK-seam +
+// daemon Zod schema parse `result` STRICTLY per type: a `rollback` response validates `result` as
+// RollbackInterventionResult and a malformed rollback result FAILS validation — it never falls through a
+// permissive generic arm (which would let a malformed rollback outcome cross the boundary). The rollback
+// arm is additionally split by lifecycle state (Codex round 3) and state-scoped per disposition class
+// (Codex round 5): a TERMINAL rollback outcome REQUIRES the recorded disposition — Spec-004 needs it for
+// rendering and the same-position file-leg-recovery carve-out reads the recorded outcome — and `applied`
+// admits ONLY RollbackAppliedResult while `degraded` admits ONLY RollbackDegradedResult, so a
+// disposition-less terminal response fails parse and so does a state/disposition mismatch (`applied` +
+// `files-unrestored` would otherwise exit-map 0 while rendering a failed restore, since the CLI derives
+// the POSIX code from `state`). `rejected` REQUIRES `rejectionReason` (round 5 — every refusal family of
+// Queue And Intervention Model §Intervention State Transition Table carries its machine-readable cause);
+// the non-disposition states (`requested` / `accepted` / `rejected` / `expired`) carry no `result`.
+interface InterventionResponseBase {
   interventionId: InterventionId;
   state: InterventionState;
   runVersion: number; // post-application run counter (D-004-1) — the caller threads this into the next intervention's `expectedRunVersion`. Carried on the response because an applied native steer advances the run version WITHOUT a `run.*` state change (Spec-004 §Driver-Level Steer Mechanics), so for that path the response is the only place the caller can read the fresh comparand.
-  result?: Record<string, unknown>;
+  rejectionReason?: string; // machine-readable cause on a `rejected` OUTCOME that is a normal `run.intervene` response, NOT a JSON-RPC transport error (campaign B9, Codex round 2): the static rollback capability refusal maps `requested → rejected` (Queue And Intervention Model §Driver Result To Lifecycle Mapping — the no-documented-fallback carve-out), so it rides HERE, never the JsonRpcError channel, and the CLI renders WHY (e.g. `driver.capability_unsupported`). A `degraded` cause is the RollbackInterventionResult disposition instead; a request-admission refusal (e.g. `intervention.idempotency_conflict`, 422) is a JsonRpcError that produces no intervention row, so it never rides here. Replay-durable (Codex round 4): the cause persists in the intervention row's own `rejection_reason` column (Plan-004 T1.4 DDL, written at the T3.12 refusal path) — the stored `result` cannot carry it (this contract forbids `result` on `rejected`), so an idempotent replay reconstructs the SAME machine-readable reason from that column, never fabricating one. Round 5: REQUIRED on the rollback `rejected` arm below — every rejected rollback (authorization, boundary-check, root-`busy`, capability — the `Queue And Intervention Model §Intervention State Transition Table` refusal families) carries its cause and T3.12 persists all of them; optional here on the base only for the remaining states and non-rollback types.
 }
+type InterventionRequestResponse =
+  | (InterventionResponseBase & {
+      interventionType: "rollback";
+      state: "applied"; // full-effect terminal — MANDATORY applied-class disposition (round 5)
+      result: RollbackAppliedResult;
+    })
+  | (InterventionResponseBase & {
+      interventionType: "rollback";
+      state: "degraded"; // partial / zero-effect terminal — MANDATORY degraded-class disposition (round 5)
+      result: RollbackDegradedResult;
+    })
+  | (InterventionResponseBase & {
+      interventionType: "rollback";
+      state: "rejected"; // pre-dispatch refusal — the machine-readable cause is MANDATORY (round 5)
+      rejectionReason: string;
+      result?: never;
+    })
+  | (InterventionResponseBase & {
+      interventionType: "rollback";
+      state: "requested" | "accepted" | "expired";
+      result?: never; // no disposition exists on these states
+    })
+  | (InterventionResponseBase & {
+      interventionType: "steer" | "interrupt" | "cancel";
+      result?: Record<string, unknown>;
+    });
 
 // RunStateChange (event, not request/response). The `run.failed` variant carries the
 // `providerFailureDetail` surface that mirrors the `failed`-variant `providerFailureDetail` of `DriverResumeResult`
