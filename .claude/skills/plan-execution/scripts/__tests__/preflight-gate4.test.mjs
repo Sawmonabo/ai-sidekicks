@@ -14,6 +14,7 @@ import {
   extractIdentifierTokens,
   parseCitePayload,
   extractCiteAnchors,
+  findSectionHeading,
   verifyAnchorAgainstSpec,
   gateTasksBlockCites,
   runPreflight,
@@ -689,6 +690,52 @@ test("FAIL 44: phantom §-prefix rejects when only a heading substring matches",
   const { verifyFailures } = verifyAll("Spec-002 §Token line 39");
   assert.equal(verifyFailures.length, 1);
   assert.equal(verifyFailures[0].result.reason, "section-not-found");
+});
+
+test("PASS 51: §-cite to a parenthetical-suffixed heading verifies (descriptor split)", () => {
+  // `### Usage Telemetry (usage_telemetry)` — the Spec-006 category-heading
+  // house style. The cite grammar splits a trailing `(...)` off as descriptor,
+  // so the section name arrives paren-less and exact equality against the
+  // full heading can never match; the matcher's paren-stripped fallback must
+  // bind it (PR #222 false-negative: 3 legitimate Plan-005 T4.7 cites
+  // rejected [section-not-found]).
+  const { anchors, parseFailures, verifyFailures } = verifyAll(
+    "Spec-002 §Usage Telemetry (usage_telemetry)",
+  );
+  assert.equal(parseFailures.length, 0);
+  assert.equal(verifyFailures.length, 0);
+  assert.equal(anchors[0].type, "section-only");
+  assert.equal(anchors[0].section, "Usage Telemetry");
+});
+
+test("PASS 52: paren-suffixed heading + line anchor verifies", () => {
+  const { anchors, parseFailures, verifyFailures } = verifyAll(
+    "Spec-002 §Usage Telemetry line 51 (usage.tokens)",
+  );
+  assert.equal(parseFailures.length, 0);
+  assert.equal(verifyFailures.length, 0);
+  assert.equal(anchors[0].line, 51);
+});
+
+test("FAIL 49: heading-prefix cite still rejects against a parenthetical-suffixed heading", () => {
+  // The fallback strips parentheticals from the HEADING side only — it must
+  // not reintroduce the PR #96 `.includes()` prefix laxity. `§Usage` is a
+  // prefix of `Usage Telemetry (usage_telemetry)`, not a paren-only delta.
+  const { verifyFailures } = verifyAll("Spec-002 §Usage line 51");
+  assert.equal(verifyFailures.length, 1);
+  assert.equal(verifyFailures[0].result.reason, "section-not-found");
+});
+
+test("findSectionHeading: exact heading beats paren-stripped fallback", () => {
+  const specLines = ["## Retention (extra)", "body a", "## Retention", "body b"];
+  const hit = findSectionHeading("Retention", specLines);
+  assert.equal(hit.found, true);
+  assert.equal(hit.headingLine, "## Retention");
+});
+
+test("findSectionHeading: fallback fires only on paren-suffixed headings, never on prefixes", () => {
+  const specLines = ["## Token Security Properties", "body"];
+  assert.equal(findSectionHeading("Token", specLines).found, false);
 });
 
 test("FAIL 42: ac-line-hint-wrong-bullet binds the hint to the cited AC-N", () => {

@@ -45,3 +45,8 @@ status: test-fixture-only
 - [ ] An invited participant joins active sessions without resetting active runs.
 - [ ] Membership remains durable across presence offline → online cycle.
 - [ ] ChannelList projects all channels in a session at join time.
+
+### Usage Telemetry (usage_telemetry)
+
+- `usage.tokens` events carry prompt/completion token counts per turn.
+- `usage.cost_estimate` events carry derived cost figures.

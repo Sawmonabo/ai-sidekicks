@@ -1993,22 +1993,40 @@ function normalizeTokenForMatch(tok) {
 // verifier can reject phantom-section names alongside the line / AC check.
 // Without this, `Spec-002 §NotARealSection line 13` accepts as long as line
 // 13 exists (Codex P2 on PR #96 line 1301).
-function findSectionHeading(sectionName, specLines) {
+export function findSectionHeading(sectionName, specLines) {
   // Exact-after-normalize match. The earlier `.includes()` form let
   // `§Token line 39` pass when the actual heading was `Token Security
   // Properties` because the substring check accepted any heading-prefix
   // (Codex P2 on PR #96 line 1435). Anchored equality binds the cite to
   // one heading specifically.
+  //
+  // Paren-stripped fallback: the cite grammar's section capture stops at
+  // ` (` (a trailing `(<descriptor>)` is descriptor, not section name), so
+  // a cite to a parenthetical-suffixed heading — `### Usage Telemetry
+  // (usage_telemetry)`, the Spec-006 category-heading house style — parses
+  // as `Usage Telemetry` and anchored equality against the full heading
+  // can never match. When the exact scan finds nothing, retry with each
+  // heading's parentheticals stripped, mirroring the capture's descriptor
+  // split. Widens-only: exact matches still win, and the fallback only
+  // accepts headings that differ from the cite by parentheticals alone —
+  // the PR #96 heading-prefix laxity does not return.
   const target = normalizeTokenForMatch(sectionName);
+  let parenStrippedHit = null;
   for (const line of specLines) {
     if (/^#+\s+/.test(line)) {
       const headingText = line.replace(/^#+\s+/, "");
       if (normalizeTokenForMatch(headingText) === target) {
         return { found: true, headingLine: line.trim() };
       }
+      if (parenStrippedHit === null && headingText.includes("(")) {
+        const strippedHeading = headingText.replace(/\s*\([^)]*\)/g, "");
+        if (normalizeTokenForMatch(strippedHeading) === target) {
+          parenStrippedHit = { found: true, headingLine: line.trim() };
+        }
+      }
     }
   }
-  return { found: false };
+  return parenStrippedHit ?? { found: false };
 }
 
 function sectionNotFoundFailure(sectionName) {
