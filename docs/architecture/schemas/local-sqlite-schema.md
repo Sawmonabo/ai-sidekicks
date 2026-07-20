@@ -125,7 +125,7 @@ CREATE TABLE queue_items (
 CREATE INDEX idx_queue_items_session_state ON queue_items(session_id, state);
 CREATE INDEX idx_queue_items_channel ON queue_items(channel_id) WHERE channel_id IS NOT NULL;
 
--- Owner: Plan-004 | Extended by: Spec-005 campaign B3 (client_idempotency_key intervention dedupe); Spec-004 campaign B2 (rollback type — targetPosition rides the payload JSON, no new column)
+-- Owner: Plan-004 (campaign B9 adds rejection_reason) | Extended by: Spec-005 campaign B3 (client_idempotency_key intervention dedupe); Spec-004 campaign B2 (rollback type — targetPosition rides the payload JSON, no new column)
 CREATE TABLE interventions (
   id                     TEXT PRIMARY KEY,
   target_run_id          TEXT NOT NULL,
@@ -137,6 +137,7 @@ CREATE TABLE interventions (
   expected_run_version   INTEGER NOT NULL,           -- MANDATORY fail-closed comparand (Spec-004 §Interfaces And Contracts / Plan-004 D-004-2)
   client_idempotency_key TEXT NOT NULL,              -- MANDATORY requester-generated UUID (participant client or daemon system-origination); replay-or-conflict intervention dedupe (Spec-005 §Required Behavior, campaign B3)
   result                 TEXT,                       -- JSON: outcome details
+  rejection_reason       TEXT,                       -- machine-readable rejected cause (driver.capability_unsupported foremost) — replay-durable: the wire contract forbids result on rejected, so an idempotent replay reconstructs rejectionReason from this column (Plan-004 T1.4/T3.12, campaign B9)
   initiator_id           TEXT,                       -- participant or system
   created_at             TEXT NOT NULL,
   resolved_at            TEXT,
