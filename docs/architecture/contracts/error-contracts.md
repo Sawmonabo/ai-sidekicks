@@ -143,6 +143,7 @@ expect(caught).toMatchObject({
 | `run.not_found` | Run does not exist or is not accessible | 404 |
 | `run.limit_exceeded` | Concurrent run limit exceeded | 429 |
 | `run.recovery_failed` | Run recovery failed due to an internal error | 500 |
+| `run.execution_root_released` | `run.resume` against a rolled-back run re-opened conversation-only whose execution context is released with no existing root (a disposed ephemeral clone / a retired worktree — nothing recreates it); run state unchanged. Plan-004 rollback extension; distinct from the setup-time `workspace.execution_root_unresolved` | 409 |
 
 ### Queue
 
