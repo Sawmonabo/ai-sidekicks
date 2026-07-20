@@ -163,8 +163,13 @@ CREATE TABLE command_receipts (
   -- MCP Tasks taskId for a task-augmented MCP call (from the CreateTaskResult acceptance response).
   -- NULL until the receiver accepts — a crash before that leaves NULL and the call stays on the
   -- manual_reconcile_only halt. Spec-015 recovery reads this handle and polls tasks/get + tasks/result
-  -- instead of halting (Plan-005 T3.13; cross-plan-dependencies.md §1 command_receipts EXTEND row).
-  mcp_task_id       TEXT,                         -- NULL default; MCP Tasks durable recovery handle
+  -- instead of halting (Plan-005 T5.1, the gated Phase 5 — the T3.13 receipt-write seam ships dormant
+  -- until T5.1 lands this column after Plan-004 Phase 1's CREATE; cross-plan-dependencies.md §1
+  -- command_receipts EXTEND row). Bounded like every persisted provider-declared string (the
+  -- runtime_bindings defense-in-depth convention): the taskId is untrusted remote-peer output, so the
+  -- CHECK bounds the SQLite-expressible part and the T5.1 write seam mirrors the same 256 literal.
+  mcp_task_id       TEXT                          -- NULL default; MCP Tasks durable recovery handle
+                    CHECK (mcp_task_id IS NULL OR (length(mcp_task_id) > 0 AND length(mcp_task_id) <= 256 AND instr(mcp_task_id, char(0)) = 0)),
   created_at        TEXT NOT NULL
 );
 
@@ -199,6 +204,7 @@ CREATE TABLE runtime_bindings (
                       CHECK ((cli_version_semver IS NULL) = (cli_version_raw IS NULL) AND (cli_version_semver IS NULL OR (length(cli_version_semver) > 0 AND length(cli_version_semver) <= 64 AND instr(cli_version_semver, char(0)) = 0))),
   resume_handle       TEXT                      -- provider-owned opaque handle
                       CHECK (resume_handle IS NULL OR (length(resume_handle) > 0 AND length(resume_handle) <= 4096 AND instr(resume_handle, char(0)) = 0)),
+  spawn_config        TEXT NOT NULL DEFAULT '{}', -- JSON: daemon-owned record of the spawn-bound configuration realized at process spawn (executionPosture / callbackTools / subagentPolicy / outputSchema + the admitted cap); written at every spawn — the durable source recovery re-reads to reconstruct ResumeSessionParams' data legs without the original client request (function legs re-injected fresh, never stored; campaign B10 T1.7 catch-up migration, Codex rounds 3–4). Daemon-constructed, so no provider-string CHECK — same trust class as runtime_metadata below
   runtime_metadata    TEXT NOT NULL DEFAULT '{}', -- JSON: provider-specific recovery data
   created_at          TEXT NOT NULL,
   updated_at          TEXT NOT NULL

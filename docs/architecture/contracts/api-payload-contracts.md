@@ -636,7 +636,9 @@ Refusals are typed in [Error Contracts §PTY](./error-contracts.md#pty): role au
 // Zod validates ONLY the surfaces that parse UNTRUSTED
 // provider output (the trust boundary): the result envelopes `DriverInterventionResult`,
 // `DriverResumeResult`, `DriverRollbackResult`, `DriverGoalResult`, and `DriverAuthProbeResult`,
-// and provider-declared `ProviderToolMetadata`.
+// provider-declared `ProviderToolMetadata`, and the driver-normalized `CallbackToolInvocation`
+// (built from a provider callback-tool wire request before the daemon dispatcher sees it,
+// campaign B10).
 // `resumeSession` returns the `DriverResumeResult` discriminated union (defined below)
 // to make silent-replacement structurally inexpressible per Spec-005:69.
 // `getCapabilities` returns the `GetCapabilitiesResult` wrapper (defined below) so the
@@ -646,11 +648,13 @@ Refusals are typed in [Error Contracts §PTY](./error-contracts.md#pty): role au
 // §Default Behavior forward-compat: "Unknown capability fields are ignored (tolerant
 // reader)" — campaign B3 re-framed contractVersion as change-detection, not negotiation),
 // while the result envelopes reject unknown keys (`.strict()`);
-// and all nine untrusted provider-output free-form strings (`ProviderToolMetadata.name`/`.description`,
+// and all eleven untrusted provider-output free-form strings (`ProviderToolMetadata.name`/`.description`,
 // `DriverInterventionResult.fallbackAction`, `DriverResumeResult.bindingId`/`.providerFailureDetail`,
 // `DriverRollbackResult.fallbackAction`/`.bindingId`, `DriverGoalResult.fallbackAction`,
-// `DriverAuthProbeResult.detail`) — each on a Zod-validated result envelope or `ProviderToolMetadata`
-// above — are runtime-bounded (length + non-whitespace + NUL-rejection) via the package's `wireFreeFormString`
+// `DriverAuthProbeResult.detail`, `CallbackToolInvocation.toolName`/`.toolCallId` — the last two
+// added by campaign B10, Codex round 4) — each on a Zod-validated result envelope,
+// `ProviderToolMetadata`, or the driver-normalized `CallbackToolInvocation` below —
+// are runtime-bounded (length + non-whitespace + NUL-rejection) via the package's `wireFreeFormString`
 // helper — Zod constraints not expressible in these TS interface shapes.
 interface ProviderDriver {
   createSession(params: CreateSessionParams): Promise<ProviderSessionHandle>;
@@ -694,6 +698,19 @@ interface ResumeSessionParams {
   // provider-side hard stop survives daemon restart and session relaunch (Plan-015 recovery resumes
   // bindings through this seam; realized like StartRunParams.admittedCostCapCents on cap-capable legs)
   admittedCostCapCents?: number;
+  // Resume is a FRESH process spawn (the C-12 posture-relaunch precedent), so every spawn-bound
+  // surface CreateSessionParams binds must re-realize here or the resumed leg silently sheds it —
+  // a posture-less resume relaunches UNSANDBOXED, a schema-less one unconstrained (campaign B10,
+  // Codex rounds 3–4). The four DATA legs below are reconstructed by the daemon from the durable
+  // runtime_bindings.spawn_config record (written at every spawn; Plan-005 T1.7) — never from the
+  // original client request, which recovery does not have; the two FUNCTION legs are re-injected
+  // fresh at every spawn (functions are never stored in spawn_config).
+  executionPosture?: ExecutionPosture;
+  callbackTools?: SessionCallbackTool[];
+  subagentPolicy?: SubagentPolicy;
+  outputSchema?: Record<string, unknown>; // the Claude leg re-binds per session at spawn (--json-schema); the Codex leg realizes per turn via StartRunParams.outputSchema
+  onCallbackToolCall?: (invocation: CallbackToolInvocation) => Promise<CallbackToolResult>; // re-injected dispatcher — an omitted rebind would strand provider callback-tool requests unanswered on the resumed leg
+  onMcpServerStatus?: McpServerStatusProducer; // re-injected census sink — the resumed leg re-emits its init census through it
 }
 
 interface StartRunParams {
@@ -786,7 +803,7 @@ interface RollbackToParams {
 type DriverRollbackResult =
   // A successful rollback without a confirmed floor is structurally inexpressible (mirrors
   // `DriverResumeResult`): position-compares consume it per Spec-015 via campaign B5/B14.
-  | { status: "applied"; sessionPosition: number; bindingId?: string } // sessionPosition: REQUIRED driver-confirmed post-rollback position — the new authoritative recovery floor. Untrusted driver output: the daemon domain-validates it like the request target (integer ≥ 0, recorded boundary, strictly below the pre-rollback position) before trusting it — an invalid or no-op report is a no-rewind failure, never a run.rolled_back (Spec-004 §Required Behavior). bindingId (campaign B2): present iff the mechanism minted a new provider binding for the same run (Claude fork-composed leg) — the store-minted surrogate of a binding row already registered (provider resume_handle + runtime metadata) through the relaunch pattern's write seam before the result returned, never itself a resume handle; the daemon repoints the run's live binding on receipt; absent on an in-place rollback (Codex thread/rollback); runtime-bounded (length + non-whitespace + NUL-rejection) like `DriverResumeResult.bindingId` — the trust-boundary header's nine-string enumeration above
+  | { status: "applied"; sessionPosition: number; bindingId?: string } // sessionPosition: REQUIRED driver-confirmed post-rollback position — the new authoritative recovery floor. Untrusted driver output: the daemon domain-validates it like the request target (integer ≥ 0, recorded boundary, strictly below the pre-rollback position) before trusting it — an invalid or no-op report is a no-rewind failure, never a run.rolled_back (Spec-004 §Required Behavior). bindingId (campaign B2): present iff the mechanism minted a new provider binding for the same run (Claude fork-composed leg) — the store-minted surrogate of a binding row already registered (provider resume_handle + runtime metadata) through the relaunch pattern's write seam before the result returned, never itself a resume handle; the daemon repoints the run's live binding on receipt; absent on an in-place rollback (Codex thread/rollback); runtime-bounded (length + non-whitespace + NUL-rejection) like `DriverResumeResult.bindingId` — the trust-boundary header's eleven-string enumeration above
   | { status: "degraded"; fallbackAction?: string };
 
 // Session-goal injection (campaign B3). `goalText` is the daemon-rendered textual form of the
@@ -948,9 +965,9 @@ interface SessionCallbackTool {
 // and landing the outcome as an ordinary `tool_activity` row. `CallbackToolInvocation` is normalized at
 // the driver boundary from untrusted provider output; `CallbackToolResult` is daemon-constructed and trusted.
 interface CallbackToolInvocation {
-  toolName: string;
-  arguments: Record<string, unknown>;
-  toolCallId: string;
+  toolName: string; // untrusted provider output — wireFreeFormString-bounded (the trust-boundary header's eleven-string enumeration); resolved against the session's registered SessionCallbackTool set, and an UNKNOWN name answers `failed` without dispatch (campaign B10, Codex round 4)
+  arguments: Record<string, unknown>; // validated against the registered tool's inputSchema BEFORE any Cedar round-trip — schema-invalid arguments answer `failed` without dispatch, so malformed provider output never reaches the approval pipeline
+  toolCallId: string; // untrusted provider correlation id — wireFreeFormString-bounded, copied verbatim onto the answered result (tool-event pairing is exact-string match)
   sessionId: SessionId;
   runId: RunId;
 }
@@ -969,6 +986,7 @@ type CallbackToolResult =
 type McpServerStatus = "unknown" | "starting" | "connected" | "needs-auth" | "failed";
 interface McpServerStatusUpdate {
   sessionId: SessionId;
+  bindingId: string; // leg key (campaign B10, Codex round 4) — run→bindings is 1:many (the RollbackToParams.bindingId precedent), so statuses key per (binding, server): a relaunched leg's fresh census supersedes its OWN predecessor without clobbering a concurrent live leg's rows
   serverName: string;
   status: McpServerStatus;
 }
@@ -1023,14 +1041,17 @@ interface DriverCapabilities {
 // Protocol).
 type IdempotencyClass = "idempotent" | "compensable" | "manual_reconcile_only";
 
-// Durable MCP Tasks recovery handle (campaign B10, Plan-005 T3.13). A task-augmented MCP call under
-// the experimental MCP 2025-11-25 Tasks utility carries a receiver-generated `taskId` (from the
-// `CreateTaskResult` acceptance response). It is NOT a new RPC payload: the daemon persists it on the
-// receipt as the additive nullable `command_receipts.mcp_task_id` column (Plan-005 EXTENDs Plan-004's
-// table per cross-plan-dependencies.md §1; DDL in local-sqlite-schema.md §Queue and Intervention
-// Tables). That column is the durable handle Spec-015 recovery reads to poll `tasks/get` +
-// `tasks/result` instead of halting the `manual_reconcile_only` floor; NULL until the receiver
-// accepts — a crash before that leaves the halt intact (Spec-005 §Recovery Consequences).
+// Durable MCP Tasks recovery handle (campaign B10, Plan-005 T5.1 — the gated Phase 5; T3.13 authors
+// the receipt-write seam dormant, T5.1 lands the column + activates it after Plan-004 Phase 1's
+// `command_receipts` CREATE). A task-augmented MCP call under the experimental MCP 2025-11-25 Tasks
+// utility carries a receiver-generated `taskId` (from the `CreateTaskResult` acceptance response). It
+// is NOT a new RPC payload: the daemon persists it on the receipt as the additive nullable
+// `command_receipts.mcp_task_id` column (Plan-005 EXTENDs Plan-004's table per
+// cross-plan-dependencies.md §1; DDL in local-sqlite-schema.md §Queue and Intervention Tables —
+// bounded ≤256 + non-empty + NUL-reject: the id is untrusted remote-peer output). That column is the
+// durable handle Spec-015 recovery reads to poll `tasks/get` + `tasks/result` instead of halting the
+// `manual_reconcile_only` floor; NULL until the receiver accepts — a crash before that leaves the
+// halt intact (Spec-005 §Recovery Consequences).
 
 // INGRESS shape — what a provider driver DECLARES via `getCapabilities()`. `idempotency_class`
 // is OPTIONAL: a driver MAY omit it and an undeclared class is NOT a contract violation. Were the
