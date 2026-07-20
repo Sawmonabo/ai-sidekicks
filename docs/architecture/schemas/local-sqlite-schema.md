@@ -753,6 +753,39 @@ CREATE INDEX idx_cross_node_dispatch_approvals_expiry
   WHERE state IN ('requested', 'approved', 'executed');
 ```
 
+Caller-local durable record of an outbound cross-node dispatch whose result the caller has not yet observed, backing the run-idle exemption (campaign B17). While an open row (`closed_at IS NULL`) names a run as its **originating run**, the `runHasPendingCrossNodeDispatch(runId)` predicate holds and the run-idle sweep hard-skips that run (per [Spec-024 § Cross-Node Failure Semantics](../../specs/024-cross-node-dispatch-and-approval.md#cross-node-failure-semantics); consumed by [Plan-016](../../plans/016-multi-agent-channels-and-orchestration.md) T2.7's idle-reaper seam — a hard skip, not an activity-timestamp bump). The daemon writes the row **before** the relay send (INSERT-before-relay-write ordering), so a crash between the durable intent record and the relay write leaves a resumable record rather than a silent loss. The row is **closed in place** at conclusion — `closed_at` / `close_reason` stamped, the row is never deleted at close — so a restart rebuilds pending windows from the open rows alone and never resurrects a concluded window. The complementary `dispatch.sent` event stays base-payload per [Spec-006 § Cross-Node Dispatch](../../specs/006-session-event-taxonomy-and-audit-log.md#cross-node-dispatch-cross_node_dispatch); it is the audit record, not the rebuild source. Only routing/liveness metadata lives here — ApprovalRecord envelopes, PASETO tokens, action payloads, and result payloads do not (those follow the `cross_node_dispatch_approvals` custody rules above).
+
+```sql
+-- Owner: Plan-027
+CREATE TABLE cross_node_pending_dispatch (
+  dispatch_id       TEXT PRIMARY KEY,     -- one caller-local pending row per dispatch
+  session_id        TEXT NOT NULL,
+  run_id            TEXT NOT NULL,        -- the ORIGINATING run; runHasPendingCrossNodeDispatch(runId) keys on this
+  target_node_id    TEXT NOT NULL,        -- routing/audit context only, never authoritative
+  capability        TEXT NOT NULL,        -- dispatched capability, for surfacing/audit context
+  caller_token_jti  TEXT NOT NULL,        -- correlates to caller_token / the caller's cross_node_dispatch_approvals(dispatch_id, local_role='caller') row
+  expires_at        TEXT NOT NULL,        -- caller-local clock bound = caller_token.exp + result-buffer window; the unobserved-conclusion backstop
+  created_at        TEXT NOT NULL,        -- stamped at INSERT, BEFORE the relay send
+  closed_at         TEXT,                 -- NULL = window open (pending); stamped in place when the window closes
+  close_reason      TEXT                  -- how the window closed; the observed outcome discriminator lives in the dispatch.result_observed event, not duplicated here
+                    CHECK (close_reason IS NULL OR close_reason IN ('observed_terminal', 'expiry_bound')),
+  -- closed_at and close_reason are set together: a row is either fully open or fully closed
+  CHECK ((closed_at IS NULL) = (close_reason IS NULL))
+);
+
+-- The predicate's hot query: does this run have an open pending outbound dispatch?
+CREATE INDEX idx_cross_node_pending_dispatch_open_by_run
+  ON cross_node_pending_dispatch(run_id)
+  WHERE closed_at IS NULL;
+
+-- The caller-local expiry sweep that closes windows at the clock bound (close_reason = 'expiry_bound').
+CREATE INDEX idx_cross_node_pending_dispatch_expiry
+  ON cross_node_pending_dispatch(expires_at)
+  WHERE closed_at IS NULL;
+```
+
+Retention: closed rows are pruned after `expires_at` elapses, bounded with the `cross_node_dispatch_approvals` audit-retention window per [Plan-027 § Data And Storage Changes](../../plans/027-cross-node-dispatch-and-approval.md#data-and-storage-changes); the durable audit trail of the observed outcome is the caller's `dispatch.result_observed` event, not this transient liveness row. Migration: additive `0NNN-cross-node-pending-dispatch.ts`, caller-daemon SQLite only (unlike `cross_node_dispatch_approvals`, which is present in both caller and target daemons).
+
 ---
 
 ## Workflow Tables (Plan-017)

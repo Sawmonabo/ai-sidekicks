@@ -44,8 +44,9 @@ This plan covers the caller-side dispatch client, target-side dispatch intake an
 
 - `packages/contracts/src/cross-node-dispatch.ts` — new contract file exporting dispatch request, approval, result, and verification payload types.
 - `packages/runtime-daemon/src/cross-node-dispatch/` — new daemon module for caller scheduler integration, target intake, replay guard, ApprovalRecord store, and result buffering.
+- `packages/runtime-daemon/src/cross-node-dispatch/dispatch-liveness.ts` — caller-side pending-dispatch liveness accessor exporting `runHasPendingCrossNodeDispatch(runId)` over `cross_node_pending_dispatch`; consumed by [Plan-016](./016-multi-agent-channels-and-orchestration.md) T2.7's idle-reaper seam (campaign B17). Module renamed from the campaign design's session-scoped `sessionDispatchLiveness.ts` — the predicate is run-scoped and the daemon directory is kebab-cased.
 - `packages/runtime-daemon/src/approvals/` — additive integration with Plan-012 approval request/resolution code; no ownership transfer.
-- `packages/runtime-daemon/src/runtime-node/` — consumes Plan-003 capability declarations and node state.
+- `packages/runtime-daemon/src/node/` — consumes Plan-003 capability declarations and node state.
 - `packages/runtime-daemon/src/events/` — emits Plan-006 `dispatch.*` events through the existing event writer.
 - `packages/control-plane/src/cross-node-dispatch/` — new control-plane coordination-row service and relay routing adapter.
 - `packages/client-sdk/src/crossNodeDispatchClient.ts` — typed SDK wrapper for caller-side and audit-verification reads.
@@ -57,6 +58,7 @@ This plan covers the caller-side dispatch client, target-side dispatch intake an
 
 - Create Local SQLite `cross_node_dispatch_approvals` in both caller and target daemons. The table stores the dual-token ApprovalRecord envelope, decision state, token JTIs, request hash, expiry, and lifecycle timestamps. It never stores unredacted action payloads.
 - Create Shared Postgres `cross_node_dispatch_coordination`. This row is routing metadata only: dispatch id, session id, caller participant, target participant, target node, status, and timestamps. It never stores dispatch payloads, ApprovalRecord envelopes, PASETO tokens, or action results.
+- Create caller-daemon Local SQLite `cross_node_pending_dispatch` (campaign B17). This caller-local liveness record backs the run-idle exemption: it is written **before** the relay send (INSERT-before-relay-write ordering) so a crash between the durable intent record and the relay write leaves a resumable record rather than a silent loss; it carries `expires_at` (the `caller_token.exp` + result-buffer clock bound — the unobserved-conclusion backstop) and the **originating `runId`**; and it is **closed in place** at conclusion (`closed_at` / `close_reason` stamped, never deleted at close) so a restart rebuilds every pending window from the open rows alone and never resurrects a concluded window. The `dispatch.sent` event stays base-payload per Plan-006 — it is the audit record, not the rebuild source. It stores routing/liveness metadata only, never dispatch payloads, ApprovalRecord envelopes, PASETO tokens, or results, and it lives on the caller daemon only (unlike `cross_node_dispatch_approvals`). Schema, indexes, and retention in [Local SQLite Schema § Cross-Node Dispatch Tables (Plan-027)](../architecture/schemas/local-sqlite-schema.md#cross-node-dispatch-tables-plan-027).
 - Use a target-local replay guard keyed by `(session_id, dispatch_id)` with retention at least 10 minutes. The guard may be in-memory backed by a short-lived local cache; it is not a shared truth source.
 - Append dispatch lifecycle events to each daemon's local `session_events` log per ADR-017. Shared Postgres does not own dispatch event payloads.
 - Add purge/retention handling so expired denied/failed approval records remain available for audit while raw transient result buffers are bounded by `caller_token.exp + 5 minutes`.
@@ -74,11 +76,11 @@ This plan covers the caller-side dispatch client, target-side dispatch intake an
 
 1. Define the `cross-node-dispatch.ts` contract module with branded IDs, discriminated lifecycle states, JCS-hash helpers, Zod schemas, and error-code enums.
 2. Add the Local SQLite migration for `cross_node_dispatch_approvals` and the Shared Postgres migration for `cross_node_dispatch_coordination`; update schema snapshots and migration tests.
-3. Implement caller-side dispatch construction: own-node-first scheduler hook, capability target selection, `caller_token` issuance through `packages/crypto-paseto/`, JCS canonicalization, BLAKE3 `request_body_hash`, relay send, and caller-side event emission.
+3. Implement caller-side dispatch construction: own-node-first scheduler hook, capability target selection, `caller_token` issuance through `packages/crypto-paseto/`, JCS canonicalization, BLAKE3 `request_body_hash`, the `cross_node_pending_dispatch` intent-row write (before the relay send — INSERT-before-relay-write — carrying `expires_at` and the originating `runId`), relay send, and caller-side event emission.
 4. Implement target-side intake: token verification against participant identity keys, body-binding verification, replay guard, capability check, Cedar request construction, and fail-closed rejection events.
 5. Integrate with Plan-012 approval resolution so owner approval produces an `approver_token`, a dual-signed ApprovalRecord envelope, local persistence, and `dispatch.approved` / `dispatch.denied` events.
 6. Implement target-side execution adapter that dispatches only to declared capability handlers, aborts on caller-token expiry, emits the exact Spec-024 lifecycle, and signs results.
-7. Implement caller-side result verification, result observation events, and actionable failure surfaces for denied, rejected, expired, failed, and buffered dispatches.
+7. Implement caller-side result verification, result observation events, and actionable failure surfaces for denied, rejected, expired, failed, and buffered dispatches; close each dispatch's `cross_node_pending_dispatch` window **in place** on the observed terminal — every observed terminal closes it, failure terminals included, each appending `dispatch.result_observed` with its `outcome` discriminator (`'completed' | 'failed' | 'expired' | 'rejected'`) per [Spec-006 § Cross-Node Dispatch](../specs/006-session-event-taxonomy-and-audit-log.md#cross-node-dispatch-cross_node_dispatch) (denials close via `dispatch.approval_observed`), with the caller-local `expires_at` clock bound closing any unobserved window as the backstop. Expose `runHasPendingCrossNodeDispatch(runId)` in `dispatch-liveness.ts` over the open rows for [Plan-016](./016-multi-agent-channels-and-orchestration.md) T2.7's idle-reaper seam.
 8. Implement detached-caller result buffering on the target daemon with the `caller_token.exp + 5 minutes` delivery window.
 9. Add desktop approval UI integration under `apps/desktop/src/renderer/src/cross-node-dispatch/`, routed only through the Plan-023 preload bridge.
 10. Add audit/export verification that recomputes request hashes and verifies both caller and approver PASETO signatures.
@@ -101,6 +103,7 @@ This plan covers the caller-side dispatch client, target-side dispatch intake an
 - Approval-record tests proving allow and deny envelopes are both dual-signed, persisted, and independently verifiable.
 - Lifecycle tests for success, denied, rejected, expired during approval wait, expired during execution, failed after approval, and caller detach with result buffering.
 - Scheduler tests proving same-node tasks do not emit cross-node dispatch events and a named remote dispatch never silently falls back to a third participant.
+- Pending-dispatch liveness tests proving `runHasPendingCrossNodeDispatch(runId)` holds only for the originating run while its `cross_node_pending_dispatch` row is open, every observed terminal (success and failure alike) closes the window in place, an unobserved terminal closes it at the `expires_at` clock bound, and a restart rebuilds open windows from the durable rows alone — never resurrecting a concluded window and never re-reading `dispatch.sent`.
 - Integration tests across two daemon instances and one relay instance with pairwise encrypted envelopes.
 - Desktop UI tests proving target-owner approval text includes caller, capability, summary, expiry, and deny/approve outcomes without exposing raw tokens.
 
@@ -143,11 +146,13 @@ shipped: []
 
 <!-- Per-PR human commentary (round-trips, learnings, partial-ship details). Append-only. -->
 
+**2026-07-19 — campaign B17 (pending-dispatch table + liveness predicate).** Additive amendment; Plan-027 stays `approved` (Status Flip Rule: no new invariant, cross-plan obligation, or phase — the table, accessor, and P-3 path fix are all additive). Landed: the caller-local `cross_node_pending_dispatch` table (§Data And Storage Changes; INSERT-before-relay-write, closed-in-place, caller-daemon only) with its `local-sqlite-schema.md` row and the cross-plan-dependencies §1 ownership entry; the `runHasPendingCrossNodeDispatch(runId)` accessor in `dispatch-liveness.ts` (§Target Areas and Implementation Steps step 7); and the P-3 Target-Areas path fix repointing the node-state consumer at Plan-003's real `src/node/` daemon directory (`src/node/node-registry.ts`; the design's stale directory name never existed — full before/after in the campaign design's P-3 row). **Module rename:** the campaign design coined `sessionDispatchLiveness.ts` under the superseded session-scoped design; renamed to `dispatch-liveness.ts` — the predicate is run-scoped (reconciled to Plan-016 T2.7's seam by campaign B7) and the daemon directory is kebab-cased (`node-registry.ts`, `control-lease.ts`, `driver-ask-normalizer.ts`); no consumer doc pinned the old name. **Shared idle-sweep seam:** Plan-016 T2.7's idle-reaper consults this cross-node dispatch predicate alongside [Plan-012](./012-approvals-permissions-and-trust-boundaries.md)'s run-level ask-expiry idle-exemption (campaign B13, authored there, lands later); the two are decoupled-but-coordinated and this bundle authors only the cross-node half — Plan-012's exemption is expiry-bounded, ending when the ask expires or resolves, so an expired ask never counts as pending blocking work.
+
 ## Done Checklist
 
 - [ ] Code changes implemented.
 - [ ] Tests added or updated.
 - [ ] Verification completed.
 - [ ] Related docs updated.
-- [ ] Local SQLite `cross_node_dispatch_approvals` and Shared Postgres `cross_node_dispatch_coordination` schemas are present in canonical schema docs and migrations.
+- [ ] Local SQLite `cross_node_dispatch_approvals` + `cross_node_pending_dispatch` and Shared Postgres `cross_node_dispatch_coordination` schemas are present in canonical schema docs and migrations.
 - [ ] Every Spec-024 acceptance criterion has a matching automated test or documented manual verification step.
