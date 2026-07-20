@@ -204,6 +204,42 @@ test("findSectionBoundary skips headings inside fenced code blocks", () => {
   assert.equal(findSectionBoundary("just\nbody\n```\n## fenced\n```\n"), -1);
 });
 
+test("findSectionBoundary skips headings inside multi-line HTML comments", () => {
+  // A commented-out `## ` / `### Phase` line renders as nothing and must not
+  // terminate a section (Codex round-4, PR #224 — shared structural scan).
+  const commented = [
+    "intro",
+    "<!--",
+    "## Not A Boundary",
+    "### Phase 9 — also commented",
+    "-->",
+    "body",
+    "## Real Boundary",
+  ].join("\n");
+  const at = findSectionBoundary(commented);
+  assert.ok(at >= 0 && commented.slice(at).startsWith("## Real Boundary"));
+
+  // A single-line comment is inline content: the next real heading still bounds.
+  const inline = ["intro <!-- note -->", "## Real Boundary"].join("\n");
+  const atInline = findSectionBoundary(inline);
+  assert.ok(atInline >= 0 && inline.slice(atInline).startsWith("## Real Boundary"));
+});
+
+test("findSectionBoundary treats a 4-space-indented ``` as literal, not a fence opener", () => {
+  // CommonMark caps fence-opener indentation at 3 spaces; a ``` inside an
+  // indented code block is literal text. Under an unrestricted \s* opener it
+  // opened phantom fence state and swallowed the real boundary (Codex
+  // round-4, PR #224).
+  const indented = ["intro", "    ```", "    literal", "## Real Boundary"].join("\n");
+  const at = findSectionBoundary(indented);
+  assert.ok(at >= 0 && indented.slice(at).startsWith("## Real Boundary"));
+
+  // 1-3-space indentation still opens a fence (the list-indented shape).
+  const listFence = ["intro", "   ```", "## fenced", "   ```", "## Real Boundary"].join("\n");
+  const atL = findSectionBoundary(listFence);
+  assert.ok(atL >= 0 && listFence.slice(atL).startsWith("## Real Boundary"));
+});
+
 test("extractPhaseSection keeps a fenced ## / ### Phase example in the body and bounds only at the real sibling", () => {
   // Fence-awareness regression: a phase whose body shows a fenced markdown
   // example (with `## ` and `### Phase` lines) must not be truncated at that

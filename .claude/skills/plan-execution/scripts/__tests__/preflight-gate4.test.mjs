@@ -891,6 +891,72 @@ test("findSectionHeading: cited suffix may omit heading-side backticks", () => {
   assert.equal(hit.found, true);
 });
 
+test("PASS 54: nested-paren heading suffix binds bare and suffixed cites", () => {
+  // Codex round-4 P2 on PR #224, live corpus shape (Plan-008 CP-008-8's
+  // trailing suffix nests markdown-link parens): a `[^)]*` regex truncates
+  // at the inner close, so the balanced walk is required on both the
+  // heading side and the cited-descriptor side. Fixture line 54 is
+  // `### Cache Policy (RFC 9111 (shared cache))`.
+  const bare = verifyAll("Spec-002 §Cache Policy line 56 (cache.directives)");
+  assert.equal(bare.parseFailures.length, 0);
+  assert.equal(bare.verifyFailures.length, 0);
+  const suffixed = verifyAll("Spec-002 §Cache Policy (RFC 9111 (shared cache)) line 56");
+  assert.equal(suffixed.parseFailures.length, 0);
+  assert.equal(suffixed.verifyFailures.length, 0);
+  assert.equal(suffixed.anchors[0].type, "line");
+  assert.equal(suffixed.anchors[0].line, 56);
+  assert.equal(suffixed.anchors[0].sectionDescriptor, "(RFC 9111 (shared cache))");
+});
+
+test("FAIL 52: contradictory nested suffix still rejects", () => {
+  const { verifyFailures } = verifyAll("Spec-002 §Cache Policy (RFC 9111 (private cache)) line 56");
+  assert.equal(verifyFailures.length, 1);
+  assert.equal(verifyFailures[0].result.reason, "section-not-found");
+});
+
+test("findSectionHeading: partial nested suffix is undecidable and rejects", () => {
+  // `(RFC 9111)` against the real `(RFC 9111 (shared cache))` sibling:
+  // agreement is whole-suffix, so a truncated spelling matches no sibling
+  // and fails closed rather than repairing onto the nested heading.
+  const specLines = ["## Cache Policy (RFC 9111 (shared cache))", "body"];
+  assert.equal(
+    findSectionHeading("Cache Policy", specLines, "(RFC 9111 (shared cache))").found,
+    true,
+  );
+  assert.equal(findSectionHeading("Cache Policy", specLines, "(RFC 9111)").found, false);
+});
+
+test("findSectionHeading: indented-code fence literals do not open fence state", () => {
+  // Codex round-4 P2 on PR #224: CommonMark allows at most 3 spaces of
+  // fence-opener indentation — a ``` at 4+ spaces is indented-code literal
+  // text. Under an unrestricted \s* opener it would open phantom fence
+  // state and swallow every later real heading.
+  const specLines = ["Some prose.", "    ```", "    still code", "## After Indented (real)"];
+  assert.equal(findSectionHeading("After Indented", specLines).found, true);
+  // 1-3-space indentation (the Plan-026 list-fence shape) still opens.
+  const listFence = ["   ```", "## Hidden (x)", "   ```", "## Visible (y)"];
+  assert.equal(findSectionHeading("Hidden", listFence).found, false);
+  assert.equal(findSectionHeading("Visible", listFence).found, true);
+});
+
+test("findSectionHeading: headings inside multi-line HTML comments are not citable", () => {
+  // Codex round-4 P2 on PR #224: a commented-out `## Phantom (v1)` renders
+  // as nothing, so neither the exact pass nor the suffix fallback may bind
+  // it — this hole predates the fallback (the exact pass has read comment
+  // interiors since PR #96).
+  const specLines = ["<!--", "## Phantom (v1)", "-->", "## Real (v2)", "body"];
+  assert.equal(findSectionHeading("Phantom", specLines).found, false);
+  assert.equal(findSectionHeading("Phantom", specLines, "(v1)").found, false);
+  assert.equal(findSectionHeading("Real", specLines).found, true);
+  // A single-line comment is inline content, not a state transition.
+  const inline = ["prose <!-- annotation -->", "## Next (n)"];
+  assert.equal(findSectionHeading("Next", inline).found, true);
+  // Comment markers inside a fence are literal — they must not open
+  // comment state that outlives the fence.
+  const commentInFence = ["```", "<!--", "```", "## After (z)"];
+  assert.equal(findSectionHeading("After", commentInFence).found, true);
+});
+
 test("FAIL 42: ac-line-hint-wrong-bullet binds the hint to the cited AC-N", () => {
   // Fixture AC bullets sit at lines 45 (AC1), 46 (AC2), 47 (AC3). A cite
   // like `AC3 (line 45)` is the false-green class Codex flagged on PR #96

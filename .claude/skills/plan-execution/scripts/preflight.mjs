@@ -90,38 +90,87 @@ export function extractPhaseSection(planSource, phaseNumber) {
   return planSource.slice(startIdx, endIdx);
 }
 
-// Byte offset within `body` of the first `### Phase N` / `## ` heading that sits
-// OUTSIDE any fenced code block, or -1 if none. Split out of extractPhaseSection
-// so the fence state machine is unit-testable on its own. Fence tracking follows
-// CommonMark: an opening ``` / ~~~ run of length N opens a block that only a
-// closing run of the same character and length >= N — with no trailing info
-// string — closes, so a longer outer run contains shorter inner runs (a
-// 4-backtick fence wraps 3-backtick lines), matching the nesting plans use.
-// Indented code needs no handling: its lines carry leading whitespace and never
-// match `^### `/`^## `.
+// Shared per-line structural-scan state for findSectionBoundary and
+// findSectionHeading — one transition function so the two scanners cannot
+// drift (Codex round-4, PR #224). Tracks two kinds of non-content region:
+//
+// Fenced code blocks, per CommonMark: an opening ``` / ~~~ run of length N
+// at AT MOST 3 spaces of indentation (4+ spaces is an indented code block
+// whose literal ``` must not open fence state) opens a block that only a
+// closing run of the same character and length >= N — bare remainder, no
+// info string — closes, so a longer outer run contains shorter inner runs
+// (a 4-backtick fence wraps 3-backtick lines), matching the nesting plans
+// use. The corpus holds 1-3-space list-indented fences (Plan-026) and no
+// deeper ones, so the flat 0-3 rule is exact for every real doc.
+//
+// Multi-line HTML comments: a commented-out `## Heading` renders as
+// nothing, so it must satisfy neither the exact heading pass nor the
+// suffix fallback, and must not terminate a phase section. A comment
+// opened and closed on ONE line stays content (inline annotation); the
+// interior of a multi-line comment is consumed. Comment markers inside a
+// fence are literal (fence state is checked first); fence markers inside
+// a comment are inert (comment interior is consumed before the opener
+// check). The `--` interior restrictions of the HTML spec are not
+// modeled — this is a structural approximation for lint scanning.
+function createStructuralScanState() {
+  return { fenceChar: "", fenceLen: 0, inHtmlComment: false };
+}
+
+// Advances `state` across `line`. Returns true when the line is structural
+// interior/delimiter (fence delimiter, fenced content, comment interior)
+// that no heading scan may read; false when the line is document content.
+function structuralScanConsumes(state, line) {
+  const fence = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+  if (state.fenceChar !== "") {
+    if (
+      fence &&
+      fence[1][0] === state.fenceChar &&
+      fence[1].length >= state.fenceLen &&
+      /^\s*$/.test(line.slice(fence[0].length))
+    ) {
+      state.fenceChar = "";
+      state.fenceLen = 0;
+    }
+    return true;
+  }
+  if (state.inHtmlComment) {
+    if (line.includes("-->")) {
+      state.inHtmlComment = line.lastIndexOf("<!--") > line.lastIndexOf("-->");
+    }
+    return true;
+  }
+  if (fence) {
+    state.fenceChar = fence[1][0];
+    state.fenceLen = fence[1].length;
+    return true;
+  }
+  if (line.lastIndexOf("<!--") > line.lastIndexOf("-->")) {
+    // The line OPENS an unclosed comment; text before the `<!--` is still
+    // content (a real heading carrying a trailing comment opener keeps its
+    // boundary role — its § match self-excludes on the polluted tail).
+    state.inHtmlComment = true;
+  }
+  return false;
+}
+
+// Byte offset within `body` of the first `### Phase N` / `## ` heading that
+// sits OUTSIDE any fenced code block or multi-line HTML comment, or -1 if
+// none. Split out of extractPhaseSection so the structural state machine is
+// unit-testable on its own.
 export function findSectionBoundary(body) {
   let offset = 0;
-  let fenceChar = ""; // "" when outside a fence; "`" or "~" while inside one
-  let fenceLen = 0;
+  const scanState = createStructuralScanState();
   for (const line of body.split("\n")) {
-    const fence = /^\s*(`{3,}|~{3,})/.exec(line);
-    if (fence) {
-      const runChar = fence[1][0];
-      const bareClose = /^\s*$/.test(line.slice(fence[0].length));
-      if (fenceChar === "") {
-        fenceChar = runChar;
-        fenceLen = fence[1].length;
-      } else if (runChar === fenceChar && fence[1].length >= fenceLen && bareClose) {
-        fenceChar = "";
-        fenceLen = 0;
-      }
-      // Remainder headings (`### Phase R2`) are real section boundaries too:
-      // digit-only matching made the preceding numbered phase swallow the
-      // R-section, so its declared-task set absorbed the R-series ids and a
-      // shipped numbered phase classified partially_shipped forever (latent
-      // Plan-007 Phase 3 false-halt; surfaced by the external_plan_phase_merged
-      // work, Codex P2 PR #193 round 4).
-    } else if (fenceChar === "" && (/^### Phase R?\d+/.test(line) || /^## /.test(line))) {
+    // Remainder headings (`### Phase R2`) are real section boundaries too:
+    // digit-only matching made the preceding numbered phase swallow the
+    // R-section, so its declared-task set absorbed the R-series ids and a
+    // shipped numbered phase classified partially_shipped forever (latent
+    // Plan-007 Phase 3 false-halt; surfaced by the external_plan_phase_merged
+    // work, Codex P2 PR #193 round 4).
+    if (
+      !structuralScanConsumes(scanState, line) &&
+      (/^### Phase R?\d+/.test(line) || /^## /.test(line))
+    ) {
       return offset;
     }
     offset += line.length + 1; // +1 restores the "\n" consumed by split
@@ -1292,14 +1341,16 @@ function parseSpecSegmentInner(segment) {
   // invalid line number rides a section-only pass (Codex round-3 P2,
   // PR #224). The consumed group feeds findSectionHeading's cited-suffix
   // agreement rule through every downstream anchor, so a wrong suffix
-  // fails closed instead of repairing. The `\b` keeps prose descriptors
-  // (`(sfx) lineage of ...`) routing to section-only unchanged.
+  // fails closed instead of repairing. Balanced-group extraction keeps a
+  // nested suffix (`(RFC 9111 (shared cache)) line N`) whole, and the
+  // `\b` keeps prose descriptors (`(sfx) lineage of ...`) routing to
+  // section-only unchanged.
   let sectionDescriptor = null;
   if (section) {
-    const suffixThenAnchorMatch = body.match(/^(\([^)]*\))\s+(?=(?:lines?|AC\d+)\b)/);
-    if (suffixThenAnchorMatch) {
-      sectionDescriptor = suffixThenAnchorMatch[1];
-      body = body.slice(suffixThenAnchorMatch[0].length).trim();
+    const suffixGroup = leadingParenGroup(body);
+    if (suffixGroup && /^\s+(?:lines?|AC\d+)\b/.test(body.slice(suffixGroup.end))) {
+      sectionDescriptor = body.slice(0, suffixGroup.end).trim();
+      body = body.slice(suffixGroup.end).trim();
     }
   }
 
@@ -2031,6 +2082,46 @@ function normalizeSuffixForMatch(tok) {
   return tok.toLowerCase().replace(/[\s`*]/g, "");
 }
 
+// First parenthetical group of a descriptor tail, balanced: against
+// `(RFC 9111 (shared cache)) (gloss)` it yields the full first group where
+// a `[^)]*` regex would truncate at the inner close (Codex round-4,
+// PR #224). Returns { group, end } — the inner text and the index just
+// past the closing paren in the ORIGINAL string — or null when the text
+// does not lead with a complete balanced group.
+function leadingParenGroup(text) {
+  const start = text.length - text.trimStart().length;
+  if (text[start] !== "(") return null;
+  let depth = 0;
+  for (let i = start; i < text.length; i += 1) {
+    if (text[i] === "(") depth += 1;
+    else if (text[i] === ")") {
+      depth -= 1;
+      if (depth === 0) return { group: text.slice(start + 1, i), end: i + 1 };
+    }
+  }
+  return null;
+}
+
+// Trailing parenthetical suffix of a heading, balanced: walks back from
+// the end so a suffix whose content itself nests parens — the Plan-008
+// CP-008-8 heading's markdown links, a `(RFC 9111 (shared cache))` — is
+// ONE suffix instead of a regex truncation (Codex round-4, PR #224).
+// Returns { suffix, start } — the inner text and the opening paren's
+// index — or null when the heading does not end with a balanced group.
+function trailingParenSuffix(headingText) {
+  const text = headingText.trimEnd();
+  if (!text.endsWith(")")) return null;
+  let depth = 0;
+  for (let i = text.length - 1; i >= 0; i -= 1) {
+    if (text[i] === ")") depth += 1;
+    else if (text[i] === "(") {
+      depth -= 1;
+      if (depth === 0) return { suffix: text.slice(i + 1, text.length - 1), start: i };
+    }
+  }
+  return null;
+}
+
 export function findSectionHeading(sectionName, specLines, citedDescriptorTail = null) {
   // Exact-after-normalize match. The earlier `.includes()` form let
   // `§Token line 39` pass when the actual heading was `Token Security
@@ -2066,43 +2157,34 @@ export function findSectionHeading(sectionName, specLines, citedDescriptorTail =
   //   candidates must name exactly ONE distinct heading (punctuation-
   //   preserving distinctness, so `(v1.0)` / `(v10)` siblings stay
   //   ambiguous) or the cite is rejected.
-  // The scan is fence-aware (same CommonMark rules as findSectionBoundary),
-  // so a fenced example `## Phantom (v1)` is not a citable heading.
+  // The scan reads only structural content (shared structuralScanConsumes
+  // state with findSectionBoundary): a fenced example `## Phantom (v1)`,
+  // a ``` literal inside 4-space-indented code, and a heading inside a
+  // multi-line HTML comment are none of them citable headings. Suffix
+  // extraction is balanced-paren on both sides, so a nested trailing
+  // suffix (`(RFC 9111 (shared cache))`, the Plan-008 CP-008-8 link
+  // shape) strips and compares as one token.
   // Widens-only vs the pre-fallback matcher: exact matches still win, and
   // the PR #96 heading-prefix laxity does not return.
   const target = normalizeTokenForMatch(sectionName);
-  const citedSuffixMatch =
-    typeof citedDescriptorTail === "string" ? citedDescriptorTail.match(/^\s*\(([^)]*)\)/) : null;
-  const citedSuffix = citedSuffixMatch ? normalizeSuffixForMatch(citedSuffixMatch[1]) : null;
+  const citedGroup =
+    typeof citedDescriptorTail === "string" ? leadingParenGroup(citedDescriptorTail) : null;
+  const citedSuffix = citedGroup ? normalizeSuffixForMatch(citedGroup.group) : null;
   let exactHit = null;
   const suffixCandidates = [];
-  let fenceChar = ""; // "" when outside a fence; "`" or "~" while inside one
-  let fenceLen = 0;
+  const scanState = createStructuralScanState();
   for (const line of specLines) {
-    const fence = /^\s*(`{3,}|~{3,})/.exec(line);
-    if (fence) {
-      const runChar = fence[1][0];
-      const bareClose = /^\s*$/.test(line.slice(fence[0].length));
-      if (fenceChar === "") {
-        fenceChar = runChar;
-        fenceLen = fence[1].length;
-      } else if (runChar === fenceChar && fence[1].length >= fenceLen && bareClose) {
-        fenceChar = "";
-        fenceLen = 0;
-      }
-      continue;
-    }
-    if (fenceChar !== "" || !/^#+\s+/.test(line)) continue;
+    if (structuralScanConsumes(scanState, line) || !/^#+\s+/.test(line)) continue;
     const headingText = line.replace(/^#+\s+/, "");
     if (exactHit === null && normalizeTokenForMatch(headingText) === target) {
       exactHit = { found: true, headingLine: line.trim() };
       continue;
     }
-    const headingSuffixMatch = headingText.match(/\(([^)]*)\)\s*$/);
-    if (headingSuffixMatch) {
-      const strippedHeading = headingText.replace(/\s*\([^)]*\)\s*$/, "");
+    const trailingSuffix = trailingParenSuffix(headingText);
+    if (trailingSuffix) {
+      const strippedHeading = headingText.slice(0, trailingSuffix.start).trimEnd();
       if (normalizeTokenForMatch(strippedHeading) === target) {
-        const headingSuffix = normalizeSuffixForMatch(headingSuffixMatch[1]);
+        const headingSuffix = normalizeSuffixForMatch(trailingSuffix.suffix);
         suffixCandidates.push({
           headingLine: line.trim(),
           suffix: headingSuffix,

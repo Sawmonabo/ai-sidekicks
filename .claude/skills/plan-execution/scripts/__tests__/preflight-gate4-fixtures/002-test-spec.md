@@ -50,3 +50,7 @@ status: test-fixture-only
 
 - `usage.tokens` events carry prompt/completion token counts per turn.
 - `usage.cost_estimate` events carry derived cost figures.
+
+### Cache Policy (RFC 9111 (shared cache))
+
+- `cache.directives` events carry shared-cache directive evaluations.
