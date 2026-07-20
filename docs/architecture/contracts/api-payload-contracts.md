@@ -2716,11 +2716,17 @@ interface TimelineEntry {
   summary: string; // human-readable summary
   timestamp: string;
   childRunSummary?: ChildRunSummary; // if this is a summarized child-run row
-  runId?: RunId; // run identity of a run-scoped row — present exactly with position (CP-004-13): the typed pair the run.rolled_back live client rule keys on, never dug out of payload
-  position?: number; // the row's projection-resolved originating run position (Plan-004 T3.14's uniform row-to-turn assignment) — present exactly with runId on run-scoped rows; the live rule compares it against the run.rolled_back boundary's carried targetPosition (sequence is the session event sequence, never a run position)
+  runId?: RunId; // run identity of a run-scoped row — present exactly with position + epoch (CP-004-13): the typed triple the run.rolled_back live client rule keys on, never dug out of payload
+  position?: number; // the row's projection-resolved originating run position (Plan-004 T3.14's uniform row-to-turn assignment) — present exactly with runId + epoch on run-scoped rows; the live rule compares it against the run.rolled_back boundary's carried targetPosition (sequence is the session event sequence, never a run position)
+  epoch?: number; // the row's projection-resolved execution epoch (T3.14's row attribution: the stamped sourceEpoch on late rows, the operation association's epoch on in-time content-asynchronous rows, the run's current epoch at emission otherwise) — present exactly with runId + position on run-scoped rows (Codex round 2, PR #232); the client-built marker for a cached current row a later boundary supersedes is {runId: row.runId, sourceEpoch: row.epoch, targetPosition: boundary targetPosition}, byte-equal to the replay-computed marker (a previously-current row's first remover IS that boundary), and superseded.sourceEpoch always equals the row's epoch when both are present — position alone can never recover the epoch, since re-execution reuses ordinals
   superseded?: { runId: RunId; sourceEpoch: number; targetPosition: number }; // present exactly when the row's turn is superseded, absence = current (campaign B9 CP-004-13, 2026-07-20) — projection-computed from Plan-004 T3.14's exported supersededTurns(runId); epoch-scoped per Spec-004 §Required Behavior (a re-executed reused ordinal is current); targetPosition = the superseding rollback's rewind cutoff — the first accepted rollback in the run's lineage, at the row's epoch or later, that rewound the surviving history containing the row (a later rollback below an earlier retained prefix supersedes the inherited rows); identical on TimelineRead and TimelineSubscribe replay — live marking of already-delivered rows rides the run.rolled_back boundary entry's carried cutoff compared against each cached row's position, and rows delivered after the boundary arrive with the marker already projection-computed — pre-marked when stamped attribution ranks the row above the run's effective cutoff for its epoch (the minimum cutoff among accepted rollbacks at its epoch or later), unmarked when it ranks into the surviving history or belongs to the new epoch — per Spec-013 §Required Behavior
   payload: Record<string, unknown>;
 }
+
+type TimelineRollbackBoundary = TimelineEntry & {
+  type: "run.rolled_back";
+  payload: RunRolledBackEvent;
+}; // the rewind boundary on the timeline stream (CP-004-13, Codex round 2 on PR #232): the projection validates the boundary payload into the typed RunRolledBackEvent shape (defined at §Tier 5 run.* above) before emission, so the live client rule reads a typed targetPosition — never an unsafe cast of the free-form payload; an entry failing that validation is a projection defect surfaced at emission, never delivered untyped
 
 interface ChildRunSummary {
   runId: RunId;
