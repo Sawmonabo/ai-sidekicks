@@ -126,11 +126,12 @@ The Tier-5 plan-readiness audit (NS-17) surfaced three open decisions; all three
 preconditions:
   # T1.2's `'rollback'` InterventionType arm imports the Plan-005-owned union
   # member that the campaign B10 bundle widens together with its consumers
-  # (CP-005-6; the four-op widening lands as Plan-005 Phase-3 tasks). Tier
-  # order (4 < 5) makes this near-automatic — the entry makes it
-  # machine-enforced (preflight Gate 5): declared-⊆-shipped resolves false
-  # until the widened Plan-005 Phase 3 has shipped.
-  - { type: plan_phase, plan: 005, phase: 3, status: merged }
+  # (CP-005-6; the widening is Plan-005 T1.8 — the Phase-1 contract catch-up
+  # task, which re-opens the shipped phase). Tier order (4 < 5) makes this
+  # near-automatic — the entry makes it machine-enforced (preflight Gate 5):
+  # declared-⊆-shipped resolves false until the re-opened Plan-005 Phase 1
+  # (T1.7/T1.8 included) has fully shipped.
+  - { type: plan_phase, plan: 005, phase: 1, status: merged }
 ```
 
 #### Tasks
@@ -238,13 +239,15 @@ preconditions:
   # prose precondition emits zero Gate-5 entries and silently passes — only
   # this YAML shape makes the snapshot gate real (preflight-contract §Gate 5).
   - { type: plan_phase, plan: 010, phase: 5, status: merged }
-  # The campaign B10 parity bundle lands the four-op ProviderDriver widening —
-  # `rollbackTo` / `DriverRollbackResult` plus the `InterventionType` union
-  # widening (CP-005-6: the bundle "widens union + consumers together") — as
-  # Plan-005 Phase-3 tasks; T3.12/T3.13 consume those symbols, so this phase
-  # cannot dispatch until the widened Plan-005 Phase 3 has shipped
-  # (declared-⊆-shipped makes this entry resolve false until then).
-  - { type: plan_phase, plan: 005, phase: 3, status: merged }
+  # The campaign B10 parity bundle lands the four-op ProviderDriver CONTRACT
+  # widening — `rollbackTo` / `DriverRollbackResult` plus the `InterventionType`
+  # union widening (CP-005-6: the bundle "widens union + consumers together") —
+  # as Plan-005 T1.8, the Phase-1 contract catch-up task (Phase 3 holds only
+  # the driver implementation legs, which the T3.12 static capability gate
+  # covers at runtime); T3.12/T3.13 consume the T1.8 contract symbols, so this
+  # phase cannot dispatch until the re-opened Plan-005 Phase 1 has fully
+  # shipped (declared-⊆-shipped makes this entry resolve false until then).
+  - { type: plan_phase, plan: 005, phase: 1, status: merged }
   - { type: precondition_box_checked, box: "Driver input-ask park leg authored" }
 ```
 
@@ -452,7 +455,7 @@ shipped: []
 
 - **F1 (contracts):** the rollback response arm is state-split — a terminal rollback outcome (`applied` / `degraded`) REQUIRES `result: RollbackInterventionResult` (a disposition-less terminal response fails parse; test), while `requested` / `accepted` / `rejected` / `expired` rollback responses carry no `result` (`rejectionReason` covers the rejected cause); T1.3 mirror updated.
 - **F2 (T3.13):** the execution-epoch trigger corrected — the epoch advances with **each accepted `run.rolled_back`** (a confirmed conversation rewind, including a position-mismatch rewind confirmed at the recorded floor), regardless of the file-leg disposition, per `Spec-004 §Required Behavior`'s collision requirement (re-executed turns reuse position ordinals, so a degraded-confirmed rollback keying the epoch on the final `applied` state would collide with the superseded epoch's `turn-<N>` refs); test added. The same stale "per applied rollback" shorthand in Plan-010's ratified `<E>` epoch-source box (§Phase 5 — Turn-snapshot service) and Spec-010 §Turn-Boundary Snapshots is a **lead-owned erratum** riding the queued Spec-010 errata batch — out of this PR's scope, not re-imported here.
-- **F3 (preconditions):** Phase 3's `preconditions:` block gains `{plan: 005, phase: 3, status: merged}` (the campaign B10 parity bundle's Plan-005 Phase-3 placement of the four-op `ProviderDriver` widening + the `InterventionType` union widening per CP-005-6), and Phase 1 gains a new `preconditions:` block with the same entry gating T1.2's `'rollback'` arm — both machine-enforced via preflight Gate 5's declared-⊆-shipped resolution.
+- **F3 (preconditions):** Phase 3's `preconditions:` block gains a Plan-005 `plan_phase` entry (the campaign B10 parity bundle's placement of the four-op `ProviderDriver` widening + the `InterventionType` union widening per CP-005-6), and Phase 1 gains a new `preconditions:` block with the same entry gating T1.2's `'rollback'` arm — both machine-enforced via preflight Gate 5's declared-⊆-shipped resolution. _Placement corrected pre-merge (lead verification against the B10 branch): the widening is Plan-005 **T1.8 — Phase 1's** contract catch-up task (re-opening the shipped phase), not a Phase-3 task; both entries retargeted `phase: 3` → `phase: 1`, which also avoids transitively dragging Plan-005 Phase 3's own Plan-006 gate into this plan's chain._
 
 **Round 4 (Codex on 2249792) — 6 findings, all fixed in one commit.**
 
