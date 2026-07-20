@@ -1444,8 +1444,8 @@ type InterventionRequestPayload =
 //   emitted at the confirmed position and the execution epoch ADVANCES, Plan-004 T3.13):
 //     `files-restored`           restore ran to the fixpoint (`applied`)
 //     `files-partially-restored` multi-command restore failed mid-sequence, `failedStep` named plus the
-//                                same two never-silent enumerations for the steps that completed before
-//                                the failure (Codex re-audit round 2) — a convergent partial (a fresh
+//                                same two never-silent enumerations for every effect applied before the
+//                                failure (Codex re-audit round 2; PR #230) — a convergent partial (a fresh
 //                                rollback to the same targetPosition re-runs to the fixpoint); NEVER
 //                                collapsed into `files-unrestored` (`degraded`)
 //     `files-unrestored`         the bound file-restore refused at EXECUTION time (the execution-time
@@ -1487,9 +1487,9 @@ type RollbackDegradedResult = // partial / zero-effect dispositions — legal ON
       // Same Spec-010 §Turn-Boundary Snapshots never-silent mandate as `files-restored` (Codex
       // re-audit round 2): the spec's rationale for this distinct disposition is exactly that a
       // late failure "leaves earlier effects on disk, and hiding that would mask file loss" — so
-      // the arm carries the enumerations the steps completed BEFORE the failure produced (a
-      // failure before the read-tree leg carries both empty: nothing yet overwritten). REQUIRED,
-      // empty-when-none — the identical parse-failure-on-absence semantics as `files-restored`.
+      // the arm carries the enumerations for EVERY effect applied before the failure — the failing
+      // command's partial writes included (PR #230 round 1); only a pre-mutation failure carries
+      // both empty. REQUIRED + empty-when-none — the same parse-failure-on-absence as `files-restored`.
       // T3.13 maps them from the callee's partial result and T4.7's degraded render surfaces
       // them (exit code unchanged); the callee-side naming of the enumerations on Plan-010
       // T5.2's `partial_restore` variant is Plan-010's to pin (cross-plan one-writer — the
