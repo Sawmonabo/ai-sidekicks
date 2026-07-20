@@ -804,7 +804,7 @@ interface RollbackToParams {
 type DriverRollbackResult =
   // A successful rollback without a confirmed floor is structurally inexpressible (mirrors
   // `DriverResumeResult`): position-compares consume it per Spec-015 via campaign B5/B14.
-  | { status: "applied"; sessionPosition: number; bindingId?: string } // sessionPosition: REQUIRED driver-confirmed post-rollback position — the new authoritative recovery floor. Untrusted driver output: the daemon domain-validates it like the request target (integer ≥ 0, recorded boundary, strictly below the pre-rollback position) before trusting it — an invalid or no-op report is a no-rewind failure, never a run.rolled_back (Spec-004 §Required Behavior). bindingId (campaign B2): present iff the mechanism minted a new provider binding for the same run (Claude fork-composed leg) — the store-minted surrogate of a binding row already registered (provider resume_handle + runtime metadata) through the relaunch pattern's write seam before the result returned, never itself a resume handle; the daemon repoints the run's live binding on receipt; absent on an in-place rollback (Codex thread/rollback); runtime-bounded (length + non-whitespace + NUL-rejection) like `DriverResumeResult.bindingId` — the trust-boundary header's twelve-string enumeration above
+  | { status: "applied"; sessionPosition: number; bindingId?: string } // sessionPosition: REQUIRED driver-confirmed post-rollback position — the new authoritative recovery floor. Untrusted driver output: the daemon domain-validates it like the request target (integer ≥ 0, recorded boundary, strictly below the pre-rollback position) before trusting it — an invalid or no-op report is a no-rewind failure, never a run.rolled_back — with the file-leg recovery carve-out excepted: on a recovery-admitted current-position target the driver's convergence no-op (sessionPosition == targetPosition, no movement) IS the confirmed floor and the composite proceeds to the fixpoint restore (Spec-004 §Required Behavior). bindingId (campaign B2): present iff the mechanism minted a new provider binding for the same run (Claude fork-composed leg) — the store-minted surrogate of a binding row already registered (provider resume_handle + runtime metadata) through the relaunch pattern's write seam before the result returned, never itself a resume handle; the daemon repoints the run's live binding on receipt; absent on an in-place rollback (Codex thread/rollback); runtime-bounded (length + non-whitespace + NUL-rejection) like `DriverResumeResult.bindingId` — the trust-boundary header's twelve-string enumeration above
   | { status: "degraded"; fallbackAction?: string };
 
 // Session-goal injection (campaign B3). `goalText` is the daemon-rendered textual form of the
@@ -1443,9 +1443,11 @@ type InterventionRequestPayload =
 //   CONFIRMED-REWIND (the conversation leg confirmed a rewind — the forward `run.rolled_back` is
 //   emitted at the confirmed position and the execution epoch ADVANCES, Plan-004 T3.13):
 //     `files-restored`           restore ran to the fixpoint (`applied`)
-//     `files-partially-restored` multi-command restore failed mid-sequence, `failedStep` named — a
-//                                convergent partial (a fresh rollback to the same targetPosition re-runs
-//                                to the fixpoint); NEVER collapsed into `files-unrestored` (`degraded`)
+//     `files-partially-restored` multi-command restore failed mid-sequence, `failedStep` named plus the
+//                                same two never-silent enumerations for the steps that completed before
+//                                the failure (Codex re-audit round 2) — a convergent partial (a fresh
+//                                rollback to the same targetPosition re-runs to the fixpoint); NEVER
+//                                collapsed into `files-unrestored` (`degraded`)
 //     `files-unrestored`         the bound file-restore refused at EXECUTION time (the execution-time
 //                                HEAD re-verify) after the conversation leg already applied (`degraded`)
 //     `conversation-only`        `read-only` mode or a disposed/retired execution root — the file leg
@@ -1464,9 +1466,39 @@ type InterventionRequestPayload =
 // Root `busy` under another run is NOT a disposition here — it is a pre-dispatch WHOLE-REJECTION
 // (`requested → rejected`, Queue And Intervention Model §Driver Result To Lifecycle Mapping), never a result.
 type RollbackAppliedResult = // full-effect dispositions — legal ONLY under state: "applied"
-  { disposition: "files-restored" } | { disposition: "conversation-only" };
+  | {
+      disposition: "files-restored";
+      // Spec-010 §Turn-Boundary Snapshots mandates both enumerations on the restore result
+      // ("never silent" — overwritten colliding ignored paths; divergent submodule gitlinks):
+      // REQUIRED, empty-when-none — absence is a parse failure, so a consumer can never mistake
+      // absence for none (Codex post-merge round, PR #225). These two field names are the
+      // Plan-004-owned WIRE contract: T3.13 maps the enumerations Plan-010 T5.2's `restored`
+      // variant carries (the callee-side result shape stays Plan-010-owned — cross-plan
+      // one-writer) onto these fields, and T4.7's success render surfaces them (exit 0);
+      // `conversation-only` ran no file leg and carries neither.
+      overwrittenIgnoredPaths: string[]; // ignored untracked paths overwritten by snapshot-tracked collisions on the read-tree leg
+      divergentGitlinks: string[]; // submodule paths whose gitlink diverges from the snapshot (absent-working-copy materialization included)
+    }
+  | { disposition: "conversation-only" };
 type RollbackDegradedResult = // partial / zero-effect dispositions — legal ONLY under state: "degraded"
-  | { disposition: "files-partially-restored"; failedStep: string }
+  | {
+      disposition: "files-partially-restored";
+      failedStep: string;
+      // Same Spec-010 §Turn-Boundary Snapshots never-silent mandate as `files-restored` (Codex
+      // re-audit round 2): the spec's rationale for this distinct disposition is exactly that a
+      // late failure "leaves earlier effects on disk, and hiding that would mask file loss" — so
+      // the arm carries the enumerations the steps completed BEFORE the failure produced (a
+      // failure before the read-tree leg carries both empty: nothing yet overwritten). REQUIRED,
+      // empty-when-none — the identical parse-failure-on-absence semantics as `files-restored`.
+      // T3.13 maps them from the callee's partial result and T4.7's degraded render surfaces
+      // them (exit code unchanged); the callee-side naming of the enumerations on Plan-010
+      // T5.2's `partial_restore` variant is Plan-010's to pin (cross-plan one-writer — the
+      // Spec-010 mandate is the normative source either way), and a Plan-004 §Preconditions
+      // box + Phase-3 gate hold the consuming dispatch until that amendment lands (Codex
+      // re-audit round 4).
+      overwrittenIgnoredPaths: string[];
+      divergentGitlinks: string[];
+    }
   | { disposition: "files-unrestored" }
   | { disposition: "pause-only" }
   | { disposition: "nothing-applied" }
