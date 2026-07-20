@@ -120,13 +120,21 @@ function createStructuralScanState() {
 // interior/delimiter (fence delimiter, fenced content, comment interior)
 // that no heading scan may read; false when the line is document content.
 function structuralScanConsumes(state, line) {
-  const fence = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+  // Blockquote-prefix parity with tools/docs-corpus/lib/markdown-fences.ts
+  // `stripBlockquotePrefix`: a quoted fence opener (`> ```md`) with
+  // lazy-continuation interior lines hides quoted example headings exactly
+  // like an unquoted fence (Codex round-5, PR #224). Quoted and unquoted
+  // fences share one state stream — the same flat approximation the shared
+  // tracker makes. Fence detection reads the stripped content; heading
+  // tests in the callers stay raw, so `> ## quoted` is still not a heading.
+  const content = line.replace(/^(?: {0,3}>)+ ?/, "");
+  const fence = /^ {0,3}(`{3,}|~{3,})/.exec(content);
   if (state.fenceChar !== "") {
     if (
       fence &&
       fence[1][0] === state.fenceChar &&
       fence[1].length >= state.fenceLen &&
-      /^\s*$/.test(line.slice(fence[0].length))
+      /^\s*$/.test(content.slice(fence[0].length))
     ) {
       state.fenceChar = "";
       state.fenceLen = 0;
@@ -134,6 +142,8 @@ function structuralScanConsumes(state, line) {
     return true;
   }
   if (state.inHtmlComment) {
+    // Close detection stays raw: a comment interior is raw HTML where
+    // backticks have no code-span meaning.
     if (line.includes("-->")) {
       state.inHtmlComment = line.lastIndexOf("<!--") > line.lastIndexOf("-->");
     }
@@ -144,7 +154,14 @@ function structuralScanConsumes(state, line) {
     state.fenceLen = fence[1].length;
     return true;
   }
-  if (line.lastIndexOf("<!--") > line.lastIndexOf("-->")) {
+  // Inline code spans render literally, so a `<!--` inside backticks is
+  // prose, not a comment opener — without stripping, a doc SAYING
+  // "use `<!--` to open a comment" would swallow every later heading
+  // (Codex round-5, PR #224). Same-length-run matching; over-stripping
+  // degrades to not-entering-comment-state, the pre-comment-aware
+  // behavior, never to swallowed content.
+  const spanStripped = content.replace(/(`+).*?\1/g, "");
+  if (spanStripped.lastIndexOf("<!--") > spanStripped.lastIndexOf("-->")) {
     // The line OPENS an unclosed comment; text before the `<!--` is still
     // content (a real heading carrying a trailing comment opener keeps its
     // boundary role — its § match self-excludes on the polluted tail).
@@ -1334,23 +1351,33 @@ function parseSpecSegmentInner(segment) {
     body = body.slice(sectionMatch[0].length).trim();
   }
 
-  // Section-adjacent parenthetical BEFORE a line/AC anchor — `§X (suffix)
-  // line N`. Consume it into `sectionDescriptor` and advance so line/AC
-  // parsing proceeds. Without this the section-only branch below swallows
-  // the whole tail as descriptor text: the line anchor vanishes and an
-  // invalid line number rides a section-only pass (Codex round-3 P2,
-  // PR #224). The consumed group feeds findSectionHeading's cited-suffix
-  // agreement rule through every downstream anchor, so a wrong suffix
-  // fails closed instead of repairing. Balanced-group extraction keeps a
-  // nested suffix (`(RFC 9111 (shared cache)) line N`) whole, and the
-  // `\b` keeps prose descriptors (`(sfx) lineage of ...`) routing to
-  // section-only unchanged.
+  // Section-adjacent parentheticals BEFORE a line/AC anchor — `§X (suffix)
+  // line N`, or with gloss groups: `§X (suffix) (gloss) line N`. Consume
+  // the ENTIRE run of leading paren groups into `sectionDescriptor` when —
+  // and only when — the run is directly followed by a line/lines/AC
+  // keyword, so the anchor reaches the anchor parser. Without this the
+  // section-only branch below swallows the whole tail as descriptor text:
+  // the anchor vanishes and an invalid line number rides a section-only
+  // pass — round-3 P2 for the single-group form, round-5 P2 for the
+  // multi-group form (Codex, PR #224). findSectionHeading reads the FIRST
+  // group of the consumed run as the suffix claim (later groups stay
+  // gloss, the marker-line convention), so a wrong suffix fails closed.
+  // Balanced-group extraction keeps a nested suffix
+  // (`(RFC 9111 (shared cache)) line N`) whole, and the `\b` keeps prose
+  // descriptors (`(sfx) lineage of ...`) routing to section-only
+  // unchanged.
   let sectionDescriptor = null;
   if (section) {
-    const suffixGroup = leadingParenGroup(body);
-    if (suffixGroup && /^\s+(?:lines?|AC\d+)\b/.test(body.slice(suffixGroup.end))) {
-      sectionDescriptor = body.slice(0, suffixGroup.end).trim();
-      body = body.slice(suffixGroup.end).trim();
+    let consumedEnd = 0;
+    for (;;) {
+      const nextGroup = leadingParenGroup(body.slice(consumedEnd));
+      if (!nextGroup) break;
+      consumedEnd += nextGroup.end;
+      if (/^\s+(?:lines?|AC\d+)\b/.test(body.slice(consumedEnd))) {
+        sectionDescriptor = body.slice(0, consumedEnd).trim();
+        body = body.slice(consumedEnd).trim();
+        break;
+      }
     }
   }
 
@@ -1474,6 +1501,14 @@ function parseSpecSegmentInner(segment) {
   const subTokens = splitWithinNamespace(body);
   const anchors = [];
   let currentSection = section;
+  // Suffix-claim scope: the prefix-consumed `sectionDescriptor` belongs to
+  // the ORIGINAL `§section (suffix)` prefix run only. Any re-sectioning
+  // sub-token starts a NEW heading claim — even one spelling the same
+  // section name again (`§Usage (sfx) line 1, §Other line 2, §Usage line
+  // 3`): the final bare `§Usage` must NOT silently inherit `(sfx)` when
+  // suffixed siblings would make the bare cite ambiguous (Codex round-5,
+  // PR #224). An explicit latch, not string equality on the name.
+  let inOriginalSection = true;
   let inLinesList = false;
   for (const token of subTokens) {
     const acMatch = token.match(/^AC(\d+)(?:\s*\((.+)\)|\s+-\s+(.+?))?\s*$/);
@@ -1488,10 +1523,9 @@ function parseSpecSegmentInner(segment) {
         ac,
         lineHint: lineHint ? Number(lineHint[1]) : null,
         section: currentSection,
-        // Prefix-consumed suffix binds only anchors still under the top-level
-        // section; a re-sectioned sub-token (`§B line N`) is a different
-        // heading claim and must not inherit it.
-        sectionDescriptor: currentSection === section ? sectionDescriptor : null,
+        // Prefix-consumed suffix rides only pre-re-section anchors — the
+        // inOriginalSection latch at the loop head owns the rule.
+        sectionDescriptor: inOriginalSection ? sectionDescriptor : null,
         subject: subjects.length === 1 ? subjects[0] : null,
         descriptor,
         warn: lineHint ? null : "line hint recommended (`AC-X (line NN)`)",
@@ -1510,7 +1544,7 @@ function parseSpecSegmentInner(segment) {
         spec,
         line,
         section: currentSection,
-        sectionDescriptor: currentSection === section ? sectionDescriptor : null,
+        sectionDescriptor: inOriginalSection ? sectionDescriptor : null,
         subject: subjects[0] ?? null,
         descriptor,
         raw: segment,
@@ -1538,6 +1572,7 @@ function parseSpecSegmentInner(segment) {
     if (rangeTokenMatch) {
       if (rangeTokenMatch[1]) {
         currentSection = rangeTokenMatch[1].trim();
+        inOriginalSection = false;
       }
       const start = Number(rangeTokenMatch[2]);
       const end = Number(rangeTokenMatch[3]);
@@ -1561,7 +1596,7 @@ function parseSpecSegmentInner(segment) {
         start,
         end,
         section: currentSection,
-        sectionDescriptor: currentSection === section ? sectionDescriptor : null,
+        sectionDescriptor: inOriginalSection ? sectionDescriptor : null,
         subject: subjects[0] ?? null,
         descriptor,
         raw: segment,
@@ -1579,6 +1614,7 @@ function parseSpecSegmentInner(segment) {
     );
     if (reSectionLineMatch) {
       currentSection = reSectionLineMatch[1].trim();
+      inOriginalSection = false;
       const keyword = reSectionLineMatch[2];
       const line = Number(reSectionLineMatch[3]);
       const descriptor = (reSectionLineMatch[4] ?? reSectionLineMatch[5] ?? "").trim();
@@ -1588,7 +1624,7 @@ function parseSpecSegmentInner(segment) {
         spec,
         line,
         section: currentSection,
-        sectionDescriptor: currentSection === section ? sectionDescriptor : null,
+        sectionDescriptor: inOriginalSection ? sectionDescriptor : null,
         subject: subjects[0] ?? null,
         descriptor,
         raw: segment,
@@ -1610,7 +1646,7 @@ function parseSpecSegmentInner(segment) {
         spec,
         line,
         section: currentSection,
-        sectionDescriptor: currentSection === section ? sectionDescriptor : null,
+        sectionDescriptor: inOriginalSection ? sectionDescriptor : null,
         subject: subjects[0] ?? null,
         descriptor,
         raw: segment,
@@ -2175,11 +2211,19 @@ export function findSectionHeading(sectionName, specLines, citedDescriptorTail =
   const scanState = createStructuralScanState();
   for (const line of specLines) {
     if (structuralScanConsumes(scanState, line) || !/^#+\s+/.test(line)) continue;
-    const headingText = line.replace(/^#+\s+/, "");
+    // Optional ATX closing hashes (`## Interface (V1) ##`) would hide the
+    // trailing suffix from the paren walk; CommonMark requires whitespace
+    // before the closing run, so a heading ending in `C#` keeps its hash
+    // (Codex round-5, PR #224).
+    const headingText = line.replace(/^#+\s+/, "").replace(/\s+#+\s*$/, "");
     if (exactHit === null && normalizeTokenForMatch(headingText) === target) {
       exactHit = { found: true, headingLine: line.trim() };
-      continue;
     }
+    // No `continue` after an exact hit: a punctuation-only suffix
+    // (`## Interface (+)`) normalizes away in the exact comparison, so the
+    // same line must STILL register as a suffix candidate — otherwise a
+    // contradictory cite (`(-)`) sees zero candidates and passes as
+    // free-text gloss against the `(+)` heading (Codex round-5, PR #224).
     const trailingSuffix = trailingParenSuffix(headingText);
     if (trailingSuffix) {
       const strippedHeading = headingText.slice(0, trailingSuffix.start).trimEnd();

@@ -957,6 +957,74 @@ test("findSectionHeading: headings inside multi-line HTML comments are not citab
   assert.equal(findSectionHeading("After", commentInFence).found, true);
 });
 
+test("PASS 55: gloss group between the suffix and the line anchor still parses the anchor", () => {
+  // Codex round-5 P2 on PR #224: the multi-group form `§X (suffix) (gloss)
+  // line N` must consume the whole group run and reach the anchor parser.
+  const { anchors, parseFailures, verifyFailures } = verifyAll(
+    "Spec-002 §Usage Telemetry (usage_telemetry) (`usage.tokens` gloss) line 51",
+  );
+  assert.equal(parseFailures.length, 0);
+  assert.equal(verifyFailures.length, 0);
+  assert.equal(anchors[0].type, "line");
+  assert.equal(anchors[0].line, 51);
+  assert.equal(anchors[0].sectionDescriptor, "(usage_telemetry) (`usage.tokens` gloss)");
+});
+
+test("FAIL 53: an impossible line after suffix + gloss groups no longer passes as section-only", () => {
+  const { verifyFailures } = verifyAll(
+    "Spec-002 §Usage Telemetry (usage_telemetry) (gloss) line 999999",
+  );
+  assert.equal(verifyFailures.length, 1);
+  assert.equal(verifyFailures[0].result.reason, "line-out-of-range");
+});
+
+test("re-sectioning latches off the prefix suffix even when the section name repeats", () => {
+  // Codex round-5 P2 on PR #224: `§A (sfx) line N, §B line M, §A line K` —
+  // the third anchor re-declares the section by NAME; it must not inherit
+  // the prefix run's `(sfx)` claim (string equality on the name is not
+  // scope membership).
+  const { anchors, parseFailures } = verifyAll(
+    "Spec-002 §Usage Telemetry (usage_telemetry) line 51, §Acceptance Criteria line 45, §Usage Telemetry line 52",
+  );
+  assert.equal(parseFailures.length, 0);
+  assert.equal(anchors.length, 3);
+  assert.equal(anchors[0].sectionDescriptor, "(usage_telemetry)");
+  assert.equal(anchors[1].sectionDescriptor, null);
+  assert.equal(anchors[2].sectionDescriptor, null);
+});
+
+test("findSectionHeading: ATX closing hashes do not hide the trailing suffix", () => {
+  // Codex round-5 P2 on PR #224: `## Interface (V1) ##` is structurally
+  // `## Interface (V1)`; the closing-hash run must strip before the paren
+  // walk or both bare and suffixed cites fail section-not-found.
+  const specLines = ["## Interface (V1) ##", "body"];
+  assert.equal(findSectionHeading("Interface", specLines).found, true);
+  assert.equal(findSectionHeading("Interface", specLines, "(V1)").found, true);
+  assert.equal(findSectionHeading("Interface", specLines, "(V2)").found, false);
+});
+
+test("findSectionHeading: punctuation-only suffixes survive exact-normalization erasure", () => {
+  // Codex round-5 P2 on PR #224: normalizeTokenForMatch strips `(+)`
+  // entirely, so `## Interface (+)` exact-matches the bare target and
+  // previously skipped candidate collection — letting a contradictory
+  // `(-)` cite pass as free-text gloss. The line now registers as both
+  // exact hit and suffix candidate.
+  const specLines = ["## Interface (+)", "body"];
+  assert.equal(findSectionHeading("Interface", specLines).found, true);
+  assert.equal(findSectionHeading("Interface", specLines, "(+)").found, true);
+  assert.equal(findSectionHeading("Interface", specLines, "(-)").found, false);
+});
+
+test("findSectionHeading: blockquoted fences hide their example headings", () => {
+  // Codex round-5 P2 on PR #224: `> ```md` opens a fence whose
+  // lazy-continuation interior lines (no `>` prefix) are still fenced
+  // content. Prefix handling mirrors tools/docs-corpus/lib/
+  // markdown-fences.ts stripBlockquotePrefix.
+  const specLines = ["> ```md", "## Phantom (v1)", "> ```", "## Real (v2)", "body"];
+  assert.equal(findSectionHeading("Phantom", specLines).found, false);
+  assert.equal(findSectionHeading("Real", specLines).found, true);
+});
+
 test("FAIL 42: ac-line-hint-wrong-bullet binds the hint to the cited AC-N", () => {
   // Fixture AC bullets sit at lines 45 (AC1), 46 (AC2), 47 (AC3). A cite
   // like `AC3 (line 45)` is the false-green class Codex flagged on PR #96

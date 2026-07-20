@@ -225,6 +225,21 @@ test("findSectionBoundary skips headings inside multi-line HTML comments", () =>
   assert.ok(atInline >= 0 && inline.slice(atInline).startsWith("## Real Boundary"));
 });
 
+test("findSectionBoundary ignores comment markers inside inline code spans", () => {
+  // Codex round-5, PR #224: prose DISCUSSING comments — "Use `<!--` to
+  // begin a comment" — must not open comment state; under the raw marker
+  // check it consumed every later heading and silently merged phases.
+  const prose = ["intro", "Use `<!--` to begin a comment.", "body", "## Real Boundary"].join("\n");
+  const at = findSectionBoundary(prose);
+  assert.ok(at >= 0 && prose.slice(at).startsWith("## Real Boundary"));
+
+  // A bare inline-code close marker (the mermaid-arrow prose shape,
+  // "reflected in mermaid `-->` edges") is inert either way.
+  const arrow = ["intro", "reflected in mermaid `-->` edges", "## Real Boundary"].join("\n");
+  const atA = findSectionBoundary(arrow);
+  assert.ok(atA >= 0 && arrow.slice(atA).startsWith("## Real Boundary"));
+});
+
 test("findSectionBoundary treats a 4-space-indented ``` as literal, not a fence opener", () => {
   // CommonMark caps fence-opener indentation at 3 spaces; a ``` inside an
   // indented code block is literal text. Under an unrestricted \s* opener it
