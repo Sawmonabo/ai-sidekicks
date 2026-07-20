@@ -1208,10 +1208,11 @@ interface EventEnvelope {
 // sourceEpoch + sourcePosition — the cross-cutting epoch-attribution payload pair
 // (Plan-006 T1.9, the CP-004-12 registration, 2026-07-20; Spec-006 §Event Type
 // Enumeration). Stamped TOGETHER at ingestion by Plan-004 T3.11's late-append leg on
-// pre-rollback-epoch rows (epoch from the binding's frozen delivery cursor; position
-// from the straggler's per-event originating-turn association, falling back to the
-// always-superseding frozen delivery position — Spec-004 §Required Behavior owns the
-// mechanics) of the five late-append families — assistant_output,
+// pre-rollback-epoch rows (the pair from the straggler's per-event operation
+// association — (epoch, turn) recorded at operation open — falling back to the closed
+// delivery generation's always-superseding retained pair; Spec-004 §Required Behavior
+// owns the fence and generation-rotation mechanics) of the five late-append families
+// — assistant_output,
 // tool_activity, usage_telemetry, artifact_publication, and the interactive_request
 // closed pair (driver_ask.requested + driver_ask.canceled): sourceEpoch names the
 // pre-rollback execution epoch, sourcePosition the normalized session position (the
@@ -1236,8 +1237,10 @@ interface EventEnvelope {
 // point it would be a MINOR envelope bump per ADR-018 §Decision #8's
 // new-optional-field rule, and Plan-006 T1.9 carries that conditional for its
 // implementer. The audit-stub projection preserves the sourceEpoch + sourcePosition
-// + runId triple at compaction, and on accepted run.rolled_back boundary rows the
-// runId/runVersion/targetPosition rewind cutoff (Spec-006 §Compacted Event Format),
+// + runId triple at compaction, on accepted run.rolled_back boundary rows the
+// runId/runVersion/targetPosition rewind cutoff, and on every run-scoped row the
+// runId + resolved originPosition rewind-span detection keys (ORIGIN_POSITION_STUB_KEY
+// in packages/contracts/src/event.ts — Spec-006 §Compacted Event Format),
 // so Plan-004 T3.14's supersede projection keys cross-epoch rows durably even after
 // both the boundary and the stale rows compact. Execution-epoch semantics are
 // Spec-004-owned (§Required Behavior + Run State Machine §Invariants): 0 before any
