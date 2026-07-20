@@ -674,7 +674,7 @@ shipped: []
 
 <!-- Per-PR human commentary (round-trips, learnings, partial-ship details). Append-only. -->
 
-- 2026-07-20 — W2.5 targeted re-audit (campaign Task 23, B11 delta — dep-map §2 `src/events/` row trigger): zero critical findings (1 major / 1 minor / 1 nit dispositioned). The closing re-audit PR registers Plan-006's in-place extensions of Plan-001's `event.ts`/`session.ts`/`error.ts` and of Plan-007-partial's `session-read.ts` in the dep-map §2 extender cells (the ownership-registration gap) and relabels the two census-row marker-cite parentheticals in T3.1's and T3.5's Spec coverage lines to the content actually at the cited census-table line (the terminal 3-type set stays anchored at each line's co-cited at-most-once terminal-emission cite). Status unchanged (`approved`).
+- 2026-07-20 — W2.5 targeted re-audit (campaign Task 23, B11 delta — dep-map §2 `src/events/` row trigger): zero critical findings (1 major / 1 minor / 1 nit dispositioned). The closing re-audit PR (#221) registers Plan-006's in-place extensions of Plan-001's `event.ts`/`session.ts`/`error.ts` and of Plan-007-partial's `session-read.ts` in the dep-map §2 extender cells (the ownership-registration gap) and relabels the two census-row marker-cite parentheticals in T3.1's and T3.5's Spec coverage lines to the content actually at the cited census-table line (the terminal 3-type set stays anchored at each line's co-cited at-most-once terminal-emission cite). Status unchanged (`approved`).
 
 ## Done Checklist
 
