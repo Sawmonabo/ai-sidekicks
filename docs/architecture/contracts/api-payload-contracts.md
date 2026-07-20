@@ -218,7 +218,7 @@ interface SessionReadRequest {
 }
 interface SessionReadResponse {
   session: SessionSnapshot;
-  timelineCursors: { earliest?: EventCursor; latest: EventCursor; acknowledged?: EventCursor }; // earliest?: advisory floor metadata (Plan-006 T4.3), NOT a resume cursor — the oldest surviving row's cursor (V1-constant encode(0)); used only for gap detection (acknowledged < earliest ⇒ events lost ⇒ resync via a cursorless floor read, afterCursor omitted). Optional for version skew: new daemons always set it; absent ⇒ responder predates the field, client does the cursorless floor read; required at next MAJOR per ADR-018.
+  timelineCursors: { earliest?: EventCursor; latest: EventCursor; acknowledged?: EventCursor }; // earliest?: the position immediately BEFORE the oldest surviving row (Plan-006 T4.3), a directly resumable cursor — V1-constant encode(-1) (compaction stubs rows in place, never deletes; a future retention pass deleting through N-1 moves it to encode(N-1)). Consumer: resume from acknowledged ?? earliest; gap detection decode(acknowledged) < decode(earliest) ⇒ events lost ⇒ reset projection + resume from earliest. Optional for version skew: new daemons always set it; absent ⇒ responder predates the field, client resumes from start (afterCursor omitted); required at next MAJOR per ADR-018.
 }
 
 // SessionJoin
@@ -1148,7 +1148,7 @@ type EventCategory =
 // EventReadAfterCursor
 interface EventReadAfterCursorRequest {
   sessionId: SessionId;
-  afterCursor: EventCursor;
+  afterCursor?: EventCursor; // absent ≡ start-of-log position -1: full surviving-range read, SSE first-connect parity (Plan-006 T4.3)
   limit?: number; // default 100
 }
 interface EventReadAfterCursorResponse {
