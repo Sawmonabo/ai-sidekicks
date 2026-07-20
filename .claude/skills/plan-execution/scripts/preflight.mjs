@@ -1993,7 +1993,7 @@ function normalizeTokenForMatch(tok) {
 // verifier can reject phantom-section names alongside the line / AC check.
 // Without this, `Spec-002 §NotARealSection line 13` accepts as long as line
 // 13 exists (Codex P2 on PR #96 line 1301).
-export function findSectionHeading(sectionName, specLines) {
+export function findSectionHeading(sectionName, specLines, citedDescriptorTail = null) {
   // Exact-after-normalize match. The earlier `.includes()` form let
   // `§Token line 39` pass when the actual heading was `Token Security
   // Properties` because the substring check accepted any heading-prefix
@@ -2010,26 +2010,55 @@ export function findSectionHeading(sectionName, specLines) {
   // token the capture loses. A mid-heading parenthetical stays load-bearing,
   // so `§Postgres Deletion` cannot synthesize a match against a real
   // `Postgres (Control Plane) Deletion` heading (Codex P2 on PR #224).
+  //
+  // Two fail-closed rules bound the fallback (Codex round-2 P2s, PR #224):
+  // 1. Cited-suffix agreement — when the cite supplies its own parenthetical
+  //    (`§Future Delivery Mechanisms (V1)`), the parser holds it in the
+  //    descriptor tail; the FIRST paren group of that tail must equal the
+  //    heading's real suffix, so a cite naming `(V1)` can never repair onto
+  //    a `(V2)` heading. A matching suffix also DISAMBIGUATES sibling
+  //    headings that differ only by suffix. Later paren groups stay free-
+  //    text gloss (the `§X (suffix) (gloss)` marker-line form).
+  // 2. Ambiguity rejection — a bare cite whose stripped form matches
+  //    MULTIPLE distinct headings (`## Interface (V1)` + `## Interface
+  //    (V2)`) identifies neither; Gate 4 fails closed on ambiguous targets,
+  //    so the fallback rejects instead of taking the first hit.
   // Widens-only: exact matches still win, and the fallback only accepts
   // headings that differ from the cite by the trailing suffix alone —
   // the PR #96 heading-prefix laxity does not return.
   const target = normalizeTokenForMatch(sectionName);
-  let parenStrippedHit = null;
+  const citedSuffixMatch =
+    typeof citedDescriptorTail === "string" ? citedDescriptorTail.match(/^\s*\(([^)]*)\)/) : null;
+  const citedSuffix = citedSuffixMatch ? normalizeTokenForMatch(citedSuffixMatch[1]) : null;
+  const fallbackCandidates = [];
   for (const line of specLines) {
     if (/^#+\s+/.test(line)) {
       const headingText = line.replace(/^#+\s+/, "");
       if (normalizeTokenForMatch(headingText) === target) {
         return { found: true, headingLine: line.trim() };
       }
-      if (parenStrippedHit === null && headingText.includes("(")) {
+      const headingSuffixMatch = headingText.match(/\(([^)]*)\)\s*$/);
+      if (headingSuffixMatch) {
         const strippedHeading = headingText.replace(/\s*\([^)]*\)\s*$/, "");
-        if (normalizeTokenForMatch(strippedHeading) === target) {
-          parenStrippedHit = { found: true, headingLine: line.trim() };
+        if (
+          normalizeTokenForMatch(strippedHeading) === target &&
+          (citedSuffix === null || normalizeTokenForMatch(headingSuffixMatch[1]) === citedSuffix)
+        ) {
+          fallbackCandidates.push({
+            headingLine: line.trim(),
+            normalizedHeading: normalizeTokenForMatch(headingText),
+          });
         }
       }
     }
   }
-  return parenStrippedHit ?? { found: false };
+  const distinctHeadings = new Set(
+    fallbackCandidates.map((candidate) => candidate.normalizedHeading),
+  );
+  if (distinctHeadings.size === 1) {
+    return { found: true, headingLine: fallbackCandidates[0].headingLine };
+  }
+  return { found: false };
 }
 
 function sectionNotFoundFailure(sectionName) {
@@ -2186,7 +2215,11 @@ function verifyAcAnchor(anchor, source, specLines) {
 }
 
 function verifySectionAnchor(anchor, specLines) {
-  const sec = findSectionHeading(anchor.section, specLines);
+  // Section-only anchors carry the raw `(descriptor)` tail; its first paren
+  // group participates in the paren-stripped fallback's cited-suffix
+  // agreement rule (line/range/AC anchors have no section-adjacent
+  // descriptor — a `(` right after the section routes to section-only).
+  const sec = findSectionHeading(anchor.section, specLines, anchor.descriptor || null);
   if (sec.found) return { valid: true, reason: "section-found", evidence: sec.headingLine };
   return sectionNotFoundFailure(anchor.section);
 }

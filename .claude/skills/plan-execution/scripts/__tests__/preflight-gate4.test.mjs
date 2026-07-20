@@ -751,6 +751,49 @@ test("findSectionHeading: mid-heading parenthetical stays load-bearing (no synth
   assert.equal(findSectionHeading("Postgres (Control Plane) Deletion", specLines).found, true);
 });
 
+test("findSectionHeading: ambiguous stripped matches fail closed", () => {
+  // Codex round-2 P2 on PR #224: `§Interface` against `## Interface (V1)` +
+  // `## Interface (V2)` identifies neither heading — the fallback must
+  // reject rather than take the first hit.
+  const specLines = ["## Interface (V1)", "body a", "## Interface (V2)", "body b"];
+  assert.equal(findSectionHeading("Interface", specLines).found, false);
+});
+
+test("findSectionHeading: an explicitly cited suffix disambiguates siblings", () => {
+  // The cited-suffix agreement rule turns the ambiguous pair into a unique
+  // target when the cite names the suffix.
+  const specLines = ["## Interface (V1)", "body a", "## Interface (V2)", "body b"];
+  const hit = findSectionHeading("Interface", specLines, "(V2)");
+  assert.equal(hit.found, true);
+  assert.equal(hit.headingLine, "## Interface (V2)");
+});
+
+test("findSectionHeading: a contradictory cited suffix rejects", () => {
+  // Codex round-2 P2 on PR #224: `§Future Delivery Mechanisms (V1)` must not
+  // verify against the real `### Future Delivery Mechanisms (V2)` heading.
+  const specLines = ["### Future Delivery Mechanisms (V2)", "body"];
+  assert.equal(findSectionHeading("Future Delivery Mechanisms", specLines, "(V1)").found, false);
+});
+
+test("findSectionHeading: two-paren descriptor tail matches on its FIRST group", () => {
+  // The `§X (suffix) (gloss)` marker-line form: the first paren group is the
+  // heading suffix, later groups are free-text gloss (the PR #222 cite shape).
+  const specLines = ["### Usage Telemetry (usage_telemetry)", "body"];
+  const hit = findSectionHeading(
+    "Usage Telemetry",
+    specLines,
+    "(usage_telemetry) (`usage.rate_limit_update`, cost/window fields)",
+  );
+  assert.equal(hit.found, true);
+});
+
+test("findSectionHeading: duplicate identical stripped headings stay first-hit", () => {
+  // Two heading LINES with the same full text are one target, not an
+  // ambiguity — parity with the exact pass's duplicate-heading behavior.
+  const specLines = ["## Retention (audit)", "body a", "## Retention (audit)", "body b"];
+  assert.equal(findSectionHeading("Retention", specLines).found, true);
+});
+
 test("FAIL 42: ac-line-hint-wrong-bullet binds the hint to the cited AC-N", () => {
   // Fixture AC bullets sit at lines 45 (AC1), 46 (AC2), 47 (AC3). A cite
   // like `AC3 (line 45)` is the false-green class Codex flagged on PR #96
