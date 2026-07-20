@@ -1464,7 +1464,18 @@ type InterventionRequestPayload =
 // Root `busy` under another run is NOT a disposition here — it is a pre-dispatch WHOLE-REJECTION
 // (`requested → rejected`, Queue And Intervention Model §Driver Result To Lifecycle Mapping), never a result.
 type RollbackAppliedResult = // full-effect dispositions — legal ONLY under state: "applied"
-  { disposition: "files-restored" } | { disposition: "conversation-only" };
+  | {
+      disposition: "files-restored";
+      // Spec-010 §Turn-Boundary Snapshots mandates both enumerations on the restore result
+      // ("never silent" — overwritten colliding ignored paths; divergent submodule gitlinks):
+      // REQUIRED, empty-when-none — absence is a parse failure, so a consumer can never mistake
+      // absence for none (Codex post-merge round, PR #225). Mapped verbatim from Plan-010 T5.2's
+      // `restored` variant by Plan-004 T3.13 and surfaced by T4.7's success render (exit 0);
+      // `conversation-only` ran no file leg and carries neither.
+      overwrittenIgnoredPaths: string[]; // ignored untracked paths overwritten by snapshot-tracked collisions on the read-tree leg
+      divergentGitlinks: string[]; // submodule paths whose gitlink diverges from the snapshot (absent-working-copy materialization included)
+    }
+  | { disposition: "conversation-only" };
 type RollbackDegradedResult = // partial / zero-effect dispositions — legal ONLY under state: "degraded"
   | { disposition: "files-partially-restored"; failedStep: string }
   | { disposition: "files-unrestored" }

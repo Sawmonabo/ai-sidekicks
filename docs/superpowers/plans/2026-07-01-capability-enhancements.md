@@ -347,7 +347,7 @@ Every doc task's final steps invoke this procedure with its own branch/commit/fi
 
 Run one single-plan-scoped re-audit per affected plan, batched as plans land — the checklist below is per plan; check each row when its promotion PR merges:
 
-- [ ] Plan-004 (was `review` + B9 content) — re-audit → REVIEW.md → user pause → promotion PR (`review` → `approved`; clears Phase 3's **status** gate — Phase 3 dispatch additionally waits on Task 26/B23, its snapshot prerequisite, enforced in-plan by B9's Phase-3 §Preconditions row — Gate-5 machine-readable, not checklist-only)
+- [x] Plan-004 (was `review` + B9 content) — re-audit → REVIEW.md → user pause → promotion PR (`review` → `approved`; clears Phase 3's **status** gate — Phase 3 dispatch additionally waits on Task 26/B23, its snapshot prerequisite, enforced in-plan by B9's Phase-3 §Preconditions row — Gate-5 machine-readable, not checklist-only)
 - [ ] Plan-008 (was `review` + B12 content) — same vehicle (unblocks the remainder)
 - [ ] Plan-012 (flipped by B13) — same vehicle
 - [ ] Plan-024 (flipped by B16) — same vehicle
