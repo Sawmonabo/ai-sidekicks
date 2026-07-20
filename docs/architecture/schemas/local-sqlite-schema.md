@@ -146,7 +146,7 @@ CREATE TABLE interventions (
 CREATE INDEX idx_interventions_run ON interventions(target_run_id);
 CREATE INDEX idx_interventions_state ON interventions(state) WHERE state IN ('requested', 'accepted');
 
--- Owner: Plan-004 | Extended by: Plan-015 (recovery + two-phase idempotency protocol, BL-051)
+-- Owner: Plan-004 | Extended by: Plan-015 (recovery + two-phase idempotency protocol, BL-051); Plan-005 (additive nullable mcp_task_id — MCP Tasks durable recovery handle, campaign B10; own Plan-005 migration, never a Plan-004 migration edit)
 CREATE TABLE command_receipts (
   id                TEXT PRIMARY KEY,
   command_id        TEXT NOT NULL UNIQUE,         -- idempotency key (client-supplied)
@@ -159,6 +159,12 @@ CREATE TABLE command_receipts (
   dedupe_key        TEXT,                         -- propagated to remote side for 'compensable' tools
   started_at        TEXT,                         -- set by Phase 2 optimistic CAS; NULL until claimed
   completed_at      TEXT,                         -- set by Phase 3; NULL until terminal-status
+  -- Plan-005 EXTEND (campaign B10; additive nullable, own Plan-005 migration): receiver-generated
+  -- MCP Tasks taskId for a task-augmented MCP call (from the CreateTaskResult acceptance response).
+  -- NULL until the receiver accepts — a crash before that leaves NULL and the call stays on the
+  -- manual_reconcile_only halt. Spec-015 recovery reads this handle and polls tasks/get + tasks/result
+  -- instead of halting (Plan-005 T3.13; cross-plan-dependencies.md §1 command_receipts EXTEND row).
+  mcp_task_id       TEXT,                         -- NULL default; MCP Tasks durable recovery handle
   created_at        TEXT NOT NULL
 );
 

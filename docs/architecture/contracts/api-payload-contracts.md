@@ -681,6 +681,7 @@ interface CreateSessionParams {
   executionPosture?: ExecutionPosture; // spawn-time posture — provider legs that bind posture at process spawn (Claude `--settings` sandbox) realize it here; the per-run effective posture rides StartRunParams (Spec-005 §Required Behavior, campaign B3)
   callbackTools?: SessionCallbackTool[]; // daemon-curated callback-tool registry exposed into the session (Codex function-form dynamicTools; Claude daemon-hosted ephemeral MCP server via --mcp-config); gated on the callback_tools flag
   subagentPolicy?: SubagentPolicy; // provider-native in-session subagent policy pass-through under the single-supervisor invariant (Spec-016 semantics land via campaign B6); gated on the subagents flag
+  outputSchema?: Record<string, unknown>; // normalized JSON Schema constraining schema-constrained final output (Spec-005 §Per-Driver Capability Matrix structured_output, campaign B10); gated on the structured_output flag. The Claude leg binds it per session at spawn (--json-schema); the Codex leg realizes it per turn via StartRunParams.outputSchema (turn/start.outputSchema). Named consumers: Spec-024 dispatch results, Plan-016 orchestration reads
 }
 
 interface ResumeSessionParams {
@@ -704,6 +705,7 @@ interface StartRunParams {
   agentConfig: Record<string, unknown>;
   conversationHistory?: unknown[];
   executionPosture?: ExecutionPosture; // per-run effective posture — the same object the daemon stamps on run.running (Spec-006 §Run Lifecycle). Codex realizes per-turn (turn/start sandbox params); a provider that binds posture at spawn realizes it at session boundaries, and a mid-session posture change on such a leg resolves via session relaunch, never silent partial application (Spec-005 §Required Behavior, campaign B3)
+  outputSchema?: Record<string, unknown>; // per-turn schema-constrained final output (Codex turn/start.outputSchema); the Claude leg binds it at spawn via CreateSessionParams.outputSchema (--json-schema). Gated on structured_output (Spec-005 §Per-Driver Capability Matrix, campaign B10)
 }
 
 interface InterruptRunParams {
@@ -981,6 +983,15 @@ interface DriverCapabilities {
 // protocol during crash recovery (Spec-005 §Tool Metadata; Spec-015 §Idempotency
 // Protocol).
 type IdempotencyClass = "idempotent" | "compensable" | "manual_reconcile_only";
+
+// Durable MCP Tasks recovery handle (campaign B10, Plan-005 T3.13). A task-augmented MCP call under
+// the experimental MCP 2025-11-25 Tasks utility carries a receiver-generated `taskId` (from the
+// `CreateTaskResult` acceptance response). It is NOT a new RPC payload: the daemon persists it on the
+// receipt as the additive nullable `command_receipts.mcp_task_id` column (Plan-005 EXTENDs Plan-004's
+// table per cross-plan-dependencies.md §1; DDL in local-sqlite-schema.md §Queue and Intervention
+// Tables). That column is the durable handle Spec-015 recovery reads to poll `tasks/get` +
+// `tasks/result` instead of halting the `manual_reconcile_only` floor; NULL until the receiver
+// accepts — a crash before that leaves the halt intact (Spec-005 §Recovery Consequences).
 
 // INGRESS shape — what a provider driver DECLARES via `getCapabilities()`. `idempotency_class`
 // is OPTIONAL: a driver MAY omit it and an undeclared class is NOT a contract violation. Were the
