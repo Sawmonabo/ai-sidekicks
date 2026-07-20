@@ -1285,6 +1285,24 @@ function parseSpecSegmentInner(segment) {
     body = body.slice(sectionMatch[0].length).trim();
   }
 
+  // Section-adjacent parenthetical BEFORE a line/AC anchor — `§X (suffix)
+  // line N`. Consume it into `sectionDescriptor` and advance so line/AC
+  // parsing proceeds. Without this the section-only branch below swallows
+  // the whole tail as descriptor text: the line anchor vanishes and an
+  // invalid line number rides a section-only pass (Codex round-3 P2,
+  // PR #224). The consumed group feeds findSectionHeading's cited-suffix
+  // agreement rule through every downstream anchor, so a wrong suffix
+  // fails closed instead of repairing. The `\b` keeps prose descriptors
+  // (`(sfx) lineage of ...`) routing to section-only unchanged.
+  let sectionDescriptor = null;
+  if (section) {
+    const suffixThenAnchorMatch = body.match(/^(\([^)]*\))\s+(?=(?:lines?|AC\d+)\b)/);
+    if (suffixThenAnchorMatch) {
+      sectionDescriptor = suffixThenAnchorMatch[1];
+      body = body.slice(suffixThenAnchorMatch[0].length).trim();
+    }
+  }
+
   // Section-only form: `Spec-NNN §Section` (no lines / AC after).
   // Optionally followed by `(<descriptor>)`. Pass with a WARN — line anchor
   // is recommended but not required.
@@ -1342,6 +1360,7 @@ function parseSpecSegmentInner(segment) {
       spec,
       line,
       section,
+      sectionDescriptor,
       subject: subjects.length === 1 ? subjects[0] : null,
       descriptor,
       raw: segment,
@@ -1378,6 +1397,7 @@ function parseSpecSegmentInner(segment) {
             spec,
             line,
             section,
+            sectionDescriptor,
             subject: subjects[0] ?? null,
             descriptor,
             raw: segment,
@@ -1417,6 +1437,10 @@ function parseSpecSegmentInner(segment) {
         ac,
         lineHint: lineHint ? Number(lineHint[1]) : null,
         section: currentSection,
+        // Prefix-consumed suffix binds only anchors still under the top-level
+        // section; a re-sectioned sub-token (`§B line N`) is a different
+        // heading claim and must not inherit it.
+        sectionDescriptor: currentSection === section ? sectionDescriptor : null,
         subject: subjects.length === 1 ? subjects[0] : null,
         descriptor,
         warn: lineHint ? null : "line hint recommended (`AC-X (line NN)`)",
@@ -1435,6 +1459,7 @@ function parseSpecSegmentInner(segment) {
         spec,
         line,
         section: currentSection,
+        sectionDescriptor: currentSection === section ? sectionDescriptor : null,
         subject: subjects[0] ?? null,
         descriptor,
         raw: segment,
@@ -1485,6 +1510,7 @@ function parseSpecSegmentInner(segment) {
         start,
         end,
         section: currentSection,
+        sectionDescriptor: currentSection === section ? sectionDescriptor : null,
         subject: subjects[0] ?? null,
         descriptor,
         raw: segment,
@@ -1511,6 +1537,7 @@ function parseSpecSegmentInner(segment) {
         spec,
         line,
         section: currentSection,
+        sectionDescriptor: currentSection === section ? sectionDescriptor : null,
         subject: subjects[0] ?? null,
         descriptor,
         raw: segment,
@@ -1532,6 +1559,7 @@ function parseSpecSegmentInner(segment) {
         spec,
         line,
         section: currentSection,
+        sectionDescriptor: currentSection === section ? sectionDescriptor : null,
         subject: subjects[0] ?? null,
         descriptor,
         raw: segment,
@@ -1993,6 +2021,16 @@ function normalizeTokenForMatch(tok) {
 // verifier can reject phantom-section names alongside the line / AC check.
 // Without this, `Spec-002 §NotARealSection line 13` accepts as long as line
 // 13 exists (Codex P2 on PR #96 line 1301).
+// Suffix comparison normalizer. Unlike normalizeTokenForMatch it PRESERVES
+// punctuation — `(v1.0)` and `(v10)` are distinct versions and must not
+// collapse (Codex round-3 P2, PR #224) — and strips only case, whitespace,
+// and markdown code/emphasis markers, so a cite may spell a backticked
+// heading suffix (`### Contract Layer (\`packages/contracts/\`)`) without
+// the backticks.
+function normalizeSuffixForMatch(tok) {
+  return tok.toLowerCase().replace(/[\s`*]/g, "");
+}
+
 export function findSectionHeading(sectionName, specLines, citedDescriptorTail = null) {
   // Exact-after-normalize match. The earlier `.includes()` form let
   // `§Token line 39` pass when the actual heading was `Token Security
@@ -2005,58 +2043,89 @@ export function findSectionHeading(sectionName, specLines, citedDescriptorTail =
   // a cite to a parenthetical-suffixed heading — `### Usage Telemetry
   // (usage_telemetry)`, the Spec-006 category-heading house style — parses
   // as `Usage Telemetry` and anchored equality against the full heading
-  // can never match. When the exact scan finds nothing, retry with each
-  // heading's TRAILING parenthetical suffix stripped — exactly the one
-  // token the capture loses. A mid-heading parenthetical stays load-bearing,
-  // so `§Postgres Deletion` cannot synthesize a match against a real
-  // `Postgres (Control Plane) Deletion` heading (Codex P2 on PR #224).
+  // can never match. The fallback matches on the heading with its TRAILING
+  // parenthetical suffix stripped — exactly the one token the capture
+  // loses. A mid-heading parenthetical stays load-bearing, so `§Postgres
+  // Deletion` cannot synthesize a match against a real `Postgres (Control
+  // Plane) Deletion` heading (Codex P2 on PR #224).
   //
-  // Two fail-closed rules bound the fallback (Codex round-2 P2s, PR #224):
-  // 1. Cited-suffix agreement — when the cite supplies its own parenthetical
-  //    (`§Future Delivery Mechanisms (V1)`), the parser holds it in the
-  //    descriptor tail; the FIRST paren group of that tail must equal the
-  //    heading's real suffix, so a cite naming `(V1)` can never repair onto
-  //    a `(V2)` heading. A matching suffix also DISAMBIGUATES sibling
-  //    headings that differ only by suffix. Later paren groups stay free-
-  //    text gloss (the `§X (suffix) (gloss)` marker-line form).
-  // 2. Ambiguity rejection — a bare cite whose stripped form matches
-  //    MULTIPLE distinct headings (`## Interface (V1)` + `## Interface
-  //    (V2)`) identifies neither; Gate 4 fails closed on ambiguous targets,
-  //    so the fallback rejects instead of taking the first hit.
-  // Widens-only: exact matches still win, and the fallback only accepts
-  // headings that differ from the cite by the trailing suffix alone —
+  // Resolution rules (fail-closed; Codex rounds 2-3, PR #224):
+  // - The cited descriptor's FIRST paren group, when present, is read as a
+  //   suffix claim. It binds the same-base heading whose real trailing
+  //   suffix agrees (punctuation-preserving compare — `(v1.0)` never
+  //   satisfies `(v10)`), so `§Required Behavior (policy)` binds the
+  //   suffixed subsection even when a bare `## Required Behavior` sibling
+  //   exists (the one real governance pair, Spec-020), and `§Interface
+  //   (V1)` can never repair onto `(V2)`.
+  // - With NO suffixed same-base sibling in the doc, a descriptor is free-
+  //   text gloss and the bare exact hit stands (the pervasive
+  //   `§Rate Limiting (20/session/hr …)` idiom).
+  // - With suffixed same-base siblings present, a descriptor matching none
+  //   of them is undecidable (gloss vs wrong suffix) → reject.
+  // - A bare cite (no descriptor): exact hit wins; else the stripped-match
+  //   candidates must name exactly ONE distinct heading (punctuation-
+  //   preserving distinctness, so `(v1.0)` / `(v10)` siblings stay
+  //   ambiguous) or the cite is rejected.
+  // The scan is fence-aware (same CommonMark rules as findSectionBoundary),
+  // so a fenced example `## Phantom (v1)` is not a citable heading.
+  // Widens-only vs the pre-fallback matcher: exact matches still win, and
   // the PR #96 heading-prefix laxity does not return.
   const target = normalizeTokenForMatch(sectionName);
   const citedSuffixMatch =
     typeof citedDescriptorTail === "string" ? citedDescriptorTail.match(/^\s*\(([^)]*)\)/) : null;
-  const citedSuffix = citedSuffixMatch ? normalizeTokenForMatch(citedSuffixMatch[1]) : null;
-  const fallbackCandidates = [];
+  const citedSuffix = citedSuffixMatch ? normalizeSuffixForMatch(citedSuffixMatch[1]) : null;
+  let exactHit = null;
+  const suffixCandidates = [];
+  let fenceChar = ""; // "" when outside a fence; "`" or "~" while inside one
+  let fenceLen = 0;
   for (const line of specLines) {
-    if (/^#+\s+/.test(line)) {
-      const headingText = line.replace(/^#+\s+/, "");
-      if (normalizeTokenForMatch(headingText) === target) {
-        return { found: true, headingLine: line.trim() };
+    const fence = /^\s*(`{3,}|~{3,})/.exec(line);
+    if (fence) {
+      const runChar = fence[1][0];
+      const bareClose = /^\s*$/.test(line.slice(fence[0].length));
+      if (fenceChar === "") {
+        fenceChar = runChar;
+        fenceLen = fence[1].length;
+      } else if (runChar === fenceChar && fence[1].length >= fenceLen && bareClose) {
+        fenceChar = "";
+        fenceLen = 0;
       }
-      const headingSuffixMatch = headingText.match(/\(([^)]*)\)\s*$/);
-      if (headingSuffixMatch) {
-        const strippedHeading = headingText.replace(/\s*\([^)]*\)\s*$/, "");
-        if (
-          normalizeTokenForMatch(strippedHeading) === target &&
-          (citedSuffix === null || normalizeTokenForMatch(headingSuffixMatch[1]) === citedSuffix)
-        ) {
-          fallbackCandidates.push({
-            headingLine: line.trim(),
-            normalizedHeading: normalizeTokenForMatch(headingText),
-          });
-        }
+      continue;
+    }
+    if (fenceChar !== "" || !/^#+\s+/.test(line)) continue;
+    const headingText = line.replace(/^#+\s+/, "");
+    if (exactHit === null && normalizeTokenForMatch(headingText) === target) {
+      exactHit = { found: true, headingLine: line.trim() };
+      continue;
+    }
+    const headingSuffixMatch = headingText.match(/\(([^)]*)\)\s*$/);
+    if (headingSuffixMatch) {
+      const strippedHeading = headingText.replace(/\s*\([^)]*\)\s*$/, "");
+      if (normalizeTokenForMatch(strippedHeading) === target) {
+        const headingSuffix = normalizeSuffixForMatch(headingSuffixMatch[1]);
+        suffixCandidates.push({
+          headingLine: line.trim(),
+          suffix: headingSuffix,
+          distinctKey: `${normalizeTokenForMatch(strippedHeading)}|${headingSuffix}`,
+        });
       }
     }
   }
-  const distinctHeadings = new Set(
-    fallbackCandidates.map((candidate) => candidate.normalizedHeading),
-  );
-  if (distinctHeadings.size === 1) {
-    return { found: true, headingLine: fallbackCandidates[0].headingLine };
+  if (citedSuffix !== null) {
+    const agreeing = suffixCandidates.filter((candidate) => candidate.suffix === citedSuffix);
+    const distinctAgreeing = new Set(agreeing.map((candidate) => candidate.distinctKey));
+    if (distinctAgreeing.size === 1) {
+      return { found: true, headingLine: agreeing[0].headingLine };
+    }
+    if (suffixCandidates.length === 0 && exactHit) {
+      return exactHit; // pure gloss — no suffixed sibling to contradict
+    }
+    return { found: false };
+  }
+  if (exactHit) return exactHit;
+  const distinctCandidates = new Set(suffixCandidates.map((candidate) => candidate.distinctKey));
+  if (distinctCandidates.size === 1) {
+    return { found: true, headingLine: suffixCandidates[0].headingLine };
   }
   return { found: false };
 }
@@ -2071,7 +2140,7 @@ function sectionNotFoundFailure(sectionName) {
 
 function verifyLineAnchor(anchor, specLines) {
   if (anchor.section) {
-    const sec = findSectionHeading(anchor.section, specLines);
+    const sec = findSectionHeading(anchor.section, specLines, anchor.sectionDescriptor || null);
     if (!sec.found) return sectionNotFoundFailure(anchor.section);
   }
   if (anchor.line < 1 || anchor.line > specLines.length) {
@@ -2105,7 +2174,7 @@ function verifyLineAnchor(anchor, specLines) {
 
 function verifyLineRangeAnchor(anchor, specLines) {
   if (anchor.section) {
-    const sec = findSectionHeading(anchor.section, specLines);
+    const sec = findSectionHeading(anchor.section, specLines, anchor.sectionDescriptor || null);
     if (!sec.found) return sectionNotFoundFailure(anchor.section);
   }
   if (anchor.start < 1 || anchor.end > specLines.length || anchor.start > anchor.end) {
@@ -2143,7 +2212,7 @@ function verifyLineRangeAnchor(anchor, specLines) {
 
 function verifyAcAnchor(anchor, source, specLines) {
   if (anchor.section) {
-    const sec = findSectionHeading(anchor.section, specLines);
+    const sec = findSectionHeading(anchor.section, specLines, anchor.sectionDescriptor || null);
     if (!sec.found) return sectionNotFoundFailure(anchor.section);
   }
   const acHeadingMatch = source.match(/^#+\s+Acceptance Criteria\s*$/m);
@@ -2217,8 +2286,9 @@ function verifyAcAnchor(anchor, source, specLines) {
 function verifySectionAnchor(anchor, specLines) {
   // Section-only anchors carry the raw `(descriptor)` tail; its first paren
   // group participates in the paren-stripped fallback's cited-suffix
-  // agreement rule (line/range/AC anchors have no section-adjacent
-  // descriptor — a `(` right after the section routes to section-only).
+  // agreement rule. Line/range/AC anchors carry the same claim in
+  // `sectionDescriptor` instead — the parser consumes a `(suffix)` sitting
+  // between the section and the anchor keyword so the anchor still parses.
   const sec = findSectionHeading(anchor.section, specLines, anchor.descriptor || null);
   if (sec.found) return { valid: true, reason: "section-found", evidence: sec.headingLine };
   return sectionNotFoundFailure(anchor.section);

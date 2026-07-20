@@ -794,6 +794,103 @@ test("findSectionHeading: duplicate identical stripped headings stay first-hit",
   assert.equal(findSectionHeading("Retention", specLines).found, true);
 });
 
+test("PASS 53: suffix before the line anchor parses the anchor and verifies both", () => {
+  // `§X (suffix) line N` — pre-fix the section-only branch swallowed the
+  // whole tail as descriptor text, so the line anchor vanished (Codex
+  // round-3 P2 on PR #224). The parser now consumes the suffix into
+  // `sectionDescriptor` and the line anchor verifies normally.
+  const { anchors, parseFailures, verifyFailures } = verifyAll(
+    "Spec-002 §Usage Telemetry (usage_telemetry) line 51 (usage.tokens)",
+  );
+  assert.equal(parseFailures.length, 0);
+  assert.equal(verifyFailures.length, 0);
+  assert.equal(anchors[0].type, "line");
+  assert.equal(anchors[0].line, 51);
+  assert.equal(anchors[0].sectionDescriptor, "(usage_telemetry)");
+});
+
+test("FAIL 50: suffix + out-of-range line no longer rides a section-only pass", () => {
+  // The exact false-green Codex flagged: with the line anchor swallowed,
+  // `line 999999` verified as a section-only cite. It must fail as a LINE
+  // cite now.
+  const { verifyFailures } = verifyAll("Spec-002 §Usage Telemetry (usage_telemetry) line 999999");
+  assert.equal(verifyFailures.length, 1);
+  assert.equal(verifyFailures[0].result.reason, "line-out-of-range");
+});
+
+test("FAIL 51: contradictory suffix before a line anchor rejects the section", () => {
+  const { verifyFailures } = verifyAll("Spec-002 §Usage Telemetry (wrong_suffix) line 51");
+  assert.equal(verifyFailures.length, 1);
+  assert.equal(verifyFailures[0].result.reason, "section-not-found");
+});
+
+test("findSectionHeading: suffix comparison preserves punctuation", () => {
+  // Codex round-3 P2 on PR #224: normalizeTokenForMatch strips punctuation,
+  // collapsing `(v1.0)` and `(v10)` — distinct versions — into one token.
+  // The suffix comparator keeps punctuation, so the pair stays ambiguous to
+  // a bare cite and a cited suffix binds only its true sibling.
+  const specLines = ["## Cache (v1.0)", "body a", "## Cache (v10)", "body b"];
+  assert.equal(findSectionHeading("Cache", specLines).found, false);
+  assert.equal(findSectionHeading("Cache", specLines, "(v1.0)").headingLine, "## Cache (v1.0)");
+  assert.equal(findSectionHeading("Cache", specLines, "(v10)").headingLine, "## Cache (v10)");
+  // Single-sibling collapse case: `(v10)` must not repair onto `(v1.0)`.
+  const single = ["## Cache (v1.0)", "body"];
+  assert.equal(findSectionHeading("Cache", single, "(v10)").found, false);
+});
+
+test("findSectionHeading: fenced example headings are not citable targets", () => {
+  // Codex round-3 P2 on PR #224: a `## Phantom (v1)` inside a code fence is
+  // example text, not document structure. The scan mirrors
+  // findSectionBoundary's fence rules (closer = same char, >= run length,
+  // bare remainder), so real headings after the fence still bind.
+  const specLines = [
+    "## Real Section",
+    "```md",
+    "## Phantom (v1)",
+    "```",
+    "## After Fence (real)",
+    "body",
+  ];
+  assert.equal(findSectionHeading("Phantom", specLines).found, false);
+  assert.equal(findSectionHeading("After Fence", specLines).found, true);
+  // Tilde fences and mismatched closers follow the same rules: a backtick
+  // run inside a tilde fence does not close it.
+  const tilde = ["~~~", "```", "## Inside Tilde (x)", "~~~", "## Outside (y)"];
+  assert.equal(findSectionHeading("Inside Tilde", tilde).found, false);
+  assert.equal(findSectionHeading("Outside", tilde).found, true);
+});
+
+test("findSectionHeading: suffixed sibling outranks a bare exact hit; mismatches fail closed", () => {
+  // Codex round-3 P2 on PR #224, calibrated on the one real governance pair
+  // (Spec-020 `## Required Behavior` + `### Required Behavior (policy)`):
+  // a cited suffix that names a real sibling binds it; a descriptor that
+  // matches NO sibling is undecidable (free-text gloss vs wrong suffix)
+  // and rejects rather than silently landing on the bare heading.
+  const specLines = ["## Required Behavior", "body a", "### Required Behavior (policy)", "body b"];
+  assert.equal(
+    findSectionHeading("Required Behavior", specLines).headingLine,
+    "## Required Behavior",
+  );
+  assert.equal(
+    findSectionHeading("Required Behavior", specLines, "(policy)").headingLine,
+    "### Required Behavior (policy)",
+  );
+  assert.equal(findSectionHeading("Required Behavior", specLines, "(nonexistent)").found, false);
+  // The pervasive gloss idiom survives where no suffixed sibling exists:
+  // `§Rate Limiting (20/session/hr)` stays a pass on a bare heading.
+  const glossOnly = ["## Rate Limiting", "body"];
+  assert.equal(findSectionHeading("Rate Limiting", glossOnly, "(20/session/hr)").found, true);
+});
+
+test("findSectionHeading: cited suffix may omit heading-side backticks", () => {
+  // Real corpus shape: `### Contract Layer (\`packages/contracts/\`)` — the
+  // suffix comparator strips markdown code/emphasis markers (but nothing
+  // else), so the cite spells the path without backticks.
+  const specLines = ["### Contract Layer (`packages/contracts/`)", "body"];
+  const hit = findSectionHeading("Contract Layer", specLines, "(packages/contracts/)");
+  assert.equal(hit.found, true);
+});
+
 test("FAIL 42: ac-line-hint-wrong-bullet binds the hint to the cited AC-N", () => {
   // Fixture AC bullets sit at lines 45 (AC1), 46 (AC2), 47 (AC3). A cite
   // like `AC3 (line 45)` is the false-green class Codex flagged on PR #96
