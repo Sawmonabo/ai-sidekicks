@@ -1208,7 +1208,10 @@ interface EventEnvelope {
 // sourceEpoch + sourcePosition — the cross-cutting epoch-attribution payload pair
 // (Plan-006 T1.9, the CP-004-12 registration, 2026-07-20; Spec-006 §Event Type
 // Enumeration). Stamped TOGETHER at ingestion by Plan-004 T3.11's late-append leg on
-// pre-rollback-epoch rows of the five late-append families — assistant_output,
+// pre-rollback-epoch rows (epoch from the binding's frozen delivery cursor; position
+// from the straggler's per-event originating-turn association, falling back to the
+// always-superseding frozen delivery position — Spec-004 §Required Behavior owns the
+// mechanics) of the five late-append families — assistant_output,
 // tool_activity, usage_telemetry, artifact_publication, and the interactive_request
 // closed pair (driver_ask.requested + driver_ask.canceled): sourceEpoch names the
 // pre-rollback execution epoch, sourcePosition the normalized session position (the
