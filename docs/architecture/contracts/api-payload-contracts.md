@@ -1493,7 +1493,9 @@ type RollbackDegradedResult = // partial / zero-effect dispositions — legal ON
       // T3.13 maps them from the callee's partial result and T4.7's degraded render surfaces
       // them (exit code unchanged); the callee-side naming of the enumerations on Plan-010
       // T5.2's `partial_restore` variant is Plan-010's to pin (cross-plan one-writer — the
-      // Spec-010 mandate is the normative source either way).
+      // Spec-010 mandate is the normative source either way), and a Plan-004 §Preconditions
+      // box + Phase-3 gate hold the consuming dispatch until that amendment lands (Codex
+      // re-audit round 4).
       overwrittenIgnoredPaths: string[];
       divergentGitlinks: string[];
     }
