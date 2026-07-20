@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| **Status** | `approved` (flipped to `review` 2026-07-19 by the capability-enhancement campaign's B22 bundle — the new Phase 5 turn-snapshot service, a Status Flip Rule row-3 change; restored 2026-07-20 by Plan-010's W2.5 targeted re-audit, zero critical findings) |
+| **Status** | `approved` |
 | **NNN** | `010` |
 | **Slug** | `worktree-lifecycle-and-execution-modes` |
 | **Date** | `2026-04-14` (Tier-6 readiness audit 2026-06-10) |
@@ -32,7 +32,7 @@ This plan covers execution mode selection, read-only and branch gating, worktree
 - [x] Paired spec is approved — re-checked 2026-07-18 by the campaign Task-28 / W1.5 batch spec re-promotion (supersedes the 2026-07-13 re-open note): Spec-010 returned to `approved`; its campaign amendment window closed.
 - [x] Required ADRs are accepted
 - [x] Blocking open questions are resolved or explicitly deferred
-- [ ] **Plan-readiness audit complete per [runbook](../operations/plan-implementation-readiness-audit-runbook.md)** — re-opened 2026-07-19 scoped to the new **Phase 5** (turn-snapshot service, campaign B22): the Tier-6 audit (2026-06-10, 67 findings adjudicated; the Phase 1–4 `#### Tasks` structure, §Invariants I-010-1..20, §Cross-Plan Obligations, and §Ratified Design Decisions authored; reciprocal amendments in Plan-004/Plan-009/Spec-009/Spec-010 landed in the same audit PR) covered Phases 1–4 and stands for them, but Phase 5 (T5.1–T5.3, invariants I-010-21..23) post-dates it and needs a targeted **readiness-audit delta** before Phase 5 code dispatches — restored by Plan-010's W2.5 targeted re-audit, the promotion vehicle that also returns Status to `approved`.
+- [x] **Plan-readiness audit complete per [runbook](../operations/plan-implementation-readiness-audit-runbook.md)** — re-opened 2026-07-19 scoped to the new **Phase 5** (turn-snapshot service, campaign B22): the Tier-6 audit (2026-06-10, 67 findings adjudicated; the Phase 1–4 `#### Tasks` structure, §Invariants I-010-1..20, §Cross-Plan Obligations, and §Ratified Design Decisions authored; reciprocal amendments in Plan-004/Plan-009/Spec-009/Spec-010 landed in the same audit PR) covered Phases 1–4 and stands for them, but Phase 5 (T5.1–T5.3, invariants I-010-21..23) post-dates it and needed a targeted **readiness-audit delta** before Phase 5 code dispatches — delivered 2026-07-20 by Plan-010's W2.5 targeted re-audit (#220), the promotion vehicle that also returned Status to `approved`.
 
 Target paths below assume the canonical implementation topology defined in [Container Architecture](../architecture/container-architecture.md).
 
@@ -357,6 +357,16 @@ Contracts: see [API Payload Contracts](../architecture/contracts/api-payload-con
 - [ ] Phases 1 and 2 merged — Phase 1 for the execution-root contract shapes (the `run_execution_contexts` table + `execution_root` column, D-010-5 / T1.3) and Phase 2 for the hook-neutralized git-invocation discipline (D-010-10) the service reuses per-invocation. **No Phase-3 / Plan-004 dependency:** the capture and restore legs take the execution root as a caller-resolved parameter and never query `run_execution_contexts` themselves — root resolution, epoch supply, and `epochLineage` derivation are the B9-authored call-site's job (CP-010-12). The prune leg's `run_execution_contexts.released_at` read (T5.3) is a Phase-1 schema column (D-010-5 / T1.3); its runtime population by the T3.2 gate is a data-flow, not a build edge — an un-terminated run simply stays unprunable. Build order is therefore Phases 1/2 → Phase 5 (B23) → Plan-004 Phase 3 → Plan-010 Phase 3, acyclic — a Phase-3 precondition here would deadlock (Plan-010 Phase 3 preconditions on Plan-004 Phase 3, which the §5 preamble orders after Phase 5)
 - [x] `<E>` execution-epoch source ratified — `Spec-004 §Required Behavior` (0 before any rollback, incremented per applied rollback; caller-supplied by the Plan-004 run engine, campaign B2)
 
+```yaml
+preconditions:
+  # Machine-enforced subset (preflight Gate 5); the checkbox rows above stay
+  # the human-tracked record. Deliberately no Phase-3 / Plan-004 entry — per
+  # the Phases-1-and-2 bullet, a Phase-3 gate here would deadlock the
+  # Phases 1/2 -> Phase 5 (B23) -> Plan-004 Phase 3 -> Plan-010 Phase 3 order.
+  - { type: plan_phase, plan: 010, phase: 1, status: merged }
+  - { type: plan_phase, plan: 010, phase: 2, status: merged }
+```
+
 #### Tasks
 
 - **T5.1 — Turn-boundary snapshot capture (`turn-snapshot-service.ts` create leg).**
@@ -436,7 +446,7 @@ shipped: []
 <!-- Per-PR human commentary (round-trips, learnings, partial-ship details). Append-only. -->
 
 - 2026-06-10 — Tier-6 plan-readiness audit (NS-18): plan rewritten to the audited four-phase Tasks structure; 67 findings adjudicated (17 critical / 38 major / 11 minor / 1 nit) across 24 cross-phase adjudications; wire block, DDL, error vocabulary, method registry, and the Plan-004/Plan-009/Spec-009/Spec-010 reciprocal amendments ratified in the same audit PR.
-- 2026-07-20 — W2.5 targeted re-audit (campaign Task 23, B22 delta — Phase 5 + the T1.3 `git_common_dir` column): zero critical findings (1 major / 5 minor / 2 nit dispositioned). The closing re-audit PR (#220) renumbers the duplicate renderer-boundary obligation CP-010-11 → CP-010-13 (both rows were co-introduced by the Tier-6 audit commit; the envelope-roots row keeps CP-010-11 with its external reciprocal web — Plan-009 CP-009-8, Plan-012 CP-012-9 — untouched), names the T5.2 result unions (`TurnSnapshotResolution` / `TurnSnapshotRestoreResult`), adds the ephemeral-clone `git_common_dir` mapping to D-010-5 + the schema mirror, and restores `review` → `approved`.
+- 2026-07-20 — W2.5 targeted re-audit (campaign Task 23, B22 delta — Phase 5 + the T1.3 `git_common_dir` column): zero critical findings (1 major / 5 minor / 2 nit dispositioned). The closing re-audit PR (#220) renumbers the duplicate renderer-boundary obligation CP-010-11 → CP-010-13 (both rows were co-introduced by the Tier-6 audit commit; the envelope-roots row keeps CP-010-11 with its external reciprocal web — Plan-009 CP-009-8, Plan-012 CP-012-9 — untouched), names the T5.2 result unions (`TurnSnapshotResolution` / `TurnSnapshotRestoreResult`), adds the ephemeral-clone `git_common_dir` mapping to D-010-5 + the schema mirror, and restores `review` → `approved` — closing the 2026-07-19 B22 flip (Status Flip Rule row 3), whose flip/restore provenance this bullet records so the header Status cell stays in the bare template shape preflight Gate 7 parses; the same PR ticks the audit checkbox, adds Phase 5's machine-enforced Gate-5 `preconditions:` block, and re-derives the README plan census (20 `approved` / 6 `review` / 1 `completed`).
 
 ## Done Checklist
 
