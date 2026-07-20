@@ -1199,39 +1199,51 @@ interface EventEnvelope {
   category: EventCategory;
   type: string; // specific type within category
   actor?: string; // participant_id, agent_id, or null for system
-  payload: Record<string, unknown>; // category-specific fields; may carry the cross-cutting sourceEpoch (below)
+  payload: Record<string, unknown>; // category-specific fields; may carry the cross-cutting sourceEpoch + sourcePosition pair (below)
   correlationId?: string;
   causationId?: string;
   version: EventEnvelopeVersion; // semver "MAJOR.MINOR" per ADR-018 §Decision #1 (never numeric)
 }
 
-// sourceEpoch — cross-cutting epoch-attribution payload field (Plan-006 T1.9, the
-// CP-004-12 registration, 2026-07-20; Spec-006 §Event Type Enumeration). Stamped at
-// ingestion by Plan-004 T3.11's late-append leg on pre-rollback-epoch rows of the
-// five late-append families — assistant_output, tool_activity, usage_telemetry,
-// artifact_publication, and the interactive_request closed pair (driver_ask.requested
-// + driver_ask.canceled) — and admitted by exactly those families' SessionEventSchema
-// payload branches (later union-seam registrants inherit the admission requirement;
-// run_lifecycle branches never admit it — stragglers absorb, never append); absent on
+// sourceEpoch + sourcePosition — the cross-cutting epoch-attribution payload pair
+// (Plan-006 T1.9, the CP-004-12 registration, 2026-07-20; Spec-006 §Event Type
+// Enumeration). Stamped TOGETHER at ingestion by Plan-004 T3.11's late-append leg on
+// pre-rollback-epoch rows of the five late-append families — assistant_output,
+// tool_activity, usage_telemetry, artifact_publication, and the interactive_request
+// closed pair (driver_ask.requested + driver_ask.canceled): sourceEpoch names the
+// pre-rollback execution epoch, sourcePosition the normalized session position (the
+// Spec-004 targetPosition turn-boundary vocabulary) the row occupies within it —
+// registered because no run-scoped family payload carries a native position key, and
+// the supersede cutoff (turn > targetPosition) cannot rank a late row against its
+// epoch's surviving prefix without one. Admission is keyed on run-scopedness, not
+// family membership: only run-scoped SessionEventSchema branches of those families
+// admit the pair (via Plan-006 T1.9's withEpochStamp helper, whose pairing
+// refinement requires both keys + runId on any stamped payload); variants without
+// run attribution — the account-plane usage.rate_limit_update foremost — and every
+// run_lifecycle branch never admit it (stragglers absorb, never append). Absent on
 // every current-epoch row — absence means current-epoch, and the stamp is never
-// fabricated at read time. It rides INSIDE payload, so it sits in the RFC 8785
+// fabricated at read time. The pair rides INSIDE payload, so it sits in the RFC 8785
 // canonical bytes (signed, hash-chained, shred-safe) with no envelope-level field
 // added — the canonical set above is unchanged — and no version bump: the
-// registration precedes ADR-018 §Reversibility Assessment's point of no return (no
-// non-test "1.0" emit exists as of 2026-07-20), making sourceEpoch part of the v1.0
-// baseline payload contract from first emit; added post-ship it would be a MINOR
-// envelope bump per ADR-018 §Decision #8's new-optional-field rule. The audit-stub
-// projection preserves it at compaction together with the stamped row's runId +
-// turn-position keys, and on accepted run.rolled_back boundary rows the runId/
-// runVersion/targetPosition rewind cutoff (Spec-006 §Compacted Event Format), so
-// Plan-004 T3.14's supersede projection keys cross-epoch rows durably even after
+// registration precedes ADR-018 §Reversibility Assessment's point of no return,
+// which is an emission event, not a code merge — pre-first-release, no production
+// deployment exists, so no "1.0" envelope has been emitted in a non-test environment
+// as of 2026-07-20 (shipped emitter code on develop does not cross it) — making the
+// pair part of the v1.0 baseline payload contract from first emit; added after that
+// point it would be a MINOR envelope bump per ADR-018 §Decision #8's
+// new-optional-field rule, and Plan-006 T1.9 carries that conditional for its
+// implementer. The audit-stub projection preserves the sourceEpoch + sourcePosition
+// + runId triple at compaction, and on accepted run.rolled_back boundary rows the
+// runId/runVersion/targetPosition rewind cutoff (Spec-006 §Compacted Event Format),
+// so Plan-004 T3.14's supersede projection keys cross-epoch rows durably even after
 // both the boundary and the stale rows compact. Execution-epoch semantics are
 // Spec-004-owned (§Required Behavior + Run State Machine §Invariants): 0 before any
 // rollback, advancing with each accepted run.rolled_back rewind regardless of the
-// file-leg disposition. The key name is pinned by SOURCE_EPOCH_PAYLOAD_KEY in
-// packages/contracts/src/event.ts — a rename is forbidden-non-additive per ADR-018
-// §Decision #8.
+// file-leg disposition. The key names are pinned by SOURCE_EPOCH_PAYLOAD_KEY /
+// SOURCE_POSITION_PAYLOAD_KEY in packages/contracts/src/event.ts — a rename is
+// forbidden-non-additive per ADR-018 §Decision #8.
 type SourceEpoch = number; // int >= 0 — SourceEpochSchema in packages/contracts/src/event.ts (Plan-006 T1.9)
+type SourcePosition = number; // int >= 0 — SourcePositionSchema, same file (Plan-006 T1.9); Spec-004 targetPosition vocabulary
 
 type EventCategory =
   | "run_lifecycle"
