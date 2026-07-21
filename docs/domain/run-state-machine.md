@@ -147,6 +147,7 @@ The following table is the single authoritative reference for every allowed run 
 | `queued` | `interrupted` | Startup reconciliation | Pending user-initiated stop recorded before crash |
 | `starting` | `failed` | Startup reconciliation | Recovery fails with no prior user-initiated stop |
 | `starting` | `interrupted` | Startup reconciliation | Pending user-initiated stop recorded before crash |
+| `starting` | `running` | Startup reconciliation | Resume succeeds (`DriverResumeResult.status: 'resumed'`) at the daemon-recorded position — the equal-position attach in the pre-`running` crash window: provider and workspace re-confirmed ready, initialization resumes and completes (campaign B14) |
 | `starting` | `waiting_for_input` | Startup reconciliation | Resume succeeds (`DriverResumeResult.status: 'resumed'`) but the driver-reported session position diverges from the daemon-recorded position — the pre-`running` crash window: the provider session advanced before the `starting → running` transition was recorded; the local log is authoritative, the run halts for human action carrying `recovery-needed`, and the provider-ahead span classifies `unclassifiable` (`Spec-015 §Fallback Behavior`, campaign B14) |
 | `running` | `failed` | Startup reconciliation | Recovery fails with no prior user-initiated stop |
 | `running` | `interrupted` | Startup reconciliation | Pending user-initiated stop recorded before crash |
