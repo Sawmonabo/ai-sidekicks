@@ -285,9 +285,9 @@ Every doc task's final steps invoke this procedure with its own branch/commit/fi
 
 **Interfaces:** Consumes Tasks 5, 6, 9 (the B8 ADR-017 rollback row the R8 interplay guard cites). Produces — NEW T15.5 (position-compare + HALT-FOR-HUMAN); P3-2 completion-drop guard on T15.2; P3-3 exhaustive switch on T15.3 (I-005-5 → I-015-4); P1-2 recovery caller guard; P2-3 residual (`claimForExecution` CAS named; `already-landed`); P0-6 consume edge; R8 interplay guard (`run.rolled_back` = new authoritative position floor); span-classification recording + the two `manual_reconcile_only` carve-outs (task-handle `tasks/get`→`tasks/result` poll; provably-never-dispatched auto-retry) per the B14 row's Part-B follow-up legs (2026-07-17).
 
-- [ ] **Step 1:** SBP-1 bundle=`b14`, branch=`docs/b14-plan015-recovery`. Confirm Task 28 is merged (the W1.5-promoted B3/B5/B8 surfaces this bundle's tasks cite).
-- [ ] **Step 2:** Author per the B14 row; re-verify Plan-015 :87–89; classification declared (default additive).
-- [ ] **Step 3:** SBP-3/4/5/6 — subject `docs(repo): plan-015 resume-divergence halt + recovery guards (b14)`, trailer `Refs: Plan-015, Spec-015, ADR-017`.
+- [x] **Step 1:** SBP-1 bundle=`b14`, branch=`docs/b14-plan015-recovery`. Confirm Task 28 is merged (the W1.5-promoted B3/B5/B8 surfaces this bundle's tasks cite).
+- [x] **Step 2:** Author per the B14 row; re-verify Plan-015 :87–89; classification declared (default additive). Executed 2026-07-21: T15.5 authored (position-compare + halt-for-human + R8 rollback-floor guard + divergence-injection suite with firing negative control); T15.1 names `claimForExecution(receiptId)` (P2-3 `already-landed`, no schema amendment); T15.2 completion-drop guard scoped to same-`(runId, runVersion)` terminals (post-rollback epochs excepted); T15.3 gains P0-6 consume edge + P3-3 exhaustive-switch (`never`-checked) + P1-2 caller guard + the two `manual_reconcile_only` carve-outs; dep-map §2 `src/replay/` row added (P-8/P-6 closure). Plan-015 :87–89 re-verified (T15.2 still CREATEs `src/replay/replay-service.ts`). **Classification: additive** — no new invariant/table/dependency edge; T15.5 implements behavior already normative in approved Spec-015 with contracts pre-documented in api-payload; Plan-015 stays `approved`; W2.5 targeted re-audit rides the dep-map amendment.
+- [x] **Step 3:** SBP-3/4/5/6 — subject `docs(repo): plan-015 resume-divergence halt + recovery guards (b14)`, trailer `Refs: Plan-015, Spec-015, ADR-017`.
 
 ### Task 18: B16 — Plan-024 Phase 3B (flips → W2.5)
 

@@ -2646,6 +2646,21 @@ interface RecoveryStatusReadResponse {
     failureCategory?: RunFailureCategory;
     recoveryCondition?: RecoveryCondition; // named type in §Plan-005 (campaign B3)
     recoverySpanClassification?: RecoverySpanClassification; // span-content sibling of recoveryCondition (Part-B follow-up 2026-07-17)
+    // Per-run identities behind a blocked/degraded session entry (campaign B14): names which
+    // runs need reconciliation in a multi-run session — a Plan-015 T15.5 divergence halt or a
+    // failed resume each land one entry. Optional and additive: absent when no run-level
+    // recovery condition exists. Entry contract (round 5): a divergence-halt entry is
+    // SELF-SUFFICIENT — recoverySpanClassification REQUIRED (the daemon always derives one; the
+    // audit-metadata recording is the T15.5 deliverable), failureCategory absent (the run did
+    // not fail), and there is no failure to drill into; a failed-resume entry carries
+    // failureCategory REQUIRED plus the driver-provided classification (REQUIRED on
+    // DriverResumeResult.failed) and drills into the run-scoped FailureDetailRead by runId.
+    haltedRuns?: Array<{
+      runId: RunId;
+      recoveryCondition: RecoveryCondition;
+      recoverySpanClassification?: RecoverySpanClassification; // REQUIRED on a divergence-halt entry (daemon-derived); driver-provided on a failed-resume entry
+      failureCategory?: RunFailureCategory; // REQUIRED on a failed-resume entry; absent on a divergence halt
+    }>;
   }>;
 }
 
