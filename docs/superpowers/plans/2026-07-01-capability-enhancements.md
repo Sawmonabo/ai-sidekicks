@@ -327,9 +327,10 @@ _Execution delta (2026-07-21):_ the dep-map footprint grew beyond the card's sin
 
 **Interfaces:** Consumes Task 15 (cursor semantics) and Task 23's Plan-006 row (the consumed replay-cursor contract must be post-audit stable — the B18 precedent). Produces — P1-10 consumer task `EventClient.resumeAndSubscribe` (subscribe-before-drain; resume from `acknowledged ?? earliest`; gap predicate `decode(acknowledged) < decode(earliest)` ⇒ reset projection + resume from `earliest`; high-water-mark dedupe); I-008-12; nine named tests. Disjoint from BL-144. Consumed by Task 23 (Plan-008 promotion).
 
-- [ ] **Step 1:** SBP-1 bundle=`b12`, branch=`docs/b12-plan008-event-client`. Confirm Task 23's Plan-006 row is checked.
-- [ ] **Step 2:** Author per the B12 row; plan already `review` — promoted in W2.5.
-- [ ] **Step 3:** SBP-3/4/5/6 — subject `docs(repo): plan-008 resume-and-subscribe consumer task (b12)`, trailer `Refs: Plan-008, Spec-006`.
+- [x] **Step 1:** SBP-1 bundle=`b12`, branch=`docs/b12-plan008-event-client`. Confirm Task 23's Plan-006 row is checked. Confirmed: B11 merged (Task 15) + Plan-006 W2.5 re-audit attested 2026-07-20; branched off develop@34ccc6c.
+- [x] **Step 2:** Author per the B12 row; plan already `review` — promoted in W2.5.
+- [x] **Step 3:** SBP-3/4/5/6 — subject `docs(repo): plan-008 resume-and-subscribe consumer task (b12)`, trailer `Refs: Plan-008, Spec-006`.
+- _Execution delta (2026-07-21)_: authored as T-008r-4-13 — a `ResumingEventClient` compose-only decorator (`packages/client-sdk/src/resumingEventClient.ts` + barrel line), because the dep-map §2 client-sdk row pins Plan-006's `sessionClient.ts` seam as the sole in-place cross-plan file edit under that directory, so the consumer never edits `eventClient.ts` — plus I-008-12, CP-008-10, and nine tests `T-008r-4-T21..T29`. Scope grew by two dep-map in-cell registrations (§2 client-sdk extender cell + §3 Plan-008 row Plan-006 consume clause) and an in-plan census repair: the PR-#129 review rounds had double-booked R4 test ids `T-008r-4-T9`/`T11` (re-assigned `T19`/`T20`; frozen Decision Log rows annotated with forward-pointers), and the "75 tests total" census predated the letter-suffixed round tests (re-derived: 95).
 
 ### Task 22: B15 — Plan-016 bundle (after Tasks 3, 7, 19 + Task 23's Plan-027 row)
 
