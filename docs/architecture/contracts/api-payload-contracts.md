@@ -2646,6 +2646,16 @@ interface RecoveryStatusReadResponse {
     failureCategory?: RunFailureCategory;
     recoveryCondition?: RecoveryCondition; // named type in §Plan-005 (campaign B3)
     recoverySpanClassification?: RecoverySpanClassification; // span-content sibling of recoveryCondition (Part-B follow-up 2026-07-17)
+    // Per-run identities behind a blocked/degraded session entry (campaign B14): names which
+    // runs need reconciliation in a multi-run session — a Plan-015 T15.5 divergence halt or a
+    // failed resume each land one entry; the run-scoped FailureDetailRead drills into each by
+    // runId. Optional and additive: absent when no run-level recovery condition exists.
+    haltedRuns?: Array<{
+      runId: RunId;
+      recoveryCondition: RecoveryCondition;
+      recoverySpanClassification?: RecoverySpanClassification; // daemon-derived (divergence halt) or driver-provided (failed resume)
+      failureCategory?: RunFailureCategory; // present for failed-resume entries; absent on a divergence halt (the run did not fail)
+    }>;
   }>;
 }
 
