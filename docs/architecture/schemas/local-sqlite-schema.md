@@ -747,7 +747,7 @@ CREATE TABLE credential_policy_artifacts (
 );
 ```
 
-No `REFERENCES` clauses: citing runs are event-sourced (`run.running` posture stamps in `session_events`), so retention is enforced on the shred path, never by an FK to a table that does not exist: compaction never frees a ref (the audit stub preserves the posture object, ref included), and Plan-012 T2.9's `pruneUnreferencedArtifacts` — invoked from the Plan-022 shred fan-out's completion callback — deletes rows whose ref no remaining event row or stub cites.
+No `REFERENCES` clauses: citing runs are event-sourced (`run.running` posture stamps in `session_events`), so retention is enforced at the event-deletion boundary, never by an FK to a table that does not exist: compaction never frees a ref (the audit stub preserves the posture object, ref included), the Plan-022 crypto-shred clears `pii_payload` only (citing rows survive), and Plan-012 T2.9's `pruneUnreferencedArtifacts` — an idempotent maintenance entry invoked at the V1.1 `gdpr.sessionPurge` completion, the only operation that removes citing rows (V1 reserves the stub, so V1 retention is indefinite and bounded by the store's one-row-per-distinct-policy content addressing) — deletes rows whose ref no remaining event row or stub cites.
 
 ---
 
