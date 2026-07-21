@@ -65,14 +65,14 @@ Primary allowed transitions:
 - `starting -> failed`
 - `starting -> interrupted`
 - `running -> waiting_for_approval`
-- `running -> waiting_for_input`
+- `running -> waiting_for_input` (approval-pipeline input block; live driver input-ask opened, atomic with its `driver_ask.requested` append — campaign B13)
 - `running -> paused`
 - `running -> interrupted`
 - `running -> completed`
 - `running -> failed`
 - `waiting_for_approval -> running`
 - `waiting_for_approval -> interrupted`
-- `waiting_for_input -> running`
+- `waiting_for_input -> running` (input supplied; a driver input-ask's delivered answer, atomic with `driver_ask.responded` — campaign B13)
 - `waiting_for_input -> interrupted`
 - `paused -> running`
 - `paused -> interrupted`

@@ -729,9 +729,11 @@ Content-addressed store for the credential-policy artifact documents that `execu
 ```sql
 -- Owner: Plan-012 (campaign B13, 2026-07-20)
 CREATE TABLE credential_policy_artifacts (
-  ref         TEXT PRIMARY KEY,   -- content address: 'sha256:<hex>' over the RFC 8785 JCS-canonicalized
-                                  -- artifact document stored in `artifact` (Spec-012 §Required Behavior);
-                                  -- identical policy ⇒ identical ref — immutable, self-deduplicating
+  ref         TEXT PRIMARY KEY    -- content address: 'sha256:<hex>' over the RFC 8785 JCS-canonicalized
+              NOT NULL,           -- artifact document stored in `artifact` (Spec-012 §Required Behavior);
+                                  -- identical policy ⇒ identical ref — immutable, self-deduplicating.
+                                  -- NOT NULL is explicit: a TEXT PRIMARY KEY on a rowid table admits
+                                  -- NULL (SQLite legacy quirk) and a NULL-valued CHECK passes
   artifact    TEXT NOT NULL,      -- the JCS-canonicalized document bytes verbatim:
                                   -- {schemaVersion: 1, denyPaths: [...], denyEnvVars: [...], envNameMatch: ...}
                                   -- (daemon-expanded canonical absolute denyPaths; denyEnvVars canonicalized to
