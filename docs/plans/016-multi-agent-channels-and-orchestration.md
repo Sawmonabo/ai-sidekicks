@@ -266,7 +266,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 ### Phase 3 — Wire namespace + SDK
 
-**Goal:** The fifteen JSON-RPC methods on the daemon registry (incl. `session.goalUpdate`/`session.goalClear`, campaign B6 2026-07-06), typed error projection, the typed SDK client, and the `session goal` CLI command files (campaign B15) — the surface Phase 4 and the CLI consume.
+**Goal:** The fifteen JSON-RPC methods on the daemon registry (incl. `session.goalUpdate`/`session.goalClear`, campaign B6 2026-07-06), typed error projection, and the typed SDK client — the surface Phase 4 and the CLI consume — plus the `session goal` CLI command files themselves (T3.8, campaign B15), that surface's first in-repo CLI consumer.
 
 **Scope:** `packages/runtime-daemon/src/ipc/handlers/`, `packages/runtime-daemon/src/orchestration/errors.ts`, `packages/client-sdk/src/orchestrationClient.ts`, `apps/cli/src/commands/` (two Plan-016-authored command files) + `apps/cli/src/main.ts` (EXTEND — campaign B15).
 
