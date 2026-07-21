@@ -739,11 +739,15 @@ CREATE TABLE credential_policy_artifacts (
                                   -- envNameMatch; both arrays lexicographically sorted + deduped pre-hash) —
                                   -- the ref re-verifies from these stored bytes
   created_at  TEXT NOT NULL,
-  CHECK (ref LIKE 'sha256:%')     -- the ref format is load-bearing: posture stamps cite it verbatim
+  CHECK (                         -- the ref format is load-bearing: posture stamps cite it verbatim.
+    length(ref) = 71              -- 'sha256:' (7) + 64 hex chars; a LIKE prefix test would admit an
+    AND substr(ref, 1, 7) = 'sha256:'  -- empty/non-hex suffix and case variants (SQLite LIKE is
+    AND substr(ref, 8) NOT GLOB '*[^0-9a-f]*'  -- ASCII-case-insensitive); GLOB is case-sensitive,
+  )                               -- so uppercase hex and 'SHA256:' both reject (Plan-012 T2.9 tests)
 );
 ```
 
-No `REFERENCES` clauses: citing runs are event-sourced (`run.running` posture stamps in `session_events`), so retention is enforced by the compaction/shred path (which consults citing run events per the audit-stub retention class), never by an FK to a table that does not exist.
+No `REFERENCES` clauses: citing runs are event-sourced (`run.running` posture stamps in `session_events`), so retention is enforced on the shred path, never by an FK to a table that does not exist: compaction never frees a ref (the audit stub preserves the posture object, ref included), and Plan-012 T2.9's `pruneUnreferencedArtifacts` — invoked from the Plan-022 shred fan-out's completion callback — deletes rows whose ref no remaining event row or stub cites.
 
 ---
 
