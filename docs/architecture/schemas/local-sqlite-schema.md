@@ -722,6 +722,31 @@ CREATE INDEX idx_remembered_rules_node ON remembered_approval_rules(node_id) WHE
 
 ---
 
+## Credential Policy Artifacts (Plan-012)
+
+Content-addressed store for the credential-policy artifact documents that `executionPosture.credentialPolicyRef` cites ([Spec-012 §Required Behavior](../../specs/012-approvals-permissions-and-trust-boundaries.md#required-behavior), campaign B20 posture semantics; store authored by campaign B13). A row persists **write-ahead** — before the first `run.running` posture stamp citing its ref (the ADR-019 spawn-intent ordering discipline), so a stamped ref can never dangle — and is retained at least as long as any run event citing it (the audit-stub retention class governs compaction/shred). Content addressing makes rows immutable and self-deduplicating by construction: identical policy ⇒ identical ref, so re-resolution INSERTs idempotently by primary key, and two runs carrying the same ref carried the same effective policy.
+
+```sql
+-- Owner: Plan-012 (campaign B13, 2026-07-20)
+CREATE TABLE credential_policy_artifacts (
+  ref         TEXT PRIMARY KEY,   -- content address: 'sha256:<hex>' over the RFC 8785 JCS-canonicalized
+                                  -- artifact document stored in `artifact` (Spec-012 §Required Behavior);
+                                  -- identical policy ⇒ identical ref — immutable, self-deduplicating
+  artifact    TEXT NOT NULL,      -- the JCS-canonicalized document bytes verbatim:
+                                  -- {schemaVersion: 1, denyPaths: [...], denyEnvVars: [...], envNameMatch: ...}
+                                  -- (daemon-expanded canonical absolute denyPaths; denyEnvVars canonicalized to
+                                  -- the host's env-name case semantics with the match mode recorded as
+                                  -- envNameMatch; both arrays lexicographically sorted + deduped pre-hash) —
+                                  -- the ref re-verifies from these stored bytes
+  created_at  TEXT NOT NULL,
+  CHECK (ref LIKE 'sha256:%')     -- the ref format is load-bearing: posture stamps cite it verbatim
+);
+```
+
+No `REFERENCES` clauses: citing runs are event-sourced (`run.running` posture stamps in `session_events`), so retention is enforced by the compaction/shred path (which consults citing run events per the audit-stub retention class), never by an FK to a table that does not exist.
+
+---
+
 ## Cross-Node Dispatch Tables (Plan-027)
 
 Stores per-daemon ApprovalRecord envelopes for Spec-024. The same logical dispatch may produce one caller-local row and one target-local row, distinguished by `local_role`. Dispatch payloads, action payloads, and result payloads are not stored here; the durable audit artifact is the dual-signed ApprovalRecord envelope plus lifecycle metadata.

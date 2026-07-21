@@ -35,6 +35,7 @@ The run state machine is the source of truth for execution lifecycle semantics.
 - `resume` is valid only from `paused`.
 - Reattach after reconnect is not the same thing as `resume`.
 - Waiting for approval or input keeps the same run id; it does not create a replacement run.
+- A liveness exemption granted for a run's pending driver ask (the idle sweep's pending-blocking-work hard-skip) is **expiry-bounded**: it ends the moment the ask expires or resolves — `driver_ask.expired` closes the exemption together with the ask, and an expired ask never counts as pending blocking work — so an unanswered ask is a bounded wait, never an indefinite shield against reaping ([Spec-012 §Required Behavior](../specs/012-approvals-permissions-and-trust-boundaries.md#required-behavior)'s decoupled-but-coordinated rule; campaign B13).
 
 ## Relationships To Adjacent Concepts
 

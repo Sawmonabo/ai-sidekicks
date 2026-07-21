@@ -202,7 +202,7 @@ Agent-surface codes (Plan-016, Tier-6 audit A-016-2 / D-016-16).
 | `approval.not_found` | Approval request does not exist | 404 |
 | `approval.already_resolved` | Approval request has already been resolved | 409 |
 | `approval.request_expired` | Approval request has expired and can no longer be resolved | 410 |
-| `approval.request_canceled` | Approval request was canceled (its run ended before resolution) and can no longer be resolved | 409 |
+| `approval.request_canceled` | Approval request was canceled (its run ended or its session closed before resolution) and can no longer be resolved; also the late-CREATE refusal — a create arriving for an already-ended run or already-closed session (Plan-012 T2.12, campaign B13). Carries a typed `reason` extension member — `'run_ended' \| 'session_closed'` — per RFC 9457 §3.2 extension-member practice, so callers and audit distinguish the cause without a second code | 409 |
 | `approval.persistence_unavailable` | A permission check or approval mutation was rejected fail-closed because the daemon's approval-persistence layer is unavailable (`Spec-012 §Fallback Behavior` — the sensitive action must not proceed) | 503 |
 | `approval.rule_not_found` | Remembered approval rule does not exist | 404 |
 | `approval.rule_already_revoked` | Remembered approval rule has already been revoked | 409 |
