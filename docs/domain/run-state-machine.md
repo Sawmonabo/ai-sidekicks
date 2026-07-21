@@ -70,9 +70,9 @@ Primary allowed transitions:
 - `running -> interrupted`
 - `running -> completed`
 - `running -> failed`
-- `waiting_for_approval -> running`
+- `waiting_for_approval -> running` (approval resolved; or a pending permission-ask's provider retraction, atomic with `driver_ask.canceled`, no outcome delivered — campaign B13)
 - `waiting_for_approval -> interrupted`
-- `waiting_for_input -> running` (input supplied; a driver input-ask's delivered answer, atomic with `driver_ask.responded` — campaign B13)
+- `waiting_for_input -> running` (input supplied; a driver input-ask's delivered answer, atomic with `driver_ask.responded` — campaign B13; provider retraction, atomic with `driver_ask.canceled`, no input delivered — campaign B13)
 - `waiting_for_input -> interrupted`
 - `paused -> running`
 - `paused -> interrupted`
