@@ -233,6 +233,42 @@ test("surveyCorpus: omission in one plan surfaces with plan + phase attribution"
   }
 });
 
+test("surveyCorpus: supplement phase (### Phase 3B) is surveyed, and its omissions surface (campaign B16)", () => {
+  // Negative control for the supplement-label sweep: the ONLY malformed row
+  // sits inside the 3B section, so if the sweep regex misses the heading the
+  // anomaly vanishes and this test fails.
+  const tmp = makeFixtureCorpus({
+    "053-supplemented.md": `### Phase 3 — core
+
+#### Tasks
+
+- **T-053-3-1 — clean row**
+
+### Phase 3B — supplement
+
+#### Tasks
+
+- **T-053-3B-1 — clean row**
+- ***T-053-3B-2 — unparseable bold-italic***
+
+### Phase 4 — after
+
+#### Tasks
+
+- **T-053-4-1 — clean row**
+`,
+  });
+  try {
+    const survey = surveyCorpus({ repoRoot: tmp });
+    assert.equal(survey.phaseCount, 3); // 3, 3B, 4 all surveyed
+    assert.equal(survey.anomalies.length, 1);
+    assert.match(survey.anomalies[0], /053-supplemented\.md Phase 3B \[omission\]/);
+    assert.match(survey.anomalies[0], /T-053-3B-2/);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 // ---------- the real corpus (the load-bearing screen) ----------
 
 test("surveyCorpus: REAL corpus has zero two-sided anomalies", () => {
