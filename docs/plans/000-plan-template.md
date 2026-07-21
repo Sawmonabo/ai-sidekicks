@@ -157,8 +157,9 @@ Plan-NNN implementation lands as a sequence of small PRs. Each PR exercises one 
 <!--
   Machine-readable preconditions (consumed by plan-execution preflight tool).
   Supported types: pr_merged, adr_accepted, plan_phase, cross_plan_carve_out,
-  audit_status. Required for plans authored from 2026-04-30 onward; legacy
-  plans use prose fallback parsing of the `**Precondition:**` line above.
+  audit_status, external_plan_phase_merged. Required for plans authored from
+  2026-04-30 onward; legacy plans use prose fallback parsing of the
+  `**Precondition:**` line above.
 
   Prose-parseable forms (case-insensitive, regex-matched on the single
   `**Precondition:**` line):
@@ -174,6 +175,16 @@ Plan-NNN implementation lands as a sequence of small PRs. Each PR exercises one 
   YAML-only (no prose analog — declare in the block below):
     - cross_plan_carve_out
     - audit_status: complete | substrate_exempt
+    - external_plan_phase_merged — the structured cross-plan phase gate:
+      `{ type: external_plan_phase_merged, plan: NNN, phase: <value> }`.
+      Integer phase values delegate to plan_phase semantics; non-numeric
+      section labels — remainder phases (`phase: R2`, the Plan-007
+      R-series) and campaign-supplement phases (`phase: 3B`, the Plan-024
+      Phase 3B shape) — resolve by TASK-SET membership: every task id the
+      `### Phase <label>` section declares must appear in the target
+      plan's shipment manifest (under whatever integer phase it shipped
+      as). Use for gating on a phase whose label the numeric prose regex
+      cannot express.
     - Any dependency whose prose form interpolates link-text or other
       tokens between `Phase K` and `merged` (e.g.,
       `[Plan-NNN Tier K Partial](...) merged`,
