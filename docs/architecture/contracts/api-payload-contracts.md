@@ -1672,7 +1672,7 @@ interface RunRolledBackEvent {
 // set — the normalized requested resource (command / path / tool arguments) the approval decision is about
 // (Spec-006 §Driver Ask Events shape line). `response` appears only on driver_ask.responded rows — the
 // delivered answer (permission decision or structured input) — and post-B1 responded emitters MUST set
-// it (a responded row with no delivered answer is an emitter bug; optionality covers the other three states).
+// it (a responded row with no delivered answer is an emitter bug); the refinement refuses it elsewhere.
 // `expiresAt` is the bounded fail-closed deadline stamped at ask creation (Spec-012 §Required Behavior,
 // Part-B fail-closed follow-up 2026-07-17): post-amendment driver_ask.requested emitters MUST set it
 // (ISO-8601; optionality is pre-amendment history only), later-state rows echo it unchanged, and expiry
@@ -1680,10 +1680,10 @@ interface RunRolledBackEvent {
 // auto-approval (Spec-012 §Resolved Questions and V1 Scope Decisions).
 // Variant-required fields are enforced at the EMISSION seam via the exported per-type refinement
 // (campaign B13's normalizer bundle: `driverAskPayloadRefinementFor(eventType)`, sibling of Plan-012
-// T1.1's `approvalFlowPayloadRefinementFor`): requested ⇒ `expiresAt` (+ `input` for kind 'permission');
-// responded ⇒ `response`; responded / expired / canceled echo the requested row's `expiresAt` when that
-// row carries one (pre-amendment requested rows have none) — a malformed event fails at the emission
-// parse, never at peer/restart projection; base-type optionality admits pre-amendment rows at replay only.
+// T1.1's `approvalFlowPayloadRefinementFor`): requested ⇒ `expiresAt`; kind 'permission' ⇒ `input` on
+// every state; responded ⇒ `response` — refused on the other three; later states echo the requested
+// row's `expiresAt` when it carries one (pre-amendment rows have none) — a malformed event fails at the
+// emission parse, never at peer/restart projection; base-type optionality admits pre-amendment rows at replay only.
 interface DriverAskEvent {
   sessionId: SessionId;
   runId: RunId;

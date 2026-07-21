@@ -722,6 +722,37 @@ CREATE INDEX idx_remembered_rules_node ON remembered_approval_rules(node_id) WHE
 
 ---
 
+## Credential Policy Artifacts (Plan-012)
+
+Content-addressed store for the credential-policy artifact documents that `executionPosture.credentialPolicyRef` cites ([Spec-012 §Required Behavior](../../specs/012-approvals-permissions-and-trust-boundaries.md#required-behavior), campaign B20 posture semantics; store authored by campaign B13). A row persists **write-ahead** — before the first `run.running` posture stamp citing its ref (the ADR-019 spawn-intent ordering discipline), so a stamped ref can never dangle — and is retained at least as long as any run event citing it (the audit-stub retention class governs compaction/shred). Content addressing makes rows immutable and self-deduplicating by construction: identical policy ⇒ identical ref, so re-resolution INSERTs idempotently by primary key, and two runs carrying the same ref carried the same effective policy.
+
+```sql
+-- Owner: Plan-012 (campaign B13, 2026-07-20)
+CREATE TABLE credential_policy_artifacts (
+  ref         TEXT PRIMARY KEY    -- content address: 'sha256:<hex>' over the RFC 8785 JCS-canonicalized
+              NOT NULL,           -- artifact document stored in `artifact` (Spec-012 §Required Behavior);
+                                  -- identical policy ⇒ identical ref — immutable, self-deduplicating.
+                                  -- NOT NULL is explicit: a TEXT PRIMARY KEY on a rowid table admits
+                                  -- NULL (SQLite legacy quirk) and a NULL-valued CHECK passes
+  artifact    TEXT NOT NULL,      -- the JCS-canonicalized document bytes verbatim:
+                                  -- {schemaVersion: 1, denyPaths: [...], denyEnvVars: [...], envNameMatch: ...}
+                                  -- (daemon-expanded canonical absolute denyPaths; denyEnvVars canonicalized to
+                                  -- the host's env-name case semantics with the match mode recorded as
+                                  -- envNameMatch; both arrays lexicographically sorted + deduped pre-hash) —
+                                  -- the ref re-verifies from these stored bytes
+  created_at  TEXT NOT NULL,
+  CHECK (                         -- the ref format is load-bearing: posture stamps cite it verbatim.
+    length(ref) = 71              -- 'sha256:' (7) + 64 hex chars; a LIKE prefix test would admit an
+    AND substr(ref, 1, 7) = 'sha256:'  -- empty/non-hex suffix and case variants (SQLite LIKE is
+    AND substr(ref, 8) NOT GLOB '*[^0-9a-f]*'  -- ASCII-case-insensitive); GLOB is case-sensitive,
+  )                               -- so uppercase hex and 'SHA256:' both reject (Plan-012 T2.9 tests)
+);
+```
+
+No `REFERENCES` clauses: citing runs are event-sourced (`run.running` posture stamps in `session_events`), so retention is enforced at the event-deletion boundary, never by an FK to a table that does not exist: compaction never frees a ref (the audit stub preserves the posture object, ref included), the Plan-022 crypto-shred clears `pii_payload` only (citing rows survive), and Plan-012 T2.9's `pruneUnreferencedArtifacts` — an idempotent maintenance entry invoked at the V1.1 `gdpr.sessionPurge` completion, the only operation that removes citing rows (V1 reserves the stub, so V1 retention is indefinite and bounded by the store's one-row-per-distinct-policy content addressing) — deletes rows whose ref no remaining event row or stub cites.
+
+---
+
 ## Cross-Node Dispatch Tables (Plan-027)
 
 Stores per-daemon ApprovalRecord envelopes for Spec-024. The same logical dispatch may produce one caller-local row and one target-local row, distinguished by `local_role`. Dispatch payloads, action payloads, and result payloads are not stored here; the durable audit artifact is the dual-signed ApprovalRecord envelope plus lifecycle metadata.

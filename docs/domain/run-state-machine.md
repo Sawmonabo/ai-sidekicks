@@ -35,6 +35,7 @@ The run state machine is the source of truth for execution lifecycle semantics.
 - `resume` is valid only from `paused`.
 - Reattach after reconnect is not the same thing as `resume`.
 - Waiting for approval or input keeps the same run id; it does not create a replacement run.
+- A liveness exemption granted for a run's pending driver ask (the idle sweep's pending-blocking-work hard-skip) is **expiry-bounded**: it ends the moment the ask expires or resolves — `driver_ask.expired` closes the exemption together with the ask, and an expired ask never counts as pending blocking work — so an unanswered ask is a bounded wait, never an indefinite shield against reaping ([Spec-012 §Required Behavior](../specs/012-approvals-permissions-and-trust-boundaries.md#required-behavior)'s decoupled-but-coordinated rule; campaign B13).
 
 ## Relationships To Adjacent Concepts
 
@@ -64,14 +65,14 @@ Primary allowed transitions:
 - `starting -> failed`
 - `starting -> interrupted`
 - `running -> waiting_for_approval`
-- `running -> waiting_for_input`
+- `running -> waiting_for_input` (approval-pipeline input block; live driver input-ask opened, atomic with its `driver_ask.requested` append — campaign B13)
 - `running -> paused`
 - `running -> interrupted`
 - `running -> completed`
 - `running -> failed`
-- `waiting_for_approval -> running`
+- `waiting_for_approval -> running` (approval resolved; or a pending permission-ask's provider retraction, atomic with `driver_ask.canceled`, no outcome delivered — campaign B13)
 - `waiting_for_approval -> interrupted`
-- `waiting_for_input -> running`
+- `waiting_for_input -> running` (input supplied; a driver input-ask's delivered answer, atomic with `driver_ask.responded` — campaign B13; provider retraction, atomic with `driver_ask.canceled`, no input delivered — campaign B13)
 - `waiting_for_input -> interrupted`
 - `paused -> running`
 - `paused -> interrupted`
@@ -126,9 +127,11 @@ The following table is the single authoritative reference for every allowed run 
 | `running` | `completed` | Execution finished | Run reaches successful terminal condition |
 | `running` | `failed` | Unrecovered error | Provider, transport, or internal error during execution |
 | `waiting_for_approval` | `running` | Approval resolved | Resolution outcome (approved, rejected, or expired) delivered to the run; a rejected or expired outcome continues the run with the action refused — it does not terminate the run (Spec-012 — Tier-6 audit); exception: a denied pre-turn moderation gate (`category: 'gate'`) does not continue — Plan-016's moderation gate system-cancels it with `trigger: 'moderation_denied'` (Spec-016 D-016-10), exiting via the interrupt row below |
+| `waiting_for_approval` | `running` | Provider ask retraction | The provider withdrew its still-pending permission ask on the live leg — `driver_ask.canceled` settles at once, the associated approval request settles `approval.canceled` (no resolution row) in the same atomic pass, and the run resumes with no outcome delivered (Plan-012 T2.8's cancel ingress, campaign B13) |
 | `waiting_for_approval` | `interrupted` | Interrupt or cancel intervention | User-initiated stop while waiting, or the system-cancel of a denied pre-turn moderation gate (`trigger: 'moderation_denied'` — Spec-016 D-016-10) |
 | `waiting_for_approval` | `failed` | Provider or transport failure | Failure occurs while run is blocked on approval |
 | `waiting_for_input` | `running` | Input received | Valid participant input received, or a blocking `user_input` / `mcp_elicitation` approval-category request resolves — rejected/expired outcomes continue-with-refusal (Spec-012, CP-012-5 seam); a driver input-ask expiry never takes this row — it takes the park row below (Spec-012 Part-B fail-closed follow-up, 2026-07-17) |
+| `waiting_for_input` | `running` | Provider ask retraction | The provider withdrew its still-pending input ask on the live leg — `driver_ask.canceled` settles at once and the run resumes with no input delivered (Plan-012 T2.8's cancel ingress, campaign B13) |
 | `waiting_for_input` | `interrupted` | Interrupt or cancel intervention | User-initiated stop while waiting |
 | `waiting_for_input` | `failed` | Provider or transport failure | Failure occurs while run is blocked on input |
 | `paused` | `running` | Resume intervention | Resume handle valid and provider ready |
