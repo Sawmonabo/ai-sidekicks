@@ -61,7 +61,7 @@ This spec covers the canonical timeline read model, child-run visibility, reason
 - If detailed reasoning or tool payload is unavailable or policy-restricted, the timeline must show a placeholder row with the reason for unavailability.
 - If a child-run detail fetch fails, the summary row remains visible and marked incomplete rather than disappearing.
 - If detailed reasoning has been compacted or was never retained, the durable reasoning summary or policy placeholder remains the canonical visible surface.
-- If a superseded row's payload has been compacted, the stub placeholder retains the superseded treatment — compaction never launders a rewound row back to current.
+- If a superseded row's payload has been compacted, the stub placeholder retains the superseded treatment — compaction never launders a rewound row back to current. A vacuous-attribution-era legacy stub (its position unknowable) renders the compaction placeholder alone, exempt from marking by construction — a run carrying one can never admit a rollback ([Spec-004 §Required Behavior](004-queue-steer-pause-resume.md#required-behavior)'s standing refusal), so no marker can ever apply to it.
 
 ## Timeline Entry Types
 
