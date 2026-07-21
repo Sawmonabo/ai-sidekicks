@@ -2701,12 +2701,12 @@ interface TimelineReadRequest {
   channelId?: ChannelId; // filter to specific channel
 }
 interface TimelineReadResponse {
-  entries: TimelineEntry[];
+  entries: TimelineRow[];
   nextCursor?: EventCursor;
   hasMore: boolean;
 }
 
-interface TimelineEntry {
+interface TimelineRowBase {
   id: string;
   sessionId: SessionId;
   sequence: number;
@@ -2718,6 +2718,37 @@ interface TimelineEntry {
   childRunSummary?: ChildRunSummary; // if this is a summarized child-run row
   payload: Record<string, unknown>;
 }
+
+type TimelineEntry = TimelineRowBase & { kind: "general" }; // the non-run arm (Codex round 4 on PR #232): carries no run attribution structurally — the projector stamps kind from the event family, so a run-scoped family can never arrive on this arm
+
+type RunScopedTimelineEntry = TimelineRowBase & {
+  kind: "run"; // literal discriminator — row.kind narrowing is structural, never a probe of the free-form type: string
+  runId: RunId; // run identity — with position + epoch, the REQUIRED all-or-none attribution triple the run.rolled_back live client rule keys on, never dug out of payload (CP-004-13, Codex rounds 2-3 on PR #232): arm selection is by kind, so a run-scoped row missing any of the three fails ITS Zod arm — the malformed-row test — and can never fall through to the general arm
+  position: number; // the row's projection-resolved originating run position (Plan-004 T3.14's uniform row-to-turn assignment); the live rule compares it against the run.rolled_back boundary's carried targetPosition (sequence is the session event sequence, never a run position)
+  epoch: number; // the row's projection-resolved execution epoch (T3.14's row attribution: the stamped sourceEpoch on late rows, the operation association's epoch on in-time content-asynchronous rows, the run's current epoch at emission otherwise — Codex round 2, PR #232); position alone can never recover the epoch, since re-execution reuses ordinals
+  superseded?: { targetPosition: number }; // present exactly when the row's turn is superseded, absence = current (campaign B9 CP-004-13, 2026-07-20) — projection-computed from Plan-004 T3.14's exported supersededTurns(runId); deliberately single-field (Codex round 4, PR #232): the marker's run identity and source epoch ARE the containing row's runId + epoch, so no duplicated fields exist to disagree and live marking (the row plus the boundary cutoff) is identical to replay marking by construction; targetPosition = the superseding rollback's rewind cutoff — the first accepted rollback in the run's lineage, at the row's epoch or later, that rewound the surviving history containing the row (a later rollback below an earlier retained prefix supersedes the inherited rows; a row ranks superseded when position exceeds the run's effective cutoff for its epoch — the minimum cutoff among accepted rollbacks at epoch >= the row's); identical on TimelineRead and TimelineSubscribe replay, rows delivered after a boundary arriving with the marker already projection-computed — per Spec-013 §Required Behavior
+};
+
+type LegacyStubTimelineEntry = TimelineRowBase & {
+  kind: "legacy_stub"; // a run-scoped audit stub compacted in the vacuous-attribution era (Codex round 5, PR #232): runId is preserved — every run-scoped stub preserves it (Spec-006 §Compacted Event Format) — but position and epoch are structurally ABSENT because they are unknowable (Plan-006 T3.2/T3.5's vacuous-default era; Plan-004's span check treats such a stub as the standing-refusal class, so its run can never admit a rollback while it exists). The row renders as the compaction placeholder alone and is exempt from the marking rule by construction — it can never be ranked, never carries superseded, and the projector stamps this kind only for vacuous-era stub rows (a live run row missing attribution fails the run arm, never lands here)
+  runId: RunId;
+};
+
+type TimelineRollbackBoundary = TimelineRowBase & {
+  kind: "rollback_boundary"; // literal discriminator
+  runId: RunId; // the rewound run
+  position: number; // the boundary row's own originating position
+  epoch: number; // the epoch the rollback rewound
+  superseded?: { targetPosition: number }; // an earlier boundary row is itself superseded when a later rollback cuts below it — same single-field marker semantics as the run arm
+  type: "run.rolled_back";
+  payload: RunRolledBackEvent; // validated into the typed shape (defined at §Tier 5 run.* above) at projection, so the live client rule reads a typed targetPosition — never an unsafe cast; an entry failing that validation is a projection defect surfaced at emission, never delivered untyped (Codex round 2, PR #232). Delivery is visibility-resolved, never keyed on the event's optional channelId: the boundary fans out to every filtered subscription whose filter admits any row of the affected run (Codex round 4, PR #232), so a channel-filtered subscriber holding that run's rows always receives the cutoff. Outer attribution and payload cannot disagree (Codex round 5, PR #232): the boundary arm's schema refines runId === payload.runId, sessionId === payload.sessionId, and position === payload.targetPosition (the boundary row ranks at the confirmed rewind floor — which is why a later rollback below it supersedes it), so a conflicting boundary fails parse as a projection defect, never delivered
+};
+
+type TimelineRow =
+  | TimelineRollbackBoundary
+  | RunScopedTimelineEntry
+  | LegacyStubTimelineEntry
+  | TimelineEntry; // the row union every timeline surface returns — TimelineReadResponse.entries, the TimelineSubscribe SSE stream, and ChildRunExpandResponse.entries are all TimelineRow — genuinely discriminated on the literal kind (Codex rounds 3-5, PR #232): the contracts Zod discriminatedUnion selects the arm by kind (rollback_boundary | run | legacy_stub | general), each arm validates strictly, and consumers narrow structurally on row.kind — never probing type: string, never casting
 
 interface ChildRunSummary {
   runId: RunId;
@@ -2731,9 +2762,9 @@ interface ChildRunSummary {
 interface TimelineSubscribeRequest {
   sessionId: SessionId;
   afterCursor?: EventCursor;
-  channelId?: ChannelId;
+  channelId?: ChannelId; // filter to a channel's rows — filtering never suppresses a run.rolled_back boundary for a run whose rows the filter admits (visibility-resolved fan-out; Codex round 4, PR #232)
 }
-// Response: SSE stream of TimelineEntry
+// Response: SSE stream of TimelineRow (the discriminated union above)
 
 // ReasoningSurfaceRead
 interface ReasoningSurfaceReadRequest {
@@ -2757,7 +2788,7 @@ interface ChildRunExpandResponse {
   runId: RunId;
   parentRunId: RunId;
   state: RunState;
-  entries: TimelineEntry[];
+  entries: TimelineRow[];
 }
 ```
 
