@@ -19,7 +19,7 @@ The schema is defined by what's actually on disk. The four entries below — pas
 
 #### 1.1.1 Schema-by-example (verbatim, current HEAD)
 
-> **Path-form note.** Markdown-link URLs in the verbatim NS blocks below are written from **this spec's location** (`docs/superpowers/specs/`) using `../../<tree>/...`, so the `cite-target-existence` pre-commit hook resolves them correctly. The actual on-disk text in `docs/architecture/cross-plan-dependencies.md` uses one fewer `../` (`../<tree>/...`), since it lives one directory shallower. Field structure, prose, headings, and `:NNN` line cites are otherwise verbatim against HEAD.
+> **Path-form note.** Markdown-link URLs in the verbatim NS blocks below are written from **this spec's location** (`docs/superpowers/specs/`) using `../../<tree>/...`, so the `cite-target-existence` pre-commit hook resolves them correctly. The actual on-disk text in `docs/architecture/cross-plan-dependencies.md` uses one fewer `../` (`../<tree>/...`), since it lives one directory shallower. Field structure, prose, headings, and `:NNN` line cites are otherwise verbatim against HEAD. _(Re-sync 2026-07-21: the NS-01/NS-04/NS-09 References lines — and NS-01's Upstream parenthetical — now carry the durable §-anchor forms the live §6 records adopted in the corpus-wide line-cite → anchor conversion; the campaign-B16 Plan-024 Phase 3B insertion shifted the snapshot-era `:NNN` targets onto blank lines, so the stale numeric forms could no longer stand. The blocks otherwise remain the dated snapshots.)_
 
 **NS-01 — `todo`, single-PR `code`, classic `Plan-NNN Phase N` heading** (`cross-plan-dependencies.md`:342-350):
 
@@ -29,8 +29,8 @@ The schema is defined by what's actually on disk. The four entries below — pas
 - Status: `todo`
 - Type: code
 - Priority: `P1`
-- Upstream: none (Plan-024:287 — Phase 1 starts as soon as Plan-001 Phase 1 repo bootstrap is merged, which it is)
-- References: [Plan-024](../../plans/024-rust-pty-sidecar.md):287-302, [ADR-019](../../decisions/019-windows-v1-tier-and-pty-sidecar.md), this document §4 (Plan-024 standalone)
+- Upstream: none (`Plan-024 §Phase 1 — Rust Crate Scaffold + Protocol + Framing` — Phase 1 starts as soon as Plan-001 Phase 1 repo bootstrap is merged, which it is)
+- References: [Plan-024 §Phase 1 — Rust Crate Scaffold + Protocol + Framing](../../plans/024-rust-pty-sidecar.md#phase-1--rust-crate-scaffold--protocol--framing), [ADR-019](../../decisions/019-windows-v1-tier-and-pty-sidecar.md), this document §4 (Plan-024 standalone)
 - Summary: Scaffold the Rust PTY sidecar crate (T-024-1-1..5): workspace-root `Cargo.toml`, `packages/sidecar-rust-pty/{Cargo.toml,Cargo.lock,src/{main,framing,protocol,pty_session}.rs,tests/{framing_roundtrip,protocol_roundtrip,spawn_smoke}.rs}` + TS protocol mirror at `packages/contracts/src/pty-host-protocol.ts`. ~10 new files; no edits to existing TS source. Pins: `portable-pty 0.9`, `tokio 1.40`, `serde_with 3.7`, MSRV `1.85`, `cargo-zigbuild 0.22.2`. F-024-2-04 binds Phase 2/3 to Plan-001 T5.4 — Phase 1 itself is fully independent.
 - Exit Criteria: T-024-1-1..5 merged; Linux `cargo build --release` + `cargo test --release` green; Plan-024 Phase 1 Done Checklist flipped.
 ```
@@ -44,7 +44,7 @@ The schema is defined by what's actually on disk. The four entries below — pas
 - Type: code (cross-plan PR pair, internally a 3-step sequence)
 - Priority: `P1`
 - Upstream: none (the 3-step sequence is internal: (a) `packages/contracts/src/pty-host.ts` interface-only PR for T-024-2-1 → (b) `packages/runtime-daemon/src/session/spawn-cwd-translator.ts` for T5.4 → (c) NodePtyHost impl T-024-2-2 lands as part of NS-05)
-- References: [Plan-001](../../plans/001-shared-session-core.md):387-389, [Plan-024](../../plans/024-rust-pty-sidecar.md):93, 305, 321
+- References: [Plan-001 §T5.4 — spawn-cwd-translator.ts daemon-layer cwd-translator](../../plans/001-shared-session-core.md#t54--spawn-cwd-translatorts-daemon-layer-cwd-translator), [Plan-024 §Preconditions](../../plans/024-rust-pty-sidecar.md#preconditions), [Plan-024 §Phase 2 — TS PtyHost Contract + NodePtyHost + Selector Default-Node](../../plans/024-rust-pty-sidecar.md#phase-2--ts-ptyhost-contract--nodeptyhost--selector-default-node), [Plan-024 §Phase 3 — RustSidecarPtyHost + Env-Var Opt-In](../../plans/024-rust-pty-sidecar.md#phase-3--rustsidecarptyhost--env-var-opt-in)
 - Summary: T5.4 wraps both `RustSidecarPtyHost` and `NodePtyHost` for OS-level cwd translation per I-024-5 to mitigate the Windows `ERROR_SHARING_VIOLATION` risk. F-024-2-04 binds T5.4 as a Precondition for **both** Plan-024 Phase 2 (NodePtyHost) **and** Phase 3 (RustSidecarPtyHost) — without it, Windows CI surfaces the sharing-violation regression. Clean sequence: ship the `PtyHost` contract interface alone, then T5.4 consumes it, then NS-05 consumes T5.4.
 - Exit Criteria: `spawn-cwd-translator.ts` + Linux/macOS unit tests + Windows-CI integration tests (I6 / W2 / W3) green; `PtyHost` interface live in contracts.
 ```
@@ -86,7 +86,7 @@ The schema is defined by what's actually on disk. The four entries below — pas
 - Type: code + governance
 - Priority: `P1`
 - Upstream: NS-07 (Phase 3 working sidecar) + BL-108 (procurement evidence)
-- References: [Plan-024](../../plans/024-rust-pty-sidecar.md):339-351, [BL-108](../../backlog.md#bl-108-plan-024-windows--macos-signing-procurement-evidence)
+- References: [Plan-024 §Phase 4 — CI Cross-Compile Matrix + Signing Stages](../../plans/024-rust-pty-sidecar.md#phase-4--ci-cross-compile-matrix--signing-stages), [BL-108](../../backlog.md#bl-108-plan-024-windows--macos-signing-procurement-evidence)
 - Summary: 5-target `cargo-zigbuild` matrix (Windows MSVC, macOS x86_64/aarch64, Linux x86_64/aarch64) + Authenticode + Apple notarization. Phase 4 publishes signed pre-release binaries.
 - Exit Criteria: All 5 targets build green; signed artifacts attached to release draft; Plan-024 §Decision Log records signing-track choice + date; BL-108 closes.
 ```

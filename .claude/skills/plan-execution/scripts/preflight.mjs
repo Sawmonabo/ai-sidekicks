@@ -403,7 +403,10 @@ export function findSectionBoundary(body) {
     // R-section, so its declared-task set absorbed the R-series ids and a
     // shipped numbered phase classified partially_shipped forever (latent
     // Plan-007 Phase 3 false-halt; surfaced by the external_plan_phase_merged
-    // work, Codex P2 PR #193 round 4).
+    // work, Codex P2 PR #193 round 4). The deliberately unanchored prefix
+    // also makes supplement headings (`### Phase 3B`) boundaries — do not
+    // anchor this to `R?\d+$`-style exactness or the numbered phase before a
+    // supplement swallows it (same failure class).
     if (
       !structuralScanConsumes(scanState, lines, lineIndex) &&
       (/^### Phase R?\d+/.test(line) || /^## /.test(line))
@@ -3003,10 +3006,10 @@ export function resolvePrecondition(
           { repoRoot },
         );
       }
-      if (typeof entry.phase !== "string" || !/^R\d+$/.test(entry.phase)) {
+      if (typeof entry.phase !== "string" || !/^(?:R\d+|\d+[A-Z])$/.test(entry.phase)) {
         return {
           ok: false,
-          halt: `external_plan_phase_merged: unsupported phase value ${JSON.stringify(entry.phase)} (expected an integer or "R<n>")`,
+          halt: `external_plan_phase_merged: unsupported phase value ${JSON.stringify(entry.phase)} (expected an integer, "R<n>", or a supplement label like "3B")`,
         };
       }
       const planDir = resolve(repoRoot, "docs", "plans");
@@ -4127,12 +4130,14 @@ export function surveyCorpus({ repoRoot = REPO_ROOT } = {}) {
       continue;
     }
     const phaseSummaries = [];
-    // Remainder phases (### Phase R2) are invisible to walkPhases by design
+    // Remainder phases (### Phase R2) and supplement phases (### Phase 3B —
+    // the campaign-supplement shape) are invisible to walkPhases by design
     // (the dispatch walker is numeric), but the external_plan_phase_merged
-    // gate now READS their task ids — a malformed R-task row must not merge
-    // behind a green survey and only surface at downstream gate-eval time
-    // (Codex P2, PR #192 round 6). Survey them alongside the numeric walk.
-    const remainderLabels = [...source.matchAll(/^### Phase (R\d+)\b/gm)].map((m) => m[1]);
+    // gate READS their task ids — a malformed R-task or supplement-task row
+    // must not merge behind a green survey and only surface at downstream
+    // gate-eval time (Codex P2, PR #192 round 6). Survey them alongside the
+    // numeric walk.
+    const remainderLabels = [...source.matchAll(/^### Phase (R\d+|\d+[A-Z])\b/gm)].map((m) => m[1]);
     const allPhaseLabels = [...phases.map(({ number }) => number), ...remainderLabels];
     for (const label of allPhaseLabels) {
       const section = extractPhaseSection(source, label) ?? "";

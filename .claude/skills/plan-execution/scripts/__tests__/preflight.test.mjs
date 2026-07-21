@@ -3,7 +3,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -3206,6 +3206,120 @@ test("external_plan_phase_merged: malformed phase value halts loudly", () => {
   );
   assert.equal(r.ok, false);
   assert.match(r.halt, /unsupported phase value/);
+});
+
+// ---------- external_plan_phase_merged (supplement-phase gates — campaign B16) ----------
+
+function writeSupplementUpstream(dir, { ship3B = false } = {}) {
+  const manifestTasks = ship3B
+    ? "  - phase: 3\n    task: [T-024-3-1]\n    pr: 56\n    sha: abc1234\n    merged_at: 2026-06-01\n    files:\n      - packages/runtime-daemon/src/pty/rust-sidecar-pty-host.ts\n    verifies_invariant: []\n    spec_coverage: []\n    notes: |\n      Phase 3 core.\n  - phase: 3\n    task: [T-024-3B-1, T-024-3B-2]\n    pr: 240\n    sha: def5678\n    merged_at: 2026-08-01\n    files:\n      - packages/runtime-daemon/src/pty/control-lease.ts\n    verifies_invariant: []\n    spec_coverage: []\n    notes: |\n      3B shipped under integer phase 3.\n"
+    : "  - phase: 3\n    task: [T-024-3-1]\n    pr: 56\n    sha: abc1234\n    merged_at: 2026-06-01\n    files:\n      - packages/runtime-daemon/src/pty/rust-sidecar-pty-host.ts\n    verifies_invariant: []\n    spec_coverage: []\n    notes: |\n      Phase 3 only.\n";
+  const upstream = `# Plan-024 — Fixture
+
+| Field | Value |
+| --- | --- |
+| **Status** | \`approved\` |
+
+## Implementation Phase Sequence
+
+### Phase 3 — Core
+
+#### Tasks
+
+- **T-024-3-1 — core.**
+
+### Phase 3B — Substrate Hardening (Campaign B16)
+
+#### Tasks
+
+- **T-024-3B-1** (Files: \`packages/runtime-daemon/src/pty/control-lease.ts\`) — lease authority.
+- **T-024-3B-2** (Files: \`packages/runtime-daemon/src/pty/orphan-registry.ts\`) — orphan registry.
+
+### Phase 4 — Distribution
+
+#### Tasks
+
+- **T-024-4-1 — dist.**
+
+## Progress Log
+
+### Shipment Manifest
+
+\`\`\`yaml
+manifest_schema_version: 1
+shipped:
+${manifestTasks}\`\`\`
+`;
+  writeFileSync(join(dir, "024-fixture.md"), upstream);
+}
+
+test("findSectionBoundary: a supplement heading (### Phase 3B) bounds the preceding numbered phase", () => {
+  const body = "\nbody of phase 3\n\n### Phase 3B — Supplement\n\nmore";
+  const idx = findSectionBoundary(body);
+  assert.ok(idx > 0);
+  assert.equal(body.slice(idx).startsWith("### Phase 3B"), true);
+});
+
+test("extractPhaseSection: integer lookup does not swallow the supplement section's tasks", () => {
+  const tmp = mkdtempSync(join(tmpdir(), "pf-supplement-"));
+  try {
+    const planDir = join(tmp, "docs", "plans");
+    mkdirSync(planDir, { recursive: true });
+    writeSupplementUpstream(planDir, { ship3B: false });
+    const source = readFileSync(join(planDir, "024-fixture.md"), "utf8");
+    const phase3 = extractPhaseSection(source, 3);
+    assert.ok(phase3);
+    assert.deepEqual(extractDeclaredTaskIds(phase3), ["T-024-3-1"]);
+    const phase3B = extractPhaseSection(source, "3B");
+    assert.ok(phase3B);
+    assert.deepEqual(extractDeclaredTaskIds(phase3B), ["T-024-3B-1", "T-024-3B-2"]);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("external_plan_phase_merged: supplement gate halts while the 3B tasks are unshipped", () => {
+  const tmp = mkdtempSync(join(tmpdir(), "pf-supplement-"));
+  try {
+    const planDir = join(tmp, "docs", "plans");
+    mkdirSync(planDir, { recursive: true });
+    writeSupplementUpstream(planDir, { ship3B: false });
+    const r = resolvePrecondition(
+      { type: "external_plan_phase_merged", plan: 24, phase: "3B" },
+      { repoRoot: tmp },
+    );
+    assert.equal(r.ok, false);
+    assert.match(r.halt, /Phase 3B not shipped — missing tasks: T-024-3B-1, T-024-3B-2/);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("external_plan_phase_merged: supplement gate passes once the tasks ship under an integer phase", () => {
+  const tmp = mkdtempSync(join(tmpdir(), "pf-supplement-"));
+  try {
+    const planDir = join(tmp, "docs", "plans");
+    mkdirSync(planDir, { recursive: true });
+    writeSupplementUpstream(planDir, { ship3B: true });
+    const r = resolvePrecondition(
+      { type: "external_plan_phase_merged", plan: 24, phase: "3B" },
+      { repoRoot: tmp },
+    );
+    assert.equal(r.ok, true);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("external_plan_phase_merged: near-miss supplement labels stay rejected", () => {
+  for (const phase of ["3b", "B3", "33BB", "3B4"]) {
+    const r = resolvePrecondition(
+      { type: "external_plan_phase_merged", plan: 24, phase },
+      { repoRoot: "/nonexistent" },
+    );
+    assert.equal(r.ok, false, `phase ${phase} must be rejected`);
+    assert.match(r.halt, /unsupported phase value/);
+  }
 });
 
 test("gateStatusPromotion ignores Status-shaped table rows in the body (header-region scope — Codex r3)", () => {
