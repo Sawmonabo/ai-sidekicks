@@ -545,6 +545,12 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
     rmSync(raceTmpDir, { recursive: true, force: true });
   });
 
+  // Per-test timeout (the 60_000 trailing argument): vitest's 5 s default
+  // is itself a flake source here — the 5 sequential trials each spawn 4
+  // --experimental-strip-types worker threads, and spawn+compile overhead
+  // alone has exceeded 5 s on a contended CI runner (observed 2×). 60 s is
+  // pure headroom for the detector; the oracle is FAILURE_THRESHOLD below,
+  // never elapsed time.
   it("4 workers × 5 trials with .immediate() stays well below the BUSY-saturation threshold of broken production (regression detector)", async () => {
     // Why this shape (multi-trial threshold, NOT retry):
     //
@@ -695,8 +701,13 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
         verifier.close();
       }
     }
-  });
+  }, 60_000);
 
+  // Same per-test timeout class as the detector above (60_000 trailing
+  // argument), with a larger analytical bound: DEFERRED losers block up to
+  // busy_timeout=5000 ms per attempt, so 5 trials × (busy-wait + 8 worker
+  // spawns) can legitimately approach ~30-40 s under CI contention. 60 s
+  // keeps margin without masking a genuine hang.
   it("the SAME race pattern using BEGIN DEFERRED across multiple trials reproduces writer-vs-writer contention at least once — empirical proof .immediate() is load-bearing", async () => {
     // Negative control: this test intentionally exercises the broken
     // pattern (`tx()` → BEGIN DEFERRED) to prove (a) the workers are
@@ -759,7 +770,7 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
         `expected a SQLITE_BUSY-class failure as proof of writer-vs-writer contention; got ${JSON.stringify(f)}`,
       ).toBe(true);
     }
-  });
+  }, 60_000);
 });
 
 // ----------------------------------------------------------------------------
