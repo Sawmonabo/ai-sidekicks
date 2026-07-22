@@ -3442,28 +3442,65 @@ In V1 every call resolves to the unconditional `-32603` / `data.type = "gdpr.end
 
 ## Plan-028 — MCP Governance Contract Surfaces
 
-Registered 2026-07-22 (campaign B18; [Spec-028](../../specs/028-mcp-server-configuration-and-governance.md)). The ten `mcp.*` operations register against the Plan-007 `MethodRegistry` at Plan-028's tier (the CP-007-3 late-namespace pattern); the five event payloads mirror [Spec-006 §MCP Governance (`mcp_governance`)](../../specs/006-session-event-taxonomy-and-audit-log.md#mcp-governance-mcp_governance) (registered into contracts by Plan-006 T1.10; payloads authored by Plan-028 — the emitter-authors-payload precedent); the status read model consumes the Plan-005 `McpServerStatusUpdate` seam (§Tier 4 above). Authorization: every mutating operation evaluates the Cedar `mcp` action family through Plan-012's `PermissionCheckService` before any provider call or store write; the V1 principal is the node-local operator (caller-owns-the-node) — no `ApprovalCategory` value is added. Error codes: [error-contracts.md §MCP Governance](./error-contracts.md#mcp-governance). Sanitization: no payload below carries config values, env-var values, header values, tokens, or unsanitized paths (Spec-028's no-custody invariant); `serverName` / `toolName` are untrusted provider-adjacent strings, `wireFreeFormString`-bounded under the twelve-string rule.
+Registered 2026-07-22 (campaign B18; [Spec-028](../../specs/028-mcp-server-configuration-and-governance.md)). The ten `mcp.*` operations register against the Plan-007 `MethodRegistry` at Plan-028's tier (the CP-007-3 late-namespace pattern); the five event payloads mirror [Spec-006 §MCP Governance (`mcp_governance`)](../../specs/006-session-event-taxonomy-and-audit-log.md#mcp-governance-mcp_governance) (registered into contracts by Plan-006 T1.10; payloads authored by Plan-028 — the emitter-authors-payload precedent); the status read model consumes the Plan-005 `McpServerStatusUpdate` seam (§Tier 4 above). Authorization: every mutating operation evaluates the Cedar `mcp` action family through Plan-012's `PermissionCheckService` before any provider call or store write; the V1 principal is the node-local operator (caller-owns-the-node) — no `ApprovalCategory` value is added. Error codes: [error-contracts.md §MCP Governance](./error-contracts.md#mcp-governance). Sanitization: no payload below carries config values, env-var values, header values, tokens, or unsanitized paths (Spec-028's no-custody invariant); `serverName` / `toolName` are untrusted provider-adjacent strings, `wireFreeFormString`-bounded under the twelve-string rule, classified as non-PII infrastructure identifiers for the plaintext audit payload per Spec-028 §Status Observation and Events — the deliberate, documented residual Plan-022's call-site PII classification pass inherits. Identity throughout is the scope-qualified binding `(provider, scope, scopeRef, serverName)` per Spec-028 §Unified Inventory.
 
 ```ts
 // ---- Primitives (Spec-028) ----
 type McpProvider = "claude" | "codex";
-type McpApplicationGrade = "live_reconcile" | "next_run" | "user_config_write"; // when a mutation takes effect — honest, typed, never silent (parity-triad degrade-honestly)
-type McpConfigSource = "user" | "project" | "ephemeral"; // where a server declaration was observed: Codex user/project TOML layers; Claude daemon-composed ephemeral set (--mcp-config)
+type McpConfigScope = "user" | "project" | "local"; // scope axis of the binding identity: user = writable (both providers); project/local = observed read-only in V1 (mutations fail mcp.config_scope_unsupported). local is Claude-only (project-keyed private scope)
+type McpApplicationGrade = "live_reconcile" | "user_config_write" | "next_run" | "daemon_enforced"; // when/where a mutation takes effect — honest, typed, never silent (parity-triad degrade-honestly): live session set / provider config store (subsequent runs) / next-run composed config / daemon decision layer (immediate)
 type McpApprovalMode = "auto" | "prompt" | "writes" | "approve"; // Codex-native vocabulary adopted as the normalized set; Claude-side enforcement is daemon-owned (Spec-028 §Tool-Level Overrides)
 type McpTrustReason = "operator_grant" | "operator_revoke" | "config_drift";
 type McpConfigChangeKind = "added" | "updated" | "removed" | "enabled" | "disabled";
 
-// Inventory read model (mcp.list / mcp.get): four merged sources per server — provider-declared
-// config, live status (McpServerStatus, §Tier 4 seam), the trust row, the override rows.
-interface McpServerInventoryEntry {
+// The scope-qualified server binding (Spec-028 §Unified Inventory): identity is
+// (provider, scope, scopeRef, serverName) — never merged across providers OR scopes. Same-named
+// servers in two scopes are distinct configurations with independent status, trust, and overrides;
+// collapsing them would trust-ping-pong on drift and bleed overrides across configurations.
+interface McpServerBindingRef {
   provider: McpProvider;
-  serverName: string; // identity is (provider, serverName) — never merged cross-provider (a merge would launder trust)
-  source: McpConfigSource;
+  scope: McpConfigScope;
+  scopeRef?: string; // canonical project root (project) / keying directory (local); absent for user scope — persisted as '' in the daemon tables
+  serverName: string;
+}
+
+// mcp.upsertServer config input — the complete normalized union, discriminated on transport.
+// Env-var and header VALUES are write-only credential-adjacent material: accepted here, passed only
+// to the sanctioned provider write path, NEVER round-tripped in inventory reads or event payloads
+// (names may appear; values never do). Provider-conditional validation is schema-enforced (Zod
+// refinements), not prose: a field marked Codex-only rejects for provider "claude" and vice versa,
+// so the canonical request schema and SDK signature derive from this union without divergence.
+type McpServerConfigInput =
+  | {
+      transport: "stdio";
+      command: string; // executable; non-empty, NUL-rejected
+      args?: string[];
+      env?: Record<string, string>; // write-only values (see above)
+      enabled?: boolean; // Codex: native `enabled` field; Claude: maps to the daemon enabled overlay
+      required?: boolean; // Codex-only — thread start/resume fails if the server cannot initialize
+      startupTimeoutSec?: number; // Codex-only native timeout
+      toolTimeoutSec?: number; // Codex-only native timeout
+    }
+  | {
+      transport: "http" | "sse"; // "sse" is Claude-only (Claude-native transport kind)
+      url: string; // absolute http(s) URL; userinfo (embedded credentials) rejected
+      headers?: Record<string, string>; // write-only values (see above)
+      bearerTokenEnvVar?: string; // Codex-only `bearer_token_env_var` — the env-var NAME, never the value
+      enabled?: boolean;
+      required?: boolean; // Codex-only (as above)
+      startupTimeoutSec?: number; // Codex-only (as above)
+      toolTimeoutSec?: number; // Codex-only (as above)
+    };
+
+// Inventory read model (mcp.list / mcp.get): four merged sources per binding — provider-declared
+// config, live status (McpServerStatus, §Tier 4 seam), the trust row, the override rows.
+interface McpServerInventoryEntry extends McpServerBindingRef {
   enabled: boolean;
+  effectiveInRuns: boolean; // whether this binding reaches provider runs: Codex user+project true (native layering; project shadows user per cwd); Claude user true (composed ephemeral snapshot), project/local false in V1 (strict-mode composition excludes them — Spec-028 §Implementation Notes)
   status: McpServerStatus; // "unknown" when no observation source is available — never fabricated
   observedAt?: string; // ISO-8601 of the newest status observation backing `status`
   trusted: boolean;
-  configHash: string; // "b3:"-prefixed BLAKE3 over the RFC 8785 JCS canonical server config — the value trust binds to
+  configHash: string; // "b3:"-prefixed BLAKE3 over the RFC 8785 JCS canonical BASE config — daemon-managed override-projection fields excluded (Spec-028 §Trust Governance), so a governed override write never drifts the hash trust binds to
   requiredServer?: boolean; // Codex `required = true` — thread start/resume fails if the server cannot initialize
   toolOverrides: McpToolOverride[];
   trustUnavailable?: true; // degraded read: trust store unreachable — mutations fail closed (Spec-028 §Fallback Behavior)
@@ -3476,61 +3513,64 @@ interface McpToolOverride {
   idempotencyClass?: "idempotent" | "compensable"; // absent = the Spec-005 §Tool Metadata manual_reconcile_only floor; assignment is trusted-server-only + Cedar-gated
 }
 
+// Per-facet application grades for override mutations (Spec-028 §Tool-Level Overrides): Codex
+// enabled/approvalMode materialize into native config fields (user_config_write); Claude enforces
+// them at the daemon approval layer (daemon_enforced, immediate); idempotencyClass is always
+// daemon_enforced. Present keys mirror the facets the request touched (or reverted, on clear).
+interface McpToolOverrideApplication {
+  enabled?: McpApplicationGrade;
+  approvalMode?: McpApplicationGrade;
+  idempotencyClass?: "daemon_enforced";
+}
+
 // ---- Operations (10; JSON-RPC per ADR-009) ----
 // Reads: mcp.list {refresh?: boolean} → {servers: McpServerInventoryEntry[]};
-//        mcp.get {provider, serverName} → {server: McpServerInventoryEntry}.
-// Mutations (all Cedar-gated deny-before-effect; each emits its mcp_governance event exactly once):
-//   mcp.upsertServer      {provider, serverName, config: McpServerConfigInput} → {server: McpServerInventoryEntry, applied: McpApplicationGrade}
-//   mcp.removeServer      {provider, serverName} → {applied: McpApplicationGrade}
-//   mcp.setEnabled        {provider, serverName, enabled: boolean} → {server: McpServerInventoryEntry, applied: McpApplicationGrade}
-//   mcp.setTrust          {provider, serverName, trusted: boolean} → {server: McpServerInventoryEntry} // a grant binds to the server's CURRENT configHash
-//   mcp.setToolOverride   {provider, serverName, override: McpToolOverride} → {server: McpServerInventoryEntry}
-//   mcp.clearToolOverride {provider, serverName, toolName: string} → {server: McpServerInventoryEntry}
-//   mcp.oauthLogin        {provider, serverName} → {authorizationUrl?: string} // Codex returns the provider URL; a mode with no in-band flow fails mcp.oauth_unsupported with out-of-band guidance
-//   mcp.reconnect         {provider, serverName} → {status: McpServerStatus}
-// McpServerConfigInput is the normalized provider-config shape (transport, command/url, env-var NAMES,
-// header NAMES, tool filters, timeouts) — env-var and header VALUES never cross this wire in reads, and
-// Codex-native fields pass through only to the sanctioned config-write path (Spec-028 §Configuration Mutation).
+//        mcp.get McpServerBindingRef → {server: McpServerInventoryEntry}.
+// Mutations (all Cedar-gated deny-before-effect; the SEVEN governance mutations below each emit
+// their mcp_governance event exactly once — mcp.reconnect is an operational command, not a
+// governance mutation: no store/config change, audited only through the status transitions it
+// induces, Spec-028 §Authorization):
+//   mcp.upsertServer      McpServerBindingRef & {config: McpServerConfigInput} → {server: McpServerInventoryEntry, applied: McpApplicationGrade}
+//   mcp.removeServer      McpServerBindingRef → {applied: McpApplicationGrade}
+//   mcp.setEnabled        McpServerBindingRef & {enabled: boolean} → {server: McpServerInventoryEntry, applied: McpApplicationGrade}
+//   mcp.setTrust          McpServerBindingRef & {trusted: boolean} → {server: McpServerInventoryEntry, applied: "daemon_enforced"} // a grant binds to the binding's CURRENT base-config hash
+//   mcp.setToolOverride   McpServerBindingRef & {override: McpToolOverride} → {server: McpServerInventoryEntry, applied: McpToolOverrideApplication}
+//   mcp.clearToolOverride McpServerBindingRef & {toolName: string} → {server: McpServerInventoryEntry, applied: McpToolOverrideApplication} // grades cover the cleared facets' reversion path
+//   mcp.oauthLogin        McpServerBindingRef → {authorizationUrl?: string} // Codex returns the provider URL; a mode with no in-band flow fails mcp.oauth_unsupported with out-of-band guidance
+//   mcp.reconnect         McpServerBindingRef → {status: McpServerStatus}
+// Mutations accept scope "user" only in V1 — project/local targets are schema-valid but fail
+// mcp.config_scope_unsupported at the service layer, so the refusal is typed, not a parse error.
 
 // ---- Event payload mirrors (Spec-006 §MCP Governance) ----
-interface McpServerStatusChangedPayload {
-  provider: McpProvider;
-  serverName: string;
+// Every payload embeds the full binding identity (provider, scope, scopeRef?, serverName).
+interface McpServerStatusChangedPayload extends McpServerBindingRef {
   previousStatus: McpServerStatus;
   status: McpServerStatus;
   failureReason?: string; // sanitized
   origin: "session_feed" | "node_probe"; // mirrors the per-event session binding: real sessionId on session_feed rows, the daemon-scope sentinel on node_probe rows
 }
-interface McpServerConfigChangedPayload {
-  provider: McpProvider;
-  serverName: string;
+interface McpServerConfigChangedPayload extends McpServerBindingRef {
   changeKind: McpConfigChangeKind;
   appliedVia: McpApplicationGrade;
-  configHash: string;
-  previousConfigHash?: string;
+  configHash?: string; // REQUIRED for every changeKind except "removed"; ABSENT for "removed" — there is no post-removal config to hash. The Zod mirror enforces the conditionality as a refinement; no tombstone hash is ever fabricated
+  previousConfigHash?: string; // REQUIRED for "removed" and "updated" (the pre-change hash); optional otherwise
   initiatingSessionId?: SessionId; // sentinel-bound rows record a session-scoped initiator here, never in the envelope session_id
 }
-interface McpServerTrustChangedPayload {
-  provider: McpProvider;
-  serverName: string;
+interface McpServerTrustChangedPayload extends McpServerBindingRef {
   trusted: boolean;
   reason: McpTrustReason;
-  configHash: string;
+  configHash: string; // the base-config hash the grant binds to, or the drift-observed hash on revoke
   initiatingSessionId?: SessionId; // absent on config_drift auto-revoke
 }
-interface McpToolOverrideChangedPayload {
-  provider: McpProvider;
-  serverName: string;
+interface McpToolOverrideChangedPayload extends McpServerBindingRef {
   toolName: string;
   changeKind: "set" | "cleared";
   enabled?: boolean;
   approvalMode?: McpApprovalMode;
   idempotencyClass?: "idempotent" | "compensable";
-  initiatingSessionId?: SessionId;
+  initiatingSessionId?: SessionId; // absent on the trust-revocation facet-reversion path (revocation neutralizes weakening, Spec-028 §Trust Governance)
 }
-interface McpServerOauthCompletedPayload {
-  provider: McpProvider;
-  serverName: string;
+interface McpServerOauthCompletedPayload extends McpServerBindingRef {
   outcome: "success" | "failure";
   failureReason?: string; // sanitized — never tokens, authorization codes, or URLs with embedded secrets
   initiatingSessionId?: SessionId;

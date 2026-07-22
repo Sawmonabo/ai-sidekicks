@@ -18,7 +18,7 @@ The audit runs once per tier across the V1 build order (Tiers 1 → 9). After th
 Invoke this runbook in any of the following situations:
 
 - **Before promoting a spec from `draft`/`review` → `approved`** (the spec-template Precondition gate per §Spec-Status Promotion Gate below). The promotion PR description must cite the spec's doc-first-before-coding attestation.
-- **Before promoting a plan from `review` → `approved`** (the plan-template Precondition gate). The promotion PR description must cite the audit's REVIEW.md.
+- **Before promoting a plan from `review` → `approved`** (the plan-template Precondition gate). The promotion PR description must cite the audit's REVIEW.md. **For a post-adoption new plan, the same Precondition checkbox additionally gates `draft → review`:** the audit runs against the `draft` plan — targeted (the Plan-014-delta shape) when the plan joins a tier whose audit already closed — its pass ticks the checkbox, and the subsequent `review → approved` promotion cites the same audit's REVIEW.md (no second audit absent a scope change between the two promotions). First exercised by Plan-028 (campaign B18, 2026-07-22).
 - **Before any plan's first code-execution PR opens.** A plan whose `approved` state predates this runbook (e.g., Plans 001-027 at runbook adoption time) must clear the audit before its first code PR.
 - **When `cross-plan-dependencies.md` §1 / §2 / §3 gains an edge or row affecting an already-`approved` plan.** Re-audit only the affected plan; do not re-walk the whole tier.
 - **When a downstream-plan dep trace surfaces a substrate gap in an upstream-tier plan** (the cross-tier amendment contingency). Surface in the current tier's REVIEW.md; do not auto-amend a previously-committed tier.
@@ -28,7 +28,7 @@ Do NOT invoke for: cosmetic doc edits, ADR amendments that don't change plan-int
 ## Preconditions
 
 - `docs/architecture/cross-plan-dependencies.md` is current (last commit reflects the latest `cross-plan-deps`-relevant ADR).
-- The plans in scope are all at `approved` status (unless this audit run is the gate for a `review → approved` promotion).
+- The plans in scope are all at `approved` status (unless this audit run is the gate for a `review → approved` promotion, or a new-plan `draft` audit per §When To Invoke).
 - The audit calibration band (B1–B6) was established against Opus 4.7 during the Tier 1 pilot. Audit, dep-trace, and recent-data research subagents run the session's frontier-tier model, inherited at dispatch per `AGENTS.md` §Model Policy. On a model-family change (e.g. Opus → Fable), record any calibration drift against B1–B6 in §Lessons Learned for that tier.
 - Pre-audit naming sweep (`PR #N` → `Phase N`) has been committed; otherwise findings cite stale GitHub-auto-link-colliding shapes.
 - `.agents/tmp/research/plan-readiness-audit/` working directory exists and is gitignored (it is, via the project's root `.gitignore`).

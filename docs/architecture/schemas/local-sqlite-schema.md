@@ -1375,10 +1375,15 @@ Node-scoped governance state for [Spec-028](../../specs/028-mcp-server-configura
 -- Owner: Plan-028
 CREATE TABLE mcp_server_trust (
   provider           TEXT NOT NULL,        -- 'claude' | 'codex' (driver id namespace; a third provider is a Spec-028 ADR trigger)
+  scope              TEXT NOT NULL
+                     CHECK(scope IN ('user', 'project', 'local')),  -- scope axis of the binding identity (Spec-028 §Unified Inventory): user = writable both providers; project/local = observed read-only in V1 ('local' is Claude-only)
+  scope_ref          TEXT NOT NULL DEFAULT '',  -- canonical project root (project) / keying directory (local); '' for user scope
   server_name        TEXT NOT NULL,
   trusted            INTEGER NOT NULL DEFAULT 0
                      CHECK(trusted IN (0, 1)),  -- untrusted by default; observation creates the row, never trust (Spec-028 §Unified Inventory)
-  config_hash        TEXT NOT NULL CHECK(config_hash GLOB 'b3:*'),  -- BLAKE3 over the RFC 8785 JCS canonicalization of the normalized server config; the bound hash while trusted, the last-observed hash otherwise (Spec-028 §Trust Governance)
+  config_hash        TEXT NOT NULL CHECK(config_hash GLOB 'b3:*'),  -- BLAKE3 over the RFC 8785 JCS canonicalization of the normalized BASE config — daemon-managed override-projection fields excluded so a governed override write never drifts the bound hash (Spec-028 §Trust Governance); the bound hash while trusted, the last-observed hash otherwise
+  enabled_override   INTEGER
+                     CHECK(enabled_override IS NULL OR enabled_override IN (0, 1)),  -- the daemon's per-server enabled overlay (Claude bindings only in V1 — Claude user scope has no enabled field; Codex uses its native `enabled` config field); NULL = no overlay
   granted_at         TEXT,                 -- RFC 3339 UTC grant provenance; NULL while never trusted
   granted_by         TEXT,                 -- node-operator identity that granted trust
   revoked_at         TEXT,                 -- most recent revoke; reset to NULL on re-grant
@@ -1386,39 +1391,42 @@ CREATE TABLE mcp_server_trust (
                      CHECK(revoked_reason IS NULL OR revoked_reason IN ('operator_revoke', 'config_drift')),
   first_observed_at  TEXT NOT NULL,
   updated_at         TEXT NOT NULL,
-  PRIMARY KEY (provider, server_name),
+  PRIMARY KEY (provider, scope, scope_ref, server_name),
   -- a trusted row always carries grant provenance and no active revoke; the revoke pair is set and cleared together
   CHECK(trusted = 0 OR (granted_at IS NOT NULL AND granted_by IS NOT NULL AND revoked_reason IS NULL)),
   CHECK((revoked_at IS NULL) = (revoked_reason IS NULL))
 );
 ```
 
-Config-drift auto-revoke ([Spec-028 § Trust Governance](../../specs/028-mcp-server-configuration-and-governance.md#trust-governance)): on any observation where a trusted row's current config hash differs from `config_hash`, the daemon flips `trusted` to `0` with `revoked_reason = 'config_drift'` **before** the changed config is used, and emits `mcp.server_trust_changed` (`reason: 'config_drift'`). The drift comparison applies to trusted rows only — an untrusted row absorbing config changes updates `config_hash` silently. Re-trusting after drift is an explicit operator `mcp.setTrust`, which re-binds `config_hash` to the then-current hash.
+Config-drift auto-revoke ([Spec-028 § Trust Governance](../../specs/028-mcp-server-configuration-and-governance.md#trust-governance)): on any observation where a trusted row's current base-config hash differs from `config_hash`, the daemon flips `trusted` to `0` with `revoked_reason = 'config_drift'` **before** the changed config is used, reverts any Codex-materialized safety-weakening override fields in the same operation (revocation neutralizes weakening), and emits `mcp.server_trust_changed` (`reason: 'config_drift'`). The drift comparison applies to trusted rows only — an untrusted row absorbing config changes updates `config_hash` silently. Re-trusting after drift is an explicit operator `mcp.setTrust`, which re-binds `config_hash` to the then-current base-config hash.
 
 ```sql
 -- Owner: Plan-028
 CREATE TABLE mcp_tool_overrides (
   provider          TEXT NOT NULL,
+  scope             TEXT NOT NULL
+                    CHECK(scope IN ('user', 'project', 'local')),  -- binding identity axes mirror mcp_server_trust
+  scope_ref         TEXT NOT NULL DEFAULT '',
   server_name       TEXT NOT NULL,
   tool_name         TEXT NOT NULL,
   enabled           INTEGER
                     CHECK(enabled IS NULL OR enabled IN (0, 1)),  -- allow/deny facet; NULL = provider default
   approval_mode     TEXT                   -- Codex-native vocabulary adopted as the normalized set (Spec-028 §Tool-Level Overrides)
                     CHECK(approval_mode IS NULL OR approval_mode IN ('auto', 'prompt', 'writes', 'approve')),
-  idempotency_class TEXT                   -- NULL = the Spec-005 manual_reconcile_only floor; assignment is trusted-server-only + Cedar-gated
+  idempotency_class TEXT                   -- NULL = the Spec-005 manual_reconcile_only floor; assignment is trusted-server-only + Cedar-gated; safety-weakening facets stop resolving when the binding's trust is revoked (Spec-028 §Trust Governance — revocation neutralizes weakening)
                     CHECK(idempotency_class IS NULL OR idempotency_class IN ('idempotent', 'compensable')),
   created_at        TEXT NOT NULL,
   updated_at        TEXT NOT NULL,
-  PRIMARY KEY (provider, server_name, tool_name),
+  PRIMARY KEY (provider, scope, scope_ref, server_name, tool_name),
   -- an all-NULL facet row is meaningless: mcp.clearToolOverride deletes the row instead of blanking it
   CHECK(enabled IS NOT NULL OR approval_mode IS NOT NULL OR idempotency_class IS NOT NULL),
-  FOREIGN KEY (provider, server_name)
-    REFERENCES mcp_server_trust(provider, server_name)
-    ON DELETE CASCADE  -- overrides never outlive their server's governance anchor
+  FOREIGN KEY (provider, scope, scope_ref, server_name)
+    REFERENCES mcp_server_trust(provider, scope, scope_ref, server_name)
+    ON DELETE CASCADE  -- overrides never outlive their binding's governance anchor
 );
 ```
 
-The FK targets the trust table because first observation of any server upserts an untrusted trust row ([Spec-028 § Unified Inventory](../../specs/028-mcp-server-configuration-and-governance.md#unified-inventory)) — that row is each server's durable governance anchor, so overrides cascade to it rather than to any provider-config mirror (there is none). Lookups ride the composite primary keys: the inventory merge and the Spec-005 tool-metadata resolution both read by `(provider, server_name)` prefix, so no secondary indexes are warranted.
+The FK targets the trust table because first observation of any binding upserts an untrusted trust row ([Spec-028 § Unified Inventory](../../specs/028-mcp-server-configuration-and-governance.md#unified-inventory)) — that row is each binding's durable governance anchor, so overrides cascade to it rather than to any provider-config mirror (there is none). Identity is the scope-qualified binding `(provider, scope, scope_ref, server_name)`: same-named servers in two scopes are distinct configurations with independent trust, so collapsing them would drift-revoke one scope's trust on the other's legitimate config. Lookups ride the composite primary keys: the inventory merge and the Spec-005 tool-metadata resolution both read by binding prefix, so no secondary indexes are warranted.
 
 ---
 

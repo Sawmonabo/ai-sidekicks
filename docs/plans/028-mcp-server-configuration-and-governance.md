@@ -14,13 +14,13 @@
 
 ## Goal
 
-Deliver V1 feature #18: the daemon's MCP governance layer per [Spec-028](../specs/028-mcp-server-configuration-and-governance.md) — unified server inventory, provider-native configuration mutation (Claude live-reconcile / next-run pair; Codex user-config CRUD + reload), the config-hash-bound trust store, tool-level overrides feeding the Plan-005 tool-metadata resolution layer, OAuth orchestration, normalized status observation, and the five-event `mcp_governance` audit surface — all Cedar-gated at node-operator scope.
+Deliver V1 feature #18: the daemon's MCP governance layer per [Spec-028](../specs/028-mcp-server-configuration-and-governance.md) — unified server inventory over scope-qualified bindings, provider-native configuration mutation (Claude sanctioned user-scope CLI writes + opportunistic live reconcile; Codex user-config CRUD + reload), the base-config-hash-bound trust store, tool-level overrides feeding the Plan-005 tool-metadata resolution layer, OAuth orchestration, normalized status observation, and the five-event `mcp_governance` audit surface — all Cedar-gated at node-operator scope.
 
 ## Scope
 
 - `packages/contracts`: `mcp.*` operation payload schemas, the five `McpGovernanceEventPayload` schemas (emitter-authors-payload precedent — the type literals and category themselves are Plan-006-owned, registered by Plan-006 T1.10), error-code constants.
-- `packages/runtime-daemon`: migration for `mcp_server_trust` + `mcp_tool_overrides`; the `McpGovernanceService` (inventory, trust, overrides), provider config adapters (Claude ephemeral-config composer + live-reconcile client; Codex config CRUD client), status normalizer consuming the Plan-005 `onMcpServerStatus` seam, OAuth orchestrator, Cedar `mcp` action family wiring, `mcp.*` `MethodRegistry` handlers.
-- `packages/client-sdk` + CLI/desktop surfaces: typed `mcp.*` client methods; CLI `sidekicks mcp …` command group; desktop MCP panel data hooks.
+- `packages/runtime-daemon`: migration for `mcp_server_trust` + `mcp_tool_overrides`; the `McpGovernanceService` (inventory, trust, overrides), provider config adapters (Claude sanctioned `claude mcp` user-scope CLI writer + ephemeral-config composer + live-reconcile client; Codex config CRUD client), status normalizer consuming the Plan-005 `onMcpServerStatus` seam, OAuth orchestrator, Cedar `mcp` action family wiring, `mcp.*` `MethodRegistry` handlers.
+- `packages/client-sdk` + CLI/desktop surfaces: typed `mcp.*` client methods; CLI `ai-sidekicks mcp …` command group (the Plan-007 registered bin name); desktop MCP panel data hooks.
 - Doc mirrors: [api-payload-contracts.md §Plan-028 — MCP Governance Contract Surfaces](../architecture/contracts/api-payload-contracts.md#plan-028--mcp-governance-contract-surfaces), [error-contracts.md §MCP Governance](../architecture/contracts/error-contracts.md#mcp-governance), [local-sqlite-schema.md §MCP Governance Tables (Plan-028)](../architecture/schemas/local-sqlite-schema.md#mcp-governance-tables-plan-028) (all landed with the B18 doc PR; code phases keep them true).
 
 ## Non-Goals
@@ -43,7 +43,7 @@ The daemon never persists, logs, relays, or embeds in events/errors any OAuth to
 
 ### I-028-2 — Untrusted by default; trust is hash-bound and drift-revoked
 
-Every observed server gets a `trusted = 0` trust row on first observation; `trusted = 1` is reachable only via operator `mcp.setTrust`; a trusted server whose config hash diverges from the bound hash is auto-revoked (`revoked_reason = 'config_drift'`) before the changed config informs any decision surface.
+Every observed binding `(provider, scope, scopeRef, serverName)` gets a `trusted = 0` trust row on first observation; `trusted = 1` is reachable only via operator `mcp.setTrust`; a trusted binding whose base-config hash (daemon-managed override-projection fields excluded) diverges from the bound hash is auto-revoked (`revoked_reason = 'config_drift'`) before the changed config informs any decision surface, with safety-weakening override facets neutralized in the same operation (Spec-028 §Trust Governance — revocation neutralizes weakening).
 
 **Why load-bearing.** This is the operator-managed trusted-server store ADR-015 binds the MCP annotation-trust MUST to; a default-trust or stale-hash path would let a mutated server inherit trust granted to a different configuration.
 
@@ -51,7 +51,7 @@ Every observed server gets a `trusted = 0` trust row on first observation; `trus
 
 ### I-028-3 — Provider-sanctioned writes only
 
-Configuration mutations go exclusively through each provider's sanctioned mechanism (Claude: `setMcpServers` live path or regenerated ephemeral `--mcp-config`; Codex: `config/value/write` / `config/batchWrite` at user scope with `expected_version`, followed by reload). The daemon never rewrites provider config files directly and never writes Codex project-local config.
+Configuration mutations go exclusively through each provider's sanctioned mechanism (Claude: the `claude mcp add-json` / `claude mcp remove` user-scope CLI as the unconditional durable leg, `setMcpServers` as the opportunistic live leg, and the regenerated ephemeral `--mcp-config` snapshot as the run-declaration surface; Codex: `config/value/write` / `config/batchWrite` at user scope with `expected_version`, followed by reload). The daemon never rewrites provider config files directly and never writes any non-user scope on either provider.
 
 **Why load-bearing.** Blind file rewrites race the provider's own writes, corrupt layered scopes, and break the inventory's source-of-truth model; Codex project-path writes are rejected upstream.
 
@@ -59,7 +59,7 @@ Configuration mutations go exclusively through each provider's sanctioned mechan
 
 ### I-028-4 — Every governance mutation is Cedar-authorized and audited exactly once
 
-Each of the eight mutating `mcp.*` operations evaluates the Cedar `mcp` action family before any provider call or store write, and every applied mutation emits its `mcp_governance` event exactly once (sentinel-bound for node-scope events per [Spec-006 §Daemon-Scope Event Binding And Node-Scope Anchoring](../specs/006-session-event-taxonomy-and-audit-log.md#daemon-scope-event-binding-and-node-scope-anchoring)).
+Each of the eight non-read `mcp.*` operations evaluates the Cedar `mcp` action family before any provider call or store write, and each of the seven governance mutations emits its `mcp_governance` event exactly once (sentinel-bound for node-scope events per [Spec-006 §Daemon-Scope Event Binding And Node-Scope Anchoring](../specs/006-session-event-taxonomy-and-audit-log.md#daemon-scope-event-binding-and-node-scope-anchoring)). `mcp.reconnect` is the Cedar-gated operational command outside the mutation set: it changes no store or config, and its observable effect audits through the `mcp.server_status_changed` transitions it induces (Spec-028 §Authorization).
 
 **Why load-bearing.** The audit trail is the governance feature — an unaudited mutation path is indistinguishable from tampering; authorization-after-mutation would be TOCTOU (the D-012-18 lesson).
 
@@ -104,23 +104,23 @@ The ten `mcp.*` operations register against `MethodRegistry.register()` (`packag
 - [ ] Paired spec is approved — [Spec-028](../specs/028-mcp-server-configuration-and-governance.md) is at `review`; promotion is the campaign's W3 gate after the Spec-006 census amendment restores
 - [x] Required ADRs are accepted
 - [x] Blocking open questions are resolved or explicitly deferred (the Codex thread-config question is explicitly deferred, non-blocking, per Spec-028 §Open Questions)
-- [ ] **Plan-readiness audit complete per [`docs/operations/plan-implementation-readiness-audit-runbook.md`](../operations/plan-implementation-readiness-audit-runbook.md)** — Plan-028 joins Tier 7 after that tier's audit (PR #160) closed, so it requires a targeted readiness-audit pass (the Plan-014-delta shape) before any code PR; this is the gate that promotes this plan `draft → review`
+- [ ] **Plan-readiness audit complete per [`docs/operations/plan-implementation-readiness-audit-runbook.md`](../operations/plan-implementation-readiness-audit-runbook.md)** — Plan-028 joins Tier 7 after that tier's audit (PR #160) closed, so it takes the runbook's new-plan invocation path (targeted, the Plan-014-delta shape): the audit runs against this `draft`, its pass ticks this box and gates `draft → review`, and the subsequent `review → approved` promotion cites the same audit's REVIEW.md once review notes are addressed — no code PR before both promotions complete
 
 ## Target Areas
 
-- `packages/contracts/src/mcp-governance.ts` (CREATE) — operation payload schemas, event payload schemas, error-code consts, `McpApplicationGrade` (`live_reconcile | next_run | user_config_write`), override facet types.
+- `packages/contracts/src/mcp-governance.ts` (CREATE) — operation payload schemas (incl. the `McpServerConfigInput` transport-discriminated union with provider-conditional refinements and the `McpServerBindingRef` scope-qualified identity), event payload schemas, error-code consts, `McpApplicationGrade` (`live_reconcile | user_config_write | next_run | daemon_enforced`), override facet + per-facet application types.
 - `packages/runtime-daemon/src/mcp/` (CREATE) — `McpGovernanceService`, `McpInventoryService`, provider adapters (`claudeMcpConfigAdapter`, `codexMcpConfigAdapter`), `McpStatusNormalizer`, `McpOauthOrchestrator`, trust + override stores, config-hash canonicalizer (BLAKE3 over RFC 8785 JCS — reusing the Plan-006 canonicalization substrate).
 - `packages/runtime-daemon/src/policy/` (EXTEND via Plan-012's policy-module surface) — `mcp` Cedar action family registration (CP-028-3).
 - `packages/runtime-daemon` migration `NNNN_mcp_governance.sql` (CREATE) — the two tables per [local-sqlite-schema.md §MCP Governance Tables (Plan-028)](../architecture/schemas/local-sqlite-schema.md#mcp-governance-tables-plan-028).
 - `packages/runtime-daemon/src/ipc/handlers/` (EXTEND) — the `mcp.*` namespace handler files per CP-028-4.
 - `packages/client-sdk/src/mcpClient.ts` (CREATE) + the package-root barrel line — typed `mcp.*` client methods.
 - `apps/desktop/src/renderer/src/mcp-governance/` (CREATE) — MCP panel views over the SDK surface.
-- `apps/cli/src/commands/` `mcp-*.ts` (CREATE) + the `main.ts` `.register()` EXTENDs — the `sidekicks mcp` command group (exact per-subcommand filenames pinned at the targeted readiness audit).
+- `apps/cli/src/commands/` `mcp-*.ts` (CREATE) + the `main.ts` `.register()` EXTENDs — the `ai-sidekicks mcp` command group under the Plan-007 registered bin name (`bin: { "ai-sidekicks": … }`, the Plan-016 command precedent; exact per-subcommand filenames pinned at the targeted readiness audit).
 
 ## Data And Storage Changes
 
-- `mcp_server_trust` — `(provider, server_name)` PK; `trusted` INTEGER; `config_hash` TEXT `CHECK(config_hash GLOB 'b3:*')`; grant/revoke provenance columns. Owner: Plan-028 (CREATE).
-- `mcp_tool_overrides` — `(provider, server_name, tool_name)` PK; nullable facets `enabled` / `approval_mode` / `idempotency_class`; FK-cascade to the trust row. Owner: Plan-028 (CREATE).
+- `mcp_server_trust` — `(provider, scope, scope_ref, server_name)` binding PK; `trusted` INTEGER; base-config `config_hash` TEXT `CHECK(config_hash GLOB 'b3:*')`; the `enabled_override` Claude overlay; grant/revoke provenance columns. Owner: Plan-028 (CREATE).
+- `mcp_tool_overrides` — `(provider, scope, scope_ref, server_name, tool_name)` PK; nullable facets `enabled` / `approval_mode` / `idempotency_class`; FK-cascade to the trust row. Owner: Plan-028 (CREATE).
 - SQLite census 52 → 54 (applied with the B18 doc PR; the migration lands in Phase 1).
 - Events append through the Plan-006 `EventLogService` path — no bespoke audit storage.
 
@@ -128,15 +128,15 @@ The ten `mcp.*` operations register against `MethodRegistry.register()` (`packag
 
 - Ten `mcp.*` JSON-RPC operations (`mcp.list`, `mcp.get`, `mcp.upsertServer`, `mcp.removeServer`, `mcp.setEnabled`, `mcp.setTrust`, `mcp.setToolOverride`, `mcp.clearToolOverride`, `mcp.oauthLogin`, `mcp.reconnect`) registered per CP-028-4; typed mirrors in [api-payload-contracts.md §Plan-028 — MCP Governance Contract Surfaces](../architecture/contracts/api-payload-contracts.md#plan-028--mcp-governance-contract-surfaces).
 - Five `mcp_governance` events (registered via CP-028-1); nine `mcp.*` error codes per [error-contracts.md §MCP Governance](../architecture/contracts/error-contracts.md#mcp-governance).
-- Provider wire consumption: Claude `setMcpServers` / `toggleMcpServer` / `reconnectMcpServer` / `mcpServerStatus` (SDK) + ephemeral `--mcp-config` / `--strict-mcp-config`; Codex `config/read` / `config/value/write` / `config/batchWrite` / `config/mcpServer/reload` / `mcpServer/refresh` / `mcpServerStatus/list` / `mcpServer/oauth/login` (+ `mcpServer/startupStatus/updated`, `mcpServer/oauthLogin/completed` notifications). All floors capability-probed at spawn and re-verified against then-installed binaries per the [provider-wire trust model](../reference/provider-wire/README.md).
+- Provider wire consumption: Claude `claude mcp add-json` / `claude mcp remove` / `claude mcp get` (`--scope user`, the sanctioned durable-write CLI) + `setMcpServers` / `toggleMcpServer` / `reconnectMcpServer` / `mcpServerStatus` (SDK) + ephemeral `--mcp-config` / `--strict-mcp-config`; Codex `config/read` / `config/value/write` / `config/batchWrite` / `config/mcpServer/reload` / `mcpServer/refresh` / `mcpServerStatus/list` / `mcpServer/oauth/login` (+ `mcpServer/startupStatus/updated`, `mcpServer/oauthLogin/completed` notifications). All floors capability-probed at spawn and re-verified against then-installed binaries per the [provider-wire trust model](../reference/provider-wire/README.md).
 
 ## Implementation Steps
 
 1. **Phase 1 — Contracts + storage.** Author `packages/contracts/src/mcp-governance.ts` (operation + event payload schemas, error consts, grades, facets; `--isolatedDeclarations`-clean); the two-table migration; wire the error codes into the daemon error substrate. Register the ten method names + schemas against `MethodRegistry` with `not_implemented` handlers behind a feature gate so the namespace shape ships reviewable before behavior.
-2. **Phase 2 — Inventory + status observation.** Provider config readers (Claude `~/.claude.json` scopes + `.mcp.json` + ephemeral-set records; Codex `config/read` with layer attribution incl. project-local read-only rows); `McpInventoryService.list/get` merging config + status + trust + overrides; `McpStatusNormalizer` consuming the Plan-005 `onMcpServerStatus` seam and the Codex status wire; untrusted-trust-row upsert on first observation (I-028-2); `mcp.server_status_changed` emission with per-event binding.
-3. **Phase 3 — Configuration mutation engines.** Claude: capability probe (CLI ≥ `2.1.210` + SDK ≥ `0.3.166` + streaming mode) selecting live `setMcpServers` (full-set semantics, per-server error reconciliation) vs next-run ephemeral-config regeneration; Codex: `config/batchWrite` with `expected_version`, single silent retry, reload trigger, `mcp.config_write_conflict` on double conflict; `mcp.server_config_changed` emission with application grade (I-028-3, I-028-4).
+2. **Phase 2 — Inventory + status observation.** Provider config readers (Claude `~/.claude.json` user + project-keyed `local` scopes + `.mcp.json`; Codex `config/read` with layer attribution incl. project-local read-only rows) resolving scope-qualified bindings with `effectiveInRuns` attribution; `McpInventoryService.list/get` merging config + status + trust + overrides; `McpStatusNormalizer` consuming the Plan-005 `onMcpServerStatus` seam and the Codex status wire, attributing observations to the effective binding; untrusted-trust-row upsert on first observation (I-028-2); `mcp.server_status_changed` emission with per-event binding.
+3. **Phase 3 — Configuration mutation engines.** Claude: the unconditional durable leg (`claude mcp add-json` / `claude mcp remove` at user scope, write-verified before acknowledgment) + the capability probe (CLI ≥ `2.1.210` + SDK ≥ `0.3.166` + streaming mode) selecting the opportunistic live `setMcpServers` leg (full-set semantics, per-server error reconciliation) + the enabled overlay and composed-snapshot regeneration; Codex: `config/batchWrite` with `expected_version`, single silent retry, reload trigger, `mcp.config_write_conflict` on double conflict; `mcp.server_config_changed` emission with application grade and the removal-payload conditionality (I-028-3, I-028-4).
 4. **Phase 4 — Trust, overrides, and Cedar gating.** Cedar `mcp` action family registration (CP-028-3); trust service (grant/revoke/drift-revoke over the config-hash canonicalizer); override service with the safety-weakening-requires-trust rule (`mcp.trust_required`); the tool-metadata resolver overlay (CP-028-2); `mcp.server_trust_changed` + `mcp.tool_override_changed` emission; retrofit Phases 2–3 handlers from the feature gate to full authorization (every mutating op deny-before-effect).
-5. **Phase 5 — OAuth orchestration + client delivery.** `McpOauthOrchestrator` (Codex login flow + completion notification; Claude status-flip observation + out-of-band guidance path); `mcp.server_oauth_completed`; `mcp.reconnect`; client-sdk methods, CLI `sidekicks mcp list/add/remove/trust/override/login`, desktop panel hooks; end-to-end acceptance sweep against Spec-028 §Acceptance Criteria.
+5. **Phase 5 — OAuth orchestration + client delivery.** `McpOauthOrchestrator` (Codex login flow + completion notification; Claude status-flip observation + out-of-band guidance path); `mcp.server_oauth_completed`; `mcp.reconnect`; client-sdk methods, CLI `ai-sidekicks mcp list/add/remove/trust/override/login`, desktop panel hooks; end-to-end acceptance sweep against Spec-028 §Acceptance Criteria.
 
 ## Parallelization Notes
 
@@ -147,8 +147,8 @@ The ten `mcp.*` operations register against `MethodRegistry.register()` (`packag
 
 ## Test And Verification Plan
 
-- Unit: payload/DDL schema tests; config-hash canonicalization (reorder-stable, semantic-change-sensitive); status normalization maps (Claude `pending`/`disabled`, Codex `Starting|Ready|Failed|Cancelled` → `McpServerStatus`); trust state machine; resolver overlay floor semantics.
-- Integration (fixture-driven fake provider wires for both CLIs): full mutation matrix × {above-floor, below-floor} Claude; Codex conflict-retry-once; drift auto-revoke ordering; deny-before-effect per mutating op; one-event-per-mutation incl. retry paths; required-server thread-start failure mapping.
+- Unit: payload/DDL schema tests incl. the removal-payload conditionality (`configHash` absent + `previousConfigHash` required for `removed`) and the `McpServerConfigInput` provider-conditional refinements; base-config-hash canonicalization (reorder-stable, semantic-change-sensitive, override-projection fields excluded); status normalization maps (Claude `pending`/`disabled`, Codex `Starting|Ready|Failed|Cancelled` → `McpServerStatus`); trust state machine incl. revocation-neutralizes-weakening; resolver overlay floor semantics under trust flips.
+- Integration (fixture-driven fake provider wires for both CLIs): full mutation matrix × {above-floor, below-floor} Claude with restart-durability assertions (an acknowledged mutation survives a daemon restart via the provider store); scope-collision fixtures (same `serverName` in two scopes — independent status/trust/overrides, no drift ping-pong); Codex conflict-retry-once; drift auto-revoke ordering incl. native-field reversion; deny-before-effect per non-read op; one-event-per-mutation over the seven governance mutations incl. retry paths (and the reconnect no-event negative control); required-server thread-start failure mapping.
 - Adversarial-Tampering Boundary: credential-echo sweep over all five event payloads, nine error codes, and logs (I-028-1); provider-file byte-identity after refused mutations (project-scope, Cedar-denied, trust-required); spoofed `serverName` from the status seam stays `wireFreeFormString`-bounded (the Plan-005 twelve-string rule); canonicalization round-trip on the config-hash input.
 - CI-Pinned Tool Versions: provider fixtures name the wire pins they encode (`claude` `2.1.198` + version-anchored `2.1.210` floor behaviors; `codex-cli 0.141.0` + the `0.145.0` re-verification target); `gitleaks v8.30.1` per [ADR-023 §Axis 4 — Supply-Chain Hygiene](../decisions/023-v1-ci-cd-and-release-automation.md#axis-4--supply-chain-hygiene) on every PR.
 - Manual: real-provider smoke on one machine per OS tier before Phase 5 completion (OAuth browser round-trip cannot be fixture-verified end to end).
@@ -224,7 +224,7 @@ preconditions:
 ## Rollout Order
 
 1. Doc PR (this plan + Spec-028 + the Spec-006 B18 amendment — landed together, campaign W3).
-2. Targeted readiness audit → this plan `draft → review → approved`.
+2. Targeted readiness audit against the draft (the runbook's new-plan invocation path) → `draft → review` carrying the audit attestation; then `review → approved` as its own promotion, citing the same audit's REVIEW.md with review notes addressed.
 3. Phases 1–5 as sequenced above, in tier order behind Tiers 1–6 execution.
 
 ## Rollback Or Fallback
