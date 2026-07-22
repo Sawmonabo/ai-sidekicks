@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| **Status** | `review` |
+| **Status** | `approved` |
 | **NNN** | `028` |
 | **Slug** | `mcp-server-configuration-and-governance` |
 | **Date** | `2026-07-22` |
@@ -59,10 +59,10 @@ This spec defines V1 feature #18 ([ADR-015 §Decision](../decisions/015-v1-featu
 
 ## Preconditions
 
-- [ ] All declared `Depends On` specs are at `approved` status — Spec-005 and Spec-012 are `approved`; Spec-006 is at `review` while its 2026-07-22 B18 amendment (authored in the same PR as this spec) awaits its restoring re-promotion, the named W3 follow-on gate
+- [x] All declared `Depends On` specs are at `approved` status — Spec-005, Spec-006, and Spec-012 are `approved` (Spec-006 restored 2026-07-22 by its named W3 follow-on re-promotion, PR #245)
 - [x] All declared `Depends On` ADRs are at `accepted` status
 - [x] Blocking open questions are resolved or explicitly deferred
-- [ ] **Spec-status promotion gate cleared per [`docs/operations/plan-implementation-readiness-audit-runbook.md#spec-status-promotion-gate`](../operations/plan-implementation-readiness-audit-runbook.md#spec-status-promotion-gate)**
+- [x] **Spec-status promotion gate cleared per [`docs/operations/plan-implementation-readiness-audit-runbook.md#spec-status-promotion-gate`](../operations/plan-implementation-readiness-audit-runbook.md#spec-status-promotion-gate)** (executed per criterion in the W3 promotion PR, 2026-07-22)
 
 ## Required Behavior
 
