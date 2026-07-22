@@ -113,7 +113,7 @@ The Phase 5 desktop MCP panel views consume daemon state only via the `window.si
 
 ## Preconditions
 
-- [ ] Paired spec is approved — [Spec-028](../specs/028-mcp-server-configuration-and-governance.md) is at `review`; promotion is the campaign's W3 gate after the Spec-006 census amendment restores
+- [x] Paired spec is approved — [Spec-028](../specs/028-mcp-server-configuration-and-governance.md) promoted `approved` 2026-07-22 via the campaign's W3 gate (PR #246), after the Spec-006 census-amendment restoration (PR #245)
 - [x] Required ADRs are accepted
 - [x] Blocking open questions are resolved or explicitly deferred (the Codex thread-config question is explicitly deferred, non-blocking, per Spec-028 §Open Questions)
 - [ ] **Plan-readiness audit complete per [`docs/operations/plan-implementation-readiness-audit-runbook.md`](../operations/plan-implementation-readiness-audit-runbook.md)** — Plan-028 joins Tier 7 after that tier's audit (PR #160) closed, so it takes the runbook's new-plan invocation path (targeted, the Plan-014-delta shape): the audit runs against this `draft`, its pass ticks this box and gates `draft → review`, and the subsequent `review → approved` promotion cites the same audit's REVIEW.md once review notes are addressed — no code PR before both promotions complete
