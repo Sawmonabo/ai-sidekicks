@@ -289,7 +289,8 @@ The build-metadata rejection above is grounded in the SemVer specification itsel
 -- kSecAttrAccessibleWhenUnlockedThisDeviceOnly on macOS / CRED_TYPE_GENERIC
 -- CRED_PERSIST_LOCAL_MACHINE on Windows / Secret Service via libsecret +
 -- kwallet6 + keyutils fallback on Linux). Public key is registered in the
--- session participant roster at join time per Spec-006:611. Sealed-key storage
+-- session participant roster at join time per security-architecture.md
+-- §Per-Event Daemon Signature. Sealed-key storage
 -- lives in local SQLite (NOT shared-Postgres sessions) per ADR-004 SQLite-
 -- local-state boundary — daemon-private secrets are per-machine.
 CREATE TABLE daemon_signing_keys (
@@ -1363,6 +1364,61 @@ CREATE INDEX idx_reasoning_detail_participant ON reasoning_detail(participant_id
 CREATE INDEX idx_reasoning_detail_expiry ON reasoning_detail(expires_at)
   WHERE purged_at IS NULL;
 ```
+
+---
+
+## MCP Governance Tables (Plan-028)
+
+Node-scoped governance state for [Spec-028](../../specs/028-mcp-server-configuration-and-governance.md) (V1 feature #18): the operator trust store and the per-tool override store. Provider config files remain the config source of truth — the daemon persists only governance state and derives the unified inventory on read, so neither table mirrors provider config ([Spec-028 § State And Data Implications](../../specs/028-mcp-server-configuration-and-governance.md#state-and-data-implications)). Both tables are daemon-local with no session FK; the audit trail is the five `mcp.*` event types in the `mcp_governance` category, appended through the Plan-006 `EventLogService` path with daemon-scope sentinel binding.
+
+```sql
+-- Owner: Plan-028
+CREATE TABLE mcp_server_trust (
+  provider           TEXT NOT NULL,        -- 'claude' | 'codex' (driver id namespace; a third provider is a Spec-028 ADR trigger)
+  server_name        TEXT NOT NULL,
+  trusted            INTEGER NOT NULL DEFAULT 0
+                     CHECK(trusted IN (0, 1)),  -- untrusted by default; observation creates the row, never trust (Spec-028 §Unified Inventory)
+  config_hash        TEXT NOT NULL CHECK(config_hash GLOB 'b3:*'),  -- BLAKE3 over the RFC 8785 JCS canonicalization of the normalized server config; the bound hash while trusted, the last-observed hash otherwise (Spec-028 §Trust Governance)
+  granted_at         TEXT,                 -- RFC 3339 UTC grant provenance; NULL while never trusted
+  granted_by         TEXT,                 -- node-operator identity that granted trust
+  revoked_at         TEXT,                 -- most recent revoke; reset to NULL on re-grant
+  revoked_reason     TEXT
+                     CHECK(revoked_reason IS NULL OR revoked_reason IN ('operator_revoke', 'config_drift')),
+  first_observed_at  TEXT NOT NULL,
+  updated_at         TEXT NOT NULL,
+  PRIMARY KEY (provider, server_name),
+  -- a trusted row always carries grant provenance and no active revoke; the revoke pair is set and cleared together
+  CHECK(trusted = 0 OR (granted_at IS NOT NULL AND granted_by IS NOT NULL AND revoked_reason IS NULL)),
+  CHECK((revoked_at IS NULL) = (revoked_reason IS NULL))
+);
+```
+
+Config-drift auto-revoke ([Spec-028 § Trust Governance](../../specs/028-mcp-server-configuration-and-governance.md#trust-governance)): on any observation where a trusted row's current config hash differs from `config_hash`, the daemon flips `trusted` to `0` with `revoked_reason = 'config_drift'` **before** the changed config is used, and emits `mcp.server_trust_changed` (`reason: 'config_drift'`). The drift comparison applies to trusted rows only — an untrusted row absorbing config changes updates `config_hash` silently. Re-trusting after drift is an explicit operator `mcp.setTrust`, which re-binds `config_hash` to the then-current hash.
+
+```sql
+-- Owner: Plan-028
+CREATE TABLE mcp_tool_overrides (
+  provider          TEXT NOT NULL,
+  server_name       TEXT NOT NULL,
+  tool_name         TEXT NOT NULL,
+  enabled           INTEGER
+                    CHECK(enabled IS NULL OR enabled IN (0, 1)),  -- allow/deny facet; NULL = provider default
+  approval_mode     TEXT                   -- Codex-native vocabulary adopted as the normalized set (Spec-028 §Tool-Level Overrides)
+                    CHECK(approval_mode IS NULL OR approval_mode IN ('auto', 'prompt', 'writes', 'approve')),
+  idempotency_class TEXT                   -- NULL = the Spec-005 manual_reconcile_only floor; assignment is trusted-server-only + Cedar-gated
+                    CHECK(idempotency_class IS NULL OR idempotency_class IN ('idempotent', 'compensable')),
+  created_at        TEXT NOT NULL,
+  updated_at        TEXT NOT NULL,
+  PRIMARY KEY (provider, server_name, tool_name),
+  -- an all-NULL facet row is meaningless: mcp.clearToolOverride deletes the row instead of blanking it
+  CHECK(enabled IS NOT NULL OR approval_mode IS NOT NULL OR idempotency_class IS NOT NULL),
+  FOREIGN KEY (provider, server_name)
+    REFERENCES mcp_server_trust(provider, server_name)
+    ON DELETE CASCADE  -- overrides never outlive their server's governance anchor
+);
+```
+
+The FK targets the trust table because first observation of any server upserts an untrusted trust row ([Spec-028 § Unified Inventory](../../specs/028-mcp-server-configuration-and-governance.md#unified-inventory)) — that row is each server's durable governance anchor, so overrides cascade to it rather than to any provider-config mirror (there is none). Lookups ride the composite primary keys: the inventory merge and the Spec-005 tool-metadata resolution both read by `(provider, server_name)` prefix, so no secondary indexes are warranted.
 
 ---
 

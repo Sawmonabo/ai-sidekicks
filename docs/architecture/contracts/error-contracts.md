@@ -333,6 +333,20 @@ Chunk-integrity mismatch on relay fetch reuses `artifact.hash_mismatch` (409). T
 | `driver.cli_version_below_floor` | The provider CLI's reported version parsed cleanly but is below the configured per-driver minimum floor; capability attach/refresh fails closed until the provider install is upgraded (`Spec-005 §Required Behavior`, campaign B3 — distinct from `version.floor_exceeded`, which is scoped to client/event-envelope contract floors, not provider CLI installs) | 409 |
 | `driver.not_authenticated` | The zero-turn `probeAuth` did not report `authenticated` (`unauthenticated`, or `indeterminate` treated fail-closed); run admission is refused before any billed turn — remediation is re-authenticating the provider CLI on the runtime node (`Spec-005 §Required Behavior`, campaign B3). Mid-run credential expiry is the separate `reauth-required` `RecoveryCondition`, not this code | 409 |
 
+### MCP Governance
+
+| Code | Description | HTTP Status |
+| --- | --- | --- |
+| `mcp.server_not_found` | No server with the requested `(provider, serverName)` identity exists in the unified inventory — identity is per-provider, so a same-named server on the other provider does not match (`Spec-028 §Unified Inventory`, campaign B18) | 404 |
+| `mcp.config_invalid` | The submitted server configuration failed validation — malformed shape, unknown transport, or a per-server error reported by the provider's own apply path (Claude `setMcpServers` partial failures surface per-server under this code, `Spec-028 §Configuration Mutation`, campaign B18) | 400 |
+| `mcp.config_write_conflict` | Codex user-scope config write failed optimistic concurrency twice — the `expected_version` write and the single silent re-read-and-retry both hit `configVersionConflict`; the error carries both version tokens so the caller can re-inspect (`Spec-028 §Fallback Behavior`, campaign B18) | 409 |
+| `mcp.config_scope_unsupported` | The mutation targets a config scope the provider does not accept writes for — in V1, Codex project-local `.codex/config.toml` entries are read-only; guidance names the file to edit, in the message only, never in event payloads (`Spec-028 §Fallback Behavior`, campaign B18) | 400 |
+| `mcp.operator_scope_required` | The caller is not the node-local operator — governance mutations arriving via control-plane relay are denied, not queued, under the V1 caller-owns-the-node model; the formalized remote-caller model is BL-141's scope (`Spec-028 §Authorization`, campaign B18) | 403 |
+| `mcp.governance_denied` | Cedar denied the governance mutation under the `mcp` action family; authorization is evaluated before existence checks so the refusal is stable and does not leak inventory contents (`Spec-028 §Authorization`, campaign B18) | 403 |
+| `mcp.trust_required` | A safety-weakening tool override — idempotency-class assignment off the `manual_reconcile_only` floor, or an approval mode weaker than the provider default — was attempted on an untrusted server (`Spec-028 §Trust Governance`, campaign B18) | 403 |
+| `mcp.oauth_flow_failed` | The provider's own OAuth flow launched but did not complete successfully — a provider-side launch error or a failure outcome on the provider's completion signal; the message never carries authorization URLs or credential material (`Spec-028 §OAuth Orchestration`, campaign B18) | 502 |
+| `mcp.oauth_unsupported` | The provider cannot run the OAuth flow in-band in the current mode (Claude non-interactive); guidance names the out-of-band login command and the server's `needs-auth` status remains the visible state (`Spec-028 §OAuth Orchestration`, campaign B18) | 400 |
+
 ### Relay
 
 | Code | Description | HTTP Status |
