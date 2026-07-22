@@ -289,7 +289,8 @@ The build-metadata rejection above is grounded in the SemVer specification itsel
 -- kSecAttrAccessibleWhenUnlockedThisDeviceOnly on macOS / CRED_TYPE_GENERIC
 -- CRED_PERSIST_LOCAL_MACHINE on Windows / Secret Service via libsecret +
 -- kwallet6 + keyutils fallback on Linux). Public key is registered in the
--- session participant roster at join time per Spec-006:611. Sealed-key storage
+-- session participant roster at join time per security-architecture.md
+-- §Per-Event Daemon Signature. Sealed-key storage
 -- lives in local SQLite (NOT shared-Postgres sessions) per ADR-004 SQLite-
 -- local-state boundary — daemon-private secrets are per-machine.
 CREATE TABLE daemon_signing_keys (
@@ -1363,6 +1364,98 @@ CREATE INDEX idx_reasoning_detail_participant ON reasoning_detail(participant_id
 CREATE INDEX idx_reasoning_detail_expiry ON reasoning_detail(expires_at)
   WHERE purged_at IS NULL;
 ```
+
+---
+
+## MCP Governance Tables (Plan-028)
+
+Node-scoped governance state for [Spec-028](../../specs/028-mcp-server-configuration-and-governance.md) (V1 feature #18): the operator trust store, the per-tool override store, and the governance-mutation idempotency receipt store. Provider config files remain the config source of truth — the daemon persists only governance state and derives the unified inventory on read, so no table here mirrors provider config ([Spec-028 § State And Data Implications](../../specs/028-mcp-server-configuration-and-governance.md#state-and-data-implications)). All three tables are daemon-local with no session FK; the audit trail is the five `mcp.*` event types in the `mcp_governance` category, appended through the Plan-006 `EventLogService` path with daemon-scope sentinel binding (receipts are retry-window dedup evidence, deliberately not audit rows).
+
+```sql
+-- Owner: Plan-028
+CREATE TABLE mcp_server_trust (
+  provider           TEXT NOT NULL
+                     CHECK(provider IN ('claude', 'codex')),  -- the closed McpProvider contract union (driver id namespace); a third provider is a Spec-028 ADR trigger, and widening this CHECK is that ADR's migration — an unchecked value would hand inventory code an impossible row its exhaustive McpProvider handling cannot represent
+  scope              TEXT NOT NULL
+                     CHECK(scope IN ('user', 'project', 'local')),  -- scope axis of the binding identity (Spec-028 §Unified Inventory): user = writable both providers; project/local = observed read-only in V1 ('local' is Claude-only)
+  scope_ref          TEXT NOT NULL DEFAULT '',  -- canonical project root (project) / keying directory (local); '' for user scope
+  server_name        TEXT NOT NULL,
+  trusted            INTEGER NOT NULL DEFAULT 0
+                     CHECK(trusted IN (0, 1)),  -- untrusted by default; observation creates the row, never trust (Spec-028 §Unified Inventory)
+  config_hash        TEXT NOT NULL CHECK(config_hash GLOB 'b3:*'),  -- keyed BLAKE3 over the RFC 8785 JCS canonicalization of the normalized BASE config — daemon-managed override-projection fields excluded so a governed override write never drifts the bound hash (Spec-028 §Trust Governance); the bound hash while trusted, the last-observed hash otherwise. The key is the binding's config-hash subkey, derived (BLAKE3 keyed-PRF, exactly-32-byte keys) from the daemon-held MCP governance master key — node-local key material stored OUTSIDE this database, deliberately never a column beside the digest: the canonical input includes credential-bearing values so their drift is detected, and only a non-colocated key keeps this stored digest (and the event-side scopeRefDigest, keyed under the sibling scope-ref subkey) non-brute-forceable for an attacker holding the database file or a backup. Losing the master key is fail-closed: no key, no comparable hash, no trust — re-grant re-binds. Event payloads never carry the raw scope_ref path; only this table resolves a digest back to its path
+  enabled_override   INTEGER
+                     CHECK(enabled_override IS NULL OR enabled_override IN (0, 1)),  -- the daemon's per-server enabled overlay (Claude bindings only in V1 — Claude user scope has no enabled field; Codex uses its native `enabled` config field); NULL = no overlay
+  native_tool_baseline_json TEXT,        -- pre-governance snapshot of the binding's native override-projection fields (enabled_tools / disabled_tools / tools.<t>.approval_mode), captured at trust grant or first facet materialization — whichever first — held while trusted or while any facet is materialized, dropped once untrusted and facet-free; Codex-materialized bindings only (Claude facets are daemon-enforced — no native writes, no baseline). The anchor that makes the expected native state well-defined (baseline overlaid with materialized facets): drift reconciliation compares against it, mcp.clearToolOverride restores from it, and revocation rewrites weakening fields to baseline + surviving tightening facets (Spec-028 §Trust Governance / §Tool-Level Overrides) — without it, restore-on-clear would invent values and a trusted no-override binding's native tool fields would be unreconcilable
+  granted_at         TEXT,                 -- RFC 3339 UTC grant provenance; NULL while never trusted
+  granted_by         TEXT,                 -- node-operator identity that granted trust
+  revoked_at         TEXT,                 -- most recent revoke; reset to NULL on re-grant
+  revoked_reason     TEXT
+                     CHECK(revoked_reason IS NULL OR revoked_reason IN ('operator_revoke', 'config_drift')),
+  first_observed_at  TEXT NOT NULL,
+  updated_at         TEXT NOT NULL,
+  PRIMARY KEY (provider, scope, scope_ref, server_name),
+  -- a trusted row always carries grant provenance and no active revoke; the revoke pair is set and cleared together
+  CHECK(trusted = 0 OR (granted_at IS NOT NULL AND granted_by IS NOT NULL AND revoked_reason IS NULL)),
+  CHECK((revoked_at IS NULL) = (revoked_reason IS NULL)),
+  -- binding-ref structural validity, mirroring the schema-level discriminated union (defense in depth):
+  -- user scope has no scope_ref ('' sentinel); project/local REQUIRE one; local is Claude-only
+  CHECK((scope = 'user') = (scope_ref = '')),
+  CHECK(NOT (provider = 'codex' AND scope = 'local'))
+);
+```
+
+Config-drift auto-revoke ([Spec-028 § Trust Governance](../../specs/028-mcp-server-configuration-and-governance.md#trust-governance)): on any observation where a trusted row's current base-config hash differs from `config_hash`, the daemon flips `trusted` to `0` with `revoked_reason = 'config_drift'` **before** the changed config is used, rewrites any Codex-materialized safety-weakening override fields in the same operation to the baseline-anchored safe state — the preserved `native_tool_baseline_json` overlaid with surviving tightening facets (revocation neutralizes weakening) — and emits `mcp.server_trust_changed` (`reason: 'config_drift'`). "Before use" is enforced at every provider-session admission point, not left to eventual observation: the Spec-028 drift gate performs a fresh provider-config read and completes drift processing before any provider process spawns against those bindings — registered through the Plan-004 `RunSetupGate` seam for run/thread starts, and invoked from the Plan-015 startup-recovery attach seam before any recovery adoption or cold-resume dispatch (the two CP-028-5 admission points), so an edit made while the daemon was down processes drift before any session re-attaches. Drift evaluation on a trusted row covers more than the keyed hash: the daemon-managed override-projection fields (excluded from the hash so governed writes never self-revoke) are separately reconciled against the expected native state — the preserved `native_tool_baseline_json` baseline overlaid with the materialized facets, which covers the trusted-no-override corner too (the baseline snapshots at grant, so a hand edit of these fields on a facet-free trusted row still reconciles) — any divergence is out-of-band tool-governance drift: auto-revoke, re-assertion of the facet-governed portions to the expected state while ungoverned portions adopt the observed values (revoke, never undo the operator's own config — mirroring base-config drift semantics), `mcp.tool_override_changed` per re-asserted facet. The drift comparison applies to trusted rows only — an untrusted row absorbing config changes updates `config_hash` silently, and an untrusted row's native tool fields are ungoverned provider config (observed and served in the config view, never trust-laundered). Re-trusting after drift is an explicit operator `mcp.setTrust`, which re-binds `config_hash` to the then-current base-config hash.
+
+```sql
+-- Owner: Plan-028
+CREATE TABLE mcp_tool_overrides (
+  provider          TEXT NOT NULL
+                    CHECK(provider IN ('claude', 'codex')),  -- the closed McpProvider union, mirroring mcp_server_trust
+  scope             TEXT NOT NULL
+                    CHECK(scope IN ('user', 'project', 'local')),  -- binding identity axes mirror mcp_server_trust
+  scope_ref         TEXT NOT NULL DEFAULT '',
+  server_name       TEXT NOT NULL,
+  tool_name         TEXT NOT NULL,
+  enabled           INTEGER
+                    CHECK(enabled IS NULL OR enabled IN (0, 1)),  -- allow/deny facet; NULL = provider default; enabled = 1 is a safety-WEAKENING facet (broadens the executable tool set) — trusted-server-only and neutralized on revocation like every weakening facet (Spec-028 §Trust Governance)
+  approval_mode     TEXT                   -- Codex-native vocabulary adopted as the normalized set (Spec-028 §Tool-Level Overrides)
+                    CHECK(approval_mode IS NULL OR approval_mode IN ('auto', 'prompt', 'writes', 'approve')),
+  idempotency_class TEXT                   -- NULL = the Spec-005 manual_reconcile_only floor; assignment is trusted-server-only + Cedar-gated; safety-weakening facets stop resolving when the binding's trust is revoked (Spec-028 §Trust Governance — revocation neutralizes weakening)
+                    CHECK(idempotency_class IS NULL OR idempotency_class IN ('idempotent', 'compensable')),
+  created_at        TEXT NOT NULL,
+  updated_at        TEXT NOT NULL,
+  PRIMARY KEY (provider, scope, scope_ref, server_name, tool_name),
+  -- an all-NULL facet row is meaningless: mcp.clearToolOverride deletes the row instead of blanking
+  -- it — and the request schema mirrors this as a Zod refinement (>= 1 facet required), so a
+  -- facet-less request dies as a typed validation error before it can reach this constraint
+  CHECK(enabled IS NOT NULL OR approval_mode IS NOT NULL OR idempotency_class IS NOT NULL),
+  -- binding-ref structural validity, mirroring mcp_server_trust (defense in depth)
+  CHECK((scope = 'user') = (scope_ref = '')),
+  CHECK(NOT (provider = 'codex' AND scope = 'local')),
+  FOREIGN KEY (provider, scope, scope_ref, server_name)
+    REFERENCES mcp_server_trust(provider, scope, scope_ref, server_name)
+    ON DELETE CASCADE  -- overrides never outlive their binding's governance anchor
+);
+```
+
+The FK targets the trust table because first observation of any binding upserts an untrusted trust row ([Spec-028 § Unified Inventory](../../specs/028-mcp-server-configuration-and-governance.md#unified-inventory)) — that row is each binding's durable governance anchor, so overrides cascade to it rather than to any provider-config mirror (there is none). Identity is the scope-qualified binding `(provider, scope, scope_ref, server_name)`: same-named servers in two scopes are distinct configurations with independent trust, so collapsing them would drift-revoke one scope's trust on the other's legitimate config. Lookups ride the composite primary keys: the inventory merge and the Spec-005 tool-metadata resolution both read by binding prefix, so no secondary indexes are warranted.
+
+```sql
+-- Owner: Plan-028
+CREATE TABLE mcp_mutation_receipts (
+  client_idempotency_key  TEXT NOT NULL PRIMARY KEY,  -- requester-generated UUID (the Spec-005/B3 clientIdempotencyKey discipline; the interventions UNIQUE(target_run_id, client_idempotency_key) precedent, adapted to node-scoped operations with no run axis)
+  operation               TEXT NOT NULL,              -- the receipted mcp.* operation the key was spent on (the six governance mutations + mcp.oauthLogin; mcp.reconnect is unreceipted)
+  request_digest          TEXT NOT NULL
+                          CHECK(request_digest GLOB 'b3:*'),  -- keyed BLAKE3 over the RFC 8785 JCS canonical full request INCLUDING secret values (a retry differing only in a secret value must NOT replay), idempotency-key field excluded; replay requires digest equality — key reuse with a differing digest refuses mcp.idempotency_conflict, original untouched. The key is the receipt-digest subkey of the daemon-held MCP governance master key (BLAKE3 keyed mode takes exactly 32 bytes) — node-local key material stored OUTSIDE this database, deliberately NOT the colocated client_idempotency_key: keying with a value stored in the adjacent column would let a database copy or backup verify low-entropy secret guesses offline, defeating the same no-keyless-digest-of-secret-bearing-input discipline config_hash follows. A receipt that cannot be verified (key material lost) refuses as mcp.idempotency_conflict — fail closed; re-driving under a fresh key is safe by construction (sanctioned provider writes are upserts, full-set replacements, or version-guarded)
+  status                  TEXT NOT NULL
+                          CHECK(status IN ('pending', 'committed')),  -- two-phase (the Plan-015 command_receipts discipline, Spec-028 §Authorization): the row INSERTs as a 'pending' intent in its own transaction BEFORE any provider leg runs, and flips to 'committed' in the same transaction as the mutation's store writes and event append — closing both crash windows around the external provider side effect (a durable provider write can never be left unaudited: startup reconciliation completes any pending intent — verifying provider state, finishing store writes, appending the event set exactly once — or expires an intent whose provider leg never ran)
+  response_json           TEXT,                       -- the acknowledged response, replayed verbatim on identical retry — no provider call, store write, or second event (Spec-028 §Authorization); NULL while 'pending' (recorded at finalization). One representation exception: the mcp.oauthLogin row stores the acknowledgment with authorizationUrl STRUCTURALLY OMITTED — launch URLs embed single-use PKCE state and are never durable (Plan-028 I-028-1) — so its replay is a URL-free acknowledgment (the flow already launched; a caller that never received the URL starts a new login under a fresh key)
+  created_at              TEXT NOT NULL,              -- RFC 3339 UTC; 'committed' rows older than 24 h are pruned opportunistically on later mutation writes ('pending' intents resolve at startup reconciliation, never silently pruned)
+  CHECK((status = 'committed') = (response_json IS NOT NULL))
+);
+```
+
+Receipts are **two-phase** because the provider config write is an external side effect no SQLite transaction can span. The `'pending'` intent row (key, operation, digest) commits in its **own transaction before** the provider leg runs; finalization — `status = 'committed'` plus the recorded response — commits in the **same transaction** as the mutation's governance-store writes and `EventLogService` append, making acknowledgment, audit event, and replay evidence atomic. That closes both crash windows: crash before the provider leg leaves a pending intent with no provider effect (startup reconciliation expires it — the caller retries fresh); crash after a durable provider write but before finalization leaves a pending intent whose provider state startup reconciliation verifies, completing the store writes and appending the event set **exactly once, late**, then finalizing. An identical-key retry that meets a pending row first drives that reconciliation, then replays the finalized response; a lost IPC response after commit can re-drive only the provider leg (safe by construction — sanctioned provider writes are upserts, full-set replacements, or version-guarded), never a second acknowledgment or a duplicate governance event. Receipts are deliberately **not** part of the audit trail (events are) and carry no config values — the digest is a keyed canonical-request hash used solely for equality, never served back by any code path (the `mcp.idempotency_conflict` refusal names the key, not the digests).
 
 ---
 
