@@ -281,7 +281,7 @@ Every doc task's final steps invoke this procedure with its own branch/commit/fi
 
 ### Task 17: B14 — Plan-015 bundle
 
-**Design contract:** §4 W2 table, B14 row. **Files:** Modify `docs/plans/015-persistence-recovery-and-replay.md`, `docs/architecture/cross-plan-dependencies.md` (§2 row `src/replay/`).
+**Design contract:** §4 W2 table, B14 row. **Files:** Modify `docs/plans/015-persistence-recovery-and-replay.md`, `docs/architecture/cross-plan-dependencies.md` (§2 row `src/replay/`), `docs/specs/006-session-event-taxonomy-and-audit-log.md` [reconciled by Plan-015's 2026-07-21 W2.5 targeted re-audit (#242): the shipped B14 commit (e58ab63) also carried Spec-006's two additive divergence-settlement cause rows (`driver_ask.canceled`, `approval.canceled`) — disclosed in Plan-015's Progress Log, previously un-carded here — plus two companion mirror-doc edits: api-payload-contracts.md's `haltedRuns` sublist and run-state-machine.md's startup-reconciliation rows + settlement annotations].
 
 **Interfaces:** Consumes Tasks 5, 6, 9 (the B8 ADR-017 rollback row the R8 interplay guard cites). Produces — NEW T15.5 (position-compare + HALT-FOR-HUMAN); P3-2 completion-drop guard on T15.2; P3-3 exhaustive switch on T15.3 (I-005-5 → I-015-4); P1-2 recovery caller guard; P2-3 residual (`claimForExecution` CAS named; `already-landed`); P0-6 consume edge; R8 interplay guard (`run.rolled_back` = new authoritative position floor); span-classification recording + the two `manual_reconcile_only` carve-outs (task-handle `tasks/get`→`tasks/result` poll; provably-never-dispatched auto-retry) per the B14 row's Part-B follow-up legs (2026-07-17).
 
@@ -358,7 +358,7 @@ Run one single-plan-scoped re-audit per affected plan, batched as plans land —
 - [x] Plan-010 (flipped by B22's new snapshot Phase; its dep-map §3 edge is an independent second trigger) — same vehicle (gates Tasks 13 + 26)
 - [x] Plan-005 (B10's `provider/drivers/` §2 row + :154 annotation) — same vehicle (**the B18 gate**: Task 24 Step 1 waits on this row)
 - [x] Plan-006 (B11's `src/events/` §2 row) — same vehicle (gates Tasks 13 + 21)
-- [ ] Plan-015 (B14's `src/replay/` §2 row) — same vehicle
+- [x] Plan-015 (B14's `src/replay/` §2 row) — same vehicle
 - [x] Plan-016 (flipped by B15 — mandatory T2.7 blocking-state sweep behavior + the I-016-14 two-exemption rewrite, reclassified to runbook row 4 on PR #237's Codex round 1; plus B15's :160 annotation + the `session goal` §2 per-file rows) **+ Spec-016** (flipped 2026-07-21 by B15's §Stop Conditions blocking-state exemption amendment — Codex round 4 corrected the round-1 drift-correction classification to the B6 amendment-blockquote pattern; the same targeted re-audit re-reviews the amendment and restores the spec) — same vehicle (joint spec+plan promotion `review` → `approved`)
 - [x] Plan-027 (B17's §1 cell + §3 edge) — same vehicle (gates Task 22)
 
