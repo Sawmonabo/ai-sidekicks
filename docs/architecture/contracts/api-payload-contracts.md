@@ -3442,12 +3442,12 @@ In V1 every call resolves to the unconditional `-32603` / `data.type = "gdpr.end
 
 ## Plan-028 — MCP Governance Contract Surfaces
 
-Registered 2026-07-22 (campaign B18; [Spec-028](../../specs/028-mcp-server-configuration-and-governance.md)). The ten `mcp.*` operations register against the Plan-007 `MethodRegistry` at Plan-028's tier (the CP-007-3 late-namespace pattern); the five event payloads mirror [Spec-006 §MCP Governance (`mcp_governance`)](../../specs/006-session-event-taxonomy-and-audit-log.md#mcp-governance-mcp_governance) (registered into contracts by Plan-006 T1.10; payloads authored by Plan-028 — the emitter-authors-payload precedent); the status read model consumes the Plan-005 `McpServerStatusUpdate` seam (§Tier 4 above). Authorization: every mutating operation evaluates the Cedar `mcp` action family through Plan-012's `PermissionCheckService` before any provider call or store write; the V1 principal is the node-local operator (caller-owns-the-node) — no `ApprovalCategory` value is added. Error codes: [error-contracts.md §MCP Governance](./error-contracts.md#mcp-governance). Sanitization: no payload below carries config values, env-var values, header values, tokens, or unsanitized paths (Spec-028's no-custody invariant); `serverName` / `toolName` are untrusted provider-adjacent strings, `wireFreeFormString`-bounded under the twelve-string rule, classified as non-PII infrastructure identifiers for the plaintext audit payload per Spec-028 §Status Observation and Events — the deliberate, documented residual Plan-022's call-site PII classification pass inherits. Identity throughout is the scope-qualified binding `(provider, scope, scopeRef, serverName)` per Spec-028 §Unified Inventory.
+Registered 2026-07-22 (campaign B18; [Spec-028](../../specs/028-mcp-server-configuration-and-governance.md)). The eleven `mcp.*` operations register against the Plan-007 `MethodRegistry` at Plan-028's tier (the CP-007-3 late-namespace pattern; `mcp.subscribe` rides the Plan-007 streaming primitive, the `session.subscribe` consumer shape); the five event payloads mirror [Spec-006 §MCP Governance (`mcp_governance`)](../../specs/006-session-event-taxonomy-and-audit-log.md#mcp-governance-mcp_governance) (registered into contracts by Plan-006 T1.10; payloads authored by Plan-028 — the emitter-authors-payload precedent); the status read model consumes the Plan-005 `McpServerStatusUpdate` seam (§Tier 4 above). Authorization: every mutating operation evaluates the Cedar `mcp` action family through Plan-012's `PermissionCheckService` before any provider call or store write; the V1 principal is the node-local operator (caller-owns-the-node) — no `ApprovalCategory` value is added. Idempotency: every governance mutation carries the mandatory requester-generated UUID `clientIdempotencyKey` (the Spec-005/B3 discipline; the intervention-surface precedent) with durable receipt replay per Spec-028 §Authorization. Error codes: [error-contracts.md §MCP Governance](./error-contracts.md#mcp-governance). Sanitization: no payload below carries config values, env-var values, header values, tokens, or unsanitized paths (Spec-028's no-custody invariant); `serverName` / `toolName` are untrusted provider-adjacent strings, `wireFreeFormString`-bounded under the twelve-string rule, classified as non-PII infrastructure identifiers for the plaintext audit payload per Spec-028 §Status Observation and Events — the deliberate, documented residual Plan-022's call-site PII classification pass inherits. Identity throughout is the scope-qualified binding `(provider, scope, scopeRef, serverName)` per Spec-028 §Unified Inventory — a **discriminated union on `scope`**, so an invalid shape (`scopeRef` on `user`, a missing `scopeRef` on `project`/`local`, or the non-existent `(codex, local)` combination) is a schema-level rejection, never a service-layer surprise or a collapsed primary key. Two grains share this section deliberately: the config **binding** above and the Plan-005 **runtime-binding leg** (`sessionId` + `bindingId`) — live per-session state (status legs, live mutation results, reconnect targets) always keys by leg, never by collapsing legs into the binding scalar.
 
 ```ts
 // ---- Primitives (Spec-028) ----
 type McpProvider = "claude" | "codex";
-type McpConfigScope = "user" | "project" | "local"; // scope axis of the binding identity: user = writable (both providers); project/local = observed read-only in V1 (mutations fail mcp.config_scope_unsupported). local is Claude-only (project-keyed private scope)
+type McpConfigScope = "user" | "project" | "local"; // scope axis of the binding identity: user = provider-config-writable (both providers); project/local = observed read-only in V1 — but scope-applicability is PER OPERATION (see the operations block: trust/daemon-enforced overrides/OAuth/reconnect work on run-effective non-user bindings). local is Claude-only (project-keyed private scope)
 type McpApplicationGrade = "live_reconcile" | "user_config_write" | "next_run" | "daemon_enforced"; // when/where a mutation takes effect — honest, typed, never silent (parity-triad degrade-honestly): live session set / provider config store (subsequent runs) / next-run composed config / daemon decision layer (immediate)
 type McpApprovalMode = "auto" | "prompt" | "writes" | "approve"; // Codex-native vocabulary adopted as the normalized set; Claude-side enforcement is daemon-owned (Spec-028 §Tool-Level Overrides)
 type McpTrustReason = "operator_grant" | "operator_revoke" | "config_drift";
@@ -3457,12 +3457,16 @@ type McpConfigChangeKind = "added" | "updated" | "removed" | "enabled" | "disabl
 // (provider, scope, scopeRef, serverName) — never merged across providers OR scopes. Same-named
 // servers in two scopes are distinct configurations with independent status, trust, and overrides;
 // collapsing them would trust-ping-pong on drift and bleed overrides across configurations.
-interface McpServerBindingRef {
-  provider: McpProvider;
-  scope: McpConfigScope;
-  scopeRef?: string; // canonical project root (project) / keying directory (local); absent for user scope — persisted as '' in the daemon tables
-  serverName: string;
-}
+// Structural validity is schema-level (a Zod discriminated union on `scope` + a provider refinement),
+// not service-layer: `user` FORBIDS scopeRef (persisted as '' in the daemon tables), `project`/`local`
+// REQUIRE a canonical non-empty scopeRef (project root / keying directory), and `local` is admissible
+// only with provider "claude" — so unrelated projects can never collapse onto one empty-string PK
+// component and the non-existent (codex, local) combination never reaches a table. Payload/read-model
+// types compose this union via intersection (never `interface extends` — unions don't extend).
+type McpServerBindingRef =
+  | { provider: McpProvider; scope: "user"; serverName: string }
+  | { provider: McpProvider; scope: "project"; scopeRef: string; serverName: string }
+  | { provider: "claude"; scope: "local"; scopeRef: string; serverName: string };
 
 // mcp.upsertServer config input — the complete normalized union, discriminated on transport.
 // Env-var and header VALUES are write-only credential-adjacent material: accepted here, passed only
@@ -3492,20 +3496,64 @@ type McpServerConfigInput =
       toolTimeoutSec?: number; // Codex-only (as above)
     };
 
+// Redacted normalized config view (Spec-028 §Unified Inventory): the read-back of what
+// mcp.upsertServer wrote — every non-secret field preserved, secret VALUES structurally absent
+// (env/header NAMES only), so mcp.get supports read/edit workflows without the daemon ever serving
+// credential material. command/args/url are operator-authored process-visible strings — the same
+// documented residual class as serverName/toolName in the preamble.
+type McpServerConfigView =
+  | {
+      transport: "stdio";
+      command: string;
+      args?: string[];
+      envVarNames?: string[]; // the env map's KEYS; values never round-trip
+      enabled?: boolean;
+      required?: boolean; // Codex-only, as on input
+      startupTimeoutSec?: number;
+      toolTimeoutSec?: number;
+    }
+  | {
+      transport: "http" | "sse";
+      url: string; // userinfo-free by input validation
+      headerNames?: string[]; // the header map's KEYS; values never round-trip
+      bearerTokenEnvVar?: string; // an env-var NAME (Codex-only), safe to serve
+      enabled?: boolean;
+      required?: boolean;
+      startupTimeoutSec?: number;
+      toolTimeoutSec?: number;
+    };
+
+// Per-leg live status (Spec-028 §Unified Inventory): one config binding can back several concurrent
+// sessions' connections; the Plan-005 seam keys observations by runtime-binding leg, and the
+// inventory preserves that grain instead of overwriting divergent leg states into one scalar.
+interface McpServerLegStatus {
+  sessionId: SessionId;
+  bindingId: string; // the Plan-005 runtime-binding leg key (§Tier 4 McpServerStatusUpdate) — NOT this section's config binding
+  status: McpServerStatus;
+  observedAt?: string; // ISO-8601 of this leg's newest observation
+}
+
 // Inventory read model (mcp.list / mcp.get): four merged sources per binding — provider-declared
 // config, live status (McpServerStatus, §Tier 4 seam), the trust row, the override rows.
-interface McpServerInventoryEntry extends McpServerBindingRef {
+type McpServerInventoryEntry = McpServerBindingRef & {
   enabled: boolean;
   effectiveInRuns: boolean; // whether this binding reaches provider runs: Codex user+project true (native layering; project shadows user per cwd); Claude user true (composed ephemeral snapshot), project/local false in V1 (strict-mode composition excludes them — Spec-028 §Implementation Notes)
-  status: McpServerStatus; // "unknown" when no observation source is available — never fabricated
+  config: McpServerConfigView; // the redacted normalized declaration (see above)
+  status: McpServerStatus; // deterministic aggregate over legs[]: most severe current live-leg status (failed > needs-auth > starting > connected), else newest node-probe observation, else "unknown" — never fabricated
+  legs?: McpServerLegStatus[]; // per-leg session-feed observations; absent when no live leg exists
   observedAt?: string; // ISO-8601 of the newest status observation backing `status`
   trusted: boolean;
-  configHash: string; // "b3:"-prefixed BLAKE3 over the RFC 8785 JCS canonical BASE config — daemon-managed override-projection fields excluded (Spec-028 §Trust Governance), so a governed override write never drifts the hash trust binds to
+  configHash: string; // "b3:"-prefixed keyed BLAKE3 (the trust row's per-binding hash_salt as key — Spec-028 §Trust Governance) over the RFC 8785 JCS canonical BASE config — daemon-managed override-projection fields excluded, so a governed override write never drifts the hash trust binds to; keying keeps served hashes from being offline-brute-forceable digests of embedded secrets
   requiredServer?: boolean; // Codex `required = true` — thread start/resume fails if the server cannot initialize
   toolOverrides: McpToolOverride[];
   trustUnavailable?: true; // degraded read: trust store unreachable — mutations fail closed (Spec-028 §Fallback Behavior)
-}
+};
 
+// At least one facet is REQUIRED — a toolName-only override is meaningless and the canonical DDL
+// rejects the all-NULL row, so the Zod mirror refines "enabled, approvalMode, or idempotencyClass
+// present" and a facet-less request dies as a typed validation error, never a constraint failure.
+// enabled: true is a safety-WEAKENING facet (it broadens the executable tool set) and is
+// trust-conditioned like every weakening facet (Spec-028 §Trust Governance).
 interface McpToolOverride {
   toolName: string;
   enabled?: boolean; // absent = inherit provider config
@@ -3514,65 +3562,88 @@ interface McpToolOverride {
 }
 
 // Per-facet application grades for override mutations (Spec-028 §Tool-Level Overrides): Codex
-// enabled/approvalMode materialize into native config fields (user_config_write); Claude enforces
-// them at the daemon approval layer (daemon_enforced, immediate); idempotencyClass is always
-// daemon_enforced. Present keys mirror the facets the request touched (or reverted, on clear).
+// enabled/approvalMode materialize into native config fields (user_config_write) — user-scope
+// bindings only; on a Codex project binding those two facets refuse mcp.config_scope_unsupported
+// (no daemon interception point could honestly enforce them) while idempotencyClass still applies;
+// Claude enforces all three at the daemon approval/resolution layer (daemon_enforced, immediate).
+// Present keys mirror the facets the request touched (or reverted, on clear).
 interface McpToolOverrideApplication {
   enabled?: McpApplicationGrade;
   approvalMode?: McpApplicationGrade;
   idempotencyClass?: "daemon_enforced";
 }
 
-// ---- Operations (10; JSON-RPC per ADR-009) ----
-// Reads: mcp.list {refresh?: boolean} → {servers: McpServerInventoryEntry[]};
-//        mcp.get McpServerBindingRef → {server: McpServerInventoryEntry}.
-// Mutations (all Cedar-gated deny-before-effect; the SEVEN governance mutations below each emit
-// their mcp_governance event exactly once — mcp.reconnect is an operational command, not a
-// governance mutation: no store/config change, audited only through the status transitions it
-// induces, Spec-028 §Authorization):
-//   mcp.upsertServer      McpServerBindingRef & {config: McpServerConfigInput} → {server: McpServerInventoryEntry, applied: McpApplicationGrade}
-//   mcp.removeServer      McpServerBindingRef → {applied: McpApplicationGrade}
-//   mcp.setEnabled        McpServerBindingRef & {enabled: boolean} → {server: McpServerInventoryEntry, applied: McpApplicationGrade}
-//   mcp.setTrust          McpServerBindingRef & {trusted: boolean} → {server: McpServerInventoryEntry, applied: "daemon_enforced"} // a grant binds to the binding's CURRENT base-config hash
-//   mcp.setToolOverride   McpServerBindingRef & {override: McpToolOverride} → {server: McpServerInventoryEntry, applied: McpToolOverrideApplication}
-//   mcp.clearToolOverride McpServerBindingRef & {toolName: string} → {server: McpServerInventoryEntry, applied: McpToolOverrideApplication} // grades cover the cleared facets' reversion path
-//   mcp.oauthLogin        McpServerBindingRef → {authorizationUrl?: string} // Codex returns the provider URL; a mode with no in-band flow fails mcp.oauth_unsupported with out-of-band guidance
-//   mcp.reconnect         McpServerBindingRef → {status: McpServerStatus}
-// Mutations accept scope "user" only in V1 — project/local targets are schema-valid but fail
-// mcp.config_scope_unsupported at the service layer, so the refusal is typed, not a parse error.
+// Per-leg live-application outcome (Spec-028 §Configuration Mutation — partial outcomes are typed,
+// never masked): a durable-success/live-failure mutation is a SUCCESSFUL response reporting the
+// durable grade plus the failing legs — never a post-commit JSON-RPC error inviting an unsafe retry,
+// and never a blanket success hiding a live failure.
+interface McpLiveApplicationResult {
+  sessionId: SessionId;
+  bindingId: string; // the Plan-005 runtime-binding leg key
+  outcome: "applied" | "failed";
+  errorCode?: string; // mcp.* code for a failed leg (e.g. a per-server setMcpServers error)
+  detail?: string; // sanitized — never config values or unsanitized paths
+}
+
+// ---- Operations (11; JSON-RPC per ADR-009) ----
+// Reads (operator-readable, no Cedar mutation check):
+//   mcp.list      {refresh?: boolean} → {servers: McpServerInventoryEntry[]}
+//   mcp.get       McpServerBindingRef → {server: McpServerInventoryEntry}
+//   mcp.subscribe {} → AsyncIterable<EventEnvelope> // live-tail of every mcp_governance envelope as appended (sentinel- and session-bound alike; Plan-007 streaming primitive, session.subscribe consumer shape); no replay cursor — current state via mcp.list, history via the locally-verified sentinel chain (Spec-028 §Status Observation and Events)
+// Mutations (all Cedar-gated deny-before-effect; every mutation carries the MANDATORY
+// clientIdempotencyKey: string — requester-generated UUID, durable receipt replay on identical
+// retry, mcp.idempotency_conflict on key reuse with a differing request digest, Spec-028
+// §Authorization. The SEVEN governance mutations below each emit their mcp_governance event exactly
+// once — mcp.reconnect is an operational command, not a governance mutation: no store/config
+// change, audited only through the status transitions it induces):
+//   mcp.upsertServer      McpServerBindingRef & {clientIdempotencyKey: string, config: McpServerConfigInput} → {server: McpServerInventoryEntry, applied: McpApplicationGrade, liveResults?: McpLiveApplicationResult[]}
+//   mcp.removeServer      McpServerBindingRef & {clientIdempotencyKey: string} → {applied: McpApplicationGrade, liveResults?: McpLiveApplicationResult[]}
+//   mcp.setEnabled        McpServerBindingRef & {clientIdempotencyKey: string, enabled: boolean} → {server: McpServerInventoryEntry, applied: McpApplicationGrade, liveResults?: McpLiveApplicationResult[]}
+//   mcp.setTrust          McpServerBindingRef & {clientIdempotencyKey: string, trusted: boolean} → {server: McpServerInventoryEntry, applied: "daemon_enforced"} // a grant binds to the binding's CURRENT base-config hash
+//   mcp.setToolOverride   McpServerBindingRef & {clientIdempotencyKey: string, override: McpToolOverride} → {server: McpServerInventoryEntry, applied: McpToolOverrideApplication}
+//   mcp.clearToolOverride McpServerBindingRef & {clientIdempotencyKey: string, toolName: string} → {server: McpServerInventoryEntry, applied: McpToolOverrideApplication} // grades cover the cleared facets' reversion path
+//   mcp.oauthLogin        McpServerBindingRef & {clientIdempotencyKey: string} → {authorizationUrl?: string} // Codex returns the provider URL; a mode with no in-band flow fails mcp.oauth_unsupported; mcp.oauth_flow_failed is LAUNCH-phase only — an async completion failure arrives as mcp.server_oauth_completed outcome: 'failure' on the mcp.subscribe stream, never a late JSON-RPC error (Spec-028 §OAuth Orchestration)
+//   mcp.reconnect         McpServerBindingRef & {sessionId?: SessionId} → {legs: McpServerLegStatus[]} // operational: restarts the binding's live provider leg(s) — one session's leg when sessionId is given, every live leg otherwise; per-leg post-reconnect statuses, honest per leg
+// Scope applicability is per operation (Spec-028 §Configuration Mutation), never a blanket rule:
+// provider-config writes (upsertServer/removeServer/setEnabled) accept scope "user" only;
+// setTrust/overrides/oauthLogin/reconnect apply to any binding effective in runs (Codex
+// user+project; Claude user); mutations on bindings V1 never materializes (Claude project/local)
+// and native-write-only override facets on Codex project bindings fail mcp.config_scope_unsupported
+// at the service layer — typed refusals, not parse errors.
 
 // ---- Event payload mirrors (Spec-006 §MCP Governance) ----
-// Every payload embeds the full binding identity (provider, scope, scopeRef?, serverName).
-interface McpServerStatusChangedPayload extends McpServerBindingRef {
+// Every payload embeds the full binding identity via intersection with the McpServerBindingRef
+// union (provider, scope, scopeRef per the scope variant, serverName).
+type McpServerStatusChangedPayload = McpServerBindingRef & {
   previousStatus: McpServerStatus;
   status: McpServerStatus;
   failureReason?: string; // sanitized
   origin: "session_feed" | "node_probe"; // mirrors the per-event session binding: real sessionId on session_feed rows, the daemon-scope sentinel on node_probe rows
-}
-interface McpServerConfigChangedPayload extends McpServerBindingRef {
+};
+type McpServerConfigChangedPayload = McpServerBindingRef & {
   changeKind: McpConfigChangeKind;
   appliedVia: McpApplicationGrade;
   configHash?: string; // REQUIRED for every changeKind except "removed"; ABSENT for "removed" — there is no post-removal config to hash. The Zod mirror enforces the conditionality as a refinement; no tombstone hash is ever fabricated
   previousConfigHash?: string; // REQUIRED for "removed" and "updated" (the pre-change hash); optional otherwise
   initiatingSessionId?: SessionId; // sentinel-bound rows record a session-scoped initiator here, never in the envelope session_id
-}
-interface McpServerTrustChangedPayload extends McpServerBindingRef {
+};
+type McpServerTrustChangedPayload = McpServerBindingRef & {
   trusted: boolean;
   reason: McpTrustReason;
-  configHash: string; // the base-config hash the grant binds to, or the drift-observed hash on revoke
+  configHash: string; // the base-config hash the grant binds to, or the drift-observed hash on revoke — keyed BLAKE3 under the binding's hash_salt (Spec-028 §Trust Governance), so the served digest is not offline-brute-forceable
   initiatingSessionId?: SessionId; // absent on config_drift auto-revoke
-}
-interface McpToolOverrideChangedPayload extends McpServerBindingRef {
+};
+type McpToolOverrideChangedPayload = McpServerBindingRef & {
   toolName: string;
   changeKind: "set" | "cleared";
   enabled?: boolean;
   approvalMode?: McpApprovalMode;
   idempotencyClass?: "idempotent" | "compensable";
   initiatingSessionId?: SessionId; // absent on the trust-revocation facet-reversion path (revocation neutralizes weakening, Spec-028 §Trust Governance)
-}
-interface McpServerOauthCompletedPayload extends McpServerBindingRef {
-  outcome: "success" | "failure";
+};
+type McpServerOauthCompletedPayload = McpServerBindingRef & {
+  outcome: "success" | "failure"; // 'failure' IS the asynchronous completion-failure channel (Spec-028 §OAuth Orchestration — launch failures are errors, completion failures are events)
   failureReason?: string; // sanitized — never tokens, authorization codes, or URLs with embedded secrets
   initiatingSessionId?: SessionId;
-}
+};
 ```
