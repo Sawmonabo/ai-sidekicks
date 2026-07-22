@@ -352,7 +352,7 @@ Remote provider transports and provider-native subagents were adopted in the sam
 - [deployment-topology.md](../architecture/deployment-topology.md) — self-hosted-topology "17-feature V1 surface" → "23-feature V1 surface"
 - [cross-plan-dependencies.md](../architecture/cross-plan-dependencies.md) — "V1 scope is 17 features" → "23 features"
 - [README.md](../../README.md) — the §V1 Scope feature census (prose count + enumerated table) extended to 23
-- [CLAUDE.md](../../CLAUDE.md) — the repository-summary "V1 ships 17 features … across 27 implementation plans" line: the 17 → 23 feature ripple is applied **in this amendment's PR** together with an explicit pending-28th clause on the plan axis (feature #18's Plan-028 gates MCP-governance code); only the plan-count reconciliation (27 → 28) completes when Plan-028 lands with the campaign's B18 bundle (done 2026-07-22, the B18 PR)
+- [CLAUDE.md](../../CLAUDE.md) — the repository-summary "V1 ships 17 features … across 27 implementation plans" line: the 17 → 23 feature ripple is applied **in this amendment's PR** together with an explicit pending-28th clause on the plan axis (feature #18's Plan-028 gates MCP-governance code); only the plan-count reconciliation (27 → 28) completes when Plan-028 lands with the campaign's B18 bundle (done 2026-07-22, PR #244)
 
 ### Amendment 2026-07-08: V1.1 criterion-gated commitments 2 → 3 (automated GDPR erasure endpoint, per BL-139)
 
