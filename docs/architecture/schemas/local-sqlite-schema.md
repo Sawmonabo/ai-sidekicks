@@ -1374,14 +1374,15 @@ Node-scoped governance state for [Spec-028](../../specs/028-mcp-server-configura
 ```sql
 -- Owner: Plan-028
 CREATE TABLE mcp_server_trust (
-  provider           TEXT NOT NULL,        -- 'claude' | 'codex' (driver id namespace; a third provider is a Spec-028 ADR trigger)
+  provider           TEXT NOT NULL
+                     CHECK(provider IN ('claude', 'codex')),  -- the closed McpProvider contract union (driver id namespace); a third provider is a Spec-028 ADR trigger, and widening this CHECK is that ADR's migration — an unchecked value would hand inventory code an impossible row its exhaustive McpProvider handling cannot represent
   scope              TEXT NOT NULL
                      CHECK(scope IN ('user', 'project', 'local')),  -- scope axis of the binding identity (Spec-028 §Unified Inventory): user = writable both providers; project/local = observed read-only in V1 ('local' is Claude-only)
   scope_ref          TEXT NOT NULL DEFAULT '',  -- canonical project root (project) / keying directory (local); '' for user scope
   server_name        TEXT NOT NULL,
   trusted            INTEGER NOT NULL DEFAULT 0
                      CHECK(trusted IN (0, 1)),  -- untrusted by default; observation creates the row, never trust (Spec-028 §Unified Inventory)
-  hash_salt          BLOB NOT NULL,             -- random 32-byte per-binding BLAKE3 key, generated on the first-observation upsert and stable for the row's life; keyed hashing is what lets the canonical input include credential-bearing values (drift-detectable) while the served/stored digests stay non-brute-forceable (Spec-028 §Trust Governance)
+  hash_salt          BLOB NOT NULL,             -- random 32-byte per-binding BLAKE3 key, generated on the first-observation upsert and stable for the row's life; keyed hashing is what lets the canonical input include credential-bearing values (drift-detectable) while the served/stored digests stay non-brute-forceable (Spec-028 §Trust Governance); the same salt keys the event-side scopeRefDigest — the path-free audit-ref identity (event payloads never carry the raw scope_ref path; only this table resolves a digest back to its path)
   config_hash        TEXT NOT NULL CHECK(config_hash GLOB 'b3:*'),  -- keyed BLAKE3 (key = hash_salt) over the RFC 8785 JCS canonicalization of the normalized BASE config — daemon-managed override-projection fields excluded so a governed override write never drifts the bound hash (Spec-028 §Trust Governance); the bound hash while trusted, the last-observed hash otherwise
   enabled_override   INTEGER
                      CHECK(enabled_override IS NULL OR enabled_override IN (0, 1)),  -- the daemon's per-server enabled overlay (Claude bindings only in V1 — Claude user scope has no enabled field; Codex uses its native `enabled` config field); NULL = no overlay
@@ -1403,12 +1404,13 @@ CREATE TABLE mcp_server_trust (
 );
 ```
 
-Config-drift auto-revoke ([Spec-028 § Trust Governance](../../specs/028-mcp-server-configuration-and-governance.md#trust-governance)): on any observation where a trusted row's current base-config hash differs from `config_hash`, the daemon flips `trusted` to `0` with `revoked_reason = 'config_drift'` **before** the changed config is used, reverts any Codex-materialized safety-weakening override fields in the same operation (revocation neutralizes weakening), and emits `mcp.server_trust_changed` (`reason: 'config_drift'`). "Before use" is enforced at run admission, not left to eventual observation: the Spec-028 drift gate (registered through the Plan-004 `RunSetupGate` seam) performs a fresh provider-config read and completes drift processing before any provider process spawns against those bindings. The drift comparison applies to trusted rows only — an untrusted row absorbing config changes updates `config_hash` silently. Re-trusting after drift is an explicit operator `mcp.setTrust`, which re-binds `config_hash` to the then-current base-config hash.
+Config-drift auto-revoke ([Spec-028 § Trust Governance](../../specs/028-mcp-server-configuration-and-governance.md#trust-governance)): on any observation where a trusted row's current base-config hash differs from `config_hash`, the daemon flips `trusted` to `0` with `revoked_reason = 'config_drift'` **before** the changed config is used, reverts any Codex-materialized safety-weakening override fields in the same operation (revocation neutralizes weakening), and emits `mcp.server_trust_changed` (`reason: 'config_drift'`). "Before use" is enforced at every provider-session admission point, not left to eventual observation: the Spec-028 drift gate performs a fresh provider-config read and completes drift processing before any provider process spawns against those bindings — registered through the Plan-004 `RunSetupGate` seam for run/thread starts, and invoked from the Plan-015 startup-recovery attach seam before any recovery adoption or cold-resume dispatch (the two CP-028-5 admission points), so an edit made while the daemon was down processes drift before any session re-attaches. Drift evaluation on a trusted row covers more than the keyed hash: the daemon-managed override-projection fields (excluded from the hash so governed writes never self-revoke) are separately reconciled against the projection the daemon derives from its own override rows — any divergence is out-of-band tool-governance drift, processed identically (auto-revoke, reversion of the divergent fields to safe defaults, `mcp.tool_override_changed` per reverted facet). The drift comparison applies to trusted rows only — an untrusted row absorbing config changes updates `config_hash` silently, and an untrusted row's native tool fields are ungoverned provider config (observed and served in the config view, never trust-laundered). Re-trusting after drift is an explicit operator `mcp.setTrust`, which re-binds `config_hash` to the then-current base-config hash.
 
 ```sql
 -- Owner: Plan-028
 CREATE TABLE mcp_tool_overrides (
-  provider          TEXT NOT NULL,
+  provider          TEXT NOT NULL
+                    CHECK(provider IN ('claude', 'codex')),  -- the closed McpProvider union, mirroring mcp_server_trust
   scope             TEXT NOT NULL
                     CHECK(scope IN ('user', 'project', 'local')),  -- binding identity axes mirror mcp_server_trust
   scope_ref         TEXT NOT NULL DEFAULT '',
@@ -1445,7 +1447,7 @@ CREATE TABLE mcp_mutation_receipts (
   operation               TEXT NOT NULL,              -- the mcp.* governance-mutation name the key was spent on
   request_digest          TEXT NOT NULL
                           CHECK(request_digest GLOB 'b3:*'),  -- keyed BLAKE3 (key = the UTF-8 client_idempotency_key, padded per BLAKE3 keyed mode) over the RFC 8785 JCS canonical full request INCLUDING secret values (a retry differing only in a secret value must NOT replay), key field excluded; replay requires digest equality — key reuse with a differing digest refuses mcp.idempotency_conflict, original untouched. Keyed for the same no-keyless-digest-of-secret-bearing-input discipline as config_hash — one rule, no per-surface analysis
-  response_json           TEXT NOT NULL,              -- the acknowledged response, replayed verbatim on identical retry — no provider call, store write, or second event (Spec-028 §Authorization)
+  response_json           TEXT NOT NULL,              -- the acknowledged response, replayed verbatim on identical retry — no provider call, store write, or second event (Spec-028 §Authorization). One representation exception: the mcp.oauthLogin row stores the acknowledgment with authorizationUrl STRUCTURALLY OMITTED — launch URLs embed single-use PKCE state and are never durable (Plan-028 I-028-1) — so its replay is a URL-free acknowledgment (the flow already launched; a caller that never received the URL starts a new login under a fresh key)
   created_at              TEXT NOT NULL               -- RFC 3339 UTC; rows older than 24 h are pruned opportunistically on later mutation writes
 );
 ```
