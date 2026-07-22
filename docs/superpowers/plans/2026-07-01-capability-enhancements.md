@@ -353,7 +353,7 @@ Run one single-plan-scoped re-audit per affected plan, batched as plans land —
 
 - [x] Plan-004 (was `review` + B9 content) — re-audit → REVIEW.md → user pause → promotion PR (`review` → `approved`; clears Phase 3's **status** gate — Phase 3 dispatch additionally waits on Task 26/B23, its snapshot prerequisite, enforced in-plan by B9's Phase-3 §Preconditions row — Gate-5 machine-readable, not checklist-only)
 - [x] Plan-008 (was `review` + B12 content) — same vehicle (unblocks the remainder)
-- [ ] Plan-012 (flipped by B13) — same vehicle
+- [x] Plan-012 (flipped by B13) — same vehicle
 - [ ] Plan-024 (flipped by B16) — same vehicle
 - [x] Plan-010 (flipped by B22's new snapshot Phase; its dep-map §3 edge is an independent second trigger) — same vehicle (gates Tasks 13 + 26)
 - [x] Plan-005 (B10's `provider/drivers/` §2 row + :154 annotation) — same vehicle (**the B18 gate**: Task 24 Step 1 waits on this row)
