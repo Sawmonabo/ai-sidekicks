@@ -3473,9 +3473,10 @@ type McpServerBindingRef =
 // keying directory) is a user-specific filesystem path — a Spec-022 durable-tier PII class — and
 // event payloads are hash-chained, signed, and replayable, so the raw path never enters them:
 // project/local variants carry scopeRefDigest — "b3:"-prefixed keyed BLAKE3 (key = the binding's
-// trust-row hash_salt, which exists before any event for the binding can fire: first observation
-// upserts the row) over the canonical scopeRef — non-brute-forceable like every served digest,
-// stable for the binding's life, and joinable to inventory entries (which serve the same digest).
+// scope-ref subkey, derived from the daemon-held node-local master key: computable before any
+// event fires and without any database row) over the canonical scopeRef — non-brute-forceable
+// like every served digest (the key never enters SQLite), stable for the binding's life, and
+// joinable to inventory entries (which serve the same digest).
 // Requests and inventory reads keep the full McpServerBindingRef (transient wire / operator read,
 // not durable audit rows); only the local trust store resolves a digest back to its path.
 type McpServerBindingAuditRef =
@@ -3483,12 +3484,16 @@ type McpServerBindingAuditRef =
   | { provider: McpProvider; scope: "project"; scopeRefDigest: string; serverName: string }
   | { provider: "claude"; scope: "local"; scopeRefDigest: string; serverName: string };
 
-// mcp.upsertServer config input — the complete normalized union, discriminated on transport.
+// mcp.upsertServer config input — the normalized governed surface, discriminated on transport.
 // Env-var and header VALUES are write-only credential-adjacent material: accepted here, passed only
 // to the sanctioned provider write path, NEVER round-tripped in inventory reads or event payloads
 // (names may appear; values never do). Provider-conditional validation is schema-enforced (Zod
 // refinements), not prose: a field marked Codex-only rejects for provider "claude" and vice versa,
 // so the canonical request schema and SDK signature derive from this union without divergence.
+// PRESERVATION RULE (Spec-028 §Configuration Mutation): upserts are read-modify-write over the
+// provider's own declaration — provider fields this union does not model (or the request does not
+// carry) are preserved, never erased. Codex writes are field-granular config/value paths; the
+// regenerated Claude declaration starts from the observed current one.
 type McpServerConfigInput =
   | {
       transport: "stdio";
@@ -3505,6 +3510,9 @@ type McpServerConfigInput =
       url: string; // absolute http(s) URL; userinfo (embedded credentials) rejected. Query-string VALUES are write-only credential-equivalent material (a ?api_key=… credential passes no-userinfo validation): accepted, hashed, passed to the provider write path — never round-tripped (the view serves query param NAMES)
       headers?: Record<string, string>; // write-only values (see above)
       bearerTokenEnvVar?: string; // Codex-only `bearer_token_env_var` — the env-var NAME, never the value
+      envHttpHeaders?: Record<string, string>; // Codex-only `env_http_headers` — header NAME → env-var NAME (both references, no values; resolved provider-side at connect time)
+      oauthScopes?: string[]; // Codex-only `scopes` — OAuth scopes requested for the server's auth flow
+      oauthResource?: string; // Codex-only `oauth_resource` — the RFC 8707 resource indicator for the flow
       enabled?: boolean;
       required?: boolean; // Codex-only (as above)
       startupTimeoutSec?: number; // Codex-only (as above)
@@ -3534,6 +3542,9 @@ type McpServerConfigView =
       urlQueryParamNames?: string[]; // the query string's parameter NAMES when one existed; values never round-trip (the env/header names-not-values discipline)
       headerNames?: string[]; // the header map's KEYS; values never round-trip
       bearerTokenEnvVar?: string; // an env-var NAME (Codex-only), safe to serve
+      envHttpHeaders?: Record<string, string>; // Codex-only — header NAME → env-var NAME: a name→name reference map, round-trips verbatim
+      oauthScopes?: string[]; // Codex-only — non-secret auth references, round-trip verbatim
+      oauthResource?: string; // Codex-only — non-secret auth reference, round-trips verbatim
       enabled?: boolean;
       required?: boolean;
       startupTimeoutSec?: number;
@@ -3554,10 +3565,11 @@ interface McpServerLegStatus {
 // config, live status (McpServerStatus, §Tier 4 seam), the trust row, the override rows. A
 // DISCRIMINATED PAIR on trustUnavailable (Spec-028 §Fallback Behavior): the normal arm serves all
 // four sources; the degraded arm (trust store unreachable) serves the provider-observed sources
-// only, with every trust-, override-, and salt-dependent field STRUCTURALLY ABSENT rather than
-// fabricated — the daemon can construct a valid degraded entry without inventing trust state or a
-// noncanonical hash (trusted/configHash/toolOverrides/scopeRefDigest all depend on the unreachable
-// row and its hash_salt). All mutations fail closed while degraded.
+// only, with every trust- and override-dependent field STRUCTURALLY ABSENT rather than fabricated —
+// the daemon can construct a valid degraded entry without inventing trust state or a noncanonical
+// hash (trusted/configHash/toolOverrides all live in the unreachable store). scopeRefDigest stays
+// served in BOTH arms: it derives from the daemon-held master key, not from any database row.
+// All mutations fail closed while degraded.
 type McpServerInventoryEntry = McpServerBindingRef & {
   effectiveInRuns: boolean; // whether this binding reaches provider runs: Codex user+project true (native layering; project shadows user per cwd); Claude user true (composed ephemeral snapshot), project/local false in V1 (strict-mode composition excludes them — Spec-028 §Implementation Notes)
   config: McpServerConfigView; // the redacted normalized declaration (see above)
@@ -3565,13 +3577,13 @@ type McpServerInventoryEntry = McpServerBindingRef & {
   legs?: McpServerLegStatus[]; // per-leg session-feed observations; absent when no live leg exists. Legs are LIVE-session observations with a bounded lifecycle: when a leg's backing runtime binding closes (session end / driver exit), the daemon retires it and recomputes the aggregate — a terminated session's last status never pins `status`
   observedAt?: string; // ISO-8601 of the newest status observation backing `status`
   requiredServer?: boolean; // Codex `required = true` — thread start/resume fails if the server cannot initialize
+  scopeRefDigest?: string; // present for project/local bindings in BOTH arms — the McpServerBindingAuditRef digest, served so clients can join mcp.subscribe / sentinel-chain event payloads to inventory entries without recomputing; derived from the daemon-held master key (the scope-ref subkey), so it needs no database row and the key never leaves the daemon
 } & (
     | {
         trustUnavailable?: never; // the normal (trust-store-available) arm
         enabled: boolean; // provider-declared enabled state composed with the daemon's Claude enabled overlay (the overlay lives on the trust row)
-        scopeRefDigest?: string; // present for project/local bindings — the McpServerBindingAuditRef digest, served here so clients can join mcp.subscribe / sentinel-chain event payloads to inventory entries without recomputing (the salt never leaves the daemon)
         trusted: boolean;
-        configHash: string; // "b3:"-prefixed keyed BLAKE3 (the trust row's per-binding hash_salt as key — Spec-028 §Trust Governance) over the RFC 8785 JCS canonical BASE config — daemon-managed override-projection fields excluded, so a governed override write never drifts the hash trust binds to (excluded from the HASH only, never from drift detection: every drift evaluation on a trusted binding separately reconciles the observed projection fields against the expected native state — the preserved native-field baseline overlaid with materialized facets — so an out-of-band enabled_tools/approval-mode edit cannot ride under an unchanged base hash); keying keeps served hashes from being offline-brute-forceable digests of embedded secrets
+        configHash: string; // "b3:"-prefixed keyed BLAKE3 (key = the binding's config-hash subkey, derived from the daemon-held master key that never enters the database — Spec-028 §Trust Governance) over the RFC 8785 JCS canonical BASE config — daemon-managed override-projection fields excluded, so a governed override write never drifts the hash trust binds to (excluded from the HASH only, never from drift detection: every drift evaluation on a trusted binding separately reconciles the observed projection fields against the expected native state — the preserved native-field baseline overlaid with materialized facets — so an out-of-band enabled_tools/approval-mode edit cannot ride under an unchanged base hash); non-colocated keying keeps every stored or served hash non-brute-forceable even from a database copy
         toolOverrides: McpToolOverride[];
       }
     | {
@@ -3637,7 +3649,7 @@ interface McpLiveApplicationResult {
 //   mcp.setToolOverride   McpServerBindingRef & {clientIdempotencyKey: string, override: McpToolOverride} → {server: McpServerInventoryEntry, applied: McpToolOverrideApplication}
 //   mcp.clearToolOverride McpServerBindingRef & {clientIdempotencyKey: string, toolName: string} → {server: McpServerInventoryEntry, applied: McpToolOverrideApplication} // grades cover the cleared facets' reversion path
 //   mcp.oauthLogin        McpServerBindingRef & {clientIdempotencyKey: string} → {authorizationUrl?: string} // Codex returns the provider URL; a mode with no in-band flow fails mcp.oauth_unsupported; mcp.oauth_flow_failed is LAUNCH-phase only — an async completion failure arrives as mcp.server_oauth_completed outcome: 'failure' on the mcp.subscribe stream, never a late JSON-RPC error (Spec-028 §OAuth Orchestration). Its idempotency receipt persists the acknowledgment with authorizationUrl STRUCTURALLY OMITTED (single-use PKCE-bearing launch material is never durable — Plan-028 I-028-1), so an identical-key retry replays a URL-free acknowledgment: the flow already launched, completion arrives as the event, and a caller that never received the URL starts a new login under a fresh key
-//   mcp.reconnect         McpServerBindingRef & {sessionId?: SessionId} → {legs: McpServerLegStatus[]} // operational: restarts the binding's live provider leg(s) — one session's leg when sessionId is given, every live leg otherwise; per-leg post-reconnect statuses, honest per leg
+//   mcp.reconnect         McpServerBindingRef & {sessionId?: SessionId, bindingId?: string} → {legs: McpServerLegStatus[]} // operational: restarts the binding's live provider leg(s), LEG-ADDRESSABLE — exactly one leg when bindingId is given (with sessionId, both must name the same leg), every live leg of one session when only sessionId is given, every live leg otherwise; per-leg post-reconnect statuses, honest per leg
 // Scope applicability is per operation (Spec-028 §Configuration Mutation), never a blanket rule:
 // provider-config writes (upsertServer/removeServer/setEnabled) accept scope "user" only;
 // setTrust/overrides/oauthLogin/reconnect apply to any binding effective in runs (Codex
@@ -3667,7 +3679,7 @@ type McpServerConfigChangedPayload = McpServerBindingAuditRef & {
 type McpServerTrustChangedPayload = McpServerBindingAuditRef & {
   trusted: boolean;
   reason: McpTrustReason;
-  configHash: string; // the base-config hash the grant binds to, or the drift-observed hash on revoke — keyed BLAKE3 under the binding's hash_salt (Spec-028 §Trust Governance), so the served digest is not offline-brute-forceable
+  configHash: string; // the base-config hash the grant binds to, or the drift-observed hash on revoke — keyed BLAKE3 under the binding's derived config-hash subkey (Spec-028 §Trust Governance; the master key never enters the database), so the served digest is not offline-brute-forceable
   initiatingSessionId?: SessionId; // absent on config_drift auto-revoke
 };
 type McpToolOverrideChangedPayload = McpServerBindingAuditRef & {
