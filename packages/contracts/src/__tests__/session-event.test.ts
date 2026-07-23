@@ -41,7 +41,10 @@
 // canonical-set pin (I-006-1-03), envelope-vs-strict layering,
 // producer-set `version` semantics (I-006-1-04), and the payload
 // own-`__proto__` reject-loud carve-out (record parser cannot preserve
-// that key; silent stripping is forbidden).
+// that key; silent stripping is forbidden). Plan-006 T1.4 appends the
+// `CapabilityDetailsSchema` suite last: the canonical capability snapshot
+// for the `runtime_node.capability_*` payload binding (exhaustive
+// enum-keyed flags; non-normalizing strict tools).
 import { describe, expect, it } from "vitest";
 
 import {
@@ -49,6 +52,8 @@ import {
   ARTIFACT_PUBLICATION_EVENT_TYPES,
   ASSISTANT_OUTPUT_EVENT_TYPES,
   AUDIT_INTEGRITY_EVENT_TYPES,
+  CAPABILITY_CONTRACT_VERSION_MAX_LEN,
+  CapabilityDetailsSchema,
   CHANNEL_ARBITRATION_EVENT_TYPES,
   compareEventEnvelopeVersion,
   CROSS_NODE_DISPATCH_EVENT_TYPES,
@@ -74,11 +79,18 @@ import {
   SessionEventSchema,
   TOOL_ACTIVITY_EVENT_TYPES,
   USAGE_TELEMETRY_EVENT_TYPES,
+  type CapabilityDetails,
   type EventCategory,
   type EventEnvelope,
   type SessionEvent,
   type SessionEventType,
 } from "../event.js";
+import {
+  DRIVER_CAPABILITY_FLAGS,
+  DRIVER_TOOL_DESCRIPTION_MAX_LEN,
+  DRIVER_TOOL_NAME_MAX_LEN,
+  type DriverCapabilityFlag,
+} from "../provider-driver.js";
 import { CHANNEL_NAME_MAX_LEN } from "../session.js";
 
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
@@ -1033,6 +1045,178 @@ describe("EventEnvelopeSchema — canonical carrier (T1.3)", () => {
       // envelope interface since the T1.3 refactor).
       const parsed: EventEnvelope = SessionEventSchema.parse(build());
       expect(EventEnvelopeSchema.safeParse(parsed).success).toBe(true);
+    },
+  );
+});
+
+// --------------------------------------------------------------------------
+// Plan-006 T1.4 — CapabilityDetailsSchema: canonical capability snapshot.
+// --------------------------------------------------------------------------
+//
+// Backstops the two capability rows of Spec-006 §Runtime Node Lifecycle
+// (runtime_node_lifecycle) — `runtime_node.capability_declared` /
+// `runtime_node.capability_updated`, whose payload snapshot shape this schema
+// is — per the canonical wire shape in api-payload-contracts.md §Plan-006
+// (CP-006-5, closes Plan-005 CP-005-5). The load-bearing pins:
+//   • NON-NORMALIZING: parse output is structurally identical to accepted
+//     input (the daemon emitter persists the PARSED output, so any
+//     default-filling or stripping arm would rewrite stored payloads). The
+//     discriminator vs the ingress `ProviderToolMetadataSchema`: a tool
+//     entry MISSING `idempotency_class` REJECTS here, where the ingress
+//     normalizer would default-fill `manual_reconcile_only`.
+//   • EXHAUSTIVE flags: enum-keyed record over the live
+//     `DRIVER_CAPABILITY_FLAGS` const — a missing member, an unknown key,
+//     and a non-boolean value all reject. Fixtures DERIVE from the const
+//     (no hardcoded flag names or counts), so Plan-005 T1.7's scheduled
+//     flag widening flows through this suite without edits.
+
+// Cast justified: `Object.fromEntries` widens keys to `string`, but the map
+// runs over the exhaustive `DRIVER_CAPABILITY_FLAGS` const, so every member
+// is present exactly once.
+const buildAllCapabilityFlags = (): Record<DriverCapabilityFlag, boolean> =>
+  Object.fromEntries(DRIVER_CAPABILITY_FLAGS.map((flag) => [flag, true])) as Record<
+    DriverCapabilityFlag,
+    boolean
+  >;
+
+// Typed `(): CapabilityDetails` return — the static leg: a fixture that
+// drifts from the exported interface is a compile error, not a runtime
+// surprise (same annotation idiom as the C5 consumer anchor in
+// runtime-node.test.ts).
+const buildCapabilityDetails = (): CapabilityDetails => ({
+  flags: buildAllCapabilityFlags(),
+  contractVersion: "1.0",
+  tools: [
+    { name: "read_file", idempotency_class: "idempotent" },
+    {
+      name: "apply_patch",
+      idempotency_class: "compensable",
+      description: "Applies a unified diff to the session worktree.",
+    },
+  ],
+});
+
+describe("CapabilityDetailsSchema (T1.4: canonical capability snapshot)", () => {
+  it("accepts a canonical snapshot and round-trips it verbatim (non-normalizing)", () => {
+    const input = buildCapabilityDetails();
+    const result = CapabilityDetailsSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      // toStrictEqual: no key added (no `.default()`), none dropped (no
+      // stripping) — output ≡ input, the persisted-parse-output invariant.
+      expect(result.data).toStrictEqual(input);
+    }
+  });
+
+  it.each([...DRIVER_CAPABILITY_FLAGS])(
+    "rejects a flags map missing the %s member (enum-keyed record is exhaustive)",
+    (flag) => {
+      const { [flag]: _omitted, ...partialFlags } = buildAllCapabilityFlags();
+      expect(
+        CapabilityDetailsSchema.safeParse({ ...buildCapabilityDetails(), flags: partialFlags })
+          .success,
+      ).toBe(false);
+    },
+  );
+
+  it("rejects an unknown flag key (enum keys reject out-of-census additions)", () => {
+    const broken = {
+      ...buildCapabilityDetails(),
+      flags: { ...buildAllCapabilityFlags(), not_a_registered_flag: true },
+    };
+    expect(CapabilityDetailsSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects a non-boolean flag value", () => {
+    const [firstFlag] = DRIVER_CAPABILITY_FLAGS;
+    const broken = {
+      ...buildCapabilityDetails(),
+      flags: { ...buildAllCapabilityFlags(), [firstFlag]: "true" },
+    };
+    expect(CapabilityDetailsSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it.each([
+    ["whitespace-only", "   "],
+    ["NUL-byte", "1.0\u0000x"],
+    ["oversized", "x".repeat(CAPABILITY_CONTRACT_VERSION_MAX_LEN + 1)],
+  ] as const)("rejects a %s contractVersion (wireFreeFormString guards)", (_label, bad) => {
+    const broken = { ...buildCapabilityDetails(), contractVersion: bad };
+    expect(CapabilityDetailsSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("accepts a contractVersion at exactly the length cap (boundary)", () => {
+    const ok = {
+      ...buildCapabilityDetails(),
+      contractVersion: "x".repeat(CAPABILITY_CONTRACT_VERSION_MAX_LEN),
+    };
+    expect(CapabilityDetailsSchema.safeParse(ok).success).toBe(true);
+  });
+
+  it("REJECTS a tool entry missing idempotency_class (non-normalizing pin vs ingress normalizer)", () => {
+    // The ingress `ProviderToolMetadataSchema` would default-fill
+    // `manual_reconcile_only` here; the event-snapshot schema must NOT — a
+    // default-filling arm would make persisted parse output diverge from the
+    // wire bytes. Rejection is the discriminator between the two schemas.
+    const broken = { ...buildCapabilityDetails(), tools: [{ name: "read_file" }] };
+    expect(CapabilityDetailsSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects an unknown key inside a tool entry (.strict at the element level)", () => {
+    const broken = {
+      ...buildCapabilityDetails(),
+      tools: [{ name: "read_file", idempotency_class: "idempotent", vendorExtra: true }],
+    };
+    expect(CapabilityDetailsSchema.safeParse(broken).success).toBe(false);
+  });
+
+  // tools.name / tools.description compose `wireFreeFormString` — labeled
+  // negatives proving the tool-entry strings are NOT bare `z.string()`s
+  // (mirrors the contractVersion guard table above; the caps are the
+  // provider-driver.ts per-field constants).
+  it.each([
+    ["NUL-byte tools.name", { name: "read_file\u0000x", idempotency_class: "idempotent" }],
+    [
+      "oversized tools.name",
+      { name: "x".repeat(DRIVER_TOOL_NAME_MAX_LEN + 1), idempotency_class: "idempotent" },
+    ],
+    [
+      "oversized tools.description",
+      {
+        name: "read_file",
+        idempotency_class: "idempotent",
+        description: "x".repeat(DRIVER_TOOL_DESCRIPTION_MAX_LEN + 1),
+      },
+    ],
+  ] as const)("rejects a %s (wireFreeFormString guards on tool entries)", (_label, badTool) => {
+    const broken = { ...buildCapabilityDetails(), tools: [badTool] };
+    expect(CapabilityDetailsSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("accepts description present and absent on tool entries (optional both ways)", () => {
+    // The canonical fixture already carries one tool WITH `description` and
+    // one WITHOUT — this pin makes the both-ways acceptance explicit.
+    const bothWays = buildCapabilityDetails();
+    expect(bothWays.tools.some((tool) => "description" in tool)).toBe(true);
+    expect(bothWays.tools.some((tool) => !("description" in tool))).toBe(true);
+    expect(CapabilityDetailsSchema.safeParse(bothWays).success).toBe(true);
+  });
+
+  it("accepts an empty tools array (a capability may declare zero tools)", () => {
+    const ok = { ...buildCapabilityDetails(), tools: [] };
+    expect(CapabilityDetailsSchema.safeParse(ok).success).toBe(true);
+  });
+
+  it("rejects a top-level unknown member (.strict drift guard)", () => {
+    const broken = { ...buildCapabilityDetails(), vendorExtension: {} };
+    expect(CapabilityDetailsSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it.each([["flags"], ["contractVersion"], ["tools"]] as const)(
+    "rejects a snapshot missing the required %s member",
+    (member) => {
+      const { [member]: _omitted, ...withoutMember } = buildCapabilityDetails();
+      expect(CapabilityDetailsSchema.safeParse(withoutMember).success).toBe(false);
     },
   );
 });

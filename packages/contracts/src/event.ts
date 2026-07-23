@@ -40,6 +40,14 @@
 import { z } from "zod";
 
 import {
+  DRIVER_CAPABILITY_FLAGS,
+  DRIVER_TOOL_DESCRIPTION_MAX_LEN,
+  DRIVER_TOOL_NAME_MAX_LEN,
+  IdempotencyClassSchema,
+  type DriverCapabilityFlag,
+  type NormalizedProviderToolMetadata,
+} from "./provider-driver.js";
+import {
   CHANNEL_NAME_MAX_LEN,
   ChannelIdSchema,
   IdentityHandleSchema,
@@ -1297,6 +1305,96 @@ export const SESSION_EVENT_CATEGORY_BY_TYPE: ReadonlyMap<SessionEventType, Event
   // `[string, ...]` is sound.
   Object.entries(SESSION_EVENT_CATEGORY_RECORD) as ReadonlyArray<[SessionEventType, EventCategory]>,
 );
+
+// --------------------------------------------------------------------------
+// CapabilityDetails — canonical capability snapshot (Plan-006 T1.4).
+// --------------------------------------------------------------------------
+//
+// The canonical typed shape of the capability snapshot carried on the
+// `runtime_node.capability_declared` / `runtime_node.capability_updated`
+// event payloads — the two capability rows of
+// `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`; wire authority
+// `docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy`.
+// Authoring it here closes Plan-005 CP-005-5 via CP-006-5: the Plan-003-
+// authored payload schemas in runtime-node.ts EXTEND their interim-opaque
+// `capabilityDetails` / `previousState` / `newState` fields with this schema
+// as the canonical-first arm of a tolerant union (see the binding notes
+// there) — this file owns only the canonical shape, not the payload wrappers.
+//
+// NON-NORMALIZING end to end — parse output is structurally identical to
+// accepted input: no `.default()`, no `.transform()`, no unknown-key
+// stripping (`.strict()` at both levels). Load-bearing because the daemon
+// emitter persists the PARSED output of the payload schemas
+// (node-event-emitter.ts): a default-filling or stripping arm here would
+// silently rewrite stored payloads relative to the wire bytes — the same
+// no-collapse stance as the envelope's I-006-1-03 notes above.
+
+// Per-field cap for the free-form `contractVersion` string — house
+// convention: each free-form wire field owns its own cap. 64 mirrors the
+// sibling version-string precedent `RUNTIME_NODE_VERSION_MAX_LEN`
+// (runtime-node.ts): generous headroom for any plausible driver-contract
+// version string while bounding pathological input at the wire/replay trust
+// boundary. Deliberately NOT `EVENT_ENVELOPE_VERSION_MAX_LEN` — that caps
+// the strict MAJOR.MINOR protocol version, whereas `contractVersion` is a
+// free-form provider-declared value (its semver bound lives at the Plan-005
+// Phase-2 write seam, not at this wire layer).
+export const CAPABILITY_CONTRACT_VERSION_MAX_LEN = 64;
+
+// Module-LOCAL strict tool schema — single consumer, so it fails the export
+// hoist bar (2+ surfaces). Mirrors `NormalizedProviderToolMetadata`
+// (provider-driver.ts) EXACTLY, including `description?: string | undefined`
+// optionality under `exactOptionalPropertyTypes`. Deliberately NOT
+// `ProviderToolMetadataSchema`: that schema is the INGRESS normalizer — it
+// default-fills `idempotency_class` and strips unknown keys, so routing
+// event payloads through it would make parse output diverge from accepted
+// input. Here `idempotency_class` is REQUIRED with no `.default()`: only the
+// NORMALIZED tool shape crosses the persistence / event boundary
+// (provider-driver.ts), and an un-normalized entry in an event snapshot is a
+// producer bug that must fail loud, never be silently repaired.
+const capabilityToolMetadataSchema = z
+  .object({
+    name: wireFreeFormString(DRIVER_TOOL_NAME_MAX_LEN, "CapabilityDetails.tools.name"),
+    idempotency_class: IdempotencyClassSchema,
+    description: wireFreeFormString(
+      DRIVER_TOOL_DESCRIPTION_MAX_LEN,
+      "CapabilityDetails.tools.description",
+    ).optional(),
+  })
+  .strict();
+
+/**
+ * Canonical capability snapshot for `runtime_node.capability_*` payloads
+ * (`docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy`;
+ * `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`; CP-006-5 —
+ * closes Plan-005 CP-005-5). `tools` is `readonly` per the Plan-006 T1.4
+ * task row (the governing spelling over the wire doc's mutable gloss — a
+ * mutable schema output stays assignable under covariance) and carries the
+ * NORMALIZED tool shape: `CapabilityDetails` crosses the persistence /
+ * event boundary, which the ingress `ProviderToolMetadata` never does.
+ */
+export interface CapabilityDetails {
+  flags: Record<DriverCapabilityFlag, boolean>;
+  contractVersion: string;
+  tools: readonly NormalizedProviderToolMetadata[];
+}
+export const CapabilityDetailsSchema: z.ZodType<CapabilityDetails> = z
+  .object({
+    // Enum-keyed record = EXHAUSTIVE keys in Zod 4: every member of the live
+    // `DRIVER_CAPABILITY_FLAGS` const must be present, and a missing member,
+    // an unknown key, or a non-boolean value all reject — matching the
+    // non-partial `Record<DriverCapabilityFlag, boolean>` type and the
+    // write-seam exactly-all-flags cardinality guard (I-005-2: capabilities
+    // are explicit, never inferred from absence). Keyed off the const — not
+    // a copied literal list — so Plan-005 T1.7's scheduled flag widening
+    // flows through with zero edits here.
+    flags: z.record(z.enum(DRIVER_CAPABILITY_FLAGS), z.boolean()),
+    contractVersion: wireFreeFormString(
+      CAPABILITY_CONTRACT_VERSION_MAX_LEN,
+      "CapabilityDetails.contractVersion",
+    ),
+    tools: z.array(capabilityToolMetadataSchema),
+  })
+  .strict();
 
 // Note: cross-file ID types (`SessionId`, `MembershipId`, …) are not re-
 // exported here — they are surfaced from `session.ts` and reach the public

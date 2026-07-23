@@ -32,7 +32,8 @@ import {
   type VersionBoundExceededDetails,
   type VersionFloorExceededError,
 } from "../error.js";
-import { EventCategorySchema } from "../event.js";
+import { EventCategorySchema, type CapabilityDetails } from "../event.js";
+import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "../provider-driver.js";
 import {
   NODE_ID_MAX_LEN,
   NodeIdSchema,
@@ -60,6 +61,8 @@ import {
   RuntimeNodeRosterEntrySchema,
   RuntimeNodeRosterRequestSchema,
   RuntimeNodeRosterResponseSchema,
+  type RuntimeNodeCapabilityDeclaredPayload,
+  type RuntimeNodeCapabilityUpdatedPayload,
 } from "../runtime-node.js";
 
 // Fixtures must be VALID per the imported upstream schemas:
@@ -1075,10 +1078,12 @@ describe("RuntimeNodeCapabilityUpdatedPayloadSchema (C7: reduced base + {capabil
     }
   });
 
-  it("rejects a NodeState enum string for newState (it is an opaque record snapshot, not a NodeState)", () => {
-    // `newState` is `z.record(...)`, so a NodeState string is the WRONG type here
-    // and rejects — proving these fields are capability snapshots, not the
-    // lifecycle NodeState transition fields.
+  it("rejects a NodeState enum string for newState (an object snapshot on both union arms, not a NodeState)", () => {
+    // `newState` is the canonical-first tolerant union of two OBJECT schemas
+    // (`CapabilityDetailsSchema` | opaque record — Plan-006 T1.4), so a
+    // NodeState string is the WRONG type for BOTH arms and rejects — proving
+    // these fields are capability snapshots, not the lifecycle NodeState
+    // transition fields.
     const broken = { ...buildValidCapabilityUpdatedPayload(), newState: "online" };
     expect(RuntimeNodeCapabilityUpdatedPayloadSchema.safeParse(broken).success).toBe(false);
   });
@@ -1364,5 +1369,148 @@ describe("RuntimeNodeRosterResponseSchema (T5.0b: { nodes: RuntimeNodeRosterEntr
   it("rejects an unknown extra key (.strict drift guard)", () => {
     const broken = { nodes: [], bogusField: "nope" };
     expect(RuntimeNodeRosterResponseSchema.safeParse(broken).success).toBe(false);
+  });
+});
+
+// --------------------------------------------------------------------------
+// Plan-006 Phase 1 T1.4 (PR #247) — canonical `CapabilityDetails` binding.
+// --------------------------------------------------------------------------
+//
+// The two capability-event payload schemas (C7 above) shipped
+// `capabilityDetails` / `previousState` / `newState` as interim-opaque records
+// (CP-003-1 honest forward-dependency). Plan-006 T1.4 EXTENDs them in place
+// with the CANONICAL-FIRST TOLERANT UNION `z.union([CapabilityDetailsSchema,
+// z.record(z.string(), z.unknown())])` (CP-006-5; closes Plan-005 CP-005-5).
+// The behavior invariant this suite pins: over JSON-representable wire/replay
+// input the ACCEPT-SET of both schemas is UNCHANGED — every payload accepted
+// before the binding is accepted after (the untouched C7 suites above are the
+// complementary pin), nothing JSON-representable is newly accepted, and parse
+// output is STRUCTURALLY unchanged (toStrictEqual; own-key order and object
+// identity are not pinned — see the binding note in runtime-node.ts) — the
+// binding only NARROWS the static type for conforming snapshots. The
+// flags fixture DERIVES from the live `DRIVER_CAPABILITY_FLAGS` const (no
+// hardcoded names/counts), so Plan-005 T1.7's scheduled flag widening flows
+// through without edits here.
+
+// Cast justified: `Object.fromEntries` widens keys to `string`, but the map
+// runs over the exhaustive `DRIVER_CAPABILITY_FLAGS` const, so every member
+// is present exactly once (same builder idiom as session-event.test.ts).
+const buildCanonicalCapabilityDetails = (): CapabilityDetails => ({
+  flags: Object.fromEntries(DRIVER_CAPABILITY_FLAGS.map((flag) => [flag, true])) as Record<
+    DriverCapabilityFlag,
+    boolean
+  >,
+  contractVersion: "1.0",
+  tools: [{ name: "read_file", idempotency_class: "idempotent" }],
+});
+
+describe("capability payloads × canonical CapabilityDetails binding (T1.4)", () => {
+  it("parses a canonical capabilityDetails on capability_declared and round-trips it verbatim", () => {
+    const canonical = buildCanonicalCapabilityDetails();
+    const payload = { ...buildValidCapabilityDeclaredPayload(), capabilityDetails: canonical };
+    const result = RuntimeNodeCapabilityDeclaredPayloadSchema.safeParse(payload);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      // Non-normalizing canonical arm: output ≡ input structurally
+      // (toStrictEqual — key order/identity deliberately not asserted).
+      expect(result.data.capabilityDetails).toStrictEqual(canonical);
+    }
+  });
+
+  it("parses canonical previousState/newState on capability_updated and round-trips verbatim", () => {
+    const previous = buildCanonicalCapabilityDetails();
+    const next = { ...buildCanonicalCapabilityDetails(), contractVersion: "1.1" };
+    const payload = {
+      ...buildValidCapabilityUpdatedPayload(),
+      previousState: previous,
+      newState: next,
+    };
+    const result = RuntimeNodeCapabilityUpdatedPayloadSchema.safeParse(payload);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.previousState).toStrictEqual(previous);
+      expect(result.data.newState).toStrictEqual(next);
+    }
+  });
+
+  it("REGRESSION PIN: an arbitrary non-canonical record still parses exactly as before the binding", () => {
+    // The Plan-003 `NodeCapabilityService` producer emits arbitrary
+    // node-capability records through this same `.parse()` emission boundary
+    // (and stored rows replay through it) — the tolerant arm preserves the
+    // shipped accept-set EXACTLY.
+    const arbitrary = { maxSessions: 4 };
+    const declared = { ...buildValidCapabilityDeclaredPayload(), capabilityDetails: arbitrary };
+    const declaredResult = RuntimeNodeCapabilityDeclaredPayloadSchema.safeParse(declared);
+    expect(declaredResult.success).toBe(true);
+    if (declaredResult.success) {
+      expect(declaredResult.data.capabilityDetails).toStrictEqual(arbitrary);
+    }
+    const updated = {
+      ...buildValidCapabilityUpdatedPayload(),
+      previousState: arbitrary,
+      newState: { maxSessions: 8 },
+    };
+    expect(RuntimeNodeCapabilityUpdatedPayloadSchema.safeParse(updated).success).toBe(true);
+  });
+
+  it("ACCEPTS a NEAR-canonical record as opaque (tolerance, not rejection — layering pin)", () => {
+    // A snapshot missing one flags member fails the canonical arm's
+    // exhaustive-flags check and falls through to the record arm: pre-T1.7
+    // canonical snapshots (after the flag census widens) and near-conforming
+    // producer output stay PARSEABLE as opaque records (ADR-018
+    // additive-MINOR evolution), never rejected.
+    const remainingFlags = DRIVER_CAPABILITY_FLAGS.slice(1);
+    const nearCanonical = {
+      ...buildCanonicalCapabilityDetails(),
+      flags: Object.fromEntries(remainingFlags.map((flag) => [flag, true])),
+    };
+    const payload = {
+      ...buildValidCapabilityDeclaredPayload(),
+      capabilityDetails: nearCanonical,
+    };
+    const result = RuntimeNodeCapabilityDeclaredPayloadSchema.safeParse(payload);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      // Record-arm passthrough: the opaque parse output is unchanged too.
+      expect(result.data.capabilityDetails).toStrictEqual(nearCanonical);
+    }
+  });
+
+  it.each([
+    ["a string", "online"],
+    ["a number", 7],
+    ["null", null],
+    ["an array", []],
+  ] as const)(
+    "rejects a non-object capabilityDetails (%s — both union arms reject)",
+    (_label, bad) => {
+      // Tolerance is OBJECT-wide, not type-wide: the record arm never accepted
+      // non-objects and the canonical arm must not start to — mirrors the
+      // envelope suite's non-object-payload table (session-event.test.ts) and
+      // the C7 previousState/newState string reject above, which covers only
+      // the updated payload's leg.
+      const broken = { ...buildValidCapabilityDeclaredPayload(), capabilityDetails: bad };
+      expect(RuntimeNodeCapabilityDeclaredPayloadSchema.safeParse(broken).success).toBe(false);
+    },
+  );
+
+  it("static leg: a CapabilityDetails-typed value assigns to both payload interfaces", () => {
+    // Compile-time proof of the T1.4 acceptance criterion — the canonical
+    // interface composes into the payload interfaces (the typed-consumer leg
+    // of closing CP-005-5); the runtime parses below are the dynamic leg.
+    const canonical: CapabilityDetails = buildCanonicalCapabilityDetails();
+    const declared: RuntimeNodeCapabilityDeclaredPayload = {
+      nodeId: NodeIdSchema.parse(NODE_ID),
+      capability: "provider-driver",
+      capabilityDetails: canonical,
+    };
+    const updated: RuntimeNodeCapabilityUpdatedPayload = {
+      nodeId: NodeIdSchema.parse(NODE_ID),
+      capability: "provider-driver",
+      previousState: canonical,
+      newState: canonical,
+    };
+    expect(RuntimeNodeCapabilityDeclaredPayloadSchema.safeParse(declared).success).toBe(true);
+    expect(RuntimeNodeCapabilityUpdatedPayloadSchema.safeParse(updated).success).toBe(true);
   });
 });
