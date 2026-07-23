@@ -53,9 +53,9 @@ import {
 // --------------------------------------------------------------------------
 //
 // Mirrors the EventCategory registry in `docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy`
-// (19 categories per Spec-006 §Event Type Summary). Code ships the 16-category
-// V1 baseline; Plan-006 Phase 1 (T1.1) widens it with `channel_arbitration`,
-// `onboarding_lifecycle`, and `cross_node_dispatch`.
+// (20 categories per Spec-006 §Event Type Summary post-B18). Code ships 19:
+// the 16-category V1 set plus `channel_arbitration`, `onboarding_lifecycle`,
+// `cross_node_dispatch` (Plan-006 T1.1); `mcp_governance` lands in T1.10 (B18).
 // `Spec-006 §Canonical Serialization Rules` specifies that `category` participates in the canonical-bytes
 // computation that backs the integrity protocol's BLAKE3 hash chain and
 // Ed25519 signature; producers MUST emit the category that matches the type's
@@ -90,7 +90,10 @@ export type EventCategory =
   | "audit_integrity"
   | "security_events"
   | "event_maintenance"
-  | "policy_events";
+  | "policy_events"
+  | "channel_arbitration"
+  | "onboarding_lifecycle"
+  | "cross_node_dispatch";
 export const EventCategorySchema: z.ZodType<EventCategory> = z.enum([
   "run_lifecycle",
   "assistant_output",
@@ -108,6 +111,9 @@ export const EventCategorySchema: z.ZodType<EventCategory> = z.enum([
   "security_events",
   "event_maintenance",
   "policy_events",
+  "channel_arbitration",
+  "onboarding_lifecycle",
+  "cross_node_dispatch",
 ]);
 
 // --------------------------------------------------------------------------

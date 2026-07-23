@@ -249,11 +249,11 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
     expect(result.success).toBe(false);
   });
 
-  it("EventCategorySchema accepts every taxonomy member from api-payload-contracts.md", () => {
+  it("EventCategorySchema enumerates exactly the 19 canonical categories (no more, no less)", () => {
     // Pinning the enum values prevents accidental drift from the canonical
-    // EventCategory definition. If api-payload-contracts.md adds a category
-    // (e.g. cross_node_dispatch via Spec-024), the spec edit must land
-    // before this list; the test will fail until both sides agree.
+    // EventCategory definition. If api-payload-contracts.md adds a category,
+    // the spec edit must land before this list; the test will fail until
+    // both sides agree.
     const expected = [
       "run_lifecycle",
       "assistant_output",
@@ -271,7 +271,17 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
       "security_events",
       "event_maintenance",
       "policy_events",
+      "channel_arbitration",
+      "onboarding_lifecycle",
+      "cross_node_dispatch",
     ];
+    // Read `.options` from the underlying enum construct. The schema is
+    // typed as the abstract `z.ZodType<EventCategory>` so we cast via
+    // `unknown` to read the construct-specific `.options` property; the
+    // assertions below check both length AND exact set membership.
+    const schemaInternals = EventCategorySchema as unknown as { options: readonly string[] };
+    expect(schemaInternals.options).toHaveLength(19);
+    expect([...schemaInternals.options].sort()).toEqual([...expected].sort());
     for (const cat of expected) {
       expect(EventCategorySchema.safeParse(cat).success).toBe(true);
     }
