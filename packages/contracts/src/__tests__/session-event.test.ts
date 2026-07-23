@@ -36,7 +36,12 @@
 // SESSION_EVENT_CATEGORY_BY_TYPE registry suite at the end of this file:
 // Spec-006 §Event Type Summary at the pre-B18 baseline (141 types / 19
 // categories), invariants I-006-1-01 (category/type bijection) and
-// I-006-1-02 (event-type-string immutability).
+// I-006-1-02 (event-type-string immutability). Plan-006 T1.3 adds the
+// EventEnvelopeSchema canonical-carrier suite after it: the 11-member
+// canonical-set pin (I-006-1-03), envelope-vs-strict layering,
+// producer-set `version` semantics (I-006-1-04), and the payload
+// own-`__proto__` reject-loud carve-out (record parser cannot preserve
+// that key; silent stripping is forbidden).
 import { describe, expect, it } from "vitest";
 
 import {
@@ -52,6 +57,7 @@ import {
   EVENT_FIELD_MAX_LEN,
   EVENT_MAINTENANCE_EVENT_TYPES,
   EventCategorySchema,
+  EventEnvelopeSchema,
   EventEnvelopeVersionSchema,
   INTERACTIVE_REQUEST_EVENT_TYPES,
   MEMBERSHIP_CHANGE_EVENT_TYPES,
@@ -69,6 +75,7 @@ import {
   TOOL_ACTIVITY_EVENT_TYPES,
   USAGE_TELEMETRY_EVENT_TYPES,
   type EventCategory,
+  type EventEnvelope,
   type SessionEvent,
   type SessionEventType,
 } from "../event.js";
@@ -762,6 +769,270 @@ describe("SessionEventType census + SESSION_EVENT_CATEGORY_BY_TYPE registry (T1.
       // both documents the T1.10 boundary and proves no B18 literal leaked
       // into the baseline census.
       expect(SESSION_EVENT_CATEGORY_BY_TYPE.get(pendingType as never)).toBeUndefined();
+    },
+  );
+});
+
+// --------------------------------------------------------------------------
+// Plan-006 T1.3 — EventEnvelopeSchema: the canonical event carrier.
+// --------------------------------------------------------------------------
+//
+// Backstops Spec-006 §Canonical Serialization Rules (fields included — the
+// canonical set) and the two Phase-1 invariants the named envelope export
+// underwrites:
+//   • I-006-1-03 — the envelope FIELD SET is fixed at the canonical eleven
+//     members; serialized ORDER is RFC 8785 §3.2.3 UTF-16 code-unit
+//     lex-sort, produced by Phase 2's canonicalizer (golden vectors in
+//     T2.3) — so this layer pins membership mechanically, not byte order.
+//   • I-006-1-04 — `version` is producer-set and never rewritten: the
+//     parse path must hand back the producer's string verbatim. The
+//     read-side never-rewrite half (upcaster chain, ADR-018 §Decision #6)
+//     is daemon behavior, out of contract-layer reach — asserted by the
+//     consuming plans, not here.
+// Layering (ADR-018 §Decision #5/#8/#9): the envelope is the version-
+// TOLERANT carrier — `type` is a bounded free-form string, NOT the census
+// union — while `SessionEventSchema` stays the strict interpretation layer.
+
+// The canonical 11-member set, transcribed from Spec-006 §Canonical
+// Serialization Rules ("Fields included"). Listed in wire-authority
+// declaration order; every assertion sorts before comparing because only
+// MEMBERSHIP is canonical.
+const CANONICAL_ENVELOPE_FIELDS = [
+  "id",
+  "sessionId",
+  "sequence",
+  "occurredAt",
+  "category",
+  "type",
+  "actor",
+  "payload",
+  "correlationId",
+  "causationId",
+  "version",
+] as const;
+
+// A census-registered type with NO SessionEventSchema payload variant —
+// exercises the carrier accepting what the strict layer cannot interpret.
+// All eleven canonical members present (actor deliberately present-null).
+const buildBareEnvelope = () => ({
+  id: "evt-0100",
+  sessionId: SESSION_ID,
+  sequence: 41,
+  occurredAt: "2026-01-22T19:14:38.000Z",
+  category: "usage_telemetry" as const,
+  type: "usage.token_count",
+  actor: null,
+  payload: { runId: "run-001", totalTokens: 1234, providerExtra: { nested: true } },
+  correlationId: "req-042",
+  causationId: "evt-0099",
+  version: VERSION,
+});
+
+describe("EventEnvelopeSchema — canonical carrier (T1.3)", () => {
+  it("declares exactly the canonical 11-field set (I-006-1-03 membership pin)", () => {
+    // Mechanical guard on the DECLARED set, independent of any fixture:
+    // read the ZodObject shape keys through the same internals-cast idiom
+    // as the EventCategorySchema `.options` pin above.
+    const schemaInternals = EventEnvelopeSchema as unknown as {
+      shape: Record<string, unknown>;
+    };
+    const declared = Object.keys(schemaInternals.shape);
+    expect(declared).toHaveLength(11);
+    expect([...declared].sort()).toEqual([...CANONICAL_ENVELOPE_FIELDS].sort());
+  });
+
+  it("round-trips a fully-populated envelope through JSON with the exact member set", () => {
+    const firstPass = EventEnvelopeSchema.parse(buildBareEnvelope());
+    const secondPass = EventEnvelopeSchema.parse(JSON.parse(JSON.stringify(firstPass)) as unknown);
+    expect(secondPass).toStrictEqual(firstPass);
+    expect(Object.keys(secondPass).sort()).toEqual([...CANONICAL_ENVELOPE_FIELDS].sort());
+    // Unknown payload keys from a newer producer are preserved verbatim,
+    // never stripped (Spec-006 §EventEnvelope Version Semantics).
+    expect(secondPass.payload).toStrictEqual(buildBareEnvelope().payload);
+  });
+
+  it("hands back the producer-set `version` verbatim (I-006-1-04 — parse never rewrites)", () => {
+    const parsed = EventEnvelopeSchema.parse(buildBareEnvelope());
+    expect(parsed.version).toBe(VERSION);
+  });
+
+  it.each([
+    ["numeric version (ADR-018 §Decision #1 — never numeric on the wire)", { version: 1 }],
+    ["three-segment version", { version: "1.0.0" }],
+  ] as const)("rejects a %s", (_label, patch) => {
+    expect(EventEnvelopeSchema.safeParse({ ...buildBareEnvelope(), ...patch }).success).toBe(false);
+  });
+
+  it("rejects an envelope missing `version` (producer-set, required)", () => {
+    const broken = { ...buildBareEnvelope() } as Record<string, unknown>;
+    delete broken["version"];
+    expect(EventEnvelopeSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("accepts a census type with no payload variant; SessionEventSchema rejects it", () => {
+    // Layering pin: `usage.token_count` is census-registered (T1.2) but has
+    // no discriminated-union payload variant — the tolerant carrier parses
+    // it, the strict layer refuses to interpret it.
+    const fixture = buildBareEnvelope();
+    expect(EventEnvelopeSchema.safeParse(fixture).success).toBe(true);
+    expect(SessionEventSchema.safeParse(fixture).success).toBe(false);
+  });
+
+  it("accepts a census-UNKNOWN forward type (ADR-018 §Decision #5/#8/#9 accept-and-stub)", () => {
+    // `session.renamed` is a B18-pending literal — outside today's census
+    // union entirely. A reader must be able to parse the ENVELOPE (to
+    // persist it as a version stub) even though no layer above can
+    // interpret it yet; rejecting here would drop exactly the events the
+    // stub path exists to preserve.
+    const forward = {
+      ...buildBareEnvelope(),
+      category: "session_lifecycle" as const,
+      type: "session.renamed",
+      payload: { sessionId: SESSION_ID, name: "renamed", origin: "provider" },
+    };
+    expect(EventEnvelopeSchema.safeParse(forward).success).toBe(true);
+    expect(SessionEventSchema.safeParse(forward).success).toBe(false);
+  });
+
+  it.each([
+    ["whitespace-only", "   "],
+    ["NUL-byte", "usage.token\u0000count"],
+    ["oversized", "x".repeat(EVENT_FIELD_MAX_LEN + 1)],
+  ] as const)("rejects a %s `type` (wireFreeFormString guards)", (_label, badType) => {
+    expect(EventEnvelopeSchema.safeParse({ ...buildBareEnvelope(), type: badType }).success).toBe(
+      false,
+    );
+  });
+
+  it("rejects a `category` outside the canonical enum (tolerance axis is `type`)", () => {
+    const broken = { ...buildBareEnvelope(), category: "not_a_category" };
+    expect(EventEnvelopeSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it.each([["pii_payload"], ["extraField"], ["__proto__"]])(
+    "rejects a top-level member outside the canonical set: %s (I-006-1-03 — the set is fixed)",
+    (extraKey) => {
+      // `pii_payload` foremost: it is a storage COLUMN, deliberately NOT in
+      // the canonical form (Spec-006 §Canonical Serialization Rules) — an
+      // envelope smuggling it as a top-level member is malformed, and
+      // silently stripping it would desync the parse output from the
+      // hashed canonical bytes. The `__proto__` row pins that Zod's OBJECT
+      // parser (unlike its record parser — see the payload pre-guard pins
+      // below) surfaces an own `__proto__` as an unrecognized key, so
+      // `.strict()` rejects it. The computed-key spread creates an OWN
+      // property (only a non-computed literal `__proto__:` key in an
+      // object literal would set the prototype instead).
+      const broken = { ...buildBareEnvelope(), [extraKey]: { smuggled: true } };
+      expect(EventEnvelopeSchema.safeParse(broken).success).toBe(false);
+    },
+  );
+
+  it("keeps `actor: null` and absent `actor` wire-distinguishable", () => {
+    // Spec-006 §Canonical Serialization Rules: fields with value `null`
+    // MUST be included in serialization, so present-null and absent stay
+    // distinguishable — `actor` is the canonical set's only nullable
+    // member. JSON keeps `null` values and drops absent keys.
+    const withNull = EventEnvelopeSchema.parse({ ...buildBareEnvelope(), actor: null });
+    expect("actor" in withNull).toBe(true);
+    const rehydrated = JSON.parse(JSON.stringify(withNull)) as Record<string, unknown>;
+    expect("actor" in rehydrated).toBe(true);
+
+    const absentFixture = { ...buildBareEnvelope() } as Record<string, unknown>;
+    delete absentFixture["actor"];
+    const withAbsent = EventEnvelopeSchema.parse(absentFixture);
+    expect("actor" in withAbsent).toBe(false);
+  });
+
+  it.each([["correlationId"], ["causationId"]])(
+    "rejects `%s: null` (optional-only — absent is the sole no-value wire state)",
+    (field) => {
+      // The wire authority types the correlation pair `field?: string` —
+      // optional, NOT nullable, matching `buildCommonShape()`'s modeling
+      // (unchanged by the T1.3 refactor): `actor` alone carries the
+      // null-for-system convention. Pinned so any widening to nullable is
+      // a deliberate, loud contract change.
+      const broken = { ...buildBareEnvelope(), [field]: null };
+      expect(EventEnvelopeSchema.safeParse(broken).success).toBe(false);
+    },
+  );
+
+  it("rejects an envelope missing `payload` (required canonical member)", () => {
+    const broken = { ...buildBareEnvelope() } as Record<string, unknown>;
+    delete broken["payload"];
+    expect(EventEnvelopeSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it.each([
+    ["null", null],
+    ["a string", "not-an-object"],
+  ] as const)("rejects a non-object `payload` (%s)", (_label, badPayload) => {
+    expect(
+      EventEnvelopeSchema.safeParse({ ...buildBareEnvelope(), payload: badPayload }).success,
+    ).toBe(false);
+  });
+
+  it("rejects an own `__proto__` payload key (JSON.parse-built wire member)", () => {
+    // JSON.parse defines `__proto__` as an OWN data property (no prototype
+    // semantics), so the wire genuinely carries the member — a TS object
+    // literal `{ __proto__: ... }` would set the prototype instead and
+    // never reach the parser with an own key. Zod's record parser
+    // unconditionally SKIPS own `__proto__` keys, so preserve-verbatim is
+    // impossible for this one key and the default outcome is a silent
+    // drop — two distinct wire byte-strings collapsing to one parse
+    // output, the I-006-1-03 no-collapse hazard. The payload pre-guard
+    // (raw pre-record superRefine; a refine on the record's OUTPUT could
+    // never see the already-dropped key) rejects it loud instead.
+    const protoPayload = JSON.parse('{"__proto__":{"smuggled":true},"totalTokens":1}') as unknown;
+    // Fixture self-check: the parsed JSON really carries an OWN key (an
+    // `in` check would be satisfied by the prototype chain and prove
+    // nothing).
+    expect(Object.hasOwn(protoPayload as object, "__proto__")).toBe(true);
+    const broken = { ...buildBareEnvelope(), payload: protoPayload };
+    expect(EventEnvelopeSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it.each([["unknownForwardField"], ["constructor"], ["prototype"]])(
+    "preserves unknown payload key %s verbatim (guard positive control)",
+    (unknownKey) => {
+      // The carve-out is exactly one key wide: every other unknown payload
+      // key — including the proto-ADJACENT `constructor` / `prototype`,
+      // which are preservable own data keys (computed-key creation shadows
+      // the prototype members) — still round-trips untouched (Spec-006
+      // §EventEnvelope Version Semantics higher-MINOR preservation).
+      // Forward-regression pin: Zod's record-parser skip-list is
+      // verifiably `__proto__`-only today, making the pre-guard exactly
+      // co-extensive with the drop behavior; a future Zod upgrade that
+      // widens that skip-list would silently reintroduce the drop-collapse
+      // hazard for keys the guard does not cover — it must fail loud HERE
+      // first (same forward-pin idiom as the `.options` / `.shape`
+      // internals casts). Assertions are per-key rather than a whole-
+      // payload toStrictEqual: an own `constructor` key shadows the
+      // prototype member, which jest-style type-equality reads for class
+      // comparison — Object.keys set equality pins no-drop AND no-add
+      // without tripping that.
+      const parsed = EventEnvelopeSchema.parse({
+        ...buildBareEnvelope(),
+        payload: { [unknownKey]: { marker: unknownKey } },
+      });
+      expect(Object.keys(parsed.payload)).toEqual([unknownKey]);
+      expect(parsed.payload[unknownKey]).toStrictEqual({ marker: unknownKey });
+    },
+  );
+
+  it.each([
+    ["session.created", buildSessionCreated],
+    ["membership.created", buildMembershipCreated],
+    ["channel.created", buildChannelCreated],
+  ] as const)(
+    "every SessionEvent is an EventEnvelope: %s parses through the carrier",
+    (_label, build) => {
+      // The strict layer emits within the carrier contract: each registered
+      // variant fixture re-parses through EventEnvelopeSchema, and the
+      // subtype relation holds at compile time — the `EventEnvelope`
+      // annotation below is the static leg (the variants extend the
+      // envelope interface since the T1.3 refactor).
+      const parsed: EventEnvelope = SessionEventSchema.parse(build());
+      expect(EventEnvelopeSchema.safeParse(parsed).success).toBe(true);
     },
   );
 });

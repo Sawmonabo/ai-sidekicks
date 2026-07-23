@@ -1,5 +1,6 @@
-// Session event contracts — the canonical event-type census (Plan-006 T1.2)
-// plus the V1 subset of payload variants of the canonical EventEnvelope shape
+// Session event contracts — the canonical event-type census (Plan-006 T1.2),
+// the named canonical `EventEnvelopeSchema` carrier (Plan-006 T1.3), plus the
+// V1 subset of payload variants of the canonical EventEnvelope shape
 // per docs/architecture/contracts/api-payload-contracts.md § Tier 4 Plan-006.
 //
 // Plan-001 PR #2 ships only the three event types its vertical slice needs:
@@ -77,7 +78,7 @@ import {
 // the BLAKE3 hash chain and Ed25519 signature. The TypeScript enum's
 // declaration order does not affect canonical bytes; reordering, inserting,
 // or appending categories is byte-equivalent at the integrity layer (it IS
-// still a contract bump per ADR-018 §Decision #1: removals are MAJOR,
+// still a contract bump per ADR-018 §Decision #8: removals are MAJOR,
 // additions are MINOR).
 
 export type EventCategory =
@@ -223,7 +224,7 @@ export function compareEventEnvelopeVersion(
 // as a SECOND line of defense so a future non-HTTP caller (daemon-internal
 // IPC, replay machinery, fixtures) can't smuggle a single pathological field
 // past the parser. Values are conservative defaults; raising them is a
-// contract bump per ADR-018 §Decision #1 (MINOR widening is acceptable —
+// contract bump per ADR-018 §Decision #8 (MINOR widening is acceptable —
 // shrinking is MAJOR).
 //
 // Rationale per cap:
@@ -258,20 +259,136 @@ export function compareEventEnvelopeVersion(
 export const EVENT_FIELD_MAX_LEN = 256;
 
 // --------------------------------------------------------------------------
-// Common envelope fields shared by every SessionEvent variant.
+// EventEnvelope — the canonical event message (Plan-006 T1.3).
 // --------------------------------------------------------------------------
 //
-// Defined as a shape factory (not a schema) so each variant can spread it
-// while supplying its own `type` literal, its own literal `category`, and
-// its own `payload`. Per Spec-001 § Data And Storage Changes the daemon
-// assigns the persisted event id (UUID v7 in current daemon code, but the
-// wire contract per `docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy` is opaque `id: string`
+// The named carrier for every session event, per
+// `docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy`
+// (the wire authority) and `Spec-006 §Canonical Serialization Rules` (the
+// canonical 11-member field set). Two layers share this file, and the split
+// is deliberate:
+//
+//   • ENVELOPE layer (`EventEnvelopeSchema`) — the version-TOLERANT carrier.
+//     `type` is a bounded free-form string, NOT the `SessionEventType`
+//     census union: MINOR envelope bumps may introduce new event types
+//     (`ADR-018 §Decision` #8, additive-only), and a reader MUST persist an
+//     envelope whose `type` it cannot interpret as a version stub — never
+//     drop or reject it (`ADR-018 §Decision` #5, #9 accept-and-stub;
+//     `Spec-006 §EventEnvelope Version Semantics`). A census-typed envelope
+//     schema would reject exactly the envelopes the stub path exists to
+//     preserve. `payload` is likewise an open record: unknown payload
+//     fields from a higher-MINOR producer are preserved verbatim for
+//     future upcasting, never stripped.
+//   • STRICT layer (`SessionEventSchema` + `SESSION_EVENT_CATEGORY_BY_TYPE`
+//     below) — the interpretation surface, where unknown types and
+//     category/type mismatches fail loud at parse time.
+//
+// Bounds on the tolerance, both mirrored from the wire authority:
+//   • `category` stays the closed canonical enum (`EventCategorySchema`):
+//     the wire authority types it `EventCategory`, `category` participates
+//     in the canonical bytes, and a reader with no registry rows for a
+//     category cannot route or verify under it — category additions are
+//     code-accompanied MINOR contract bumps (see the EventCategory note
+//     above), not runtime-tolerated strings.
+//   • The TOP-LEVEL member set is CLOSED (`.strict()`):
+//     `Spec-006 §Canonical Serialization Rules` fixes membership at exactly
+//     the eleven fields below (I-006-1-03), and `pii_payload` is a storage
+//     column, deliberately NOT an envelope member. Default Zod stripping
+//     would silently desync the parse output from the canonical bytes the
+//     integrity protocol hashes and signs; the additive channel for new
+//     data is `payload`, never a new envelope member.
+
+/**
+ * The canonical event message — every session event travels in this
+ * envelope ({@link EventEnvelopeSchema} is the runtime validator).
+ *
+ * Member set is the canonical eleven of
+ * `Spec-006 §Canonical Serialization Rules` (I-006-1-03). Declaration order
+ * mirrors the wire authority and is NOT load-bearing: serialized order of
+ * the canonical bytes is mandated by RFC 8785 §3.2.3 UTF-16 code-unit
+ * lex-sort of member names (the `Spec-006 §Canonical Serialization Rules`
+ * amendment) — this declaration documents membership only; Phase 2's
+ * canonicalizer owns byte production.
+ */
+export interface EventEnvelope {
+  // Opaque on the wire — see the `id` note in `buildCommonShape()`.
+  id: string;
+  sessionId: SessionId;
+  // Daemon-assigned, strictly monotonic per session — the canonical replay
+  // key per ADR-017.
+  sequence: number;
+  // ISO 8601. The narrower CANONICAL form (RFC 3339 UTC, ms precision) is
+  // enforced at hashing time by Phase 2's normalization, not here.
+  occurredAt: string;
+  category: EventCategory;
+  /**
+   * Deliberately `string`, NOT `SessionEventType` — the envelope is the
+   * version-tolerant carrier (see the layering note above): a reader must
+   * parse an envelope whose `type` it does not know yet in order to
+   * persist it as a version stub (`ADR-018 §Decision` #5, #8, #9). Do not
+   * "tighten" this member to the census union.
+   */
+  type: string;
+  /**
+   * `actor` is `string | null` per
+   * `docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy`
+   * (participant_id, agent_id, or null for system); the zod schema also
+   * makes it optional (key may be absent), so we match the inferred
+   * output: `actor?: string | null | undefined`. It is the canonical
+   * set's only nullable member — present-null and absent are
+   * wire-distinguishable per `Spec-006 §Canonical Serialization Rules`
+   * ("fields with value null MUST be included"). Empty string is rejected
+   * — a present-but-empty actor is a producer bug (a system event should
+   * send `null` or omit the key, not an empty string).
+   */
+  actor?: string | null | undefined;
+  /**
+   * Category-specific fields, open by design (higher-MINOR fields are
+   * preserved verbatim) — with one carve-out: an own `__proto__` payload
+   * key is rejected loud, because Zod's record parser cannot preserve it
+   * and silent stripping is forbidden under I-006-1-03's no-collapse
+   * rationale (see the pre-guard on {@link EventEnvelopeSchema}). May
+   * carry the cross-cutting sourceEpoch + sourcePosition pair; the typed
+   * stamp shapes are Plan-006 T1.9's.
+   */
+  payload: Record<string, unknown>;
+  // Optional, NOT nullable (wire authority: `correlationId?: string`) —
+  // absent is the correlation pair's only no-value wire state; `actor`
+  // alone carries the null-for-system convention.
+  correlationId?: string | undefined;
+  causationId?: string | undefined;
+  /**
+   * Producer-set `"MAJOR.MINOR"` semver string, never numeric on the wire
+   * (`ADR-018 §Decision` #1): written by the emitting daemon at emit time,
+   * never copied from a received event (`ADR-018 §Decision` #2), and never
+   * rewritten on read — upcasters transform the in-memory representation
+   * at dispatch time only, so the log row's `.version` is part of the
+   * event's durable identity (`ADR-018 §Decision` #6;
+   * `Spec-006 §EventEnvelope Version Semantics`) (I-006-1-04). The
+   * {@link EventEnvelopeVersion} brand keeps unvalidated strings out.
+   */
+  version: EventEnvelopeVersion;
+}
+
+// --------------------------------------------------------------------------
+// Common envelope fields shared by EventEnvelopeSchema and every
+// SessionEvent variant.
+// --------------------------------------------------------------------------
+//
+// Defined as a shape factory (not a schema) so the envelope schema and each
+// variant can spread it — the envelope supplying the tolerant
+// `category`/`type`/`payload` trio, each variant supplying its own `type`
+// literal, its own literal `category`, and its own `payload`. Per Spec-001
+// § Data And Storage Changes the daemon assigns the persisted event id
+// (UUID v7 in current daemon code, but the wire contract per
+// `docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy` is opaque `id: string`
 // — no UUID-format invariant is asserted at the wire layer); `sequence` is
 // the canonical replay key per ADR-017.
 //
-// Note that `category` is NOT in `buildCommonShape()` — it must be a
-// literal-typed field per variant so the parser rejects category/type
-// mismatches (see Spec-006 §Canonical Serialization Rules).
+// Note that `category` is NOT in `buildCommonShape()` — the variants need
+// it literal-typed per variant so the parser rejects category/type
+// mismatches (see Spec-006 §Canonical Serialization Rules), while the
+// envelope binds it to the full canonical enum.
 //
 // The factory pattern is for stylistic consistency: the per-variant schema
 // declarations also need to be reproduced in the `discriminatedUnion` block
@@ -282,23 +399,6 @@ export const EVENT_FIELD_MAX_LEN = 256;
 // safe to share, so a shared `const` would also be correct; the factory
 // just makes accidental drift between the variant schemas and the union
 // branch schemas harder.)
-
-interface SessionEventCommonFields {
-  id: string;
-  sessionId: SessionId;
-  sequence: number;
-  occurredAt: string;
-  // `actor` is `string | null` per
-  // `docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy`
-  // (the `EventEnvelope` shape); the zod schema also makes it optional (key may be absent),
-  // so we match the inferred output: `actor?: string | null | undefined`.
-  // Empty string is rejected — a present-but-empty actor is a producer bug
-  // (a system event should send `null` or omit the key, not an empty string).
-  actor?: string | null | undefined;
-  correlationId?: string | undefined;
-  causationId?: string | undefined;
-  version: EventEnvelopeVersion;
-}
 
 const buildCommonShape = () => ({
   // `id`: opaque on the wire (no UUID-format invariant). The daemon assigns
@@ -331,6 +431,61 @@ const buildCommonShape = () => ({
   causationId: wireFreeFormString(EVENT_FIELD_MAX_LEN, "EventEnvelope.causationId").optional(),
   version: EventEnvelopeVersionSchema,
 });
+
+/**
+ * Runtime validator for the canonical {@link EventEnvelope} carrier —
+ * declares exactly the canonical 11-field set per
+ * `Spec-006 §Canonical Serialization Rules` (I-006-1-03); serialized order
+ * is mandated by RFC 8785 §3.2.3 UTF-16 code-unit lex-sort of member names
+ * per that section's amendment (this schema fixes MEMBERSHIP; Phase 2's
+ * canonicalizer produces the bytes). `version` remains the branded,
+ * producer-set {@link EventEnvelopeVersion} — never rewritten on read
+ * (`ADR-018 §Decision` #1, #2, #6;
+ * `Spec-006 §EventEnvelope Version Semantics`) (I-006-1-04).
+ */
+export const EventEnvelopeSchema: z.ZodType<EventEnvelope> = z
+  .object({
+    // id / sessionId / sequence / occurredAt / actor / correlationId /
+    // causationId / version — single-sourced with the SessionEvent
+    // variants below, so the carrier and the strict layer cannot drift on
+    // shared-field validation.
+    ...buildCommonShape(),
+    category: EventCategorySchema,
+    // Bounded free-form, NOT the census union (see the layering note
+    // above). Same wire guards as every free-form field — length cap,
+    // whitespace-only rejection, NUL rejection; all census literals pass.
+    type: wireFreeFormString(EVENT_FIELD_MAX_LEN, "EventEnvelope.type"),
+    // Open record behind a raw-input pre-guard: category-specific fields
+    // are validated by the strict layer; unknown keys from a higher-MINOR
+    // producer are preserved verbatim, never stripped — with ONE carve-out.
+    // Zod's record parser unconditionally SKIPS an own `__proto__` input
+    // key (anti-pollution hardening), so preserve-verbatim is impossible
+    // for that key, and the default outcome would be a silent drop: two
+    // distinct wire byte-strings collapsing to one parse output — the
+    // exact no-collapse hazard the `.strict()` note below forbids. The
+    // pre-guard therefore rejects an own `__proto__` payload key loud.
+    // It MUST inspect the raw pre-record value (superRefine BEFORE the
+    // .pipe into the record stage): a refine on the record's output can
+    // never see the already-dropped key.
+    payload: z
+      .unknown()
+      .superRefine((value, ctx) => {
+        if (typeof value === "object" && value !== null && Object.hasOwn(value, "__proto__")) {
+          ctx.addIssue({
+            code: "custom",
+            message:
+              "EventEnvelope.payload MUST NOT carry an own __proto__ key — the record parser cannot preserve it, and silent stripping is forbidden (I-006-1-03).",
+          });
+        }
+      })
+      .pipe(z.record(z.string(), z.unknown())),
+  })
+  // Top-level membership is CLOSED even though the carrier is otherwise
+  // tolerant — the canonical set is fixed (I-006-1-03), and stripping an
+  // unknown member silently would desync parse output from the hashed
+  // canonical bytes. `pii_payload` is the named non-member: a storage
+  // column, never an envelope field.
+  .strict();
 
 // --------------------------------------------------------------------------
 // Per-variant payload schemas — extracted as named consts to deduplicate
@@ -381,7 +536,16 @@ const channelCreatedPayloadSchema = z
 // plus the resolved config + metadata. The owner participant is conveyed via
 // the membership.created event that follows.
 
-export interface SessionCreatedEvent extends SessionEventCommonFields {
+// Variant interfaces extend the canonical EventEnvelope, narrowing the
+// tolerant `type` / `category` / `payload` members to the variant's
+// literals + typed payload. The subtype relation is compile-checked, with
+// scoped reach: ADDING or NARROWING an envelope member ripples into every
+// variant schema annotation as a type error, while REMOVING one compiles
+// clean (ZodType's output parameter is covariant, so a schema emitting an
+// extra property stays assignable to the shrunken interface) — the remove
+// direction is caught by the 11-key membership pin in the test suite
+// instead. Together they are the I-006-1-03 drift guard.
+export interface SessionCreatedEvent extends EventEnvelope {
   type: "session.created";
   category: "session_lifecycle";
   payload: {
@@ -403,7 +567,7 @@ export const SessionCreatedEventSchema: z.ZodType<SessionCreatedEvent> = z
 // membership.created — emitted when a participant is admitted to a session.
 // --------------------------------------------------------------------------
 
-export interface MembershipCreatedEvent extends SessionEventCommonFields {
+export interface MembershipCreatedEvent extends EventEnvelope {
   type: "membership.created";
   category: "membership_change";
   payload: {
@@ -426,7 +590,7 @@ export const MembershipCreatedEventSchema: z.ZodType<MembershipCreatedEvent> = z
 // channel.created — emitted when a session channel materializes.
 // --------------------------------------------------------------------------
 
-export interface ChannelCreatedEvent extends SessionEventCommonFields {
+export interface ChannelCreatedEvent extends EventEnvelope {
   type: "channel.created";
   category: "session_lifecycle";
   payload: {
