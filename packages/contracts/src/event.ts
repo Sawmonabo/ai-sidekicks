@@ -159,6 +159,21 @@ export const EVENT_ENVELOPE_VERSION_MAX_LEN = 64;
 export type EventEnvelopeVersion = string & {
   readonly __brand: "EventEnvelopeVersion";
 };
+/**
+ * Runtime validator for the branded {@link EventEnvelopeVersion} — the
+ * producer-set `"MAJOR.MINOR"` protocol version whose bump/stub/read rules
+ * live in `Spec-006 §EventEnvelope Version Semantics` (format per
+ * `ADR-018 §Decision` #1; see the section comment above). An out-of-range
+ * version is rejected at the version-floor gate and reader-side version
+ * negotiation (never by this format-and-length-only validator) as the
+ * shipped typed error contracts `VersionFloorExceededErrorSchema` /
+ * `VersionCeilingExceededErrorSchema` (error.ts): below-floor writes
+ * return `VERSION_FLOOR_EXCEEDED` per `ADR-018 §Decision` #4; join-time
+ * negotiation surfaces both `VERSION_FLOOR_EXCEEDED` and
+ * `VERSION_CEILING_EXCEEDED` per §Decision #10, which also mandates their
+ * registration ahead of the first Plan-001 emitter — both shipped by
+ * Plan-001 T2.3 and cross-linked here, not re-authored.
+ */
 export const EventEnvelopeVersionSchema: z.ZodType<EventEnvelopeVersion> = z
   .string()
   .max(EVENT_ENVELOPE_VERSION_MAX_LEN, {
@@ -316,7 +331,11 @@ export const EVENT_FIELD_MAX_LEN = 256;
  * the canonical bytes is mandated by RFC 8785 §3.2.3 UTF-16 code-unit
  * lex-sort of member names (the `Spec-006 §Canonical Serialization Rules`
  * amendment) — this declaration documents membership only; Phase 2's
- * canonicalizer owns byte production.
+ * canonicalizer owns byte production. Storage mirror: each canonical member
+ * maps to a `session_events` column in
+ * `local-sqlite-schema.md §Session Events (Plan-001, extended by Plans 006, 015)`,
+ * whose column comments mirror this envelope field-by-field (the Plan-006
+ * T1.7 bijection; storage-only columns are deliberately non-members).
  */
 export interface EventEnvelope {
   // Opaque on the wire — see the `id` note in `buildCommonShape()`.
