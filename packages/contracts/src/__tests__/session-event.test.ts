@@ -31,19 +31,46 @@
 //     NUL-byte rejection now uniform across all wire fields
 //   • Round 3 R2-5: channel.created.name length cap + whitespace + NUL
 //     guards (defense in depth, mirrors `IDENTITY_HANDLE_MAX_LEN`)
+//
+// Plan-006 T1.2 extends coverage with the SessionEventType census +
+// SESSION_EVENT_CATEGORY_BY_TYPE registry suite at the end of this file:
+// Spec-006 §Event Type Summary at the pre-B18 baseline (141 types / 19
+// categories), invariants I-006-1-01 (category/type bijection) and
+// I-006-1-02 (event-type-string immutability).
 import { describe, expect, it } from "vitest";
 
 import {
+  APPROVAL_FLOW_EVENT_TYPES,
+  ARTIFACT_PUBLICATION_EVENT_TYPES,
+  ASSISTANT_OUTPUT_EVENT_TYPES,
+  AUDIT_INTEGRITY_EVENT_TYPES,
+  CHANNEL_ARBITRATION_EVENT_TYPES,
   compareEventEnvelopeVersion,
+  CROSS_NODE_DISPATCH_EVENT_TYPES,
   EVENT_ENVELOPE_VERSION_MAX_LEN,
   EVENT_ENVELOPE_VERSION_PATTERN,
   EVENT_FIELD_MAX_LEN,
+  EVENT_MAINTENANCE_EVENT_TYPES,
   EventCategorySchema,
   EventEnvelopeVersionSchema,
+  INTERACTIVE_REQUEST_EVENT_TYPES,
+  MEMBERSHIP_CHANGE_EVENT_TYPES,
+  ONBOARDING_LIFECYCLE_EVENT_TYPES,
+  PARTICIPANT_LIFECYCLE_EVENT_TYPES,
+  POLICY_EVENTS_EVENT_TYPES,
+  RECOVERY_EVENTS_EVENT_TYPES,
+  RUN_LIFECYCLE_EVENT_TYPES,
+  RUNTIME_NODE_LIFECYCLE_EVENT_TYPES,
+  SECURITY_EVENTS_EVENT_TYPES,
   SESSION_EVENT_CATEGORY_BY_TYPE,
   SESSION_EVENT_TYPES,
+  SESSION_LIFECYCLE_EVENT_TYPES,
   SessionEventSchema,
+  TOOL_ACTIVITY_EVENT_TYPES,
+  USAGE_TELEMETRY_EVENT_TYPES,
+  type EventCategory,
   type SessionEvent,
+  type SessionEventType,
 } from "../event.js";
 import { CHANNEL_NAME_MAX_LEN } from "../session.js";
 
@@ -549,4 +576,192 @@ describe("compareEventEnvelopeVersion", () => {
     const reverse = compareEventEnvelopeVersion(parseVersion(right), parseVersion(left));
     expect(forward + reverse).toBe(0);
   });
+});
+
+// --------------------------------------------------------------------------
+// Plan-006 T1.2 — SessionEventType census + category registry.
+// --------------------------------------------------------------------------
+//
+// Backstops Spec-006 §Event Type Summary at the pre-B18 baseline (141 types
+// across 19 categories; the census table's post-B18 total is 156/20, and the
+// missing fifteen literals land with T1.10) plus the two Phase-1 invariants:
+//   • I-006-1-01 — category/type bijection: SESSION_EVENT_CATEGORY_BY_TYPE
+//     covers every registered type exactly once, its values span exactly
+//     the 19 canonical categories (every category non-empty), and the 19
+//     per-category arrays partition the census.
+//   • I-006-1-02 — event-type-string immutability: the three Plan-001 wire
+//     literals are unrenamed with unchanged categories, and the SCHEMA-
+//     registered payload subset stays exactly those three variants.
+// Assertions are exact-set style wherever set equality is feasible (the
+// hardened idiom of the EventCategorySchema pin above), with the
+// AC-verbatim size assertions (size === 141, 19 distinct categories)
+// alongside.
+
+// Expected census, transcribed from Spec-006 §Event Type Summary aggregated
+// per category at the pre-B18 baseline. Post-B18 census rows minus the B18
+// deltas: session_lifecycle 31−3=28 (session 12−3=9, channel/agent 7,
+// repo/workspace/worktree 11, pty 1); run_lifecycle 13−3=10;
+// interactive_request 16−1=15 (queue 5, intervention 6, driver ask 4, user
+// message 1−1=0); usage_telemetry 8−3=5; mcp_governance 5−5=0 (the category
+// itself is T1.10's). Every other census row is B18-untouched. Rows sum to
+// 141 (asserted below), mirroring the census table's Total row.
+const CENSUS_BASELINE: ReadonlyArray<
+  readonly [EventCategory, readonly SessionEventType[], number]
+> = [
+  ["run_lifecycle", RUN_LIFECYCLE_EVENT_TYPES, 10],
+  ["assistant_output", ASSISTANT_OUTPUT_EVENT_TYPES, 2],
+  ["tool_activity", TOOL_ACTIVITY_EVENT_TYPES, 7],
+  ["interactive_request", INTERACTIVE_REQUEST_EVENT_TYPES, 15],
+  ["artifact_publication", ARTIFACT_PUBLICATION_EVENT_TYPES, 6],
+  ["membership_change", MEMBERSHIP_CHANGE_EVENT_TYPES, 13],
+  ["session_lifecycle", SESSION_LIFECYCLE_EVENT_TYPES, 28],
+  ["approval_flow", APPROVAL_FLOW_EVENT_TYPES, 8],
+  ["usage_telemetry", USAGE_TELEMETRY_EVENT_TYPES, 5],
+  ["runtime_node_lifecycle", RUNTIME_NODE_LIFECYCLE_EVENT_TYPES, 9],
+  ["recovery_events", RECOVERY_EVENTS_EVENT_TYPES, 3],
+  ["participant_lifecycle", PARTICIPANT_LIFECYCLE_EVENT_TYPES, 5],
+  ["audit_integrity", AUDIT_INTEGRITY_EVENT_TYPES, 3],
+  ["security_events", SECURITY_EVENTS_EVENT_TYPES, 4],
+  ["event_maintenance", EVENT_MAINTENANCE_EVENT_TYPES, 3],
+  ["policy_events", POLICY_EVENTS_EVENT_TYPES, 2],
+  ["channel_arbitration", CHANNEL_ARBITRATION_EVENT_TYPES, 3],
+  ["onboarding_lifecycle", ONBOARDING_LIFECYCLE_EVENT_TYPES, 2],
+  ["cross_node_dispatch", CROSS_NODE_DISPATCH_EVENT_TYPES, 13],
+];
+
+// The fifteen 2026-07-22 B18 literals excluded from the baseline census.
+// They register in Plan-006 T1.10, which must invert these pins when it
+// lands the 141 → 156 / 19 → 20 widening. Deliberately typed as plain
+// strings — they are NOT SessionEventType members yet.
+const B18_PENDING_TYPES: readonly string[] = [
+  "session.provider_status",
+  "session.notice",
+  "session.renamed",
+  "run.provider_initialized",
+  "run.turn_started",
+  "run.worker_shutdown",
+  "usage.api_retry",
+  "usage.context_compacted",
+  "usage.model_rerouted",
+  "user.message",
+  "mcp.server_status_changed",
+  "mcp.server_config_changed",
+  "mcp.server_trust_changed",
+  "mcp.tool_override_changed",
+  "mcp.server_oauth_completed",
+];
+
+describe("SessionEventType census + SESSION_EVENT_CATEGORY_BY_TYPE registry (T1.2)", () => {
+  it("registers exactly 141 types across exactly 19 distinct categories (I-006-1-01 sizes)", () => {
+    expect(SESSION_EVENT_CATEGORY_BY_TYPE.size).toBe(141);
+    expect(new Set(SESSION_EVENT_CATEGORY_BY_TYPE.values()).size).toBe(19);
+  });
+
+  it("registry categories span exactly the canonical EventCategory set (no empty category)", () => {
+    // Exact-set against the T1.1 schema surface (same `.options` cast idiom
+    // as the EventCategorySchema pin above): the surjective side of the
+    // bijection — every canonical category has at least one registered type.
+    const schemaInternals = EventCategorySchema as unknown as { options: readonly string[] };
+    const registryCategories = [...new Set(SESSION_EVENT_CATEGORY_BY_TYPE.values())].sort();
+    expect(registryCategories).toEqual([...schemaInternals.options].sort());
+  });
+
+  it("census table is complete: 19 rows, one per category, counts summing to 141", () => {
+    const tableCategories = CENSUS_BASELINE.map(([category]) => category);
+    expect(tableCategories).toHaveLength(19);
+    expect(new Set(tableCategories).size).toBe(19);
+    const total = CENSUS_BASELINE.reduce((sum, [, , expectedCount]) => sum + expectedCount, 0);
+    expect(total).toBe(141);
+  });
+
+  it.each(CENSUS_BASELINE)(
+    "%s: per-category array equals the registry partition, count pinned to the Spec-006 census",
+    (category, categoryTypes, expectedCount) => {
+      // Census-row pin (Spec-006 §Event Type Summary, aggregated per
+      // category at the pre-B18 baseline).
+      expect(categoryTypes).toHaveLength(expectedCount);
+      // No intra-array duplicates: distinct-member count equals length.
+      expect(new Set(categoryTypes).size).toBe(expectedCount);
+      // Exact set equality vs the registry's keys filtered to this category
+      // — the I-006-1-01 anti-drift bind between arrays and registry. This
+      // also forces pairwise-disjoint arrays: each registry key carries
+      // exactly one category, so the 19 filtered key sets are disjoint.
+      const registryKeysInCategory = [...SESSION_EVENT_CATEGORY_BY_TYPE.entries()]
+        .filter(([, registeredCategory]) => registeredCategory === category)
+        .map(([eventType]) => eventType)
+        .sort();
+      expect([...categoryTypes].sort()).toEqual(registryKeysInCategory);
+    },
+  );
+
+  it("the 19 per-category arrays partition the registry key set exactly", () => {
+    const aggregated = CENSUS_BASELINE.flatMap(([, categoryTypes]) => [...categoryTypes]);
+    expect(aggregated).toHaveLength(141);
+    expect(new Set(aggregated).size).toBe(141);
+    expect([...aggregated].sort()).toEqual([...SESSION_EVENT_CATEGORY_BY_TYPE.keys()].sort());
+  });
+
+  it("keeps the three Plan-001 wire literals unrenamed with unchanged categories (I-006-1-02)", () => {
+    expect(SESSION_EVENT_CATEGORY_BY_TYPE.get("session.created")).toBe("session_lifecycle");
+    expect(SESSION_EVENT_CATEGORY_BY_TYPE.get("membership.created")).toBe("membership_change");
+    expect(SESSION_EVENT_CATEGORY_BY_TYPE.get("channel.created")).toBe("session_lifecycle");
+    // The census widening is additive-only: the SCHEMA-registered payload
+    // subset is untouched (exactly the three Plan-001 variants — the
+    // discriminated union grows only through the emitting plans'
+    // union-registration seam), and each subset member is census-registered.
+    expect(SESSION_EVENT_TYPES).toEqual([
+      "session.created",
+      "membership.created",
+      "channel.created",
+    ]);
+    for (const registered of SESSION_EVENT_TYPES) {
+      expect(SESSION_EVENT_CATEGORY_BY_TYPE.has(registered)).toBe(true);
+    }
+  });
+
+  it.each([
+    // Rows whose namespace prefix does NOT name their category — pinned
+    // against the spec sections so a future "cleanup" by namespace
+    // heuristic fails loud. The registry, never the prefix, is the
+    // category authority (name preservation for the `session.clock_*`
+    // pair per Spec-006 §Runtime Node Lifecycle; `key_reuse_detected`
+    // is a flat name with no namespace at all).
+    ["session.clock_unsynced", "runtime_node_lifecycle"],
+    ["session.clock_corrected", "runtime_node_lifecycle"],
+    ["daemon.master_key_source", "security_events"],
+    ["daemon.pii_split_ambiguous", "security_events"],
+    ["schema.migrated", "event_maintenance"],
+    ["moderation.review_flagged", "approval_flow"],
+    ["orchestration.rejected", "channel_arbitration"],
+    ["subagent.started", "tool_activity"],
+    ["pty.control_changed", "session_lifecycle"],
+    ["key_reuse_detected", "audit_integrity"],
+  ] as const)(
+    "category authority is the registry, not the namespace prefix: %s -> %s",
+    (eventType, expectedCategory) => {
+      expect(SESSION_EVENT_CATEGORY_BY_TYPE.get(eventType)).toBe(expectedCategory);
+    },
+  );
+
+  it("baseline census + pending B18 literals equal the Spec-006 post-B18 total of 156", () => {
+    // Completeness self-check for the B18_PENDING_TYPES fixture (the same
+    // row-sum bind CENSUS_BASELINE gets above): 141 registered + 15 distinct
+    // pending === 156, the Spec-006 §Event Type Summary post-B18 total — a
+    // silently dropped (or duplicated) pending entry fails here instead of
+    // leaving 14 passing pins.
+    expect(B18_PENDING_TYPES).toHaveLength(15);
+    expect(new Set(B18_PENDING_TYPES).size).toBe(15);
+    expect(SESSION_EVENT_CATEGORY_BY_TYPE.size + B18_PENDING_TYPES.length).toBe(156);
+  });
+
+  it.each([...B18_PENDING_TYPES])(
+    "pre-B18 baseline: %s is not yet registered (T1.10 lands the B18 fifteen)",
+    (pendingType) => {
+      // Same `as never` idiom as the prototype-walk pins above: the literal
+      // is deliberately outside today's SessionEventType union, so this
+      // both documents the T1.10 boundary and proves no B18 literal leaked
+      // into the baseline census.
+      expect(SESSION_EVENT_CATEGORY_BY_TYPE.get(pendingType as never)).toBeUndefined();
+    },
+  );
 });

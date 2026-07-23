@@ -657,9 +657,10 @@ export const RuntimeNodeRosterResponseSchema: z.ZodType<RuntimeNodeRosterRespons
 // / `EventType` union in event.ts, (b) the `EventEnvelope` integrity wrapper
 // (BLAKE3 hash chain + dual signature + RFC 8785 JCS), and (c) binding the
 // canonical `CapabilityDetails` over the interim-opaque capability fields. So the
-// names are still deliberately NOT added to event.ts's union here.
+// names now sit in event.ts's `SessionEventType` census (Plan-006 T1.2) but are
+// still deliberately NOT registered as `SessionEventSchema` payload variants here.
 //
-// Shape mirrors `SESSION_EVENT_TYPES` / `SessionEventType` (event.ts:405-413): a
+// Shape mirrors `SESSION_EVENT_TYPES` / `SessionEventType`: a
 // union type alias plus an explicitly-annotated `readonly [...]  as const` tuple.
 // The explicit `readonly RuntimeNodeEventName[]` annotation is required for
 // `isolatedDeclarations`, and `as const` freezes the literal element types so
