@@ -1326,6 +1326,404 @@ export const SESSION_EVENT_CATEGORY_BY_TYPE: ReadonlyMap<SessionEventType, Event
 );
 
 // --------------------------------------------------------------------------
+// NormalizedEventKind — surveyed-runtime normalized census + disposition
+// registry (Plan-006 T1.8).
+// --------------------------------------------------------------------------
+//
+// The provider drivers (Plan-005) normalize both provider wires into a
+// 35-kind normalized event vocabulary BEFORE the taxonomy maps each kind
+// onto the `SessionEventType` census. `EVENT_DISPOSITION_BY_KIND` below is
+// the machine-readable form of the Plan-006 §Event-Kind Disposition Table
+// census rows — the single source of disposition truth the Plan-005
+// T3.5/T3.10 normalizers (the B10 bundle) consume. Every kind resolves to
+// exactly one disposition under the no-silent-capability-loss default:
+// `adopt`/`rename` is the default, and every `correlate`/`discard` carries
+// a stated reason, so a capability-bearing kind is never dropped silently.
+//
+// Registry scope is the 35 CENSUS kinds only. The nine wire-level Claude
+// system-channel discards and the current-wire delta families in the same
+// plan table are the Plan-005 normalizer's wire layer, NOT registry keys —
+// the `worker_shutting_down` delta orphan foremost (the ninth B18 target;
+// its literal `run.worker_shutdown` closes via T1.10's union widening
+// alone). The unknown residual — a wire kind outside this census — is
+// backstopped at runtime by the Plan-005 normalizer's structured
+// default-branch diagnostic (B10), never by this registry.
+//
+// B18 pre-flip state: eight census kinds' exact `SessionEventType`
+// literals were minted by the 2026-07-22 Spec-006 B18 census amendment but
+// are not yet registered in this file's census union, so their entries
+// carry `typePending: "B18"` in place of `eventType`. Plan-006 T1.10 flips
+// each pending entry to its `eventType` in a strictly-later commit and
+// shrinks the test suite's pinned pending set to empty. The shrink-only
+// ratchet is a PAIR of guards in two files, each covering the other's
+// blind spot:
+//   • Registry side — __tests__/event-disposition.test.ts pins the pending
+//     set BY VALUE, so a registry flip that skips the test edit fails
+//     loud there. Registry and pin must move together, and the pin can
+//     only SHRINK as literals land.
+//   • Census side — __tests__/session-event.test.ts holds the 141-type /
+//     19-category size pins plus one negative control per B18-pending
+//     literal, so a census widening that skips the registry flip fails
+//     THERE, not in the disposition suite: an un-flipped entry is still a
+//     structurally valid `typePending` row, so every disposition
+//     assertion would stay green.
+// Until a pending kind's literal is registered, the Plan-005 normalizers
+// route it to the B10 diagnostic rather than constructing an envelope
+// against a missing type — no envelope, no silent drop.
+
+// The closed 35-kind normalized census, named per the `EventCategory` /
+// `SessionEventType` convention above. Blocks mirror the plan table's
+// Group column (14 + 3 + 1 + 6 + 4 + 2 + 1 + 4 = 35); within a block,
+// kinds follow table row order. Order is not load-bearing — the grouping
+// exists so reviewers can reconcile each block against its table rows.
+export type NormalizedEventKind =
+  // Inline timeline (14) — rows 1–14.
+  | "init"
+  | "text_delta"
+  | "tool_start"
+  | "tool_complete"
+  | "turn_start"
+  | "turn_complete"
+  | "approval_request"
+  | "approval_resolved"
+  | "user_input_request"
+  | "user_input_resolved"
+  | "session_status"
+  | "token_usage"
+  | "error"
+  | "todo_update"
+  // Task mirror (3) — rows 15–17.
+  | "task_create"
+  | "task_update"
+  | "notification"
+  // Transient retry (1) — row 18.
+  | "api_retry"
+  // System, no timeline row (6) — rows 19–24.
+  | "compact_boundary"
+  | "rate_limits"
+  | "model_rerouted"
+  | "thread_renamed"
+  | "content_block_start"
+  | "content_block_stop"
+  // Background/subagent (4) — rows 25–28.
+  | "background_task_terminal"
+  | "background_task_notification"
+  | "subagent_notification"
+  | "subagent_status"
+  // Codex process/terminal (2) — rows 29–30.
+  | "codex_exec_result"
+  | "terminal_interaction"
+  // Wire echo (1) — row 31.
+  | "user_text"
+  // Heavy, persisted (4) — rows 32–35.
+  | "diff"
+  | "command_output"
+  | "thinking"
+  | "proposed_plan";
+
+// The census as an iterable const tuple (same affordance as the
+// per-category `*_EVENT_TYPES` arrays above; same isolatedDeclarations-
+// clean annotation). The union keying of `EVENT_DISPOSITION_RECORD` below
+// already makes a MISSING kind a compile error; the runtime both-direction
+// set-equality check in __tests__/event-disposition.test.ts additionally
+// catches a tuple/union drift (this annotation admits any subset of the
+// union, so the tuple alone cannot prove completeness at compile time).
+export const NORMALIZED_EVENT_KINDS: readonly NormalizedEventKind[] = [
+  "init",
+  "text_delta",
+  "tool_start",
+  "tool_complete",
+  "turn_start",
+  "turn_complete",
+  "approval_request",
+  "approval_resolved",
+  "user_input_request",
+  "user_input_resolved",
+  "session_status",
+  "token_usage",
+  "error",
+  "todo_update",
+  "task_create",
+  "task_update",
+  "notification",
+  "api_retry",
+  "compact_boundary",
+  "rate_limits",
+  "model_rerouted",
+  "thread_renamed",
+  "content_block_start",
+  "content_block_stop",
+  "background_task_terminal",
+  "background_task_notification",
+  "subagent_notification",
+  "subagent_status",
+  "codex_exec_result",
+  "terminal_interaction",
+  "user_text",
+  "diff",
+  "command_output",
+  "thinking",
+  "proposed_plan",
+] as const;
+
+/**
+ * One row of the normalized-kind disposition registry — the
+ * machine-readable form of a Plan-006 §Event-Kind Disposition Table census
+ * row.
+ *
+ * A discriminated union whose arms make illegal states unrepresentable at
+ * the type level (the compiler enforces SHAPE; the Vitest suite verifies
+ * census CONTENT):
+ *   • `adopt`/`rename` entries name a canonical {@link EventCategory} and
+ *     carry EXACTLY ONE of `eventType` — a registered
+ *     {@link SessionEventType} census literal — or `typePending: "B18"`
+ *     (literal minted by the 2026-07-22 B18 census amendment, not yet
+ *     registered here; flipped to `eventType` by T1.10). The `?: never`
+ *     keys forbid both-present; the arm split forbids neither-present.
+ *     `eventType` names the row's PRIMARY target only — outcome-dependent
+ *     fan-out (`tool.error`, `approval.rejected` / `.expired` /
+ *     `.canceled`, `driver_ask.expired` / `.canceled`,
+ *     `subagent.completed`) is Plan-005 normalizer detail, not registry
+ *     data.
+ *   • `correlate`/`discard` entries carry only the non-empty `reason` —
+ *     the no-silent-capability-loss justification — and NO taxonomy
+ *     target: a correlate folds into an existing row via `correlation_id`
+ *     and a discard is consumed transiently, so neither maps onto the
+ *     census. `reason` is likewise forbidden on `adopt`/`rename` arms:
+ *     its contract role is justifying the two lossy dispositions, and a
+ *     taxonomy target needs no justification beyond itself.
+ *
+ * Every property on every arm is `readonly`: {@link EVENT_DISPOSITION_BY_KIND}
+ * hands out module-level shared singletons, and `ReadonlyMap` blocks `.set()`
+ * but not property writes on an entry it returned — so without this, one
+ * consumer's `entry.category = …` would corrupt disposition truth
+ * process-wide.
+ */
+export type EventKindDisposition =
+  | {
+      readonly disposition: "adopt" | "rename";
+      readonly category: EventCategory;
+      readonly eventType: SessionEventType;
+      readonly typePending?: never;
+      readonly reason?: never;
+    }
+  | {
+      readonly disposition: "adopt" | "rename";
+      readonly category: EventCategory;
+      readonly typePending: "B18";
+      readonly eventType?: never;
+      readonly reason?: never;
+    }
+  | {
+      readonly disposition: "correlate";
+      readonly reason: string;
+      readonly category?: never;
+      readonly eventType?: never;
+      readonly typePending?: never;
+    }
+  | {
+      readonly disposition: "discard";
+      readonly reason: string;
+      readonly category?: never;
+      readonly eventType?: never;
+      readonly typePending?: never;
+    };
+
+// Internal Record backing the exported ReadonlyMap — same idiom as
+// `SESSION_EVENT_CATEGORY_RECORD` above. The
+// `satisfies Record<NormalizedEventKind, EventKindDisposition>` check is
+// the compile-time totality leg: a census kind missing here, an
+// unregistered key, or a duplicate key is a compile error — and the
+// `EventKindDisposition` union arms reject an entry carrying both
+// `eventType` and `typePending`, either alongside a `reason`, or a
+// correlate/discard smuggling a taxonomy target. Entries mirror the plan
+// table's row order (blocks per its Group column; order is not
+// load-bearing). Fan-out notes ("fans to …") are Plan-005 T3.5/T3.10
+// normalizer detail — the registry names each row's PRIMARY target.
+const EVENT_DISPOSITION_RECORD = {
+  // Inline timeline (rows 1–14).
+  // Run-start marker: records the provider's OWN init report; the daemon's
+  // `run.*` state transitions stay daemon-emitted, never provider-init-
+  // mapped (pending literal: `run.provider_initialized`).
+  init: { disposition: "adopt", category: "run_lifecycle", typePending: "B18" },
+  text_delta: {
+    disposition: "adopt",
+    category: "assistant_output",
+    eventType: "assistant.message",
+  },
+  tool_start: { disposition: "adopt", category: "tool_activity", eventType: "tool.invoked" },
+  // Tool-lifecycle completion; a failure outcome fans to `tool.error`.
+  tool_complete: { disposition: "adopt", category: "tool_activity", eventType: "tool.result" },
+  // Turn boundary (pending literal: `run.turn_started`).
+  turn_start: { disposition: "adopt", category: "run_lifecycle", typePending: "B18" },
+  // Turn complete; `completionKind` turn-vs-task carve per the B1 taxonomy.
+  turn_complete: { disposition: "adopt", category: "run_lifecycle", eventType: "run.completed" },
+  // Permission ask.
+  approval_request: {
+    disposition: "adopt",
+    category: "interactive_request",
+    eventType: "driver_ask.requested",
+  },
+  // Approval resolution; fans by outcome to `approval.rejected` /
+  // `approval.expired` / `approval.canceled`.
+  approval_resolved: {
+    disposition: "adopt",
+    category: "approval_flow",
+    eventType: "approval.approved",
+  },
+  // Input ask (same driver-ask family as approval_request).
+  user_input_request: {
+    disposition: "adopt",
+    category: "interactive_request",
+    eventType: "driver_ask.requested",
+  },
+  // Driver-ask resolution; fans to `driver_ask.expired` /
+  // `driver_ask.canceled`.
+  user_input_resolved: {
+    disposition: "adopt",
+    category: "interactive_request",
+    eventType: "driver_ask.responded",
+  },
+  // Coarse provider status under the B18-pinned no-fabricated-transition
+  // rule: provider status observations never drive the nine `session.*`
+  // state transitions (pending literal: `session.provider_status`).
+  session_status: { disposition: "adopt", category: "session_lifecycle", typePending: "B18" },
+  token_usage: {
+    disposition: "adopt",
+    category: "usage_telemetry",
+    eventType: "usage.token_count",
+  },
+  // Run-failure envelope.
+  error: { disposition: "adopt", category: "run_lifecycle", eventType: "run.failed" },
+  // Todo-snapshot projection (TodoWrite-family result row).
+  todo_update: { disposition: "adopt", category: "tool_activity", eventType: "tool.result" },
+  // Task mirror (rows 15–17): per-task CRUD → per-thread task mirror →
+  // `todo_update` snapshots.
+  task_create: { disposition: "adopt", category: "tool_activity", eventType: "tool.result" },
+  task_update: { disposition: "adopt", category: "tool_activity", eventType: "tool.result" },
+  // Generic user-facing notice — the CODEX-FED census kind; the discarded
+  // Claude system-channel `notification` subtype is wire-layer, not a
+  // registry key (pending literal: `session.notice`).
+  notification: { disposition: "adopt", category: "session_lifecycle", typePending: "B18" },
+  // Transient retry (row 18): transient-retry record; the Claude
+  // `system.api_retry` typed-error enum (C-5) enriches this same kind —
+  // capability-bearing, never dropped (pending literal: `usage.api_retry`).
+  api_retry: { disposition: "adopt", category: "usage_telemetry", typePending: "B18" },
+  // System, no timeline row (rows 19–24).
+  // Provider context-window compaction — distinct from the daemon
+  // `event.compacted` retention pass (pending literal:
+  // `usage.context_compacted`).
+  compact_boundary: { disposition: "adopt", category: "usage_telemetry", typePending: "B18" },
+  // The Claude wire string `rate_limit_event` RENAMES onto `rate_limits`:
+  // an account-plane quota snapshot, never context-window telemetry.
+  rate_limits: {
+    disposition: "rename",
+    category: "usage_telemetry",
+    eventType: "usage.rate_limit_update",
+  },
+  // Mid-run model-reroute telemetry — capability-bearing (pending literal:
+  // `usage.model_rerouted`).
+  model_rerouted: { disposition: "adopt", category: "usage_telemetry", typePending: "B18" },
+  // Session/thread rename (pending literal: `session.renamed`).
+  thread_renamed: { disposition: "adopt", category: "session_lifecycle", typePending: "B18" },
+  content_block_start: {
+    disposition: "discard",
+    reason:
+      "streaming-structural envelope boundary; the wrapped text_delta kind carries the durable content — no separate timeline or persistence capability",
+  },
+  content_block_stop: {
+    disposition: "discard",
+    reason:
+      "paired streaming envelope boundary; same streaming-structural reason as content_block_start — the wrapped text_delta kind carries the durable content",
+  },
+  // Background/subagent (rows 25–28).
+  // Richer sibling completion; never replaces the tool-lifecycle
+  // completion row.
+  background_task_terminal: {
+    disposition: "adopt",
+    category: "tool_activity",
+    eventType: "subagent.completed",
+  },
+  // Non-lifecycle task notice; may carry a durable output-file path.
+  background_task_notification: {
+    disposition: "adopt",
+    category: "tool_activity",
+    eventType: "tool.result",
+  },
+  // Codex detached-child terminal injected into the parent's next turn.
+  subagent_notification: {
+    disposition: "adopt",
+    category: "tool_activity",
+    eventType: "subagent.completed",
+  },
+  // Subagent-lifecycle row / internal child-thread status; fans to
+  // `subagent.completed`.
+  subagent_status: {
+    disposition: "adopt",
+    category: "tool_activity",
+    eventType: "subagent.started",
+  },
+  // Codex process/terminal (rows 29–30).
+  // Raw exec-output signal — exited-during-wait vs
+  // yielded-with-resumable-session.
+  codex_exec_result: { disposition: "adopt", category: "tool_activity", eventType: "tool.result" },
+  // Stdin writes to a backgrounded PTY; non-empty stdin redacted from
+  // durable metadata.
+  terminal_interaction: {
+    disposition: "adopt",
+    category: "tool_activity",
+    eventType: "tool.invoked",
+  },
+  // Wire echo (row 31).
+  user_text: {
+    disposition: "correlate",
+    reason:
+      "correlation-only wire echo — folds into the originating app-sent user-message row via correlation_id (delivery confirmation of the pending send; no new persisted type); correlate target user.message (B18-minted 2026-07-22 — contracts registration rides T1.10; until then the echo routes to the Plan-005 normalizer default-branch diagnostic, never a silent drop)",
+  },
+  // Heavy, persisted (rows 32–35): payload persisted to SQLite; light
+  // meta to the client.
+  diff: { disposition: "adopt", category: "tool_activity", eventType: "tool.result" },
+  command_output: { disposition: "adopt", category: "tool_activity", eventType: "tool.result" },
+  thinking: {
+    disposition: "adopt",
+    category: "assistant_output",
+    eventType: "assistant.thinking_update",
+  },
+  // Plan proposal.
+  proposed_plan: {
+    disposition: "adopt",
+    category: "assistant_output",
+    eventType: "assistant.message",
+  },
+} satisfies Record<NormalizedEventKind, EventKindDisposition>;
+
+/**
+ * Machine-readable disposition registry over the 35 normalized census
+ * kinds — the Plan-006 §Event-Kind Disposition Table as data. The Plan-005
+ * T3.5/T3.10 normalizers (the B10 bundle) consume it as the single source
+ * of disposition truth; see the section comment above for scope (census
+ * kinds only, wire-layer discards and delta families excluded) and the
+ * B18 pre-flip `typePending` state.
+ *
+ * `ReadonlyMap` (NOT a plain object) for the same `.get()`-safety as
+ * {@link SESSION_EVENT_CATEGORY_BY_TYPE}: a normalizer passing an
+ * untrusted wire kind into `.get(kind)` resolves prototype-chain keys
+ * (`__proto__`, `constructor`, …) to `undefined`, never a truthy
+ * non-disposition value. (The backing Record above is module-internal and
+ * never looked up — it exists solely for the compile-time totality check.)
+ */
+export const EVENT_DISPOSITION_BY_KIND: ReadonlyMap<NormalizedEventKind, EventKindDisposition> =
+  new Map(
+    // Cast justified by the `satisfies` check above: the record's own
+    // enumerable keys are exactly the 35 NormalizedEventKind literals
+    // (totality + excess-property checks), so `Object.entries` narrowing
+    // from `[string, ...]` is sound.
+    Object.entries(EVENT_DISPOSITION_RECORD) as ReadonlyArray<
+      [NormalizedEventKind, EventKindDisposition]
+    >,
+  );
+
+// --------------------------------------------------------------------------
 // CapabilityDetails — canonical capability snapshot (Plan-006 T1.4).
 // --------------------------------------------------------------------------
 //
