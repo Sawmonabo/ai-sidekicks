@@ -314,8 +314,9 @@ function isWireErrorEnvelope(value: unknown): value is { code: string; message: 
 }
 
 // Never-throwing lossy fallback for values bare `String(...)` cannot render —
-// LOCAL DUPLICATE of the sibling original (CapabilityDeclaration.tsx:70-85;
-// that file does not export it, and it sits outside this task's file scope).
+// LOCAL DUPLICATE of the sibling original (the `lossyStringify` helper in
+// CapabilityDeclaration.tsx; that file does not export it, and it sits
+// outside this task's file scope).
 // Bare `String(...)` is NOT total: it runs ToPrimitive, which itself throws
 // for a null-prototype object — or null-prototype FUNCTION — carrying no
 // `toString`/`valueOf`/`Symbol.toPrimitive` (and a hostile throwing
@@ -400,8 +401,8 @@ export function MixedVersionStatus({
   // replaces it).
   let writeRefusalBlock: React.JSX.Element;
   if (writeAttemptRejection === null || writeAttemptRejection === undefined) {
-    // Explicit empty state (the CapabilityDeclaration empty-map register,
-    // CapabilityDeclaration.tsx:131-132 — "keeps the empty state
+    // Explicit empty state (the CapabilityDeclaration empty-map register —
+    // its `data-capability-count={0}` branch "keeps the empty state
     // machine-assertable for the T5.4 manual smoke"): a not-yet-refused write
     // is a meaningful fact kept machine-assertable for the smoke ahead of the
     // refusal leg, never silent blankness. `null` is the documented "none"

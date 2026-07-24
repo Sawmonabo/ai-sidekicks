@@ -27,14 +27,18 @@
 // FLAT event payload vs NESTED hydrate return (do not conflate)
 // --------------------------------------------------------------------------
 // The canonical `CapabilityDetails` (`docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy` — the
-// shape Plan-006 Tier 4 will bind over the currently interim-opaque
-// `capabilityDetails` / `previousState` / `newState` event payload fields) is
-// FLATTENED:
+// shape Plan-006 T1.4 bound over the previously interim-opaque
+// `capabilityDetails` / `previousState` / `newState` event payload fields, as
+// the canonical-first arm of a tolerant union — CP-003-1 leg (c)) is FLATTENED:
 //   { flags: Record<DriverCapabilityFlag, boolean>; contractVersion: string;
 //     tools: NormalizedProviderToolMetadata[] }
-// The EVENT payload carries the FLAT snapshot, so it validates when Plan-006
-// Tier 4 binds the canonical schema; carrying the NESTED `GetCapabilitiesResult`
-// in the event would later break that binding. By contrast `hydrate()` returns
+// The EVENT payload carries the FLAT snapshot, which already parses under the
+// T1.4-landed canonical-first arm at EMIT time (the emitter's
+// `RuntimeNodeCapability*PayloadSchema.parse`) and stays valid when Plan-006
+// Tier 4's `SessionEventSchema` union registration — CP-003-1 leg (a) — begins
+// validating these events. Carrying the NESTED `GetCapabilitiesResult` in the
+// event would miss the canonical arm at BOTH layers — accepted forever via the
+// tolerant record arm, never canonically typed. By contrast `hydrate()` returns
 // the NESTED `GetCapabilitiesResult` — `{ capabilities: { flags,
 // contractVersion }, tools }` — which is exactly what `ProviderRegistry.register`
 // consumes (`result.capabilities`). A single private `#snapshot(driverName)`
@@ -400,13 +404,14 @@ export class DriverCapabilitiesWriter {
         });
 
         // (4) EMIT — LAST, so a throwing emit rolls back the writes above. The
-        // FLAT snapshot is the event payload (so Plan-006 Tier 4's canonical
+        // FLAT snapshot is the event payload (so the T1.4-landed canonical
         // `CapabilityDetails` binding validates). The emitter input types are
         // `Record<string, unknown>`; the snapshot is a string-keyed object at
         // runtime, but a named interface does not auto-carry an index signature,
         // so the `as unknown as` widening is required (the same documented
-        // language-gap bridge as node-event-emitter.ts:351) — a SAFE
-        // specific→general widening, asserting nothing false.
+        // language-gap bridge as the `#appendRuntimeNodeEvent` payload cast in
+        // node-event-emitter.ts) — a SAFE specific→general widening, asserting
+        // nothing false.
         if (priorSnapshot === undefined) {
           this.#emitter.emitCapabilityDeclared({
             sessionId: input.sessionId,
