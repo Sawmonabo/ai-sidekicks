@@ -34,14 +34,18 @@
 //
 // Plan-006 T1.2 extends coverage with the SessionEventType census +
 // SESSION_EVENT_CATEGORY_BY_TYPE registry suite at the end of this file:
-// Spec-006 §Event Type Summary at the pre-B18 baseline (141 types / 19
-// categories), invariants I-006-1-01 (category/type bijection) and
+// Spec-006 §Event Type Summary at the post-B18 census (156 types across 20
+// categories — T1.2 registered 141/19 and T1.10 closed the B18 delta),
+// invariants I-006-1-01 (category/type bijection) and
 // I-006-1-02 (event-type-string immutability). Plan-006 T1.3 adds the
 // EventEnvelopeSchema canonical-carrier suite after it: the 11-member
 // canonical-set pin (I-006-1-03), envelope-vs-strict layering,
 // producer-set `version` semantics (I-006-1-04), and the payload
 // own-`__proto__` reject-loud carve-out (record parser cannot preserve
-// that key; silent stripping is forbidden). Plan-006 T1.4 appends the
+// that key; silent stripping is forbidden), which T1.10 extends with the
+// daemon-scope sentinel pin (Spec-006 §Daemon-Scope Event Binding And
+// Node-Scope Anchoring — the B18 `mcp_governance` binding costs the
+// carrier no carve-out). Plan-006 T1.4 appends the
 // `CapabilityDetailsSchema` suite last: the canonical capability snapshot
 // for the `runtime_node.capability_*` payload binding (exhaustive
 // enum-keyed flags; non-normalizing strict tools).
@@ -65,6 +69,7 @@ import {
   EventEnvelopeSchema,
   EventEnvelopeVersionSchema,
   INTERACTIVE_REQUEST_EVENT_TYPES,
+  MCP_GOVERNANCE_EVENT_TYPES,
   MEMBERSHIP_CHANGE_EVENT_TYPES,
   ONBOARDING_LIFECYCLE_EVENT_TYPES,
   PARTICIPANT_LIFECYCLE_EVENT_TYPES,
@@ -295,7 +300,7 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
     expect(result.success).toBe(false);
   });
 
-  it("EventCategorySchema enumerates exactly the 19 canonical categories (no more, no less)", () => {
+  it("EventCategorySchema enumerates exactly the 20 canonical categories (no more, no less)", () => {
     // Pinning the enum values prevents accidental drift from the canonical
     // EventCategory definition. If api-payload-contracts.md adds a category,
     // the spec edit must land before this list; the test will fail until
@@ -320,13 +325,14 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
       "channel_arbitration",
       "onboarding_lifecycle",
       "cross_node_dispatch",
+      "mcp_governance",
     ];
     // Read `.options` from the underlying enum construct. The schema is
     // typed as the abstract `z.ZodType<EventCategory>` so we cast via
     // `unknown` to read the construct-specific `.options` property; the
     // assertions below check both length AND exact set membership.
     const schemaInternals = EventCategorySchema as unknown as { options: readonly string[] };
-    expect(schemaInternals.options).toHaveLength(19);
+    expect(schemaInternals.options).toHaveLength(20);
     expect([...schemaInternals.options].sort()).toEqual([...expected].sort());
     for (const cat of expected) {
       expect(EventCategorySchema.safeParse(cat).success).toBe(true);
@@ -601,41 +607,47 @@ describe("compareEventEnvelopeVersion", () => {
 // Plan-006 T1.2 — SessionEventType census + category registry.
 // --------------------------------------------------------------------------
 //
-// Backstops Spec-006 §Event Type Summary at the pre-B18 baseline (141 types
-// across 19 categories; the census table's post-B18 total is 156/20, and the
-// missing fifteen literals land with T1.10) plus the two Phase-1 invariants:
+// Backstops Spec-006 §Event Type Summary at its full post-B18 census (156
+// types across 20 categories — T1.2 registered the 141/19 baseline, T1.10
+// closed the 2026-07-22 B18 delta of fifteen literals and the
+// `mcp_governance` category) plus the two Phase-1 invariants:
 //   • I-006-1-01 — category/type bijection: SESSION_EVENT_CATEGORY_BY_TYPE
 //     covers every registered type exactly once, its values span exactly
-//     the 19 canonical categories (every category non-empty), and the 19
+//     the 20 canonical categories (every category non-empty), and the 20
 //     per-category arrays partition the census.
 //   • I-006-1-02 — event-type-string immutability: the three Plan-001 wire
 //     literals are unrenamed with unchanged categories, and the SCHEMA-
-//     registered payload subset stays exactly those three variants.
+//     registered payload subset stays exactly those three variants. The
+//     B18 widening is additive-only: it renamed nothing, and every
+//     pre-B18 census row keeps its literal and category (pinned by the
+//     per-category counts below, which move ONLY on the five B18 rows).
 // Assertions are exact-set style wherever set equality is feasible (the
 // hardened idiom of the EventCategorySchema pin above), with the
-// AC-verbatim size assertions (size === 141, 19 distinct categories)
+// AC-verbatim size assertions (size === 156, 20 distinct categories)
 // alongside.
 
 // Expected census, transcribed from Spec-006 §Event Type Summary aggregated
-// per category at the pre-B18 baseline. Post-B18 census rows minus the B18
-// deltas: session_lifecycle 31−3=28 (session 12−3=9, channel/agent 7,
-// repo/workspace/worktree 11, pty 1); run_lifecycle 13−3=10;
-// interactive_request 16−1=15 (queue 5, intervention 6, driver ask 4, user
-// message 1−1=0); usage_telemetry 8−3=5; mcp_governance 5−5=0 (the category
-// itself is T1.10's). Every other census row is B18-untouched. Rows sum to
-// 141 (asserted below), mirroring the census table's Total row.
+// per category. Exactly five rows carry the 2026-07-22 B18 delta T1.10
+// landed: session_lifecycle 28→31 (session 9→12, channel/agent 7,
+// repo/workspace/worktree 11, pty 1); run_lifecycle 10→13;
+// interactive_request 15→16 (queue 5, intervention 6, driver ask 4, user
+// message 0→1); usage_telemetry 5→8; mcp_governance 0→5 (the category is
+// B18's own). Every OTHER row is B18-untouched at its T1.2 value — that
+// invariance is what makes the widening auditable as additive rather than a
+// reshuffle. Rows sum to 156 (asserted below), mirroring the census table's
+// Total row.
 const CENSUS_BASELINE: ReadonlyArray<
   readonly [EventCategory, readonly SessionEventType[], number]
 > = [
-  ["run_lifecycle", RUN_LIFECYCLE_EVENT_TYPES, 10],
+  ["run_lifecycle", RUN_LIFECYCLE_EVENT_TYPES, 13],
   ["assistant_output", ASSISTANT_OUTPUT_EVENT_TYPES, 2],
   ["tool_activity", TOOL_ACTIVITY_EVENT_TYPES, 7],
-  ["interactive_request", INTERACTIVE_REQUEST_EVENT_TYPES, 15],
+  ["interactive_request", INTERACTIVE_REQUEST_EVENT_TYPES, 16],
   ["artifact_publication", ARTIFACT_PUBLICATION_EVENT_TYPES, 6],
   ["membership_change", MEMBERSHIP_CHANGE_EVENT_TYPES, 13],
-  ["session_lifecycle", SESSION_LIFECYCLE_EVENT_TYPES, 28],
+  ["session_lifecycle", SESSION_LIFECYCLE_EVENT_TYPES, 31],
   ["approval_flow", APPROVAL_FLOW_EVENT_TYPES, 8],
-  ["usage_telemetry", USAGE_TELEMETRY_EVENT_TYPES, 5],
+  ["usage_telemetry", USAGE_TELEMETRY_EVENT_TYPES, 8],
   ["runtime_node_lifecycle", RUNTIME_NODE_LIFECYCLE_EVENT_TYPES, 9],
   ["recovery_events", RECOVERY_EVENTS_EVENT_TYPES, 3],
   ["participant_lifecycle", PARTICIPANT_LIFECYCLE_EVENT_TYPES, 5],
@@ -646,34 +658,43 @@ const CENSUS_BASELINE: ReadonlyArray<
   ["channel_arbitration", CHANNEL_ARBITRATION_EVENT_TYPES, 3],
   ["onboarding_lifecycle", ONBOARDING_LIFECYCLE_EVENT_TYPES, 2],
   ["cross_node_dispatch", CROSS_NODE_DISPATCH_EVENT_TYPES, 13],
+  ["mcp_governance", MCP_GOVERNANCE_EVENT_TYPES, 5],
 ];
 
-// The fifteen 2026-07-22 B18 literals excluded from the baseline census.
-// They register in Plan-006 T1.10, which must invert these pins when it
-// lands the 141 → 156 / 19 → 20 widening. Deliberately typed as plain
-// strings — they are NOT SessionEventType members yet.
-const B18_PENDING_TYPES: readonly string[] = [
-  "session.provider_status",
-  "session.notice",
-  "session.renamed",
-  "run.provider_initialized",
-  "run.turn_started",
-  "run.worker_shutdown",
-  "usage.api_retry",
-  "usage.context_compacted",
-  "usage.model_rerouted",
-  "user.message",
-  "mcp.server_status_changed",
-  "mcp.server_config_changed",
-  "mcp.server_trust_changed",
-  "mcp.tool_override_changed",
-  "mcp.server_oauth_completed",
+// The fifteen literals the 2026-07-22 Spec-006 B18 amendment minted, each
+// with the category it registered under. T1.10 INVERTED what this fixture
+// pins, exactly as its predecessor comment required: it held plain strings
+// asserted ABSENT from the census (the 141/19 baseline's forward boundary);
+// it now holds census members asserted PRESENT under a named category.
+//
+// The element type is load-bearing, not decoration. `SessionEventType` is
+// the census union itself, so a literal that failed to register — or that a
+// later edit renames, which I-006-1-02 forbids — is a COMPILE error under
+// `tsc -p tsconfig.test.json` (the package's `typecheck` leg; vitest strips
+// types and would not catch it). The runtime assertions below pin the
+// category half and the 141 + 15 = 156 arithmetic.
+const B18_MINTED_TYPES: ReadonlyArray<readonly [SessionEventType, EventCategory]> = [
+  ["session.provider_status", "session_lifecycle"],
+  ["session.notice", "session_lifecycle"],
+  ["session.renamed", "session_lifecycle"],
+  ["run.provider_initialized", "run_lifecycle"],
+  ["run.turn_started", "run_lifecycle"],
+  ["run.worker_shutdown", "run_lifecycle"],
+  ["usage.api_retry", "usage_telemetry"],
+  ["usage.context_compacted", "usage_telemetry"],
+  ["usage.model_rerouted", "usage_telemetry"],
+  ["user.message", "interactive_request"],
+  ["mcp.server_status_changed", "mcp_governance"],
+  ["mcp.server_config_changed", "mcp_governance"],
+  ["mcp.server_trust_changed", "mcp_governance"],
+  ["mcp.tool_override_changed", "mcp_governance"],
+  ["mcp.server_oauth_completed", "mcp_governance"],
 ];
 
 describe("SessionEventType census + SESSION_EVENT_CATEGORY_BY_TYPE registry (T1.2)", () => {
-  it("registers exactly 141 types across exactly 19 distinct categories (I-006-1-01 sizes)", () => {
-    expect(SESSION_EVENT_CATEGORY_BY_TYPE.size).toBe(141);
-    expect(new Set(SESSION_EVENT_CATEGORY_BY_TYPE.values()).size).toBe(19);
+  it("registers exactly 156 types across exactly 20 distinct categories (I-006-1-01 sizes)", () => {
+    expect(SESSION_EVENT_CATEGORY_BY_TYPE.size).toBe(156);
+    expect(new Set(SESSION_EVENT_CATEGORY_BY_TYPE.values()).size).toBe(20);
   });
 
   it("registry categories span exactly the canonical EventCategory set (no empty category)", () => {
@@ -685,26 +706,26 @@ describe("SessionEventType census + SESSION_EVENT_CATEGORY_BY_TYPE registry (T1.
     expect(registryCategories).toEqual([...schemaInternals.options].sort());
   });
 
-  it("census table is complete: 19 rows, one per category, counts summing to 141", () => {
+  it("census table is complete: 20 rows, one per category, counts summing to 156", () => {
     const tableCategories = CENSUS_BASELINE.map(([category]) => category);
-    expect(tableCategories).toHaveLength(19);
-    expect(new Set(tableCategories).size).toBe(19);
+    expect(tableCategories).toHaveLength(20);
+    expect(new Set(tableCategories).size).toBe(20);
     const total = CENSUS_BASELINE.reduce((sum, [, , expectedCount]) => sum + expectedCount, 0);
-    expect(total).toBe(141);
+    expect(total).toBe(156);
   });
 
   it.each(CENSUS_BASELINE)(
     "%s: per-category array equals the registry partition, count pinned to the Spec-006 census",
     (category, categoryTypes, expectedCount) => {
       // Census-row pin (Spec-006 §Event Type Summary, aggregated per
-      // category at the pre-B18 baseline).
+      // category at the post-B18 census).
       expect(categoryTypes).toHaveLength(expectedCount);
       // No intra-array duplicates: distinct-member count equals length.
       expect(new Set(categoryTypes).size).toBe(expectedCount);
       // Exact set equality vs the registry's keys filtered to this category
       // — the I-006-1-01 anti-drift bind between arrays and registry. This
       // also forces pairwise-disjoint arrays: each registry key carries
-      // exactly one category, so the 19 filtered key sets are disjoint.
+      // exactly one category, so the 20 filtered key sets are disjoint.
       const registryKeysInCategory = [...SESSION_EVENT_CATEGORY_BY_TYPE.entries()]
         .filter(([, registeredCategory]) => registeredCategory === category)
         .map(([eventType]) => eventType)
@@ -713,10 +734,10 @@ describe("SessionEventType census + SESSION_EVENT_CATEGORY_BY_TYPE registry (T1.
     },
   );
 
-  it("the 19 per-category arrays partition the registry key set exactly", () => {
+  it("the 20 per-category arrays partition the registry key set exactly", () => {
     const aggregated = CENSUS_BASELINE.flatMap(([, categoryTypes]) => [...categoryTypes]);
-    expect(aggregated).toHaveLength(141);
-    expect(new Set(aggregated).size).toBe(141);
+    expect(aggregated).toHaveLength(156);
+    expect(new Set(aggregated).size).toBe(156);
     expect([...aggregated].sort()).toEqual([...SESSION_EVENT_CATEGORY_BY_TYPE.keys()].sort());
   });
 
@@ -762,25 +783,42 @@ describe("SessionEventType census + SESSION_EVENT_CATEGORY_BY_TYPE registry (T1.
     },
   );
 
-  it("baseline census + pending B18 literals equal the Spec-006 post-B18 total of 156", () => {
-    // Completeness self-check for the B18_PENDING_TYPES fixture (the same
-    // row-sum bind CENSUS_BASELINE gets above): 141 registered + 15 distinct
-    // pending === 156, the Spec-006 §Event Type Summary post-B18 total — a
-    // silently dropped (or duplicated) pending entry fails here instead of
-    // leaving 14 passing pins.
-    expect(B18_PENDING_TYPES).toHaveLength(15);
-    expect(new Set(B18_PENDING_TYPES).size).toBe(15);
-    expect(SESSION_EVENT_CATEGORY_BY_TYPE.size + B18_PENDING_TYPES.length).toBe(156);
+  it("the census minus the B18 fifteen is exactly the 141-type T1.2 baseline", () => {
+    // Completeness self-check for the B18_MINTED_TYPES fixture (the same
+    // row-sum bind CENSUS_BASELINE gets above), re-formed for the post-flip
+    // state: the pre-B18 arithmetic was `141 registered + 15 absent = 156`;
+    // now that all fifteen ARE registered it runs the other way, `156 − 15
+    // = 141`, pinning the delta's SIZE so the widening cannot be over- or
+    // under-counted. A dropped or duplicated fixture entry fails here
+    // instead of leaving 14 passing per-literal pins.
+    expect(B18_MINTED_TYPES).toHaveLength(15);
+    expect(new Set(B18_MINTED_TYPES.map(([eventType]) => eventType)).size).toBe(15);
+    expect(SESSION_EVENT_CATEGORY_BY_TYPE.size - B18_MINTED_TYPES.length).toBe(141);
+    // Removing the fifteen leaves exactly 141 keys — the T1.2 baseline
+    // SIZE. This is a cardinality bind, not an identity one: a rename
+    // edited in both the record and its per-category array would still
+    // land on 141. Additive-only (I-006-1-02) is pinned by name elsewhere
+    // — the three Plan-001 literals and the ten prefix-mismatch rows below,
+    // plus CENSUS_BASELINE's per-category counts, where only the five
+    // B18-touched rows moved.
+    const minted = new Set<string>(B18_MINTED_TYPES.map(([eventType]) => eventType));
+    const remaining = [...SESSION_EVENT_CATEGORY_BY_TYPE.keys()].filter(
+      (eventType) => !minted.has(eventType),
+    );
+    expect(remaining).toHaveLength(141);
   });
 
-  it.each([...B18_PENDING_TYPES])(
-    "pre-B18 baseline: %s is not yet registered (T1.10 lands the B18 fifteen)",
-    (pendingType) => {
-      // Same `as never` idiom as the prototype-walk pins above: the literal
-      // is deliberately outside today's SessionEventType union, so this
-      // both documents the T1.10 boundary and proves no B18 literal leaked
-      // into the baseline census.
-      expect(SESSION_EVENT_CATEGORY_BY_TYPE.get(pendingType as never)).toBeUndefined();
+  it.each([...B18_MINTED_TYPES])(
+    "B18-minted literal %s is registered under %s (T1.10 census closure)",
+    (mintedType, expectedCategory) => {
+      // The inversion of this suite's pre-flip pins: each of the fifteen
+      // was asserted ABSENT from the 141-type baseline; each is now
+      // asserted PRESENT under the category Spec-006 §Event Type Summary
+      // assigns it. One `.get()` proves both halves — an unregistered
+      // literal returns `undefined`, and a literal registered under the
+      // wrong category returns the wrong value. (The element type already
+      // proved registration at COMPILE time; this adds the category.)
+      expect(SESSION_EVENT_CATEGORY_BY_TYPE.get(mintedType)).toBe(expectedCategory);
     },
   );
 });
@@ -891,19 +929,71 @@ describe("EventEnvelopeSchema — canonical carrier (T1.3)", () => {
   });
 
   it("accepts a census-UNKNOWN forward type (ADR-018 §Decision #5/#8/#9 accept-and-stub)", () => {
-    // `session.renamed` is a B18-pending literal — outside today's census
-    // union entirely. A reader must be able to parse the ENVELOPE (to
-    // persist it as a version stub) even though no layer above can
-    // interpret it yet; rejecting here would drop exactly the events the
-    // stub path exists to preserve.
+    // A reader must be able to parse the ENVELOPE (to persist it as a
+    // version stub) for a type from a NEWER producer that this build's
+    // census does not know at all — rejecting here would drop exactly the
+    // events the stub path exists to preserve.
+    //
+    // The literal is deliberately fictional (the `session.exploded` idiom
+    // used by the unknown-discriminator pin above), and its absence from
+    // the census is asserted MECHANICALLY rather than asserted in prose.
+    // That guard is the point: this test previously used `session.renamed`
+    // — then a B18-pending literal — and T1.10's census closure registered
+    // it, which would have left the test green while its stated premise
+    // ("outside today's census union entirely") had quietly become false.
+    // A census-registered literal exercises the layering pin above, not
+    // this one.
+    const forwardType = "session.teleported";
+    expect(SESSION_EVENT_CATEGORY_BY_TYPE.get(forwardType as never)).toBeUndefined();
     const forward = {
       ...buildBareEnvelope(),
       category: "session_lifecycle" as const,
-      type: "session.renamed",
-      payload: { sessionId: SESSION_ID, name: "renamed", origin: "provider" },
+      type: forwardType,
+      payload: { sessionId: SESSION_ID, destination: "elsewhere" },
     };
     expect(EventEnvelopeSchema.safeParse(forward).success).toBe(true);
     expect(SessionEventSchema.safeParse(forward).success).toBe(false);
+  });
+
+  it("carries the daemon-scope sentinel with no schema carve-out (B18 mcp_governance)", () => {
+    // Spec-006 §Daemon-Scope Event Binding And Node-Scope Anchoring binds
+    // the four node-scope `mcp_governance` types to the RFC 9562 §5.10 Max
+    // UUID sentinel, with a session-scoped initiator living in the payload
+    // as `initiatingSessionId` — never in the row's own `sessionId`.
+    // Choosing the sentinel is a producer obligation; what makes it FREE at
+    // this layer is that the `sessionId` UUID check already admits the Max
+    // UUID IN ITS CANONICAL LOWERCASE FORM, so no sentinel branch and no
+    // widened field type are needed. The case qualifier is load-bearing:
+    // Zod's unversioned uuid regex reaches the Max UUID only through a
+    // lowercase string-literal alternative carrying no `i` flag, and the
+    // general alternative demands a `[1-8]` version nibble that `f` fails —
+    // so `FFFFFFFF-…` is REJECTED even though RFC 9562 §4 makes UUID text
+    // case-insensitive. The producer obligation for Plan-028 is therefore
+    // "emit the sentinel lowercase," not merely "emit the sentinel." No
+    // uppercase-rejection assertion is pinned here on purpose: that would
+    // freeze a Zod regex quirk, and a future Zod case-handling fix would
+    // turn the pin red for a fix rather than a regression.
+    // Pinning the Max-UUID acceptance means a future tightening of that
+    // check (a v4-only constraint, say) fails HERE rather than silently
+    // making every node-scope governance event unrepresentable on the wire.
+    // The sentinel is deliberately disjoint from the `gen_random_uuid()` v4
+    // space real sessions draw from, so a sentinel-partitioned chain cannot
+    // collide with a real session's. The payload carries only
+    // `initiatingSessionId` — Spec-028 owns the rest of the governance
+    // payload shape, and the carrier treats `payload` as opaque anyway.
+    const DAEMON_SCOPE_SENTINEL = "ffffffff-ffff-ffff-ffff-ffffffffffff";
+    const nodeScopeGovernanceEvent = {
+      ...buildBareEnvelope(),
+      sessionId: DAEMON_SCOPE_SENTINEL,
+      category: "mcp_governance" as const,
+      type: "mcp.server_config_changed",
+      payload: { initiatingSessionId: SESSION_ID },
+    };
+    const parsed = EventEnvelopeSchema.safeParse(nodeScopeGovernanceEvent);
+    expect(parsed.success).toBe(true);
+    // The sentinel survives the parse verbatim: it lands in the canonical
+    // bytes like any other `sessionId`, never normalized or nulled away.
+    expect(parsed.success && parsed.data.sessionId).toBe(DAEMON_SCOPE_SENTINEL);
   });
 
   it.each([

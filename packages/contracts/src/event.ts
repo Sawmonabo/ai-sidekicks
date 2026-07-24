@@ -11,10 +11,10 @@
 // The discriminated-union `SessionEvent` discriminates on the wire `type`
 // string. Adding a new variant later is additive per ADR-018 §Decision #8
 // (new event types allowed under a MINOR version bump). The full taxonomy
-// from Spec-006 §Event Type Enumeration is registered below at the pre-B18
-// baseline (Plan-006 T1.2): `SessionEventType` (141 literals), the
-// per-category `*_EVENT_TYPES` arrays, and `SESSION_EVENT_CATEGORY_BY_TYPE`
-// (19 categories). Payload variants remain intentionally a strict subset —
+// from Spec-006 §Event Type Enumeration is registered below at the post-B18
+// census (Plan-006 T1.2, closed by T1.10): `SessionEventType` (156 literals),
+// the per-category `*_EVENT_TYPES` arrays, and `SESSION_EVENT_CATEGORY_BY_TYPE`
+// (20 categories). Payload variants remain intentionally a strict subset —
 // each is owned by its emitting plan and joins `SessionEventSchema` through
 // the union-registration seam (CP-009-4 / CP-010-5 / CP-012-2 / CP-016-3
 // class) — so census membership is type registration, not payload support.
@@ -68,9 +68,10 @@ import {
 // --------------------------------------------------------------------------
 //
 // Mirrors the EventCategory registry in `docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy`
-// (20 categories per Spec-006 §Event Type Summary post-B18). Code ships 19:
-// the 16-category V1 set plus `channel_arbitration`, `onboarding_lifecycle`,
-// `cross_node_dispatch` (Plan-006 T1.1); `mcp_governance` lands in T1.10 (B18).
+// (20 categories per Spec-006 §Event Type Summary post-B18). Code ships all
+// 20: the 16-category V1 set plus `channel_arbitration`,
+// `onboarding_lifecycle`, `cross_node_dispatch` (Plan-006 T1.1) and
+// `mcp_governance` (Plan-006 T1.10, closing the 2026-07-22 B18 amendment).
 // `Spec-006 §Canonical Serialization Rules` specifies that `category` participates in the canonical-bytes
 // computation that backs the integrity protocol's BLAKE3 hash chain and
 // Ed25519 signature; producers MUST emit the category that matches the type's
@@ -108,7 +109,8 @@ export type EventCategory =
   | "policy_events"
   | "channel_arbitration"
   | "onboarding_lifecycle"
-  | "cross_node_dispatch";
+  | "cross_node_dispatch"
+  | "mcp_governance";
 export const EventCategorySchema: z.ZodType<EventCategory> = z.enum([
   "run_lifecycle",
   "assistant_output",
@@ -129,6 +131,7 @@ export const EventCategorySchema: z.ZodType<EventCategory> = z.enum([
   "channel_arbitration",
   "onboarding_lifecycle",
   "cross_node_dispatch",
+  "mcp_governance",
 ]);
 
 // --------------------------------------------------------------------------
@@ -931,20 +934,20 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
 // SessionEventType — the canonical event-type census (Plan-006 T1.2).
 // --------------------------------------------------------------------------
 //
-// All 141 wire `type` strings from Spec-006 §Event Type Enumeration at the
-// pre-B18 baseline. `Spec-006 §Event Type Summary` counts 156 types across
-// 20 categories post-B18; the fifteen 2026-07-22 B18 literals — three
-// provider-surface `session.*`, three forward `run.*`, three `usage.*`,
-// `user.message`, and the five `mcp.*` under the `mcp_governance` category
-// — land with Plan-006 T1.10, not here.
+// Every wire `type` string from Spec-006 §Event Type Enumeration is
+// registered below. The post-B18 census in `Spec-006 §Event Type Summary`
+// is 156 types across 20 categories. The fifteen minted by the 2026-07-22
+// B18 amendment — three provider-surface `session.*`, three forward,
+// non-state `run.*`, three `usage.*`, `user.message`, and the five `mcp.*`
+// under the `mcp_governance` category — were registered here by T1.10.
 //
 // Two Plan-006 §Invariants govern this block:
 //   • I-006-1-01 — category/type bijection: every type belongs to exactly
-//     one category, `SESSION_EVENT_CATEGORY_BY_TYPE` covers all 141 types,
-//     and its values span all 19 shipped categories. The type-level leg is
+//     one category, `SESSION_EVENT_CATEGORY_BY_TYPE` covers all 156 types,
+//     and its values span all 20 shipped categories. The type-level leg is
 //     the `satisfies Record<SessionEventType, EventCategory>` totality
 //     check below (missing, unknown, or duplicate keys are compile
-//     errors); the runtime leg (size === 141, 19 distinct categories,
+//     errors); the runtime leg (size === 156, 20 distinct categories,
 //     per-category partition) lives in __tests__/session-event.test.ts.
 //   • I-006-1-02 — event-type-string immutability: type strings are
 //     immutable wire identifiers (`Spec-006 §Canonical Serialization Rules`;
@@ -968,8 +971,9 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
 // `event_maintenance`, `moderation.review_flagged` is `approval_flow`, and
 // `orchestration.rejected` is `channel_arbitration`.
 export type SessionEventType =
-  // run_lifecycle (10) — Spec-006 §Run Lifecycle: the nine Run State
-  // Machine states + the B1 forward, non-terminal rollback event.
+  // run_lifecycle (13) — Spec-006 §Run Lifecycle: the nine Run State
+  // Machine states, the B1 forward non-terminal rollback event, and the
+  // three B18 forward, non-state rows (T1.10).
   | "run.queued"
   | "run.starting"
   | "run.running"
@@ -980,6 +984,9 @@ export type SessionEventType =
   | "run.interrupted"
   | "run.failed"
   | "run.rolled_back"
+  | "run.provider_initialized"
+  | "run.turn_started"
+  | "run.worker_shutdown"
   // assistant_output (2) — Spec-006 §Assistant Output.
   | "assistant.message"
   | "assistant.thinking_update"
@@ -992,8 +999,10 @@ export type SessionEventType =
   | "tool.skipped_during_recovery"
   | "subagent.started"
   | "subagent.completed"
-  // interactive_request (15) — Spec-006 §Queue and Intervention: queue (5)
-  // + intervention (6) + B1 driver-ask (4) subfamilies.
+  // interactive_request (16) — Spec-006 §Queue and Intervention: queue (5)
+  // + intervention (6) + B1 driver-ask (4) subfamilies, plus the B18
+  // `user.message` row from Spec-006 §User Message Events, registered here
+  // by T1.10.
   | "queue_item.created"
   | "queue_item.admitted"
   | "queue_item.superseded"
@@ -1009,6 +1018,7 @@ export type SessionEventType =
   | "driver_ask.responded"
   | "driver_ask.expired"
   | "driver_ask.canceled"
+  | "user.message"
   // artifact_publication (6) — Spec-006 §Artifact and Diff Publication.
   | "artifact.published"
   | "artifact.visibility_updated"
@@ -1031,9 +1041,9 @@ export type SessionEventType =
   | "presence.idle"
   | "presence.reconnecting"
   | "presence.offline"
-  // session_lifecycle (28) — Spec-006 §Session Lifecycle (9, pre-B18) +
-  // §Channel and Agent Lifecycle (7) + §Repo, Workspace, and Worktree
-  // Lifecycle (11) + §PTY Control (1).
+  // session_lifecycle (31) — Spec-006 §Session Lifecycle (12, incl. the
+  // three B18 rows) + §Channel and Agent Lifecycle (7) + §Repo, Workspace,
+  // and Worktree Lifecycle (11) + §PTY Control (1).
   | "session.created"
   | "session.activated"
   | "session.archived"
@@ -1043,6 +1053,9 @@ export type SessionEventType =
   | "session.purged"
   | "session.goal_updated"
   | "session.goal_cleared"
+  | "session.provider_status"
+  | "session.notice"
+  | "session.renamed"
   | "channel.created"
   | "channel.muted"
   | "channel.unmuted"
@@ -1072,13 +1085,17 @@ export type SessionEventType =
   | "approval.remembered"
   | "approval.rule_revoked"
   | "moderation.review_flagged"
-  // usage_telemetry (5) — Spec-006 §Usage Telemetry (pre-B18: three
-  // metered updates + budget warning + account-plane rate-limit snapshot).
+  // usage_telemetry (8) — Spec-006 §Usage Telemetry: three metered updates
+  // + budget warning + account-plane rate-limit snapshot + the three B18
+  // rows (T1.10).
   | "usage.token_count"
   | "usage.cost_update"
   | "usage.context_window_update"
   | "usage.budget_warning"
   | "usage.rate_limit_update"
+  | "usage.api_retry"
+  | "usage.context_compacted"
+  | "usage.model_rerouted"
   // runtime_node_lifecycle (9) — Spec-006 §Runtime Node Lifecycle: seven
   // `runtime_node.*` + the two name-preserved `session.clock_*` events.
   | "runtime_node.registered"
@@ -1138,15 +1155,24 @@ export type SessionEventType =
   | "dispatch.expired"
   | "dispatch.result_buffered"
   | "dispatch.approval_observed"
-  | "dispatch.result_observed";
+  | "dispatch.result_observed"
+  // mcp_governance (5) — Spec-006 §MCP Governance, the B18 category minted
+  // 2026-07-22 as the audit surface of V1 feature #18. Emission, payload
+  // semantics, and authorization are Spec-028/Plan-028's; this census owns
+  // registration only.
+  | "mcp.server_status_changed"
+  | "mcp.server_config_changed"
+  | "mcp.server_trust_changed"
+  | "mcp.tool_override_changed"
+  | "mcp.server_oauth_completed";
 
 // The SCHEMA-registered V1 subset — the three types whose payload variants
 // are registered in `SessionEventSchema` above — NOT the taxonomy census
-// (that is `SESSION_EVENT_CATEGORY_BY_TYPE`, whose keys iterate all 141
+// (that is `SESSION_EVENT_CATEGORY_BY_TYPE`, whose keys iterate all 156
 // registered types). The `SessionEvent["type"]` element annotation binds
 // membership to the schema union at COMPILE time: a census literal without
 // a registered payload variant is rejected here (a plain
-// `SessionEventType` annotation would admit any of the 141), and the
+// `SessionEventType` annotation would admit any of the 156), and the
 // admissible set widens automatically as emitting plans land variants
 // through the union-registration seam. Exposed as a const tuple so
 // consumers can iterate the registered payload variants without re-parsing
@@ -1166,7 +1192,7 @@ export const SESSION_EVENT_TYPES: readonly SessionEvent["type"][] = [
 // mechanically derivable from the category string (which is why the
 // `*_events` categories read `..._EVENTS_EVENT_TYPES`). Each array's member
 // set MUST equal `SESSION_EVENT_CATEGORY_BY_TYPE`'s keys filtered to that
-// category, and the 19 arrays partition the 141-type census (I-006-1-01) —
+// category, and the 20 arrays partition the 156-type census (I-006-1-01) —
 // both asserted per-category in __tests__/session-event.test.ts. Explicit
 // `readonly SessionEventType[]` annotations keep the exported surface
 // `--isolatedDeclarations`-clean, matching `SESSION_EVENT_TYPES` above.
@@ -1182,6 +1208,9 @@ export const RUN_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
   "run.interrupted",
   "run.failed",
   "run.rolled_back",
+  "run.provider_initialized",
+  "run.turn_started",
+  "run.worker_shutdown",
 ] as const;
 
 export const ASSISTANT_OUTPUT_EVENT_TYPES: readonly SessionEventType[] = [
@@ -1215,6 +1244,7 @@ export const INTERACTIVE_REQUEST_EVENT_TYPES: readonly SessionEventType[] = [
   "driver_ask.responded",
   "driver_ask.expired",
   "driver_ask.canceled",
+  "user.message",
 ] as const;
 
 export const ARTIFACT_PUBLICATION_EVENT_TYPES: readonly SessionEventType[] = [
@@ -1242,8 +1272,8 @@ export const MEMBERSHIP_CHANGE_EVENT_TYPES: readonly SessionEventType[] = [
   "presence.offline",
 ] as const;
 
-// Four Spec-006 subsections flattened in spec order: session (9, pre-B18),
-// channel/agent (7), repo/workspace/worktree (11), pty (1).
+// Four Spec-006 subsections flattened in spec order: session (12, incl. the
+// three B18 rows), channel/agent (7), repo/workspace/worktree (11), pty (1).
 export const SESSION_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
   "session.created",
   "session.activated",
@@ -1254,6 +1284,9 @@ export const SESSION_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
   "session.purged",
   "session.goal_updated",
   "session.goal_cleared",
+  "session.provider_status",
+  "session.notice",
+  "session.renamed",
   "channel.created",
   "channel.muted",
   "channel.unmuted",
@@ -1292,6 +1325,9 @@ export const USAGE_TELEMETRY_EVENT_TYPES: readonly SessionEventType[] = [
   "usage.context_window_update",
   "usage.budget_warning",
   "usage.rate_limit_update",
+  "usage.api_retry",
+  "usage.context_compacted",
+  "usage.model_rerouted",
 ] as const;
 
 // Includes the two name-preserved `session.clock_*` events — category
@@ -1374,6 +1410,17 @@ export const CROSS_NODE_DISPATCH_EVENT_TYPES: readonly SessionEventType[] = [
   "dispatch.result_observed",
 ] as const;
 
+// The B18 category (Spec-006 §MCP Governance). Four of the five bind to the
+// daemon-scope sentinel; `mcp.server_status_changed` binds per-event — see
+// Spec-006 §Daemon-Scope Event Binding And Node-Scope Anchoring.
+export const MCP_GOVERNANCE_EVENT_TYPES: readonly SessionEventType[] = [
+  "mcp.server_status_changed",
+  "mcp.server_config_changed",
+  "mcp.server_trust_changed",
+  "mcp.tool_override_changed",
+  "mcp.server_oauth_completed",
+] as const;
+
 // --------------------------------------------------------------------------
 // SESSION_EVENT_CATEGORY_BY_TYPE — canonical type → category registry.
 // --------------------------------------------------------------------------
@@ -1386,7 +1433,7 @@ export const CROSS_NODE_DISPATCH_EVENT_TYPES: readonly SessionEventType[] = [
 // category-block order (same reconciliation affordance; order is not
 // load-bearing).
 const SESSION_EVENT_CATEGORY_RECORD = {
-  // run_lifecycle (10)
+  // run_lifecycle (13)
   "run.queued": "run_lifecycle",
   "run.starting": "run_lifecycle",
   "run.running": "run_lifecycle",
@@ -1397,6 +1444,9 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "run.interrupted": "run_lifecycle",
   "run.failed": "run_lifecycle",
   "run.rolled_back": "run_lifecycle",
+  "run.provider_initialized": "run_lifecycle",
+  "run.turn_started": "run_lifecycle",
+  "run.worker_shutdown": "run_lifecycle",
   // assistant_output (2)
   "assistant.message": "assistant_output",
   "assistant.thinking_update": "assistant_output",
@@ -1408,7 +1458,7 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "tool.skipped_during_recovery": "tool_activity",
   "subagent.started": "tool_activity",
   "subagent.completed": "tool_activity",
-  // interactive_request (15)
+  // interactive_request (16)
   "queue_item.created": "interactive_request",
   "queue_item.admitted": "interactive_request",
   "queue_item.superseded": "interactive_request",
@@ -1424,6 +1474,7 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "driver_ask.responded": "interactive_request",
   "driver_ask.expired": "interactive_request",
   "driver_ask.canceled": "interactive_request",
+  "user.message": "interactive_request",
   // artifact_publication (6)
   "artifact.published": "artifact_publication",
   "artifact.visibility_updated": "artifact_publication",
@@ -1445,7 +1496,7 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "presence.idle": "membership_change",
   "presence.reconnecting": "membership_change",
   "presence.offline": "membership_change",
-  // session_lifecycle (28)
+  // session_lifecycle (31)
   "session.created": "session_lifecycle",
   "session.activated": "session_lifecycle",
   "session.archived": "session_lifecycle",
@@ -1455,6 +1506,9 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "session.purged": "session_lifecycle",
   "session.goal_updated": "session_lifecycle",
   "session.goal_cleared": "session_lifecycle",
+  "session.provider_status": "session_lifecycle",
+  "session.notice": "session_lifecycle",
+  "session.renamed": "session_lifecycle",
   "channel.created": "session_lifecycle",
   "channel.muted": "session_lifecycle",
   "channel.unmuted": "session_lifecycle",
@@ -1483,12 +1537,15 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "approval.remembered": "approval_flow",
   "approval.rule_revoked": "approval_flow",
   "moderation.review_flagged": "approval_flow",
-  // usage_telemetry (5)
+  // usage_telemetry (8)
   "usage.token_count": "usage_telemetry",
   "usage.cost_update": "usage_telemetry",
   "usage.context_window_update": "usage_telemetry",
   "usage.budget_warning": "usage_telemetry",
   "usage.rate_limit_update": "usage_telemetry",
+  "usage.api_retry": "usage_telemetry",
+  "usage.context_compacted": "usage_telemetry",
+  "usage.model_rerouted": "usage_telemetry",
   // runtime_node_lifecycle (9)
   "runtime_node.registered": "runtime_node_lifecycle",
   "runtime_node.online": "runtime_node_lifecycle",
@@ -1546,6 +1603,12 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "dispatch.result_buffered": "cross_node_dispatch",
   "dispatch.approval_observed": "cross_node_dispatch",
   "dispatch.result_observed": "cross_node_dispatch",
+  // mcp_governance (5)
+  "mcp.server_status_changed": "mcp_governance",
+  "mcp.server_config_changed": "mcp_governance",
+  "mcp.server_trust_changed": "mcp_governance",
+  "mcp.tool_override_changed": "mcp_governance",
+  "mcp.server_oauth_completed": "mcp_governance",
 } satisfies Record<SessionEventType, EventCategory>;
 
 // Map from each registered wire type to its canonical category. Exposed so
@@ -1567,7 +1630,7 @@ const SESSION_EVENT_CATEGORY_RECORD = {
 // exists solely for the compile-time totality check.)
 export const SESSION_EVENT_CATEGORY_BY_TYPE: ReadonlyMap<SessionEventType, EventCategory> = new Map(
   // Cast justified by the `satisfies` check above: the record's own
-  // enumerable keys are exactly the 141 SessionEventType literals (totality
+  // enumerable keys are exactly the 156 SessionEventType literals (totality
   // + excess-property checks), so `Object.entries` narrowing from
   // `[string, ...]` is sound.
   Object.entries(SESSION_EVENT_CATEGORY_RECORD) as ReadonlyArray<[SessionEventType, EventCategory]>,
@@ -1592,32 +1655,39 @@ export const SESSION_EVENT_CATEGORY_BY_TYPE: ReadonlyMap<SessionEventType, Event
 // system-channel discards and the current-wire delta families in the same
 // plan table are the Plan-005 normalizer's wire layer, NOT registry keys —
 // the `worker_shutting_down` delta orphan foremost (the ninth B18 target;
-// its literal `run.worker_shutdown` closes via T1.10's union widening
-// alone). The unknown residual — a wire kind outside this census — is
-// backstopped at runtime by the Plan-005 normalizer's structured
-// default-branch diagnostic (B10), never by this registry.
+// its literal `run.worker_shutdown` was closed by T1.10's union widening
+// alone, with no registry entry). The unknown residual — a wire kind
+// outside this census — is backstopped at runtime by the Plan-005
+// normalizer's structured default-branch diagnostic (B10), never by this
+// registry.
 //
-// B18 pre-flip state: eight census kinds' exact `SessionEventType`
-// literals were minted by the 2026-07-22 Spec-006 B18 census amendment but
-// are not yet registered in this file's census union, so their entries
-// carry `typePending: "B18"` in place of `eventType`. Plan-006 T1.10 flips
-// each pending entry to its `eventType` in a strictly-later commit and
-// shrinks the test suite's pinned pending set to empty. The shrink-only
-// ratchet is a PAIR of guards in two files, each covering the other's
-// blind spot:
-//   • Registry side — __tests__/event-disposition.test.ts pins the pending
-//     set BY VALUE, so a registry flip that skips the test edit fails
-//     loud there. Registry and pin must move together, and the pin can
-//     only SHRINK as literals land.
-//   • Census side — __tests__/session-event.test.ts holds the 141-type /
-//     19-category size pins plus one negative control per B18-pending
-//     literal, so a census widening that skips the registry flip fails
-//     THERE, not in the disposition suite: an un-flipped entry is still a
-//     structurally valid `typePending` row, so every disposition
-//     assertion would stay green.
-// Until a pending kind's literal is registered, the Plan-005 normalizers
-// route it to the B10 diagnostic rather than constructing an envelope
-// against a missing type — no envelope, no silent drop.
+// B18 closure (T1.10). Eight census kinds' exact `SessionEventType`
+// literals were minted by the 2026-07-22 Spec-006 B18 census amendment
+// ahead of their registration in this file, so their entries carried
+// `typePending: "B18"` in place of `eventType`. T1.10 registered all
+// fifteen B18 literals in the census above and flipped each of the eight
+// to its `eventType`, so the two-file shrink-only ratchet that guarded the
+// gap is CONSUMED: the pinned pending set is empty and no registry entry
+// uses the `typePending` arm.
+//
+// The arm itself is RETAINED, not removed — it is the reusable mechanism
+// for a future census amendment that mints a literal ahead of its
+// registration, and __tests__/event-disposition.test.ts keeps compile pins
+// on its shape that fire at zero registry instances. What guards
+// registry/census agreement from here is the standing bijection pair: the
+// `satisfies Record<SessionEventType, EventCategory>` totality check above
+// (a census literal cannot go unregistered) plus the both-direction
+// set-equality assertions in __tests__/session-event.test.ts, with every
+// `eventType` cross-checked against `SESSION_EVENT_CATEGORY_BY_TYPE` in
+// the disposition suite (a flip to a category the census disagrees with
+// fails there). Registration is not emission license, and all fifteen B18
+// literals are variantless today, so the Plan-005 normalizers keep routing
+// every flipped kind to the B10 diagnostic until its payload variant is
+// registered in `SessionEventSchema` by its owning surface — emission turns
+// on variant-by-variant, never on the registry flip alone. Should the arm
+// ever be used again, a pending kind routes to that same diagnostic rather
+// than constructing an envelope against a missing type — no envelope, no
+// silent drop.
 
 // The closed 35-kind normalized census, named per the `EventCategory` /
 // `SessionEventType` convention above. Blocks mirror the plan table's
@@ -1725,9 +1795,11 @@ export const NORMALIZED_EVENT_KINDS: readonly NormalizedEventKind[] = [
  *   • `adopt`/`rename` entries name a canonical {@link EventCategory} and
  *     carry EXACTLY ONE of `eventType` — a registered
  *     {@link SessionEventType} census literal — or `typePending: "B18"`
- *     (literal minted by the 2026-07-22 B18 census amendment, not yet
- *     registered here; flipped to `eventType` by T1.10). The `?: never`
- *     keys forbid both-present; the arm split forbids neither-present.
+ *     (a literal minted by a census amendment ahead of its registration
+ *     here). T1.10 flipped the last eight `typePending` rows, so the
+ *     pending arm currently has ZERO registry instances; it is retained as
+ *     the mechanism for the next such amendment. The `?: never` keys
+ *     forbid both-present; the arm split forbids neither-present.
  *     `eventType` names the row's PRIMARY target only — outcome-dependent
  *     fan-out (`tool.error`, `approval.rejected` / `.expired` /
  *     `.canceled`, `driver_ask.expired` / `.canceled`,
@@ -1792,8 +1864,12 @@ const EVENT_DISPOSITION_RECORD = {
   // Inline timeline (rows 1–14).
   // Run-start marker: records the provider's OWN init report; the daemon's
   // `run.*` state transitions stay daemon-emitted, never provider-init-
-  // mapped (pending literal: `run.provider_initialized`).
-  init: { disposition: "adopt", category: "run_lifecycle", typePending: "B18" },
+  // mapped.
+  init: {
+    disposition: "adopt",
+    category: "run_lifecycle",
+    eventType: "run.provider_initialized",
+  },
   text_delta: {
     disposition: "adopt",
     category: "assistant_output",
@@ -1802,8 +1878,8 @@ const EVENT_DISPOSITION_RECORD = {
   tool_start: { disposition: "adopt", category: "tool_activity", eventType: "tool.invoked" },
   // Tool-lifecycle completion; a failure outcome fans to `tool.error`.
   tool_complete: { disposition: "adopt", category: "tool_activity", eventType: "tool.result" },
-  // Turn boundary (pending literal: `run.turn_started`).
-  turn_start: { disposition: "adopt", category: "run_lifecycle", typePending: "B18" },
+  // Turn boundary.
+  turn_start: { disposition: "adopt", category: "run_lifecycle", eventType: "run.turn_started" },
   // Turn complete; `completionKind` turn-vs-task carve per the B1 taxonomy.
   turn_complete: { disposition: "adopt", category: "run_lifecycle", eventType: "run.completed" },
   // Permission ask.
@@ -1834,8 +1910,12 @@ const EVENT_DISPOSITION_RECORD = {
   },
   // Coarse provider status under the B18-pinned no-fabricated-transition
   // rule: provider status observations never drive the nine `session.*`
-  // state transitions (pending literal: `session.provider_status`).
-  session_status: { disposition: "adopt", category: "session_lifecycle", typePending: "B18" },
+  // state transitions.
+  session_status: {
+    disposition: "adopt",
+    category: "session_lifecycle",
+    eventType: "session.provider_status",
+  },
   token_usage: {
     disposition: "adopt",
     category: "usage_telemetry",
@@ -1851,17 +1931,24 @@ const EVENT_DISPOSITION_RECORD = {
   task_update: { disposition: "adopt", category: "tool_activity", eventType: "tool.result" },
   // Generic user-facing notice — the CODEX-FED census kind; the discarded
   // Claude system-channel `notification` subtype is wire-layer, not a
-  // registry key (pending literal: `session.notice`).
-  notification: { disposition: "adopt", category: "session_lifecycle", typePending: "B18" },
+  // registry key.
+  notification: {
+    disposition: "adopt",
+    category: "session_lifecycle",
+    eventType: "session.notice",
+  },
   // Transient retry (row 18): transient-retry record; the Claude
   // `system.api_retry` typed-error enum (C-5) enriches this same kind —
-  // capability-bearing, never dropped (pending literal: `usage.api_retry`).
-  api_retry: { disposition: "adopt", category: "usage_telemetry", typePending: "B18" },
+  // capability-bearing, never dropped.
+  api_retry: { disposition: "adopt", category: "usage_telemetry", eventType: "usage.api_retry" },
   // System, no timeline row (rows 19–24).
   // Provider context-window compaction — distinct from the daemon
-  // `event.compacted` retention pass (pending literal:
-  // `usage.context_compacted`).
-  compact_boundary: { disposition: "adopt", category: "usage_telemetry", typePending: "B18" },
+  // `event.compacted` retention pass.
+  compact_boundary: {
+    disposition: "adopt",
+    category: "usage_telemetry",
+    eventType: "usage.context_compacted",
+  },
   // The Claude wire string `rate_limit_event` RENAMES onto `rate_limits`:
   // an account-plane quota snapshot, never context-window telemetry.
   rate_limits: {
@@ -1869,11 +1956,18 @@ const EVENT_DISPOSITION_RECORD = {
     category: "usage_telemetry",
     eventType: "usage.rate_limit_update",
   },
-  // Mid-run model-reroute telemetry — capability-bearing (pending literal:
-  // `usage.model_rerouted`).
-  model_rerouted: { disposition: "adopt", category: "usage_telemetry", typePending: "B18" },
-  // Session/thread rename (pending literal: `session.renamed`).
-  thread_renamed: { disposition: "adopt", category: "session_lifecycle", typePending: "B18" },
+  // Mid-run model-reroute telemetry — capability-bearing.
+  model_rerouted: {
+    disposition: "adopt",
+    category: "usage_telemetry",
+    eventType: "usage.model_rerouted",
+  },
+  // Session/thread rename.
+  thread_renamed: {
+    disposition: "adopt",
+    category: "session_lifecycle",
+    eventType: "session.renamed",
+  },
   content_block_start: {
     disposition: "discard",
     reason:
@@ -1926,7 +2020,7 @@ const EVENT_DISPOSITION_RECORD = {
   user_text: {
     disposition: "correlate",
     reason:
-      "correlation-only wire echo — folds into the originating app-sent user-message row via correlation_id (delivery confirmation of the pending send; no new persisted type); correlate target user.message (B18-minted 2026-07-22 — contracts registration rides T1.10; until then the echo routes to the Plan-005 normalizer default-branch diagnostic, never a silent drop)",
+      "correlation-only wire echo — folds into the originating app-sent user-message row via correlation_id (delivery confirmation of the pending send; no new persisted type); correlate target user.message (B18-minted 2026-07-22, registered in this census by T1.10, so the target literal resolves; the echo keeps routing to the Plan-005 normalizer default-branch diagnostic until the Plan-004 T2.9 user.message payload variant joins the union)",
   },
   // Heavy, persisted (rows 32–35): payload persisted to SQLite; light
   // meta to the client.
@@ -1951,7 +2045,7 @@ const EVENT_DISPOSITION_RECORD = {
  * T3.5/T3.10 normalizers (the B10 bundle) consume it as the single source
  * of disposition truth; see the section comment above for scope (census
  * kinds only, wire-layer discards and delta families excluded) and the
- * B18 pre-flip `typePending` state.
+ * closed-out B18 `typePending` ratchet.
  *
  * `ReadonlyMap` (NOT a plain object) for the same `.get()`-safety as
  * {@link SESSION_EVENT_CATEGORY_BY_TYPE}: a normalizer passing an
