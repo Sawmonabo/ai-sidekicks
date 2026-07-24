@@ -368,9 +368,9 @@ function makeMembershipCreatedEvent(
   role: "owner" | "collaborator",
 ): SessionEvent {
   // Note: `membership.created`'s payload does NOT carry `sessionId` (per
-  // event.ts:263-275 — it's only on the envelope's common fields). The
-  // `.strict()` modifier on the payload schema rejects unknown keys, so
-  // adding a `sessionId` to payload is a contract break.
+  // `buildCommonShape()` in event.ts — it's only on the envelope's common
+  // fields). The `.strict()` modifier on the payload schema rejects unknown
+  // keys, so adding a `sessionId` to payload is a contract break.
   return {
     type: "membership.created",
     category: "membership_change",

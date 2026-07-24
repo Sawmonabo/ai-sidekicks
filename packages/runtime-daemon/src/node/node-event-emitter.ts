@@ -83,8 +83,8 @@ import type { AppendableEvent } from "../session/types.js";
 // --------------------------------------------------------------------------
 
 // All 7 `runtime_node.*` names belong to this Plan-001-owned EventCategory
-// (event.ts:84 union + event.ts:101 `EventCategorySchema` enum). Referenced,
-// not redefined.
+// (the `EventCategory` union + `EventCategorySchema` enum in event.ts).
+// Referenced, not redefined.
 const RUNTIME_NODE_EVENT_CATEGORY: EventCategory = "runtime_node_lifecycle";
 
 // The EventEnvelope `version` for runtime-node events — semver MAJOR.MINOR

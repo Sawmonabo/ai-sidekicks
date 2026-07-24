@@ -67,8 +67,8 @@ import {
 
 // Fixtures must be VALID per the imported upstream schemas:
 //   • sessionId / participantId pass through `z.uuid()` (brandedUuidIdSchema)
-//   • clientVersion must satisfy EventEnvelopeVersionSchema — a "MAJOR.MINOR"
-//     semver string (event.ts:124); "1.0" is the canonical accepted form
+//   • clientVersion must satisfy EventEnvelopeVersionSchema (event.ts) — a
+//     "MAJOR.MINOR" semver string; "1.0" is the canonical accepted form
 //   • nodeId is any non-empty string ≤ NODE_ID_MAX_LEN (daemon-assigned opaque)
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 const PARTICIPANT_ID = "660e8400-e29b-41d4-a716-446655440001";
@@ -692,9 +692,9 @@ describe("RUNTIME_NODE_EVENT_NAMES (C4: 7-name runtime_node.* taxonomy)", () => 
   it("targets the runtime_node_lifecycle category, which is registered in Plan-001's EventCategorySchema", () => {
     // Cross-ref proving the CP-003-1 split is real: Plan-003 ships these NAME
     // constants, but the category they belong to is owned by Plan-001 and already
-    // present in `EventCategorySchema` (event.ts:101). This confirms the target
-    // category exists in Plan-001's enum; the name→category binding itself is
-    // Plan-006's to register (CP-003-1), not asserted here.
+    // present in `EventCategorySchema` (the canonical taxonomy enum in event.ts).
+    // This confirms the target category exists in Plan-001's enum; the name→category
+    // binding itself is Plan-006's to register (CP-003-1), not asserted here.
     expect(EventCategorySchema.safeParse("runtime_node_lifecycle").success).toBe(true);
   });
 });
