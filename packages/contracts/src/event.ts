@@ -376,7 +376,8 @@ export interface EventEnvelope {
    * and silent stripping is forbidden under I-006-1-03's no-collapse
    * rationale (see the pre-guard on {@link EventEnvelopeSchema}). May
    * carry the cross-cutting sourceEpoch + sourcePosition pair; the typed
-   * stamp shapes are Plan-006 T1.9's.
+   * stamp shapes are {@link SourceEpochSchema} / {@link SourcePositionSchema}
+   * and the {@link withEpochStamp} composition helper below (Plan-006 T1.9).
    */
   payload: Record<string, unknown>;
   // Optional, NOT nullable (wire authority: `correlationId?: string`) —
@@ -513,6 +514,253 @@ export const EventEnvelopeSchema: z.ZodType<EventEnvelope> = z
   // canonical bytes. `pii_payload` is the named non-member: a storage
   // column, never an envelope field.
   .strict();
+
+// --------------------------------------------------------------------------
+// Cross-cutting epoch-attribution carrier (Plan-006 T1.9 — CP-004-12).
+// --------------------------------------------------------------------------
+//
+// `sourceEpoch` + `sourcePosition` are the ONE cross-cutting payload field
+// pair in the taxonomy (`Spec-006 §Event Type Enumeration`, registered
+// 2026-07-20): a late-appended NON-LIFECYCLE row that the run engine
+// attributes to a SUPERSEDED execution epoch carries the pair; a
+// current-epoch row carries neither. Absence IS the current-epoch signal —
+// the stamp is never fabricated at read time.
+//
+// PAYLOAD FIELD, NOT AN ENVELOPE FIELD. The pair rides inside `payload`, so
+// it sits in the RFC 8785 canonical bytes (signed, hash-chained, shred-safe
+// like any payload field) while the canonical envelope member set stays the
+// fixed eleven — I-006-1-03 is untouched and NO version bump is taken. That
+// no-bump path holds because `ADR-018 §Reversibility Assessment`'s point of
+// no return is an EMISSION event, not a code merge: the project is
+// pre-first-release with no production deployment, so no `"1.0"` envelope
+// has been emitted in a non-test environment — shipped emitter code on
+// `develop` (the Plan-003 runtime-node emitter's `RUNTIME_NODE_EVENT_VERSION`)
+// does not cross it. The pair is therefore part of the v1.0 baseline payload
+// contract from first emit, the same baseline-membership path the earlier
+// campaign field registrations rode. Had that point been crossed first, the
+// registration would instead take the MINOR envelope bump (`"1.1"`) per
+// `ADR-018 §Decision` #8's new-optional-field rule.
+//
+// WRAP ADMISSION — which payload branches take the stamp. Admission is keyed
+// on RUN-SCOPEDNESS (the variant's payload carries `runId`), NOT on family
+// membership alone: the late-append window covers the five run-scoped
+// families (`assistant_output`, `tool_activity`, `usage_telemetry`,
+// `artifact_publication`, and the `interactive_request` CLOSED PAIR
+// `driver_ask.requested` + `driver_ask.canceled`), and within them only the
+// run-attributed variants admit the pair. The account-plane
+// `usage.rate_limit_update` (no `runId` —
+// `Spec-006 §Usage Telemetry (usage_telemetry)`) is the named exclusion:
+// an epoch stamp on a row with no run identity is unattributable by
+// construction. `run_lifecycle` branches never admit it either — a
+// lifecycle straggler is ABSORBED, never late-appended.
+//
+// As of this registration the wrap set is EMPTY BY CONSTRUCTION:
+// `SessionEventSchema` carries only the three Plan-001 variants
+// (`session.created`, `membership.created`, `channel.created`), none of them
+// run-scoped, so no branch here composes the helper yet. Later registrants
+// of the five families arriving through the union-registration seam (the
+// CP-009-4 / CP-010-5 / CP-012-2 / CP-016-3 class) inherit the admission
+// requirement from `Spec-006 §Event Type Enumeration` — a strict payload
+// schema that skipped the wrap would REJECT a stamped row at subscription or
+// replay validation. __tests__/event-source-epoch.test.ts walks the live
+// union and fails when a run-scoped branch of an admitting family lands
+// unwrapped, or when any other branch lands wrapped.
+//
+// OWNERSHIP BOUNDARY — this file owns the TYPED SHAPE only. Execution-epoch
+// semantics (`0` is the pre-any-rollback epoch; the epoch advances with each
+// ACCEPTED `run.rolled_back` rewind) belong to
+// `Spec-004 §Required Behavior` + `Run State Machine §Invariants`; the
+// stamp's value source is Plan-004 T3.11's per-event operation association;
+// the stamping and consumption invariants are Plan-004's (I-004-14
+// late-event absorption, I-004-15 supersede marking).
+
+/**
+ * The pre-rollback execution epoch a late-appended non-lifecycle row is
+ * attributed to — a nonnegative integer, `0` being the pre-any-rollback
+ * epoch (`Spec-004 §Required Behavior` owns the advance semantics; see the
+ * ownership boundary above).
+ *
+ * Spelled as an alias rather than a `z.infer` of the schema below for the
+ * same `isolatedDeclarations` reason as {@link EventCategory} /
+ * {@link EventEnvelope}: the exported schema needs the explicit
+ * `z.ZodType<T>` annotation, so the type must exist first. It is exactly the
+ * schema's inferred output.
+ */
+export type SourceEpoch = number;
+export const SourceEpochSchema: z.ZodType<SourceEpoch> = z.number().int().nonnegative();
+
+/**
+ * The normalized session position (the turn-boundary vocabulary of
+ * Spec-004's `targetPosition`) a stamped row occupies within its source
+ * epoch — a nonnegative integer.
+ *
+ * Registered as the stamp's companion because no run-scoped family's payload
+ * carries a native position key, and the supersede cutoff
+ * (`turn > targetPosition`) cannot rank a late row against its epoch's
+ * surviving prefix without one.
+ */
+export type SourcePosition = number;
+export const SourcePositionSchema: z.ZodType<SourcePosition> = z.number().int().nonnegative();
+
+// The three shared wire literals. Exported as consts — not inlined at each
+// use site — because a later rename is forbidden-non-additive
+// (`ADR-018 §Decision` #8) and each literal is shared across two plans'
+// code: Plan-004 T3.11 stamps the pair at ingestion and T3.14 reads it in
+// the supersede projection, while the Plan-006 T3.2 compactor writes the
+// resolved originating position into the audit stub under `originPosition`,
+// which the Plan-004 T3.12 rewind-span check reads back. The stamp keys are
+// the registered payload-field names of
+// `Spec-006 §Event Type Enumeration`; `originPosition` is the audit-stub
+// PROJECTION key of `Spec-006 §Compacted Event Format` — a stub-projection
+// field, never a `session_events` column and never a live payload key.
+//
+// `as const` rather than a written literal annotation: the literal type stays
+// syntactically evident (so `isolatedDeclarations` is satisfied) and the keys
+// stay usable as computed property names in the composition helper below.
+export const SOURCE_EPOCH_PAYLOAD_KEY = "sourceEpoch" as const;
+export const SOURCE_POSITION_PAYLOAD_KEY = "sourcePosition" as const;
+export const ORIGIN_POSITION_STUB_KEY = "originPosition" as const;
+
+/**
+ * Composes the optional `sourceEpoch` + `sourcePosition` stamp onto a
+ * run-scoped payload schema, with the pairing refinement that keeps a
+ * half-stamped or unattributable row off the wire.
+ *
+ * Admission is the caller's decision and is keyed on run-scopedness — see
+ * the WRAP ADMISSION note above before wrapping a new branch.
+ *
+ * Four properties are load-bearing:
+ *
+ *   • THE PAIR IS DECLARED HERE, ONCE. The generic constraint rejects a
+ *     payload shape that already declares `sourceEpoch` or `sourcePosition`,
+ *     so a registrant cannot hand-roll the cross-cutting pair alongside the
+ *     canonical one — and cannot double-wrap. This is the one admission rule
+ *     the compiler enforces; the rest live in the ratchet.
+ *   • STRICTNESS SURVIVES. `.extend()` preserves the object's catchall
+ *     config, so a composed payload rejects unknown keys exactly as it did
+ *     before — composition never widens a payload into accepting arbitrary
+ *     keys (the no-collapse stance of I-006-1-03). Strictness is INHERITED,
+ *     not imposed: the `$strict` parameter annotation states the
+ *     precondition, but Zod's object-config type parameters are
+ *     structurally interchangeable, so a caller CAN pass a non-strict
+ *     payload and get a non-strict composition back. Wrapping a non-strict
+ *     payload is a contract violation the admission ratchet in
+ *     __tests__/event-source-epoch.test.ts rejects.
+ *   • THE STAMP IS OPTIONAL, AND ABSENCE IS MEANINGFUL. An unstamped
+ *     payload stays valid: absence means current-epoch, so a required key
+ *     would force producers to fabricate an attribution.
+ *   • THE PAIR TRAVELS WITH RUN IDENTITY. Either stamp key present ⇒ BOTH
+ *     present AND `runId` PRESENT AND NON-NULL. Epochs and positions are
+ *     run-local and the supersede cutoff reads run identity, epoch, and
+ *     position together, so a stamp missing any leg is unattributable —
+ *     rejected at parse time rather than persisted as an un-rankable row.
+ *     Null is rejected alongside absent because a nullable `runId` spells
+ *     "no run" in exactly the way absence does; admitting it would let an
+ *     un-rankable row through the one check that exists to stop it. Only
+ *     those two values are rejected — an empty-string `runId` is the base
+ *     schema's business, not the refinement's. The `runId` leg is checked
+ *     at RUNTIME (the helper is generic over the payload shape, so it
+ *     cannot see the key at compile time): a payload schema with no `runId`
+ *     key at all — `usage.rate_limit_update` foremost — therefore rejects
+ *     every stamped row, which is the correct outcome for a branch that
+ *     should not have been wrapped in the first place.
+ */
+export function withEpochStamp<
+  Shape extends z.core.$ZodShape & { sourceEpoch?: never; sourcePosition?: never },
+>(
+  payloadSchema: z.ZodObject<Shape, z.core.$strict>,
+): z.ZodObject<
+  Shape & {
+    sourceEpoch: z.ZodOptional<z.ZodType<SourceEpoch>>;
+    sourcePosition: z.ZodOptional<z.ZodType<SourcePosition>>;
+  },
+  z.core.$strict
+> {
+  // The return cast is justified by Zod's own typing of the two composition
+  // steps: `.extend()` returns `ZodObject<util.Extend<Shape, U>, Config>` —
+  // Config (here `$strict`) carried through — and `.superRefine()` returns
+  // `this`, so the value IS the annotated shape at runtime. What TypeScript
+  // cannot do is REDUCE `util.Extend` while `Shape` is generic: it is
+  // `Flatten<keyof A & keyof B extends never ? A & B : …>`, and that
+  // conditional stays deferred until `keyof Shape` is known, so no
+  // relation to the written intersection can be proven here. Note the
+  // branch it would take: for a `Shape` that declares NEITHER stamp key —
+  // the only shape the constraint admits in practice — `keyof Shape &
+  // keyof U` is `never`, making `A & B`, this exact intersection, the arm
+  // that fires once `Shape` resolves. So the cast asserts the branch the
+  // constraint steers every real caller into; it is not papering over a
+  // mismatch. (The constraint is satisfiable by a pathological `Shape` that
+  // declares `sourceEpoch?: never` explicitly, which would take the other
+  // arm; nothing in the taxonomy spells a payload that way.) Same stance as
+  // `EventEnvelopeVersionSchema`'s brand cast above.
+  //
+  // Residual, for JS callers who bypass the constraint: a colliding base
+  // schema that carries any refinement THROWS out of `util.extend`
+  // ("Cannot overwrite keys on object schemas containing refinements"),
+  // while a check-free colliding base is silently overridden — the spread
+  // order puts the canonical stamp schemas last, so they win. Neither path
+  // can be reached from TypeScript.
+  //
+  // Runtime behavior is pinned independently by
+  // __tests__/event-source-epoch.test.ts — strictness preserved, stamp
+  // optional, pairing enforced.
+  return (
+    payloadSchema
+      // Keyed off the exported consts (not re-typed literals) so the schema
+      // keys and the pinned wire names cannot drift apart.
+      .extend({
+        [SOURCE_EPOCH_PAYLOAD_KEY]: SourceEpochSchema.optional(),
+        [SOURCE_POSITION_PAYLOAD_KEY]: SourcePositionSchema.optional(),
+      })
+      .superRefine((value, ctx) => {
+        // Cast justified by the parameter type: `value` is the parsed output
+        // of a `.strict()` ZodObject, so it is a plain own-property object.
+        // The helper is generic over the payload shape, so the stamp and
+        // `runId` keys are only reachable by index here.
+        const stamped = value as Record<string, unknown>;
+        const hasEpoch = stamped[SOURCE_EPOCH_PAYLOAD_KEY] !== undefined;
+        const hasPosition = stamped[SOURCE_POSITION_PAYLOAD_KEY] !== undefined;
+        // Unstamped is the current-epoch default, not a violation.
+        if (!hasEpoch && !hasPosition) return;
+        if (!hasPosition) {
+          ctx.addIssue({
+            code: "custom",
+            path: [SOURCE_POSITION_PAYLOAD_KEY],
+            message: `A ${SOURCE_EPOCH_PAYLOAD_KEY} stamp REQUIREs ${SOURCE_POSITION_PAYLOAD_KEY}: the supersede cutoff cannot rank the row against its epoch's surviving prefix without a position.`,
+          });
+        }
+        if (!hasEpoch) {
+          ctx.addIssue({
+            code: "custom",
+            path: [SOURCE_EPOCH_PAYLOAD_KEY],
+            message: `A ${SOURCE_POSITION_PAYLOAD_KEY} stamp REQUIREs ${SOURCE_EPOCH_PAYLOAD_KEY}: a position without its epoch names no epoch to supersede against.`,
+          });
+        }
+        // `runId` is the payload-level run-identity key every run-scoped
+        // family carries; epochs and positions are run-local, so a stamp
+        // without it is unattributable by construction. Explicit
+        // `undefined`-or-`null` rather than a truthiness test: `null` is a
+        // real "no run" value a nullable payload field can carry and must be
+        // rejected, but `!stamped["runId"]` would ALSO reject `""`, and an
+        // empty-string runId is the base schema's lane (a `.min(1)` there),
+        // not the pairing refinement's. Two `===` clauses rather than
+        // `== null` because `eqeqeq` forbids the loose form.
+        if (stamped["runId"] === undefined || stamped["runId"] === null) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["runId"],
+            message: `A ${SOURCE_EPOCH_PAYLOAD_KEY}/${SOURCE_POSITION_PAYLOAD_KEY} stamp REQUIREs a present, non-null runId: epochs and positions are run-local, so an epoch stamp on a row with no run identity is unattributable.`,
+          });
+        }
+      }) as unknown as z.ZodObject<
+      Shape & {
+        sourceEpoch: z.ZodOptional<z.ZodType<SourceEpoch>>;
+        sourcePosition: z.ZodOptional<z.ZodType<SourcePosition>>;
+      },
+      z.core.$strict
+    >
+  );
+}
 
 // --------------------------------------------------------------------------
 // Per-variant payload schemas — extracted as named consts to deduplicate
