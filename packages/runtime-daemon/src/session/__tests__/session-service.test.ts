@@ -449,8 +449,24 @@ async function runMigrationRace(
   dbPath: string,
   workerCount: number,
   useDeferred: boolean,
+  // Supplied by the DEFERRED negative control only: a shared arrival counter
+  // that rendezvouses every worker inside its open transaction, between the
+  // read that pins its WAL snapshot and the write that upgrades it. The
+  // IMMEDIATE detector passes nothing — see the worker fixture's header for why
+  // a barrier is meaningless (and would merely stall) on that path.
+  snapshotBarrier?: SharedArrayBuffer,
 ): Promise<ReadonlyArray<RaceWorkerResult>> {
   const workerUrl: URL = new URL("./migration-race-worker.mjs", import.meta.url);
+  const raceWorkerData: {
+    dbPath: string;
+    useDeferred: boolean;
+    snapshotBarrier?: SharedArrayBuffer;
+    barrierWorkerCount?: number;
+  } = { dbPath, useDeferred };
+  if (snapshotBarrier !== undefined) {
+    raceWorkerData.snapshotBarrier = snapshotBarrier;
+    raceWorkerData.barrierWorkerCount = workerCount;
+  }
   // Spawn ALL workers up-front so they start in parallel — the
   // `Promise.all` then awaits each result. The point is to maximize the
   // chance the workers reach `BEGIN ...` simultaneously. SQLite's
@@ -473,7 +489,7 @@ async function runMigrationRace(
   const promises: Array<Promise<RaceWorkerResult>> = [];
   for (let i = 0; i < workerCount; i++) {
     const w: Worker = new Worker(workerUrl, {
-      workerData: { dbPath, useDeferred },
+      workerData: raceWorkerData,
       // Force Node's native TypeScript-stripping in the worker child. This
       // flag was added in Node 22.6.0 (within our `engines.node: >=22.12.0`
       // floor) and promoted to default-on in Node 22.18.0 — see
@@ -704,31 +720,59 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
   }, 60_000);
 
   // Same per-test timeout class as the detector above (60_000 trailing
-  // argument), with a larger analytical bound: DEFERRED losers block up to
-  // busy_timeout=5000 ms per attempt, so 5 trials × (busy-wait + 8 worker
-  // spawns) can legitimately approach ~30-40 s under CI contention. 60 s
-  // keeps margin without masking a genuine hang.
+  // argument). The bound used to be busy-wait dominated — DEFERRED losers
+  // blocking up to busy_timeout=5000 ms per attempt, so 5 trials × (busy-wait +
+  // 8 worker spawns) could legitimately approach ~30-40 s under CI contention.
+  // Under the snapshot barrier a loser takes SQLITE_BUSY_SNAPSHOT immediately
+  // (a snapshot conflict does not invoke the busy handler), so the dominant
+  // term is now the barrier's own 3 s deadline, and only on a degraded trial
+  // where some sibling never arrives: 5 × 3 s worst case, plus worker spawns.
+  // 60 s still keeps margin without masking a genuine hang.
   it("the SAME race pattern using BEGIN DEFERRED across multiple trials reproduces writer-vs-writer contention at least once — empirical proof .immediate() is load-bearing", async () => {
     // Negative control: this test intentionally exercises the broken
     // pattern (`tx()` → BEGIN DEFERRED) to prove (a) the workers are
     // genuinely contending and (b) `.immediate()` is the load-bearing
-    // seam, NOT some other change. If this assertion ever fails (zero
-    // observed BUSY across all trials), the negative-control mechanism
-    // is broken — either the workers aren't actually concurrent, or
-    // SQLite's behavior changed in a way that makes `.immediate()`
-    // unnecessary. Either case warrants a code review, not a silent
-    // green-CI pass.
+    // seam, NOT some other change.
     //
-    // Reliability: SQLite's busy resolution is non-deterministic under
-    // concurrent contention. In local-dev observation across 10 runs at
-    // 4 workers/trial, ~8/10 trials produced at least one BUSY — the
-    // remaining 2/10 had all racers serialize cleanly by luck. To make
-    // the assertion reliably positive while keeping the test cheap, we
-    // run multiple TRIALS (each on a fresh DB) and assert AT LEAST ONE
-    // trial showed contention. The probability of all trials being
-    // "lucky" decays exponentially: at p=0.2 per-trial luck, 5 trials
-    // gives p=3.2e-4 false-negative — small enough that a future
-    // failure here is real signal.
+    // Reliability: the collision is made STRUCTURAL by the worker's snapshot
+    // barrier rather than left to SQLite's non-deterministic busy resolution.
+    // Each DEFERRED worker parks inside its open transaction — after the read
+    // that pins its WAL snapshot, before the write that upgrades it — until
+    // every sibling has arrived. No racer can commit while the others are
+    // parked, so none can arrive late enough to see an already-migrated
+    // database and skip the transaction. On release one wins the write lock
+    // and the other WORKER_COUNT-1 hold snapshots that are now stale, which is
+    // SQLITE_BUSY_SNAPSHOT by construction.
+    //
+    // This replaced a purely probabilistic rationale (per-trial "luck" of ~0.2,
+    // so 5 trials gave a 3.2e-4 false-negative bound). That model was
+    // calibrated on an unloaded machine and did not survive a busier suite: a
+    // saturated host serializes worker spawns, the DEFERRED snapshots stop
+    // overlapping, every racer passes cleanly, and the control false-negatives.
+    // Observed on this package's own suite once real-process fixtures joined
+    // it — 1 failure in 2 of ~5 full-suite runs while the file alone stayed
+    // 6/6 green.
+    //
+    // The barrier carries a deadline and proceeds regardless once it expires,
+    // so a sibling that is merely SLOW — still spawning on a saturated host —
+    // degrades this test to the old probabilistic behavior instead of hanging
+    // it. A worker that actually DIES is a different path and not a degraded
+    // one: `runMigrationRace`'s `exit` handler rejects, failing the test
+    // outright rather than quietly weakening it. TRIAL_COUNT therefore stays at
+    // 5 — the trials are far cheaper now that losers fail immediately instead
+    // of busy-waiting out `busy_timeout`, and the repetition still covers the
+    // degraded path.
+    //
+    // The assertion below stays "at least one", deliberately weaker than the
+    // WORKER_COUNT-1 the barrier makes typical: a deadline-expiry trial is a
+    // legitimate degraded run, not a regression, and the point of the control
+    // is evidence of contention rather than a count of it. If it ever fails —
+    // zero observed BUSY across all trials — the negative-control mechanism is
+    // broken: either the workers are not actually concurrent, or SQLite's
+    // behavior changed in a way that makes `.immediate()` unnecessary. Either
+    // case warrants a code review, not a silent green-CI pass. Under the
+    // barrier that statement is now structurally true rather than
+    // statistically true.
     const WORKER_COUNT: number = 8;
     const TRIAL_COUNT: number = 5;
     const allTrialResults: RaceWorkerResult[][] = [];
@@ -737,10 +781,17 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
       // by letting the second trial's `hasMigrationApplied` short-
       // circuit before any write-lock is attempted.
       const trialPath: string = join(raceTmpDir, `trial-${trial.toString()}.db`);
+      // Fresh counter per trial too, rather than resetting one buffer: a
+      // straggler from a terminated trial cannot then bump the next trial's
+      // counter and release its barrier early.
+      const snapshotBarrier: SharedArrayBuffer = new SharedArrayBuffer(
+        Int32Array.BYTES_PER_ELEMENT,
+      );
       const trialResults: ReadonlyArray<RaceWorkerResult> = await runMigrationRace(
         trialPath,
         WORKER_COUNT,
         /* useDeferred */ true,
+        snapshotBarrier,
       );
       allTrialResults.push([...trialResults]);
     }
@@ -771,6 +822,24 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
       ).toBe(true);
     }
   }, 60_000);
+
+  it("refuses a snapshot barrier on the IMMEDIATE path instead of ignoring it", async () => {
+    // The guard is what makes the barrier trustworthy. An IMMEDIATE racer
+    // serializes at BEGIN and never reaches an in-transaction rendezvous, so a
+    // barrier handed to it could only ever be dead weight — and accepting it
+    // would disable the mechanism SILENTLY, leaving a green suite that proves
+    // nothing. The worker therefore rejects the combination at startup, and
+    // this pins that refusal so the guard cannot rot into a no-op unnoticed.
+    const misusePath: string = join(raceTmpDir, "immediate-barrier-misuse.db");
+    await expect(
+      runMigrationRace(
+        misusePath,
+        1,
+        /* useDeferred */ false,
+        new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT),
+      ),
+    ).rejects.toThrow(/DEFERRED replica path/);
+  }, 30_000);
 });
 
 // ----------------------------------------------------------------------------
