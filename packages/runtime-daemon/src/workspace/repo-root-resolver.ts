@@ -368,8 +368,13 @@ const NOT_A_REPOSITORY_STDERR_MARKER = /^fatal: not a git repository/im;
  * identity pair, …). `rev-parse --show-toplevel` reads no objects, no index and
  * writes nothing, so stripping them would buy nothing and would make the
  * child's environment differ from the operator's for no stated reason.
+ *
+ * Exported for the suite's census only. Unlike the stderr marker above, an
+ * assertion against this list is not circular: the suite keeps its own literal
+ * roster and pins the two together by set equality, so a key added here and
+ * nowhere else fails rather than going silently unasserted.
  */
-const DISCOVERY_REDIRECTING_GIT_ENV_KEYS: readonly string[] = [
+export const DISCOVERY_REDIRECTING_GIT_ENV_KEYS: readonly string[] = [
   "GIT_DIR",
   "GIT_WORK_TREE",
   "GIT_COMMON_DIR",

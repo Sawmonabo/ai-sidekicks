@@ -77,6 +77,7 @@ import { RepoRootResolutionError, type RepoRootResolutionReason } from "../repo-
 import {
   DEFAULT_GIT_COMMAND_TIMEOUT_MS,
   DEFAULT_GIT_EXECUTABLE,
+  DISCOVERY_REDIRECTING_GIT_ENV_KEYS,
   GIT_FATAL_EXIT_CODE,
   GIT_STDIO_MAX_BUFFER_BYTES,
   RepoRootResolver,
@@ -106,15 +107,17 @@ const itOnPosix = it.skipIf(process.platform === "win32");
 // ----------------------------------------------------------------------------
 
 /**
- * Everything the resolver strips — see its own list, which this mirrors. Five
- * direct discovery redirectors plus the two INDEPENDENT env-borne
+ * Everything the resolver strips, spelled out INDEPENDENTLY of the resolver's
+ * own list rather than re-exported from it — the census below pins the two
+ * together, and a mirror that imported its expectation would have nothing to
+ * pin. Five direct discovery redirectors plus the two INDEPENDENT env-borne
  * config-injection channels: `GIT_CONFIG_COUNT`, the switch that makes
  * `GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n` pairs live, and
  * `GIT_CONFIG_PARAMETERS`, which is not gated on that count. Both are stripped
  * as defense in depth rather than on a demonstrated redirection — the
  * resolver's own list documents the empirical severity.
  */
-const DISCOVERY_REDIRECTING_GIT_ENV_KEYS = [
+const EXPECTED_DISCOVERY_REDIRECTING_GIT_ENV_KEYS = [
   "GIT_DIR",
   "GIT_WORK_TREE",
   "GIT_COMMON_DIR",
@@ -132,7 +135,7 @@ const DISCOVERY_REDIRECTING_GIT_ENV_KEYS = [
  */
 function buildFixtureEnvironment(fixtureRoot: string): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = { ...process.env };
-  for (const key of DISCOVERY_REDIRECTING_GIT_ENV_KEYS) {
+  for (const key of EXPECTED_DISCOVERY_REDIRECTING_GIT_ENV_KEYS) {
     delete environment[key];
   }
   environment["HOME"] = fixtureRoot;
@@ -1214,12 +1217,23 @@ describe("git invocation shape", () => {
     expect(invocation.options.env["GIT_TERMINAL_PROMPT"]).toBe("0");
   });
 
+  it("pins its roster to the resolver's exported strip list — set equality both ways", () => {
+    // The assertion below loops over the LOCAL roster, so it only ever proves
+    // what this file already knows to name: a key the resolver starts
+    // stripping would go silently uncovered. Set equality against the
+    // resolver's exported list closes that direction, and the two spellings
+    // stay independent so neither side can drift alone.
+    expect([...EXPECTED_DISCOVERY_REDIRECTING_GIT_ENV_KEYS].sort()).toStrictEqual(
+      [...DISCOVERY_REDIRECTING_GIT_ENV_KEYS].sort(),
+    );
+  });
+
   it("deletes every discovery-redirecting GIT_* variable from the child environment", async () => {
-    for (const key of DISCOVERY_REDIRECTING_GIT_ENV_KEYS) {
+    for (const key of EXPECTED_DISCOVERY_REDIRECTING_GIT_ENV_KEYS) {
       vi.stubEnv(key, "/ambient/hijack");
     }
     const invocation = await captureInvocation();
-    for (const key of DISCOVERY_REDIRECTING_GIT_ENV_KEYS) {
+    for (const key of EXPECTED_DISCOVERY_REDIRECTING_GIT_ENV_KEYS) {
       expect(invocation.options.env[key]).toBeUndefined();
       expect(key in invocation.options.env).toBe(false);
     }

@@ -262,10 +262,12 @@ export type PathRealpathResolver = (path: string) => Promise<string>;
  *      inline for its absolute `directory` arm (a parsed root longer than one
  *      character is the complete-location test in both places).
  *
- * The fifth is the one a future editor most needs flagged. The first four are
- * type aliases and defaulting boilerplate whose divergence the compiler or a
- * reader catches at once; the fifth is a CONTAINMENT rule, so divergence there
- * changes which paths are admitted — silently, and only on Windows.
+ * The fifth is the one a future editor most needs flagged. Nothing assigns one
+ * copy to the other, so no divergence between the copies is compile-visible and
+ * the instruction above is the only enforcement there is. For the first four
+ * that is cheap: they are aliases and defaulting boilerplate a reader compares
+ * at a glance. The fifth is a CONTAINMENT rule, so divergence there changes
+ * which paths are admitted — silently, and only on Windows.
  */
 export interface PlatformPathModule {
   readonly sep: string;
