@@ -5,9 +5,9 @@
 // per `runtime_node_attachments` row, exactly as the registered
 // `runtimenode.roster` read returns it — and visually distinguishes the three
 // status facets the wire entry carries (`docs/architecture/contracts/api-payload-contracts.md §Tier 3: Plan-003 — Runtime Node Attach (Task 4.4)`;
-// runtime-node.ts:560-570):
+// the `RuntimeNodeRosterEntry` interface in runtime-node.ts):
 //   • `state: NodeState` — the SLOT axis (registering|online|degraded|offline|
-//     revoked, runtime-node.ts:86), `runtime_node_attachments.state` carried
+//     revoked — the `NodeState` union in runtime-node.ts), `runtime_node_attachments.state` carried
 //     verbatim with all five values: the read is a faithful projection with no
 //     server-side hiding (`Spec-003 §Interfaces And Contracts` amendment).
 //     AC2 distinguishability (`Spec-003 §Acceptance Criteria`): a `degraded`/
@@ -17,12 +17,12 @@
 //   • `healthState` + `lastHeartbeatAt` — the LIVENESS axis: the sweep-owned
 //     3-value presence verdict (`online | degraded | offline`) carried
 //     VERBATIM from `runtime_node_presence`, nullable until the node's first
-//     heartbeat lands (LEFT JOIN — runtime-node.ts:587-603). The read NEVER
+//     heartbeat lands (LEFT JOIN — the `healthState` field on `RuntimeNodeRosterEntrySchema`). The read NEVER
 //     derives staleness (the Plan-003 T3.6 sweep stays the single
 //     liveness-derivation writer), and neither does this view.
 //   • `readOnly: boolean` — the PERMISSION axis, DERIVED per row at read time:
 //     true iff the node's stored `client_version` is below the session's
-//     `min_client_version` floor (runtime-node.ts:604-609; the server
+//     `min_client_version` floor (the `readOnly` field on `RuntimeNodeRosterEntrySchema`; the server
 //     derivation lives in `AttachService.readRoster`,
 //     attach-service.ts:1000-1059). A below-floor node is ADMITTED read-only,
 //     not ejected (I-003-1, Plan-003 §Invariants) — see the I-003-1 note below
@@ -33,8 +33,8 @@
 // have distinct owners — the slot axis vs the heartbeat sweep — and this view
 // renders BOTH, verbatim, side by side. It computes NO collapsed/"effective"
 // health scalar, so a recovery on one axis can never mask a degradation on the
-// other; the wire itself carries no collapsed scalar either (the both-axes
-// stance on the entry schema, runtime-node.ts:528-536), and reconciling the
+// other; the wire itself carries no collapsed scalar either (the BOTH-AXES
+// STANCE note above `RuntimeNodeRosterRequest` in runtime-node.ts), and reconciling the
 // axes is deliberately this client's render-time concern, satisfied here by
 // presenting both.
 //
@@ -57,7 +57,7 @@
 //     degraded/offline, distinguishable from healthy"): a node that failed
 //     capability validation arrives in the read with `state: "degraded"` (the
 //     §Fallback-Behavior axis — capability-validation failure leaves the node
-//     `degraded`, runtime-node.ts:223-226); the roster surfaces it with the
+//     `degraded`, the LEAST-PRIVILEGE note on `healthChanges.state`); the roster surfaces it with the
 //     degraded indicator alongside healthy peers. This view does NOT perform
 //     the validation (that is the daemon/control-plane authority) — it
 //     projects the resulting `state` distinguishably.
@@ -91,8 +91,8 @@
 //     • Live health TRANSITIONS arrive on `window.sidekicks.daemon.subscribe(
 //       <runtime_node.* event>, handler)` — the daemon authors the
 //       daemon-reachable `runtime_node.*` lifecycle events (the registered
-//       7-name set, runtime-node.ts:693-709; the 5 V1 daemon-reachable
-//       producers, runtime-node.ts:715-722). Each pushed event is treated as
+//       7-name set `RUNTIME_NODE_EVENT_NAMES` in runtime-node.ts; the 5 V1
+//       daemon-reachable producers, its `Runtime-node event PAYLOAD-shape schemas` banner). Each pushed event is treated as
 //       an OPAQUE change-signal that RE-INVOKES the snapshot read; we
 //       deliberately do NOT decode the event payload into accumulated client
 //       state (the same posture participant-roster takes for `PresenceUpdate`
@@ -189,10 +189,10 @@ import type {
 const ROSTER_READ_PROCEDURE = "runtimenode.roster";
 
 // `runtime_node.online` — one of the 7 registered `runtime_node.*` lifecycle
-// event names (runtime-node.ts:693-709), and one of the 5 daemon-reachable V1
-// producers (`registered`, `online`, `offline`, `capability_declared`,
-// `capability_updated` — runtime-node.ts:715-722; `degraded`/`revoked` are
-// V1.1-gated server-derived events with no V1 author). We subscribe to the
+// event names (`RUNTIME_NODE_EVENT_NAMES` in runtime-node.ts), and one of the 5
+// daemon-reachable V1 producers (`registered`, `online`, `offline`,
+// `capability_declared`, `capability_updated` — its `Runtime-node event PAYLOAD-shape schemas` banner;
+// `degraded`/`revoked` are V1.1-gated server-derived events with no V1 author). We subscribe to the
 // liveness-transition signal and treat each push as an OPAQUE "node state
 // changed" trigger to re-read the snapshot — we do NOT decode the payload
 // (same change-signal posture as participant-roster's `PresenceUpdate`).
@@ -225,8 +225,8 @@ const VERSION_FLOOR_EXCEEDED_WIRE_CODE: VersionFloorExceededCode = "version.floo
  * Props for {@link NodeRoster}.
  *
  * `sessionId` is the branded {@link SessionId} of the session whose node roster
- * to render. It matches `RuntimeNodeRosterRequest.sessionId`
- * (runtime-node.ts:538-540), so `{ sessionId }` constructs a valid roster-read
+ * to render. It matches `RuntimeNodeRosterRequest.sessionId` (the interface in
+ * runtime-node.ts), so `{ sessionId }` constructs a valid roster-read
  * request with no cast. The roster read is scoped to this id, and the roster
  * NEVER mutates it — adding nodes changes the rendered set, not the session
  * identity (AC3). The id arrives as a prop (supplied by a future Plan-023
@@ -244,7 +244,7 @@ export interface NodeRosterProps {
 // 1:1 to a rendered `<section>` branch below, so the render is a total
 // function over the union. The `loaded` variant carries the verbatim
 // `RuntimeNodeRosterEntry[]` set from the read — the SHIPPED T5.0b wire DTO
-// (runtime-node.ts:560-570), not a local view-model — so the render binds to
+// (`RuntimeNodeRosterEntry` in runtime-node.ts), not a local view-model — so the render binds to
 // the real contract axes by construction.
 //
 // No-flicker contract (same as participant-roster): `loading` is set in only
@@ -377,8 +377,8 @@ export function NodeRoster({ sessionId }: NodeRosterProps): React.JSX.Element {
     // assignable to it until the control-plane tRPC surface narrows the brand
     // to the real procedure union. The procedure-name string stays loosely
     // `string` (the genuinely untypeable part), but we PIN input →
-    // `{ sessionId: SessionId }` (the `RuntimeNodeRosterRequest` wire shape,
-    // runtime-node.ts:538-540, built from the branded prop) and return →
+    // `{ sessionId: SessionId }` (the `RuntimeNodeRosterRequest` interface in
+    // runtime-node.ts, built from the branded prop) and return →
     // `Promise<RuntimeNodeRosterResponse>` (the SHIPPED T5.0b response DTO —
     // no local view-model), so the request object is type-checked at the call
     // site and the resolved value needs no downstream cast. Same

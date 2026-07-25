@@ -138,7 +138,7 @@ const RUNTIME_NODE_METHOD_ROSTER = "runtimenode.roster";
  *
  * `heartbeat` and `detach` resolve `null` on success — their wire responses are
  * the no-content `z.null()` schemas (`RuntimeNodeHeartbeatResponseSchema` /
- * `RuntimeNodeDetachResponseSchema`, runtime-node.ts:428/510). The `null` is a
+ * `RuntimeNodeDetachResponseSchema` in runtime-node.ts). The `null` is a
  * genuine success value, NOT a not-found sentinel: a below-floor or otherwise
  * refused write REJECTS with `RuntimeNodeControlPlaneError` (control-plane) or
  * `JsonRpcRemoteError` (daemon), never a `null` result.

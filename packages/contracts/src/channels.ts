@@ -39,8 +39,8 @@
 //   from the session (id = `deriveMainChannelId(sessionId)`, channel-id.ts),
 //   and the projector always labels it "main" (never unnamed). The `name?`
 //   optionality exists for Plan-016 *user* channels, which DO flow through the
-//   `ChannelCreated` event payload (event.ts:285 — `name:
-//   wireFreeFormString(...).optional()`) and may legitimately have no friendly
+//   `ChannelCreated` event payload (`channelCreatedPayloadSchema` in event.ts —
+//   `name: wireFreeFormString(...).optional()`) and may legitimately have no friendly
 //   label; for those, the wire signal for "this channel has no display name" is
 //   KEY ABSENT (not `name: ""` and not `name: null`). This matches the
 //   `ChannelSummary` shape on the

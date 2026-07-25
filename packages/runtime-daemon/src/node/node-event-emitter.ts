@@ -83,8 +83,8 @@ import type { AppendableEvent } from "../session/types.js";
 // --------------------------------------------------------------------------
 
 // All 7 `runtime_node.*` names belong to this Plan-001-owned EventCategory
-// (event.ts:84 union + event.ts:101 `EventCategorySchema` enum). Referenced,
-// not redefined.
+// (the `EventCategory` union + `EventCategorySchema` enum in event.ts).
+// Referenced, not redefined.
 const RUNTIME_NODE_EVENT_CATEGORY: EventCategory = "runtime_node_lifecycle";
 
 // The EventEnvelope `version` for runtime-node events — semver MAJOR.MINOR
@@ -201,8 +201,10 @@ export interface EmitCapabilityDeclaredInput extends RuntimeNodeEmitBase {
 
 export interface EmitCapabilityUpdatedInput extends RuntimeNodeEmitBase {
   readonly capability: string;
-  // Interim-opaque CapabilityDetails snapshots (NOT NodeState) — Plan-006
-  // Tier 4 binds the canonical `CapabilityDetails`.
+  // `CapabilityDetails` snapshots (NOT NodeState). The contracts payload
+  // schemas bind the canonical `CapabilityDetails` canonical-first over a
+  // tolerant record arm (Plan-006 T1.4); THIS input seam stays
+  // `Record<string, unknown>` pending the tracked daemon follow-up.
   readonly previousState: Record<string, unknown>;
   readonly newState: Record<string, unknown>;
 }
@@ -298,9 +300,11 @@ export class RuntimeNodeEventEmitter {
 
   /**
    * Emit `runtime_node.capability_updated` (`Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`). Here
-   * `previousState`/`newState` are interim-opaque CapabilityDetails
-   * SNAPSHOTS (NOT NodeState) — Plan-006 Tier 4 binds the canonical
-   * `CapabilityDetails`.
+   * `previousState`/`newState` are `CapabilityDetails` SNAPSHOTS (NOT
+   * NodeState); the contracts payload schemas bind the canonical
+   * `CapabilityDetails` canonical-first over a tolerant record arm
+   * (Plan-006 T1.4). This input seam stays `Record<string, unknown>`
+   * pending the tracked daemon follow-up.
    */
   emitCapabilityUpdated(input: EmitCapabilityUpdatedInput): AppendableEvent {
     const payload: RuntimeNodeCapabilityUpdatedPayload =

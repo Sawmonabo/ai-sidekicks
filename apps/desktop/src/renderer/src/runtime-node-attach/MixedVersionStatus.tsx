@@ -8,7 +8,7 @@
 // ALREADY-RESOLVED state (the CapabilityDeclaration posture — no bridge
 // access, no hooks): the floor verdict is computed by the Phase-3
 // control-plane service and arrives on the `RuntimeNodeRosterEntry` wire DTO
-// (`readOnly`, derived per row at read time — runtime-node.ts:604-609; server
+// (`readOnly`, derived per row at read time — that field on `RuntimeNodeRosterEntrySchema`; server
 // derivation in `AttachService.readRoster`, attach-service.ts:1000-1059);
 // this view consumes it and NEVER re-derives floor logic — no
 // `clientVersion`-vs-floor comparison exists in this file, by design (the
@@ -56,7 +56,7 @@
 //
 // "DETACHED" — what the shipped contract can actually represent. `NodeState`
 // has NO `detached` member (the 5-value enum `registering | online | degraded
-// | offline | revoked`, runtime-node.ts:86), and detachment is NOT row
+// | offline | revoked` — the `NodeState` union in runtime-node.ts), and detachment is NOT row
 // deletion either. The two contract-representable manifestations:
 //   • An explicitly detached node's attachment row PERSISTS with the terminal
 //     slot state `offline`: `AttachService.detach` UPDATEs the single active
@@ -149,7 +149,7 @@ const VERSION_FLOOR_EXCEEDED_WIRE_CODE: VersionFloorExceededCode = "version.floo
  * Props for {@link MixedVersionStatus}.
  *
  * `rosterEntry` is the node's row from the registered `runtimenode.roster`
- * read (`RuntimeNodeRosterEntry`, runtime-node.ts:560-570 — the shipped T5.0b
+ * read (the `RuntimeNodeRosterEntry` interface in runtime-node.ts — the shipped T5.0b
  * wire DTO, carrying the server-resolved `state` + `readOnly` axes this
  * indicator projects), or `null` when the session roster carries NO row for
  * the node — the parent's lookup miss, e.g.
@@ -238,8 +238,8 @@ function resolveAccessStatus(rosterEntry: RuntimeNodeRosterEntry | null): NodeAc
     default: {
       // The load-bearing arm — the same documented-pin-becomes-enforced-pin
       // move as the type-annotated wire-code const above. `NodeState`
-      // additions are reserved as MINOR by the contract (runtime-node.ts:73-77;
-      // ADR-018 §Decision #8 — "removals MAJOR, additions MINOR"), so
+      // additions are reserved as MINOR by the contract (the `NodeState` set-membership
+      // note in runtime-node.ts; ADR-018 §Decision #8 — "removals MAJOR, additions MINOR"), so
       // a sixth member is EXPECTED evolution, and an unbound fall-through
       // would silently hand it the active-set projection above (an ACTIVE
       // verdict for a state whose activity nobody classified). The `never`
@@ -314,8 +314,9 @@ function isWireErrorEnvelope(value: unknown): value is { code: string; message: 
 }
 
 // Never-throwing lossy fallback for values bare `String(...)` cannot render —
-// LOCAL DUPLICATE of the sibling original (CapabilityDeclaration.tsx:70-85;
-// that file does not export it, and it sits outside this task's file scope).
+// LOCAL DUPLICATE of the sibling original (the `lossyStringify` helper in
+// CapabilityDeclaration.tsx; that file does not export it, and it sits
+// outside this task's file scope).
 // Bare `String(...)` is NOT total: it runs ToPrimitive, which itself throws
 // for a null-prototype object — or null-prototype FUNCTION — carrying no
 // `toString`/`valueOf`/`Symbol.toPrimitive` (and a hostile throwing
@@ -400,8 +401,8 @@ export function MixedVersionStatus({
   // replaces it).
   let writeRefusalBlock: React.JSX.Element;
   if (writeAttemptRejection === null || writeAttemptRejection === undefined) {
-    // Explicit empty state (the CapabilityDeclaration empty-map register,
-    // CapabilityDeclaration.tsx:131-132 — "keeps the empty state
+    // Explicit empty state (the CapabilityDeclaration empty-map register —
+    // its `data-capability-count={0}` branch "keeps the empty state
     // machine-assertable for the T5.4 manual smoke"): a not-yet-refused write
     // is a meaningful fact kept machine-assertable for the smoke ahead of the
     // refusal leg, never silent blankness. `null` is the documented "none"
@@ -477,7 +478,7 @@ export function MixedVersionStatus({
         // declared at attach — the stored `client_version` the floor verdict
         // was computed FROM, surfaced verbatim for audit/display (the column
         // exists to make the read-only verdict "auditable +
-        // roster-displayable", runtime-node.ts:613-617). Displayed as
+        // roster-displayable", the `clientVersion` field on `RuntimeNodeRosterEntrySchema`). Displayed as
         // CONTEXT only; the verdict itself is the server-resolved `readOnly`
         // (no comparison happens here — file-header posture).
         <ul aria-label="mixed-version-node-facts">

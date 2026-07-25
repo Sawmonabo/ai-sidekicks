@@ -188,7 +188,7 @@ export interface PresenceSubscribeDeps {
    *   * `category: "membership_change"`
    *       NOT "presence". `Spec-002 §State And Data Implications` prose says "under the `presence`
    *       category" — that is a documentation slip. The canonical
-   *       `EventCategory` enum (`packages/contracts/src/event.ts:74-90`)
+   *       `EventCategory` enum in `packages/contracts/src/event.ts`
    *       has NO `presence` member; Spec-006 §Presence is headed
    *       "### Presence (`membership_change`)" and the Spec-006 taxonomy
    *       summary table lists all 4 presence types under `membership_change`.

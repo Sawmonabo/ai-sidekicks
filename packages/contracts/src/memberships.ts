@@ -191,8 +191,8 @@ void _actionPinHolder;
 // inline (NOT via a `z.ZodType<T>`-annotated intermediate const) because
 // the abstract `z.ZodType<T>` annotation erases the literal-typed `action`
 // field that `discriminatedUnion` needs to dispatch on. The same pattern
-// is used by `SessionEventSchema` in `event.ts:378` — see the comment
-// block there at lines 360-376 for the load-bearing rationale.
+// is used by `SessionEventSchema` in `event.ts` — see the section comment
+// directly above that declaration for the load-bearing rationale.
 //
 // The outer `as unknown as z.ZodType<MembershipUpdate, MembershipUpdate>`
 // cast bridges Zod v4's internal discriminated-union output type to the

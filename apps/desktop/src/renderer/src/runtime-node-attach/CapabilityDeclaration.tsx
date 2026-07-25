@@ -1,9 +1,10 @@
 // Plan-003 Phase 5 T5.2 (Tier 3) — renderer CapabilityDeclaration component.
 //
 // A PRESENTATIONAL view over a runtime node's declared capability map — the
-// `capabilities` field of the attach payload (`RuntimeNodeAttachRequest`,
-// runtime-node.ts:124-131; the field at :129, realized as the interim-opaque
-// two-arg `z.record(z.string(), z.unknown())` at :164). `AttachFlow` composes
+// `capabilities` field of the attach payload (the `RuntimeNodeAttachRequest`
+// interface in runtime-node.ts, realized on `RuntimeNodeAttachRequestSchema`
+// as the interim-opaque two-arg `z.record(z.string(), z.unknown())`).
+// `AttachFlow` composes
 // it so the user sees what the node declares BEFORE and WHILE it attaches
 // (`Spec-003 §Required Behavior` — "Attach must include node identity, declared
 // capabilities, health, and trust context"); the prop contract is the
@@ -33,11 +34,15 @@
 //     FAILURE surfaces as the node's `degraded`/`offline` state on the
 //     roster's slot axis (`Spec-003 §Fallback Behavior`; rendered by the sibling
 //     NodeRoster), never as this view second-guessing the declared map.
-//   • Capability VALUES are interim-opaque `unknown` until Plan-006 Tier 4
-//     binds the canonical `CapabilityDetails` over the capability fields
-//     (runtime-node.ts:658-659; the `Plan-006-Tier-4-binds-canonical` markers
-//     there, e.g. :957-965). The indexed-access prop type below makes this
-//     view follow that tightening automatically.
+//   • The attach payload's capability VALUES stay interim-opaque `unknown`.
+//     Plan-006 T1.4 bound the canonical `CapabilityDetails` over the
+//     `runtime_node.capability_*` EVENT-payload fields only — NOT over this
+//     attach map. Tightening the declared-capability map to that canonical
+//     shape stays Plan-006 Tier 4's step (the forward-compatibility note on
+//     `RuntimeNodeRegisteredPayload.capabilities` in runtime-node.ts records
+//     it, on the field that mirrors this one VERBATIM). The indexed-access
+//     prop type below makes this view follow that tightening automatically
+//     when it lands.
 //
 // Renderer-untrusted boundary (Spec-023 §Trust Stance) — this file imports
 // ONLY type-only from `@ai-sidekicks/contracts` (the contracts package is
@@ -58,8 +63,8 @@ import type { RuntimeNodeAttachRequest } from "@ai-sidekicks/contracts";
  * Props for {@link CapabilityDeclaration}.
  *
  * `capabilities` is the node's declared capability map, typed by INDEXED
- * ACCESS off the shipped wire contract (`RuntimeNodeAttachRequest`,
- * runtime-node.ts:124-131) rather than a re-declared local
+ * ACCESS off the shipped wire contract (the `RuntimeNodeAttachRequest`
+ * interface in runtime-node.ts) rather than a re-declared local
  * `Record<string, unknown>`: when Plan-006 Tier 4 tightens the contract field
  * to the canonical `CapabilityDetails`, this prop follows with no edit here.
  */

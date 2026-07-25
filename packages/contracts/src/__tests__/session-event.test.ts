@@ -31,20 +31,71 @@
 //     NUL-byte rejection now uniform across all wire fields
 //   • Round 3 R2-5: channel.created.name length cap + whitespace + NUL
 //     guards (defense in depth, mirrors `IDENTITY_HANDLE_MAX_LEN`)
+//
+// Plan-006 T1.2 extends coverage with the SessionEventType census +
+// SESSION_EVENT_CATEGORY_BY_TYPE registry suite at the end of this file:
+// Spec-006 §Event Type Summary at the post-B18 census (156 types across 20
+// categories — T1.2 registered 141/19 and T1.10 closed the B18 delta),
+// invariants I-006-1-01 (category/type bijection) and
+// I-006-1-02 (event-type-string immutability). Plan-006 T1.3 adds the
+// EventEnvelopeSchema canonical-carrier suite after it: the 11-member
+// canonical-set pin (I-006-1-03), envelope-vs-strict layering,
+// producer-set `version` semantics (I-006-1-04), and the payload
+// own-`__proto__` reject-loud carve-out (record parser cannot preserve
+// that key; silent stripping is forbidden), which T1.10 extends with the
+// daemon-scope sentinel pin (Spec-006 §Daemon-Scope Event Binding And
+// Node-Scope Anchoring — the B18 `mcp_governance` binding costs the
+// carrier no carve-out). Plan-006 T1.4 appends the
+// `CapabilityDetailsSchema` suite last: the canonical capability snapshot
+// for the `runtime_node.capability_*` payload binding (exhaustive
+// enum-keyed flags; non-normalizing strict tools).
 import { describe, expect, it } from "vitest";
 
 import {
+  APPROVAL_FLOW_EVENT_TYPES,
+  ARTIFACT_PUBLICATION_EVENT_TYPES,
+  ASSISTANT_OUTPUT_EVENT_TYPES,
+  AUDIT_INTEGRITY_EVENT_TYPES,
+  CAPABILITY_CONTRACT_VERSION_MAX_LEN,
+  CapabilityDetailsSchema,
+  CHANNEL_ARBITRATION_EVENT_TYPES,
   compareEventEnvelopeVersion,
+  CROSS_NODE_DISPATCH_EVENT_TYPES,
   EVENT_ENVELOPE_VERSION_MAX_LEN,
   EVENT_ENVELOPE_VERSION_PATTERN,
   EVENT_FIELD_MAX_LEN,
+  EVENT_MAINTENANCE_EVENT_TYPES,
   EventCategorySchema,
+  EventEnvelopeSchema,
   EventEnvelopeVersionSchema,
+  INTERACTIVE_REQUEST_EVENT_TYPES,
+  MCP_GOVERNANCE_EVENT_TYPES,
+  MEMBERSHIP_CHANGE_EVENT_TYPES,
+  ONBOARDING_LIFECYCLE_EVENT_TYPES,
+  PARTICIPANT_LIFECYCLE_EVENT_TYPES,
+  POLICY_EVENTS_EVENT_TYPES,
+  RECOVERY_EVENTS_EVENT_TYPES,
+  RUN_LIFECYCLE_EVENT_TYPES,
+  RUNTIME_NODE_LIFECYCLE_EVENT_TYPES,
+  SECURITY_EVENTS_EVENT_TYPES,
   SESSION_EVENT_CATEGORY_BY_TYPE,
   SESSION_EVENT_TYPES,
+  SESSION_LIFECYCLE_EVENT_TYPES,
   SessionEventSchema,
+  TOOL_ACTIVITY_EVENT_TYPES,
+  USAGE_TELEMETRY_EVENT_TYPES,
+  type CapabilityDetails,
+  type EventCategory,
+  type EventEnvelope,
   type SessionEvent,
+  type SessionEventType,
 } from "../event.js";
+import {
+  DRIVER_CAPABILITY_FLAGS,
+  DRIVER_TOOL_DESCRIPTION_MAX_LEN,
+  DRIVER_TOOL_NAME_MAX_LEN,
+  type DriverCapabilityFlag,
+} from "../provider-driver.js";
 import { CHANNEL_NAME_MAX_LEN } from "../session.js";
 
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
@@ -249,11 +300,11 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
     expect(result.success).toBe(false);
   });
 
-  it("EventCategorySchema accepts every taxonomy member from api-payload-contracts.md", () => {
+  it("EventCategorySchema enumerates exactly the 20 canonical categories (no more, no less)", () => {
     // Pinning the enum values prevents accidental drift from the canonical
-    // EventCategory definition. If api-payload-contracts.md adds a category
-    // (e.g. cross_node_dispatch via Spec-024), the spec edit must land
-    // before this list; the test will fail until both sides agree.
+    // EventCategory definition. If api-payload-contracts.md adds a category,
+    // the spec edit must land before this list; the test will fail until
+    // both sides agree.
     const expected = [
       "run_lifecycle",
       "assistant_output",
@@ -271,7 +322,18 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
       "security_events",
       "event_maintenance",
       "policy_events",
+      "channel_arbitration",
+      "onboarding_lifecycle",
+      "cross_node_dispatch",
+      "mcp_governance",
     ];
+    // Read `.options` from the underlying enum construct. The schema is
+    // typed as the abstract `z.ZodType<EventCategory>` so we cast via
+    // `unknown` to read the construct-specific `.options` property; the
+    // assertions below check both length AND exact set membership.
+    const schemaInternals = EventCategorySchema as unknown as { options: readonly string[] };
+    expect(schemaInternals.options).toHaveLength(20);
+    expect([...schemaInternals.options].sort()).toEqual([...expected].sort());
     for (const cat of expected) {
       expect(EventCategorySchema.safeParse(cat).success).toBe(true);
     }
@@ -539,4 +601,712 @@ describe("compareEventEnvelopeVersion", () => {
     const reverse = compareEventEnvelopeVersion(parseVersion(right), parseVersion(left));
     expect(forward + reverse).toBe(0);
   });
+});
+
+// --------------------------------------------------------------------------
+// Plan-006 T1.2 — SessionEventType census + category registry.
+// --------------------------------------------------------------------------
+//
+// Backstops Spec-006 §Event Type Summary at its full post-B18 census (156
+// types across 20 categories — T1.2 registered the 141/19 baseline, T1.10
+// closed the 2026-07-22 B18 delta of fifteen literals and the
+// `mcp_governance` category) plus the two Phase-1 invariants:
+//   • I-006-1-01 — category/type bijection: SESSION_EVENT_CATEGORY_BY_TYPE
+//     covers every registered type exactly once, its values span exactly
+//     the 20 canonical categories (every category non-empty), and the 20
+//     per-category arrays partition the census.
+//   • I-006-1-02 — event-type-string immutability: the three Plan-001 wire
+//     literals are unrenamed with unchanged categories, and the SCHEMA-
+//     registered payload subset stays exactly those three variants. The
+//     B18 widening is additive-only: it renamed nothing, and every
+//     pre-B18 census row keeps its literal and category (pinned by the
+//     per-category counts below, which move ONLY on the five B18 rows).
+// Assertions are exact-set style wherever set equality is feasible (the
+// hardened idiom of the EventCategorySchema pin above), with the
+// AC-verbatim size assertions (size === 156, 20 distinct categories)
+// alongside.
+
+// Expected census, transcribed from Spec-006 §Event Type Summary aggregated
+// per category. Exactly five rows carry the 2026-07-22 B18 delta T1.10
+// landed: session_lifecycle 28→31 (session 9→12, channel/agent 7,
+// repo/workspace/worktree 11, pty 1); run_lifecycle 10→13;
+// interactive_request 15→16 (queue 5, intervention 6, driver ask 4, user
+// message 0→1); usage_telemetry 5→8; mcp_governance 0→5 (the category is
+// B18's own). Every OTHER row is B18-untouched at its T1.2 value — that
+// invariance is what makes the widening auditable as additive rather than a
+// reshuffle. Rows sum to 156 (asserted below), mirroring the census table's
+// Total row.
+const CENSUS_BASELINE: ReadonlyArray<
+  readonly [EventCategory, readonly SessionEventType[], number]
+> = [
+  ["run_lifecycle", RUN_LIFECYCLE_EVENT_TYPES, 13],
+  ["assistant_output", ASSISTANT_OUTPUT_EVENT_TYPES, 2],
+  ["tool_activity", TOOL_ACTIVITY_EVENT_TYPES, 7],
+  ["interactive_request", INTERACTIVE_REQUEST_EVENT_TYPES, 16],
+  ["artifact_publication", ARTIFACT_PUBLICATION_EVENT_TYPES, 6],
+  ["membership_change", MEMBERSHIP_CHANGE_EVENT_TYPES, 13],
+  ["session_lifecycle", SESSION_LIFECYCLE_EVENT_TYPES, 31],
+  ["approval_flow", APPROVAL_FLOW_EVENT_TYPES, 8],
+  ["usage_telemetry", USAGE_TELEMETRY_EVENT_TYPES, 8],
+  ["runtime_node_lifecycle", RUNTIME_NODE_LIFECYCLE_EVENT_TYPES, 9],
+  ["recovery_events", RECOVERY_EVENTS_EVENT_TYPES, 3],
+  ["participant_lifecycle", PARTICIPANT_LIFECYCLE_EVENT_TYPES, 5],
+  ["audit_integrity", AUDIT_INTEGRITY_EVENT_TYPES, 3],
+  ["security_events", SECURITY_EVENTS_EVENT_TYPES, 4],
+  ["event_maintenance", EVENT_MAINTENANCE_EVENT_TYPES, 3],
+  ["policy_events", POLICY_EVENTS_EVENT_TYPES, 2],
+  ["channel_arbitration", CHANNEL_ARBITRATION_EVENT_TYPES, 3],
+  ["onboarding_lifecycle", ONBOARDING_LIFECYCLE_EVENT_TYPES, 2],
+  ["cross_node_dispatch", CROSS_NODE_DISPATCH_EVENT_TYPES, 13],
+  ["mcp_governance", MCP_GOVERNANCE_EVENT_TYPES, 5],
+];
+
+// The fifteen literals the 2026-07-22 Spec-006 B18 amendment minted, each
+// with the category it registered under. T1.10 INVERTED what this fixture
+// pins, exactly as its predecessor comment required: it held plain strings
+// asserted ABSENT from the census (the 141/19 baseline's forward boundary);
+// it now holds census members asserted PRESENT under a named category.
+//
+// The element type is load-bearing, not decoration. `SessionEventType` is
+// the census union itself, so a literal that failed to register — or that a
+// later edit renames, which I-006-1-02 forbids — is a COMPILE error under
+// `tsc -p tsconfig.test.json` (the package's `typecheck` leg; vitest strips
+// types and would not catch it). The runtime assertions below pin the
+// category half and the 141 + 15 = 156 arithmetic.
+const B18_MINTED_TYPES: ReadonlyArray<readonly [SessionEventType, EventCategory]> = [
+  ["session.provider_status", "session_lifecycle"],
+  ["session.notice", "session_lifecycle"],
+  ["session.renamed", "session_lifecycle"],
+  ["run.provider_initialized", "run_lifecycle"],
+  ["run.turn_started", "run_lifecycle"],
+  ["run.worker_shutdown", "run_lifecycle"],
+  ["usage.api_retry", "usage_telemetry"],
+  ["usage.context_compacted", "usage_telemetry"],
+  ["usage.model_rerouted", "usage_telemetry"],
+  ["user.message", "interactive_request"],
+  ["mcp.server_status_changed", "mcp_governance"],
+  ["mcp.server_config_changed", "mcp_governance"],
+  ["mcp.server_trust_changed", "mcp_governance"],
+  ["mcp.tool_override_changed", "mcp_governance"],
+  ["mcp.server_oauth_completed", "mcp_governance"],
+];
+
+describe("SessionEventType census + SESSION_EVENT_CATEGORY_BY_TYPE registry (T1.2)", () => {
+  it("registers exactly 156 types across exactly 20 distinct categories (I-006-1-01 sizes)", () => {
+    expect(SESSION_EVENT_CATEGORY_BY_TYPE.size).toBe(156);
+    expect(new Set(SESSION_EVENT_CATEGORY_BY_TYPE.values()).size).toBe(20);
+  });
+
+  it("registry categories span exactly the canonical EventCategory set (no empty category)", () => {
+    // Exact-set against the T1.1 schema surface (same `.options` cast idiom
+    // as the EventCategorySchema pin above): the surjective side of the
+    // bijection — every canonical category has at least one registered type.
+    const schemaInternals = EventCategorySchema as unknown as { options: readonly string[] };
+    const registryCategories = [...new Set(SESSION_EVENT_CATEGORY_BY_TYPE.values())].sort();
+    expect(registryCategories).toEqual([...schemaInternals.options].sort());
+  });
+
+  it("census table is complete: 20 rows, one per category, counts summing to 156", () => {
+    const tableCategories = CENSUS_BASELINE.map(([category]) => category);
+    expect(tableCategories).toHaveLength(20);
+    expect(new Set(tableCategories).size).toBe(20);
+    const total = CENSUS_BASELINE.reduce((sum, [, , expectedCount]) => sum + expectedCount, 0);
+    expect(total).toBe(156);
+  });
+
+  it.each(CENSUS_BASELINE)(
+    "%s: per-category array equals the registry partition, count pinned to the Spec-006 census",
+    (category, categoryTypes, expectedCount) => {
+      // Census-row pin (Spec-006 §Event Type Summary, aggregated per
+      // category at the post-B18 census).
+      expect(categoryTypes).toHaveLength(expectedCount);
+      // No intra-array duplicates: distinct-member count equals length.
+      expect(new Set(categoryTypes).size).toBe(expectedCount);
+      // Exact set equality vs the registry's keys filtered to this category
+      // — the I-006-1-01 anti-drift bind between arrays and registry. This
+      // also forces pairwise-disjoint arrays: each registry key carries
+      // exactly one category, so the 20 filtered key sets are disjoint.
+      const registryKeysInCategory = [...SESSION_EVENT_CATEGORY_BY_TYPE.entries()]
+        .filter(([, registeredCategory]) => registeredCategory === category)
+        .map(([eventType]) => eventType)
+        .sort();
+      expect([...categoryTypes].sort()).toEqual(registryKeysInCategory);
+    },
+  );
+
+  it("the 20 per-category arrays partition the registry key set exactly", () => {
+    const aggregated = CENSUS_BASELINE.flatMap(([, categoryTypes]) => [...categoryTypes]);
+    expect(aggregated).toHaveLength(156);
+    expect(new Set(aggregated).size).toBe(156);
+    expect([...aggregated].sort()).toEqual([...SESSION_EVENT_CATEGORY_BY_TYPE.keys()].sort());
+  });
+
+  it("keeps the three Plan-001 wire literals unrenamed with unchanged categories (I-006-1-02)", () => {
+    expect(SESSION_EVENT_CATEGORY_BY_TYPE.get("session.created")).toBe("session_lifecycle");
+    expect(SESSION_EVENT_CATEGORY_BY_TYPE.get("membership.created")).toBe("membership_change");
+    expect(SESSION_EVENT_CATEGORY_BY_TYPE.get("channel.created")).toBe("session_lifecycle");
+    // The census widening is additive-only: the SCHEMA-registered payload
+    // subset is untouched (exactly the three Plan-001 variants — the
+    // discriminated union grows only through the emitting plans'
+    // union-registration seam), and each subset member is census-registered.
+    expect(SESSION_EVENT_TYPES).toEqual([
+      "session.created",
+      "membership.created",
+      "channel.created",
+    ]);
+    for (const registered of SESSION_EVENT_TYPES) {
+      expect(SESSION_EVENT_CATEGORY_BY_TYPE.has(registered)).toBe(true);
+    }
+  });
+
+  it.each([
+    // Rows whose namespace prefix does NOT name their category — pinned
+    // against the spec sections so a future "cleanup" by namespace
+    // heuristic fails loud. The registry, never the prefix, is the
+    // category authority (name preservation for the `session.clock_*`
+    // pair per Spec-006 §Runtime Node Lifecycle; `key_reuse_detected`
+    // is a flat name with no namespace at all).
+    ["session.clock_unsynced", "runtime_node_lifecycle"],
+    ["session.clock_corrected", "runtime_node_lifecycle"],
+    ["daemon.master_key_source", "security_events"],
+    ["daemon.pii_split_ambiguous", "security_events"],
+    ["schema.migrated", "event_maintenance"],
+    ["moderation.review_flagged", "approval_flow"],
+    ["orchestration.rejected", "channel_arbitration"],
+    ["subagent.started", "tool_activity"],
+    ["pty.control_changed", "session_lifecycle"],
+    ["key_reuse_detected", "audit_integrity"],
+  ] as const)(
+    "category authority is the registry, not the namespace prefix: %s -> %s",
+    (eventType, expectedCategory) => {
+      expect(SESSION_EVENT_CATEGORY_BY_TYPE.get(eventType)).toBe(expectedCategory);
+    },
+  );
+
+  it("the census minus the B18 fifteen is exactly the 141-type T1.2 baseline", () => {
+    // Completeness self-check for the B18_MINTED_TYPES fixture (the same
+    // row-sum bind CENSUS_BASELINE gets above), re-formed for the post-flip
+    // state: the pre-B18 arithmetic was `141 registered + 15 absent = 156`;
+    // now that all fifteen ARE registered it runs the other way, `156 − 15
+    // = 141`, pinning the delta's SIZE so the widening cannot be over- or
+    // under-counted. A dropped or duplicated fixture entry fails here
+    // instead of leaving 14 passing per-literal pins.
+    expect(B18_MINTED_TYPES).toHaveLength(15);
+    expect(new Set(B18_MINTED_TYPES.map(([eventType]) => eventType)).size).toBe(15);
+    expect(SESSION_EVENT_CATEGORY_BY_TYPE.size - B18_MINTED_TYPES.length).toBe(141);
+    // Removing the fifteen leaves exactly 141 keys — the T1.2 baseline
+    // SIZE. This is a cardinality bind, not an identity one: a rename
+    // edited in both the record and its per-category array would still
+    // land on 141. Additive-only (I-006-1-02) is pinned by name elsewhere
+    // — the three Plan-001 literals and the ten prefix-mismatch rows below,
+    // plus CENSUS_BASELINE's per-category counts, where only the five
+    // B18-touched rows moved.
+    const minted = new Set<string>(B18_MINTED_TYPES.map(([eventType]) => eventType));
+    const remaining = [...SESSION_EVENT_CATEGORY_BY_TYPE.keys()].filter(
+      (eventType) => !minted.has(eventType),
+    );
+    expect(remaining).toHaveLength(141);
+  });
+
+  it.each([...B18_MINTED_TYPES])(
+    "B18-minted literal %s is registered under %s (T1.10 census closure)",
+    (mintedType, expectedCategory) => {
+      // The inversion of this suite's pre-flip pins: each of the fifteen
+      // was asserted ABSENT from the 141-type baseline; each is now
+      // asserted PRESENT under the category Spec-006 §Event Type Summary
+      // assigns it. One `.get()` proves both halves — an unregistered
+      // literal returns `undefined`, and a literal registered under the
+      // wrong category returns the wrong value. (The element type already
+      // proved registration at COMPILE time; this adds the category.)
+      expect(SESSION_EVENT_CATEGORY_BY_TYPE.get(mintedType)).toBe(expectedCategory);
+    },
+  );
+});
+
+// --------------------------------------------------------------------------
+// Plan-006 T1.3 — EventEnvelopeSchema: the canonical event carrier.
+// --------------------------------------------------------------------------
+//
+// Backstops Spec-006 §Canonical Serialization Rules (fields included — the
+// canonical set) and the two Phase-1 invariants the named envelope export
+// underwrites:
+//   • I-006-1-03 — the envelope FIELD SET is fixed at the canonical eleven
+//     members; serialized ORDER is RFC 8785 §3.2.3 UTF-16 code-unit
+//     lex-sort, produced by Phase 2's canonicalizer (golden vectors in
+//     T2.3) — so this layer pins membership mechanically, not byte order.
+//   • I-006-1-04 — `version` is producer-set and never rewritten: the
+//     parse path must hand back the producer's string verbatim. The
+//     read-side never-rewrite half (upcaster chain, ADR-018 §Decision #6)
+//     is daemon behavior, out of contract-layer reach — asserted by the
+//     consuming plans, not here.
+// Layering (ADR-018 §Decision #5/#8/#9): the envelope is the version-
+// TOLERANT carrier — `type` is a bounded free-form string, NOT the census
+// union — while `SessionEventSchema` stays the strict interpretation layer.
+
+// The canonical 11-member set, transcribed from Spec-006 §Canonical
+// Serialization Rules ("Fields included"). Listed in wire-authority
+// declaration order; every assertion sorts before comparing because only
+// MEMBERSHIP is canonical.
+const CANONICAL_ENVELOPE_FIELDS = [
+  "id",
+  "sessionId",
+  "sequence",
+  "occurredAt",
+  "category",
+  "type",
+  "actor",
+  "payload",
+  "correlationId",
+  "causationId",
+  "version",
+] as const;
+
+// A census-registered type with NO SessionEventSchema payload variant —
+// exercises the carrier accepting what the strict layer cannot interpret.
+// All eleven canonical members present (actor deliberately present-null).
+const buildBareEnvelope = () => ({
+  id: "evt-0100",
+  sessionId: SESSION_ID,
+  sequence: 41,
+  occurredAt: "2026-01-22T19:14:38.000Z",
+  category: "usage_telemetry" as const,
+  type: "usage.token_count",
+  actor: null,
+  payload: { runId: "run-001", totalTokens: 1234, providerExtra: { nested: true } },
+  correlationId: "req-042",
+  causationId: "evt-0099",
+  version: VERSION,
+});
+
+describe("EventEnvelopeSchema — canonical carrier (T1.3)", () => {
+  it("declares exactly the canonical 11-field set (I-006-1-03 membership pin)", () => {
+    // Mechanical guard on the DECLARED set, independent of any fixture:
+    // read the ZodObject shape keys through the same internals-cast idiom
+    // as the EventCategorySchema `.options` pin above.
+    const schemaInternals = EventEnvelopeSchema as unknown as {
+      shape: Record<string, unknown>;
+    };
+    const declared = Object.keys(schemaInternals.shape);
+    expect(declared).toHaveLength(11);
+    expect([...declared].sort()).toEqual([...CANONICAL_ENVELOPE_FIELDS].sort());
+  });
+
+  it("round-trips a fully-populated envelope through JSON with the exact member set", () => {
+    const firstPass = EventEnvelopeSchema.parse(buildBareEnvelope());
+    const secondPass = EventEnvelopeSchema.parse(JSON.parse(JSON.stringify(firstPass)) as unknown);
+    expect(secondPass).toStrictEqual(firstPass);
+    expect(Object.keys(secondPass).sort()).toEqual([...CANONICAL_ENVELOPE_FIELDS].sort());
+    // Unknown payload keys from a newer producer are preserved verbatim,
+    // never stripped (Spec-006 §EventEnvelope Version Semantics).
+    expect(secondPass.payload).toStrictEqual(buildBareEnvelope().payload);
+  });
+
+  it("hands back the producer-set `version` verbatim (I-006-1-04 — parse never rewrites)", () => {
+    const parsed = EventEnvelopeSchema.parse(buildBareEnvelope());
+    expect(parsed.version).toBe(VERSION);
+  });
+
+  it.each([
+    ["numeric version (ADR-018 §Decision #1 — never numeric on the wire)", { version: 1 }],
+    ["three-segment version", { version: "1.0.0" }],
+  ] as const)("rejects a %s", (_label, patch) => {
+    expect(EventEnvelopeSchema.safeParse({ ...buildBareEnvelope(), ...patch }).success).toBe(false);
+  });
+
+  it("rejects an envelope missing `version` (producer-set, required)", () => {
+    const broken = { ...buildBareEnvelope() } as Record<string, unknown>;
+    delete broken["version"];
+    expect(EventEnvelopeSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("accepts a census type with no payload variant; SessionEventSchema rejects it", () => {
+    // Layering pin: `usage.token_count` is census-registered (T1.2) but has
+    // no discriminated-union payload variant — the tolerant carrier parses
+    // it, the strict layer refuses to interpret it.
+    const fixture = buildBareEnvelope();
+    expect(EventEnvelopeSchema.safeParse(fixture).success).toBe(true);
+    expect(SessionEventSchema.safeParse(fixture).success).toBe(false);
+  });
+
+  it("accepts a census-UNKNOWN forward type (ADR-018 §Decision #5/#8/#9 accept-and-stub)", () => {
+    // A reader must be able to parse the ENVELOPE (to persist it as a
+    // version stub) for a type from a NEWER producer that this build's
+    // census does not know at all — rejecting here would drop exactly the
+    // events the stub path exists to preserve.
+    //
+    // The literal is deliberately fictional (the `session.exploded` idiom
+    // used by the unknown-discriminator pin above), and its absence from
+    // the census is asserted MECHANICALLY rather than asserted in prose.
+    // That guard is the point: this test previously used `session.renamed`
+    // — then a B18-pending literal — and T1.10's census closure registered
+    // it, which would have left the test green while its stated premise
+    // ("outside today's census union entirely") had quietly become false.
+    // A census-registered literal exercises the layering pin above, not
+    // this one.
+    const forwardType = "session.teleported";
+    expect(SESSION_EVENT_CATEGORY_BY_TYPE.get(forwardType as never)).toBeUndefined();
+    const forward = {
+      ...buildBareEnvelope(),
+      category: "session_lifecycle" as const,
+      type: forwardType,
+      payload: { sessionId: SESSION_ID, destination: "elsewhere" },
+    };
+    expect(EventEnvelopeSchema.safeParse(forward).success).toBe(true);
+    expect(SessionEventSchema.safeParse(forward).success).toBe(false);
+  });
+
+  it("carries the daemon-scope sentinel with no schema carve-out (B18 mcp_governance)", () => {
+    // Spec-006 §Daemon-Scope Event Binding And Node-Scope Anchoring binds
+    // the four node-scope `mcp_governance` types to the RFC 9562 §5.10 Max
+    // UUID sentinel, with a session-scoped initiator living in the payload
+    // as `initiatingSessionId` — never in the row's own `sessionId`.
+    // Choosing the sentinel is a producer obligation; what makes it FREE at
+    // this layer is that the `sessionId` UUID check already admits the Max
+    // UUID IN ITS CANONICAL LOWERCASE FORM, so no sentinel branch and no
+    // widened field type are needed. The case qualifier is load-bearing:
+    // Zod's unversioned uuid regex reaches the Max UUID only through a
+    // lowercase string-literal alternative carrying no `i` flag, and the
+    // general alternative demands a `[1-8]` version nibble that `f` fails —
+    // so `FFFFFFFF-…` is REJECTED even though RFC 9562 §4 makes UUID text
+    // case-insensitive. The producer obligation for Plan-028 is therefore
+    // "emit the sentinel lowercase," not merely "emit the sentinel." No
+    // uppercase-rejection assertion is pinned here on purpose: that would
+    // freeze a Zod regex quirk, and a future Zod case-handling fix would
+    // turn the pin red for a fix rather than a regression.
+    // Pinning the Max-UUID acceptance means a future tightening of that
+    // check (a v4-only constraint, say) fails HERE rather than silently
+    // making every node-scope governance event unrepresentable on the wire.
+    // The sentinel is deliberately disjoint from the `gen_random_uuid()` v4
+    // space real sessions draw from, so a sentinel-partitioned chain cannot
+    // collide with a real session's. The payload carries only
+    // `initiatingSessionId` — Spec-028 owns the rest of the governance
+    // payload shape, and the carrier treats `payload` as opaque anyway.
+    const DAEMON_SCOPE_SENTINEL = "ffffffff-ffff-ffff-ffff-ffffffffffff";
+    const nodeScopeGovernanceEvent = {
+      ...buildBareEnvelope(),
+      sessionId: DAEMON_SCOPE_SENTINEL,
+      category: "mcp_governance" as const,
+      type: "mcp.server_config_changed",
+      payload: { initiatingSessionId: SESSION_ID },
+    };
+    const parsed = EventEnvelopeSchema.safeParse(nodeScopeGovernanceEvent);
+    expect(parsed.success).toBe(true);
+    // The sentinel survives the parse verbatim: it lands in the canonical
+    // bytes like any other `sessionId`, never normalized or nulled away.
+    expect(parsed.success && parsed.data.sessionId).toBe(DAEMON_SCOPE_SENTINEL);
+  });
+
+  it.each([
+    ["whitespace-only", "   "],
+    ["NUL-byte", "usage.token\u0000count"],
+    ["oversized", "x".repeat(EVENT_FIELD_MAX_LEN + 1)],
+  ] as const)("rejects a %s `type` (wireFreeFormString guards)", (_label, badType) => {
+    expect(EventEnvelopeSchema.safeParse({ ...buildBareEnvelope(), type: badType }).success).toBe(
+      false,
+    );
+  });
+
+  it("rejects a `category` outside the canonical enum (tolerance axis is `type`)", () => {
+    const broken = { ...buildBareEnvelope(), category: "not_a_category" };
+    expect(EventEnvelopeSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it.each([["pii_payload"], ["extraField"], ["__proto__"]])(
+    "rejects a top-level member outside the canonical set: %s (I-006-1-03 — the set is fixed)",
+    (extraKey) => {
+      // `pii_payload` foremost: it is a storage COLUMN, deliberately NOT in
+      // the canonical form (Spec-006 §Canonical Serialization Rules) — an
+      // envelope smuggling it as a top-level member is malformed, and
+      // silently stripping it would desync the parse output from the
+      // hashed canonical bytes. The `__proto__` row pins that Zod's OBJECT
+      // parser (unlike its record parser — see the payload pre-guard pins
+      // below) surfaces an own `__proto__` as an unrecognized key, so
+      // `.strict()` rejects it. The computed-key spread creates an OWN
+      // property (only a non-computed literal `__proto__:` key in an
+      // object literal would set the prototype instead).
+      const broken = { ...buildBareEnvelope(), [extraKey]: { smuggled: true } };
+      expect(EventEnvelopeSchema.safeParse(broken).success).toBe(false);
+    },
+  );
+
+  it("keeps `actor: null` and absent `actor` wire-distinguishable", () => {
+    // Spec-006 §Canonical Serialization Rules: fields with value `null`
+    // MUST be included in serialization, so present-null and absent stay
+    // distinguishable — `actor` is the canonical set's only nullable
+    // member. JSON keeps `null` values and drops absent keys.
+    const withNull = EventEnvelopeSchema.parse({ ...buildBareEnvelope(), actor: null });
+    expect("actor" in withNull).toBe(true);
+    const rehydrated = JSON.parse(JSON.stringify(withNull)) as Record<string, unknown>;
+    expect("actor" in rehydrated).toBe(true);
+
+    const absentFixture = { ...buildBareEnvelope() } as Record<string, unknown>;
+    delete absentFixture["actor"];
+    const withAbsent = EventEnvelopeSchema.parse(absentFixture);
+    expect("actor" in withAbsent).toBe(false);
+  });
+
+  it.each([["correlationId"], ["causationId"]])(
+    "rejects `%s: null` (optional-only — absent is the sole no-value wire state)",
+    (field) => {
+      // The wire authority types the correlation pair `field?: string` —
+      // optional, NOT nullable, matching `buildCommonShape()`'s modeling
+      // (unchanged by the T1.3 refactor): `actor` alone carries the
+      // null-for-system convention. Pinned so any widening to nullable is
+      // a deliberate, loud contract change.
+      const broken = { ...buildBareEnvelope(), [field]: null };
+      expect(EventEnvelopeSchema.safeParse(broken).success).toBe(false);
+    },
+  );
+
+  it("rejects an envelope missing `payload` (required canonical member)", () => {
+    const broken = { ...buildBareEnvelope() } as Record<string, unknown>;
+    delete broken["payload"];
+    expect(EventEnvelopeSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it.each([
+    ["null", null],
+    ["a string", "not-an-object"],
+  ] as const)("rejects a non-object `payload` (%s)", (_label, badPayload) => {
+    expect(
+      EventEnvelopeSchema.safeParse({ ...buildBareEnvelope(), payload: badPayload }).success,
+    ).toBe(false);
+  });
+
+  it("rejects an own `__proto__` payload key (JSON.parse-built wire member)", () => {
+    // JSON.parse defines `__proto__` as an OWN data property (no prototype
+    // semantics), so the wire genuinely carries the member — a TS object
+    // literal `{ __proto__: ... }` would set the prototype instead and
+    // never reach the parser with an own key. Zod's record parser
+    // unconditionally SKIPS own `__proto__` keys, so preserve-verbatim is
+    // impossible for this one key and the default outcome is a silent
+    // drop — two distinct wire byte-strings collapsing to one parse
+    // output, the I-006-1-03 no-collapse hazard. The payload pre-guard
+    // (raw pre-record superRefine; a refine on the record's OUTPUT could
+    // never see the already-dropped key) rejects it loud instead.
+    const protoPayload = JSON.parse('{"__proto__":{"smuggled":true},"totalTokens":1}') as unknown;
+    // Fixture self-check: the parsed JSON really carries an OWN key (an
+    // `in` check would be satisfied by the prototype chain and prove
+    // nothing).
+    expect(Object.hasOwn(protoPayload as object, "__proto__")).toBe(true);
+    const broken = { ...buildBareEnvelope(), payload: protoPayload };
+    expect(EventEnvelopeSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it.each([["unknownForwardField"], ["constructor"], ["prototype"]])(
+    "preserves unknown payload key %s verbatim (guard positive control)",
+    (unknownKey) => {
+      // The carve-out is exactly one key wide: every other unknown payload
+      // key — including the proto-ADJACENT `constructor` / `prototype`,
+      // which are preservable own data keys (computed-key creation shadows
+      // the prototype members) — still round-trips untouched (Spec-006
+      // §EventEnvelope Version Semantics higher-MINOR preservation).
+      // Forward-regression pin: Zod's record-parser skip-list is
+      // verifiably `__proto__`-only today, making the pre-guard exactly
+      // co-extensive with the drop behavior; a future Zod upgrade that
+      // widens that skip-list would silently reintroduce the drop-collapse
+      // hazard for keys the guard does not cover — it must fail loud HERE
+      // first (same forward-pin idiom as the `.options` / `.shape`
+      // internals casts). Assertions are per-key rather than a whole-
+      // payload toStrictEqual: an own `constructor` key shadows the
+      // prototype member, which jest-style type-equality reads for class
+      // comparison — Object.keys set equality pins no-drop AND no-add
+      // without tripping that.
+      const parsed = EventEnvelopeSchema.parse({
+        ...buildBareEnvelope(),
+        payload: { [unknownKey]: { marker: unknownKey } },
+      });
+      expect(Object.keys(parsed.payload)).toEqual([unknownKey]);
+      expect(parsed.payload[unknownKey]).toStrictEqual({ marker: unknownKey });
+    },
+  );
+
+  it.each([
+    ["session.created", buildSessionCreated],
+    ["membership.created", buildMembershipCreated],
+    ["channel.created", buildChannelCreated],
+  ] as const)(
+    "every SessionEvent is an EventEnvelope: %s parses through the carrier",
+    (_label, build) => {
+      // The strict layer emits within the carrier contract: each registered
+      // variant fixture re-parses through EventEnvelopeSchema, and the
+      // subtype relation holds at compile time — the `EventEnvelope`
+      // annotation below is the static leg (the variants extend the
+      // envelope interface since the T1.3 refactor).
+      const parsed: EventEnvelope = SessionEventSchema.parse(build());
+      expect(EventEnvelopeSchema.safeParse(parsed).success).toBe(true);
+    },
+  );
+});
+
+// --------------------------------------------------------------------------
+// Plan-006 T1.4 — CapabilityDetailsSchema: canonical capability snapshot.
+// --------------------------------------------------------------------------
+//
+// Backstops the two capability rows of Spec-006 §Runtime Node Lifecycle
+// (runtime_node_lifecycle) — `runtime_node.capability_declared` /
+// `runtime_node.capability_updated`, whose payload snapshot shape this schema
+// is — per the canonical wire shape in api-payload-contracts.md §Plan-006
+// (CP-006-5, closes Plan-005 CP-005-5). The load-bearing pins:
+//   • NON-NORMALIZING: parse output is structurally identical to accepted
+//     input (the daemon emitter persists the PARSED output, so any
+//     default-filling or stripping arm would rewrite stored payloads). The
+//     discriminator vs the ingress `ProviderToolMetadataSchema`: a tool
+//     entry MISSING `idempotency_class` REJECTS here, where the ingress
+//     normalizer would default-fill `manual_reconcile_only`.
+//   • EXHAUSTIVE flags: enum-keyed record over the live
+//     `DRIVER_CAPABILITY_FLAGS` const — a missing member, an unknown key,
+//     and a non-boolean value all reject. Fixtures DERIVE from the const
+//     (no hardcoded flag names or counts), so Plan-005 T1.7's scheduled
+//     flag widening flows through this suite without edits.
+
+// Cast justified: `Object.fromEntries` widens keys to `string`, but the map
+// runs over the exhaustive `DRIVER_CAPABILITY_FLAGS` const, so every member
+// is present exactly once.
+const buildAllCapabilityFlags = (): Record<DriverCapabilityFlag, boolean> =>
+  Object.fromEntries(DRIVER_CAPABILITY_FLAGS.map((flag) => [flag, true])) as Record<
+    DriverCapabilityFlag,
+    boolean
+  >;
+
+// Typed `(): CapabilityDetails` return — the static leg: a fixture that
+// drifts from the exported interface is a compile error, not a runtime
+// surprise (same annotation idiom as the C5 consumer anchor in
+// runtime-node.test.ts).
+const buildCapabilityDetails = (): CapabilityDetails => ({
+  flags: buildAllCapabilityFlags(),
+  contractVersion: "1.0",
+  tools: [
+    { name: "read_file", idempotency_class: "idempotent" },
+    {
+      name: "apply_patch",
+      idempotency_class: "compensable",
+      description: "Applies a unified diff to the session worktree.",
+    },
+  ],
+});
+
+describe("CapabilityDetailsSchema (T1.4: canonical capability snapshot)", () => {
+  it("accepts a canonical snapshot and round-trips it verbatim (non-normalizing)", () => {
+    const input = buildCapabilityDetails();
+    const result = CapabilityDetailsSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      // toStrictEqual: no key added (no `.default()`), none dropped (no
+      // stripping) — output ≡ input, the persisted-parse-output invariant.
+      expect(result.data).toStrictEqual(input);
+    }
+  });
+
+  it.each([...DRIVER_CAPABILITY_FLAGS])(
+    "rejects a flags map missing the %s member (enum-keyed record is exhaustive)",
+    (flag) => {
+      const { [flag]: _omitted, ...partialFlags } = buildAllCapabilityFlags();
+      expect(
+        CapabilityDetailsSchema.safeParse({ ...buildCapabilityDetails(), flags: partialFlags })
+          .success,
+      ).toBe(false);
+    },
+  );
+
+  it("rejects an unknown flag key (enum keys reject out-of-census additions)", () => {
+    const broken = {
+      ...buildCapabilityDetails(),
+      flags: { ...buildAllCapabilityFlags(), not_a_registered_flag: true },
+    };
+    expect(CapabilityDetailsSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects a non-boolean flag value", () => {
+    const [firstFlag] = DRIVER_CAPABILITY_FLAGS;
+    const broken = {
+      ...buildCapabilityDetails(),
+      flags: { ...buildAllCapabilityFlags(), [firstFlag]: "true" },
+    };
+    expect(CapabilityDetailsSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it.each([
+    ["whitespace-only", "   "],
+    ["NUL-byte", "1.0\u0000x"],
+    ["oversized", "x".repeat(CAPABILITY_CONTRACT_VERSION_MAX_LEN + 1)],
+  ] as const)("rejects a %s contractVersion (wireFreeFormString guards)", (_label, bad) => {
+    const broken = { ...buildCapabilityDetails(), contractVersion: bad };
+    expect(CapabilityDetailsSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("accepts a contractVersion at exactly the length cap (boundary)", () => {
+    const ok = {
+      ...buildCapabilityDetails(),
+      contractVersion: "x".repeat(CAPABILITY_CONTRACT_VERSION_MAX_LEN),
+    };
+    expect(CapabilityDetailsSchema.safeParse(ok).success).toBe(true);
+  });
+
+  it("REJECTS a tool entry missing idempotency_class (non-normalizing pin vs ingress normalizer)", () => {
+    // The ingress `ProviderToolMetadataSchema` would default-fill
+    // `manual_reconcile_only` here; the event-snapshot schema must NOT — a
+    // default-filling arm would make persisted parse output diverge from the
+    // wire bytes. Rejection is the discriminator between the two schemas.
+    const broken = { ...buildCapabilityDetails(), tools: [{ name: "read_file" }] };
+    expect(CapabilityDetailsSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects an unknown key inside a tool entry (.strict at the element level)", () => {
+    const broken = {
+      ...buildCapabilityDetails(),
+      tools: [{ name: "read_file", idempotency_class: "idempotent", vendorExtra: true }],
+    };
+    expect(CapabilityDetailsSchema.safeParse(broken).success).toBe(false);
+  });
+
+  // tools.name / tools.description compose `wireFreeFormString` — labeled
+  // negatives proving the tool-entry strings are NOT bare `z.string()`s
+  // (mirrors the contractVersion guard table above; the caps are the
+  // provider-driver.ts per-field constants).
+  it.each([
+    ["NUL-byte tools.name", { name: "read_file\u0000x", idempotency_class: "idempotent" }],
+    [
+      "oversized tools.name",
+      { name: "x".repeat(DRIVER_TOOL_NAME_MAX_LEN + 1), idempotency_class: "idempotent" },
+    ],
+    [
+      "oversized tools.description",
+      {
+        name: "read_file",
+        idempotency_class: "idempotent",
+        description: "x".repeat(DRIVER_TOOL_DESCRIPTION_MAX_LEN + 1),
+      },
+    ],
+  ] as const)("rejects a %s (wireFreeFormString guards on tool entries)", (_label, badTool) => {
+    const broken = { ...buildCapabilityDetails(), tools: [badTool] };
+    expect(CapabilityDetailsSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("accepts description present and absent on tool entries (optional both ways)", () => {
+    // The canonical fixture already carries one tool WITH `description` and
+    // one WITHOUT — this pin makes the both-ways acceptance explicit.
+    const bothWays = buildCapabilityDetails();
+    expect(bothWays.tools.some((tool) => "description" in tool)).toBe(true);
+    expect(bothWays.tools.some((tool) => !("description" in tool))).toBe(true);
+    expect(CapabilityDetailsSchema.safeParse(bothWays).success).toBe(true);
+  });
+
+  it("accepts an empty tools array (a capability may declare zero tools)", () => {
+    const ok = { ...buildCapabilityDetails(), tools: [] };
+    expect(CapabilityDetailsSchema.safeParse(ok).success).toBe(true);
+  });
+
+  it("rejects a top-level unknown member (.strict drift guard)", () => {
+    const broken = { ...buildCapabilityDetails(), vendorExtension: {} };
+    expect(CapabilityDetailsSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it.each([["flags"], ["contractVersion"], ["tools"]] as const)(
+    "rejects a snapshot missing the required %s member",
+    (member) => {
+      const { [member]: _omitted, ...withoutMember } = buildCapabilityDetails();
+      expect(CapabilityDetailsSchema.safeParse(withoutMember).success).toBe(false);
+    },
+  );
 });

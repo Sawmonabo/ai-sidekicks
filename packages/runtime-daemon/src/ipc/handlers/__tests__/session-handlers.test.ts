@@ -55,8 +55,8 @@
 //     (the §Session row is the HTTP 404 equivalent). Closes BL-117.
 //   * I-007-3-T9 (Verifies Spec-007 AC-N3 + Spec-001 AC4) — `session.join`
 //     round-trip. Happy path: mock `joinSession` drives a
-//     `membership.created` event (the canonical V1 join-admission variant
-//     per `SessionEventSchema` at `packages/contracts/src/event.ts:320-329`)
+//     `membership.created` event (the canonical V1 join-admission variant per
+//     the `SessionEventSchema` discriminated union in `packages/contracts/src/event.ts`)
 //     to a same-session subscribe-side observer via the captured
 //     `onEvent` callback (mirrors T3's emit pattern). AC4 replay shape:
 //     two sequential dispatches with different `identityHandle`s return
@@ -263,8 +263,8 @@ function buildSessionJoinResponse(
 /**
  * Build a canonical-shape `membership.created` `SessionEvent` for the
  * I-007-3-T9 emit-and-observe arm. The payload shape matches
- * `MembershipCreatedEventSchema` at
- * `packages/contracts/src/event.ts:320-329` exactly — `membershipId`,
+ * `MembershipCreatedEventSchema` in
+ * `packages/contracts/src/event.ts` exactly — `membershipId`,
  * `participantId`, `role`, `identityHandle`. The discriminator union dispatch
  * picks this variant on `type === "membership.created"`.
  */
@@ -1289,7 +1289,7 @@ describe("I-007-3-T8 — session.read round-trip (Spec-007 AC-N2 + I-007-8)", ()
 //
 // AC-N3 has two arms: (a) happy path — handler invocation drives a
 // `membership.created` event (the canonical V1 join-admission variant
-// per `SessionEventSchema` at `packages/contracts/src/event.ts:320-329`)
+// per the `SessionEventSchema` discriminated union in `packages/contracts/src/event.ts`)
 // to a same-session subscribe-side observer through the streaming
 // primitive; (b) Spec-001 AC4 second-client replay shape — a second
 // `SessionJoin` returns the same `sessionId` at the handler boundary.

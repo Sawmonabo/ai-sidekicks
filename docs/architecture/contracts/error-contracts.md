@@ -406,8 +406,8 @@ Cross-version compatibility errors per [ADR-018](../../decisions/018-cross-versi
 
 | Code | Description | HTTP Status |
 | --- | --- | --- |
-| `version.floor_exceeded` | Client attach or event envelope version is below the session's `min_client_version` floor per [ADR-018](../../decisions/018-cross-version-compatibility.md) §Decision #3 / §Decision #4 (typed: `VERSION_FLOOR_EXCEEDED`) | 409 |
-| `version.ceiling_exceeded` | Event envelope version exceeds the maximum supported by the reading party per `ADR-018 §Decision` #4 (typed: `VERSION_CEILING_EXCEEDED`) | 409 |
+| `version.floor_exceeded` | Client attach or event envelope version is below the session's `min_client_version` floor per [ADR-018](../../decisions/018-cross-version-compatibility.md) §Decision #3 / §Decision #4 (typed: `VERSION_FLOOR_EXCEEDED`; the bound-checked version is the branded `EventEnvelopeVersion` — validated by `packages/contracts/src/event.ts#EventEnvelopeVersionSchema` per `Spec-006 §EventEnvelope Version Semantics`) | 409 |
+| `version.ceiling_exceeded` | Event envelope version exceeds the maximum supported by the reading party per `ADR-018 §Decision` #10 (typed: `VERSION_CEILING_EXCEEDED`; same branded comparand — `packages/contracts/src/event.ts#EventEnvelopeVersionSchema`, `Spec-006 §EventEnvelope Version Semantics`) | 409 |
 
 `version.floor_exceeded` is **surface-polymorphic** — the same wire code carries a different shape on each of its three emitting surfaces:
 

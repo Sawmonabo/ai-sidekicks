@@ -137,9 +137,9 @@ function bootstrapFromCreated(event: StoredEvent): DaemonSessionSnapshot {
   // Owner-membership synthesis policy — wire-contract reconciliation.
   //
   // The wire `SessionEventSchema` accepts `actor: null` for every variant
-  // (per `packages/contracts/src/event.ts:239`), and the canonical
-  // `session.created` payload comment at
-  // `packages/contracts/src/event.ts:289-301` is explicit:
+  // (per the shared `actor` field in `buildCommonShape()`, spread into every
+  // variant), and the canonical `session.created` payload comment in
+  // `packages/contracts/src/event.ts` is explicit:
   //   "The owner participant is conveyed via the membership.created event
   //    that follows."
   // i.e. on the wire, `session.created.actor` may legitimately be null

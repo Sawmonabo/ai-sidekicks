@@ -153,10 +153,10 @@ const CAPABILITIES: Record<string, unknown> = {
 
 // A DISTINCT capability map for the capability-update round-trip: a different
 // shape than the seeded `{a:1}`-style snapshot so the refresh assertion proves
-// the new map REPLACED the old one (the request carries a full replacement set —
-// runtime-node.ts:212), and the JSONB round-trip proves the cast-free object
-// bind survived serialization (a silent stringify bug would pass a state-only
-// check).
+// the new map REPLACED the old one (the request carries a full replacement set
+// — the FULL-REPLACEMENT sentence in the `RuntimeNodeCapabilityUpdateRequest`
+// header comment), and the JSONB round-trip proves the cast-free object bind
+// survived serialization (a silent stringify bug would pass a state-only check).
 const UPDATED_CAPABILITIES: Record<string, unknown> = {
   "provider-driver": { kind: "codex", streaming: false },
   maxConcurrentRuns: 8,
