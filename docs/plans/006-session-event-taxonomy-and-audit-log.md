@@ -684,7 +684,55 @@ Transcription errors and cross-doc inconsistencies discovered during the 2026-05
 
 ```yaml
 manifest_schema_version: 1
-shipped: []
+shipped:
+  - phase: 1
+    task: [T1.1, T1.2, T1.3, T1.4, T1.5, T1.6, T1.7, T1.8, T1.9, T1.10]
+    pr: 247
+    sha: f7d49f3
+    merged_at: 2026-07-25
+    files:
+      - apps/desktop/src/renderer/src/runtime-node-attach/AttachFlow.tsx
+      - apps/desktop/src/renderer/src/runtime-node-attach/CapabilityDeclaration.tsx
+      - apps/desktop/src/renderer/src/runtime-node-attach/MixedVersionStatus.tsx
+      - apps/desktop/src/renderer/src/runtime-node-attach/NodeRoster.tsx
+      - docs/architecture/contracts/api-payload-contracts.md
+      - docs/architecture/contracts/error-contracts.md
+      - docs/plans/006-session-event-taxonomy-and-audit-log.md
+      - packages/client-sdk/src/runtimeNodeClient.ts
+      - packages/client-sdk/test/sessionClient.integration.test.ts
+      - packages/contracts/src/__tests__/event-disposition.test.ts
+      - packages/contracts/src/__tests__/event-source-epoch.test.ts
+      - packages/contracts/src/__tests__/runtime-node.test.ts
+      - packages/contracts/src/__tests__/session-event.test.ts
+      - packages/contracts/src/channels.ts
+      - packages/contracts/src/event.ts
+      - packages/contracts/src/memberships.ts
+      - packages/contracts/src/runtime-node.ts
+      - packages/control-plane/src/runtime-nodes/__tests__/attach-service.test.ts
+      - packages/runtime-daemon/src/ipc/handlers/__tests__/session-handlers.test.ts
+      - packages/runtime-daemon/src/ipc/handlers/presence-subscribe.ts
+      - packages/runtime-daemon/src/node/node-event-emitter.ts
+      - packages/runtime-daemon/src/provider/driver-capabilities-writer.ts
+      - packages/runtime-daemon/src/session/session-projector.ts
+    verifies_invariant: [I-006-1-01, I-006-1-02, I-006-1-03, I-006-1-04]
+    spec_coverage:
+      [
+        "Spec-006 §Event Type Summary (the channel_arbitration, cross_node_dispatch, and onboarding_lifecycle category rows)",
+        "Spec-006 §Event Type Summary (the heading, the Total enumerated event types prose, and the per-category rows)",
+        "Spec-006 §Canonical Serialization Rules (Fields included — the canonical set)",
+        "Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle) (the runtime_node.capability_declared + runtime_node.capability_updated rows)",
+        "Spec-006 §EventEnvelope Version Semantics (VERSION_FLOOR_EXCEEDED)",
+        "Spec-006 §Event Type Summary (the full category-row table)",
+        "local-sqlite-schema.md session_events",
+        "Spec-006 §Event Type Summary (the taxonomy the dispositions target, incl. the Total enumerated event types prose)",
+        "Spec-006 §Event Type Enumeration (cross-cutting sourceEpoch payload field)",
+        "Spec-006 §Compacted Event Format (audit-stub projection — sourceEpoch preservation)",
+        "Spec-006 §Event Type Summary (the 156-type / 20-category census)",
+        "Spec-006 §MCP Governance (mcp_governance) (category registration)",
+        "Spec-006 §Daemon-Scope Event Binding And Node-Scope Anchoring (the mcp_governance sentinel bullet)",
+      ]
+    notes: |
+      Full-phase single-PR ship (T1.1-T1.10; T1.6 zero-diff verify, T1.7 verification-only). Phase D closed unanimous at the 3-round cap; Codex round 1 clean (reaction-swap verdict). Three cite-hygiene commits converted every drifted inbound line-cite into the two reshaped contracts files to symbol/field anchors. NS-37 auto-created in the housekeeping PR, which also carried the §2 contracts ownership-row true-up, the NS-31 leg-(c) until-clause true-up, and the CAT-07 abbreviated-citer Known-Gaps append.
 ```
 
 ### Notes
