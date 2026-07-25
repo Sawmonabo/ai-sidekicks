@@ -57,8 +57,8 @@
 // hermeticity, so it redirects config away from the developer's; the RESOLVER
 // is production behavior, so it honors an operator's own redirection on the
 // same trust plane as `PATH` and strips only key INJECTION
-// (`GIT_CONFIG_COUNT`). The resolver's environment is asserted separately
-// below.
+// (`GIT_CONFIG_COUNT` and `GIT_CONFIG_PARAMETERS`, the two independent
+// channels). The resolver's environment is asserted separately below.
 
 import { execFile } from "node:child_process";
 import { chmod, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
@@ -107,9 +107,12 @@ const itOnPosix = it.skipIf(process.platform === "win32");
 
 /**
  * Everything the resolver strips — see its own list, which this mirrors. Five
- * direct discovery redirectors plus `GIT_CONFIG_COUNT`, the switch that makes
- * `GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n` injection live and so reaches
- * discovery keys such as `core.worktree` indirectly.
+ * direct discovery redirectors plus the two INDEPENDENT env-borne
+ * config-injection channels: `GIT_CONFIG_COUNT`, the switch that makes
+ * `GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n` pairs live, and
+ * `GIT_CONFIG_PARAMETERS`, which is not gated on that count. Both are stripped
+ * as defense in depth rather than on a demonstrated redirection — the
+ * resolver's own list documents the empirical severity.
  */
 const DISCOVERY_REDIRECTING_GIT_ENV_KEYS = [
   "GIT_DIR",
@@ -118,6 +121,7 @@ const DISCOVERY_REDIRECTING_GIT_ENV_KEYS = [
   "GIT_CEILING_DIRECTORIES",
   "GIT_DISCOVERY_ACROSS_FILESYSTEM",
   "GIT_CONFIG_COUNT",
+  "GIT_CONFIG_PARAMETERS",
 ];
 
 /**

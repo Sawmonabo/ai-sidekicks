@@ -249,6 +249,23 @@ export type PathRealpathResolver = (path: string) => Promise<string>;
  * IDENTICAL, the two are mutually assignable, so the duplication costs a
  * doubled auto-import suggestion and nothing else. Keep them identical: a
  * member added to one belongs in the other.
+ *
+ * That instruction governs FIVE surfaces, not this interface alone. The pair
+ * of modules duplicates:
+ *
+ *   1. this interface;
+ *   2. the exported `PathRealpathResolver` alias above (byte-identical);
+ *   3. the module-local `WINDOWS_PATH_SEPARATOR` constant below;
+ *   4. the module-local `resolveDeps` defaulting helper below;
+ *   5. the win32 driveless-root rule — the resolver states it once, in
+ *      `namesCompleteLocation`, and `joinCandidatePath` below re-spells it
+ *      inline for its absolute `directory` arm (a parsed root longer than one
+ *      character is the complete-location test in both places).
+ *
+ * The fifth is the one a future editor most needs flagged. The first four are
+ * type aliases and defaulting boilerplate whose divergence the compiler or a
+ * reader catches at once; the fifth is a CONTAINMENT rule, so divergence there
+ * changes which paths are admitted — silently, and only on Windows.
  */
 export interface PlatformPathModule {
   readonly sep: string;

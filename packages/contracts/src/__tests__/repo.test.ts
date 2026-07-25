@@ -32,13 +32,21 @@
 //     not-yet-registered `worktree.*` half of the family is asserted absent
 //     (the CP-010-5 forward edge).
 //   • The `index.ts` barrel re-exports every symbol this task provides —
-//     the barrel-gap regression Plan-001 GitHub PR-#30 round-1 caught.
+//     the barrel-gap regression Plan-001 GitHub PR-#30 round-1 caught — and
+//     the six standalone event-variant exports are driven behaviorally
+//     against the independently-spelled union arms they must agree with.
 import { describe, expect, it } from "vitest";
 
 import {
   EVENT_FIELD_MAX_LEN,
+  RepoAttachedEventSchema,
+  RepoDetachedEventSchema,
   SESSION_EVENT_CATEGORY_BY_TYPE,
   SessionEventSchema,
+  WorkspaceArchivedEventSchema,
+  WorkspaceProvisioningEventSchema,
+  WorkspaceReadyEventSchema,
+  WorkspaceStaleEventSchema,
   type SessionEvent,
 } from "../event.js";
 import * as contracts from "../index.js";
@@ -1726,6 +1734,37 @@ void sixWireSurfacesTypeFromThisModuleAlone;
 // Barrel re-export regression guard.
 // --------------------------------------------------------------------------
 
+// What the standalone `*EventSchema` rows below need of a schema. Structural
+// because the six exports have six distinct output types and this is the whole
+// surface the rows drive; a `z.ZodType<…>` column would need a common type
+// argument the variants do not share.
+interface StandaloneEventSchema {
+  parse(value: unknown): unknown;
+  safeParse(value: unknown): { success: boolean };
+}
+
+// The six standalone event-variant exports, paired with the state their
+// emitter writes and read THROUGH the barrel — this block's subject. Same
+// explicitly-typed shape as `REGISTERED_REPO_EVENTS` above and for the same
+// reason: the `SessionEvent["type"]` column stops compiling if an arm ever
+// leaves the union.
+const STANDALONE_REPO_EVENT_SCHEMAS: ReadonlyArray<
+  readonly [SessionEvent["type"], RepoMountState | WorkspaceState, StandaloneEventSchema]
+> = [
+  ["repo.attached", "attached", contracts.RepoAttachedEventSchema],
+  ["repo.detached", "detached", contracts.RepoDetachedEventSchema],
+  ["workspace.provisioning", "provisioning", contracts.WorkspaceProvisioningEventSchema],
+  ["workspace.ready", "ready", contracts.WorkspaceReadyEventSchema],
+  ["workspace.stale", "stale", contracts.WorkspaceStaleEventSchema],
+  ["workspace.archived", "archived", contracts.WorkspaceArchivedEventSchema],
+];
+
+// A LAWFUL event of a DIFFERENT registered variant, for the discriminator pin
+// below. `archived` is the one state both Plan-009 vocabularies carry, so the
+// substitute parses under the union whichever row asks for it.
+const buildSiblingRepoEvent = (eventType: SessionEvent["type"]) =>
+  buildRepoEvent(eventType === "repo.attached" ? "workspace.ready" : "repo.attached", "archived");
+
 describe("index.ts re-exports the Plan-009 contract core", () => {
   // The barrel-gap regression Plan-001 GitHub PR-#30 round-1 caught: a module
   // can be complete and still invisible to consumers if the
@@ -1792,16 +1831,64 @@ describe("index.ts re-exports the Plan-009 contract core", () => {
     expect(contracts.RepoWorkspaceLifecyclePayloadSchema).toBe(RepoWorkspaceLifecyclePayloadSchema);
   });
 
-  it("re-exports the six event-variant schemas registered into the union", () => {
-    for (const schema of [
-      contracts.RepoAttachedEventSchema,
-      contracts.RepoDetachedEventSchema,
-      contracts.WorkspaceProvisioningEventSchema,
-      contracts.WorkspaceReadyEventSchema,
-      contracts.WorkspaceStaleEventSchema,
-      contracts.WorkspaceArchivedEventSchema,
-    ]) {
-      expect(typeof (schema as { parse?: unknown })?.parse).toBe("function");
-    }
+  // The six event-variant exports get BEHAVIORAL coverage rather than the
+  // callable-`.parse` shape check the schema table above uses, because they
+  // are the one surface in this package that is spelled TWICE: event.ts
+  // declares each `*EventSchema` const, then rebuilds every variant inline for
+  // `z.discriminatedUnion` (the literal-typed arm `z.ZodType<T>` erases). A
+  // shape check is green under any drift between the two spellings; these rows
+  // fail on it.
+  it.each(STANDALONE_REPO_EVENT_SCHEMAS)(
+    "%s parses its own valid event through the standalone export, matching the union",
+    (eventType, state, schema) => {
+      const event = buildRepoEvent(eventType, state);
+      // Agreement in BOTH directions at once: a const the union arm would
+      // refuse fails on the right-hand parse, and an arm the const would refuse
+      // fails on the left — and a difference in what either surface keeps shows
+      // up as an inequality rather than as two independently green parses.
+      expect(schema.parse(event)).toStrictEqual(SessionEventSchema.parse(event));
+    },
+  );
+
+  it.each(STANDALONE_REPO_EVENT_SCHEMAS)(
+    "%s refuses a sibling variant's event — the const's own `type` literal is load-bearing",
+    (eventType, _state, schema) => {
+      // The sharpest discriminator pin available: a lawful event of another
+      // REGISTERED variant, so the only thing that can refuse it is this
+      // const's own literal. The union control on the line below is what makes
+      // that argument hold — without it the refusal could be a malformed
+      // fixture rejecting for an unrelated reason.
+      const siblingEvent = buildSiblingRepoEvent(eventType);
+      expect(SessionEventSchema.safeParse(siblingEvent).success).toBe(true);
+      expect(schema.safeParse(siblingEvent).success).toBe(false);
+    },
+  );
+
+  it.each(STANDALONE_REPO_EVENT_SCHEMAS)(
+    "%s refuses a category mismatch and an unknown payload key on its own event",
+    (eventType, state, schema) => {
+      const event = buildRepoEvent(eventType, state);
+      // `category` sits in the RFC 8785 canonical bytes backing the hash chain,
+      // so a variant that accepted a mismatched one would hash under the wrong
+      // category at replay. Pinned on the union above; pinned here on the
+      // standalone surface, which is what Phase 2 emitters validate against.
+      expect(schema.safeParse({ ...event, category: "membership_change" }).success).toBe(false);
+      // `.strict()` reaches the shared payload schema through this surface too.
+      expect(
+        schema.safeParse({ ...event, payload: { ...event.payload, smuggled: "nope" } }).success,
+      ).toBe(false);
+    },
+  );
+
+  it("re-exports the very same event-variant instances as event.ts (no shadow copy)", () => {
+    // Identity, the same leg the contract-schema block above closes: the rows
+    // above drive the BARREL values, and this is what ties their verdicts to
+    // the declarations in event.ts rather than to a second instance.
+    expect(contracts.RepoAttachedEventSchema).toBe(RepoAttachedEventSchema);
+    expect(contracts.RepoDetachedEventSchema).toBe(RepoDetachedEventSchema);
+    expect(contracts.WorkspaceProvisioningEventSchema).toBe(WorkspaceProvisioningEventSchema);
+    expect(contracts.WorkspaceReadyEventSchema).toBe(WorkspaceReadyEventSchema);
+    expect(contracts.WorkspaceStaleEventSchema).toBe(WorkspaceStaleEventSchema);
+    expect(contracts.WorkspaceArchivedEventSchema).toBe(WorkspaceArchivedEventSchema);
   });
 });

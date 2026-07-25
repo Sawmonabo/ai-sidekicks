@@ -54,11 +54,12 @@
 // The child environment inherits `process.env` (it must — a bare `git` is found
 // through the child's own executable search, and Windows needs `SystemRoot` and
 // friends), but the discovery-redirecting `GIT_*` variables are DELETED from
-// the copy, along with the config-injection switch that reaches them
-// indirectly. A daemon launched from a shell that exported `GIT_DIR` or
-// `GIT_WORK_TREE` would otherwise have every attach answered about the ambient
-// repository instead of the supplied path — a resolved root with no relation
-// to its input, which is precisely the guessed root I-009-1 forbids.
+// the copy, along with both env-borne config-injection channels that could
+// reach them indirectly. A daemon launched from a shell that exported
+// `GIT_DIR` or `GIT_WORK_TREE` would otherwise have every attach answered
+// about the ambient repository instead of the supplied path — a resolved root
+// with no relation to its input, which is precisely the guessed root I-009-1
+// forbids.
 // `GIT_CEILING_DIRECTORIES` is the mirror-image hazard: it bounds upward
 // discovery, so an ambient value can make git report not-a-repository for a
 // real repository, reclassifying it `vcsType: "none"` in violation of I-009-4.
@@ -329,12 +330,29 @@ const NOT_A_REPOSITORY_STDERR_MARKER = /^fatal: not a git repository/im;
  * redirect git's repository DISCOVERY — the exact question this module asks.
  * Every entry is a correctness measure, not hygiene; see the header.
  *
- * TWO MECHANISMS, one list. The first five redirect discovery DIRECTLY.
- * `GIT_CONFIG_COUNT` redirects it INDIRECTLY, and is the more general hazard:
- * it is the switch that makes `GIT_CONFIG_KEY_n` / `GIT_CONFIG_VALUE_n` pairs
- * live, and those pairs can set any config key at all — `core.worktree` and
- * `safe.directory` among them. Stripping the count alone neuters the whole
- * family, because git reads no injected keys without it.
+ * TWO MECHANISMS, one list. The first five redirect discovery DIRECTLY, and
+ * they are the demonstrated hazard: with `GIT_DIR` and `GIT_WORK_TREE`
+ * exported, this module's own argv — `-C <path> rev-parse --show-toplevel` —
+ * answers about the AMBIENT repository rather than the supplied path, the `-C`
+ * notwithstanding (git 2.50.1).
+ *
+ * The last two are the env-borne CONFIG-INJECTION channels, and they are
+ * INDEPENDENT of each other. `GIT_CONFIG_COUNT` is the switch that makes
+ * `GIT_CONFIG_KEY_n` / `GIT_CONFIG_VALUE_n` pairs live: stripping the count
+ * neuters THAT pair family, since git reads none of those numbered keys
+ * without it. It does not neuter injection as a whole — `GIT_CONFIG_PARAMETERS`
+ * is a second channel (the mechanism that carries `git -c` into subprocess
+ * environments) and is not gated on the count. Both are live on current git: a
+ * `user.name` injected through either is honored, and both report git's
+ * `command` config scope.
+ *
+ * Their honest severity is defense in depth, not a closed redirection. On git
+ * 2.50.1 the injectable key that bears on discovery, `core.worktree`, does NOT
+ * move `--show-toplevel` through either channel — nor through `git -c`, the
+ * same command scope — whether the query runs at the repository root or at a
+ * subdirectory via `-C`. They are stripped because arbitrary config injection
+ * sits on the wrong side of the line drawn below, not because a working
+ * discovery redirect is known through them.
  *
  * NOT stripped, deliberately: `GIT_CONFIG_NOSYSTEM`, `GIT_CONFIG_GLOBAL`,
  * `GIT_CONFIG_SYSTEM`. Those REDIRECT or disable config files rather than
@@ -358,6 +376,7 @@ const DISCOVERY_REDIRECTING_GIT_ENV_KEYS: readonly string[] = [
   "GIT_CEILING_DIRECTORIES",
   "GIT_DISCOVERY_ACROSS_FILESYSTEM",
   "GIT_CONFIG_COUNT",
+  "GIT_CONFIG_PARAMETERS",
 ];
 
 // --------------------------------------------------------------------------
@@ -420,15 +439,7 @@ function defaultExecuteFile(
   });
 }
 
-interface ResolvedRepoRootResolverDeps {
-  readonly executeFile: GitFileExecutor;
-  readonly realpath: PathRealpathResolver;
-  readonly gitExecutablePath: string;
-  readonly gitCommandTimeoutMs: number;
-  readonly platformPath: PlatformPathModule;
-}
-
-function resolveDeps(partial: Partial<RepoRootResolverDeps>): ResolvedRepoRootResolverDeps {
+function resolveDeps(partial: Partial<RepoRootResolverDeps>): RepoRootResolverDeps {
   return {
     executeFile: partial.executeFile ?? defaultExecuteFile,
     realpath: partial.realpath ?? realpathFromFilesystem,
@@ -456,6 +467,11 @@ const WINDOWS_PATH_SEPARATOR = "\\";
  *
  * `C:foo` needs no special case: it is drive-RELATIVE, and `isAbsolute`
  * already reports false for it.
+ *
+ * T1.6's `joinCandidatePath` (`./trust-envelope.js`) re-spells this same
+ * driveless-root rule inline for its absolute `directory` arm, so a change to
+ * the predicate here belongs there too; that module's `PlatformPathModule`
+ * note enumerates the full set of surfaces the two files share.
  */
 function namesCompleteLocation(candidatePath: string, platformPath: PlatformPathModule): boolean {
   if (!platformPath.isAbsolute(candidatePath)) {
@@ -578,7 +594,7 @@ function stripSingleLineTerminator(output: string): string {
  * stale `"none"` is exactly the lie I-009-4 forbids.
  */
 export class RepoRootResolver {
-  private readonly deps: ResolvedRepoRootResolverDeps;
+  private readonly deps: RepoRootResolverDeps;
 
   public constructor(deps: Partial<RepoRootResolverDeps> = {}) {
     this.deps = resolveDeps(deps);
