@@ -26,6 +26,7 @@ export * from "./presence.js";
 export * from "./provider-driver.js";
 export * from "./pty-host-protocol.js";
 export * from "./pty-host.js";
+export * from "./repo.js";
 export * from "./runtime-node.js";
 export * from "./session.js";
 export * from "./uuid-canonical.js";

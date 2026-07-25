@@ -8,6 +8,10 @@
 //   • membership.created  — emitted on `SessionJoin` admit
 //   • channel.created    — emitted when a session's main channel materializes
 //
+// Plan-009 T1.1 adds six more through the union-registration seam (CP-009-4):
+// `repo.attached`, `repo.detached`, and the four `workspace.*` lifecycle
+// types, all sharing one payload schema imported from repo.ts.
+//
 // The discriminated-union `SessionEvent` discriminates on the wire `type`
 // string. Adding a new variant later is additive per ADR-018 §Decision #8
 // (new event types allowed under a MINOR version bump). The full taxonomy
@@ -19,7 +23,7 @@
 // the union-registration seam (CP-009-4 / CP-010-5 / CP-012-2 / CP-016-3
 // class) — so census membership is type registration, not payload support.
 //
-// All three V1 wire strings are registered in Spec-006 §Event Type
+// All three Plan-001 wire strings are registered in Spec-006 §Event Type
 // Enumeration: `session.created` and `channel.created` under
 // `session_lifecycle`; `membership.created` under `membership_change`
 // (registered 2026-05-01 via BL-105 closure). The
@@ -47,6 +51,7 @@ import {
   type DriverCapabilityFlag,
   type NormalizedProviderToolMetadata,
 } from "./provider-driver.js";
+import { RepoWorkspaceLifecyclePayloadSchema, type RepoWorkspaceLifecyclePayload } from "./repo.js";
 import {
   CHANNEL_NAME_MAX_LEN,
   ChannelIdSchema,
@@ -557,11 +562,13 @@ export const EventEnvelopeSchema: z.ZodType<EventEnvelope> = z
 // construction. `run_lifecycle` branches never admit it either — a
 // lifecycle straggler is ABSORBED, never late-appended.
 //
-// As of this registration the wrap set is EMPTY BY CONSTRUCTION:
-// `SessionEventSchema` carries only the three Plan-001 variants
-// (`session.created`, `membership.created`, `channel.created`), none of them
-// run-scoped, so no branch here composes the helper yet. Later registrants
-// of the five families arriving through the union-registration seam (the
+// The wrap set is still EMPTY BY CONSTRUCTION: `SessionEventSchema` carries
+// the three Plan-001 variants (`session.created`, `membership.created`,
+// `channel.created`) plus the six Plan-009 `repo.*` / `workspace.*` variants
+// (CP-009-4) — all nine are lifecycle rows whose payloads carry no `runId`,
+// so none is run-scoped and no branch here composes the helper yet. Later
+// registrants of the five families arriving through the union-registration
+// seam (the
 // CP-009-4 / CP-010-5 / CP-012-2 / CP-016-3 class) inherit the admission
 // requirement from `Spec-006 §Event Type Enumeration` — a strict payload
 // schema that skipped the wrap would REJECT a stamped row at subscription or
@@ -886,6 +893,131 @@ export const ChannelCreatedEventSchema: z.ZodType<ChannelCreatedEvent> = z
   .strict();
 
 // --------------------------------------------------------------------------
+// repo.* / workspace.* — the six Plan-009 lifecycle variants (CP-009-4).
+// --------------------------------------------------------------------------
+//
+// Additive-MINOR registration (`ADR-018 §Decision` #8) of the six
+// Plan-009-emitted members of
+// `Spec-006 §Repo, Workspace, and Worktree Lifecycle (session_lifecycle)`.
+// All six type strings were ALREADY in the census (`SessionEventType` +
+// `SESSION_EVENT_CATEGORY_BY_TYPE`, Plan-006 T1.2); what lands here is their
+// PAYLOAD VARIANTS, which is what moves a type from a registered name the
+// tolerant carrier accepts to one the strict layer can interpret. The census
+// is untouched — still 156 types across 20 categories.
+//
+// ONE SHARED PAYLOAD SCHEMA. Spec-006 gives the whole eleven-member family a
+// single payload shape, so all six compose the same
+// `RepoWorkspaceLifecyclePayloadSchema` (authored in repo.ts per
+// emitter-authors-payload — CP-009-4, the Plan-003 precedent carried forward
+// in Plan-006 CP-006-5) rather than six copies of one contract. The five
+// `worktree.*` members arrive against this SAME schema through CP-010-5.
+// Import direction is one-way: repo.ts imports nothing from this file.
+//
+// NO EPOCH STAMP. These are `session_lifecycle`, not run-scoped — their
+// payload carries no `runId`, so the cross-cutting `sourceEpoch` /
+// `sourcePosition` pair would be unattributable and the WRAP ADMISSION note
+// above excludes them. __tests__/event-source-epoch.test.ts walks the live
+// union and fails a non-admitting branch that lands wrapped.
+
+// Emitted when `repo.attach` admits a local path as a durable repo mount
+// (`Spec-009 §Required Behavior`).
+export interface RepoAttachedEvent extends EventEnvelope {
+  type: "repo.attached";
+  category: "session_lifecycle";
+  payload: RepoWorkspaceLifecyclePayload;
+}
+export const RepoAttachedEventSchema: z.ZodType<RepoAttachedEvent> = z
+  .object({
+    ...buildCommonShape(),
+    type: z.literal("repo.attached"),
+    category: z.literal("session_lifecycle"),
+    payload: RepoWorkspaceLifecyclePayloadSchema,
+  })
+  .strict();
+
+// Emitted when a mount transitions to the terminal `detached` state
+// (`Spec-009 §Detach Semantics (V1 Definition)`, Plan-009 D-009-6).
+export interface RepoDetachedEvent extends EventEnvelope {
+  type: "repo.detached";
+  category: "session_lifecycle";
+  payload: RepoWorkspaceLifecyclePayload;
+}
+export const RepoDetachedEventSchema: z.ZodType<RepoDetachedEvent> = z
+  .object({
+    ...buildCommonShape(),
+    type: z.literal("repo.detached"),
+    category: z.literal("session_lifecycle"),
+    payload: RepoWorkspaceLifecyclePayloadSchema,
+  })
+  .strict();
+
+// Emitted at the head of a (re)provisioning transition — Plan-009's
+// `WorkspaceService.beginReprovision` (CP-009-2).
+export interface WorkspaceProvisioningEvent extends EventEnvelope {
+  type: "workspace.provisioning";
+  category: "session_lifecycle";
+  payload: RepoWorkspaceLifecyclePayload;
+}
+export const WorkspaceProvisioningEventSchema: z.ZodType<WorkspaceProvisioningEvent> = z
+  .object({
+    ...buildCommonShape(),
+    type: z.literal("workspace.provisioning"),
+    category: z.literal("session_lifecycle"),
+    payload: RepoWorkspaceLifecyclePayloadSchema,
+  })
+  .strict();
+
+// Emitted when provisioning completes and the execution root is bound —
+// `WorkspaceService.completeReprovision` (CP-009-2).
+export interface WorkspaceReadyEvent extends EventEnvelope {
+  type: "workspace.ready";
+  category: "session_lifecycle";
+  payload: RepoWorkspaceLifecyclePayload;
+}
+export const WorkspaceReadyEventSchema: z.ZodType<WorkspaceReadyEvent> = z
+  .object({
+    ...buildCommonShape(),
+    type: z.literal("workspace.ready"),
+    category: z.literal("session_lifecycle"),
+    payload: RepoWorkspaceLifecyclePayloadSchema,
+  })
+  .strict();
+
+// Emitted on the availability-loss transition — a failed reprovision
+// (`WorkspaceService.failReprovision`, CP-009-2) or a workspace path that
+// became unavailable after binding, after which write runs are blocked until
+// repair (`Spec-009 §Fallback Behavior`).
+export interface WorkspaceStaleEvent extends EventEnvelope {
+  type: "workspace.stale";
+  category: "session_lifecycle";
+  payload: RepoWorkspaceLifecyclePayload;
+}
+export const WorkspaceStaleEventSchema: z.ZodType<WorkspaceStaleEvent> = z
+  .object({
+    ...buildCommonShape(),
+    type: z.literal("workspace.stale"),
+    category: z.literal("session_lifecycle"),
+    payload: RepoWorkspaceLifecyclePayloadSchema,
+  })
+  .strict();
+
+// Emitted once per dependent workspace archived by the detach cascade
+// (`Spec-009 §Detach Semantics (V1 Definition)`, Plan-009 D-009-6).
+export interface WorkspaceArchivedEvent extends EventEnvelope {
+  type: "workspace.archived";
+  category: "session_lifecycle";
+  payload: RepoWorkspaceLifecyclePayload;
+}
+export const WorkspaceArchivedEventSchema: z.ZodType<WorkspaceArchivedEvent> = z
+  .object({
+    ...buildCommonShape(),
+    type: z.literal("workspace.archived"),
+    category: z.literal("session_lifecycle"),
+    payload: RepoWorkspaceLifecyclePayloadSchema,
+  })
+  .strict();
+
+// --------------------------------------------------------------------------
 // SessionEvent — discriminated union over `type`.
 // --------------------------------------------------------------------------
 //
@@ -902,7 +1034,16 @@ export const ChannelCreatedEventSchema: z.ZodType<ChannelCreatedEvent> = z
 // Payloads are shared via the named `*PayloadSchema` consts above so
 // payload shapes can't drift between the two surfaces.
 
-export type SessionEvent = SessionCreatedEvent | MembershipCreatedEvent | ChannelCreatedEvent;
+export type SessionEvent =
+  | SessionCreatedEvent
+  | MembershipCreatedEvent
+  | ChannelCreatedEvent
+  | RepoAttachedEvent
+  | RepoDetachedEvent
+  | WorkspaceProvisioningEvent
+  | WorkspaceReadyEvent
+  | WorkspaceStaleEvent
+  | WorkspaceArchivedEvent;
 export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion("type", [
   z
     .object({
@@ -926,6 +1067,60 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
       type: z.literal("channel.created"),
       category: z.literal("session_lifecycle"),
       payload: channelCreatedPayloadSchema,
+    })
+    .strict(),
+  // The six Plan-009 repo/workspace arms (CP-009-4). Each shares the single
+  // family payload schema imported from repo.ts, so these branch schemas and
+  // the `*EventSchema` exports above cannot drift on payload shape — the same
+  // single-sourcing the local `*PayloadSchema` consts give the three Plan-001
+  // arms. None is wrapped with `withEpochStamp`; see the no-epoch-stamp note
+  // on their declarations above.
+  z
+    .object({
+      ...buildCommonShape(),
+      type: z.literal("repo.attached"),
+      category: z.literal("session_lifecycle"),
+      payload: RepoWorkspaceLifecyclePayloadSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...buildCommonShape(),
+      type: z.literal("repo.detached"),
+      category: z.literal("session_lifecycle"),
+      payload: RepoWorkspaceLifecyclePayloadSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...buildCommonShape(),
+      type: z.literal("workspace.provisioning"),
+      category: z.literal("session_lifecycle"),
+      payload: RepoWorkspaceLifecyclePayloadSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...buildCommonShape(),
+      type: z.literal("workspace.ready"),
+      category: z.literal("session_lifecycle"),
+      payload: RepoWorkspaceLifecyclePayloadSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...buildCommonShape(),
+      type: z.literal("workspace.stale"),
+      category: z.literal("session_lifecycle"),
+      payload: RepoWorkspaceLifecyclePayloadSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...buildCommonShape(),
+      type: z.literal("workspace.archived"),
+      category: z.literal("session_lifecycle"),
+      payload: RepoWorkspaceLifecyclePayloadSchema,
     })
     .strict(),
 ]);
@@ -1166,21 +1361,37 @@ export type SessionEventType =
   | "mcp.tool_override_changed"
   | "mcp.server_oauth_completed";
 
-// The SCHEMA-registered V1 subset — the three types whose payload variants
-// are registered in `SessionEventSchema` above — NOT the taxonomy census
-// (that is `SESSION_EVENT_CATEGORY_BY_TYPE`, whose keys iterate all 156
-// registered types). The `SessionEvent["type"]` element annotation binds
-// membership to the schema union at COMPILE time: a census literal without
-// a registered payload variant is rejected here (a plain
-// `SessionEventType` annotation would admit any of the 156), and the
-// admissible set widens automatically as emitting plans land variants
-// through the union-registration seam. Exposed as a const tuple so
-// consumers can iterate the registered payload variants without re-parsing
-// the schemas.
+// The SCHEMA-registered subset — the types whose payload variants are
+// registered in `SessionEventSchema` above — NOT the taxonomy census (that
+// is `SESSION_EVENT_CATEGORY_BY_TYPE`, whose keys iterate all 156 registered
+// types). The `SessionEvent["type"]` element annotation binds membership to
+// the schema union at COMPILE time: a census literal without a registered
+// payload variant is rejected here (a plain `SessionEventType` annotation
+// would admit any of the 156), and the admissible set widens as emitting
+// plans land variants through the union-registration seam. Exposed as a
+// const tuple so consumers can iterate the registered payload variants
+// without re-parsing the schemas.
+//
+// The ROSTER, unlike the admissible SET, does not widen on its own: it is a
+// hand-written list, so a plan that registers a union arm MUST add its type
+// here in the same diff. `__tests__/event-source-epoch.test.ts`'s
+// non-vacuity guard asserts set-equality between this roster and the live
+// union's branches, so a forgotten entry fails there rather than silently
+// under-reporting the registered surface.
+//
+// Membership today: the three Plan-001 variants plus the six Plan-009
+// repo/workspace variants (CP-009-4). Order mirrors the declaration order of
+// the union arms above.
 export const SESSION_EVENT_TYPES: readonly SessionEvent["type"][] = [
   "session.created",
   "membership.created",
   "channel.created",
+  "repo.attached",
+  "repo.detached",
+  "workspace.provisioning",
+  "workspace.ready",
+  "workspace.stale",
+  "workspace.archived",
 ] as const;
 
 // --------------------------------------------------------------------------
