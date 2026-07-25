@@ -221,8 +221,8 @@ export function AttachFlow({ sessionId, attachDraft }: AttachFlowProps): React.J
   // Attachment-identity prop reset (React's "Adjusting some state when a prop
   // changes" pattern — the same render-phase mechanism every shipped sibling
   // uses). The flow's identity is the (sessionId, nodeId) PAIR — exactly the
-  // attachment-row identity (`UNIQUE(node_id, session_id)` — the roster
-  // `nodes` field note in runtime-node.ts) — so when EITHER changes (a future Plan-023
+  // attachment-row identity (`UNIQUE(node_id, session_id)` — the `nodes` field
+  // note on `RuntimeNodeRosterResponseSchema`) — so when EITHER changes (a future Plan-023
   // router reusing this mounted instance for another session or another node)
   // the settled state resets to `idle`: the prior target's
   // `resolved`/`rejected` branch must not survive under a new target.
