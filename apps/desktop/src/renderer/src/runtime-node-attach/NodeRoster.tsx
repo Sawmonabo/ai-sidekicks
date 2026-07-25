@@ -126,11 +126,11 @@
 //   `docs/architecture/contracts/api-payload-contracts.md §Tier 3: Plan-003 — Runtime Node Attach (Task 4.4)` and the contract pinned in
 //   `Spec-003 §Interfaces And Contracts`. Server truth:
 //   `packages/control-plane/src/runtime-nodes/attach-service.ts#readRoster`,
-//   mounted as the router's first `.query()` (the `roster` procedure in
-//   `packages/control-plane/src/runtime-nodes/runtime-node-router.factory.ts#roster`);
-//   the Node-side SDK arm
-//   (`packages/client-sdk/src/runtimeNodeClient.ts#roster`, T5.0d)
-//   proves the procedure end-to-end against the real services.
+//   mounted as the router's first `.query()` (the `roster` procedure on
+//   `packages/control-plane/src/runtime-nodes/runtime-node-router.factory.ts#createRuntimeNodeRouter`);
+//   the Node-side SDK arm (the `roster` method on
+//   `packages/client-sdk/src/runtimeNodeClient.ts#createControlPlaneRuntimeNodeClient`,
+//   T5.0d) proves the procedure end-to-end against the real services.
 //
 //   This renderer still routes the read through the GENERIC
 //   `controlPlane.call(...)` bridge surface with the hardcoded registered wire
@@ -186,8 +186,8 @@ import type {
 // `docs/architecture/contracts/api-payload-contracts.md §Runtime-Node Method-Name Registry (Tier 3)` (`query`, control-plane tRPC ONLY — the
 // namespace's first and only query; its four siblings are mutations), served
 // by `AttachService.readRoster` via the router's first `.query()` (the
-// `roster` procedure in
-// `packages/control-plane/src/runtime-nodes/runtime-node-router.factory.ts#roster`).
+// `roster` procedure on
+// `packages/control-plane/src/runtime-nodes/runtime-node-router.factory.ts#createRuntimeNodeRouter`).
 // Hardcoded as a local `const` per the shipped renderer idiom
 // (`apps/desktop/src/renderer/src/session-members/participant-roster.tsx#PRESENCE_READ_METHOD`):
 // the bridge surface is generic, so the registered

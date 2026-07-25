@@ -45,9 +45,8 @@
 //   mutation procedures on
 //   `packages/control-plane/src/runtime-nodes/runtime-node-router.factory.ts#createRuntimeNodeRouter`)
 //   riding a POST JSON body. The control-plane factory ADDITIONALLY exposes
-//   the namespace's one query — `roster`, a GET `?input=` (the
-//   `packages/control-plane/src/runtime-nodes/runtime-node-router.factory.ts#roster`
-//   query procedure) — on
+//   the namespace's one query — `roster`, a GET `?input=` (the one query
+//   procedure on that same `createRuntimeNodeRouter` router) — on
 //   its widened `ControlPlaneRuntimeNodeClient` return type; the daemon
 //   factory deliberately does not (see that interface's JSDoc for the
 //   transport-ownership rationale). Neither factory carries a subscribe (SSE)
@@ -304,9 +303,9 @@ export interface ControlPlaneRuntimeNodeClient extends RuntimeNodeClient {
  *   * `runtimenode.capabilityupdate_conflict` — the capability-update refusal.
  *
  * The `roster` query contributes NO typed refusal to that set (its server arm
- * has no catch — the
- * `packages/control-plane/src/runtime-nodes/runtime-node-router.factory.ts#roster`
- * query procedure): a non-2xx roster response surfaces through
+ * — the `roster` query procedure on
+ * `packages/control-plane/src/runtime-nodes/runtime-node-router.factory.ts#createRuntimeNodeRouter`
+ * — has no catch): a non-2xx roster response surfaces through
  * this same class via the fallback tRPC-code branch
  * in `buildControlPlaneError` (e.g. `INTERNAL_SERVER_ERROR` when a corrupted
  * stored row fails the server's read-boundary parse), so the consumer still
