@@ -24,11 +24,11 @@
 //     payload components — `nodeId` (identity), the `capabilities` map
 //     rendered by the composed `CapabilityDeclaration` (declared
 //     capabilities), `healthState` (the daemon's 2-value self-reported health
-//     axis, runtime-node.ts:108), and `participantId` + `clientVersion`
+//     axis — `RuntimeNodeHealthState` in runtime-node.ts), and `participantId` + `clientVersion`
 //     (trust context: the membership identity the attach rides and the
 //     version the control plane compares against the session floor,
 //     `Spec-003 §Required Behavior`) — and the request carries exactly those fields plus the
-//     target `sessionId` (`RuntimeNodeAttachRequest`, runtime-node.ts:124-131).
+//     target `sessionId` (the `RuntimeNodeAttachRequest` interface in runtime-node.ts).
 //   • `Spec-003 §Required Behavior` ("runtime-node attach must be a separate step from membership
 //     acceptance"): the I-003-3 block below — the separation is this view's
 //     invariant.
@@ -148,8 +148,8 @@ import { CapabilityDeclaration } from "./CapabilityDeclaration.js";
 const RUNTIME_NODE_ATTACH_PROCEDURE = "runtimenode.attach";
 
 /**
- * The node's attach self-description: `RuntimeNodeAttachRequest`
- * (runtime-node.ts:124-131) MINUS the target `sessionId` — i.e. the
+ * The node's attach self-description: the `RuntimeNodeAttachRequest` interface
+ * in runtime-node.ts MINUS the target `sessionId` — i.e. the
  * `Spec-003 §Required Behavior` payload components (node identity, declared
  * capabilities, health, trust context) without the session the view targets.
  *
@@ -195,7 +195,7 @@ export interface AttachFlowProps {
 // click-triggered view needs (invite-accept-view.tsx:111-115). Each variant
 // maps 1:1 to a rendered `<section>` branch below, so the render is a total
 // function over the union. The `resolved` variant carries the verbatim
-// shipped `RuntimeNodeAttachResponse` DTO (runtime-node.ts:169-174) — no
+// shipped `RuntimeNodeAttachResponse` DTO (declared in runtime-node.ts) — no
 // local view-model.
 type AttachViewState =
   | { kind: "idle" }
@@ -221,8 +221,8 @@ export function AttachFlow({ sessionId, attachDraft }: AttachFlowProps): React.J
   // Attachment-identity prop reset (React's "Adjusting some state when a prop
   // changes" pattern — the same render-phase mechanism every shipped sibling
   // uses). The flow's identity is the (sessionId, nodeId) PAIR — exactly the
-  // attachment-row identity (`UNIQUE(node_id, session_id)`,
-  // runtime-node.ts:634-636) — so when EITHER changes (a future Plan-023
+  // attachment-row identity (`UNIQUE(node_id, session_id)` — the roster
+  // `nodes` field note in runtime-node.ts) — so when EITHER changes (a future Plan-023
   // router reusing this mounted instance for another session or another node)
   // the settled state resets to `idle`: the prior target's
   // `resolved`/`rejected` branch must not survive under a new target.
@@ -273,10 +273,10 @@ export function AttachFlow({ sessionId, attachDraft }: AttachFlowProps): React.J
     // at Tier 1 (desktop-bridge.ts:99) — no string literal is structurally
     // assignable to it until the control-plane tRPC surface narrows the
     // brand. The procedure-name string stays loosely `string` (the genuinely
-    // untypeable part), but we PIN input → `RuntimeNodeAttachRequest`
-    // (runtime-node.ts:124-131 — the spread-built request object below is
+    // untypeable part), but we PIN input → the `RuntimeNodeAttachRequest`
+    // interface in runtime-node.ts (the spread-built request object below is
     // type-checked at the call site) and return →
-    // `Promise<RuntimeNodeAttachResponse>` (runtime-node.ts:169-174 — the
+    // `Promise<RuntimeNodeAttachResponse>` (declared in runtime-node.ts — the
     // resolved value needs no downstream cast).
     const attachRuntimeNode = window.sidekicks.controlPlane.call as (
       procedure: string,
@@ -377,7 +377,7 @@ export function AttachFlow({ sessionId, attachDraft }: AttachFlowProps): React.J
 
   if (attachViewState.kind === "resolved") {
     // Resolved — the attachment verdict rendered VERBATIM off the shipped
-    // `RuntimeNodeAttachResponse` DTO (runtime-node.ts:169-174), no local
+    // `RuntimeNodeAttachResponse` DTO (declared in runtime-node.ts), no local
     // view-model:
     //   • `state` is the server-derived `NodeState` AS RETURNED — a fresh
     //     attachment is typically `registering`, NOT `online` — per
