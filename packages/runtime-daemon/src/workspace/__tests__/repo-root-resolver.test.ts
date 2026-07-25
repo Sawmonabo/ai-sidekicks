@@ -18,8 +18,11 @@
 // Invariants covered (canonical text in
 // `docs/plans/009-repo-attachment-and-workspace-binding.md §Invariants`):
 //   * I-009-1 — canonical-root fidelity. Every returned root is absolute and
-//     symlink-resolved, and is never the user-entered alias.
-//     → §canonical resolution, §symlink canonicalization, §ambient GIT_*.
+//     symlink-resolved, is never the user-entered alias, and is never simply
+//     what git reported: a git-backed root must contain the supplied path and
+//     report itself as its own toplevel.
+//     → §canonical resolution, §symlink canonicalization, §ambient GIT_*,
+//       §redirected toplevel, §verification legs.
 //   * I-009-2 — explicit resolution failure. Every non-resolution REJECTS with
 //     a typed, path-free `RepoRootResolutionError`; no call returns a partial
 //     or guessed root — including the root the daemon would produce by
@@ -34,15 +37,18 @@
 //     → §missing git, §fail-closed classification, §ambient GIT_*.
 //
 // Fixture strategy. Real git against real temp directories for everything real
-// git can produce (nested subdirectory, symlink, plain directory, the two
-// `.git`-is-a-FILE shapes — a linked worktree and a submodule — bare
-// repository, regular file); the injected
-// executor seam only for shapes real git cannot be made to emit on demand
-// (wording/exit-code drift, a corpse that still carries an exit code) and for
-// argv/environment inspection. The missing-git case runs through the REAL
-// `execFile` with `gitExecutablePath` pointed at a nonexistent file, so the
-// headline I-009-4 test discriminates a genuine Node `ENOENT` rather than a
-// hand-written imitation of one, and needs no platform gate.
+// git can produce (nested subdirectory, symlink, plain directory, the three
+// `.git`-is-a-FILE shapes — a linked worktree, a submodule, and a
+// `--separate-git-dir` repository — bare repository, regular file, and both
+// `core.worktree` REDIRECT shapes, whose whole point is that real git really
+// does answer with a tree the caller never named); the injected executor seam
+// only for shapes real git cannot be made to emit on demand (wording/exit-code
+// drift, a corpse that still carries an exit code, a root that reports one
+// thing and then another) and for argv/environment inspection. The missing-git
+// case runs through the REAL `execFile` with `gitExecutablePath` pointed at a
+// nonexistent file, so the headline I-009-4 test discriminates a genuine Node
+// `ENOENT` rather than a hand-written imitation of one, and needs no platform
+// gate.
 //
 // The third seam, `platformPath`, exists so PLATFORM shapes are testable the
 // same way: injecting `path.win32` drives the resolver's Windows branch on a
@@ -86,6 +92,7 @@ import {
   type GitCommandOptions,
   type GitCommandResult,
   type GitFileExecutor,
+  type PlatformPathModule,
 } from "../repo-root-resolver.js";
 
 // Three classes of case need a POSIX host. Shell-script fixtures (a git that
@@ -212,6 +219,12 @@ interface Fixtures {
   readonly superprojectRoot: string;
   readonly submoduleRoot: string;
   readonly submoduleNestedDirectory: string;
+  readonly separateGitDirRoot: string;
+  readonly siblingRedirectRoot: string;
+  readonly ancestorRedirectContainer: string;
+  readonly ancestorRedirectRoot: string;
+  readonly carriageReturnDirectory: string;
+  readonly carriageReturnSiblingDirectory: string;
   readonly missingGitExecutable: string;
   readonly nonExecutableGitFile: string;
   readonly failingGitScript: string;
@@ -310,6 +323,81 @@ beforeAll(async () => {
   // submodule root rather than the root itself.
   await mkdir(submoduleNestedDirectory, { recursive: true });
 
+  // The THIRD `.git`-is-a-FILE shape, and the honest one: `--separate-git-dir`
+  // leaves the gitfile in the toplevel and sets no `core.worktree`, so git
+  // self-reports and the root verification passes. It is the control that keeps
+  // the two redirect fixtures below from reading as "separate git directories
+  // are refused" — what is refused is a work tree pointed somewhere else.
+  const separateGitDirRoot = join(fixtureRoot, "separate-gitdir-worktree");
+  await runGitOrThrow(
+    [
+      "init",
+      "-q",
+      `--separate-git-dir=${join(fixtureRoot, "separate-gitdir")}`,
+      separateGitDirRoot,
+    ],
+    environment,
+  );
+
+  // Redirect fixtures — a repository whose OWN config file moves
+  // `--show-toplevel`. The gitfile shape is what makes the config reachable
+  // without owning the tree it will name; `core.worktree` in it is read during
+  // repository setup, so unlike the env-borne channels it really does redirect
+  // (git 2.50.1). One fixture per verification leg, because neither leg catches
+  // both shapes.
+  //
+  // SIBLING — pointed at the fixture REPOSITORY rather than an inert directory,
+  // deliberately: a real repository self-reports, so this shape would satisfy
+  // the fixpoint and only containment refuses it.
+  const siblingRedirectRoot = join(fixtureRoot, "sibling-redirect");
+  await runGitOrThrow(
+    [
+      "init",
+      "-q",
+      `--separate-git-dir=${join(fixtureRoot, "sibling-redirect-gitdir")}`,
+      siblingRedirectRoot,
+    ],
+    environment,
+  );
+  await runGitOrThrow(
+    ["-C", siblingRedirectRoot, "config", "core.worktree", repositoryRoot],
+    environment,
+  );
+
+  // ANCESTOR — pointed at the attached directory's own PARENT, so the input
+  // really does sit inside the reported root and containment passes. Only the
+  // fixpoint refuses it, since the parent does not report itself as a toplevel.
+  const ancestorRedirectContainer = join(fixtureRoot, "ancestor-container");
+  const ancestorRedirectRoot = join(ancestorRedirectContainer, "attached");
+  await runGitOrThrow(
+    [
+      "init",
+      "-q",
+      `--separate-git-dir=${join(fixtureRoot, "ancestor-redirect-gitdir")}`,
+      ancestorRedirectRoot,
+    ],
+    environment,
+  );
+  await runGitOrThrow(
+    ["-C", ancestorRedirectRoot, "config", "core.worktree", ancestorRedirectContainer],
+    environment,
+  );
+
+  // A directory whose name genuinely ends in `\r`, beside one spelled without
+  // it. The PAIR is what makes the terminator rule observable: eating the `\r`
+  // does not merely invent an unresolvable path, it lands on a sibling that
+  // EXISTS — the wrong-tree outcome, silently.
+  //
+  // POSIX-only construction: `\r` is legal in a POSIX filename and forbidden by
+  // NTFS, so creating this on a Windows runner would fail the whole `beforeAll`
+  // rather than one gated test.
+  const carriageReturnDirectory = join(fixtureRoot, "carriage-return-root\r");
+  const carriageReturnSiblingDirectory = join(fixtureRoot, "carriage-return-root");
+  if (process.platform !== "win32") {
+    await mkdir(carriageReturnDirectory);
+    await mkdir(carriageReturnSiblingDirectory);
+  }
+
   const nonExecutableGitFile = join(scriptDirectory, "not-executable-git");
   await writeFile(nonExecutableGitFile, "#!/bin/sh\necho nope\n", "utf8");
   await chmod(nonExecutableGitFile, 0o644);
@@ -334,6 +422,12 @@ beforeAll(async () => {
     superprojectRoot,
     submoduleRoot,
     submoduleNestedDirectory,
+    separateGitDirRoot,
+    siblingRedirectRoot,
+    ancestorRedirectContainer,
+    ancestorRedirectRoot,
+    carriageReturnDirectory,
+    carriageReturnSiblingDirectory,
     missingGitExecutable: join(scriptDirectory, "definitely-not-a-git-binary"),
     nonExecutableGitFile,
     failingGitScript,
@@ -392,11 +486,60 @@ interface RecordedInvocation {
   readonly options: GitCommandOptions;
 }
 
-/** Captures the invocation, then answers with a real, resolvable toplevel. */
+/**
+ * Captures every invocation, then answers each with the same real, resolvable
+ * toplevel.
+ *
+ * One resolution makes TWO invocations — the discovery query on the input and
+ * the verification query on the root it reported — and a constant answer serves
+ * both: a root that answers with itself is exactly what the fixpoint leg
+ * requires. Cases that need the two answers to DIFFER use the
+ * directory-answering executor below.
+ */
 function recordingExecutor(recorded: RecordedInvocation[], stdout: string): GitFileExecutor {
   return (file: string, args: readonly string[], options: GitCommandOptions) => {
     recorded.push({ file, args, options });
     return Promise.resolve<GitCommandResult>({ stdout, stderr: "" });
+  };
+}
+
+/**
+ * Answers each invocation from its own `-C` directory, which is `args[1]` of
+ * the fixed argv this module emits.
+ *
+ * Keying on the directory rather than on a call counter is what lets a case say
+ * what it means — "the input reports X, and X reports Y" — instead of encoding
+ * the resolver's call ORDER into the fixture and silently passing if that order
+ * ever changed.
+ */
+function directoryAnsweringExecutor(
+  recorded: RecordedInvocation[],
+  answerFor: (directory: string) => string,
+): GitFileExecutor {
+  return (file: string, args: readonly string[], options: GitCommandOptions) => {
+    recorded.push({ file, args, options });
+    return Promise.resolve<GitCommandResult>({ stdout: answerFor(args[1] ?? ""), stderr: "" });
+  };
+}
+
+/**
+ * Answers the discovery query, then FAILS the verification query.
+ *
+ * The one double that keys on call ORDER rather than on the `-C` directory,
+ * because that is exactly what its cases are about: what the resolver does when
+ * the second spawn does not come back with a usable answer.
+ */
+function failingVerificationExecutor(
+  discoveryStdout: string,
+  verificationFailure: unknown,
+): GitFileExecutor {
+  let invocationCount = 0;
+  return () => {
+    invocationCount += 1;
+    if (invocationCount === 1) {
+      return Promise.resolve<GitCommandResult>({ stdout: discoveryStdout, stderr: "" });
+    }
+    return Promise.reject(verificationFailure);
   };
 }
 
@@ -520,12 +663,11 @@ describe("symlink canonicalization (I-009-1)", () => {
       executeFile: recordingExecutor(recorded, `${fixtures.repositoryRoot}\n`),
     });
     await resolver.resolveCanonicalRoot(fixtures.symlinkToNestedDirectory);
-    expect(recorded).toHaveLength(1);
-    expect(recorded[0]?.args).toEqual([
-      "-C",
-      fixtures.nestedDirectory,
-      "rev-parse",
-      "--show-toplevel",
+    // Two invocations: discovery on the realpath'd input, then verification on
+    // the root it reported. Neither ever sees the alias the caller supplied.
+    expect(recorded.map((invocation) => invocation.args)).toEqual([
+      ["-C", fixtures.nestedDirectory, "rev-parse", "--show-toplevel"],
+      ["-C", fixtures.repositoryRoot, "rev-parse", "--show-toplevel"],
     ]);
   });
 });
@@ -1088,21 +1230,292 @@ describe("malformed git success (I-009-1, I-009-2)", () => {
   it("strips only the line terminator, preserving a trailing space in a directory name", async () => {
     // `.trim()` here would invent a path that does not exist — a plausible but
     // unresolvable root, the worst failure shape for a value Phase 2 persists.
+    //
+    // The input is the root itself (with an identity `realpath`, since no such
+    // directory exists), so the root verification is satisfied by a value that
+    // still carries its trailing space: trimming would fail the assertion below
+    // AND the containment check, from opposite directions.
     const rootEndingInSpace = `${join(fixtures.fixtureRoot, "trailing-space-root")} `;
     const resolver = new RepoRootResolver({
       executeFile: succeedingExecutor(`${rootEndingInSpace}\n`),
       realpath: (path: string) => Promise.resolve(path),
     });
-    const resolution = await resolver.resolveCanonicalRoot(fixtures.plainDirectory);
+    const resolution = await resolver.resolveCanonicalRoot(rootEndingInSpace);
+    expect(resolution.canonicalRoot).toBe(rootEndingInSpace);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Line terminator — LF always, the CR only where a name cannot hold one
+// ----------------------------------------------------------------------------
+
+/**
+ * A `platformPath` double reporting win32's SEPARATOR over POSIX path shapes.
+ *
+ * It exists for one branch: the `\r` strip, whose only observable is a path
+ * that the HOST filesystem must then resolve. Injecting `path.win32` cannot
+ * produce that, because every check guarding an outgoing value reads the real
+ * `node:path` — on a POSIX runner no `C:\...` value survives them (see the
+ * §win32 block above). So each member here answers for a different gate: `sep`
+ * is the one the terminator strip reads and is genuinely win32's, while
+ * `isAbsolute` and `parse` answer the step-1 completeness question the way a
+ * complete win32 root would, letting a POSIX fixture path through it.
+ *
+ * NOT reusable for step-1 refusal cases: `parse` corresponds to no real
+ * platform, so it says nothing about which roots win32 would refuse. Those
+ * belong in the §win32 block with `path.win32` itself.
+ */
+const win32SeparatorOverPosixPaths: PlatformPathModule = {
+  sep: win32Path.sep,
+  isAbsolute: posixPath.isAbsolute,
+  parse: () => ({ root: `C:${win32Path.sep}` }),
+};
+
+describe("line terminator stripping is platform-scoped (I-009-1)", () => {
+  it("strips a CRLF terminator on win32, where no name can end in a CR", async () => {
+    // NTFS forbids control characters in names, so on win32 a `\r` before the
+    // final `\n` can only be terminator noise from a shim or console layer.
+    const resolver = new RepoRootResolver({
+      platformPath: win32SeparatorOverPosixPaths,
+      executeFile: succeedingExecutor(`${fixtures.repositoryRoot}\r\n`),
+    });
+    const resolution = await resolver.resolveCanonicalRoot(fixtures.repositoryRoot);
+    expect(resolution).toEqual({ canonicalRoot: fixtures.repositoryRoot, vcsType: "git" });
+  });
+
+  it("preserves a trailing space on win32, where only the CR is terminator noise", async () => {
+    // The intersection the surrounding tests leave open: the win32 branch drops
+    // a `\r`, and a name ending in a SPACE has to survive that. A `.trim()` here
+    // would satisfy every other test in this block and fail only this one.
+    const rootEndingInSpace = `${join(fixtures.fixtureRoot, "trailing-space-root")} `;
+    const resolver = new RepoRootResolver({
+      platformPath: win32SeparatorOverPosixPaths,
+      executeFile: succeedingExecutor(`${rootEndingInSpace}\r\n`),
+      realpath: (path: string) => Promise.resolve(path),
+    });
+    const resolution = await resolver.resolveCanonicalRoot(rootEndingInSpace);
     expect(resolution.canonicalRoot).toBe(rootEndingInSpace);
   });
 
-  it("accepts a CRLF-terminated toplevel", async () => {
+  itOnPosix("keeps a CR that is the last character of a POSIX directory name", async () => {
+    // git terminates plumbing output with a bare LF on every platform, so on
+    // POSIX — where `\r` is a legal filename character — a `\r` before that LF
+    // is part of the NAME. The fixture pair makes the stakes concrete: the
+    // sibling spelled without the `\r` exists, so eating it would resolve, and
+    // would persist a real but entirely different directory as the mount root.
     const resolver = new RepoRootResolver({
-      executeFile: succeedingExecutor(`${fixtures.repositoryRoot}\r\n`),
+      executeFile: succeedingExecutor(`${fixtures.carriageReturnDirectory}\n`),
+    });
+    const resolution = await resolver.resolveCanonicalRoot(fixtures.carriageReturnDirectory);
+    expect(resolution).toEqual({
+      canonicalRoot: fixtures.carriageReturnDirectory,
+      vcsType: "git",
+    });
+    expect(resolution.canonicalRoot).not.toBe(fixtures.carriageReturnSiblingDirectory);
+    // Negative control — the sibling really is resolvable, so the assertion
+    // above is about the strip and not about a path that could not resolve.
+    expect(
+      await new RepoRootResolver({
+        executeFile: succeedingExecutor(`${fixtures.carriageReturnSiblingDirectory}\n`),
+      }).resolveCanonicalRoot(fixtures.carriageReturnSiblingDirectory),
+    ).toEqual({ canonicalRoot: fixtures.carriageReturnSiblingDirectory, vcsType: "git" });
+  });
+
+  itOnPosix("still strips the bare LF terminator on POSIX", async () => {
+    // The scoping control: only the `\r` is platform-conditional. A toplevel
+    // whose LF survived would name a directory that does not exist.
+    const resolver = new RepoRootResolver({
+      executeFile: succeedingExecutor(`${fixtures.repositoryRoot}\n`),
+    });
+    const resolution = await resolver.resolveCanonicalRoot(fixtures.repositoryRoot);
+    expect(resolution).toEqual({ canonicalRoot: fixtures.repositoryRoot, vcsType: "git" });
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Redirected toplevel — a repository's OWN config, against real git
+// ----------------------------------------------------------------------------
+
+describe("a redirected toplevel is refused, never persisted (I-009-1, I-009-2)", () => {
+  itOnPosix("negative control — raw git IS redirected by a repo's own core.worktree", async () => {
+    // Proves the hazard reproduces on this host's git. Without it the two
+    // refusals below could pass because git stopped honoring `core.worktree`
+    // at all, and the checks they cover would be dead code asserted green.
+    //
+    // POSIX-only because it reads RAW git stdout: on Windows `rev-parse`
+    // answers with forward slashes, which no fixture path is spelled with. The
+    // refusals themselves assert on resolver output and run everywhere.
+    const redirected = await runGitOrThrow(
+      ["-C", fixtures.siblingRedirectRoot, "rev-parse", "--show-toplevel"],
+      fixtures.environment,
+    );
+    expect(redirected.stdout.trim()).toBe(fixtures.repositoryRoot);
+    expect(redirected.stdout.trim()).not.toBe(fixtures.siblingRedirectRoot);
+  });
+
+  it("refuses a sibling redirect with root_mismatch", async () => {
+    // Attaching this would persist a `canonical_root` naming a tree the
+    // operator never supplied, and T1.6's validator would then admit binds all
+    // over it. The redirect target here is the fixture REPOSITORY, which
+    // self-reports honestly (the §canonical resolution block resolves it), so
+    // the fixpoint leg would have admitted this shape — containment is what
+    // refuses it, and that is what makes the leg load-bearing rather than
+    // redundant.
+    await expectResolutionFailure(
+      new RepoRootResolver().resolveCanonicalRoot(fixtures.siblingRedirectRoot),
+      "root_mismatch",
+    );
+  });
+
+  it("refuses an ancestor redirect with root_mismatch", async () => {
+    // The widening shape, and the reason containment alone is not enough: the
+    // supplied path really does sit inside the reported root, so containment
+    // passes. Persisting it would put the mount's trust envelope around a tree
+    // that merely CONTAINS what was attached — `core.worktree=/` being the
+    // limit case. The fixpoint refuses it, because a parent directory does not
+    // report itself as a toplevel.
+    await expectResolutionFailure(
+      new RepoRootResolver().resolveCanonicalRoot(fixtures.ancestorRedirectRoot),
+      "root_mismatch",
+    );
+  });
+
+  it("never classifies a redirected root as a plain directory", async () => {
+    // The I-009-4 leg of the refusal. In both shapes the verification query
+    // reports not-a-repository, which is the SAME verdict that classifies
+    // `vcsType: "none"` on the discovery query — routing it that way here would
+    // persist an unrelated directory as a plain-directory mount instead of
+    // refusing.
+    for (const redirectedInput of [fixtures.siblingRedirectRoot, fixtures.ancestorRedirectRoot]) {
+      const settled = await new RepoRootResolver().resolveCanonicalRoot(redirectedInput).then(
+        (value: RepoRootResolution) => ({ resolved: true as const, value }),
+        (error: unknown) => ({ resolved: false as const, value: error }),
+      );
+      expect(settled.resolved, `${redirectedInput} must reject`).toBe(false);
+    }
+  });
+
+  it("accepts a --separate-git-dir repository whose gitfile sits in its toplevel", async () => {
+    // The boundary of the refusal, and the control that keeps it honest: a
+    // separate git directory is not the hazard — a work tree pointed away from
+    // the directory holding the gitfile is. `git init --separate-git-dir` sets
+    // no `core.worktree`, so this self-reports and resolves.
+    const resolution = await new RepoRootResolver().resolveCanonicalRoot(
+      fixtures.separateGitDirRoot,
+    );
+    expect(resolution).toEqual({ canonicalRoot: fixtures.separateGitDirRoot, vcsType: "git" });
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Verification legs — driven through the executor seam
+// ----------------------------------------------------------------------------
+
+describe("root verification is two independent legs (I-009-1, I-009-2)", () => {
+  it("refuses a root the supplied path does not sit inside — before spawning again", async () => {
+    const recorded: RecordedInvocation[] = [];
+    const resolver = new RepoRootResolver({
+      executeFile: recordingExecutor(recorded, `${fixtures.plainDirectory}\n`),
+    });
+    await expectResolutionFailure(
+      resolver.resolveCanonicalRoot(fixtures.nestedDirectory),
+      "root_mismatch",
+    );
+    // ONE invocation. Containment runs first, so a root that does not contain
+    // the input never becomes the `-C` argument of a second git spawn.
+    expect(recorded).toHaveLength(1);
+  });
+
+  it("refuses an ancestor root that does not report itself", async () => {
+    const recorded: RecordedInvocation[] = [];
+    const resolver = new RepoRootResolver({
+      executeFile: directoryAnsweringExecutor(recorded, (directory: string) =>
+        directory === fixtures.nestedDirectory
+          ? `${fixtures.fixtureRoot}\n`
+          : `${fixtures.repositoryRoot}\n`,
+      ),
+    });
+    await expectResolutionFailure(
+      resolver.resolveCanonicalRoot(fixtures.nestedDirectory),
+      "root_mismatch",
+    );
+    // Both spawns happened, and the second asked about the widened root.
+    expect(recorded.map((invocation) => invocation.args[1])).toEqual([
+      fixtures.nestedDirectory,
+      fixtures.fixtureRoot,
+    ]);
+  });
+
+  it("refuses when the verification query reports not-a-repository", async () => {
+    // The shape both real redirects produce: the claimed root is not a
+    // repository at all. That is the SAME verdict the discovery query turns
+    // into `vcsType: "none"`, so routing it that way here would persist an
+    // unrelated directory as a plain-directory mount. It refuses instead.
+    const resolver = new RepoRootResolver({
+      executeFile: failingVerificationExecutor(
+        `${fixtures.repositoryRoot}\n`,
+        syntheticGitFailure({
+          code: GIT_FATAL_EXIT_CODE,
+          stdout: "",
+          stderr: REAL_NOT_A_REPOSITORY_STDERR,
+        }),
+      ),
+    });
+    await expectResolutionFailure(
+      resolver.resolveCanonicalRoot(fixtures.nestedDirectory),
+      "root_mismatch",
+    );
+  });
+
+  it("keeps vcs_error when the verification query cannot complete", async () => {
+    // A second spawn that fails ABNORMALLY verified nothing either way, so the
+    // reason stays honest about what happened rather than claiming a mismatch
+    // verdict git never delivered. Both outcomes refuse; only the wire
+    // discriminant differs.
+    const resolver = new RepoRootResolver({
+      executeFile: failingVerificationExecutor(
+        `${fixtures.repositoryRoot}\n`,
+        syntheticGitFailure({ code: "ENOENT", stdout: "", stderr: "" }),
+      ),
+    });
+    await expectResolutionFailure(
+      resolver.resolveCanonicalRoot(fixtures.nestedDirectory),
+      "vcs_error",
+    );
+  });
+
+  it("admits a root that reports itself, and returns exactly it", async () => {
+    const recorded: RecordedInvocation[] = [];
+    const resolver = new RepoRootResolver({
+      executeFile: recordingExecutor(recorded, `${fixtures.repositoryRoot}\n`),
+    });
+    const resolution = await resolver.resolveCanonicalRoot(fixtures.nestedDirectory);
+    expect(resolution).toEqual({ canonicalRoot: fixtures.repositoryRoot, vcsType: "git" });
+    expect(recorded.map((invocation) => invocation.args)).toEqual([
+      ["-C", fixtures.nestedDirectory, "rev-parse", "--show-toplevel"],
+      ["-C", fixtures.repositoryRoot, "rev-parse", "--show-toplevel"],
+    ]);
+  });
+
+  it("verifies nothing for a plain directory — one spawn, no second query", async () => {
+    // The `"none"` arm returns the canonicalized INPUT, which is its own root
+    // by construction, so there is nothing git could be asked to confirm.
+    const recorded: RecordedInvocation[] = [];
+    const resolver = new RepoRootResolver({
+      executeFile: (file: string, args: readonly string[], options: GitCommandOptions) => {
+        recorded.push({ file, args, options });
+        return Promise.reject(
+          syntheticGitFailure({
+            code: GIT_FATAL_EXIT_CODE,
+            stdout: "",
+            stderr: REAL_NOT_A_REPOSITORY_STDERR,
+          }),
+        );
+      },
     });
     const resolution = await resolver.resolveCanonicalRoot(fixtures.plainDirectory);
-    expect(resolution).toEqual({ canonicalRoot: fixtures.repositoryRoot, vcsType: "git" });
+    expect(resolution).toEqual({ canonicalRoot: fixtures.plainDirectory, vcsType: "none" });
+    expect(recorded).toHaveLength(1);
   });
 });
 
@@ -1161,21 +1574,29 @@ describe("ambient GIT_* variables cannot redirect discovery (I-009-1, I-009-4)",
 // ----------------------------------------------------------------------------
 
 describe("git invocation shape", () => {
-  async function captureInvocation(): Promise<RecordedInvocation> {
+  /**
+   * Both invocations of one successful resolution, in order: the discovery
+   * query on the input, then the verification query on the root it reported.
+   *
+   * Returning the pair rather than the first is what lets the hardening
+   * assertions cover BOTH spawns — an environment or bound asserted only on
+   * `recorded[0]` would say nothing about the query that runs after it.
+   */
+  async function captureInvocations(): Promise<readonly [RecordedInvocation, RecordedInvocation]> {
     const recorded: RecordedInvocation[] = [];
     const resolver = new RepoRootResolver({
       executeFile: recordingExecutor(recorded, `${fixtures.repositoryRoot}\n`),
     });
     await resolver.resolveCanonicalRoot(fixtures.repositoryRoot);
-    const invocation = recorded[0];
-    if (invocation === undefined) {
-      throw new Error("the resolver made no git invocation");
+    const [discovery, verification] = recorded;
+    if (discovery === undefined || verification === undefined) {
+      throw new Error(`the resolver made ${recorded.length} git invocation(s), expected 2`);
     }
-    return invocation;
+    return [discovery, verification];
   }
 
   it("invokes the configured executable with the ratified argv and no others", async () => {
-    const invocation = await captureInvocation();
+    const [invocation] = await captureInvocations();
     expect(invocation.file).toBe(DEFAULT_GIT_EXECUTABLE);
     expect(invocation.args).toEqual([
       "-C",
@@ -1186,7 +1607,7 @@ describe("git invocation shape", () => {
   });
 
   it("passes no shell option — argv-only execution is structural", async () => {
-    const invocation = await captureInvocation();
+    const [invocation] = await captureInvocations();
     expect(Object.keys(invocation.options).sort()).toEqual([
       "env",
       "maxBuffer",
@@ -1201,7 +1622,7 @@ describe("git invocation shape", () => {
   });
 
   it("applies the default timeout, buffer cap, and windowsHide", async () => {
-    const invocation = await captureInvocation();
+    const [invocation] = await captureInvocations();
     expect(invocation.options.timeout).toBe(DEFAULT_GIT_COMMAND_TIMEOUT_MS);
     expect(invocation.options.maxBuffer).toBe(GIT_STDIO_MAX_BUFFER_BYTES);
     expect(invocation.options.windowsHide).toBe(true);
@@ -1211,7 +1632,7 @@ describe("git invocation shape", () => {
     // The not-a-repository verdict is read off git's stderr, and git translates
     // its messages; an operator's localized shell must not change how a plain
     // directory is classified.
-    const invocation = await captureInvocation();
+    const [invocation] = await captureInvocations();
     expect(invocation.options.env["LC_ALL"]).toBe("C");
     expect(invocation.options.env["LANG"]).toBe("C");
     expect(invocation.options.env["GIT_TERMINAL_PROMPT"]).toBe("0");
@@ -1232,10 +1653,57 @@ describe("git invocation shape", () => {
     for (const key of EXPECTED_DISCOVERY_REDIRECTING_GIT_ENV_KEYS) {
       vi.stubEnv(key, "/ambient/hijack");
     }
-    const invocation = await captureInvocation();
+    const [invocation] = await captureInvocations();
     for (const key of EXPECTED_DISCOVERY_REDIRECTING_GIT_ENV_KEYS) {
       expect(invocation.options.env[key]).toBeUndefined();
       expect(key in invocation.options.env).toBe(false);
+    }
+  });
+
+  it("strips a redirecting variable inherited under ANY casing", async () => {
+    // A Windows process environment BLOCK is case-insensitive, so `Git_Dir`
+    // functions as `GIT_DIR` for the child. A copy-then-delete strip would miss
+    // it: the copy preserves each inherited key's original spelling, and
+    // `delete environment["GIT_DIR"]` matches only that one spelling.
+    //
+    // The assertion is over the WHOLE built environment rather than the seeded
+    // keys, so a strip that missed some other casing fails here too.
+    vi.stubEnv("Git_Dir", "/ambient/hijack");
+    vi.stubEnv("git_work_tree", "/ambient/hijack");
+    vi.stubEnv("Git_Config_Parameters", "'core.worktree=/ambient/hijack'");
+    vi.stubEnv("gIt_CeIlInG_dIrEcToRiEs", "/ambient/hijack");
+    vi.stubEnv("Repo_Root_Resolver_Probe", "inherited");
+
+    const [invocation] = await captureInvocations();
+    const strippedKeys = new Set(EXPECTED_DISCOVERY_REDIRECTING_GIT_ENV_KEYS);
+    for (const key of Object.keys(invocation.options.env)) {
+      expect(strippedKeys.has(key.toUpperCase()), `${key} survived the strip`).toBe(false);
+    }
+    // Negative control — a mixed-case key that is NOT on the list survives, so
+    // the loop above is passing on a strip rather than on an empty environment.
+    expect(invocation.options.env["Repo_Root_Resolver_Probe"]).toBe("inherited");
+  });
+
+  it("hardens the verification query exactly like the discovery query", async () => {
+    // The second spawn is where a redirected root gets checked, so it must run
+    // under the same stripped, locale-pinned, bounded shape. Asserting only
+    // `recorded[0]` would leave the query that does the checking unexamined.
+    for (const key of EXPECTED_DISCOVERY_REDIRECTING_GIT_ENV_KEYS) {
+      vi.stubEnv(key, "/ambient/hijack");
+    }
+    vi.stubEnv("Git_Dir", "/ambient/hijack");
+
+    const [discovery, verification] = await captureInvocations();
+    expect(verification.file).toBe(discovery.file);
+    expect(verification.options.timeout).toBe(DEFAULT_GIT_COMMAND_TIMEOUT_MS);
+    expect(verification.options.maxBuffer).toBe(GIT_STDIO_MAX_BUFFER_BYTES);
+    expect(verification.options.windowsHide).toBe(true);
+    expect(verification.options.env["LC_ALL"]).toBe("C");
+    expect(verification.options.env["LANG"]).toBe("C");
+    expect(verification.options.env["GIT_TERMINAL_PROMPT"]).toBe("0");
+    const strippedKeys = new Set(EXPECTED_DISCOVERY_REDIRECTING_GIT_ENV_KEYS);
+    for (const key of Object.keys(verification.options.env)) {
+      expect(strippedKeys.has(key.toUpperCase()), `${key} survived the strip`).toBe(false);
     }
   });
 
@@ -1243,7 +1711,7 @@ describe("git invocation shape", () => {
     // Deleting the discovery variables must not amount to a scrubbed
     // environment: a bare `git` is resolved through the child's own PATH.
     vi.stubEnv("REPO_ROOT_RESOLVER_PROBE", "inherited");
-    const invocation = await captureInvocation();
+    const [invocation] = await captureInvocations();
     expect(invocation.options.env["REPO_ROOT_RESOLVER_PROBE"]).toBe("inherited");
     expect(invocation.options.env["PATH"]).toBe(process.env["PATH"]);
   });
@@ -1304,6 +1772,16 @@ describe("no unresolved or guessed root ever escapes (I-009-2)", () => {
         label: "empty toplevel",
         resolver: new RepoRootResolver({ executeFile: succeedingExecutor("\n") }),
         input: fixtures.plainDirectory,
+      },
+      {
+        label: "sibling core.worktree redirect",
+        resolver: new RepoRootResolver(),
+        input: fixtures.siblingRedirectRoot,
+      },
+      {
+        label: "ancestor core.worktree redirect",
+        resolver: new RepoRootResolver(),
+        input: fixtures.ancestorRedirectRoot,
       },
     ];
 

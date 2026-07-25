@@ -242,13 +242,15 @@ export type PathRealpathResolver = (path: string) => Promise<string>;
  * `path.win32` and `path.posix` satisfy it — which is the point of the seam.
  *
  * A same-named twin lives in `./repo-root-resolver.js` (T1.5), with the same
- * three members and the same purpose. The duplication is deliberate: T1.6
- * depends on T1.4 alone, and importing the resolver's copy would create a
- * module edge the task graph does not model — while hoisting both into a
- * shared module is a file this task does not own. Being structurally
- * IDENTICAL, the two are mutually assignable, so the duplication costs a
- * doubled auto-import suggestion and nothing else. Keep them identical: a
- * member added to one belongs in the other.
+ * three members and the same purpose. The duplication is deliberate, and the
+ * reason is now a CYCLE rather than a missing task-graph edge: the resolver
+ * imports this module's component-comparison helpers for its own root
+ * verification, so the edge runs T1.5 → T1.6, and importing the resolver's
+ * copy back would close a real import cycle. (Hoisting both into a shared
+ * module remains a file neither task owns.) Being structurally IDENTICAL, the
+ * two are mutually assignable, so the duplication costs a doubled auto-import
+ * suggestion and nothing else. Keep them identical: a member added to one
+ * belongs in the other.
  *
  * That instruction governs FIVE surfaces, not this interface alone. The pair
  * of modules duplicates:
@@ -262,12 +264,20 @@ export type PathRealpathResolver = (path: string) => Promise<string>;
  *      inline for its absolute `directory` arm (a parsed root longer than one
  *      character is the complete-location test in both places).
  *
- * The fifth is the one a future editor most needs flagged. Nothing assigns one
- * copy to the other, so no divergence between the copies is compile-visible and
- * the instruction above is the only enforcement there is. For the first four
- * that is cheap: they are aliases and defaulting boilerplate a reader compares
- * at a glance. The fifth is a CONTAINMENT rule, so divergence there changes
- * which paths are admitted — silently, and only on Windows.
+ * All five remain PROSE-only twins: nothing assigns one copy to the other, so
+ * no divergence between the copies is compile-visible and the instruction above
+ * is the only enforcement there is. For the first four that is cheap: they are
+ * aliases and defaulting boilerplate a reader compares at a glance. The fifth
+ * is a CONTAINMENT rule, so divergence there changes which paths are admitted —
+ * silently, and only on Windows. It is the one a future editor most needs
+ * flagged.
+ *
+ * The list did not shrink when the resolver started importing from here. The
+ * component-comparison helpers below are SHARED, not duplicated: T1.5 calls the
+ * same three functions this module's own boundary check calls, so its
+ * `root_mismatch` verification and this module's bind-side containment agree by
+ * construction. That is a different relationship from the five, and the only
+ * one of the two that a compiler enforces.
  */
 export interface PlatformPathModule {
   readonly sep: string;
@@ -303,6 +313,15 @@ function resolveDeps(partial: Partial<TrustEnvelopeValidatorDeps>): TrustEnvelop
 // --------------------------------------------------------------------------
 // Component-wise path comparison
 // --------------------------------------------------------------------------
+//
+// The three functions below are exported for ONE consumer: T1.5's resolver
+// (`./repo-root-resolver.js`), whose `root_mismatch` check must decide the same
+// containment question this module's bind-side boundary decides. Sharing the
+// implementation rather than re-spelling it is what keeps the two verdicts
+// identical — a sixth prose-only twin of a CONTAINMENT rule is exactly the
+// hazard the `PlatformPathModule` note above flags. `stripTrailingSeparators`
+// stays module-private: it is a splitting detail of `toComparableComponents`
+// and of the join below, and no caller outside this file needs it.
 
 /**
  * Drops trailing separators so a root spelled with one (`/`, `C:\`,
@@ -329,7 +348,10 @@ function stripTrailingSeparators(path: string, separator: string): string {
  * value can only arrive from a caller that broke that postcondition, and it
  * fails containment rather than sliding past it.
  */
-function toComparableComponents(path: string, platformPath: PlatformPathModule): readonly string[] {
+export function toComparableComponents(
+  path: string,
+  platformPath: PlatformPathModule,
+): readonly string[] {
   const components = stripTrailingSeparators(path, platformPath.sep).split(platformPath.sep);
   if (platformPath.sep !== WINDOWS_PATH_SEPARATOR) {
     return components;
@@ -343,7 +365,7 @@ function toComparableComponents(path: string, platformPath: PlatformPathModule):
  * Component-wise, so a boundary can never be crossed mid-name: `/repo-evil`
  * has a first component of `repo-evil`, which is simply not `repo`.
  */
-function isContainedWithin(
+export function isContainedWithin(
   candidateComponents: readonly string[],
   anchorComponents: readonly string[],
 ): boolean {
@@ -359,7 +381,7 @@ function isContainedWithin(
 }
 
 /** Component equality — containment in both directions. */
-function componentsEqual(left: readonly string[], right: readonly string[]): boolean {
+export function componentsEqual(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && isContainedWithin(left, right);
 }
 

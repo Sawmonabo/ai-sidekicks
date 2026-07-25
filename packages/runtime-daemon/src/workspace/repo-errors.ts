@@ -72,7 +72,7 @@
 //
 // Beyond that the guarantee is uneven, and deliberately strongest on the two
 // carriers the §Repo ban actually names. `RepoRootResolutionError` admits only
-// a closed four-member enum and `TrustEnvelopeViolationError` admits nothing
+// a closed five-member enum and `TrustEnvelopeViolationError` admits nothing
 // at all, so for those two no channel exists that a path could travel. The
 // id-bearing pair is weaker by construction: `RepoMountNotFoundError` and
 // `RepoAlreadyAttachedError` interpolate an unconstrained `string` id into
@@ -137,16 +137,28 @@ export const REPO_ERROR_CODES: readonly RepoErrorCode[] = [
  * discriminant is safe to carry all the way to the wire — the same shape as
  * the ratified `transport.invalid_protocol_version` `{ reason }` payload.
  *
- * Four members, in pipeline order. T1.4 fixed the last three; T1.5 added
- * `not_absolute` with its step-1 gate. Read the name as "does not name one
- * complete location" — THREE input shapes qualify, each missing a different
- * piece that only the daemon's OWN state could supply. A relative path wants a
- * working directory, `~` wants a home directory, and a driveless Windows root
- * such as `\repos\foo` wants a drive (`path.win32.isAbsolute` reports it
- * absolute, which is why absoluteness alone does not express the rule). A root
- * derived from any of them is precisely the guessed root I-009-2 forbids,
- * because the daemon has no access to the author's context. Refusing is the
- * only honest answer available at this layer.
+ * Five members, in pipeline order. T1.4 fixed the middle three; T1.5 added the
+ * two that bracket them — `not_absolute` with its step-1 input gate, and
+ * `root_mismatch` with the step-5 verification of what git reported back.
+ *
+ * Read `not_absolute` as "does not name one complete location" — THREE input
+ * shapes qualify, each missing a different piece that only the daemon's OWN
+ * state could supply. A relative path wants a working directory, `~` wants a
+ * home directory, and a driveless Windows root such as `\repos\foo` wants a
+ * drive (`path.win32.isAbsolute` reports it absolute, which is why
+ * absoluteness alone does not express the rule). A root derived from any of
+ * them is precisely the guessed root I-009-2 forbids, because the daemon has
+ * no access to the author's context. Refusing is the only honest answer
+ * available at this layer.
+ *
+ * `root_mismatch` is the mirror-image refusal on the OTHER side of the query:
+ * git reported a toplevel that the resolver could not verify, either because
+ * the supplied path does not sit inside it or because it does not report
+ * itself as its own toplevel. One reason covers both legs deliberately — the
+ * distinction is diagnostic rather than actionable, and the value is
+ * wire-visible, so it stays as coarse as the client's decision. The vector it
+ * closes (a repository's OWN config redirecting `--show-toplevel`) is
+ * documented at the check, in `repo-root-resolver.ts`.
  *
  * Note what is deliberately NOT a member: "path is not a git repository" is
  * not a failure at all but the `Spec-009 §Fallback Behavior` plain-directory
@@ -158,7 +170,8 @@ export type RepoRootResolutionReason =
   | "not_absolute"
   | "path_not_found"
   | "not_readable"
-  | "vcs_error";
+  | "vcs_error"
+  | "root_mismatch";
 
 /**
  * Fixed, path-free message per resolution-failure reason. A lookup rather
@@ -172,6 +185,8 @@ const ROOT_RESOLUTION_MESSAGES: Record<RepoRootResolutionReason, string> = {
   not_readable: "canonical repository root resolution failed: the supplied path is not readable",
   vcs_error:
     "canonical repository root resolution failed: the version-control root query did not complete",
+  root_mismatch:
+    "canonical repository root resolution failed: the reported root did not contain the supplied path, or did not report itself as its own root",
 };
 
 /**

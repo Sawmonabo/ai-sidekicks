@@ -17,7 +17,9 @@
 //   * I-009-1 — canonical-root fidelity. Every value this module returns has
 //     been through `realpath`, so the persisted root is the physical path and
 //     never an alias or the raw user input. The absoluteness of the result is
-//     re-asserted structurally before it is returned.
+//     re-asserted structurally before it is returned, and a git-reported root
+//     is VERIFIED against the supplied path rather than trusted — see the
+//     repo-owned-config section below.
 //   * I-009-2 — explicit resolution failure. Every path that is not a
 //     successful resolution THROWS `RepoRootResolutionError`. There is no
 //     partial-success return, no fallback to the user-entered path, and no
@@ -25,10 +27,14 @@
 //     does not name one whole location (a relative path, `~`, or a driveless
 //     Windows root) out of daemon-side state, which the step-1 gate refuses.
 //   * I-009-4 — honest non-git classification. `vcsType: "none"` is produced
-//     ONLY on a positive "git ran and reported not-a-repository" verdict.
-//     Every other failure — git missing, git non-executable, git killed, git
-//     failing for any other reason — routes to `vcs_error`. See the
-//     fail-closed note on `classifyGitFailure` below.
+//     ONLY on a positive "git ran and reported not-a-repository" verdict, and
+//     ONLY for the DISCOVERY query on the supplied path. Every git-invocation
+//     failure — git missing, git non-executable, git killed, git failing for
+//     any other reason — routes to `vcs_error`. See the fail-closed note on
+//     `classifyGitFailure` below. The same verdict from the VERIFICATION query
+//     is a refusal (`root_mismatch`), never a reclassification: a claimed root
+//     that is not a repository at all cannot be attached as a plain directory
+//     either, because it is not the path the operator supplied.
 //
 // Mechanism, and why it is not a `.git` walk
 // --------------------------------------------------------------------------
@@ -53,21 +59,67 @@
 // --------------------------------------------------------------------------
 // The child environment inherits `process.env` (it must — a bare `git` is found
 // through the child's own executable search, and Windows needs `SystemRoot` and
-// friends), but the discovery-redirecting `GIT_*` variables are DELETED from
-// the copy, along with both env-borne config-injection channels that could
-// reach them indirectly. A daemon launched from a shell that exported
-// `GIT_DIR` or `GIT_WORK_TREE` would otherwise have every attach answered
-// about the ambient repository instead of the supplied path — a resolved root
-// with no relation to its input, which is precisely the guessed root I-009-1
-// forbids.
+// friends), but the discovery-redirecting `GIT_*` variables are OMITTED from
+// it, along with both env-borne config-injection channels that could reach them
+// indirectly. A daemon launched from a shell that exported `GIT_DIR` or
+// `GIT_WORK_TREE` would otherwise have every attach answered about the ambient
+// repository instead of the supplied path — a resolved root with no relation to
+// its input, which is precisely the guessed root I-009-1 forbids.
 // `GIT_CEILING_DIRECTORIES` is the mirror-image hazard: it bounds upward
 // discovery, so an ambient value can make git report not-a-repository for a
 // real repository, reclassifying it `vcsType: "none"` in violation of I-009-4.
+// The omission is case-insensitive, which is a Windows correctness requirement
+// rather than fastidiousness; `buildGitEnvironment` states why.
 //
 // Locale is pinned to `C` for the same class of reason: the not-a-repository
 // verdict is read off git's own stderr, and git translates its messages through
 // gettext. An operator running a localized shell must not change how this
 // module classifies a plain directory.
+//
+// What the environment cannot reach: the repository's OWN config
+// --------------------------------------------------------------------------
+// Scrubbing the environment bounds one channel, and only one. The scope is
+// worth stating precisely, because the two config channels behave differently
+// and the difference is a matter of timing (all of the following observed on
+// git 2.50.1). `core.worktree` supplied through `GIT_CONFIG_PARAMETERS`, the
+// `GIT_CONFIG_COUNT` family, or `git -c` does NOT move `--show-toplevel`:
+// command-scope config is applied after repository setup has already decided
+// where the work tree is. The same key in the REPOSITORY'S OWN config file does
+// move it, because that file is read DURING setup.
+//
+// That file is reachable without owning the tree it names. `git init
+// --separate-git-dir` leaves a `.git` FILE holding a `gitdir:` pointer, and the
+// config it points at can carry `core.worktree`, so a directory prepared that
+// way answers `rev-parse --show-toplevel` with whatever path its author chose.
+// Both hostile shapes were reproduced:
+//
+//   * SIBLING — the reported root is an unrelated tree. Attaching would persist
+//     a `canonical_root` the operator never named, and T1.6's
+//     `TrustEnvelopeValidator` would then admit binds all over it.
+//   * ANCESTOR — the reported root is a PARENT of the attached directory,
+//     widening the mount and its trust envelope to a tree that merely contains
+//     what was attached. `core.worktree=/` is the limit case.
+//
+// So git's answer is verified rather than trusted, in two legs that both refuse
+// with `root_mismatch` (each is stated at its own check, steps 4 and 5 of
+// `resolveCanonicalRoot`): the supplied path must sit INSIDE the reported root,
+// and the reported root must report ITSELF when discovery starts there. Neither
+// leg subsumes the other. Containment passes in the ancestor shape, where the
+// input really is inside the widened root; the fixpoint passes when the
+// redirect names another genuine repository, which self-reports quite honestly.
+//
+// The honest cost is one refused shape: a repository whose config points
+// `core.worktree` anywhere other than the directory holding its gitfile cannot
+// be attached, even where its owner arranged that deliberately — the
+// dotfiles-style layout is the familiar example. That is an accepted
+// limitation, not an oversight. Nothing distinguishes a deliberate redirect
+// from a hostile one at this layer, and I-009-1 makes refusing the safe
+// direction; the refusal is an explicit typed error (I-009-2), never a
+// `vcsType: "none"` misclassification (I-009-4). Every shape git produces on
+// its own is unaffected, each pinned against real git in the suite: a plain
+// repository, a nested subdirectory, a linked worktree, a submodule, and a
+// `--separate-git-dir` repository whose gitfile sits in its own toplevel all
+// self-report.
 //
 // How a bare `git` is found, and the Windows exposure
 // --------------------------------------------------------------------------
@@ -79,8 +131,26 @@
 // the daemon happens to be running from would therefore be executed with the
 // daemon's privileges. The daemon already spawns a bare `taskkill` on its
 // Windows kill path (`../pty/taskkill-windows.ts`, wired as the default in both
-// PTY backends); this module adds a SECOND bare-name spawn, and the same search
-// rule applies to both.
+// PTY backends); this module adds a SECOND bare-name EXECUTABLE — spawned twice
+// per git resolution, once to discover the root and once to verify it — and the
+// same search rule applies to every one of those spawns.
+//
+// Both primary sources are linked, with confirmation dates, from
+// `Plan-009 §References`:
+//   * libuv `src/win/process.c` v1.51.0 —
+//     https://github.com/libuv/libuv/blob/v1.51.0/src/win/process.c
+//     `search_path`, for a name with no directory in it: "The file is really
+//     only a name; look in cwd first, then scan path", reached only when
+//     `NeedCurrentDirectoryForExePathW(L"")` returns TRUE.
+//   * `NeedCurrentDirectoryForExePathW` —
+//     https://learn.microsoft.com/en-us/windows/win32/api/processenv/nf-processenv-needcurrentdirectoryforexepathw
+//     "The value of the NoDefaultCurrentDirectoryInExePath environment variable
+//     determines the value this function returns", and a name CONTAINING a
+//     backslash always returns TRUE. libuv passes the empty string, which has
+//     no backslash, so that variable is decisive: an operator who sets it
+//     closes the cwd-first search for every bare-name spawn in the process.
+//     That is an operator-side mitigation, not a substitute for the
+//     `gitExecutablePath` seam below, which is the one this module controls.
 //
 // Environment scrubbing cannot close it, because the search is not driven by
 // the environment. The seam that closes it is `gitExecutablePath`: set to an
@@ -140,6 +210,7 @@ import * as nodePath from "node:path";
 import type { VcsType } from "@ai-sidekicks/contracts";
 
 import { RepoRootResolutionError } from "./repo-errors.js";
+import { componentsEqual, isContainedWithin, toComparableComponents } from "./trust-envelope.js";
 
 // --------------------------------------------------------------------------
 // Public result shape
@@ -260,11 +331,19 @@ export interface RepoRootResolverDeps {
   readonly gitCommandTimeoutMs: number;
   /**
    * Defaults to `node:path`, already bound to the host platform. Injected as
-   * `path.win32` by the suite so the driveless-root refusal — a Windows-only
-   * shape on an ADR-019 V1 tier — is exercised on POSIX CI rather than only on
-   * a Windows runner. Read by the step-1 gate ONLY: the two backstops below —
-   * step 4 on git's raw stdout and `finish` on the outgoing root — deliberately
-   * use the real `node:path`, so a misconfigured seam cannot loosen them.
+   * `path.win32` by the suite so the two Windows-only shapes — the
+   * driveless-root refusal and the `\r` terminator strip, both of them live on
+   * an ADR-019 V1 tier — are exercised on POSIX CI rather than only on a
+   * Windows runner.
+   *
+   * Read by exactly those two: the step-1 input gate and
+   * `stripSingleLineTerminator`. Every check that guards an OUTGOING value
+   * deliberately uses the real `node:path` instead — the completeness rule on
+   * git's raw stdout, the containment and fixpoint comparisons in steps 4 and
+   * 5, and `finish` on the root itself — so a misconfigured seam cannot loosen
+   * any of them. Both operands of those comparisons are `realpath` output, so
+   * on Windows both arrive backslash-separated and in the filesystem's own
+   * case, and the separator and case-folding questions cannot bite.
    */
   readonly platformPath: PlatformPathModule;
 }
@@ -326,7 +405,7 @@ export const GIT_FATAL_EXIT_CODE: number = 128;
 const NOT_A_REPOSITORY_STDERR_MARKER = /^fatal: not a git repository/im;
 
 /**
- * `GIT_*` variables deleted from the child environment because each one can
+ * `GIT_*` variables omitted from the child environment because each one can
  * redirect git's repository DISCOVERY — the exact question this module asks.
  * Every entry is a correctness measure, not hygiene; see the header.
  *
@@ -353,6 +432,12 @@ const NOT_A_REPOSITORY_STDERR_MARKER = /^fatal: not a git repository/im;
  * subdirectory via `-C`. They are stripped because arbitrary config injection
  * sits on the wrong side of the line drawn below, not because a working
  * discovery redirect is known through them.
+ *
+ * Read that as a statement about the ENV-BORNE channels only. The same key in
+ * the repository's own config file DOES move `--show-toplevel`, on the same git
+ * version — a difference of timing, not of key, and one no environment strip
+ * can reach. The header's repo-owned-config section carries the mechanism and
+ * the two-leg verification that answers it.
  *
  * NOT stripped, deliberately: `GIT_CONFIG_NOSYSTEM`, `GIT_CONFIG_GLOBAL`,
  * `GIT_CONFIG_SYSTEM`. Those REDIRECT or disable config files rather than
@@ -389,6 +474,15 @@ export const DISCOVERY_REDIRECTING_GIT_ENV_KEYS: readonly string[] = [
 // --------------------------------------------------------------------------
 
 /**
+ * The strip list keyed for case-insensitive lookup. Uppercased rather than
+ * assumed uppercase, so an entry added to the list in any spelling still
+ * matches.
+ */
+const DISCOVERY_REDIRECTING_GIT_ENV_KEYS_UPPERCASED = new Set(
+  DISCOVERY_REDIRECTING_GIT_ENV_KEYS.map((key) => key.toUpperCase()),
+);
+
+/**
  * The environment every git invocation runs under: the daemon's own
  * environment, minus the discovery-redirecting variables, plus the locale pin
  * and a prompt block.
@@ -396,14 +490,30 @@ export const DISCOVERY_REDIRECTING_GIT_ENV_KEYS: readonly string[] = [
  * Read at CALL time rather than captured at construction, so a daemon that
  * mutates its own environment is followed rather than snapshotted.
  *
+ * REBUILT by omission rather than copied-then-deleted, because the strip has to
+ * be case-insensitive on Windows. A Windows process environment block is
+ * case-insensitive, but `{...process.env}` is a plain JavaScript object that
+ * preserves each inherited key's ORIGINAL spelling — so a daemon that inherited
+ * `Git_Dir` would carry it past a `delete environment["GIT_DIR"]` and hand it
+ * to the child, where git reads it as `GIT_DIR` and the strip has bought
+ * nothing. Comparing uppercased keys catches every spelling — `toUpperCase`,
+ * never the locale-sensitive variant, which maps `I` to `ı` under a Turkish
+ * locale and would stop matching `GIT_DIR` entirely (the same trap
+ * `trust-envelope.ts` documents at its own case-folding site). On POSIX this
+ * also drops a literally-lowercase `git_dir`, which git ignores anyway — an
+ * over-strip of a variable that was doing nothing.
+ *
  * `GIT_TERMINAL_PROMPT=0` is defense in depth: `rev-parse` never authenticates,
  * but a git that decided to prompt would block on a terminal the daemon does
  * not have until the timeout above fires.
  */
 function buildGitEnvironment(): NodeJS.ProcessEnv {
-  const environment: NodeJS.ProcessEnv = { ...process.env };
-  for (const key of DISCOVERY_REDIRECTING_GIT_ENV_KEYS) {
-    delete environment[key];
+  const environment: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (DISCOVERY_REDIRECTING_GIT_ENV_KEYS_UPPERCASED.has(key.toUpperCase())) {
+      continue;
+    }
+    environment[key] = value;
   }
   environment["LC_ALL"] = "C";
   environment["LANG"] = "C";
@@ -476,7 +586,9 @@ const WINDOWS_PATH_SEPARATOR = "\\";
  * T1.6's `joinCandidatePath` (`./trust-envelope.js`) re-spells this same
  * driveless-root rule inline for its absolute `directory` arm, so a change to
  * the predicate here belongs there too; that module's `PlatformPathModule`
- * note enumerates the full set of surfaces the two files share.
+ * note enumerates the five surfaces the two files duplicate in PROSE. The
+ * component-comparison helpers this module imports from it are a different
+ * relationship — shared by construction, so they cannot diverge at all.
  */
 function namesCompleteLocation(candidatePath: string, platformPath: PlatformPathModule): boolean {
   if (!platformPath.isAbsolute(candidatePath)) {
@@ -580,14 +692,49 @@ function classifyGitFailure(thrown: unknown): "not-a-repository" | "abnormal" {
  * `.trim()` would be wrong: a directory name may legitimately end in a space,
  * and trimming it would produce a path that does not exist — an
  * unresolvable-but-plausible root, the worst possible failure shape.
+ *
+ * The same argument decides the `\r`, and it decides it DIFFERENTLY per
+ * platform. git terminates plumbing output with a bare LF everywhere, so a `\r`
+ * sitting before the final `\n` is not terminator noise git produced — it is
+ * the last character of the directory's name. On POSIX that is a legal
+ * character in a filename, so eating it invents a different path: at best
+ * unresolvable, at worst an existing SIBLING, which is the wrong-tree class the
+ * root verification below exists to prevent. On win32 the reverse holds — NTFS
+ * forbids control characters in names, so a pre-`\n` `\r` cannot be part of one
+ * and can only be terminator noise from a shim or a console layer, making it
+ * safe to strip.
+ *
+ * Platform comes from the INJECTED seam, like the step-1 gate's, so POSIX CI
+ * can drive the win32 branch. A seam pointed at the wrong platform mutilates or
+ * preserves one trailing character; both directions land on a path that either
+ * fails to resolve or fails the containment check below.
  */
-function stripSingleLineTerminator(output: string): string {
-  return output.replace(/\r?\n$/, "");
+function stripSingleLineTerminator(output: string, platformPath: PlatformPathModule): string {
+  const withoutLineFeed = output.endsWith("\n") ? output.slice(0, -1) : output;
+  if (platformPath.sep !== WINDOWS_PATH_SEPARATOR || !withoutLineFeed.endsWith("\r")) {
+    return withoutLineFeed;
+  }
+  return withoutLineFeed.slice(0, -1);
 }
 
 // --------------------------------------------------------------------------
 // RepoRootResolver
 // --------------------------------------------------------------------------
+
+/**
+ * What one `rev-parse --show-toplevel` query produced.
+ *
+ * Only two outcomes are RETURNED: a canonicalized toplevel, or git's positive
+ * not-a-repository verdict. Every other outcome — a git that could not run, a
+ * zero exit carrying no usable path, a toplevel `realpath` will not resolve —
+ * throws `vcs_error` from inside the query, so no caller has to re-derive the
+ * I-009-4 discrimination. What the two callers do differ on is the
+ * not-a-repository verdict: for the discovery query it is the plain-directory
+ * classification, and for the verification query it is a refusal.
+ */
+type ToplevelQueryOutcome =
+  | { readonly kind: "toplevel"; readonly canonicalRoot: string }
+  | { readonly kind: "not-a-repository" };
 
 /**
  * Turns a user-entered local path into the canonical `{canonicalRoot,
@@ -615,6 +762,10 @@ export class RepoRootResolver {
    * that raw value as provenance (I-009-5) — this return value is what gets
    * persisted.
    *
+   * A `vcsType: "git"` root is not simply what git reported: it has been proven
+   * to contain the supplied path and to report itself as its own toplevel. The
+   * header explains what that refuses and why it must.
+   *
    * @throws {RepoRootResolutionError} on every non-resolution. There is no
    *   other exit: no fallback to the input, no partial result (I-009-2).
    */
@@ -638,11 +789,88 @@ export class RepoRootResolver {
     // assumed to be `canonicalInputPath`: attaching from a nested subdirectory
     // is the case `Spec-009 §Implementation Notes` calls out, and it is the
     // reason this query exists at all.
+    const discovery = await this.queryCanonicalToplevel(canonicalInputPath);
+    if (discovery.kind === "not-a-repository") {
+      // `Spec-009 §Fallback Behavior` — the plain-directory classification.
+      // The root is the already-canonicalized input: a non-git directory IS
+      // its own root, and it has been realpath'd, so this arm returns a
+      // canonical value like every other (I-009-1).
+      return this.finish(canonicalInputPath, "none");
+    }
+    const canonicalRoot = discovery.canonicalRoot;
+    // Both comparisons below fold off the REAL `node:path`, never the injected
+    // `platformPath` — the rule step 3 and `finish` follow. A backstop keyed off
+    // an injectable seam can be disabled by the same misconfiguration it exists
+    // to catch. Both operands are `realpath` output, so the separator and case
+    // questions the seam would answer cannot bite here anyway.
+    const canonicalRootComponents = toComparableComponents(canonicalRoot, nodePath);
+
+    // Step 4 — CONTAINMENT. The attached path must sit inside the root about to
+    // be persisted for it. See the header on the repo-owned-config vector: a
+    // repository whose own config carries `core.worktree` makes git report a
+    // toplevel with no relation to the supplied path, and the operator would
+    // get a mount rooted at a tree they never named.
+    //
+    // Cheap, and FIRST — a root that fails this never becomes the `-C` argument
+    // of the verification spawn below, so an attacker-named directory is not
+    // handed back to git.
+    if (
+      !isContainedWithin(
+        toComparableComponents(canonicalInputPath, nodePath),
+        canonicalRootComponents,
+      )
+    ) {
+      throw new RepoRootResolutionError("root_mismatch");
+    }
+
+    // Step 5 — FIXPOINT. Containment alone is not enough: the same mechanism
+    // can widen the root to an ANCESTOR of the input, which contains it
+    // trivially. A bindable root reports ITSELF when discovery starts inside
+    // it, so the root is queried a second time and must answer with itself.
+    //
+    // The not-a-repository verdict is a refusal here, never a `"none"`
+    // classification — a claimed root that is not a repository at all is the
+    // strongest form of the mismatch, and it is what both observed redirect
+    // shapes actually produce (git 2.50.1).
+    const verification = await this.queryCanonicalToplevel(canonicalRoot);
+    if (
+      verification.kind === "not-a-repository" ||
+      !componentsEqual(
+        toComparableComponents(verification.canonicalRoot, nodePath),
+        canonicalRootComponents,
+      )
+    ) {
+      throw new RepoRootResolutionError("root_mismatch");
+    }
+
+    return this.finish(canonicalRoot, "git");
+  }
+
+  /**
+   * One `rev-parse --show-toplevel` query, from spawn to canonical root.
+   *
+   * Both call sites run the IDENTICAL invocation — same argv shape, same
+   * stripped and locale-pinned child environment, same bound and buffer cap —
+   * against different directories. Sharing one method is what makes that
+   * identity structural: a verification query built separately could drift into
+   * a weaker environment than the discovery query it is checking.
+   *
+   * @throws {RepoRootResolutionError} `vcs_error` for every outcome that is
+   *   neither a usable toplevel nor the positive not-a-repository verdict:
+   *   git unable to run, killed, or failing for another reason; a zero exit
+   *   whose stdout carries no complete location (an empty string, or the
+   *   driveless toplevel a non-native Windows git can report, which the next
+   *   `realpath` would otherwise complete against the current drive); and a
+   *   toplevel `realpath` declines to resolve. The completeness rule and the
+   *   final absoluteness gate deliberately read the REAL `node:path`; see
+   *   `finish`.
+   */
+  private async queryCanonicalToplevel(directory: string): Promise<ToplevelQueryOutcome> {
     let toplevelOutput: string;
     try {
       const result = await this.deps.executeFile(
         this.deps.gitExecutablePath,
-        ["-C", canonicalInputPath, "rev-parse", "--show-toplevel"],
+        ["-C", directory, "rev-parse", "--show-toplevel"],
         {
           timeout: this.deps.gitCommandTimeoutMs,
           maxBuffer: GIT_STDIO_MAX_BUFFER_BYTES,
@@ -653,36 +881,25 @@ export class RepoRootResolver {
       toplevelOutput = result.stdout;
     } catch (thrown: unknown) {
       if (classifyGitFailure(thrown) === "not-a-repository") {
-        // `Spec-009 §Fallback Behavior` — the plain-directory classification.
-        // The root is the already-canonicalized input: a non-git directory IS
-        // its own root, and it has been realpath'd, so this arm returns a
-        // canonical value like every other (I-009-1).
-        return this.finish(canonicalInputPath, "none");
+        return { kind: "not-a-repository" };
       }
       throw new RepoRootResolutionError("vcs_error");
     }
 
-    // Step 4 — a zero exit with no usable toplevel is a malfunction, not a
-    // plain directory. Refusing here is what keeps an empty string or a
-    // relative fragment from ever reaching `canonical_root`.
-    //
-    // This is git's RAW stdout, so it gets the same completeness rule as the
-    // input rather than a bare absoluteness check: a non-native Windows git
-    // (MSYS/Cygwin) can report a driveless toplevel, and step 5 would complete
-    // it against the current drive — the input-side defect, arriving through
-    // the VCS instead. The REAL `node:path` is deliberate here; see `finish`.
-    const reportedToplevel = stripSingleLineTerminator(toplevelOutput);
+    const reportedToplevel = stripSingleLineTerminator(toplevelOutput, this.deps.platformPath);
     if (reportedToplevel.length === 0 || !namesCompleteLocation(reportedToplevel, nodePath)) {
       throw new RepoRootResolutionError("vcs_error");
     }
 
-    // Step 5 — canonicalize git's answer too. See the header: git's toplevel is
-    // usually already physical, and I-009-1 is not held conditionally on
-    // "usually". A failure here is a VCS-query anomaly (git named a root that
-    // cannot be resolved), not a bad user path, so it keeps the `vcs_error`
-    // reason rather than being re-classified as a missing input path.
-    const canonicalRoot = await this.realpathOrThrow(reportedToplevel, () => "vcs_error");
-    return this.finish(canonicalRoot, "git");
+    // Canonicalize git's answer too. See the header: git's toplevel is usually
+    // already physical, and I-009-1 is not held conditionally on "usually". A
+    // failure here is a VCS-query anomaly (git named a root that cannot be
+    // resolved), not a bad user path, so it keeps the `vcs_error` reason rather
+    // than being re-classified as a missing input path.
+    return {
+      kind: "toplevel",
+      canonicalRoot: await this.realpathOrThrow(reportedToplevel, () => "vcs_error"),
+    };
   }
 
   /** `realpath` with its rejection mapped to a typed, path-free reason. */
@@ -707,12 +924,13 @@ export class RepoRootResolver {
    * is exactly when a silent relative root would be most damaging.
    *
    * Deliberately the REAL `node:path`, not the injected `platformPath` — the
-   * rule that step 4 also follows. Both are backstops, and keying a backstop
-   * off an injectable seam would let one misconfiguration disable the gate and
-   * its backstop together.
+   * rule every outgoing-value check follows, step 3's completeness rule and
+   * the step 4/5 root comparisons included. They are all backstops, and keying
+   * a backstop off an injectable seam would let one misconfiguration disable
+   * the gate and its backstop together.
    *
-   * Where this differs from step 4 is the STRENGTH of the check, and only
-   * because of what each one sees. Step 4 reads git's raw stdout, which can
+   * Where this differs from step 3 is the STRENGTH of the check, and only
+   * because of what each one sees. Step 3 reads git's raw stdout, which can
    * still be driveless, so it needs the full completeness rule. Both of THIS
    * method's call sites pass `realpath` output, and a real `realpath` cannot
    * return a driveless root, so the stricter rule would add no reachable
