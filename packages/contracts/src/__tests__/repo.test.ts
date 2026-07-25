@@ -44,6 +44,7 @@ import {
 import * as contracts from "../index.js";
 import { NODE_ID_MAX_LEN, NodeIdSchema } from "../node-id.js";
 import {
+  EXECUTION_MODE_RESTRICTION_REASON_MAX_LEN,
   ExecutionModeSchema,
   REPO_PATH_MAX_LEN,
   RepoAttachRequestSchema,
@@ -57,7 +58,14 @@ import {
   RepoMountStateSchema,
   RepoWorkspaceLifecyclePayloadSchema,
   VcsTypeSchema,
+  WORKSPACE_LAST_ERROR_MAX_LEN,
+  WorkspaceBindRequestSchema,
+  WorkspaceBindResponseSchema,
+  WorkspaceExecutionModeCapabilitiesReadRequestSchema,
+  WorkspaceExecutionModeCapabilitiesReadResponseSchema,
   WorkspaceIdSchema,
+  WorkspaceListRequestSchema,
+  WorkspaceListResponseSchema,
   WorkspaceStateSchema,
   type ExecutionMode,
   type RepoAttachResponse,
@@ -66,6 +74,8 @@ import {
   type RepoMountState,
   type RepoWorkspaceLifecyclePayload,
   type VcsType,
+  type WorkspaceBindRequest,
+  type WorkspaceBindResponse,
   type WorkspaceId,
   type WorkspaceState,
 } from "../repo.js";
@@ -973,6 +983,685 @@ describe("RepoDetach request/response (Spec-009 §Detach Semantics (V1 Definitio
 });
 
 // --------------------------------------------------------------------------
+// Wire surfaces — WorkspaceBind / WorkspaceExecutionModeCapabilitiesRead /
+// WorkspaceList (T1.3).
+// --------------------------------------------------------------------------
+//
+// The three request/response pairs for the WORKSPACE half of the six `repo.*`
+// methods. Coverage backstops the field requirements the shapes carry, all
+// three from `Spec-009 §Interfaces And Contracts`: `WorkspaceBind` accepts a
+// repo mount plus an intended execution mode from the canonical set (the
+// "or directory root" arm being satisfied by a plain-directory mount under
+// D-009-4); the capabilities read exposes which modes are currently valid for
+// the bound repo mount OR workspace; `WorkspaceList` exposes workspace health
+// and current binding state.
+//
+// Three conditional relationships are deliberately NOT pinned as shape rules,
+// because the schemas deliberately do not encode them: `restrictions`
+// covering every mode absent from `availableModes` (I-009-8 — T2.5's test),
+// `lastError` present iff `stale`, and `fsRoot` absent while `provisioning`.
+// The rows below pin the REPRESENTABILITY of each case instead, which is the
+// contract half; the emitter half belongs to Phase 2.
+
+// A daemon-provisioned execution root — deliberately NOT equal to
+// `CANONICAL_ROOT` above. A writable bind's root lives under the daemon's
+// execution-roots directory (D-010-6), not inside the mount, so a fixture
+// that reused the mount root could not catch a schema conflating the two.
+const WORKSPACE_FS_ROOT = "/Users/dev/.ai-sidekicks/execution-roots/wt-0190f8a0";
+// Mount-root-RELATIVE, the whole point of the field: an absolute path here
+// would be a caller bug, though the schema still admits one (T1.6 owns
+// containment — see the traversal negative control below).
+const BIND_DIRECTORY = "packages/contracts";
+const WORKSPACE_LAST_ERROR = "fatal: could not create work tree dir: Permission denied";
+
+const buildBindRequest = () => ({
+  repoMountId: REPO_MOUNT_ID,
+  executionMode: "worktree" as const,
+  directory: BIND_DIRECTORY,
+});
+
+// The WRITABLE bind, mid-provisioning: `state: "provisioning"` with NO
+// `fsRoot`. This is the fixture that would be unrepresentable if `fsRoot` were
+// required, which is the reason the field is optional at all.
+const buildProvisioningBindResponse = () => ({
+  workspaceId: WORKSPACE_ID,
+  executionMode: "worktree" as const,
+  state: "provisioning" as const,
+});
+
+// The READ-ONLY bind: root known immediately (the mount's canonical root), so
+// the workspace is `ready` on the same response.
+const buildReadyBindResponse = () => ({
+  workspaceId: WORKSPACE_ID,
+  fsRoot: CANONICAL_ROOT,
+  executionMode: "read-only" as const,
+  state: "ready" as const,
+});
+
+// The two rows of D-009-5's static capability matrix. Keeping BOTH as fixtures
+// is what makes the `defaultMode` semantics visible: on a git mount it is
+// `worktree` (the default WRITABLE run mode per ADR-006) while a freshly bound
+// workspace is still `read-only`; on a non-git mount it is `read-only` because
+// no writable mode exists to default to. A single fixture would let a reader
+// conclude `defaultMode` echoes the fresh-workspace posture.
+const buildGitCapabilitiesResponse = () => ({
+  availableModes: ["read-only", "branch", "worktree", "ephemeral clone"],
+  defaultMode: "worktree" as const,
+});
+
+const buildNonGitCapabilitiesResponse = () => ({
+  availableModes: ["read-only"],
+  defaultMode: "read-only" as const,
+  // Sparse: the three excluded modes carry reasons, `read-only` is omitted
+  // because it is not restricted (I-009-8's explicit-gap shape).
+  restrictions: {
+    branch: "no git repository at the mount root",
+    worktree: "no git repository at the mount root",
+    "ephemeral clone": "no git repository at the mount root",
+  },
+});
+
+const buildWorkspaceListItem = () => ({
+  id: WORKSPACE_ID,
+  repoMountId: REPO_MOUNT_ID,
+  executionMode: "worktree" as const,
+  state: "ready" as const,
+  fsRoot: WORKSPACE_FS_ROOT,
+});
+
+const buildWorkspaceListResponse = () => ({
+  workspaces: [buildWorkspaceListItem()],
+});
+
+const parseBindRequest = (overrides: Record<string, unknown> = {}) =>
+  WorkspaceBindRequestSchema.safeParse({ ...buildBindRequest(), ...overrides });
+const parseBindResponse = (overrides: Record<string, unknown> = {}) =>
+  WorkspaceBindResponseSchema.safeParse({ ...buildReadyBindResponse(), ...overrides });
+const parseCapabilitiesRequest = (request: Record<string, unknown>) =>
+  WorkspaceExecutionModeCapabilitiesReadRequestSchema.safeParse(request);
+const parseCapabilitiesResponse = (overrides: Record<string, unknown> = {}) =>
+  WorkspaceExecutionModeCapabilitiesReadResponseSchema.safeParse({
+    ...buildNonGitCapabilitiesResponse(),
+    ...overrides,
+  });
+const parseWorkspaceListItem = (overrides: Record<string, unknown> = {}) =>
+  WorkspaceListResponseSchema.safeParse({
+    workspaces: [{ ...buildWorkspaceListItem(), ...overrides }],
+  });
+
+// The `restrictions` accept/reject table, hoisted and EXPLICITLY typed — the
+// same stance as `REGISTERED_REPO_EVENTS` above. Inline, TypeScript would
+// widen the heterogeneous rows (an empty object absorbs the sibling `string`
+// and `boolean` members in a union), leaving the callback parameters typed
+// `{}`; the annotation keeps each column honest.
+const RESTRICTION_MAP_CASES: ReadonlyArray<
+  readonly [label: string, restrictions: Record<string, string>, shouldPass: boolean]
+> = [
+  ["an empty map", {}, true],
+  ["a single-mode strict subset", { worktree: "worktree provisioning unavailable" }, true],
+  [
+    "the space-containing wire literal as a key",
+    { "ephemeral clone": "no git repository at the mount root" },
+    true,
+  ],
+  [
+    "an exhaustive map",
+    {
+      "read-only": "mount root unreachable",
+      branch: "mount root unreachable",
+      worktree: "mount root unreachable",
+      "ephemeral clone": "mount root unreachable",
+    },
+    true,
+  ],
+  // Keys are constrained to the canonical taxonomy: an unkeyed
+  // `z.record(z.string(), z.string())` would admit all three rows below, and a
+  // reader would then have no way to match the entry against `availableModes`.
+  ["an out-of-taxonomy key", { submodule: "not a mode" }, false],
+  ["a normalized spelling of the space literal", { ephemeral_clone: "wrong bytes" }, false],
+  ["a mixed map with one foreign key", { worktree: "ok", submodule: "not a mode" }, false],
+];
+
+describe("WorkspaceBindRequestSchema (Spec-009 §Interfaces And Contracts — mount + explicit mode)", () => {
+  it("accepts a valid bind request", () => {
+    expect(parseBindRequest().success).toBe(true);
+  });
+
+  it("accepts a bind with no `directory` — binding the mount root itself", () => {
+    const rootBind = { repoMountId: REPO_MOUNT_ID, executionMode: "read-only" };
+    expect(WorkspaceBindRequestSchema.safeParse(rootBind).success).toBe(true);
+  });
+
+  it.each(["repoMountId", "executionMode"])(
+    "rejects a bind request missing the required field %s",
+    (field) => {
+      const broken = { ...buildBindRequest() } as Record<string, unknown>;
+      delete broken[field];
+      expect(WorkspaceBindRequestSchema.safeParse(broken).success).toBe(false);
+    },
+  );
+
+  it.each([
+    ["read-only", true],
+    ["branch", true],
+    ["worktree", true],
+    // The space-containing wire literal must survive the composition — a
+    // re-spelled enum would be the likeliest place to "clean" it.
+    ["ephemeral clone", true],
+    ["ephemeral_clone", false],
+    // Out-of-taxonomy. A fifth mode is a contract change, and a `.default()`
+    // or a bare `z.string()` here would admit it silently.
+    ["submodule", false],
+    ["", false],
+  ])("executionMode %s -> %s, driven through the composed request", (executionMode, shouldPass) => {
+    expect(parseBindRequest({ executionMode }).success).toBe(shouldPass);
+  });
+
+  it("has NO wire-level default for `executionMode` — omission is a rejection, not read-only", () => {
+    // The T1.3 acceptance criterion, and the row that would flip if someone
+    // added `.default("read-only")`: with a default, the omission row above
+    // would parse and "caller omitted" would become indistinguishable from
+    // "caller chose read-only". The read-only initial posture is the
+    // `workspaces.execution_mode` DDL default (D-009-7), not a wire coercion.
+    const omitted = { repoMountId: REPO_MOUNT_ID };
+    expect(WorkspaceBindRequestSchema.safeParse(omitted).success).toBe(false);
+  });
+
+  it.each([
+    ["a parent-traversal subpath", "../../etc"],
+    ["an interior traversal that names a legitimate subtree", "docs/../packages"],
+    ["an absolute path", "/etc/passwd"],
+  ])("admits %s — T1.6's validator owns containment, not the schema", (_label, candidate) => {
+    // NEGATIVE CONTROL on the guards below. I-009-3 is enforced AFTER symlink
+    // resolution by the trust-envelope validator
+    // (`Spec-009 §Local Trust Envelope (V1 Definition)` scopes the check to
+    // exactly this field), so the wire must carry a value the validator has
+    // not seen yet. A `..`-rejecting regex here would be both bypassable (a
+    // symlink inside the mount escapes without a single `..`) and over-broad
+    // (row two names a real subtree). Without these rows the guards below
+    // would read as "the schema validates subpaths", which is the wrong
+    // impression entirely.
+    expect(parseBindRequest({ directory: candidate }).success).toBe(true);
+  });
+
+  it("bounds `directory` at REPO_PATH_MAX_LEN and refuses blank / NUL-byte forms", () => {
+    // The cap REUSES `REPO_PATH_MAX_LEN` rather than minting a second 4096:
+    // what the filesystem bounds is the joined `canonicalRoot + directory`,
+    // which the schema cannot see at parse time.
+    const atCap = "a".repeat(REPO_PATH_MAX_LEN);
+    const overCap = "a".repeat(REPO_PATH_MAX_LEN + 1);
+    expect(parseBindRequest({ directory: atCap }).success).toBe(true);
+    expect(parseBindRequest({ directory: overCap }).success).toBe(false);
+    expect(parseBindRequest({ directory: "" }).success).toBe(false);
+    expect(parseBindRequest({ directory: "   " }).success).toBe(false);
+    // Built at runtime rather than as an escape so ripgrep keeps treating this
+    // file as text — the same reason the `actor` and `localPath` pins above do.
+    const directoryWithNulByte = `packages${String.fromCharCode(0)}/contracts`;
+    expect(parseBindRequest({ directory: directoryWithNulByte }).success).toBe(false);
+  });
+
+  it("rejects a `localPath` arm — bind is mount-first, with no second identifier (D-009-4)", () => {
+    // `.strict()` doing load-bearing work: the mount-less bind path D-009-4
+    // closed must stay unrepresentable, not merely unused.
+    expect(parseBindRequest({ localPath: LOCAL_PATH }).success).toBe(false);
+  });
+
+  it("rejects extraneous keys (.strict() guard)", () => {
+    expect(parseBindRequest({ extra: "leak" }).success).toBe(false);
+  });
+});
+
+describe("WorkspaceBindResponseSchema (fsRoot deferred to Plan-010 provisioning completion)", () => {
+  it("accepts the read-only bind — root known immediately, state `ready`", () => {
+    expect(WorkspaceBindResponseSchema.safeParse(buildReadyBindResponse()).success).toBe(true);
+  });
+
+  it("accepts the WRITABLE bind with NO `fsRoot` while `state` is `provisioning`", () => {
+    // The load-bearing optionality row. A writable bind returns before its
+    // execution root exists; Plan-010 fills `fs_root` at provisioning
+    // completion (`Spec-009 §Execution Mode Transitions`). Making `fsRoot`
+    // required would make this lawful response unrepresentable and force the
+    // daemon to return a placeholder root — a guess I-009-2 forbids.
+    expect(WorkspaceBindResponseSchema.safeParse(buildProvisioningBindResponse()).success).toBe(
+      true,
+    );
+  });
+
+  it.each(["workspaceId", "executionMode", "state"])(
+    "requires %s on the bind response — only `fsRoot` is optional here",
+    (field) => {
+      const broken = { ...buildReadyBindResponse() } as Record<string, unknown>;
+      delete broken[field];
+      expect(WorkspaceBindResponseSchema.safeParse(broken).success).toBe(false);
+    },
+  );
+
+  it.each(["provisioning", "ready", "busy", "stale", "archived"])(
+    "carries the full WorkspaceState vocabulary, not a provisioning/ready literal — %s",
+    (state) => {
+      // The wire doc types this field `WorkspaceState` with no narrowing. A
+      // two-literal union would pass every other row in this block while
+      // silently rejecting three lawful states.
+      expect(parseBindResponse({ state }).success).toBe(true);
+    },
+  );
+
+  it("still rejects a state outside the 5-value workspace vocabulary", () => {
+    // Negative control on the row above: non-narrowed is not unvalidated.
+    // `detached` is a MOUNT state and must not leak across the vocabularies.
+    expect(parseBindResponse({ state: "detached" }).success).toBe(false);
+    expect(parseBindResponse({ state: "exploded" }).success).toBe(false);
+  });
+
+  it("applies the wireFreeFormString guard to `fsRoot`", () => {
+    // GUARD-DOWNGRADE VISIBILITY: re-spelling the root as a bare
+    // `z.string().optional()` passes every other row in this block.
+    expect(parseBindResponse({ fsRoot: "" }).success).toBe(false);
+    expect(parseBindResponse({ fsRoot: "   " }).success).toBe(false);
+  });
+
+  it("rejects extraneous keys (.strict() guard)", () => {
+    expect(parseBindResponse({ extra: "leak" }).success).toBe(false);
+  });
+});
+
+describe("WorkspaceExecutionModeCapabilitiesReadRequestSchema (exactly-one scope refinement)", () => {
+  it("accepts a MOUNT-scoped read — what could a workspace on this mount do", () => {
+    expect(parseCapabilitiesRequest({ repoMountId: REPO_MOUNT_ID }).success).toBe(true);
+  });
+
+  it("accepts a WORKSPACE-scoped read — what may THIS workspace do now", () => {
+    expect(parseCapabilitiesRequest({ workspaceId: WORKSPACE_ID }).success).toBe(true);
+  });
+
+  it("REJECTS a request supplying both `repoMountId` and `workspaceId`", () => {
+    // Ambiguity that would resolve SILENTLY: a handler picking `workspaceId`
+    // when the caller meant the mount answers the post-bind question to a
+    // pre-bind read. The refinement is what makes that unrepresentable rather
+    // than merely undefined behavior.
+    const result = parseCapabilitiesRequest({
+      repoMountId: REPO_MOUNT_ID,
+      workspaceId: WORKSPACE_ID,
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      // The curated message is a designed contract surface, not incidental
+      // copy — naming both scopes and the question each one asks is the reason
+      // a refinement was chosen over a two-arm union, whose "no branch
+      // matched" error names neither rule. A bare `.refine(predicate)` would
+      // leave every other row in this block green while destroying exactly the
+      // property the design paid for. Both ids are well formed here BECAUSE
+      // Zod skips checks on an aborted payload: a malformed id would never
+      // reach the refinement, leaving the rejection above satisfied by the
+      // id's own error and this message assertion failing outright.
+      const messages = result.error.issues.map((issue) => issue.message);
+      expect(messages.join("\n")).toContain("MUST carry exactly one of");
+    }
+  });
+
+  it("REJECTS a request supplying neither id", () => {
+    // No subject at all — answerable only by inventing one.
+    expect(parseCapabilitiesRequest({}).success).toBe(false);
+  });
+
+  it("treats an explicit `undefined` as absence, not as presence", () => {
+    // The predicate counts DEFINED values rather than testing key presence, so
+    // a TypeScript caller spelling the unused scope as `undefined` reads the
+    // same as omitting it. Correct leniency: the wire signal is absence, and
+    // JSON cannot carry `undefined` at all. A presence-based (`in`) predicate
+    // would reject the first row and accept the second, inverting both.
+    expect(
+      parseCapabilitiesRequest({ repoMountId: REPO_MOUNT_ID, workspaceId: undefined }).success,
+    ).toBe(true);
+    expect(
+      parseCapabilitiesRequest({ repoMountId: undefined, workspaceId: undefined }).success,
+    ).toBe(false);
+  });
+
+  it("is a STRICT refinement, not a tolerant union — a wrong-shaped id still rejects", () => {
+    // A tolerant union with a permissive arm would accept this on the
+    // permissive side and never be canonically typed. Exactly-one is not the
+    // only guard: each id keeps its branded UUID parser.
+    expect(parseCapabilitiesRequest({ repoMountId: "not-a-uuid" }).success).toBe(false);
+    expect(parseCapabilitiesRequest({ workspaceId: "" }).success).toBe(false);
+  });
+
+  it("rejects extraneous keys (.strict() guard)", () => {
+    expect(parseCapabilitiesRequest({ repoMountId: REPO_MOUNT_ID, extra: "leak" }).success).toBe(
+      false,
+    );
+  });
+});
+
+describe("WorkspaceExecutionModeCapabilitiesReadResponseSchema (D-009-5 static matrix)", () => {
+  it("accepts the `git` matrix row — all four modes, no restrictions", () => {
+    const parsed = WorkspaceExecutionModeCapabilitiesReadResponseSchema.safeParse(
+      buildGitCapabilitiesResponse(),
+    );
+    expect(parsed.success).toBe(true);
+  });
+
+  it("accepts the `none` matrix row — read-only plus three populated restrictions", () => {
+    const parsed = WorkspaceExecutionModeCapabilitiesReadResponseSchema.safeParse(
+      buildNonGitCapabilitiesResponse(),
+    );
+    expect(parsed.success).toBe(true);
+  });
+
+  it.each(["availableModes", "defaultMode"])("requires %s", (field) => {
+    const broken = { ...buildNonGitCapabilitiesResponse() } as Record<string, unknown>;
+    delete broken[field];
+    expect(WorkspaceExecutionModeCapabilitiesReadResponseSchema.safeParse(broken).success).toBe(
+      false,
+    );
+  });
+
+  it("accepts `defaultMode: read-only` — the field is NOT narrowed to writable modes", () => {
+    // The reviewer-hold row. `defaultMode` reports the default for the next
+    // WRITABLE coding run (D-009-5), never the fresh-workspace posture — but
+    // "writable" is the field's SEMANTICS, not a constraint on its type: on a
+    // `'none'` mount there is no writable mode to default to and D-009-5 sets
+    // `read-only`. A `z.enum` here that excluded `read-only` to "enforce" the
+    // writable reading would reject half the ratified matrix.
+    expect(parseCapabilitiesResponse({ defaultMode: "read-only" }).success).toBe(true);
+    expect(parseCapabilitiesResponse({ defaultMode: "worktree" }).success).toBe(true);
+    // Non-narrowed is not unvalidated.
+    expect(parseCapabilitiesResponse({ defaultMode: "submodule" }).success).toBe(false);
+  });
+
+  it("accepts an EMPTY `availableModes` and rejects an out-of-taxonomy member", () => {
+    // No `.min(1)` — and no V1 case that produces an empty list: D-009-5's
+    // matrix is STATIC by `vcs_type`, so even a `'none'` mount still offers
+    // `read-only`. Leaving the constraint off is headroom for a later
+    // probe-derived matrix, plus the I-009-8 pairing of `availableModes` with
+    // `restrictions`, which makes a fully restricted answer well formed rather
+    // than a shape error. `repo.ts` carries the authoritative account.
+    expect(parseCapabilitiesResponse({ availableModes: [] }).success).toBe(true);
+    expect(parseCapabilitiesResponse({ availableModes: ["submodule"] }).success).toBe(false);
+  });
+
+  it("omits `restrictions` entirely when nothing is restricted", () => {
+    // The `git` row's shape — the whole field absent, not an empty object.
+    const withoutRestrictions = { ...buildNonGitCapabilitiesResponse() } as Record<string, unknown>;
+    delete withoutRestrictions["restrictions"];
+    expect(
+      WorkspaceExecutionModeCapabilitiesReadResponseSchema.safeParse(withoutRestrictions).success,
+    ).toBe(true);
+  });
+
+  it.each(RESTRICTION_MAP_CASES)("restrictions: %s", (_label, restrictions, shouldPass) => {
+    // SPARSENESS is the load-bearing property, and the first two rows are what
+    // a non-partial `z.record(ExecutionModeSchema, …)` would fail: Zod 4 makes
+    // an enum-keyed `z.record` EXHAUSTIVE (the `CapabilityDetails.flags` stance
+    // in event.ts), which is exactly wrong here — a `git` mount restricts
+    // nothing. The exhaustive row is the control that partial does not mean
+    // "at most one".
+    expect(parseCapabilitiesResponse({ restrictions }).success).toBe(shouldPass);
+  });
+
+  it("REJECTS an explicit `undefined` as a restriction VALUE", () => {
+    // The map's absence signal is KEY-OMISSION, deliberately unlike the
+    // request side's explicit-undefined leniency a few blocks up: the value
+    // schema is a bare non-optional string, so a present key carrying no
+    // reason is precisely the I-009-8 gap. Cannot join RESTRICTION_MAP_CASES,
+    // which is typed `Record<string, string>`. Load-bearing for Phase 2 — the
+    // response schema is single-T, so a projection builder spreading
+    // `worktree: maybeReason` (`string | undefined`) gets NO compile-time
+    // protection and would throw at the I-009-10 validation seam instead.
+    expect(parseCapabilitiesResponse({ restrictions: { worktree: undefined } }).success).toBe(
+      false,
+    );
+  });
+
+  it("applies the wireFreeFormString guard to restriction reason values", () => {
+    // GUARD-DOWNGRADE VISIBILITY on the map's VALUE side — the key rows above
+    // all carry well-formed reasons, so a bare `z.string()` value would pass
+    // every one of them. An empty reason is the I-009-8 failure mode that
+    // matters: a restriction with no explanation is a silent gap wearing an
+    // explicit gap's shape.
+    expect(parseCapabilitiesResponse({ restrictions: { worktree: "" } }).success).toBe(false);
+    expect(parseCapabilitiesResponse({ restrictions: { worktree: "   " } }).success).toBe(false);
+    const atCap = "r".repeat(EXECUTION_MODE_RESTRICTION_REASON_MAX_LEN);
+    const overCap = "r".repeat(EXECUTION_MODE_RESTRICTION_REASON_MAX_LEN + 1);
+    expect(parseCapabilitiesResponse({ restrictions: { worktree: atCap } }).success).toBe(true);
+    expect(parseCapabilitiesResponse({ restrictions: { worktree: overCap } }).success).toBe(false);
+  });
+
+  it("leaves the shared canonical ExecutionModeSchema unmutated by partialRecord", () => {
+    // `z.partialRecord` clears the key schema's enumerated-value set to drop
+    // exhaustiveness — on a CLONE. If it ever mutated the instance instead,
+    // this module's canonical `ExecutionModeSchema` (imported by Plan-010 per
+    // CP-009-1) would quietly lose its value set for every other consumer.
+    // Cheap to assert, catastrophic to miss.
+    expect(ExecutionModeSchema.safeParse("worktree").success).toBe(true);
+    expect(ExecutionModeSchema.safeParse("submodule").success).toBe(false);
+    const schemaInternals = ExecutionModeSchema as unknown as { options: readonly string[] };
+    expect([...schemaInternals.options].sort()).toEqual(
+      ["branch", "ephemeral clone", "read-only", "worktree"].sort(),
+    );
+  });
+
+  it("round-trips the sparse map through JSON without loss", () => {
+    const firstPass = WorkspaceExecutionModeCapabilitiesReadResponseSchema.parse(
+      buildNonGitCapabilitiesResponse(),
+    );
+    const secondPass = WorkspaceExecutionModeCapabilitiesReadResponseSchema.parse(
+      JSON.parse(JSON.stringify(firstPass)) as unknown,
+    );
+    expect(secondPass).toStrictEqual(firstPass);
+    // Sparseness pinned POSITIVELY, by exact key set: the `none` row restricts
+    // the three writable modes and says nothing about `read-only`, which must
+    // stay ABSENT rather than materializing as an explicit `undefined` key on
+    // the way through. An absent-key check alone would pass on an empty or
+    // missing map — the failure this round-trip exists to catch.
+    expect(Object.keys(firstPass.restrictions ?? {}).sort()).toStrictEqual(
+      ["branch", "worktree", "ephemeral clone"].sort(),
+    );
+  });
+
+  it("rejects extraneous keys (.strict() guard)", () => {
+    expect(parseCapabilitiesResponse({ extra: "leak" }).success).toBe(false);
+  });
+});
+
+describe("WorkspaceList request/response (Spec-009 §Interfaces And Contracts — health + binding state)", () => {
+  it("accepts a session-scoped list request and its optional mount filter", () => {
+    expect(WorkspaceListRequestSchema.safeParse({ sessionId: SESSION_ID }).success).toBe(true);
+    expect(
+      WorkspaceListRequestSchema.safeParse({ sessionId: SESSION_ID, repoMountId: REPO_MOUNT_ID })
+        .success,
+    ).toBe(true);
+  });
+
+  it("requires `sessionId` — the filter alone does not identify the query", () => {
+    // `repoMountId` is an optional FILTER, not a second scope: unlike the
+    // capabilities read above, there is no exactly-one refinement here,
+    // because `sessionId` always identifies the query on its own.
+    expect(WorkspaceListRequestSchema.safeParse({ repoMountId: REPO_MOUNT_ID }).success).toBe(
+      false,
+    );
+    expect(WorkspaceListRequestSchema.safeParse({ sessionId: "nope" }).success).toBe(false);
+  });
+
+  it("rejects extraneous keys on the list request (.strict() guard)", () => {
+    expect(
+      WorkspaceListRequestSchema.safeParse({ sessionId: SESSION_ID, extra: "leak" }).success,
+    ).toBe(false);
+  });
+
+  it("accepts a populated roster and an EMPTY one", () => {
+    expect(WorkspaceListResponseSchema.safeParse(buildWorkspaceListResponse()).success).toBe(true);
+    // A session with no workspaces is lawful — no `.min(1)`.
+    expect(WorkspaceListResponseSchema.safeParse({ workspaces: [] }).success).toBe(true);
+  });
+
+  it("requires `workspaces` — an absent roster is not an empty one", () => {
+    expect(WorkspaceListResponseSchema.safeParse({}).success).toBe(false);
+  });
+
+  it.each(["id", "repoMountId", "executionMode", "state"])(
+    "requires %s on every list item",
+    (field) => {
+      // The four REQUIRED item fields, enumerated exhaustively: a field
+      // quietly turned optional in a later phase would pass a partial list.
+      // `fsRoot` and `lastError` are deliberately absent from this table and
+      // have their own optionality rows below.
+      const broken = { ...buildWorkspaceListItem() } as Record<string, unknown>;
+      delete broken[field];
+      expect(WorkspaceListResponseSchema.safeParse({ workspaces: [broken] }).success).toBe(false);
+    },
+  );
+
+  it("names the item key `id`, not `workspaceId` — the read-projection convention", () => {
+    // Pinned in BOTH directions by one fixture, as with the mount-read
+    // projection above: a renamed item loses its required `id` AND trips
+    // `.strict()` on the unknown `workspaceId`.
+    const renamed = { ...buildWorkspaceListItem() } as Record<string, unknown>;
+    delete renamed["id"];
+    renamed["workspaceId"] = WORKSPACE_ID;
+    expect(WorkspaceListResponseSchema.safeParse({ workspaces: [renamed] }).success).toBe(false);
+  });
+
+  it.each(["provisioning", "ready", "busy", "stale", "archived"])(
+    "exposes workspace health as the full `state` vocabulary — %s",
+    (state) => {
+      // `state` IS the health surface on this projection — not
+      // `RepoMountHealth`, which is the MOUNT's reachability verdict (D-009-2)
+      // and belongs to `repo.mountRead`. `stale` is the availability-loss
+      // position I-009-7 requires every daemon read surface to expose.
+      expect(parseWorkspaceListItem({ state }).success).toBe(true);
+    },
+  );
+
+  it("rejects a MOUNT state leaking onto a list item", () => {
+    // Negative control: `detached` belongs to the mount vocabulary. Both
+    // enums carry `archived`, which is exactly why they must not be conflated.
+    expect(parseWorkspaceListItem({ state: "detached" }).success).toBe(false);
+  });
+
+  it("exposes binding state — `executionMode` from the canonical set plus optional `fsRoot`", () => {
+    expect(parseWorkspaceListItem({ executionMode: "ephemeral clone" }).success).toBe(true);
+    expect(parseWorkspaceListItem({ executionMode: "submodule" }).success).toBe(false);
+    // `fsRoot` optional for the same reason as on the bind response: a
+    // `provisioning` workspace has no execution root yet.
+    const provisioning = { ...buildWorkspaceListItem() } as Record<string, unknown>;
+    delete provisioning["fsRoot"];
+    provisioning["state"] = "provisioning";
+    expect(WorkspaceListResponseSchema.safeParse({ workspaces: [provisioning] }).success).toBe(
+      true,
+    );
+    // GUARD-DOWNGRADE VISIBILITY on the optional path field.
+    expect(parseWorkspaceListItem({ fsRoot: "" }).success).toBe(false);
+  });
+
+  it("exposes an optional `lastError`, present or absent independently of `state`", () => {
+    // The `metadata.lastError` surface (D-009-7,
+    // `Spec-009 §Execution Mode Transitions`). Both directions are lawful and
+    // the schema refines NEITHER: a `stale` workspace WITH a recorded failure
+    // detail carries it, and a `stale` workspace whose path simply vanished
+    // with no captured detail carries none. Pinning "present iff stale" here
+    // would reject the second and duplicate T2.4's emitter obligation.
+    expect(
+      parseWorkspaceListItem({ state: "stale", lastError: WORKSPACE_LAST_ERROR }).success,
+    ).toBe(true);
+    expect(parseWorkspaceListItem({ state: "stale" }).success).toBe(true);
+  });
+
+  it("bounds `lastError` at WORKSPACE_LAST_ERROR_MAX_LEN and applies the blank/NUL guards", () => {
+    // Deliberately the generous 8192 class, not the 512 reason class: this is
+    // captured provisioning output, nothing truncates it before the wire, and
+    // because I-009-10 validates responses too an under-sized cap would make a
+    // LAWFUL daemon list response unrepresentable.
+    const atCap = "e".repeat(WORKSPACE_LAST_ERROR_MAX_LEN);
+    const overCap = "e".repeat(WORKSPACE_LAST_ERROR_MAX_LEN + 1);
+    expect(parseWorkspaceListItem({ lastError: atCap }).success).toBe(true);
+    expect(parseWorkspaceListItem({ lastError: overCap }).success).toBe(false);
+    expect(parseWorkspaceListItem({ lastError: "" }).success).toBe(false);
+    const lastErrorWithNulByte = `fatal${String.fromCharCode(0)}injected`;
+    expect(parseWorkspaceListItem({ lastError: lastErrorWithNulByte }).success).toBe(false);
+  });
+
+  it("rejects extraneous keys INSIDE a list item (.strict() reaches the nested object)", () => {
+    // The nested item carries its own `.strict()`, so the wire shape is closed
+    // at both levels — a top-level-only guard would let item drift through.
+    expect(parseWorkspaceListItem({ extra: "leak" }).success).toBe(false);
+  });
+
+  it("round-trips through JSON without loss", () => {
+    const firstPass = WorkspaceListResponseSchema.parse(buildWorkspaceListResponse());
+    const secondPass = WorkspaceListResponseSchema.parse(
+      JSON.parse(JSON.stringify(firstPass)) as unknown,
+    );
+    expect(secondPass).toStrictEqual(firstPass);
+  });
+});
+
+// COMPILE-TIME leg of the T1.3 optionality decisions, validated by the
+// `tsconfig.test.json` typecheck leg rather than at runtime. Held in
+// never-invoked functions so each pin does its whole job at compile time.
+const workspaceBindTypePins = (): void => {
+  // @ts-expect-error — a bind with no explicit execution mode. The acceptance
+  // criterion is that this is UNCONSTRUCTABLE, not defaulted; adding
+  // `.default("read-only")` and relaxing the interface would report this
+  // directive unused (TS2578) and turn the leg red.
+  const missingExecutionMode: WorkspaceBindRequest = {
+    repoMountId: RepoMountIdSchema.parse(REPO_MOUNT_ID),
+  };
+  void missingExecutionMode;
+
+  // NO directive here, deliberately: this assignment MUST compile. It is the
+  // compile-time twin of the "binds the mount root itself" runtime row — if a
+  // later edit made `directory` required, a mount-root bind would become
+  // unconstructable and the leg would go red HERE, at the decision. The
+  // `as unknown as` bridge on the schema absorbs interface-side drift, so this
+  // is the only thing standing behind that optionality.
+  const rootBind: WorkspaceBindRequest = {
+    repoMountId: RepoMountIdSchema.parse(REPO_MOUNT_ID),
+    executionMode: "read-only",
+  };
+  void rootBind;
+
+  // NO directive here, deliberately: this assignment MUST compile. It is the
+  // compile-time twin of the `provisioning` runtime row — if a later edit made
+  // `fsRoot` required, the writable-bind response would become unconstructable
+  // and the leg would go red HERE, at the decision, rather than at a distant
+  // consumer.
+  const provisioningBind: WorkspaceBindResponse = {
+    workspaceId: WorkspaceIdSchema.parse(WORKSPACE_ID),
+    executionMode: "worktree",
+    state: "provisioning",
+  };
+  void provisioningBind;
+};
+void workspaceBindTypePins;
+
+const capabilitiesRestrictionsKeyPin = (): void => {
+  const { restrictions } = WorkspaceExecutionModeCapabilitiesReadResponseSchema.parse(
+    buildNonGitCapabilitiesResponse(),
+  );
+  // Every canonical mode is a legal index — the `Partial<Record<ExecutionMode,
+  // string>>` half that must keep compiling.
+  void restrictions?.["ephemeral clone"];
+  // @ts-expect-error — `submodule` is not an `ExecutionMode`, so it is not a
+  // legal index.
+  //
+  // SCOPE OF THIS PIN, stated precisely because it is narrower than it looks:
+  // the schema is annotated `z.ZodType<…Response>`, so `.parse()` returns the
+  // DECLARED interface whatever the schema underneath does. These two lines
+  // therefore pin the exported TYPE's key set — they go red if
+  // `WorkspaceExecutionModeCapabilitiesReadResponse.restrictions` is ever
+  // widened to `Record<string, string>`. They do NOT catch a schema-side
+  // downgrade to `z.record(z.string(), …)` behind an unchanged interface,
+  // because `Record<string, string>` stays assignable to the declared
+  // `Partial<Record<ExecutionMode, string>>` and the annotation absorbs it.
+  // The runtime `restrictions` table above is what covers that direction: its
+  // out-of-taxonomy rows flip from reject to accept the moment the key schema
+  // stops being the canonical enum.
+  void restrictions?.["submodule"];
+};
+void capabilitiesRestrictionsKeyPin;
+
+// --------------------------------------------------------------------------
 // Compile-time pins.
 // --------------------------------------------------------------------------
 //
@@ -1053,13 +1742,28 @@ describe("index.ts re-exports the Plan-009 contract core", () => {
     ["VcsTypeSchema", contracts.VcsTypeSchema],
     ["RepoMountHealthSchema", contracts.RepoMountHealthSchema],
     ["RepoWorkspaceLifecyclePayloadSchema", contracts.RepoWorkspaceLifecyclePayloadSchema],
-    // The six T1.2 wire surfaces.
+    // The six T1.2 wire surfaces (the MOUNT half).
     ["RepoAttachRequestSchema", contracts.RepoAttachRequestSchema],
     ["RepoAttachResponseSchema", contracts.RepoAttachResponseSchema],
     ["RepoMountReadRequestSchema", contracts.RepoMountReadRequestSchema],
     ["RepoMountReadResponseSchema", contracts.RepoMountReadResponseSchema],
     ["RepoDetachRequestSchema", contracts.RepoDetachRequestSchema],
     ["RepoDetachResponseSchema", contracts.RepoDetachResponseSchema],
+    // The six T1.3 wire surfaces (the WORKSPACE half). Phase 2's T2.4 /
+    // T2.5 consume these THROUGH `index.ts`, so a barrel gap here would not
+    // surface until the daemon package failed to resolve them.
+    ["WorkspaceBindRequestSchema", contracts.WorkspaceBindRequestSchema],
+    ["WorkspaceBindResponseSchema", contracts.WorkspaceBindResponseSchema],
+    [
+      "WorkspaceExecutionModeCapabilitiesReadRequestSchema",
+      contracts.WorkspaceExecutionModeCapabilitiesReadRequestSchema,
+    ],
+    [
+      "WorkspaceExecutionModeCapabilitiesReadResponseSchema",
+      contracts.WorkspaceExecutionModeCapabilitiesReadResponseSchema,
+    ],
+    ["WorkspaceListRequestSchema", contracts.WorkspaceListRequestSchema],
+    ["WorkspaceListResponseSchema", contracts.WorkspaceListResponseSchema],
   ] as const)("re-exports %s with a callable .parse", (_name, schema) => {
     expect(schema).toBeDefined();
     expect(typeof (schema as { parse?: unknown })?.parse).toBe("function");
