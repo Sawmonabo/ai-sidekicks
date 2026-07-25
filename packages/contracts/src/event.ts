@@ -19,7 +19,7 @@
 // the union-registration seam (CP-009-4 / CP-010-5 / CP-012-2 / CP-016-3
 // class) — so census membership is type registration, not payload support.
 //
-// All three V1 wire strings are registered in Spec-006 § Event Type
+// All three V1 wire strings are registered in Spec-006 §Event Type
 // Enumeration: `session.created` and `channel.created` under
 // `session_lifecycle`; `membership.created` under `membership_change`
 // (registered 2026-05-01 via BL-105 closure). The
@@ -2121,6 +2121,36 @@ const capabilityToolMetadataSchema = z
   })
   .strict();
 
+// COMPILE-TIME PIN (tool element) — `CapabilityDetailsSchema` rides as the
+// canonical arm of the tolerant union in runtime-node.ts, and that union
+// never REJECTS a mismatch: a value the canonical arm stops matching silently
+// parses on the permissive record arm instead. So schema↔interface drift here
+// would de-canonicalize every capability parse without a single test failing
+// on shape. The three directions below pin the TOOL-ELEMENT schema (the outer
+// `CapabilityDetails` object has its own pin block after its schema, below):
+// (1) everything the element schema emits is a
+// `NormalizedProviderToolMetadata`; (2) every `NormalizedProviderToolMetadata`
+// is an acceptable schema INPUT (a schema that grows a required field breaks
+// this); (3) the schema repairs nothing — its input demands no less than the
+// normalized shape (a `.default()`/laxer-optionality regression breaks this,
+// per the no-silent-repair rule in the schema comment above). Honest residual:
+// assignability cannot see `.strict()`'s unknown-key REJECTION, so a dropped
+// schema field with `.strict()` retained is runtime-covered by the event.ts
+// test suite, not by these pins.
+type _AssertExtends<A extends B, B> = A;
+type _ToolSchemaOutputIsNormalized = _AssertExtends<
+  z.output<typeof capabilityToolMetadataSchema>,
+  NormalizedProviderToolMetadata
+>;
+type _NormalizedIsToolSchemaInput = _AssertExtends<
+  NormalizedProviderToolMetadata,
+  z.input<typeof capabilityToolMetadataSchema>
+>;
+type _ToolSchemaInputIsNormalized = _AssertExtends<
+  z.input<typeof capabilityToolMetadataSchema>,
+  NormalizedProviderToolMetadata
+>;
+
 /**
  * Canonical capability snapshot for `runtime_node.capability_*` payloads
  * (`docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy`;
@@ -2136,7 +2166,12 @@ export interface CapabilityDetails {
   contractVersion: string;
   tools: readonly NormalizedProviderToolMetadata[];
 }
-export const CapabilityDetailsSchema: z.ZodType<CapabilityDetails> = z
+// Unannotated module-local twin: the exported const below carries an explicit
+// `z.ZodType<CapabilityDetails>` annotation (isolatedDeclarations), and that
+// annotation REPLACES the inferred object type — `z.input`/`z.output` of the
+// export would just echo the annotation, telling the outer-object pins
+// nothing. The pins therefore bind this twin, and the export aliases it.
+const capabilityDetailsObjectSchema = z
   .object({
     // Enum-keyed record = EXHAUSTIVE keys in Zod 4: every member of the live
     // `DRIVER_CAPABILITY_FLAGS` const must be present, and a missing member,
@@ -2154,6 +2189,39 @@ export const CapabilityDetailsSchema: z.ZodType<CapabilityDetails> = z
     tools: z.array(capabilityToolMetadataSchema),
   })
   .strict();
+export const CapabilityDetailsSchema: z.ZodType<CapabilityDetails> = capabilityDetailsObjectSchema;
+
+// COMPILE-TIME PIN (outer object) — same de-canonicalization hazard as the
+// tool-element pins above, one level up: the `z.ZodType<CapabilityDetails>`
+// annotation does NOT catch a grown required schema field (extra properties
+// pass covariant assignability), so without these pins the outer object could
+// drift while every parse silently falls to the permissive union arm.
+// Directions: (1) everything the schema emits satisfies `CapabilityDetails`
+// (a loosened/dropped/mistyped output field breaks this); (2) every
+// `CapabilityDetails` is an acceptable schema INPUT (a grown or narrowed
+// required field breaks this) — compared with `tools` rebuilt from the
+// interface's own readonly array type, because Zod types array inputs as
+// mutable and `readonly T[]` never structurally extends `T[]`, while
+// PASSING a readonly array is semantically safe (parse copies; it never
+// mutates its input); (3) the `tools` key itself stays REQUIRED with the
+// pinned element type — this covers the optionality drift that direction
+// (2)'s `Omit`-and-rebuild deliberately masks. Honest residual: unchanged
+// from the element pins — `.strict()`'s unknown-key rejection is invisible
+// to assignability and stays runtime-covered.
+type _CapabilityDetailsOutputIsCanonical = _AssertExtends<
+  z.output<typeof capabilityDetailsObjectSchema>,
+  CapabilityDetails
+>;
+type _CanonicalIsCapabilityDetailsInput = _AssertExtends<
+  CapabilityDetails,
+  Omit<z.input<typeof capabilityDetailsObjectSchema>, "tools"> & {
+    tools: CapabilityDetails["tools"];
+  }
+>;
+type _CapabilityDetailsInputKeepsRequiredTools = _AssertExtends<
+  z.input<typeof capabilityDetailsObjectSchema>["tools"],
+  readonly NormalizedProviderToolMetadata[]
+>;
 
 // Note: cross-file ID types (`SessionId`, `MembershipId`, …) are not re-
 // exported here — they are surfaced from `session.ts` and reach the public

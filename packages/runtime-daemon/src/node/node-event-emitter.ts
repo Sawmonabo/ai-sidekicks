@@ -196,17 +196,18 @@ export interface EmitOfflineInput extends RuntimeNodeEmitBase {
 
 export interface EmitCapabilityDeclaredInput extends RuntimeNodeEmitBase {
   readonly capability: string;
-  readonly capabilityDetails: Record<string, unknown>;
+  readonly capabilityDetails: RuntimeNodeCapabilityDeclaredPayload["capabilityDetails"];
 }
 
 export interface EmitCapabilityUpdatedInput extends RuntimeNodeEmitBase {
   readonly capability: string;
-  // `CapabilityDetails` snapshots (NOT NodeState). The contracts payload
-  // schemas bind the canonical `CapabilityDetails` canonical-first over a
-  // tolerant record arm (Plan-006 T1.4); THIS input seam stays
-  // `Record<string, unknown>` pending the tracked daemon follow-up.
-  readonly previousState: Record<string, unknown>;
-  readonly newState: Record<string, unknown>;
+  // `CapabilityDetails` snapshots (NOT NodeState). Indexed access into the
+  // contracts payload interface, whose canonical-first tolerant union
+  // (Plan-006 T1.4) admits both producers uncast: the typed
+  // driver-capabilities-writer snapshot (`CapabilityDetails`) and
+  // node-capability-service's JSON-round-tripped records.
+  readonly previousState: RuntimeNodeCapabilityUpdatedPayload["previousState"];
+  readonly newState: RuntimeNodeCapabilityUpdatedPayload["newState"];
 }
 
 // --------------------------------------------------------------------------
@@ -303,8 +304,8 @@ export class RuntimeNodeEventEmitter {
    * `previousState`/`newState` are `CapabilityDetails` SNAPSHOTS (NOT
    * NodeState); the contracts payload schemas bind the canonical
    * `CapabilityDetails` canonical-first over a tolerant record arm
-   * (Plan-006 T1.4). This input seam stays `Record<string, unknown>`
-   * pending the tracked daemon follow-up.
+   * (Plan-006 T1.4), and the input seam carries that same union via
+   * indexed access, so typed snapshots arrive uncast.
    */
   emitCapabilityUpdated(input: EmitCapabilityUpdatedInput): AppendableEvent {
     const payload: RuntimeNodeCapabilityUpdatedPayload =

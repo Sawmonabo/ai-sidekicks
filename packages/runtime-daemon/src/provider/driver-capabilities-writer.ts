@@ -144,6 +144,7 @@ import { isDeepStrictEqual } from "node:util";
 import {
   DRIVER_CAPABILITY_FLAGS,
   ProviderToolMetadataSchema,
+  type CapabilityDetails,
   type DriverCapabilityFlag,
   type GetCapabilitiesResult,
   type NormalizedProviderToolMetadata,
@@ -161,7 +162,10 @@ import {
 // --------------------------------------------------------------------------
 // Public + private types (LOCAL to runtime-daemon — NOT hoisted to
 // `@ai-sidekicks/contracts`: a single-package, daemon-internal consumer fails
-// the 2-surface hoist test, the same call made by RuntimeBindingStore).
+// the 2-surface hoist test, the same call made by RuntimeBindingStore). The
+// one exception is `CapabilityDetails` itself: Plan-006 T1.4 hoisted it to
+// contracts as the canonical event-payload shape, so this file imports it
+// rather than keeping a structural twin.
 // --------------------------------------------------------------------------
 
 /**
@@ -174,18 +178,13 @@ function providerDriverCapabilityKey(driverName: string): string {
   return `provider-driver-${driverName}`;
 }
 
-/**
- * The flat capability snapshot — the canonical `CapabilityDetails` shape
- * (`docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy`). This is the form carried by the
- * `runtime_node.capability_*` event payloads AND the form used for
- * change-detection. `hydrate()` wraps this into the nested `GetCapabilitiesResult`.
- * `tools` is ALWAYS in canonical (`name`-ascending) order — see the file header.
- */
-interface CapabilityDetails {
-  readonly flags: Record<DriverCapabilityFlag, boolean>;
-  readonly contractVersion: string;
-  readonly tools: NormalizedProviderToolMetadata[];
-}
+// The flat capability snapshot is the canonical `CapabilityDetails` imported
+// from `@ai-sidekicks/contracts`
+// (`docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy`). It is the form carried by
+// the `runtime_node.capability_*` event payloads AND the form used for
+// change-detection; `hydrate()` wraps it into the nested
+// `GetCapabilitiesResult`. In THIS writer, `tools` is ALWAYS in canonical
+// (`name`-ascending) order — see the file header.
 
 /**
  * `declare` input. `sessionId` / `nodeId` are threaded to the EMIT only (never
@@ -405,20 +404,17 @@ export class DriverCapabilitiesWriter {
 
         // (4) EMIT — LAST, so a throwing emit rolls back the writes above. The
         // FLAT snapshot is the event payload (so the T1.4-landed canonical
-        // `CapabilityDetails` binding validates). The emitter input types are
-        // `Record<string, unknown>`; the snapshot is a string-keyed object at
-        // runtime, but a named interface does not auto-carry an index signature,
-        // so the `as unknown as` widening is required (the same documented
-        // language-gap bridge as the `#appendRuntimeNodeEvent` payload cast in
-        // node-event-emitter.ts) — a SAFE specific→general widening, asserting
-        // nothing false.
+        // `CapabilityDetails` binding validates). The emitter input seam
+        // carries the payload interface's canonical-first union (indexed
+        // access in node-event-emitter.ts), so the typed snapshot passes
+        // uncast.
         if (priorSnapshot === undefined) {
           this.#emitter.emitCapabilityDeclared({
             sessionId: input.sessionId,
             nodeId: input.nodeId,
             actor: input.actor ?? null,
             capability: providerDriverCapabilityKey(input.driverName),
-            capabilityDetails: newSnapshot as unknown as Record<string, unknown>,
+            capabilityDetails: newSnapshot,
           });
           return "declared";
         }
@@ -427,8 +423,8 @@ export class DriverCapabilitiesWriter {
           nodeId: input.nodeId,
           actor: input.actor ?? null,
           capability: providerDriverCapabilityKey(input.driverName),
-          previousState: priorSnapshot as unknown as Record<string, unknown>,
-          newState: newSnapshot as unknown as Record<string, unknown>,
+          previousState: priorSnapshot,
+          newState: newSnapshot,
         });
         return "updated";
       },
@@ -619,7 +615,9 @@ export class DriverCapabilitiesWriter {
         flags: snapshot.flags,
         contractVersion: snapshot.contractVersion,
       },
-      tools: snapshot.tools,
+      // Copied: contracts' `CapabilityDetails.tools` is readonly; the nested
+      // `GetCapabilitiesResult.tools` ingress field is mutable.
+      tools: [...snapshot.tools],
     };
   }
 
