@@ -42,16 +42,25 @@ import {
   type SessionEvent,
 } from "../event.js";
 import * as contracts from "../index.js";
+import { NODE_ID_MAX_LEN, NodeIdSchema } from "../node-id.js";
 import {
   ExecutionModeSchema,
+  REPO_PATH_MAX_LEN,
+  RepoAttachRequestSchema,
+  RepoAttachResponseSchema,
+  RepoDetachRequestSchema,
+  RepoDetachResponseSchema,
   RepoMountHealthSchema,
   RepoMountIdSchema,
+  RepoMountReadRequestSchema,
+  RepoMountReadResponseSchema,
   RepoMountStateSchema,
   RepoWorkspaceLifecyclePayloadSchema,
   VcsTypeSchema,
   WorkspaceIdSchema,
   WorkspaceStateSchema,
   type ExecutionMode,
+  type RepoAttachResponse,
   type RepoMountHealth,
   type RepoMountId,
   type RepoMountState,
@@ -585,6 +594,385 @@ describe("SessionEventSchema registration of the six Plan-009 variants (CP-009-4
 });
 
 // --------------------------------------------------------------------------
+// Wire surfaces — RepoAttach / RepoMountRead / RepoDetach (T1.2).
+// --------------------------------------------------------------------------
+//
+// The three request/response pairs for the MOUNT half of the six `repo.*`
+// methods. Coverage backstops the field requirements the shapes carry:
+// `Spec-009 §Interfaces And Contracts` (attach accepts a local path, session
+// id, and owning runtime node; mount-read exposes canonical root, VCS
+// metadata, and current health) and
+// `Spec-009 §Detach Semantics (V1 Definition)` (detach accepts a repo mount id
+// and transitions the mount to `detached`).
+
+// A daemon-assigned OPAQUE scalar, deliberately NOT a UUID — the fixture uses
+// a non-UUID value on purpose, and a dedicated row below pins that.
+const NODE_ID = "node-alpha-01";
+
+// The entered path and the resolved root DIFFER on purpose: attaching from a
+// nested subdirectory is the canonical I-009-5 case (`local_path` keeps the
+// provenance, `canonical_root` carries the resolver output). A fixture that
+// made them equal could not catch a schema that conflated the two fields.
+const LOCAL_PATH = "/Users/dev/projects/ai-sidekicks/packages/contracts";
+const CANONICAL_ROOT = "/Users/dev/projects/ai-sidekicks";
+const ATTACHED_AT = "2026-07-24T19:14:35.000Z";
+
+const buildAttachRequest = () => ({
+  sessionId: SESSION_ID,
+  localPath: LOCAL_PATH,
+  nodeId: NODE_ID,
+});
+
+const buildAttachResponse = () => ({
+  repoMountId: REPO_MOUNT_ID,
+  state: "attached" as const,
+  vcsType: "git" as const,
+  canonicalRoot: CANONICAL_ROOT,
+  defaultWorkspaceId: WORKSPACE_ID,
+});
+
+const buildMountReadResponse = () => ({
+  id: REPO_MOUNT_ID,
+  sessionId: SESSION_ID,
+  nodeId: NODE_ID,
+  localPath: LOCAL_PATH,
+  canonicalRoot: CANONICAL_ROOT,
+  vcsType: "git" as const,
+  state: "attached" as const,
+  health: buildValidHealth(),
+  attachedAt: ATTACHED_AT,
+});
+
+const buildDetachResponse = () => ({
+  repoMountId: REPO_MOUNT_ID,
+  state: "detached" as const,
+  archivedWorkspaceIds: [WORKSPACE_ID],
+});
+
+// Override-parse helpers. The fixtures above stay explicit; these keep the
+// assertion lines readable at a glance. The field-omission cases still
+// `delete` the key directly, which no override form can express.
+const parseAttachRequest = (overrides: Record<string, unknown> = {}) =>
+  RepoAttachRequestSchema.safeParse({ ...buildAttachRequest(), ...overrides });
+const parseAttachResponse = (overrides: Record<string, unknown> = {}) =>
+  RepoAttachResponseSchema.safeParse({ ...buildAttachResponse(), ...overrides });
+const parseMountReadResponse = (overrides: Record<string, unknown> = {}) =>
+  RepoMountReadResponseSchema.safeParse({ ...buildMountReadResponse(), ...overrides });
+const parseDetachResponse = (overrides: Record<string, unknown> = {}) =>
+  RepoDetachResponseSchema.safeParse({ ...buildDetachResponse(), ...overrides });
+
+describe("RepoAttachRequestSchema (Spec-009 §Interfaces And Contracts — path, session, owning node)", () => {
+  it("accepts a valid attach request", () => {
+    expect(parseAttachRequest().success).toBe(true);
+  });
+
+  it.each(["sessionId", "localPath", "nodeId"])(
+    "rejects an attach request missing the required field %s",
+    (field) => {
+      const broken = { ...buildAttachRequest() } as Record<string, unknown>;
+      delete broken[field];
+      expect(RepoAttachRequestSchema.safeParse(broken).success).toBe(false);
+    },
+  );
+
+  it("types `nodeId` as the daemon-assigned OPAQUE scalar, not a UUID", () => {
+    // The contract-consumption pin. `NodeIdSchema` (Plan-003-owned, declared
+    // in node-id.ts) deliberately departs from the UUID parser the branded
+    // repo ids use, because `runtime_node_attachments.node_id` is TEXT.
+    // Composing a UUID-branded schema here by mistake would satisfy every
+    // other row in this block — only this one catches it.
+    expect(parseAttachRequest({ nodeId: "cli-daemon@host.local" }).success).toBe(true);
+    // Opaque is not unvalidated — empty and over-cap are still refused, at the
+    // cap the canonical declaration owns.
+    expect(parseAttachRequest({ nodeId: "" }).success).toBe(false);
+    const overCapNodeId = "n".repeat(NODE_ID_MAX_LEN + 1);
+    expect(parseAttachRequest({ nodeId: overCapNodeId }).success).toBe(false);
+  });
+
+  it("bounds `localPath` at REPO_PATH_MAX_LEN and refuses blank / NUL-byte forms", () => {
+    const atCap = "/".repeat(REPO_PATH_MAX_LEN);
+    const overCap = "/".repeat(REPO_PATH_MAX_LEN + 1);
+    expect(parseAttachRequest({ localPath: atCap }).success).toBe(true);
+    expect(parseAttachRequest({ localPath: overCap }).success).toBe(false);
+    expect(parseAttachRequest({ localPath: "" }).success).toBe(false);
+    expect(parseAttachRequest({ localPath: "   " }).success).toBe(false);
+    // NUL is a truncation vector on a filesystem path, on top of the
+    // log-injection vector `wireFreeFormString` documents. Built at runtime
+    // rather than written as an escape so ripgrep keeps treating this file as
+    // text — the same reason the `actor` pin above constructs it.
+    const pathWithNulByte = `/safe/dir${String.fromCharCode(0)}/../../etc`;
+    expect(parseAttachRequest({ localPath: pathWithNulByte }).success).toBe(false);
+  });
+
+  it.each([
+    ["a relative path", "repos/ai-sidekicks"],
+    ["a parent-traversal path", "../sibling/repo"],
+    ["a Windows absolute path", "C:\\repos\\ai-sidekicks"],
+    ["a tilde-prefixed path", "~/projects/repo"],
+  ])("admits %s — the resolver canonicalizes, not the schema", (_label, candidate) => {
+    // NEGATIVE CONTROL on the guards above. I-009-1 assigns resolution to the
+    // daemon resolver (T1.5), so the wire must be able to carry a path it has
+    // not seen yet. Every row here would be refused by an absoluteness or
+    // traversal check the schema deliberately does not make; without them the
+    // guards above would read as "the schema validates paths", which is
+    // exactly the wrong impression. The Windows row is the ADR-019 V1-tier
+    // case that rules out a `startsWith("/")` test outright.
+    expect(parseAttachRequest({ localPath: candidate }).success).toBe(true);
+  });
+
+  it("rejects extraneous keys (.strict() guard)", () => {
+    expect(parseAttachRequest({ extra: "leak" }).success).toBe(false);
+  });
+});
+
+describe("RepoAttachResponseSchema (D-009-7 — resolved root + default workspace required)", () => {
+  it("accepts a valid attach response", () => {
+    expect(parseAttachResponse().success).toBe(true);
+  });
+
+  it.each(["canonicalRoot", "defaultWorkspaceId"])(
+    "rejects an attach response missing %s — the field is unrepresentable-absent",
+    (field) => {
+      // `canonicalRoot`: resolution failure ABORTS attach with typed
+      // `repo.root_resolution_failed` (I-009-2), so there is no partial
+      // success carrying an unresolved root. `defaultWorkspaceId`: attach
+      // unconditionally creates the default read-only workspace (D-009-7), so
+      // "attached but no workspace" is a state the model never produces.
+      const broken = { ...buildAttachResponse() } as Record<string, unknown>;
+      delete broken[field];
+      expect(RepoAttachResponseSchema.safeParse(broken).success).toBe(false);
+    },
+  );
+
+  it.each(["attached", "detached", "archived"])(
+    "carries the full RepoMountState vocabulary, not an `attached` literal — %s",
+    (state) => {
+      // The wire doc types this field `RepoMountState` with no narrowing and
+      // carries NO per-value gloss on the attach response (unlike the detach
+      // row, which does gloss `'detached'`). A `z.literal("attached")` would
+      // silently reject the other two lawful states while passing every other
+      // row in this block.
+      expect(parseAttachResponse({ state }).success).toBe(true);
+    },
+  );
+
+  it("still rejects a state outside the 3-value mount vocabulary", () => {
+    // Negative control on the row above: non-narrowed is not unvalidated.
+    expect(parseAttachResponse({ state: "exploded" }).success).toBe(false);
+    // `stale` and `provisioning` are WORKSPACE states and must not leak in.
+    expect(parseAttachResponse({ state: "stale" }).success).toBe(false);
+    expect(parseAttachResponse({ state: "provisioning" }).success).toBe(false);
+  });
+
+  it("applies the wireFreeFormString guard to `canonicalRoot`", () => {
+    // GUARD-DOWNGRADE VISIBILITY — the response-side twin of the `localPath`
+    // bounds row on the request. Re-spelling the resolver output as a bare
+    // `z.string()` passes every other row in this block; these make it fail.
+    expect(parseAttachResponse({ canonicalRoot: "" }).success).toBe(false);
+    expect(parseAttachResponse({ canonicalRoot: "   " }).success).toBe(false);
+  });
+
+  it("rejects extraneous keys (.strict() guard)", () => {
+    expect(parseAttachResponse({ extra: "leak" }).success).toBe(false);
+  });
+});
+
+// COMPILE-TIME leg of the `unrepresentable-absent` rows above: `canonicalRoot`
+// and `defaultWorkspaceId` are required on the TYPE, not merely at parse time.
+// The runtime rows prove the schema refuses the omission; these prove a
+// consumer cannot construct one in the first place. Held in a never-invoked
+// function so the pin does its whole job under the `tsconfig.test.json`
+// typecheck leg, and each directive self-verifies: weaken either field to
+// optional and TS reports the directive unused (TS2578), turning the leg red
+// rather than silently dropping the pin. Co-located with its subject, the same
+// placement as `brandNominalityPin` above.
+const attachResponseRequiredFieldPins = (): void => {
+  // @ts-expect-error — an attach response with no resolved canonical root.
+  const missingCanonicalRoot: RepoAttachResponse = {
+    repoMountId: RepoMountIdSchema.parse(REPO_MOUNT_ID),
+    state: "attached",
+    vcsType: "git",
+    defaultWorkspaceId: WorkspaceIdSchema.parse(WORKSPACE_ID),
+  };
+  // @ts-expect-error — an attach response with no default workspace (D-009-7).
+  const missingDefaultWorkspaceId: RepoAttachResponse = {
+    repoMountId: RepoMountIdSchema.parse(REPO_MOUNT_ID),
+    state: "attached",
+    vcsType: "git",
+    canonicalRoot: CANONICAL_ROOT,
+  };
+  void missingCanonicalRoot;
+  void missingDefaultWorkspaceId;
+};
+void attachResponseRequiredFieldPins;
+
+describe("RepoMountReadRequestSchema", () => {
+  it("accepts a mount-read request and requires a canonical-UUID `repoMountId`", () => {
+    const valid = { repoMountId: REPO_MOUNT_ID };
+    expect(RepoMountReadRequestSchema.safeParse(valid).success).toBe(true);
+    expect(RepoMountReadRequestSchema.safeParse({}).success).toBe(false);
+    expect(RepoMountReadRequestSchema.safeParse({ repoMountId: "nope" }).success).toBe(false);
+  });
+
+  it("rejects extraneous keys (.strict() guard)", () => {
+    const broken = { repoMountId: REPO_MOUNT_ID, extra: "leak" };
+    expect(RepoMountReadRequestSchema.safeParse(broken).success).toBe(false);
+  });
+});
+
+describe("RepoMountReadResponseSchema (canonical root + VCS metadata + current health)", () => {
+  it("accepts a valid mount-read projection", () => {
+    expect(parseMountReadResponse().success).toBe(true);
+  });
+
+  it("names the mount key `id`, not `repoMountId` — the read-projection convention", () => {
+    // The wire doc uses the bare `id` on read projections and the qualified
+    // name on mutation responses. Pinned in BOTH directions by one fixture: a
+    // renamed projection loses its required `id` AND trips `.strict()` on the
+    // unknown `repoMountId`, so a "helpful" rename cannot pass.
+    const renamed = { ...buildMountReadResponse() } as Record<string, unknown>;
+    delete renamed["id"];
+    renamed["repoMountId"] = REPO_MOUNT_ID;
+    expect(RepoMountReadResponseSchema.safeParse(renamed).success).toBe(false);
+  });
+
+  // All NINE projection fields, enumerated exhaustively rather than by
+  // representative: a field quietly turned optional in a later phase would
+  // otherwise pass a partial list.
+  it.each([
+    "id",
+    "sessionId",
+    "nodeId",
+    "localPath",
+    "canonicalRoot",
+    "vcsType",
+    "state",
+    "health",
+    "attachedAt",
+  ])("requires %s", (field) => {
+    const broken = { ...buildMountReadResponse() } as Record<string, unknown>;
+    delete broken[field];
+    expect(RepoMountReadResponseSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects out-of-vocabulary `vcsType` and `state` through the composition", () => {
+    // The composed-enum leg, the same argument as the `health.status` rows
+    // below: driven through the RESPONSE, these prove the projection composes
+    // T1.1's canonical enums instead of re-spelling widened unions of its own.
+    // `hg` is the VCS a re-spell would plausibly admit; `provisioning` is a
+    // WORKSPACE state — the cross-vocabulary trap the attach block pins with
+    // `stale`, and the reason `RepoMountState` and `WorkspaceState` must not be
+    // conflated even though both carry an `archived` member.
+    expect(parseMountReadResponse({ vcsType: "hg" }).success).toBe(false);
+    expect(parseMountReadResponse({ state: "provisioning" }).success).toBe(false);
+  });
+
+  it("applies the wireFreeFormString guard to both response-side path fields", () => {
+    // GUARD-DOWNGRADE VISIBILITY. Re-spelling either field as a bare
+    // `z.string()` passes every other row in this block, because nothing else
+    // here feeds these fields a blank value — the helper's non-empty,
+    // whitespace-only, and NUL guards would silently disappear. These rows are
+    // what make that downgrade fail.
+    expect(parseMountReadResponse({ localPath: "" }).success).toBe(false);
+    expect(parseMountReadResponse({ canonicalRoot: "" }).success).toBe(false);
+  });
+
+  it.each([
+    ["healthy", true],
+    ["unreachable", true],
+    // Outside the 2-value union: `unknown` is the member D-009-2 rejects (the
+    // on-read probe floor means every read carries a fresh verdict), and
+    // `stale` is the workspace-state overload it chose `unreachable` to avoid.
+    ["unknown", false],
+    ["stale", false],
+  ])("health.status %s -> %s, driven through the composed response", (status, shouldPass) => {
+    // Driven through the COMPOSITION rather than through `RepoMountHealthSchema`
+    // standalone (already covered above): this is what proves the read response
+    // composes the canonical projection instead of re-spelling
+    // `{status, checkedAt}` with a widened status of its own.
+    const health = { ...buildValidHealth(), status };
+    expect(parseMountReadResponse({ health }).success).toBe(shouldPass);
+  });
+
+  it("keeps `localPath` and `canonicalRoot` independent (I-009-5)", () => {
+    const parsed = RepoMountReadResponseSchema.parse(buildMountReadResponse());
+    expect(parsed.localPath).toBe(LOCAL_PATH);
+    expect(parsed.canonicalRoot).toBe(CANONICAL_ROOT);
+    // Distinct values in the fixture (subdirectory attach), so a schema that
+    // read one field into the other fails here rather than passing silently.
+    expect(parsed.localPath).not.toBe(parsed.canonicalRoot);
+  });
+
+  it("requires `attachedAt` to be an ISO-8601 instant, and admits a numeric offset", () => {
+    expect(parseMountReadResponse({ attachedAt: "yesterday" }).success).toBe(false);
+    const withOffset = "2026-07-24T14:14:35.000-05:00";
+    expect(parseMountReadResponse({ attachedAt: withOffset }).success).toBe(true);
+  });
+
+  it("round-trips through JSON without loss", () => {
+    const firstPass = RepoMountReadResponseSchema.parse(buildMountReadResponse());
+    const secondPass = RepoMountReadResponseSchema.parse(
+      JSON.parse(JSON.stringify(firstPass)) as unknown,
+    );
+    expect(secondPass).toStrictEqual(firstPass);
+  });
+
+  it("rejects extraneous keys (.strict() guard)", () => {
+    expect(parseMountReadResponse({ extra: "leak" }).success).toBe(false);
+  });
+});
+
+describe("RepoDetach request/response (Spec-009 §Detach Semantics (V1 Definition))", () => {
+  it("accepts a detach request and requires `repoMountId`", () => {
+    const valid = { repoMountId: REPO_MOUNT_ID };
+    expect(RepoDetachRequestSchema.safeParse(valid).success).toBe(true);
+    expect(RepoDetachRequestSchema.safeParse({}).success).toBe(false);
+    const broken = { ...valid, extra: "leak" };
+    expect(RepoDetachRequestSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("accepts the cascade response", () => {
+    expect(parseDetachResponse().success).toBe(true);
+  });
+
+  it("accepts an EMPTY archivedWorkspaceIds array — a no-dependent cascade", () => {
+    // Not degenerate: a mount whose dependent workspaces were all already
+    // `archived` archives none, which is why the schema carries no `.min(1)`
+    // even though D-009-7 guarantees attach created one workspace.
+    expect(parseDetachResponse({ archivedWorkspaceIds: [] }).success).toBe(true);
+  });
+
+  it("accepts one id per dependent workspace the cascade archived", () => {
+    const ids = [WORKSPACE_ID, "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f21"];
+    expect(parseDetachResponse({ archivedWorkspaceIds: ids }).success).toBe(true);
+  });
+
+  it("rejects a non-UUID member of archivedWorkspaceIds", () => {
+    const ids = [WORKSPACE_ID, "workspace-2"];
+    expect(parseDetachResponse({ archivedWorkspaceIds: ids }).success).toBe(false);
+  });
+
+  it("requires archivedWorkspaceIds — an absent list is not an empty one", () => {
+    const broken = { ...buildDetachResponse() } as Record<string, unknown>;
+    delete broken["archivedWorkspaceIds"];
+    expect(RepoDetachResponseSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it.each(["attached", "detached", "archived"])(
+    "carries the full RepoMountState vocabulary, not a `detached` literal — %s",
+    (state) => {
+      // Same stance as the attach response: the wire doc's `// 'detached'` is a
+      // gloss on the value the daemon writes, not a contract narrowing.
+      expect(parseDetachResponse({ state }).success).toBe(true);
+    },
+  );
+
+  it("rejects extraneous keys on the response (.strict() guard)", () => {
+    expect(parseDetachResponse({ extra: "leak" }).success).toBe(false);
+  });
+});
+
+// --------------------------------------------------------------------------
 // Compile-time pins.
 // --------------------------------------------------------------------------
 //
@@ -665,9 +1053,32 @@ describe("index.ts re-exports the Plan-009 contract core", () => {
     ["VcsTypeSchema", contracts.VcsTypeSchema],
     ["RepoMountHealthSchema", contracts.RepoMountHealthSchema],
     ["RepoWorkspaceLifecyclePayloadSchema", contracts.RepoWorkspaceLifecyclePayloadSchema],
+    // The six T1.2 wire surfaces.
+    ["RepoAttachRequestSchema", contracts.RepoAttachRequestSchema],
+    ["RepoAttachResponseSchema", contracts.RepoAttachResponseSchema],
+    ["RepoMountReadRequestSchema", contracts.RepoMountReadRequestSchema],
+    ["RepoMountReadResponseSchema", contracts.RepoMountReadResponseSchema],
+    ["RepoDetachRequestSchema", contracts.RepoDetachRequestSchema],
+    ["RepoDetachResponseSchema", contracts.RepoDetachResponseSchema],
   ] as const)("re-exports %s with a callable .parse", (_name, schema) => {
     expect(schema).toBeDefined();
     expect(typeof (schema as { parse?: unknown })?.parse).toBe("function");
+  });
+
+  it("still resolves the hoisted NodeId symbols through the barrel (re-export seam)", () => {
+    // T1.2 moved `NodeId` / `NodeIdSchema` / `NODE_ID_MAX_LEN` out of
+    // runtime-node.ts into the dependency-free leaf node-id.ts, to break the
+    // `repo.ts` -> `runtime-node.ts` -> `event.ts` -> `repo.ts` cycle that
+    // composing `NodeIdSchema` here would otherwise have closed; runtime-node.ts
+    // re-exports all three so its public API is unchanged.
+    //
+    // `__tests__/runtime-node.test.ts` is the untouched control that the DIRECT
+    // import path still works. This asserts the BARREL path lands on the very
+    // same instance — barrel -> runtime-node re-export -> node-id declaration —
+    // so no consumer can end up holding two schemas under one name.
+    expect(contracts.NodeIdSchema).toBe(NodeIdSchema);
+    expect(contracts.NODE_ID_MAX_LEN).toBe(NODE_ID_MAX_LEN);
+    expect(contracts.NodeIdSchema.safeParse(NODE_ID).success).toBe(true);
   });
 
   it("resolves the same schema through the barrel and the module (no shadow copy)", () => {

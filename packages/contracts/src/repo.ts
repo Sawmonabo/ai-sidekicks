@@ -26,6 +26,19 @@
 // event.ts's `EVENT_FIELD_MAX_LEN` — is therefore restated locally; see the
 // cap declaration on the lifecycle payload below.
 //
+// THE RULE IS TRANSITIVE, and reads on the whole import CLOSURE: this module
+// must import nothing that itself reaches `./event.js`, however many hops out.
+// T1.2 found the gap — `NodeIdSchema` needed by the attach/read surfaces below
+// lived in `runtime-node.ts`, which imports values FROM `event.ts`, so the
+// direct import would have closed `repo.ts` → `runtime-node.ts` → `event.ts`
+// → `repo.ts`. Every edge in that cycle is an eager module-scope Zod
+// initializer, so it throws `ReferenceError` at import time from every entry
+// point, and `tsc` does not flag it. The resolution was to hoist the `NodeId`
+// declaration into the dependency-free leaf `./node-id.js` (Plan-003 still
+// owns the shape) and import from there — NOT to restate the parser here, and
+// NOT to weaken the field's brand. Before composing any new cross-module
+// symbol below, check its closure the same way.
+//
 // Refs: Spec-009 (Repo Attachment And Workspace Binding), Spec-006 §Repo,
 // Workspace, and Worktree Lifecycle (the shared payload shape), ADR-006
 // (worktree-first execution mode), ADR-018 (versioning), ADR-022 (toolchain —
@@ -33,6 +46,14 @@
 import { z } from "zod";
 
 import { brandedUuidIdSchema } from "./internal/branded.js";
+// DIRECT import from the `./node-id.js` leaf, never from `./runtime-node.js`
+// (which re-exports the same three symbols): runtime-node.ts imports values
+// from `./event.js`, and event.ts imports `RepoWorkspaceLifecyclePayloadSchema`
+// from THIS module, so routing through it would close the eager three-hop
+// cycle described in the header and throw at import time. Plan-003 still owns
+// the shape — this is composition of another plan's canonical symbol, the
+// CP-009-1 rule read in the reciprocal direction.
+import { NodeIdSchema, type NodeId } from "./node-id.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
 
 // --------------------------------------------------------------------------
@@ -45,9 +66,10 @@ import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.j
 // Zod's single-T `$ZodBranded` output to the double-T shape tRPC v11's
 // Standard-Schema-V1 input inference needs per ADR-014) — the same idiom as
 // `SessionIdSchema` in session.ts. The contrast case is `NodeIdSchema`
-// (runtime-node.ts), a daemon-assigned opaque scalar that deliberately
-// departs from the UUID parser; `repo_mounts.id` and `workspaces.id` are
-// ordinary UUID primary keys, so no departure applies here.
+// (node-id.js — Plan-003-owned), a daemon-assigned opaque scalar that
+// deliberately departs from the UUID parser; `repo_mounts.id` and
+// `workspaces.id` are ordinary UUID primary keys, so no departure applies
+// here. Both are composed side by side on `RepoAttachRequest` below.
 //
 // The `z.ZodType<T, T>` double-T annotations are also what
 // `--isolatedDeclarations` requires (TS9010 — exported declarations cannot
@@ -308,5 +330,291 @@ export const RepoWorkspaceLifecyclePayloadSchema: z.ZodType<RepoWorkspaceLifecyc
     )
       .nullable()
       .optional(),
+  })
+  .strict();
+
+// ==========================================================================
+// Wire surfaces — RepoAttach / RepoMountRead / RepoDetach (Plan-009 T1.2).
+// ==========================================================================
+//
+// The three request/response pairs for the MOUNT half of Plan-009's six
+// `repo.*` methods — `repo.attach` (mutation), `repo.mountRead` (query),
+// `repo.detach` (mutation) per D-009-1. The workspace half
+// (`repo.workspaceBind`, `repo.executionModeCapabilitiesRead`,
+// `repo.workspaceList`) is T1.3's surface and is deliberately absent here.
+//
+// Field sets are transcribed from
+// `docs/architecture/contracts/api-payload-contracts.md §Plan-009 — Repo Attachment And Workspace Binding`
+// (verbatim — adding/removing/renaming a field is a contract break and
+// requires the doc edit first) and satisfy the field requirements in
+// `Spec-009 §Interfaces And Contracts` (RepoAttach accepts a local path,
+// session id, and owning runtime node; RepoMountRead exposes canonical root,
+// VCS metadata, and current health) plus
+// `Spec-009 §Detach Semantics (V1 Definition)` (RepoDetach accepts a repo
+// mount id and transitions the mount to `detached`). Every shape composes the
+// T1.1 enums / branded ids / `RepoMountHealth` above rather than re-spelling
+// them — the CP-009-1 canonical-origin rule.
+//
+// TRANSPORT. All six methods ride the daemon JSON-RPC transport ONLY: repo
+// mounts and workspaces are node-local filesystem state (ADR-004), so no
+// control-plane tRPC sibling exists (`Plan-009 §API And Transport Changes`),
+// and the names register under the Plan-007-partial `MethodRegistry`
+// (CP-009-5). I-009-10 makes BOTH directions validated — the substrate
+// `.parse()`s inbound params against the request schema before the handler
+// runs, and the handler's result against the response schema before it reaches
+// the wire.
+//
+// TYPING — REQUESTS are double-T `z.ZodType<T, T>`, RESPONSES are single-T
+// `z.ZodType<T>`. Grounded in how the substrate actually consumes them rather
+// than in file-wide uniformity. `MethodRegistry.register` (jsonrpc-registry.ts)
+// declares `paramsSchema: ZodType<P>` and `resultSchema: ZodType<R>` — both
+// single-T slots — and the live `session.read` registration passes a double-T
+// request schema alongside a single-T response schema into exactly those slots
+// (`packages/runtime-daemon/src/ipc/handlers/session-read.ts`). That is the
+// closest precedent available: `session.*` is a daemon JSON-RPC namespace, not
+// a tRPC router. Double-T satisfies the single-T slot for free — Zod 4 declares
+// `ZodType<out Output, out Input>`, so `ZodType<T, T>` is assignable to
+// `ZodType<T, unknown>` — which means the request side keeps the package-wide
+// `*RequestSchema` idiom, and its Standard-Schema-V1 input inference stays
+// available to any later typed-SDK consumer (ADR-014), at no cost here.
+//
+// The response side is single-T for the reason every response schema in
+// session.ts / runtime-node.ts is: a response is not an input surface. It is
+// also the CAST-FREE choice — `RepoMountReadResponseSchema` composes T1.1's
+// single-T `RepoMountHealthSchema`, whose `Input` slot is `unknown`, so a
+// double-T response annotation would need an `as unknown as` bridge to express
+// nothing extra. The rejected alternative was presence.ts's uniform-double-T
+// file style, which its own `PresenceSubscribeRequestSchema` comment concedes
+// is "for file-wide annotation uniformity, not a live tRPC-input requirement".
+//
+// None of the three request schemas needs the `as unknown as z.ZodType<T, T>`
+// bridge that runtime-node.ts's request schemas carry. Every member composed
+// below is either double-T (`SessionIdSchema`, `NodeIdSchema`,
+// `RepoMountIdSchema`) or a `z.ZodString` (`wireFreeFormString`, whose `Input`
+// slot is `string`, not `unknown`), so no single-T member contributes an
+// `unknown` input slot to poison the composed object's inference — the same
+// structural condition under which `RuntimeNodeDetachRequestSchema` and
+// `RuntimeNodeRosterRequestSchema` compile bridge-free.
+
+// Bound on the two filesystem-path wire strings these surfaces carry:
+// `RepoAttachRequest.localPath` (inbound, caller-supplied) and the
+// `canonicalRoot` / `localPath` the attach + read responses return. 4096 is
+// Linux's `PATH_MAX` — the most generous of the supported platforms' limits
+// (macOS caps at 1024; Windows' long-path form runs far higher but the ADR-019
+// V1 tier needs no such headroom) — so no legitimate path is refused on
+// wire-length grounds. Defense-in-depth at the wire/IPC trust boundary, the
+// same posture as `NODE_ID_MAX_LEN` / `EVENT_CURSOR_MAX_LEN`; the framework
+// body-size cap (Plan-004/Plan-005) remains the authoritative limit.
+//
+// EXPORTED, unlike T1.1's module-local `REPO_WORKSPACE_LIFECYCLE_ACTOR_MAX_LEN`
+// — that cap MIRRORS an authority that lives elsewhere (event.ts's exported
+// `EVENT_FIELD_MAX_LEN`) and is pinned to it by test, whereas this constant IS
+// the authority for its fields. Exporting matches every other `*_MAX_LEN` in
+// the package and lets `__tests__/repo.test.ts` assert the accept/reject
+// boundary against the named constant instead of a magic number. T1.3 may mint
+// its own cap for `WorkspaceBindRequest.directory` (a mount-root-relative
+// subpath — a different bound) per the per-field convention.
+export const REPO_PATH_MAX_LEN = 4096;
+
+// --------------------------------------------------------------------------
+// RepoAttach — `repo.attach` (mutation).
+// --------------------------------------------------------------------------
+//
+// The envelope-admission action: attach is the ONLY way a path enters the
+// session's declared local trust envelope
+// (`Spec-009 §Local Trust Envelope (V1 Definition)` — "no path enters the
+// envelope implicitly"). It is also a SINGLE FUNNEL (D-009-4): a non-git path
+// rides this same method and yields a mount with `vcsType: "none"`, rather
+// than a mount-less bind path.
+
+export interface RepoAttachRequest {
+  sessionId: SessionId;
+  localPath: string;
+  nodeId: NodeId;
+}
+export const RepoAttachRequestSchema: z.ZodType<RepoAttachRequest, RepoAttachRequest> = z
+  .object({
+    sessionId: SessionIdSchema,
+    // USER-ENTERED PATH, provenance only — persisted as
+    // `repo_mounts.local_path` and never used as the canonical root (I-009-5:
+    // trust-envelope enforcement and node-ownership routing key off
+    // `canonical_root`, never `local_path`).
+    //
+    // Realized with the package's standard `wireFreeFormString` (length cap +
+    // whitespace-only rejection + NUL-byte rejection). The NUL guard is the
+    // load-bearing one on a PATH: an embedded NUL is a classic truncation
+    // vector as well as the log-injection vector the helper documents.
+    //
+    // THREE CHECKS DELIBERATELY NOT MADE HERE, each for its own reason:
+    //   • Absoluteness. A `startsWith("/")` test would refuse every Windows
+    //     path (`C:\repos\foo`), and Windows is a V1 tier (ADR-019); a
+    //     cross-platform absoluteness rule is exactly the normalization
+    //     I-009-1 assigns to the daemon resolver. A relative or `~`-prefixed
+    //     path must stay REPRESENTABLE on the wire — resolving it is T1.5's
+    //     job, and `Spec-009 §Implementation Notes` warns that attach must not
+    //     assume the entered path is even the repo root.
+    //   • `..` traversal. Rejecting it here would refuse the legitimate
+    //     `/home/me/../me/repo`. Traversal is a CONTAINMENT concern, checked
+    //     post-resolution against the mount root by T1.6's validator
+    //     (I-009-3); `Spec-009 §Local Trust Envelope (V1 Definition)` scopes
+    //     that check to `WorkspaceBind`'s `directory`, not to the
+    //     envelope-ADMITTING attach path.
+    //   • Existence / readability. A filesystem probe belongs to the resolver,
+    //     and a missing path is the typed `repo.root_resolution_failed`
+    //     refusal (I-009-2), not a parse error.
+    // ACCEPTED TRADE-OFF: the helper's `/\S/` guard refuses a whitespace-only
+    // path, which is a technically legal POSIX filename. A path that is
+    // nothing but spaces is far likelier to be a UI-submission bug than an
+    // intended target, so the guard stays.
+    localPath: wireFreeFormString(REPO_PATH_MAX_LEN, "RepoAttachRequest.localPath"),
+    // The OWNING runtime node — the node that can actually reach the
+    // filesystem path (`Spec-009 §Implementation Notes`), persisted as
+    // `repo_mounts.node_id`. Load-bearing beyond provenance: the D-009-7
+    // active-root uniqueness index is keyed `(session_id, node_id,
+    // canonical_root)`, because the same absolute path on two different nodes
+    // names two distinct node-local filesystems and both may attach.
+    nodeId: NodeIdSchema,
+  })
+  .strict();
+
+export interface RepoAttachResponse {
+  repoMountId: RepoMountId;
+  state: RepoMountState;
+  vcsType: VcsType;
+  canonicalRoot: string;
+  defaultWorkspaceId: WorkspaceId;
+}
+// Single-T — a response is not an input surface (see the typing note above).
+export const RepoAttachResponseSchema: z.ZodType<RepoAttachResponse> = z
+  .object({
+    repoMountId: RepoMountIdSchema,
+    // The mount's post-attach lifecycle position. Composes the full 3-value
+    // `RepoMountStateSchema` and is NOT narrowed to `z.literal("attached")`:
+    // the wire doc types this field `RepoMountState` with no narrowing and no
+    // per-value gloss on THIS row (the detach response does carry one), so a
+    // literal would silently reject the other two lawful states. It would also
+    // re-type the field on any later attach path that returns a non-`attached`
+    // row, which is a wire break rather than the additive change
+    // ADR-018 §Decision #8 would want.
+    state: RepoMountStateSchema,
+    // The honest git/non-git verdict fixed at resolution time (I-009-4); the
+    // D-009-5 capability projection keys off it downstream.
+    vcsType: VcsTypeSchema,
+    // RESOLVER OUTPUT — absolute and symlink-resolved, NEVER the echoed
+    // `localPath` input (I-009-1). This is the value the trust envelope and
+    // the D-009-7 active-root uniqueness index key off. REQUIRED: an attach
+    // response with no resolved root is unrepresentable, because resolution
+    // failure ABORTS attach with typed `repo.root_resolution_failed` rather
+    // than returning a partial success (I-009-2).
+    canonicalRoot: wireFreeFormString(REPO_PATH_MAX_LEN, "RepoAttachResponse.canonicalRoot"),
+    // REQUIRED, not optional — D-009-7: attach unconditionally creates the
+    // default read-only workspace, for git and non-git mounts alike
+    // (`Spec-009 §Default Behavior`). Optionality would make "attached, but no
+    // workspace" representable, and the persistence model never produces it.
+    defaultWorkspaceId: WorkspaceIdSchema,
+  })
+  .strict();
+
+// --------------------------------------------------------------------------
+// RepoMountRead — `repo.mountRead` (query).
+// --------------------------------------------------------------------------
+
+export interface RepoMountReadRequest {
+  repoMountId: RepoMountId;
+}
+export const RepoMountReadRequestSchema: z.ZodType<RepoMountReadRequest, RepoMountReadRequest> = z
+  .object({
+    repoMountId: RepoMountIdSchema,
+  })
+  .strict();
+
+export interface RepoMountReadResponse {
+  id: RepoMountId;
+  sessionId: SessionId;
+  nodeId: NodeId;
+  localPath: string;
+  canonicalRoot: string;
+  vcsType: VcsType;
+  state: RepoMountState;
+  health: RepoMountHealth;
+  attachedAt: string;
+}
+// Single-T — a read projection, never an input surface.
+export const RepoMountReadResponseSchema: z.ZodType<RepoMountReadResponse> = z
+  .object({
+    // BARE `id`, NOT `repoMountId` — transcribed verbatim from the wire doc,
+    // which uses the unqualified `id` on READ PROJECTIONS (the convention
+    // `WorkspaceListResponse.workspaces[].id` follows too) and the qualified
+    // name on the attach/detach MUTATION responses. The asymmetry is
+    // deliberate: a projection names its own row's key `id`, while a mutation
+    // response names the entity it acted on. Do not "fix" it to `repoMountId`.
+    id: RepoMountIdSchema,
+    sessionId: SessionIdSchema,
+    nodeId: NodeIdSchema,
+    // Provenance and resolved identity travel TOGETHER and independently
+    // (I-009-5 — both values are meaningful: the entered path is what the user
+    // recognizes, the canonical root is what the system trusts). Attaching
+    // from a nested subdirectory is the case that separates them.
+    localPath: wireFreeFormString(REPO_PATH_MAX_LEN, "RepoMountReadResponse.localPath"),
+    canonicalRoot: wireFreeFormString(REPO_PATH_MAX_LEN, "RepoMountReadResponse.canonicalRoot"),
+    vcsType: VcsTypeSchema,
+    state: RepoMountStateSchema,
+    // The D-009-2 DERIVED projection — probed at read time, never a
+    // `repo_mounts` column. REQUIRED: `Spec-009 §Interfaces And Contracts`
+    // obliges this read to expose "current health", and the D-009-5 on-read
+    // probe floor means every health-reporting read carries a fresh verdict,
+    // so there is no "health not computed" case to represent. Composes T1.1's
+    // `RepoMountHealthSchema` rather than re-spelling `{status, checkedAt}`,
+    // so the 2-value status union cannot drift between the two surfaces.
+    health: RepoMountHealthSchema,
+    // `repo_mounts.attached_at`. ISO 8601 with `{ offset: true }` — the
+    // package-wide datetime convention (`checkedAt` above, `createdAt` in
+    // session.ts, `attachedAt` on runtime-node.ts's attach response).
+    attachedAt: z.iso.datetime({ offset: true }),
+  })
+  .strict();
+
+// --------------------------------------------------------------------------
+// RepoDetach — `repo.detach` (mutation).
+// --------------------------------------------------------------------------
+//
+// `Spec-009 §Detach Semantics (V1 Definition)` / D-009-6. Detach is REFUSED
+// with typed `repo.detach_conflict` while any dependent workspace is `busy`
+// (there is no force-detach in V1), so the refusal carries no shape here — it
+// is an error envelope, not a response variant. On the success path the mount
+// transitions to the TERMINAL `detached` state (no `detached -> attached`
+// transition exists; re-attaching the same canonical root creates a NEW mount
+// row) and every dependent workspace is archived by the cascade.
+
+export interface RepoDetachRequest {
+  repoMountId: RepoMountId;
+}
+export const RepoDetachRequestSchema: z.ZodType<RepoDetachRequest, RepoDetachRequest> = z
+  .object({
+    repoMountId: RepoMountIdSchema,
+  })
+  .strict();
+
+export interface RepoDetachResponse {
+  repoMountId: RepoMountId;
+  state: RepoMountState;
+  archivedWorkspaceIds: WorkspaceId[];
+}
+// Single-T — a response is not an input surface.
+export const RepoDetachResponseSchema: z.ZodType<RepoDetachResponse> = z
+  .object({
+    repoMountId: RepoMountIdSchema,
+    // Full `RepoMountStateSchema`, NOT `z.literal("detached")` — the same
+    // stance as `RepoAttachResponse.state` above: the wire doc types the field
+    // `RepoMountState` and its `// 'detached'` comment glosses the value the
+    // daemon writes, rather than narrowing the contract.
+    state: RepoMountStateSchema,
+    // One id per workspace the cascade archived — the detach half of I-009-9
+    // (each archived workspace also emits its own `workspace.archived` event,
+    // and `repo.detached` accompanies them). An EMPTY array is VALID and is
+    // not degenerate: a mount whose dependent workspaces were all already
+    // `archived` archives none. Hence no `.min(1)`, even though D-009-7
+    // guarantees attach created at least one workspace to begin with.
+    archivedWorkspaceIds: z.array(WorkspaceIdSchema),
   })
   .strict();

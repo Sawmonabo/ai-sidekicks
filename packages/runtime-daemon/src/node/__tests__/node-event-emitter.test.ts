@@ -56,7 +56,7 @@ import type { RuntimeNodeEventEmitterDeps } from "../node-event-emitter.js";
 // it; this emitter validates the payload, so the fixture must be a real UUID.)
 const SESSION_ID: string = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f00";
 // `NodeId` is a daemon-minted opaque scalar (min 1, max 256), NOT a UUID
-// (runtime-node.ts header) — an arbitrary non-UUID string is valid.
+// (contracts `node-id.ts` header) — an arbitrary non-UUID string is valid.
 const NODE_ID: string = "node-01J0ND0000NN5J5J5J5J5J5J";
 // `actor` is the EventEnvelope free-form actor string (`wireFreeFormString`),
 // NOT a branded ParticipantId — any bounded string (here a ULID) is valid.
