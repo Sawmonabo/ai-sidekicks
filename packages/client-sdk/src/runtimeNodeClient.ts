@@ -41,10 +41,11 @@
 //   control-plane tRPC HTTP transport. Both satisfy the SAME four-mutation
 //   `RuntimeNodeClient`, so callers can swap transports for the mutation
 //   surface without restructuring. The four mutations — attach / heartbeat /
-//   capabilityupdate / detach — are every one a tRPC `.mutation` (runtime-
-//   node-router.factory.ts:181-266) riding a POST JSON body. The
-//   control-plane factory ADDITIONALLY exposes the namespace's one query —
-//   `roster`, a GET `?input=` (runtime-node-router.factory.ts:268-287) — on
+//   capabilityupdate / detach — are every one a tRPC `.mutation` (the
+//   four mutation procedures in runtime-node-router.factory.ts) riding a
+//   POST JSON body. The control-plane factory ADDITIONALLY exposes the
+//   namespace's one query — `roster`, a GET `?input=` (the `roster`
+//   query procedure in runtime-node-router.factory.ts) — on
 //   its widened `ControlPlaneRuntimeNodeClient` return type; the daemon
 //   factory deliberately does not (see that interface's JSDoc for the
 //   transport-ownership rationale). Neither factory carries a subscribe (SSE)
@@ -107,9 +108,10 @@ import type { JsonRpcClient } from "./transport/jsonRpcClient.js";
  *
  * LOWERCASE one-word operation segments (`capabilityupdate`, NOT
  * `capabilityUpdate`) — these match the `runtimenode.*` procedure namespace the
- * control-plane router mounts (`runtime-node-router.factory.ts:180` —
- * `t.router({ runtimenode: t.router({ attach, heartbeat, capabilityupdate,
- * detach, roster }) })`) and the canonical error codes
+ * control-plane router mounts (the `runtimenode` namespace mount in
+ * `createRuntimeNodeRouter` — `t.router({ runtimenode: t.router({ attach,
+ * heartbeat, capabilityupdate, detach, roster }) })`) and the canonical
+ * error codes
  * `runtimenode.attach_conflict` / `runtimenode.capabilityupdate_conflict`
  * (`@ai-sidekicks/contracts` error.ts:111-127). These are wire strings authored
  * locally (NOT imported symbols); centralizing them here so a future name
@@ -300,8 +302,9 @@ export interface ControlPlaneRuntimeNodeClient extends RuntimeNodeClient {
  *   * `runtimenode.capabilityupdate_conflict` — the capability-update refusal.
  *
  * The `roster` query contributes NO typed refusal to that set (its server arm
- * has no catch — runtime-node-router.factory.ts:268-287): a non-2xx roster
- * response surfaces through this same class via the fallback tRPC-code branch
+ * has no catch — the `roster` query procedure in
+ * runtime-node-router.factory.ts): a non-2xx roster response surfaces through
+ * this same class via the fallback tRPC-code branch
  * in `buildControlPlaneError` (e.g. `INTERNAL_SERVER_ERROR` when a corrupted
  * stored row fails the server's read-boundary parse), so the consumer still
  * sees one error class across all five methods.
@@ -460,14 +463,16 @@ async function parseRuntimeNodeResult<T>(
  * `{ error: { message, code, data: { code, httpStatus, path,
  * ...errorFormatter additions } } }`; the shared `errorFormatter` appends the
  * typed exception's projection at `error.data.aisError = { code, message }`
- * (host-runtime-node.test.ts:267-281 pins this path empirically). When that
- * `aisError` envelope is present we surface its `code` + `message` as a
+ * (the `WireErrorEnvelope` accessor type in host-runtime-node.test.ts pins
+ * this path empirically). When that `aisError` envelope is present we
+ * surface its `code` + `message` as a
  * `RuntimeNodeControlPlaneError`.
  *
  * NOT every non-2xx carries an `aisError`: the attach self-check throws a plain
  * `TRPCError({ code: "UNAUTHORIZED" })` with NO `aisError` envelope
- * (runtime-node-router.factory.ts:194-198), and the roster query throws
- * nothing typed at all — a corrupted stored row failing its read-boundary
+ * (the attach self-check's `UNAUTHORIZED` throw in
+ * runtime-node-router.factory.ts), and the roster query throws nothing
+ * typed at all — a corrupted stored row failing its read-boundary
  * parse surfaces as a bare `INTERNAL_SERVER_ERROR`. For those (and any other
  * untyped non-2xx) we fall back to the tRPC envelope's own `error.message` /
  * top-level `error.data.code`, still surfaced as a
@@ -538,7 +543,8 @@ async function buildControlPlaneError(response: Response): Promise<RuntimeNodeCo
  * is `{ result: { data: <output> } }` directly (no `data.json` hop). For the
  * no-content `heartbeat` / `detach` mutations the unwrapped `data` is literally
  * `null` (the resolver returns `null`, serialized as `{ result: { data: null } }`
- * — host-runtime-node.test.ts:316-321), which `RuntimeNodeHeartbeatResponse-
+ * — host-runtime-node.test.ts's "dispatches runtimenode.heartbeat through
+ * buildControlPlaneFetchHandler"), which `RuntimeNodeHeartbeatResponse-
  * Schema` / `RuntimeNodeDetachResponseSchema` (`z.null()`) accept. `result` is
  * the object `{ data: null }`, so the `isObject(result)` guard below passes and
  * `result.data` correctly reads back `null`.

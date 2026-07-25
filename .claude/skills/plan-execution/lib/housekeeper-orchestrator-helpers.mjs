@@ -31,6 +31,13 @@ const PLACEHOLDER = "<TODO subagent prose>";
  * re-introduce code-span stripping here — it reopens the evasion class. The
  * no-echo rule belongs in the subagent contract; this scan stays strict.
  *
+ * Namespace scoping (2026-07-24): the WALK layer — `walkForPlaceholder` plus
+ * the `semantic_edits` scan in `validateManifestSubagentStage` — exempts
+ * `_`-prefixed keys (the meta/attestation namespace, per the `_script_stage`
+ * convention), so a voluntary attestation may NAME the token it attests
+ * about. THIS matcher stays strict and code-span-blind, and the
+ * affected-files DISK scan applies it unexempted.
+ *
  * @param {string} text
  * @returns {boolean}
  */
@@ -65,7 +72,7 @@ Your responsibilities (per Spec §5.4 / §6.2):
 Hard rules:
 - Do NOT introduce new exit-states.
 - Do NOT edit files outside \`manifest.affected_files\`.
-- Do NOT leave \`<TODO subagent prose>\` placeholders intact. Quoting, backtick-wrapping, or otherwise echoing the literal token does NOT count as replacement — composing the resolution narrative does. The literal string \`<TODO subagent prose>\` MUST NOT appear anywhere in your output: not in any edited file, not in any \`semantic_edits\` value. The validator rejects every occurrence (inside code spans or not).
+- Do NOT leave \`<TODO subagent prose>\` placeholders intact. Quoting, backtick-wrapping, or otherwise echoing the literal token does NOT count as replacement — composing the resolution narrative does. The literal string \`<TODO subagent prose>\` MUST NOT appear anywhere in your output: not in any edited file, not in any \`semantic_edits\` value. The validator rejects every occurrence (inside code spans or not), with one class-keyed exemption: \`_\`-prefixed \`semantic_edits\` keys — the meta/attestation namespace, per the \`_script_stage\` convention — may name the token (e.g. a \`_placeholder_sweep\` attestation reporting a clean sweep); the exemption cannot absorb required work, because responsibility #5's pairing keys are never \`_\`-prefixed.
 - Do NOT read NS catalog item BODIES; the §6-prose-only constraint applies to the set-quantifier reverification surface (responsibility #2).
 - Do NOT confuse design-spec §6 ("Data flow") with \`cross-plan-dependencies.md\` §6 ("Active Next Steps DAG"); D-2 routes to the latter.
 - Do NOT touch \`manifest._script_stage\`. It is the script-embedded snapshot of the four arrays the validator enforces preservation/iteration on (\`affected_files\`, \`schema_violations\`, \`verification_failures\`, \`semantic_work_pending\`); when you rewrite the manifest, copy \`_script_stage\` through verbatim. The orchestrator plumbs its own stage-1 conversation-memory copy of these arrays as the validator's authoritative baseline (see § \`_script_stage\` snapshot + orchestrator plumbing); the manifest-embedded \`_script_stage\` is a redundant integrity signal — removing the key, replacing it with a non-object, or swapping any of its four fields for non-array values is itself a bypass attempt and surfaces in the validator as a structural-tampering gap.`;
@@ -124,7 +131,9 @@ export function buildHousekeeperPrompt({ manifestPath, scriptExitCode, prNumber,
  *     ALSO: every entry in affected_files MUST exist on disk — the subagent contract
  *     permits edits but not deletions; a missing entry surfaces as a gap rather
  *     than being silently skipped.
- *  4. No <TODO subagent prose> placeholder in any semantic_edits value (nested scan).
+ *  4. No <TODO subagent prose> placeholder in any semantic_edits value (nested
+ *     scan; `_`-prefixed keys — the meta/attestation namespace — are exempt at
+ *     every depth, matching the canonical-template Hard rule's carve-out).
  *  5. Every schema_violations entry is surfaced as its own concerns entry, matched
  *     per-entry on `kind` (the violation's own kind verbatim — `"schema_violation"`
  *     for `PRs:` block / missing-required-field shapes, or singleton kinds like
@@ -590,8 +599,17 @@ export function validateManifestSubagentStage({
       gaps.push(`${PLACEHOLDER} placeholder still present in ${path}`);
   }
 
-  // Scan semantic_edits VALUES for leftover placeholders.
+  // Scan semantic_edits VALUES for leftover placeholders. `_`-prefixed keys
+  // are the meta/attestation namespace (the `_script_stage` convention) and
+  // are exempt: a voluntary attestation (e.g. `_placeholder_sweep`) may NAME
+  // the token it attests about without being an unreplaced stub — the first
+  // live hit was PR #247's Phase E housekeeping run, where a clean-sweep
+  // attestation gapped as a false positive. The exemption is keyed on the
+  // key-CLASS, not content: responsibility #5's pairing keys are never
+  // `_`-prefixed, so required work cannot hide here, and the affected-files
+  // DISK scan (above) stays strict regardless.
   for (const [field, value] of Object.entries(manifest.semantic_edits ?? {})) {
+    if (field.startsWith("_")) continue;
     walkForPlaceholder(value, [field], (path) => {
       gaps.push(`${PLACEHOLDER} placeholder still present in semantic_edits.${path.join(".")}`);
     });
@@ -840,6 +858,9 @@ function isMeaningfulPayload(value) {
 /**
  * Recursively walk a value looking for the <TODO subagent prose> placeholder.
  * Calls onHit(path) for every string that contains the placeholder.
+ * `_`-prefixed OBJECT keys — the meta/attestation namespace — are skipped at
+ * every depth (rationale at the `semantic_edits` scan call site); array
+ * indices are never skipped.
  *
  * @param {unknown} value
  * @param {string[]} path
@@ -855,7 +876,10 @@ function walkForPlaceholder(value, path, onHit) {
     return;
   }
   if (value && typeof value === "object") {
-    for (const [k, v] of Object.entries(value)) walkForPlaceholder(v, [...path, k], onHit);
+    for (const [k, v] of Object.entries(value)) {
+      if (k.startsWith("_")) continue;
+      walkForPlaceholder(v, [...path, k], onHit);
+    }
   }
 }
 

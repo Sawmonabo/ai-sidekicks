@@ -345,8 +345,9 @@ async function readPresenceRow(
 //
 // `resolveCurrentParticipantId` is REAL (returns the seeded participant): the
 // attach procedure self-checks `input.participantId !== resolveCurrentParticipantId(ctx)`
-// and throws `UNAUTHORIZED` on mismatch (runtime-node-router.factory.ts:192-198),
-// so a throwing stub would short-circuit attach BEFORE it reaches `AttachService`.
+// and throws `UNAUTHORIZED` on mismatch (the attach self-check in
+// runtime-node-router.factory.ts), so a throwing stub would short-circuit
+// attach BEFORE it reaches `AttachService`.
 // This mirrors host-runtime-node.test.ts's `makePassThroughDeps` wiring
 // (currentParticipantId === the seeded PARTICIPANT_ID).
 //

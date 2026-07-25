@@ -449,7 +449,9 @@ describe("runtime-node router — non-typed error rethrows raw (T3.8 catch-arm d
     // original throwable) so this proves the error reached the INSERT and rethrew
     // the FK violation specifically — not some unrelated Error escaping earlier
     // (a setup/seed failure would also surface as INTERNAL_SERVER_ERROR and
-    // false-pass the code check alone). Mirrors attach-service.test.ts:612-615.
+    // false-pass the code check alone). Mirrors the SQLSTATE pin in
+    // attach-service.test.ts's "does NOT translate a session_id FK violation
+    // (23503) into a typed attach refusal".
     expect(caught?.cause).toMatchObject({ code: "23503" });
   });
 });

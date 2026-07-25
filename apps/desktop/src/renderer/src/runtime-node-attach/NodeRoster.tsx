@@ -23,8 +23,8 @@
 //   • `readOnly: boolean` — the PERMISSION axis, DERIVED per row at read time:
 //     true iff the node's stored `client_version` is below the session's
 //     `min_client_version` floor (the `readOnly` field on `RuntimeNodeRosterEntrySchema`; the server
-//     derivation lives in `AttachService.readRoster`,
-//     attach-service.ts:1000-1059). A below-floor node is ADMITTED read-only,
+//     derivation lives in `AttachService.readRoster` in
+//     attach-service.ts). A below-floor node is ADMITTED read-only,
 //     not ejected (I-003-1, Plan-003 §Invariants) — see the I-003-1 note below
 //     for why the roster MUST never hide such a node. A node may be `online`
 //     AND `readOnly` at once (the axes are independent); all are rendered.
@@ -92,15 +92,17 @@
 //       <runtime_node.* event>, handler)` — the daemon authors the
 //       daemon-reachable `runtime_node.*` lifecycle events (the registered
 //       7-name set `RUNTIME_NODE_EVENT_NAMES` in runtime-node.ts; the 5 V1
-//       daemon-reachable producers, its `Runtime-node event PAYLOAD-shape schemas` banner). Each pushed event is treated as
-//       an OPAQUE change-signal that RE-INVOKES the snapshot read; we
-//       deliberately do NOT decode the event payload into accumulated client
-//       state (the same posture participant-roster takes for `PresenceUpdate`
-//       — see its header). A maintainer's instinct to "merge the event payload
-//       into the roster" is wrong here: the control-plane read is the source
-//       of truth for the rendered set; the event only says WHEN to re-read.
-//       (Tier 8 MAY decode + merge to avoid the re-read round trip; the
-//       chattiness is a noted Tier-8 optimization, not a Tier-3 concern.)
+//       daemon-reachable producers, its
+//       `Runtime-node event PAYLOAD-shape schemas` banner). Each pushed event
+//       is treated as an OPAQUE change-signal that RE-INVOKES the snapshot
+//       read; we deliberately do NOT decode the event payload into accumulated
+//       client state (the same posture participant-roster takes for
+//       `PresenceUpdate` — see its header). A maintainer's instinct to "merge
+//       the event payload into the roster" is wrong here: the control-plane
+//       read is the source of truth for the rendered set; the event only says
+//       WHEN to re-read. (Tier 8 MAY decode + merge to avoid the re-read round
+//       trip; the chattiness is a noted Tier-8 optimization, not a Tier-3
+//       concern.)
 //
 //   Subscribe-BEFORE-initial-read ordering is deliberate (identical rationale
 //   to participant-roster): a node-state change landing AFTER the snapshot but
@@ -120,9 +122,10 @@
 //   — with the request/response wire shapes at
 //   `docs/architecture/contracts/api-payload-contracts.md §Tier 3: Plan-003 — Runtime Node Attach (Task 4.4)` and the contract pinned in
 //   `Spec-003 §Interfaces And Contracts`. Server truth:
-//   `AttachService.readRoster` (attach-service.ts:1000-1059), mounted as the
-//   router's first `.query()` (runtime-node-router.factory.ts:268-287); the
-//   Node-side SDK arm (`runtimeNodeClient.ts` control-plane `roster`, T5.0d)
+//   `AttachService.readRoster` in attach-service.ts, mounted as the router's
+//   first `.query()` (the `roster` query procedure in
+//   runtime-node-router.factory.ts); the Node-side SDK arm
+//   (`runtimeNodeClient.ts` control-plane `roster`, T5.0d)
 //   proves the procedure end-to-end against the real services.
 //
 //   This renderer still routes the read through the GENERIC
@@ -177,9 +180,10 @@ import type {
 // reconciled roster read (presence × slot): registry row
 // `docs/architecture/contracts/api-payload-contracts.md §Runtime-Node Method-Name Registry (Tier 3)` (`query`, control-plane tRPC ONLY — the
 // namespace's first and only query; its four siblings are mutations), served
-// by `AttachService.readRoster` via the router's first `.query()`
-// (runtime-node-router.factory.ts:268-287). Hardcoded as a local `const` per
-// the shipped renderer idiom (`participant-roster.tsx`'s
+// by `AttachService.readRoster` via the router's first `.query()` (the
+// `roster` query procedure in runtime-node-router.factory.ts). Hardcoded
+// as a local `const` per the shipped renderer idiom
+// (`participant-roster.tsx`'s
 // `PRESENCE_READ_METHOD`): the bridge surface is generic, so the registered
 // name is the single greppable coupling point the Plan-023 Tier 8 IPC wiring
 // binds. The name lives in the `runtimenode.*` METHOD namespace
@@ -191,9 +195,10 @@ const ROSTER_READ_PROCEDURE = "runtimenode.roster";
 // `runtime_node.online` — one of the 7 registered `runtime_node.*` lifecycle
 // event names (`RUNTIME_NODE_EVENT_NAMES` in runtime-node.ts), and one of the 5
 // daemon-reachable V1 producers (`registered`, `online`, `offline`,
-// `capability_declared`, `capability_updated` — its `Runtime-node event PAYLOAD-shape schemas` banner;
-// `degraded`/`revoked` are V1.1-gated server-derived events with no V1 author). We subscribe to the
-// liveness-transition signal and treat each push as an OPAQUE "node state
+// `capability_declared`, `capability_updated` — its
+// `Runtime-node event PAYLOAD-shape schemas` banner; `degraded`/`revoked`
+// are V1.1-gated server-derived events with no V1 author). We subscribe to
+// the liveness-transition signal and treat each push as an OPAQUE "node state
 // changed" trigger to re-read the snapshot — we do NOT decode the payload
 // (same change-signal posture as participant-roster's `PresenceUpdate`).
 // `online` is the canonical liveness-transition event for AC2's health
@@ -266,15 +271,15 @@ type RosterViewState =
 // shape — but the runtime-node refusal surface is code+message-only (the
 // one-sided session floor cannot populate `acceptedRange`; the SDK applies the
 // identical reasoning when it declines to validate against the two-sided
-// schema, runtimeNodeClient.ts:312-318), and the SDK's
-// `RuntimeNodeControlPlaneError` (runtimeNodeClient.ts:320-332) — the rejection
-// shape a Tier-8 bridge wired through the SDK would surface here — likewise
-// carries no `details`: only `code` + `message` (plus a transport-level
-// `httpStatus`). Narrowing to the full interface while checking two fields
-// would let a future reader dereference `.details` with the type system's
-// blessing and crash on the real envelope; the `Pick` makes that
-// unrepresentable while still typing both discriminants off the shipped
-// contract (`code` stays the single-sourced `VersionFloorExceededCode`
+// schema, the `RuntimeNodeControlPlaneError` JSDoc in runtimeNodeClient.ts),
+// and the SDK's rejection shape — the `RuntimeNodeControlPlaneError` class
+// in runtimeNodeClient.ts, what a Tier-8 bridge wired through the SDK would
+// surface here — likewise carries no `details`: only `code` + `message`
+// (plus a transport-level `httpStatus`). Narrowing to the full interface
+// while checking two fields would let a future reader dereference `.details`
+// with the type system's blessing and crash on the real envelope; the `Pick`
+// makes that unrepresentable while still typing both discriminants off the
+// shipped contract (`code` stays the single-sourced `VersionFloorExceededCode`
 // literal).
 type VersionFloorRejectionEnvelope = Pick<VersionFloorExceededError, "code" | "message">;
 

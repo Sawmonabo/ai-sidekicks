@@ -639,11 +639,15 @@ test("validateManifestSubagentStage: scans nested semantic_edits values (e.g. ar
 // `hasUnresolvedPlaceholder` is a strict `text.includes(PLACEHOLDER)` — ANY
 // occurrence of the literal token is an unreplaced stub. A legitimate resolution
 // narrative never contains the meta-token, so there is no "legitimate mention" to
-// exempt; backtick-wrapping is not replacement. Rounds 1-2 stripped inline-code
-// spans to permit backtick mentions, but that premise let a subagent hide a stub
-// by backticking it (empty stub, then a stub embedded beside real content —
-// Codex P2 ×2). The tests below pin every shape to a gap: raw, backtick-wrapped,
-// backtick-only, and embedded-beside-real-content, on disk and in semantic_edits.
+// exempt IN CONTENT; backtick-wrapping is not replacement. Rounds 1-2 stripped
+// inline-code spans to permit backtick mentions, but that premise let a subagent
+// hide a stub by backticking it (empty stub, then a stub embedded beside real
+// content — Codex P2 ×2). The tests below pin every shape to a gap: raw,
+// backtick-wrapped, backtick-only, and embedded-beside-real-content, on disk and
+// in semantic_edits. The ONE namespace exemption (2026-07-24): `_`-prefixed
+// semantic_edits keys — the meta/attestation namespace — where a voluntary
+// attestation may name the token (pinned below with its own negative control);
+// pairing keys are never `_`-prefixed, so no required work can divert there.
 
 test("validateManifestSubagentStage: a backtick-wrapped <TODO subagent prose> token in semantic_edits still gaps (strict-literal — backtick-wrapping is not replacement)", () => {
   // The PR #161 shape, re-classified under the strict-literal policy (PR #162
@@ -745,6 +749,70 @@ test("validateManifestSubagentStage: a semantic_edits value that is ONLY a backt
         g.includes("semantic_edits.compose_status_completion_prose"),
     ),
     `expected a placeholder-still-present gap for the disguised stub; got: ${JSON.stringify(result.gaps)}`,
+  );
+});
+
+test("validateManifestSubagentStage: a token echo under `_`-prefixed semantic_edits keys does NOT gap (meta/attestation namespace exemption)", () => {
+  // The PR #247 Phase E false positive: the housekeeper attached a voluntary
+  // `_placeholder_sweep` attestation NAMING the token it swept for, and the
+  // strict walk flagged it as an unreplaced stub. `_`-prefixed keys are the
+  // meta/attestation namespace (the `_script_stage` convention) and are exempt
+  // at every depth — top-level and nested. Required work cannot divert here:
+  // responsibility #5's pairing keys are never `_`-prefixed, and the pending
+  // item below still carries real content under its own key.
+  const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
+    semantic_work_pending: ["compose_status_completion_prose"],
+    semantic_edits: {
+      compose_status_completion_prose:
+        "(resolved 2026-07-25 via PR #247 — NS-37 minted born-completed)",
+      _placeholder_sweep: "Swept every affected file for `<TODO subagent prose>`; none remain.",
+      ready_set_re_derivation: {
+        _attestation: "No `<TODO subagent prose>` stub survives in this entry.",
+        narrative: "Ready-set unchanged; no quantifier invalidated.",
+      },
+    },
+    concerns: [],
+    affected_files: [],
+    result: "DONE",
+  };
+  assert.deepEqual(validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) }), {
+    valid: true,
+    narrationModeDetected: false,
+  });
+});
+
+test("validateManifestSubagentStage: the `_`-namespace exemption does not reach non-meta keys (negative control — raw stub still gaps)", () => {
+  // Same manifest shape as the exemption test, but the stub sits under a
+  // REGULAR pairing key beside the exempt attestation — proving the exemption
+  // is keyed on the `_` namespace, not on attestation-sounding content.
+  const manifest = {
+    _script_stage: {
+      affected_files: [],
+      schema_violations: [],
+      verification_failures: [],
+      semantic_work_pending: [],
+    },
+    semantic_work_pending: ["compose_status_completion_prose"],
+    semantic_edits: {
+      compose_status_completion_prose: "(resolved 2026-07-25 via PR #247 — <TODO subagent prose>)",
+      _placeholder_sweep: "Swept every affected file for `<TODO subagent prose>`; none remain.",
+    },
+    concerns: [],
+    affected_files: [],
+    result: "DONE",
+  };
+  const result = validateManifestSubagentStage({ manifest, ...stageOneFromManifest(manifest) });
+  assert.equal(result.valid, false);
+  assert.equal(result.gaps.length, 1);
+  assert.ok(
+    result.gaps[0].includes("semantic_edits.compose_status_completion_prose"),
+    `the non-meta stub must gap exactly once (the _-key echo stays exempt); got: ${JSON.stringify(result.gaps)}`,
   );
 });
 

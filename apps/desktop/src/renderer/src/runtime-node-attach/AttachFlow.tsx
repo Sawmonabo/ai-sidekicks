@@ -265,8 +265,8 @@ export function AttachFlow({ sessionId, attachDraft }: AttachFlowProps): React.J
     setAttachViewState({ kind: "pending" });
 
     // `CpProcedure` brand cast (Plan-002/Plan-008 follow-up), tightened to
-    // the real types — the same single-documented-cast posture as the sibling
-    // NodeRoster's `readRoster` (NodeRoster.tsx:386-389) and T6.1's
+    // the real types — the same single-documented-cast posture as the
+    // `readRoster` cast in the sibling NodeRoster.tsx and T6.1's
     // `acceptInvite`. The bridge declares `controlPlane.call<P extends
     // CpProcedure>(procedure: P, input: CpInput<P>): Promise<CpOutput<P>>`
     // (desktop-bridge.ts:277) where `CpProcedure` is a `never`-shaped brand
@@ -388,10 +388,10 @@ export function AttachFlow({ sessionId, attachDraft }: AttachFlowProps): React.J
     //   • `readOnly` is the attach-time floor verdict (`Spec-003 §Required Behavior`: a
     //     below-floor daemon is ADMITTED read-only, not refused), labeled
     //     with the same at-floor/below-floor wording as the sibling
-    //     NodeRoster row (NodeRoster.tsx:550-552) so the two surfaces read
-    //     consistently. The full below-floor UX (typed VERSION_FLOOR_EXCEEDED
-    //     on a later write) is T5.3's MixedVersionStatus scope, not this
-    //     view's.
+    //     NodeRoster row (the access label in NodeRoster.tsx's loaded-branch
+    //     row) so the two surfaces read consistently. The full below-floor
+    //     UX (typed VERSION_FLOOR_EXCEEDED on a later write) is T5.3's
+    //     MixedVersionStatus scope, not this view's.
     // `data-node-state` / `data-read-only` mirror NodeRoster's facet
     // attributes so the T5.4 manual smoke asserts both views with one
     // selector vocabulary.
