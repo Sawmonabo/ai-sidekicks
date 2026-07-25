@@ -38,6 +38,7 @@
 // seam against a synthetic filesystem, where the answer is a property of the
 // injected platform and nothing else.
 
+import { mkdirSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, posix as posixPath, sep, win32 as win32Path } from "node:path";
@@ -46,10 +47,46 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { TrustEnvelopeViolationError } from "../repo-errors.js";
 import {
+  DEFAULT_REALPATH,
   TrustEnvelopeValidator,
   type PathRealpathResolver,
   type WorkspaceExecutionRootCandidate,
 } from "../trust-envelope.js";
+
+/**
+ * Whether the filesystem under `os.tmpdir()` is case-INsensitive, established by
+ * creating a directory in one spelling and stat-ing the other.
+ *
+ * PROBED rather than derived from `process.platform`: APFS can be formatted
+ * case-sensitive and Linux can mount a case-insensitive volume, so a platform
+ * gate would skip the case test on the first host and fail it on the second.
+ *
+ * CI does not exercise what this gates. The daemon test job's matrix is
+ * `os: [ubuntu-latest]` (the macOS job runs the hook guards only), so on CI the
+ * probe reports case-SENSITIVE and the test skips — the same accepted latency
+ * class as the seam-gated win32 paths.
+ *
+ * Two guards cover the seam on CI instead: the default-implementation pin below,
+ * which asserts the identity directly and fails on every platform; and the
+ * symlink-escape tests in this file, which fail under a JS-walk substitution for
+ * a reason unrelated to casing — that walk collapses `..` inside itself rather
+ * than against the resolved target, which is the escape §ORDER IS LOAD-BEARING
+ * refuses.
+ */
+const filesystemIsCaseInsensitive: boolean = ((): boolean => {
+  const probeRoot = mkdtempSync(join(tmpdir(), "trust-envelope-case-probe-"));
+  try {
+    mkdirSync(join(probeRoot, "CaseProbe"));
+    statSync(join(probeRoot, "caseprobe"));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    rmSync(probeRoot, { recursive: true, force: true });
+  }
+})();
+
+const itOnCaseInsensitiveFilesystem = it.skipIf(!filesystemIsCaseInsensitive);
 
 // ----------------------------------------------------------------------------
 // Real-filesystem fixtures
@@ -87,6 +124,11 @@ beforeAll(async () => {
   // against physical paths. On macOS `/var` is a symlink to `/private/var`, and
   // an un-resolved fixture root would make the validator's own (correct)
   // resolution look like a mismatch.
+  //
+  // Resolved with the module's OWN primitive — `node:fs/promises.realpath`, the
+  // seam default. Canonicalizing fixtures under a different implementation would
+  // let a temp-root spelling difference resurface as a fixture-versus-module
+  // mismatch that appears only on macOS and reads like a module bug.
   const fixtureRoot = await realpath(await mkdtemp(join(tmpdir(), "trust-envelope-")));
 
   const mountRoot = join(fixtureRoot, "repo");
@@ -349,6 +391,25 @@ describe("accepted execution roots (I-009-3)", () => {
     expect(validated).toBe(fixtures.realSubdirectory);
     expect(validated).not.toBe(fixtures.symlinkInsideMount);
   });
+
+  itOnCaseInsensitiveFilesystem(
+    "accepts a mis-cased directory and returns the on-disk spelling",
+    async () => {
+      // Containment here compares components case-SENSITIVELY off win32, so this
+      // binds only because `realpath` rewrites the candidate to the filesystem's
+      // own spelling first. Substituting a JS-walk realpath would preserve
+      // `REAL-SUB`, and an operator who typed the wrong case would be refused
+      // `repo.outside_trust_envelope` for a directory genuinely inside the mount.
+      //
+      // `realSubdirectory` is a sound expected value because it was `mkdir`'d
+      // under that exact spelling beneath an already-canonical root, so its
+      // constructed spelling IS its on-disk spelling.
+      const validated = await new TrustEnvelopeValidator().validateExecutionRoot(
+        candidateInMount("REAL-SUB"),
+      );
+      expect(validated).toBe(fixtures.realSubdirectory);
+    },
+  );
 
   it("accepts a regular file inside the mount — containment is not a type check", async () => {
     // Deliberately in scope for the boundary and out of scope for this module:
@@ -806,6 +867,20 @@ describe("win32 case folding and root shapes (Spec-009 §Local Trust Envelope (V
       sessionEnvelopeRoots: ["C:\\"],
     });
     expect(validated).toBe("C:\\data");
+  });
+});
+
+describe("the default realpath implementation is pinned (I-009-3)", () => {
+  it("is `node:fs/promises.realpath`, never the JS-walk implementation", () => {
+    // Structural deliberately, and it guards more than casing here. `node:fs`'s
+    // callback `realpath` performs "No case conversion ... on case-insensitive
+    // file systems" (Node's own wording), AND collapses `..` within its own walk
+    // rather than against a symlink's resolved target — which would reopen the
+    // escape the §ORDER IS LOAD-BEARING header section exists to refuse.
+    //
+    // The casing half is unobservable on CI's ubuntu-only daemon leg. This
+    // assertion fails on every platform.
+    expect(DEFAULT_REALPATH).toBe(realpath);
   });
 });
 

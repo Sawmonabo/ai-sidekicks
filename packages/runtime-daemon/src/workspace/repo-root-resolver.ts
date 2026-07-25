@@ -317,7 +317,37 @@ export interface PlatformPathModule {
 export interface RepoRootResolverDeps {
   /** Defaults to a promise wrapper over `node:child_process.execFile`. */
   readonly executeFile: GitFileExecutor;
-  /** Defaults to `node:fs/promises.realpath`. */
+  /**
+   * Defaults to `node:fs/promises.realpath`, which Node documents as resolving
+   * "using the same semantics as the `fs.realpath.native()` function" and which
+   * therefore returns each component's ON-DISK spelling. That is what makes the
+   * step-4 containment comparison casing-safe on a case-insensitive filesystem,
+   * and it is what I-009-1 means by the persisted root being the physical path.
+   *
+   * `node:fs`'s CALLBACK `realpath` is a different implementation and is not
+   * interchangeable here: Node lists "No case conversion is performed on
+   * case-insensitive file systems" as the first documented difference, so a
+   * mis-cased attach would come back spelled as the operator typed it and be
+   * refused `root_mismatch`. `DEFAULT_REALPATH` below is pinned by both suites.
+   *
+   * Three documented caveats of the native path, none load-bearing here but each
+   * cheaper to record than to rediscover:
+   *   * musl-linked Linux needs procfs mounted at `/proc` for it to work at all;
+   *     "Glibc does not have this restriction". A concern only if the daemon is
+   *     ever packaged into an Alpine-style container.
+   *   * macOS and the BSDs fail with `ELOOP` past 32 symlinks in one resolution,
+   *     a limit libuv calls "hardcoded and cannot be sidestepped".
+   *     `classifyRealpathFailure` already routes `ELOOP` to `not_readable`, so
+   *     the shape arrives typed rather than leaking.
+   *   * Windows shows "Inconsistent casing when using drive letters", alongside
+   *     unresolvable ImDisk-style ramdisks and bypassed `subst` drives. The
+   *     casing one is benign HERE precisely because the win32 comparison branch
+   *     folds case, so a drive letter arriving either way compares equal.
+   *
+   * Primary sources, also in `Plan-009 §References`:
+   *   * Node `fs` — https://nodejs.org/api/fs.html#fsrealpathnativepath-options-callback
+   *   * libuv `uv_fs_realpath` — https://docs.libuv.org/en/v1.x/fs.html
+   */
   readonly realpath: PathRealpathResolver;
   /**
    * Defaults to the bare `"git"`, left to the platform's executable search.
@@ -554,10 +584,22 @@ function defaultExecuteFile(
   });
 }
 
+/**
+ * The realpath used when no seam is injected, exported so a test can assert
+ * WHICH implementation it is.
+ *
+ * That pin has to be structural rather than behavioral. The casing contract
+ * documented on the `realpath` dep is only OBSERVABLE on a case-insensitive
+ * filesystem, and CI's daemon leg is ubuntu-only, so a behavioral test of it
+ * runs on developer machines and skips in CI. Identity against this binding
+ * fails everywhere.
+ */
+export const DEFAULT_REALPATH: PathRealpathResolver = realpathFromFilesystem;
+
 function resolveDeps(partial: Partial<RepoRootResolverDeps>): RepoRootResolverDeps {
   return {
     executeFile: partial.executeFile ?? defaultExecuteFile,
-    realpath: partial.realpath ?? realpathFromFilesystem,
+    realpath: partial.realpath ?? DEFAULT_REALPATH,
     gitExecutablePath: partial.gitExecutablePath ?? DEFAULT_GIT_EXECUTABLE,
     gitCommandTimeoutMs: partial.gitCommandTimeoutMs ?? DEFAULT_GIT_COMMAND_TIMEOUT_MS,
     platformPath: partial.platformPath ?? nodePath,
@@ -586,9 +628,11 @@ const WINDOWS_PATH_SEPARATOR = "\\";
  * T1.6's `joinCandidatePath` (`./trust-envelope.js`) re-spells this same
  * driveless-root rule inline for its absolute `directory` arm, so a change to
  * the predicate here belongs there too; that module's `PlatformPathModule`
- * note enumerates the five surfaces the two files duplicate in PROSE. The
- * component-comparison helpers this module imports from it are a different
- * relationship — shared by construction, so they cannot diverge at all.
+ * note enumerates the six surfaces the two files duplicate: five held by that
+ * note alone, this rule among them, and `DEFAULT_REALPATH` held by an identity
+ * pin in both suites. The component-comparison helpers this module imports from
+ * it are a third relationship — shared by construction, so they cannot diverge
+ * at all.
  */
 function namesCompleteLocation(candidatePath: string, platformPath: PlatformPathModule): boolean {
   if (!platformPath.isAbsolute(candidatePath)) {
@@ -801,8 +845,22 @@ export class RepoRootResolver {
     // Both comparisons below fold off the REAL `node:path`, never the injected
     // `platformPath` — the rule step 3 and `finish` follow. A backstop keyed off
     // an injectable seam can be disabled by the same misconfiguration it exists
-    // to catch. Both operands are `realpath` output, so the separator and case
-    // questions the seam would answer cannot bite here anyway.
+    // to catch.
+    //
+    // Neither the separator nor the CASE question can bite, and the reason is
+    // the realpath seam rather than the path module: both operands come from
+    // `this.deps.realpath`, whose default returns each component's on-disk
+    // spelling, so an attach typed `/Repo/sub` on case-insensitive APFS reaches
+    // this comparison already spelled the way git spells it.
+    //
+    // Folding here would be strictly worse than not folding, in two ways. On
+    // a genuinely case-sensitive filesystem, where `/REPO` and `/repo` are
+    // different directories, it would let a redirected toplevel pass this
+    // verification against a case-colliding sibling — re-admitting a variant
+    // of the attack `root_mismatch` exists to refuse. And on every filesystem
+    // it would MASK a seam that stopped honoring the on-disk-spelling
+    // contract — the two spellings would keep comparing equal after the
+    // normalization they depend on had gone away.
     const canonicalRootComponents = toComparableComponents(canonicalRoot, nodePath);
 
     // Step 4 — CONTAINMENT. The attached path must sit inside the root about to

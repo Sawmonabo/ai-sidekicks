@@ -67,6 +67,7 @@
 // channels). The resolver's environment is asserted separately below.
 
 import { execFile } from "node:child_process";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, statSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import {
@@ -83,6 +84,7 @@ import { RepoRootResolutionError, type RepoRootResolutionReason } from "../repo-
 import {
   DEFAULT_GIT_COMMAND_TIMEOUT_MS,
   DEFAULT_GIT_EXECUTABLE,
+  DEFAULT_REALPATH,
   DISCOVERY_REDIRECTING_GIT_ENV_KEYS,
   GIT_FATAL_EXIT_CODE,
   GIT_STDIO_MAX_BUFFER_BYTES,
@@ -108,6 +110,44 @@ import {
 // than two cases that were only ever true by accident of the runner.
 const onPosix = describe.skipIf(process.platform === "win32");
 const itOnPosix = it.skipIf(process.platform === "win32");
+
+/**
+ * Whether the filesystem under `os.tmpdir()` is case-INsensitive, established by
+ * creating a directory in one spelling and stat-ing the other.
+ *
+ * PROBED rather than derived from `process.platform`, because the two do not
+ * agree: APFS can be formatted case-sensitive, and Linux can mount a
+ * case-insensitive volume. A platform gate would silently skip the case tests on
+ * the first host and silently fail them on the second — the two failure modes a
+ * gate exists to prevent.
+ *
+ * CI does not exercise what this gates. The daemon test job's matrix is
+ * `os: [ubuntu-latest]` (the macOS job runs the hook guards only, and never
+ * installs or runs this suite), so on CI the probe reports case-SENSITIVE and
+ * these tests skip — the same accepted latency class as the seam-gated win32
+ * paths.
+ *
+ * Two guards cover the seam on CI instead, and between them they catch the
+ * import swap both directly and by consequence: the default-implementation pin
+ * below, which asserts the identity and fails on every platform; and the
+ * trust-envelope suite's symlink-escape tests, which fail under a JS-walk
+ * substitution for a reason that has nothing to do with casing — that walk
+ * collapses `..` inside itself rather than against the resolved target.
+ */
+const filesystemIsCaseInsensitive: boolean = ((): boolean => {
+  const probeRoot = mkdtempSync(join(tmpdir(), "repo-root-resolver-case-probe-"));
+  try {
+    mkdirSync(join(probeRoot, "CaseProbe"));
+    statSync(join(probeRoot, "caseprobe"));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    rmSync(probeRoot, { recursive: true, force: true });
+  }
+})();
+
+const itOnCaseInsensitiveFilesystem = it.skipIf(!filesystemIsCaseInsensitive);
 
 // ----------------------------------------------------------------------------
 // Real-git fixtures
@@ -209,6 +249,7 @@ async function runGitOrThrow(
 interface Fixtures {
   readonly fixtureRoot: string;
   readonly repositoryRoot: string;
+  readonly mixedCaseRepositoryRoot: string;
   readonly nestedDirectory: string;
   readonly symlinkToNestedDirectory: string;
   readonly plainDirectory: string;
@@ -252,6 +293,11 @@ beforeAll(async () => {
   // `/private/var/folders/...`. That aliasing is precisely what the resolver
   // canonicalizes, so an expectation built from the un-resolved mkdtemp output
   // would mismatch on every assertion.
+  //
+  // Resolved with the module's OWN primitive — `node:fs/promises.realpath`, the
+  // seam default. Canonicalizing fixtures under a different implementation would
+  // let a temp-root spelling difference resurface as a fixture-versus-module
+  // mismatch that appears only on macOS and reads like a module bug.
   const fixtureRoot = await realpath(await mkdtemp(join(tmpdir(), "repo-root-resolver-")));
   const environment = buildFixtureEnvironment(fixtureRoot);
 
@@ -272,9 +318,16 @@ beforeAll(async () => {
   await symlink(nestedDirectory, symlinkToNestedDirectory);
   await symlink(plainDirectory, symlinkToPlainDirectory);
 
+  // Deliberately mixed-case, so a test can attach it under a spelling that
+  // differs only in case. On a case-insensitive filesystem the mis-spelling
+  // resolves; on a case-sensitive one it does not exist, which is why the test
+  // that uses it is gated on the probe rather than on the platform.
+  const mixedCaseRepositoryRoot = join(fixtureRoot, "MixedCaseRepo");
+
   const bareRepository = join(fixtureRoot, "bare.git");
   const linkedWorktreeRoot = join(fixtureRoot, "linked-worktree");
   await runGitOrThrow(["init", "-q", repositoryRoot], environment);
+  await runGitOrThrow(["init", "-q", mixedCaseRepositoryRoot], environment);
   await runGitOrThrow(["init", "-q", "--bare", bareRepository], environment);
   // A linked worktree needs a commit to branch from. It is the fixture that
   // proves the mechanism choice: inside it, `.git` is a FILE, so the parent-walk
@@ -412,6 +465,7 @@ beforeAll(async () => {
   fixtures = {
     fixtureRoot,
     repositoryRoot,
+    mixedCaseRepositoryRoot,
     nestedDirectory,
     symlinkToNestedDirectory,
     plainDirectory,
@@ -583,7 +637,31 @@ describe("canonical resolution against real git (I-009-1)", () => {
   it("resolves the repository root itself to the same value", async () => {
     const resolution = await new RepoRootResolver().resolveCanonicalRoot(fixtures.repositoryRoot);
     expect(resolution).toEqual({ canonicalRoot: fixtures.repositoryRoot, vcsType: "git" });
+    // I-009-1's "physical path" includes SPELLING: the persisted root carries
+    // the filesystem's own casing for every component, which is what makes
+    // Phase 2's `canonical_root`-keyed uniqueness (D-009-7) able to recognize
+    // two attaches of one repository as duplicates.
+    expect(resolution.canonicalRoot).toBe(realpathSync.native(fixtures.repositoryRoot));
   });
+
+  itOnCaseInsensitiveFilesystem(
+    "accepts a mis-cased attach and persists the on-disk casing",
+    async () => {
+      // The containment check compares component strings without folding, so
+      // this passes only because the realpath seam normalizes the input's
+      // casing before git is asked. A JS-walk realpath preserves the caller's
+      // spelling, and this attach would then be refused `root_mismatch` — an
+      // honest repository turned away with a security-shaped error on the
+      // default macOS filesystem.
+      const misCasedSpelling = join(fixtures.fixtureRoot, "mixedcaserepo");
+      const resolution = await new RepoRootResolver().resolveCanonicalRoot(misCasedSpelling);
+      expect(resolution).toEqual({
+        canonicalRoot: realpathSync.native(fixtures.mixedCaseRepositoryRoot),
+        vcsType: "git",
+      });
+      expect(resolution.canonicalRoot).not.toBe(misCasedSpelling);
+    },
+  );
 
   it("resolves a linked worktree to the worktree root, where .git is a FILE", async () => {
     // The mechanism pin. A parent-walk looking for a `.git` DIRECTORY finds
@@ -1270,6 +1348,21 @@ const win32SeparatorOverPosixPaths: PlatformPathModule = {
   isAbsolute: posixPath.isAbsolute,
   parse: () => ({ root: `C:${win32Path.sep}` }),
 };
+
+describe("the default realpath implementation is pinned (I-009-1)", () => {
+  it("is `node:fs/promises.realpath`, never the JS-walk implementation", () => {
+    // Structural deliberately. The casing behavior this protects is observable
+    // only on a case-insensitive filesystem, which CI's ubuntu-only daemon leg
+    // is not — so the probe-gated tests cannot catch a quiet swap there, and
+    // this assertion, which fails on every platform, is what does.
+    //
+    // The hazard is specific: `node:fs`'s callback `realpath` is the
+    // implementation Node documents as performing "No case conversion ... on
+    // case-insensitive file systems". Defaulting to it would leave every other
+    // test in this file green on CI while mis-cased attach broke on macOS.
+    expect(DEFAULT_REALPATH).toBe(realpath);
+  });
+});
 
 describe("line terminator stripping is platform-scoped (I-009-1)", () => {
   it("strips a CRLF terminator on win32, where no name can end in a CR", async () => {

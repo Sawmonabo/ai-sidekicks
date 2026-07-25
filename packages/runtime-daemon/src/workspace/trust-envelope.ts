@@ -137,6 +137,38 @@
 // would be the unsafe direction, since `/REPO` and `/repo` are genuinely
 // different directories there.
 //
+// That sensitivity rarely bites, because both operands arrive spelled the way
+// the FILESYSTEM spells them. Node documents `fsPromises.realpath` as resolving
+// with the semantics of `fs.realpath.native`, which returns each component's
+// on-disk name, so a candidate supplied as `/Repo/SUB` and an anchor admitted as
+// `/repo/sub` reach the comparison identical. Benign mis-spelling is collapsed
+// before containment runs; what the case-sensitive comparison still refuses is
+// the residual named above — a genuine per-directory case-sensitivity island.
+//
+// The anchor's PROVENANCE is what makes that true, and it is worth stating
+// rather than assuming: `mountCanonicalRoot` is not operator text. It is a value
+// T1.5's resolver produced under this same primitive, so it carries on-disk
+// spelling before it is ever admitted. The claim would not hold for an anchor
+// persisted as typed.
+//
+// Note which direction this runs. Pre-collapsing spelling lets two GENUINELY
+// IDENTICAL directories agree; it never lets a candidate that escapes the mount
+// compare as contained. Comparing the resolved candidate against the anchor as
+// admitted can still only ever reject more.
+//
+// The seam DEFAULT carries both halves, and is load-bearing rather than
+// incidental: `node:fs`'s callback `realpath` and `realpathSync` are a
+// JavaScript walk that preserves the CALLER's spelling AND collapses `..` inside
+// its own walk instead of against a symlink's resolved target. Defaulting to
+// either would break a mis-cased bind on APFS and reopen the `..` escape the
+// ORDER IS LOAD-BEARING section exists to refuse. Both suites pin the default by
+// identity, and pin the casing behavior behind a filesystem probe.
+//
+// Nothing needs migrating. Phase 1 persists no rows at all, so no stored
+// `canonical_root` carries operator-supplied casing for a later phase to
+// reconcile; Phase 2 begins writing values that are on-disk-spelled by
+// construction.
+//
 // Failure is uniform, and one residual comes with it
 // --------------------------------------------------------------------------
 // Every refusal throws the argument-free `TrustEnvelopeViolationError`
@@ -252,7 +284,7 @@ export type PathRealpathResolver = (path: string) => Promise<string>;
  * suggestion and nothing else. Keep them identical: a member added to one
  * belongs in the other.
  *
- * That instruction governs FIVE surfaces, not this interface alone. The pair
+ * That instruction governs SIX surfaces, not this interface alone. The pair
  * of modules duplicates:
  *
  *   1. this interface;
@@ -262,22 +294,31 @@ export type PathRealpathResolver = (path: string) => Promise<string>;
  *   5. the win32 driveless-root rule — the resolver states it once, in
  *      `namesCompleteLocation`, and `joinCandidatePath` below re-spells it
  *      inline for its absolute `directory` arm (a parsed root longer than one
- *      character is the complete-location test in both places).
+ *      character is the complete-location test in both places);
+ *   6. the exported `DEFAULT_REALPATH` binding below.
  *
- * All five remain PROSE-only twins: nothing assigns one copy to the other, so
- * no divergence between the copies is compile-visible and the instruction above
- * is the only enforcement there is. For the first four that is cheap: they are
- * aliases and defaulting boilerplate a reader compares at a glance. The fifth
- * is a CONTAINMENT rule, so divergence there changes which paths are admitted —
- * silently, and only on Windows. It is the one a future editor most needs
+ * The first FIVE are PROSE-only twins: nothing assigns one copy to the other,
+ * so no divergence between them is compile-visible and the instruction above is
+ * the only enforcement they have. For the first four that is cheap — aliases
+ * and defaulting boilerplate a reader compares at a glance. The fifth is a
+ * CONTAINMENT rule, so divergence there changes which paths are admitted,
+ * silently and only on Windows. It is the one a future editor most needs
  * flagged.
+ *
+ * The SIXTH is TEST-enforced instead. Each suite pins its own module's default
+ * by identity against `node:fs/promises`' `realpath`, so drift in either module
+ * fails that module's own suite; and because both pins name the same external
+ * binding, the two defaults cannot silently diverge from each other either.
+ * That matters beyond tidiness — the anchor-provenance argument in the header
+ * above holds only while T1.5 resolves under the same primitive this module
+ * does.
  *
  * The list did not shrink when the resolver started importing from here. The
  * component-comparison helpers below are SHARED, not duplicated: T1.5 calls the
  * same three functions this module's own boundary check calls, so its
  * `root_mismatch` verification and this module's bind-side containment agree by
- * construction. That is a different relationship from the five, and the only
- * one of the two that a compiler enforces.
+ * construction. That is a third relationship, and the only one a COMPILER
+ * enforces — the sixth twin is held by tests, the first five by this note alone.
  */
 export interface PlatformPathModule {
   readonly sep: string;
@@ -287,7 +328,36 @@ export interface PlatformPathModule {
 
 /** Constructor-injectable primitives; every member defaults to the real one. */
 export interface TrustEnvelopeValidatorDeps {
-  /** Defaults to `node:fs/promises.realpath`. */
+  /**
+   * Defaults to `node:fs/promises.realpath`, which Node documents as resolving
+   * "using the same semantics as the `fs.realpath.native()` function" and which
+   * therefore returns each component's ON-DISK spelling.
+   *
+   * `node:fs`'s CALLBACK `realpath` is a different implementation and is not
+   * interchangeable: Node lists "No case conversion is performed on
+   * case-insensitive file systems" as the first documented difference, so a
+   * mis-cased bind would keep the caller's spelling and be refused. It also
+   * collapses `..` in its own walk rather than letting the kernel apply it to a
+   * symlink's target, which is the escape the ORDER IS LOAD-BEARING section
+   * above exists to refuse — so the choice of implementation is a containment
+   * question here, not only a casing one. `DEFAULT_REALPATH` below is pinned.
+   *
+   * Three documented caveats of the native path, none load-bearing here:
+   *   * musl-linked Linux needs procfs mounted at `/proc` for it to work at all;
+   *     "Glibc does not have this restriction". An Alpine-container concern.
+   *   * macOS and the BSDs fail with `ELOOP` past 32 symlinks in one resolution,
+   *     "hardcoded and cannot be sidestepped" (libuv). Every realpath failure
+   *     here is already a uniform `TrustEnvelopeViolationError`, so this arrives
+   *     fail-closed like any other unresolvable candidate.
+   *   * Windows shows "Inconsistent casing when using drive letters", alongside
+   *     unresolvable ImDisk-style ramdisks and bypassed `subst` drives. The
+   *     casing one is benign HERE because the win32 branch folds case; the other
+   *     two resolve to a refusal, which is the safe direction.
+   *
+   * Primary sources, also in `Plan-009 §References`:
+   *   * Node `fs` — https://nodejs.org/api/fs.html#fsrealpathnativepath-options-callback
+   *   * libuv `uv_fs_realpath` — https://docs.libuv.org/en/v1.x/fs.html
+   */
   readonly realpath: PathRealpathResolver;
   /**
    * Defaults to `node:path`, already bound to the host platform. Injected as
@@ -303,9 +373,19 @@ export interface TrustEnvelopeValidatorDeps {
 /** `path.win32.sep`. The discriminator for case-folded comparison. */
 const WINDOWS_PATH_SEPARATOR = "\\";
 
+/**
+ * The realpath used when no seam is injected, exported so a test can assert
+ * WHICH implementation it is.
+ *
+ * The pin is structural because the casing half of the contract is only
+ * OBSERVABLE on a case-insensitive filesystem, and CI's daemon leg is
+ * ubuntu-only. Identity against this binding fails everywhere.
+ */
+export const DEFAULT_REALPATH: PathRealpathResolver = realpathFromFilesystem;
+
 function resolveDeps(partial: Partial<TrustEnvelopeValidatorDeps>): TrustEnvelopeValidatorDeps {
   return {
-    realpath: partial.realpath ?? realpathFromFilesystem,
+    realpath: partial.realpath ?? DEFAULT_REALPATH,
     platformPath: partial.platformPath ?? nodePath,
   };
 }
@@ -338,8 +418,11 @@ function stripTrailingSeparators(path: string, separator: string): string {
 }
 
 /**
- * The comparable form of a path: its components, case-folded where the
- * platform's filesystem is case-insensitive.
+ * The comparable form of a path: its components, case-folded where the INJECTED
+ * module's separator is win32's — not where the host filesystem happens to be
+ * case-insensitive. The two are different populations, and the module header's
+ * APFS paragraph states why the gap is the safe direction rather than an
+ * oversight.
  *
  * Splitting on the platform separator alone is deliberate. On win32 the
  * filesystem accepts `/` as well, but both values reaching this function in
