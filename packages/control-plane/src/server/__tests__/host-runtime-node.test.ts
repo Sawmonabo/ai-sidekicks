@@ -304,7 +304,9 @@ describe("merged host — runtimenode.* resolves through t.mergeRouters (T3.8)",
   it("dispatches runtimenode.heartbeat through buildControlPlaneFetchHandler and returns 200 + null", async () => {
     // First-beat upsert needs no seeding — `runtime_node_presence.node_id` is a
     // bare TEXT PK (no FK), so ingest succeeds standalone (the first-heartbeat
-    // test in heartbeat-service.test.ts's "HeartbeatService — ingest" suite).
+    // test in the
+    // `packages/control-plane/src/runtime-nodes/__tests__/heartbeat-service.test.ts#HeartbeatService — ingest`
+    // suite).
     const response = await handler(buildHeartbeatRequest(), PASSING_ENV);
 
     // Status first: a 404 (procedure not mounted by the merge) or a 503 (gate
@@ -410,9 +412,9 @@ describe("errorFormatter projection — AisWireException base covers all subtype
     // translates to the typed RuntimeNodeAttachConflictException (I-003-5). The
     // attach catch-arm maps it to CONFLICT and the shared formatter projects it.
     // This is the in-process router test's attach-conflict assertion —
-    // runtime-node-router.test.ts's "runtimenode.attach maps the cross-session
-    // conflict (RuntimeNodeAttachConflictException) to CONFLICT" — re-run on
-    // the HTTP path, the only surface where `aisError` is observable.
+    // `packages/control-plane/src/runtime-nodes/__tests__/runtime-node-router.test.ts#runtimenode.attach maps the cross-session conflict (RuntimeNodeAttachConflictException) to CONFLICT`
+    // — re-run on the HTTP path, the only surface where `aisError` is
+    // observable.
     const querier = adaptPGlite(pg);
     await seedParticipant(querier, PARTICIPANT_ID);
     await seedSession(querier, SESSION_ID);
@@ -438,7 +440,7 @@ describe("errorFormatter projection — AisWireException base covers all subtype
     expect(typeof aisError?.message).toBe("string");
     // No-info-leak survives the HTTP hop: the message names the node id, never
     // the OTHER session holding it (mirrors the no-info-leak assertions in the
-    // same runtime-node-router.test.ts attach-conflict test).
+    // same attach-conflict test anchored above).
     expect(aisError?.message).toContain(String(NODE_ID));
     expect(aisError?.message).not.toContain(String(OTHER_SESSION_ID));
     expect(aisError).not.toHaveProperty("details");
@@ -449,8 +451,8 @@ describe("errorFormatter projection — AisWireException base covers all subtype
     // state: re-attach is refused with RuntimeNodeAttachRevokedException (P10 —
     // revocation is terminal, never reactivated). The distinct attach catch-arm
     // branch maps it to CONFLICT and the formatter projects it. The HTTP-path
-    // twin of runtime-node-router.test.ts's "runtimenode.attach maps the
-    // revoked-row refusal (RuntimeNodeAttachRevokedException) to CONFLICT".
+    // twin of
+    // `packages/control-plane/src/runtime-nodes/__tests__/runtime-node-router.test.ts#runtimenode.attach maps the revoked-row refusal (RuntimeNodeAttachRevokedException) to CONFLICT`.
     const querier = adaptPGlite(pg);
     await seedParticipant(querier, PARTICIPANT_ID);
     await seedSession(querier, SESSION_ID);

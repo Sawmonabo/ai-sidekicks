@@ -24,11 +24,13 @@
 //     payload components — `nodeId` (identity), the `capabilities` map
 //     rendered by the composed `CapabilityDeclaration` (declared
 //     capabilities), `healthState` (the daemon's 2-value self-reported health
-//     axis — `RuntimeNodeHealthState` in runtime-node.ts), and `participantId` + `clientVersion`
+//     axis — `packages/contracts/src/runtime-node.ts#RuntimeNodeHealthState`),
+//     and `participantId` + `clientVersion`
 //     (trust context: the membership identity the attach rides and the
 //     version the control plane compares against the session floor,
 //     `Spec-003 §Required Behavior`) — and the request carries exactly those fields plus the
-//     target `sessionId` (the `RuntimeNodeAttachRequest` interface in runtime-node.ts).
+//     target `sessionId`
+//     (`packages/contracts/src/runtime-node.ts#RuntimeNodeAttachRequest`).
 //   • `Spec-003 §Required Behavior` ("runtime-node attach must be a separate step from membership
 //     acceptance"): the I-003-3 block below — the separation is this view's
 //     invariant.
@@ -84,8 +86,9 @@
 //       the `runtime_node_attachments` row (`Spec-003 §Required Behavior`: "the control
 //       plane must coordinate runtime-node discovery and presence");
 //     • the shipped end-to-end proof of the procedure is the control-plane
-//       SDK arm (`createControlPlaneRuntimeNodeClient` in
-//       packages/client-sdk/src/runtimeNodeClient.ts, Plan-003 Phase 4) — the
+//       SDK arm
+//       (`packages/client-sdk/src/runtimeNodeClient.ts#createControlPlaneRuntimeNodeClient`,
+//       Plan-003 Phase 4) — the
 //       surface the Plan-023 Tier 8 IPC wiring binds the bridge onto;
 //     • the in-directory sibling (NodeRoster's roster read) already routes
 //       through `controlPlane.call(...)`, keeping the whole
@@ -148,8 +151,9 @@ import { CapabilityDeclaration } from "./CapabilityDeclaration.js";
 const RUNTIME_NODE_ATTACH_PROCEDURE = "runtimenode.attach";
 
 /**
- * The node's attach self-description: the `RuntimeNodeAttachRequest` interface
- * in runtime-node.ts MINUS the target `sessionId` — i.e. the
+ * The node's attach self-description:
+ * `packages/contracts/src/runtime-node.ts#RuntimeNodeAttachRequest`
+ * MINUS the target `sessionId` — i.e. the
  * `Spec-003 §Required Behavior` payload components (node identity, declared
  * capabilities, health, trust context) without the session the view targets.
  *
@@ -195,7 +199,8 @@ export interface AttachFlowProps {
 // click-triggered view needs (invite-accept-view.tsx:111-115). Each variant
 // maps 1:1 to a rendered `<section>` branch below, so the render is a total
 // function over the union. The `resolved` variant carries the verbatim
-// shipped `RuntimeNodeAttachResponse` DTO (declared in runtime-node.ts) — no
+// shipped `RuntimeNodeAttachResponse` DTO
+// (`packages/contracts/src/runtime-node.ts#RuntimeNodeAttachResponse`) — no
 // local view-model.
 type AttachViewState =
   | { kind: "idle" }
@@ -265,19 +270,19 @@ export function AttachFlow({ sessionId, attachDraft }: AttachFlowProps): React.J
     setAttachViewState({ kind: "pending" });
 
     // `CpProcedure` brand cast (Plan-002/Plan-008 follow-up), tightened to
-    // the real types — the same single-documented-cast posture as the
-    // `readRoster` cast in the sibling NodeRoster.tsx and T6.1's
+    // the real types — the same single-documented-cast posture as the sibling
+    // `NodeRoster.tsx#readRoster` cast and T6.1's
     // `acceptInvite`. The bridge declares `controlPlane.call<P extends
     // CpProcedure>(procedure: P, input: CpInput<P>): Promise<CpOutput<P>>`
     // (desktop-bridge.ts:277) where `CpProcedure` is a `never`-shaped brand
     // at Tier 1 (desktop-bridge.ts:99) — no string literal is structurally
     // assignable to it until the control-plane tRPC surface narrows the
     // brand. The procedure-name string stays loosely `string` (the genuinely
-    // untypeable part), but we PIN input → the `RuntimeNodeAttachRequest`
-    // interface in runtime-node.ts (the spread-built request object below is
-    // type-checked at the call site) and return →
-    // `Promise<RuntimeNodeAttachResponse>` (declared in runtime-node.ts — the
-    // resolved value needs no downstream cast).
+    // untypeable part), but we PIN input →
+    // `packages/contracts/src/runtime-node.ts#RuntimeNodeAttachRequest` (the
+    // spread-built request object below is type-checked at the call site) and
+    // return → `Promise<RuntimeNodeAttachResponse>` (declared in the same
+    // contracts module — the resolved value needs no downstream cast).
     const attachRuntimeNode = window.sidekicks.controlPlane.call as (
       procedure: string,
       input: RuntimeNodeAttachRequest,
@@ -377,8 +382,9 @@ export function AttachFlow({ sessionId, attachDraft }: AttachFlowProps): React.J
 
   if (attachViewState.kind === "resolved") {
     // Resolved — the attachment verdict rendered VERBATIM off the shipped
-    // `RuntimeNodeAttachResponse` DTO (declared in runtime-node.ts), no local
-    // view-model:
+    // `RuntimeNodeAttachResponse` DTO
+    // (`packages/contracts/src/runtime-node.ts#RuntimeNodeAttachResponse`),
+    // no local view-model:
     //   • `state` is the server-derived `NodeState` AS RETURNED — a fresh
     //     attachment is typically `registering`, NOT `online` — per
     //     `Spec-003 §Default Behavior`, nodes default online only after the
@@ -388,8 +394,8 @@ export function AttachFlow({ sessionId, attachDraft }: AttachFlowProps): React.J
     //   • `readOnly` is the attach-time floor verdict (`Spec-003 §Required Behavior`: a
     //     below-floor daemon is ADMITTED read-only, not refused), labeled
     //     with the same at-floor/below-floor wording as the sibling
-    //     NodeRoster row (the access label in NodeRoster.tsx's loaded-branch
-    //     row) so the two surfaces read consistently. The full below-floor
+    //     NodeRoster row (the access label in the loaded-branch row of
+    //     `NodeRoster.tsx#NodeRoster`) so the two surfaces read consistently. The full below-floor
     //     UX (typed VERSION_FLOOR_EXCEEDED on a later write) is T5.3's
     //     MixedVersionStatus scope, not this view's.
     // `data-node-state` / `data-read-only` mirror NodeRoster's facet

@@ -10,7 +10,7 @@
 // control-plane service and arrives on the `RuntimeNodeRosterEntry` wire DTO
 // (`readOnly`, derived per row at read time — that field on
 // `RuntimeNodeRosterEntrySchema`; server derivation in
-// `AttachService.readRoster` in attach-service.ts);
+// `packages/control-plane/src/runtime-nodes/attach-service.ts#readRoster`);
 // this view consumes it and NEVER re-derives floor logic — no
 // `clientVersion`-vs-floor comparison exists in this file, by design (the
 // T5.3 task row, `Plan-003 §T5.3 — Mixed-version status indicator (below-floor read-only surfacing)`).
@@ -57,10 +57,12 @@
 //
 // "DETACHED" — what the shipped contract can actually represent. `NodeState`
 // has NO `detached` member (the 5-value enum `registering | online | degraded
-// | offline | revoked` — the `NodeState` union in runtime-node.ts), and detachment is NOT row
-// deletion either. The two contract-representable manifestations:
+// | offline | revoked` — `packages/contracts/src/runtime-node.ts#NodeState`),
+// and detachment is NOT row deletion either. The two contract-representable
+// manifestations:
 //   • An explicitly detached node's attachment row PERSISTS with the terminal
-//     slot state `offline`: the guarded retire UPDATE in `AttachService.detach`
+//     slot state `offline`: the guarded retire UPDATE in
+//     `packages/control-plane/src/runtime-nodes/attach-service.ts#detach`
 //     moves the single active row to `offline` ("detach writes the TERMINAL
 //     state `offline` ONLY" — the `Scope (settled, T3.7)` note in that
 //     method's JSDoc) — slot-axis `offline` is server-effected via
@@ -93,7 +95,7 @@
 // token is what totality over the shipped 5-value enum honestly requires.
 //
 // SUPPLIED-BY-PARENT posture (the precedent set by the `attachDraft` prop on
-// `AttachFlowProps` in AttachFlow.tsx): at Tier 3 this view performs no wire
+// `AttachFlow.tsx#AttachFlowProps`): at Tier 3 this view performs no wire
 // call. The roster entry is read upstream through the GENERIC bridge surface
 // — the registered control-plane-only `runtimenode.roster` query
 // (`window.sidekicks.controlPlane.call(...)`, exactly the sibling NodeRoster's
@@ -131,9 +133,9 @@ import type {
 // `NEGOTIATION_REASON_FLOOR_EXCEEDED` (the plain `as const` literal at
 // jsonrpc-negotiation.ts:211) and aliased as the `VersionFloorExceededCode`
 // type (error.ts:96-98). LOCAL DUPLICATE of the sibling
-// `VERSION_FLOOR_EXCEEDED_WIRE_CODE` const in NodeRoster.tsx — NodeRoster
-// deliberately does not export its recognizer machinery, and this task's file
-// scope cannot widen the sibling.
+// `NodeRoster.tsx#VERSION_FLOOR_EXCEEDED_WIRE_CODE` — NodeRoster deliberately
+// does not export its recognizer machinery, and this task's file scope cannot
+// widen the sibling.
 // The duplication is drift-safe BY THE TYPE BINDING, not by discipline:
 // annotating each local literal with the imported `VersionFloorExceededCode`
 // binds BOTH copies to the contracts literal at compile time, so if the
@@ -152,10 +154,10 @@ const VERSION_FLOOR_EXCEEDED_WIRE_CODE: VersionFloorExceededCode = "version.floo
  * Props for {@link MixedVersionStatus}.
  *
  * `rosterEntry` is the node's row from the registered `runtimenode.roster`
- * read (the `RuntimeNodeRosterEntry` interface in runtime-node.ts — the shipped T5.0b
- * wire DTO, carrying the server-resolved `state` + `readOnly` axes this
- * indicator projects), or `null` when the session roster carries NO row for
- * the node — the parent's lookup miss, e.g.
+ * read (`packages/contracts/src/runtime-node.ts#RuntimeNodeRosterEntry` — the
+ * shipped T5.0b wire DTO, carrying the server-resolved `state` + `readOnly`
+ * axes this indicator projects), or `null` when the session roster carries NO
+ * row for the node — the parent's lookup miss, e.g.
  * `rosterResponse.nodes.find((node) => node.nodeId === localNodeId) ?? null`.
  * REQUIRED with an explicit `null`, deliberately not optional: under
  * `exactOptionalPropertyTypes` an omittable prop would let a parent silently
@@ -190,9 +192,10 @@ export interface MixedVersionStatusProps {
 type NodeAccessStatus = "read-write" | "read-only" | "detached" | "revoked";
 
 // Human labels per verdict. The two ATTACHED labels are byte-identical to the
-// sibling access wording (the access label in NodeRoster.tsx's loaded-branch
-// row; the same in AttachFlow.tsx's resolved branch) so the three runtime-node
-// views read consistently in the T5.4 smoke; the two RETIRED labels state the
+// sibling access wording (the access label in the loaded-branch row of
+// `NodeRoster.tsx#NodeRoster`; the same in `AttachFlow.tsx#AttachFlow`'s
+// resolved branch) so the three runtime-node views read consistently in the
+// T5.4 smoke; the two RETIRED labels state the
 // load-bearing difference between the terminal states (reconnect-allowed vs
 // re-attach-refused — `Spec-003 §Fallback Behavior` and `Spec-003 §Default Behavior`).
 const ACCESS_STATUS_LABELS: Record<NodeAccessStatus, string> = {
@@ -264,15 +267,15 @@ function resolveAccessStatus(rosterEntry: RuntimeNodeRosterEntry | null): NodeAc
 
 // Below-floor rejection envelope — the load-bearing consumption of the
 // `VersionFloorExceededError` contract (contract_consumes). LOCAL DUPLICATE
-// of the sibling original (the `VersionFloorRejectionEnvelope` type in
-// NodeRoster.tsx), same drift-safety argument as the wire-code const above.
+// of the sibling original (`NodeRoster.tsx#VersionFloorRejectionEnvelope`),
+// same drift-safety argument as the wire-code const above.
 // `Pick` keeps the recognizer HONEST about what the write-refusal surface
 // actually delivers: the full `VersionFloorExceededError` (error.ts:332-336)
 // requires
 // `details: VersionBoundExceededDetails` — the TWO-sided HTTP `ErrorResponse`
 // shape — but the runtime-node refusal surface is code+message-only (the
 // one-sided session floor cannot populate `acceptedRange`; the SDK's rejection
-// shape (the `RuntimeNodeControlPlaneError` class in runtimeNodeClient.ts)
+// shape (`packages/client-sdk/src/runtimeNodeClient.ts#RuntimeNodeControlPlaneError`)
 // likewise carries no `details` — only `code` + `message`, plus a
 // transport-level `httpStatus`). Narrowing to the full interface while
 // checking two fields would let a future reader dereference `.details` with
@@ -281,9 +284,9 @@ function resolveAccessStatus(rosterEntry: RuntimeNodeRosterEntry | null): NodeAc
 // shipped contract.
 type VersionFloorRejectionEnvelope = Pick<VersionFloorExceededError, "code" | "message">;
 
-// Below-floor recognizer — LOCAL DUPLICATE of the sibling original (the
-// `isVersionFloorExceededRejection` recognizer in NodeRoster.tsx; that file
-// does not export it, and it sits outside this task's file scope). The wire
+// Below-floor recognizer — LOCAL DUPLICATE of the sibling original
+// (`NodeRoster.tsx#isVersionFloorExceededRejection`; that file does not
+// export it, and it sits outside this task's file scope). The wire
 // code `version.floor_exceeded` is the typed verdict a below-floor node's
 // version-sensitive write returns
 // (`VERSION_FLOOR_EXCEEDED`, ADR-018 §Decision #4 / I-003-1) — exactly the
@@ -308,9 +311,9 @@ function isVersionFloorExceededRejection(value: unknown): value is VersionFloorR
 // `runtimenode.*` typed refusals carry (error.ts:103-110), e.g.
 // `runtimenode.capabilityupdate_conflict` — a realistic non-floor arrival on
 // this very prop (a write racing a detach raises it, error.ts:117-124). LOCAL
-// DUPLICATE of the sibling original (the `isWireErrorEnvelope` recognizer in
-// AttachFlow.tsx), shape-generic by design (any string `code` + string
-// `message`, no literals to drift):
+// DUPLICATE of the sibling original (`AttachFlow.tsx#isWireErrorEnvelope`),
+// shape-generic by design (any string `code` + string `message`, no literals
+// to drift):
 // this arm's job is to render WHICH refusal occurred, not to branch behavior
 // per code. Checked AFTER the floor recognizer (the specific-before-generic
 // ordering both siblings' normalizations use).
@@ -321,9 +324,9 @@ function isWireErrorEnvelope(value: unknown): value is { code: string; message: 
 }
 
 // Never-throwing lossy fallback for values bare `String(...)` cannot render —
-// LOCAL DUPLICATE of the sibling original (the `lossyStringify` helper in
-// CapabilityDeclaration.tsx; that file does not export it, and it sits
-// outside this task's file scope).
+// LOCAL DUPLICATE of the sibling original
+// (`CapabilityDeclaration.tsx#lossyStringify`; that file does not export it,
+// and it sits outside this task's file scope).
 // Bare `String(...)` is NOT total: it runs ToPrimitive, which itself throws
 // for a null-prototype object — or null-prototype FUNCTION — carrying no
 // `toString`/`valueOf`/`Symbol.toPrimitive` (and a hostile throwing
@@ -335,9 +338,9 @@ function isWireErrorEnvelope(value: unknown): value is { code: string; message: 
 // pathological layer deeper.
 //
 // BOUNDARY CLASS — why this file guards where the two normalizations it
-// otherwise mirrors keep the bare wrap (`normalizeAttachError` in
-// AttachFlow.tsx; `normalizeRosterReadError` in NodeRoster.tsx): their
-// rejection inputs are bridge-CATCH bindings —
+// otherwise mirrors keep the bare wrap (`AttachFlow.tsx#normalizeAttachError`;
+// `NodeRoster.tsx#normalizeRosterReadError`): their rejection inputs are
+// bridge-CATCH bindings —
 // values that arrived through the IPC/promise-rejection surface, where a
 // ToPrimitive-failing shape is not realistically reachable. This file's
 // rejection input is a PROP (`writeAttemptRejection`), and the prop boundary
@@ -362,8 +365,8 @@ function lossyStringify(rejection: unknown): string {
 // Normalizes a NON-floor write rejection into a render-ready `Error` for the
 // unrecognized arm (the floor envelope never reaches this — it gets the
 // dedicated AC4 block instead). Same register as the siblings'
-// normalizations (`normalizeAttachError` in AttachFlow.tsx;
-// `normalizeRosterReadError` in NodeRoster.tsx), with ONE deliberate
+// normalizations (`AttachFlow.tsx#normalizeAttachError`;
+// `NodeRoster.tsx#normalizeRosterReadError`), with ONE deliberate
 // divergence in the terminal arm (see `lossyStringify` above):
 //   • A typed wire envelope (or an `Error` carrying a wire `code`) is rebuilt
 //     as a fresh `Error` with the wire `code` as `Error.name`, so the render
@@ -448,7 +451,7 @@ export function MixedVersionStatus({
     // arbitrary failure in floor wording would fabricate a floor verdict this
     // view is forbidden to derive — the converse of AttachFlow's
     // no-floor-recognizer stance on its attach path (the note above
-    // `normalizeAttachError` in AttachFlow.tsx).
+    // `AttachFlow.tsx#normalizeAttachError`).
     const normalizedRejection = normalizeUnrecognizedRejection(writeAttemptRejection);
     writeRefusalBlock = (
       <div role="alert" aria-label="unrecognized-write-rejection" data-write-refusal="unrecognized">
