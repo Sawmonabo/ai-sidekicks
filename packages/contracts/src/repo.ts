@@ -449,10 +449,24 @@ export const RepoAttachRequestSchema: z.ZodType<RepoAttachRequest, RepoAttachReq
     //   • Absoluteness. A `startsWith("/")` test would refuse every Windows
     //     path (`C:\repos\foo`), and Windows is a V1 tier (ADR-019); a
     //     cross-platform absoluteness rule is exactly the normalization
-    //     I-009-1 assigns to the daemon resolver. A relative or `~`-prefixed
-    //     path must stay REPRESENTABLE on the wire — resolving it is T1.5's
-    //     job, and `Spec-009 §Implementation Notes` warns that attach must not
-    //     assume the entered path is even the repo root.
+    //     I-009-1 assigns to the daemon resolver — which APPLIES that rule
+    //     rather than relaxing it: `RepoRootResolver` refuses with typed
+    //     `not_absolute` any input that does not name one COMPLETE location.
+    //     That is three shapes, not one: a relative path, a `~`-prefixed path,
+    //     and a driveless Windows root such as `\repos\foo` (which
+    //     `path.win32.isAbsolute` calls absolute while it names no volume).
+    //     Completing any of them would mean taking the missing piece from
+    //     daemon-side state — its working directory, its home, its current
+    //     drive — and under the cross-node model (`nodeId` below) that is not
+    //     the author's context, so the root would be a guess, which I-009-2
+    //     forbids. All three therefore fail LOUDLY; resolving them against the
+    //     author's context belongs to the client/CLI layer, before the path
+    //     reaches the wire. They stay
+    //     REPRESENTABLE here anyway, because refusing them at parse time would
+    //     mean spelling absoluteness in Zod for every platform, and that is
+    //     the resolver's job. `Spec-009 §Implementation Notes` separately
+    //     warns that attach must not assume the entered path is even the repo
+    //     root.
     //   • `..` traversal. Rejecting it here would refuse the legitimate
     //     `/home/me/../me/repo`. Traversal is a CONTAINMENT concern, checked
     //     post-resolution against the mount root by T1.6's validator

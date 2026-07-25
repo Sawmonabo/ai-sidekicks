@@ -68,12 +68,15 @@ const SAMPLE_BUSY_WORKSPACE_IDS = [
 /**
  * Total `Record` over the reason union: a member added to the union but not
  * listed here, or listed here but not in the union, is a compile error. Every
- * reason loop below derives from this rather than hardcoding the three, so the
- * loops grow with the union. That matters most for the redaction assertions —
- * a future reason whose message escaped them would be a silent hole in the
- * §Repo no-echo guarantee.
+ * reason loop below derives from this rather than hardcoding the members, so
+ * the loops grow with the union. That matters most for the redaction assertions
+ * — a future reason whose message escaped them would be a silent hole in the
+ * §Repo no-echo guarantee. It worked as designed when T1.5's absoluteness gate
+ * added `not_absolute`: this Record failed to compile until the member landed,
+ * and the redaction and round-trip loops picked it up with no further edit.
  */
 const RESOLUTION_REASON_KEYS: Record<RepoRootResolutionReason, true> = {
+  not_absolute: true,
   path_not_found: true,
   not_readable: true,
   vcs_error: true,
@@ -270,11 +273,12 @@ describe("repo error carriers — wire-projection shape", () => {
 // ----------------------------------------------------------------------------
 
 describe("RepoRootResolutionError — closed reason discriminant (I-009-2 carrier leg)", () => {
-  it("accepts exactly the three ratified reasons", () => {
+  it("accepts exactly the four ratified reasons", () => {
     // The union's member set is pinned at compile time by
     // `RESOLUTION_REASON_KEYS` being a total `Record`; this fixes the count
-    // and spelling so a fourth member cannot land silently.
+    // and spelling so a fifth member cannot land silently.
     expect([...EVERY_RESOLUTION_REASON].sort()).toEqual([
+      "not_absolute",
       "not_readable",
       "path_not_found",
       "vcs_error",
