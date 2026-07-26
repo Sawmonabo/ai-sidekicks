@@ -26,15 +26,19 @@
 //     inferred root — including no root inferred by completing an input that
 //     does not name one whole location (a relative path, `~`, or a driveless
 //     Windows root) out of daemon-side state, which the step-1 gate refuses.
-//   * I-009-4 — honest non-git classification. `vcsType: "none"` is produced
-//     ONLY on a positive "git ran and reported not-a-repository" verdict, and
-//     ONLY for the DISCOVERY query on the supplied path. Every git-invocation
-//     failure — git missing, git non-executable, git killed, git failing for
-//     any other reason — routes to `vcs_error`. See the fail-closed note on
-//     `classifyGitFailure` below. The same verdict from the VERIFICATION query
-//     is a refusal (`root_mismatch`), never a reclassification: a claimed root
-//     that is not a repository at all cannot be attached as a plain directory
-//     either, because it is not the path the operator supplied.
+//   * I-009-4 — honest non-git classification. `vcsType: "none"` needs TWO
+//     conditions, not one. It is produced ONLY on a positive "git ran and
+//     reported not-a-repository" verdict, ONLY for the DISCOVERY query on the
+//     supplied path, and ONLY when that path visibly carries no `.git` entry.
+//     Every git-invocation failure — git missing, git non-executable, git
+//     killed, git failing for any other reason — routes to `vcs_error`. See the
+//     fail-closed note on `classifyGitFailure` below. The same verdict from the
+//     VERIFICATION query is a refusal (`root_mismatch`), never a
+//     reclassification: a claimed root that is not a repository at all cannot
+//     be attached as a plain directory either, because it is not the path the
+//     operator supplied. And the verdict is refused outright when the supplied
+//     directory contradicts it by carrying metadata git could not use — see the
+//     consistency gate on the plain-directory arm.
 //
 // Mechanism, and why it is not a `.git` walk
 // --------------------------------------------------------------------------
@@ -46,6 +50,16 @@
 // `gitdir:` pointer, so the walk either misses the repository entirely or
 // reports the wrong root. `rev-parse` answers with git's own discovery rules,
 // which is the only answer that stays correct as those rules evolve.
+//
+// The plain-directory arm's consistency gate is NOT a retreat from that, and
+// the difference is what makes it safe. The rejected walk ASCENDS and
+// INTERPRETS — it climbs parents, and it has to understand a gitfile's
+// `gitdir:` contents to follow it, which is where it goes wrong. The gate does
+// neither. It looks at exactly one path, `<supplied>/.git`, never an ancestor,
+// and asks a single question with no interpretation in it: is anything there?
+// A gitfile counts as present precisely BECAUSE its contents are not read.
+// Discovery remains entirely git's; the gate only refuses to accept a
+// not-a-repository verdict the supplied directory visibly contradicts.
 //
 // ORDER IS LOAD-BEARING: the input is realpath'd BEFORE git sees it. That is
 // what makes the symlink case (I-009-1) correct rather than incidental — git
@@ -382,8 +396,24 @@ export interface RepoRootResolverDeps {
    * primitive choice (`opendir` over `access` and over `readdir`) and says why
    * the declaration sits on its side of the import edge.
    *
-   * Read once, by `finish`, against the root about to be RETURNED — see there
-   * for what it refuses and why `realpath` does not already cover it.
+   * TWO CONSUMERS IN THIS MODULE, asking different questions of the same
+   * primitive and reading the answer under DIFFERENT mappings. Both are worth
+   * knowing before injecting a stub, because a probe written for one will
+   * mislead the other:
+   *
+   *   * `finish`, against the root about to be RETURNED — "can the daemon
+   *     enumerate this?". A rejection is classified by
+   *     `classifyRealpathFailure`, so `EACCES` ⇒ `not_readable` and a vanished
+   *     root ⇒ `path_not_found`. See there for why `realpath` does not already
+   *     cover it.
+   *   * `hasVisibleGitMetadata`, against `<input>/.git` on the plain-directory
+   *     arm — "is repository metadata visibly there?". That reading is
+   *     `namesMissingEntry`: `ENOENT` alone means absent, and SUCCESS is a
+   *     refusal rather than a pass. Inverted, deliberately — see both.
+   *
+   * A stub that resolves unconditionally therefore asserts "every root is
+   * enumerable" AND "every directory carries `.git`"; one that rejects
+   * `ENOENT` unconditionally asserts the reverse of both.
    *
    * Injectable for the reason `realpath` is: the suite drives roots that do not
    * exist on the host — the win32 shapes, the trailing-space names — so a
@@ -480,6 +510,18 @@ export const GIT_FATAL_EXIT_CODE: number = 128;
  * would be circular. The suite fixes the wording from what real git emits.
  */
 const NOT_A_REPOSITORY_STDERR_MARKER = /^fatal: not a git repository/im;
+
+/**
+ * The entry name git's discovery looks for, and the only thing the plain-
+ * directory arm's consistency gate examines. A DIRECTORY in an ordinary
+ * checkout; a `gitdir:`-bearing FILE in a linked worktree or a
+ * `--separate-git-dir` clone.
+ *
+ * This module never reads its contents — it asks only whether the supplied
+ * directory visibly carries one. Interpreting the contents is git's job, and
+ * the whole point of the gate is that git has already declined to.
+ */
+const GIT_METADATA_ENTRY_NAME = ".git";
 
 /**
  * `GIT_*` variables omitted from the child environment because each one can
@@ -734,6 +776,14 @@ function readProperty(thrown: unknown, key: string): unknown {
  * `finish` on the git arm, one has been made and it SUCCEEDED — what failed
  * afterwards is the filesystem answering for a path, which is precisely what
  * the two reasons above are for.
+ *
+ * `namesMissingEntry` below reads a rejection the OPPOSITE way, and the two
+ * are not in tension because they are asked about different paths. This
+ * function is handed an errno for the path the caller WANTS; that a path the
+ * daemon needs is unusable says nothing about whether a repository is there.
+ * The gate below asks about `.git` specifically, where presence or absence is
+ * the only thing at issue — so there, an errno IS evidence about the version
+ * control question. Same seam, two questions, two readings.
  */
 function classifyRealpathFailure(thrown: unknown): "path_not_found" | "not_readable" {
   const errnoCode = readProperty(thrown, "code");
@@ -741,6 +791,25 @@ function classifyRealpathFailure(thrown: unknown): "path_not_found" | "not_reada
     return "path_not_found";
   }
   return "not_readable";
+}
+
+/**
+ * The SECOND reading of a probe rejection: does this errno prove the `.git`
+ * entry is ABSENT?
+ *
+ * `ENOENT` only, and the narrowness is the point. Every other rejection means
+ * something IS there and could not be examined — `EACCES` on a mode-`000`
+ * metadata directory, `ENOTDIR` on a `gitdir:` pointer file — which is the
+ * opposite of absence and must not be read as it. Anything unrecognized takes
+ * the same refusing branch, so a future errno cannot widen the plain-directory
+ * classification by surprise. That is the same fail-closed posture
+ * `classifyGitFailure` takes, applied to the filesystem side.
+ *
+ * `ENAMETOOLONG` deliberately does NOT count as absence: it says the name
+ * could not be evaluated, not that nothing answers to it.
+ */
+function namesMissingEntry(thrown: unknown): boolean {
+  return readProperty(thrown, "code") === "ENOENT";
 }
 
 /**
@@ -777,6 +846,16 @@ function classifyRealpathFailure(thrown: unknown): "path_not_found" | "not_reada
  *   * a future git that changed its wording or its exit code ⇒ abnormal, i.e.
  *     plain-directory attach breaks visibly instead of git repositories
  *     silently misclassifying.
+ *
+ * One family this function CANNOT catch, by construction: DAMAGED metadata.
+ * A checkout whose `.git` is unreadable, empty, or a pointer to nothing makes
+ * git emit the genuine not-a-repository wording at code 128, so all three
+ * parts of the verdict hold and this function correctly reports what git said.
+ * git is not wrong there — from where it stands there is no repository. The
+ * problem is that the answer is only true because something is broken, and
+ * nothing in a stderr string distinguishes that from an honest plain
+ * directory. That discrimination needs a second observation, so it lives at
+ * the plain-directory arm's consistency gate rather than here.
  */
 function classifyGitFailure(thrown: unknown): "not-a-repository" | "abnormal" {
   if (readProperty(thrown, "killed") === true) {
@@ -893,10 +972,16 @@ export class RepoRootResolver {
     // Step 2 — canonicalize the INPUT. This doubles as the existence and
     // TRAVERSABILITY gate (`realpath` cannot resolve what it cannot traverse),
     // and it is what keeps the symlink alias away from git in step 3.
-    // Traversable is strictly weaker than readable: a `0111` directory resolves
-    // here and lists for nobody. Proving the root can actually be ENUMERATED is
-    // `finish`'s gate, on the value about to be returned rather than on this
-    // one — which on the git arm is a different path.
+    // Traversable is strictly weaker than readable, and that is a standards
+    // fact rather than a platform quirk: the sole shall-fail `[EACCES]` of
+    // POSIX.1-2024 (IEEE Std 1003.1-2024) `realpath()` is "Search permission
+    // was denied for a component of the path prefix of file_name" — the
+    // PREFIX; the page's one other `[EACCES]` is a may-fail that needs a
+    // relative file_name, which step 1 refused before this call — so a `0111`
+    // final component resolves here and lists for nobody. Proving the root can
+    // actually be ENUMERATED is `finish`'s gate, on the value about to be
+    // returned rather than on this one — which on the git arm is a different
+    // path.
     const canonicalInputPath = await this.realpathOrThrow(localPath, classifyRealpathFailure);
 
     // Step 3 — ask git where the toplevel is. Note that the answer is NOT
@@ -905,10 +990,45 @@ export class RepoRootResolver {
     // reason this query exists at all.
     const discovery = await this.queryCanonicalToplevel(canonicalInputPath);
     if (discovery.kind === "not-a-repository") {
+      // VERDICT CONSISTENCY, before the classification is accepted. git's
+      // not-a-repository answer is positive evidence about GIT's view, and
+      // I-009-4 lets that stand as the plain-directory classification only
+      // when nothing visibly contradicts it. A directory that carries a `.git`
+      // entry contradicts it: git looked, found metadata it could not use, and
+      // said "not a repository" — an answer that is true from where git stands
+      // and false about the directory. Persisting `vcs_type: 'none'` there
+      // records a permission-damaged or corrupt CHECKOUT as a plain directory,
+      // and every capability projection downstream then offers `read-only`
+      // only, for a repository that is merely broken (D-009-5).
+      //
+      // Observed on git 2.50.1, all three exiting 128 with the anchored
+      // marker, i.e. indistinguishable from an honest plain directory by
+      // stderr alone: a mode-`000` `.git` DIRECTORY; an EMPTY `.git`
+      // directory; and a `.git` gitfile whose `gitdir:` target does not exist.
+      //
+      // The refusal is `vcs_error`, NOT `not_readable`, and not only in the
+      // `EACCES` case. In the empty-directory and dangling-pointer shapes
+      // nothing is unreadable at all — what failed is the VCS question, whose
+      // answer cannot be trusted. This is a narrowing of when git's verdict
+      // counts as positive, so it lands on the same reason every other
+      // untrustworthy VCS answer does, and the reason union is unchanged.
+      if (await this.hasVisibleGitMetadata(canonicalInputPath)) {
+        throw new RepoRootResolutionError("vcs_error");
+      }
+
       // `Spec-009 §Fallback Behavior` — the plain-directory classification.
       // The root is the already-canonicalized input: a non-git directory IS
       // its own root, and it has been realpath'd, so this arm returns a
       // canonical value like every other (I-009-1).
+      //
+      // RESIDUAL, deliberate. A permission-damaged repository attached from a
+      // NESTED subdirectory still classifies `"none"`, rooted at that
+      // subdirectory: git walks UP to the damaged `.git` while this gate looks
+      // only at the supplied path. Crawling ancestors to close it would be
+      // unbounded and racy, and the answer would still be defensible without
+      // it — the subdirectory genuinely enumerates and genuinely carries no
+      // metadata, and D-009-7's read-only default workspace bounds what the
+      // resulting mount can do.
       return this.finish(canonicalInputPath, "none");
     }
     const canonicalRoot = discovery.canonicalRoot;
@@ -1028,6 +1148,52 @@ export class RepoRootResolver {
       kind: "toplevel",
       canonicalRoot: await this.realpathOrThrow(reportedToplevel, () => "vcs_error"),
     };
+  }
+
+  /**
+   * Does `directory` VISIBLY carry repository metadata?
+   *
+   * One targeted open of `<directory>/.git`, never an enumeration of
+   * `directory` itself — which matters, because a mode-`0111` directory grants
+   * the search this name resolution needs while refusing the listing a
+   * `readdir` would want. The gate must not fail on a directory whose only
+   * problem is that `finish` is about to refuse it for a different reason.
+   *
+   * TRUE on success and on every rejection but `ENOENT`, which is the whole
+   * discrimination:
+   *
+   *   * OPENED — metadata is present and examinable. Any openable `.git`
+   *     directory contradicts a not-a-repository verdict, not merely an empty
+   *     one: whatever is inside, git looked at it and declined to call this a
+   *     repository, and the daemon cannot tell a half-initialized checkout
+   *     from a corrupt one.
+   *   * REJECTED, not `ENOENT` — present but unexaminable (`EACCES` on a
+   *     mode-`000` metadata directory) or present and not a directory
+   *     (`ENOTDIR` on a `gitdir:` pointer file, which is how a linked worktree
+   *     and a `--separate-git-dir` clone both spell it). Still contradiction.
+   *   * `ENOENT` — nothing answers to the name. The verdict stands.
+   *
+   * A DANGLING `.git` SYMLINK resolves to `ENOENT` here and is therefore
+   * treated as absence, which agrees with git rather than diverging from it:
+   * git reports the generic `not a git repository (or any of the parent
+   * directories)` for that shape — the same wording as a directory with no
+   * `.git` at all — whereas a dangling gitfile gets `not a git repository:
+   * <target>`, naming the target it could not use. git distinguishes "no
+   * metadata" from "metadata pointing nowhere"; so does this (git 2.50.1).
+   *
+   * Reuses `probeDirectoryReadable` — the same seam `finish` drives — under a
+   * DIFFERENT mapping. See `namesMissingEntry`.
+   */
+  private async hasVisibleGitMetadata(directory: string): Promise<boolean> {
+    try {
+      // The REAL `node:path`, like every other outgoing-value check here;
+      // `PlatformPathModule` advertises no `join`, and a gate keyed off an
+      // injectable seam could be disabled by the misconfiguration it catches.
+      await this.deps.probeDirectoryReadable(nodePath.join(directory, GIT_METADATA_ENTRY_NAME));
+    } catch (thrown: unknown) {
+      return !namesMissingEntry(thrown);
+    }
+    return true;
   }
 
   /** `realpath` with its rejection mapped to a typed, path-free reason. */

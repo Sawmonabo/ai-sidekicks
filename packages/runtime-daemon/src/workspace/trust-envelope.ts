@@ -320,8 +320,36 @@ export type PathRealpathResolver = (path: string) => Promise<string>;
  * which is the only channel it has — nothing is returned, because nothing about
  * the listing is wanted here, only the right to obtain one.
  *
+ * WHY A SEPARATE QUESTION FROM `realpath`, in standards terms rather than
+ * observation. POSIX.1-2024 (IEEE Std 1003.1-2024) gives the two functions
+ * different failure conditions, and the asymmetry is exactly the gap:
+ * `realpath()` shall fail with `[EACCES]` when "Search permission was denied
+ * for a component of the path prefix of file_name" — the path PREFIX only, so
+ * a final component that grants search but not read still resolves; while
+ * `opendir()` shall fail with `[EACCES]` when "Search permission is denied for
+ * the component of the path prefix of dirname or read permission is denied for
+ * dirname". Read permission on the directory ITSELF appears in the second
+ * condition and not the first, which is why a mode-`0111` directory
+ * canonicalizes cleanly and opens for nobody.
+ *
+ * The same page is why opening subsumes the file-type question this seam
+ * replaced: `opendir()` shall fail with `[ENOTDIR]` when "A component of
+ * dirname names an existing file that is neither a directory nor a symbolic
+ * link to a directory."
+ *
+ * That page documents `fdopendir()` alongside `opendir()` and lists an
+ * `[ENOTDIR]` for EACH. The one quoted above is `opendir()`'s, the second of
+ * the two; `fdopendir()`'s — "The descriptor fd is not associated with a
+ * directory" — is about a file descriptor and says nothing about this seam.
+ * Noted because the first one is the one a reader lands on.
+ *
  * Imported by `./repo-root-resolver.js` rather than re-declared there; the
- * preamble above says why the declaration sits on this side.
+ * preamble above says why the declaration sits on this side. That module drives
+ * the seam under TWO readings — its `finish` classifies a rejection into a
+ * resolution failure, while its plain-directory arm probes `<input>/.git` and
+ * reads `ENOENT` as absence-evidence with SUCCESS as a refusal. A stub written
+ * for one will mislead the other; see the resolver's `probeDirectoryReadable`
+ * member for both.
  */
 export type DirectoryReadabilityProbe = (path: string) => Promise<void>;
 
