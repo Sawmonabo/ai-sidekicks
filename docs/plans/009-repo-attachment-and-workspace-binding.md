@@ -222,6 +222,16 @@ Phases map 1:1 onto the four Implementation Steps. Phase 1 has no unsatisfied up
 - [x] Schema amendments ratified — local-sqlite-schema.md §Workspace and Git Tables (D-009-7, this audit)
 - [x] Detach cascade semantics ratified — `Spec-009 §Detach Semantics (V1 Definition)` (D-009-6) — gates T2.3's detach surface only
 
+<!-- prettier-ignore -->
+```yaml
+preconditions:
+  # Machine-enforced form of the unchecked boxes above (preflight Gate 5;
+  # PR #251 round 2 — the plural prose header is not a recognized gate form,
+  # so the Plan-006 Phase 3 build-order dependency previously failed open).
+  - { type: plan_phase, plan: 009, phase: 1, status: merged }
+  - { type: plan_phase, plan: 006, phase: 3, status: merged }
+```
+
 #### Tasks
 
 - **T2.1 — `repo_mounts` + `workspaces` migration + runner registration.**
@@ -278,6 +288,18 @@ Phases map 1:1 onto the four Implementation Steps. Phase 1 has no unsatisfied up
 - [x] BL-142 landed — deployed registry method-name regex conformed to the Tier-1 ratified canonical (the deployed tail class rejects camelCase; without the fix, `repo.mountRead`-class registrations throw at daemon boot)
 - [x] BL-143 landed — `DaemonDomainError` projection branch in `mapJsonRpcError` (without it, T3.6's wire assertions observe anonymous `-32603` errors instead of the ratified `repo.*` codes; surfaced by the Tier-6 Plan-010 walk)
 - [x] `RepoMountReadResponse` amended shape ratified — `canonicalRoot` + `health` (D-009-2, D-009-7)
+
+<!-- prettier-ignore -->
+```yaml
+preconditions:
+  # Machine-enforced form of the boxes above (preflight Gate 5; PR #251
+  # round 2 — the plural prose header is not a recognized gate form).
+  - { type: plan_phase, plan: 009, phase: 1, status: merged }
+  - { type: plan_phase, plan: 009, phase: 2, status: merged }
+  - { type: bl_closed, ref: 142 }
+  - { type: bl_closed, ref: 143 }
+```
+
 - [x] `repo.*` error codes ratified — error-contracts.md §Repo (D-009-3) — gates T3.6
 - [x] `RepoDetach` contract + cascade semantics ratified — `Spec-009 §Detach Semantics (V1 Definition)` (D-009-6) — gates T3.7
 
@@ -341,6 +363,14 @@ Phases map 1:1 onto the four Implementation Steps. Phase 1 has no unsatisfied up
 - [ ] Plan-009 Phase 3 merged (`repo.*` handlers + SDK; the views' wire strings and shapes are final)
 - [x] `repo.*` method strings ratified — D-009-1
 - [x] `Spec-023 §Preload Bridge Contract` path-display amendment ratified (this audit; co-recorded for the Plan-023 Tier-8 audit NS-21) — display-only path VALUES inside daemon payload data are data, not capabilities; gates the `canonicalRoot`/`fsRoot` display slices of T4.1/T4.2/T4.3
+
+<!-- prettier-ignore -->
+```yaml
+preconditions:
+  # Machine-enforced form of the phase-dependency box above (preflight Gate 5;
+  # PR #251 round 2 — the plural prose header is not a recognized gate form).
+  - { type: plan_phase, plan: 009, phase: 3, status: merged }
+```
 
 #### Tasks
 
