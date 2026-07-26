@@ -30,6 +30,7 @@ import {
   type CapabilityDetails,
   type EventEnvelopeVersion,
 } from "./event.js";
+import { NodeIdSchema, type NodeId } from "./node-id.js";
 import {
   ParticipantIdSchema,
   SessionIdSchema,
@@ -39,34 +40,29 @@ import {
 } from "./session.js";
 
 // --------------------------------------------------------------------------
-// NodeId — daemon-assigned opaque string brand (NOT a UUID).
+// NodeId — RE-EXPORT SEAM (declaration hoisted to `./node-id.js`).
 // --------------------------------------------------------------------------
 //
-// `node_id` is `TEXT NOT NULL, -- daemon-assigned node identifier` in
-// `runtime_node_attachments` (`docs/architecture/schemas/shared-postgres-schema.md §Runtime Node Attachments (Plan-003)`) — deliberately
-// contrasted against `id` / `session_id` / `participant_id`, which are `UUID`
-// in the SAME table — and `TEXT` in both local SQLite tables
-// (`docs/architecture/schemas/local-sqlite-schema.md §Runtime Node Local Tables (Plan-003)`). So `NodeId` is a daemon-minted opaque
-// scalar, NOT a server-minted UUID: we mirror `SessionId`'s brand SHAPE but
-// deliberately depart from its UUID parser, using the non-UUID branded-scalar
-// idiom from `session.ts`'s `EventCursorSchema` (z.string().min(1).max(cap)
-// + inline `.brand()` cast) instead of the `brandedUuidIdSchema` helper.
+// `NODE_ID_MAX_LEN` / `NodeId` / `NodeIdSchema` are declared VERBATIM in
+// `./node-id.js` — a dependency-free leaf module — and re-exported here, so
+// this file's public API is exactly what it was before the hoist: the barrel's
+// `export * from "./runtime-node.js"` carries all three onward, and
+// `__tests__/runtime-node.test.ts` keeps importing them from here unchanged.
 //
-// The `.max(NODE_ID_MAX_LEN)` cap is defense-in-depth against pathological
-// lengths (mirrors `EVENT_CURSOR_MAX_LEN` in session.ts — the wire/IPC trust
-// boundary admits cross-node input we cannot length-trust on producer faith
-// alone). The `z.ZodType<NodeId, NodeId>` double-T annotation (not single-T)
-// is required because `NodeIdSchema` composes into `RuntimeNodeAttachRequest-
-// Schema`, a tRPC v11 request schema whose Standard-Schema-V1 input inference
-// must resolve to `NodeId` and not `unknown` (per ADR-014 — same rationale as
-// `EventCursorSchema`; see ./internal/branded.ts).
-export const NODE_ID_MAX_LEN = 256;
-export type NodeId = string & { readonly __brand: "NodeId" };
-export const NodeIdSchema: z.ZodType<NodeId, NodeId> = z
-  .string()
-  .min(1)
-  .max(NODE_ID_MAX_LEN)
-  .brand<"NodeId">() as unknown as z.ZodType<NodeId, NodeId>;
+// Plan-003 still OWNS the shape; only its physical home moved. The hoist exists
+// because Plan-009's `repo.ts` composes `NodeIdSchema`, and importing it from
+// THIS file would close the eager three-hop module cycle
+// `repo.ts` → `runtime-node.ts` → `event.ts` → `repo.ts`, which throws
+// `ReferenceError` at import time from every entry point (full rationale, with
+// the per-edge evidence, in `./node-id.js`'s header). Amending `NodeId` is
+// still a Plan-003 edit — make it in `./node-id.js`.
+//
+// Type-only re-exports MUST use `export type { ... }` (the `isolatedModules` +
+// `verbatimModuleSyntax` posture from tsconfig.base.json forbids erased
+// re-exports on the runtime form) — the same two-statement shape presence.ts
+// uses for its session.ts re-exports.
+export type { NodeId } from "./node-id.js";
+export { NODE_ID_MAX_LEN, NodeIdSchema } from "./node-id.js";
 
 // --------------------------------------------------------------------------
 // NodeState — node-attachment LIVENESS enum (5 values).
@@ -477,8 +473,9 @@ export interface RuntimeNodeDetachRequest {
 // This schema needs NO `as unknown as z.ZodType<T, T>` cast and compiles clean —
 // it is the CONTRAST case to the three cast-bearing request schemas above. Both
 // composed members are double-T: `NodeIdSchema` (`z.ZodType<NodeId, NodeId>`,
-// declared above) and `wireFreeFormString(...).optional()` (`wireFreeFormString`
-// returns `z.ZodString`, session.ts:118 — its `Input` slot is `string`, not
+// declared in `./node-id.js` and re-exported above) and
+// `wireFreeFormString(...).optional()` (`wireFreeFormString` returns
+// `z.ZodString`, session.ts:118 — its `Input` slot is `string`, not
 // `unknown`). With no single-T member there is no `unknown`-input slot to poison
 // the composed object's input inference, EVEN THOUGH `reason` is `.optional()` —
 // direct proof the cast tracks single-T MEMBERS, not optionality and not

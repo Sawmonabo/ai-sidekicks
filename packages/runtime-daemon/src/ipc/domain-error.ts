@@ -107,10 +107,13 @@ export interface DaemonDomainErrorOptions {
  * `super(...)` call.
  *
  * The optional fields use `if (x !== undefined) this.x = x` assignment (not a
- * `?? default`) to honor `exactOptionalPropertyTypes: true` — an unset field
- * stays genuinely absent rather than being pinned to `undefined`, so the
- * mapper's `thrown.detail !== undefined` / `thrown.jsonRpcCode ?? …` checks
- * read true absence. Mirrors `SessionNotFoundError`'s field guard.
+ * `?? default`) because `exactOptionalPropertyTypes: true` rejects assigning a
+ * possibly-`undefined` option to a property whose declared type excludes it.
+ * It is a type-level device only: the declarations below are emitted under
+ * `useDefineForClassFields: true`, so an unset field is an own property
+ * holding `undefined` either way, and it is the mapper's value checks
+ * (`thrown.detail !== undefined`, `thrown.jsonRpcCode ?? …`) rather than key
+ * presence that read absence. Mirrors `SessionNotFoundError`'s field guard.
  *
  * `name` is set from `new.target.name` so a subclass instance reports its own
  * class name in stack traces without each subclass re-assigning `this.name`.
