@@ -18,10 +18,10 @@
 // `buildRepoWorkspaceLifecyclePayloadSchema` — this module IMPORTS the ones it
 // needs and never redefines ANY of them (I-010-1). `RepoMountState` is the one
 // it does NOT need: no Plan-010 wire shape or payload carries a mount state.
-// I-010-1 and CP-010-1 still enumerate it, which is pre-PR-#250 residue from
-// when the worktree payload reused the two-arm `RepoMountState` ∪
-// `WorkspaceState` union the round-4 factory amendment removed; T1.1's own
-// task body already omits it. The contract core composes the mode taxonomy and
+// I-010-1 and CP-010-1 enumerated it until the PR #253 post-merge true-up
+// struck it — residue from when the worktree payload reused the two-arm
+// `RepoMountState` ∪ `WorkspaceState` union the round-4 factory amendment
+// removed. The contract core composes the mode taxonomy and
 // the factory; T1.2's seven wire pairs below add the remaining Plan-009 canon
 // they need (`WorkspaceStateSchema`, the branded `RepoMountId` /
 // `WorkspaceId`, the shared `REPO_PATH_MAX_LEN`, and `ExecutionModeSchema` as
