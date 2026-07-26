@@ -389,7 +389,35 @@ Phases map 1:1 onto the four Implementation Steps. Phase 1 has no unsatisfied up
 
 ```yaml
 manifest_schema_version: 1
-shipped: []
+shipped:
+  - phase: 1
+    task: [T1.1, T1.2, T1.3, T1.4, T1.5, T1.6]
+    pr: 250
+    sha: 0ed3c7f
+    merged_at: 2026-07-26
+    files:
+      - docs/architecture/cross-plan-dependencies.md
+      - docs/plans/003-runtime-node-attach.md
+      - docs/plans/009-repo-attachment-and-workspace-binding.md
+      - docs/plans/010-worktree-lifecycle-and-execution-modes.md
+      - docs/superpowers/specs/2026-07-01-capability-enhancements-design.md
+      - packages/contracts/src/__tests__/repo.test.ts
+      - packages/contracts/src/__tests__/session-event.test.ts
+      - packages/contracts/src/event.ts
+      - packages/contracts/src/index.ts
+      - packages/contracts/src/node-id.ts
+      - packages/contracts/src/repo.ts
+      - packages/contracts/src/runtime-node.ts
+      - packages/runtime-daemon/src/ipc/domain-error.ts
+      - packages/runtime-daemon/src/node/__tests__/node-event-emitter.test.ts
+      - packages/runtime-daemon/src/session/__tests__/migration-race-worker.mjs
+      - packages/runtime-daemon/src/session/__tests__/session-service.test.ts
+      - packages/runtime-daemon/src/workspace/__tests__/repo-errors.test.ts
+      - packages/runtime-daemon/src/workspace/__tests__/repo-root-resolver.test.ts
+      - packages/runtime-daemon/src/workspace/__tests__/trust-envelope.test.ts
+      - packages/runtime-daemon/src/workspace/repo-errors.ts
+      - packages/runtime-daemon/src/workspace/repo-root-resolver.ts
+      - packages/runtime-daemon/src/workspace/trust-envelope.ts
 ```
 
 ### Notes
