@@ -28,9 +28,10 @@
 //     vocabularies, `actor` bounded by the envelope's own cap and its three
 //     `wireFreeFormString` guards.
 //   • The six Plan-009 types parse end-to-end through `SessionEventSchema`
-//     with a category/type mismatch and a payload smuggle rejected, and the
-//     not-yet-registered `worktree.*` half of the family is asserted absent
-//     (the CP-010-5 forward edge).
+//     with a category/type mismatch and a payload smuggle rejected. The
+//     `worktree.*` half of the family registered through the same seam by
+//     Plan-010 T1.1 (CP-010-5) is covered by worktree.test.ts, which owns
+//     that contract.
 //   • The `index.ts` barrel re-exports every symbol this task provides —
 //     the barrel-gap regression Plan-001 GitHub PR-#30 round-1 caught — and
 //     the six standalone event-variant exports are driven behaviorally
@@ -360,14 +361,16 @@ describe("RepoWorkspaceLifecyclePayloadSchema (Spec-006 §Repo, Workspace, and W
   });
 
   it.each([["creating"], ["dirty"], ["merged"], ["retired"]])(
-    "rejects the Plan-010-owned worktree state %s (today's boundary, not a permanent one)",
+    "rejects the Plan-010-owned worktree state %s (per-family boundary, permanent)",
     (worktreeState) => {
-      // EXPECTED TO FLIP. `WorktreeState` is Plan-010-owned, so the union
-      // carries only the two Plan-009 vocabularies today. CP-010-5's
-      // registration adds `WorktreeStateSchema` as a third arm — an additive
-      // widening under `ADR-018 §Decision` #8 — and these rows move to the
-      // accept table in that diff. They exist now so the widening is a
-      // visible, reviewed edit rather than a silent one.
+      // PERMANENT BOUNDARY. This block's original comment predicted CP-010-5
+      // would widen the shipped schema with a third `WorktreeStateSchema`
+      // union arm; the ratified design (PR #250 round 4) PARAMETERIZED the
+      // family instead — Plan-010's registration instantiates the factory in
+      // worktree.ts and never touches this schema — so the shipped
+      // two-vocabulary accept set never admits a worktree state. These rows
+      // stay red for good; the worktree vocabulary's accept half lives in
+      // worktree.test.ts against `WorktreeLifecyclePayloadSchema`.
       expect(
         RepoWorkspaceLifecyclePayloadSchema.safeParse({
           sessionId: SESSION_ID,
@@ -493,9 +496,9 @@ describe("RepoWorkspaceLifecyclePayloadSchema (Spec-006 §Repo, Workspace, and W
 
 // Stands in for Plan-010's `WorktreeStateSchema` — D-010-12's four worktree
 // transitions plus `ready`, the only literal shared with either Plan-009
-// vocabulary. Spelled locally on purpose: `worktree.ts` is Plan-010-owned and
-// does not exist yet, and the whole point of the factory is that it never has
-// to exist for this seam to be verifiable.
+// vocabulary. Spelled locally on purpose: `worktree.ts` is Plan-010-owned,
+// and the whole point of the factory is that it never has to exist for this
+// seam to be verifiable.
 const worktreeLikeStateSchema = z.enum(["creating", "ready", "dirty", "merged", "retired"]);
 const worktreeLikePayloadSchema = buildRepoWorkspaceLifecyclePayloadSchema(worktreeLikeStateSchema);
 
@@ -706,28 +709,22 @@ describe("SessionEventSchema registration of the six Plan-009 variants (CP-009-4
     expect(SessionEventSchema.safeParse(broken).success).toBe(false);
   });
 
-  it.each([
-    ["worktree.created"],
-    ["worktree.ready"],
-    ["worktree.dirty"],
-    ["worktree.merged"],
-    ["worktree.retired"],
-  ])("does not yet register the Plan-010 family member %s", (worktreeType) => {
-    // The other five members of the Spec-006 family. Census-registered by
-    // Plan-006 T1.2, but their payload variants land with CP-010-5 — until
-    // then the strict layer must refuse to interpret them (the tolerant
-    // `EventEnvelopeSchema` carrier still accepts them, which is
-    // session-event.test.ts's layering pin). Expected to flip when Plan-010
-    // Phase 1 lands.
-    //
-    // Every row carries `state: "ready"` — a state the union ALREADY accepts —
-    // deliberately: it isolates the type-registration axis. Pairing these
-    // types with their D-010-12 states (`creating` / `dirty` / `merged` /
-    // `retired`) would let a row keep rejecting for the WRONG reason if
-    // CP-010-5 registered the arms but forgot the state widening. The state
-    // boundary has its own dedicated pin above; with `"ready"` here, all five
-    // rows flip visibly the moment the arms land.
-    expect(SessionEventSchema.safeParse(buildRepoEvent(worktreeType, "ready")).success).toBe(false);
+  // The forward-edge pin that lived here ("does not yet register the
+  // Plan-010 family member %s") flipped exactly as its comment designed when
+  // Plan-010 T1.1 landed CP-010-5's five `worktree.*` arms. Their
+  // registration, D-010-12 state mapping, standalone-vs-union agreement, and
+  // closed-registry boundary (`worktree.failed` stays rejected — D-010-11)
+  // are covered by worktree.test.ts, which owns that contract. One residue
+  // stays HERE because it pins THIS family's accept set: a registered
+  // worktree arm carries Plan-010's vocabulary, NOT this shared schema — see
+  // the per-family disjointness rows above.
+  it("still rejects a worktree TYPE carrying this family's payload builder with a repo-only subject", () => {
+    // A `worktree.*` row must satisfy `WorktreeLifecyclePayloadSchema`; the
+    // mount-shaped fixture (state: "attached") stays rejected even though
+    // the type arm now exists — the union's registration did not loosen the
+    // Plan-009 vocabularies into the worktree arm.
+    const brokenWorktreeRow = buildRepoEvent("worktree.created", "attached");
+    expect(SessionEventSchema.safeParse(brokenWorktreeRow).success).toBe(false);
   });
 });
 
