@@ -208,6 +208,12 @@ importers:
       '@ai-sidekicks/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@noble/curves':
+        specifier: ^2
+        version: 2.2.0
+      '@noble/hashes':
+        specifier: ^2
+        version: 2.2.0
       better-sqlite3:
         specifier: ^12.9.0
         version: 12.9.0

@@ -28,6 +28,8 @@
   },
   "dependencies": {
     "@ai-sidekicks/contracts": "workspace:*",
+    "@noble/curves": "^2",
+    "@noble/hashes": "^2",
     "better-sqlite3": "^12.9.0",
     "canonicalize": "3.0.0",
     "node-pty": "^1.2.0-beta.12",
