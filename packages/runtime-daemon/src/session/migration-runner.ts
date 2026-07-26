@@ -12,9 +12,10 @@
 // Version 1 is owned by Plan-001 (`migrations/0001-initial.ts`); version 2
 // by Plan-003 (`migrations/0002-runtime-node.ts`); version 3 by Plan-005
 // (`migrations/0003-runtime-bindings.ts`); version 4 by Plan-010
-// (`migrations/0004-worktree-lifecycle.ts`). Subsequent plans (006, 015,
-// 022...) register their version as a further guarded block of the same
-// shape and bump `schema_version`.
+// (`migrations/0004-worktree-lifecycle.ts`); version 5 by Plan-006
+// (`migrations/0005-daemon-signing-keys.ts`). Subsequent plans (015, 022...)
+// — and Plan-006's own remaining Phase-3 tables — register their version as a
+// further guarded block of the same shape and bump `schema_version`.
 //
 // SQL is sourced as a TypeScript string constant (not a sibling .sql file)
 // because `tsc -b` does not copy non-TS assets into `dist/` and `package.json`
@@ -36,6 +37,7 @@ import { INITIAL_MIGRATION_SQL } from "../migrations/0001-initial.js";
 import { RUNTIME_NODE_MIGRATION_SQL } from "../migrations/0002-runtime-node.js";
 import { RUNTIME_BINDINGS_MIGRATION_SQL } from "../migrations/0003-runtime-bindings.js";
 import { WORKTREE_LIFECYCLE_MIGRATION_SQL } from "../migrations/0004-worktree-lifecycle.js";
+import { DAEMON_SIGNING_KEYS_MIGRATION_SQL } from "../migrations/0005-daemon-signing-keys.js";
 
 /**
  * Apply pragmas to an open Database handle. MUST be called on every
@@ -165,6 +167,25 @@ export function applyMigrations(db: DatabaseType): void {
       // skip the exec rather than re-applying the CREATE TABLEs).
       if (!hasMigrationApplied(db, 4)) {
         db.exec(WORKTREE_LIFECYCLE_MIGRATION_SQL);
+      }
+    }).immediate();
+  }
+
+  if (!hasMigrationApplied(db, 5)) {
+    // Plan-006 version-5 migration (daemon_signing_keys). Same primitive as
+    // the version-1/2/3/4 blocks above: the migration SQL carries its own
+    // version=5 INSERT into schema_version, so the single .exec() commits the
+    // table CREATE atomically with the anchor row, and
+    // db.transaction(...).immediate() takes the RESERVED writer-intent lock
+    // at BEGIN so concurrent racers serialize at BEGIN rather than colliding
+    // at write-upgrade time.
+    db.transaction(() => {
+      // Re-check inside the transaction to close the
+      // `hasMigrationApplied → exec` window (a concurrent writer that wins
+      // the BEGIN-IMMEDIATE race and commits first is observed here and we
+      // skip the exec rather than re-applying the CREATE TABLE).
+      if (!hasMigrationApplied(db, 5)) {
+        db.exec(DAEMON_SIGNING_KEYS_MIGRATION_SQL);
       }
     }).immediate();
   }

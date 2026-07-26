@@ -51,13 +51,15 @@ const PLAN_001_TABLES: ReadonlyArray<string> = [
 
 // The full set of tables present after ALL migrations have applied
 // (Plan-001 version-1 tables + Plan-003 version-2 tables + Plan-005
-// version-3 tables + Plan-010 version-4 tables). Alphabetical by SQLite's
-// `ORDER BY name` — BINARY collation, so `_` (0x5F) sorts before every
-// lowercase letter and `run_execution_contexts` precedes `runtime_bindings`.
-// Kept separate from `PLAN_001_TABLES` so the snapshot loop's
-// 0001-immutability guard is unaffected by the 0002 / 0003 / 0004 additions.
+// version-3 tables + Plan-010 version-4 tables + the Plan-006 version-5
+// table). Alphabetical by SQLite's `ORDER BY name` — BINARY collation, so
+// `_` (0x5F) sorts before every lowercase letter and
+// `run_execution_contexts` precedes `runtime_bindings`. Kept separate from
+// `PLAN_001_TABLES` so the snapshot loop's 0001-immutability guard is
+// unaffected by the 0002 / 0003 / 0004 / 0005 additions.
 const ALL_EXPECTED_TABLES: ReadonlyArray<string> = [
   "branch_contexts",
+  "daemon_signing_keys",
   "driver_capabilities",
   "driver_contract_meta",
   "driver_tools",
@@ -110,12 +112,13 @@ describe("0001-initial migration shape", () => {
     const rows = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
       .all() as ReadonlyArray<{ name: string }>;
-    // After version-4 (Plan-010) the DB holds the full fourteen-table set:
+    // After version-5 (Plan-006) the DB holds the full fifteen-table set:
     // the four Plan-001 tables, the two Plan-003 tables (node_capabilities,
     // node_trust_state), the four Plan-005 tables (runtime_bindings,
-    // driver_capabilities, driver_tools, driver_contract_meta), and the
-    // four Plan-010 tables (worktrees, ephemeral_clones, branch_contexts,
-    // run_execution_contexts).
+    // driver_capabilities, driver_tools, driver_contract_meta), the four
+    // Plan-010 tables (worktrees, ephemeral_clones, branch_contexts,
+    // run_execution_contexts), and the one Plan-006 table
+    // (daemon_signing_keys).
     expect(rows.map((r) => r.name)).toEqual(ALL_EXPECTED_TABLES);
   });
 
@@ -162,28 +165,28 @@ describe("0001-initial migration shape", () => {
     expect(byName.get("monotonic_ns")?.notnull).toBe(1);
   });
 
-  it("anchors schema_version rows at versions [1, 2, 3, 4]", () => {
+  it("anchors schema_version rows at versions [1, 2, 3, 4, 5]", () => {
     // The `ORDER BY version` is load-bearing: without it the row order is
     // insertion-order luck and the assertion would silently stop pinning
     // which versions landed.
     const versionRows = db
       .prepare("SELECT version FROM schema_version ORDER BY version")
       .all() as ReadonlyArray<{ version: number }>;
-    expect(versionRows.map((r) => r.version)).toEqual([1, 2, 3, 4]);
+    expect(versionRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5]);
   });
 
   it("is idempotent when applyMigrations runs twice", () => {
     // Second invocation must be a no-op (the migration runner short-
     // circuits via hasMigrationApplied per version). Re-running must not
     // throw, must not double-insert any schema_version anchor row, must
-    // not duplicate tables. Four DISTINCT versions [1, 2, 3, 4] is not
+    // not duplicate tables. Five DISTINCT versions [1, 2, 3, 4, 5] is not
     // duplication.
     applyMigrations(db);
     const versionRows = db
       .prepare("SELECT version FROM schema_version ORDER BY version")
       .all() as ReadonlyArray<{ version: number }>;
-    expect(versionRows).toHaveLength(4);
-    expect(versionRows.map((r) => r.version)).toEqual([1, 2, 3, 4]);
+    expect(versionRows).toHaveLength(5);
+    expect(versionRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5]);
   });
 });
 
