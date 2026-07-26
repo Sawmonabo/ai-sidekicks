@@ -42,8 +42,35 @@ useDefault = true
 #    paseto-standard/test-vectors. Public, deterministic, pinned by sha256
 #    in PROVENANCE.md alongside an upstream commit-SHA audit log. Path-only
 #    suppression scopes this allowlist to the fixture file.
+#
+# 4. RFC 8032 §7.1 Ed25519 test-vector secret keys, plus the
+#    `Ed25519PrivateKey` type name. Two distinct finding kinds, both from the
+#    generic-api-key heuristic, both surfaced by Plan-006 T2.3's signer
+#    golden-vector suite:
+#
+#    (a) The TEST 1 / TEST 2 secret keys published verbatim in
+#        https://www.rfc-editor.org/rfc/rfc8032.txt §7.1 (verified against the
+#        RFC, 2026-07-26). Publication IS their purpose — they are the
+#        reference vectors every Ed25519 implementation validates against, so
+#        a conformance suite that omitted them would test nothing. Suppressed
+#        by VALUE, deliberately not by path: keying on the two published
+#        constants means a genuine secret committed to the same test file
+#        still trips the gate, whereas a path allowlist would wave it through.
+#        Same reasoning as entry 3, tightened — prefer value-scoping wherever
+#        the not-a-secret property belongs to the value itself.
+#
+#    (b) `Ed25519PrivateKey` — the heuristic reads
+#        `const DAEMON_SIGNING_KEY: Ed25519PrivateKey = …` as a
+#        `KEY = VALUE` assignment and captures the TYPE ANNOTATION as the
+#        secret. A pure false positive of the same shape as entries 1 and 2:
+#        a high-entropy identifier in value position that carries no secret
+#        material. Suppressing the matched substring is safe because a real
+#        secret can never be captured as exactly this type name. The sibling
+#        `Ed25519PublicKey` is deliberately NOT pre-listed — it does not
+#        currently fire, and suppressions are added on evidence, not
+#        anticipation.
 [allowlist]
-description = "AWS KMS Ed25519 enum constants + crypto-algorithm prose tokens + PASETO v4 RFC test vectors"
+description = "AWS KMS Ed25519 enum constants + crypto-algorithm prose tokens + PASETO v4 RFC test vectors + RFC 8032 §7.1 Ed25519 test vectors"
 condition = "OR"
 regexTarget = "match"
 regexes = [
@@ -52,6 +79,9 @@ regexes = [
   '''ED25519_PH_SHA_512''',
   '''XChaCha20-Poly1305-wrapped''',
   '''Argon2id-encrypted''',
+  '''9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60''',
+  '''4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb''',
+  '''Ed25519PrivateKey''',
 ]
 paths = [
   '''packages/crypto-paseto/src/__tests__/__fixtures__/v4\.json''',
