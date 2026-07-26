@@ -133,11 +133,22 @@ Contracts: see [API Payload Contracts](../architecture/contracts/api-payload-con
 
 **Preconditions.**
 
-- [ ] Plan-009 Phase 1 merged (`packages/contracts/src/repo.ts` — the import origin per CP-010-1)
-- [ ] Plan-006 Phase 1 merged (`SessionEventSchema` union seam + `SESSION_EVENT_CATEGORY_BY_TYPE` registry — Tier 4)
+- [x] Plan-009 Phase 1 merged (`packages/contracts/src/repo.ts` — the import origin per CP-010-1) — merged 2026-07-26 via PR #250 (squash 0ed3c7f)
+- [x] Plan-006 Phase 1 merged (`SessionEventSchema` union seam + `SESSION_EVENT_CATEGORY_BY_TYPE` registry — Tier 4) — merged 2026-07-25 via PR #247 (squash f7d49f3)
 - [x] D-010-2 wire shapes ratified — api-payload-contracts.md §Plan-010 (Tier-6 audit)
 - [x] D-010-5 DDL ratified — local-sqlite-schema.md (Tier-6 audit)
 - [x] D-010-11 event-set adjudicated — five types, registry closed (fixes T1.1's registration count)
+
+<!-- prettier-ignore -->
+```yaml
+preconditions:
+  # Machine-enforced form of the boxes above (preflight Gate 5; PR #251
+  # round 2 — the plural prose header is not a recognized gate form, so these
+  # build-order dependencies previously failed open and the ticks alone
+  # carried the claim).
+  - { type: plan_phase, plan: 009, phase: 1, status: merged }
+  - { type: plan_phase, plan: 006, phase: 1, status: merged }
+```
 
 #### Tasks
 
@@ -180,6 +191,15 @@ Contracts: see [API Payload Contracts](../architecture/contracts/api-payload-con
 - [ ] Plan-009 Phase 2 merged (`WorkspaceService` primitives incl. `markBusy`/`releaseBusy` per CP-009-7; `repo_mounts`/`workspaces` rows)
 - [ ] Plan-006 Phase 3 merged (`EventLogService.append` — sole append path; build-order precondition, same emitter pattern as Plan-009 Phase 2)
 - [x] D-010-6/7/8/9/10/12/13/19 ratified (Tier-6 audit — placement, collision, base-ref, branch-bind-only, hooks, event mapping, sweep, wire-branch requiredness)
+
+<!-- prettier-ignore -->
+```yaml
+preconditions:
+  # Machine-enforced form of the boxes above (preflight Gate 5).
+  - { type: plan_phase, plan: 010, phase: 1, status: merged }
+  - { type: plan_phase, plan: 009, phase: 2, status: merged }
+  - { type: plan_phase, plan: 006, phase: 3, status: merged }
+```
 
 #### Tasks
 
@@ -239,6 +259,17 @@ Contracts: see [API Payload Contracts](../architecture/contracts/api-payload-con
 - [x] BL-143 landed — `DaemonDomainError` projection branch in `mapJsonRpcError` (T3.8's wire assertions observe anonymous `-32603` without it)
 - [x] D-010-3 method strings ratified — api-payload-contracts.md §Repo Method-Name Registry (Tier 6)
 - [x] D-010-4 error codes ratified — error-contracts.md (Tier-6 audit)
+
+<!-- prettier-ignore -->
+```yaml
+preconditions:
+  # Machine-enforced form of the boxes above (preflight Gate 5).
+  - { type: plan_phase, plan: 010, phase: 1, status: merged }
+  - { type: plan_phase, plan: 010, phase: 2, status: merged }
+  - { type: plan_phase, plan: 004, phase: 3, status: merged }
+  - { type: bl_closed, ref: 142 }
+  - { type: bl_closed, ref: 143 }
+```
 
 #### Tasks
 
@@ -308,6 +339,13 @@ Contracts: see [API Payload Contracts](../architecture/contracts/api-payload-con
 - [ ] Phase 3 merged
 - [x] Plan-023-partial renderer substrate + bridge stub shipped (Tier 1); Plan-002 Phase 6 jsdom harness shipped (test-now posture)
 - [x] D-010-17 status-read + `lastError` carriers ratified (Tier-6 audit)
+
+<!-- prettier-ignore -->
+```yaml
+preconditions:
+  # Machine-enforced form of the boxes above (preflight Gate 5).
+  - { type: plan_phase, plan: 010, phase: 3, status: merged }
+```
 
 #### Tasks
 
