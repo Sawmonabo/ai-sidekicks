@@ -653,7 +653,29 @@ const EXPECTED_TABLE_NAMES: readonly string[] = [
  */
 const EXPECTED_PREDICATE_TABLES: readonly string[] = ["branch_contexts", "run_execution_contexts"];
 
-const EXPECTED_TOTAL_CHECK_COUNT: number = LOCKSTEP_ROWS.length + EXPECTED_PREDICATE_TABLES.length;
+/**
+ * PER-BUCKET LITERALS, deliberately NOT `LOCKSTEP_ROWS.length` /
+ * `EXPECTED_PREDICATE_TABLES.length`.
+ *
+ * Deriving each bucket's expectation from the very array it checks makes a
+ * count-preserving BUCKET MOVE invisible. Rewrite `worktrees`' enum CHECK as an
+ * `OR` chain — behaviourally identical to SQLite, so every accept/reject row in
+ * `migration-shape.test.ts` stays green — and it carries no `IN (`, so it
+ * classifies as a predicate. Move its row from `LOCKSTEP_ROWS` into
+ * `EXPECTED_PREDICATE_TABLES` and every derived count still agrees: total six,
+ * both censuses three-vs-three. The `worktrees.state` contract-DDL pin, which
+ * is the headline of I-010-2, is simply gone.
+ *
+ * A hardcoded TOTAL would miss this identically — the absolute-vs-extraction
+ * framing above is orthogonal to it. Only per-bucket literals catch it, and
+ * they make a real reduction in enum coverage a one-line diff a reviewer reads
+ * as intentional.
+ */
+const EXPECTED_ENUM_CHECK_COUNT: number = 4;
+const EXPECTED_PREDICATE_CHECK_COUNT: number = 2;
+
+const EXPECTED_TOTAL_CHECK_COUNT: number =
+  EXPECTED_ENUM_CHECK_COUNT + EXPECTED_PREDICATE_CHECK_COUNT;
 
 function extractRatifiedMigration(): ExtractedMigration {
   return extractMigrationChecks(WORKTREE_LIFECYCLE_MIGRATION_SQL);
@@ -675,7 +697,17 @@ describe("0004-worktree-lifecycle CHECK extraction — fail-closed census", () =
     const enumClauses = extracted.checkClauses.filter(isEnumCheckClause);
     const predicateClauses = extracted.checkClauses.filter(isPredicateCheckClause);
 
+    // The EXPECTATION TABLES are pinned against the per-bucket literals FIRST.
+    // This is the pair a bucket move trips, and it trips before any
+    // extraction-derived comparison gets a chance to agree with itself — the
+    // `toEqual`s below compare extraction against these same arrays, so they
+    // stay green through a move that silently drops a vocabulary from the pin.
+    expect(LOCKSTEP_ROWS).toHaveLength(EXPECTED_ENUM_CHECK_COUNT);
+    expect(EXPECTED_PREDICATE_TABLES).toHaveLength(EXPECTED_PREDICATE_CHECK_COUNT);
+
     expect(extracted.checkClauses).toHaveLength(EXPECTED_TOTAL_CHECK_COUNT);
+    expect(enumClauses).toHaveLength(EXPECTED_ENUM_CHECK_COUNT);
+    expect(predicateClauses).toHaveLength(EXPECTED_PREDICATE_CHECK_COUNT);
     expect(enumClauses.map((clause) => `${clause.tableName}.${clause.columnName}`)).toEqual(
       LOCKSTEP_ROWS.map((row) => row.qualifiedColumn),
     );
