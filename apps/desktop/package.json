@@ -13,8 +13,8 @@
     "build:smoke": "electron-vite build --mode=smoke && node --experimental-strip-types build/assert-webprefs.ts",
     "typecheck": "tsc -b && tsc -p tsconfig.test.json && tsc -p src/renderer/tsconfig.test.json && tsc -p tsconfig.build.json",
     "lint": "eslint src test",
-    "test:renderer": "vitest run --project=renderer --passWithNoTests",
-    "test:smoke": "vitest run --project=main --passWithNoTests",
+    "test:renderer": "vitest run --project=renderer",
+    "test:smoke": "vitest run --project=main",
     "test": "turbo run test:renderer test:smoke --filter=@ai-sidekicks/desktop"
   },
   "dependencies": {
