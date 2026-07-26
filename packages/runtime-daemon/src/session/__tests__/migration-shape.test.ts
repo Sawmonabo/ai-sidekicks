@@ -23,6 +23,19 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { applyMigrations, applyPragmas, openDatabase } from "../migration-runner.js";
 
+// Bound to exported identifiers so `Plan-010 §References` can anchor at the
+// two forward-FK tests durably. The docs-corpus symbol gate matches an
+// identifier-shaped anchor PRESENT IN THE FILE, which a spaced `it(...)` title
+// can never be — so that row previously anchored at the imported
+// `applyPragmas` helper, which kept validating after either test was renamed
+// or deleted and so presented the behaviour as covered when it was not
+// (Codex review, PR #254 round 5). Renaming or removing either test now forces
+// a change to the identifier the citation names, breaking the cite loudly.
+export const WRITE_INERT_ON_PARENTLESS_DB_TEST: string =
+  "ships write-inert on a parent-less db: the referencing INSERT fails to compile, not as an FK violation";
+export const FORWARD_REFERENCES_DML_ENFORCEMENT_TEST: string =
+  "enforces the forward REFERENCES clauses at DML time under foreign_keys = ON";
+
 // The canonical Plan-001 tables. Order is intentional (alphabetical by
 // SQLite's ORDER BY name) so the assertion is stable across SQLite versions.
 // This constant drives the per-table snapshot loop below — it is the
@@ -844,7 +857,7 @@ describe("0004-worktree-lifecycle migration shape", () => {
     }
   });
 
-  it("ships write-inert on a parent-less db: the referencing INSERT fails to compile, not as an FK violation", () => {
+  it(WRITE_INERT_ON_PARENTLESS_DB_TEST, () => {
     // The state the daemon actually ships in until Plan-009 Phase 2 lands.
     // Empirically discovered against the pinned toolchain (better-sqlite3
     // 12.9.0 / SQLite 3.53.0): with the parent TABLE absent, SQLite refuses
@@ -914,7 +927,7 @@ describe("0004-worktree-lifecycle migration shape", () => {
     }
   });
 
-  it("enforces the forward REFERENCES clauses at DML time under foreign_keys = ON", () => {
+  it(FORWARD_REFERENCES_DML_ENFORCEMENT_TEST, () => {
     // Negative control for the fixture-stub pattern: proves FK enforcement
     // is live on this handle, so the stub-backed accepts in this block pass
     // because the parents exist — not because enforcement is silently off —
