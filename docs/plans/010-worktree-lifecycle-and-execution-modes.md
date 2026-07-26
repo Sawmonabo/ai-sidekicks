@@ -135,7 +135,7 @@ Contracts: see [API Payload Contracts](../architecture/contracts/api-payload-con
 
 - [x] Plan-009 Phase 1 merged (`packages/contracts/src/repo.ts` — the import origin per CP-010-1) — merged 2026-07-26 via PR #250 (squash 0ed3c7f)
 - [x] Plan-006 Phase 1 merged (`SessionEventSchema` union seam + `SESSION_EVENT_CATEGORY_BY_TYPE` registry — Tier 4) — merged 2026-07-25 via PR #247 (squash f7d49f3)
-- [x] Plan-005 Phase 1 merged (the `RunId` brand at `packages/contracts/src/provider-driver.ts` — T1.2's status-read `createdByRunId` type import; erased at emit but typecheck-blocking) — merged 2026-06-15 via PR #157 (squash a81821e). Recorded PR #254: satisfied six weeks before dispatch, so it never gated in practice, but T1.2 **Consumes** has named the dependency since the Tier-6 audit and neither this box nor the machine block carried it
+- [x] Plan-005 Phase 1 **T1.1** merged (the `RunId` brand at `packages/contracts/src/provider-driver.ts` — T1.2's status-read `createdByRunId` type import; erased at emit but typecheck-blocking) — merged 2026-06-15 via PR #157 (squash a81821e). Recorded PR #254: satisfied six weeks before dispatch, so it never gated in practice, but T1.2 **Consumes** has named the dependency since the Tier-6 audit and neither this box nor the machine block carried it. Round 2 narrowed the claim from the whole phase to the producing task's merged revision — Plan-005 Phase 1 has since grown campaign EXTENDs T1.7/T1.8 that remain unshipped, so "Phase 1 merged" is not true as written, and the whole phase is not what this dependency needs
 - [x] D-010-2 wire shapes ratified — api-payload-contracts.md §Plan-010 (Tier-6 audit)
 - [x] D-010-5 DDL ratified — local-sqlite-schema.md (Tier-6 audit)
 - [x] D-010-11 event-set adjudicated — five types, registry closed (fixes T1.1's registration count)
@@ -151,9 +151,12 @@ preconditions:
   - { type: plan_phase, plan: 006, phase: 1, status: merged }
   # PR #254 round 1 — T1.2's `RunId` type import binds provider-driver.ts at
   # typecheck, so this is a build-order dependency even though `import type`
-  # emits no runtime edge. Resolves satisfied against Plan-005's manifest
-  # (Phase 1 / PR #157).
-  - { type: plan_phase, plan: 005, phase: 1, status: merged }
+  # emits no runtime edge. PR #254 round 2 — gated on the immutable merged
+  # revision, not the whole phase: `RunId` shipped in PR #157 (T1.1), but
+  # Plan-005 Phase 1 has since grown campaign EXTENDs T1.7/T1.8 that remain
+  # unshipped, so a `plan_phase` gate here classifies `partially_shipped` and
+  # fails closed on tasks this dependency does not need.
+  - { type: pr_merged, ref: 157 }
 ```
 
 #### Tasks
@@ -500,7 +503,7 @@ shipped:
       - packages/runtime-daemon/src/session/__tests__/migration-shape.test.ts
       - packages/runtime-daemon/src/session/__tests__/session-service.test.ts
       - packages/runtime-daemon/src/session/migration-runner.ts
-    verifies_invariant: [I-010-1, I-010-2, I-010-3, I-010-4, I-010-5, I-010-13]
+    verifies_invariant: [I-010-1, I-010-2]
     spec_coverage:
       [
         "Spec-010 line 50 (six worktree lifecycle states)",
@@ -536,6 +539,21 @@ shipped:
       housekeeping edits rather than this shipment: the NS-35 build-order edge below, a
       reversed inbound/outbound reading on NS-37, an unanchored sink-check description, and
       the two missing primary-source citations now carried in References.
+      Round 2 returned three more, again all against the housekeeping edits. (1) This
+      verifies_invariant list was the union of the T1.1-T1.4 audit cites and overclaimed:
+      per the Invariants table's task column, only I-010-1 (T1.1) and I-010-2 (T1.3, T1.4)
+      complete in Phase 1. I-010-3 and I-010-4 pair T1.3 with T2.2, I-010-5 pairs T1.3 with
+      T2.4, and I-010-13 is wholly Phase-2 (T2.1, T2.2) with only event-type registration
+      landing in T1.1 - so a contracts-and-migration shipment cannot prove retirement
+      provenance, typed unique-index collision handling, branch-context writes, or
+      exactly-once transactional emission. The list is now the Phase-1-complete pair; the
+      remaining four record when Phase 2 ships. This follows the Plan-005 Phase-1 precedent
+      (record only what canonically verifies, note the partial contributions) rather than the
+      Plan-005 Phase-2 audit-DAG-union reading, which applies only where every cited
+      invariant does complete in that phase. (2) The Plan-005 build-order precondition moved
+      from a whole-phase gate to pr_merged ref 157 - see the Phase 1 preconditions comment.
+      (3) The References code cites took durable #symbol anchors, and the foreign_keys row's
+      conflation of two distinct tests was corrected there.
 ```
 
 ### Notes
@@ -550,6 +568,8 @@ shipped:
 
 - 2026-07-26 — Codex round 1 on the PR #253 housekeeping PR (#254): five findings, none against the merged Phase-1 code. Two land in this plan. (1) **Phase 1's precondition set was incomplete** — T1.2's `RunId` arrives from Plan-005 Phase 1's `provider-driver.ts` as an `import type`, which is erased at emit but still blocks `tsc`, so it is a build-order dependency; the box and the machine-enforced `preconditions:` block now carry it, and §6 records the `NS-35 → NS-39` edge (the §6 entry had adjudicated it a deliberate non-edge on the grounds that no RUNTIME module edge exists — true, but a module-cycle property, not a build-order one). It was satisfied six weeks before dispatch, so nothing was actually mis-gated. (2) **The forward-FK premise carried no primary source** — T1.3's Consumes asserted lazy FK resolution as bare fact; a §References section now cites SQLite Foreign Key Support §5 for the create-time non-checking and the "no such table" message, plus §2 for the `foreign_keys = ON` precondition without which the deferred check would not fire at all, and RFC 8785 for T1.4's set-vs-sequence split. This plan had no References section before; it now follows the Plan-009 placement. Status stays `approved` per the [runbook §Status Flip Rule](../operations/plan-implementation-readiness-audit-runbook.md#status-flip-rule) narrowing row: a precondition made explicit, no new invariant, CP row, phase, or Required ADR, and no behavior change.
 
+- 2026-07-26 — Codex round 2 on the same housekeeping PR (#254): three findings, again none against the merged Phase-1 code, all three against the round-1 edits above. (1) **The Phase-1 manifest entry overclaimed its verified invariants.** `verifies_invariant` had been written as the union of the T1.1–T1.4 audit `Verifies invariant:` cites — `{I-010-1, I-010-2, I-010-3, I-010-4, I-010-5, I-010-13}` — but the §Invariants task column is the authority on where each invariant canonically verifies, and only **I-010-1** (T1.1) and **I-010-2** (T1.3, T1.4) complete inside Phase 1. I-010-3 and I-010-4 pair T1.3 with T2.2, I-010-5 pairs T1.3 with T2.4, and I-010-13 is wholly Phase-2 (T2.1, T2.2) — T1.1 registers the event types, which is not the same as proving exactly-once transactional emission. A contracts-and-migration shipment cannot demonstrate retirement-preserves-provenance, typed unique-index collision handling, branch-context writes, or transactional emission, so audits reading this manifest would have treated four runtime behaviours as proven before their implementation exists. The entry now records the Phase-1-complete pair and the remaining four record when Phase 2 ships — the **Plan-005 Phase-1** precedent (record only what canonically verifies; note the partial contributions), not the Plan-005 Phase-2 audit-DAG-union reading, which holds only where every cited invariant does complete in that phase. (2) **The round-1 Plan-005 precondition did not resolve satisfied.** `{ type: plan_phase, plan: 005, phase: 1, status: merged }` classifies `partially_shipped`: Plan-005 Phase 1 declares T1.1–T1.8 while PR #157's manifest entry shipped T1.1–T1.6, T1.7/T1.8 being later campaign EXTENDs — confirmed by running `classifyPhaseShipment` against the plan directly. The whole-phase gate is also wider than the dependency, which needs only the `RunId` brand that T1.1 shipped, so both the box and the machine block now name the immutable merged revision — `{ type: pr_merged, ref: 157 }` (the Plan-002 / Plan-008 precedent). (3) **The new §References code cites were not durable.** Both pointed into `packages/` by bare path, which the docs-corpus gate cannot invalidate when a symbol moves; they now carry `#applyPragmas` anchors per `AGENTS.md §Durable-Cite Rule`. Verifying that fix surfaced a further error of this plan's own: the `foreign_keys` row had attributed the pragma-state assertion to the parent-less-database case, but that case pins the `no such table` compile failure, while the pragma state is asserted by a separate DML-enforcement test — the row now names both and says which proves what. Status stays `approved` per the [runbook §Status Flip Rule](../operations/plan-implementation-readiness-audit-runbook.md#status-flip-rule) narrowing row: a shipment record narrowed to what it can prove, a precondition narrowed to the revision it needs, and two citations made durable — no new invariant, CP row, phase, or Required ADR, and no plan-body behavior change.
+
 ## Done Checklist
 
 - [ ] Code changes implemented
@@ -560,5 +580,5 @@ shipped:
 ## References
 
 - [SQLite — Foreign Key Support §5 "CREATE, ALTER and DROP TABLE commands"](https://www.sqlite.org/foreignkeys.html#fk_schemacommands) — the primary source for T1.3's deliberate forward FK references to the Plan-009 Phase 2 tables `repo_mounts` and `workspaces`, which is what makes Plan-009 Phase 2 a Phase-**2** gate rather than a Phase-1 one. Create time is unchecked: "A CREATE TABLE command operates the same whether or not foreign key constraints are enabled. The parent key definitions of foreign key constraints are not checked when a table is created. There is nothing stopping the user from creating a foreign key definition that refers to a parent table that does not exist." Detection is deferred to statement preparation — such errors "prevent the application from preparing SQL statements that modify the content of the child or parent tables in ways that use the foreign keys" — and the page names the exact message the daemon sees: "The English language error message for foreign key DML errors is usually 'foreign key mismatch' but can also be 'no such table' if the parent table does not exist." That last clause is why `0004-worktree-lifecycle.ts` documents a premature insert as `SQLITE_ERROR: no such table`, not `SQLITE_CONSTRAINT_FOREIGNKEY` (confirmed 2026-07-26).
-- [SQLite — Foreign Key Support §2 "Enabling Foreign Key Support"](https://www.sqlite.org/foreignkeys.html#fk_enable) — the precondition the clause above depends on, and the reason the premise is not vacuous here: "Foreign key constraints are disabled by default (for backwards compatibility), so must be enabled separately for each database connection." The daemon enables them for every connection in `applyPragmas` (`packages/runtime-daemon/src/session/migration-runner.ts` — `db.pragma("foreign_keys = ON")`), so the DML-time enforcement above is the live path rather than the default-off one; the `session/__tests__/migration-shape.test.ts` parent-less-database case asserts both the pragma state and the resulting DML failure (confirmed 2026-07-26).
+- [SQLite — Foreign Key Support §2 "Enabling Foreign Key Support"](https://www.sqlite.org/foreignkeys.html#fk_enable) — the precondition the clause above depends on, and the reason the premise is not vacuous here: "Foreign key constraints are disabled by default (for backwards compatibility), so must be enabled separately for each database connection." The daemon enables them for every connection in `packages/runtime-daemon/src/session/migration-runner.ts#applyPragmas` (`db.pragma("foreign_keys = ON")`), so the DML-time enforcement above is the live path rather than the default-off one. Two tests in `packages/runtime-daemon/src/session/__tests__/migration-shape.test.ts#applyPragmas` split that proof between them, and PR #254 round 2 corrected this row's earlier conflation of the pair: the parent-less case — `ships write-inert on a parent-less db: the referencing INSERT fails to compile, not as an FK violation` — pins the `no such table` behaviour described above, while the pragma state itself is asserted by `enforces the forward REFERENCES clauses at DML time under foreign_keys = ON`, which reads `db.pragma("foreign_keys", { simple: true })` as a negative control before exercising a dangling parent (confirmed 2026-07-26).
 - [RFC 8785 — JSON Canonicalization Scheme (JCS)](https://datatracker.ietf.org/doc/html/rfc8785) — the canonicalization standard behind T1.4's set-vs-sequence split. The canonical bytes carry an enum member's literal string, so reordering Plan-009's `execution_mode` vocabulary is a wire non-event and that vocabulary compares as an unordered set, while the three Plan-010-owned vocabularies compare as ordered sequences because a reorder there is a Plan-010 authoring change the tripwire must catch. Same standard `Spec-006 §Canonical Serialization Rules` mandates for the envelope.
