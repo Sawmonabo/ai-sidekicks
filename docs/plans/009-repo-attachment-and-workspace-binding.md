@@ -418,6 +418,34 @@ shipped:
       - packages/runtime-daemon/src/workspace/repo-errors.ts
       - packages/runtime-daemon/src/workspace/repo-root-resolver.ts
       - packages/runtime-daemon/src/workspace/trust-envelope.ts
+    verifies_invariant: [I-009-1, I-009-2, I-009-3, I-009-4]
+    spec_coverage:
+      [
+        "Spec-009 line 44 (canonical execution-mode taxonomy)",
+        "Spec-009 line 63 (RepoAttach accepts local path, session id, owning runtime node)",
+        "Spec-009 line 64 (RepoMountRead exposes canonical root, VCS metadata, current health)",
+        "Spec-009 line 155 (RepoDetach accepts a repo mount id and transitions the mount to detached)",
+        "Spec-009 line 65 (WorkspaceBind accepts repo mount or directory root plus intended execution mode)",
+        "Spec-009 line 66 (capabilities read exposes currently-valid modes for the bound repo mount or workspace)",
+        "Spec-009 line 67 (WorkspaceList exposes workspace health and current binding state)",
+        "Spec-009 line 58 (canonical-root resolution failure fails explicitly)",
+        "Spec-009 line 45 (rejection of traversal / outside-envelope binding)",
+        "Spec-009 line 157 (detach refused with `repo.detach_conflict` while a dependent workspace is busy)",
+        "Spec-009 line 41 (canonical root resolution and persistence basis)",
+        "Spec-009 line 115 (never assume the user-selected path is the repo root)",
+        "Spec-009 line 56 (non-git plain-directory fallback classification)",
+        "Spec-009 line 58 (explicit failure on resolution failure)",
+        "Spec-009 line 45 (reject path traversal or workspace binding outside the declared local trust envelope)",
+        "Spec-009 line 144 (containment is symlink-resolved, component-boundary-aware, case-folded on case-insensitive filesystems)",
+        "Spec-009 line 145 (directory resolved against the mount canonical root and re-checked after symlink resolution)",
+      ]
+    notes: |
+      Full-phase single-PR ship (T1.1-T1.6). Codex rounds 1-4 closed reply-and-resolve (the
+      round-1.5 casing claim was refuted by probing, leaving seam-default pins behind); round 5
+      timed out with no review under the five-round cap. Four disclosed cross-plan touches per
+      this plan's Cross-Plan Amendments section: the node-id.ts extraction, the lane-2 Plan-001
+      race-control hardening, comment-only true-ups, and the Plan-010 payload-mechanism
+      amendment. NS-38 auto-created in the housekeeping PR.
 ```
 
 ### Notes
