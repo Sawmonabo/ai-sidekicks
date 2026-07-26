@@ -11,7 +11,8 @@
 // it through a registry would re-open that control flow for re-validation.
 // Version 1 is owned by Plan-001 (`migrations/0001-initial.ts`); version 2
 // by Plan-003 (`migrations/0002-runtime-node.ts`); version 3 by Plan-005
-// (`migrations/0003-runtime-bindings.ts`). Subsequent plans (006, 015,
+// (`migrations/0003-runtime-bindings.ts`); version 4 by Plan-010
+// (`migrations/0004-worktree-lifecycle.ts`). Subsequent plans (006, 015,
 // 022...) register their version as a further guarded block of the same
 // shape and bump `schema_version`.
 //
@@ -34,6 +35,7 @@ import type { Database as DatabaseType } from "better-sqlite3";
 import { INITIAL_MIGRATION_SQL } from "../migrations/0001-initial.js";
 import { RUNTIME_NODE_MIGRATION_SQL } from "../migrations/0002-runtime-node.js";
 import { RUNTIME_BINDINGS_MIGRATION_SQL } from "../migrations/0003-runtime-bindings.js";
+import { WORKTREE_LIFECYCLE_MIGRATION_SQL } from "../migrations/0004-worktree-lifecycle.js";
 
 /**
  * Apply pragmas to an open Database handle. MUST be called on every
@@ -140,6 +142,29 @@ export function applyMigrations(db: DatabaseType): void {
       // skip the exec rather than re-applying the CREATE TABLEs).
       if (!hasMigrationApplied(db, 3)) {
         db.exec(RUNTIME_BINDINGS_MIGRATION_SQL);
+      }
+    }).immediate();
+  }
+
+  if (!hasMigrationApplied(db, 4)) {
+    // Plan-010 version-4 migration (worktrees + ephemeral_clones +
+    // branch_contexts + run_execution_contexts). Same primitive as the
+    // version-1/2/3 blocks above: the migration SQL carries its own
+    // version=4 INSERT into schema_version, so the single .exec() commits
+    // the table CREATEs atomically with the anchor row, and
+    // db.transaction(...).immediate() takes the RESERVED writer-intent lock
+    // at BEGIN so concurrent racers serialize at BEGIN rather than
+    // colliding at write-upgrade time. The migration's REFERENCES clauses
+    // target Plan-009 Phase 2 tables that may not exist yet — SQLite
+    // resolves FK targets lazily at DML time, so the CREATEs apply cleanly
+    // regardless (B23 ordering; see the 0004 file header).
+    db.transaction(() => {
+      // Re-check inside the transaction to close the
+      // `hasMigrationApplied → exec` window (a concurrent writer that wins
+      // the BEGIN-IMMEDIATE race and commits first is observed here and we
+      // skip the exec rather than re-applying the CREATE TABLEs).
+      if (!hasMigrationApplied(db, 4)) {
+        db.exec(WORKTREE_LIFECYCLE_MIGRATION_SQL);
       }
     }).immediate();
   }
