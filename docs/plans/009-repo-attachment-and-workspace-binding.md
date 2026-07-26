@@ -222,6 +222,16 @@ Phases map 1:1 onto the four Implementation Steps. Phase 1 has no unsatisfied up
 - [x] Schema amendments ratified — local-sqlite-schema.md §Workspace and Git Tables (D-009-7, this audit)
 - [x] Detach cascade semantics ratified — `Spec-009 §Detach Semantics (V1 Definition)` (D-009-6) — gates T2.3's detach surface only
 
+<!-- prettier-ignore -->
+```yaml
+preconditions:
+  # Machine-enforced form of the unchecked boxes above (preflight Gate 5;
+  # PR #251 round 2 — the plural prose header is not a recognized gate form,
+  # so the Plan-006 Phase 3 build-order dependency previously failed open).
+  - { type: plan_phase, plan: 009, phase: 1, status: merged }
+  - { type: plan_phase, plan: 006, phase: 3, status: merged }
+```
+
 #### Tasks
 
 - **T2.1 — `repo_mounts` + `workspaces` migration + runner registration.**
@@ -278,6 +288,18 @@ Phases map 1:1 onto the four Implementation Steps. Phase 1 has no unsatisfied up
 - [x] BL-142 landed — deployed registry method-name regex conformed to the Tier-1 ratified canonical (the deployed tail class rejects camelCase; without the fix, `repo.mountRead`-class registrations throw at daemon boot)
 - [x] BL-143 landed — `DaemonDomainError` projection branch in `mapJsonRpcError` (without it, T3.6's wire assertions observe anonymous `-32603` errors instead of the ratified `repo.*` codes; surfaced by the Tier-6 Plan-010 walk)
 - [x] `RepoMountReadResponse` amended shape ratified — `canonicalRoot` + `health` (D-009-2, D-009-7)
+
+<!-- prettier-ignore -->
+```yaml
+preconditions:
+  # Machine-enforced form of the boxes above (preflight Gate 5; PR #251
+  # round 2 — the plural prose header is not a recognized gate form).
+  - { type: plan_phase, plan: 009, phase: 1, status: merged }
+  - { type: plan_phase, plan: 009, phase: 2, status: merged }
+  - { type: bl_closed, ref: 142 }
+  - { type: bl_closed, ref: 143 }
+```
+
 - [x] `repo.*` error codes ratified — error-contracts.md §Repo (D-009-3) — gates T3.6
 - [x] `RepoDetach` contract + cascade semantics ratified — `Spec-009 §Detach Semantics (V1 Definition)` (D-009-6) — gates T3.7
 
@@ -342,6 +364,14 @@ Phases map 1:1 onto the four Implementation Steps. Phase 1 has no unsatisfied up
 - [x] `repo.*` method strings ratified — D-009-1
 - [x] `Spec-023 §Preload Bridge Contract` path-display amendment ratified (this audit; co-recorded for the Plan-023 Tier-8 audit NS-21) — display-only path VALUES inside daemon payload data are data, not capabilities; gates the `canonicalRoot`/`fsRoot` display slices of T4.1/T4.2/T4.3
 
+<!-- prettier-ignore -->
+```yaml
+preconditions:
+  # Machine-enforced form of the phase-dependency box above (preflight Gate 5;
+  # PR #251 round 2 — the plural prose header is not a recognized gate form).
+  - { type: plan_phase, plan: 009, phase: 3, status: merged }
+```
+
 #### Tasks
 
 - **T4.1 — Repo attach view (click-triggered explicit attach).**
@@ -389,7 +419,63 @@ Phases map 1:1 onto the four Implementation Steps. Phase 1 has no unsatisfied up
 
 ```yaml
 manifest_schema_version: 1
-shipped: []
+shipped:
+  - phase: 1
+    task: [T1.1, T1.2, T1.3, T1.4, T1.5, T1.6]
+    pr: 250
+    sha: 0ed3c7f
+    merged_at: 2026-07-26
+    files:
+      - docs/architecture/cross-plan-dependencies.md
+      - docs/plans/003-runtime-node-attach.md
+      - docs/plans/009-repo-attachment-and-workspace-binding.md
+      - docs/plans/010-worktree-lifecycle-and-execution-modes.md
+      - docs/superpowers/specs/2026-07-01-capability-enhancements-design.md
+      - packages/contracts/src/__tests__/repo.test.ts
+      - packages/contracts/src/__tests__/session-event.test.ts
+      - packages/contracts/src/event.ts
+      - packages/contracts/src/index.ts
+      - packages/contracts/src/node-id.ts
+      - packages/contracts/src/repo.ts
+      - packages/contracts/src/runtime-node.ts
+      - packages/runtime-daemon/src/ipc/domain-error.ts
+      - packages/runtime-daemon/src/node/__tests__/node-event-emitter.test.ts
+      - packages/runtime-daemon/src/session/__tests__/migration-race-worker.mjs
+      - packages/runtime-daemon/src/session/__tests__/session-service.test.ts
+      - packages/runtime-daemon/src/workspace/__tests__/repo-errors.test.ts
+      - packages/runtime-daemon/src/workspace/__tests__/repo-root-resolver.test.ts
+      - packages/runtime-daemon/src/workspace/__tests__/trust-envelope.test.ts
+      - packages/runtime-daemon/src/workspace/repo-errors.ts
+      - packages/runtime-daemon/src/workspace/repo-root-resolver.ts
+      - packages/runtime-daemon/src/workspace/trust-envelope.ts
+    verifies_invariant: [I-009-1, I-009-2, I-009-3, I-009-4]
+    spec_coverage:
+      [
+        "Spec-009 line 44 (canonical execution-mode taxonomy)",
+        "Spec-009 line 63 (RepoAttach accepts local path, session id, owning runtime node)",
+        "Spec-009 line 64 (RepoMountRead exposes canonical root, VCS metadata, current health)",
+        "Spec-009 line 155 (RepoDetach accepts a repo mount id and transitions the mount to detached)",
+        "Spec-009 line 65 (WorkspaceBind accepts repo mount or directory root plus intended execution mode)",
+        "Spec-009 line 66 (capabilities read exposes currently-valid modes for the bound repo mount or workspace)",
+        "Spec-009 line 67 (WorkspaceList exposes workspace health and current binding state)",
+        "Spec-009 line 58 (canonical-root resolution failure fails explicitly)",
+        "Spec-009 line 45 (rejection of traversal / outside-envelope binding)",
+        "Spec-009 line 157 (detach refused with `repo.detach_conflict` while a dependent workspace is busy)",
+        "Spec-009 line 41 (canonical root resolution and persistence basis)",
+        "Spec-009 line 115 (never assume the user-selected path is the repo root)",
+        "Spec-009 line 56 (non-git plain-directory fallback classification)",
+        "Spec-009 line 58 (explicit failure on resolution failure)",
+        "Spec-009 line 45 (reject path traversal or workspace binding outside the declared local trust envelope)",
+        "Spec-009 line 144 (containment is symlink-resolved, component-boundary-aware, case-folded on case-insensitive filesystems)",
+        "Spec-009 line 145 (directory resolved against the mount canonical root and re-checked after symlink resolution)",
+      ]
+    notes: |
+      Full-phase single-PR ship (T1.1-T1.6). Codex rounds 1-4 closed reply-and-resolve (the
+      round-1.5 casing claim was refuted by probing, leaving seam-default pins behind); round 5
+      timed out with no review under the five-round cap. Four disclosed cross-plan touches per
+      this plan's Cross-Plan Amendments section: the node-id.ts extraction, the lane-2 Plan-001
+      race-control hardening, comment-only true-ups, and the Plan-010 payload-mechanism
+      amendment. NS-38 auto-created in the housekeeping PR.
 ```
 
 ### Notes
