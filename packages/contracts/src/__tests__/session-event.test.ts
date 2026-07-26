@@ -154,10 +154,12 @@ const buildChannelCreated = () => ({
 });
 
 describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
-  it("registers exactly the payload-variant roster (Plan-001 three + Plan-009 six)", () => {
+  it("registers exactly the payload-variant roster (Plan-001 three + Plan-009 six + Plan-010 five)", () => {
     // The SCHEMA-registered subset, not the 156-type census. It grew by the
-    // six Plan-009 repo/workspace variants (CP-009-4); their round-trip and
-    // payload coverage lives in repo.test.ts, which owns that contract.
+    // six Plan-009 repo/workspace variants (CP-009-4) and the five Plan-010
+    // worktree variants (CP-010-5); each group's round-trip and payload
+    // coverage lives in the suite that owns its contract (repo.test.ts /
+    // worktree.test.ts).
     expect(SESSION_EVENT_TYPES).toEqual([
       "session.created",
       "membership.created",
@@ -168,6 +170,11 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
       "workspace.ready",
       "workspace.stale",
       "workspace.archived",
+      "worktree.created",
+      "worktree.ready",
+      "worktree.dirty",
+      "worktree.merged",
+      "worktree.retired",
     ]);
   });
 
@@ -628,8 +635,9 @@ describe("compareEventEnvelopeVersion", () => {
 //     literals are unrenamed with unchanged categories, and the SCHEMA-
 //     registered payload subset grows only additively through the
 //     union-registration seam (those three plus the six Plan-009
-//     repo/workspace variants of CP-009-4 — whose literals the census
-//     already carried, so registering their payloads moved no census row).
+//     repo/workspace variants of CP-009-4 and the five Plan-010 worktree
+//     variants of CP-010-5 — whose literals the census already carried, so
+//     registering their payloads moved no census row).
 //     The B18 widening is likewise additive-only: it renamed nothing, and
 //     every pre-B18 census row keeps its literal and category (pinned by
 //     the per-category counts below, which move ONLY on the five B18 rows).
@@ -760,11 +768,12 @@ describe("SessionEventType census + SESSION_EVENT_CATEGORY_BY_TYPE registry (T1.
     // The census widening is additive-only, and the SCHEMA-registered
     // payload subset grows ONLY through the emitting plans'
     // union-registration seam — the three Plan-001 variants plus the six
-    // Plan-009 repo/workspace variants (CP-009-4), whose type strings were
-    // already census-registered by T1.2 before their payloads landed. The
-    // loop below is the bind that matters: every registered variant must be
-    // a census member, so a variant registered under an unregistered literal
-    // fails here.
+    // Plan-009 repo/workspace variants (CP-009-4) plus the five Plan-010
+    // worktree variants (CP-010-5), whose type strings were already
+    // census-registered by T1.2 before their payloads landed. The loop below
+    // is the bind that matters: every registered variant must be a census
+    // member, so a variant registered under an unregistered literal fails
+    // here.
     expect(SESSION_EVENT_TYPES).toEqual([
       "session.created",
       "membership.created",
@@ -775,6 +784,11 @@ describe("SessionEventType census + SESSION_EVENT_CATEGORY_BY_TYPE registry (T1.
       "workspace.ready",
       "workspace.stale",
       "workspace.archived",
+      "worktree.created",
+      "worktree.ready",
+      "worktree.dirty",
+      "worktree.merged",
+      "worktree.retired",
     ]);
     for (const registered of SESSION_EVENT_TYPES) {
       expect(SESSION_EVENT_CATEGORY_BY_TYPE.has(registered)).toBe(true);

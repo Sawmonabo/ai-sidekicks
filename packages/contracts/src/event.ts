@@ -12,6 +12,12 @@
 // `repo.attached`, `repo.detached`, and the four `workspace.*` lifecycle
 // types, all sharing one payload schema imported from repo.ts.
 //
+// Plan-010 T1.1 adds the five `worktree.*` lifecycle types through the same
+// seam (CP-010-5), carrying the family payload instantiated over Plan-010's
+// own `WorktreeStateSchema` and imported from worktree.ts. No
+// `worktree.failed` and no ephemeral-clone variants — the Spec-006 registry
+// stays closed (Plan-010 D-010-11).
+//
 // The discriminated-union `SessionEvent` discriminates on the wire `type`
 // string. Adding a new variant later is additive per ADR-018 §Decision #8
 // (new event types allowed under a MINOR version bump). The full taxonomy
@@ -67,6 +73,9 @@ import {
   type ParticipantId,
   type SessionId,
 } from "./session.js";
+// One-way import (CP-010-5): worktree.ts imports nothing from this file —
+// same eager-Zod-cycle discipline as the repo.js import above.
+import { WorktreeLifecyclePayloadSchema, type WorktreeLifecyclePayload } from "./worktree.js";
 
 // --------------------------------------------------------------------------
 // EventCategory — canonical taxonomy enum.
@@ -565,7 +574,8 @@ export const EventEnvelopeSchema: z.ZodType<EventEnvelope> = z
 // The wrap set is still EMPTY BY CONSTRUCTION: `SessionEventSchema` carries
 // the three Plan-001 variants (`session.created`, `membership.created`,
 // `channel.created`) plus the six Plan-009 `repo.*` / `workspace.*` variants
-// (CP-009-4) — all nine are lifecycle rows whose payloads carry no `runId`,
+// (CP-009-4) plus the five Plan-010 `worktree.*` variants (CP-010-5) — all
+// fourteen are lifecycle rows whose payloads carry no `runId`,
 // so none is run-scoped and no branch here composes the helper yet. Later
 // registrants of the five families arriving through the union-registration
 // seam (the
@@ -910,7 +920,10 @@ export const ChannelCreatedEventSchema: z.ZodType<ChannelCreatedEvent> = z
 // `RepoWorkspaceLifecyclePayloadSchema` (authored in repo.ts per
 // emitter-authors-payload — CP-009-4, the Plan-003 precedent carried forward
 // in Plan-006 CP-006-5) rather than six copies of one contract. The five
-// `worktree.*` members arrive against this SAME schema through CP-010-5.
+// `worktree.*` members are registered in the block below through CP-010-5,
+// carrying the SAME FAMILY SHAPE instantiated over Plan-010's own
+// `WorktreeStateSchema` (the factory path, PR #250 round 4) rather than this
+// two-vocabulary instantiation.
 // Import direction is one-way: repo.ts imports nothing from this file.
 //
 // NO EPOCH STAMP. These are `session_lifecycle`, not run-scoped — their
@@ -1018,6 +1031,121 @@ export const WorkspaceArchivedEventSchema: z.ZodType<WorkspaceArchivedEvent> = z
   .strict();
 
 // --------------------------------------------------------------------------
+// worktree.* — the five Plan-010 lifecycle variants (CP-010-5).
+// --------------------------------------------------------------------------
+//
+// Additive-MINOR registration (`ADR-018 §Decision` #8) of the five
+// Plan-010-emitted members of
+// `Spec-006 §Repo, Workspace, and Worktree Lifecycle (session_lifecycle)`.
+// All five type strings were ALREADY in the census (`SessionEventType` +
+// `SESSION_EVENT_CATEGORY_BY_TYPE`, Plan-006 T1.2); what lands here is their
+// PAYLOAD VARIANTS. The census is untouched — still 156 types across 20
+// categories.
+//
+// SAME FAMILY, OWN VOCABULARY. These five complete the eleven-member family
+// the CP-009-4 block above began, but they do NOT compose
+// `RepoWorkspaceLifecyclePayloadSchema`: their payload is the family factory
+// instantiated over Plan-010's `WorktreeStateSchema` —
+// `WorktreeLifecyclePayloadSchema`, authored in worktree.ts per
+// emitter-authors-payload — so a worktree event claiming a repo/workspace
+// state, or a workspace event claiming `merged`, stays a parse error
+// (PR #250 round 4). Import direction is one-way: worktree.ts imports
+// nothing from this file.
+//
+// THE REGISTRY STAYS CLOSED (Plan-010 D-010-11). Five arms, not six: the
+// worktree ROW vocabulary has six states, but the `-> failed` transition
+// emits no worktree event (Plan-010 I-010-13 — the failure incident is
+// already evented as `workspace.stale` by the coupled `failReprovision`),
+// and ephemeral-clone transitions emit none at all. `worktree.failed` is not
+// a census member and MUST stay rejected by `SessionEventSchema`
+// (pinned in __tests__/worktree.test.ts).
+//
+// NO EPOCH STAMP. `session_lifecycle`, not run-scoped — the same WRAP
+// ADMISSION exclusion as the six above; __tests__/event-source-epoch.test.ts
+// walks the live union and fails a non-admitting branch that lands wrapped.
+
+// Emitted transactionally with worktree row creation (Plan-010 D-010-12;
+// `Spec-010 §State And Data Implications`).
+export interface WorktreeCreatedEvent extends EventEnvelope {
+  type: "worktree.created";
+  category: "session_lifecycle";
+  payload: WorktreeLifecyclePayload;
+}
+export const WorktreeCreatedEventSchema: z.ZodType<WorktreeCreatedEvent> = z
+  .object({
+    ...buildCommonShape(),
+    type: z.literal("worktree.created"),
+    category: z.literal("session_lifecycle"),
+    payload: WorktreeLifecyclePayloadSchema,
+  })
+  .strict();
+
+// Emitted on the `creating -> ready` transition — the provisioned checkout is
+// materialized and bound as an execution root (Plan-010 D-010-12).
+export interface WorktreeReadyEvent extends EventEnvelope {
+  type: "worktree.ready";
+  category: "session_lifecycle";
+  payload: WorktreeLifecyclePayload;
+}
+export const WorktreeReadyEventSchema: z.ZodType<WorktreeReadyEvent> = z
+  .object({
+    ...buildCommonShape(),
+    type: z.literal("worktree.ready"),
+    category: z.literal("session_lifecycle"),
+    payload: WorktreeLifecyclePayloadSchema,
+  })
+  .strict();
+
+// Emitted on the `-> dirty` transition — uncommitted work observed in the
+// checkout (Plan-010 D-010-12; `Spec-010 §Required Behavior`).
+export interface WorktreeDirtyEvent extends EventEnvelope {
+  type: "worktree.dirty";
+  category: "session_lifecycle";
+  payload: WorktreeLifecyclePayload;
+}
+export const WorktreeDirtyEventSchema: z.ZodType<WorktreeDirtyEvent> = z
+  .object({
+    ...buildCommonShape(),
+    type: z.literal("worktree.dirty"),
+    category: z.literal("session_lifecycle"),
+    payload: WorktreeLifecyclePayloadSchema,
+  })
+  .strict();
+
+// Emitted on the `-> merged` transition — the worktree's branch has merged
+// back (Plan-010 D-010-12).
+export interface WorktreeMergedEvent extends EventEnvelope {
+  type: "worktree.merged";
+  category: "session_lifecycle";
+  payload: WorktreeLifecyclePayload;
+}
+export const WorktreeMergedEventSchema: z.ZodType<WorktreeMergedEvent> = z
+  .object({
+    ...buildCommonShape(),
+    type: z.literal("worktree.merged"),
+    category: z.literal("session_lifecycle"),
+    payload: WorktreeLifecyclePayloadSchema,
+  })
+  .strict();
+
+// Emitted on the `-> retired` transition — recorded and evented BEFORE any
+// disk mutation; cleanup is asynchronous and idempotent (Plan-010 I-010-9,
+// D-010-12).
+export interface WorktreeRetiredEvent extends EventEnvelope {
+  type: "worktree.retired";
+  category: "session_lifecycle";
+  payload: WorktreeLifecyclePayload;
+}
+export const WorktreeRetiredEventSchema: z.ZodType<WorktreeRetiredEvent> = z
+  .object({
+    ...buildCommonShape(),
+    type: z.literal("worktree.retired"),
+    category: z.literal("session_lifecycle"),
+    payload: WorktreeLifecyclePayloadSchema,
+  })
+  .strict();
+
+// --------------------------------------------------------------------------
 // SessionEvent — discriminated union over `type`.
 // --------------------------------------------------------------------------
 //
@@ -1043,7 +1171,12 @@ export type SessionEvent =
   | WorkspaceProvisioningEvent
   | WorkspaceReadyEvent
   | WorkspaceStaleEvent
-  | WorkspaceArchivedEvent;
+  | WorkspaceArchivedEvent
+  | WorktreeCreatedEvent
+  | WorktreeReadyEvent
+  | WorktreeDirtyEvent
+  | WorktreeMergedEvent
+  | WorktreeRetiredEvent;
 export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion("type", [
   z
     .object({
@@ -1121,6 +1254,53 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
       type: z.literal("workspace.archived"),
       category: z.literal("session_lifecycle"),
       payload: RepoWorkspaceLifecyclePayloadSchema,
+    })
+    .strict(),
+  // The five Plan-010 worktree arms (CP-010-5). Each shares
+  // `WorktreeLifecyclePayloadSchema` imported from worktree.ts — the family
+  // factory instantiated over `WorktreeStateSchema` — so these branch schemas
+  // and the `*EventSchema` exports above cannot drift on payload shape. No
+  // `worktree.failed` arm exists (Plan-010 D-010-11), and none is wrapped
+  // with `withEpochStamp` (`session_lifecycle`, not run-scoped; see the
+  // no-epoch-stamp note on their declarations above).
+  z
+    .object({
+      ...buildCommonShape(),
+      type: z.literal("worktree.created"),
+      category: z.literal("session_lifecycle"),
+      payload: WorktreeLifecyclePayloadSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...buildCommonShape(),
+      type: z.literal("worktree.ready"),
+      category: z.literal("session_lifecycle"),
+      payload: WorktreeLifecyclePayloadSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...buildCommonShape(),
+      type: z.literal("worktree.dirty"),
+      category: z.literal("session_lifecycle"),
+      payload: WorktreeLifecyclePayloadSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...buildCommonShape(),
+      type: z.literal("worktree.merged"),
+      category: z.literal("session_lifecycle"),
+      payload: WorktreeLifecyclePayloadSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...buildCommonShape(),
+      type: z.literal("worktree.retired"),
+      category: z.literal("session_lifecycle"),
+      payload: WorktreeLifecyclePayloadSchema,
     })
     .strict(),
 ]);
@@ -1380,8 +1560,9 @@ export type SessionEventType =
 // under-reporting the registered surface.
 //
 // Membership today: the three Plan-001 variants plus the six Plan-009
-// repo/workspace variants (CP-009-4). Order mirrors the declaration order of
-// the union arms above.
+// repo/workspace variants (CP-009-4) plus the five Plan-010 worktree
+// variants (CP-010-5). Order mirrors the declaration order of the union arms
+// above.
 export const SESSION_EVENT_TYPES: readonly SessionEvent["type"][] = [
   "session.created",
   "membership.created",
@@ -1392,6 +1573,11 @@ export const SESSION_EVENT_TYPES: readonly SessionEvent["type"][] = [
   "workspace.ready",
   "workspace.stale",
   "workspace.archived",
+  "worktree.created",
+  "worktree.ready",
+  "worktree.dirty",
+  "worktree.merged",
+  "worktree.retired",
 ] as const;
 
 // --------------------------------------------------------------------------

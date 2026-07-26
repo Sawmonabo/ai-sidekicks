@@ -30,3 +30,4 @@ export * from "./repo.js";
 export * from "./runtime-node.js";
 export * from "./session.js";
 export * from "./uuid-canonical.js";
+export * from "./worktree.js";
