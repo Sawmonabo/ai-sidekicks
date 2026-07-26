@@ -27,9 +27,10 @@
 //
 // Fixture strategy. Real temp directories and real symlinks for everything a
 // POSIX filesystem can express, so the ordering guarantee is asserted against
-// the kernel's own symlink resolution rather than an imitation of it. The two
-// injected seams (`realpath`, `platformPath`) cover what this host cannot
-// produce: win32 path shapes and case-folded comparison.
+// the kernel's own symlink resolution rather than an imitation of it. The three
+// injected seams (`realpath`, `stat`, `platformPath`) cover what this host
+// cannot produce: win32 path shapes, case-folded comparison, and a resolved root
+// whose TYPE disagrees with whatever the host would report for that spelling.
 //
 // Case sensitivity is NEVER read off the host. A macOS developer runs on
 // case-insensitive APFS while CI runs on case-sensitive ext4, so a test that
@@ -50,6 +51,7 @@ import {
   DEFAULT_REALPATH,
   TrustEnvelopeValidator,
   type PathRealpathResolver,
+  type PathStatResolver,
   type WorkspaceExecutionRootCandidate,
 } from "../trust-envelope.js";
 
@@ -106,6 +108,7 @@ interface Fixtures {
   readonly realSubdirectory: string;
   readonly symlinkInsideMount: string;
   readonly symlinkEscapingMount: string;
+  readonly symlinkToFileInMount: string;
   readonly outsideDirectory: string;
   readonly outsideChild: string;
   readonly siblingDirectory: string;
@@ -160,6 +163,12 @@ beforeAll(async () => {
   await symlink(realSubdirectory, symlinkInsideMount);
   await symlink(outsideDirectory, symlinkEscapingMount);
 
+  // A third symlink, for the type check rather than the boundary: it stays
+  // inside the mount and resolves to a regular FILE, so containment passes and
+  // only the directory check can refuse it.
+  const symlinkToFileInMount = join(mountRoot, "link-to-file");
+  await symlink(regularFileInMount, symlinkToFileInMount);
+
   // An alias for the mount root itself — the shape a caller produces by
   // handing over a root that was never `realpath`-ed, and the shape an attacker
   // produces by replacing an admitted root with a link.
@@ -173,6 +182,7 @@ beforeAll(async () => {
     realSubdirectory,
     symlinkInsideMount,
     symlinkEscapingMount,
+    symlinkToFileInMount,
     outsideDirectory,
     outsideChild,
     siblingDirectory,
@@ -254,6 +264,22 @@ function syntheticRealpath(
     }
     return Promise.resolve(physicalPath);
   };
+}
+
+/**
+ * A `stat` over the synthetic filesystem, which models directories only.
+ *
+ * Every physical path in the seam-driven blocks below is a spelling no host
+ * has (`C:\Repos\App\Src`), so the real `stat` would `ENOENT` on all of them and
+ * refuse the very acceptances those blocks exist to assert. One POSIX case would
+ * be worse than that: `/srv` exists on a Linux runner and not on macOS, so the
+ * real `stat` would make that test's verdict a property of the host.
+ *
+ * `resolvesToDirectory: false` is how a test asks for the type refusal on a
+ * candidate that satisfies every other rule.
+ */
+function syntheticStat(resolvesToDirectory = true): PathStatResolver {
+  return () => Promise.resolve({ isDirectory: () => resolvesToDirectory });
 }
 
 // ----------------------------------------------------------------------------
@@ -411,18 +437,6 @@ describe("accepted execution roots (I-009-3)", () => {
     },
   );
 
-  it("accepts a regular file inside the mount — containment is not a type check", async () => {
-    // Deliberately in scope for the boundary and out of scope for this module:
-    // the validator answers "is this inside the envelope", not "is this a usable
-    // execution root". Whether an execution root must be a directory is T2.4's
-    // bind contract and Plan-010's provisioning concern, and answering it here
-    // would put a filesystem-type policy inside the security check.
-    const validated = await new TrustEnvelopeValidator().validateExecutionRoot(
-      candidateInMount("README.md"),
-    );
-    expect(validated).toBe(fixtures.regularFileInMount);
-  });
-
   it("accepts an absolute directory that stays inside the mount root", async () => {
     // `Spec-009 §Local Trust Envelope (V1 Definition)` rejects absolute-path
     // REDIRECTION outside the mount root, not the absolute spelling itself; the
@@ -441,6 +455,84 @@ describe("accepted execution roots (I-009-3)", () => {
       candidateInMount("nested/deep/.."),
     );
     expect(validated).toBe(join(fixtures.mountRoot, "nested"));
+  });
+});
+
+// ----------------------------------------------------------------------------
+// The resolved root must be a directory
+// ----------------------------------------------------------------------------
+
+describe("a non-directory execution root is refused (I-009-3)", () => {
+  // Contained but unusable. The returned value's only destination is
+  // `workspaces.fs_root` — a root a process is later asked to run inside — and
+  // T2.4's bind flow resolves, refuses escapes, and persists without asking what
+  // the path IS. Refusing here keeps a workspace that can never spawn from being
+  // written in the first place.
+
+  it("refuses a regular file inside the mount root", async () => {
+    // Real filesystem, no seam, so this arm runs on every host including CI.
+    await expectEnvelopeRefusal(
+      new TrustEnvelopeValidator().validateExecutionRoot(candidateInMount("README.md")),
+    );
+  });
+
+  it("refuses a symlink inside the mount that RESOLVES to a regular file", async () => {
+    // The check has to run on the resolved value, like the boundary does: the
+    // spelling here names a symlink, and only what it resolves to is a file.
+    await expectEnvelopeRefusal(
+      new TrustEnvelopeValidator().validateExecutionRoot(candidateInMount("link-to-file")),
+    );
+  });
+
+  it("resolves `link-to-file` to a real file INSIDE the mount, so that refusal is not an escape", async () => {
+    // The premise the test above rests on. Without it, that refusal could just
+    // as well be an escape or an unresolvable path — the two arms the rest of
+    // this file already covers — and the type check would be asserted nowhere.
+    const resolvedTarget = await realpath(fixtures.symlinkToFileInMount);
+    expect(resolvedTarget).toBe(fixtures.regularFileInMount);
+    expect(resolvedTarget.startsWith(`${fixtures.mountRoot}${sep}`)).toBe(true);
+  });
+
+  it("refuses a resolved root the `stat` seam reports as a non-directory", async () => {
+    // Every seam injected and only the stat varying between the two runs below,
+    // so the verdict is a property of the stat alone — this candidate is
+    // admitted, contained, and absolute either way.
+    const windowsCandidate: WorkspaceExecutionRootCandidate = {
+      mountCanonicalRoot: "C:\\repos\\app",
+      directory: "pkg",
+      sessionEnvelopeRoots: ["C:\\repos\\app"],
+    };
+    const physicalPathBySpelling = { "C:\\repos\\app\\pkg": "C:\\repos\\app\\pkg" };
+
+    // Positive control first: the identical setup with a directory-reporting
+    // stat is accepted, so the refusal below cannot be blamed on the fixture.
+    expect(
+      await new TrustEnvelopeValidator({
+        platformPath: win32Path,
+        realpath: syntheticRealpath(physicalPathBySpelling),
+        stat: syntheticStat(),
+      }).validateExecutionRoot(windowsCandidate),
+    ).toBe("C:\\repos\\app\\pkg");
+
+    await expectEnvelopeRefusal(
+      new TrustEnvelopeValidator({
+        platformPath: win32Path,
+        realpath: syntheticRealpath(physicalPathBySpelling),
+        stat: syntheticStat(false),
+      }).validateExecutionRoot(windowsCandidate),
+    );
+  });
+
+  it("refuses when the `stat` seam fails outright", async () => {
+    // The other arm of the same rule: a root the filesystem will not answer for
+    // is refused for the reason an unresolvable one is — the property cannot be
+    // proven, so it is not satisfied. `EACCES` on a traversable-but-unreadable
+    // parent is the realistic shape.
+    await expectEnvelopeRefusal(
+      new TrustEnvelopeValidator({
+        stat: () => Promise.reject(Object.assign(new Error("EACCES"), { code: "EACCES" })),
+      }).validateExecutionRoot(candidateInMount()),
+    );
   });
 });
 
@@ -710,6 +802,7 @@ describe("win32 case folding and root shapes (Spec-009 §Local Trust Envelope (V
     return new TrustEnvelopeValidator({
       platformPath: win32Path,
       realpath: syntheticRealpath(physicalPathBySpelling, recorded),
+      stat: syntheticStat(),
     });
   }
 
@@ -895,6 +988,7 @@ describe("case folding stays win32-scoped (Spec-009 §Local Trust Envelope (V1 D
     return new TrustEnvelopeValidator({
       platformPath: posixPath,
       realpath: syntheticRealpath(physicalPathBySpelling),
+      stat: syntheticStat(),
     });
   }
 

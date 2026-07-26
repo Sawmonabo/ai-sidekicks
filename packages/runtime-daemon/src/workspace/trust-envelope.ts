@@ -172,18 +172,24 @@
 // Failure is uniform, and one residual comes with it
 // --------------------------------------------------------------------------
 // Every refusal throws the argument-free `TrustEnvelopeViolationError`
-// (`repo.outside_trust_envelope`), including a `realpath` that fails because
-// the candidate does not exist or cannot be traversed. Fail-closed is the only
-// available answer — containment cannot be PROVEN for a path the filesystem
-// will not resolve, and T1.4 gives this code no channel through which a path
-// could reach the wire.
+// (`repo.outside_trust_envelope`): a foreign or malformed anchor, an escape, a
+// `realpath` that fails because the candidate does not exist or cannot be
+// traversed, and a resolved root that is not a directory — whether the `stat`
+// reports a non-directory or fails outright. Fail-closed is the only available
+// answer — neither containment nor usability can be PROVEN of a path the
+// filesystem will not answer for, and T1.4 gives this code no channel through
+// which a path could reach the wire.
 //
 // The residual: an execution root that has VANISHED — an unplugged volume, a
 // deleted mount root — is an availability condition (`Spec-009 §Fallback
 // Behavior`'s `stale` transition, I-009-7), and it surfaces from here as a
-// trust-envelope refusal. T2.4 should probe root reachability through the T2.5
-// health projection BEFORE calling this validator, so an operational outage is
-// reported as `stale` rather than masquerading as a security violation.
+// trust-envelope refusal. The directory check WIDENS that residual rather than
+// adding a second one: a root that disappears between the `realpath` and the
+// `stat` is reported identically to one that was a regular file all along,
+// because the carrier takes no arguments and cannot say which. T2.4 should probe
+// root reachability through the T2.5 health projection BEFORE calling this
+// validator, so an operational outage is reported as `stale` rather than
+// masquerading as a security violation.
 //
 // The admission layer carries the same shape of residual. A bind naming a
 // `detached` mount produces an anchor that no attached root matches, so it too
@@ -200,16 +206,25 @@
 // `mountCanonicalRoot` with the request's `directory` — the unresolved spelling
 // is the thing that was never validated.
 //
-// It is NOT asserted to be a directory. A regular file inside the mount is
-// contained, and this module returns it: containment is a boundary question,
-// not a usability one. Whether an execution root must be a directory is T2.4's
-// bind contract and Plan-010's provisioning concern.
+// It IS asserted to be a directory, and that is a containment question rather
+// than a usability one once you follow where the value goes. Its only purpose is
+// to become `workspaces.fs_root` — the root a process is later asked to run
+// inside. A regular file that passes containment would persist a workspace that
+// can never spawn anything, and nothing downstream would catch it: T2.4's bind
+// flow resolves this path, refuses escapes, and writes it. Refusing at the one
+// chokepoint that already proves things about this path is the fail-closed
+// direction; the alternative is a row that looks bound and fails at first use.
+// Plan-010's provisioned roots are unaffected — they never reach this module
+// (see the daemon-PROVISIONED paragraph above).
 //
-// The guarantee is point-in-time. Nothing here (or anywhere) prevents the
-// filesystem from changing between validation and use; TOCTOU hardening at the
-// execution boundary is out of scope for a bind-time check.
+// The guarantee is point-in-time, and that now covers two probes rather than
+// one. Nothing here (or anywhere) prevents the filesystem from changing between
+// validation and use: a directory can be replaced by a file, or removed, after
+// the `stat` and before the spawn, exactly as a resolved path can be re-pointed
+// after the `realpath`. TOCTOU hardening at the execution boundary is out of
+// scope for a bind-time check.
 
-import { realpath as realpathFromFilesystem } from "node:fs/promises";
+import { realpath as realpathFromFilesystem, stat as statFromFilesystem } from "node:fs/promises";
 import * as nodePath from "node:path";
 
 import { TrustEnvelopeViolationError } from "./repo-errors.js";
@@ -262,12 +277,27 @@ export interface WorkspaceExecutionRootCandidate {
 // Injected seams
 // --------------------------------------------------------------------------
 //
-// Same two-seam shape as T1.5's resolver, for the same reason: the win32
-// branch of a rule that only Windows can exercise (case folding, drive and UNC
-// roots) is otherwise asserted nowhere in an ubuntu-only CI.
+// Same seam DISCIPLINE as T1.5's resolver, plus a third seam the resolver has
+// no counterpart for. Two are here for the resolver's reason: the win32 branch
+// of a rule that only Windows can exercise (case folding, drive and UNC roots)
+// is otherwise asserted nowhere in an ubuntu-only CI.
+//
+// The `stat` seam answers a question T1.5 never has to ask. The resolver hands
+// its path to `git -C`, which fails on its own against a regular file and routes
+// that failure to `vcs_error` — so what the path IS never needs establishing
+// there. This module RETURNS its path for persistence instead of consuming it,
+// so nothing downstream asks on its behalf, and it must ask itself.
 
 /** `fs.promises.realpath` seam. Rejects with a Node `ErrnoException`. */
 export type PathRealpathResolver = (path: string) => Promise<string>;
+
+/**
+ * `fs.promises.stat` seam, narrowed to the one question this module asks.
+ *
+ * Rejects with a Node `ErrnoException` for a path it cannot stat, which this
+ * module treats exactly as it treats a non-directory.
+ */
+export type PathStatResolver = (path: string) => Promise<{ isDirectory(): boolean }>;
 
 /**
  * The slice of `node:path` this module reads. A structural subset, so both
@@ -290,7 +320,11 @@ export type PathRealpathResolver = (path: string) => Promise<string>;
  *   1. this interface;
  *   2. the exported `PathRealpathResolver` alias above (byte-identical);
  *   3. the module-local `WINDOWS_PATH_SEPARATOR` constant below;
- *   4. the module-local `resolveDeps` defaulting helper below;
+ *   4. the module-local `resolveDeps` defaulting helper below — the one entry
+ *      that is NO LONGER byte-identical, since this module's copy also defaults
+ *      the `stat` seam described above, which the resolver has no counterpart
+ *      for. Shape and the `??`-per-member idiom still match, and a member added
+ *      to the SHARED part still belongs in both;
  *   5. the win32 driveless-root rule — the resolver states it once, in
  *      `namesCompleteLocation`, and `joinCandidatePath` below re-spells it
  *      inline for its absolute `directory` arm (a parsed root longer than one
@@ -300,7 +334,8 @@ export type PathRealpathResolver = (path: string) => Promise<string>;
  * The first FIVE are PROSE-only twins: nothing assigns one copy to the other,
  * so no divergence between them is compile-visible and the instruction above is
  * the only enforcement they have. For the first four that is cheap — aliases
- * and defaulting boilerplate a reader compares at a glance. The fifth is a
+ * and defaulting boilerplate a reader compares at a glance, including the one
+ * deliberate divergence entry 4 records. The fifth is a
  * CONTAINMENT rule, so divergence there changes which paths are admitted,
  * silently and only on Windows. It is the one a future editor most needs
  * flagged.
@@ -360,6 +395,20 @@ export interface TrustEnvelopeValidatorDeps {
    */
   readonly realpath: PathRealpathResolver;
   /**
+   * Defaults to `node:fs/promises.stat`. Asked exactly one question: is the
+   * RESOLVED root a directory?
+   *
+   * Injectable for the same reason `realpath` is. The win32 suite drives
+   * resolved paths that exist on no POSIX host (`C:\Repos\App\Src`), so a
+   * hard-wired real `stat` would `ENOENT`-fail every win32 acceptance test and
+   * the seam would be untestable from CI.
+   *
+   * `stat` rather than `lstat`, and the distinction is immaterial: the probed
+   * value is `realpath`'s OUTPUT, whose final component is already resolved, so
+   * neither call can be looking at a symlink.
+   */
+  readonly stat: PathStatResolver;
+  /**
    * Defaults to `node:path`, already bound to the host platform. Injected as
    * `path.win32` by the suite to drive case-folded comparison and win32 root
    * shapes from POSIX CI. Read by EVERY path operation in this module: unlike
@@ -386,6 +435,7 @@ export const DEFAULT_REALPATH: PathRealpathResolver = realpathFromFilesystem;
 function resolveDeps(partial: Partial<TrustEnvelopeValidatorDeps>): TrustEnvelopeValidatorDeps {
   return {
     realpath: partial.realpath ?? DEFAULT_REALPATH,
+    stat: partial.stat ?? statFromFilesystem,
     platformPath: partial.platformPath ?? nodePath,
   };
 }
@@ -498,8 +548,9 @@ export class TrustEnvelopeValidator {
    *
    * @throws {TrustEnvelopeViolationError} on every refusal — a foreign or
    *   malformed anchor, an escape by traversal, symlink, or absolute
-   *   redirection, and any candidate the filesystem declines to resolve
-   *   (I-009-3; the fail-closed residual is documented in the header).
+   *   redirection, any candidate the filesystem declines to resolve, and a
+   *   resolved root that is not a directory (I-009-3; the fail-closed residual
+   *   is documented in the header).
    */
   public async validateExecutionRoot(candidate: WorkspaceExecutionRootCandidate): Promise<string> {
     const { platformPath } = this.deps;
@@ -550,6 +601,21 @@ export class TrustEnvelopeValidator {
     // T1.5's real-`node:path` backstop pattern would reject every win32 value
     // on a POSIX host, disabling the win32 tests instead of guarding them.
     if (!platformPath.isAbsolute(resolvedRoot)) {
+      throw new TrustEnvelopeViolationError();
+    }
+
+    // Step 6 — the resolved root must be a DIRECTORY. Containment says where the
+    // path is; this says whether it can serve as `workspaces.fs_root` at all,
+    // and nothing downstream re-asks (header). A `stat` that throws is refused
+    // for the same reason a `realpath` that throws is: an unprovable property is
+    // not a satisfied one. Last, so every earlier refusal keeps its own cause.
+    let resolvedRootStats: { isDirectory(): boolean };
+    try {
+      resolvedRootStats = await this.deps.stat(resolvedRoot);
+    } catch {
+      throw new TrustEnvelopeViolationError();
+    }
+    if (!resolvedRootStats.isDirectory()) {
       throw new TrustEnvelopeViolationError();
     }
 

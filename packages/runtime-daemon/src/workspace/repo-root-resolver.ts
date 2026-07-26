@@ -630,9 +630,12 @@ const WINDOWS_PATH_SEPARATOR = "\\";
  * the predicate here belongs there too; that module's `PlatformPathModule`
  * note enumerates the six surfaces the two files duplicate: five held by that
  * note alone, this rule among them, and `DEFAULT_REALPATH` held by an identity
- * pin in both suites. The component-comparison helpers this module imports from
- * it are a third relationship — shared by construction, so they cannot diverge
- * at all.
+ * pin in both suites. One of the five has a deliberate divergence recorded
+ * there — `resolveDeps`, since T1.6 additionally defaults a `stat` seam this
+ * module has no counterpart for (it hands its path to `git -C`, which fails on
+ * its own against a regular file). The component-comparison helpers this module
+ * imports from it are a third relationship — shared by construction, so they
+ * cannot diverge at all.
  */
 function namesCompleteLocation(candidatePath: string, platformPath: PlatformPathModule): boolean {
   if (!platformPath.isAbsolute(candidatePath)) {
