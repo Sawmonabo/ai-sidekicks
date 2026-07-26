@@ -20,6 +20,7 @@ import {
   parsePreconditionsBlock,
   regexParsePreconditionsLine,
   extractPlanNumber,
+  planLabel,
   extractAdrStatus,
   extractDeclaredTaskIds,
   extractTasksBlock,
@@ -1136,7 +1137,9 @@ test("resolvePrecondition fails adr_accepted when status is proposed", () => {
   writeFileSync(join(repo, "docs", "decisions", "023-foo.md"), `| **Status** | proposed |`);
   const r = resolvePrecondition({ type: "adr_accepted", ref: 23 }, { repoRoot: repo });
   assert.equal(r.ok, false);
-  assert.match(r.halt, /Status=proposed/);
+  // Padded display label, same convention as planLabel: raw interpolation
+  // rendered "ADR-23" against a corpus that writes ADR-023.
+  assert.match(r.halt, /ADR-023 Status=proposed/);
 });
 
 test("resolvePrecondition plan_phase satisfies when every declared upstream task is shipped (full-ship)", () => {
@@ -1230,6 +1233,54 @@ shipped:
   assert.match(r.halt, /partially shipped/);
   assert.match(r.halt, /T5\.5/);
   assert.match(r.halt, /T5\.6/);
+});
+
+test("resolvePrecondition plan_phase says not-yet-shipped, not partially-shipped, when zero tasks have landed", () => {
+  // Sibling of the partial-ship test above, pinning the other branch. The
+  // classifier returns `partially_shipped` for "≥1 declared task missing",
+  // which includes "none of them shipped" — Plan-010's manifest is literally
+  // `shipped: []`, yet the halt claimed partial shipment. Also pins the
+  // zero-padded label: the entry carries `plan: 10`, the corpus writes
+  // `Plan-010`.
+  const repo = makeTempRepo();
+  writeFileSync(
+    join(repo, "docs", "plans", "010-test.md"),
+    `# Plan-010
+
+### Phase 1 — Contracts + persistence
+
+#### Tasks
+
+##### T1.1 — Contract core
+##### T1.2 — Wire pairs
+
+## Progress Log
+
+### Shipment Manifest
+
+\`\`\`yaml
+manifest_schema_version: 1
+shipped: []
+\`\`\`
+
+### Notes
+`,
+  );
+  const r = resolvePrecondition(
+    { type: "plan_phase", plan: 10, phase: 1, status: "merged" },
+    { repoRoot: repo },
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /^Plan-010 Phase 1 not yet shipped — missing tasks: T1\.1, T1\.2$/);
+  assert.doesNotMatch(r.halt, /partially/);
+});
+
+test("planLabel zero-pads to the corpus Plan-NNN width without altering wider numbers", () => {
+  assert.equal(planLabel(6), "Plan-006");
+  assert.equal(planLabel(10), "Plan-010");
+  assert.equal(planLabel(123), "Plan-123");
+  // Entries that already arrive as padded strings must not double-pad.
+  assert.equal(planLabel("010"), "Plan-010");
 });
 
 test("resolvePrecondition plan_phase falls back to phase-presence when upstream Tasks block has no declared task ids", () => {
@@ -1381,7 +1432,9 @@ test("resolvePrecondition plan_phase fails when target plan absent", () => {
     { repoRoot: repo },
   );
   assert.equal(r.ok, false);
-  assert.match(r.halt, /Plan-99 not found/);
+  // Zero-padded: the entry carries `plan: 99` but the halt is user-facing and
+  // the corpus writes `Plan-NNN` everywhere.
+  assert.match(r.halt, /Plan-099 not found/);
 });
 
 test("resolvePrecondition plan_phase fails open on unknown future manifest schema version", () => {
@@ -1464,7 +1517,7 @@ test("resolvePrecondition plan_unshipped halts when the target plan file is abse
   const repo = makeTempRepo();
   const r = resolvePrecondition({ type: "plan_unshipped", plan: 88 }, { repoRoot: repo });
   assert.equal(r.ok, false);
-  assert.match(r.halt, /Plan-88 not found/);
+  assert.match(r.halt, /Plan-088 not found/);
 });
 
 // ---------- runPreflight integration ----------
@@ -1879,6 +1932,87 @@ test("runPreflight returns no-eligible-phase halt when every phase is shipped", 
   const r = runPreflight(planFile, undefined, { repoRoot: repo, skillMd });
   assert.equal(r.exit, 1);
   assert.match(r.stdout, /no eligible un-shipped phase/);
+});
+
+test("runPreflight no-eligible aggregate carries each phase's full halt detail", () => {
+  // The aggregate is the ONLY halt an auto-mode run prints when no phase is
+  // eligible. Pre-fix it kept just `r.halt.split("\n")[0]` per phase — the
+  // generic `## Preflight halt: phase precondition unmet` header — so every
+  // Gate 5 detail (failing yaml entry, unchecked/orphaned box lines, the
+  // remediation prose) was unreachable in exactly the mode the skill runs
+  // first. Phase 1 is fully shipped (legitimate silent skip); Phase 2 fails
+  // the checkbox leg, and its box text + remediation must survive into the
+  // aggregate, with the redundant per-phase header stripped.
+  const repo = makeTempRepo();
+  const skillMd = join(repo, ".claude", "skills", "plan-execution", "SKILL.md");
+  writeFileSync(skillMd, `---\nname: test\nrequires_files: []\n---\n\nbody`);
+  const planFile = join(repo, "docs", "plans", "001-test.md");
+  writeFileSync(
+    planFile,
+    `# Plan-001
+
+## Preconditions
+
+- [x] **Plan-readiness audit complete per runbook.
+
+### Phase 1 — Bootstrap
+
+**Precondition:** None.
+
+\`\`\`yaml
+preconditions: []
+\`\`\`
+
+#### Tasks
+
+##### T1.1 — desc
+**Spec coverage:** none (test placeholder) **Verifies invariant:** I-001-1
+
+### Phase 2 — Next
+
+**Preconditions.**
+
+- [ ] Plan-042 Phase 9 merged — upstream contract landing
+
+\`\`\`yaml
+preconditions: []
+\`\`\`
+
+#### Tasks
+
+##### T2.1 — desc
+**Spec coverage:** none (test placeholder) **Verifies invariant:** I-001-2
+
+## Progress Log
+
+### Shipment Manifest
+
+\`\`\`yaml
+manifest_schema_version: 1
+shipped:
+  - phase: 1
+    task: T1.1
+    pr: 6
+    sha: ca22530
+    merged_at: 2026-04-27
+    files: []
+    verifies_invariant: []
+    spec_coverage: []
+\`\`\`
+
+### Notes
+`,
+  );
+  const r = runPreflight(planFile, undefined, { repoRoot: repo, skillMd });
+  assert.equal(r.exit, 1);
+  assert.match(r.stdout, /no eligible un-shipped phase/);
+  assert.match(r.stdout, /Phase 2 \(preconditions\):/);
+  assert.match(r.stdout, /unchecked precondition box/);
+  assert.match(r.stdout, /Plan-042 Phase 9 merged — upstream contract landing/);
+  assert.match(r.stdout, /Tick a box only when the work it names has landed/);
+  // The per-phase `## Preflight halt:` header is stripped — the old truncated
+  // shape put it (and nothing else) on the bullet line.
+  assert.doesNotMatch(r.stdout, /\(preconditions\): ##/);
 });
 
 test("runPreflight halts loudly in auto-walk mode when manifest is unparseable", () => {
@@ -2671,6 +2805,338 @@ test("gatePreconditions threads planSource so a YAML box entry gates the phase",
   assert.match(r.halt, /is unchecked/);
 });
 
+// ---------- Gate 5 plural-prose checkbox fallback (PR #251 round 2) ----------
+//
+// `**Preconditions.**` over a checkbox list is the corpus's dominant form and
+// matched no recognized shape, so Gate 5 accepted the phase as a legacy plan.
+// The scan below the header closes that; these pin both the new halt and the
+// three paths that must NOT change behavior.
+
+const PLURAL_HEADER_PHASE = [
+  "### Phase 2 — Daemon services",
+  "",
+  "**Goal.** Ship the services.",
+  "",
+  "**Preconditions.**",
+  "",
+  "- [ ] Plan-006 Phase 3 merged (Tier 4 — `EventLogService.append` sole append path)",
+  "- [x] Schema amendments ratified — local-sqlite-schema.md (D-009-7, this audit)",
+  "",
+  "#### Tasks",
+  "",
+  "- **T2.1** stub",
+].join("\n");
+
+test("gatePreconditions halts on an unchecked box under a plural **Preconditions.** header", () => {
+  const r = gatePreconditions(PLURAL_HEADER_PHASE, "docs/plans/009-x.md", 2);
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /phase precondition unmet/);
+  assert.match(r.halt, /Plan docs\/plans\/009-x\.md Phase 2 has 1 unchecked precondition box:/);
+  assert.match(r.halt, /- \[ \] Plan-006 Phase 3 merged/);
+  // The ticked sibling is not reported as owed work.
+  assert.doesNotMatch(r.halt, /Schema amendments ratified/);
+});
+
+test("gatePreconditions accepts a plural **Preconditions.** header whose boxes are all ticked", () => {
+  const r = gatePreconditions(
+    PLURAL_HEADER_PHASE.replace("- [ ] Plan-006 Phase 3 merged", "- [x] Plan-006 Phase 3 merged"),
+    "docs/plans/009-x.md",
+    2,
+  );
+  assert.equal(r.ok, true);
+});
+
+test("gatePreconditions accepts the plural header's spelling variants and capital [X]", () => {
+  for (const header of ["**Preconditions.**", "**Preconditions:**", "**Preconditions**"]) {
+    const section = PLURAL_HEADER_PHASE.replace("**Preconditions.**", header);
+    assert.equal(gatePreconditions(section, "docs/plans/009-x.md", 2).ok, false, header);
+    const ticked = section.replace("- [ ] Plan-006", "- [X] Plan-006");
+    assert.equal(gatePreconditions(ticked, "docs/plans/009-x.md", 2).ok, true, `${header} [X]`);
+  }
+});
+
+const withYamlBlock = (phaseSection, ...entries) =>
+  phaseSection.replace(
+    "#### Tasks",
+    [
+      "<!-- prettier-ignore -->",
+      "```yaml",
+      "preconditions:",
+      ...entries,
+      "```",
+      "",
+      "#### Tasks",
+    ].join("\n"),
+  );
+
+test("gatePreconditions halts on an unchecked box even when a YAML block resolves ok", () => {
+  // The additive pin. Precedence here would retire the checkbox rows — including
+  // the ratification boxes no entry type can express — so a later un-tick would
+  // gate nothing.
+  const phaseSection = withYamlBlock(
+    PLURAL_HEADER_PHASE,
+    '  - { type: precondition_box_checked, box: "Ratified thing done" }',
+  );
+  const r = gatePreconditions(phaseSection, "docs/plans/010-x.md", 5, {
+    planSource: BOX_PLAN_SOURCE,
+  });
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /has 1 unchecked precondition box:/);
+  assert.match(r.halt, /- \[ \] Plan-006 Phase 3 merged/);
+});
+
+test("gatePreconditions passes when the YAML resolves AND every box is ticked", () => {
+  const phaseSection = withYamlBlock(
+    PLURAL_HEADER_PHASE.replace("- [ ] Plan-006 Phase 3 merged", "- [x] Plan-006 Phase 3 merged"),
+    '  - { type: precondition_box_checked, box: "Ratified thing done" }',
+  );
+  const r = gatePreconditions(phaseSection, "docs/plans/010-x.md", 5, {
+    planSource: BOX_PLAN_SOURCE,
+  });
+  assert.equal(r.ok, true);
+});
+
+test("gatePreconditions reports BOTH legs when the YAML entry and a box both fail", () => {
+  const phaseSection = withYamlBlock(
+    PLURAL_HEADER_PHASE,
+    '  - { type: precondition_box_checked, box: "Driver-ask expiry leg authored" }',
+  );
+  const r = gatePreconditions(phaseSection, "docs/plans/009-x.md", 2, {
+    planSource: BOX_PLAN_SOURCE,
+  });
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /declares precondition:/);
+  assert.match(r.halt, /is unchecked/);
+  assert.match(r.halt, /has 1 unchecked precondition box:/);
+  // One halt header, not one per leg.
+  assert.equal(r.halt.match(/## Preflight halt/g).length, 1);
+});
+
+test("gatePreconditions keeps the singular **Precondition:** leg's behavior unchanged", () => {
+  // Unparseable prose still resolves legacy free-form when no boxes exist...
+  const prose = "**Precondition:** the usual understanding between the parties.";
+  const noBoxes = [
+    "### Phase 2 — Daemon services",
+    "",
+    prose,
+    "",
+    "#### Tasks",
+    "",
+    "- **T2.1** stub",
+  ].join("\n");
+  assert.equal(gatePreconditions(noBoxes, "docs/plans/009-x.md", 2).ok, true);
+  // ...but the box leg still runs alongside it, because neither leg disables
+  // the other. This is the one singular-path behavior the additive design changes.
+  const withBoxes = PLURAL_HEADER_PHASE.replace(
+    "**Preconditions.**",
+    `${prose}\n\n**Preconditions.**`,
+  );
+  const r = gatePreconditions(withBoxes, "docs/plans/009-x.md", 2);
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /has 1 unchecked precondition box:/);
+});
+
+test("gatePreconditions still accepts a phase declaring no precondition in any form", () => {
+  const phaseSection = [
+    "### Phase 1 — Contracts",
+    "",
+    "**Goal.** Ship the contracts.",
+    "",
+    "#### Tasks",
+    "",
+    "- **T1.1** stub",
+  ].join("\n");
+  assert.equal(gatePreconditions(phaseSection, "docs/plans/001-x.md", 1).ok, true);
+  // A header with no boxes under it is equally undeclared.
+  const emptyHeader = phaseSection.replace("#### Tasks", "**Preconditions.**\n\n#### Tasks");
+  assert.equal(gatePreconditions(emptyHeader, "docs/plans/001-x.md", 1).ok, true);
+});
+
+test("gatePreconditions halts on the real Plan-009 Phase 2 pre-fix shape", () => {
+  // Verbatim from Plan-009 before PR #251 added its YAML block: two unchecked
+  // build-order boxes under two ratified ones. This phase resolved eligible.
+  const phaseSection = [
+    "### Phase 2 — RepoMount & workspace persistence + projections",
+    "",
+    "**Goal.** Ship the `repo_mounts` + `workspaces` migration.",
+    "",
+    "**Preconditions.**",
+    "",
+    "- [ ] Plan-009 Phase 1 merged (contracts in `packages/contracts/src/repo.ts` — branded IDs, unions, request/response Zod schemas, `RepoWorkspaceLifecyclePayloadSchema` + its state-parameterized factory, canonical-root resolver + trust-envelope validator)",
+    "- [ ] Plan-006 Phase 3 merged (Tier 4 — `EventLogService.append` sole append path; Plan-006 Phase 1 T1.2 registry already carries the 6 Plan-009 event names). Plan-006 manifest is `shipped: []` as of this audit — build-order precondition, not a satisfied dependency.",
+    "- [x] Schema amendments ratified — local-sqlite-schema.md §Workspace and Git Tables (D-009-7, this audit)",
+    "- [x] Detach cascade semantics ratified — `Spec-009 §Detach Semantics (V1 Definition)` (D-009-6) — gates T2.3's detach surface only",
+    "",
+    "#### Tasks",
+    "",
+    "- **T2.1** stub",
+  ].join("\n");
+  const r = gatePreconditions(phaseSection, "docs/plans/009-x.md", 2);
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /has 2 unchecked precondition boxes:/);
+  assert.match(r.halt, /- \[ \] Plan-009 Phase 1 merged/);
+  assert.match(r.halt, /- \[ \] Plan-006 Phase 3 merged/);
+  // Long box lines are elided, so the halt stays scannable.
+  assert.match(r.halt, /\.\.\.$/m);
+});
+
+test("gatePreconditions halts on the real Plan-010 Phase 5 shape (bare fence, mixed ticks)", () => {
+  // Phase 5's own bullets are single physical lines, long enough to read as
+  // paragraphs, and its YAML fence follows with no `<!-- prettier-ignore -->`
+  // pragma — the one corpus block where the fence alone ends the region.
+  const phaseSection = [
+    "### Phase 5 — Turn-snapshot service",
+    "",
+    "**Goal.** The daemon-side turn-snapshot service.",
+    "",
+    "**Preconditions.**",
+    "",
+    "- [x] `Spec-010 §Turn-Boundary Snapshots` ratified — the B21 amendment (2026-07-06), re-promoted `approved` 2026-07-18 via the W1.5 batch gate, so the snapshot barrier and its epoch-namespaced ref layout are settled contract rather than in-flight design.",
+    "- [ ] Phases 1 and 2 merged — Phase 1 for the execution-root contract shapes (the `run_execution_contexts` table + `executionRoot` carriers), Phase 2 for the `git/` service substrate this service composes onto.",
+    "- [x] `<E>` execution-epoch source ratified — `Spec-004 §Required Behavior` (0 before any rollback, advanced with each accepted rewind).",
+    "",
+    "```yaml",
+    "preconditions:",
+    "  - { type: plan_phase, plan: 010, phase: 1, status: merged }",
+    "```",
+    "",
+    "#### Tasks",
+    "",
+    "- **T5.1** stub",
+    "- [ ] decoy box past the fence — must not be collected",
+  ].join("\n");
+  const r = gatePreconditions(phaseSection, "docs/plans/010-x.md", 5);
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /has 1 unchecked precondition box:/);
+  assert.match(r.halt, /- \[ \] Phases 1 and 2 merged/);
+  assert.doesNotMatch(r.halt, /decoy/);
+});
+
+test("gatePreconditions treats indented lines as bullet continuations, not terminators", () => {
+  // No corpus block wraps a bullet today; this pins that one which did would
+  // keep its later boxes rather than silently dropping them.
+  const phaseSection = [
+    "### Phase 2 — Daemon services",
+    "",
+    "**Preconditions.**",
+    "",
+    "- [x] Something ratified",
+    "  continuation line that belongs to the bullet above",
+    "  **even one opening with bold markers**",
+    "- [ ] Plan-006 Phase 3 merged",
+    "",
+    "#### Tasks",
+  ].join("\n");
+  const r = gatePreconditions(phaseSection, "docs/plans/009-x.md", 2);
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /- \[ \] Plan-006 Phase 3 merged/);
+});
+
+test("gatePreconditions ends box collection at each prose break", () => {
+  // A heading or bold paragraph opens a new prose context — a box beyond it is
+  // neither collected nor an orphan.
+  for (const [terminator, label] of [
+    ["#### Tasks", "heading"],
+    ["**Goal.** restated", "bold paragraph"],
+  ]) {
+    const phaseSection = [
+      "### Phase 2 — Daemon services",
+      "",
+      "**Preconditions.**",
+      "",
+      "- [x] Something ratified",
+      "",
+      terminator,
+      "- [ ] decoy box past the prose break",
+    ].join("\n");
+    assert.equal(gatePreconditions(phaseSection, "docs/plans/009-x.md", 2).ok, true, label);
+  }
+});
+
+test("gatePreconditions halts on a box stranded below the yaml apparatus — even a ticked one", () => {
+  // The fence and the prettier pragma SUSPEND the region rather than end it: a
+  // box after either one is an orphaned layout defect (PR #251 inserted
+  // Plan-009 Phase 3's yaml block mid-list and stranded two ticked boxes).
+  // Checked orphans halt too — a ticked box below the fence is one un-tick
+  // away from gating nothing, silently.
+  for (const [apparatus, label] of [
+    ["```yaml", "fenced-code opener"],
+    ["<!-- prettier-ignore -->", "HTML comment"],
+  ]) {
+    for (const marker of ["x", " "]) {
+      const phaseSection = [
+        "### Phase 3 — Wire surface",
+        "",
+        "**Preconditions.**",
+        "",
+        "- [x] Something ratified",
+        "",
+        apparatus,
+        `- [${marker}] stranded box below the apparatus`,
+      ].join("\n");
+      const r = gatePreconditions(phaseSection, "docs/plans/009-x.md", 3);
+      assert.equal(r.ok, false, `${label} [${marker}]`);
+      assert.match(r.halt, /has 1 orphaned precondition box stranded below the yaml fence:/);
+      assert.match(r.halt, /stranded box below the apparatus/);
+      assert.match(r.halt, /Move the stranded boxes above the fence/);
+    }
+  }
+});
+
+test("gatePreconditions reports a clean ticked list and an orphan independently", () => {
+  // The real pre-repair Plan-009 Phase 3 shape: every collected box ticked, two
+  // ticked boxes stranded below the fence. The boxes leg passes; the orphan leg
+  // halts alone.
+  const phaseSection = [
+    "### Phase 3 — Wire surface",
+    "",
+    "**Preconditions.**",
+    "",
+    "- [x] Phase 2 merged",
+    "",
+    "<!-- prettier-ignore -->",
+    "```yaml",
+    "preconditions:",
+    '  - { type: precondition_box_checked, box: "Ratified thing done" }',
+    "```",
+    "",
+    "- [x] `repo.*` error codes ratified — gates T3.6",
+    "- [x] `RepoDetach` cascade ratified — gates T3.7",
+    "",
+    "#### Tasks",
+  ].join("\n");
+  const r = gatePreconditions(phaseSection, "docs/plans/009-x.md", 3, {
+    planSource: BOX_PLAN_SOURCE,
+  });
+  assert.equal(r.ok, false);
+  assert.doesNotMatch(r.halt, /unchecked precondition/);
+  assert.doesNotMatch(r.halt, /declares precondition:/);
+  assert.match(r.halt, /has 2 orphaned precondition boxes stranded below the yaml fence:/);
+  assert.match(r.halt, /error codes ratified/);
+  assert.match(r.halt, /RepoDetach/);
+});
+
+test("gatePreconditions arms on every **Preconditions** header in a phase", () => {
+  const phaseSection = [
+    "### Phase 2 — Daemon services",
+    "",
+    "**Preconditions.**",
+    "",
+    "- [x] First region, ticked",
+    "",
+    "#### Sub-heading",
+    "",
+    "**Preconditions.**",
+    "",
+    "- [ ] Second region, unchecked",
+    "",
+    "#### Tasks",
+  ].join("\n");
+  const r = gatePreconditions(phaseSection, "docs/plans/009-x.md", 2);
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /- \[ \] Second region, unchecked/);
+});
+
 test("extractPreconditionsSection returns the section body and null when absent", () => {
   assert.match(extractPreconditionsSection(BOX_PLAN_SOURCE), /Driver-ask expiry leg authored/);
   assert.doesNotMatch(extractPreconditionsSection(BOX_PLAN_SOURCE), /decoy outside/);
@@ -2891,7 +3357,7 @@ shipped: []
     /Gate 7 \(status promotion \+ governance preconditions\) SKIPPED via --allow-unpromoted/,
   );
   assert.match(r.stdout, /precondition unmet/i);
-  assert.match(r.stdout, /Plan-99 not found/);
+  assert.match(r.stdout, /Plan-099 not found/);
 });
 
 test("runPreflight reports the last phase eligible when its precondition is met (over-fire guard)", () => {

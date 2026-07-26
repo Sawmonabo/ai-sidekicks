@@ -135,13 +135,21 @@ Contracts: see [API Payload Contracts](../architecture/contracts/api-payload-con
 
 **Preconditions.**
 
-- [ ] Plan-006 Phase 1 merged (`SessionEventSchema` union seam + `SESSION_EVENT_TYPES` / `SESSION_EVENT_CATEGORY_BY_TYPE` registry — Tier 4; the re-opened Phase 1's T1.9 `withEpochStamp` composition helper is additionally consumed by T1.5 — campaign B13)
+- [x] Plan-006 Phase 1 merged (`SessionEventSchema` union seam + `SESSION_EVENT_TYPES` / `SESSION_EVENT_CATEGORY_BY_TYPE` registry — Tier 4; the re-opened Phase 1's T1.9 `withEpochStamp` composition helper is additionally consumed by T1.5 — campaign B13) — merged 2026-07-25 via PR #247 (squash f7d49f3)
 - [ ] Plan-005 Phase 4 merged (`packages/contracts/src/provider-driver.ts` — `RunIdSchema` import origin per CP-012-3; Tier 4)
 - [x] D-012-1 contracts filename ratified — `approval.ts` (Tier-6 audit)
 - [x] D-012-2 DDL ratified — local-sqlite-schema.md §Approval Tables (Tier-6 audit)
 - [x] D-012-3 wire shapes ratified — api-payload-contracts.md §Plan-012 (Tier-6 audit)
 - [x] D-012-8 `approval.canceled` adjudicated — seven `approval_flow` variants, Spec-006 registry 126 (Tier-6 audit)
 - [x] `Spec-006 §Approval Flow (approval_flow)` payload amendment ratified — `ruleId?` / `invalidationTrigger?` fields (`Spec-006 §Approval Flow (approval_flow)`)
+
+<!-- prettier-ignore -->
+```yaml
+preconditions:
+  # Machine-enforced form of the boxes above (preflight Gate 5).
+  - { type: plan_phase, plan: 006, phase: 1, status: merged }
+  - { type: plan_phase, plan: 005, phase: 4, status: merged }
+```
 
 #### Tasks
 
@@ -297,6 +305,8 @@ preconditions:
 - [ ] Phases 1–2 merged
 - [x] BL-142 landed — registry regex conformance (camelCase tails: `approval.requestCreate`-class strings throw at boot without it)
 - [x] BL-143 landed — `DaemonDomainError` projection branch in `mapJsonRpcError` (T3.10's wire assertions observe anonymous `-32603` without it)
+- [x] D-012-5 method strings ratified — api-payload-contracts.md §Approval Method-Name Registry (Tier 6)
+- [x] D-012-4 error codes ratified — error-contracts.md §Approval (Tier-6 audit)
 
 ```yaml
 preconditions:
@@ -308,9 +318,6 @@ preconditions:
   - { type: plan_phase, plan: 012, phase: 2, status: merged }
   - { type: precondition_box_checked, box: "Driver-ask expiry leg authored" }
 ```
-
-- [x] D-012-5 method strings ratified — api-payload-contracts.md §Approval Method-Name Registry (Tier 6)
-- [x] D-012-4 error codes ratified — error-contracts.md §Approval (Tier-6 audit)
 
 #### Tasks
 

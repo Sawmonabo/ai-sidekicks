@@ -629,6 +629,22 @@ export function findPaddedFiles(dir, ref) {
   }
 }
 
+// Display-side pair of the padding `findPaddedFiles` applies on the lookup
+// side: a precondition entry carries `plan: 6`, which interpolated raw renders
+// "Plan-6" in a user-facing halt against a corpus that writes `Plan-006`
+// everywhere. Lookup was always padding-correct — this only fixes what the
+// reader sees, so it must never be threaded into a path or a match.
+export function planLabel(planNumber) {
+  return `Plan-${String(planNumber).padStart(3, "0")}`;
+}
+
+// Same convention for ADR references: `{type: adr_accepted, ref: 14}` rendered
+// raw reads "ADR-14" against a corpus that writes `ADR-014` (Plan-008 carries
+// exactly that live entry). Display-only, like `planLabel`.
+export function adrLabel(adrNumber) {
+  return `ADR-${String(adrNumber).padStart(3, "0")}`;
+}
+
 // Returns ALL paths under `dir` whose basename matches `filename`, recursing
 // through `contracts/` / `schemas/` subdirs the cites omit. Callers fail-closed
 // when a filename collides across subdirs (Codex P2 on PR #96 line 1364).
@@ -2871,12 +2887,12 @@ export function resolvePrecondition(
       const adrDir = resolve(repoRoot, "docs", "decisions");
       const adrMatches = findPaddedFiles(adrDir, entry.ref);
       if (adrMatches.length === 0) {
-        return { ok: false, halt: `ADR-${entry.ref} not found in docs/decisions/` };
+        return { ok: false, halt: `${adrLabel(entry.ref)} not found in docs/decisions/` };
       }
       if (adrMatches.length > 1) {
         return {
           ok: false,
-          halt: `ADR-${entry.ref} resolves to multiple files in docs/decisions/: ${adrMatches.map((p) => basename(p)).join(", ")}. Rename or remove the duplicate.`,
+          halt: `${adrLabel(entry.ref)} resolves to multiple files in docs/decisions/: ${adrMatches.map((p) => basename(p)).join(", ")}. Rename or remove the duplicate.`,
         };
       }
       const source = readFileSync(adrMatches[0], "utf8");
@@ -2884,19 +2900,19 @@ export function resolvePrecondition(
       if (status === "accepted") return { ok: true };
       return {
         ok: false,
-        halt: `ADR-${entry.ref} Status=${status || "unknown"}, expected accepted`,
+        halt: `${adrLabel(entry.ref)} Status=${status || "unknown"}, expected accepted`,
       };
     }
     case "plan_phase": {
       const planDir = resolve(repoRoot, "docs", "plans");
       const planMatches = findPaddedFiles(planDir, entry.plan);
       if (planMatches.length === 0) {
-        return { ok: false, halt: `Plan-${entry.plan} not found in docs/plans/` };
+        return { ok: false, halt: `${planLabel(entry.plan)} not found in docs/plans/` };
       }
       if (planMatches.length > 1) {
         return {
           ok: false,
-          halt: `Plan-${entry.plan} resolves to multiple files in docs/plans/: ${planMatches.map((p) => basename(p)).join(", ")}. Rename or remove the duplicate.`,
+          halt: `${planLabel(entry.plan)} resolves to multiple files in docs/plans/: ${planMatches.map((p) => basename(p)).join(", ")}. Rename or remove the duplicate.`,
         };
       }
       const planFile = planMatches[0];
@@ -2917,17 +2933,17 @@ export function resolvePrecondition(
         case "manifest_unparseable":
           return {
             ok: false,
-            halt: `Plan-${entry.plan} shipment manifest unparseable (${result.reason}); cannot determine Phase ${entry.phase} ship status`,
+            halt: `${planLabel(entry.plan)} shipment manifest unparseable (${result.reason}); cannot determine Phase ${entry.phase} ship status`,
           };
         case "manifest_invalid_entries":
           return {
             ok: false,
-            halt: `Plan-${entry.plan} shipment manifest has ${result.entryErrors.length} entries that fail validateEntry (e.g. shipped[${result.entryErrors[0].index}]: ${result.entryErrors[0].errors[0]}); cannot determine Phase ${entry.phase} ship status`,
+            halt: `${planLabel(entry.plan)} shipment manifest has ${result.entryErrors.length} entries that fail validateEntry (e.g. shipped[${result.entryErrors[0].index}]: ${result.entryErrors[0].errors[0]}); cannot determine Phase ${entry.phase} ship status`,
           };
         case "no_phase_section":
           return {
             ok: false,
-            halt: `Plan-${entry.plan} Phase ${entry.phase} section not found in plan file`,
+            halt: `${planLabel(entry.plan)} Phase ${entry.phase} section not found in plan file`,
           };
         case "no_declared_tasks":
           // Legacy fallback: upstream Tasks block has no task ids. Fall back
@@ -2936,13 +2952,23 @@ export function resolvePrecondition(
           if (result.phaseHasManifestEntry) return { ok: true };
           return {
             ok: false,
-            halt: `Plan-${entry.plan} Phase ${entry.phase} has no entry in shipment manifest`,
+            halt: `${planLabel(entry.plan)} Phase ${entry.phase} has no entry in shipment manifest`,
           };
-        case "partially_shipped":
+        case "partially_shipped": {
+          // `shipped` is this phase's landed task ids, so an empty array is
+          // exactly the zero-shipped case, and "only partially shipped" was a
+          // false claim there (Plan-010's manifest is `shipped: []` while the
+          // halt asserted partial shipment). Branching keeps the distinction
+          // the classifier already hands us; one unified string would be true
+          // in both cases but would stop telling the reader whether anything
+          // has landed at all.
+          const shipStatus =
+            result.shipped.length === 0 ? "not yet shipped" : "only partially shipped";
           return {
             ok: false,
-            halt: `Plan-${entry.plan} Phase ${entry.phase} only partially shipped — missing tasks: ${result.missing.join(", ")}`,
+            halt: `${planLabel(entry.plan)} Phase ${entry.phase} ${shipStatus} — missing tasks: ${result.missing.join(", ")}`,
           };
+        }
         default:
           // Defensive: classifyPhaseShipment kinds are exhaustive today; this
           // branch fires only if a future kind lands without a handler. Halt
@@ -2968,12 +2994,12 @@ export function resolvePrecondition(
       const planDir = resolve(repoRoot, "docs", "plans");
       const planMatches = findPaddedFiles(planDir, entry.plan);
       if (planMatches.length === 0) {
-        return { ok: false, halt: `Plan-${entry.plan} not found in docs/plans/` };
+        return { ok: false, halt: `${planLabel(entry.plan)} not found in docs/plans/` };
       }
       if (planMatches.length > 1) {
         return {
           ok: false,
-          halt: `Plan-${entry.plan} resolves to multiple files in docs/plans/: ${planMatches.map((p) => basename(p)).join(", ")}. Rename or remove the duplicate.`,
+          halt: `${planLabel(entry.plan)} resolves to multiple files in docs/plans/: ${planMatches.map((p) => basename(p)).join(", ")}. Rename or remove the duplicate.`,
         };
       }
       const manifest = parseManifestBlock(readFileSync(planMatches[0], "utf8"));
@@ -2982,7 +3008,7 @@ export function resolvePrecondition(
       }
       return {
         ok: false,
-        halt: `Plan-${entry.plan} has not shipped yet (no shipment-manifest entries) — cross-tier substrate unavailable`,
+        halt: `${planLabel(entry.plan)} has not shipped yet (no shipment-manifest entries) — cross-tier substrate unavailable`,
       };
     }
     case "external_plan_phase_merged": {
@@ -3015,12 +3041,12 @@ export function resolvePrecondition(
       const planDir = resolve(repoRoot, "docs", "plans");
       const planMatches = findPaddedFiles(planDir, entry.plan);
       if (planMatches.length === 0) {
-        return { ok: false, halt: `Plan-${entry.plan} not found in docs/plans/` };
+        return { ok: false, halt: `${planLabel(entry.plan)} not found in docs/plans/` };
       }
       if (planMatches.length > 1) {
         return {
           ok: false,
-          halt: `Plan-${entry.plan} resolves to multiple files in docs/plans/: ${planMatches.map((p) => basename(p)).join(", ")}. Rename or remove the duplicate.`,
+          halt: `${planLabel(entry.plan)} resolves to multiple files in docs/plans/: ${planMatches.map((p) => basename(p)).join(", ")}. Rename or remove the duplicate.`,
         };
       }
       const source = readFileSync(planMatches[0], "utf8");
@@ -3028,21 +3054,21 @@ export function resolvePrecondition(
       if (!section) {
         return {
           ok: false,
-          halt: `Plan-${entry.plan} has no "### Phase ${entry.phase}" section — cannot evaluate external_plan_phase_merged (fail closed)`,
+          halt: `${planLabel(entry.plan)} has no "### Phase ${entry.phase}" section — cannot evaluate external_plan_phase_merged (fail closed)`,
         };
       }
       const declared = extractDeclaredTaskIds(section);
       if (declared.length === 0) {
         return {
           ok: false,
-          halt: `Plan-${entry.plan} Phase ${entry.phase} declares no parseable task ids — cannot verify shipment (fail closed)`,
+          halt: `${planLabel(entry.plan)} Phase ${entry.phase} declares no parseable task ids — cannot verify shipment (fail closed)`,
         };
       }
       const manifest = parseManifestBlock(source);
       if (!manifest.ok) {
         return {
           ok: false,
-          halt: `Plan-${entry.plan} shipment manifest unparseable (${manifest.reason}) — cannot evaluate Phase ${entry.phase} gate`,
+          halt: `${planLabel(entry.plan)} shipment manifest unparseable (${manifest.reason}) — cannot evaluate Phase ${entry.phase} gate`,
         };
       }
       if (manifest.version > MANIFEST_SCHEMA_VERSION) {
@@ -3061,7 +3087,7 @@ export function resolvePrecondition(
       if (invalidEntryIndexes.length > 0) {
         return {
           ok: false,
-          halt: `Plan-${entry.plan} shipment manifest has invalid entries (index ${invalidEntryIndexes.join(", ")}) — fix the manifest before Phase ${entry.phase} can gate on it`,
+          halt: `${planLabel(entry.plan)} shipment manifest has invalid entries (index ${invalidEntryIndexes.join(", ")}) — fix the manifest before Phase ${entry.phase} can gate on it`,
         };
       }
       const shippedTaskIds = new Set();
@@ -3074,7 +3100,7 @@ export function resolvePrecondition(
       if (missing.length === 0) return { ok: true };
       return {
         ok: false,
-        halt: `Plan-${entry.plan} Phase ${entry.phase} not shipped — missing tasks: ${missing.join(", ")}`,
+        halt: `${planLabel(entry.plan)} Phase ${entry.phase} not shipped — missing tasks: ${missing.join(", ")}`,
       };
     }
     case "cross_plan_carve_out": {
@@ -3310,35 +3336,152 @@ export function resolvePrecondition(
   }
 }
 
+// A line that ENDS the preconditions area outright — a heading or a following
+// bold paragraph opens a new prose context, and box-shaped lines beyond it are
+// not preconditions. Surveyed across all 13 corpus blocks the headings are the
+// `#### Tasks` lines (2); a bold paragraph never occurs today but is the same
+// kind of structural break.
+function terminatesPreconditionBoxes(line) {
+  return line.startsWith("#") || line.startsWith("**");
+}
+
+// A line that SUSPENDS a checkbox region without ending it: the yaml-block
+// apparatus — the ```-fence lines (4 corpus openers) and the
+// `<!-- prettier-ignore -->` pragma that precedes most of them (7) — sits
+// INSIDE the preconditions area. A box found after one of these, before a
+// prose break, is ORPHANED: canonical layout puts the fence after the complete
+// checkbox list, and a box stranded below the fence is invisible to any
+// list-shaped reading — this gate's fail-open class recurring as a layout
+// defect (PR #251 inserted Plan-009 Phase 3's yaml block mid-list and stranded
+// two ticked boxes exactly this way). Orphans halt rather than collect:
+// collecting would bless the ambiguous layout and re-open the phantom question
+// hard suspension settles by construction (nothing between a fence and the
+// next prose break is ever silently read as a gate). Deliberately no other
+// fence spelling — the surveyed corpus produces only these two shapes.
+function suspendsPreconditionBoxes(line) {
+  return line.startsWith("```") || line.startsWith("<!--");
+}
+
+// The corpus's dominant precondition form is a plural prose header over a
+// checkbox list — `**Preconditions.**` — which matches neither the yaml block
+// nor the singular `**Precondition:**` line, so Gate 5 read every such phase as
+// an undeclared legacy plan and passed it (Codex P1, PR #251 round 2: Plan-009
+// Phase 2 resolved eligible with its Plan-006 Phase 3 box unchecked).
+//
+// `:` and bare spellings are accepted alongside the corpus's `.` — no plan
+// writes them today, so they add no matches, only the guarantee that a
+// near-miss header cannot reopen the fail-open this function closes.
+//
+// Every header in the section arms the scan, and each region runs to its own
+// terminator: a phase may carry more than one. Indented lines are bullet
+// continuations, not structure — they neither end a region nor start a box.
+function collectPreconditionBoxes(phaseSection) {
+  const boxes = [];
+  const orphans = [];
+  // idle → nothing armed; collecting → boxes gate; machinery → a fence or
+  // pragma suspended the region, so a box here is an orphan (layout defect).
+  // A header re-arms collection from any state.
+  let state = "idle";
+  for (const line of phaseSection.split("\n")) {
+    if (/^\*\*Preconditions[.:]?\*\*/.test(line)) {
+      state = "collecting";
+      continue;
+    }
+    if (state === "idle" || /^\s/.test(line)) continue;
+    if (terminatesPreconditionBoxes(line)) {
+      state = "idle";
+      continue;
+    }
+    if (suspendsPreconditionBoxes(line)) {
+      state = "machinery";
+      continue;
+    }
+    // Byte-identical to the box pattern `precondition_box_checked` resolves,
+    // capital `X` accepted: two readings of one corpus form must not drift.
+    const box = line.match(/^- \[([ xX])\] \**(.+)$/);
+    if (!box) continue;
+    (state === "collecting" ? boxes : orphans).push({ checked: box[1] !== " ", line });
+  }
+  return { boxes, orphans };
+}
+
+// Two independent legs, BOTH of which must pass: the structured entries (yaml
+// block, else the singular prose line) and the checkbox scan. Neither disables
+// the other. Precedence — resolving only the yaml when a phase has both — would
+// retire that phase's human-tracked rows, including the ratification boxes no
+// entry type can express (Plan-010 Phase 1 carries three); un-checking one
+// later would then gate nothing. Boxes are the record, yaml is enforced depth.
 export function gatePreconditions(phaseSection, planFile, phaseNumber, opts = {}) {
   let entries = parsePreconditionsBlock(phaseSection);
   if (entries === null) {
     const lineMatch = phaseSection.match(/\*\*Precondition:\*\*\s*([^\n]+)/);
-    if (!lineMatch) return { ok: true }; // no precondition declared; legacy plan, accept
     // Pass the local plan number so bare `Phase N merged` resolves to
     // `{type: plan_phase, plan: <local>, phase: N}`. Without this thread,
     // same-plan precondition prose drops below the regex and the function
-    // silently treats the line as legacy free-form.
-    entries = regexParsePreconditionsLine(lineMatch[1], extractPlanNumber(planFile));
-    if (entries.length === 0) return { ok: true }; // unparseable prose; treat as legacy free-form
+    // silently treats the line as legacy free-form. Unparseable prose and an
+    // absent line alike yield no entries — this leg then passes vacuously.
+    entries = lineMatch
+      ? regexParsePreconditionsLine(lineMatch[1], extractPlanNumber(planFile))
+      : [];
   }
+  const failures = [];
   for (const entry of entries) {
     const r = resolvePrecondition(entry, opts);
     if (!r.ok) {
-      return {
-        ok: false,
-        halt: [
-          "## Preflight halt: phase precondition unmet",
-          "",
+      // First failing entry only, as before: this leg's halt text is a contract
+      // older than the box scan and stays byte-identical.
+      failures.push(
+        [
           `Plan ${planFile} Phase ${phaseNumber} declares precondition:`,
           `  ${JSON.stringify(entry)}`,
           "",
           r.halt,
         ].join("\n"),
-      };
+      );
+      break;
     }
   }
-  return { ok: true };
+  const { boxes, orphans } = collectPreconditionBoxes(phaseSection);
+  const unchecked = boxes.filter((box) => !box.checked);
+  if (unchecked.length > 0) {
+    failures.push(
+      [
+        `Plan ${planFile} Phase ${phaseNumber} has ${unchecked.length} unchecked precondition ${
+          unchecked.length === 1 ? "box" : "boxes"
+        }:`,
+        ...unchecked.map(
+          (box) => `  ${box.line.length > 120 ? `${box.line.slice(0, 117)}...` : box.line}`,
+        ),
+        "",
+        "Tick a box only when the work it names has landed. The boxes gate the",
+        "phase in ADDITION to any `preconditions:` yaml block — neither leg",
+        "disables the other.",
+      ].join("\n"),
+    );
+  }
+  if (orphans.length > 0) {
+    // Checked orphans halt too: the layout is the defect. A ticked box below
+    // the fence is one un-tick away from gating nothing, silently.
+    failures.push(
+      [
+        `Plan ${planFile} Phase ${phaseNumber} has ${orphans.length} orphaned precondition ${
+          orphans.length === 1 ? "box" : "boxes"
+        } stranded below the yaml fence:`,
+        ...orphans.map(
+          (box) => `  ${box.line.length > 120 ? `${box.line.slice(0, 117)}...` : box.line}`,
+        ),
+        "",
+        "Canonical layout puts the `preconditions:` yaml block after the",
+        "COMPLETE checkbox list. Move the stranded boxes above the fence,",
+        "checked or not — below it they are invisible to the checkbox scan.",
+      ].join("\n"),
+    );
+  }
+  if (failures.length === 0) return { ok: true };
+  return {
+    ok: false,
+    halt: ["## Preflight halt: phase precondition unmet", "", failures.join("\n\n")].join("\n"),
+  };
 }
 
 // ---------- corpus survey (--survey) ----------
@@ -4474,10 +4617,25 @@ export function runPreflight(
     }
     // no-section / preconditions — per-phase issues, try next phase.
     walkWarnings.push(...(r.warnings ?? []));
-    skipped.push(`Phase ${p.number} (${r.reason}): ${r.halt.split("\n")[0]}`);
+    // Full halt body, not just the header line: the per-phase failures are the
+    // actionable content (which yaml entry failed, which boxes are unchecked
+    // or orphaned, the remediation text), and this aggregate is the ONLY halt
+    // an auto-mode run prints when no phase is eligible — truncating to
+    // `r.halt.split("\n")[0]` rendered every Gate 5 detail unreachable there
+    // (the header line is generic per reason, so it added nothing).
+    const haltLines = r.halt.split("\n");
+    const headerless = haltLines[0].startsWith("## Preflight halt:")
+      ? haltLines.slice(1).join("\n").trim()
+      : r.halt.trim();
+    const body = headerless.length > 0 ? headerless : haltLines[0];
+    const indented = body
+      .split("\n")
+      .map((bodyLine) => (bodyLine.length > 0 ? `      ${bodyLine}` : bodyLine))
+      .join("\n");
+    skipped.push(`Phase ${p.number} (${r.reason}):\n${indented}`);
   }
   const reasonsText = skipped.length
-    ? `\n\nNon-eligible phases:\n${skipped.map((s) => `  - ${s}`).join("\n")}`
+    ? `\n\nNon-eligible phases:\n${skipped.map((s) => `  - ${s}`).join("\n\n")}`
     : "";
   return {
     exit: 1,
