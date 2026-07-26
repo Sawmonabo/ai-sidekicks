@@ -36,6 +36,7 @@
 //     the six standalone event-variant exports are driven behaviorally
 //     against the independently-spelled union arms they must agree with.
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 
 import {
   EVENT_FIELD_MAX_LEN,
@@ -54,6 +55,7 @@ import { NODE_ID_MAX_LEN, NodeIdSchema } from "../node-id.js";
 import {
   EXECUTION_MODE_RESTRICTION_REASON_MAX_LEN,
   ExecutionModeSchema,
+  buildRepoWorkspaceLifecyclePayloadSchema,
   REPO_PATH_MAX_LEN,
   RepoAttachRequestSchema,
   RepoAttachResponseSchema,
@@ -477,6 +479,124 @@ describe("RepoWorkspaceLifecyclePayloadSchema (Spec-006 §Repo, Workspace, and W
       JSON.parse(JSON.stringify(firstPass)) as unknown,
     );
     expect(secondPass).toStrictEqual(firstPass);
+  });
+});
+
+// --------------------------------------------------------------------------
+// buildRepoWorkspaceLifecyclePayloadSchema — the CP-010-5 seam.
+// --------------------------------------------------------------------------
+//
+// The factory exists so Plan-010 can register five `worktree.*` types against
+// this payload family WITHOUT editing repo.ts. What these tests pin is the
+// property that makes that safe: each instantiation's accept set is exactly
+// its own vocabulary, so the two never merge into one widened union.
+
+// Stands in for Plan-010's `WorktreeStateSchema` — D-010-12's four worktree
+// transitions plus `ready`, the only literal shared with either Plan-009
+// vocabulary. Spelled locally on purpose: `worktree.ts` is Plan-010-owned and
+// does not exist yet, and the whole point of the factory is that it never has
+// to exist for this seam to be verifiable.
+const worktreeLikeStateSchema = z.enum(["creating", "ready", "dirty", "merged", "retired"]);
+const worktreeLikePayloadSchema = buildRepoWorkspaceLifecyclePayloadSchema(worktreeLikeStateSchema);
+
+describe("buildRepoWorkspaceLifecyclePayloadSchema (CP-010-5 — a parameter, not a third union arm)", () => {
+  it.each(["creating", "ready", "dirty", "merged", "retired"])(
+    "an instantiation accepts its own vocabulary: %s",
+    (state) => {
+      expect(worktreeLikePayloadSchema.safeParse({ sessionId: SESSION_ID, state }).success).toBe(
+        true,
+      );
+    },
+  );
+
+  it.each(["attached", "detached", "provisioning", "busy", "stale"])(
+    "an instantiation REJECTS the Plan-009 state a shared union would have admitted: %s",
+    (state) => {
+      // This is the finding. Adding `WorktreeStateSchema` as a third arm on
+      // the shipped schema would have widened ALL eleven types at once, so a
+      // `worktree.retired` payload could claim `state: "provisioning"`.
+      // Parameterizing keeps each plan's accept set exactly its own.
+      expect(worktreeLikePayloadSchema.safeParse({ sessionId: SESSION_ID, state }).success).toBe(
+        false,
+      );
+    },
+  );
+
+  it.each(["creating", "dirty", "merged", "retired"])(
+    "the shipped instantiation stays disjoint the other way and rejects: %s",
+    (state) => {
+      // The reciprocal half — proven separately because a third arm would
+      // have broken THIS direction, silently, and no existing test asserts a
+      // worktree literal against the shipped schema.
+      expect(
+        RepoWorkspaceLifecyclePayloadSchema.safeParse({ sessionId: SESSION_ID, state }).success,
+      ).toBe(false);
+    },
+  );
+
+  it("carries `.strict()` through the factory — unknown keys are still drift", () => {
+    expect(
+      worktreeLikePayloadSchema.safeParse({
+        sessionId: SESSION_ID,
+        state: "merged",
+        surprise: true,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("carries the family's non-state field contract through unchanged", () => {
+    // Only `state` is parameterized; every other field must behave exactly as
+    // it does on the shipped instantiation, or the factory has quietly forked
+    // the family shape it exists to share.
+    expect(
+      worktreeLikePayloadSchema.safeParse({
+        sessionId: SESSION_ID,
+        repoMountId: REPO_MOUNT_ID,
+        workspaceId: WORKSPACE_ID,
+        worktreeId: WORKTREE_ID,
+        state: "merged",
+        actor: PARTICIPANT_ID,
+      }).success,
+    ).toBe(true);
+    // `sessionId` still required, still a UUID; `actor` still capped.
+    expect(worktreeLikePayloadSchema.safeParse({ state: "merged" }).success).toBe(false);
+    expect(
+      worktreeLikePayloadSchema.safeParse({ sessionId: "nope", state: "merged" }).success,
+    ).toBe(false);
+    expect(
+      worktreeLikePayloadSchema.safeParse({
+        sessionId: SESSION_ID,
+        state: "merged",
+        actor: "a".repeat(EVENT_FIELD_MAX_LEN + 1),
+      }).success,
+    ).toBe(false);
+  });
+
+  it("the shipped schema is itself an instantiation — same accept set as a hand-built twin", () => {
+    // Pins the refactor's own claim: `RepoWorkspaceLifecyclePayloadSchema` is
+    // now the factory applied to the two Plan-009 vocabularies, and nothing
+    // about its accept set moved when it stopped being a literal `z.object`.
+    const rebuilt = buildRepoWorkspaceLifecyclePayloadSchema(
+      z.union([RepoMountStateSchema, WorkspaceStateSchema]),
+    );
+    for (const state of [
+      "attached",
+      "detached",
+      "provisioning",
+      "ready",
+      "busy",
+      "stale",
+      "archived",
+    ]) {
+      const candidate = { sessionId: SESSION_ID, state };
+      expect(rebuilt.safeParse(candidate).success).toBe(
+        RepoWorkspaceLifecyclePayloadSchema.safeParse(candidate).success,
+      );
+    }
+    expect(rebuilt.safeParse({ sessionId: SESSION_ID, state: "merged" }).success).toBe(
+      RepoWorkspaceLifecyclePayloadSchema.safeParse({ sessionId: SESSION_ID, state: "merged" })
+        .success,
+    );
   });
 });
 

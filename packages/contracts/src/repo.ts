@@ -242,7 +242,14 @@ const REPO_WORKSPACE_LIFECYCLE_ACTOR_MAX_LEN = 256;
 
 /**
  * Payload of every `Spec-006 §Repo, Workspace, and Worktree Lifecycle (session_lifecycle)`
- * event — see the family-shared note above.
+ * event — see the family-shared note above — PARAMETERIZED by the state
+ * vocabulary its emitting plan owns.
+ *
+ * The parameter exists so that no consuming plan has to edit this file. Every
+ * field but `state` is identical across all eleven types; `state` is the one
+ * axis that differs, and it differs per OWNING PLAN rather than per event. See
+ * `buildRepoWorkspaceLifecyclePayloadSchema` for why parameterizing beats the
+ * third-union-arm alternative.
  *
  * Declared as a TYPE ALIAS, not an `interface`, and that is load-bearing: the
  * six variant interfaces in event.ts narrow `EventEnvelope.payload`, which is
@@ -259,14 +266,114 @@ const REPO_WORKSPACE_LIFECYCLE_ACTOR_MAX_LEN = 256;
  * in session.ts). The wire signal is still "key absent" — consumers that need
  * the absent-vs-undefined distinction can test `"workspaceId" in payload`.
  */
-export type RepoWorkspaceLifecyclePayload = {
+export type RepoWorkspaceLifecyclePayloadOf<TState extends string> = {
   sessionId: SessionId;
   repoMountId?: RepoMountId | undefined;
   workspaceId?: WorkspaceId | undefined;
   worktreeId?: string | undefined;
-  state: RepoMountState | WorkspaceState;
+  state: TState;
   actor?: string | null | undefined;
 };
+
+/**
+ * The Plan-009 instantiation — the two vocabularies THIS plan emits. Named
+ * separately because it is the shape event.ts's six variant interfaces narrow
+ * against, and because `RepoWorkspaceLifecyclePayload` is the name every
+ * existing consumer already imports.
+ */
+export type RepoWorkspaceLifecyclePayload = RepoWorkspaceLifecyclePayloadOf<
+  RepoMountState | WorkspaceState
+>;
+/**
+ * Build the family payload schema over ONE plan's state vocabulary.
+ *
+ * Exported because Plan-010 needs it: CP-010-5 registers five `worktree.*`
+ * types against this family, and D-010-12 gives them a vocabulary
+ * (`creating` / `dirty` / `merged` / `retired`) that overlaps the two below at
+ * `ready` alone. Plan-010 calls this factory with its own `WorktreeStateSchema`
+ * from `worktree.ts` and registers the result — payload schemas stay in the
+ * EMITTER's domain file, which is exactly what the additive
+ * `SessionEventSchema` union-registration seam
+ * (`docs/architecture/cross-plan-dependencies.md`) says each event-emitting
+ * plan does.
+ *
+ * NO THIRD UNION ARM, not now and not later — the alternative this factory
+ * exists to refuse, and it fails on three independent grounds:
+ *
+ *   • CYCLE. Adding `WorktreeStateSchema` to the `state` union here means
+ *     repo.ts importing from worktree.ts, while CP-009-1 makes worktree.ts
+ *     import FROM repo.ts. That is the eager module-scope Zod cycle this
+ *     file's header describes — the one the `node-id.js` relocation was cut
+ *     to break — and `tsc` does not flag it.
+ *   • ACCEPT SET. One shared union widens ALL eleven types at once: a
+ *     `workspace.archived` payload could then claim `state: "merged"`, and a
+ *     `worktree.retired` could claim `"provisioning"`. Parameterizing keeps
+ *     each plan's accept set exactly its own vocabulary — strictly tighter
+ *     than today for the worktree half, and unchanged for this one.
+ *   • OWNERSHIP. The dependency map's registered seam classes do not sanction
+ *     Plan-010 editing repo.ts, and its own entry says it "never redefines"
+ *     Plan-009's symbols. A third arm would need precisely that edit.
+ *
+ * Adding this export is additive-MINOR under ADR-018 §Decision #8: no member
+ * is removed, no field reshaped, and `RepoWorkspaceLifecyclePayloadSchema`
+ * below is byte-for-byte the same accept set it was before the refactor.
+ * Plan-009 T1.1's boundary is untouched — `WorktreeId` and `WorktreeState`
+ * remain Plan-010-owned and are still NOT declared in this file.
+ *
+ * The return type is the erased `z.ZodType<…>`, not a `ZodObject`, and that is
+ * sufficient: consumers `.parse()` the result and register it into the event
+ * union. Nothing extends it — a plan that needs different FIELDS has a
+ * different payload family, not a widened one.
+ */
+export function buildRepoWorkspaceLifecyclePayloadSchema<TState extends string>(
+  stateSchema: z.ZodType<TState>,
+): z.ZodType<RepoWorkspaceLifecyclePayloadOf<TState>> {
+  return z
+    .object({
+      // REQUIRED — Spec-006 spells the family base `{sessionId, …}` with no
+      // `?`, unlike the `sessionId?` base of the runtime-node family. Every
+      // repo/workspace/worktree subject is session-scoped, so there is no
+      // session-less row to represent. Duplicates the envelope's `sessionId`,
+      // exactly as `session.created`'s payload does (projector convenience).
+      sessionId: SessionIdSchema,
+      repoMountId: RepoMountIdSchema.optional(),
+      workspaceId: WorkspaceIdSchema.optional(),
+      // PLAIN CANONICAL-UUID STRING, deliberately NOT a branded `WorktreeId`:
+      // that brand is Plan-010-owned per Plan-009 T1.1's own task text, and
+      // minting it here would pre-empt the owning plan's declaration (CP-009-1
+      // makes this file the canonical origin Plan-010 imports FROM, not a place
+      // to declare Plan-010's symbols). The parser is the
+      // same `z.string().uuid()` the branded ids compose through
+      // `brandedUuidIdSchema`, so the RUNTIME accept-set is already identical —
+      // only the compile-time brand is absent, and Plan-010 can narrow at its
+      // own consumption site without a wire change. Representable NOW so
+      // CP-010-5's registration is purely additive.
+      worktreeId: z.string().uuid().optional(),
+      // The subject's post-transition state — THE PARAMETER, and the only
+      // field that varies across the family. Each caller supplies the
+      // vocabulary its own plan owns; see this function's note on why that is
+      // a parameter rather than an ever-widening union.
+      state: stateSchema,
+      // The EventEnvelope free-form actor (`participant_id | agent_id | null`),
+      // carried at payload level IN ADDITION to the envelope's own `actor` —
+      // the family payload shape spells it, the same way it re-spells
+      // `sessionId`. Realized with the package's standard
+      // `wireFreeFormString` (length cap + whitespace-only rejection + NUL-byte
+      // rejection at the wire/replay trust boundary), matching
+      // `buildCommonShape()`'s envelope actor and runtime-node.ts's
+      // payload-level actors. `.nullable()` composes AFTER the helper so the
+      // string checks run only on string values; a system-emitted event uses
+      // `null` or omits the key, never an empty string.
+      actor: wireFreeFormString(
+        REPO_WORKSPACE_LIFECYCLE_ACTOR_MAX_LEN,
+        "RepoWorkspaceLifecyclePayload.actor",
+      )
+        .nullable()
+        .optional(),
+    })
+    .strict();
+}
+
 // Single-T `z.ZodType<T>`, `.strict()` — a non-input event payload,
 // constructed daemon-side and validated at the emission boundary with
 // `.parse()`, never a tRPC request input (the same typing stance as
@@ -275,63 +382,14 @@ export type RepoWorkspaceLifecyclePayload = {
 // drift surfaced at parse time. (The non-strict carve-out
 // `Spec-006 §Artifact and Diff Publication (artifact_publication)` mandates is
 // scoped to `artifact.*` payloads and does not reach this family.)
-export const RepoWorkspaceLifecyclePayloadSchema: z.ZodType<RepoWorkspaceLifecyclePayload> = z
-  .object({
-    // REQUIRED — Spec-006 spells the family base `{sessionId, …}` with no
-    // `?`, unlike the `sessionId?` base of the runtime-node family. Every
-    // repo/workspace/worktree subject is session-scoped, so there is no
-    // session-less row to represent. Duplicates the envelope's `sessionId`,
-    // exactly as `session.created`'s payload does (projector convenience).
-    sessionId: SessionIdSchema,
-    repoMountId: RepoMountIdSchema.optional(),
-    workspaceId: WorkspaceIdSchema.optional(),
-    // PLAIN CANONICAL-UUID STRING, deliberately NOT a branded `WorktreeId`:
-    // that brand is Plan-010-owned per Plan-009 T1.1's own task text, and
-    // minting it here would pre-empt the owning plan's declaration (CP-009-1
-    // makes this file the canonical origin Plan-010 imports FROM, not a place
-    // to declare Plan-010's symbols). The parser is the
-    // same `z.string().uuid()` the branded ids compose through
-    // `brandedUuidIdSchema`, so the RUNTIME accept-set is already identical —
-    // only the compile-time brand is absent, and Plan-010 can narrow at its
-    // own consumption site without a wire change. Representable NOW so
-    // CP-010-5's registration is purely additive.
-    worktreeId: z.string().uuid().optional(),
-    // The subject's post-transition state. Union of the two Plan-009
-    // vocabularies — mount states for `repo.*`, workspace states for
-    // `workspace.*` — composed from the enum schemas above rather than
-    // re-typed as a combined seven-literal `z.enum`, so a change to either
-    // enum propagates here instead of drifting (`"archived"` is a member of
-    // both and collapses in the union).
-    //
-    // FORWARD PATH (CP-010-5 reuses this schema for the five `worktree.*`
-    // types; Plan-010 D-010-12 is what fixes the states they carry). D-010-12
-    // maps each worktree transition to `creating` / `dirty` / `merged` /
-    // `retired` — none of which is in either vocabulary above; only `ready`
-    // overlaps. Plan-010's registration therefore ADDS a third arm here,
-    // `z.union([RepoMountStateSchema, WorkspaceStateSchema, WorktreeStateSchema])`,
-    // widening the accept set. That is an additive-MINOR change under
-    // ADR-018 §Decision #8 (no member is removed, no field is reshaped, and
-    // every payload valid today stays valid), which is exactly the
-    // no-reshaping property CP-010-5 depends on.
-    state: z.union([RepoMountStateSchema, WorkspaceStateSchema]),
-    // The EventEnvelope free-form actor (`participant_id | agent_id | null`),
-    // carried at payload level IN ADDITION to the envelope's own `actor` —
-    // the family payload shape spells it, the same way it re-spells
-    // `sessionId`. Realized with the package's standard
-    // `wireFreeFormString` (length cap + whitespace-only rejection + NUL-byte
-    // rejection at the wire/replay trust boundary), matching
-    // `buildCommonShape()`'s envelope actor and runtime-node.ts's
-    // payload-level actors. `.nullable()` composes AFTER the helper so the
-    // string checks run only on string values; a system-emitted event uses
-    // `null` or omits the key, never an empty string.
-    actor: wireFreeFormString(
-      REPO_WORKSPACE_LIFECYCLE_ACTOR_MAX_LEN,
-      "RepoWorkspaceLifecyclePayload.actor",
-    )
-      .nullable()
-      .optional(),
-  })
-  .strict();
+//
+// The two Plan-009 vocabularies are composed from the enum schemas above
+// rather than re-typed as a combined seven-literal `z.enum`, so a change to
+// either enum propagates here instead of drifting (`"archived"` is a member of
+// both and collapses in the union). This is the schema event.ts registers for
+// all six Plan-009 types (CP-009-4).
+export const RepoWorkspaceLifecyclePayloadSchema: z.ZodType<RepoWorkspaceLifecyclePayload> =
+  buildRepoWorkspaceLifecyclePayloadSchema(z.union([RepoMountStateSchema, WorkspaceStateSchema]));
 
 // ==========================================================================
 // Wire surfaces — RepoAttach / RepoMountRead / RepoDetach (Plan-009 T1.2).
@@ -692,12 +750,12 @@ export const EXECUTION_MODE_RESTRICTION_REASON_MAX_LEN = 512;
 // `lastError` records the detail of a FAILED mode switch
 // (`Spec-009 §Execution Mode Transitions` — "an error detail recorded in the
 // workspace's metadata"), which in practice is captured git/provisioning
-// output, not a curated sentence. Nothing in the model truncates it before it
-// reaches the wire — `workspaces.metadata` carries no length CHECK
-// (`docs/architecture/schemas/local-sqlite-schema.md §Workspace and Git Tables (Plan-009, Plan-010, Plan-011)`)
-// and no Phase-2 task is assigned a truncation step — and because I-009-10
-// validates responses too, an under-sized cap would make a LAWFUL daemon list
-// response unrepresentable. That asymmetry is what picks the generous side.
+// output, not a curated sentence. The cap must be generous because the two
+// sides fail asymmetrically: an over-sized cap costs bytes on a rare failure
+// row, while an under-sized one makes a LAWFUL daemon list response
+// unrepresentable — I-009-10 validates responses too, so the daemon could not
+// report the failure it just recorded. That asymmetry is what picks the
+// generous side.
 // 8192 matches the package's error-message class (`ERROR_MESSAGE_MAX_LEN` in
 // error.ts) rather than the far larger single-item `DRIVER_FAILURE_DETAIL_MAX_LEN`,
 // because this field MULTIPLIES across a list projection. The value is
@@ -707,16 +765,34 @@ export const EXECUTION_MODE_RESTRICTION_REASON_MAX_LEN = 512;
 // `REPO_WORKSPACE_LIFECYCLE_ACTOR_MAX_LEN` above, which does mirror an
 // authority elsewhere and is pinned to it by test).
 //
-// REDACTION IS A PHASE-2 EMITTER OBLIGATION, named here because this is where
-// the bound is defined and the contract layer cannot discharge it. A failing
-// `ephemeral clone` against an authenticated remote can echo a token-bearing
-// remote URL into stderr; a cap this generous carries it verbatim into
-// unencrypted `workspaces.metadata` and re-broadcasts it on every
-// `repo.workspaceList` read. Plan-009 Phase 2 T2.4 (`workspace-service.ts`,
-// whose CP-009-2 `failReprovision` writes `metadata.lastError`) MUST
-// credential-scrub captured provisioning output before persisting it — named
-// by task because "the emitter" in this file means T2.2's workspace-event
-// emitter, which never writes this field.
+// TWO PHASE-2 OBLIGATIONS, IN THIS ORDER, named here because this is where the
+// bound is defined and the contract layer can discharge neither. Both fall on
+// Plan-009 Phase 2 T2.4 (`workspace-service.ts`, whose CP-009-2
+// `failReprovision` writes `metadata.lastError`) — named by task because "the
+// emitter" in this file means T2.2's workspace-event emitter, which never
+// writes this field.
+//
+//   1. SCRUB. A failing `ephemeral clone` against an authenticated remote can
+//      echo a token-bearing remote URL into stderr; a cap this generous
+//      carries it verbatim into unencrypted `workspaces.metadata` and
+//      re-broadcasts it on every `repo.workspaceList` read. Captured
+//      provisioning output MUST be credential-scrubbed before it is persisted.
+//   2. TRUNCATE, to this constant, at PERSIST time. The cap is not only a wire
+//      bound: nothing else in the model enforces it — `workspaces.metadata`
+//      carries no length CHECK
+//      (`docs/architecture/schemas/local-sqlite-schema.md §Workspace and Git Tables (Plan-009, Plan-010, Plan-011)`)
+//      — so an unbounded stderr capture persists intact and then fails
+//      response validation on the way out. Because I-009-10 validates
+//      responses too, that makes every subsequent `repo.workspaceList` call
+//      unrepresentable, not just the one row: a single verbose provisioning
+//      failure takes down the whole list surface until the row is repaired.
+//
+// The ORDER is load-bearing, and it is the reason these are one numbered rule
+// rather than two independent notes. Truncating first can cut a secret in
+// half, leaving a fragment the scrubber's pattern no longer matches — the
+// scrub then passes over a string that still leaks. Scrubbing first cannot
+// have the reciprocal failure: truncation after redaction can only remove
+// already-safe bytes.
 export const WORKSPACE_LAST_ERROR_MAX_LEN = 8192;
 
 // --------------------------------------------------------------------------
@@ -1051,6 +1127,12 @@ const workspaceListItemSchema = z
     // failure: a workspace that went stale from a vanished path with no
     // captured detail carries none, which is why the emitter owns the pairing
     // and the schema does not refine it.
+    //
+    // This is the ONLY place the cap is enforced today, and that is why the
+    // constant's declaration assigns Phase 2 a persist-time scrub-then-
+    // truncate: an over-long `lastError` that reached the row would fail
+    // validation HERE, on the read path, taking down every subsequent
+    // `repo.workspaceList` response rather than the one bad row.
     lastError: wireFreeFormString(
       WORKSPACE_LAST_ERROR_MAX_LEN,
       "WorkspaceListResponse.workspaces[].lastError",
