@@ -29,6 +29,7 @@
   "dependencies": {
     "@ai-sidekicks/contracts": "workspace:*",
     "better-sqlite3": "^12.9.0",
+    "canonicalize": "3.0.0",
     "node-pty": "^1.2.0-beta.12",
     "semver": "^7.7.4"
   },
