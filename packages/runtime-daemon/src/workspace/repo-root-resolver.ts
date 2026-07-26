@@ -79,13 +79,28 @@
 // What the environment cannot reach: the repository's OWN config
 // --------------------------------------------------------------------------
 // Scrubbing the environment bounds one channel, and only one. The scope is
-// worth stating precisely, because the two config channels behave differently
-// and the difference is a matter of timing (all of the following observed on
-// git 2.50.1). `core.worktree` supplied through `GIT_CONFIG_PARAMETERS`, the
-// `GIT_CONFIG_COUNT` family, or `git -c` does NOT move `--show-toplevel`:
-// command-scope config is applied after repository setup has already decided
-// where the work tree is. The same key in the REPOSITORY'S OWN config file does
-// move it, because that file is read DURING setup.
+// worth stating precisely, because the two config channels behave differently.
+// OBSERVED on git 2.50.1, and pinned by the suite: `core.worktree` supplied
+// through `GIT_CONFIG_PARAMETERS`, the `GIT_CONFIG_COUNT` family, or `git -c`
+// does NOT move `--show-toplevel`. The same key in the REPOSITORY'S OWN config
+// file DOES move it.
+//
+// That asymmetry is an observation, and only the observation is relied on. The
+// natural explanation is ordering — command-scope config applied after
+// repository setup has already fixed the work tree, the repository's own config
+// read during setup — but git documents no such ordering for this key, so the
+// explanation is inference and nothing below rests on it. The DOCUMENTED
+// precedence in fact points the other way: git-config says the numbered
+// environment pairs "will override values in configuration files, but will be
+// overridden by any explicit options passed via git -c". Read straight, that
+// ranks all three command-scope channels ABOVE the repository's own file and
+// would predict the redirect to work through every one of them — including the
+// highest-ranked, `git -c`, which is just as inert here. An undocumented
+// behavior that a documented rule would predict to be otherwise is not a
+// boundary worth building on — which is why the strip is treated as defense in
+// depth, and why what actually closes the vector is the verification below. A
+// later git that honors the documented precedence here is refused by that
+// verification unchanged.
 //
 // That file is reachable without owning the tree it names. `git init
 // --separate-git-dir` leaves a `.git` FILE holding a `gitdir:` pointer, and the
@@ -210,7 +225,13 @@ import * as nodePath from "node:path";
 import type { VcsType } from "@ai-sidekicks/contracts";
 
 import { RepoRootResolutionError } from "./repo-errors.js";
-import { componentsEqual, isContainedWithin, toComparableComponents } from "./trust-envelope.js";
+import {
+  componentsEqual,
+  DEFAULT_DIRECTORY_READABILITY_PROBE,
+  isContainedWithin,
+  toComparableComponents,
+  type DirectoryReadabilityProbe,
+} from "./trust-envelope.js";
 
 // --------------------------------------------------------------------------
 // Public result shape
@@ -221,10 +242,15 @@ import { componentsEqual, isContainedWithin, toComparableComponents } from "./tr
  * criterion, the only value Phase 2 may persist as `canonical_root` /
  * `vcs_type`.
  *
- * `canonicalRoot` is always absolute and symlink-resolved. `vcsType` composes
- * T1.1's closed two-value union (`@ai-sidekicks/contracts`) rather than a local
- * string: I-009-4 pins that union CLOSED, and re-spelling it here would be the
- * widening seam the invariant forbids.
+ * `canonicalRoot` is always absolute and symlink-resolved, and was openable for
+ * enumeration at the moment it was resolved. `finish` proves the first and the
+ * third — the third only for that moment (see the probe seam). The second holds
+ * by CONSTRUCTION rather than by check: both call sites hand `finish` realpath
+ * output, so an absolute-but-unresolved alias from a broken realpath seam would
+ * pass undetected. `vcsType` composes T1.1's closed two-value union
+ * (`@ai-sidekicks/contracts`) rather than a local string: I-009-4 pins that
+ * union CLOSED, and re-spelling it here would be the widening seam the
+ * invariant forbids.
  */
 export interface RepoRootResolution {
   readonly canonicalRoot: string;
@@ -350,6 +376,27 @@ export interface RepoRootResolverDeps {
    */
   readonly realpath: PathRealpathResolver;
   /**
+   * Defaults to `DEFAULT_DIRECTORY_READABILITY_PROBE`, imported from T1.6 along
+   * with the seam's type. ONE binding serves both modules, so the attach-time
+   * and bind-time answers cannot drift; that module's declaration carries the
+   * primitive choice (`opendir` over `access` and over `readdir`) and says why
+   * the declaration sits on its side of the import edge.
+   *
+   * Read once, by `finish`, against the root about to be RETURNED — see there
+   * for what it refuses and why `realpath` does not already cover it.
+   *
+   * Injectable for the reason `realpath` is: the suite drives roots that do not
+   * exist on the host — the win32 shapes, the trailing-space names — so a
+   * hard-wired probe would make those verdicts a property of the machine
+   * running the test rather than of the code.
+   *
+   * An ADMISSION check, made once, at resolution time. A root that stops being
+   * readable AFTER attach is an availability condition, not a resolution
+   * failure; D-009-2 puts it in T2.5's health projection, and nothing here
+   * re-probes on that projection's behalf.
+   */
+  readonly probeDirectoryReadable: DirectoryReadabilityProbe;
+  /**
    * Defaults to the bare `"git"`, left to the platform's executable search.
    * Injectable for tests (pointing it at a nonexistent file yields a genuine
    * spawn `ENOENT`, the headline I-009-4 case), as the seam a later phase would
@@ -459,15 +506,18 @@ const NOT_A_REPOSITORY_STDERR_MARKER = /^fatal: not a git repository/im;
  * 2.50.1 the injectable key that bears on discovery, `core.worktree`, does NOT
  * move `--show-toplevel` through either channel — nor through `git -c`, the
  * same command scope — whether the query runs at the repository root or at a
- * subdirectory via `-C`. They are stripped because arbitrary config injection
- * sits on the wrong side of the line drawn below, not because a working
- * discovery redirect is known through them.
+ * subdirectory via `-C`. That is an observed behavior on one version, and it is
+ * NOT what the documented precedence predicts — git-config specifies that the
+ * numbered environment pairs "will override values in configuration files". So
+ * these are stripped because arbitrary config injection sits on the wrong side
+ * of the line drawn below, never because a discovery redirect is known to be
+ * closed through them.
  *
  * Read that as a statement about the ENV-BORNE channels only. The same key in
  * the repository's own config file DOES move `--show-toplevel`, on the same git
- * version — a difference of timing, not of key, and one no environment strip
- * can reach. The header's repo-owned-config section carries the mechanism and
- * the two-leg verification that answers it.
+ * version, and no environment strip can reach it. The header's
+ * repo-owned-config section separates what is observed from what is inferred,
+ * and carries the two-leg verification that answers all of it.
  *
  * NOT stripped, deliberately: `GIT_CONFIG_NOSYSTEM`, `GIT_CONFIG_GLOBAL`,
  * `GIT_CONFIG_SYSTEM`. Those REDIRECT or disable config files rather than
@@ -600,6 +650,7 @@ function resolveDeps(partial: Partial<RepoRootResolverDeps>): RepoRootResolverDe
   return {
     executeFile: partial.executeFile ?? defaultExecuteFile,
     realpath: partial.realpath ?? DEFAULT_REALPATH,
+    probeDirectoryReadable: partial.probeDirectoryReadable ?? DEFAULT_DIRECTORY_READABILITY_PROBE,
     gitExecutablePath: partial.gitExecutablePath ?? DEFAULT_GIT_EXECUTABLE,
     gitCommandTimeoutMs: partial.gitCommandTimeoutMs ?? DEFAULT_GIT_COMMAND_TIMEOUT_MS,
     platformPath: partial.platformPath ?? nodePath,
@@ -630,12 +681,15 @@ const WINDOWS_PATH_SEPARATOR = "\\";
  * the predicate here belongs there too; that module's `PlatformPathModule`
  * note enumerates the six surfaces the two files duplicate: five held by that
  * note alone, this rule among them, and `DEFAULT_REALPATH` held by an identity
- * pin in both suites. One of the five has a deliberate divergence recorded
- * there — `resolveDeps`, since T1.6 additionally defaults a `stat` seam this
- * module has no counterpart for (it hands its path to `git -C`, which fails on
- * its own against a regular file). The component-comparison helpers this module
- * imports from it are a third relationship — shared by construction, so they
- * cannot diverge at all.
+ * pin in both suites. Exactly one of the five diverges deliberately —
+ * `resolveDeps`, because this module additionally defaults three
+ * git-execution seams T1.6 has no use for. Its member set is otherwise a
+ * strict subset of this one's, and every member the two share defaults to the
+ * same thing. `probeDirectoryReadable` is the strongest case: its type and its
+ * default are DECLARED in T1.6 and imported here, so the readability question
+ * attach asks and the one bind asks cannot diverge at all. The
+ * component-comparison helpers arrive the same way — shared by construction,
+ * which is the relationship to prefer wherever the import direction allows.
  */
 function namesCompleteLocation(candidatePath: string, platformPath: PlatformPathModule): boolean {
   if (!platformPath.isAbsolute(candidatePath)) {
@@ -660,7 +714,12 @@ function readProperty(thrown: unknown, key: string): unknown {
 }
 
 /**
- * Which `RepoRootResolutionError` reason a failed `realpath` maps to.
+ * Which `RepoRootResolutionError` reason a filesystem errno maps to.
+ *
+ * TWO callers produce one: step 2's `realpath` on the supplied input, and
+ * `finish`'s readability probe on the outgoing root. The name predates the
+ * second caller and is kept because the reading did not change — both hand it
+ * a Node `ErrnoException` off a path operation, and an errno is all either has.
  *
  *   * `ENOENT` / `ENOTDIR` / `ENAMETOOLONG` — the path as spelled does not name
  *     anything (`ENOTDIR` means a component that must be a directory is not, so
@@ -669,8 +728,12 @@ function readProperty(thrown: unknown, key: string): unknown {
  *     ⇒ `not_readable`, whose message ("the supplied path is not readable") is
  *     accurate for all of them.
  *
- * `vcs_error` is deliberately unreachable from here: it means the version
- * control query did not complete, and at this point no query has been made.
+ * `vcs_error` is deliberately unreachable from here, and the reason survives
+ * the second caller: a filesystem errno is never evidence about the version
+ * control query. Called from step 2, no query has been made yet. Called from
+ * `finish` on the git arm, one has been made and it SUCCEEDED — what failed
+ * afterwards is the filesystem answering for a path, which is precisely what
+ * the two reasons above are for.
  */
 function classifyRealpathFailure(thrown: unknown): "path_not_found" | "not_readable" {
   const errnoCode = readProperty(thrown, "code");
@@ -828,8 +891,12 @@ export class RepoRootResolver {
     }
 
     // Step 2 — canonicalize the INPUT. This doubles as the existence and
-    // readability gate (`realpath` cannot resolve what it cannot traverse), and
-    // it is what keeps the symlink alias away from git in step 3.
+    // TRAVERSABILITY gate (`realpath` cannot resolve what it cannot traverse),
+    // and it is what keeps the symlink alias away from git in step 3.
+    // Traversable is strictly weaker than readable: a `0111` directory resolves
+    // here and lists for nobody. Proving the root can actually be ENUMERATED is
+    // `finish`'s gate, on the value about to be returned rather than on this
+    // one — which on the git arm is a different path.
     const canonicalInputPath = await this.realpathOrThrow(localPath, classifyRealpathFailure);
 
     // Step 3 — ask git where the toplevel is. Note that the answer is NOT
@@ -979,8 +1046,10 @@ export class RepoRootResolver {
   }
 
   /**
-   * Last gate before any value escapes this module: the returned root must be
-   * absolute (I-009-1). Both call sites have already realpath'd their value, so
+   * Last gate before any value escapes this module. Two properties are proven
+   * of the outgoing root, in this order.
+   *
+   * ABSOLUTE (I-009-1). Both call sites have already realpath'd their value, so
    * this can only fire on a platform or seam that broke that guarantee — which
    * is exactly when a silent relative root would be most damaging.
    *
@@ -997,10 +1066,49 @@ export class RepoRootResolver {
    * return a driveless root, so the stricter rule would add no reachable
    * coverage here — plain absoluteness is the honest statement of what is left
    * to catch.
+   *
+   * READABLE — the root can be OPENED FOR ENUMERATION, not merely traversed
+   * through. Step 2's `realpath` does not already establish this, and the gap
+   * is an ordinary POSIX mode rather than a contrived one: `0111` grants search
+   * without read. `realpath` needs only search on each component, so it
+   * resolves such a directory happily; git needs only search on the root as
+   * well, because discovery stats and reads `.git` entries and never LISTS the
+   * toplevel, so `rev-parse --show-toplevel` answers normally (git 2.50.1, both
+   * observations pinned by the suite). Absent this probe, both arms return a
+   * successful resolution naming a directory whose contents the daemon cannot
+   * enumerate.
+   *
+   * The check sits HERE, at the one chokepoint, rather than on the plain-
+   * directory arm alone, and that placement is the substance of it. D-009-7 has
+   * attach create a default workspace rooted at this value for git and non-git
+   * mounts alike, so an unreadable root births the same unusable workspace
+   * either way — a mount the operator can neither browse nor run in, recorded
+   * as healthy. `Plan-009` T1.5 states the contract being kept: the plain-
+   * directory classification is for a directory that exists and is READABLE,
+   * and an unreadable path throws rather than resolving.
+   *
+   * What is probed is the OUTGOING root, which on the git arm need not be the
+   * supplied path. Attaching a readable subdirectory of an unreadable
+   * repository root is exactly the shape that must refuse, since the root — not
+   * the input — is what gets persisted and mounted.
+   *
+   * Rejections route through `classifyRealpathFailure`, whose errno reading is
+   * the same at both call sites: `EACCES` ⇒ `not_readable`, and a root that
+   * VANISHED between discovery and this line ⇒ `path_not_found`. ADMISSION
+   * only — `probeDirectoryReadable` explains why later readability drift is
+   * T2.5's health projection rather than a resolution failure.
    */
-  private finish(canonicalRoot: string, vcsType: VcsType): RepoRootResolution {
+  private async finish(canonicalRoot: string, vcsType: VcsType): Promise<RepoRootResolution> {
     if (!nodePath.isAbsolute(canonicalRoot)) {
       throw new RepoRootResolutionError("vcs_error");
+    }
+    try {
+      await this.deps.probeDirectoryReadable(canonicalRoot);
+    } catch (thrown: unknown) {
+      // Path-free like every other refusal here, for the reason
+      // `realpathOrThrow` states: `error-contracts.md §Repo` bars this module
+      // from echoing the path, and T1.4's carrier has no channel for one.
+      throw new RepoRootResolutionError(classifyRealpathFailure(thrown));
     }
     return { canonicalRoot, vcsType };
   }

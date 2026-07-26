@@ -25,12 +25,16 @@
 //     a mount attached to the same session.
 //     → every section below.
 //
-// Fixture strategy. Real temp directories and real symlinks for everything a
-// POSIX filesystem can express, so the ordering guarantee is asserted against
-// the kernel's own symlink resolution rather than an imitation of it. The three
-// injected seams (`realpath`, `stat`, `platformPath`) cover what this host
-// cannot produce: win32 path shapes, case-folded comparison, and a resolved root
-// whose TYPE disagrees with whatever the host would report for that spelling.
+// Fixture strategy. Real temp directories, real symlinks, and real permission
+// MODES for everything a POSIX filesystem can express, so the ordering
+// guarantee is asserted against the kernel's own symlink resolution rather than
+// an imitation of it, and the readability refusal against real mode bits. The
+// three injected seams (`realpath`, `probeDirectoryReadable`, `platformPath`)
+// cover what this host cannot produce: win32 path shapes, case-folded
+// comparison, and a resolved root whose type or readability disagrees with
+// whatever the host would report for that spelling. A mode bit is a no-op under
+// root, which CI containers commonly are, so each real-mode case has a
+// seam-driven twin that runs everywhere.
 //
 // Case sensitivity is NEVER read off the host. A macOS developer runs on
 // case-insensitive APFS while CI runs on case-sensitive ext4, so a test that
@@ -40,7 +44,7 @@
 // injected platform and nothing else.
 
 import { mkdirSync, mkdtempSync, rmSync, statSync } from "node:fs";
-import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, posix as posixPath, sep, win32 as win32Path } from "node:path";
 
@@ -50,8 +54,8 @@ import { TrustEnvelopeViolationError } from "../repo-errors.js";
 import {
   DEFAULT_REALPATH,
   TrustEnvelopeValidator,
+  type DirectoryReadabilityProbe,
   type PathRealpathResolver,
-  type PathStatResolver,
   type WorkspaceExecutionRootCandidate,
 } from "../trust-envelope.js";
 
@@ -90,6 +94,16 @@ const filesystemIsCaseInsensitive: boolean = ((): boolean => {
 
 const itOnCaseInsensitiveFilesystem = it.skipIf(!filesystemIsCaseInsensitive);
 
+/**
+ * POSIX, and not running as ROOT — the gate for the permission-mode cases.
+ *
+ * A mode bit asserts nothing under a uid that ignores it: root opens a `0111`
+ * directory happily, so these would pass while testing nothing. T1.5's suite
+ * gates its own `0111` fixtures the same way, and for the same reason each of
+ * them has a seam-driven twin that runs everywhere.
+ */
+const itOnPosixAsNonRoot = it.skipIf(process.platform === "win32" || process.geteuid?.() === 0);
+
 // ----------------------------------------------------------------------------
 // Real-filesystem fixtures
 // ----------------------------------------------------------------------------
@@ -118,6 +132,7 @@ interface Fixtures {
   readonly secondMountChild: string;
   readonly aliasToMountRoot: string;
   readonly regularFileInMount: string;
+  readonly unreadableSubdirectory: string;
 }
 
 let fixtures: Fixtures;
@@ -175,6 +190,22 @@ beforeAll(async () => {
   const aliasToMountRoot = join(fixtureRoot, "alias-to-repo");
   await symlink(mountRoot, aliasToMountRoot);
 
+  // A directory INSIDE the mount that traverses but does not list. Contained,
+  // absolute, and perfectly resolvable, so every step before the readability
+  // probe is satisfied — which is what makes it a test of that probe and of
+  // nothing else. Note where it sits: under a mount root that is itself
+  // readable, so T1.5's attach-time refusal would never have seen it.
+  //
+  // The mode is applied here so no failing assertion can leave it behind, and
+  // `afterAll` lifts it before the recursive delete, which cannot descend into
+  // a `0111` directory (`force` suppresses ENOENT, not EACCES). Skipped on
+  // win32, where the bits do not carry this meaning and the cases skip too.
+  const unreadableSubdirectory = join(mountRoot, "unreadable-sub");
+  await mkdir(unreadableSubdirectory);
+  if (process.platform !== "win32") {
+    await chmod(unreadableSubdirectory, 0o111);
+  }
+
   fixtures = {
     fixtureRoot,
     mountRoot,
@@ -192,11 +223,17 @@ beforeAll(async () => {
     secondMountChild,
     aliasToMountRoot,
     regularFileInMount,
+    unreadableSubdirectory,
   };
 });
 
 afterAll(async () => {
   if (fixtures !== undefined) {
+    // Lift the traverse-only mode FIRST: `rm` cannot descend into a `0111`
+    // directory, and `force: true` suppresses ENOENT rather than EACCES, so
+    // leaving it would fail teardown and strand the temp tree. Best-effort, so
+    // a teardown failure cannot mask or pre-empt a real test failure.
+    await chmod(fixtures.unreadableSubdirectory, 0o755).catch(() => undefined);
     await rm(fixtures.fixtureRoot, { recursive: true, force: true });
   }
 });
@@ -267,19 +304,28 @@ function syntheticRealpath(
 }
 
 /**
- * A `stat` over the synthetic filesystem, which models directories only.
+ * A readability probe over the synthetic filesystem, which models openable
+ * directories only.
  *
- * Every physical path in the seam-driven blocks below is a spelling no host
- * has (`C:\Repos\App\Src`), so the real `stat` would `ENOENT` on all of them and
- * refuse the very acceptances those blocks exist to assert. One POSIX case would
- * be worse than that: `/srv` exists on a Linux runner and not on macOS, so the
- * real `stat` would make that test's verdict a property of the host.
- *
- * `resolvesToDirectory: false` is how a test asks for the type refusal on a
- * candidate that satisfies every other rule.
+ * Every physical path in the seam-driven blocks below is a spelling no host has
+ * (`C:\Repos\App\Src`), so a real probe would `ENOENT` on all of them and refuse
+ * the very acceptances those blocks exist to assert. One POSIX case would be
+ * worse than that: `/srv` exists on a Linux runner and not on macOS, so a real
+ * probe would make that test's verdict a property of the host.
  */
-function syntheticStat(resolvesToDirectory = true): PathStatResolver {
-  return () => Promise.resolve({ isDirectory: () => resolvesToDirectory });
+const alwaysReadableProbe: DirectoryReadabilityProbe = () => Promise.resolve();
+
+/**
+ * A probe that rejects with a chosen errno — how a test asks for the step-6
+ * refusal on a candidate that satisfies every other rule.
+ *
+ * The two errnos that matter are the two the one probe now folds together:
+ * `ENOTDIR` for a resolved root that is not a directory (what the replaced
+ * `stat` seam answered) and `EACCES` for a directory that will not be listed
+ * (what it could not).
+ */
+function rejectingProbe(errnoCode: string): DirectoryReadabilityProbe {
+  return () => Promise.reject(Object.assign(new Error(errnoCode), { code: errnoCode }));
 }
 
 // ----------------------------------------------------------------------------
@@ -459,18 +505,22 @@ describe("accepted execution roots (I-009-3)", () => {
 });
 
 // ----------------------------------------------------------------------------
-// The resolved root must be a directory
+// The resolved root must be a directory the daemon can enumerate
 // ----------------------------------------------------------------------------
 
-describe("a non-directory execution root is refused (I-009-3)", () => {
-  // Contained but unusable. The returned value's only destination is
-  // `workspaces.fs_root` — a root a process is later asked to run inside — and
-  // T2.4's bind flow resolves, refuses escapes, and persists without asking what
-  // the path IS. Refusing here keeps a workspace that can never spawn from being
-  // written in the first place.
+describe("an unusable execution root is refused (I-009-3)", () => {
+  // Contained but unusable, in either of two ways. The returned value's only
+  // destination is `workspaces.fs_root` — a root a process is later asked to run
+  // inside — and T2.4's bind flow resolves, refuses escapes, and persists
+  // without asking anything else about the path. A regular file would persist a
+  // workspace that can never spawn; a `0111` directory would persist one whose
+  // contents can never be listed. One probe refuses both, because opening is
+  // what the daemon would have to do in either case.
 
   it("refuses a regular file inside the mount root", async () => {
     // Real filesystem, no seam, so this arm runs on every host including CI.
+    // The real probe refuses it with `ENOTDIR` — opening subsumes the directory
+    // question the replaced `stat` seam asked on its own.
     await expectEnvelopeRefusal(
       new TrustEnvelopeValidator().validateExecutionRoot(candidateInMount("README.md")),
     );
@@ -493,9 +543,9 @@ describe("a non-directory execution root is refused (I-009-3)", () => {
     expect(resolvedTarget.startsWith(`${fixtures.mountRoot}${sep}`)).toBe(true);
   });
 
-  it("refuses a resolved root the `stat` seam reports as a non-directory", async () => {
-    // Every seam injected and only the stat varying between the two runs below,
-    // so the verdict is a property of the stat alone — this candidate is
+  it("refuses a resolved root the probe rejects as a non-directory", async () => {
+    // Every seam injected and only the probe varying between the two runs
+    // below, so the verdict is a property of the probe alone — this candidate is
     // admitted, contained, and absolute either way.
     const windowsCandidate: WorkspaceExecutionRootCandidate = {
       mountCanonicalRoot: "C:\\repos\\app",
@@ -504,13 +554,13 @@ describe("a non-directory execution root is refused (I-009-3)", () => {
     };
     const physicalPathBySpelling = { "C:\\repos\\app\\pkg": "C:\\repos\\app\\pkg" };
 
-    // Positive control first: the identical setup with a directory-reporting
-    // stat is accepted, so the refusal below cannot be blamed on the fixture.
+    // Positive control first: the identical setup with a probe that opens is
+    // accepted, so the refusal below cannot be blamed on the fixture.
     expect(
       await new TrustEnvelopeValidator({
         platformPath: win32Path,
         realpath: syntheticRealpath(physicalPathBySpelling),
-        stat: syntheticStat(),
+        probeDirectoryReadable: alwaysReadableProbe,
       }).validateExecutionRoot(windowsCandidate),
     ).toBe("C:\\repos\\app\\pkg");
 
@@ -518,21 +568,47 @@ describe("a non-directory execution root is refused (I-009-3)", () => {
       new TrustEnvelopeValidator({
         platformPath: win32Path,
         realpath: syntheticRealpath(physicalPathBySpelling),
-        stat: syntheticStat(false),
+        probeDirectoryReadable: rejectingProbe("ENOTDIR"),
       }).validateExecutionRoot(windowsCandidate),
     );
   });
 
-  it("refuses when the `stat` seam fails outright", async () => {
-    // The other arm of the same rule: a root the filesystem will not answer for
-    // is refused for the reason an unresolvable one is — the property cannot be
-    // proven, so it is not satisfied. `EACCES` on a traversable-but-unreadable
-    // parent is the realistic shape.
+  it("refuses a contained directory that cannot be LISTED", async () => {
+    // The half a `stat` could not answer, driven through the seam so it runs on
+    // every platform and under every uid. The real-mode fixture twin is below.
     await expectEnvelopeRefusal(
       new TrustEnvelopeValidator({
-        stat: () => Promise.reject(Object.assign(new Error("EACCES"), { code: "EACCES" })),
+        probeDirectoryReadable: rejectingProbe("EACCES"),
       }).validateExecutionRoot(candidateInMount()),
     );
+  });
+
+  itOnPosixAsNonRoot("refuses a real `0111` subdirectory of the mount", async () => {
+    // Mode `0111` grants traversal and refuses listing, so `realpath` resolves
+    // it and containment passes — every earlier step is satisfied and only step
+    // 6 refuses. This is the bind-side twin of the attach-side refusal T1.5
+    // makes: without it, a bind naming this directory persists a
+    // `workspaces.fs_root` whose contents the daemon can never enumerate, under
+    // a mount root that is perfectly readable.
+    await expectEnvelopeRefusal(
+      new TrustEnvelopeValidator().validateExecutionRoot(candidateInMount("unreadable-sub")),
+    );
+  });
+
+  itOnPosixAsNonRoot("accepts that same subdirectory once it can be listed", async () => {
+    // The control that keeps the refusal above about the MODE. Same path, same
+    // containment, same seams — only the permission bits differ, and they are
+    // restored before the assertion rather than left for teardown.
+    await chmod(fixtures.unreadableSubdirectory, 0o755);
+    try {
+      expect(
+        await new TrustEnvelopeValidator().validateExecutionRoot(
+          candidateInMount("unreadable-sub"),
+        ),
+      ).toBe(fixtures.unreadableSubdirectory);
+    } finally {
+      await chmod(fixtures.unreadableSubdirectory, 0o111);
+    }
   });
 });
 
@@ -802,7 +878,7 @@ describe("win32 case folding and root shapes (Spec-009 §Local Trust Envelope (V
     return new TrustEnvelopeValidator({
       platformPath: win32Path,
       realpath: syntheticRealpath(physicalPathBySpelling, recorded),
-      stat: syntheticStat(),
+      probeDirectoryReadable: alwaysReadableProbe,
     });
   }
 
@@ -988,7 +1064,7 @@ describe("case folding stays win32-scoped (Spec-009 §Local Trust Envelope (V1 D
     return new TrustEnvelopeValidator({
       platformPath: posixPath,
       realpath: syntheticRealpath(physicalPathBySpelling),
-      stat: syntheticStat(),
+      probeDirectoryReadable: alwaysReadableProbe,
     });
   }
 
