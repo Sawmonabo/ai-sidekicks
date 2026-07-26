@@ -15,8 +15,13 @@
 // CANONICAL CONSUMER (CP-010-1, the reciprocal of Plan-009 CP-009-1).
 // Plan-009's repo.ts owns `ExecutionMode`, `WorkspaceState`, `RepoMountState`,
 // the branded `RepoMountId` / `WorkspaceId`, and the family payload factory
-// `buildRepoWorkspaceLifecyclePayloadSchema` — this module IMPORTS them and
-// never redefines (I-010-1). The contract core composes the mode taxonomy and
+// `buildRepoWorkspaceLifecyclePayloadSchema` — this module IMPORTS the ones it
+// needs and never redefines ANY of them (I-010-1). `RepoMountState` is the one
+// it does NOT need: no Plan-010 wire shape or payload carries a mount state.
+// I-010-1 and CP-010-1 still enumerate it, which is pre-PR-#250 residue from
+// when the worktree payload reused the two-arm `RepoMountState` ∪
+// `WorkspaceState` union the round-4 factory amendment removed; T1.1's own
+// task body already omits it. The contract core composes the mode taxonomy and
 // the factory; T1.2's seven wire pairs below add the remaining Plan-009 canon
 // they need (`WorkspaceStateSchema`, the branded `RepoMountId` /
 // `WorkspaceId`, the shared `REPO_PATH_MAX_LEN`, and `ExecutionModeSchema` as
@@ -84,8 +89,10 @@ import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.j
 // same cross-module composition channels.ts / memberships.ts / presence.ts
 // use for session.ts's ids and runtime-node.ts uses for `NodeId`. Both this
 // module and repo.ts are star-exported by index.ts; a re-export that resolves
-// to the SAME declaration is not an ambiguous duplicate (the four-way
-// `SessionIdSchema` path through those three modules is the standing proof).
+// to the SAME declaration is not an ambiguous duplicate (the THREE-way
+// `SessionIdSchema` path — its session.ts declaration plus the channels.ts and
+// presence.ts re-exports — is the standing proof; memberships.ts re-exports
+// other session.ts-declared ids but not this one).
 //
 // TWO STATEMENTS, the shape all four of those siblings use: the type-only
 // half MUST spell `export type { ... }` (the `isolatedModules` +
@@ -259,9 +266,10 @@ export const CleanupPolicySchema: z.ZodType<"on_run_complete" | "manual"> = z.en
 // `-> failed` transition emits no worktree event at all (I-010-13, D-010-11,
 // D-010-12). Representability is deliberate — the state enum is the ROW
 // vocabulary (I-010-2 lockstep), and the closed EVENT registry, not a
-// narrowed payload arm, is what pins the no-failed-event decision (the T2.1
-// regression test plus the union-rejection pin in
-// `__tests__/worktree.test.ts`).
+// narrowed payload arm, is what pins the no-failed-event decision. Only ONE
+// of its two pins ships today: the union-rejection pin in
+// `__tests__/worktree.test.ts`. The `-> failed` emits-nothing regression test
+// belongs to Phase 2 T2.1 and lands with `worktree-event-emitter.ts`.
 //
 // Declared as a TYPE ALIAS, never an `interface` — event.ts's five variant
 // interfaces narrow `EventEnvelope.payload` (`Record<string, unknown>`), and
@@ -925,7 +933,7 @@ export const WorktreeRetireResponseSchema: z.ZodType<WorktreeRetireResponse> = z
 // `retired` included, and the views label rather than filter. Both `state`
 // fields below therefore carry their full vocabularies; a "live states only"
 // narrowing would make the admit-not-eject contract unrepresentable on the
-// wire, which is the mirror image of the two `Extract` narrowings above.
+// wire, which is the mirror image of the three `Extract` narrowings above.
 
 // The RUNTIME half of `WorktreeStatusReadResponse.worktrees[].createdByRunId`.
 //
