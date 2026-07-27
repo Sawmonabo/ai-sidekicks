@@ -44,13 +44,14 @@ export function parseGhJson(raw) {
  * One `.flat()` is therefore correct for all three, and the single-page case
  * needs no special branch.
  *
- * This is robustness against a future object-typed endpoint, NOT a fix for a
- * live crash: all three paginated call sites in codex-gate.mjs are array
- * endpoints, where plain `--paginate` already merges the pages into one valid
- * array. The shape that defeats a bare `JSON.parse` is the object-typed one —
- * `search/issues --paginate` emits 60 back-to-back `}{` joins and fails to parse
- * at position 9620 — and routing every paginated call through here forecloses
- * it before a future endpoint can reach the gate.
+ * The object-typed shape is live, not hypothetical. `check-suites` returns
+ * `{total_count, check_suites}` per page, so the ack-anchor fetch in
+ * codex-gate.mjs drives this path on every run; the other three paginated call
+ * sites are array endpoints, where plain `--paginate` would already have merged
+ * the pages into one valid array. Object pages are what defeats a bare
+ * `JSON.parse` — `search/issues --paginate` emits 60 back-to-back `}{` joins and
+ * fails to parse at position 9620 — so routing every paginated call through here
+ * is what lets an object-typed endpoint be added without a crash.
  *
  * Depth-1 by design: it strips the page level and nothing else, so an endpoint
  * whose rows are themselves arrays keeps its rows intact.
@@ -72,37 +73,127 @@ export function flattenSlurpedPages(slurped) {
 }
 
 /**
+ * @typedef {"cursor-stalled"|"pages-pending"|"no-total-count"|"short-drain"} TruncationReason
+ */
+
+/**
  * Drain a GraphQL connection to completion.
  *
- * `truncated` is true whenever the fetched node count falls short of
- * `totalCount` — the page ceiling was hit, a cursor stopped advancing, or the
- * server withheld nodes it counted. It is a fail-closed signal, not a warning:
- * callers feed it into the verdict, which refuses `merge_ok` on it. A count the
- * gate cannot vouch for is indistinguishable from a hidden unresolved thread.
+ * `truncated` means the node list cannot be vouched for. FOUR independent
+ * conditions raise it, and three are invisible to a node count — the previous
+ * version compared `nodes.length < totalCount` and nothing else, while its own
+ * docblock claimed it detected "a cursor stopped advancing". It did not:
+ *
+ *   - `cursor-stalled` — the server returned an `endCursor` the walk had already
+ *     requested. Unhandled, that refetches one page until the ceiling, and the
+ *     DUPLICATE nodes push `nodes.length` past `totalCount` — so the count test
+ *     reported a complete drain of a connection that never got past page one.
+ *   - `pages-pending` — the walk stopped while the server still said
+ *     `hasNextPage`: the page ceiling was reached, or `endCursor` was absent.
+ *     Only the node count guarded this before.
+ *   - `no-total-count` — a connection arrived with no numeric `totalCount`. The
+ *     old `?? totalCount` default left it at 0, making `nodes.length < 0`
+ *     unsatisfiable, so EVERY such connection reported complete. A total the
+ *     server never sent is unverifiable, not verified.
+ *   - `short-drain` — the walk finished, but the server counted more nodes than
+ *     it returned.
+ *
+ * A stalled walk is caught one page late, because the repeat only becomes
+ * visible once the server has answered with it. Those duplicate rows stay in
+ * `nodes`: a truncated drain's node list is a floor that may contain repeats,
+ * never a total. Callers refuse to merge on `truncated` rather than counting it.
+ *
+ * A connection absent ENTIRELY — `fetchPage` returning nullish on the first call
+ * — is zero-of-zero rather than truncated. That is a commit with no
+ * `statusCheckRollup` at all, which `deriveCiStatus` already reports as `none`,
+ * itself non-mergeable. The review-thread equivalent cannot reach here: a
+ * GraphQL error makes `gh` exit non-zero (probed 2026-07-27 against a
+ * nonexistent PR number — exit 1, NOT_FOUND alongside the null), so the fetch
+ * throws instead of returning a silent empty.
  *
  * @param {(cursor: string | null) => ({totalCount?: number, nodes?: Array<object>, pageInfo?: {hasNextPage?: boolean, endCursor?: string | null}} | null | undefined)} fetchPage
- * @returns {{nodes: Array<object>, totalCount: number, truncated: boolean, pages: number}}
+ * @returns {{nodes: Array<object>, totalCount: number, truncated: boolean, truncationReason: TruncationReason | null, pages: number}}
  */
 export function drainConnection(fetchPage) {
   const nodes = [];
+  const requestedCursors = new Set();
   let totalCount = 0;
+  let totalCountReported = false;
+  let connectionsSeen = 0;
   let cursor = null;
   let pages = 0;
+  let cursorStalled = false;
+  let pagesPending = false;
 
   while (pages < MAX_CONNECTION_PAGES) {
     const connection = fetchPage(cursor);
     pages += 1;
     if (!connection) break;
+    connectionsSeen += 1;
 
-    totalCount = connection.totalCount ?? totalCount;
+    if (typeof connection.totalCount === "number") {
+      totalCount = connection.totalCount;
+      totalCountReported = true;
+    }
     nodes.push(...(connection.nodes ?? []));
 
     const pageInfo = connection.pageInfo ?? {};
-    // An `endCursor` of null with `hasNextPage` set cannot advance the walk;
-    // stopping leaves `nodes.length < totalCount`, which fails closed.
-    if (!pageInfo.hasNextPage || !pageInfo.endCursor) break;
+    if (!pageInfo.hasNextPage) break;
+    if (!pageInfo.endCursor) {
+      pagesPending = true;
+      break;
+    }
+    if (requestedCursors.has(pageInfo.endCursor)) {
+      cursorStalled = true;
+      break;
+    }
+    requestedCursors.add(pageInfo.endCursor);
     cursor = pageInfo.endCursor;
+    // The loop is about to exit on its ceiling with the server still offering
+    // more, which the node count only catches when totalCount happens to exceed
+    // what was fetched.
+    if (pages >= MAX_CONNECTION_PAGES) pagesPending = true;
   }
 
-  return { nodes, totalCount, truncated: nodes.length < totalCount, pages };
+  // Ordered by diagnostic specificity, so a stalled cursor is never described as
+  // a mere shortfall.
+  const truncationReason = cursorStalled
+    ? "cursor-stalled"
+    : pagesPending
+      ? "pages-pending"
+      : connectionsSeen > 0 && !totalCountReported
+        ? "no-total-count"
+        : nodes.length < totalCount
+          ? "short-drain"
+          : null;
+
+  return { nodes, totalCount, truncated: truncationReason !== null, truncationReason, pages };
+}
+
+/**
+ * Render a drain's truncation reason as the phrase the gate prints.
+ *
+ * Lives beside the reasons rather than in the gate so the wording is
+ * unit-testable and cannot drift from them. Each phrase names the fault that
+ * actually occurred: "fetched 40 of 9" would report a shortfall that never
+ * happened on a stalled cursor, and "fetched 12 of 0" is nonsense when the
+ * server sent no total at all. A gate that blocks a merge has to be able to say
+ * why.
+ *
+ * @param {{truncationReason: TruncationReason | null, nodes: Array<unknown>, totalCount: number}} drain
+ * @returns {string}
+ */
+export function describeTruncation(drain) {
+  const fetched = drain.nodes?.length ?? 0;
+  switch (drain.truncationReason) {
+    case "cursor-stalled":
+      return `the server kept handing back a cursor the walk had already used, so it never advanced past its first page (${fetched} node(s) fetched, repeats included)`;
+    case "pages-pending":
+      return `the walk stopped with more pages still outstanding, after ${fetched} node(s)`;
+    case "no-total-count":
+      return `the server sent no totalCount, so the ${fetched} node(s) fetched cannot be confirmed complete`;
+    // `short-drain` and the untruncated case both read naturally as a count.
+    default:
+      return `fetched ${fetched} of ${drain.totalCount}`;
+  }
 }

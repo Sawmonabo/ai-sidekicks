@@ -11,9 +11,13 @@
  *
  * The terminal states are modelled here so a caller cannot miss one:
  *   1. findings     — review object whose .commit_id is HEAD, with open threads
- *   2. clean        — +1 reaction on the PR issue, at or after the HEAD commit
+ *   2. clean        — +1 reaction on the PR issue, at or after the ack anchor
  *   3. clean        — "Didn't find any major issues" comment, same freshness bind
  *   4. rate-limited — fresh bot comment matching /usage limits/ (NON-ack; stop polling)
+ *
+ * The ack anchor is the later of the HEAD commit's timestamp and the earliest
+ * check suite for that sha — see derivePushAnchor. Commit time alone is
+ * author-controlled, so it lets an ack of the PREVIOUS head count for this one.
  *
  * This file is the I/O shell only: it fetches, then prints. Every predicate that
  * decides anything lives in lib/codex-verdict.mjs, where it is unit-tested —
@@ -35,13 +39,19 @@ import {
   computeVerdict,
   deriveCiStatus,
   deriveCommentSignals,
+  derivePushAnchor,
   deriveReactionAck,
   deriveReviewAck,
   mergeStateAllowsMerge,
   selectUnresolvedBotThreads,
   DEFAULT_SETTLE_WINDOW_MS,
 } from "./lib/codex-verdict.mjs";
-import { drainConnection, flattenSlurpedPages, parseGhJson } from "./lib/gh-api.mjs";
+import {
+  describeTruncation,
+  drainConnection,
+  flattenSlurpedPages,
+  parseGhJson,
+} from "./lib/gh-api.mjs";
 
 function gh(args) {
   return execFileSync("gh", args, {
@@ -134,9 +144,10 @@ if (!headSha) {
 }
 const headShaShort = headSha.slice(0, 10);
 
-// The HEAD commit's own timestamp is the anchor an ack must beat. Using the
-// PR's updatedAt instead would let a reaction that predates the latest push
-// masquerade as an ack of it — the PR #70 false-pass.
+// One half of the ack anchor. Using the PR's updatedAt instead would let a
+// reaction that predates the latest push masquerade as an ack of it — the PR #70
+// false-pass. The commit timestamp alone is not enough either, because it is
+// author-controlled; derivePushAnchor pairs it with the push observation below.
 const headCommit = ghJson([
   "api",
   `repos/${repository}/commits/${headSha}`,
@@ -158,6 +169,21 @@ if (!Number.isFinite(headCommittedAtMs)) {
   );
 }
 const headCommittedAt = new Date(headCommittedAtMs);
+
+// Check suites date the PUSH — the moment the sha first became visible
+// server-side, which is what an ack actually has to post-date. This is the one
+// object-typed paginated endpoint the gate calls: each page is
+// `{total_count, check_suites}`, so the slurped pages arrive as page objects
+// rather than as rows, and the rows come out of them here.
+const checkSuites = ghJsonPaginated([
+  "api",
+  `repos/${repository}/commits/${headSha}/check-suites`,
+]).flatMap((page) => page?.check_suites ?? []);
+const {
+  anchorMs: ackAnchorMs,
+  pushObservedAtMs,
+  pushAnchorKnown,
+} = derivePushAnchor(headCommittedAtMs, checkSuites);
 
 // ---------------------------------------------------- signal 1: review object
 
@@ -186,7 +212,7 @@ const allReactions = ghJsonPaginated([
 ]);
 const { botThumbsUp, freshThumbsUp, reactionAcksHead } = deriveReactionAck(
   allReactions,
-  headCommittedAtMs,
+  ackAnchorMs,
 );
 
 // --------------------------------- signal 3: comments (rate limit + verdict)
@@ -196,7 +222,7 @@ const allComments = ghJsonPaginated([
   `repos/${repository}/issues/${pullRequestNumber}/comments`,
 ]);
 const { botComments, shaCitingComments, freshCleanVerdictComments, commentAcksHead, rateLimited } =
-  deriveCommentSignals(allComments, { headShaShort, headCommittedAtMs });
+  deriveCommentSignals(allComments, { headShaShort, ackAnchorMs });
 
 // ------------------------------------------------------- unresolved threads
 
@@ -224,14 +250,15 @@ query($owner:String!, $name:String!, $number:Int!, $cursor:String) {
   }
 }`;
 
+const threadDrain = drainConnection((cursor) => {
+  const page = graphqlPage(REVIEW_THREAD_QUERY, { owner, name, cursor });
+  return page?.data?.repository?.pullRequest?.reviewThreads;
+});
 const {
   nodes: threadNodes,
   totalCount: threadTotal,
   truncated: threadWindowTruncated,
-} = drainConnection((cursor) => {
-  const page = graphqlPage(REVIEW_THREAD_QUERY, { owner, name, cursor });
-  return page?.data?.repository?.pullRequest?.reviewThreads;
-});
+} = threadDrain;
 
 const { unresolved: unresolvedBotThreads, outdatedCount: outdatedUnresolvedCount } =
   selectUnresolvedBotThreads(threadNodes);
@@ -282,14 +309,11 @@ query($owner:String!, $name:String!, $number:Int!, $headSha:GitObjectID!, $curso
   }
 }`;
 
-const {
-  nodes: rollupNodes,
-  totalCount: rollupTotal,
-  truncated: checkWindowTruncated,
-} = drainConnection((cursor) => {
+const rollupDrain = drainConnection((cursor) => {
   const page = graphqlPage(CHECK_ROLLUP_QUERY, { owner, name, headSha, cursor });
   return page?.data?.repository?.object?.statusCheckRollup?.contexts;
 });
+const { nodes: rollupNodes, truncated: checkWindowTruncated } = rollupDrain;
 
 // Deduped to the newest run per check name — a superseded CANCELLED row sitting
 // beside its real SUCCESS would otherwise read as red. See lib/codex-verdict.mjs.
@@ -315,6 +339,7 @@ const isOpen = pullRequest.state === "OPEN";
 const { verdict, ackOfHead, mergeOk } = computeVerdict({
   isDraft: pullRequest.isDraft,
   isOpen,
+  pushAnchorKnown,
   rateLimited,
   reviewAcksHead,
   reactionAcksHead,
@@ -331,15 +356,27 @@ const { verdict, ackOfHead, mergeOk } = computeVerdict({
 // ------------------------------------------------------------------- output
 
 const mergeStateAllows = mergeStateAllowsMerge(mergeStateStatus);
+
+// Printed because the two sources can differ by minutes and the anchor — not the
+// commit time — is what every timestamp-bound ack leg is judged against. A clock
+// skew that pushes the anchor into the future would otherwise strand the gate at
+// `no_ack_yet` with nothing on screen to explain it.
+const ackAnchorSource = !pushAnchorKnown
+  ? "commit time — NO check suite dates this sha, so the push time is unknown"
+  : ackAnchorMs === pushObservedAtMs
+    ? `earliest check suite, ${Math.round((ackAnchorMs - headCommittedAtMs) / 1000)}s after the commit`
+    : "commit time — later than the earliest check suite, so it wins the max";
+
 const lines = [
   `PR #${pullRequestNumber} — ${pullRequest.title}`,
   `  repo            ${repository}`,
   `  HEAD            ${headShaShort}  committed ${headCommittedAt.toISOString()}`,
+  `  ack anchor      ${new Date(ackAnchorMs).toISOString()}  (${ackAnchorSource})`,
   `  draft           ${pullRequest.isDraft}   state ${pullRequest.state}   mergeState ${mergeStateStatus}${mergeStateAllows ? "" : "  (BLOCKS MERGE)"}`,
   "",
   "  ack legs (disjunction — any one is a valid ack of HEAD):",
   `    review .commit_id == HEAD   ${reviewAcksHead ? "YES" : "no "}   (${botReviews.length} bot review(s) total)`,
-  `    +1 on issue at/after HEAD   ${reactionAcksHead ? "YES" : "no "}   (${botThumbsUp.length} bot +1 total, ${freshThumbsUp.length} fresh)`,
+  `    +1 on issue at/after anchor ${reactionAcksHead ? "YES" : "no "}   (${botThumbsUp.length} bot +1 total, ${freshThumbsUp.length} fresh)`,
   `    comment acks HEAD           ${commentAcksHead ? "YES" : "no "}   (${botComments.length} bot comment(s): ${shaCitingComments.length} cite the sha, ${freshCleanVerdictComments.length} fresh clean verdict(s))`,
   "",
   `  unresolved bot threads  ${unresolvedBotThreads.length}  (${outdatedUnresolvedCount} outdated, counted anyway) of ${threadTotal} total thread(s)`,
@@ -358,14 +395,23 @@ if (ciMode === "all-checks" && dedupedChecks.length > 0) {
     "     fits an unprotected branch.) While this shows, merge_ok rests on mergeStateStatus.",
   );
 }
+if (!pushAnchorKnown) {
+  lines.push(
+    "  !! no check suite dates this sha, so the ack anchor falls back to the author-controlled",
+  );
+  lines.push(
+    "     commit time — a +1 for the PREVIOUS head can land inside the commit-to-push gap and",
+  );
+  lines.push("     satisfy it. merge_ok is 0 until a suite appears; re-poll.");
+}
 if (threadWindowTruncated) {
   lines.push(
-    `  !! review-thread connection truncated: fetched ${threadNodes.length} of ${threadTotal} — the unresolved count is a floor, not a total. NOT mergeable.`,
+    `  !! review-thread connection truncated [${threadDrain.truncationReason}]: ${describeTruncation(threadDrain)} — the unresolved count is a floor, not a total. NOT mergeable.`,
   );
 }
 if (checkWindowTruncated) {
   lines.push(
-    `  !! check-rollup connection truncated: fetched ${rollupNodes.length} of ${rollupTotal} — CI status is unverified. NOT mergeable.`,
+    `  !! check-rollup connection truncated [${rollupDrain.truncationReason}]: ${describeTruncation(rollupDrain)} — CI status is unverified. NOT mergeable.`,
   );
 }
 for (const check of failedChecks) {

@@ -25,7 +25,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import { fileURLToPath } from "node:url";
 import process from "node:process";
 // node:fs + node:path only — Plan Invariant I-3 holds through this import.
-import { resolvePlanFile } from "./lib/plan-file.mjs";
+import { planFilesystemKey, resolvePlanFile } from "./lib/plan-file.mjs";
 
 // ---------- Task 3.2: parseNsHeading ----------
 
@@ -905,13 +905,19 @@ function resolvePlanDeclaration({ args, repoRoot }) {
     // One warning kind covers the absent / no-match / multi-match cases
     // together: the resolver cannot distinguish them, and the operator remedy
     // is the same — look at what `glob` does and does not match.
+    //
+    // The two fields carry the two halves of the identity/filesystem split:
+    // `plan` is the dispatch token as given (`023-partial`), `glob` is the
+    // pattern actually searched (`docs/plans/023-*.md`). Interpolating the raw
+    // token into `glob` would print a pattern this run never executed and that
+    // no repo state can satisfy — worthless against the remedy above.
     return {
       planFileRel: null,
       warnings: [
         {
           kind: "plan_file_unresolved",
           plan: args.plan,
-          glob: `${PLANS_DIR_REL}/${args.plan}-*.md`,
+          glob: `${PLANS_DIR_REL}/${planFilesystemKey(args.plan)}-*.md`,
         },
       ],
     };

@@ -1,0 +1,7 @@
+{
+  "prNumber": 38,
+  "plan": "023-partial",
+  "phase": "1",
+  "candidateNs": "NS-01",
+  "diffTouchedFiles": ["docs/plans/023-desktop-shell-and-renderer.md", "apps/desktop/src/main.ts"]
+}

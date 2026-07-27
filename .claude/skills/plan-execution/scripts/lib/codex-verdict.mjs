@@ -281,17 +281,69 @@ const RATE_LIMIT_PATTERN = /usage limits/i;
 const CLEAN_VERDICT_PATTERN = /Didn['’]t find any major issues/i;
 
 /**
+ * The instant an ack must post-date, given the HEAD commit and its check suites.
+ *
+ * The commit timestamp is the wrong anchor on its own: it is the LOCAL commit
+ * time, written by the author's clock, so every second between committing and
+ * pushing is a window in which a `+1` for the PREVIOUS head lands carrying a
+ * `created_at` that still beats it. That reaction then acks a commit Codex never
+ * saw — the same false-ack the `new Date(null)` epoch bug produced, reached by a
+ * different route. The window is not theoretical: on this branch's own
+ * `c8bcdc1`, `committedDate` was 18:19:07Z and the first server-side sighting of
+ * the sha was 18:20:59Z — 112 seconds — and a commit-then-verify-then-push
+ * workflow widens it to minutes.
+ *
+ * `Commit.pushedDate` would answer this exactly, but GitHub no longer populates
+ * it: null on that same commit (GraphQL, 2026-07-27). The earliest
+ * `check_suite.created_at` for the sha is the closest available server-side
+ * observation, since GitHub creates a suite per installed app on receiving the
+ * push. Check suites beat `actions/runs` because they cover non-Actions apps
+ * too — on `c8bcdc1` the earliest suite belongs to a third-party app, 5 seconds
+ * ahead of the Actions ones.
+ *
+ * Combined with `max` rather than by replacement, so the anchor can only move
+ * LATER than the previous behaviour, never earlier. Two residuals worth naming
+ * rather than implying they are closed:
+ *   - a sha pushed earlier on another branch carries that earlier suite, so this
+ *     is the first moment the sha was visible anywhere in the repo, not the
+ *     moment it became this PR's head. Still >= the commit time, so still a
+ *     strict improvement — but it is not the push event itself.
+ *   - a suite timestamp in the future (clock skew) pins the anchor ahead of
+ *     every ack, and the gate reports `no_ack_yet` until wall-clock catches up.
+ *     That is the fail-closed direction, and the caller prints the anchor it
+ *     chose and which source won, so the cause is legible rather than a silent
+ *     spin.
+ *
+ * @param {number} committedAtMs
+ * @param {Array<object>} checkSuites Raw `check_suites` rows for the head sha.
+ * @returns {{anchorMs: number, pushObservedAtMs: number | null, pushAnchorKnown: boolean}}
+ */
+export function derivePushAnchor(committedAtMs, checkSuites) {
+  let earliestMs = null;
+  for (const suite of checkSuites ?? []) {
+    const createdMs = new Date(suite?.created_at ?? Number.NaN).getTime();
+    if (!Number.isFinite(createdMs)) continue;
+    if (earliestMs === null || createdMs < earliestMs) earliestMs = createdMs;
+  }
+  return {
+    anchorMs: earliestMs === null ? committedAtMs : Math.max(committedAtMs, earliestMs),
+    pushObservedAtMs: earliestMs,
+    pushAnchorKnown: earliestMs !== null,
+  };
+}
+
+/**
  * The `created_at >= BASELINE_TS` freshness predicate from
  * `references/failure-modes.md` § Codex Verdict Gate.
  *
  * Inclusive, not strict. GitHub timestamps are second-granular, so an ack posted
- * inside the HEAD commit's own second carries an identical `created_at`; a
- * strict `>` discarded it and left the verdict poll waiting on an ack that had
- * already landed. An absent or unparseable stamp yields NaN, which compares
- * false — fail closed.
+ * inside the anchor's own second carries an identical `created_at`; a strict `>`
+ * discarded it and left the verdict poll waiting on an ack that had already
+ * landed. An absent or unparseable stamp yields NaN, which compares false — fail
+ * closed.
  *
  * @param {string | null | undefined} timestamp
- * @param {number} anchorMs HEAD commit time, in epoch milliseconds.
+ * @param {number} anchorMs Ack anchor from `derivePushAnchor`, epoch ms.
  * @returns {boolean}
  */
 export function isAtOrAfter(timestamp, anchorMs) {
@@ -354,21 +406,21 @@ export function deriveReviewAck(reviews, headSha, nowMs) {
 }
 
 /**
- * Ack shape (1): a `+1` reaction on the PR issue, at or after the HEAD commit.
+ * Ack shape (1): a `+1` reaction on the PR issue, at or after the ack anchor.
  *
  * Reactions carry no commit reference, so the timestamp is the only thing
  * binding one to the current HEAD — a stale `+1` from a pre-fix push would
  * otherwise falsely ack it (the PR #70 false-pass).
  *
  * @param {Array<object>} reactions
- * @param {number} headCommittedAtMs
+ * @param {number} ackAnchorMs From `derivePushAnchor`, NOT the commit time alone.
  */
-export function deriveReactionAck(reactions, headCommittedAtMs) {
+export function deriveReactionAck(reactions, ackAnchorMs) {
   const botThumbsUp = (reactions ?? []).filter(
     (reaction) => reaction.user?.login === BOT_REST_LOGIN && reaction.content === "+1",
   );
   const freshThumbsUp = botThumbsUp.filter((reaction) =>
-    isAtOrAfter(reaction.created_at, headCommittedAtMs),
+    isAtOrAfter(reaction.created_at, ackAnchorMs),
   );
   return { botThumbsUp, freshThumbsUp, reactionAcksHead: freshThumbsUp.length > 0 };
 }
@@ -379,8 +431,8 @@ export function deriveReactionAck(reactions, headCommittedAtMs) {
  * The two ack legs are bound to HEAD by DIFFERENT anchors and must not be
  * collapsed. A comment carrying `**Reviewed commit:** \`<sha10>\`` names the
  * commit it reviewed, so the sha IS the anchor and no timestamp filter applies.
- * The clean-verdict comment carries no sha at all, so `created_at >= HEAD` is
- * the only thing tying it to the current push.
+ * The clean-verdict comment carries no sha at all, so `created_at >= ackAnchorMs`
+ * is the only thing tying it to the current push.
  *
  * The usage-limits non-ack takes the same freshness binding, which
  * failure-modes.md already documents and the gate had drifted from: because
@@ -389,9 +441,9 @@ export function deriveReactionAck(reactions, headCommittedAtMs) {
  * after a later HEAD collected a valid clean ack.
  *
  * @param {Array<object>} comments
- * @param {{headShaShort: string, headCommittedAtMs: number}} anchors
+ * @param {{headShaShort: string, ackAnchorMs: number}} anchors
  */
-export function deriveCommentSignals(comments, { headShaShort, headCommittedAtMs }) {
+export function deriveCommentSignals(comments, { headShaShort, ackAnchorMs }) {
   const botComments = (comments ?? []).filter((comment) => comment.user?.login === BOT_REST_LOGIN);
   const shaCitingComments = botComments.filter(
     (comment) =>
@@ -400,12 +452,11 @@ export function deriveCommentSignals(comments, { headShaShort, headCommittedAtMs
   const freshCleanVerdictComments = botComments.filter(
     (comment) =>
       CLEAN_VERDICT_PATTERN.test(comment.body ?? "") &&
-      isAtOrAfter(comment.created_at, headCommittedAtMs),
+      isAtOrAfter(comment.created_at, ackAnchorMs),
   );
   const freshRateLimitComments = botComments.filter(
     (comment) =>
-      RATE_LIMIT_PATTERN.test(comment.body ?? "") &&
-      isAtOrAfter(comment.created_at, headCommittedAtMs),
+      RATE_LIMIT_PATTERN.test(comment.body ?? "") && isAtOrAfter(comment.created_at, ackAnchorMs),
   );
   return {
     botComments,
@@ -445,9 +496,10 @@ export function selectUnresolvedBotThreads(threadNodes) {
  * @typedef {object} CodexSignals
  * @property {boolean} isDraft                 PR is a draft (Codex does not auto-review drafts).
  * @property {boolean} isOpen                  PR state is OPEN — not CLOSED, not MERGED.
- * @property {boolean} rateLimited             Bot posted a usage-limits comment newer than HEAD.
+ * @property {boolean} pushAnchorKnown         A check suite dated the push, so the ack anchor is server-side.
+ * @property {boolean} rateLimited             Bot usage-limits comment at or after the ack anchor.
  * @property {boolean} reviewAcksHead          Newest bot review's commit_id === HEAD sha.
- * @property {boolean} reactionAcksHead        Bot +1 on the PR issue, at or after the HEAD commit.
+ * @property {boolean} reactionAcksHead        Bot +1 on the PR issue, at or after the ack anchor.
  * @property {boolean} commentAcksHead         Bot comment citing the HEAD sha, or a fresh clean verdict.
  * @property {number}  openThreadCount         Bot threads that are unresolved, outdated or not.
  * @property {number}  latestReviewAgeMs       Age of the newest bot review; Infinity when none.
@@ -512,9 +564,18 @@ export function computeVerdict(signals) {
   // also lets the caller name the real reason instead of blaming a phantom
   // merge requirement. Compared `=== true` so an absent signal fails closed,
   // matching how `mergeStateAllowsMerge` treats an absent merge state.
+  //
+  // `pushAnchorKnown` is the same shape of question about the freshness anchor.
+  // Without a check suite to date the push, the anchor falls back to the
+  // author-controlled commit time, and every timestamp-bound ack leg — the +1,
+  // the clean-verdict comment, and the usage-limits non-ack — rests on it. A
+  // window with no server-side sighting of the sha is already unmergeable for
+  // other reasons today, but only incidentally, and this gate has been wrong
+  // once already by blocking for a cause it could not name.
   const mergeOk =
     verdict === "ack_clean" &&
     signals.isOpen === true &&
+    signals.pushAnchorKnown === true &&
     signals.ciStatus === "green" &&
     signals.openThreadCount === 0 &&
     !signalTruncated &&

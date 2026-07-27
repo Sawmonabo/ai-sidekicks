@@ -412,6 +412,51 @@ test("resolvePlanFile: returns null when ambiguous", () => {
   }
 });
 
+// The `-partial` dispatch qualifier is part of plan IDENTITY (NS headings read
+// `Plan-023-partial …`) and never part of a FILENAME — no file under
+// docs/plans/ carries it. These two pin the normalization INSIDE the resolver:
+// both pass the raw token with no caller cooperation, which is what
+// distinguishes this design from one where each call site strips the suffix
+// itself and a future call site forgets to.
+
+test("resolvePlanFile: a -partial token resolves to the same file as the bare number", () => {
+  const tmp = mkdtempSync(join(tmpdir(), "rsm-plans-partial-"));
+  try {
+    mkdirSync(join(tmp, "docs", "plans"), { recursive: true });
+    const plansDir = join(tmp, "docs", "plans");
+    const planPath = join(plansDir, "023-desktop-shell-and-renderer.md");
+    writeFileSync(planPath, "# Plan-023\n");
+    assert.equal(resolvePlanFile({ plan: "023-partial", plansDir }), planPath);
+    // Same answer for the bare token — the qualifier is invisible to the lookup.
+    assert.equal(
+      resolvePlanFile({ plan: "023-partial", plansDir }),
+      resolvePlanFile({ plan: "023", plansDir }),
+    );
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("resolvePlanFile: never uses the raw -partial token as the filename prefix", () => {
+  const tmp = mkdtempSync(join(tmpdir(), "rsm-plans-partial-decoy-"));
+  try {
+    mkdirSync(join(tmp, "docs", "plans"), { recursive: true });
+    const plansDir = join(tmp, "docs", "plans");
+    writeFileSync(join(plansDir, "023-a.md"), "");
+    writeFileSync(join(plansDir, "023-b.md"), "");
+    // The decoy is what makes this discriminating rather than a second
+    // ambiguity test. Globbing the RAW token matches this file and nothing
+    // else — exactly one candidate — so a resolver that skipped the strip (or
+    // applied it after the `length !== 1` check) would return this path with
+    // full confidence. Keying on `023-` matches all three and reports the
+    // ambiguity that is actually present.
+    writeFileSync(join(plansDir, "023-partial-decoy.md"), "");
+    assert.equal(resolvePlanFile({ plan: "023-partial", plansDir }), null);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 // ---------- rebuildManifest end-to-end (with fake gh runner) ----------
 
 const PLAN_TEMPLATE = `# Plan-001: Shared Session Core

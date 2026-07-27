@@ -296,6 +296,16 @@ export function fetchPrDetails({ pr, ghRunner = defaultGhRunner }) {
 // this one pulls in node:child_process, which the housekeeper's Plan
 // Invariant I-3 forbids. Re-exported here because this module's public
 // surface is what the rebuild tests import.
+//
+// THIS MODULE IS BARE-NUMBER-ONLY. `parseArgs` admits `--plan` only as
+// `/^\d{3}$/`, so the `NNN-partial` dispatch qualifier the housekeeper accepts
+// cannot reach here. That is deliberate, not an oversight: `plan` is
+// interpolated into the identity regexes `parseTaskFromPr` and `titleTokenRe`
+// build, and `T-023-partial-\d+-\d+` matches no task id in the corpus.
+// `resolvePlanFile` normalizes `-partial` for the callers that DO permit it,
+// which is why exit 3's message below interpolates `plan` raw — at that point
+// `plan` is already the bare number, and normalizing it there would advertise
+// a `-partial` capability this module refuses one function above.
 export { resolvePlanFile };
 
 // ---------- main ----------

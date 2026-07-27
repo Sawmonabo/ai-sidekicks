@@ -23,8 +23,38 @@
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
-// Returns the path to the single plan file for `plan` (a zero-padded plan
-// number such as "024"), or null when the directory is absent, no file
+// IDENTITY TOKEN vs FILESYSTEM KEY
+// --------------------------------
+// A `--plan` value is a DISPATCH token, not a filename fragment. Two shapes are
+// legal (post-merge-housekeeper.mjs § PLAN_RE): `NNN` and `NNN-partial`. The
+// `-partial` qualifier marks a PR that ships only part of a phase, and it IS
+// part of plan IDENTITY — NS headings in docs/architecture/cross-plan-dependencies.md
+// literally read `### NS-03: Plan-023-partial Tier 1 — Electron + React skeleton`.
+// It is NEVER part of a filename: no file under docs/plans/ carries the suffix,
+// so the token `023-partial` must look up `docs/plans/023-*.md`.
+//
+// Everything that matches identity keeps the FULL token — `verifyPlanIdentity`
+// against NS headings, `deriveTitleSeed`, the manifest's provenance `plan`
+// field, and rebuild-shipment-manifest.mjs's `gh pr list --search "Plan-<token>"`.
+// Only the filesystem lookup is keyed on the bare number.
+//
+// The normalization lives INSIDE `resolvePlanFile`, not in its callers: a
+// caller-applied strip is one a future caller can forget, which is how this bug
+// reached a shipped resolver in the first place. `planFilesystemKey` is exported
+// only so callers can render the glob they were searched under in error and
+// warning text.
+export function planFilesystemKey(planToken) {
+  // Anchored and single-shot by construction. The resolver TRUSTS its input
+  // shape rather than validating it, because both CLI entry points already
+  // validate: `PLAN_RE` admits `NNN` and `NNN-partial` for the housekeeper, and
+  // rebuild-shipment-manifest.mjs's `parseArgs` is stricter still at `/^\d{3}$/`.
+  // A programmatic caller that skips both simply fails to resolve and gets null,
+  // which every caller already handles as "no unambiguous plan file".
+  return String(planToken).replace(/-partial$/, "");
+}
+
+// Returns the path to the single plan file for `plan` (a dispatch token such as
+// "024" or "023-partial"), or null when the directory is absent, no file
 // matches, or more than one does. Callers cannot distinguish those three
 // null causes; every one of them means "this run has no unambiguous plan
 // file", which is the only distinction any caller has needed so far.
@@ -34,8 +64,9 @@ import { join } from "node:path";
 // repo root (what the housekeeper passes, since it never assumes cwd).
 export function resolvePlanFile({ plan, plansDir = "docs/plans" }) {
   if (!existsSync(plansDir)) return null;
+  const filesystemKey = planFilesystemKey(plan);
   const candidates = readdirSync(plansDir).filter(
-    (f) => f.startsWith(`${plan}-`) && f.endsWith(".md"),
+    (f) => f.startsWith(`${filesystemKey}-`) && f.endsWith(".md"),
   );
   if (candidates.length !== 1) return null;
   return join(plansDir, candidates[0]);

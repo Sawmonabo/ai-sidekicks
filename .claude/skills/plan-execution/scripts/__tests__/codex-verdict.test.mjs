@@ -16,6 +16,7 @@ import {
   computeVerdict,
   deriveCiStatus,
   deriveCommentSignals,
+  derivePushAnchor,
   deriveReactionAck,
   deriveReviewAck,
   isAtOrAfter,
@@ -35,6 +36,7 @@ function cleanSignals(overrides = {}) {
   return {
     isDraft: false,
     isOpen: true,
+    pushAnchorKnown: true,
     rateLimited: false,
     reviewAcksHead: false,
     reactionAcksHead: true,
@@ -258,6 +260,124 @@ test("an absent isOpen signal fails closed", () => {
   assert.equal(computeVerdict(cleanSignals({ isOpen: undefined })).mergeOk, false);
 });
 
+// ---------------------------------------------------------- push anchor
+
+// The real timings from this branch's own c8bcdc1 (measured 2026-07-27), which
+// is what makes the gap concrete rather than hypothetical.
+const COMMITTED_AT = "2026-07-27T18:19:07Z";
+const FIRST_SUITE_AT = "2026-07-27T18:20:59Z";
+const COMMITTED_AT_MS = Date.parse(COMMITTED_AT);
+
+function botReaction(createdAt) {
+  return { user: { login: BOT_REST_LOGIN }, content: "+1", created_at: createdAt };
+}
+
+test("STALE ACK: a +1 for the previous head lands inside the commit-to-push gap", () => {
+  // The sequence, in the order it actually happens:
+  //   18:19:07  the new head is committed locally
+  //   18:20:00  Codex +1s the PREVIOUS head — it cannot have seen this one
+  //   18:20:59  the new head is pushed; GitHub opens its first check suite
+  const staleReaction = botReaction("2026-07-27T18:20:00Z");
+
+  // Anchored on commit time, that reaction acks a commit Codex never saw.
+  assert.equal(deriveReactionAck([staleReaction], COMMITTED_AT_MS).reactionAcksHead, true);
+
+  // Anchored on the push, the same reaction is correctly rejected.
+  const { anchorMs } = derivePushAnchor(COMMITTED_AT_MS, [{ created_at: FIRST_SUITE_AT }]);
+  assert.equal(deriveReactionAck([staleReaction], anchorMs).reactionAcksHead, false);
+});
+
+test("one anchor binds all three timestamp-bound legs at once", () => {
+  // Confirmed by construction rather than assumed. The two sha-anchored legs are
+  // deliberately absent: a review's commit_id and a "Reviewed commit: <sha>"
+  // comment both name their commit, so no timestamp can stale them.
+  const stale = "2026-07-27T18:20:00Z";
+  const reactions = [botReaction(stale)];
+  const comments = [
+    { user: { login: BOT_REST_LOGIN }, body: "Didn't find any major issues", created_at: stale },
+    { user: { login: BOT_REST_LOGIN }, body: "You have hit your usage limits", created_at: stale },
+  ];
+  const legsAt = (anchorMs) => ({
+    reaction: deriveReactionAck(reactions, anchorMs).reactionAcksHead,
+    ...deriveCommentSignals(comments, { headShaShort: "abc0123456", ackAnchorMs: anchorMs }),
+  });
+
+  const onCommitTime = legsAt(COMMITTED_AT_MS);
+  assert.equal(onCommitTime.reaction, true, "+1 leg");
+  assert.equal(onCommitTime.commentAcksHead, true, "clean-verdict leg");
+  assert.equal(onCommitTime.rateLimited, true, "usage-limits non-ack");
+
+  const { anchorMs } = derivePushAnchor(COMMITTED_AT_MS, [{ created_at: FIRST_SUITE_AT }]);
+  const onPushAnchor = legsAt(anchorMs);
+  assert.equal(onPushAnchor.reaction, false, "+1 leg");
+  assert.equal(onPushAnchor.commentAcksHead, false, "clean-verdict leg");
+  assert.equal(onPushAnchor.rateLimited, false, "usage-limits non-ack");
+});
+
+test("the earliest suite wins, not the latest", () => {
+  // Re-runs add later suites to the same sha; anchoring on one of those would
+  // reject acks that legitimately followed the push.
+  const { anchorMs, pushObservedAtMs } = derivePushAnchor(COMMITTED_AT_MS, [
+    { created_at: "2026-07-27T18:29:15Z" },
+    { created_at: FIRST_SUITE_AT },
+    { created_at: "2026-07-27T18:21:04Z" },
+  ]);
+  assert.equal(anchorMs, Date.parse(FIRST_SUITE_AT));
+  assert.equal(pushObservedAtMs, Date.parse(FIRST_SUITE_AT));
+});
+
+test("the anchor never moves earlier than the commit time", () => {
+  // A suite predating the commit means the sha was already on the server from an
+  // earlier branch. `max` keeps the previous behaviour as the floor.
+  const { anchorMs, pushAnchorKnown } = derivePushAnchor(COMMITTED_AT_MS, [
+    { created_at: "2026-07-27T17:00:00Z" },
+  ]);
+  assert.equal(anchorMs, COMMITTED_AT_MS);
+  assert.equal(pushAnchorKnown, true, "the push was still observed, just earlier");
+});
+
+test("no check suite means the push time is unknown, not zero", () => {
+  const result = derivePushAnchor(COMMITTED_AT_MS, []);
+  assert.equal(result.anchorMs, COMMITTED_AT_MS, "falls back to the commit time");
+  assert.equal(result.pushObservedAtMs, null);
+  assert.equal(result.pushAnchorKnown, false);
+  assert.equal(derivePushAnchor(COMMITTED_AT_MS, null).pushAnchorKnown, false);
+});
+
+test("unparseable suite timestamps are skipped, not read as the epoch", () => {
+  // `new Date(null)` is the epoch, so a null-dated suite would otherwise win the
+  // min outright and then lose the max — silently reporting a known push anchor
+  // that is really just the commit time.
+  const result = derivePushAnchor(COMMITTED_AT_MS, [
+    { created_at: null },
+    { created_at: "not a date" },
+    {},
+    { created_at: FIRST_SUITE_AT },
+  ]);
+  assert.equal(result.anchorMs, Date.parse(FIRST_SUITE_AT));
+  assert.equal(result.pushObservedAtMs, Date.parse(FIRST_SUITE_AT));
+});
+
+test("suites that are ALL unparseable leave the push time unknown", () => {
+  const result = derivePushAnchor(COMMITTED_AT_MS, [{ created_at: null }, { created_at: "x" }]);
+  assert.equal(result.pushAnchorKnown, false);
+  assert.equal(result.anchorMs, COMMITTED_AT_MS);
+});
+
+test("an unknown push anchor is NOT mergeable even on an otherwise-perfect ack", () => {
+  const result = computeVerdict(cleanSignals({ pushAnchorKnown: false }));
+  assert.equal(result.verdict, "ack_clean", "the ack itself still stands");
+  assert.equal(result.mergeOk, false);
+});
+
+test("a known push anchor leaves the clean case unaffected", () => {
+  assert.equal(computeVerdict(cleanSignals({ pushAnchorKnown: true })).mergeOk, true);
+});
+
+test("an absent pushAnchorKnown signal fails closed", () => {
+  assert.equal(computeVerdict(cleanSignals({ pushAnchorKnown: undefined })).mergeOk, false);
+});
+
 // ------------------------------------------------------- exhaustive sweep
 
 /** Every combination of the named dimensions, as an array of signal objects. */
@@ -273,6 +393,7 @@ test("invariant: mergeOk implies ack, no threads, green CI, no truncation, merge
   const signalSpace = cartesianProduct({
     isDraft: [true, false],
     isOpen: [true, false],
+    pushAnchorKnown: [true, false],
     rateLimited: [true, false],
     reviewAcksHead: [true, false],
     reactionAcksHead: [true, false],
@@ -296,6 +417,7 @@ test("invariant: mergeOk implies ack, no threads, green CI, no truncation, merge
     assert.equal(signals.ciStatus, "green", where);
     assert.equal(signals.isDraft, false, where);
     assert.equal(signals.isOpen, true, where);
+    assert.equal(signals.pushAnchorKnown, true, where);
     assert.equal(signals.rateLimited, false, where);
     assert.equal(result.unsettled, false, where);
     assert.equal(result.signalTruncated, false, where);
@@ -657,7 +779,7 @@ function comment(overrides = {}) {
   };
 }
 
-const commentAnchors = { headShaShort: HEAD_SHA_SHORT, headCommittedAtMs: HEAD_COMMITTED_AT_MS };
+const commentAnchors = { headShaShort: HEAD_SHA_SHORT, ackAnchorMs: HEAD_COMMITTED_AT_MS };
 
 test("a fresh clean-verdict comment is an ack leg in its own right", () => {
   // Ack shape (2), observed on PRs #120 / #121. The gate used to match only
