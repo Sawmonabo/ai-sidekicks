@@ -13,7 +13,10 @@
   "mechanical_edits": {},
   "schema_violations": [],
   "verification_failures": [],
-  "affected_files": ["docs/architecture/cross-plan-dependencies.md"],
+  "affected_files": [
+    "docs/architecture/cross-plan-dependencies.md",
+    "docs/plans/029-orphan-pr-fixture.md"
+  ],
   "semantic_work_pending": [
     "auto_create_compose_entry",
     "auto_create_compose_mermaid_node",
@@ -22,7 +25,10 @@
   ],
   "warnings": [],
   "_script_stage": {
-    "affected_files": ["docs/architecture/cross-plan-dependencies.md"],
+    "affected_files": [
+      "docs/architecture/cross-plan-dependencies.md",
+      "docs/plans/029-orphan-pr-fixture.md"
+    ],
     "schema_violations": [],
     "verification_failures": [],
     "semantic_work_pending": [

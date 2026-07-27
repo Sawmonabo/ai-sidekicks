@@ -42,10 +42,15 @@
     "line_cite_sweep",
     "set_quantifier_reverification",
     "ns_auto_create_evaluation",
-    "unannotated_referenced_files_check",
-    "plan_done_checklist_evaluation"
+    "unannotated_referenced_files_check"
   ],
-  "warnings": [],
+  "warnings": [
+    {
+      "kind": "plan_file_unresolved",
+      "plan": "001",
+      "glob": "docs/plans/001-*.md"
+    }
+  ],
   "_script_stage": {
     "affected_files": ["docs/architecture/cross-plan-dependencies.md"],
     "schema_violations": [],
@@ -56,8 +61,7 @@
       "line_cite_sweep",
       "set_quantifier_reverification",
       "ns_auto_create_evaluation",
-      "unannotated_referenced_files_check",
-      "plan_done_checklist_evaluation"
+      "unannotated_referenced_files_check"
     ]
   },
   "proposed_manifest_entry": null,

@@ -1022,8 +1022,9 @@ export function assertRepoRelative(path, repoRoot) {
  * wasted round-trips, instead of surfacing the required halt to the user.
  *
  * This helper is the single source of truth for the dispatch/halt mapping.
- * SKILL.md step 4, the contract's § Exit codes table, and any future audit
- * script all delegate here so the mapping cannot drift across surfaces.
+ * SKILL.md step 4 (through the exported `decideHousekeeperRouting`), the
+ * contract's § Exit codes table, and any future audit script all resolve
+ * routing here, so the mapping cannot drift across surfaces.
  *
  * Mapping (per § Exit codes):
  *   - 0  success                             → dispatch (happy path)
@@ -1053,11 +1054,15 @@ export function assertRepoRelative(path, repoRoot) {
  * `redispatchPromptTemplate` pattern — halt-prose encoded in code, not
  * paraphrased on the fly).
  *
- * @param {{ scriptExitCode: number }} opts
+ * Exit-code routing ONLY. The exported `decideHousekeeperRouting` wraps this to
+ * attach the script's non-fatal `warnings` to the returned decision without
+ * touching `action` — see that function for why the two stages are separate.
+ *
+ * @param {number} scriptExitCode
  * @returns {{ action: "dispatch", exitClass: "subagent-handled" }
  *          | { action: "halt", exitClass: "orchestrator-misdispatch" | "script-crash" | "unknown-exit-code", reason: string, surfacePromptTemplate: string }}
  */
-export function decideHousekeeperRouting({ scriptExitCode }) {
+function routeOnExitCode(scriptExitCode) {
   if (
     scriptExitCode === 0 ||
     scriptExitCode === 2 ||
@@ -1107,6 +1112,77 @@ export function decideHousekeeperRouting({ scriptExitCode }) {
       `Phase E aborted: script returned unrecognized exit code \`${scriptExitCode}\`. ` +
       `Contract § Exit codes documents 0-5 and ≥6 only. ` +
       `Inspect script source for an undocumented exit path or manifest tampering. Operator action required.`,
+  };
+}
+
+/**
+ * Render one script `warnings[]` entry as a single relay line.
+ *
+ * An unrecognized `kind` is stringified rather than dropped. A diagnostic that
+ * vanishes because no branch knew its shape is exactly the silent-failure class
+ * this channel exists to close, so the default arm degrades the PROSE, never
+ * the content.
+ *
+ * @param {{ kind?: string }} warning — one entry from the script manifest's `warnings[]`
+ * @returns {string}
+ */
+function describeScriptWarning(warning) {
+  if (warning && warning.kind === "plan_file_unresolved") {
+    return (
+      `plan_file_unresolved — no single plan file matched \`${warning.glob}\` for \`--plan ${warning.plan}\`. ` +
+      `The plan's Done Checklist was NOT evaluated on this run, and no plan file was declared in ` +
+      `\`affected_files\`; the §6 corpus work was unaffected. Confirm the checklist tick is genuinely ` +
+      `not due, or re-run Phase E step 2 with a corrected \`--plan\`.`
+    );
+  }
+  return JSON.stringify(warning);
+}
+
+/**
+ * Decide Phase E routing AND carry the script's non-fatal `warnings[]` into the
+ * value the orchestrator already has to consume.
+ *
+ * Routing is `routeOnExitCode`'s job, and warnings NEVER change it: a warning is
+ * by definition an anomaly the script noticed and deliberately did not halt on
+ * (contract § Warnings), so `action` is whatever the exit code says it is. What
+ * warnings change is visibility, nothing else.
+ *
+ * Why the channel lands here, and why it reuses this field name.
+ * `plan_file_unresolved` is emitted on a run that exits 0 with an otherwise
+ * clean manifest — which makes it, by construction, the ONLY signal that a
+ * plan-bound run silently skipped its checklist evaluation. A `warnings[]`
+ * array that nothing reads is a write-only diagnostic: the same failure shape
+ * as the never-firing checklist tick this PR retired. Attaching it to the
+ * routing decision puts it inside the one object step 4 cannot proceed without
+ * reading, and reusing `surfacePromptTemplate` rather than inventing a second
+ * field inherits SKILL.md step 4's existing "relay verbatim to the user"
+ * instruction instead of requiring a new one the orchestrator has never
+ * followed.
+ *
+ * Honest scope: this guarantees the payload reaches the orchestrator's hands.
+ * It does not guarantee a human read it — the relay itself is LLM-mediated.
+ *
+ * On a halt the warning block is APPENDED to the halt prose, never substituted
+ * for it: the halt is the more urgent message and must survive intact.
+ *
+ * @param {{ scriptExitCode: number, warnings?: Array<object> }} opts
+ * @returns {object} `routeOnExitCode`'s decision, plus `warnings` and a
+ *          `surfacePromptTemplate` relay block when `warnings` is non-empty.
+ */
+export function decideHousekeeperRouting({ scriptExitCode, warnings = [] }) {
+  const decision = routeOnExitCode(scriptExitCode);
+  if (!Array.isArray(warnings) || warnings.length === 0) return decision;
+
+  const relayBlock =
+    `Phase E script warnings (${warnings.length}) — relay verbatim; these do NOT halt the phase:\n` +
+    warnings.map((warning) => `  - ${describeScriptWarning(warning)}`).join("\n");
+
+  return {
+    ...decision,
+    warnings,
+    surfacePromptTemplate: decision.surfacePromptTemplate
+      ? `${decision.surfacePromptTemplate}\n\n${relayBlock}`
+      : relayBlock,
   };
 }
 

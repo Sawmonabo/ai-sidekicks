@@ -37,8 +37,7 @@
     "line_cite_sweep",
     "set_quantifier_reverification",
     "ns_auto_create_evaluation",
-    "unannotated_referenced_files_check",
-    "plan_done_checklist_evaluation"
+    "unannotated_referenced_files_check"
   ],
   "warnings": [],
   "_script_stage": {
@@ -51,8 +50,7 @@
       "line_cite_sweep",
       "set_quantifier_reverification",
       "ns_auto_create_evaluation",
-      "unannotated_referenced_files_check",
-      "plan_done_checklist_evaluation"
+      "unannotated_referenced_files_check"
     ]
   },
   "proposed_manifest_entry": null,

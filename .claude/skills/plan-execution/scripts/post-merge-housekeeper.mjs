@@ -13,9 +13,19 @@
 //   verifyTypeSignature / verifyFileOverlap /
 //   verifyPlanIdentity                                    — §5.1 step 3 verifiers
 
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import process from "node:process";
+// node:fs + node:path only — Plan Invariant I-3 holds through this import.
+import { resolvePlanFile } from "./lib/plan-file.mjs";
 
 // ---------- Task 3.2: parseNsHeading ----------
 
@@ -828,28 +838,112 @@ const NS_ID = (nsNum, suffix) => `NS-${String(nsNum).padStart(2, "0")}${suffix ?
 // action-shaped item would file a concern on every mid-plan phase (the common
 // case) and make DONE_WITH_CONCERNS the default verdict. Phrased as an
 // evaluation, "not due — phase 2 of 5" is itself the completed work.
-const SEMANTIC_WORK_PENDING_COMPLETION = [
+//
+// Appended per-run rather than baked into the two base sets below: only a
+// plan-bound run can answer it. See resolvePlanDeclaration.
+const PLAN_DONE_CHECKLIST_EVALUATION = "plan_done_checklist_evaluation";
+
+const SEMANTIC_WORK_PENDING_COMPLETION_BASE = [
   "compose_status_completion_prose",
   "ready_set_re_derivation",
   "line_cite_sweep",
   "set_quantifier_reverification",
   "ns_auto_create_evaluation",
   "unannotated_referenced_files_check",
-  "plan_done_checklist_evaluation",
 ];
 
 // Spec §5.1 step 4' enumerates the three auto_create_* items verbatim. The
 // candidate-ns symmetric items (ready_set_re_derivation, etc.) are NOT
 // included here — defer to a follow-on spec amendment if subagent practice
 // shows they're load-bearing for the auto-create branch too.
-// `plan_done_checklist_evaluation` IS included: a phase shipped either way, so
-// the checklist question is live on both branches (rationale above).
-const SEMANTIC_WORK_PENDING_AUTO_CREATE = [
+const SEMANTIC_WORK_PENDING_AUTO_CREATE_BASE = [
   "auto_create_compose_entry",
   "auto_create_compose_mermaid_node",
   "auto_create_derive_upstream",
-  "plan_done_checklist_evaluation",
 ];
+
+const PLANS_DIR_REL = "docs/plans";
+
+// Resolves the plan file whose phase this run shipped. Feeds two coupled
+// manifest fields (see planScopedManifestFields), never a write: the script's
+// writable surface is the §6 corpus plus its own manifest, and declaring a
+// file in `affected_files` authorizes the SUBAGENT to edit it, not this script.
+//
+// `planFileRel` is null in two situations, only one of which is anomalous:
+//
+//   - Not plan-bound. Cleanup, governance and tier-audit invocations legally
+//     omit --plan and --phase (deriveTitleSeed already forks on the same
+//     pair, and the manifest records plan: null, phase: null). There is no
+//     plan whose checklist could be due, so the item is dropped and nothing
+//     is warned about. Emitting it anyway would hand the subagent an
+//     unanswerable question — and since the contract pairs every pending item
+//     to a `semantic_edits` entry or a `concerns` entry, and `RESULT: DONE`
+//     requires zero concerns, that alone would downgrade every otherwise
+//     clean non-plan run to DONE_WITH_CONCERNS.
+//
+//   - Plan-bound but unresolvable: `docs/plans/` is missing, nothing matches
+//     `<plan>-*.md`, or several files do. That IS anomalous, so it surfaces as
+//     a warning rather than passing silently. It does not halt the run — the
+//     §6 mechanical work is independent of the plan file and still valid — and
+//     it still drops the item and the declaration, because the orchestrator's
+//     validator rejects any `affected_files` entry that does not exist on disk
+//     (declaring an unresolved path would trade a warning for a hard gap), and
+//     an unanswerable item costs a concern exactly as above.
+function resolvePlanDeclaration({ args, repoRoot }) {
+  // Checked before resolution rather than folded into it: the two null causes
+  // are not independent. With `plan` null the resolver would search for
+  // `null-*.md`, miss, and take the branch below — mislabelling every legal
+  // cleanup / governance / tier-audit run as an unresolved-plan anomaly.
+  if (!args.plan || !args.phase) {
+    return { planFileRel: null, warnings: [] };
+  }
+  const resolved = resolvePlanFile({
+    plan: args.plan,
+    plansDir: join(repoRoot, PLANS_DIR_REL),
+  });
+  if (resolved === null) {
+    // One warning kind covers the absent / no-match / multi-match cases
+    // together: the resolver cannot distinguish them, and the operator remedy
+    // is the same — look at what `glob` does and does not match.
+    return {
+      planFileRel: null,
+      warnings: [
+        {
+          kind: "plan_file_unresolved",
+          plan: args.plan,
+          glob: `${PLANS_DIR_REL}/${args.plan}-*.md`,
+        },
+      ],
+    };
+  }
+  // Rebuilt from the basename rather than passed through from `resolved` so
+  // the manifest records a posix repo-relative path on every platform; the
+  // absolute `resolved` carries backslashes on Windows.
+  return { planFileRel: `${PLANS_DIR_REL}/${basename(resolved)}`, warnings: [] };
+}
+
+// The three manifest fields that vary with plan-boundness, derived from one
+// input so they cannot disagree. Declaring the plan file without emitting the
+// item widens the subagent's authorized edit scope for nothing; emitting the
+// item without declaring the file asks the subagent to tick a checklist in a
+// file it is not authorized to touch, costing a sprawl round-trip and an
+// `affected_files_extension` concern. Both shipped as live defects and were
+// fixed 2026-07-27 by making them unrepresentable rather than by patching the
+// call sites independently.
+function planScopedManifestFields({ corpusRel, planDeclaration, basePendingItems }) {
+  if (planDeclaration.planFileRel === null) {
+    return {
+      affectedFiles: [corpusRel],
+      semanticWorkPending: basePendingItems,
+      warnings: planDeclaration.warnings,
+    };
+  }
+  return {
+    affectedFiles: [corpusRel, planDeclaration.planFileRel],
+    semanticWorkPending: [...basePendingItems, PLAN_DONE_CHECKLIST_EVALUATION],
+    warnings: planDeclaration.warnings,
+  };
+}
 
 function locateNsEntry({ lines, candidateNs }) {
   for (let i = 0; i < lines.length; i += 1) {
@@ -931,13 +1025,16 @@ function deriveTitleSeed(args) {
 // only, and `baseManifest` already carries the root that `emitManifest` needs.
 // It was a parameter until 2026-07-27, when the plan-file tick that used it was
 // retired — keeping it would re-grant the plan tree to a function that no
-// longer touches it.
+// longer touches it. `planDeclaration` arrives already resolved by the caller
+// for the same reason: this branch needs the plan's repo-relative path for the
+// manifest, not the ability to go looking for it.
 function runAutoCreate({
   args,
   corpusText,
   corpusLines,
   baseManifest,
   corpusRel,
+  planDeclaration,
   diffTouchedFiles = null,
 }) {
   // A guard here used to bump past 23, because §3a.3 reserved NS-23 for the
@@ -974,17 +1071,22 @@ function runAutoCreate({
   // No mechanical edits fire on this branch. The §6 entry and its mermaid node
   // are composed by the subagent from `auto_create`, and the plan's
   // `## Done Checklist` is semantic work now, not a regex tick — see
-  // SEMANTIC_WORK_PENDING_AUTO_CREATE. This branch touches the corpus only;
-  // the script writes nothing under `docs/plans/`.
+  // PLAN_DONE_CHECKLIST_EVALUATION. The checklist question is live on this
+  // branch too: a phase shipped whether or not an NS entry existed pre-merge.
+  // Declaring the plan file authorizes the SUBAGENT to edit it; this branch
+  // still touches the corpus only, and the script writes nothing under
+  // `docs/plans/`.
   const { manifestPath } = emitManifest({
     ...baseManifest,
     scriptExitCode: 0,
     matchedEntry: null,
     autoCreate: { reservedNsNn, derivedTitleSeed },
     mechanicalEdits: {},
-    affectedFiles: [corpusRel],
-    semanticWorkPending: SEMANTIC_WORK_PENDING_AUTO_CREATE,
-    warnings: [],
+    ...planScopedManifestFields({
+      corpusRel,
+      planDeclaration,
+      basePendingItems: SEMANTIC_WORK_PENDING_AUTO_CREATE_BASE,
+    }),
     // Codex P2 finding on PR #35 round 3: pass through the touched-files set
     // computed from `--touched-files-path` so auto-created shipment-manifest
     // entries record the authoritative file-change trace instead of `files: []`.
@@ -1203,6 +1305,7 @@ function runMultiCandidate({
   corpusPath,
   corpusRel,
   baseManifest,
+  planDeclaration,
   diffTouchedFiles,
   today,
 }) {
@@ -1295,9 +1398,11 @@ function runMultiCandidate({
       prs_block_ticks: prsBlockTicks,
       mermaid_class_swaps: mermaidClassSwaps,
     },
-    affectedFiles: [corpusRel],
-    semanticWorkPending: SEMANTIC_WORK_PENDING_COMPLETION,
-    warnings: [],
+    ...planScopedManifestFields({
+      corpusRel,
+      planDeclaration,
+      basePendingItems: SEMANTIC_WORK_PENDING_COMPLETION_BASE,
+    }),
     proposedManifestEntry: buildProposedManifestEntry({ args, diffTouchedFiles }),
   });
   return { exitCode: 0, manifestPath };
@@ -1333,6 +1438,14 @@ export async function runHousekeeper({
   const corpusText = readFileSync(corpusPath, "utf8");
   let corpusLines = corpusText.split("\n");
 
+  // Resolved once here and threaded down, so all three success paths declare
+  // and emit identically and no branch has to re-derive it. Failure paths
+  // (exit 1/2/5) never consume it: emitFailureManifest hardcodes empty
+  // affected_files / semantic_work_pending / warnings, which is honest — a run
+  // that halted before the semantic-work stage never reached the checklist
+  // question, and its schema_violations are already the louder signal.
+  const planDeclaration = resolvePlanDeclaration({ args, repoRoot });
+
   if (!args.candidateNs) {
     return runAutoCreate({
       args,
@@ -1340,6 +1453,7 @@ export async function runHousekeeper({
       corpusLines,
       baseManifest,
       corpusRel,
+      planDeclaration,
       diffTouchedFiles,
     });
   }
@@ -1360,6 +1474,7 @@ export async function runHousekeeper({
       corpusPath,
       corpusRel,
       baseManifest,
+      planDeclaration,
       diffTouchedFiles,
       today,
     });
@@ -1607,9 +1722,11 @@ export async function runHousekeeper({
       prs_block_ticks: prsBlockTicks,
       mermaid_class_swap: mermaidClassSwap,
     },
-    affectedFiles: [corpusRel],
-    semanticWorkPending: SEMANTIC_WORK_PENDING_COMPLETION,
-    warnings: [],
+    ...planScopedManifestFields({
+      corpusRel,
+      planDeclaration,
+      basePendingItems: SEMANTIC_WORK_PENDING_COMPLETION_BASE,
+    }),
     proposedManifestEntry: buildProposedManifestEntry({ args, diffTouchedFiles }),
   });
 
@@ -1629,7 +1746,34 @@ export function readTouchedFilesFromPath(touchedFilesPath) {
   return out.split("\n").filter(Boolean);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+/**
+ * Direct-invocation guard — same form as
+ * `tools/docs-corpus/bin/pre-commit-runner.ts` § isDirectlyInvoked.
+ *
+ * NOT `import.meta.url === \`file://${process.argv[1]}\``: that compares a
+ * percent-ENCODED URL against a raw path, so a checkout under a directory
+ * containing a space (or `#`, `?`, non-ASCII) makes them unequal and this script
+ * silently does nothing while exiting 0. `realpathSync` on both sides also
+ * survives a symlinked invocation (macOS `/tmp` → `/private/tmp`).
+ *
+ * A miss here is worse than a plain no-op: Phase E would go on to read
+ * `.agents/tmp/housekeeper-manifest-PR<N>.json`, and because that path is keyed
+ * only on the PR number, a STALE manifest from an earlier run of the same PR
+ * would validate and be acted upon as if this run had produced it.
+ */
+function isDirectlyInvoked() {
+  const invokedPath = process.argv[1];
+  if (typeof invokedPath !== "string") return false;
+  try {
+    return realpathSync(invokedPath) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    // A path that will not resolve to a real file was not this module's entry
+    // point, so `false` is the correct answer rather than a swallowed failure.
+    return false;
+  }
+}
+
+if (isDirectlyInvoked()) {
   try {
     const args = parseArgs(process.argv.slice(2));
     if (args.touchedFilesPath === null) {

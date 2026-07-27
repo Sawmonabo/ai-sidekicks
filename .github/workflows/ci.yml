@@ -203,20 +203,42 @@ jobs:
       # Plan-execution skill tests (Layer 1 fixture-driven + Layer 2 unit). Closes the gap
       # noted in spec §10.4(a) — pre-housekeeper, the .claude/skills/plan-execution/scripts/
       # tests had no CI run. Uses --experimental-strip-types per ADR-022 + repo precedent
-      # (tools/docs-corpus/bin/pre-commit-runner.ts ships with the same flag). Single-quoted
-      # glob form (not the directory form the plan prescribed) — Node 22.21.1 treats a bare
-      # directory arg as a module specifier and errors with "Cannot find module"; the glob
-      # is resolved by Node's built-in walker (≥v21), not the shell.
+      # (tools/docs-corpus/bin/pre-commit-runner.ts ships with the same flag).
+      #
+      # Routed through tools/run-node-tests.mjs rather than `node --test` directly: a glob
+      # that matches nothing makes `node --test` exit 0 having run no tests, and this job is
+      # a `ci-gate` dependency — so a directory rename would turn a REQUIRED check green
+      # while executing nothing. The wrapper refuses to spawn on a zero-match and enforces
+      # a floor. --min-files is set below the current 13 so ordinary consolidation does not
+      # trip it while a collapse to one file still does.
+      #
+      # The pattern stays in glob form, now resolved by the wrapper rather than by Node:
+      # on this repo's Node 22.12 floor `node --test <dir>` treats a bare directory arg as
+      # a module specifier and fails it as a test (`not ok 1 - <dir>`, ERR_TEST_FAILURE,
+      # "Cannot find module") — measured on an empty dir, a dir holding a .test.mjs, and a
+      # dir holding a non-test file alike. That form is loud, not silent; the silent shapes
+      # the wrapper exists to catch are the zero-match glob and the dropped missing path.
       - name: Run plan-execution skill tests (Layer 1 + Layer 2)
-        run: node --test --experimental-strip-types '.claude/skills/plan-execution/scripts/__tests__/**/*.test.mjs'
+        run: node tools/run-node-tests.mjs --min-files=10 --experimental-strip-types '.claude/skills/plan-execution/scripts/__tests__/**/*.test.mjs'
 
       # Hook guard tests (command-guard.py + worktree.sh, driven as
       # subprocesses from node:test — no Python test framework per ADR-023).
       # This leg exercises the Linux /proc occupancy path; the darwin/lsof
       # path — the platform of the 2026-07-07 occupied-worktree incident —
       # runs in the dedicated `hook-tests-macos` job below.
+      #
+      # Same fail-closed wrapper as the step above. No --min-files here: this tree
+      # holds a single test file, so a floor of 1 would be exactly the wrapper's
+      # built-in zero-match check and would add no signal.
       - name: Run hook guard tests
-        run: node --test '.claude/hooks/__tests__/**/*.test.mjs'
+        run: node tools/run-node-tests.mjs '.claude/hooks/__tests__/**/*.test.mjs'
+
+      # The fail-closed test runner's own suite, run THROUGH the runner. Without
+      # this the tool that guards every other test invocation would itself have no
+      # CI coverage — the exact gap it exists to close. Its tests spawn the runner
+      # as a subprocess, so this step also exercises the nested-invocation path.
+      - name: Run test-runner tool tests
+        run: node tools/run-node-tests.mjs 'tools/__tests__/**/*.test.mjs'
 
   # Tier-2 (Node 24 — control-plane + CLI per ADR-022 §Decision row 8). The
   # control-plane package declares `engines.node: ">=24.0.0"`, so its build /
@@ -315,7 +337,7 @@ jobs:
           package-manager-cache: false
 
       - name: Run hook guard tests
-        run: node --test '.claude/hooks/__tests__/**/*.test.mjs'
+        run: node tools/run-node-tests.mjs '.claude/hooks/__tests__/**/*.test.mjs'
 
   ci-gate:
     name: ci-gate

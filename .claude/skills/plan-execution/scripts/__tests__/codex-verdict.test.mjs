@@ -1,32 +1,50 @@
 // node:test suite for lib/codex-verdict.mjs.
 // Run via:
-//   node --test .claude/skills/plan-execution/scripts/__tests__/codex-verdict.test.mjs
+//   node --test --experimental-strip-types '.claude/skills/plan-execution/scripts/__tests__/**/*.test.mjs'
 //
 // The decision table is unit-tested rather than probed against live PRs because
-// the highest-risk branch is unreachable from real data: every findings review in
-// the repo is followed by a fix push, so no PR ever shows review.commit_id === HEAD.
-// A live probe skips the guard entirely and still reports success.
+// its highest-risk branches are unreachable from real data: every findings review
+// in the repo is followed by a fix push, so no PR ever shows
+// review.commit_id === HEAD; codex-gate.mjs drains both GraphQL connections, so
+// truncation never fires; and this repo's checks only ever report SUCCESS or
+// FAILURE, so most of the CI conclusion space never appears. A live probe skips
+// all of it and still reports success.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   computeVerdict,
   deriveCiStatus,
+  deriveCommentSignals,
+  deriveReactionAck,
+  deriveReviewAck,
+  isAtOrAfter,
+  mergeStateAllowsMerge,
+  partitionByRequirement,
+  selectNewestReview,
   selectNewestRunPerName,
+  selectUnresolvedBotThreads,
+  BOT_GRAPHQL_LOGIN,
+  BOT_REST_LOGIN,
   DEFAULT_SETTLE_WINDOW_MS,
+  MERGEABLE_MERGE_STATES,
 } from "../lib/codex-verdict.mjs";
 
-/** A settled, fully clean PR: +1 on the issue, no reviews, CI green. */
+/** A settled, fully clean PR: +1 on the issue, no reviews, CI green, mergeable. */
 function cleanSignals(overrides = {}) {
   return {
     isDraft: false,
+    isOpen: true,
     rateLimited: false,
     reviewAcksHead: false,
     reactionAcksHead: true,
     commentAcksHead: false,
     openThreadCount: 0,
     latestReviewAgeMs: Number.POSITIVE_INFINITY,
+    threadWindowTruncated: false,
+    checkWindowTruncated: false,
     ciStatus: "green",
+    mergeStateStatus: "CLEAN",
     ...overrides,
   };
 }
@@ -118,7 +136,7 @@ test("no ack of HEAD is never mergeable", () => {
   assert.equal(result.mergeOk, false);
 });
 
-test("a comment citing the HEAD sha is a valid ack leg on its own", () => {
+test("a comment ack is a valid ack leg on its own", () => {
   const result = computeVerdict(cleanSignals({ reactionAcksHead: false, commentAcksHead: true }));
   assert.equal(result.verdict, "ack_clean");
   assert.equal(result.mergeOk, true);
@@ -137,41 +155,154 @@ for (const ciStatus of ["red", "pending", "none"]) {
   });
 }
 
-test("invariant: mergeOk implies ack, zero open threads, and green CI", () => {
-  const booleans = [true, false];
-  const ciStates = ["green", "red", "pending", "none"];
-  const threadCounts = [0, 1];
-  const reviewAges = [1_000, DEFAULT_SETTLE_WINDOW_MS + 1];
+// -------------------------------------------------------- truncated signals
+
+for (const truncatedSignal of ["threadWindowTruncated", "checkWindowTruncated"]) {
+  test(`${truncatedSignal} makes an otherwise-clean PR non-mergeable`, () => {
+    // A count the gate cannot vouch for is indistinguishable from a hidden
+    // unresolved finding. Detecting truncation and then not feeding it into the
+    // verdict is what let a warning print while merge_ok stayed 1.
+    const result = computeVerdict(cleanSignals({ [truncatedSignal]: true }));
+    assert.equal(result.verdict, "signal_truncated");
+    assert.equal(result.signalTruncated, true);
+    assert.equal(result.ackOfHead, true, "the ack legs are unaffected by truncation");
+    assert.equal(result.mergeOk, false);
+  });
+}
+
+test("truncation control: clearing the flag is what restores the merge", () => {
+  // Same signals, truncation off. If this did NOT flip to ack_clean the tests
+  // above would be passing for some unrelated reason.
+  const result = computeVerdict(cleanSignals({ threadWindowTruncated: false }));
+  assert.equal(result.verdict, "ack_clean");
+  assert.equal(result.mergeOk, true);
+});
+
+test("visible findings outrank truncation in the verdict, and both refuse merge", () => {
+  const result = computeVerdict(cleanSignals({ openThreadCount: 2, threadWindowTruncated: true }));
+  assert.equal(result.verdict, "ack_with_findings", "the actionable verdict wins the report");
+  assert.equal(result.mergeOk, false);
+});
+
+test("truncation without an ack still reads as no_ack_yet", () => {
+  // Nothing to be truncated ABOUT yet — the caller is still waiting on Codex.
+  const result = computeVerdict(
+    cleanSignals({ reactionAcksHead: false, threadWindowTruncated: true }),
+  );
+  assert.equal(result.verdict, "no_ack_yet");
+  assert.equal(result.mergeOk, false);
+});
+
+// ------------------------------------------------------------- merge state
+
+test("mergeStateAllowsMerge accepts exactly the three mergeable MergeStateStatus values", () => {
+  // Enumerated against the live MergeStateStatus enum (introspected 2026-07-27).
+  const expectations = {
+    CLEAN: true,
+    HAS_HOOKS: true,
+    UNSTABLE: true, // mergeable with a non-passing ADVISORY status — the F8 case
+    BLOCKED: false,
+    BEHIND: false,
+    DIRTY: false,
+    UNKNOWN: false,
+  };
+  for (const [mergeStateStatus, allowed] of Object.entries(expectations)) {
+    assert.equal(mergeStateAllowsMerge(mergeStateStatus), allowed, mergeStateStatus);
+  }
+});
+
+test("UNSTABLE is mergeable: an advisory check may be red while required checks pass", () => {
+  assert.equal(computeVerdict(cleanSignals({ mergeStateStatus: "UNSTABLE" })).mergeOk, true);
+});
+
+test("BLOCKED refuses the merge even when Codex is clean and required checks are green", () => {
+  // The backstop for required-only CI filtering: a required check with NO row in
+  // the rollup is invisible to a row filter, but GitHub still reports BLOCKED.
+  const result = computeVerdict(cleanSignals({ mergeStateStatus: "BLOCKED" }));
+  assert.equal(result.verdict, "ack_clean");
+  assert.equal(result.mergeOk, false);
+});
+
+test("an absent or UNKNOWN merge state fails closed", () => {
+  assert.equal(computeVerdict(cleanSignals({ mergeStateStatus: undefined })).mergeOk, false);
+  assert.equal(computeVerdict(cleanSignals({ mergeStateStatus: "UNKNOWN" })).mergeOk, false);
+});
+
+// ----------------------------------------------------------------- PR state
+
+test("a MERGED PR with an otherwise-perfect clean ack is NOT mergeable", () => {
+  // The false pass this closes: ack legs satisfied, CI green, no threads. Only
+  // `isOpen` distinguishes "ready to merge" from "already merged".
+  const result = computeVerdict(cleanSignals({ isOpen: false }));
+  assert.equal(result.verdict, "ack_clean");
+  assert.equal(result.ackOfHead, true);
+  assert.equal(result.mergeOk, false);
+});
+
+test("the OPEN case is unaffected", () => {
+  assert.equal(computeVerdict(cleanSignals({ isOpen: true })).mergeOk, true);
+});
+
+test("isOpen does NOT lean on a merged PR happening to report UNKNOWN", () => {
+  // Live #256 (merged) reports mergeStateStatus=UNKNOWN, which the merge-state
+  // conjunct already refuses — but that is observed behaviour, not a contract.
+  // Pinning CLEAN against a closed PR proves the state check does the work on
+  // its own, so the gate stays correct if GitHub ever reports CLEAN there.
+  assert.equal(
+    computeVerdict(cleanSignals({ isOpen: false, mergeStateStatus: "CLEAN" })).mergeOk,
+    false,
+  );
+});
+
+test("an absent isOpen signal fails closed", () => {
+  assert.equal(computeVerdict(cleanSignals({ isOpen: undefined })).mergeOk, false);
+});
+
+// ------------------------------------------------------- exhaustive sweep
+
+/** Every combination of the named dimensions, as an array of signal objects. */
+function cartesianProduct(dimensions) {
+  return Object.entries(dimensions).reduce(
+    (combinations, [key, values]) =>
+      combinations.flatMap((partial) => values.map((value) => ({ ...partial, [key]: value }))),
+    [{}],
+  );
+}
+
+test("invariant: mergeOk implies ack, no threads, green CI, no truncation, mergeable state", () => {
+  const signalSpace = cartesianProduct({
+    isDraft: [true, false],
+    isOpen: [true, false],
+    rateLimited: [true, false],
+    reviewAcksHead: [true, false],
+    reactionAcksHead: [true, false],
+    commentAcksHead: [true, false],
+    openThreadCount: [0, 1],
+    latestReviewAgeMs: [1_000, DEFAULT_SETTLE_WINDOW_MS + 1],
+    threadWindowTruncated: [true, false],
+    checkWindowTruncated: [true, false],
+    ciStatus: ["green", "red", "pending", "none"],
+    mergeStateStatus: ["CLEAN", "UNSTABLE", "BLOCKED", "UNKNOWN", undefined],
+  });
   let mergeableCases = 0;
 
-  for (const isDraft of booleans)
-    for (const rateLimited of booleans)
-      for (const reviewAcksHead of booleans)
-        for (const reactionAcksHead of booleans)
-          for (const commentAcksHead of booleans)
-            for (const openThreadCount of threadCounts)
-              for (const latestReviewAgeMs of reviewAges)
-                for (const ciStatus of ciStates) {
-                  const signals = {
-                    isDraft,
-                    rateLimited,
-                    reviewAcksHead,
-                    reactionAcksHead,
-                    commentAcksHead,
-                    openThreadCount,
-                    latestReviewAgeMs,
-                    ciStatus,
-                  };
-                  const result = computeVerdict(signals);
-                  if (!result.mergeOk) continue;
-                  mergeableCases += 1;
-                  assert.equal(result.ackOfHead, true, JSON.stringify(signals));
-                  assert.equal(openThreadCount, 0, JSON.stringify(signals));
-                  assert.equal(ciStatus, "green", JSON.stringify(signals));
-                  assert.equal(isDraft, false, JSON.stringify(signals));
-                  assert.equal(rateLimited, false, JSON.stringify(signals));
-                  assert.equal(result.unsettled, false, JSON.stringify(signals));
-                }
+  for (const signals of signalSpace) {
+    const result = computeVerdict(signals);
+    if (!result.mergeOk) continue;
+    mergeableCases += 1;
+    const where = JSON.stringify(signals);
+    assert.equal(result.ackOfHead, true, where);
+    assert.equal(signals.openThreadCount, 0, where);
+    assert.equal(signals.ciStatus, "green", where);
+    assert.equal(signals.isDraft, false, where);
+    assert.equal(signals.isOpen, true, where);
+    assert.equal(signals.rateLimited, false, where);
+    assert.equal(result.unsettled, false, where);
+    assert.equal(result.signalTruncated, false, where);
+    assert.equal(signals.threadWindowTruncated, false, where);
+    assert.equal(signals.checkWindowTruncated, false, where);
+    assert.ok(MERGEABLE_MERGE_STATES.has(signals.mergeStateStatus), where);
+  }
 
   // Guard against the invariant passing vacuously because nothing was mergeable.
   assert.ok(mergeableCases > 0, "no mergeable case in the sweep — invariant proved nothing");
@@ -179,8 +310,8 @@ test("invariant: mergeOk implies ack, zero open threads, and green CI", () => {
 
 // --------------------------------------------------------------- CI rollup
 
-function run(name, conclusion, startedAt) {
-  return { name, conclusion, startedAt, completedAt: startedAt };
+function run(name, conclusion, startedAt, extra = {}) {
+  return { name, conclusion, startedAt, completedAt: startedAt, ...extra };
 }
 
 test("a superseded CANCELLED run beside its real SUCCESS does not make CI red", () => {
@@ -238,6 +369,16 @@ test("legacy commit statuses (context/state, no timestamps) still dedupe", () =>
   assert.equal(result.status, "green");
 });
 
+test("legacy commit statuses dedupe on createdAt, the only stamp they carry", () => {
+  const rollup = [
+    { context: "legacy/build", state: "SUCCESS", createdAt: "2026-07-27T00:30:00Z" },
+    { context: "legacy/build", state: "FAILURE", createdAt: "2026-07-27T00:31:00Z" },
+  ];
+  const result = deriveCiStatus(rollup);
+  assert.equal(result.considered.length, 1);
+  assert.equal(result.status, "red", "the newer status must win");
+});
+
 test("selectNewestRunPerName keeps exactly one row per name", () => {
   const rollup = [
     run("a", "SUCCESS", "2026-07-27T00:01:00Z"),
@@ -246,4 +387,522 @@ test("selectNewestRunPerName keeps exactly one row per name", () => {
   ];
   const names = selectNewestRunPerName(rollup).map((check) => check.name);
   assert.deepEqual(names.sort(), ["a", "b"]);
+});
+
+// ------------------------------------------- CI conclusion / state coverage
+
+// Every member of the three GraphQL enums this gate can receive, introspected
+// from the live schema 2026-07-27. The classification is INVERTED — anything
+// that is neither success-like nor pending is failed — so an unenumerated member
+// blocks the merge instead of scoring green. ACTION_REQUIRED and STALE are the
+// two that used to pass through as green.
+const CHECK_CONCLUSION_EXPECTATIONS = {
+  SUCCESS: "green",
+  NEUTRAL: "green",
+  SKIPPED: "green",
+  ACTION_REQUIRED: "red",
+  TIMED_OUT: "red",
+  CANCELLED: "red",
+  FAILURE: "red",
+  STARTUP_FAILURE: "red",
+  STALE: "red",
+};
+
+const CHECK_STATUS_EXPECTATIONS = {
+  REQUESTED: "pending",
+  QUEUED: "pending",
+  IN_PROGRESS: "pending",
+  WAITING: "pending",
+  PENDING: "pending",
+  // A finished run whose conclusion has not propagated yet. Not evidence of
+  // anything, so it waits rather than flapping the gate red.
+  COMPLETED: "pending",
+};
+
+const STATUS_STATE_EXPECTATIONS = {
+  SUCCESS: "green",
+  PENDING: "pending",
+  EXPECTED: "pending",
+  ERROR: "red",
+  FAILURE: "red",
+};
+
+for (const [conclusion, expected] of Object.entries(CHECK_CONCLUSION_EXPECTATIONS)) {
+  test(`CheckConclusionState ${conclusion} classifies as ${expected}`, () => {
+    const rollup = [{ name: "check", status: "COMPLETED", conclusion }];
+    assert.equal(deriveCiStatus(rollup).status, expected);
+  });
+}
+
+for (const [status, expected] of Object.entries(CHECK_STATUS_EXPECTATIONS)) {
+  test(`CheckStatusState ${status} (no conclusion yet) classifies as ${expected}`, () => {
+    const rollup = [{ name: "check", conclusion: null, status }];
+    assert.equal(deriveCiStatus(rollup).status, expected);
+  });
+}
+
+for (const [state, expected] of Object.entries(STATUS_STATE_EXPECTATIONS)) {
+  test(`StatusState ${state} classifies as ${expected}`, () => {
+    const rollup = [{ context: "legacy/check", state }];
+    assert.equal(deriveCiStatus(rollup).status, expected);
+  });
+}
+
+test("a conclusion GitHub has not invented yet is failed, not green", () => {
+  // The point of inverting the classification: an unknown member fails closed.
+  const rollup = [{ name: "check", status: "COMPLETED", conclusion: "SOME_FUTURE_STATE" }];
+  assert.equal(deriveCiStatus(rollup).status, "red");
+});
+
+test("a row carrying no state at all is pending, never green", () => {
+  assert.equal(deriveCiStatus([{ name: "check" }]).status, "pending");
+});
+
+// ---------------------------------------------- required vs advisory checks
+
+test("only isRequired rows gate when any row reports isRequired", () => {
+  const rollup = [
+    run("ci-gate", "SUCCESS", "2026-07-27T00:28:55Z", { isRequired: true }),
+    run("docs-corpus-gate", "SUCCESS", "2026-07-27T00:28:55Z", { isRequired: true }),
+    run("lychee — outbound HTTP (advisory)", "FAILURE", "2026-07-27T00:25:59Z", {
+      isRequired: false,
+    }),
+  ];
+  const result = deriveCiStatus(rollup);
+  assert.equal(result.mode, "required-only");
+  assert.equal(result.status, "green", "a transient advisory failure must not block the merge");
+  assert.equal(result.gating.length, 2);
+  assert.equal(result.failed.length, 0);
+  assert.equal(result.advisoryFailed.length, 1, "the advisory failure is still reported");
+  assert.equal(result.considered.length, 3, "every deduped row is still accounted for");
+});
+
+test('a check NAMED "(required)" that reports isRequired:false does not gate', () => {
+  // The live trap on this repo: `lychee — inbound anchors (required)` and
+  // `lane boundary — plan-title token (required)` both carry "(required)" in
+  // their names and both report isRequired:false. Branch protection lists only
+  // ci-gate and docs-corpus-gate (verified 2026-07-27), so isRequired is the
+  // only authority and name-matching would gate on the wrong set.
+  const rollup = [
+    run("ci-gate", "SUCCESS", "2026-07-27T00:28:55Z", { isRequired: true }),
+    run("lychee — inbound anchors (required)", "FAILURE", "2026-07-27T00:25:59Z", {
+      isRequired: false,
+    }),
+  ];
+  assert.equal(deriveCiStatus(rollup).status, "green");
+});
+
+test("a failing REQUIRED check is still red while advisory checks pass", () => {
+  const rollup = [
+    run("ci-gate", "FAILURE", "2026-07-27T00:28:55Z", { isRequired: true }),
+    run("lychee — outbound HTTP (advisory)", "SUCCESS", "2026-07-27T00:25:59Z", {
+      isRequired: false,
+    }),
+  ];
+  const result = deriveCiStatus(rollup);
+  assert.equal(result.status, "red");
+  assert.equal(result.failed.length, 1);
+});
+
+test("a pending REQUIRED check holds the gate even when everything else is green", () => {
+  const rollup = [
+    { name: "ci-gate", conclusion: null, status: "IN_PROGRESS", isRequired: true },
+    run("gitleaks", "SUCCESS", "2026-07-27T00:25:59Z", { isRequired: false }),
+  ];
+  assert.equal(deriveCiStatus(rollup).status, "pending");
+});
+
+test("degradation: with no isRequired row at all, EVERY check gates", () => {
+  // Unprotected branch, or a rollup fetched without the field. Falling back to
+  // the conservative set keeps the gate safe; codex-gate.mjs prints the mode so
+  // the degradation is never silent.
+  const rollup = [
+    run("ci-gate", "SUCCESS", "2026-07-27T00:28:55Z"),
+    run("lychee — outbound HTTP (advisory)", "FAILURE", "2026-07-27T00:25:59Z"),
+  ];
+  const result = deriveCiStatus(rollup);
+  assert.equal(result.mode, "all-checks");
+  assert.equal(result.status, "red");
+  assert.equal(result.advisory.length, 0, "nothing is advisory when nothing is required");
+});
+
+test("degradation control: adding one isRequired row flips the same rollup to green", () => {
+  // Proves the test above is driven by the missing field, not by the failure.
+  const rollup = [
+    run("ci-gate", "SUCCESS", "2026-07-27T00:28:55Z", { isRequired: true }),
+    run("lychee — outbound HTTP (advisory)", "FAILURE", "2026-07-27T00:25:59Z"),
+  ];
+  const result = deriveCiStatus(rollup);
+  assert.equal(result.mode, "required-only");
+  assert.equal(result.status, "green");
+});
+
+test("partitionByRequirement treats absent and false isRequired identically", () => {
+  const checks = [
+    { name: "required", isRequired: true },
+    { name: "explicitly-advisory", isRequired: false },
+    { name: "field-absent" },
+  ];
+  const { gating, advisory, mode } = partitionByRequirement(checks);
+  assert.equal(mode, "required-only");
+  assert.deepEqual(
+    gating.map((check) => check.name),
+    ["required"],
+  );
+  assert.deepEqual(
+    advisory.map((check) => check.name),
+    ["explicitly-advisory", "field-absent"],
+  );
+});
+
+test("a rollup of only advisory FAILURES is red, not green", () => {
+  // Degradation must not become a way to pass: with no required row, the
+  // advisory failure gates.
+  const rollup = [run("advisory", "FAILURE", "2026-07-27T00:25:59Z", { isRequired: false })];
+  assert.equal(deriveCiStatus(rollup).status, "red");
+});
+
+// ------------------------------------------------------- freshness predicate
+
+const HEAD_COMMITTED_AT = "2026-07-27T16:36:20Z";
+const HEAD_COMMITTED_AT_MS = Date.parse(HEAD_COMMITTED_AT);
+const HEAD_SHA = "cea56e227b54544129a1f55c6cbe2f089bcc9aa5";
+const HEAD_SHA_SHORT = HEAD_SHA.slice(0, 10);
+
+test("freshness is INCLUSIVE: an ack in the commit's own second counts", () => {
+  // GitHub timestamps are second-granular, so a fast ack carries exactly the
+  // HEAD commit's `created_at`. A strict `>` dropped it and the poll waited out
+  // its budget on an ack that had already landed. failure-modes.md documents the
+  // predicate as `created_at >= BASELINE_TS`.
+  assert.equal(isAtOrAfter(HEAD_COMMITTED_AT, HEAD_COMMITTED_AT_MS), true);
+});
+
+test("freshness rejects anything strictly earlier, down to one second", () => {
+  assert.equal(isAtOrAfter("2026-07-27T16:36:19Z", HEAD_COMMITTED_AT_MS), false);
+  assert.equal(isAtOrAfter("2026-07-27T16:36:21Z", HEAD_COMMITTED_AT_MS), true);
+});
+
+test("freshness fails closed on an absent or unparseable timestamp", () => {
+  for (const timestamp of [undefined, null, "", "not a date"]) {
+    assert.equal(isAtOrAfter(timestamp, HEAD_COMMITTED_AT_MS), false, String(timestamp));
+  }
+});
+
+// --------------------------------------------------------- reaction ack leg
+
+function reaction(overrides = {}) {
+  return {
+    user: { login: BOT_REST_LOGIN },
+    content: "+1",
+    created_at: "2026-07-27T16:40:00Z",
+    ...overrides,
+  };
+}
+
+test("a bot +1 newer than HEAD acks it", () => {
+  const result = deriveReactionAck([reaction()], HEAD_COMMITTED_AT_MS);
+  assert.equal(result.reactionAcksHead, true);
+  assert.equal(result.freshThumbsUp.length, 1);
+});
+
+test("a bot +1 from a PRIOR head does not ack the current one", () => {
+  // Reactions carry no commit reference; the timestamp is the only anchor.
+  const result = deriveReactionAck(
+    [reaction({ created_at: "2026-07-27T10:00:00Z" })],
+    HEAD_COMMITTED_AT_MS,
+  );
+  assert.equal(result.reactionAcksHead, false);
+  assert.equal(result.botThumbsUp.length, 1, "it is still counted as a bot +1 for the report");
+});
+
+test("a bot +1 in the HEAD commit's own second acks it", () => {
+  const result = deriveReactionAck(
+    [reaction({ created_at: HEAD_COMMITTED_AT })],
+    HEAD_COMMITTED_AT_MS,
+  );
+  assert.equal(result.reactionAcksHead, true);
+});
+
+test("the REST login form is required — the bare GraphQL form matches nothing", () => {
+  // A wrong-form filter returns 0 hits silently and the poll never terminates.
+  const result = deriveReactionAck(
+    [reaction({ user: { login: BOT_GRAPHQL_LOGIN } })],
+    HEAD_COMMITTED_AT_MS,
+  );
+  assert.equal(result.botThumbsUp.length, 0);
+  assert.equal(result.reactionAcksHead, false);
+});
+
+test("only a +1 acks — 'eyes' means Codex is still reviewing", () => {
+  const result = deriveReactionAck([reaction({ content: "eyes" })], HEAD_COMMITTED_AT_MS);
+  assert.equal(result.reactionAcksHead, false);
+});
+
+test("no reactions at all is not an ack and does not throw", () => {
+  assert.equal(deriveReactionAck([], HEAD_COMMITTED_AT_MS).reactionAcksHead, false);
+  assert.equal(deriveReactionAck(null, HEAD_COMMITTED_AT_MS).reactionAcksHead, false);
+});
+
+// --------------------------------------------------------- comment signals
+
+/** The clean-verdict comment, verbatim from PR #120 (ASCII apostrophe, 0x27). */
+const CLEAN_VERDICT_BODY = "Codex Review: Didn't find any major issues. What shall we delve next?";
+
+function comment(overrides = {}) {
+  return {
+    user: { login: BOT_REST_LOGIN },
+    body: CLEAN_VERDICT_BODY,
+    created_at: "2026-07-27T16:40:00Z",
+    ...overrides,
+  };
+}
+
+const commentAnchors = { headShaShort: HEAD_SHA_SHORT, headCommittedAtMs: HEAD_COMMITTED_AT_MS };
+
+test("a fresh clean-verdict comment is an ack leg in its own right", () => {
+  // Ack shape (2), observed on PRs #120 / #121. The gate used to match only
+  // "Reviewed commit" + sha, so a clean-comment ack read as no_ack_yet.
+  const result = deriveCommentSignals([comment()], commentAnchors);
+  assert.equal(result.commentAcksHead, true);
+  assert.equal(result.freshCleanVerdictComments.length, 1);
+});
+
+test("a clean-verdict comment from a PRIOR head does not ack the current one", () => {
+  // It carries no sha, so freshness is the only thing binding it to this push.
+  const result = deriveCommentSignals(
+    [comment({ created_at: "2026-07-27T10:00:00Z" })],
+    commentAnchors,
+  );
+  assert.equal(result.commentAcksHead, false);
+});
+
+test("a clean-verdict comment in the HEAD commit's own second acks it", () => {
+  const result = deriveCommentSignals([comment({ created_at: HEAD_COMMITTED_AT })], commentAnchors);
+  assert.equal(result.commentAcksHead, true);
+});
+
+test("the clean-verdict match survives a typographic apostrophe", () => {
+  // The live bytes are ASCII 0x27 (hexdumped 2026-07-27), but a quote swap
+  // upstream would silently match zero comments — the failure this guards.
+  const result = deriveCommentSignals(
+    [comment({ body: "Codex Review: Didn’t find any major issues." })],
+    commentAnchors,
+  );
+  assert.equal(result.commentAcksHead, true);
+});
+
+test("an unrelated bot comment is not a clean verdict", () => {
+  const result = deriveCommentSignals(
+    [comment({ body: "Codex Review: 3 issues found." })],
+    commentAnchors,
+  );
+  assert.equal(result.commentAcksHead, false);
+});
+
+test("a sha-citing comment acks regardless of age — the sha IS the anchor", () => {
+  // Deliberately older than HEAD: this leg must NOT inherit the timestamp filter
+  // that the sha-less clean-verdict leg needs.
+  const result = deriveCommentSignals(
+    [
+      comment({
+        body: `**Reviewed commit:** \`${HEAD_SHA_SHORT}\``,
+        created_at: "2020-01-01T00:00:00Z",
+      }),
+    ],
+    commentAnchors,
+  );
+  assert.equal(result.commentAcksHead, true);
+  assert.equal(result.shaCitingComments.length, 1);
+});
+
+test("a comment citing a DIFFERENT sha does not ack HEAD", () => {
+  const result = deriveCommentSignals(
+    [comment({ body: "**Reviewed commit:** `deadbeef00`" })],
+    commentAnchors,
+  );
+  assert.equal(result.commentAcksHead, false);
+});
+
+test("a fresh usage-limits comment is a terminal non-ack", () => {
+  const result = deriveCommentSignals(
+    [comment({ body: "Codex has reached its usage limits for this period." })],
+    commentAnchors,
+  );
+  assert.equal(result.rateLimited, true);
+});
+
+test("a usage-limits comment from a PRIOR head does NOT pin the gate", () => {
+  // computeVerdict gives rate_limited precedence over every ack leg, so an
+  // unbounded scan let one historic usage-limits comment pin the gate to
+  // rate_limited forever — even after a later HEAD collected a clean ack.
+  const result = deriveCommentSignals(
+    [
+      comment({
+        body: "Codex has reached its usage limits for this period.",
+        created_at: "2026-07-20T09:00:00Z",
+      }),
+      comment(),
+    ],
+    commentAnchors,
+  );
+  assert.equal(result.rateLimited, false, "the stale non-ack must not fire");
+  assert.equal(result.commentAcksHead, true, "the fresh ack on this HEAD stands");
+});
+
+test("a usage-limits comment in the HEAD commit's own second still fires", () => {
+  const result = deriveCommentSignals(
+    [comment({ body: "usage limits reached", created_at: HEAD_COMMITTED_AT })],
+    commentAnchors,
+  );
+  assert.equal(result.rateLimited, true);
+});
+
+test("comments from anyone but the bot are ignored entirely", () => {
+  const result = deriveCommentSignals(
+    [comment({ user: { login: "some-human" } }), comment({ user: { login: BOT_GRAPHQL_LOGIN } })],
+    commentAnchors,
+  );
+  assert.equal(result.botComments.length, 0);
+  assert.equal(result.commentAcksHead, false);
+});
+
+// ------------------------------------------------------- unresolved threads
+
+function thread({ isResolved = false, isOutdated = false, login = BOT_GRAPHQL_LOGIN } = {}) {
+  return { isResolved, isOutdated, comments: { nodes: [{ author: { login }, path: "a.ts" }] } };
+}
+
+test("an unresolved thread counts even when the fix push marked it OUTDATED", () => {
+  // GitHub's require-conversation-resolution keys on resolution, not on whether
+  // the diff position is outdated. Dropping outdated threads reported
+  // merge_ok=1 while GitHub reported BLOCKED.
+  const result = selectUnresolvedBotThreads([thread({ isOutdated: true })]);
+  assert.equal(result.unresolved.length, 1);
+  assert.equal(result.outdatedCount, 1, "outdated survives as diagnostic metadata only");
+});
+
+test("a resolved thread never counts, outdated or not", () => {
+  const result = selectUnresolvedBotThreads([
+    thread({ isResolved: true, isOutdated: true }),
+    thread({ isResolved: true, isOutdated: false }),
+  ]);
+  assert.equal(result.unresolved.length, 0);
+});
+
+test("threads opened by a human are not Codex findings", () => {
+  const result = selectUnresolvedBotThreads([thread({ login: "some-human" })]);
+  assert.equal(result.unresolved.length, 0);
+});
+
+test("thread authors use the GraphQL login form — the REST form matches nothing", () => {
+  const result = selectUnresolvedBotThreads([thread({ login: BOT_REST_LOGIN })]);
+  assert.equal(result.unresolved.length, 0);
+});
+
+test("a mixed thread set counts every unresolved bot thread once", () => {
+  const result = selectUnresolvedBotThreads([
+    thread(),
+    thread({ isOutdated: true }),
+    thread({ isResolved: true }),
+    thread({ login: "some-human" }),
+  ]);
+  assert.equal(result.unresolved.length, 2);
+  assert.equal(result.outdatedCount, 1);
+});
+
+test("an empty or absent thread set is zero, not a throw", () => {
+  assert.equal(selectUnresolvedBotThreads([]).unresolved.length, 0);
+  assert.equal(selectUnresolvedBotThreads(undefined).unresolved.length, 0);
+});
+
+// ------------------------------------------------------------- review ack leg
+
+function review(overrides = {}) {
+  return {
+    user: { login: BOT_REST_LOGIN },
+    commit_id: HEAD_SHA,
+    submitted_at: "2026-07-27T16:40:00Z",
+    ...overrides,
+  };
+}
+
+test("the NEWEST bot review is what anchors the review leg", () => {
+  const nowMs = Date.parse("2026-07-27T16:45:00Z");
+  const result = deriveReviewAck(
+    [review({ commit_id: "olderolder", submitted_at: "2026-07-27T09:00:00Z" }), review()],
+    HEAD_SHA,
+    nowMs,
+  );
+  assert.equal(result.reviewAcksHead, true);
+  assert.equal(result.botReviews.length, 2);
+  assert.equal(result.latestReviewAgeMs, 300_000);
+});
+
+test("newest is decided by submitted_at, NOT by array position", () => {
+  // The hazard `at(-1)` carried: it trusts the endpoint's ordering and the page
+  // merge to preserve it. Here the newest review is FIRST in the array, so a
+  // positional pick anchors the leg to the stale one and reports no ack.
+  const result = deriveReviewAck(
+    [
+      review({ commit_id: HEAD_SHA, submitted_at: "2026-07-27T16:40:00Z" }),
+      review({ commit_id: "olderolder", submitted_at: "2026-07-27T09:00:00Z" }),
+    ],
+    HEAD_SHA,
+    Date.parse("2026-07-27T16:45:00Z"),
+  );
+  assert.equal(result.reviewAcksHead, true);
+  assert.equal(result.latestReviewAgeMs, 300_000, "the age must follow the same review");
+});
+
+test("selectNewestReview keeps the later position on a tie", () => {
+  const first = review({ commit_id: "aaaaaaaaaa" });
+  const second = review({ commit_id: "bbbbbbbbbb" });
+  assert.equal(selectNewestReview([first, second]), second);
+});
+
+test("selectNewestReview falls back to position when no review carries a stamp", () => {
+  // Degenerate payload: without timestamps the documented order is the only
+  // signal left, so this must degrade to the old behaviour rather than to an
+  // arbitrary pick.
+  const first = review({ submitted_at: undefined, commit_id: "aaaaaaaaaa" });
+  const second = review({ submitted_at: undefined, commit_id: "bbbbbbbbbb" });
+  assert.equal(selectNewestReview([first, second]), second);
+});
+
+test("selectNewestReview ignores an unparseable stamp in favour of a real one", () => {
+  const real = review({ submitted_at: "2026-07-27T09:00:00Z", commit_id: "aaaaaaaaaa" });
+  const broken = review({ submitted_at: "not a date", commit_id: "bbbbbbbbbb" });
+  assert.equal(selectNewestReview([real, broken]), real);
+});
+
+test("selectNewestReview is empty-safe", () => {
+  assert.equal(selectNewestReview([]), null);
+  assert.equal(selectNewestReview(undefined), null);
+});
+
+test("a newest review sitting on a pre-fix commit does not ack HEAD", () => {
+  // PR #250's shape: four reviews, none on the final HEAD. A reviews-only poll
+  // would wait forever.
+  const result = deriveReviewAck(
+    [review({ commit_id: "0000000000" })],
+    HEAD_SHA,
+    Date.parse("2026-07-27T16:45:00Z"),
+  );
+  assert.equal(result.reviewAcksHead, false);
+});
+
+test("reviews use the REST login form — the bare form matches nothing", () => {
+  const result = deriveReviewAck(
+    [review({ user: { login: BOT_GRAPHQL_LOGIN } })],
+    HEAD_SHA,
+    Date.now(),
+  );
+  assert.equal(result.botReviews.length, 0);
+  assert.equal(result.reviewAcksHead, false);
+});
+
+test("no bot review leaves the age at Infinity, which never trips the settle guard", () => {
+  const result = deriveReviewAck([], HEAD_SHA, Date.now());
+  assert.equal(result.latestReviewAgeMs, Number.POSITIVE_INFINITY);
+  assert.equal(computeVerdict(cleanSignals({ latestReviewAgeMs: Infinity })).verdict, "ack_clean");
 });

@@ -40,8 +40,8 @@
 //      path inherits the same anti-silent-truncation discipline.
 
 import { execSync } from "node:child_process";
-import { readFileSync, writeFileSync, existsSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import process from "node:process";
 import {
   parseManifestBlock,
@@ -49,6 +49,7 @@ import {
   validateEntry,
   serializeEntry,
 } from "./lib/manifest.mjs";
+import { resolvePlanFile } from "./lib/plan-file.mjs";
 import { MATERIAL_PATH_PREFIXES } from "./preflight.mjs";
 // MATERIAL_PATH_PREFIXES is one HALF of the skip predicate: a material
 // path forces synthesis (fail-open toward validation), but its absence
@@ -290,14 +291,12 @@ export function fetchPrDetails({ pr, ghRunner = defaultGhRunner }) {
 
 // ---------- plan-file resolver ----------
 
-export function resolvePlanFile({ plan, plansDir = "docs/plans" }) {
-  if (!existsSync(plansDir)) return null;
-  const candidates = readdirSync(plansDir).filter(
-    (f) => f.startsWith(`${plan}-`) && f.endsWith(".md"),
-  );
-  if (candidates.length !== 1) return null;
-  return join(plansDir, candidates[0]);
-}
+// Implementation moved to ./lib/plan-file.mjs (2026-07-27) so
+// post-merge-housekeeper.mjs can share it without importing this module —
+// this one pulls in node:child_process, which the housekeeper's Plan
+// Invariant I-3 forbids. Re-exported here because this module's public
+// surface is what the rebuild tests import.
+export { resolvePlanFile };
 
 // ---------- main ----------
 
@@ -562,8 +561,29 @@ export async function rebuildManifest({
 
 // ---------- CLI entry ----------
 
-const isMain = import.meta.url === `file://${process.argv[1]}`;
-if (isMain) {
+/**
+ * Direct-invocation guard — same form as
+ * `tools/docs-corpus/bin/pre-commit-runner.ts` § isDirectlyInvoked.
+ *
+ * NOT `import.meta.url === \`file://${process.argv[1]}\``: that compares a
+ * percent-ENCODED URL against a raw path, so a checkout under a directory
+ * containing a space (or `#`, `?`, non-ASCII) makes them unequal and this script
+ * silently does nothing while exiting 0. `realpathSync` on both sides also
+ * survives a symlinked invocation (macOS `/tmp` → `/private/tmp`).
+ */
+function isDirectlyInvoked() {
+  const invokedPath = process.argv[1];
+  if (typeof invokedPath !== "string") return false;
+  try {
+    return realpathSync(invokedPath) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    // A path that will not resolve to a real file was not this module's entry
+    // point, so `false` is the correct answer rather than a swallowed failure.
+    return false;
+  }
+}
+
+if (isDirectlyInvoked()) {
   let args;
   try {
     args = parseArgs(process.argv.slice(2));

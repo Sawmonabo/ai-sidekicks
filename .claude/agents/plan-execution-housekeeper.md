@@ -37,6 +37,7 @@ The manifest tells you:
 - `mechanical_edits.status_flip.to_line` — often carries a `<TODO subagent prose>` placeholder to replace via Edit on the relevant file
 - `semantic_work_pending: string[]` — the named work items you must address (one `semantic_edits[item]` entry OR one `concerns[].addressing: item` entry per name)
 - `_script_stage` — read-only snapshot; copy through verbatim when you write the manifest back
+- `warnings: object[]` — non-fatal anomalies the script noticed and deliberately did NOT halt on. **Not work.** A warning never pairs to a `semantic_edits` entry, never needs a `concerns` entry, and never changes your `RESULT:`. You repeat it in your report (§ Report format) and do nothing else with it.
 
 ## Required tool sequence (in order)
 
@@ -91,7 +92,8 @@ Return:
 1. The list of files you edited — must be ⊆ the (possibly-extended) `manifest.affected_files`; extensions are documented via a `concerns` entry of `kind: affected_files_extension` (rationale in `addressing`, NOT a `path` field) per `references/failure-modes.md` rule 20.
 2. The manifest path (you rewrite it before returning).
 3. A suggested commit message in the form: `chore(repo): housekeeping for PR #<N> — NS-XX completion`.
-4. A final `RESULT: <state>` tag.
+4. **Every `manifest.warnings` entry, repeated verbatim** — omit this item entirely when the array is absent or empty. This is a REPORTING duty and nothing else: a warning is not `semantic_work_pending`, takes no `semantic_edits` entry and no `concerns` entry, and never changes your `RESULT:` — a run whose only anomaly is a warning still returns `RESULT: DONE`. You repeat it because you are the one actor guaranteed to have read the manifest; the orchestrator relays the same array independently, and two readers fail independently.
+5. A final `RESULT: <state>` tag.
 
 ## Reference files
 

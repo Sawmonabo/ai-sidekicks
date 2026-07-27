@@ -969,7 +969,14 @@ test("emitManifest writes auto-create stub manifest when scriptExitCode=0 + auto
       // mechanical is left for the script to record here.
       mechanicalEdits: {},
       schemaViolations: [],
-      affectedFiles: ["docs/architecture/cross-plan-dependencies.md"],
+      // emitManifest serializes whatever it is handed, so these two are inputs
+      // rather than assertions — but they are written as a real plan-bound run
+      // would derive them (item emitted, so plan file declared), to avoid
+      // reading as a canonical example of a pairing the derivation forbids.
+      affectedFiles: [
+        "docs/architecture/cross-plan-dependencies.md",
+        "docs/plans/029-orphan-pr-fixture.md",
+      ],
       semanticWorkPending: [
         "auto_create_compose_entry",
         "auto_create_compose_mermaid_node",
@@ -1837,3 +1844,185 @@ for (const { branch, fixtureName, planFileName, args } of [
     }
   });
 }
+
+// ---------- Plan-bound gating of `plan_done_checklist_evaluation` ----------
+//
+// Two coupled properties, both introduced 2026-07-27 (the fixtures lock the
+// resulting manifests byte-for-byte; these pin the RULE, so a future fixture
+// cannot drift away from it silently):
+//
+//   1. The item is emitted only when the run is plan-bound AND the plan file
+//      resolves. Cleanup / governance / tier-audit invocations legally carry
+//      no --plan/--phase; asking them to evaluate a plan checklist is
+//      unanswerable, and since every pending item must pair to a semantic_edit
+//      or a concern, it would downgrade every clean non-plan run to
+//      DONE_WITH_CONCERNS.
+//   2. Whenever it IS emitted, the plan file is declared in affected_files.
+//      The subagent's edit scope is hard-bounded by that list, so emitting
+//      without declaring asks for an edit the contract forbids.
+//
+// Declaring is not writing: the file-ownership tests above still assert the
+// script itself never writes under docs/plans/.
+
+const PLAN_CHECKLIST_ITEM = "plan_done_checklist_evaluation";
+const CORPUS_REL = "docs/architecture/cross-plan-dependencies.md";
+
+// Copies a fixture's input tree, optionally reshapes it, runs the
+// orchestrator, and returns the emitted manifest. The tree comes from a
+// fixture rather than a hand-built stub so the corpus under test is the same
+// realistic §6 content the fixture suite uses.
+async function runOnFixtureTree({ fixtureName, args, reshape = null }) {
+  const tmpRepo = mkdtempSync(join(tmpdir(), "plan-bound-gate-"));
+  try {
+    cpSync(join(HERE, "fixtures", fixtureName, "input"), tmpRepo, { recursive: true });
+    if (reshape !== null) reshape(tmpRepo);
+    const result = await runHousekeeper({ args, repoRoot: tmpRepo, today: FIXTURE_TODAY });
+    const manifest = JSON.parse(
+      readFileSync(
+        join(tmpRepo, ".agents", "tmp", `housekeeper-manifest-PR${args.prNumber}.json`),
+        "utf8",
+      ),
+    );
+    return { result, manifest };
+  } finally {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  }
+}
+
+for (const { branch, fixtureName, planRel, args } of [
+  {
+    branch: "candidate-ns",
+    fixtureName: "01-single-pr-happy-path",
+    planRel: "docs/plans/024-rust-pty-sidecar.md",
+    args: { prNumber: 30, plan: "024", phase: "1", task: null, candidateNs: "NS-01" },
+  },
+  {
+    branch: "auto-create",
+    fixtureName: "12-auto-create-happy-path",
+    planRel: "docs/plans/029-orphan-pr-fixture.md",
+    args: { prNumber: 48, plan: "029", phase: "2", task: null, candidateNs: null },
+  },
+]) {
+  test(`plan-bound run (${branch}) emits the checklist item AND declares the plan file`, async () => {
+    const { result, manifest } = await runOnFixtureTree({ fixtureName, args });
+    assert.equal(result.exitCode, 0, `${branch}: expected the branch to run to completion`);
+    assert.ok(
+      manifest.semantic_work_pending.includes(PLAN_CHECKLIST_ITEM),
+      `${branch}: plan-bound run must ask the checklist question`,
+    );
+    assert.deepEqual(
+      manifest.affected_files,
+      [CORPUS_REL, planRel],
+      `${branch}: the plan file must be declared so the subagent may tick it`,
+    );
+    // The immutable script-stage snapshot is what the validator compares
+    // against; a declaration only in the live copy would not survive it.
+    assert.deepEqual(manifest._script_stage.affected_files, [CORPUS_REL, planRel]);
+    assert.deepEqual(manifest._script_stage.semantic_work_pending, manifest.semantic_work_pending);
+    assert.deepEqual(manifest.warnings, [], `${branch}: a resolved plan file is not anomalous`);
+  });
+}
+
+// Fixture 11's tree DOES contain docs/plans/010-tier-5-audit.md, and its
+// touched-files list names it — so a pass here proves the drop is driven by
+// the absent --plan/--phase pair, not by an empty plan tree.
+for (const { label, args } of [
+  {
+    label: "tier audit (no --plan, no --phase)",
+    args: { prNumber: 47, plan: null, phase: null, task: null, candidateNs: "NS-15..NS-21" },
+  },
+  {
+    label: "--plan without --phase",
+    args: { prNumber: 47, plan: "010", phase: null, task: null, candidateNs: "NS-15..NS-21" },
+  },
+]) {
+  test(`non-plan-bound run — ${label} — emits neither the item nor the declaration`, async () => {
+    const { result, manifest } = await runOnFixtureTree({
+      fixtureName: "11-tier-range-audit",
+      args,
+    });
+    assert.equal(result.exitCode, 0, `${label}: expected the branch to run to completion`);
+    assert.ok(
+      !manifest.semantic_work_pending.includes(PLAN_CHECKLIST_ITEM),
+      `${label}: a run with no plan cannot answer a plan-scoped question`,
+    );
+    assert.deepEqual(manifest.affected_files, [CORPUS_REL], `${label}: scope must stay on §6`);
+    assert.deepEqual(manifest._script_stage.affected_files, [CORPUS_REL]);
+    assert.deepEqual(manifest._script_stage.semantic_work_pending, manifest.semantic_work_pending);
+    // Not an anomaly — these invocations are legal, so nothing is warned about.
+    assert.deepEqual(manifest.warnings, [], `${label}: a non-plan run is not an anomaly`);
+  });
+}
+
+// The three null causes resolvePlanFile cannot distinguish. Fixture 03 covers
+// the absent-directory case end-to-end; these cover the two that no fixture
+// tree produces.
+for (const { label, reshape } of [
+  {
+    label: "no file matches the plan number",
+    reshape: (tmpRepo) => {
+      rmSync(join(tmpRepo, "docs", "plans", "024-rust-pty-sidecar.md"));
+    },
+  },
+  {
+    label: "two files match the plan number",
+    reshape: (tmpRepo) => {
+      writeFileSync(join(tmpRepo, "docs", "plans", "024-duplicate-number.md"), "# duplicate\n");
+    },
+  },
+]) {
+  test(`plan-bound run warns instead of asking an unanswerable question — ${label}`, async () => {
+    const { result, manifest } = await runOnFixtureTree({
+      fixtureName: "01-single-pr-happy-path",
+      args: { prNumber: 30, plan: "024", phase: "1", task: null, candidateNs: "NS-01" },
+      reshape,
+    });
+    // Loud, not fatal: the §6 mechanical work does not depend on the plan file.
+    assert.equal(result.exitCode, 0, `${label}: an unresolved plan file must not halt the run`);
+    assert.deepEqual(
+      manifest.warnings,
+      [{ kind: "plan_file_unresolved", plan: "024", glob: "docs/plans/024-*.md" }],
+      `${label}: the anomaly must surface`,
+    );
+    assert.ok(!manifest.semantic_work_pending.includes(PLAN_CHECKLIST_ITEM));
+    // Declaring a path that does not exist on disk is a hard validator gap
+    // ("declared in affected_files but missing from disk"), strictly worse
+    // than the warning.
+    assert.deepEqual(manifest.affected_files, [CORPUS_REL], `${label}: declare nothing unresolved`);
+  });
+}
+
+test("every fixture emits the checklist item only as dischargeable work", () => {
+  for (const fixture of listFixtures(FIXTURES_DIR).filter(RUNNABLE_FIXTURE)) {
+    const manifest = readExpectedManifest(fixture);
+    const emitted = manifest.semantic_work_pending.includes(PLAN_CHECKLIST_ITEM);
+    const declaredPlans = manifest.affected_files.filter((f) => f.startsWith("docs/plans/"));
+    assert.equal(
+      emitted,
+      declaredPlans.length > 0,
+      `fixture ${fixture.name}: item emitted=${emitted} but plan file declared=` +
+        `${declaredPlans.length > 0} — the two must move together`,
+    );
+    if (!emitted) continue;
+
+    // The coupling above is necessary but not sufficient. The item is
+    // evaluation-shaped, so the subagent must always be able to DISCHARGE it —
+    // answer it with a semantic_edits entry rather than a concern it has no way
+    // to resolve. Answering means reading the plan's checklist, so a declared
+    // path that does not exist on disk would leave the subagent no move except
+    // a concern, and every otherwise-clean run would degrade to
+    // DONE_WITH_CONCERNS. Asserting existence in the input tree is what makes
+    // "emitted" mean "answerable" and not merely "declared".
+    assert.equal(
+      declaredPlans.length,
+      1,
+      `fixture ${fixture.name}: expected exactly one declared plan file, got` +
+        ` ${JSON.stringify(declaredPlans)}`,
+    );
+    assert.ok(
+      existsSync(join(fixture.inputDir, declaredPlans[0])),
+      `fixture ${fixture.name}: declared plan file ${declaredPlans[0]} is absent from the` +
+        " input tree — the subagent could not read it, so the item is undischargeable",
+    );
+  }
+});

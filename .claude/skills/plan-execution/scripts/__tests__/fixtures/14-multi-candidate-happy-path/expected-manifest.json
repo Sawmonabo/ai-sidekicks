@@ -56,7 +56,7 @@
   },
   "schema_violations": [],
   "verification_failures": [],
-  "affected_files": ["docs/architecture/cross-plan-dependencies.md"],
+  "affected_files": ["docs/architecture/cross-plan-dependencies.md", "docs/plans/070-fixture.md"],
   "semantic_work_pending": [
     "compose_status_completion_prose",
     "ready_set_re_derivation",
@@ -68,7 +68,7 @@
   ],
   "warnings": [],
   "_script_stage": {
-    "affected_files": ["docs/architecture/cross-plan-dependencies.md"],
+    "affected_files": ["docs/architecture/cross-plan-dependencies.md", "docs/plans/070-fixture.md"],
     "schema_violations": [],
     "verification_failures": [],
     "semantic_work_pending": [
