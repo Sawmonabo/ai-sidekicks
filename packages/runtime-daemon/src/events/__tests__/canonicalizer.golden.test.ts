@@ -15,15 +15,9 @@
 //   • RFC 8785 §3.2.2 sample document → §3.2.4 expected UTF-8 bytes.
 //   • RFC 8785 §3.2.3 property-sorting test data and its expected order.
 //   • RFC 8785 Appendix B, Table 1 — "ECMAScript-Compatible JSON Number
-//     Serialization Samples", 26 rows.
-//
-// NOTE ON "APPENDIX A". Plan-006's T2.3 row and the header of `canonicalizer.ts`
-// both call these "RFC 8785 Appendix-A vectors". That is a mis-citation:
-// Appendix A of RFC 8785 is "ECMAScript Sample Canonicalizer" (illustrative
-// JavaScript source, no vectors), and the number-serialization vectors live in
-// Appendix B, Table 1. This suite cites Appendix B, which is where the data
-// actually is. Flagged for a plan/comment true-up rather than silently
-// propagated.
+//     Serialization Samples", 26 rows. NOT Appendix A, which is the
+//     illustrative "ECMAScript Sample Canonicalizer" source and publishes no
+//     vectors at all — keep this cite on B.
 //
 // Refs: `Spec-006 §Canonical Serialization Rules`, `Spec-006 §Integrity Protocol`.
 import {

@@ -5,7 +5,7 @@
 // input and the Ed25519-signed message over the SAME canonical byte string, so
 // there is exactly one implementation of RFC 8785 in this repo and everything
 // that needs canonical bytes routes through it: T2.2's `signRow`, T2.4's PII
-// codec, T2.6's genesis backfill, and — per CP-006-3 — Plan-027's Spec-024
+// codec, T3.1's append path, and — per CP-006-3 — Plan-027's Spec-024
 // `request_body_hash`, which consumes `canonicalizeJson` rather than
 // re-implementing the scheme. Two honest implementations that diverge here
 // produce incompatible hashes and signatures for identical events, which is
@@ -20,7 +20,10 @@
 // implementation), EXACT-pinned in package.json rather than caret-ranged: a
 // silent minor bump that changed one output byte would invalidate every
 // `row_hash` and `daemon_signature` already on disk. T2.3's golden-vector suite
-// binds this module's output to RFC 8785 Appendix A.
+// binds this module's output to RFC 8785 Appendix B, Table 1
+// ("ECMAScript-Compatible JSON Number Serialization Samples", 26 rows) — and
+// NOT to Appendix A, which is the illustrative "ECMAScript Sample
+// Canonicalizer" source and publishes no vectors at all.
 //
 // Every refusal this module RAISES ITSELF throws a plain `Error` — a deliberate
 // deferral, not an oversight, and the one place this module diverges from

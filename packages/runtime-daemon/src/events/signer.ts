@@ -62,6 +62,18 @@ const CHAIN_HASH_LENGTH = 32;
  */
 const ED25519_PUBLIC_KEY_LENGTH = 32;
 
+/**
+ * The RFC 8032 §5.1.6 Ed25519 signature width — `R || S`, 32 bytes each — and
+ * the width `0001-initial.ts` enforces on the column, which declares
+ * `daemon_signature` as `BLOB` under `CHECK(length(daemon_signature) = 64)`.
+ *
+ * Spelled here for {@link verifyRow}'s placeholder check ONLY. It is
+ * deliberately not applied as a general shape guard on a stored signature: a
+ * wrong-width one is adversarial data whose verdict is `signature_mismatch`,
+ * which {@link verifyEd25519}'s catch already produces.
+ */
+const ED25519_SIGNATURE_LENGTH = 64;
+
 // --------------------------------------------------------------------------
 // Key types — deliberately this module's own, not crypto-paseto's.
 // --------------------------------------------------------------------------
@@ -111,8 +123,9 @@ export type Ed25519PublicKey = Uint8Array & { readonly __brand: "Ed25519PublicKe
  *
  * `Spec-006 §Integrity Protocol` delegates the genesis value to
  * `Security Architecture §Audit Log Integrity`, which fixes it: "For
- * `sequence = 0` the value is 32 zero bytes." Exported so T2.6's backfill
- * migration and T3.1's append path seed from one place rather than each
+ * `sequence = 0` the value is 32 zero bytes." Exported so the write side
+ * (T3.1's append path, seeding a chain) and the read side (T4.1's linkage walk,
+ * checking that seed) take the value from one place rather than each
  * re-deriving `new Uint8Array(32)` (I-006-2-04).
  *
  * CALLER OBLIGATION — TREAT AS READ-ONLY, AT THE IMPORT SITE. This is a shared
@@ -196,15 +209,34 @@ export interface SignedRow {
  * operator for a plumbing bug and discard the real cause.
  *
  * `failureMode` carries the two literals
- * `Security Architecture §Verification Rules` names for the per-row checks —
- * rule 1's `hash_mismatch` and rule 2's `signature_mismatch` — so T4.1's
+ * `Security Architecture §Verification Rules` names for the per-row checks a
+ * SIGNED row can fail — rule 1's `hash_mismatch` and rule 2's
+ * `signature_mismatch` — so T4.1's
  * verifier maps them straight through to
  * `audit_integrity_failed { failureMode, failurePath }` instead of re-deriving
  * WHICH check failed by running the two halves separately, which would
  * reintroduce exactly the two-call shape I-006-2-06 exists to prevent.
  *
- * This union is a SUBSET of the eleven-value `failureMode` enum in
- * `Spec-006 §Audit Integrity (audit_integrity)`, and the other nine sit outside
+ * `signature_placeholder` is the THIRD literal, and its provenance runs in the
+ * opposite direction to the other two. Spec-006 ORIGINATED it — a twelfth value
+ * on that spec's `failureMode` enum, landing as an additive-MINOR enum
+ * extension under `ADR-018 §Decision` — and
+ * `Security Architecture §Verification Rules` MIRRORS it rather than
+ * introducing it: rule 2 now opens with the placeholder precondition, emitting
+ * `signature_placeholder` with `failurePath: 'signature'` and stopping before
+ * any Ed25519 verification, and rule 1 carries the matching carve-out that
+ * keeps an all-placeholder row out of `hash_mismatch`. Which way round that
+ * runs is worth keeping straight: the spec is the authority, the architecture
+ * doc agrees with it, and neither is inferring the value from the other. The
+ * verdict reports a row whose THREE integrity columns are all still Plan-001's
+ * zero-fill placeholder. {@link verifyRow}'s stage-2 note argues why the
+ * predicate needs all three columns and why the verdict must not collapse into
+ * `signature_mismatch`.
+ *
+ * This union is a SUBSET of the twelve-value `failureMode` enum in
+ * `Spec-006 §Audit Integrity (audit_integrity)`, and the other nine (twelve,
+ * less this union's three — RE-DERIVE both numbers on any enum change rather
+ * than incrementing one of them) sit outside
  * it for TWO different reasons rather than one. `anchor_*`, the proof modes,
  * and the log-file modes are RANGE-level: they are computed over a span of rows
  * against an uploaded Merkle anchor, and this function is handed neither.
@@ -222,7 +254,10 @@ export interface SignedRow {
  */
 export type RowVerification =
   | { readonly valid: true }
-  | { readonly valid: false; readonly failureMode: "hash_mismatch" | "signature_mismatch" };
+  | {
+      readonly valid: false;
+      readonly failureMode: "hash_mismatch" | "signature_mismatch" | "signature_placeholder";
+    };
 
 /**
  * Mints the hash-chain digest and the daemon signature for one row, both over
@@ -235,7 +270,8 @@ export type RowVerification =
  * Deterministic per RFC 8032 §5.1.6 — Ed25519 derives its per-signature nonce
  * from the secret key and the message, never from an RNG, so re-signing
  * identical inputs yields byte-identical output. That is what makes this task
- * `idempotent` and T2.6's backfill migration safely re-runnable.
+ * `idempotent`: re-running it over the same row reproduces the same three
+ * columns rather than minting a second, differing signature.
  *
  * Refuses a `prevHash` that is not 32 bytes of `Uint8Array` (see the guard's
  * note below), and COPIES it into the returned {@link SignedRow} rather than
@@ -258,10 +294,10 @@ export function signRow(
   // in I-006-2-04's own vocabulary.
   //
   // The guard tests BYTE-NESS as well as width, and the declared `Uint8Array`
-  // does not make that redundant: T2.6's backfill migration reads the
-  // predecessor's `row_hash` back out of SQLite before calling here, and a
-  // `BLOB` column can hand back a JS `string` — see {@link verifyRow}'s
-  // read-side guard for why. A 32-CHARACTER string clears a bare length check
+  // does not make that redundant: the caller appending row n reads row n-1's
+  // `row_hash` back out of SQLite to use as this `prevHash`, and a `BLOB`
+  // column can hand back a JS `string` — see {@link verifyRow}'s read-side
+  // guard for why. A 32-CHARACTER string clears a bare length check
   // and then coerces to near-zero bytes through `TypedArray.prototype.set`,
   // which is the silent spelling of the very failure this guard refuses loudly.
   //
@@ -310,12 +346,40 @@ export function signRow(
  * Neither resolution belongs here: this module knows the recipe, not the
  * roster.
  *
- * CHECK ORDER IS SPEC ORDER and it is OBSERVABLE — chain first, signature
- * second, first failure wins — so a row failing both reports `hash_mismatch`
- * and never `signature_mismatch`. Either failure halts replay at the same
- * sequence, so evaluating the second check after the first has already failed
- * would tell the caller nothing it can act on and cost a scalar
- * multiplication.
+ * CHECK ORDER IS OBSERVABLE, AND IT IS FOUR STAGES RATHER THAN TWO. First
+ * failure wins, so this order IS the verdict for any row failing more than one
+ * check:
+ *
+ *   1. STRUCTURAL — `prevHash` / `rowHash` are 32 bytes of `Uint8Array`;
+ *      otherwise `hash_mismatch`.
+ *   2. PLACEHOLDER — ALL THREE integrity columns are zero-filled (`prevHash`
+ *      and `rowHash` 32 zeros each, `daemonSignature` 64 zeros); if so,
+ *      `signature_placeholder`.
+ *   3. CHAIN — recompute `BLAKE3(prev_hash || canonical)` and compare;
+ *      otherwise `hash_mismatch`.
+ *   4. SIGNATURE — verify `daemon_signature` over `canonical`; otherwise
+ *      `signature_mismatch`.
+ *
+ * Stages 3 and 4 are SPEC order (`Security Architecture §Verification Rules`
+ * rule 1, then rule 2): a row failing both reports `hash_mismatch` and never
+ * `signature_mismatch`. Either failure halts replay at the same sequence, so
+ * evaluating rule 2 after rule 1 has already failed would tell the caller
+ * nothing it can act on and cost a scalar multiplication.
+ *
+ * STAGE 2 SITS WHERE IT DOES BECAUSE ANYWHERE LATER IS DEAD CODE, and that is
+ * the one thing to preserve if this function is ever restructured. A
+ * placeholder row zero-fills ALL THREE integrity columns, so it fails stage 3
+ * as well; placing the placeholder check after the hash compare means it never
+ * runs and `signature_placeholder` can never be returned.
+ * `Security Architecture §Verification Rules` now MANDATES this ordering rather
+ * than merely permitting it — rule 1 excepts the all-placeholder row from
+ * `hash_mismatch` precisely so rule 2's precondition stays reachable — so
+ * reordering these two stages would put this function out of conformance, not
+ * just make it worse. It sits AFTER stage 1
+ * rather than before it for two reasons: a non-byte or wrong-width chain column
+ * is a corruption / plumbing problem that must keep surfacing as
+ * `hash_mismatch`, and stage 1's guard is what makes both stage 2's
+ * chain-column reads and stage 3's recompute safe in the first place.
  *
  * SCOPE — THIS IS AN INTRA-ROW CHECK, AND `valid: true` CLAIMS LESS THAN IT
  * READS. It proves one row's three integrity columns agree with its own
@@ -323,7 +387,7 @@ export function signRow(
  * is handed none. I-006-2-04's second clause — `prev_hash[n] = row_hash[n-1]`,
  * and {@link GENESIS_PREV_HASH} at `sequence = 0` — is LINKAGE and is the
  * range-walking caller's obligation (T4.1's verifier; the persistence-layer
- * assertion; T2.6's backfill). The gap is not theoretical: DELETE a middle row
+ * assertion). The gap is not theoretical: DELETE a middle row
  * and every surviving row still has mutually consistent columns and a
  * signature that verifies, because nothing was forged, so a per-row pass over
  * the remainder returns `valid: true` throughout. Only the linkage walk sees
@@ -377,6 +441,105 @@ export function verifyRow(
     !isBytesOfLength(row.rowHash, CHAIN_HASH_LENGTH)
   ) {
     return { valid: false, failureMode: "hash_mismatch" };
+  }
+
+  // STAGE 2 — PLAN-001'S ZERO-FILL PLACEHOLDER, NAMED RATHER THAN INFERRED.
+  //
+  // `session/session-service.ts` — Plan-001's append path — writes all three
+  // integrity columns as zero-fill (32-byte `ZERO_HASH` for `prev_hash` AND
+  // `row_hash`, 64-byte `ZERO_SIGNATURE` for `daemon_signature`) so the
+  // NOT NULL and `CHECK(length(…))` constraints are satisfied without claiming
+  // hash-chain semantics that path does not implement. A row it wrote is
+  // neither tampered nor corrupt: it is a row a PRE-SIGNING code path put into
+  // a real database, which is an engineering SEQUENCING bug. No such row is
+  // known to exist — the first code that will ever durably write one is T3.1,
+  // and T3.1 signs — so this is a fail-closed safety net for the one way the
+  // case can still arise: wiring the daemon to a real database before T3.1
+  // lands.
+  //
+  // THE PREDICATE IS ALL THREE COLUMNS, NOT THE SIGNATURE ALONE, AND THAT IS A
+  // SEVERITY ARGUMENT RATHER THAN A TIDINESS ONE. Keying on `daemon_signature`
+  // by itself would also fire on a row that is genuinely TAMPERED and merely
+  // happens to carry a zeroed signature, reporting "engineering bug, not an
+  // attack" for something that IS an attack — a severity DOWNGRADE in exactly
+  // the direction this branch exists to prevent. Requiring all three sends that
+  // row on to stage 3, where its surviving non-zero hashes produce the truthful
+  // `hash_mismatch`. All three is also the EXACT fingerprint of the write path
+  // above, which emits the trio together and never a mix, so the tighter
+  // predicate is strictly more precise rather than merely more conservative.
+  //
+  // IT NARROWS THE DOWNGRADE RATHER THAN REMOVING IT, and the residual is worth
+  // naming. An adversary who zero-fills all three columns produces a row
+  // BYTE-IDENTICAL to the placeholder write, so no per-row check can tell the
+  // two apart and this branch reports the placeholder verdict for both. What
+  // catches that row is LINKAGE rather than this function: a zero `prev_hash`
+  // at `sequence > 0` breaks I-006-2-04's `prev_hash[n] = row_hash[n-1]`, which
+  // the range-walking caller checks — see the SCOPE note above for why that
+  // obligation lives there and not here.
+  //
+  // A LEGITIMATE GENESIS ROW MUST NOT TRIP THIS, AND THAT IS NOT OBVIOUS.
+  // `0001-initial.ts` documents `prev_hash` as "32 bytes; zero-filled at
+  // sequence=0" and {@link GENESIS_PREV_HASH} is that value, so a REAL genesis
+  // row signed by T3.1 carries a zero `prev_hash` beside a real `row_hash` and
+  // a real signature. The `row_hash` conjunct is what keeps it out: drop that
+  // one clause while keeping the `prev_hash` one and every genesis row in the
+  // database reports `signature_placeholder`.
+  //
+  // WHY THE VERDICT MUST BE DISTINCT — DO NOT COLLAPSE THIS BRANCH INTO
+  // `signature_mismatch` TO "SIMPLIFY" IT. The two verdicts route to different
+  // humans. `signature_mismatch` means POSSIBLE TAMPERING and warrants security
+  // incident response; `signature_placeholder` means a build-ordering mistake
+  // and warrants a code fix. Conflating them pages the wrong on-call. That is
+  // the same wrong-audit-verdict class that already justified two other
+  // branches in this module: {@link verifyEd25519}'s public-key THROW (a
+  // key-resolution bug reported as a tamper would fire on every row of every
+  // session) and stage 1's non-byte chain-column mapping (a tamper reported as
+  // a throw would fire on none of them, and go unreported).
+  //
+  // WITHOUT THIS CHECK THE REFUSAL IS INCIDENTAL, NOT GUARANTEED — AND IT IS
+  // MIS-LABELLED EITHER WAY. An all-zero 64-byte signature is SYNTACTICALLY
+  // WELL-FORMED: `R` = 32 zero bytes decodes to a valid curve point (y = 0,
+  // x = sqrt(-1)) of order 4, and `S` = 0 is a canonical scalar below the group
+  // order, so nothing refuses it on shape. What refuses it is the verification
+  // equation — with `S` = 0 the left side is the identity, so the equation
+  // holds only if `[8][k]A` is the identity too, which for a PRIME-ORDER `A`
+  // requires `k ≡ 0 mod L`. The refusal is therefore contingent on the resolved
+  // key rather than on any named rule: against a SMALL-ORDER key noble's
+  // ZIP-215 default accepts the identical all-zero signature, and only this
+  // module's `{ zip215: false }` refuses it there (see {@link verifyEd25519}).
+  // Contingent-and-mis-labelled is the whole argument for naming it here.
+  //
+  // THE SIGNATURE CONJUNCT IS SCOPED TO EXACTLY 64 BYTES, WHICH IS NOT AN
+  // OVERSIGHT. `CHECK(length(daemon_signature) = 64)` means a wrong-width
+  // all-zero value cannot have come through the INSERT — so it is corruption
+  // rather than a placeholder, and it keeps the `signature_mismatch` verdict
+  // every other wrong-shaped stored signature gets. The `isBytesOfLength` half
+  // also makes this check TOTAL, and it has to stay AHEAD of the all-zero test
+  // on that same column: stage 1 validates only the two CHAIN columns, so
+  // `daemonSignature` arrives here with its `Uint8Array` declaration still
+  // unchecked across the SQLite boundary, and a stored string has no `.every`
+  // to call. Guarded, a non-byte value falls through to stage 4 exactly as it
+  // did before.
+  //
+  // The two CHAIN conjuncts deliberately carry no such guard: stage 1 has
+  // already proved both are 32-byte `Uint8Array`s, so repeating
+  // `isBytesOfLength` here would be dead weight that reads like a live
+  // precondition.
+  //
+  // Deliberately NOT a constant-time comparison. Both operands are public — the
+  // placeholder value is fixed and spelled openly in Plan-001's source — and
+  // there is no secret to leak, so `.every` is the honest primitive rather than
+  // a masked compare. Deliberately not `equalBytes` against shared zero constants
+  // either: those would be two more mutable module-level `Uint8Array`s
+  // carrying {@link GENESIS_PREV_HASH}'s caller-obligation hazard, bought for
+  // nothing.
+  if (
+    isAllZeroBytes(row.prevHash) &&
+    isAllZeroBytes(row.rowHash) &&
+    isBytesOfLength(row.daemonSignature, ED25519_SIGNATURE_LENGTH) &&
+    isAllZeroBytes(row.daemonSignature)
+  ) {
+    return { valid: false, failureMode: "signature_placeholder" };
   }
 
   const recomputedRowHash: Uint8Array = blake3(buildChainInput(row.prevHash, canonical));
@@ -594,11 +757,12 @@ function verifyEd25519(
  *
  * Every call site holds a value whose DECLARED type is already `Uint8Array`,
  * and that is the point: the declaration is a claim the compiler could not
- * check. `row.prevHash` / `row.rowHash` crossed the SQLite boundary;
- * `publicKey` crossed a roster lookup and T2.7's cast; `signRow`'s `prevHash`
- * can arrive from T2.6's re-read of a stored `row_hash`. An `unknown` parameter
- * keeps the check honest — nothing is narrowed on the way in — and keeps the
- * `instanceof` from reading as redundant against a type nothing enforced.
+ * check. `row.prevHash` / `row.rowHash` / `row.daemonSignature` crossed the
+ * SQLite boundary; `publicKey` crossed a roster lookup and T2.7's cast;
+ * `signRow`'s `prevHash` can itself be a stored `row_hash` read back out of
+ * SQLite. An `unknown` parameter keeps the check honest — nothing is narrowed
+ * on the way in — and keeps the `instanceof` from reading as redundant against
+ * a type nothing enforced.
  *
  * `instanceof Uint8Array` is the same test noble's `abytes` runs, so a value
  * this accepts is one the library accepts: a better-sqlite3 `Buffer` passes,
@@ -606,6 +770,24 @@ function verifyEd25519(
  */
 function isBytesOfLength(value: unknown, expectedLength: number): value is Uint8Array {
   return value instanceof Uint8Array && value.length === expectedLength;
+}
+
+/**
+ * Every byte is zero — {@link verifyRow}'s stage-2 predicate, applied to each
+ * of the three integrity columns in turn.
+ *
+ * Takes `Uint8Array` rather than `unknown`, unlike {@link isBytesOfLength}, and
+ * that asymmetry is deliberate: this helper CANNOT establish byte-ness, because
+ * `.every` does not exist on a stored `string` and calling it would throw. It
+ * is safe only behind a byte-ness proof, which at every call site is either
+ * stage 1 (the two chain columns) or an `isBytesOfLength` conjunct evaluated
+ * first (the signature). Widening it to `unknown` would hide that obligation.
+ *
+ * An empty array returns `true` by `.every`'s vacuous-truth rule; no call site
+ * can reach it, since all three are length-proved before they get here.
+ */
+function isAllZeroBytes(candidateBytes: Uint8Array): boolean {
+  return candidateBytes.every((byteValue) => byteValue === 0);
 }
 
 /**

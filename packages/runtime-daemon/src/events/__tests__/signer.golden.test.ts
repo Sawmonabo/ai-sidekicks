@@ -2,15 +2,16 @@
 // (Plan-006 T2.2).
 //
 // SCOPE NOTE — WHY THIS FILE EXISTS ALONGSIDE `canonicalizer.golden.test.ts`.
-// Plan-006's Phase 2 names exactly one test task for the crypto core, T2.3, and
-// scopes it to the canonicalizer (its `File:` row names
-// `canonicalizer.golden.test.ts`; its `Verifies invariant:` line lists only
-// I-006-1-03 and I-006-2-03). T2.5 is the post-shred property suite and is
-// scoped to T2.4's PII codec. That leaves `signer.ts` — which owns the two
-// tamper-evidence commitments on every row — with no task unit-testing it. The
-// behaviors pinned below are security-critical and several encode a specific
-// defect closed in review (see the ZIP-215 vector), so they are pinned here as
-// a T2.3 sibling rather than left unpinned pending a plan true-up.
+// T2.3 is a single task covering TWO suites, and they are split by SUBJECT
+// rather than by task: the sibling pins the canonicalizer's byte-stability
+// vectors, while this file pins `signer.ts` — the module that mints the two
+// tamper-evidence commitments carried on every row. This suite is where T2.3's
+// I-006-2-04 (genesis seed, and the `BLAKE3(prev_hash || canonical)` linkage
+// that produces `prev_hash[n] = row_hash[n-1]`) and I-006-2-06 (one
+// canonicalization per row) legs are discharged. Nothing else in Phase 2
+// reaches this module: T2.5 is the post-shred property suite and is scoped to
+// T2.4's PII codec. Several behaviours below encode a specific defect closed in
+// review — see the ZIP-215 vector.
 //
 // WHAT THE HEX FIXTURES ARE, AND ARE NOT. Two different kinds of constant live
 // here and they carry different authority:
@@ -215,8 +216,9 @@ describe("signRow — deterministic commitments over one canonicalization", () =
 
   it("is byte-identical across repeated calls — RFC 8032 §5.1.6 determinism", () => {
     // Ed25519 derives its per-signature nonce from the secret key and the
-    // message, never from an RNG. This is what makes T2.6's backfill migration
-    // safely re-runnable.
+    // message, never from an RNG. This is what makes `signRow` `idempotent`:
+    // re-running it over one row reproduces the same three columns rather than
+    // minting a second, differing signature.
     const first = signReferenceRow();
     const second = signReferenceRow();
     expect(bytesToHex(second.rowHash)).toBe(bytesToHex(first.rowHash));
@@ -252,8 +254,9 @@ describe("signRow — deterministic commitments over one canonicalization", () =
 
     // Byte-NESS, not just width: a 32-CHARACTER string clears a bare length
     // check and then coerces to near-zero bytes through
-    // `TypedArray.prototype.set`. T2.6's backfill re-reads a stored `row_hash`
-    // out of SQLite, where a `BLOB` column can genuinely hand back a string.
+    // `TypedArray.prototype.set`. The caller appending row n re-reads row n-1's
+    // stored `row_hash` out of SQLite to use as this `prevHash`, and a `BLOB`
+    // column can genuinely hand back a string.
     const thirtyTwoCharacterString = "0".repeat(32);
     expect(thirtyTwoCharacterString).toHaveLength(32);
     expect(
@@ -332,8 +335,14 @@ describe("verifyRow — rules 1 and 2 of `Security Architecture §Verification R
   });
 
   it("reports hash_mismatch — not signature_mismatch — for a row failing BOTH checks", () => {
-    // CHECK ORDER IS SPEC ORDER AND IT IS OBSERVABLE: chain first, signature
-    // second, first failure wins.
+    // STAGE 3 BEFORE STAGE 4 — the spec-order leg of an order that is now FOUR
+    // stages, not two: (1) structural chain-column guard → `hash_mismatch`,
+    // (2) all three integrity columns zero-filled → `signature_placeholder`,
+    // (3) hash recompute → `hash_mismatch`, (4) signature verify →
+    // `signature_mismatch`. First failure wins throughout. Stages 1-2 are
+    // pinned in the placeholder describe block below; this test owns 3-before-4
+    // and is unaffected by the newer stages — this row's `prev_hash` is
+    // non-zero, so stage 2 short-circuits on its very first conjunct.
     //
     // Both corruptions are single-BIT flips of otherwise-valid 32/64-byte
     // values, deliberately. Replacing `rowHash` wholesale could trip
@@ -365,6 +374,342 @@ describe("verifyRow — rules 1 and 2 of `Security Architecture §Verification R
       valid: false,
       failureMode: "hash_mismatch",
     });
+  });
+});
+
+// --------------------------------------------------------------------------
+// Plan-001's zero-fill placeholder — the fail-closed safety net (stage 2).
+// --------------------------------------------------------------------------
+
+const CHAIN_HASH_LENGTH = 32;
+const ED25519_SIGNATURE_LENGTH = 64;
+
+/**
+ * The exact trio `session/session-service.ts` INSERTs today: 32-byte
+ * `ZERO_HASH` for BOTH chain columns, 64-byte `ZERO_SIGNATURE` for the
+ * signature.
+ *
+ * ALL THREE COLUMNS ARE LOAD-BEARING, not just the signature: stage 2 keys on
+ * the whole trio, so this fixture is the predicate's positive case and every
+ * `...buildPlaceholderRow()` spread below is deriving a NEAR-miss from it.
+ *
+ * Rebuilt here rather than imported. Those constants are module-private to the
+ * Plan-001 service, and importing them would make this suite track whatever
+ * that service does rather than pin the shape `verifyRow` must recognize — a
+ * placeholder-shape change there should surface as a FAILURE here, not be
+ * silently adopted.
+ */
+function buildPlaceholderRow(): SignedRow {
+  return {
+    prevHash: new Uint8Array(CHAIN_HASH_LENGTH),
+    rowHash: new Uint8Array(CHAIN_HASH_LENGTH),
+    daemonSignature: new Uint8Array(ED25519_SIGNATURE_LENGTH),
+  };
+}
+
+describe("verifyRow — the zero-fill placeholder verdict", () => {
+  it("reports signature_placeholder and NOT hash_mismatch for Plan-001's placeholder row", () => {
+    // ======================== THE ORDERING ASSERTION ========================
+    // THIS IS THE POINT OF THE TEST, AND THE `not.toStrictEqual` IS NOT
+    // DECORATION.
+    //
+    // A placeholder row zero-fills ALL THREE integrity columns, so it fails the
+    // hash recompute as well as carrying a placeholder signature. Move the
+    // placeholder check below the hash compare and this row reports
+    // `hash_mismatch`, the new verdict becomes unreachable, and the enum value
+    // is dead code. The positive assertion alone cannot tell those two worlds
+    // apart once someone "simplifies" the branch; the negative one fails
+    // loudly.
+    // ========================================================================
+    const placeholderRow = buildPlaceholderRow();
+
+    // Self-evidencing control: the placeholder row genuinely DOES fail the hash
+    // check, so "not hash_mismatch" is a claim about check ORDER rather than
+    // about this row happening to carry a valid digest. Recomputed from an
+    // independent concatenation, the same way every digest pin above is.
+    const recomputedRowHash = blake3(
+      concatenateChainInput(new Uint8Array(CHAIN_HASH_LENGTH), CANONICAL_ROW),
+    );
+    expect(bytesToHex(recomputedRowHash)).not.toBe("00".repeat(CHAIN_HASH_LENGTH));
+
+    expect(verifyRow(CANONICAL_ROW, placeholderRow, DAEMON_PUBLIC_KEY)).toStrictEqual({
+      valid: false,
+      failureMode: "signature_placeholder",
+    });
+    expect(verifyRow(CANONICAL_ROW, placeholderRow, DAEMON_PUBLIC_KEY)).not.toStrictEqual({
+      valid: false,
+      failureMode: "hash_mismatch",
+    });
+
+    // better-sqlite3 hands a BLOB back as a `Buffer`, which is what the real
+    // read path produces. `Buffer extends Uint8Array` so `isBytesOfLength`
+    // accepts it — asserted rather than assumed, since the whole verdict rests
+    // on that `instanceof`.
+    const bufferBackedPlaceholder: SignedRow = {
+      prevHash: Buffer.alloc(CHAIN_HASH_LENGTH),
+      rowHash: Buffer.alloc(CHAIN_HASH_LENGTH),
+      daemonSignature: Buffer.alloc(ED25519_SIGNATURE_LENGTH),
+    };
+    expect(verifyRow(CANONICAL_ROW, bufferBackedPlaceholder, DAEMON_PUBLIC_KEY)).toStrictEqual({
+      valid: false,
+      failureMode: "signature_placeholder",
+    });
+  });
+
+  it("does NOT fire on a zeroed signature ALONE — an honest chain is not a placeholder write", () => {
+    // THE DISCRIMINATION THE THREE-COLUMN PREDICATE BUYS. This row's chain
+    // columns are honest — a real `prev_hash` and its matching `row_hash` — so
+    // it is NOT what `session-service.ts` produces: that path emits the zero
+    // trio together and never a mix. It therefore carries past stage 2, clears
+    // the hash recompute, and reports `signature_mismatch` at stage 4.
+    //
+    // A signature-ONLY stage 2 returns `signature_placeholder` here instead.
+    // The test below is where that difference stops being cosmetic.
+    const honestChainZeroSignature: SignedRow = {
+      ...signReferenceRow(),
+      daemonSignature: new Uint8Array(ED25519_SIGNATURE_LENGTH),
+    };
+    expect(verifyRow(CANONICAL_ROW, honestChainZeroSignature, DAEMON_PUBLIC_KEY)).toStrictEqual({
+      valid: false,
+      failureMode: "signature_mismatch",
+    });
+  });
+
+  it("reports hash_mismatch for a TAMPERED row that also carries a zeroed signature", () => {
+    // THE SEVERITY-DOWNGRADE VECTOR — THE REASON STAGE 2 KEYS ON ALL THREE
+    // COLUMNS RATHER THAN THE SIGNATURE. This row's `row_hash` is forged. Under
+    // a signature-only predicate it reports `signature_placeholder`, i.e. "an
+    // engineering sequencing bug, not an attack", for a row that IS an attack —
+    // routing a tamper AWAY from security on-call, which is the same
+    // wrong-verdict failure the branch was added to prevent, pointed the other
+    // way. Requiring all three carries the row past stage 2 on its surviving
+    // non-zero hashes and lets stage 3 return the truthful verdict.
+    const tamperedWithZeroSignature: SignedRow = {
+      ...signReferenceRow(),
+      rowHash: withFlippedFirstBit(signReferenceRow().rowHash),
+      daemonSignature: new Uint8Array(ED25519_SIGNATURE_LENGTH),
+    };
+    expect(verifyRow(CANONICAL_ROW, tamperedWithZeroSignature, DAEMON_PUBLIC_KEY)).toStrictEqual({
+      valid: false,
+      failureMode: "hash_mismatch",
+    });
+    expect(
+      verifyRow(CANONICAL_ROW, tamperedWithZeroSignature, DAEMON_PUBLIC_KEY),
+    ).not.toStrictEqual({ valid: false, failureMode: "signature_placeholder" });
+  });
+
+  it("accepts a LEGITIMATE signed genesis row — a zero prev_hash is not a placeholder", () => {
+    // NOT OBVIOUS, WHICH IS EXACTLY WHY IT IS PINNED. A zero `prev_hash` is
+    // LEGITIMATE at `sequence = 0`: `0001-initial.ts` declares the column "32
+    // bytes; zero-filled at sequence=0" and {@link GENESIS_PREV_HASH} encodes
+    // that. So a REAL genesis row signed by T3.1 shares one of its three
+    // columns with Plan-001's placeholder trio, and a predicate that kept the
+    // `prev_hash` conjunct while dropping the `row_hash` one would misreport
+    // EVERY genesis row in the database as `signature_placeholder` — a
+    // fail-closed net that fails closed on honest data.
+    const genesisRow = signRow(CANONICAL_ROW, GENESIS_PREV_HASH, DAEMON_SIGNING_KEY);
+
+    // The shared column, asserted rather than assumed: this test is only
+    // discriminating if the genesis row really does carry a zero `prev_hash`
+    // alongside a non-zero `row_hash`.
+    expect(bytesToHex(genesisRow.prevHash)).toBe("00".repeat(CHAIN_HASH_LENGTH));
+    expect(bytesToHex(genesisRow.rowHash)).toBe(EXPECTED_GENESIS_ROW_HASH_HEX);
+
+    expect(verifyRow(CANONICAL_ROW, genesisRow, DAEMON_PUBLIC_KEY)).toStrictEqual({ valid: true });
+    expect(verifyRow(CANONICAL_ROW, genesisRow, DAEMON_PUBLIC_KEY)).not.toStrictEqual({
+      valid: false,
+      failureMode: "signature_placeholder",
+    });
+  });
+
+  it("yields to STAGE 1 — a malformed chain column reports hash_mismatch even with a zero signature", () => {
+    // The other order edge, and the one the placeholder test alone cannot pin:
+    // without this, a THREE-stage order that LED with the placeholder check
+    // would satisfy every other assertion in this file. A non-byte or
+    // wrong-width chain column is a corruption / plumbing problem and keeps its
+    // `hash_mismatch` verdict regardless of what the signature column holds.
+    //
+    // The two rows fail a stage-2-first ordering DIFFERENTLY, and both failures
+    // are the point. The string `prev_hash` would reach `isAllZeroBytes` with
+    // no `.every` to call and THROW; the short `row_hash` is all-zero, so the
+    // whole trio matches and it would return `signature_placeholder`. Stage 1
+    // is what makes stage 2's two chain conjuncts safe to write without their
+    // own byte-ness guard.
+    const stringPrevHashZeroSignature: SignedRow = {
+      prevHash: "0".repeat(CHAIN_HASH_LENGTH) as unknown as Uint8Array,
+      rowHash: new Uint8Array(CHAIN_HASH_LENGTH),
+      daemonSignature: new Uint8Array(ED25519_SIGNATURE_LENGTH),
+    };
+    expect(verifyRow(CANONICAL_ROW, stringPrevHashZeroSignature, DAEMON_PUBLIC_KEY)).toStrictEqual({
+      valid: false,
+      failureMode: "hash_mismatch",
+    });
+
+    const shortRowHashZeroSignature: SignedRow = {
+      prevHash: new Uint8Array(CHAIN_HASH_LENGTH),
+      rowHash: new Uint8Array(CHAIN_HASH_LENGTH - 1),
+      daemonSignature: new Uint8Array(ED25519_SIGNATURE_LENGTH),
+    };
+    expect(verifyRow(CANONICAL_ROW, shortRowHashZeroSignature, DAEMON_PUBLIC_KEY)).toStrictEqual({
+      valid: false,
+      failureMode: "hash_mismatch",
+    });
+  });
+
+  it("is scoped to exactly 64 bytes — a wrong-width all-zero signature is never the placeholder", () => {
+    // `0001-initial.ts` declares `CHECK(length(daemon_signature) = 64)`, so a
+    // 63-byte value never came through the INSERT: it is corruption, not a
+    // placeholder, and keeps the verdict every other wrong-shaped stored
+    // signature gets.
+    const shortZeroSignature: SignedRow = {
+      ...signReferenceRow(),
+      daemonSignature: new Uint8Array(ED25519_SIGNATURE_LENGTH - 1),
+    };
+    expect(verifyRow(CANONICAL_ROW, shortZeroSignature, DAEMON_PUBLIC_KEY)).toStrictEqual({
+      valid: false,
+      failureMode: "signature_mismatch",
+    });
+
+    // THE DISCRIMINATING CASE. The row above has an honest `prev_hash`, so it
+    // short-circuits stage 2 on the FIRST conjunct and would pass even with the
+    // width requirement deleted. Zero the chain columns too and only the
+    // 64-byte scoping stands between this row and `signature_placeholder`.
+    const shortZeroSignatureOnZeroChain: SignedRow = {
+      ...buildPlaceholderRow(),
+      daemonSignature: new Uint8Array(ED25519_SIGNATURE_LENGTH - 1),
+    };
+    expect(
+      verifyRow(CANONICAL_ROW, shortZeroSignatureOnZeroChain, DAEMON_PUBLIC_KEY),
+    ).toStrictEqual({ valid: false, failureMode: "hash_mismatch" });
+  });
+
+  it("does not fire on a NON-BYTE stored signature — the check stays total", () => {
+    // Stage 1 validates only the two CHAIN columns, so `daemonSignature`
+    // reaches stage 2 with its `Uint8Array` declaration unchecked across the
+    // SQLite boundary. A 64-CHARACTER string is not bytes, is not the
+    // placeholder, and must reach a verdict without throwing.
+    const sixtyFourCharacterString = "0".repeat(ED25519_SIGNATURE_LENGTH);
+    expect(sixtyFourCharacterString).toHaveLength(ED25519_SIGNATURE_LENGTH);
+
+    const stringSignature: SignedRow = {
+      ...signReferenceRow(),
+      daemonSignature: sixtyFourCharacterString as unknown as Uint8Array,
+    };
+    expect(() => verifyRow(CANONICAL_ROW, stringSignature, DAEMON_PUBLIC_KEY)).not.toThrow();
+    expect(verifyRow(CANONICAL_ROW, stringSignature, DAEMON_PUBLIC_KEY)).toStrictEqual({
+      valid: false,
+      failureMode: "signature_mismatch",
+    });
+
+    // THE DISCRIMINATING CASE, again: the row above short-circuits on its
+    // honest `prev_hash` and never reaches the signature conjuncts at all. Zero
+    // the chain columns and `isBytesOfLength` is the ONLY thing standing
+    // between that string and an `.every` call it does not have — drop it and
+    // this row throws a TypeError out of a function contracted never to raise
+    // on stored data, which is how a tamper goes UNREPORTED.
+    const stringSignatureOnZeroChain: SignedRow = {
+      ...buildPlaceholderRow(),
+      daemonSignature: sixtyFourCharacterString as unknown as Uint8Array,
+    };
+    expect(() =>
+      verifyRow(CANONICAL_ROW, stringSignatureOnZeroChain, DAEMON_PUBLIC_KEY),
+    ).not.toThrow();
+    expect(verifyRow(CANONICAL_ROW, stringSignatureOnZeroChain, DAEMON_PUBLIC_KEY)).toStrictEqual({
+      valid: false,
+      failureMode: "hash_mismatch",
+    });
+  });
+
+  it("names a refusal that was otherwise incidental — an all-zero signature IS well-formed", () => {
+    // Why the explicit check is not redundant with "it would fail anyway".
+    // `R` = 32 zero bytes decodes to a valid order-4 curve point and `S` = 0 is
+    // a canonical scalar, so nothing refuses an all-zero signature on SHAPE.
+    // Against a prime-order key the verification equation refuses it — but that
+    // refusal is contingent on the resolved key, not on any named rule, and the
+    // third assertion below is the proof: under noble's ZIP-215 DEFAULT the
+    // identical all-zero signature VERIFIES against an all-zero (order-4) key.
+    const allZeroSignature = new Uint8Array(ED25519_SIGNATURE_LENGTH);
+    const allZeroPublicKey = new Uint8Array(CHAIN_HASH_LENGTH) as Ed25519PublicKey;
+
+    expect(
+      ed25519.verify(allZeroSignature, CANONICAL_ROW, DAEMON_PUBLIC_KEY, { zip215: false }),
+    ).toBe(false);
+    expect(ed25519.verify(allZeroSignature, CANONICAL_ROW, DAEMON_PUBLIC_KEY)).toBe(false);
+    expect(ed25519.verify(allZeroSignature, CANONICAL_ROW, allZeroPublicKey)).toBe(true);
+    expect(
+      ed25519.verify(allZeroSignature, CANONICAL_ROW, allZeroPublicKey, { zip215: false }),
+    ).toBe(false);
+
+    // FOR THE PLACEHOLDER TRIO, `verifyRow` depends on none of that: stage 2
+    // returns the named verdict before any curve arithmetic runs, so the answer
+    // is the same whichever key the roster resolves. That key-independence is
+    // the guarantee the explicit check buys, and it is what "incidental" versus
+    // "guaranteed" means in concrete terms.
+    expect(verifyRow(CANONICAL_ROW, buildPlaceholderRow(), DAEMON_PUBLIC_KEY)).toStrictEqual({
+      valid: false,
+      failureMode: "signature_placeholder",
+    });
+    expect(verifyRow(CANONICAL_ROW, buildPlaceholderRow(), allZeroPublicKey)).toStrictEqual({
+      valid: false,
+      failureMode: "signature_placeholder",
+    });
+
+    // THE GUARANTEE IS SCOPED TO THAT TRIO, AND THE THREE-COLUMN PREDICATE IS
+    // WHAT SCOPED IT. An HONEST-CHAIN row carrying the same zeroed signature no
+    // longer stops at stage 2, so its refusal is stage 4's and rests entirely
+    // on `{ zip215: false }`: against the order-4 key, noble's DEFAULT returns
+    // `true` (third assertion above) and this row would verify as `valid: true`
+    // without that option. Not a hole this test papers over — the caller
+    // RESOLVES `daemonPublicKey` from the participant roster, a small-order key
+    // in the roster is its own bug, and `{ zip215: false }` is independently
+    // pinned by the ZIP-215 block below. It is recorded because widening stage
+    // 2 to all three columns MOVED this case out from behind it, and the next
+    // reader should not have to rediscover that.
+    const honestChainZeroSignature: SignedRow = {
+      ...signReferenceRow(),
+      daemonSignature: allZeroSignature,
+    };
+    expect(verifyRow(CANONICAL_ROW, honestChainZeroSignature, DAEMON_PUBLIC_KEY)).toStrictEqual({
+      valid: false,
+      failureMode: "signature_mismatch",
+    });
+    expect(verifyRow(CANONICAL_ROW, honestChainZeroSignature, allZeroPublicKey)).toStrictEqual({
+      valid: false,
+      failureMode: "signature_mismatch",
+    });
+  });
+
+  it("leaves every pre-existing verdict unperturbed", () => {
+    // The regression sweep the new branch has to survive: an honest row still
+    // verifies, a genuinely tampered one still reports `hash_mismatch`, a
+    // wrong-length public key still THROWS, and a wrong-length signature still
+    // returns `signature_mismatch`. Each is pinned in its own test above; they
+    // are re-asserted together here so a future edit to stage 2 that perturbs
+    // one of them fails in the block that owns stage 2.
+    const signed = signReferenceRow();
+    expect(verifyRow(CANONICAL_ROW, signed, DAEMON_PUBLIC_KEY)).toStrictEqual({ valid: true });
+
+    expect(
+      verifyRow(
+        CANONICAL_ROW,
+        { ...signed, rowHash: withFlippedFirstBit(signed.rowHash) },
+        DAEMON_PUBLIC_KEY,
+      ),
+    ).toStrictEqual({ valid: false, failureMode: "hash_mismatch" });
+
+    expect(
+      captureThrownMessage(() =>
+        verifyRow(CANONICAL_ROW, signed, DAEMON_PUBLIC_KEY.slice(0, 31) as Ed25519PublicKey),
+      ),
+    ).toMatch(/requires a 32-byte Uint8Array public key/);
+
+    expect(
+      verifyRow(
+        CANONICAL_ROW,
+        { ...signed, daemonSignature: signed.daemonSignature.slice(0, 63) },
+        DAEMON_PUBLIC_KEY,
+      ),
+    ).toStrictEqual({ valid: false, failureMode: "signature_mismatch" });
   });
 });
 

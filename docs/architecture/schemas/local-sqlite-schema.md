@@ -302,13 +302,13 @@ CREATE TABLE daemon_signing_keys (
 );
 
 -- Owner: Plan-006 | Migration: 0NNN-pending-anchor-uploads.ts (Tier 4 Phase 3)
--- Durable partition-tolerance queue for Merkle anchors awaiting control-plane
--- upload. Unflushed anchors survive daemon restart without re-signing per
--- Plan-006:152. The (session_id, node_id, start_sequence, end_sequence) UNIQUE
--- constraint makes the T3.3 anchorRange() force-fire path (consumed by T3.2
--- compactor's anchor-before-compaction protocol per Spec-006 §Post-Compaction
--- Integrity) idempotent against re-entry of an identical range (the key dedups
--- genuine re-fires only — coverage semantics in the constraint comment below).
+-- Durable partition-tolerance queue for Merkle anchors awaiting control-plane upload. Unflushed
+-- anchors survive daemon restart without re-signing per Plan-006 §Merkle Anchor Emission (its
+-- partition-tolerance bullet: anchors queue locally on upload failure and flush on reconnect). The
+-- (session_id, node_id, start_sequence, end_sequence) UNIQUE constraint makes the T3.3
+-- anchorRange() force-fire path (consumed by T3.2 compactor's anchor-before-compaction protocol
+-- per Spec-006 §Post-Compaction Integrity) idempotent against re-entry of an identical range (the
+-- key dedups genuine re-fires only — coverage semantics in the constraint comment below).
 -- Node-scope (sentinel session_id) chains queue their local Merkle anchors here too, as the durable
 -- LOCAL witness. In V1 those sentinel-partitioned rows are NOT upload candidates -- the upload worker
 -- selects session-scoped rows only (the sentinel cannot satisfy event_log_anchors' non-null session_id
