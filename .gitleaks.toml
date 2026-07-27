@@ -195,23 +195,3 @@ regexes = [
 paths = [
   '''packages/crypto-paseto/src/__tests__/__fixtures__/v4\.json''',
 ]
-# TRANSIENT — remove when this branch squash-merges (see entry 4(a)).
-#
-# The RFC 8032 vectors are no longer suppressed by value, so the two commits
-# that introduced them under the PRE-RENAME constant names are the only place
-# they still fire. Those commits exist on the `feat/plan-006-phase-2-crypto-core`
-# branch ONLY and are squashed away at merge; `develop` receives the post-rename
-# state, which scans clean with no entry at all. CI's gitleaks job scans the PR
-# commit RANGE (`actions/checkout` fetch-depth 0 + gitleaks-action), which is why
-# the working-tree fix alone does not make the job green.
-#
-# Blast radius is bounded by measurement, not assertion: scanning with the RFC
-# value regexes already removed yields exactly four findings across these two
-# commits, all four the published vectors. Allowlisting the pair therefore
-# suppresses precisely that known set and nothing else. Commit-scoping is
-# preferred over restoring the value regexes because it cannot reach a
-# production path — it names two immutable, about-to-vanish SHAs.
-commits = [
-  "59b957b248b9b3c2077b2548c15ac00d82fd13b7",
-  "aee71afbabf78a743025a3ab63f19b2c83f9ff8b",
-]
