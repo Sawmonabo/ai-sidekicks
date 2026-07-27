@@ -80,6 +80,12 @@
 // (interface here, implementation owned by Plan-022 per CP-006-1) and T3.2's
 // injected `RollbackAttributionSource`.
 //
+// That obligation is REGISTERED, not merely described: `Plan-006 §Cross-Plan
+// Obligations` CP-006-11 binds Plan-022 Tier 5 to ship the implementation AND
+// to specify this column's byte format, and carries the `sessionId` AAD
+// binding as an obligation there — this interface, having fixed no format, can
+// ask for that binding but cannot require it.
+//
 // That keeps the module self-contained against Plan-022 at Tier 5 with no tier
 // inversion — the property the `daemon_signing_keys` row in
 // `docs/architecture/cross-plan-dependencies.md §1. Table Ownership Map`
