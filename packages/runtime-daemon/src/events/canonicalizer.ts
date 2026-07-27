@@ -14,7 +14,13 @@
 // value nesting containers past a fixed ceiling (see
 // `CANONICAL_JSON_MAX_DEPTH`), so Plan-027's Spec-024 intake needs a registered
 // rejection reason for an over-deep `action_payload`, and a ceiling that proves
-// too tight is renegotiated here rather than forked around.
+// too tight is renegotiated here rather than forked around. The EVENT entry
+// point carries one refusal the generic one deliberately does not:
+// `canonicalizeEvent` rejects a `sequence` outside the safe-integer range,
+// where distinct sequences collapse onto one IEEE-754 double and two different
+// events could share a `row_hash` (see `assertRepresentableSequence`). That
+// asymmetry is forced, not stylistic — RFC 8785 Appendix B MANDATES output for
+// unsafe numbers, so the generic serializer has to keep serializing them.
 //
 // The serializer is `canonicalize@3.0.0` (Erdtman's RFC 8785 reference
 // implementation), EXACT-pinned in package.json rather than caret-ranged: a
@@ -36,7 +42,10 @@
 // untrusted CP-006-3 path arrives via `JSON.parse`, which produces no `NaN`, no
 // `Infinity`, and no cycle — but an in-process caller reaches the first two
 // with a plain `canonicalizeJson({ sequence: NaN })`, so the inventory names
-// them rather than claiming this module owns every throw. Nothing
+// them rather than claiming this module owns every throw. That example is
+// entry-point-specific: the SAME defect routed through `canonicalizeEvent`
+// meets `assertRepresentableSequence` first and gets this module's wording
+// instead, since a non-integer fails the safe-integer predicate too. Nothing
 // discriminates a canonicalization failure from any other throw yet, and a
 // class minted before a `catch` branches on it is speculative. The migration
 // target when a consumer first needs to discriminate is `DaemonDomainError`,
@@ -420,6 +429,82 @@ export function canonicalizeJson(value: unknown): CanonicalBytes {
   return canonicalUtf8Bytes as CanonicalBytes;
 }
 
+// --------------------------------------------------------------------------
+// Sequence representability — keeping the canonical bytes INJECTIVE.
+// --------------------------------------------------------------------------
+
+/**
+ * Refuses an envelope whose `sequence` is not a faithfully-represented
+ * integer.
+ *
+ * WHAT BREAKS WITHOUT IT: `sequence` is contracted as an integer but travels
+ * as an IEEE-754 binary64 double, which holds integers faithfully only to
+ * 2^53 − 1. Past that, distinct integers collapse onto one double —
+ * `9007199254740992 === 9007199254740993` is `true`. Two genuinely different
+ * events then canonicalize to IDENTICAL bytes, hash to an identical
+ * `row_hash`, and collide inside the very chain `Spec-006 §Integrity Protocol`
+ * builds to make tampering detectable. This function is the last place that
+ * collision can be caught: one line later the two inputs are indistinguishable
+ * — the same number — and RFC 8785 correctly serializes the collapsed value
+ * with no way to know two different events produced it.
+ *
+ * WHY IT IS NOT IN `canonicalizeJson`. Two independent reasons, either
+ * sufficient. First, RFC 8785 conformance FORBIDS it: Appendix B Table 1 — the
+ * vector set T2.3 binds this module to — includes unsafe integers and `1e30`
+ * as inputs with mandated outputs, so a generic unsafe-number refusal would
+ * fail the specification the module implements. Second, the two entry points
+ * carry different contracts, and this one is event-specific: `sequence` is
+ * declared an INTEGER, so a value that is not a faithful integer violates its
+ * own contract, whereas an arbitrary `payload` number is declared a JSON
+ * NUMBER — a double — and collapses relative to nothing. `canonicalizeJson`
+ * stays the generic serializer CP-006-3 hands untrusted Spec-024 bodies; event
+ * semantics live here.
+ *
+ * WHY `Number.isSafeInteger` AND NOT `sequence > EVENT_ENVELOPE_SEQUENCE_MAX`.
+ * A bare upper-bound compare has three holes on exactly the path this guard
+ * exists for — the DIRECT caller who never parsed the envelope, and so is not
+ * pre-filtered by the wire schema. `NaN > max` is `false`, `-Infinity > max`
+ * is `false`, and `1.5 > max` is `false`, so all three would sail through;
+ * negative collapse below −2^53 would too. Spelling the guard out as
+ * `Number.isInteger(x) && x <= max && x >= -max` just re-derives
+ * `Number.isSafeInteger` by hand. The predicate IS the property the bytes
+ * need: faithfully representable. `NaN` and `Infinity` would otherwise reach
+ * `canonicalize@3.0.0`'s own two refusals (see the header inventory) and
+ * surface with bare library wording; this guard now precedes them for
+ * `sequence` specifically, which is a strict diagnostic improvement.
+ *
+ * DELIBERATELY NOT IMPORTED: the contracts-package
+ * `EVENT_ENVELOPE_SEQUENCE_MAX` names the same boundary, and this module still
+ * does not depend on it. Importing would make the two surfaces agree BY
+ * CONSTRUCTION, including agreeing on a wrong value; keeping them independent
+ * lets a test assert they agree at the boundary and actually fail if either
+ * side drifts. That test is the drift guard a shared const could not be.
+ *
+ * NON-NEGATIVITY IS NOT RE-CHECKED — a residual, stated rather than glossed. A
+ * negative safe integer is represented perfectly faithfully, so it is no
+ * byte-fidelity problem; it violates the schema's `.nonnegative()`, a DOMAIN
+ * rule. This module validates no other member against its schema — it does not
+ * check `version` against the `MAJOR.MINOR` pattern or `category` against the
+ * enum — and re-checking one member's domain here would imply it checks all.
+ *
+ * A SECOND RESIDUAL, out of this guard's reach: `sourceEpoch` and
+ * `sourcePosition` (contracts `SourceEpochSchema` / `SourcePositionSchema`)
+ * are likewise contracted as integers, but they ride INSIDE `payload`, an open
+ * record this module sees as untyped JSON. They carry the identical collapse
+ * hazard and no guard here can see them; the parse boundary is their only
+ * enforcement today.
+ */
+function assertRepresentableSequence(sequence: number): void {
+  if (!Number.isSafeInteger(sequence)) {
+    // The interpolated value is already the COLLAPSED one for an out-of-range
+    // input — `String(9007199254740993)` renders "9007199254740992" — which is
+    // the failure itself made visible, not a reporting defect.
+    throw new Error(
+      `RFC 8785 canonicalization refused: sequence ${String(sequence)} is not a safe integer (|value| must be at most ${String(Number.MAX_SAFE_INTEGER)}, and it must be an integer). Outside that range distinct sequences collapse onto the same IEEE-754 double, so two different events would produce identical canonical bytes and an identical row_hash — a collision in the chain that Spec-006 §Integrity Protocol relies on being injective.`,
+    );
+  }
+}
+
 /**
  * Canonicalizes an {@link EventEnvelope} to the byte string that
  * `Spec-006 §Canonical Serialization Rules` hashes into `row_hash` and signs as
@@ -449,8 +534,25 @@ export function canonicalizeJson(value: unknown): CanonicalBytes {
  * and owns the row it writes. Collapsing absent → `null` HERE would silently
  * rewrite signed bytes — the same class of error the sub-millisecond branch
  * above refuses loudly.
+ *
+ * REFUSAL ORDER is observable, so it is fixed here rather than left to
+ * evaluation order: {@link assertRepresentableSequence} runs FIRST, ahead of
+ * the projection literal and therefore ahead of `normalizeOccurredAt`. An
+ * envelope defective in both members reports the sequence refusal and never
+ * the timestamp one.
+ *
+ * This entry point is the integrity boundary for BOTH write paths: T2.4's PII
+ * codec builds its own member literal but routes through this function, so the
+ * sequence guard covers the PII path structurally, with no second call site.
  */
 export function canonicalizeEvent(envelope: EventEnvelope): CanonicalBytes {
+  // Ahead of everything else — see REFUSAL ORDER above. The wire schema bounds
+  // `sequence` at the parse boundary, but `canonicalizeEvent` does not parse:
+  // an in-process caller constructing an `EventEnvelope` literal reaches the
+  // hash chain having met no schema at all, and that caller is precisely who
+  // this guard is for.
+  assertRepresentableSequence(envelope.sequence);
+
   // The canonical set is exactly these eleven members. The value-typed mapped
   // annotation is the drift guard, and it pins BOTH halves: `-?` makes every
   // member required, so a twelfth envelope member added in contracts breaks

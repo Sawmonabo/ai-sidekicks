@@ -61,6 +61,7 @@ import {
   CHANNEL_ARBITRATION_EVENT_TYPES,
   compareEventEnvelopeVersion,
   CROSS_NODE_DISPATCH_EVENT_TYPES,
+  EVENT_ENVELOPE_SEQUENCE_MAX,
   EVENT_ENVELOPE_VERSION_MAX_LEN,
   EVENT_ENVELOPE_VERSION_PATTERN,
   EVENT_FIELD_MAX_LEN,
@@ -953,6 +954,49 @@ describe("EventEnvelopeSchema — canonical carrier (T1.3)", () => {
     const broken = { ...buildBareEnvelope() } as Record<string, unknown>;
     delete broken["version"];
     expect(EventEnvelopeSchema.safeParse(broken).success).toBe(false);
+  });
+
+  // ------------------------------------------------------------------------
+  // `sequence` ceiling — an injectivity requirement, not a capacity estimate.
+  // ------------------------------------------------------------------------
+  //
+  // WHAT THESE TWO PIN, AND WHAT THEY DELIBERATELY DO NOT. `.int()` already
+  // bounds `sequence` to the safe-integer range on its own, so `success` alone
+  // is NOT a discriminating assertion here — it reads identically with and
+  // without `EVENT_ENVELOPE_SEQUENCE_MAX`. What the named bound adds is the
+  // DIAGNOSIS, so the reject test asserts on the message; that is the assertion
+  // that fails if the `.max()` is ever dropped.
+  //
+  // Neither test covers the path the bound actually exists for: `sequence`
+  // above 2^53 − 1 collapses onto a shared IEEE-754 double, so two different
+  // events would canonicalize to identical bytes and collide on `row_hash`, and
+  // a caller reaches the hash chain WITHOUT parsing. That enforcement lives at
+  // `canonicalizeEvent` in the daemon, and its tests live beside it.
+
+  it("accepts a sequence at exactly EVENT_ENVELOPE_SEQUENCE_MAX (boundary)", () => {
+    expect(EVENT_ENVELOPE_SEQUENCE_MAX).toBe(Number.MAX_SAFE_INTEGER);
+    const atCeiling = EventEnvelopeSchema.safeParse({
+      ...buildBareEnvelope(),
+      sequence: EVENT_ENVELOPE_SEQUENCE_MAX,
+    });
+    expect(atCeiling.success).toBe(true);
+  });
+
+  it("rejects a sequence one above the ceiling, naming the collision hazard", () => {
+    const overCeiling = EventEnvelopeSchema.safeParse({
+      ...buildBareEnvelope(),
+      sequence: EVENT_ENVELOPE_SEQUENCE_MAX + 1,
+    });
+    expect(overCeiling.success).toBe(false);
+    // The discriminating half. `.int()`'s own bound would already have failed
+    // the parse with a bare "too big"; only the named `.max()` explains that
+    // the ceiling protects hash-chain injectivity. Issue COUNT is deliberately
+    // not asserted — both checks firing is correct and informative, but pinning
+    // the count would couple this test to Zod's internals.
+    const issueMessages = overCeiling.error?.issues.map((issue) => issue.message) ?? [];
+    expect(issueMessages.some((message) => /collide in the row_hash chain/.test(message))).toBe(
+      true,
+    );
   });
 
   it("accepts a census type with no payload variant; SessionEventSchema rejects it", () => {

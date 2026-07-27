@@ -21,6 +21,7 @@
 //
 // Refs: `Spec-006 §Canonical Serialization Rules`, `Spec-006 §Integrity Protocol`.
 import {
+  EVENT_ENVELOPE_SEQUENCE_MAX,
   EventEnvelopeSchema,
   EventEnvelopeVersionSchema,
   SessionIdSchema,
@@ -287,11 +288,12 @@ const GOLDEN_ENVELOPE: EventEnvelope = {
   // The T2.3 row's "numeric edge cases per ECMA-262 ToString" obligation,
   // applied to the one canonical member that is a number. This is
   // `Number.MAX_SAFE_INTEGER` — exactly the upper bound RFC 8785 Appendix B
-  // note (1) recommends for values "interpreted as true integers", and the
-  // largest `sequence` the envelope schema admits (Zod's `.int()` bounds to the
-  // safe-integer range). Appendix B's next row up, 9007199254740992, is a valid
-  // ECMAScript integer that `EventEnvelopeSchema` REJECTS; it is covered in the
-  // number table above, where no envelope contract applies.
+  // note (1) recommends for values "interpreted as true integers", and exactly
+  // `EVENT_ENVELOPE_SEQUENCE_MAX`, the largest `sequence` the contract admits.
+  // Appendix B's next row up, 9007199254740992, is a valid ECMAScript integer
+  // that BOTH the envelope schema and `canonicalizeEvent` refuse (see the
+  // sequence-ceiling block below); it still appears in the number table above,
+  // where the input is a bare JSON value and no envelope contract applies.
   sequence: 9007199254740991,
   occurredAt: "2026-03-04T05:06:07.008Z",
   category: "audit_integrity",
@@ -788,5 +790,156 @@ describe("canonicalizeJson — values with no JSON representation", () => {
     expect(captureThrownMessage(() => canonicalizeJson(cycleReachableOnlyViaToJson))).toBe(
       "Circular reference detected",
     );
+  });
+});
+
+// --------------------------------------------------------------------------
+// Sequence ceiling — the canonical bytes must stay INJECTIVE.
+// --------------------------------------------------------------------------
+//
+// WHY THIS SUITE EXISTS, and why it is here rather than only in contracts.
+// `canonicalizeEvent` DOES NOT PARSE. Every other bound on `sequence` lives on
+// `EventEnvelopeSchema`, so an in-process caller that builds an `EventEnvelope`
+// literal — which the type system fully permits, `sequence` being plain
+// `number` — reaches the hash chain having met no schema at all. That caller is
+// the uncovered path, and the reason the guard is at the canonicalizer.
+//
+// Above 2^53 − 1 distinct integers share one IEEE-754 double, so two different
+// events canonicalize to identical bytes and collide on `row_hash` — inside the
+// structure `Spec-006 §Integrity Protocol` builds precisely to make tampering
+// detectable.
+
+describe("canonicalizeEvent — sequence must be faithfully representable", () => {
+  const sequenceRefusalPattern = /canonicalization refused: sequence .* is not a safe integer/;
+
+  it("accepts a sequence at exactly the ceiling", () => {
+    // The boundary's ACCEPT side. `GOLDEN_ENVELOPE.sequence` is already
+    // `EVENT_ENVELOPE_SEQUENCE_MAX`; restating it here makes the pair explicit
+    // and fails if the guard is ever written with an off-by-one `<`.
+    expect(GOLDEN_ENVELOPE.sequence).toBe(EVENT_ENVELOPE_SEQUENCE_MAX);
+    expect(() =>
+      canonicalizeEvent({ ...GOLDEN_ENVELOPE, sequence: EVENT_ENVELOPE_SEQUENCE_MAX }),
+    ).not.toThrow();
+  });
+
+  it("refuses a sequence one above the ceiling, unparsed", () => {
+    // The boundary's REFUSE side, reached WITHOUT the schema — the whole point.
+    // 9007199254740992 is a valid ECMAScript integer and an exactly
+    // representable double; what it is not is a SAFE one, because it shares its
+    // representation with 9007199254740993.
+    const message = captureThrownMessage(() =>
+      canonicalizeEvent({ ...GOLDEN_ENVELOPE, sequence: 9007199254740992 }),
+    );
+    expect(message).toMatch(sequenceRefusalPattern);
+    expect(message).toMatch(/row_hash/);
+  });
+
+  it("refuses the collapsed pair that would otherwise share canonical bytes", () => {
+    // The ARGUMENT for the guard, demonstrated rather than asserted.
+    //
+    // Step 1 — the collapse is real, and it is reachable by the mechanism the
+    // read path actually uses. `session_events.sequence` is SQLite INTEGER
+    // (64-bit); `SessionService` reads it with `safeIntegers(true)` so it
+    // arrives as `bigint`, and `hydrateRow` then narrows it with
+    // `Number(row.sequence)`. Two distinct stored rows land on ONE number.
+    const collapsedLower = Number(9007199254740992n);
+    const collapsedUpper = Number(9007199254740993n);
+    expect(collapsedUpper).toBe(collapsedLower);
+
+    // Step 2 — the generic serializer is CORRECT to emit the collapsed value.
+    // RFC 8785 canonicalizes the double it is handed; it cannot know two
+    // different integers produced it. Identical bytes, no error, nothing wrong
+    // with `canonicalizeJson`. This is why the guard cannot live there.
+    expect(bytesToHex(canonicalizeJson({ sequence: collapsedLower }))).toBe(
+      bytesToHex(canonicalizeJson({ sequence: collapsedUpper })),
+    );
+
+    // Step 3 — so the refusal has to happen where the value is still known to
+    // be an event's `sequence`. Both members of the collapsed pair are refused.
+    expect(() => canonicalizeEvent({ ...GOLDEN_ENVELOPE, sequence: collapsedLower })).toThrow(
+      sequenceRefusalPattern,
+    );
+    expect(() => canonicalizeEvent({ ...GOLDEN_ENVELOPE, sequence: collapsedUpper })).toThrow(
+      sequenceRefusalPattern,
+    );
+  });
+
+  it("keeps the daemon guard and the contract ceiling on the same boundary", () => {
+    // DRIFT GUARD. `canonicalizer.ts` deliberately does NOT import
+    // `EVENT_ENVELOPE_SEQUENCE_MAX` — it enforces `Number.isSafeInteger`, which
+    // is the property the bytes need, and a shared import would make the two
+    // surfaces agree by construction even on a wrong value. Their agreement is
+    // therefore a claim, and this is where the claim is checked: the schema and
+    // the canonicalizer must flip at the same integer, in both directions.
+    const atCeiling = EVENT_ENVELOPE_SEQUENCE_MAX;
+    const oneAbove = EVENT_ENVELOPE_SEQUENCE_MAX + 1;
+
+    expect(EventEnvelopeSchema.safeParse({ ...GOLDEN_ENVELOPE, sequence: atCeiling }).success).toBe(
+      true,
+    );
+    expect(() => canonicalizeEvent({ ...GOLDEN_ENVELOPE, sequence: atCeiling })).not.toThrow();
+
+    expect(EventEnvelopeSchema.safeParse({ ...GOLDEN_ENVELOPE, sequence: oneAbove }).success).toBe(
+      false,
+    );
+    expect(() => canonicalizeEvent({ ...GOLDEN_ENVELOPE, sequence: oneAbove })).toThrow(
+      sequenceRefusalPattern,
+    );
+  });
+
+  it("refuses every non-faithful sequence the unparsed path can carry", () => {
+    // `Number.isSafeInteger` is one predicate covering four failure shapes that
+    // an upper-bound compare would each miss: `NaN > max`, `-Infinity > max`,
+    // and `1.5 > max` are all `false`, and negative collapse is below the range
+    // rather than above it. None of these can arrive through the schema; all of
+    // them can arrive through a hand-built envelope.
+    const nonFaithfulSequences: ReadonlyArray<{ label: string; sequence: number }> = [
+      { label: "NaN", sequence: Number.NaN },
+      { label: "positive infinity", sequence: Number.POSITIVE_INFINITY },
+      { label: "negative infinity", sequence: Number.NEGATIVE_INFINITY },
+      { label: "a fractional value", sequence: 1.5 },
+      { label: "collapse below the negative bound", sequence: -EVENT_ENVELOPE_SEQUENCE_MAX - 1 },
+    ];
+
+    for (const { label, sequence } of nonFaithfulSequences) {
+      const message = captureThrownMessage(() =>
+        canonicalizeEvent({ ...GOLDEN_ENVELOPE, sequence }),
+      );
+      expect(message, label).toMatch(sequenceRefusalPattern);
+      // NaN and Infinity would otherwise reach `canonicalize@3.0.0`'s own bare
+      // refusals (pinned above on the `canonicalizeJson` path, which still gets
+      // them). Through the event entry point they now get module wording, which
+      // names the member and the reason.
+      expect(message, label).not.toBe("NaN is not allowed");
+      expect(message, label).not.toBe("Infinity is not allowed");
+    }
+  });
+
+  it("reports the sequence refusal ahead of a simultaneous occurredAt defect", () => {
+    // Refusal order is observable — the first guard to fire is the only one the
+    // caller sees — so `canonicalizeEvent` fixes it rather than leaving it to
+    // evaluation order. This envelope trips BOTH the sequence guard and
+    // `normalizeOccurredAt`'s sub-millisecond refusal.
+    const message = captureThrownMessage(() =>
+      canonicalizeEvent({
+        ...GOLDEN_ENVELOPE,
+        sequence: 9007199254740992,
+        occurredAt: "2026-03-04T05:06:07.0081Z",
+      }),
+    );
+    expect(message).toMatch(sequenceRefusalPattern);
+    expect(message).not.toMatch(/sub-millisecond|millisecond precision/);
+  });
+
+  it("admits a negative-but-safe sequence — the residual, pinned deliberately", () => {
+    // CHARACTERIZATION, not endorsement. `-1` violates the schema's
+    // `.nonnegative()`, and the schema refuses it. The canonicalizer does not,
+    // because `-1` is represented perfectly faithfully: it is a DOMAIN
+    // violation, not a byte-fidelity one, and this module validates no member
+    // against its schema (it checks neither `version`'s pattern nor
+    // `category`'s enum either). Pinned so the asymmetry is a visible decision
+    // rather than a gap someone rediscovers.
+    expect(EventEnvelopeSchema.safeParse({ ...GOLDEN_ENVELOPE, sequence: -1 }).success).toBe(false);
+    expect(() => canonicalizeEvent({ ...GOLDEN_ENVELOPE, sequence: -1 })).not.toThrow();
   });
 });
