@@ -180,15 +180,17 @@ v4.public.<b64url(payload || sig)>.<b64url(footer)>       (with footer)
 
 Where `sig = Ed25519.sign(PAE([header, payload, footer, implicitAssertion]), secretKey)`, `header = "v4.public."`, and `footer` / `implicitAssertion` follow the canonicalization rules in §6.
 
-**Noble 2.x call shape** (load-bearing — message-first argument order):
+**Noble 2.x call shape** (load-bearing on two counts — message-first argument order, and strict `{ zip215: false }` verification):
 
 ```ts
 import { ed25519 } from "@noble/curves/ed25519.js";
 ed25519.sign(message, secretKey);
-ed25519.verify(signature, message, publicKey);
+ed25519.verify(signature, message, publicKey, { zip215: false });
 ```
 
 Reversing the argument order is a silent correctness bug (signatures verify for the wrong message). Implementation must follow message-first.
+
+Omitting `{ zip215: false }` is a silent **security** bug. Noble defaults its `ed25519` wrapper to `zip215: true` — the consensus-friendly ZIP-215 decode rules, which skip the small-order public-key rejection. Against a small-order public key the `[8][k]A` term drops out of the cofactored verification equation, so one `(R, S)` pair verifies for _every_ message: universal forgery, and worst of all wherever the public key is attacker-supplied, since the attacker simply chooses a small-order key. `zip215: false` selects strict RFC 8032 / FIPS 186-5 verification, which additionally rejects non-canonical point encodings (`y >= p`) — matching what `paseto-spec/docs/01-Protocol-Versions/Version4.md` §Verify specifies (libsodium's `crypto_sign_verify_detached`, which refuses small-order and non-canonically-encoded public keys). **Implementation must pass the option literally at every verify call site.** Noble resolves both `{}` and `{ zip215: undefined }` back to the permissive wrapper default, so hoisting the option into a shared or spread options object reinstates the forgery with **no diff at the call site** — which is exactly why this reference signature carries it inline rather than delegating to a shared verify helper.
 
 ### 4.3 v4.local
 
