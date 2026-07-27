@@ -233,11 +233,11 @@ export interface SignedRow {
  * predicate needs all three columns and why the verdict must not collapse into
  * `signature_mismatch`.
  *
- * This union is a SUBSET of the twelve-value `failureMode` enum in
- * `Spec-006 §Audit Integrity (audit_integrity)`, and the other nine (twelve,
+ * This union is a SUBSET of the thirteen-value `failureMode` enum in
+ * `Spec-006 §Audit Integrity (audit_integrity)`, and the other ten (thirteen,
  * less this union's three — RE-DERIVE both numbers on any enum change rather
  * than incrementing one of them) sit outside
- * it for TWO different reasons rather than one. `anchor_*`, the proof modes,
+ * it for THREE different reasons rather than one. `anchor_*`, the proof modes,
  * and the log-file modes are RANGE-level: they are computed over a span of rows
  * against an uploaded Merkle anchor, and this function is handed neither.
  * `stub_signature_invalid` and `stub_scalar_mismatch` are PER-ROW —
@@ -248,7 +248,18 @@ export interface SignedRow {
  * (`retention_class IS NULL`) plus its canonical bytes, and a compacted row has
  * neither (compaction discarded the original bytes; rule 4 verifies the stub
  * projection stored in `payload`). Rule 4 therefore lives with T4.1's
- * compacted-row branch, not in a widened version of this function. That enum is
+ * compacted-row branch, not in a widened version of this function.
+ * `occurred_at_not_canonical` is the third reason, and the only one that is NOT
+ * about what this function is handed — it is handed everything that check
+ * needs. What excludes it is that it is not a verification outcome at all. A
+ * row whose `occurred_at` was respelled at rest into another spelling of the
+ * same instant still hashes and verifies correctly, genuinely rather than by
+ * oversight, so reporting it here would make this discriminant carry two
+ * incompatible meanings at once: "this row does not verify" and "this row DOES
+ * verify, but its stored spelling is not the one the signature committed to".
+ * T2.1 exports `isCanonicalOccurredAt` for the second question and T4.1
+ * composes the two; that predicate's contract explains why the composition —
+ * not either half alone — is what byte-binds the column. That enum is
  * Phase-4 contracts work and has not landed, so the literals are spelled here
  * and T4.1 owns the widening.
  */

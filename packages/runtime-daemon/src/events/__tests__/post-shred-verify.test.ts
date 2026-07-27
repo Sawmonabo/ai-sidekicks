@@ -1527,8 +1527,17 @@ describe("Plan-006 T2.5 leg 3 — post-shred tamper detection (negative control)
       // `daemon_signature` commits to the INSTANT, never to the bytes in
       // `session_events.occurred_at`, so an at-rest attacker can respell the
       // column and keep verification green while dropping the row out of every
-      // lexical date-range scan. Catching that is not `verifyRow`'s job; the
-      // append path persisting the NORMALIZED string is what keeps it rare.
+      // lexical date-range scan. Catching that is not `verifyRow`'s job — it is
+      // handed one row and decides hash and signature, and BOTH are genuinely
+      // intact here, which is why the verdict below stays `valid: true` and must.
+      // Nor does the append path close it, and reading it as the mitigation is
+      // the non-sequitur worth naming: persisting the NORMALIZED string fixes the
+      // column's DEFAULT state and binds nobody who writes to that column
+      // AFTERWARDS — which is the entire definition of this adversary. The read
+      // side is where it is caught, by `isCanonicalOccurredAt` (see
+      // `canonicalizer.ts`), which rejects this exact string; composed with a
+      // green verdict it says the stored bytes ARE NOT the signed bytes, which
+      // neither check says on its own. T4.1's range-walk is its consumer.
       database.prepare("UPDATE session_events SET occurred_at = '2026-03-04T05:06:07.0080Z'").run();
       expect(readStoredRow(database).occurred_at).toBe("2026-03-04T05:06:07.0080Z");
 
@@ -1572,6 +1581,21 @@ describe("Plan-006 T2.5 leg 3 — post-shred tamper detection (negative control)
       // `2026-03-04T00:06:07.008-05:00` folds to exactly the signed instant
       // `2026-03-04T05:06:07.008Z`, so the offset arm is exercised end to end
       // and the row still verifies.
+      //
+      // IT IS ALSO THE SHARPEST FORM OF THE RESPELLING RESIDUAL the control two
+      // cases up describes, which is why the pointer is repeated rather than
+      // cross-referenced: the trailing-zero case moves one notational digit,
+      // while this UPDATE rewrites the stored HOUR from `05` to `00` and still
+      // verifies — because the hour digits are not what `daemon_signature`
+      // commits to. Lexically the row now sorts and compares as if it happened at
+      // 00:06, so any `ORDER BY occurred_at` misplaces it and any window narrower
+      // than the day (`BETWEEN '2026-03-04T05:00:00.000Z' AND …`) drops it. The
+      // day survives only because `-05:00` was the offset chosen; `-10:00` names
+      // the same instant on 2026-03-03 and moves the date too. The green verdict
+      // below is correct and stays — `verifyRow` decides hash and signature, both
+      // intact. `isCanonicalOccurredAt` (see `canonicalizer.ts`) is the read-side
+      // check that rejects this spelling, and T4.1's range-walk is where the two
+      // compose into a verdict.
       database
         .prepare("UPDATE session_events SET occurred_at = '2026-03-04T00:06:07.008-05:00'")
         .run();

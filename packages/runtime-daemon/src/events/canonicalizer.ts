@@ -132,11 +132,22 @@ export type CanonicalBytes = Uint8Array & { readonly __brand: "CanonicalBytes" }
 //
 // IDEMPOTENCE IS LOAD-BEARING: normalize(normalize(t)) === normalize(t),
 // because the canonical form is a fixed point of every branch below. Verifiers
-// re-canonicalize a stored row to recompute `row_hash`, so byte-reproduction
+// re-canonicalize a stored row to recompute `row_hash`, so HASH REPRODUCTION
 // holds whether the append path persisted the raw or the normalized string.
 //
-// That is NOT a licence to persist the raw one, and the governing authority is
-// the column contract, not a threat model: `migrations/0001-initial.ts` declares
+// TAMPER-EVIDENCE DOES NOT, AND THE TWO HALVES MUST BE HELD APART. The very
+// property that makes reproduction robust — many spellings, one canonical byte
+// string — is the property that leaves the STORED spelling uncommitted, so a
+// verifier reproducing the hash from a respelled column is agreeing with the
+// attacker rather than catching them (the mechanism is the next paragraph).
+// Idempotence therefore buys the read side nothing here, and no re-verification
+// ever will: closing it takes a SECOND, separate check that the stored string
+// is the canonical spelling of the instant the signature commits to. That check
+// is `isCanonicalOccurredAt`, exported below for T4.1's range-walk.
+//
+// Robust reproduction is NOT a licence to persist the raw one, and the
+// governing authority is the column contract, not a threat model:
+// `migrations/0001-initial.ts` declares
 // `occurred_at TEXT NOT NULL, -- RFC 3339 UTC with ms precision`, while the wire
 // schema admits `+05:00` offsets and omitted seconds. Persisting the producer's
 // raw `2026-01-01T00:00Z` therefore violates that column outright, with no
@@ -149,7 +160,10 @@ export type CanonicalBytes = Uint8Array & { readonly __brand: "CanonicalBytes" }
 // still passes, but the row drops out of every lexical date-range scan over
 // that column. The append path (T3.1's `EventLogService.append`, the sole append
 // path) MUST therefore persist the normalized string — `normalizeOccurredAt` is
-// exported so it can — rather than the producer's raw input.
+// exported so it can — rather than the producer's raw input. What that buys is
+// the column contract plus a canonical DEFAULT state; it does not bind the
+// adversary above, who is defined by writing to the column AFTER the append path
+// ran. Detecting the rewrite is `isCanonicalOccurredAt`'s, on the read side.
 //
 // Parsing is component-wise off the pattern below, never `Date.parse`: ECMA-262
 // lets `Date.parse` fall back to implementation-specific heuristics for any
@@ -277,6 +291,70 @@ export function normalizeOccurredAt(occurredAt: string): string {
     );
   }
   return normalized;
+}
+
+/**
+ * Reports whether a stored `occurred_at` string is ALREADY in the canonical
+ * form. The READ-SIDE answer to the many-to-one hazard the note above describes,
+ * and the missing half of that column's binding: verification pins the INSTANT,
+ * this pins the SPELLING, and only the two together pin the BYTES.
+ *
+ * WHY VERIFICATION ALONE DOES NOT COVER IT, and why composing the two DOES.
+ * `daemon_signature` commits to the canonical bytes, in which `occurredAt`
+ * appears NORMALIZED, so a signature verifies for every lexical spelling of the
+ * signed instant — which makes `session_events.occurred_at` the one signed
+ * column an at-rest attacker can rewrite while leaving verification green. The
+ * canonical form, though, admits EXACTLY ONE spelling per instant: it is
+ * `toISOString()`'s output, a function of the instant alone, and it is a fixed
+ * point of `normalizeOccurredAt` (the pattern this reads is that function's own
+ * exit check). So over a row whose signature verifies, the space is closed in both
+ * directions — canonical means the stored string IS the signed string byte for
+ * byte, and non-canonical means it is a respelling, which is the tamper. A row
+ * where this predicate holds but the string names no instant cannot verify at
+ * all: `normalizeOccurredAt` throws on it before any bytes are produced.
+ *
+ * IT MUST NEVER THROW, WHICH IS THE LOAD-BEARING HALF OF ITS CONTRACT rather
+ * than a style preference. The consumer is T4.1's audit range-walk, which
+ * verifies a SPAN of rows; a throw there aborts the walk and suppresses
+ * verification of every row after the offending one, so one malformed row would
+ * buy an attacker a range-wide blind spot — the exact escalation
+ * `post-shred-verify.test.ts` characterizes over the read path's three existing
+ * throw layers. This function is written so it can never become a fourth:
+ * `RegExp.prototype.test` coerces its argument and returns, for every string and
+ * for every value a `TEXT` column can hand back, and the pattern carries no `g`
+ * flag, so `.test` holds no `lastIndex` state across calls.
+ *
+ * A LEXICAL CHECK, NOT A CALENDAR ONE — the residual, stated rather than
+ * glossed. `\d{2}` admits `2026-02-30`, `2026-13-01`, and `T25:00:00`, so a
+ * string naming no instant at all satisfies this predicate. Nothing is lost, per
+ * the closure argument above: guard 1 or guard 3 refuses each of those one call
+ * later inside {@link canonicalizeEvent}, so the two mechanisms compose — this
+ * one rules out a WELL-FORMED respelling, those rule out an ill-formed one.
+ * Re-deriving the calendar read-back here would duplicate guard 3 and give this
+ * function a second way to disagree with it.
+ *
+ * DELIBERATELY NOT WIRED INTO {@link canonicalizeEvent} OR `verifyRow`. T4.1
+ * owns the read path, and emitting a verdict from here would be T2 code
+ * deciding a T4.1 question. The verdict itself now exists:
+ * `Spec-006 §Audit Integrity (audit_integrity)`'s thirteen-value `failureMode`
+ * enum carries `occurred_at_not_canonical`, paired `failurePath: 'signature'`
+ * because that field names the guarantee that failed — the signature binds the
+ * stored bytes — not the column the defect occupies. What this predicate
+ * supplies is the check T4.1 reports that verdict from.
+ *
+ * IT APPLIES TO COMPACTED ROWS TOO, which is the non-obvious half.
+ * `Spec-006 §Post-Compaction Integrity`'s scalar-binding check requires
+ * `occurred_at` to BYTE-EQUAL the signed projection's `occurredAt`, so it
+ * catches a respelling applied AFTER compaction, reporting
+ * `stub_scalar_mismatch`. It cannot catch one applied BEFORE:
+ * `Spec-006 §Compacted Event Format` preserves the original timestamp verbatim,
+ * so a row respelled while live has the bad spelling copied into the projection,
+ * signed into the stub bytes, and byte-equal to its column forever. Compaction
+ * LAUNDERS the live-path defect into signed bytes, which is why this predicate
+ * is the only binding that catches the respelling in either state.
+ */
+export function isCanonicalOccurredAt(occurredAt: string): boolean {
+  return CANONICAL_OCCURRED_AT_PATTERN.test(occurredAt);
 }
 
 // --------------------------------------------------------------------------

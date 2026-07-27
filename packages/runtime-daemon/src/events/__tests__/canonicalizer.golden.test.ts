@@ -40,7 +40,12 @@ import {
 } from "@ai-sidekicks/contracts";
 import type { EventEnvelope, EventEnvelopeVersion, SessionId } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
-import { canonicalizeEvent, canonicalizeJson, normalizeOccurredAt } from "../canonicalizer.js";
+import {
+  canonicalizeEvent,
+  canonicalizeJson,
+  isCanonicalOccurredAt,
+  normalizeOccurredAt,
+} from "../canonicalizer.js";
 
 // --------------------------------------------------------------------------
 // Helpers — deliberately hand-rolled rather than imported from a byte-utility
@@ -1004,6 +1009,211 @@ describe("normalizeOccurredAt — normalize where the instant survives, refuse o
     for (const vector of OCCURRED_AT_NORMALIZATIONS) {
       const onceNormalized = normalizeOccurredAt(vector.input);
       expect(normalizeOccurredAt(onceNormalized)).toBe(onceNormalized);
+    }
+  });
+});
+
+// --------------------------------------------------------------------------
+// isCanonicalOccurredAt — the READ-side check that binds the column's BYTES.
+// --------------------------------------------------------------------------
+//
+// WHAT IT IS FOR, AND WHY IT IS A SEPARATE PREDICATE. Normalization is
+// many-to-one, so `daemon_signature` commits to the INSTANT and every lexical
+// respelling of that instant verifies green — which makes
+// `session_events.occurred_at` the one signed column with a MANDATED canonical
+// stored form that an at-rest attacker can respell undetected, dropping the row
+// out of lexical range scans and misordering it under `ORDER BY`. It is NOT the
+// only respellable column, and the unqualified claim would be false: `payload`
+// is stored as TEXT and `JSON.parse`d before re-canonicalization, so member
+// reordering, whitespace, `2` vs `2.0`, and `A` vs `A` all survive a green
+// verdict too. What separates them is that no column contract pins `payload`'s
+// spelling and it is neither an ordering nor a filtering key, so there is no
+// canonical form to test it against and no scan for a respelling to fall out
+// of. That asymmetry is precisely what makes a form predicate possible here and
+// not there. Both spellings this suite pins as attacks are pinned GREEN
+// on the verify side by `post-shred-verify.test.ts`'s two `occurredAt` controls,
+// and correctly so: `verifyRow` decides hash and signature, and both are intact.
+// This predicate is the other half.
+//
+// THE CLOSURE ARGUMENT, which is what makes the pair complete rather than merely
+// better. The canonical form admits EXACTLY ONE spelling per instant — it is
+// `toISOString()` output, a function of the instant alone — and it is a fixed
+// point of `normalizeOccurredAt`. So over a row whose signature verifies: the
+// predicate holding means the stored string IS the signed string byte for byte,
+// and the predicate failing means it is a respelling. A string that names no
+// instant cannot produce a green verdict at all, because `normalizeOccurredAt`
+// throws on it first. Those three arms cover the space, and the fixed-point test
+// below is the load-bearing one — without it "canonical" and "what was signed"
+// are two different claims.
+//
+// NOT WIRED INTO ANY PRODUCTION CALL PATH. T4.1's audit range-walk is the
+// consumer and does not exist yet; this ships as a forward-declared contract, so
+// every assertion here is against the exported function directly.
+
+/**
+ * `OCCURRED_AT_REFUSALS` inputs the predicate ALSO rejects — five of the seven.
+ * Held as an explicit list rather than filtered out of that table, so the
+ * partition below can assert both halves reconstitute it.
+ */
+const REFUSALS_THE_PREDICATE_ALSO_REJECTS: readonly string[] = [
+  "2026-01-01T00:00:00.0001Z",
+  "0000-01-01T00:00:00+05:00",
+  "9999-12-31T23:59:59-05:00",
+  "2026-01-01t00:00:00.000Z",
+  "2026-01-01 00:00:00.000Z",
+];
+
+/**
+ * The other two — `normalizeOccurredAt` refuses them, this predicate ACCEPTS
+ * them. Characterization, not endorsement: see the residual test below.
+ */
+const REFUSALS_THE_PREDICATE_ACCEPTS: readonly string[] = [
+  "2026-02-29T00:00:00.000Z",
+  "2026-02-30T00:00:00.000Z",
+];
+
+describe("isCanonicalOccurredAt — the stored spelling, not just the instant", () => {
+  it("accepts the canonical form and rejects both real respelling attacks", () => {
+    // THE TWO ATTACK SPELLINGS ARE NOT INVENTED FOR THIS TEST. Both are the
+    // literal strings `post-shred-verify.test.ts` UPDATEs into
+    // `session_events.occurred_at` and then asserts `{ valid: true }` for — the
+    // offset respelling and the fourth-fractional-digit respelling of the golden
+    // envelope's own `occurredAt`. Verification is green for both; this is where
+    // they are caught.
+    expect(isCanonicalOccurredAt("2026-03-04T05:06:07.008Z")).toBe(true);
+    expect(isCanonicalOccurredAt(GOLDEN_ENVELOPE.occurredAt)).toBe(true);
+
+    expect(isCanonicalOccurredAt("2026-03-04T00:06:07.008-05:00")).toBe(false);
+    expect(isCanonicalOccurredAt("2026-03-04T05:06:07.0080Z")).toBe(false);
+
+    // Both DO name the signed instant — which is exactly why the signature
+    // cannot see them, and why the predicate has to. Asserted rather than
+    // asserted-about: without this the two rejects above would be consistent
+    // with the strings simply being malformed.
+    expect(normalizeOccurredAt("2026-03-04T00:06:07.008-05:00")).toBe("2026-03-04T05:06:07.008Z");
+    expect(normalizeOccurredAt("2026-03-04T05:06:07.0080Z")).toBe("2026-03-04T05:06:07.008Z");
+  });
+
+  it("is exactly the fixed-point set of normalizeOccurredAt — canonical IS what was signed", () => {
+    // THE CLOSURE ARGUMENT'S LOAD-BEARING STEP. "Lexically canonical" would be a
+    // cosmetic property if it were not also "byte-identical to what the signer
+    // saw". For every accepted input, the predicate holds on the string exactly
+    // when normalization leaves it untouched — so on a row that verifies, a
+    // `true` here means the stored bytes ARE the signed bytes.
+    for (const vector of OCCURRED_AT_NORMALIZATIONS) {
+      const normalized = normalizeOccurredAt(vector.input);
+      expect(isCanonicalOccurredAt(vector.input), vector.input).toBe(vector.input === normalized);
+      expect(isCanonicalOccurredAt(normalized), vector.why).toBe(true);
+      // The fixed point itself: canonical ⇒ normalization is the identity.
+      expect(normalizeOccurredAt(normalized), vector.why).toBe(normalized);
+    }
+    // THE ANTI-VACUITY PIN: the loop above is satisfiable by a constant
+    // predicate unless the table carries BOTH arms, so both are asserted
+    // non-empty rather than counted (a count would churn every time a vector is
+    // added). Today it is six respellings against three already-canonical
+    // vectors.
+    const respellings = OCCURRED_AT_NORMALIZATIONS.filter(
+      (vector) => vector.input !== vector.normalized,
+    );
+    const alreadyCanonical = OCCURRED_AT_NORMALIZATIONS.filter(
+      (vector) => vector.input === vector.normalized,
+    );
+    expect(respellings.length).toBeGreaterThan(0);
+    expect(alreadyCanonical.length).toBeGreaterThan(0);
+  });
+
+  it("rejects five of the seven normalizeOccurredAt refusals, and accepts two", () => {
+    // A DERIVED PARTITION, NOT TWO INDEPENDENT LISTS: the two halves are asserted
+    // to reconstitute `OCCURRED_AT_REFUSALS` exactly, so a row added to that
+    // table fails HERE rather than quietly escaping this predicate's coverage.
+    const partition = [
+      ...REFUSALS_THE_PREDICATE_ALSO_REJECTS,
+      ...REFUSALS_THE_PREDICATE_ACCEPTS,
+    ].sort();
+    expect(partition).toStrictEqual(OCCURRED_AT_REFUSALS.map((vector) => vector.input).sort());
+
+    for (const input of REFUSALS_THE_PREDICATE_ALSO_REJECTS) {
+      expect(isCanonicalOccurredAt(input), input).toBe(false);
+    }
+    for (const input of REFUSALS_THE_PREDICATE_ACCEPTS) {
+      expect(isCanonicalOccurredAt(input), input).toBe(true);
+    }
+  });
+
+  it("is LEXICAL, not a calendar or field-range validator — the residual, pinned", () => {
+    // CHARACTERIZATION, NOT ENDORSEMENT, in the same register as the
+    // negative-but-safe `sequence` residual below. `\d{2}` admits a month, day,
+    // hour, minute, and second outside their real ranges, so a string naming no
+    // instant at all satisfies this predicate.
+    //
+    // NOTHING IS LOST, and that is the claim the second assertion in each pair
+    // makes: every one of these throws out of `normalizeOccurredAt` — guard 3 for
+    // the calendar ones, guard 1 for the field-range ones, whose values the
+    // ACCEPTED-input pattern bounds at `[01]\d|2[0-3]` and `[0-5]\d`. A row
+    // carrying one therefore cannot verify, so the predicate never has to decide
+    // it. Re-deriving the calendar read-back inside the predicate would duplicate
+    // guard 3 and give it a second way to disagree with guard 3.
+    const namesNoInstant: ReadonlyArray<{ readonly input: string; readonly guard: RegExp }> = [
+      { input: "2026-02-29T00:00:00.000Z", guard: /does not exist on the calendar/ },
+      { input: "2026-02-30T00:00:00.000Z", guard: /does not exist on the calendar/ },
+      { input: "2026-13-01T00:00:00.000Z", guard: /does not exist on the calendar/ },
+      { input: "2026-01-00T00:00:00.000Z", guard: /does not exist on the calendar/ },
+      { input: "2026-01-01T25:00:00.000Z", guard: /must be an RFC 3339 date-time/ },
+      { input: "2026-01-01T00:60:00.000Z", guard: /must be an RFC 3339 date-time/ },
+      // RFC 3339 §5.8's leap-second spelling. The accepted-input pattern's
+      // `[0-5]\d` refuses `:60`, so it is guard 1, not a calendar refusal.
+      { input: "2026-12-31T23:59:60.000Z", guard: /must be an RFC 3339 date-time/ },
+    ];
+    for (const { input, guard } of namesNoInstant) {
+      expect(isCanonicalOccurredAt(input), input).toBe(true);
+      expect(
+        captureThrownMessage(() => normalizeOccurredAt(input)),
+        input,
+      ).toMatch(guard);
+    }
+  });
+
+  it("RETURNS on garbage rather than throwing — the property T4.1's range-walk needs", () => {
+    // WHY A THROW WOULD BE WORSE THAN A WRONG ANSWER, and the reason this test
+    // exists at all. T4.1 walks a RANGE of rows; a throw aborts the walk and
+    // suppresses verification of every row after the offending one, so one
+    // malformed `occurred_at` would buy an attacker a range-wide blind spot. The
+    // read path already has three layers that throw
+    // (`post-shred-verify.test.ts`'s characterized hole); this predicate must
+    // never become a fourth.
+    //
+    // Every input below makes `normalizeOccurredAt` throw. The predicate returns
+    // `false` for each — asserted through a thunk so a throw fails as a THROW
+    // rather than as a wrong boolean.
+    const inputsThatMakeNormalizationThrow: readonly string[] = [
+      "",
+      "not-a-date",
+      "2026-01-01",
+      "2026-01-01T00:00:00.0001Z",
+      "0000-01-01T00:00:00+05:00",
+      "  2026-03-04T05:06:07.008Z  ",
+      "2026-03-04T05:06:07.008Z\n",
+      "2026-03-04T05:06:07.008Z2026-03-04T05:06:07.008Z",
+      " ",
+      "😀",
+    ];
+    for (const input of inputsThatMakeNormalizationThrow) {
+      expect(() => normalizeOccurredAt(input), input).toThrow();
+      expect(() => isCanonicalOccurredAt(input), input).not.toThrow();
+      expect(isCanonicalOccurredAt(input), input).toBe(false);
+    }
+  });
+
+  it("is stateless across calls — the pattern carries no g flag", () => {
+    // A `g`-flagged pattern would make `.test` advance `lastIndex` and alternate
+    // `true` / `false` on repeated calls with the SAME input. T4.1's walk calls
+    // this once per row over a shared module-level pattern, so that regression
+    // would silently flag every other row. Cheap to pin, invisible otherwise.
+    const canonical = "2026-03-04T05:06:07.008Z";
+    const respelled = "2026-03-04T00:06:07.008-05:00";
+    for (let call = 0; call < 3; call++) {
+      expect(isCanonicalOccurredAt(canonical), `call ${String(call)}`).toBe(true);
+      expect(isCanonicalOccurredAt(respelled), `call ${String(call)}`).toBe(false);
     }
   });
 });
