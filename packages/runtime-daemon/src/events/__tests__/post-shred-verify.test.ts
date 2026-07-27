@@ -954,13 +954,26 @@ function readCanonicalMemberSerializations(database: DatabaseType): Record<strin
 /**
  * The canonical members whose serialized value differs across a tamper, sorted.
  *
- * DIFFED OVER THE UNION OF BOTH KEY SETS, WHICH IS THE HALF A LOOP OVER THE
- * BEFORE-SIDE WOULD GET WRONG. `actor`, `correlationId` and `causationId` are
- * the envelope's three OPTIONAL members, and `canonicalizeEvent` DROPS an absent
- * one rather than emitting it — so a tamper that NULLs `correlation_id` makes
- * the member VANISH from the canonical output instead of changing its value. A
- * member present on exactly one side has to count as a difference, or that whole
- * class of tamper would read as attacking nothing at all.
+ * PRESENCE IS A DIFFERENCE HERE, NOT ONLY VALUE. `correlationId` /
+ * `causationId` are optional and NOT nullable, so {@link rehydrateEnvelope}
+ * maps their SQL NULL to `undefined` and `canonicalizeEvent` drops the key
+ * rather than emitting it — presence moves with the column. `actor` is optional
+ * AND nullable, and its SQL NULL rehydrates to `null`, which canonicalizes to
+ * `"actor":null`: on this read path it changes VALUE while staying present.
+ * That split is what {@link rehydrateEnvelope} calls the subtlest thing in this
+ * file, and conflating the two groups here would mis-describe both.
+ *
+ * THE UNION BUYS THE AFTER-ONLY MEMBER SPECIFICALLY. A loop over the
+ * before-side keys alone already catches a VANISHING member — the key is on the
+ * before side, and the after side's `undefined` differs from its serialization.
+ * What such a loop cannot visit is a key that did not exist before the tamper:
+ * a non-NULL write into a column the fixture left NULL, reachable from the
+ * `correlationId: undefined` / `causationId: undefined` fixture leg 2 already
+ * builds. Every row in {@link CANONICAL_MEMBER_TAMPERS} today overwrites a
+ * non-NULL column with another non-NULL value, so this arm is unexercised by
+ * the current matrix; it is here so that a later row writing INTO a NULL column
+ * is attributed to the member it brought into the bytes rather than dropped
+ * from the diff.
  */
 function diffCanonicalMembers(
   canonicalBeforeTamper: Record<string, string>,
@@ -1064,6 +1077,15 @@ describe("Plan-006 T2.5 leg 3 — post-shred tamper detection (negative control)
     // attacking a key the verifier never reads, and the assertion above would
     // stay green. Reading the members back off this suite's actual canonical
     // bytes closes that gap.
+    //
+    // AND THAT READ IS SPELLED OUT HERE RATHER THAN ROUTED THROUGH
+    // `readCanonicalMemberSerializations`. That helper returns member →
+    // serialization PAIRS and this assertion wants the key set alone, so calling
+    // it here would discard the value half of its record at its own call site.
+    // The two spellings run the same chain and so agree by construction — this
+    // is NOT a second, independent derivation — but the literal one anchors what
+    // THIS assertion reads, so a later change to the helper's path cannot
+    // silently retarget a fixture-completeness claim the helper is not party to.
     const serializedMembers: ReadonlyArray<string> = Object.keys(
       JSON.parse(
         utf8Decoder.decode(canonicalizeEvent(rehydrateEnvelope(readStoredRow(database)))),

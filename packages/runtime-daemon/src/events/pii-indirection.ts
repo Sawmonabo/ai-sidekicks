@@ -375,12 +375,25 @@ const CHAIN_HASH_LENGTH = 32;
 
 /**
  * The RFC 8032 §5.1.5 secret-seed width, re-spelled here for the pre-encrypt
- * `daemonSigningKey` guard on exactly {@link CHAIN_HASH_LENGTH}'s terms. There
- * is nothing to import: `signer.ts` fixes no such constant at all — its
- * `Ed25519PrivateKey` note defers the width to `ed25519.sign` on purpose — and
- * T2.7's `signing-key-source.ts` keeps its own `ED25519_KEY_LENGTH`
+ * `daemonSigningKey` guard on exactly {@link CHAIN_HASH_LENGTH}'s terms. Neither
+ * sibling offers it to import: `signer.ts` fixes no SECRET-seed constant at all
+ * — its `Ed25519PrivateKey` note defers the width to `ed25519.sign` on purpose —
+ * and T2.7's `signing-key-source.ts` keeps its own `ED25519_KEY_LENGTH`
  * module-private, so reaching either would mean widening a sibling's export
  * surface for one integer.
+ *
+ * THE LIBRARY DOES OFFER ONE, AND DECLINING IT IS A CHOICE RATHER THAN AN
+ * OVERSIGHT. `ed25519.lengths` is a frozen member of the frozen curve object
+ * noble returns, and the very guard this constant fronts reads it: `sign` →
+ * `getExtendedPublicKey` → `getPrivateScalar`, which calls
+ * `abytes(key, lengths.secretKey, 'secretKey')` in `abstract/edwards.js`. So
+ * `ed25519.lengths.secretKey` would read the authority itself and retire the
+ * drift hazard instead of bounding it. Declined on the house precedent
+ * `signer.ts` sets one module over: its `ED25519_PUBLIC_KEY_LENGTH` hardcodes 32
+ * and CITES `lengths.publicKey` rather than reading it. Reading the library
+ * constant is worth doing in all three 32-byte spellings at once rather than in
+ * this one alone — and until then, the note below is what makes the hardcode
+ * safe.
  *
  * DRIFT HERE IS ONE-DIRECTIONAL AND LOUD, for the same reason it is on the
  * chain-hash constant: this value is only ever consulted to refuse EARLY, and

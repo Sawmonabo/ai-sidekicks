@@ -32,6 +32,7 @@
 // `Plan-006 §Hash Chain`, `Plan-006 §Ed25519 Signatures`,
 // `Security Architecture §Verification Rules`.
 import { ed25519 } from "@noble/curves/ed25519.js";
+import { equalBytes } from "@noble/curves/utils.js";
 import { blake3 } from "@noble/hashes/blake3.js";
 import { describe, expect, it } from "vitest";
 import { canonicalizeJson } from "../canonicalizer.js";
@@ -907,6 +908,118 @@ describe("error channels — a throw and a verdict mean different things", () =>
       valid: false,
       failureMode: "hash_mismatch",
     });
+  });
+});
+
+// --------------------------------------------------------------------------
+// The upstream premise — the `equalBytes` this module imports must refuse.
+// --------------------------------------------------------------------------
+
+describe("equalBytes — the upstream refusal stage 1's byte-ness clause is argued from", () => {
+  it("THROWS a TypeError for a non-byte operand, in EITHER position", () => {
+    // THE JUSTIFICATION FOR STAGE 1'S BYTE-NESS CLAUSE IS PACKAGE-SPECIFIC,
+    // AND NOTHING ELSE PINS THE BEHAVIOR OF THE ONE IT RESOLVES TO.
+    // `verifyRow`'s note argues that clause from a counterfactual: unguarded,
+    // a stored TEXT `row_hash` reaches `equalBytes`, whose `abytes` raises a
+    // TypeError, and the throw ESCAPES `verifyRow` — so T4.1 emits no
+    // `audit_integrity_failed` and the tamper goes UNREPORTED. `maps a
+    // NON-BYTE stored row_hash to hash_mismatch without throwing` above pins
+    // the GUARDED outcome; this test pins the premise that counterfactual
+    // rests on. The premise is a property of the `equalBytes` this module
+    // IMPORTS rather than of the name: `@noble/curves/utils.js` opens its body
+    // with an `abytes` call on BOTH operands, while `@noble/ciphers/utils.js`'s
+    // same-named export — also in this repo's tree, imported by
+    // `crypto-paseto`'s `v4-local.ts` — has no `abytes` call at all and goes
+    // straight to `a.length`.
+    //
+    // WHAT AN IMPORT SWAP WOULD COST IS THE ARGUMENT, NOT THE VERDICT, AND
+    // THIS COMMENT SHOULD NOT CLAIM MORE. Checked against
+    // `@noble/ciphers@2.2.0` and RECORDED here rather than asserted below,
+    // since that package is not a dependency of this one: its `equalBytes`
+    // does not throw on a string, it COERCES. `.length` on a 32-CHARACTER
+    // string is 32, so the length compare passes, and `character ^ byte` runs
+    // `ToNumber` per character — `"0"` yields 0, and any non-numeric character
+    // yields `NaN`, which `ToInt32` also sends to 0. The string is therefore
+    // COMPARED, as the byte values its characters coerce to — all zeros for a
+    // `"0"`-filled one — and answers `false` for any real digest, so
+    // `verifyRow` still reports `hash_mismatch` and the security OUTCOME is
+    // unchanged. It answers `true` only where the recomputed digest equals
+    // those coerced values byte for byte, which needs every byte under 10 to
+    // match a decimal character at all and is not a state an adversary reaches
+    // against BLAKE3. So a swap would, WERE IT TO RESOLVE, silently falsify
+    // a security-critical JUSTIFICATION with nothing going red. Making that
+    // loud is this test's whole job — it does not stand between anyone and a
+    // vulnerability, and should not be read as though it does.
+    //
+    // THE GATE IS PARTIAL, AND WHAT CLOSES THE NAMED HALF IS THE DEPENDENCY
+    // BOUNDARY, NOT THIS SUITE. This file imports the SAME specifier
+    // `signer.ts` does, from the same package, so both resolve to the same
+    // module and the pin travels with the production import across an
+    // UPSTREAM change — `package.json` declares a floating `^2` and this was
+    // verified against `@noble/curves@2.2.0`, so the resolution drift that
+    // range permits is exactly what is now gated. What this suite does not
+    // see is `signer.ts`'s own binding: nothing here asserts which module its
+    // `equalBytes` comes from. For the `@noble/ciphers` swap, that costs
+    // nothing today, because `.npmrc`'s `node-linker=isolated` (ADR-022)
+    // keeps a package this one does not declare out of its resolution tree —
+    // the repointed specifier does not RESOLVE from `packages/runtime-daemon`,
+    // verified `ERR_MODULE_NOT_FOUND` against a resolving
+    // `@noble/curves/utils.js` control. The module fails to LOAD rather than
+    // behaving differently.
+    //
+    // THAT IS A DEPENDENCY-GRAPH PROPERTY, SO IT HOLDS ONLY WHILE THE GRAPH
+    // DOES. Adding `@noble/ciphers` to this package's `dependencies`, for any
+    // reason, makes the specifier resolve and reopens the swap with nothing
+    // here to catch it. And the boundary speaks only to packages this one
+    // does not declare: a repoint at any specifier that DOES resolve from
+    // here — a local hand-rolled `equalBytes`, say — is still unseen by this
+    // suite.
+    const honestRowHash = signReferenceRow().rowHash;
+    const thirtyTwoCharacterString = "0".repeat(CHAIN_HASH_LENGTH);
+    expect(thirtyTwoCharacterString).toHaveLength(CHAIN_HASH_LENGTH);
+
+    // The untrusted value is operand `b` TODAY — `verifyRow` compares its
+    // freshly recomputed digest against `row.rowHash`, in that order. BOTH
+    // positions are pinned so the premise is argument-ORDER-independent: a
+    // refactor swapping the two operands could otherwise move the stored value
+    // into an unpinned position. This is NOT about `prev_hash`, which never
+    // reaches `equalBytes` at all — its hole is the silent
+    // `TypedArray.prototype.set` coercion the same stage-1 clause closes.
+    expect(() =>
+      equalBytes(honestRowHash, thirtyTwoCharacterString as unknown as Uint8Array),
+    ).toThrow(TypeError);
+    expect(() =>
+      equalBytes(thirtyTwoCharacterString as unknown as Uint8Array, honestRowHash),
+    ).toThrow(TypeError);
+
+    // The CLASS is asserted rather than a bare "it throws" because
+    // `signer.ts`'s note names it, and `abytes` uses the class to separate its
+    // two refusals: `TypeError` for a value that is not bytes, `RangeError`
+    // for bytes of the wrong length. `equalBytes` calls it WITHOUT a length
+    // argument, so only the first arm is reachable here — which is also why
+    // the wrong-width control below answers `false` rather than throwing.
+    //
+    // The message substring is a PROVENANCE check rather than a wording pin —
+    // it keeps the assertion from being satisfied by some other TypeError the
+    // call could raise (a non-callable export) for a reason unrelated to the
+    // premise.
+    expect(
+      captureThrownMessage(() =>
+        equalBytes(honestRowHash, thirtyTwoCharacterString as unknown as Uint8Array),
+      ),
+    ).toMatch(/expected Uint8Array/);
+
+    // CONTROLS — without them an `equalBytes` that threw unconditionally would
+    // satisfy every assertion above. It still DECIDES for real byte operands,
+    // still accepts the `Buffer` better-sqlite3 hands back for an untampered
+    // BLOB (the honest read path, which the guard must leave undisturbed), and
+    // still answers a WRONG-WIDTH byte operand with `false` rather than a
+    // throw — that last one is what makes the TypeError above specifically a
+    // byte-NESS refusal, which is the clause under test.
+    expect(equalBytes(honestRowHash, Uint8Array.from(honestRowHash))).toBe(true);
+    expect(equalBytes(honestRowHash, withFlippedFirstBit(honestRowHash))).toBe(false);
+    expect(equalBytes(honestRowHash, Buffer.from(honestRowHash))).toBe(true);
+    expect(equalBytes(honestRowHash, honestRowHash.slice(0, CHAIN_HASH_LENGTH - 1))).toBe(false);
   });
 });
 

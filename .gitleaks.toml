@@ -31,15 +31,17 @@ useDefault = true
 # `regexTarget = "secret"` tests the value gitleaks pulled OUT of the line (the
 # `Secret` field of a finding); the alternatives test wider spans — `"match"`
 # is the whole matched span, keyword and operator and value together, and
-# `"line"` is the surrounding source line. Every justification below is a claim
-# about the VALUE ("carry no secret material", "these are algorithm names, not
-# secrets", "suppressed by VALUE"), so the target is the one that tests what
-# the justifications assert; anything wider suppresses on text nobody has
-# argued is safe. It also fails in the safe direction: a future finding
-# carrying one of these tokens somewhere OTHER than in secret position is not
-# suppressed and the gate goes red, where a match-scoped rule would wave it
-# through. Governs `regexes` only — `paths` is matched against file paths
-# regardless of `regexTarget`.
+# `"line"` is the surrounding source line. Every justification for a `regexes`
+# entry below is a claim about the VALUE ("carry no secret material", "these
+# are algorithm names, not secrets", "suppressed by VALUE"), so the target is
+# the one that tests what those justifications assert; anything wider
+# suppresses on text nobody has argued is safe. It also fails in the safe
+# direction: a future finding carrying one of these tokens somewhere OTHER
+# than in secret position is not suppressed by these `regexes`, so — outside
+# the paths this block allowlists — the gate goes red, where a match-scoped
+# rule would wave it through. Governs `regexes` only — `paths` is matched
+# against file paths regardless of `regexTarget`, and the entry it covers is
+# scoped by FILE, not by extracted secret.
 #
 # EVERY PATTERN IS ANCHORED `^…$`, AND THAT IS LOAD-BEARING RATHER THAN TIDY.
 # gitleaks tests each pattern with an UNANCHORED search, so a bare
@@ -62,8 +64,10 @@ useDefault = true
 #    (https://docs.aws.amazon.com/kms/latest/APIReference/API_Sign.html and
 #    https://docs.aws.amazon.com/kms/latest/APIReference/API_CreateKey.html).
 #    The gitleaks generic-api-key heuristic flags `KEY = VALUE` assignments
-#    where VALUE is a long uppercase identifier with high entropy; the AWS
-#    KMS Ed25519 enum names satisfy that shape but carry no secret material.
+#    where VALUE is a long uppercase identifier with high entropy; the
+#    `KeySpec` value `ECC_NIST_EDWARDS25519` satisfies that shape but carries
+#    no secret material. The two `SigningAlgorithm` values do not satisfy it;
+#    the evidence is in the removal record below.
 #    `ECC_NIST_EDWARDS25519` is the only one of the three AWS KMS Ed25519
 #    enum names that fires in this corpus (v8.30.1: match
 #    `KeySpec = ECC_NIST_EDWARDS25519`, secret `ECC_NIST_EDWARDS25519`).
@@ -71,13 +75,15 @@ useDefault = true
 #    `ED25519_PH_SHA_512`; both were carried forward from the v8.24.3-era
 #    config, neither was ever observed firing, and both are deliberately NOT
 #    listed. They are inert rather than merely unobserved — verified against
-#    v8.30.1 with the allowlist emptied, 2026-07-26. Their only in-tree
-#    occurrences are prose (ADR-023 §Axis 5 and BL-112 in `docs/backlog.md`),
-#    and re-scanning those two files unsuppressed yields exactly two
-#    findings, both with secret `ECC_NIST_EDWARDS25519`, neither extracting a
-#    `SigningAlgorithm` value. That is not an artifact of how the prose is
-#    phrased: a purpose-built `KMS_SIGNING_KEY_ALGORITHM = "ED25519_SHA_512"`
-#    line — keyword, operator, quoted value — produces no finding either.
+#    v8.30.1 with the allowlist emptied, 2026-07-26. Outside this file's own
+#    record of the removal — which names both tokens and is itself scanned —
+#    their only in-tree occurrences are prose (ADR-023 §Axis 5 and BL-112 in
+#    `docs/backlog.md`), and re-scanning those two files unsuppressed yields
+#    exactly two findings, both with secret `ECC_NIST_EDWARDS25519`, neither
+#    extracting a `SigningAlgorithm` value. That is not an artifact of how
+#    the prose is phrased: a purpose-built
+#    `KMS_SIGNING_KEY_ALGORITHM = "ED25519_SHA_512"` line — keyword,
+#    operator, quoted value — produces no finding either.
 #    Both tokens sit below the entropy floor generic-api-key applies before
 #    it will emit a value as a secret. Holding keyword, operator and value
 #    length fixed, the lowest-entropy value observed firing measured 3.78 and
@@ -87,8 +93,8 @@ useDefault = true
 #    allowlist request for a low-entropy uppercase enum name deserves the
 #    same probe before it is granted. Same evidence principle as
 #    `Ed25519PublicKey` in 4b, applied in the removal direction; pruning is
-#    fail-closed regardless — if one ever does fire, the gate goes red and a
-#    human looks.
+#    fail-closed regardless — if one ever does fire outside the allowlisted
+#    paths, the gate goes red and a human looks.
 #
 # 2. Cryptographic algorithm identifiers in prose. v8.30.1's generic-api-key
 #    heuristic also fires on documentation phrases like
@@ -110,12 +116,12 @@ useDefault = true
 #
 #    (a) The TEST 1 / TEST 2 secret keys published verbatim in
 #        https://www.rfc-editor.org/rfc/rfc8032.txt §7.1 (verified against the
-#        RFC, 2026-07-26). Publication IS their purpose — they are the
-#        reference vectors every Ed25519 implementation validates against, so
-#        a conformance suite that omitted them would test nothing. Suppressed
-#        by VALUE, deliberately not by path: keying on the two published
-#        constants means a genuine secret committed to the same test file
-#        still trips the gate, whereas a path allowlist would wave it through.
+#        RFC, 2026-07-26). Publication IS their purpose — the RFC prints them
+#        as a common baseline for Ed25519 conformance suites, and a suite that
+#        omitted them would drop that baseline. Suppressed by VALUE,
+#        deliberately not by path: keying on the two published constants means
+#        a genuine secret committed to the same test file still trips the
+#        gate, whereas a path allowlist would wave it through.
 #        Same reasoning as entry 3, tightened — prefer value-scoping wherever
 #        the not-a-secret property belongs to the value itself. The
 #        generic-api-key heuristic extracts each constant as the secret in its

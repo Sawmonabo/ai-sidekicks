@@ -452,14 +452,26 @@ function toEd25519PublicKey(bytes: Uint8Array): Ed25519PublicKey {
  * THAT IS A PROPERTY OF THE SIGNATURE, NOT OF THIS MODULE, AND THE SEAM HAS A
  * SHAPE. A borrow-style `read(sessionId, use)` — branded key handed to a
  * caller-supplied callback, scrubbed in a `finally` — would turn this copy into
- * the one allocation of the two that CAN be retired. Nothing about the signing
- * path resists it: `signRow` is synchronous, so the borrow scope is bounded by a
- * single call rather than by an unbounded caller lifetime. Nor is the migration
- * expensive TODAY — {@link DaemonSigningKeySource} has no non-test consumer at
- * all, T3.1's append path, T3.2's compactor, and T3.3's anchor service being
- * unlanded — and that cost is monotonic in consumers, so it only rises from
- * here. Deliberately NOT taken in this round: the interface is a published
- * contract surface, and its shape is not a comment's to change.
+ * the one allocation of the two that CAN be retired. THE BORROW SCOPE IS THE
+ * CONSUMER'S, NOT `signRow`'S, AND THE IN-TREE CONSUMER SPANS AN AWAIT.
+ * `signRow` ITSELF is synchronous, so a borrow around the sign call alone would
+ * close within one synchronous call — but reaching that shape from the PII write
+ * path means changing what `writeEventWithPii` takes (this SOURCE rather than a
+ * key), which is a SECOND published-signature change, on T2.4's surface rather
+ * than this one. As written, T2.4's `writeEventWithPii` takes the key as a
+ * PARAMETER and holds it across `await encryptor.encrypt(...)` before it reaches
+ * `signRow`, so a borrow wrapping that consumer takes an async callback whose
+ * `finally` waits on an injected, Plan-022-owned AEAD to settle. That is the
+ * async-caller shape the copy argument above already rests on, and the seam
+ * survives it: a lexical scope would bound the borrow where this signature
+ * leaves the key's lifetime to a caller obligation. Price the reversal at an
+ * encrypt, not at one synchronous call. Nor is the migration expensive TODAY —
+ * {@link DaemonSigningKeySource} has no non-test consumer at all
+ * (`writeEventWithPii` consumes the KEY, not this interface), T3.1's append
+ * path, T3.2's compactor, and T3.3's anchor service being unlanded — and that
+ * cost is monotonic in consumers, so it only rises from here. Deliberately NOT
+ * taken in this round: the interface is a published contract surface, and its
+ * shape is not a comment's to change.
  *
  * WHERE THE SEALER TREATS ITS BUFFER AS SCRATCH — the "THE BYTES ARE COPIED"
  * premise above, and the whole reason this copy exists — THIS COPY IS THE

@@ -472,38 +472,45 @@ export function verifyRow(
   // naming. An adversary who zero-fills all three columns produces a row
   // BYTE-IDENTICAL to the placeholder write, so no per-row check can tell the
   // two apart and this branch reports the placeholder verdict for both. What
-  // catches that row is LINKAGE rather than this function: a zero `prev_hash`
+  // CAN catch that row is LINKAGE rather than this function: a zero `prev_hash`
   // at `sequence > 0` breaks I-006-2-04's `prev_hash[n] = row_hash[n-1]`, which
   // the range-walking caller checks — see the SCOPE note above for why that
   // obligation lives there and not here.
   //
-  // LINKAGE CONSTRAINS ONLY AN ADVERSARY WHO DOES NOT RE-LINK, AND IT TAKES
-  // TWO FACTS TOGETHER TO SEE WHY. The commitment that binds `prev_hash` is
-  // `row_hash` — UNKEYED BLAKE3 over public inputs, so anyone holding a row's
-  // bytes recomputes it — while the commitment that DOES need the key, the
-  // signature, covers `canonical` alone and never reaches `prev_hash`.
-  // Re-linking therefore costs an at-rest adversary with DB write access and
-  // no signing key nothing, and any shape leaving every still-signed row's
-  // bytes untouched walks clean — at least these do: zeroing the WHOLE chain;
-  // zeroing a PREFIX and rewriting those rows freely, then recomputing forward
-  // from the zeroed boundary, so the untouched suffix still reports
-  // `valid: true` and a targeted neutralization of the log's opening reads as
-  // a bounded build-ordering bug; and TRUNCATING the tail, which needs no
-  // recomputation at all. Sequence contiguity is a SEPARATE check with its own
-  // reach — `sequence` IS inside the canonical bytes, so a re-linked deletion
-  // of SIGNED rows leaves a gap no adversary can renumber away — but T4.1's
-  // walk is unspecified on it, and a truncated tail leaves it no gap to find.
+  // RE-LINKING IS FREE TO THAT ADVERSARY, SO THE LINKAGE WALK CONSTRAINS ONLY
+  // ONE WHO DOES NOT RE-LINK. `row_hash` is UNKEYED BLAKE3 — this module's
+  // `blake3` calls pass neither `key` nor `context` — over
+  // `prev_hash || canonical`, values a verifier recomputes from the stored row.
+  // The commitment that DOES need the key, `ed25519.sign(canonical, …)`, covers
+  // the canonical bytes alone, and `prev_hash` is not among
+  // `canonicalizeEvent`'s eleven members.
   //
-  // No local check closes the rest — an at-rest adversary edits every LOCAL
-  // witness — which is why the `anchor_*` range modes verify a span against an
-  // UPLOADED Merkle anchor (T3.3): in the control plane's `event_log_anchors`
-  // it commits to real `row_hash` values off-machine. That reach is the
-  // uploaded ranges and no further: a span still queued in
-  // `pending_anchor_uploads` sits in a durable LOCAL table the same adversary
-  // can edit, V1 node-scope (sentinel `session_id`) rows are not upload
-  // candidates at all and keep `uploaded_at` NULL by design, and rows appended
-  // since the last anchor are unanchored by construction. T4.1 must not read
-  // the linkage walk as total.
+  // A PLACEHOLDER ROW'S `sequence` IS UNCOMMITTED, SO CONTIGUITY IS NOT A
+  // BACKSTOP. `sequence` IS one of those eleven members, so a SIGNED row's
+  // signature binds it — but a row with three zero-filled integrity columns has
+  // no daemon signature, and Plan-001 writes `participant_signature` NULL
+  // beside them, so nothing on such a row commits its `sequence`: placeholder
+  // rows can be fabricated, deleted, and renumbered. Nor is there a schema rule
+  // to fall back on. `0001-initial.ts` documents the column "monotonic per
+  // session" under `UNIQUE(session_id, sequence)`, as does
+  // `local-sqlite-schema.md`, and neither adds a contiguity constraint.
+  //
+  // AN UPLOADED ANCHOR PUTS A COMMITMENT OFF THIS MACHINE, AND SOME SPANS NEVER
+  // GET ONE. That is what the `anchor_*` range modes verify against: an
+  // UPLOADED Merkle anchor (T3.3) commits to real `row_hash` values in the
+  // control plane's `event_log_anchors`, a Postgres table rather than this
+  // database. An anchor still QUEUED is not that — `pending_anchor_uploads` is
+  // a local SQLite table sitting beside `session_events`. V1 node-scope
+  // (sentinel `session_id`) rows are not upload candidates at all and keep
+  // `uploaded_at` NULL by design, and rows appended since the last anchor sit
+  // in no anchor's tree.
+  //
+  // THIS NOTE DOES NOT BOUND WHICH TAMPERING SHAPES SURVIVE, AND T4.1 MUST NOT
+  // READ IT AS IF IT DID. The facts above are mechanical properties of this
+  // module, not a threat model: they COMPOSE, and a list of the compositions is
+  // not something a comment can keep correct. None is attempted for that
+  // reason, and one added later would be a defect rather than an improvement —
+  // T4.1 owes the range walk a threat model derived on its own terms.
   //
   // A LEGITIMATE GENESIS ROW MUST NOT TRIP THIS, AND THAT IS NOT OBVIOUS.
   // `0001-initial.ts` documents `prev_hash` as "32 bytes; zero-filled at
