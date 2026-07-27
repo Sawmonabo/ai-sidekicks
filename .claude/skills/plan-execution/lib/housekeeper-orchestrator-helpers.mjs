@@ -67,7 +67,7 @@ Your responsibilities (per Spec §5.4 / §6.2):
 
 5. Reconcile semantic_work_pending — every item in \`manifest.semantic_work_pending\` MUST be paired to either (a) a \`semantic_edits.<item-key>\` entry containing the composed output, or (b) a \`concerns[]\` entry whose \`addressing\` field equals the exact item key verbatim (e.g. \`{kind: "deferred_for_followup", addressing: "set_quantifier_reverification"}\`). The validator pairs each pending item via this \`addressing\` key — \`kind\` is the subagent's choice; only \`addressing\` is the match key. Exception: when returning \`BLOCKED\` or \`NEEDS_CONTEXT\` (subagent halted before completing semantic work), per-item pairing is waived and the validator skips this check.
 
-6. Bound your edits to \`manifest.affected_files\` — out-of-scope edits trigger an orchestrator round-trip per \`references/failure-modes.md\` rule 20 (sprawl routing). To justify a scope expansion, add a \`concerns\` entry \`{kind: affected_files_extension, addressing: <reason>}\` and extend \`affected_files\`.
+6. Bound your edits to \`manifest.affected_files\` — an upper bound on what you may touch, never an obligation to touch every member. Out-of-scope edits trigger an orchestrator round-trip per \`references/failure-modes.md\` rule 20 (sprawl routing); to justify a scope expansion, add a \`concerns\` entry \`{kind: affected_files_extension, addressing: <reason>}\` and extend \`affected_files\`. A declared file that responsibility #5's evaluation resolves to no change stays unedited — that is the conformant outcome, not a skipped duty; record the decision in its \`semantic_edits\` payload and name every untouched file in your report.
 
 7. Write back the updated manifest (overwrite \`<manifest-path>\`) plus any direct file edits via the Edit tool.
 
@@ -135,6 +135,13 @@ export function buildHousekeeperPrompt({ manifestPath, scriptExitCode, prNumber,
  *     ALSO: every entry in affected_files MUST exist on disk — the subagent contract
  *     permits edits but not deletions; a missing entry surfaces as a gap rather
  *     than being silently skipped.
+ *     SCOPE: this placeholder scan is the ONLY per-file edit obligation anywhere in
+ *     this validator, and it binds exactly the files the script stubbed.
+ *     `affected_files` is an authorization scope, not a work list — a declared file
+ *     the subagent left untouched is conformant (the ordinary shape on a plan-bound
+ *     mid-phase run, whose `plan_done_checklist_evaluation` resolves to "not due" and
+ *     whose declared plan file never carries a placeholder). The work obligation is
+ *     per-ITEM and lives in check #2.
  *  4. No <TODO subagent prose> placeholder in any semantic_edits value (nested
  *     scan; TOP-LEVEL `_`-prefixed keys — the meta/attestation namespace — are
  *     exempt, matching the canonical-template Hard rule's carve-out; the
@@ -1022,17 +1029,27 @@ export function assertRepoRelative(path, repoRoot) {
  * wasted round-trips, instead of surfacing the required halt to the user.
  *
  * This helper is the single source of truth for the dispatch/halt mapping.
- * SKILL.md step 4, the contract's § Exit codes table, and any future audit
- * script all delegate here so the mapping cannot drift across surfaces.
+ * SKILL.md step 4 (through the exported `decideHousekeeperRouting`), the
+ * contract's § Exit codes table, and any future audit script all resolve
+ * routing here, so the mapping cannot drift across surfaces.
  *
  * Mapping (per § Exit codes):
  *   - 0  success                             → dispatch (happy path)
  *   - 1  --candidate-ns NS-XX not found      → HALT (orchestrator misdispatch)
  *   - 2  candidate verification failed       → dispatch (subagent surfaces BLOCKED)
- *   - 3  Done Checklist absent / fully ticked → dispatch (semantic work still applies)
+ *   - 3  reserved; no longer produced        → dispatch (see below)
  *   - 4  multi-PR shape, --task arg missing  → HALT (orchestrator misdispatch)
  *   - 5  schema_violations                   → dispatch (subagent surfaces BLOCKED)
  *   - ≥6 crash / IO error / arg-validation   → HALT (script crash)
+ *
+ * Code 3 meant "plan Done Checklist absent / already fully ticked" until
+ * 2026-07-27, when the mechanical tick that was its only producer was retired
+ * (the plan checklist is the subagent's `plan_done_checklist_evaluation` item
+ * now). The branch deliberately stays: the default arm below hard-halts on
+ * `unknown-exit-code`, so dropping code 3 would turn a stray 3 — from a stale
+ * in-session manifest — from a soft-continue into an aborted Phase E. Keeping
+ * an unproducible-but-routed code costs one branch; removing it has a failure
+ * mode.
  *
  * Defensive fallback: any exit code outside the documented set (negative,
  * non-integer, NaN) returns `halt` with `exitClass: "unknown-exit-code"`. The
@@ -1044,11 +1061,15 @@ export function assertRepoRelative(path, repoRoot) {
  * `redispatchPromptTemplate` pattern — halt-prose encoded in code, not
  * paraphrased on the fly).
  *
- * @param {{ scriptExitCode: number }} opts
+ * Exit-code routing ONLY. The exported `decideHousekeeperRouting` wraps this to
+ * attach the script's non-fatal `warnings` to the returned decision without
+ * touching `action` — see that function for why the two stages are separate.
+ *
+ * @param {number} scriptExitCode
  * @returns {{ action: "dispatch", exitClass: "subagent-handled" }
  *          | { action: "halt", exitClass: "orchestrator-misdispatch" | "script-crash" | "unknown-exit-code", reason: string, surfacePromptTemplate: string }}
  */
-export function decideHousekeeperRouting({ scriptExitCode }) {
+function routeOnExitCode(scriptExitCode) {
   if (
     scriptExitCode === 0 ||
     scriptExitCode === 2 ||
@@ -1098,6 +1119,77 @@ export function decideHousekeeperRouting({ scriptExitCode }) {
       `Phase E aborted: script returned unrecognized exit code \`${scriptExitCode}\`. ` +
       `Contract § Exit codes documents 0-5 and ≥6 only. ` +
       `Inspect script source for an undocumented exit path or manifest tampering. Operator action required.`,
+  };
+}
+
+/**
+ * Render one script `warnings[]` entry as a single relay line.
+ *
+ * An unrecognized `kind` is stringified rather than dropped. A diagnostic that
+ * vanishes because no branch knew its shape is exactly the silent-failure class
+ * this channel exists to close, so the default arm degrades the PROSE, never
+ * the content.
+ *
+ * @param {{ kind?: string }} warning — one entry from the script manifest's `warnings[]`
+ * @returns {string}
+ */
+function describeScriptWarning(warning) {
+  if (warning && warning.kind === "plan_file_unresolved") {
+    return (
+      `plan_file_unresolved — no single plan file matched \`${warning.glob}\` for \`--plan ${warning.plan}\`. ` +
+      `The plan's Done Checklist was NOT evaluated on this run, and no plan file was declared in ` +
+      `\`affected_files\`; the §6 corpus work was unaffected. Confirm the checklist is genuinely ` +
+      `not due a tick, or re-run Phase E step 2 with a corrected \`--plan\`.`
+    );
+  }
+  return JSON.stringify(warning);
+}
+
+/**
+ * Decide Phase E routing AND carry the script's non-fatal `warnings[]` into the
+ * value the orchestrator already has to consume.
+ *
+ * Routing is `routeOnExitCode`'s job, and warnings NEVER change it: a warning is
+ * by definition an anomaly the script noticed and deliberately did not halt on
+ * (contract § Warnings), so `action` is whatever the exit code says it is. What
+ * warnings change is visibility, nothing else.
+ *
+ * Why the channel lands here, and why it reuses this field name.
+ * `plan_file_unresolved` is emitted on a run that exits 0 with an otherwise
+ * clean manifest — which makes it, by construction, the ONLY signal that a
+ * plan-bound run silently skipped its checklist evaluation. A `warnings[]`
+ * array that nothing reads is a write-only diagnostic: the same failure shape
+ * as the never-firing checklist tick this PR retired. Attaching it to the
+ * routing decision puts it inside the one object step 4 cannot proceed without
+ * reading, and reusing `surfacePromptTemplate` rather than inventing a second
+ * field inherits SKILL.md step 4's existing "relay verbatim to the user"
+ * instruction instead of requiring a new one the orchestrator has never
+ * followed.
+ *
+ * Honest scope: this guarantees the payload reaches the orchestrator's hands.
+ * It does not guarantee a human read it — the relay itself is LLM-mediated.
+ *
+ * On a halt the warning block is APPENDED to the halt prose, never substituted
+ * for it: the halt is the more urgent message and must survive intact.
+ *
+ * @param {{ scriptExitCode: number, warnings?: Array<object> }} opts
+ * @returns {object} `routeOnExitCode`'s decision, plus `warnings` and a
+ *          `surfacePromptTemplate` relay block when `warnings` is non-empty.
+ */
+export function decideHousekeeperRouting({ scriptExitCode, warnings = [] }) {
+  const decision = routeOnExitCode(scriptExitCode);
+  if (!Array.isArray(warnings) || warnings.length === 0) return decision;
+
+  const relayBlock =
+    `Phase E script warnings (${warnings.length}) — relay verbatim; these do NOT halt the phase:\n` +
+    warnings.map((warning) => `  - ${describeScriptWarning(warning)}`).join("\n");
+
+  return {
+    ...decision,
+    warnings,
+    surfacePromptTemplate: decision.surfacePromptTemplate
+      ? `${decision.surfacePromptTemplate}\n\n${relayBlock}`
+      : relayBlock,
   };
 }
 

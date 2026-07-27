@@ -11,7 +11,7 @@
 //       stdout = JSON describing the failure.
 //   2 — internal error; stderr describes.
 
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import process from "node:process";
 
@@ -204,7 +204,28 @@ async function main() {
   process.exit(0);
 }
 
-if (process.argv[1] && process.argv[1] === fileURLToPath(import.meta.url)) {
+/**
+ * Direct-invocation guard — same form as
+ * `tools/docs-corpus/bin/pre-commit-runner.ts` § isDirectlyInvoked.
+ *
+ * The previous spelling compared `process.argv[1]` to `fileURLToPath(...)`
+ * directly: encoding-correct, but not realpath-normalised, so an invocation
+ * through a symlinked path (macOS `/tmp` → `/private/tmp`, or a checkout under
+ * a symlink) silently no-ops and exits 0.
+ */
+function isDirectlyInvoked() {
+  const invokedPath = process.argv[1];
+  if (typeof invokedPath !== "string") return false;
+  try {
+    return realpathSync(invokedPath) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    // A path that will not resolve to a real file was not this module's entry
+    // point, so `false` is the correct answer rather than a swallowed failure.
+    return false;
+  }
+}
+
+if (isDirectlyInvoked()) {
   main().catch((e) => {
     process.stderr.write(`internal error: ${e.message || String(e)}\n`);
     process.exit(2);

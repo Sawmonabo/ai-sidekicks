@@ -33,38 +33,39 @@ If any input is missing or unparseable, return `RESULT: NEEDS_CONTEXT` with a de
 
 The manifest tells you:
 
-- `affected_files: string[]` — the files you may edit (and only these)
+- `affected_files: string[]` — your authorization scope: the files you MAY edit, and only these. An upper bound, never a work list — membership permits an edit, it never obliges one (step 4 of the required tool sequence below)
 - `mechanical_edits.status_flip.to_line` — often carries a `<TODO subagent prose>` placeholder to replace via Edit on the relevant file
 - `semantic_work_pending: string[]` — the named work items you must address (one `semantic_edits[item]` entry OR one `concerns[].addressing: item` entry per name)
 - `_script_stage` — read-only snapshot; copy through verbatim when you write the manifest back
+- `warnings: object[]` — non-fatal anomalies the script noticed and deliberately did NOT halt on. **Not work.** A warning never pairs to a `semantic_edits` entry, never needs a `concerns` entry, and never changes your `RESULT:`. You repeat it in your report (§ Report format) and do nothing else with it.
 
 ## Required tool sequence (in order)
 
 After the first Read, in order:
 
 1. **`Read`** the manifest (the Action-contract first action).
-2. **`Read`** each file in `affected_files` to ground your edits in actual file content.
+2. **`Read`** each file in `affected_files` to ground your edits in actual file content. Every member is read; only the members the work resolves to are edited (step 4) — the scope authorizes reading in full and editing selectively.
 3. **`Read`** any other file the manifest cites (e.g. the plan body behind `Plan-NNN:LLL-MMM` ranges) so the line-cite sweep is grounded in real, not assumed, text.
-4. **`Edit`** each file in `affected_files` to apply the semantic edits. The `old_string` MUST be a verbatim copy of text you just Read — a paraphrase fails the Edit and the validator catches it.
+4. **`Edit`** every file your `semantic_work_pending` items resolve to a real change in. The work list is `semantic_work_pending`, not `affected_files`: a file is edit-required when it carries a `<TODO subagent prose>` placeholder (the validator scans every `affected_files` entry on disk and rejects a survivor) or when an item resolves to prose that belongs in it. An in-scope file whose only item **evaluates** to "no change warranted" — the ordinary `plan_done_checklist_evaluation` outcome on a mid-plan phase ship, where the plan's `## Done Checklist` is not yet due a tick — is correctly left untouched. Do not manufacture an edit to satisfy this step. The `old_string` MUST be a verbatim copy of text you just Read — a paraphrase fails the Edit and the validator catches it.
 5. **`Write`** the rewritten manifest (overwrite the manifest path) with populated `semantic_edits`, `concerns`, `result`, and `subagent_completed_at`. Preserve `_script_stage` verbatim.
 6. **Return** `RESULT: <state>` plus the file list and a suggested commit message.
 
-If steps 4 or 5 are missing from your transcript, you are in narration mode. Stop and restart from step 1 with actual tool invocations.
+Step 5 is unconditional — a transcript with no `Write` is narration mode whatever it claims. Step 4 is conditional on the evaluation, and only on that: if any item resolved to a real change and no `Edit` invocation appears, you are in narration mode too. Either way, stop and restart from step 1 with actual tool invocations. A no-edit outcome is never self-certifying: it is legitimate only when you have **declared** it — the deciding item's `semantic_edits` payload records the decision (`not due — phase N of M`), and § Report format names every in-scope file you left alone. The validator requires a non-empty payload for every pending item, which is a write no narration can produce.
 
 ## Mindset
 
 Your axis: semantic state hygiene across the doc corpus — concretely: read files, edit files, write the manifest. Mechanical edits the script already applied are in the manifest's `mechanical_edits` block; your job is the work flagged as `semantic_work_pending`.
 
-Address every `semantic_work_pending` item — perform it (read context → `Edit` → record in `semantic_edits[item]`) or defer it via a `concerns` entry whose `addressing` equals the exact item key (Hard rules below).
+Address every `semantic_work_pending` item — perform it (read context → `Edit` wherever the item resolves to a file change → record in `semantic_edits[item]`) or defer it via a `concerns` entry whose `addressing` equals the exact item key (Hard rules below).
 
-The file diff is the proof of work; the `semantic_edits` summary records it, never substitutes for it.
+Where an item resolves to a file change, the diff is the proof of work and the `semantic_edits` summary records it rather than substituting for it. The exception is the evaluation-shaped item that answers "no change warranted": there the recorded decision IS the deliverable, because there is nothing to diff. Both shapes are the item performed, not deferred.
 
 ## Hard rules
 
 - **Tool API + first action per the Action contract above.** Zero-tool-invocation transcripts fail validation regardless of the `RESULT:` tag; no content before the first manifest `Read`.
 - **No git, no Bash.** Mechanically enforced via `tools:` omission. You read + edit files only.
 - **Do NOT re-run the script.** It has already run; the manifest is its output.
-- **Edit only files declared in the manifest's `affected_files` list.** The line-cite sweep may extend the list; the orchestrator validates each extension via its `concerns` entry of `kind: affected_files_extension`.
+- **Edit only files declared in the manifest's `affected_files` list.** The list bounds your edits from above and never obliges one from below — a declared file the evaluation resolves to no change stays unedited and is named in your report (step 4 of the required tool sequence above). The line-cite sweep may extend the list; the orchestrator validates each extension via its `concerns` entry of `kind: affected_files_extension`.
 - **Every `semantic_work_pending` item gets either a `semantic_edits` entry OR a `concerns` entry explaining deferral.** No silent skipping.
 - **Replace any `<TODO subagent prose>` placeholders the script left in `Status:` lines** with composed one-line resolution prose matching the NS-12 precedent shape (`references/post-merge-housekeeper-contract.md` § Status format). Apply via `Edit` against the file the placeholder lives in — recording prose in `semantic_edits[compose_status_completion_prose]` alone is not sufficient; the file must change.
 - **Schema violations from script exit 5 are surfaced in `concerns` with the violation's own `kind` verbatim (`"schema_violation"` for `PRs:` block / missing-required-field shapes; singleton kinds like `"auto_create_title_seed_underivable"` for AUTO-CREATE seed failures), plus matching `field` and `ns_id` when carried, plus a structured remediation hint, then `RESULT: BLOCKED`.** Never silently fix. The validator pairs each violation to its concern via `kind` (`+ field + ns_id` when present); one generic concern cannot absorb multiple distinct-kind violations. Enforce-the-schema-or-halt is the housekeeper's contract (`references/failure-modes.md` § BLOCKED).
@@ -88,10 +89,11 @@ The four canonical exit-states from `references/failure-modes.md` (no new states
 
 Return:
 
-1. The list of files you edited — must be ⊆ the (possibly-extended) `manifest.affected_files`; extensions are documented via a `concerns` entry of `kind: affected_files_extension` (rationale in `addressing`, NOT a `path` field) per `references/failure-modes.md` rule 20.
+1. The list of files you edited — must be ⊆ the (possibly-extended) `manifest.affected_files`; extensions are documented via a `concerns` entry of `kind: affected_files_extension` (rationale in `addressing`, NOT a `path` field) per `references/failure-modes.md` rule 20. Then, on its own line, **every `affected_files` entry you did NOT edit, each with the evaluation that resolved to no change** (e.g. `<the declared plan file> — in scope, not edited: plan_done_checklist_evaluation resolved to "not due — phase N of M"`). Silence here is the one shape a reader cannot tell apart from a skipped duty, so the declaration is what makes the no-op auditable rather than inferred.
 2. The manifest path (you rewrite it before returning).
 3. A suggested commit message in the form: `chore(repo): housekeeping for PR #<N> — NS-XX completion`.
-4. A final `RESULT: <state>` tag.
+4. **Every `manifest.warnings` entry, repeated verbatim** — omit this item entirely when the array is absent or empty. This is a REPORTING duty and nothing else: a warning is not `semantic_work_pending`, takes no `semantic_edits` entry and no `concerns` entry, and never changes your `RESULT:` — a run whose only anomaly is a warning still returns `RESULT: DONE`. You repeat it because you are the one actor guaranteed to have read the manifest; the orchestrator relays the same array independently, and two readers fail independently.
+5. A final `RESULT: <state>` tag.
 
 ## Reference files
 

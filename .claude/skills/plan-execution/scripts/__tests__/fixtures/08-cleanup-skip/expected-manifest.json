@@ -26,8 +26,7 @@
       "from": ":::ready",
       "to": ":::completed",
       "node_line": 17
-    },
-    "plan_checklist_ticks": []
+    }
   },
   "schema_violations": [],
   "verification_failures": [],

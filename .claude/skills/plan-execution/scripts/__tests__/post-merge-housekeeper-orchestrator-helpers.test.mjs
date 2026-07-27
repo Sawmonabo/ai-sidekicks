@@ -1637,7 +1637,7 @@ test("validateManifestSubagentStage: passes when schema_violations present AND r
 
 // ---------- BLOCKED-when-verification_failures enforcement ----------
 // Mirror of Finding 6's schema_violations BLOCKED check. Contract clause from
-// `references/post-merge-housekeeper-contract.md` §exit-code 2 line 79: "candidate
+// `references/post-merge-housekeeper-contract.md` §Exit codes, code 2: "candidate
 // verification failed (Type-signature / file-overlap / plan-identity mismatch — halt
 // BLOCKED via subagent surfacing of `verification_failures`)". Without this check, a
 // subagent could ship `DONE` / `DONE_WITH_CONCERNS` while verification_failures is
@@ -2646,6 +2646,165 @@ test("decideHousekeeperRouting: defensive fallback for non-integer exit (e.g. Na
   const r = decideHousekeeperRouting({ scriptExitCode: NaN });
   assert.equal(r.action, "halt");
   assert.equal(r.exitClass, "unknown-exit-code");
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// decideHousekeeperRouting — script `warnings[]` relay channel
+//
+// `plan_file_unresolved` rides an exit-0 run whose manifest is otherwise
+// clean, so it is the ONLY signal that a plan-bound run skipped its checklist
+// evaluation. Emitting it into a `warnings[]` array that nothing reads would
+// reproduce, in the same PR, the write-only-diagnostic failure this PR exists
+// to fix. These tests pin the two properties that make the channel real:
+// the payload reaches the value step 4 must consume, and it never perturbs
+// routing.
+//
+// Scope honesty: no unit test can prove a human READ the relayed text — that
+// leg is LLM-mediated. What is pinned here is that the payload arrives and
+// that `action` is untouched.
+// ───────────────────────────────────────────────────────────────────────────
+
+const PLAN_FILE_UNRESOLVED_WARNING = {
+  kind: "plan_file_unresolved",
+  plan: "024",
+  glob: "docs/plans/024-*.md",
+};
+
+test("decideHousekeeperRouting: omitted warnings leaves the decision shape untouched", () => {
+  const r = decideHousekeeperRouting({ scriptExitCode: 0 });
+  assert.equal(r.action, "dispatch");
+  // Backward compatibility: a clean run must not grow a warnings key or a
+  // relay template, or every existing dispatch-shape consumer sees new fields.
+  assert.equal("warnings" in r, false);
+  assert.equal("surfacePromptTemplate" in r, false);
+});
+
+test("decideHousekeeperRouting: an empty warnings array is treated as no warnings", () => {
+  const r = decideHousekeeperRouting({ scriptExitCode: 0, warnings: [] });
+  assert.equal(r.action, "dispatch");
+  assert.equal("warnings" in r, false);
+  assert.equal("surfacePromptTemplate" in r, false);
+});
+
+test("decideHousekeeperRouting: exit 0 + plan_file_unresolved still dispatches (a warning never halts)", () => {
+  const r = decideHousekeeperRouting({
+    scriptExitCode: 0,
+    warnings: [PLAN_FILE_UNRESOLVED_WARNING],
+  });
+  // The load-bearing assertion. Routing is a pure function of the exit code;
+  // a warning that could halt Phase E would be a concern, not a warning.
+  assert.equal(r.action, "dispatch");
+  assert.equal(r.exitClass, "subagent-handled");
+  assert.deepEqual(r.warnings, [PLAN_FILE_UNRESOLVED_WARNING]);
+});
+
+test("decideHousekeeperRouting: the relay block names the plan, the glob, and the skipped evaluation", () => {
+  const r = decideHousekeeperRouting({
+    scriptExitCode: 0,
+    warnings: [PLAN_FILE_UNRESOLVED_WARNING],
+  });
+  assert.match(r.surfacePromptTemplate, /relay verbatim/);
+  assert.match(r.surfacePromptTemplate, /plan_file_unresolved/);
+  assert.match(r.surfacePromptTemplate, /docs\/plans\/024-\*\.md/);
+  assert.match(r.surfacePromptTemplate, /--plan 024/);
+  // Without this the operator cannot tell what was skipped, only that
+  // something was.
+  assert.match(r.surfacePromptTemplate, /Done Checklist was NOT evaluated/);
+});
+
+test("decideHousekeeperRouting: on a halt the warning block is appended, never substituted for the halt prose", () => {
+  const r = decideHousekeeperRouting({
+    scriptExitCode: 1,
+    warnings: [PLAN_FILE_UNRESOLVED_WARNING],
+  });
+  assert.equal(r.action, "halt");
+  // The halt is the more urgent message; losing it to a warning would turn a
+  // hard operator-action stop into an advisory note.
+  assert.match(r.surfacePromptTemplate, /Do NOT dispatch/);
+  assert.match(r.surfacePromptTemplate, /plan_file_unresolved/);
+});
+
+test("decideHousekeeperRouting: an unrecognized warning kind is surfaced, not dropped", () => {
+  const r = decideHousekeeperRouting({
+    scriptExitCode: 0,
+    warnings: [{ kind: "some_future_kind", detail: "load-bearing-detail" }],
+  });
+  assert.equal(r.action, "dispatch");
+  // A diagnostic that vanishes because no branch knew its shape is the exact
+  // silent-failure class this channel closes.
+  assert.match(r.surfacePromptTemplate, /some_future_kind/);
+  assert.match(r.surfacePromptTemplate, /load-bearing-detail/);
+});
+
+test("decideHousekeeperRouting: every warning in a multi-entry array is rendered", () => {
+  const r = decideHousekeeperRouting({
+    scriptExitCode: 0,
+    warnings: [PLAN_FILE_UNRESOLVED_WARNING, { kind: "second_kind" }],
+  });
+  assert.match(r.surfacePromptTemplate, /Phase E script warnings \(2\)/);
+  assert.match(r.surfacePromptTemplate, /plan_file_unresolved/);
+  assert.match(r.surfacePromptTemplate, /second_kind/);
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// Obligation separation — a warning is relayed, never answered.
+//
+// A pending item the subagent cannot discharge makes DONE_WITH_CONCERNS the
+// default verdict on an otherwise-clean run; that is the failure mode the
+// unresolvable-plan handling exists to avoid. The warnings channel is
+// therefore deliberately NOT an obligation: no pending item pairs to it, so
+// `RESULT: DONE` stays reachable on a run whose only anomaly is a warning.
+//
+// This pins the separation against a future edit that "helpfully" routes a
+// warning into `semantic_work_pending` or demands a matching `concerns`
+// entry — which would reintroduce exactly the failure mode the channel was
+// added to report on.
+// ──────────────────────────────────────────────────────────────────────────
+
+test("DONE stays reachable when the manifest carries a warning (a warning is never an obligation)", () => {
+  const tmpRepo = mkdtempSync(join(tmpdir(), "validate-warning-done-"));
+  try {
+    writeFileSync(join(tmpRepo, "seeded.md"), "no placeholder here\n");
+    // The shape of a real unresolvable-plan run: §6 corpus work completed
+    // normally, NO plan file declared in affected_files (declaring an
+    // unresolved path would trip the on-disk existence check), and the only
+    // anomaly on the run is the warning itself.
+    const manifest = {
+      _script_stage: {
+        affected_files: ["seeded.md"],
+        schema_violations: [],
+        verification_failures: [],
+        semantic_work_pending: ["compose_ns_entry_body"],
+      },
+      semantic_work_pending: ["compose_ns_entry_body"],
+      semantic_edits: { compose_ns_entry_body: "composed the NS entry body" },
+      concerns: [],
+      affected_files: ["seeded.md"],
+      warnings: [PLAN_FILE_UNRESOLVED_WARNING],
+      result: "DONE",
+      subagent_completed_at: "2026-07-27T00:00:00Z",
+    };
+    const result = validateManifestSubagentStage({
+      manifest,
+      repoRoot: tmpRepo,
+      ...stageOneFromManifest(manifest),
+    });
+    assert.equal(
+      result.valid,
+      true,
+      `a warning must not block RESULT: DONE, got gaps: ${JSON.stringify(result.gaps)}`,
+    );
+    // Stricter than `valid === true` alone: proves no gap so much as MENTIONS
+    // the warning. A future edit cannot satisfy this test by raising a warning
+    // gap that some unrelated relaxation happens to tolerate.
+    assert.equal(
+      (result.gaps ?? []).some((gap) => /warning/i.test(gap)),
+      false,
+      `no validator gap may reference warnings, got: ${JSON.stringify(result.gaps)}`,
+    );
+  } finally {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  }
 });
 
 // ──────────────────────────────────────────────────────────────────────────

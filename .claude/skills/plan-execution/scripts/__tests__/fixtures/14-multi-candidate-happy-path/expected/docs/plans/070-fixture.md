@@ -4,5 +4,5 @@
 
 #### Done Checklist
 
-- [x] NS-70 lands
-- [x] NS-71 lands
+- [ ] NS-70 lands
+- [ ] NS-71 lands

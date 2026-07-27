@@ -52,13 +52,6 @@
         "to": ":::completed",
         "node_line": 28
       }
-    ],
-    "plan_checklist_ticks": [
-      {
-        "file": "docs/plans/070-fixture.md",
-        "phase": "1",
-        "items_ticked": 2
-      }
     ]
   },
   "schema_violations": [],
@@ -70,7 +63,8 @@
     "line_cite_sweep",
     "set_quantifier_reverification",
     "ns_auto_create_evaluation",
-    "unannotated_referenced_files_check"
+    "unannotated_referenced_files_check",
+    "plan_done_checklist_evaluation"
   ],
   "warnings": [],
   "_script_stage": {
@@ -83,7 +77,8 @@
       "line_cite_sweep",
       "set_quantifier_reverification",
       "ns_auto_create_evaluation",
-      "unannotated_referenced_files_check"
+      "unannotated_referenced_files_check",
+      "plan_done_checklist_evaluation"
     ]
   },
   "proposed_manifest_entry": null,

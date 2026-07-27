@@ -6,6 +6,6 @@ Tasks for Phase 2.
 
 #### Done Checklist
 
-- [x] T-050-2-1 lands
-- [x] T-050-2-2 lands
-- [x] T-050-2-3 lands
+- [ ] T-050-2-1 lands
+- [ ] T-050-2-2 lands
+- [ ] T-050-2-3 lands

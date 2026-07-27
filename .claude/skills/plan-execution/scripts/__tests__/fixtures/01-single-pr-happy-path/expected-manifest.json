@@ -26,14 +26,7 @@
       "from": ":::ready",
       "to": ":::completed",
       "node_line": 17
-    },
-    "plan_checklist_ticks": [
-      {
-        "file": "docs/plans/024-rust-pty-sidecar.md",
-        "phase": "1",
-        "items_ticked": 2
-      }
-    ]
+    }
   },
   "schema_violations": [],
   "verification_failures": [],
@@ -47,7 +40,8 @@
     "line_cite_sweep",
     "set_quantifier_reverification",
     "ns_auto_create_evaluation",
-    "unannotated_referenced_files_check"
+    "unannotated_referenced_files_check",
+    "plan_done_checklist_evaluation"
   ],
   "warnings": [],
   "_script_stage": {
@@ -63,7 +57,8 @@
       "line_cite_sweep",
       "set_quantifier_reverification",
       "ns_auto_create_evaluation",
-      "unannotated_referenced_files_check"
+      "unannotated_referenced_files_check",
+      "plan_done_checklist_evaluation"
     ]
   },
   "proposed_manifest_entry": null,

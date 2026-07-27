@@ -34,10 +34,7 @@ The plan-execution housekeeper subagent and its companion script (`scripts/post-
       "from": ":::ready",
       "to": ":::completed",
       "node_line": 285
-    },
-    "plan_checklist_ticks": [
-      { "file": "docs/plans/024-rust-pty-sidecar.md", "phase": "1", "items_ticked": 5 }
-    ]
+    }
   },
   "schema_violations": [],
   "verification_failures": [],
@@ -51,7 +48,8 @@ The plan-execution housekeeper subagent and its companion script (`scripts/post-
     "line_cite_sweep",
     "set_quantifier_reverification",
     "ns_auto_create_evaluation",
-    "unannotated_referenced_files_check"
+    "unannotated_referenced_files_check",
+    "plan_done_checklist_evaluation"
   ],
   "warnings": [],
   "_script_stage": {
@@ -68,7 +66,8 @@ The plan-execution housekeeper subagent and its companion script (`scripts/post-
       "line_cite_sweep",
       "set_quantifier_reverification",
       "ns_auto_create_evaluation",
-      "unannotated_referenced_files_check"
+      "unannotated_referenced_files_check",
+      "plan_done_checklist_evaluation"
     ]
   },
   "proposed_manifest_entry": {
@@ -97,11 +96,33 @@ For multi-candidate runs (`--candidate-ns NS-XX,NS-YY` — comma-list dispatched
 
 - `matched_entry: null` and `matched_entries: [...]` carries per-NS metadata (one entry per NS in the comma list).
 - `mechanical_edits.status_flip` and `mechanical_edits.mermaid_class_swap` are absent (omitted from the JSON entirely, not null) and the plural `mechanical_edits.status_flips: [...]` and `mechanical_edits.mermaid_class_swaps: [...]` arrays carry one entry per processed NS.
-- `mechanical_edits.prs_block_ticks` and `mechanical_edits.plan_checklist_ticks` retain their array shape across both single- and multi-candidate runs (they were already arrays).
+- `mechanical_edits.prs_block_ticks` retains its array shape across both single- and multi-candidate runs (it was already an array).
 
 Subagent consumers detect multi-candidate by checking `Array.isArray(manifest.matched_entries)`; the canonical fixture for this shape is `scripts/__tests__/fixtures/14-multi-candidate-happy-path/expected-manifest.json`. The plural shape is independent of the per-NS multi-PR variation above — a multi-candidate run can include NS entries that are themselves multi-PR (each emits its own `status_flips[]` entry with `computed_via: "prs-matrix recompute"`).
 
 Stage 1 (script) writes the file with subagent fields stubbed. Stage 2 (subagent) reads, fills in its fields (including replacing the `<TODO subagent prose>` placeholders in `Status:` lines via direct file edits, then echoing the composed prose into `semantic_edits.completion_prose`), writes back.
+
+**`plan_done_checklist_evaluation`.** Evaluation-shaped, mirroring `ns_auto_create_evaluation`: the subagent decides whether the plan's document-level `## Done Checklist` is due a tick for the phase that just shipped, and records the decision either way under `semantic_edits.plan_done_checklist_evaluation`. Due → tick the row with the evidence those rows carry (PR #, squash SHA, merge date). Not due → record `not due — phase N of M`. The checklist is plan-scoped, so "not due" is the common case on a mid-plan phase ship, and recording it IS the completed work — a `concerns` entry is owed only when the subagent genuinely cannot decide. The script does not tick this checklist and never has (see §Exit codes, code 3).
+
+The "not due" branch resolves to **no edit of the plan file at all**, and that is the conformant outcome rather than a skipped duty. The `semantic_edits` payload is the whole deliverable on that branch: the validator requires a non-empty payload per pending item, so the decision is recorded whether or not any file changed, and the subagent additionally names every untouched in-scope file in its report per `.claude/agents/plan-execution-housekeeper.md` § Report format. Nothing anywhere requires an `Edit` per `affected_files` member. The only per-file machine gate is the `<TODO subagent prose>` placeholder scan (§ Validation invariants), and the script writes that token solely into files that genuinely need prose composed — never into a plan file, under which it writes nothing at all.
+
+The item is emitted on both dispatch modes — a phase shipped either way, so the question is live whether or not an NS entry existed pre-merge — but within each mode only on **plan-bound** runs, meaning those carrying both `--plan` and `--phase`. Cleanup, governance and tier-range-audit invocations legally carry neither (they record `plan: null, phase: null`); there is no plan whose checklist could be due, so asking would produce an unanswerable item, and since every pending item must pair to a `semantic_edits` entry or a `concerns` entry, it would make `DONE_WITH_CONCERNS` the verdict on an otherwise clean run.
+
+Whenever the item IS emitted, the resolved plan file is declared in `affected_files` alongside the §6 corpus. The two move together: `affected_files` hard-bounds the subagent's edit scope from above — it authorizes the tick the evaluation MAY resolve to, without obliging one — so an emitted-but-undeclared item asks for a tick the contract forbids, costing a sprawl round-trip and an `affected_files_extension` concern, while a declared-but-unemitted file widens that scope for nothing.
+
+## Warnings
+
+`warnings` carries non-fatal anomalies the script noticed but did not halt on. It is script-stage output only (never mirrored into `_script_stage`, never written by the subagent) and no pending item pairs to it, so it never gates `RESULT`.
+
+**How a warning reaches a human.** The orchestrator passes the array to `decideHousekeeperRouting({ scriptExitCode, warnings })` in Phase E step 4. When it is non-empty the returned decision carries `warnings` plus a `surfacePromptTemplate` relay block, which SKILL.md step 4 already instructs the orchestrator to relay verbatim — on a halt the block is appended to the halt prose rather than replacing it. `action` is never affected: routing is a pure function of the exit code, because a warning is by construction something the script chose not to halt on. The dispatched subagent repeats the entries independently per `.claude/agents/plan-execution-housekeeper.md` § Report format — a second reader of the same array, and the one actor whose first action is a transcript-validated `Read` of the manifest.
+
+This wiring is deliberate rather than decorative. A `plan_file_unresolved` warning rides an exit-0 run whose manifest is otherwise clean, so it is the only evidence that a plan-bound run skipped its checklist evaluation; left unread it would be a write-only diagnostic — the same silent-failure shape as the never-firing checklist tick retired in this PR. What the wiring guarantees is that the payload reaches the orchestrator inside a value it must consume to route at all. It cannot guarantee a human read the relayed text; that leg is LLM-mediated.
+
+**Why a warning creates no subagent obligation.** Every obligation in `.claude/agents/plan-execution-housekeeper.md` keys off a field that is not `warnings`: § Manifest contents and § Mindset bind the work to `semantic_work_pending`; § Hard rules pairs each pending item to a `semantic_edits` or `concerns` entry, routes exit-5 `schema_violations` to `concerns` + `RESULT: BLOCKED`, and routes unannotated-NS PRs to `concerns` + `RESULT: DONE_WITH_CONCERNS`. None of them names `warnings`, and the § Report format duty above is explicitly reporting-only. That separation is what keeps `RESULT: DONE` reachable on a run whose sole anomaly is a warning — the alternative, an item the subagent cannot discharge, would make `DONE_WITH_CONCERNS` the default verdict on an otherwise-clean run, which is the failure mode this channel was added to report on rather than reproduce. Pinned by `__tests__/post-merge-housekeeper-orchestrator-helpers.test.mjs` § "DONE stays reachable when the manifest carries a warning".
+
+| `kind` | Fields | Meaning |
+| --- | --- | --- |
+| `plan_file_unresolved` | `plan`, `glob` | A plan-bound run whose plan file did not resolve to exactly one path: `docs/plans/` is absent, nothing matches `glob`, or several files do. `plan_done_checklist_evaluation` is dropped for that run and no plan path is declared — declaring a path that does not exist on disk is a hard validator gap, strictly worse than this warning. The §6 mechanical work is unaffected and the run still exits 0. |
 
 ## Proposed shipment-manifest entry
 
@@ -112,7 +133,7 @@ Stage 1 (script) writes the file with subagent fields stubbed. Stage 2 (subagent
 | `phase` | `--phase` flag (script) | Coerced to integer; null if non-numeric (Tier-A) — script returns `proposed_manifest_entry: null` in that case. |
 | `task` | `--task` flag (script) | String form; legacy multi-task PRs use array form (Plan-007 PR #19). |
 | `pr` | `--pr` flag (script) | Integer. |
-| `sha` | `--squash-sha` flag (orchestrator-supplied) | Abbreviated hex (7+ chars). Source: `git rev-parse --short HEAD` after Phase D.5 step 4. |
+| `sha` | `--squash-sha` flag (orchestrator-supplied) | Abbreviated hex (7+ chars). Source: `git rev-parse --short HEAD` in Phase D.5 step 5. |
 | `merged_at` | `--merged-at` flag (orchestrator-supplied) | ISO date `YYYY-MM-DD`. Source: `gh pr view <PR#> --json mergedAt -q .mergedAt \| cut -dT -f1`. |
 | `files` | `diffTouchedFiles` from `git diff --name-only` (orchestrator-supplied) | Array; defaults to `[]` when caller didn't supply. |
 | `verifies_invariant` | Always `[]` at script stage | Audit-derived; orchestrator merges in DAG-task value via `enrichEntryWithDag` (lib/housekeeper-orchestrator-helpers.mjs). |
@@ -134,7 +155,10 @@ Exit codes:  0  success
              1  --candidate-ns NS-XX not found in §6 (orchestrator misdispatch — halt)
              2  candidate verification failed (Type-signature / file-overlap / plan-identity
                    mismatch — halt BLOCKED via subagent surfacing of `verification_failures`)
-             3  plan §Done Checklist not found / already fully ticked
+             3  reserved — retired 2026-07-27; no longer produced by this script
+                   (was: plan §Done Checklist not found / already fully ticked; the
+                    checklist is now the subagent's `plan_done_checklist_evaluation`.
+                    Still routed — see the dispatch/halt table below)
              4  candidate is multi-PR shape but `--task <task-id>` arg missing (--candidate-ns mode only)
              5  schema violation: candidate has malformed `PRs:` block / missing required
                    sub-field (--candidate-ns) OR auto-create would duplicate an existing
@@ -149,7 +173,7 @@ Exit codes:  0  success
 | 0 | `dispatch` | `subagent-handled` | success — subagent completes semantic work |
 | 1 | `halt` | `orchestrator-misdispatch` | NS-XX not in §6 — orchestrator dispatched with bad flags |
 | 2 | `dispatch` | `subagent-handled` | verification failed — subagent surfaces `verification_failures` as BLOCKED |
-| 3 | `dispatch` | `subagent-handled` | no checklist to tick — semantic work (set-quantifier reverification etc.) still applies |
+| 3 | `dispatch` | `subagent-handled` | reserved, no longer produced — the branch stays so a stray 3 from a stale in-session manifest soft-continues here instead of falling to the default arm's `unknown-exit-code` hard-halt |
 | 4 | `halt` | `orchestrator-misdispatch` | multi-PR shape, `--task` arg missing — orchestrator dispatch bug |
 | 5 | `dispatch` | `subagent-handled` | schema_violations — subagent surfaces as BLOCKED |
 | ≥6 | `halt` | `script-crash` | crash / IO / arg-validation — script-stage failure, operator inspects stderr |
@@ -161,8 +185,8 @@ Exit codes:  0  success
 
 **Validation invariants (orchestrator):**
 
-- After script: `mechanical_edits` populated per `script_exit_code` (exit 1 → `matched_entry` and `status_flip` may be absent; exit 3 → `plan_checklist_ticks` may be empty; exit 5 → `schema_violations` non-empty + edits aborted; multi-candidate runs emit plural `matched_entries`/`status_flips`/`mermaid_class_swaps` in place of the singular keys per the multi-candidate-shape paragraph above). `semantic_work_pending` non-empty. `result === null`.
-- After subagent: `result !== null`. Every item in `semantic_work_pending` appears in EITHER `semantic_edits.<item-key>` OR `concerns[]` with `addressing: <item-key>` matching the exact pending-item key (waived when `result === "BLOCKED"` or `"NEEDS_CONTEXT"`, since the subagent halted before completing semantic work). Every entry in `schema_violations` appears in `concerns` with matching `kind` (the violation's own kind verbatim — typically `"schema_violation"` for missing-required-field shapes, but the script also emits singletons like `"auto_create_title_seed_underivable"` with no `field`/`ns_id`), plus matching `field` and `ns_id` when the violation carries them, AND `result === "BLOCKED"`. When `verification_failures` is non-empty (script exit-2 halt path — Type-signature / file-overlap / plan-identity mismatch or `multi_pr_task_not_in_block`), `result === "BLOCKED"` (mirrors the schema_violations rule — surfacing alone is insufficient; the BLOCKED state is load-bearing for the orchestrator's halt/routing-path determinism). No `<TODO subagent prose>` placeholders remain in any file under `affected_files`. `affected_files` ⊇ files actually edited (subagent did not sprawl outside declared scope; extensions to `affected_files` are documented in `concerns` with `kind: affected_files_extension`; deletion of a declared file is a contract violation surfaced by the validator's missing-file gap).
+- After script: `mechanical_edits` populated per `script_exit_code` (exit 1 → `matched_entry` and `status_flip` may be absent; exit 5 → `schema_violations` non-empty + edits aborted; multi-candidate runs emit plural `matched_entries`/`status_flips`/`mermaid_class_swaps` in place of the singular keys per the multi-candidate-shape paragraph above). `semantic_work_pending` non-empty. `result === null`.
+- After subagent: `result !== null`. Every item in `semantic_work_pending` appears in EITHER `semantic_edits.<item-key>` OR `concerns[]` with `addressing: <item-key>` matching the exact pending-item key (waived when `result === "BLOCKED"` or `"NEEDS_CONTEXT"`, since the subagent halted before completing semantic work). Every entry in `schema_violations` appears in `concerns` with matching `kind` (the violation's own kind verbatim — typically `"schema_violation"` for missing-required-field shapes, but the script also emits singletons like `"auto_create_title_seed_underivable"` with no `field`/`ns_id`), plus matching `field` and `ns_id` when the violation carries them, AND `result === "BLOCKED"`. When `verification_failures` is non-empty (script exit-2 halt path — Type-signature / file-overlap / plan-identity mismatch or `multi_pr_task_not_in_block`), `result === "BLOCKED"` (mirrors the schema_violations rule — surfacing alone is insufficient; the BLOCKED state is load-bearing for the orchestrator's halt/routing-path determinism). No `<TODO subagent prose>` placeholders remain in any file under `affected_files`. `affected_files` ⊇ files actually edited (subagent did not sprawl outside declared scope; extensions to `affected_files` are documented in `concerns` with `kind: affected_files_extension`; deletion of a declared file is a contract violation surfaced by the validator's missing-file gap). That containment is one-directional and deliberately so: a declared file carrying no edit is conformant — the placeholder scan above is the only per-file edit obligation, and it binds exactly the files the script stubbed. Proper-subset is the ordinary shape on a plan-bound mid-phase run, where `plan_done_checklist_evaluation` resolves to "not due" and the declared plan file is authorized but untouched.
 
 If validation fails, orchestrator halts Phase E and surfaces the gap (script-stage failure) OR round-trips to the subagent (subagent-stage failure).
 
@@ -181,7 +205,7 @@ Step 5's validator reads this sidecar as the untamperable baseline for preservat
 
 Triggered when exit 1 (narration_mode_detected) fires, OR when exit 2 fires on two consecutive rounds without progress. The contract violation (SKILL.md § Hard rules → "You orchestrate; you don't implement") is waived inside this fallback path because the subagent is structurally unable to complete the work — re-dispatching wastes a turn and the deterministic fix is for the orchestrator to apply the semantic edits directly.
 
-1. **Apply the semantic edits directly.** Read each item in `_script_stage.semantic_work_pending`. For each one, perform the corresponding edit on the file(s) in `affected_files` using the orchestrator's own Edit tool. The composition rules are the same the subagent would have followed (NS-12 precedent shape for status prose, §6 ready-set re-derivation rules, etc.) — see `references/post-merge-housekeeper-contract.md` § canonical responsibilities for the per-item recipes.
+1. **Apply the semantic edits directly.** Read each item in `_script_stage.semantic_work_pending`. For each one, perform the edit it resolves to — on the file(s) it names, bounded by `affected_files` — using the orchestrator's own Edit tool. An item that evaluates to no change (`plan_done_checklist_evaluation` reading "not due") produces a `semantic_edits` payload and no file edit, exactly as it would under the subagent; do not manufacture an edit for a declared file that needs none. The composition rules are the same the subagent would have followed: § Status format below pins the NS-12 status-prose shape, § Completion-rule matrix below fixes the `Status:` atomic value that prose annotates, § File-reference extraction heuristic below gives the file resolution that the line-cite sweep and ready-set re-derivation both run on, and the §6 ready-set rules themselves live with the catalog in `docs/architecture/cross-plan-dependencies.md`. There is no per-item recipe list in this document.
 
 2. **Rewrite the manifest.** Set `result` based on the halt-state arrays in `_script_stage`:
    - If `_script_stage.schema_violations` OR `_script_stage.verification_failures` is non-empty → set `result: "BLOCKED"`. Validator check #8 enforces `result === "BLOCKED"` when either of those arrays carries entries; setting DONE_WITH_CONCERNS here would deterministically re-fail validation and trap the flow in retry loops (Codex PR #53 R4 P2).
@@ -317,7 +341,9 @@ Refs: NS-XX (or NS-NN..NS-MM for range entries; comma-list for multi-NS).
 <concerns_block — only if subagent returned DONE_WITH_CONCERNS>
 ```
 
-**Merge mechanics.** Auto-merge is DISABLED on this repository — `gh pr merge --auto` fails with `Auto merge is not allowed for this repository (enablePullRequestAutoMerge)` (verified PR #119). The orchestrator instead waits for required checks (`gh pr checks <housekeeping-pr#> --watch --interval 10`), polls `gh pr view <housekeeping-pr#> --json mergeStateStatus -q .mergeStateStatus` until `CLEAN` (required checks `ci-gate` + `docs-corpus-gate` green + zero unresolved threads under `required_conversation_resolution`), then merges directly: `gh pr merge <housekeeping-pr#> --squash --delete-branch`. Typical wall-clock: 2-3 min on a doc-only diff.
+**Merge mechanics.** Auto-merge is DISABLED on this repository — `gh pr merge --auto` fails with `Auto merge is not allowed for this repository (enablePullRequestAutoMerge)` (verified PR #119). The orchestrator instead waits for required checks (`gh pr checks <housekeeping-pr#> --watch --interval 10`), then polls `gh pr view <housekeeping-pr#> --json mergeStateStatus,headRefOid` until `mergeStateStatus` reads `CLEAN` (required checks `ci-gate` + `docs-corpus-gate` green + zero unresolved threads under `required_conversation_resolution`), and merges the head that same poll observed: `gh pr merge <housekeeping-pr#> --squash --delete-branch --match-head-commit <headRefOid>`. Executable form: SKILL.md § Phase E — Post-merge housekeeping, step 8. Typical wall-clock: 2-3 min on a doc-only diff.
+
+Both fields come out of ONE `gh pr view` call, and the sha pin is not optional. `CLEAN` is a claim about a moment, not about a commit: read at poll time it says nothing about what HEAD is at merge time, so a push landing in that window lands an unchecked housekeeping HEAD on `develop`. `--match-head-commit` makes GitHub refuse that merge outright instead of relying on the orchestrator to notice. Fetching the sha in a second call reopens the very window the flag exists to close — pin the `headRefOid` the CLEAN read returned, never a freshly-read HEAD. A rejected pin is the guard working, not a flake: the branch moved mid-poll, so re-poll rather than re-fire.
 
 **CI failure on housekeeping PR.** Halt Phase E and surface to user. Phase E does NOT auto-fix housekeeping CI failures because they almost always indicate one of: (a) a §6-catalog cite that the script-stage `affected_files` superset check missed; (b) a malformed Status: line the subagent composed; (c) a `### Shipment Manifest` entry whose YAML broke the manifest schema parser or whose embedded fields broke a docs-corpus invariant. All three cases need user adjudication — the housekeeping subagent has already returned DONE/DONE_WITH_CONCERNS by this point and is not re-dispatchable for CI-driven failures.
 
@@ -340,7 +366,7 @@ Your responsibilities (per Spec §5.4 / §6.2):
 
 5. Reconcile semantic_work_pending — every item in `manifest.semantic_work_pending` MUST be paired to either (a) a `semantic_edits.<item-key>` entry containing the composed output, or (b) a `concerns[]` entry whose `addressing` field equals the exact item key verbatim (e.g. `{kind: "deferred_for_followup", addressing: "set_quantifier_reverification"}`). The validator pairs each pending item via this `addressing` key — `kind` is the subagent's choice; only `addressing` is the match key. Exception: when returning `BLOCKED` or `NEEDS_CONTEXT` (subagent halted before completing semantic work), per-item pairing is waived and the validator skips this check.
 
-6. Bound your edits to `manifest.affected_files` — out-of-scope edits trigger an orchestrator round-trip per `references/failure-modes.md` rule 20 (sprawl routing). To justify a scope expansion, add a `concerns` entry `{kind: affected_files_extension, addressing: <reason>}` and extend `affected_files`.
+6. Bound your edits to `manifest.affected_files` — an upper bound on what you may touch, never an obligation to touch every member. Out-of-scope edits trigger an orchestrator round-trip per `references/failure-modes.md` rule 20 (sprawl routing); to justify a scope expansion, add a `concerns` entry `{kind: affected_files_extension, addressing: <reason>}` and extend `affected_files`. A declared file that responsibility #5's evaluation resolves to no change stays unedited — that is the conformant outcome, not a skipped duty; record the decision in its `semantic_edits` payload and name every untouched file in your report.
 
 7. Write back the updated manifest (overwrite `<manifest-path>`) plus any direct file edits via the Edit tool.
 

@@ -24,7 +24,6 @@ import {
   applyStatusFlipSinglePr,
   applyMultiPrTickAndRecompute,
   applyMermaidClassSwap,
-  tickPlanDoneChecklist,
   emitManifest,
   reserveNextFreeNs,
   checkDuplicateTitle,
@@ -901,36 +900,14 @@ test("applyMermaidClassSwap: never modifies classDef definitions", () => {
   assert.equal(result[0], "    classDef ready fill:#fff");
 });
 
-// ---------- tickPlanDoneChecklist (Task 3.14 — step 7) ----------
-
-test("tickPlanDoneChecklist: ticks all unchecked boxes in the matched Phase's checklist", () => {
-  const lines = [
-    "### Phase 1 — Rust crate scaffolding",
-    "...",
-    "#### Done Checklist",
-    "",
-    "- [ ] First item",
-    "- [ ] Second item",
-    "- [x] Third item already done",
-    "",
-    "### Phase 2 — Other",
-    "#### Done Checklist",
-    "",
-    "- [ ] Should NOT be ticked (different phase)",
-  ];
-  const { lines: result, ticksApplied } = tickPlanDoneChecklist({ lines, phase: "1" });
-  assert.equal(ticksApplied, 2);
-  assert.equal(result[4], "- [x] First item");
-  assert.equal(result[5], "- [x] Second item");
-  assert.equal(result[11], "- [ ] Should NOT be ticked (different phase)");
-});
-
-test("tickPlanDoneChecklist: returns ticksApplied=0 + flag when no checklist found", () => {
-  const lines = ["### Phase 1 — Foo", "no checklist sub-section"];
-  const { ticksApplied, notFound } = tickPlanDoneChecklist({ lines, phase: "1" });
-  assert.equal(ticksApplied, 0);
-  assert.equal(notFound, true);
-});
+// Two `tickPlanDoneChecklist` tests stood here until 2026-07-27. They passed
+// for the whole life of the function while it never once fired in production:
+// both fed it hand-built `### Phase N` / `#### Done Checklist` line arrays, a
+// shape no plan in `docs/plans/` has ever carried. The function is gone and the
+// plan checklist is now the subagent's `plan_done_checklist_evaluation` item.
+// The invariant that replaced them — the script writes nothing under
+// `docs/plans/` — is asserted at the bottom of this file and is enforced on
+// every fixture by the `expectFilesEqual` whole-tree comparison.
 
 // ---------- emitManifest (Task 3.15 — §5.3 schema) ----------
 
@@ -986,21 +963,32 @@ test("emitManifest writes auto-create stub manifest when scriptExitCode=0 + auto
       taskId: null,
       scriptExitCode: 0,
       autoCreate: { reservedNsNn: 24, derivedTitleSeed: "Plan-029 Phase 2 — example" },
-      mechanicalEdits: {
-        plan_checklist_ticks: [{ file: "docs/plans/029-foo.md", phase: "2", items_ticked: 4 }],
-      },
+      // Empty, and that is the whole shape of the auto-create branch now: the
+      // §6 entry and its mermaid node are the subagent's to compose, and the
+      // plan checklist moved to `plan_done_checklist_evaluation`. Nothing
+      // mechanical is left for the script to record here.
+      mechanicalEdits: {},
       schemaViolations: [],
-      affectedFiles: ["docs/architecture/cross-plan-dependencies.md", "docs/plans/029-foo.md"],
+      // emitManifest serializes whatever it is handed, so these two are inputs
+      // rather than assertions — but they are written as a real plan-bound run
+      // would derive them (item emitted, so plan file declared), to avoid
+      // reading as a canonical example of a pairing the derivation forbids.
+      affectedFiles: [
+        "docs/architecture/cross-plan-dependencies.md",
+        "docs/plans/029-orphan-pr-fixture.md",
+      ],
       semanticWorkPending: [
         "auto_create_compose_entry",
         "auto_create_compose_mermaid_node",
         "auto_create_derive_upstream",
+        "plan_done_checklist_evaluation",
       ],
     });
     const written = JSON.parse(readFileSync(result.manifestPath, "utf8"));
     assert.equal(written.auto_create.reserved_ns_nn, 24);
     assert.equal(written.auto_create.derived_title_seed, "Plan-029 Phase 2 — example");
     assert.equal(written.mechanical_edits.status_flip, undefined);
+    assert.equal(written.mechanical_edits.plan_checklist_ticks, undefined);
   } finally {
     rmSync(tmpRepo, { recursive: true, force: true });
   }
@@ -1807,5 +1795,279 @@ test("extractFileReferences extracts the path from a #symbol-suffixed reference"
   });
   assert.ok(
     result.files.includes("packages/runtime-daemon/src/bootstrap/secure-defaults-events.ts"),
+  );
+});
+
+// ---------- File-ownership boundary (replaces the retired checklist tick) ----------
+//
+// Plan Invariant I-3 gives this script exactly two writable surfaces: the §6
+// corpus and its own manifest under `.agents/tmp/`. A mechanical plan-checklist
+// tick breached that from the start and was retired 2026-07-27 — it had also
+// never once fired, since it keyed on a `#### Done Checklist` under `### Phase N`
+// that no plan in `docs/plans/` has ever carried.
+//
+// These two pin the boundary itself rather than the absence of that one
+// function, so a future edit cannot quietly re-grant the plan tree. Both
+// branches are covered because each used to run its own copy of the tick:
+// `--candidate-ns` (fixture 01's tree) and auto-create (fixture 12's).
+for (const { branch, fixtureName, planFileName, args } of [
+  {
+    branch: "candidate-ns",
+    fixtureName: "01-single-pr-happy-path",
+    planFileName: "024-rust-pty-sidecar.md",
+    args: { prNumber: 30, plan: "024", phase: "1", task: null, candidateNs: "NS-01" },
+  },
+  {
+    branch: "auto-create",
+    fixtureName: "12-auto-create-happy-path",
+    planFileName: "029-orphan-pr-fixture.md",
+    args: { prNumber: 48, plan: "029", phase: "2", task: null, candidateNs: null },
+  },
+]) {
+  test(`runHousekeeper (${branch}) writes nothing under docs/plans/`, async () => {
+    const tmpRepo = mkdtempSync(join(tmpdir(), `plan-tree-untouched-${branch}-`));
+    try {
+      cpSync(join(HERE, "fixtures", fixtureName, "input"), tmpRepo, { recursive: true });
+      const planPath = join(tmpRepo, "docs", "plans", planFileName);
+      const planBytesBefore = readFileSync(planPath);
+      const result = await runHousekeeper({ args, repoRoot: tmpRepo, today: FIXTURE_TODAY });
+      // Guard the guard: an early bail would leave the plan untouched for the
+      // wrong reason and make the assertion below vacuous.
+      assert.equal(result.exitCode, 0, `${branch}: expected the branch to run to completion`);
+      assert.deepEqual(
+        readFileSync(planPath),
+        planBytesBefore,
+        `${branch}: the housekeeper script must never write under docs/plans/`,
+      );
+    } finally {
+      rmSync(tmpRepo, { recursive: true, force: true });
+    }
+  });
+}
+
+// ---------- Plan-bound gating of `plan_done_checklist_evaluation` ----------
+//
+// Two coupled properties, both introduced 2026-07-27 (the fixtures lock the
+// resulting manifests byte-for-byte; these pin the RULE, so a future fixture
+// cannot drift away from it silently):
+//
+//   1. The item is emitted only when the run is plan-bound AND the plan file
+//      resolves. Cleanup / governance / tier-audit invocations legally carry
+//      no --plan/--phase; asking them to evaluate a plan checklist is
+//      unanswerable, and since every pending item must pair to a semantic_edit
+//      or a concern, it would downgrade every clean non-plan run to
+//      DONE_WITH_CONCERNS.
+//   2. Whenever it IS emitted, the plan file is declared in affected_files.
+//      The subagent's edit scope is hard-bounded by that list, so emitting
+//      without declaring asks for an edit the contract forbids.
+//
+// Declaring is not writing: the file-ownership tests above still assert the
+// script itself never writes under docs/plans/.
+
+const PLAN_CHECKLIST_ITEM = "plan_done_checklist_evaluation";
+const CORPUS_REL = "docs/architecture/cross-plan-dependencies.md";
+
+// Copies a fixture's input tree, optionally reshapes it, runs the
+// orchestrator, and returns the emitted manifest. The tree comes from a
+// fixture rather than a hand-built stub so the corpus under test is the same
+// realistic §6 content the fixture suite uses.
+async function runOnFixtureTree({ fixtureName, args, reshape = null }) {
+  const tmpRepo = mkdtempSync(join(tmpdir(), "plan-bound-gate-"));
+  try {
+    cpSync(join(HERE, "fixtures", fixtureName, "input"), tmpRepo, { recursive: true });
+    if (reshape !== null) reshape(tmpRepo);
+    const result = await runHousekeeper({ args, repoRoot: tmpRepo, today: FIXTURE_TODAY });
+    const manifest = JSON.parse(
+      readFileSync(
+        join(tmpRepo, ".agents", "tmp", `housekeeper-manifest-PR${args.prNumber}.json`),
+        "utf8",
+      ),
+    );
+    return { result, manifest };
+  } finally {
+    rmSync(tmpRepo, { recursive: true, force: true });
+  }
+}
+
+for (const { branch, fixtureName, planRel, args } of [
+  {
+    branch: "candidate-ns",
+    fixtureName: "01-single-pr-happy-path",
+    planRel: "docs/plans/024-rust-pty-sidecar.md",
+    args: { prNumber: 30, plan: "024", phase: "1", task: null, candidateNs: "NS-01" },
+  },
+  {
+    branch: "auto-create",
+    fixtureName: "12-auto-create-happy-path",
+    planRel: "docs/plans/029-orphan-pr-fixture.md",
+    args: { prNumber: 48, plan: "029", phase: "2", task: null, candidateNs: null },
+  },
+]) {
+  test(`plan-bound run (${branch}) emits the checklist item AND declares the plan file`, async () => {
+    const { result, manifest } = await runOnFixtureTree({ fixtureName, args });
+    assert.equal(result.exitCode, 0, `${branch}: expected the branch to run to completion`);
+    assert.ok(
+      manifest.semantic_work_pending.includes(PLAN_CHECKLIST_ITEM),
+      `${branch}: plan-bound run must ask the checklist question`,
+    );
+    assert.deepEqual(
+      manifest.affected_files,
+      [CORPUS_REL, planRel],
+      `${branch}: the plan file must be declared so the subagent may tick it`,
+    );
+    // The immutable script-stage snapshot is what the validator compares
+    // against; a declaration only in the live copy would not survive it.
+    assert.deepEqual(manifest._script_stage.affected_files, [CORPUS_REL, planRel]);
+    assert.deepEqual(manifest._script_stage.semantic_work_pending, manifest.semantic_work_pending);
+    assert.deepEqual(manifest.warnings, [], `${branch}: a resolved plan file is not anomalous`);
+  });
+}
+
+// Fixture 11's tree DOES contain docs/plans/010-tier-5-audit.md, and its
+// touched-files list names it — so a pass here proves the drop is driven by
+// the absent --plan/--phase pair, not by an empty plan tree.
+for (const { label, args } of [
+  {
+    label: "tier audit (no --plan, no --phase)",
+    args: { prNumber: 47, plan: null, phase: null, task: null, candidateNs: "NS-15..NS-21" },
+  },
+  {
+    label: "--plan without --phase",
+    args: { prNumber: 47, plan: "010", phase: null, task: null, candidateNs: "NS-15..NS-21" },
+  },
+]) {
+  test(`non-plan-bound run — ${label} — emits neither the item nor the declaration`, async () => {
+    const { result, manifest } = await runOnFixtureTree({
+      fixtureName: "11-tier-range-audit",
+      args,
+    });
+    assert.equal(result.exitCode, 0, `${label}: expected the branch to run to completion`);
+    assert.ok(
+      !manifest.semantic_work_pending.includes(PLAN_CHECKLIST_ITEM),
+      `${label}: a run with no plan cannot answer a plan-scoped question`,
+    );
+    assert.deepEqual(manifest.affected_files, [CORPUS_REL], `${label}: scope must stay on §6`);
+    assert.deepEqual(manifest._script_stage.affected_files, [CORPUS_REL]);
+    assert.deepEqual(manifest._script_stage.semantic_work_pending, manifest.semantic_work_pending);
+    // Not an anomaly — these invocations are legal, so nothing is warned about.
+    assert.deepEqual(manifest.warnings, [], `${label}: a non-plan run is not an anomaly`);
+  });
+}
+
+// The three null causes resolvePlanFile cannot distinguish. Fixture 03 covers
+// the absent-directory case end-to-end; these cover the two that no fixture
+// tree produces.
+for (const { label, reshape } of [
+  {
+    label: "no file matches the plan number",
+    reshape: (tmpRepo) => {
+      rmSync(join(tmpRepo, "docs", "plans", "024-rust-pty-sidecar.md"));
+    },
+  },
+  {
+    label: "two files match the plan number",
+    reshape: (tmpRepo) => {
+      writeFileSync(join(tmpRepo, "docs", "plans", "024-duplicate-number.md"), "# duplicate\n");
+    },
+  },
+]) {
+  test(`plan-bound run warns instead of asking an unanswerable question — ${label}`, async () => {
+    const { result, manifest } = await runOnFixtureTree({
+      fixtureName: "01-single-pr-happy-path",
+      args: { prNumber: 30, plan: "024", phase: "1", task: null, candidateNs: "NS-01" },
+      reshape,
+    });
+    // Loud, not fatal: the §6 mechanical work does not depend on the plan file.
+    assert.equal(result.exitCode, 0, `${label}: an unresolved plan file must not halt the run`);
+    assert.deepEqual(
+      manifest.warnings,
+      [{ kind: "plan_file_unresolved", plan: "024", glob: "docs/plans/024-*.md" }],
+      `${label}: the anomaly must surface`,
+    );
+    assert.ok(!manifest.semantic_work_pending.includes(PLAN_CHECKLIST_ITEM));
+    // Declaring a path that does not exist on disk is a hard validator gap
+    // ("declared in affected_files but missing from disk"), strictly worse
+    // than the warning.
+    assert.deepEqual(manifest.affected_files, [CORPUS_REL], `${label}: declare nothing unresolved`);
+  });
+}
+
+test("every fixture emits the checklist item only as dischargeable work", () => {
+  for (const fixture of listFixtures(FIXTURES_DIR).filter(RUNNABLE_FIXTURE)) {
+    const manifest = readExpectedManifest(fixture);
+    const emitted = manifest.semantic_work_pending.includes(PLAN_CHECKLIST_ITEM);
+    const declaredPlans = manifest.affected_files.filter((f) => f.startsWith("docs/plans/"));
+    assert.equal(
+      emitted,
+      declaredPlans.length > 0,
+      `fixture ${fixture.name}: item emitted=${emitted} but plan file declared=` +
+        `${declaredPlans.length > 0} — the two must move together`,
+    );
+    if (!emitted) continue;
+
+    // The coupling above is necessary but not sufficient. The item is
+    // evaluation-shaped, so the subagent must always be able to DISCHARGE it —
+    // answer it with a semantic_edits entry rather than a concern it has no way
+    // to resolve. Answering means reading the plan's checklist, so a declared
+    // path that does not exist on disk would leave the subagent no move except
+    // a concern, and every otherwise-clean run would degrade to
+    // DONE_WITH_CONCERNS. Asserting existence in the input tree is what makes
+    // "emitted" mean "answerable" and not merely "declared".
+    assert.equal(
+      declaredPlans.length,
+      1,
+      `fixture ${fixture.name}: expected exactly one declared plan file, got` +
+        ` ${JSON.stringify(declaredPlans)}`,
+    );
+    assert.ok(
+      existsSync(join(fixture.inputDir, declaredPlans[0])),
+      `fixture ${fixture.name}: declared plan file ${declaredPlans[0]} is absent from the` +
+        " input tree — the subagent could not read it, so the item is undischargeable",
+    );
+  }
+});
+
+// ---------- `affected_files` is an authorization scope, not a work list ----------
+//
+// Codex PR #259 R4: the subagent contract read membership in `affected_files` as
+// "Edit this file", so on the common plan-bound mid-phase run — where
+// `plan_done_checklist_evaluation` answers "not due" — the subagent had to
+// invent a plan edit or breach its own action contract. The declaration is an
+// upper bound: it authorizes the tick the evaluation MAY resolve to, and obliges
+// nothing. The only per-file edit obligation anywhere in the pipeline is the
+// `<TODO subagent prose>` scan (validator check #3), and the script writes that
+// token exclusively into the §6 corpus. This pins the split at the fixture level
+// so a future edit cannot silently re-couple declaration to obligation.
+
+const TODO_PLACEHOLDER = "<TODO subagent prose>";
+
+test("a declared plan file never carries the placeholder — declaration is not an edit obligation", () => {
+  let corpusFixturesCarryingPlaceholder = 0;
+  for (const fixture of listFixtures(FIXTURES_DIR).filter(RUNNABLE_FIXTURE)) {
+    for (const declared of readExpectedManifest(fixture).affected_files) {
+      const expectedPath = join(fixture.expectedDir, declared);
+      // Halt-path fixtures (exit 2 / 5) declare nothing, so this loop is empty
+      // for them; a declared path absent from `expected/` would be its own bug,
+      // already caught by the byte-for-byte tree comparison above.
+      if (!existsSync(expectedPath)) continue;
+      const carriesPlaceholder = readFileSync(expectedPath, "utf8").includes(TODO_PLACEHOLDER);
+      if (declared.startsWith("docs/plans/")) {
+        assert.ok(
+          !carriesPlaceholder,
+          `fixture ${fixture.name}: ${declared} is declared to authorize a conditional tick, ` +
+            "but a placeholder there would turn that authorization into a mandatory edit",
+        );
+      } else if (carriesPlaceholder) {
+        corpusFixturesCarryingPlaceholder += 1;
+      }
+    }
+  }
+  // Negative control, in the same run: the assertion above is a clean result,
+  // and a clean result is only evidence if the predicate can fire at all. It
+  // must find the token on the §6 corpus of the status-flip fixtures — the one
+  // place the script writes it.
+  assert.ok(
+    corpusFixturesCarryingPlaceholder > 0,
+    "no fixture's §6 corpus carries the placeholder — the plan-file scan above is vacuous",
   );
 });

@@ -4,7 +4,7 @@
   "plan": "001",
   "phase": "5",
   "task_id": "T-001-5-3",
-  "script_exit_code": 3,
+  "script_exit_code": 0,
   "matched_entry": {
     "ns_id": "NS-02",
     "heading": "### NS-02: Plan-001 Phase 5 split + dep alignment",
@@ -31,8 +31,7 @@
       "from": ":::ready",
       "to": ":::completed",
       "node_line": 21
-    },
-    "plan_checklist_ticks": []
+    }
   },
   "schema_violations": [],
   "verification_failures": [],
@@ -47,9 +46,9 @@
   ],
   "warnings": [
     {
-      "kind": "plan_checklist_not_found",
+      "kind": "plan_file_unresolved",
       "plan": "001",
-      "phase": "5"
+      "glob": "docs/plans/001-*.md"
     }
   ],
   "_script_stage": {

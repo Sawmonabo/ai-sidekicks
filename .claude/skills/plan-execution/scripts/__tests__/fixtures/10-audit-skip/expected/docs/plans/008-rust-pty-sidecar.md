@@ -4,5 +4,5 @@
 
 #### Done Checklist
 
-- [x] Audit ADR coverage
-- [x] Audit task-DAG completeness
+- [ ] Audit ADR coverage
+- [ ] Audit task-DAG completeness

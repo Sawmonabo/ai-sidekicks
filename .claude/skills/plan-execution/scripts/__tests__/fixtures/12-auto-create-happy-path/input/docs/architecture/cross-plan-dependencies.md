@@ -9,8 +9,8 @@
 - Priority: `P3`
 - Upstream: none
 - References: [Plan-099](../plans/099-fixture-seed.md)
-- Summary: Auto-create-fixture seed entry. Max NS integer in corpus is 22 so reserveNextFreeNs returns 23, then NS_RESERVED_INTEGERS guard for §3a.3 bumps to 24.
-- Exit Criteria: Auto-create reservedNsNn=24; manifest emits exit 0 with semantic_work_pending=SEMANTIC_WORK_PENDING_AUTO_CREATE.
+- Summary: Auto-create-fixture seed entry. Max NS integer in corpus is 22, so `reserveNextFreeNs` returns 23. A `NS_RESERVED_INTEGERS` guard used to bump that to 24 while §3a.3's reservation was still unlanded in the corpus; it has since landed and the guard was removed 2026-07-27.
+- Exit Criteria: Auto-create `reservedNsNn`=23; manifest emits exit 0 with `semantic_work_pending`=`SEMANTIC_WORK_PENDING_AUTO_CREATE_BASE` and an empty `mechanical_edits`.
 
 ```mermaid
 graph TB

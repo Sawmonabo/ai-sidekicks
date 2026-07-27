@@ -13,9 +13,19 @@
 //   verifyTypeSignature / verifyFileOverlap /
 //   verifyPlanIdentity                                    — §5.1 step 3 verifiers
 
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import process from "node:process";
+// node:fs + node:path only — Plan Invariant I-3 holds through this import.
+import { planFilesystemKey, resolvePlanFile } from "./lib/plan-file.mjs";
 
 // ---------- Task 3.2: parseNsHeading ----------
 
@@ -638,42 +648,6 @@ export function applyMermaidClassSwap({ lines, nsNum, suffix = null, newClass })
   return result;
 }
 
-export function tickPlanDoneChecklist({ lines, phase }) {
-  const result = [...lines];
-  const phaseHeadingRe = new RegExp(`^### Phase ${phase}\\b`);
-  let phaseStart = -1;
-  for (let i = 0; i < result.length; i += 1) {
-    if (phaseHeadingRe.test(result[i])) {
-      phaseStart = i;
-      break;
-    }
-  }
-  if (phaseStart === -1) return { lines: result, ticksApplied: 0, notFound: true };
-  let phaseEnd = result.length;
-  for (let i = phaseStart + 1; i < result.length; i += 1) {
-    if (/^### Phase /.test(result[i])) {
-      phaseEnd = i;
-      break;
-    }
-  }
-  let checklistStart = -1;
-  for (let i = phaseStart; i < phaseEnd; i += 1) {
-    if (/^#### Done Checklist/.test(result[i])) {
-      checklistStart = i;
-      break;
-    }
-  }
-  if (checklistStart === -1) return { lines: result, ticksApplied: 0, notFound: true };
-  let ticksApplied = 0;
-  for (let i = checklistStart + 1; i < phaseEnd; i += 1) {
-    if (result[i].startsWith("- [ ] ")) {
-      result[i] = "- [x] " + result[i].slice(6);
-      ticksApplied += 1;
-    }
-  }
-  return { lines: result, ticksApplied };
-}
-
 // ---------- Task 3.15: emitManifest (§5.3 schema) ----------
 //
 // Writes the post-merge manifest under <repoRoot>/.agents/tmp/. The shape
@@ -836,8 +810,8 @@ export function checkDuplicateTitle({ existingTitles, newTitle }) {
 
 // ---------- Tasks 3.18-3.19: runHousekeeper orchestrator + CLI entrypoint ----------
 //
-// Glue for §5.1's pipeline (locate → schema-validate → verify → mechanical edit →
-// plan checklist tick → emit manifest). Returns { exitCode, manifestPath }; never
+// Glue for §5.1's pipeline (locate → schema-validate → verify → mechanical
+// edit → emit manifest). Returns { exitCode, manifestPath }; never
 // throws on exit ≥ 1 (only on internal bugs). The verifier trio is silently
 // SKIPPED when diffTouchedFiles is null — the CLI computes git-diff and passes
 // the touched-file list; the fixture harness omits it (since fixture trees aren't
@@ -845,7 +819,33 @@ export function checkDuplicateTitle({ existingTitles, newTitle }) {
 
 const NS_ID = (nsNum, suffix) => `NS-${String(nsNum).padStart(2, "0")}${suffix ?? ""}`;
 
-const SEMANTIC_WORK_PENDING_COMPLETION = [
+// `plan_done_checklist_evaluation` replaced a mechanical tick this script used
+// to attempt (2026-07-27). The tick looked for `#### Done Checklist` nested
+// under `### Phase N`; no plan in `docs/plans/` has ever carried that shape —
+// every plan file, template included, puts a single document-level
+// `## Done Checklist` at the end instead (enforced at runtime by
+// `__tests__/plan-done-checklist-corpus.test.mjs`, which pins no file count)
+// — so the tick never fired once in production and every run
+// carrying `--plan`/`--phase` returned a silent exit 3. Repointing it at the
+// real heading would have been worse than leaving it dead: those rows are
+// evidence-bearing prose naming PRs, SHAs and dates, and the checklist is
+// PLAN-scoped, so a blind tick on a mid-plan phase ship both asserts done-ness
+// with no trace and asserts it early. Deciding whether a tick is due needs the
+// plan read, which is the subagent's job, not a regex's.
+//
+// Evaluation-shaped rather than action-shaped, mirroring
+// `ns_auto_create_evaluation`. The subagent contract requires every
+// `semantic_work_pending` item to produce a `semantic_edits` entry OR a
+// `concerns` entry, and `RESULT: DONE` requires zero concerns — so an
+// action-shaped item would file a concern on every mid-plan phase (the common
+// case) and make DONE_WITH_CONCERNS the default verdict. Phrased as an
+// evaluation, "not due — phase 2 of 5" is itself the completed work.
+//
+// Appended per-run rather than baked into the two base sets below: only a
+// plan-bound run can answer it. See resolvePlanDeclaration.
+const PLAN_DONE_CHECKLIST_EVALUATION = "plan_done_checklist_evaluation";
+
+const SEMANTIC_WORK_PENDING_COMPLETION_BASE = [
   "compose_status_completion_prose",
   "ready_set_re_derivation",
   "line_cite_sweep",
@@ -854,15 +854,119 @@ const SEMANTIC_WORK_PENDING_COMPLETION = [
   "unannotated_referenced_files_check",
 ];
 
-// Spec §5.1 step 4' line 577 enumerates these three items verbatim. The
+// Spec §5.1 step 4' enumerates the three auto_create_* items verbatim. The
 // candidate-ns symmetric items (ready_set_re_derivation, etc.) are NOT
 // included here — defer to a follow-on spec amendment if subagent practice
 // shows they're load-bearing for the auto-create branch too.
-const SEMANTIC_WORK_PENDING_AUTO_CREATE = [
+const SEMANTIC_WORK_PENDING_AUTO_CREATE_BASE = [
   "auto_create_compose_entry",
   "auto_create_compose_mermaid_node",
   "auto_create_derive_upstream",
 ];
+
+const PLANS_DIR_REL = "docs/plans";
+
+// Resolves the plan file whose phase this run shipped. Feeds two coupled
+// manifest fields (see planScopedManifestFields), never a write: the script's
+// writable surface is the §6 corpus plus its own manifest, and declaring a
+// file in `affected_files` authorizes the SUBAGENT to edit it, not this script.
+//
+// `planFileRel` is null in two situations, only one of which is anomalous:
+//
+//   - Not plan-bound. Cleanup, governance and tier-audit invocations legally
+//     omit --plan and --phase (deriveTitleSeed already forks on the same
+//     pair, and the manifest records plan: null, phase: null). There is no
+//     plan whose checklist could be due, so the item is dropped and nothing
+//     is warned about. Emitting it anyway would hand the subagent an
+//     unanswerable question — and since the contract pairs every pending item
+//     to a `semantic_edits` entry or a `concerns` entry, and `RESULT: DONE`
+//     requires zero concerns, that alone would downgrade every otherwise
+//     clean non-plan run to DONE_WITH_CONCERNS.
+//
+//   - Plan-bound but unresolvable: `docs/plans/` is missing, nothing matches
+//     `<plan>-*.md`, or several files do. That IS anomalous, so it surfaces as
+//     a warning rather than passing silently. It does not halt the run — the
+//     §6 mechanical work is independent of the plan file and still valid — and
+//     it still drops the item and the declaration, because the orchestrator's
+//     validator rejects any `affected_files` entry that does not exist on disk
+//     (declaring an unresolved path would trade a warning for a hard gap), and
+//     an unanswerable item costs a concern exactly as above.
+function resolvePlanDeclaration({ args, repoRoot }) {
+  // Checked before resolution rather than folded into it: the two null causes
+  // are not independent. With `plan` null the resolver would search for
+  // `null-*.md`, miss, and take the branch below — mislabelling every legal
+  // cleanup / governance / tier-audit run as an unresolved-plan anomaly.
+  if (!args.plan || !args.phase) {
+    return { planFileRel: null, warnings: [] };
+  }
+  const resolved = resolvePlanFile({
+    plan: args.plan,
+    plansDir: join(repoRoot, PLANS_DIR_REL),
+  });
+  if (resolved === null) {
+    // One warning kind covers the absent / no-match / multi-match cases
+    // together: the resolver cannot distinguish them, and the operator remedy
+    // is the same — look at what `glob` does and does not match.
+    //
+    // The two fields carry the two halves of the identity/filesystem split:
+    // `plan` is the dispatch token as given (`023-partial`), `glob` is the
+    // pattern actually searched (`docs/plans/023-*.md`). Interpolating the raw
+    // token into `glob` would print a pattern this run never executed and that
+    // no repo state can satisfy — worthless against the remedy above.
+    return {
+      planFileRel: null,
+      warnings: [
+        {
+          kind: "plan_file_unresolved",
+          plan: args.plan,
+          glob: `${PLANS_DIR_REL}/${planFilesystemKey(args.plan)}-*.md`,
+        },
+      ],
+    };
+  }
+  // Rebuilt from the basename rather than passed through from `resolved` so
+  // the manifest records a posix repo-relative path on every platform; the
+  // absolute `resolved` carries backslashes on Windows.
+  return { planFileRel: `${PLANS_DIR_REL}/${basename(resolved)}`, warnings: [] };
+}
+
+// The three manifest fields that vary with plan-boundness, derived from one
+// input so they cannot disagree. Declaring the plan file without emitting the
+// item widens the subagent's authorized edit scope for nothing; emitting the
+// item without declaring the file asks the subagent to tick a checklist in a
+// file it is not authorized to touch, costing a sprawl round-trip and an
+// `affected_files_extension` concern. Both shipped as live defects and were
+// fixed 2026-07-27 by making them unrepresentable rather than by patching the
+// call sites independently.
+//
+// `affected_files` is an AUTHORIZATION scope, never a work list, and the plan
+// file is the clearest case of the difference: it is declared so the subagent
+// MAY tick the checklist, not so it must. The item is evaluation-shaped, and
+// its ordinary mid-phase answer ("not due — phase N of M") resolves to a
+// `semantic_edits` payload and no file edit at all. The pipeline's only
+// per-file edit obligation is the `<TODO subagent prose>` placeholder scan, and
+// this script writes no placeholder — indeed nothing at all — under
+// `docs/plans/`, so a declared-but-unedited plan file is the conformant shape
+// rather than a skipped duty. A consumer contract that reads membership here as
+// "Edit this file" forces the subagent to invent a plan change or breach its own
+// action contract; that defect was Codex PR #259 R4, fixed in
+// `.claude/agents/plan-execution-housekeeper.md` § Required tool sequence (in
+// order) and the contract's § Canonical Subagent Prompt Template responsibility
+// #6, not by narrowing this declaration.
+function planScopedManifestFields({ corpusRel, planDeclaration, basePendingItems }) {
+  if (planDeclaration.planFileRel === null) {
+    return {
+      affectedFiles: [corpusRel],
+      semanticWorkPending: basePendingItems,
+      warnings: planDeclaration.warnings,
+    };
+  }
+  return {
+    affectedFiles: [corpusRel, planDeclaration.planFileRel],
+    semanticWorkPending: [...basePendingItems, PLAN_DONE_CHECKLIST_EVALUATION],
+    warnings: planDeclaration.warnings,
+  };
+}
 
 function locateNsEntry({ lines, candidateNs }) {
   for (let i = 0; i < lines.length; i += 1) {
@@ -919,16 +1023,6 @@ function findMermaidNode({ lines, nsNum, suffix = null }) {
   return null;
 }
 
-function findPlanFile({ repoRoot, plan }) {
-  const plansDir = join(repoRoot, "docs", "plans");
-  if (!existsSync(plansDir)) return null;
-  const matches = readdirSync(plansDir).filter(
-    (name) => name.startsWith(`${plan}-`) && name.endsWith(".md"),
-  );
-  if (matches.length !== 1) return null;
-  return join(plansDir, matches[0]);
-}
-
 function emitFailureManifest(opts) {
   emitManifest({
     autoCreate: null,
@@ -940,13 +1034,6 @@ function emitFailureManifest(opts) {
   });
 }
 
-// §3a.3 reserves NS-23 for the schema-amendment PR. Until that PR ships and
-// the corpus actually contains an NS-23 heading, reserveNextFreeNs returns 23
-// (max+1 with max=22), which would collide with the reservation. Bump past 23
-// here; once NS-23 lands in the corpus, reserveNextFreeNs will skip it
-// naturally and this guard becomes a no-op.
-const NS_RESERVED_INTEGERS = new Set([23]);
-
 function deriveTitleSeed(args) {
   if (args.prTag) {
     return args.prTag.replace(/^[a-z]+(\([^)]+\))?:\s*/, "");
@@ -957,17 +1044,28 @@ function deriveTitleSeed(args) {
   return null;
 }
 
+// `repoRoot` is deliberately absent: this branch reads and writes the corpus
+// only, and `baseManifest` already carries the root that `emitManifest` needs.
+// It was a parameter until 2026-07-27, when the plan-file tick that used it was
+// retired — keeping it would re-grant the plan tree to a function that no
+// longer touches it. `planDeclaration` arrives already resolved by the caller
+// for the same reason: this branch needs the plan's repo-relative path for the
+// manifest, not the ability to go looking for it.
 function runAutoCreate({
   args,
-  repoRoot,
   corpusText,
   corpusLines,
   baseManifest,
   corpusRel,
+  planDeclaration,
   diffTouchedFiles = null,
 }) {
-  let reservedNsNn = reserveNextFreeNs(corpusText);
-  while (NS_RESERVED_INTEGERS.has(reservedNsNn)) reservedNsNn += 1;
+  // A guard here used to bump past 23, because §3a.3 reserved NS-23 for the
+  // schema-amendment PR while the corpus still topped out at 22 — so max+1
+  // would have collided with the reservation. NS-23 has since landed, and its
+  // own comment said the guard becomes a no-op at that point; removed
+  // 2026-07-27. reserveNextFreeNs now skips it naturally, from the corpus.
+  const reservedNsNn = reserveNextFreeNs(corpusText);
 
   const derivedTitleSeed = deriveTitleSeed(args);
   if (derivedTitleSeed === null) {
@@ -993,58 +1091,31 @@ function runAutoCreate({
     return { exitCode: 5 };
   }
 
-  // Spec §5.1 step 3' — auto-create still ticks the plan §Done Checklist
-  // (mirrors candidate-ns step 7). The auto-create flow has no candidate-side
-  // mechanical edits to apply, so plan_checklist_ticks is the only mechanical
-  // edit that fires here. exit-3 soft-failure mirrors candidate-ns: missing
-  // plan file / Phase section / checklist sub-section all warn-and-continue.
-  const planChecklistTicks = [];
-  const affectedFiles = [corpusRel];
-  const warnings = [];
-  let scriptExitCode = 0;
-  if (args.plan && args.phase) {
-    let didTick = false;
-    const planFile = findPlanFile({ repoRoot, plan: args.plan });
-    if (planFile !== null) {
-      const planLines = readFileSync(planFile, "utf8").split("\n");
-      const tickResult = tickPlanDoneChecklist({ lines: planLines, phase: args.phase });
-      if (!tickResult.notFound && tickResult.ticksApplied > 0) {
-        writeFileSync(planFile, tickResult.lines.join("\n"));
-        const planRel = relative(repoRoot, planFile);
-        planChecklistTicks.push({
-          file: planRel,
-          phase: args.phase,
-          items_ticked: tickResult.ticksApplied,
-        });
-        affectedFiles.push(planRel);
-        didTick = true;
-      }
-    }
-    if (!didTick) {
-      scriptExitCode = 3;
-      warnings.push({
-        kind: "plan_checklist_not_found",
-        plan: args.plan,
-        phase: args.phase,
-      });
-    }
-  }
-
+  // No mechanical edits fire on this branch. The §6 entry and its mermaid node
+  // are composed by the subagent from `auto_create`, and the plan's
+  // `## Done Checklist` is semantic work now, not a regex tick — see
+  // PLAN_DONE_CHECKLIST_EVALUATION. The checklist question is live on this
+  // branch too: a phase shipped whether or not an NS entry existed pre-merge.
+  // Declaring the plan file authorizes the SUBAGENT to edit it; this branch
+  // still touches the corpus only, and the script writes nothing under
+  // `docs/plans/`.
   const { manifestPath } = emitManifest({
     ...baseManifest,
-    scriptExitCode,
+    scriptExitCode: 0,
     matchedEntry: null,
     autoCreate: { reservedNsNn, derivedTitleSeed },
-    mechanicalEdits: { plan_checklist_ticks: planChecklistTicks },
-    affectedFiles,
-    semanticWorkPending: SEMANTIC_WORK_PENDING_AUTO_CREATE,
-    warnings,
+    mechanicalEdits: {},
+    ...planScopedManifestFields({
+      corpusRel,
+      planDeclaration,
+      basePendingItems: SEMANTIC_WORK_PENDING_AUTO_CREATE_BASE,
+    }),
     // Codex P2 finding on PR #35 round 3: pass through the touched-files set
     // computed from `--touched-files-path` so auto-created shipment-manifest
     // entries record the authoritative file-change trace instead of `files: []`.
     proposedManifestEntry: buildProposedManifestEntry({ args, diffTouchedFiles }),
   });
-  return { exitCode: scriptExitCode, manifestPath };
+  return { exitCode: 0, manifestPath };
 }
 
 // ---------- Multi-candidate dispatch (spec §5.1 step 1 comma-list) ----------
@@ -1257,6 +1328,7 @@ function runMultiCandidate({
   corpusPath,
   corpusRel,
   baseManifest,
+  planDeclaration,
   diffTouchedFiles,
   today,
 }) {
@@ -1337,57 +1409,26 @@ function runMultiCandidate({
     if (mermaidClassSwap) mermaidClassSwaps.push(mermaidClassSwap);
   }
 
-  const planChecklistTicks = [];
-  const affectedFiles = [corpusRel];
-  const warnings = [];
-  let scriptExitCode = 0;
-  if (args.plan && args.phase) {
-    let didTick = false;
-    const planFile = findPlanFile({ repoRoot, plan: args.plan });
-    if (planFile !== null) {
-      const planLines = readFileSync(planFile, "utf8").split("\n");
-      const tickResult = tickPlanDoneChecklist({ lines: planLines, phase: args.phase });
-      if (!tickResult.notFound && tickResult.ticksApplied > 0) {
-        writeFileSync(planFile, tickResult.lines.join("\n"));
-        const planRel = relative(repoRoot, planFile);
-        planChecklistTicks.push({
-          file: planRel,
-          phase: args.phase,
-          items_ticked: tickResult.ticksApplied,
-        });
-        affectedFiles.push(planRel);
-        didTick = true;
-      }
-    }
-    if (!didTick) {
-      scriptExitCode = 3;
-      warnings.push({
-        kind: "plan_checklist_not_found",
-        plan: args.plan,
-        phase: args.phase,
-      });
-    }
-  }
-
   writeFileSync(corpusPath, lines.join("\n"));
 
   const { manifestPath } = emitManifest({
     ...baseManifest,
-    scriptExitCode,
+    scriptExitCode: 0,
     matchedEntries: validated.map((c) => ({ ...c.matchedEntryBase, shape: c.shape })),
     autoCreate: null,
     mechanicalEdits: {
       status_flips: statusFlips,
       prs_block_ticks: prsBlockTicks,
       mermaid_class_swaps: mermaidClassSwaps,
-      plan_checklist_ticks: planChecklistTicks,
     },
-    affectedFiles,
-    semanticWorkPending: SEMANTIC_WORK_PENDING_COMPLETION,
-    warnings,
+    ...planScopedManifestFields({
+      corpusRel,
+      planDeclaration,
+      basePendingItems: SEMANTIC_WORK_PENDING_COMPLETION_BASE,
+    }),
     proposedManifestEntry: buildProposedManifestEntry({ args, diffTouchedFiles }),
   });
-  return { exitCode: scriptExitCode, manifestPath };
+  return { exitCode: 0, manifestPath };
 }
 
 export async function runHousekeeper({
@@ -1420,14 +1461,22 @@ export async function runHousekeeper({
   const corpusText = readFileSync(corpusPath, "utf8");
   let corpusLines = corpusText.split("\n");
 
+  // Resolved once here and threaded down, so all three success paths declare
+  // and emit identically and no branch has to re-derive it. Failure paths
+  // (exit 1/2/5) never consume it: emitFailureManifest hardcodes empty
+  // affected_files / semantic_work_pending / warnings, which is honest — a run
+  // that halted before the semantic-work stage never reached the checklist
+  // question, and its schema_violations are already the louder signal.
+  const planDeclaration = resolvePlanDeclaration({ args, repoRoot });
+
   if (!args.candidateNs) {
     return runAutoCreate({
       args,
-      repoRoot,
       corpusText,
       corpusLines,
       baseManifest,
       corpusRel,
+      planDeclaration,
       diffTouchedFiles,
     });
   }
@@ -1448,6 +1497,7 @@ export async function runHousekeeper({
       corpusPath,
       corpusRel,
       baseManifest,
+      planDeclaration,
       diffTouchedFiles,
       today,
     });
@@ -1683,64 +1733,27 @@ export async function runHousekeeper({
     }
   }
 
-  const planChecklistTicks = [];
-  const affectedFiles = [corpusRel];
-  const warnings = [];
-  let scriptExitCode = 0;
-  if (args.plan && args.phase) {
-    let didTick = false;
-    const planFile = findPlanFile({ repoRoot, plan: args.plan });
-    if (planFile !== null) {
-      const planLines = readFileSync(planFile, "utf8").split("\n");
-      const tickResult = tickPlanDoneChecklist({ lines: planLines, phase: args.phase });
-      if (!tickResult.notFound && tickResult.ticksApplied > 0) {
-        writeFileSync(planFile, tickResult.lines.join("\n"));
-        const planRel = relative(repoRoot, planFile);
-        planChecklistTicks.push({
-          file: planRel,
-          phase: args.phase,
-          items_ticked: tickResult.ticksApplied,
-        });
-        affectedFiles.push(planRel);
-        didTick = true;
-      }
-    }
-    // Per spec §5.1 line 505 + line 950: exit 3 (soft-failure, continue) when
-    // the plan checklist is unreachable — covers (a) plan file not found,
-    // (b) `### Phase N` section absent, (c) Done Checklist sub-section absent,
-    // (d) all boxes already ticked from a prior partial run. Mechanical edits
-    // to the corpus are still applied; the warning propagates to the subagent
-    // which surfaces it as a `concerns` entry with kind: plan_checklist_not_found.
-    if (!didTick) {
-      scriptExitCode = 3;
-      warnings.push({
-        kind: "plan_checklist_not_found",
-        plan: args.plan,
-        phase: args.phase,
-      });
-    }
-  }
-
   writeFileSync(corpusPath, corpusLines.join("\n"));
 
   const { manifestPath } = emitManifest({
     ...baseManifest,
-    scriptExitCode,
+    scriptExitCode: 0,
     matchedEntry: { ...matchedEntryBase, shape },
     autoCreate: null,
     mechanicalEdits: {
       status_flip: statusFlip,
       prs_block_ticks: prsBlockTicks,
       mermaid_class_swap: mermaidClassSwap,
-      plan_checklist_ticks: planChecklistTicks,
     },
-    affectedFiles,
-    semanticWorkPending: SEMANTIC_WORK_PENDING_COMPLETION,
-    warnings,
+    ...planScopedManifestFields({
+      corpusRel,
+      planDeclaration,
+      basePendingItems: SEMANTIC_WORK_PENDING_COMPLETION_BASE,
+    }),
     proposedManifestEntry: buildProposedManifestEntry({ args, diffTouchedFiles }),
   });
 
-  return { exitCode: scriptExitCode, manifestPath };
+  return { exitCode: 0, manifestPath };
 }
 
 // Diff source: orchestrator owns git knowledge per Plan Invariant I-3 (script
@@ -1756,7 +1769,34 @@ export function readTouchedFilesFromPath(touchedFilesPath) {
   return out.split("\n").filter(Boolean);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+/**
+ * Direct-invocation guard — same form as
+ * `tools/docs-corpus/bin/pre-commit-runner.ts` § isDirectlyInvoked.
+ *
+ * NOT `import.meta.url === \`file://${process.argv[1]}\``: that compares a
+ * percent-ENCODED URL against a raw path, so a checkout under a directory
+ * containing a space (or `#`, `?`, non-ASCII) makes them unequal and this script
+ * silently does nothing while exiting 0. `realpathSync` on both sides also
+ * survives a symlinked invocation (macOS `/tmp` → `/private/tmp`).
+ *
+ * A miss here is worse than a plain no-op: Phase E would go on to read
+ * `.agents/tmp/housekeeper-manifest-PR<N>.json`, and because that path is keyed
+ * only on the PR number, a STALE manifest from an earlier run of the same PR
+ * would validate and be acted upon as if this run had produced it.
+ */
+function isDirectlyInvoked() {
+  const invokedPath = process.argv[1];
+  if (typeof invokedPath !== "string") return false;
+  try {
+    return realpathSync(invokedPath) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    // A path that will not resolve to a real file was not this module's entry
+    // point, so `false` is the correct answer rather than a swallowed failure.
+    return false;
+  }
+}
+
+if (isDirectlyInvoked()) {
   try {
     const args = parseArgs(process.argv.slice(2));
     if (args.touchedFilesPath === null) {

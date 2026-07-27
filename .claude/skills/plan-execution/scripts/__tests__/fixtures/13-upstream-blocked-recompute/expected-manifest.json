@@ -26,14 +26,7 @@
         "task_id": "T-050-2-2"
       }
     ],
-    "mermaid_class_swap": null,
-    "plan_checklist_ticks": [
-      {
-        "file": "docs/plans/050-fixture.md",
-        "phase": "2",
-        "items_ticked": 3
-      }
-    ]
+    "mermaid_class_swap": null
   },
   "schema_violations": [],
   "verification_failures": [],
@@ -44,7 +37,8 @@
     "line_cite_sweep",
     "set_quantifier_reverification",
     "ns_auto_create_evaluation",
-    "unannotated_referenced_files_check"
+    "unannotated_referenced_files_check",
+    "plan_done_checklist_evaluation"
   ],
   "warnings": [],
   "_script_stage": {
@@ -57,7 +51,8 @@
       "line_cite_sweep",
       "set_quantifier_reverification",
       "ns_auto_create_evaluation",
-      "unannotated_referenced_files_check"
+      "unannotated_referenced_files_check",
+      "plan_done_checklist_evaluation"
     ]
   },
   "proposed_manifest_entry": null,

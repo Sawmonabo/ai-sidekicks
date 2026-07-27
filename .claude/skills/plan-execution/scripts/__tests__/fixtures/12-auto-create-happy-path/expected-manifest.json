@@ -7,18 +7,10 @@
   "script_exit_code": 0,
   "matched_entry": null,
   "auto_create": {
-    "reserved_ns_nn": 24,
+    "reserved_ns_nn": 23,
     "derived_title_seed": "Plan-029 Phase 2"
   },
-  "mechanical_edits": {
-    "plan_checklist_ticks": [
-      {
-        "file": "docs/plans/029-orphan-pr-fixture.md",
-        "phase": "2",
-        "items_ticked": 3
-      }
-    ]
-  },
+  "mechanical_edits": {},
   "schema_violations": [],
   "verification_failures": [],
   "affected_files": [
@@ -28,7 +20,8 @@
   "semantic_work_pending": [
     "auto_create_compose_entry",
     "auto_create_compose_mermaid_node",
-    "auto_create_derive_upstream"
+    "auto_create_derive_upstream",
+    "plan_done_checklist_evaluation"
   ],
   "warnings": [],
   "_script_stage": {
@@ -41,7 +34,8 @@
     "semantic_work_pending": [
       "auto_create_compose_entry",
       "auto_create_compose_mermaid_node",
-      "auto_create_derive_upstream"
+      "auto_create_derive_upstream",
+      "plan_done_checklist_evaluation"
     ]
   },
   "proposed_manifest_entry": null,
