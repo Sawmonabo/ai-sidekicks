@@ -21,7 +21,11 @@ useDefault = true
 # [[allowlists]]" (verified against the pinned binary). So `regexTarget` is a
 # whole-file choice for as long as the deferral above stands, and every
 # `regexes` entry below has to be safe under the single target the block
-# declares — which they are, each verified individually against v8.30.1.
+# declares — which they are, each verified individually against v8.30.1 on a
+# finding this corpus actually produced. Read that as the admission rule and
+# not merely as a description of today's list: an entry nobody has observed
+# firing has no verified extracted-secret shape, so it cannot be shown safe
+# under this block's single `regexTarget`, and it does not belong here.
 #
 # EVERY `regexes` ENTRY IS SCOPED TO THE EXTRACTED SECRET, NOT TO THE MATCH.
 # `regexTarget = "secret"` tests the value gitleaks pulled OUT of the line (the
@@ -43,32 +47,48 @@ useDefault = true
 # 64-hex key extracted as `Ed25519PrivateKeyf3a91c7d…` is waved straight
 # through (reproduced against v8.30.1). Anchoring makes each entry the equality
 # test its justification below asserts, which is the whole content of "this
-# exact token is not a secret". Verified for all six patterns observed firing
-# in this corpus: each one's extracted secret is exactly the token, so
-# anchoring suppresses precisely what the unanchored form did and nothing more
-# (whole-tree scan unchanged at zero findings, planted-secret control still
-# caught).
+# exact token is not a secret". Verified for all six patterns below, each
+# observed firing in this corpus: each one's extracted secret is exactly the
+# token, so anchoring suppresses precisely what the unanchored form did and
+# nothing more (whole-tree scan unchanged at zero findings, planted-secret
+# control still caught).
 #
-# condition = "OR" unifies three distinct suppressions under one block; each
+# condition = "OR" unifies four distinct suppressions under one block; each
 # criterion fires independently (a finding is allowlisted if its extracted
 # secret matches `regexes` OR its file path matches `paths`):
 #
-# 1. AWS KMS public-API enum constants — not secrets; they are documented
-#    algorithm/keyspec enum values published in the AWS KMS API reference
+# 1. AWS KMS public-API enum constant — not a secret; the algorithm and
+#    keyspec enum values are documented in the AWS KMS API reference
 #    (https://docs.aws.amazon.com/kms/latest/APIReference/API_Sign.html and
 #    https://docs.aws.amazon.com/kms/latest/APIReference/API_CreateKey.html).
 #    The gitleaks generic-api-key heuristic flags `KEY = VALUE` assignments
 #    where VALUE is a long uppercase identifier with high entropy; the AWS
 #    KMS Ed25519 enum names satisfy that shape but carry no secret material.
-#    `ECC_NIST_EDWARDS25519` is the only one of the three observed firing in
-#    this corpus (v8.30.1: match `KeySpec = ECC_NIST_EDWARDS25519`, secret
-#    `ECC_NIST_EDWARDS25519`). `ED25519_SHA_512` / `ED25519_PH_SHA_512` are
-#    carried forward from the v8.24.3-era config and have not been observed
-#    firing since, so their extracted-secret shape is UNVERIFIED and the
-#    anchored form above may not suppress them if they ever fire. They stay
-#    listed rather than pruned on an absence of evidence, and that residual is
-#    fail-closed: the gate goes red and a human looks, which is the outcome to
-#    want from an unverified suppression.
+#    `ECC_NIST_EDWARDS25519` is the only one of the three AWS KMS Ed25519
+#    enum names that fires in this corpus (v8.30.1: match
+#    `KeySpec = ECC_NIST_EDWARDS25519`, secret `ECC_NIST_EDWARDS25519`).
+#    The other two are the `SigningAlgorithm` values `ED25519_SHA_512` and
+#    `ED25519_PH_SHA_512`; both were carried forward from the v8.24.3-era
+#    config, neither was ever observed firing, and both are deliberately NOT
+#    listed. They are inert rather than merely unobserved — verified against
+#    v8.30.1 with the allowlist emptied, 2026-07-26. Their only in-tree
+#    occurrences are prose (ADR-023 §Axis 5 and BL-112 in `docs/backlog.md`),
+#    and re-scanning those two files unsuppressed yields exactly two
+#    findings, both with secret `ECC_NIST_EDWARDS25519`, neither extracting a
+#    `SigningAlgorithm` value. That is not an artifact of how the prose is
+#    phrased: a purpose-built `KMS_SIGNING_KEY_ALGORITHM = "ED25519_SHA_512"`
+#    line — keyword, operator, quoted value — produces no finding either.
+#    Both tokens sit below the entropy floor generic-api-key applies before
+#    it will emit a value as a secret. Holding keyword, operator and value
+#    length fixed, the lowest-entropy value observed firing measured 3.78 and
+#    `ECC_NIST_EDWARDS25519` measures 3.82, while every `ED25519_*SHA_512`
+#    spelling tried produced nothing at all — so these two entries could not
+#    suppress a finding this ruleset is capable of producing, and any future
+#    allowlist request for a low-entropy uppercase enum name deserves the
+#    same probe before it is granted. Same evidence principle as
+#    `Ed25519PublicKey` in 4b, applied in the removal direction; pruning is
+#    fail-closed regardless — if one ever does fire, the gate goes red and a
+#    human looks.
 #
 # 2. Cryptographic algorithm identifiers in prose. v8.30.1's generic-api-key
 #    heuristic also fires on documentation phrases like
@@ -120,15 +140,15 @@ useDefault = true
 #        match is `DAEMON_SIGNING_KEY: Ed25519PrivateKey ` and its secret is
 #        exactly `Ed25519PrivateKey`. The sibling `Ed25519PublicKey` is
 #        deliberately NOT pre-listed — it does not currently fire, and
-#        suppressions are added on evidence, not anticipation.
+#        suppressions are added on evidence, not anticipation. The same rule
+#        runs in reverse: an entry whose evidence never arrives is removed
+#        rather than carried (see 1).
 [allowlist]
-description = "AWS KMS Ed25519 enum constants + crypto-algorithm prose tokens + PASETO v4 RFC test vectors + RFC 8032 §7.1 Ed25519 test vectors"
+description = "AWS KMS Ed25519 keyspec enum constant + crypto-algorithm prose tokens + PASETO v4 RFC test vectors + RFC 8032 §7.1 Ed25519 test vectors"
 condition = "OR"
 regexTarget = "secret"
 regexes = [
   '''^ECC_NIST_EDWARDS25519$''',
-  '''^ED25519_SHA_512$''',
-  '''^ED25519_PH_SHA_512$''',
   '''^XChaCha20-Poly1305-wrapped$''',
   '''^Argon2id-encrypted$''',
   '''^9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60$''',

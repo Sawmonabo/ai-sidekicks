@@ -274,9 +274,10 @@ const PII_PLAINTEXT_SENTINEL_KEY = "nationalIdentityNumber";
  * ONE factory for every envelope this suite builds.
  *
  * `EventEnvelope` is contracts-owned and its member set is exactly eleven
- * (I-006-1-03). A twelfth member would break this literal and the rehydrator
- * below, and nothing else in the file — which is why both exist rather than
- * inline object literals per test.
+ * (I-006-1-03). A twelfth member would break this literal, the rehydrator below
+ * and leg 3's `CANONICAL_ENVELOPE_MEMBERS` — which breaks BY DESIGN, as the
+ * compile-time drift guard — and nothing else in the file, which is why the
+ * first two exist rather than inline object literals per test.
  *
  * `participant_lifecycle` / `participant.exported` is the census pairing whose
  * payload legitimately carries participant PII, so the fixture is a realistic
@@ -831,7 +832,10 @@ const CANONICAL_ENVELOPE_MEMBER_NAMES: ReadonlyArray<string> = Object.keys(
  * a compile error rather than a matrix that quietly covers ten members. The
  * exhaustiveness test below compares the `canonicalMember` SET against
  * {@link CANONICAL_ENVELOPE_MEMBER_NAMES}; a label alone could never support
- * that comparison.
+ * that comparison. Each case then diffs the canonical bytes across its OWN
+ * tamper and asserts the changed-member set is exactly its `canonicalMember`,
+ * so the annotation is checked against the SQL beside it and not only against
+ * the member census.
  *
  * Every replacement value is chosen to survive BOTH the `0001-initial.ts` CHECK
  * constraints and `EventEnvelopeSchema`, so each case reaches `verifyRow` and
@@ -924,6 +928,49 @@ const CANONICAL_MEMBER_TAMPERS: ReadonlyArray<{
   },
 ];
 
+/**
+ * The stored row's canonical members, each mapped to its SERIALIZED value.
+ *
+ * SERIALIZED RATHER THAN REFERENCED, BECAUSE `payload` IS AN OBJECT. Two reads
+ * of the same untampered row rebuild two distinct object identities, so an
+ * identity comparison would report `payload` as changed on every case and the
+ * attribution below would be worthless. The values come off the same canonical
+ * bytes `verifyRow` is handed, through the same read path the rest of this leg
+ * uses, so a member that differs here is a member the signature stopped
+ * covering.
+ */
+function readCanonicalMemberSerializations(database: DatabaseType): Record<string, string> {
+  const canonicalMembers = JSON.parse(
+    utf8Decoder.decode(canonicalizeEvent(rehydrateEnvelope(readStoredRow(database)))),
+  ) as Record<string, unknown>;
+  return Object.fromEntries(
+    Object.entries(canonicalMembers).map(([memberName, memberValue]) => [
+      memberName,
+      JSON.stringify(memberValue),
+    ]),
+  );
+}
+
+/**
+ * The canonical members whose serialized value differs across a tamper, sorted.
+ *
+ * DIFFED OVER THE UNION OF BOTH KEY SETS, WHICH IS THE HALF A LOOP OVER THE
+ * BEFORE-SIDE WOULD GET WRONG. `actor`, `correlationId` and `causationId` are
+ * the envelope's three OPTIONAL members, and `canonicalizeEvent` DROPS an absent
+ * one rather than emitting it — so a tamper that NULLs `correlation_id` makes
+ * the member VANISH from the canonical output instead of changing its value. A
+ * member present on exactly one side has to count as a difference, or that whole
+ * class of tamper would read as attacking nothing at all.
+ */
+function diffCanonicalMembers(
+  canonicalBeforeTamper: Record<string, string>,
+  canonicalAfterTamper: Record<string, string>,
+): ReadonlyArray<string> {
+  return [...new Set([...Object.keys(canonicalBeforeTamper), ...Object.keys(canonicalAfterTamper)])]
+    .filter((memberName) => canonicalBeforeTamper[memberName] !== canonicalAfterTamper[memberName])
+    .sort();
+}
+
 describe("Plan-006 T2.5 leg 3 — post-shred tamper detection (negative control)", () => {
   let database: DatabaseType;
 
@@ -951,9 +998,39 @@ describe("Plan-006 T2.5 leg 3 — post-shred tamper detection (negative control)
 
   it.each(CANONICAL_MEMBER_TAMPERS)(
     "reports hash_mismatch when $member is tampered in the shredded row",
-    ({ sql }) => {
+    ({ canonicalMember, sql }) => {
+      // WHICH MEMBER THE SQL ACTUALLY MOVED, NOT WHICH ONE THE ROW CLAIMS IT
+      // MOVED. Without this, `canonicalMember` is read only by the coverage
+      // guard below, and that guard set-compares the ANNOTATIONS — so a row
+      // whose `canonicalMember` disagrees with the SQL beside it clears every
+      // other check in this file for as long as the annotation SET is left
+      // intact. Swapping the SQL between the `actor` and `category` rows leaves
+      // it intact: all eleven names are still annotated, `changes === 1` still
+      // holds because a row WAS updated, and the verdict is still
+      // `hash_mismatch` because SOME canonical member moved — while NEITHER ROW
+      // ATTACKS THE MEMBER IT NAMES, which is what stops the annotation being
+      // evidence of anything. That is the same ten-of-eleven hole the derived
+      // set equality was introduced to close, relocated from WHICH MEMBERS ARE
+      // LISTED to WHICH MEMBERS ARE HIT.
+      //
+      // The capture has to sit HERE rather than in `beforeEach`: that hook ends
+      // by asserting the row is shredded and verifying, and this is the state
+      // the tamper moves away from.
+      const canonicalBeforeTamper: Record<string, string> =
+        readCanonicalMemberSerializations(database);
+
       const result = database.prepare(sql).run();
       expect(result.changes).toBe(1);
+
+      // Sorted-array equality against the ONE-ELEMENT set, in the same register
+      // as the coverage guard below and for the same reason: it states both
+      // directions at once — the annotated member WAS attacked, and nothing else
+      // was collaterally attacked beside it.
+      const canonicalAfterTamper: Record<string, string> =
+        readCanonicalMemberSerializations(database);
+      expect(diffCanonicalMembers(canonicalBeforeTamper, canonicalAfterTamper)).toEqual([
+        canonicalMember,
+      ]);
 
       expect(verifyStoredRow(database)).toStrictEqual({
         valid: false,
@@ -1576,6 +1653,103 @@ describe("Plan-006 T2.5 — a misordered PII write path is refused at runtime (I
       ),
     ).rejects.toThrow(/received a non-Uint8Array value of type string/);
     expect(encryptor.encryptCallCount).toBe(0);
+  });
+
+  it("refuses a daemon signing key that is not 32 bytes BEFORE spending the nonce", async () => {
+    // HOISTED OUT OF A LIBRARY GUARD RATHER THAN A SIBLING MODULE'S, which is
+    // what makes this the last refusal to move: `signRow` guards `prevHash` and
+    // NOTHING ELSE, so an ill-shaped key travelled un-inspected from the
+    // parameter all the way down to `ed25519.sign`'s `abytes(key, 32)` at recipe
+    // step 6. The throw was always correct and the TIMING never was — it landed
+    // past the encrypt, and on a `manual_reconcile_only` codec a burnt nonce is
+    // a half-built commitment an operator has to reconcile by hand. `abytes`
+    // still runs and stays authoritative.
+    //
+    // REACHABLE ONLY THROUGH A CAST, WHICH IS THE POINT RATHER THAN AN
+    // OBJECTION. `Ed25519PrivateKey` is a compile-time brand with exactly one
+    // mint site in the workspace (T2.7's `signing-key-source.ts`, which already
+    // validates byte-ness and width), so a mis-shaped key reaching production
+    // arrived through precisely this assertion at a custody or routing site that
+    // went around that mint. The cast here is this suite standing in for T2.7,
+    // the same licence the key-material block at the top of the file documents.
+    const truncatedDaemonSigningKey: Ed25519PrivateKey = new Uint8Array(31) as Ed25519PrivateKey;
+    const encryptor = new DeterministicTestPiiEncryptor();
+
+    await expect(
+      writeEventWithPii(
+        buildPiiCarryingEventInput(),
+        GENESIS_PREV_HASH,
+        encryptor,
+        truncatedDaemonSigningKey,
+      ),
+    ).rejects.toThrow(
+      /writeEventWithPii requires a 32-byte Uint8Array daemon signing key per RFC 8032 §5.1.5; received 31 bytes/,
+    );
+    expect(encryptor.encryptCallCount).toBe(0);
+  });
+
+  it("refuses a 32-CHARACTER string daemon signing key before spending the nonce", async () => {
+    // BYTE-NESS, NOT WIDTH — the guard's other conjunct, and the one a bare
+    // length check silently admits: 32 characters give `.length === 32`, so
+    // width alone says yes and the value goes on to `abytes`, which says no for
+    // a reason a width-only message would never name. Pinned separately from the
+    // 31-byte case because a single test cannot distinguish the two conjuncts,
+    // and the `received ...` clause each case asserts is what keeps them apart.
+    //
+    // The `as unknown` step is not test scaffolding — it is the shape of the
+    // real bug. A key that round-trips through TEXT (a keystore column, an
+    // environment variable, a JSON boundary) arrives as a `string` and has to be
+    // asserted through `unknown` to reach this parameter at all, which is
+    // exactly what a routing site that skipped T2.7's mint would have to write.
+    const thirtyTwoCharacterDaemonSigningKey: Ed25519PrivateKey = "0".repeat(
+      32,
+    ) as unknown as Ed25519PrivateKey;
+    const encryptor = new DeterministicTestPiiEncryptor();
+
+    await expect(
+      writeEventWithPii(
+        buildPiiCarryingEventInput(),
+        GENESIS_PREV_HASH,
+        encryptor,
+        thirtyTwoCharacterDaemonSigningKey,
+      ),
+    ).rejects.toThrow(
+      /daemon signing key per RFC 8032 §5.1.5; received a non-Uint8Array value of type string/,
+    );
+    expect(encryptor.encryptCallCount).toBe(0);
+  });
+
+  it("reports the PREV_HASH refusal for an input defective in both prev_hash and the signing key", async () => {
+    // Refusal order is observable, and hoisting the key check ahead of the
+    // encrypt must not ALSO promote it past a refusal that already preceded it.
+    // Before the hoist it fired dead last of every refusal on this path, being
+    // the deepest call on the sign path, so it belongs last among the
+    // pre-encrypt refusals — otherwise one doubly-defective append changes which
+    // bug the operator is told about, for a change that was supposed to move
+    // only the TIMING of a refusal and never its identity.
+    //
+    // Both defects are spelled as 31 bytes deliberately: the two messages then
+    // differ only in the member they name, so the assertion below discriminates
+    // on the guard that fired and on nothing else.
+    const encryptor = new DeterministicTestPiiEncryptor();
+
+    await expect(
+      writeEventWithPii(
+        buildPiiCarryingEventInput(),
+        new Uint8Array(31),
+        encryptor,
+        new Uint8Array(31) as Ed25519PrivateKey,
+      ),
+    ).rejects.toThrow(/writeEventWithPii requires a 32-byte Uint8Array prev_hash/);
+    expect(encryptor.encryptCallCount).toBe(0);
+
+    // THE OVER-REFUSAL CONTROL FOR ALL THREE KEY CASES IS ALREADY IN THIS FILE
+    // and is deliberately not duplicated here: "still admits a valid input at
+    // the sequence ceiling" hands this codec a valid `DAEMON_SIGNING_KEY` and
+    // pins `encryptCallCount` at 1, as does every write in legs 1 and 2. A
+    // refusal 6 that refused EVERY key — the degenerate implementation the three
+    // cases above would otherwise all pass against — turns that control and both
+    // of those legs red.
   });
 
   it("refuses a NaN sequence before the encrypt step", async () => {

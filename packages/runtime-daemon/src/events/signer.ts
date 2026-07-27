@@ -477,18 +477,33 @@ export function verifyRow(
   // the range-walking caller checks — see the SCOPE note above for why that
   // obligation lives there and not here.
   //
-  // LINKAGE HAS ONE BLIND SPOT, AND IT IS THE WHOLE CHAIN. A zeroed row whose
-  // neighbour survives is caught from one side or the other — its zeroed
-  // `row_hash` fails the successor's compare, its zeroed `prev_hash` fails its
-  // own — so the only shape that walks clean is a session zeroed from genesis
-  // to its LAST row: zeros link consistently to zeros, and
-  // `prev_hash[0] = GENESIS_PREV_HASH` holds by definition. Every row then
-  // reports `signature_placeholder`, so a WHOLESALE neutralization of the log
-  // reads as a build-ordering mistake. No local check can close that — an
-  // at-rest adversary edits every local witness to it — which is why the
-  // `anchor_*` range modes verify a span against an UPLOADED Merkle anchor
-  // (T3.2): it commits to the real `row_hash` values off-machine, where the
-  // zeroing cannot reach. T4.1 must not read the linkage walk as total.
+  // LINKAGE CONSTRAINS ONLY AN ADVERSARY WHO DOES NOT RE-LINK, AND IT TAKES
+  // TWO FACTS TOGETHER TO SEE WHY. The commitment that binds `prev_hash` is
+  // `row_hash` — UNKEYED BLAKE3 over public inputs, so anyone holding a row's
+  // bytes recomputes it — while the commitment that DOES need the key, the
+  // signature, covers `canonical` alone and never reaches `prev_hash`.
+  // Re-linking therefore costs an at-rest adversary with DB write access and
+  // no signing key nothing, and any shape leaving every still-signed row's
+  // bytes untouched walks clean — at least these do: zeroing the WHOLE chain;
+  // zeroing a PREFIX and rewriting those rows freely, then recomputing forward
+  // from the zeroed boundary, so the untouched suffix still reports
+  // `valid: true` and a targeted neutralization of the log's opening reads as
+  // a bounded build-ordering bug; and TRUNCATING the tail, which needs no
+  // recomputation at all. Sequence contiguity is a SEPARATE check with its own
+  // reach — `sequence` IS inside the canonical bytes, so a re-linked deletion
+  // of SIGNED rows leaves a gap no adversary can renumber away — but T4.1's
+  // walk is unspecified on it, and a truncated tail leaves it no gap to find.
+  //
+  // No local check closes the rest — an at-rest adversary edits every LOCAL
+  // witness — which is why the `anchor_*` range modes verify a span against an
+  // UPLOADED Merkle anchor (T3.3): in the control plane's `event_log_anchors`
+  // it commits to real `row_hash` values off-machine. That reach is the
+  // uploaded ranges and no further: a span still queued in
+  // `pending_anchor_uploads` sits in a durable LOCAL table the same adversary
+  // can edit, V1 node-scope (sentinel `session_id`) rows are not upload
+  // candidates at all and keep `uploaded_at` NULL by design, and rows appended
+  // since the last anchor are unanchored by construction. T4.1 must not read
+  // the linkage walk as total.
   //
   // A LEGITIMATE GENESIS ROW MUST NOT TRIP THIS, AND THAT IS NOT OBVIOUS.
   // `0001-initial.ts` documents `prev_hash` as "32 bytes; zero-filled at
@@ -777,9 +792,17 @@ function verifyEd25519(
  * on the way in — and keeps the `instanceof` from reading as redundant against
  * a type nothing enforced.
  *
- * `instanceof Uint8Array` is the same test noble's `abytes` runs, so a value
- * this accepts is one the library accepts: a better-sqlite3 `Buffer` passes,
- * since `Buffer extends Uint8Array`.
+ * NARROWER THAN NOBLE'S `abytes`, AND THAT DIRECTION IS THE WHOLE GUARANTEE.
+ * `abytes` delegates to `isBytes` (`@noble/hashes@2.2.0`'s `utils.js`, the same
+ * function `@noble/curves` re-exports), which accepts `instanceof Uint8Array` OR
+ * any `ArrayBuffer` view whose `constructor.name` is `Uint8Array` with
+ * `BYTES_PER_ELEMENT === 1` — so noble also admits a cross-realm view
+ * `instanceof` refuses. Containment runs one way: every value this accepts is
+ * one noble accepts, so the divergence can only produce an EARLIER, more
+ * conservative refusal HERE, never a value that clears this check and then trips
+ * a library-side type refusal. That is the only direction the call sites need;
+ * equivalence was never required. A better-sqlite3 `Buffer` passes both, since
+ * `Buffer extends Uint8Array`.
  */
 function isBytesOfLength(value: unknown, expectedLength: number): value is Uint8Array {
   return value instanceof Uint8Array && value.length === expectedLength;

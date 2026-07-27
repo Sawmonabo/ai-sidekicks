@@ -63,12 +63,17 @@
 // nonce from the key and the message (RFC 8032 §5.1.6), so T2.2 IS `idempotent`
 // and its re-runs reproduce bytes. For that reason the refusals this module can
 // raise FROM THE INPUT ALONE are ordered before the encrypt step, so a rejected
-// append costs no nonce — two of them hoisted out of the downstream stages that
-// still run them, T2.1's sequence guard and T2.2's `prevHash` guard. TWO
-// CLASSES STAY BEHIND THE ENCRYPT and `writeEventWithPii` names both: the shape
-// of the encryptor's own RESULT, which does not exist until it has run, and
-// `payload`'s own RFC 8785 refusals, whose only honest pre-check would be a
-// second canonicalization of the same row.
+// append costs no nonce — three of them hoisted out of the downstream stages
+// that still run them: T2.1's sequence guard, T2.2's `prevHash` guard, and the
+// signing-key shape check `ed25519.sign` performs at the bottom of T2.2's own
+// signature call. That third one fronts a LIBRARY guard rather than a sibling
+// module's, which makes it the one hoist that is NARROWER than what it stands
+// in for instead of identical to it; the guard itself says why that is still
+// only ever an early refusal. TWO CLASSES STAY BEHIND THE ENCRYPT and
+// `writeEventWithPii` names both: the shape of the encryptor's own RESULT,
+// which does not exist until it has run, and `payload`'s own RFC 8785 refusals,
+// whose only honest pre-check would be a second canonicalization of the same
+// row.
 //
 // CP-006-1 — THE PLAN-022 BOUNDARY. `PiiEncryptor` is an INTERFACE owned here;
 // Plan-022 (Tier 5) ships the AES-256-GCM implementation in
@@ -368,6 +373,22 @@ export interface PiiEventWriteResult {
  */
 const CHAIN_HASH_LENGTH = 32;
 
+/**
+ * The RFC 8032 §5.1.5 secret-seed width, re-spelled here for the pre-encrypt
+ * `daemonSigningKey` guard on exactly {@link CHAIN_HASH_LENGTH}'s terms. There
+ * is nothing to import: `signer.ts` fixes no such constant at all — its
+ * `Ed25519PrivateKey` note defers the width to `ed25519.sign` on purpose — and
+ * T2.7's `signing-key-source.ts` keeps its own `ED25519_KEY_LENGTH`
+ * module-private, so reaching either would mean widening a sibling's export
+ * surface for one integer.
+ *
+ * DRIFT HERE IS ONE-DIRECTIONAL AND LOUD, for the same reason it is on the
+ * chain-hash constant: this value is only ever consulted to refuse EARLY, and
+ * `ed25519.sign` re-checks the same argument at recipe step 6, so a stale value
+ * here can produce a false refusal — never a signature under a wrong-width key.
+ */
+const ED25519_PRIVATE_KEY_LENGTH = 32;
+
 // The refused set, spelled once for the refusal message. Its annotation and its
 // per-literal `satisfies` pins are two drift guards on two different axes, and
 // between them the three spellings of the refused set cannot drift apart
@@ -449,13 +470,22 @@ const PII_REFUSED_CATEGORY_NAMES: readonly PiiRefusedCategory[] = [
  *      `canonicalize@3.0.0`'s `NaN` / `Infinity` / circular-reference throws,
  *      which the PII partition newly exposes).
  *   5. A `prevHash` that is not 32 bytes. HOISTED from T2.2's `signRow`, and
- *      placed LAST so hoisting it reordered nothing: it moved from after the
- *      signature to immediately before the encrypt, and every other refusal
- *      kept its relative position.
+ *      placed behind every refusal that predates the hoist, so bringing it
+ *      forward reordered nothing: it moved from after the signature to just
+ *      before the encrypt, and every other refusal kept its relative position.
+ *   6. A `daemonSigningKey` that is not 32 bytes. HOISTED from `ed25519.sign`'s
+ *      own `abytes` — a LIBRARY guard rather than a sibling module's, because
+ *      `signRow` guards `prevHash` and nothing else — and placed after 5 on the
+ *      same no-reordering ground: it fired dead last of every refusal on this
+ *      path before the hoist, being the deepest call on the sign path, and it
+ *      fires last of the pre-encrypt refusals now.
  *
- * 3 AND 5 ARE EARLY COPIES, NEVER REPLACEMENTS. `assertRepresentableSequence`
- * and `signRow`'s guard both still run downstream and stay authoritative, so a
- * copy that ever drifted could only refuse early — never admit late.
+ * 3, 5, AND 6 ARE EARLY COPIES, NEVER REPLACEMENTS.
+ * `assertRepresentableSequence`, `signRow`'s guard, and `ed25519.sign`'s
+ * `abytes` all still run downstream and stay authoritative, so a copy that ever
+ * drifted could only refuse early — never admit late. 3 and 5 are BYTE-IDENTICAL
+ * to the guards they front; 6 is deliberately narrower, and its own note says
+ * both why and in which direction.
  *
  * TWO CLASSES REMAIN BEHIND THE ENCRYPT, AND NEITHER MOVES HONESTLY:
  *
@@ -572,7 +602,7 @@ export async function writeEventWithPii(
   const piiPlaintext: Uint8Array = canonicalizeJson(input.piiPayload);
 
   // REFUSAL 5 of the order documented above — T2.2's `prevHash` guard, hoisted
-  // to the last position before the encrypt. A wrong-width link hashes happily and
+  // to just ahead of the encrypt. A wrong-width link hashes happily and
   // mints a signature over a chain input no verifier can ever reproduce: an
   // untampered row that fails forever. `signRow` refuses it, but only after the
   // nonce is spent, which on a `manual_reconcile_only` codec is a half-built
@@ -592,6 +622,46 @@ export async function writeEventWithPii(
   if (!(prevHash instanceof Uint8Array) || prevHash.length !== CHAIN_HASH_LENGTH) {
     throw new Error(
       `writeEventWithPii requires a ${CHAIN_HASH_LENGTH}-byte Uint8Array prev_hash — the previous row_hash for this session, or GENESIS_PREV_HASH at sequence 0 — per Spec-006 §Integrity Protocol; received ${describeByteShape(prevHash)}. Refused before the encrypt step so a rejected append costs no AES-256-GCM nonce; signRow re-checks the same value when the row is signed.`,
+    );
+  }
+
+  // REFUSAL 6 of the order documented above — the signing-key shape check
+  // `ed25519.sign` runs, hoisted ahead of the encrypt. `signRow` guards
+  // `prevHash` and nothing else, so an ill-shaped key travels un-inspected from
+  // this parameter down to `abytes(key, 32)` at recipe step 6 — past the nonce,
+  // on a `manual_reconcile_only` codec, which is the cost the whole ordering
+  // argument above exists to avoid. It is the last refusal that was BOTH
+  // answerable from the inputs and free to answer early: the RFC 8785 class the
+  // docstring leaves behind the encrypt is answerable too, and stays there
+  // because no honest pre-check of it is free.
+  //
+  // REACHABLE ONLY THROUGH A CAST, WHICH IS THE POINT RATHER THAN AN OBJECTION.
+  // `Ed25519PrivateKey` has exactly one mint site in the workspace — T2.7's
+  // `toEd25519PrivateKey` — and that site already validates byte-ness and width,
+  // so a mis-shaped value arriving here came through an `as Ed25519PrivateKey`
+  // cast. That is the same boundary-crossing class this module's header invokes
+  // to justify its runtime category guard, and the one `signer.ts`'s
+  // `verifyEd25519` names for the public half ("T2.7's unvalidated
+  // `as Ed25519PublicKey` cast").
+  //
+  // NARROWER THAN WHAT IT FRONTS, UNLIKE 3 AND 5 — stated rather than glossed,
+  // because this is the only hoist standing in for a LIBRARY guard. noble's
+  // `abytes` tests `isBytes`, which also admits a cross-realm `Uint8Array` view
+  // that `instanceof` refuses. The predicates therefore agree on every key the
+  // single mint site can produce — it returns `new Uint8Array(...)` allocated in
+  // this realm — and can diverge only on a cast-in value, where the divergence is
+  // a REFUSAL. The containment the ordering claim actually needs holds: a key
+  // this admits is a key the library admits, so the guard cannot let a doomed
+  // signature through and can only ever refuse before the nonce is spent.
+  //
+  // `describeByteShape` reports a length or a `typeof` and never a byte, so a
+  // refused key does not reach the message; keep it that way.
+  if (
+    !(daemonSigningKey instanceof Uint8Array) ||
+    daemonSigningKey.length !== ED25519_PRIVATE_KEY_LENGTH
+  ) {
+    throw new Error(
+      `writeEventWithPii requires a ${ED25519_PRIVATE_KEY_LENGTH}-byte Uint8Array daemon signing key per RFC 8032 §5.1.5; received ${describeByteShape(daemonSigningKey)}. That is a key-custody or key-routing bug — T2.7's signing-key-source.ts is the only site that may mint this type. Refused before the encrypt step so a rejected append costs no AES-256-GCM nonce; ed25519.sign re-checks the same value when the row is signed.`,
     );
   }
 
@@ -730,9 +800,10 @@ function canonicalizeDigestBearingEvent(envelope: EventWithPiiDigest): Canonical
 /**
  * Renders a refused byte-shaped value for a throw message without trusting its
  * declared type — `value.length` on a `string` would report a character count as
- * a byte count and send the reader after the wrong bug. Serves both refusals
- * that need it: the encryptor's result and the hoisted `prevHash` guard.
- * Deliberately local, and named for the sibling helpers rather than for either
+ * a byte count and send the reader after the wrong bug. Serves every refusal
+ * that needs it: the encryptor's result, and the two hoisted byte guards
+ * (`prevHash` and `daemonSigningKey`).
+ * Deliberately local, and named for the sibling helpers rather than for any one
  * call site: `signer.ts` and `signing-key-source.ts` each keep a
  * `describeByteShape` of their own, and a shared byte-shape describer is not a
  * seam any of the three has asked for.

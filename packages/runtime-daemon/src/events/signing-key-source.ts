@@ -213,8 +213,11 @@ export interface DaemonSigningKeySource extends DaemonSigningKeyProvisioner {
    * site for why). Hand it straight to `signRow` (or to
    * `mintParticipantSignature`) as the parameter it takes; do not cache it, log
    * it, or copy it into a longer-lived structure — every extra holder is one
-   * more place a master-key wipe cannot reach, and this array is one the
-   * resolver cannot scrub on the caller's behalf.
+   * more place a master-key wipe cannot reach, and under this RETURN-A-VALUE
+   * signature the resolver cannot scrub the array on the caller's behalf. That
+   * last clause is a property of the SIGNATURE rather than of the resolver: the
+   * private-key narrowing site names the borrow-scoped `read(sessionId, use)`
+   * shape that would let it scrub, and why that shape is not taken here.
    *
    * Rejects when the session has no row: `create` was never called, or the row
    * was removed. Deliberately NOT create-on-read — minting a second keypair
@@ -440,10 +443,33 @@ function toEd25519PublicKey(bytes: Uint8Array): Ed25519PublicKey {
  * enforceable, and the failure it prevents is silent.
  *
  * THE PRICE, STATED RATHER THAN GLOSSED: a SECOND unscrubbed allocation of
- * private key material. It cannot be scrubbed here — it IS the returned value,
- * and this function cannot know when the caller is done with it; the only thing
- * shortening its life is {@link DaemonSigningKeySource.read}'s "hand it straight
- * to `signRow`, do not cache it" obligation. Nor is the SEALER's array scrubbed
+ * private key material. It is not scrubbed under the current return-a-value
+ * signature — it IS the returned value, and a function that RETURNS a secret
+ * cannot know when its caller is done with one; the only thing shortening its
+ * life today is {@link DaemonSigningKeySource.read}'s "hand it straight to
+ * `signRow`, do not cache it" obligation.
+ *
+ * THAT IS A PROPERTY OF THE SIGNATURE, NOT OF THIS MODULE, AND THE SEAM HAS A
+ * SHAPE. A borrow-style `read(sessionId, use)` — branded key handed to a
+ * caller-supplied callback, scrubbed in a `finally` — would turn this copy into
+ * the one allocation of the two that CAN be retired. Nothing about the signing
+ * path resists it: `signRow` is synchronous, so the borrow scope is bounded by a
+ * single call rather than by an unbounded caller lifetime. Nor is the migration
+ * expensive TODAY — {@link DaemonSigningKeySource} has no non-test consumer at
+ * all, T3.1's append path, T3.2's compactor, and T3.3's anchor service being
+ * unlanded — and that cost is monotonic in consumers, so it only rises from
+ * here. Deliberately NOT taken in this round: the interface is a published
+ * contract surface, and its shape is not a comment's to change.
+ *
+ * WHERE THE SEALER TREATS ITS BUFFER AS SCRATCH — the "THE BYTES ARE COPIED"
+ * premise above, and the whole reason this copy exists — THIS COPY IS THE
+ * LONGER-LIVED OF THE TWO SECRETS, which makes it the higher-value scrub target
+ * rather than the unscrubbable one. The claim is scoped on purpose: under the
+ * OTHER implementation {@link DaemonSigningKeySealer} contemplates, the caching
+ * one, the sealer's array outlives this copy instead — and the next paragraph is
+ * why that array goes unscrubbed under either premise.
+ *
+ * Nor is the SEALER's array scrubbed
  * on the way out, deliberately: `create` scrubs only what it allocated, and
  * {@link DaemonSigningKeySealer} explicitly contemplates an implementation that
  * caches to avoid re-prompting a WebAuthn ceremony after an idle master-key
@@ -464,9 +490,12 @@ function toEd25519PrivateKey(bytes: Uint8Array): Ed25519PrivateKey {
  * boundary and `unseal`'s crossed an interface an implementation outside this
  * package satisfies.
  *
- * `instanceof Uint8Array` is the test noble's own `abytes` runs, so a value
- * this accepts is one the library accepts — a better-sqlite3 `Buffer` included,
- * since `Buffer extends Uint8Array`.
+ * NARROWER THAN NOBLE'S `abytes`, AND THAT DIRECTION IS THE GUARANTEE: every
+ * value this accepts is one the library accepts, so a divergence can only refuse
+ * EARLIER here — never admit a value that later trips a library-side `abytes`.
+ * `signer.ts`'s `isBytesOfLength` carries the full argument (what noble
+ * additionally admits, and why equivalence was never needed). A better-sqlite3
+ * `Buffer` passes both, since `Buffer extends Uint8Array`.
  */
 function assertEd25519KeyWidth(value: unknown, role: string): void {
   if (!(value instanceof Uint8Array) || value.length !== ED25519_KEY_LENGTH) {
