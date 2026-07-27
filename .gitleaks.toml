@@ -49,11 +49,16 @@ useDefault = true
 # 64-hex key extracted as `Ed25519PrivateKeyf3a91c7d…` is waved straight
 # through (reproduced against v8.30.1). Anchoring makes each entry the equality
 # test its justification below asserts, which is the whole content of "this
-# exact token is not a secret". Verified for all six patterns below, each
-# observed firing in this corpus: each one's extracted secret is exactly the
-# token, so anchoring suppresses precisely what the unanchored form did and
-# nothing more (whole-tree scan unchanged at zero findings, planted-secret
-# control still caught).
+# exact token is not a secret". Verified for all six patterns below: each has
+# been observed firing with its extracted secret equal to the token exactly,
+# and no finding in the unsuppressed whole-tree scan carries a secret that
+# merely CONTAINS one of the six — so anchoring suppresses precisely what the
+# unanchored form did and nothing more (whole-tree scan unchanged at zero
+# findings, planted-secret control still caught). Do not read "observed
+# firing" as "fires from committed content": five of the six do, but
+# `XChaCha20-Poly1305-wrapped` currently fires only from a gitignored
+# `.agents/tmp/` transient that `gitleaks dir` walks and neither gate sees,
+# since both scan git content. Entry 2 records why it is kept.
 #
 # condition = "OR" unifies four distinct suppressions under one block; each
 # criterion fires independently (a finding is allowlisted if its extracted
@@ -76,7 +81,8 @@ useDefault = true
 #    config, neither was ever observed firing, and both are deliberately NOT
 #    listed. They are inert rather than merely unobserved — verified against
 #    v8.30.1 with the allowlist emptied, 2026-07-26. Outside this file's own
-#    record of the removal — which names both tokens and is itself scanned —
+#    record of the removal — which names both tokens but cannot fire, as
+#    `gitleaks dir` skips any file basenamed `gitleaks.toml`/`.gitleaks.toml` —
 #    their only in-tree occurrences are prose (ADR-023 §Axis 5 and BL-112 in
 #    `docs/backlog.md`), and re-scanning those two files unsuppressed yields
 #    exactly two findings, both with secret `ECC_NIST_EDWARDS25519`, neither
@@ -98,10 +104,21 @@ useDefault = true
 #
 # 2. Cryptographic algorithm identifiers in prose. v8.30.1's generic-api-key
 #    heuristic also fires on documentation phrases like
-#    `XChaCha20-Poly1305-wrapped` and `Argon2id-encrypted` (high-entropy
-#    hyphenated token following `key,` or `keystore cache,` — the rule
-#    treats them as `KEY, VALUE` assignments). These are algorithm names,
-#    not secrets; surfaced when CI moved from v8.24.3 → v8.30.1.
+#    `XChaCha20-Poly1305-wrapped` and `Argon2id-encrypted`, reading each
+#    high-entropy hyphenated token as a `KEY, VALUE` VALUE (trigger shape
+#    below; keep it stated once). Algorithm names, not secrets; surfaced at
+#    the v8.24.3 → v8.30.1 CI bump, both admitted on committed-doc firings
+#    (BL-126 record in `docs/archive/backlog-archive.md`, whose own prose
+#    still fires `Argon2id-encrypted`). `XChaCha20-Poly1305-wrapped` fires
+#    from no file in the current tree outside `.agents/tmp/`; its admitting
+#    line in `docs/specs/022-data-retention-and-gdpr.md` still carries the
+#    token but now reads `content key (DEK), <token>`. Probed against
+#    v8.30.1: it fires as the next word after a `key`-family keyword and a
+#    separator (`,` `:` `=` alike, and after `keystore cache,`), not with a
+#    parenthetical before that separator or a word after it
+#    (`key (DEK), <token>`, `key, then <token>` yield nothing). Kept: the
+#    token is still in-tree in Spec-022, Plan-022, `local-sqlite-schema.md`
+#    and that archive record, so a rephrasing into that shape re-triggers it.
 #
 # 3. PASETO v4 RFC test vectors — deliberate test keys (hex Ed25519 secret
 #    keys and PEM-encoded private keys) published in
@@ -148,7 +165,10 @@ useDefault = true
 #        deliberately NOT pre-listed — it does not currently fire, and
 #        suppressions are added on evidence, not anticipation. The same rule
 #        runs in reverse: an entry whose evidence never arrives is removed
-#        rather than carried (see 1).
+#        rather than carried (see 1) — "never arrives" being the whole of it,
+#        since an entry admitted on a real firing keeps that evidence while
+#        its token remains in-tree, even if the triggering phrasing drifts
+#        (see 2).
 [allowlist]
 description = "AWS KMS Ed25519 keyspec enum constant + crypto-algorithm prose tokens + PASETO v4 RFC test vectors + RFC 8032 §7.1 Ed25519 test vectors"
 condition = "OR"
