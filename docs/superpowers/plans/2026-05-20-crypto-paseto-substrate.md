@@ -508,7 +508,9 @@ sig = Ed25519.sign(PAE([header, payload, footer, implicitAssertion]), secretKey)
 token = "v4.public." || b64url(payload || sig) [|| "." || b64url(footer)]
 ```
 
-PureEdDSA (no pre-hash). Noble 2.x call shape is **message-first**: `ed25519.sign(message, secretKey)` and `ed25519.verify(signature, message, publicKey)`.
+PureEdDSA (no pre-hash). Noble 2.x call shape is **message-first**: `ed25519.sign(message, secretKey)` and `ed25519.verify(signature, message, publicKey, { zip215: false })`.
+
+`{ zip215: false }` is as load-bearing as the argument order. Noble defaults its `ed25519` wrapper to `zip215: true` — the consensus-friendly ZIP-215 decode rules, which skip the small-order public-key rejection — and against a small-order public key the `[8][k]A` term drops out of the cofactored verification equation, so one `(R, S)` pair verifies for _every_ message: universal forgery. `zip215: false` selects strict RFC 8032 / FIPS 186-5 verification, which also rejects non-canonical point encodings (`y >= p`). **Pass the option literally at the call site.** Noble branches on the option being absent — it tests for `undefined` and falls back to a wrapper built with `zip215: true` — so both `{}` and `{ zip215: undefined }` resolve back to permissive, and that fallback is deliberate upstream behavior rather than an incidental gap a later patch might close. Only `{}` is _silent_, though: `{ zip215: undefined }` is a compile error in this repo under `exactOptionalPropertyTypes` (`tsconfig.base.json`). The realistic regression — hoisting the option into a shared or spread options object that drops the key — is therefore invisible to the compiler, which is precisely why this is guarded by a test rather than by a type. See the `verifyV4Public` implementation step below.
 
 - [ ] **Step 1: Write the failing test (`src/__tests__/v4-public.test.ts`)**
 
@@ -746,9 +748,34 @@ export function verifyV4Public(
   const m2 = pae([HEADER_BYTES, payload, tokenFooter, ia]);
 
   // Noble 2.x: ed25519.verify(signature, message, publicKey).
+  //
+  // `{ zip215: false }` is load-bearing, not a style choice. Noble's ed25519
+  // wrapper defaults to `zip215: true` — the consensus-friendly ZIP-215 decode
+  // rules — which skips the small-order public-key rejection. Against a
+  // small-order public key the `[8][k]A` term drops out of the cofactored
+  // verification equation, so one `(R, S)` pair verifies for *every* message:
+  // universal forgery on the path that authenticates v4.public auth tokens.
+  // `zip215: false` selects strict RFC 8032 / FIPS 186-5 verification, which
+  // also rejects non-canonical point encodings (`y >= p`). That matches what
+  // paseto-spec Version4.md §Verify actually specifies — libsodium's
+  // `crypto_sign_verify_detached`, which refuses small-order and
+  // non-canonically-encoded public keys.
+  //
+  // Pass the option literally at this call site. Noble branches on the option
+  // being absent — it tests for `undefined` and falls back to a wrapper built
+  // with `zip215: true` — so `{}` and `{ zip215: undefined }` both resolve
+  // back to permissive. That fallback is deliberate upstream behavior, not an
+  // incidental gap a later patch might close, so the hazard is permanent.
+  // Only `{}` is *silent*, though: `{ zip215: undefined }` is a compile error
+  // here under `exactOptionalPropertyTypes`. So the realistic regression —
+  // hoisting this into a shared or spread options object that drops the key —
+  // is the one the compiler cannot see. `ed25519-strict-verification.test.ts`
+  // is the sole guard: a bare 3-arg call, `{}`, and `{ zip215: undefined }`
+  // each turn exactly its three strict-verification tests red, and nothing
+  // else in the package.
   let ok: boolean;
   try {
-    ok = ed25519.verify(sig, m2, publicKey);
+    ok = ed25519.verify(sig, m2, publicKey, { zip215: false });
   } catch {
     throw new InvalidTokenError("signature decode failed");
   }
