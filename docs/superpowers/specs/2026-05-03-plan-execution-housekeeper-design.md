@@ -904,6 +904,8 @@ End-to-end sequence with failure branches:
 
 The `exit 3` branch above is reserved but no longer produced by the script — see §7.1.
 
+The `gh pr merge --squash --delete-branch` box is likewise a 2026-05-03 snapshot, superseded 2026-07-27: the landed form polls `gh pr view <PR#> --json mergeStateStatus,headRefOid` in ONE call until `mergeStateStatus` reads `CLEAN`, then merges that same observed head with `--match-head-commit <headRefOid>`. `CLEAN` is a claim about a moment rather than about a commit, so the pin is what keeps an unchecked HEAD from landing when a push arrives mid-poll. The diagram is left as drawn — it records the shape as designed; `.claude/skills/plan-execution/SKILL.md` § Phase D.5 — Merge transition and `references/post-merge-housekeeper-contract.md` § Housekeeping commit landing are canonical for what runs.
+
 ### 6.1 Why Progress Log moves AFTER the housekeeper stages
 
 Today, Phase E's first step is "Append Progress Log" — written as its own commit. The new ordering moves Progress Log to **after** the housekeeper stages, in the **same commit** as the housekeeping edits. Three reasons:

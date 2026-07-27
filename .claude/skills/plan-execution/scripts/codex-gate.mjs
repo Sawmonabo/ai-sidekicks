@@ -15,9 +15,30 @@
  *   3. clean        — "Didn't find any major issues" comment, same freshness bind
  *   4. rate-limited — fresh bot comment matching /usage limits/ (NON-ack; stop polling)
  *
- * The ack anchor is the later of the HEAD commit's timestamp and the earliest
- * check suite for that sha — see derivePushAnchor. Commit time alone is
- * author-controlled, so it lets an ack of the PREVIOUS head count for this one.
+ * The ack anchor is the latest of three floors: this gate's own first sighting of
+ * the sha as this PR's HEAD (lib/observation-baseline.mjs), the earliest check
+ * suite for that sha, and the HEAD commit's timestamp — see derivePushAnchor for
+ * the last two and why each was insufficient alone. Commit time is
+ * author-controlled, and a check suite dates the sha's first visibility anywhere
+ * in the repo rather than the moment it became this PR's head, so both can be
+ * predated by an ack of the PREVIOUS head. Only the first sighting cannot.
+ *
+ * A floor answers one question — could this ack predate HEAD's existence as this
+ * PR's head. It does NOT answer which run produced the ack, because a run for the
+ * previous head finishes AFTER the push and so clears every floor. That is
+ * deriveStaleRunEvidence's question, and neither predicate subsumes the other.
+ *
+ * Which is why only the ACK legs get the first-sighting floor. Two consumers
+ * deliberately read the lower push anchor instead — deriveStaleRunEvidence and
+ * the usage-limits non-ack — and passing them the raised floor was a live defect
+ * caught in review, not a hypothetical. The stale-run detector asks whether a
+ * run for an older commit was in flight ACROSS THE PUSH, so a floor starting at
+ * first sighting hides any such run that published in the push-to-sighting gap;
+ * on this PR that silently turned a detected stale review into no evidence at
+ * all once the baseline landed. The quota notice is not a claim about a commit
+ * at all, so attribution is the wrong question to ask of it; floored on first
+ * sighting, a genuine notice in the same gap disappears and the gate advises
+ * polling at the one moment polling cannot work.
  *
  * This file is the I/O shell only: it fetches, then prints. Every predicate that
  * decides anything lives in lib/codex-verdict.mjs, where it is unit-tested —
@@ -37,19 +58,24 @@
  */
 
 import { execFileSync } from "node:child_process";
+import { dirname, join } from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 import {
   checkState,
   computeVerdict,
   deriveCiStatus,
   deriveCommentSignals,
+  derivePreBaselineAcks,
   derivePushAnchor,
   deriveReactionAck,
   deriveReviewAck,
+  deriveStaleRunEvidence,
   mergeStateAllowsMerge,
   selectUnresolvedBotThreads,
   DEFAULT_SETTLE_WINDOW_MS,
 } from "./lib/codex-verdict.mjs";
+import { observeBaseline } from "./lib/observation-baseline.mjs";
 import {
   describeTruncation,
   drainConnection,
@@ -184,10 +210,51 @@ const checkSuites = ghJsonPaginated([
   `repos/${repository}/commits/${headSha}/check-suites`,
 ]).flatMap((page) => page?.check_suites ?? []);
 const {
-  anchorMs: ackAnchorMs,
+  anchorMs: fallbackAnchorMs,
   pushObservedAtMs,
   pushAnchorKnown,
 } = derivePushAnchor(headCommittedAtMs, checkSuites);
+
+// The PRIMARY floor: this gate's own first sighting of the sha as this PR's
+// HEAD. Every server-side candidate is a proxy for the head-update moment and
+// each has been predated in review — the author's commit clock, then the
+// earliest check suite, which dates the sha's first visibility ANYWHERE in the
+// repo and so predates this PR entirely for a sha pushed on another branch
+// first. GitHub exposes no head-update timestamp to replace them with
+// (`pushedDate` null, `PullRequestCommit` carries no `createdAt`), so the floor
+// has to come from an observation this gate makes itself.
+//
+// State lives under `.cache/` rather than `.agents/tmp/`, and the difference is
+// load-bearing rather than cosmetic. Both are gitignored, but AGENTS.md directs
+// agents to delete `.agents/tmp/`, and losing this record is not a self-healing
+// failure: the next run stamps a fresh `now` that also post-dates whatever the
+// operator just re-triggered. `.cache/` is swept by nobody.
+//
+// Rooted at the checkout containing this script rather than at `process.cwd()`,
+// so a gate invoked from a subdirectory or a worktree still finds the same
+// store the previous poll wrote.
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
+const {
+  observedAtMs: baselineObservedAtMs,
+  baselineKnown: observationBaselineKnown,
+  baselineWritable,
+  firstObservation: baselineFirstObservation,
+  baselinePath,
+  baselineError,
+} = observeBaseline({
+  stateDir: join(repoRoot, ".cache", "codex-gate"),
+  prNumber: pullRequestNumber,
+  headSha,
+  nowMs: Date.now(),
+});
+
+// `max`, never replacement — the same rule `derivePushAnchor` already applies
+// internally. The baseline dominates in practice, but a suite timestamp skewed
+// into the future is a later floor than a local clock reading, and handing that
+// back would loosen the gate relative to today's behaviour.
+const ackAnchorMs = observationBaselineKnown
+  ? Math.max(fallbackAnchorMs, baselineObservedAtMs)
+  : fallbackAnchorMs;
 
 // ---------------------------------------------------- signal 1: review object
 
@@ -198,7 +265,7 @@ const allReviews = ghJsonPaginated([
   "api",
   `repos/${repository}/pulls/${pullRequestNumber}/reviews`,
 ]);
-const { botReviews, reviewAcksHead, latestReviewAgeMs } = deriveReviewAck(
+const { botReviews, reviewAcksHead, latestReviewAgeMs, latestReviewAgeUnknown } = deriveReviewAck(
   allReviews,
   headSha,
   Date.now(),
@@ -229,14 +296,72 @@ const {
   botComments,
   shaCitingComments,
   freshCleanVerdictComments,
+  otherCommitCleanVerdictComments,
   cleanVerdictShaComments,
   findingsShaComments,
   commentAcksHead,
+  commentAcksHeadBySha,
   commentAssertsClean,
   commentReportsFindings,
   latestCommentAckAgeMs,
+  latestCommentAckAgeUnknown,
   rateLimited,
-} = deriveCommentSignals(allComments, { headShaShort, ackAnchorMs, nowMs: Date.now() });
+} = deriveCommentSignals(allComments, {
+  headShaShort,
+  ackAnchorMs,
+  // The rate-limit leg is anchored on the push, for the same reason the
+  // stale-run detector below is: raising its floor to first sighting would drop
+  // a usage-limits notice posted in the push-to-sighting gap, and the gate would
+  // then print "no ack yet" — keep polling — at a PR where Codex has run out of
+  // quota and polling cannot help.
+  freshnessAnchorMs: fallbackAnchorMs,
+  nowMs: Date.now(),
+});
+
+// ------------------------------- signal 4: a run for an OLDER commit, late
+//
+// Reads the bot-filtered sets the two derivations above already produced, so the
+// `[bot]` login form has exactly one authority. The sha-less ack legs — the +1
+// and the fresh clean verdict — cannot tell a verdict on THIS commit from the
+// tail of a run for the previous one that finished after the push; this is the
+// evidence that such a run exists, and computeVerdict withholds cleanliness from
+// those legs while it does.
+//
+// DELIBERATELY `fallbackAnchorMs`, NOT `ackAnchorMs`. The two floors answer
+// different questions and only one of them belongs here. This detector asks "was
+// a run for an older commit still in flight when the push landed", which is
+// anchored on the PUSH; the baseline asks "could this ack predate the moment we
+// first saw the sha as HEAD", which is anchored on OBSERVATION. Passing the
+// raised floor clips the detector's window to start at first sighting, so a
+// stale review that landed in the gap between the push and that sighting becomes
+// invisible — and a bare `+1` arriving after the sighting then reads as a clean
+// ack with nothing contradicting it. Verified against this PR: the review for
+// 59344aaea9 at 20:56:27Z was detected at a 20:56:24Z push anchor and vanished
+// once the baseline moved the floor to 21:58:10Z, with the reviews unchanged.
+const { staleReviews, staleCitations, staleCitedShas, staleRunLandedAfterPush } =
+  deriveStaleRunEvidence({
+    botReviews,
+    botComments,
+    headSha,
+    headShaShort,
+    ackAnchorMs: fallbackAnchorMs,
+  });
+
+// ------------------------- signal 5: acks the observation baseline refused
+//
+// Raising the anchor to the baseline makes the derivations above drop these rows
+// silently, so without this the ladder would report `no_ack_yet` — "Codex has
+// not looked" — at a PR where Codex has looked, published, and simply landed
+// before this gate first saw the sha. Reconstructed from the raw payloads
+// against BOTH floors so the gate can name which one refused.
+const { preBaselineReactions, preBaselineCleanComments, ackPredatesBaseline } =
+  derivePreBaselineAcks({
+    reactions: allReactions,
+    comments: allComments,
+    headShaShort,
+    fallbackAnchorMs,
+    baselineMs: baselineObservedAtMs,
+  });
 
 // ------------------------------------------------------- unresolved threads
 
@@ -379,7 +504,16 @@ const headUnchanged = headShaAtFinish === headSha;
 
 const mergeStateStatus = pullRequest.mergeStateStatus;
 const isOpen = pullRequest.state === "OPEN";
-const { verdict, ackOfHead, mergeOk, unsettledAckLeg, threadBearingAckAgeMs } = computeVerdict({
+const {
+  verdict,
+  ackOfHead,
+  mergeOk,
+  unsettledAckLeg,
+  threadBearingAckAgeMs,
+  ackAgeUnknown,
+  shaBoundAckOfHead,
+  timestampOnlyAckUnvouchable,
+} = computeVerdict({
   isDraft: pullRequest.isDraft,
   isOpen,
   headUnchanged,
@@ -388,11 +522,17 @@ const { verdict, ackOfHead, mergeOk, unsettledAckLeg, threadBearingAckAgeMs } = 
   reviewAcksHead,
   reactionAcksHead,
   commentAcksHead,
+  commentAcksHeadBySha,
   commentAssertsClean,
   commentReportsFindings,
+  staleRunLandedAfterPush,
+  observationBaselineKnown,
+  ackPredatesBaseline,
   openThreadCount: unresolvedBotThreads.length,
   latestReviewAgeMs,
+  latestReviewAgeUnknown,
   latestCommentAckAgeMs,
+  latestCommentAckAgeUnknown,
   threadWindowTruncated,
   checkWindowTruncated,
   ciStatus,
@@ -408,11 +548,19 @@ const mergeStateAllows = mergeStateAllowsMerge(mergeStateStatus);
 // commit time — is what every timestamp-bound ack leg is judged against. A clock
 // skew that pushes the anchor into the future would otherwise strand the gate at
 // `no_ack_yet` with nothing on screen to explain it.
-const ackAnchorSource = !pushAnchorKnown
-  ? "commit time — NO check suite dates this sha, so the push time is unknown"
-  : ackAnchorMs === pushObservedAtMs
-    ? `earliest check suite, ${Math.round((ackAnchorMs - headCommittedAtMs) / 1000)}s after the commit`
-    : "commit time — later than the earliest check suite, so it wins the max";
+function describeAckAnchor() {
+  if (observationBaselineKnown && ackAnchorMs === baselineObservedAtMs) {
+    return `this gate's FIRST SIGHTING of the sha as HEAD${baselineFirstObservation ? ", recorded just now" : ""}`;
+  }
+  if (!pushAnchorKnown) {
+    return "commit time — NO check suite dates this sha, so the push time is unknown";
+  }
+  if (ackAnchorMs === pushObservedAtMs) {
+    return `earliest check suite, ${Math.round((ackAnchorMs - headCommittedAtMs) / 1000)}s after the commit`;
+  }
+  return "commit time — later than the earliest check suite, so it wins the max";
+}
+const ackAnchorSource = describeAckAnchor();
 
 const lines = [
   `PR #${pullRequestNumber} — ${pullRequest.title}`,
@@ -424,9 +572,17 @@ const lines = [
   "  ack legs (disjunction — any one is a valid ack of HEAD):",
   `    review .commit_id == HEAD   ${reviewAcksHead ? "YES" : "no "}   (${botReviews.length} bot review(s) total)`,
   `    +1 on issue at/after anchor ${reactionAcksHead ? "YES" : "no "}   (${botThumbsUp.length} bot +1 total, ${freshThumbsUp.length} fresh)`,
-  `    comment acks HEAD           ${commentAcksHead ? "YES" : "no "}   (${botComments.length} bot comment(s): ${shaCitingComments.length} cite the sha, ${freshCleanVerdictComments.length} fresh clean verdict(s))`,
+  `    comment acks HEAD           ${commentAcksHead ? "YES" : "no "}   (${botComments.length} bot comment(s): ${shaCitingComments.length} cite the sha, ${freshCleanVerdictComments.length} fresh clean verdict(s), ${otherCommitCleanVerdictComments.length} clean verdict(s) naming ANOTHER commit)`,
   `    ..and that ack says CLEAN   ${commentAssertsClean ? "YES" : "no "}   (${cleanVerdictShaComments.length} sha-cited clean verdict(s); citing a sha is not a verdict)`,
   `    ..or carries FINDINGS       ${commentReportsFindings ? "YES" : "no "}   (${findingsShaComments.length} findings summary(ies) naming HEAD, findings in the body not in threads)`,
+  `    ack is BOUND BY SHA         ${shaBoundAckOfHead ? "YES" : "no "}   (a review on HEAD or a comment naming the sha; the +1 and a sha-less clean verdict rest on the anchor alone)`,
+  `    stale-run evidence          ${staleRunLandedAfterPush ? "YES" : "no "}   (${staleReviews.length} review(s) + ${staleCitations.length} citation(s) for a NON-head commit published after the anchor${staleCitedShas.length > 0 ? `: ${staleCitedShas.join(", ")}` : ""})`,
+  `    first-sighting baseline     ${observationBaselineKnown ? "OK " : "NO "}   ${
+    observationBaselineKnown
+      ? `${new Date(baselineObservedAtMs).toISOString()}${baselineFirstObservation ? " (stamped by THIS run)" : ""}`
+      : (baselineError ?? "unavailable")
+  }${timestampOnlyAckUnvouchable ? "  <- cannot vouch for the current ack" : ""}`,
+  `    acks refused as pre-baseline ${ackPredatesBaseline ? "YES" : "no "}  (${preBaselineReactions.length} +1(s), ${preBaselineCleanComments.length} sha-less clean verdict(s) older than that sighting)`,
   "",
   `  unresolved bot threads  ${unresolvedBotThreads.length}  (${outdatedUnresolvedCount} outdated, counted anyway) of ${threadTotal} total thread(s)`,
   `  CI                ${ciStatus}  (${gatingChecks.length} of ${dedupedChecks.length} check(s) gate the merge [${ciMode}], ${failedChecks.length} failed, ${pendingChecks.length} pending${supersededCount > 0 ? `, ${supersededCount} superseded run(s) ignored` : ""})`,
@@ -479,18 +635,46 @@ if (verdict === "no_ack_yet") {
     "  -> no ack of current HEAD yet. Past ~15 min, comment '@codex review' to trigger manually.",
   );
 }
+// Without this the reader sees "no ack yet" while a fresh clean verdict sits
+// visibly on the PR, and concludes the gate is broken. It is not: the verdict
+// names a commit that is not this one, so it acks the previous head, and the
+// generic "wait ~15 min" above is the wrong advice — the retrigger is correct
+// immediately, because nothing is in flight for HEAD.
+if (verdict === "no_ack_yet" && otherCommitCleanVerdictComments.length > 0) {
+  lines.push(
+    `     NOTE: ${otherCommitCleanVerdictComments.length} clean verdict(s) ARE on this PR, each naming a DIFFERENT commit${staleCitedShas.length > 0 ? ` (${staleCitedShas.join(", ")})` : ""} —`,
+  );
+  lines.push(
+    "     the tail of a run for the previous head, not a verdict on this one. Re-trigger now.",
+  );
+}
 if (verdict === "ack_with_findings") {
   lines.push("  -> reply BEFORE resolve on each open thread, then re-push and re-gate.");
 }
 if (verdict === "signal_truncated") {
   lines.push("  -> a connection did not drain fully; re-run the gate. Do NOT merge on this probe.");
 }
-if (verdict === "ack_unsettled") {
+if (verdict === "ack_unsettled" && !ackAgeUnknown) {
   lines.push(
     `  !! ${unsettledAckLeg} ack of HEAD is ${Math.round(threadBearingAckAgeMs / 1000)}s old with 0 visible threads —`,
   );
   lines.push(
     "     cannot distinguish 'clean' from 'threads not yet materialised'. Re-poll; do NOT merge.",
+  );
+}
+// Same verdict, different remediation, and printing the other one here would be
+// advice that cannot work: an ack carrying no usable timestamp never ages out of
+// the settle window, so "re-poll" is an instruction to loop forever. The gate
+// holds it because an ack it cannot date is one it cannot rule out as brand new.
+if (verdict === "ack_unsettled" && ackAgeUnknown) {
+  lines.push(
+    `  !! the ${unsettledAckLeg} ack of HEAD carries NO usable timestamp, so its age is unknown and`,
+  );
+  lines.push(
+    "     the settle window can never expire on it. Re-polling will not clear this. Comment",
+  );
+  lines.push(
+    "     '@codex review' for a datable ack, or merge by hand once you have confirmed the threads.",
   );
 }
 if (verdict === "ack_findings_no_threads") {
@@ -503,6 +687,60 @@ if (verdict === "ack_findings_no_threads") {
   lines.push(
     "     merge — this gate is the only thing that does. Read the comment(s), fix, re-push.",
   );
+}
+if (verdict === "ack_unattributable") {
+  lines.push(
+    `  !! the only ack of HEAD is TIMESTAMP-bound (+1 and/or a sha-less clean verdict), and a Codex run`,
+  );
+  lines.push(
+    `     for an OLDER commit published AFTER this push (${staleReviews.length} review(s), ${staleCitations.length} citation(s)${staleCitedShas.length > 0 ? ` naming ${staleCitedShas.join(", ")}` : ""}).`,
+  );
+  lines.push(
+    "     That ack cannot be told apart from the older run's tail, so it is not a verdict on HEAD and",
+  );
+  lines.push(
+    "     the settle window is not what is missing. A pass for THIS commit cites the sha — re-poll for",
+  );
+  lines.push("     that, and comment '@codex review' if it does not arrive. Do NOT merge.");
+}
+if (verdict === "ack_baseline_unavailable") {
+  lines.push(
+    "  !! the only ack of HEAD is TIMESTAMP-bound, and this gate has no trustworthy floor to date",
+  );
+  lines.push(`     it against: ${baselineError ?? "the first-sighting baseline is unavailable"}`);
+  lines.push(
+    `     Nothing is wrong with the ack — the gap is in this gate's own state at ${baselinePath}.`,
+  );
+  lines.push(
+    baselineWritable
+      ? "     Delete that file and re-run: the next poll re-stamps it and the ack is judged normally."
+      : "     Fix the path's permissions (or free the disk) and re-run. Re-polling alone will NOT clear this.",
+  );
+  lines.push(
+    "     A sha-bound verdict needs no baseline at all, so '@codex review' also clears it.",
+  );
+}
+if (verdict === "ack_predates_baseline") {
+  lines.push(
+    `  !! Codex HAS acked, and this gate refused the ack: ${preBaselineReactions.length} +1(s) and`,
+  );
+  lines.push(
+    `     ${preBaselineCleanComments.length} sha-less clean verdict(s) predate this gate's first sighting of ${headShaShort} as HEAD`,
+  );
+  lines.push(
+    `     (${new Date(baselineObservedAtMs).toISOString()}). Neither carries a sha, so nothing else binds them to THIS commit —`,
+  );
+  lines.push(
+    "     and an ack that landed before the gate ever saw this head cannot be told from one for a",
+  );
+  lines.push("     previous head. This is NOT 'Codex has not looked yet'.");
+  lines.push(
+    "     Re-polling will never clear it: Codex does not re-ack a head it already acked, and that",
+  );
+  lines.push(
+    "     timestamp does not move. Comment '@codex review' — the fresh verdict post-dates the",
+  );
+  lines.push("     sighting and, in today's format, cites the sha outright.");
 }
 if (verdict === "ack_without_verdict") {
   lines.push(

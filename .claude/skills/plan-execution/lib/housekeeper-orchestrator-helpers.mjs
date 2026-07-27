@@ -67,7 +67,7 @@ Your responsibilities (per Spec §5.4 / §6.2):
 
 5. Reconcile semantic_work_pending — every item in \`manifest.semantic_work_pending\` MUST be paired to either (a) a \`semantic_edits.<item-key>\` entry containing the composed output, or (b) a \`concerns[]\` entry whose \`addressing\` field equals the exact item key verbatim (e.g. \`{kind: "deferred_for_followup", addressing: "set_quantifier_reverification"}\`). The validator pairs each pending item via this \`addressing\` key — \`kind\` is the subagent's choice; only \`addressing\` is the match key. Exception: when returning \`BLOCKED\` or \`NEEDS_CONTEXT\` (subagent halted before completing semantic work), per-item pairing is waived and the validator skips this check.
 
-6. Bound your edits to \`manifest.affected_files\` — out-of-scope edits trigger an orchestrator round-trip per \`references/failure-modes.md\` rule 20 (sprawl routing). To justify a scope expansion, add a \`concerns\` entry \`{kind: affected_files_extension, addressing: <reason>}\` and extend \`affected_files\`.
+6. Bound your edits to \`manifest.affected_files\` — an upper bound on what you may touch, never an obligation to touch every member. Out-of-scope edits trigger an orchestrator round-trip per \`references/failure-modes.md\` rule 20 (sprawl routing); to justify a scope expansion, add a \`concerns\` entry \`{kind: affected_files_extension, addressing: <reason>}\` and extend \`affected_files\`. A declared file that responsibility #5's evaluation resolves to no change stays unedited — that is the conformant outcome, not a skipped duty; record the decision in its \`semantic_edits\` payload and name every untouched file in your report.
 
 7. Write back the updated manifest (overwrite \`<manifest-path>\`) plus any direct file edits via the Edit tool.
 
@@ -135,6 +135,13 @@ export function buildHousekeeperPrompt({ manifestPath, scriptExitCode, prNumber,
  *     ALSO: every entry in affected_files MUST exist on disk — the subagent contract
  *     permits edits but not deletions; a missing entry surfaces as a gap rather
  *     than being silently skipped.
+ *     SCOPE: this placeholder scan is the ONLY per-file edit obligation anywhere in
+ *     this validator, and it binds exactly the files the script stubbed.
+ *     `affected_files` is an authorization scope, not a work list — a declared file
+ *     the subagent left untouched is conformant (the ordinary shape on a plan-bound
+ *     mid-phase run, whose `plan_done_checklist_evaluation` resolves to "not due" and
+ *     whose declared plan file never carries a placeholder). The work obligation is
+ *     per-ITEM and lives in check #2.
  *  4. No <TODO subagent prose> placeholder in any semantic_edits value (nested
  *     scan; TOP-LEVEL `_`-prefixed keys — the meta/attestation namespace — are
  *     exempt, matching the canonical-template Hard rule's carve-out; the
@@ -1131,8 +1138,8 @@ function describeScriptWarning(warning) {
     return (
       `plan_file_unresolved — no single plan file matched \`${warning.glob}\` for \`--plan ${warning.plan}\`. ` +
       `The plan's Done Checklist was NOT evaluated on this run, and no plan file was declared in ` +
-      `\`affected_files\`; the §6 corpus work was unaffected. Confirm the checklist tick is genuinely ` +
-      `not due, or re-run Phase E step 2 with a corrected \`--plan\`.`
+      `\`affected_files\`; the §6 corpus work was unaffected. Confirm the checklist is genuinely ` +
+      `not due a tick, or re-run Phase E step 2 with a corrected \`--plan\`.`
     );
   }
   return JSON.stringify(warning);

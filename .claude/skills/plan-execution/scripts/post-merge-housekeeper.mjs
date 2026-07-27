@@ -938,6 +938,21 @@ function resolvePlanDeclaration({ args, repoRoot }) {
 // `affected_files_extension` concern. Both shipped as live defects and were
 // fixed 2026-07-27 by making them unrepresentable rather than by patching the
 // call sites independently.
+//
+// `affected_files` is an AUTHORIZATION scope, never a work list, and the plan
+// file is the clearest case of the difference: it is declared so the subagent
+// MAY tick the checklist, not so it must. The item is evaluation-shaped, and
+// its ordinary mid-phase answer ("not due — phase N of M") resolves to a
+// `semantic_edits` payload and no file edit at all. The pipeline's only
+// per-file edit obligation is the `<TODO subagent prose>` placeholder scan, and
+// this script writes no placeholder — indeed nothing at all — under
+// `docs/plans/`, so a declared-but-unedited plan file is the conformant shape
+// rather than a skipped duty. A consumer contract that reads membership here as
+// "Edit this file" forces the subagent to invent a plan change or breach its own
+// action contract; that defect was Codex PR #259 R4, fixed in
+// `.claude/agents/plan-execution-housekeeper.md` § Required tool sequence (in
+// order) and the contract's § Canonical Subagent Prompt Template responsibility
+// #6, not by narrowing this declaration.
 function planScopedManifestFields({ corpusRel, planDeclaration, basePendingItems }) {
   if (planDeclaration.planFileRel === null) {
     return {

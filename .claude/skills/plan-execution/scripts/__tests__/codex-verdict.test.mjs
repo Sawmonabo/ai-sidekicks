@@ -12,13 +12,19 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { observeBaseline, resolveBaselinePath } from "../lib/observation-baseline.mjs";
 import {
   computeVerdict,
   deriveCiStatus,
   deriveCommentSignals,
+  derivePreBaselineAcks,
   derivePushAnchor,
   deriveReactionAck,
   deriveReviewAck,
+  deriveStaleRunEvidence,
   isAtOrAfter,
   mergeStateAllowsMerge,
   partitionByRequirement,
@@ -42,8 +48,18 @@ function cleanSignals(overrides = {}) {
     reviewAcksHead: false,
     reactionAcksHead: true,
     commentAcksHead: false,
+    commentAcksHeadBySha: false,
     commentAssertsClean: false,
     commentReportsFindings: false,
+    staleRunLandedAfterPush: false,
+    // The production-normal baseline state: the gate stamped or read a usable
+    // first sighting, and nothing was refused for predating it. Both are
+    // explicit rather than defaulted because the fixture's ack is the `+1` —
+    // a timestamp-only leg — so an absent baseline signal would make every test
+    // built on this fixture unvouchable, which is the correct fail-closed
+    // behaviour and would be a useless default here.
+    observationBaselineKnown: true,
+    ackPredatesBaseline: false,
     openThreadCount: 0,
     latestReviewAgeMs: Number.POSITIVE_INFINITY,
     latestCommentAckAgeMs: Number.POSITIVE_INFINITY,
@@ -237,9 +253,13 @@ test("the youngest FIRING leg decides the window, and names itself", () => {
   assert.equal(result.threadBearingAckAgeMs, 5_000);
 });
 
-test("a NaN age is treated as Infinity, not as 'safely settled'", () => {
-  // NaN fails every `<` comparison, so an un-normalised NaN would read as
-  // outside the window and merge inside it. `?? Infinity` does not catch NaN.
+test("a NaN age on a FIRING leg is unsettled, not 'safely settled'", () => {
+  // The R4-1 false pass, at the decision table. This case used to normalise to
+  // Infinity and score ack_clean + merge_ok=1: an ack whose age cannot be
+  // measured was read as an ack comfortably OUTSIDE the settle window, which is
+  // the one reading the evidence does not support. Unknown recency is the
+  // absence of evidence about when the ack landed, so the window must hold it —
+  // exactly as if it had landed this instant.
   const result = computeVerdict(
     cleanSignals({
       reactionAcksHead: false,
@@ -248,9 +268,83 @@ test("a NaN age is treated as Infinity, not as 'safely settled'", () => {
       latestCommentAckAgeMs: Number.NaN,
     }),
   );
+  assert.equal(result.threadBearingAckAgeMs, 0, "an undatable firing leg reads as brand new");
+  assert.equal(result.unsettled, true);
+  assert.equal(result.ackAgeUnknown, true, "and the caller is told WHY, so it can say so");
+  assert.equal(result.verdict, "ack_unsettled");
+  assert.equal(result.mergeOk, false, "the false merge R4-1 named");
+});
+
+test("CONTROL: the same NaN on a NON-firing leg still contributes Infinity", () => {
+  // The half of the old behaviour that was CORRECT and must survive the fix. A
+  // leg the gate rejected has no standing to shorten the window, so its age —
+  // measurable or not — must not pull the minimum down. Collapsing these two
+  // cases together is what produced R4-1; this is the control that proves they
+  // are still apart.
+  const result = computeVerdict(
+    cleanSignals({ commentAcksHead: false, latestCommentAckAgeMs: Number.NaN }),
+  );
   assert.equal(result.threadBearingAckAgeMs, Number.POSITIVE_INFINITY);
-  assert.equal(result.unsettled, false);
+  assert.equal(result.ackAgeUnknown, false, "a leg that did not fire has no unknown age");
   assert.equal(result.verdict, "ack_clean");
+  assert.equal(result.mergeOk, true);
+});
+
+test("an undatable REVIEW ack is held by the window too", () => {
+  // Same defect, reached through the other thread-bearing leg. Both are fed by
+  // `firingLegAgeMs`, so a fix applied to one and not the other would leave this
+  // side open.
+  const result = computeVerdict(
+    cleanSignals({
+      reactionAcksHead: false,
+      reviewAcksHead: true,
+      latestReviewAgeMs: Number.NaN,
+    }),
+  );
+  assert.equal(result.verdict, "ack_unsettled");
+  assert.equal(result.unsettledAckLeg, "review");
+  assert.equal(result.ackAgeUnknown, true);
+  assert.equal(result.mergeOk, false);
+});
+
+test("Infinity on a FIRING leg is unsettled too — it is the old missing-value sentinel", () => {
+  // Not a corner case: the deriver this gate shipped with returned Infinity for
+  // a review it could not date, so a caller still on that convention hands one
+  // in here. Reading it as "infinitely old, therefore settled" is R4-1 arriving
+  // through the front door. Infinity stays meaningful only for a leg that did
+  // NOT fire, where computeVerdict supplies it directly and never consults the
+  // caller's number at all — the control below.
+  const firing = computeVerdict(
+    cleanSignals({
+      reactionAcksHead: false,
+      commentAcksHead: true,
+      commentAssertsClean: true,
+      latestCommentAckAgeMs: Number.POSITIVE_INFINITY,
+    }),
+  );
+  assert.equal(firing.verdict, "ack_unsettled");
+  assert.equal(firing.ackAgeUnknown, true);
+  assert.equal(firing.mergeOk, false);
+
+  const notFiring = computeVerdict(
+    cleanSignals({ commentAcksHead: false, latestCommentAckAgeMs: Number.POSITIVE_INFINITY }),
+  );
+  assert.equal(notFiring.verdict, "ack_clean");
+  assert.equal(notFiring.mergeOk, true);
+});
+
+test("an undatable ack is reported as such, not as an age of zero seconds", () => {
+  // A genuine 0ms age is reachable — GitHub stamps are second-granular, so an
+  // ack read inside its own second measures 0 — which is why the caller cannot
+  // infer "undatable" from `threadBearingAckAgeMs === 0` and needs the flag. The
+  // two states print different remediations: one expires by waiting and the
+  // other never does.
+  const measured = computeVerdict(
+    cleanSignals({ reactionAcksHead: false, reviewAcksHead: true, latestReviewAgeMs: 0 }),
+  );
+  assert.equal(measured.threadBearingAckAgeMs, 0);
+  assert.equal(measured.ackAgeUnknown, false, "0 is a measurement, not a missing one");
+  assert.equal(measured.verdict, "ack_unsettled");
 });
 
 // ------------------------------- HEAD moved mid-probe (R3-3)
@@ -568,13 +662,37 @@ test("an absent pushAnchorKnown signal fails closed", () => {
 
 // ------------------------------------------------------- exhaustive sweep
 
-/** Every combination of the named dimensions, as an array of signal objects. */
-function cartesianProduct(dimensions) {
-  return Object.entries(dimensions).reduce(
-    (combinations, [key, values]) =>
-      combinations.flatMap((partial) => values.map((value) => ({ ...partial, [key]: value }))),
-    [{}],
-  );
+/**
+ * Every combination of the named dimensions, STREAMED rather than materialised.
+ *
+ * The `flatMap` form this replaces built the whole space as one array, so each
+ * dimension added multiplied resident memory as well as time. The space is now
+ * millions of objects wide and only one of them is ever live at a time, which is
+ * what keeps a dimension affordable to add — and adding dimensions is the entire
+ * mechanism by which the two invariants below stay honest.
+ */
+function* cartesianProduct(dimensions) {
+  const dimensionEntries = Object.entries(dimensions);
+  // An odometer rather than recursive `yield*` delegation, which is not a
+  // premature optimisation at this width: delegation spreads a fresh partial at
+  // every one of the ~19 levels, so it allocates ~19 objects per combination and
+  // bubbles each result back up through as many generator frames. The odometer
+  // allocates exactly one. Measured on this suite, recursion cost 2.3x the
+  // materialised array it replaced; this pays that back and then some.
+  const odometer = new Array(dimensionEntries.length).fill(0);
+  for (;;) {
+    const combination = {};
+    for (let axis = 0; axis < dimensionEntries.length; axis += 1) {
+      combination[dimensionEntries[axis][0]] = dimensionEntries[axis][1][odometer[axis]];
+    }
+    yield combination;
+    let axis = dimensionEntries.length - 1;
+    while (axis >= 0 && (odometer[axis] += 1) === dimensionEntries[axis][1].length) {
+      odometer[axis] = 0;
+      axis -= 1;
+    }
+    if (axis < 0) return;
+  }
 }
 
 /**
@@ -586,6 +704,14 @@ function cartesianProduct(dimensions) {
  * MergeStateStatus the gate has never had a branch for. Both have to fail
  * CLOSED, and a space built only from recognised values cannot tell "refuses
  * unknown input" apart from "was never asked".
+ *
+ * Both age dimensions carry `NaN` for the same reason. An age that cannot be
+ * measured is the R4-1 defect's input, and it is invisible to a space built
+ * only from measurable ages — the sweep would range over "fresh" and "settled"
+ * and never over "unknown", which is the third state and the one that merged.
+ * It also makes the mergeOk invariant below self-enforcing: `NaN >= X` is false,
+ * so any combination that reaches a merge on an unmeasurable age fails the
+ * settle-window assertion rather than passing silently.
  */
 const VERDICT_SIGNAL_DIMENSIONS = {
   isDraft: [true, false],
@@ -596,22 +722,80 @@ const VERDICT_SIGNAL_DIMENSIONS = {
   reviewAcksHead: [true, false],
   reactionAcksHead: [true, false],
   commentAcksHead: [true, false],
+  commentAcksHeadBySha: [true, false],
   commentAssertsClean: [true, false],
   commentReportsFindings: [true, false],
+  staleRunLandedAfterPush: [true, false],
   openThreadCount: [0, 1],
-  latestReviewAgeMs: [1_000, DEFAULT_SETTLE_WINDOW_MS + 1],
-  latestCommentAckAgeMs: [1_000, DEFAULT_SETTLE_WINDOW_MS + 1],
+  latestReviewAgeMs: [1_000, DEFAULT_SETTLE_WINDOW_MS + 1, Number.NaN],
+  latestCommentAckAgeMs: [1_000, DEFAULT_SETTLE_WINDOW_MS + 1, Number.NaN],
   threadWindowTruncated: [true, false],
   checkWindowTruncated: [true, false],
   ciStatus: ["green", "red", "pending", "none", "unrecognised-ci-status"],
   mergeStateStatus: ["CLEAN", "UNSTABLE", "BLOCKED", "UNKNOWN", "DIRTY", undefined],
 };
 
+/**
+ * A SECOND, focused space for the two observation-baseline signals, chained onto
+ * the one above rather than folded into it.
+ *
+ * Folding them in was the obvious move and it costs too much to be worth it: two
+ * more booleans take the primary space from 8,847,360 combinations to 35,389,440
+ * and the suite from about 6 seconds to about 22, on every run, forever. The
+ * signals do not need that reach. Everything they interact with is an ack-leg
+ * dimension plus the settle inputs, so a full cartesian over exactly those —
+ * 9,216 combinations — covers the interaction completely, and the primary sweep
+ * still ranges over CI, merge state, drafts and truncation independently.
+ *
+ * The non-ack dimensions are pinned to MERGEABLE values on purpose. A focused
+ * space whose CI is red would exercise the ladder but could never reach a
+ * merge, so the mergeOk invariant would pass over it vacuously — the one thing
+ * this space exists to prevent.
+ *
+ * Note what the PRIMARY space now proves as a side effect: it never sets
+ * `observationBaselineKnown` at all, so every one of its 8.8M combinations
+ * carries an ABSENT baseline signal. That is the fail-closed direction asserted
+ * across the whole space for free — a caller that never consulted the store
+ * cannot merge on a timestamp-only ack anywhere in it.
+ */
+const BASELINE_SIGNAL_DIMENSIONS = {
+  isDraft: [false],
+  isOpen: [true],
+  headUnchanged: [true],
+  pushAnchorKnown: [true],
+  rateLimited: [false],
+  reviewAcksHead: [true, false],
+  reactionAcksHead: [true, false],
+  commentAcksHead: [true, false],
+  commentAcksHeadBySha: [true, false],
+  commentAssertsClean: [true, false],
+  commentReportsFindings: [true, false],
+  staleRunLandedAfterPush: [true, false],
+  observationBaselineKnown: [true, false, undefined],
+  ackPredatesBaseline: [true, false, undefined],
+  openThreadCount: [0, 1],
+  latestReviewAgeMs: [1_000, DEFAULT_SETTLE_WINDOW_MS + 1],
+  latestCommentAckAgeMs: [1_000, DEFAULT_SETTLE_WINDOW_MS + 1],
+  threadWindowTruncated: [false],
+  checkWindowTruncated: [false],
+  ciStatus: ["green"],
+  mergeStateStatus: ["CLEAN"],
+};
+
+/**
+ * Both spaces, back to back. The invariants below hold over the union, so a
+ * verdict arm reachable only from the focused space still counts as reachable
+ * and a false merge in either space still fails.
+ */
+function* allVerdictSignals() {
+  yield* cartesianProduct(VERDICT_SIGNAL_DIMENSIONS);
+  yield* cartesianProduct(BASELINE_SIGNAL_DIMENSIONS);
+}
+
 test("invariant: mergeOk implies ack, no threads, green CI, no truncation, mergeable state", () => {
-  const signalSpace = cartesianProduct(VERDICT_SIGNAL_DIMENSIONS);
   let mergeableCases = 0;
 
-  for (const signals of signalSpace) {
+  for (const signals of allVerdictSignals()) {
     const result = computeVerdict(signals);
     if (!result.mergeOk) continue;
     mergeableCases += 1;
@@ -644,9 +828,45 @@ test("invariant: mergeOk implies ack, no threads, green CI, no truncation, merge
     // is the only refusal standing between this shape and a merge.
     assert.equal(signals.commentReportsFindings, false, where);
 
+    // No merge ever rests on an ack the gate cannot attribute to THIS commit.
+    // The two sha-less legs are forgeable by a run for the previous head that
+    // finishes after the push, so when they are the only acks, evidence of such
+    // a run has to be absent. A sha-bound ack lifts the requirement, because a
+    // run for another commit cannot produce one.
+    assert.equal(result.ackAttributionAmbiguous, false, where);
+    if (!signals.reviewAcksHead && !signals.commentAcksHeadBySha) {
+      assert.equal(signals.staleRunLandedAfterPush, false, where);
+    }
+
+    // The same rule applied to the FLOOR rather than to a rival run. A
+    // timestamp-only ack is bound to this head by the anchor alone, so a merge
+    // resting on one requires a usable first-sighting baseline — and an absent
+    // signal is not a usable one. A sha-bound ack lifts the requirement for the
+    // same reason it lifts the attribution one: no floor is load-bearing when
+    // the ack names the commit itself.
+    assert.equal(result.timestampOnlyAckUnvouchable, false, where);
+    if (!signals.reviewAcksHead && !signals.commentAcksHeadBySha) {
+      assert.equal(signals.observationBaselineKnown, true, where);
+    }
+
+    // A refused pre-baseline ack can never be the thing a merge RESTS on. Note
+    // the scoping: `ackPredatesBaseline` alone is deliberately not asserted
+    // false here, because a refused stale `+1` alongside a genuine sha-bound
+    // review on HEAD is not a reason to block — the review is dispositive and
+    // the refusal is about a different, irrelevant signal. What must hold is
+    // that some ack of HEAD actually survived, so the refused one is never
+    // load-bearing. Asserting the unscoped form instead would have pinned the
+    // over-blocking bug in place as though it were the specification.
+    assert.equal(result.ackOfHead, true, where);
+
     // The settle window covers BOTH thread-bearing legs, so whichever of them
     // fired has to be outside it. Scoping the window to the review leg let a
     // fresh comment ack merge at age 1_000 — this is the assertion that fails.
+    //
+    // These two also carry the R4-1 tripwire at no extra cost, because `NaN >=
+    // X` is false: a firing leg whose age is unmeasurable can only satisfy them
+    // by never reaching a merge in the first place. Normalising an undatable
+    // firing leg back to Infinity fails here rather than passing quietly.
     if (signals.reviewAcksHead) {
       assert.ok(signals.latestReviewAgeMs >= DEFAULT_SETTLE_WINDOW_MS, where);
     }
@@ -672,17 +892,20 @@ const KNOWN_VERDICTS = new Set([
   "draft_not_eligible",
   "ack_with_findings",
   "ack_findings_no_threads",
+  "ack_unattributable",
+  "ack_baseline_unavailable",
   "ack_unsettled",
   "signal_truncated",
   "ack_without_verdict",
   "ack_clean",
+  "ack_predates_baseline",
   "no_ack_yet",
 ]);
 
 test("every verdict arm is reachable, and the ladder produces nothing outside the known set", () => {
   const observedVerdicts = new Set();
 
-  for (const signals of cartesianProduct(VERDICT_SIGNAL_DIMENSIONS)) {
+  for (const signals of allVerdictSignals()) {
     const { verdict } = computeVerdict(signals);
     // A bare `has` rather than an assertion per combination: the sweep visits
     // over a million signal objects, and rendering a failure message for each
@@ -1244,26 +1467,55 @@ test("a non-acking comment does not contribute an age", () => {
   assert.equal(result.latestCommentAckAgeMs, Number.POSITIVE_INFINITY);
 });
 
-test("a missing nowMs yields Infinity, never NaN", () => {
-  // NaN is the fail-OPEN direction and it is silent: `NaN < settleWindowMs` is
-  // false, so a NaN age reads as "safely settled" and merges inside the window.
-  // `?? Infinity` does not catch it — only Number.isFinite does.
+test("a missing nowMs makes the age UNKNOWN, which reads as brand new", () => {
+  // Neither NaN nor Infinity. NaN is fail-OPEN and silent (`NaN <
+  // settleWindowMs` is false, so it reads as settled); Infinity says the same
+  // thing to a `<` test, which is why substituting it did not fix anything — it
+  // just made the false pass deliberate-looking. The leg FIRED, so its unknown
+  // age has to be the conservative reading, and that is 0.
   const result = deriveCommentSignals([comment()], {
     headShaShort: HEAD_SHA_SHORT,
     ackAnchorMs: HEAD_COMMITTED_AT_MS,
   });
   assert.equal(result.commentAcksHead, true);
-  assert.equal(result.latestCommentAckAgeMs, Number.POSITIVE_INFINITY);
+  assert.equal(result.latestCommentAckAgeMs, 0);
+  assert.equal(result.latestCommentAckAgeUnknown, true);
   assert.equal(Number.isNaN(result.latestCommentAckAgeMs), false);
 });
 
-test("an unparseable created_at on the only ack yields Infinity, never NaN", () => {
+test("a comment leg that did not fire has no unknown age either", () => {
+  const result = deriveCommentSignals([], commentAnchors);
+  assert.equal(result.latestCommentAckAgeMs, Number.POSITIVE_INFINITY);
+  assert.equal(result.latestCommentAckAgeUnknown, false);
+});
+
+test("an unparseable created_at on the only ack reads as brand new, never as settled", () => {
   const result = deriveCommentSignals(
     [comment({ body: `**Reviewed commit:** \`${HEAD_SHA_SHORT}\``, created_at: "not-a-date" })],
     commentAnchors,
   );
-  assert.equal(result.commentAcksHead, true, "the sha leg needs no timestamp");
-  assert.equal(result.latestCommentAckAgeMs, Number.POSITIVE_INFINITY);
+  assert.equal(result.commentAcksHead, true, "the sha leg needs no timestamp to ACK");
+  assert.equal(result.latestCommentAckAgeMs, 0, "but it still cannot be called settled");
+});
+
+test("one datable ack among undatable ones is what the age follows", () => {
+  // The scan takes the newest PARSEABLE stamp and only falls to 0 when there is
+  // none, so a single broken row cannot drag a genuinely settled ack back into
+  // the window and stall the merge.
+  // Sha-citing bodies, because that is the only ack leg a comment can satisfy
+  // with no usable `created_at` — the clean-verdict leg is timestamp-bound and
+  // an undated comment never reaches it at all.
+  const citation = `**Reviewed commit:** \`${HEAD_SHA_SHORT}\``;
+  const result = deriveCommentSignals(
+    [
+      comment({ body: citation, created_at: "not-a-date" }),
+      comment({ body: citation, created_at: "2026-07-27T16:40:00Z" }),
+      comment({ body: citation, created_at: null }),
+    ],
+    commentAnchors,
+  );
+  assert.equal(result.ackComments.length, 3);
+  assert.equal(result.latestCommentAckAgeMs, 300_000);
 });
 
 test("a comment matching BOTH ack legs is counted once, not twice", () => {
@@ -1424,6 +1676,62 @@ test("no bot review leaves the age at Infinity, which never trips the settle gua
   assert.equal(computeVerdict(cleanSignals({ latestReviewAgeMs: Infinity })).verdict, "ack_clean");
 });
 
+test("a HEAD review with NO submitted_at is undatable, not ancient", () => {
+  // R4-1 at its upstream source. The old ternary keyed on `submitted_at` being
+  // truthy and fell to Infinity when it was not — the same value that means "no
+  // review at all". A review that EXISTS acks HEAD, so the leg fires; what is
+  // missing is its age, and Infinity claimed that age was comfortably outside
+  // the settle window. The two cases share a value no longer.
+  const result = deriveReviewAck([review({ submitted_at: undefined })], HEAD_SHA, Date.now());
+  assert.equal(result.reviewAcksHead, true, "the review still acks HEAD");
+  assert.equal(result.latestReviewAgeMs, 0, "but its age is unknown, so it reads as brand new");
+  // Carried as a fact rather than left to be inferred from the 0: the clamp is
+  // lossy, and a consumer that guesses "unknown" from the number would also
+  // guess it for a genuine 0ms measurement.
+  assert.equal(result.latestReviewAgeUnknown, true);
+});
+
+test("a datable HEAD review reports its age as KNOWN", () => {
+  const result = deriveReviewAck([review()], HEAD_SHA, Date.parse("2026-07-27T16:45:00Z"));
+  assert.equal(result.latestReviewAgeMs, 300_000);
+  assert.equal(result.latestReviewAgeUnknown, false);
+});
+
+test("no review at all has no unknown age — there is no leg to date", () => {
+  const result = deriveReviewAck([], HEAD_SHA, Date.now());
+  assert.equal(result.latestReviewAgeMs, Number.POSITIVE_INFINITY);
+  assert.equal(result.latestReviewAgeUnknown, false);
+});
+
+test("a HEAD review with an UNPARSEABLE submitted_at is undatable too", () => {
+  // The nastier half: `"not a date"` is truthy, so the old ternary took the
+  // arithmetic branch and returned a raw NaN out of the deriver — which then
+  // read as settled at the decision table.
+  const result = deriveReviewAck([review({ submitted_at: "not a date" })], HEAD_SHA, Date.now());
+  assert.equal(result.reviewAcksHead, true);
+  assert.equal(result.latestReviewAgeMs, 0);
+  assert.equal(Number.isNaN(result.latestReviewAgeMs), false, "and never a raw NaN");
+});
+
+test("a missing nowMs cannot date a review either", () => {
+  const result = deriveReviewAck([review()], HEAD_SHA, undefined);
+  assert.equal(result.latestReviewAgeMs, 0);
+});
+
+test("END TO END: an undatable review on HEAD is held, not merged", () => {
+  // The composition R4-1 actually threatened: deriveReviewAck feeds
+  // computeVerdict, zero threads are visible, and before the fix this scored
+  // ack_clean + merge_ok=1 on a review whose threads could still be in flight.
+  const result = verdictForShape({
+    reviews: [review({ submitted_at: undefined })],
+    threads: [],
+    nowMs: COMMENT_NOW_MS,
+  });
+  assert.equal(result.verdict, "ack_unsettled");
+  assert.equal(result.ackAgeUnknown, true);
+  assert.equal(result.mergeOk, false);
+});
+
 // ------------------------- filter to HEAD, THEN take the newest (R3-2)
 
 test("a HEAD review is found even when an older-head review submits LAST", () => {
@@ -1481,19 +1789,63 @@ test("an absent headSha acks nothing, even against a review carrying no commit_i
  * clean verdict (36 comments), the findings summary posted as a comment body (5),
  * the usage-limits notice (6), and the findings review with inline threads.
  */
-function verdictForShape({ reviews = [], reactions = [], comments = [], threads = [], nowMs }) {
-  const { reviewAcksHead, latestReviewAgeMs } = deriveReviewAck(reviews, HEAD_SHA, nowMs);
-  const { reactionAcksHead } = deriveReactionAck(reactions, HEAD_COMMITTED_AT_MS);
+function verdictForShape({
+  reviews = [],
+  reactions = [],
+  comments = [],
+  threads = [],
+  nowMs,
+  // Production-normal by default: the gate HAS a usable first sighting, and it
+  // coincides with the fallback anchor so nothing is refused for predating it.
+  // Defaulting this to "absent" instead would quietly run every end-to-end case
+  // through the unvouchable branch — the tests would still pass, for the wrong
+  // reason, and would stop modelling the gate they exist to model.
+  baselineMs = HEAD_COMMITTED_AT_MS,
+}) {
+  // Mirrors the gate: the effective floor is the later of the two.
+  const ackAnchorMs = Number.isFinite(baselineMs)
+    ? Math.max(HEAD_COMMITTED_AT_MS, baselineMs)
+    : HEAD_COMMITTED_AT_MS;
+  const { botReviews, reviewAcksHead, latestReviewAgeMs, latestReviewAgeUnknown } = deriveReviewAck(
+    reviews,
+    HEAD_SHA,
+    nowMs,
+  );
+  const { reactionAcksHead } = deriveReactionAck(reactions, ackAnchorMs);
   const {
+    botComments,
     commentAcksHead,
+    commentAcksHeadBySha,
     commentAssertsClean,
     commentReportsFindings,
     latestCommentAckAgeMs,
+    latestCommentAckAgeUnknown,
     rateLimited,
   } = deriveCommentSignals(comments, {
     headShaShort: HEAD_SHA_SHORT,
-    ackAnchorMs: HEAD_COMMITTED_AT_MS,
+    ackAnchorMs,
+    // Mirrors the gate: the quota notice is a recency signal anchored on the
+    // push, not an ack anchored on first sighting.
+    freshnessAnchorMs: HEAD_COMMITTED_AT_MS,
     nowMs,
+  });
+  // The PUSH anchor, mirroring the gate — deliberately not `ackAnchorMs`. See
+  // the regression test at the bottom of this file: handing the raised baseline
+  // to this detector clips its window to start at first sighting and hides a
+  // stale run that landed in the push-to-sighting gap.
+  const { staleRunLandedAfterPush } = deriveStaleRunEvidence({
+    botReviews,
+    botComments,
+    headSha: HEAD_SHA,
+    headShaShort: HEAD_SHA_SHORT,
+    ackAnchorMs: HEAD_COMMITTED_AT_MS,
+  });
+  const { ackPredatesBaseline } = derivePreBaselineAcks({
+    reactions,
+    comments,
+    headShaShort: HEAD_SHA_SHORT,
+    fallbackAnchorMs: HEAD_COMMITTED_AT_MS,
+    baselineMs,
   });
   const { unresolved } = selectUnresolvedBotThreads(threads);
   return computeVerdict({
@@ -1501,15 +1853,21 @@ function verdictForShape({ reviews = [], reactions = [], comments = [], threads 
     isOpen: true,
     headUnchanged: true,
     pushAnchorKnown: true,
+    observationBaselineKnown: Number.isFinite(baselineMs),
+    ackPredatesBaseline,
     rateLimited,
     reviewAcksHead,
     reactionAcksHead,
     commentAcksHead,
+    commentAcksHeadBySha,
     commentAssertsClean,
     commentReportsFindings,
+    staleRunLandedAfterPush,
     openThreadCount: unresolved.length,
     latestReviewAgeMs,
+    latestReviewAgeUnknown,
     latestCommentAckAgeMs,
+    latestCommentAckAgeUnknown,
     threadWindowTruncated: false,
     checkWindowTruncated: false,
     ciStatus: "green",
@@ -1757,6 +2115,372 @@ test("a sha-citing findings comment cannot merge with the window fully expired",
   assert.ok(result.threadBearingAckAgeMs > DEFAULT_SETTLE_WINDOW_MS, "and it IS settled");
 });
 
+// ---------- a clean verdict for the PREVIOUS head, landing after the push (R4-2)
+
+/**
+ * The race, in the order it happens:
+ *   16:36:20  HEAD is committed and pushed; the anchor is set here
+ *   16:40:00  a Codex run STARTED on the previous head finishes and posts its
+ *             clean verdict, naming the commit it actually read
+ * The verdict's `created_at` post-dates the anchor, so every timestamp-only
+ * predicate accepts it. Moving the anchor cannot help: the ack arrives after the
+ * push, not before it. What separates them is that the comment says which commit
+ * it read — and it is not this one.
+ */
+const PREVIOUS_HEAD_SHA_SHORT = "9f3c1d77aa";
+const PREVIOUS_HEAD_CLEAN_BODY = `Codex Review: Didn't find any major issues. :tada:\n\n**Reviewed commit:** \`${PREVIOUS_HEAD_SHA_SHORT}\``;
+
+test("a clean verdict naming ANOTHER commit is not a clean ack of HEAD", () => {
+  const result = deriveCommentSignals(
+    [comment({ body: PREVIOUS_HEAD_CLEAN_BODY, created_at: "2026-07-27T16:40:00Z" })],
+    commentAnchors,
+  );
+  assert.equal(result.freshCleanVerdictComments.length, 0, "fresh by timestamp, but not ours");
+  assert.equal(result.otherCommitCleanVerdictComments.length, 1, "and it is counted, not hidden");
+  assert.equal(result.commentAssertsClean, false);
+  assert.equal(result.commentAcksHead, false, "it acks the PREVIOUS head, not this one");
+});
+
+test("CONTROL: the same verdict naming HEAD acks and asserts clean", () => {
+  // The single bit under test is which sha the citation carries. Without this
+  // the assertion above could be passing because the body was rejected outright.
+  const result = deriveCommentSignals(
+    [
+      comment({
+        body: PREVIOUS_HEAD_CLEAN_BODY.replace(PREVIOUS_HEAD_SHA_SHORT, HEAD_SHA_SHORT),
+        created_at: "2026-07-27T16:40:00Z",
+      }),
+    ],
+    commentAnchors,
+  );
+  assert.equal(result.commentAcksHead, true);
+  assert.equal(result.commentAssertsClean, true);
+  assert.equal(result.otherCommitCleanVerdictComments.length, 0);
+});
+
+test("CONTROL: a SHA-LESS clean verdict is untouched — no sha is being required", () => {
+  // Ack shape (2) as observed on #120/#121 carries no citation at all, and a
+  // no-findings pass often produces no review object either. Requiring a sha
+  // would refuse this and stall every clean merge that uses the historical
+  // shape; the rule refuses only comments that positively name another commit.
+  const result = deriveCommentSignals([comment()], commentAnchors);
+  assert.equal(result.commentAcksHead, true);
+  assert.equal(result.commentAssertsClean, true);
+  assert.equal(result.otherCommitCleanVerdictComments.length, 0);
+});
+
+test("an empty headShaShort disqualifies EVERY citation — fail closed", () => {
+  // The inverted-sign guard: on the ack legs an absent head must match nothing,
+  // here it must match everything, because matching is suspicion rather than
+  // acceptance. `"anything".includes("")` is true, so the unguarded form would
+  // silently clear every citation instead.
+  const result = deriveCommentSignals(
+    [comment({ body: PREVIOUS_HEAD_CLEAN_BODY, created_at: "2026-07-27T16:40:00Z" })],
+    { ...commentAnchors, headShaShort: "" },
+  );
+  assert.equal(result.otherCommitCleanVerdictComments.length, 1);
+  assert.equal(result.commentAssertsClean, false);
+});
+
+test("commentAcksHeadBySha separates the sha-bound acks from the timestamp-bound ones", () => {
+  const bySha = deriveCommentSignals(
+    [comment({ body: `**Reviewed commit:** \`${HEAD_SHA_SHORT}\`` })],
+    commentAnchors,
+  );
+  assert.equal(bySha.commentAcksHead, true);
+  assert.equal(bySha.commentAcksHeadBySha, true);
+
+  const byTimestamp = deriveCommentSignals([comment()], commentAnchors);
+  assert.equal(byTimestamp.commentAcksHead, true, "the sha-less clean verdict still acks");
+  assert.equal(byTimestamp.commentAcksHeadBySha, false, "but nothing except its stamp binds it");
+});
+
+test("a findings summary naming HEAD is sha-bound too", () => {
+  const result = deriveCommentSignals(
+    [comment({ body: PR28_FINDINGS_BODY.replace(PR28_FINDINGS_SHA, HEAD_SHA) })],
+    commentAnchors,
+  );
+  assert.equal(result.commentAcksHeadBySha, true, "its permalinks carry the sha");
+});
+
+// ------------------------------------------------- stale-run evidence (R4-2)
+
+test("a review for a NON-head commit submitted after the anchor is evidence", () => {
+  const result = deriveStaleRunEvidence({
+    botReviews: [review({ commit_id: "0000000000", submitted_at: "2026-07-27T16:40:00Z" })],
+    botComments: [],
+    headSha: HEAD_SHA,
+    headShaShort: HEAD_SHA_SHORT,
+    ackAnchorMs: HEAD_COMMITTED_AT_MS,
+  });
+  assert.equal(result.staleRunLandedAfterPush, true);
+  assert.equal(result.staleReviews.length, 1);
+});
+
+test("CONTROL: the ordinary findings-then-fix flow is NOT evidence", () => {
+  // The false-positive that would stall every round-trip PR in the repo. There,
+  // the review causes the push, so it predates the anchor by construction; only
+  // a review landing AFTER the push has the cross-push signature. If this test
+  // ever fails, the gate has started blocking normal work.
+  const result = deriveStaleRunEvidence({
+    botReviews: [review({ commit_id: "0000000000", submitted_at: "2026-07-27T09:00:00Z" })],
+    botComments: [],
+    headSha: HEAD_SHA,
+    headShaShort: HEAD_SHA_SHORT,
+    ackAnchorMs: HEAD_COMMITTED_AT_MS,
+  });
+  assert.equal(result.staleRunLandedAfterPush, false);
+});
+
+test("a review ON head is never its own stale evidence", () => {
+  const result = deriveStaleRunEvidence({
+    botReviews: [review({ submitted_at: "2026-07-27T16:40:00Z" })],
+    botComments: [],
+    headSha: HEAD_SHA,
+    headShaShort: HEAD_SHA_SHORT,
+    ackAnchorMs: HEAD_COMMITTED_AT_MS,
+  });
+  assert.equal(result.staleRunLandedAfterPush, false);
+});
+
+test("a citation naming another commit after the anchor is evidence, and names it", () => {
+  // The trace that carries the weight: a clean pass usually posts NO review
+  // object, so on the dangerous path — the clean tail — the review trace above
+  // is absent and only this one is present.
+  const result = deriveStaleRunEvidence({
+    botReviews: [],
+    botComments: [comment({ body: PREVIOUS_HEAD_CLEAN_BODY, created_at: "2026-07-27T16:40:00Z" })],
+    headSha: HEAD_SHA,
+    headShaShort: HEAD_SHA_SHORT,
+    ackAnchorMs: HEAD_COMMITTED_AT_MS,
+  });
+  assert.equal(result.staleRunLandedAfterPush, true);
+  assert.equal(result.staleCitations.length, 1);
+  assert.deepEqual(result.staleCitedShas, [PREVIOUS_HEAD_SHA_SHORT], "for the diagnostic");
+});
+
+test("CONTROL: a citation naming HEAD is not evidence of anything stale", () => {
+  const result = deriveStaleRunEvidence({
+    botReviews: [],
+    botComments: [
+      comment({
+        body: PREVIOUS_HEAD_CLEAN_BODY.replace(PREVIOUS_HEAD_SHA_SHORT, HEAD_SHA_SHORT),
+        created_at: "2026-07-27T16:40:00Z",
+      }),
+    ],
+    headSha: HEAD_SHA,
+    headShaShort: HEAD_SHA_SHORT,
+    ackAnchorMs: HEAD_COMMITTED_AT_MS,
+  });
+  assert.equal(result.staleRunLandedAfterPush, false);
+  assert.deepEqual(result.staleCitedShas, []);
+});
+
+test("a stale citation predating the anchor is ordinary history, not a race", () => {
+  const result = deriveStaleRunEvidence({
+    botReviews: [],
+    botComments: [comment({ body: PREVIOUS_HEAD_CLEAN_BODY, created_at: "2026-07-27T09:00:00Z" })],
+    headSha: HEAD_SHA,
+    headShaShort: HEAD_SHA_SHORT,
+    ackAnchorMs: HEAD_COMMITTED_AT_MS,
+  });
+  assert.equal(result.staleRunLandedAfterPush, false);
+});
+
+test("an absent headShaShort makes every fresh citation evidence — fail closed", () => {
+  const result = deriveStaleRunEvidence({
+    botReviews: [],
+    botComments: [
+      comment({
+        body: PREVIOUS_HEAD_CLEAN_BODY.replace(PREVIOUS_HEAD_SHA_SHORT, HEAD_SHA_SHORT),
+        created_at: "2026-07-27T16:40:00Z",
+      }),
+    ],
+    headSha: HEAD_SHA,
+    headShaShort: "",
+    ackAnchorMs: HEAD_COMMITTED_AT_MS,
+  });
+  assert.equal(result.staleRunLandedAfterPush, true, "unknown head means everything is suspect");
+});
+
+test("a body the sha capture does not fit yields no sha, never a wrong one", () => {
+  const result = deriveStaleRunEvidence({
+    botReviews: [],
+    botComments: [
+      comment({ body: "**Reviewed commit:** (redacted)", created_at: "2026-07-27T16:40:00Z" }),
+    ],
+    headSha: HEAD_SHA,
+    headShaShort: HEAD_SHA_SHORT,
+    ackAnchorMs: HEAD_COMMITTED_AT_MS,
+  });
+  assert.equal(result.staleRunLandedAfterPush, true, "the decision does not need the capture");
+  assert.deepEqual(result.staleCitedShas, [], "only the diagnostic degrades");
+});
+
+test("empty inputs are not evidence and do not throw", () => {
+  const result = deriveStaleRunEvidence({
+    botReviews: undefined,
+    botComments: undefined,
+    headSha: HEAD_SHA,
+    headShaShort: HEAD_SHA_SHORT,
+    ackAnchorMs: HEAD_COMMITTED_AT_MS,
+  });
+  assert.equal(result.staleRunLandedAfterPush, false);
+});
+
+// -------------------- the ack that cannot be attributed to HEAD (R4-2 verdict)
+
+test("a +1 alone cannot be trusted while an older run landed after the push", () => {
+  // The reaction leg carries no body at all, so nothing in it distinguishes a
+  // pass for THIS commit from the tail of a run for the previous one. Codex
+  // flagged only the comment leg; the +1 has identical exposure and is the more
+  // common clean ack, so the binding has to cover it.
+  const result = computeVerdict(cleanSignals({ staleRunLandedAfterPush: true }));
+  assert.equal(result.verdict, "ack_unattributable");
+  assert.equal(result.ackOfHead, true, "it IS an ack — the gate just cannot attribute it");
+  assert.equal(result.shaBoundAckOfHead, false);
+  assert.equal(result.mergeOk, false);
+});
+
+test("a sha-less clean verdict alone cannot be trusted either", () => {
+  const result = computeVerdict(
+    cleanSignals({
+      reactionAcksHead: false,
+      commentAcksHead: true,
+      commentAssertsClean: true,
+      latestCommentAckAgeMs: DEFAULT_SETTLE_WINDOW_MS + 1,
+      staleRunLandedAfterPush: true,
+    }),
+  );
+  assert.equal(result.verdict, "ack_unattributable");
+  assert.equal(result.mergeOk, false);
+});
+
+test("CONTROL: with no stale run, the same +1 merges", () => {
+  // The bit under test is the evidence, nothing else. Without this control the
+  // arm above could be refusing for an unrelated reason.
+  const result = computeVerdict(cleanSignals({ staleRunLandedAfterPush: false }));
+  assert.equal(result.verdict, "ack_clean");
+  assert.equal(result.mergeOk, true);
+});
+
+test("CONTROL: a HEAD-CITING ack clears the ambiguity and merges", () => {
+  // The false-NEGATIVE control, and the one this design most needs: a PR that
+  // saw a cross-push race must still be mergeable once Codex publishes a verdict
+  // naming THIS commit. Without it the new arm could be stalling every such PR
+  // permanently and no test would notice.
+  const result = computeVerdict(
+    cleanSignals({
+      reactionAcksHead: false,
+      commentAcksHead: true,
+      commentAcksHeadBySha: true,
+      commentAssertsClean: true,
+      latestCommentAckAgeMs: DEFAULT_SETTLE_WINDOW_MS + 1,
+      staleRunLandedAfterPush: true,
+    }),
+  );
+  assert.equal(result.verdict, "ack_clean");
+  assert.equal(result.shaBoundAckOfHead, true);
+  assert.equal(result.mergeOk, true);
+});
+
+test("CONTROL: a review ON head clears it too — a stale run cannot forge one", () => {
+  const result = computeVerdict(
+    cleanSignals({
+      reactionAcksHead: false,
+      reviewAcksHead: true,
+      latestReviewAgeMs: DEFAULT_SETTLE_WINDOW_MS + 1,
+      staleRunLandedAfterPush: true,
+    }),
+  );
+  assert.equal(result.verdict, "ack_clean");
+  assert.equal(result.mergeOk, true);
+});
+
+test("open findings still outrank an attribution gap", () => {
+  const result = computeVerdict(
+    cleanSignals({ staleRunLandedAfterPush: true, openThreadCount: 2 }),
+  );
+  assert.equal(result.verdict, "ack_with_findings", "the actionable verdict wins the report");
+  assert.equal(result.mergeOk, false);
+});
+
+test("the attribution gap outranks the settle window", () => {
+  // Waiting is not the remediation here — the stale evidence does not age out
+  // and neither does the ack. Reporting `ack_unsettled` would send the operator
+  // to wait out a window that was never the obstacle.
+  const result = computeVerdict(
+    cleanSignals({
+      reactionAcksHead: false,
+      commentAcksHead: true,
+      commentAssertsClean: true,
+      latestCommentAckAgeMs: 3_000,
+      staleRunLandedAfterPush: true,
+    }),
+  );
+  assert.equal(result.verdict, "ack_unattributable");
+});
+
+test("no ack at all stays no_ack_yet — the evidence alone invents nothing", () => {
+  const result = computeVerdict(
+    cleanSignals({
+      reactionAcksHead: false,
+      reviewAcksHead: false,
+      commentAcksHead: false,
+      staleRunLandedAfterPush: true,
+    }),
+  );
+  assert.equal(result.verdict, "no_ack_yet");
+});
+
+test("END TO END: the delayed clean verdict plus a stale +1 never merges", () => {
+  // The whole of R4-2, composed the way codex-gate.mjs composes it. Before the
+  // fix this scored ack_clean and merge_ok=1 for a commit Codex never read:
+  // `freshCleanVerdictComments` fed BOTH the ack leg and the cleanliness
+  // assertion, and every predicate involved was timestamp-only.
+  const result = verdictForShape({
+    comments: [comment({ body: PREVIOUS_HEAD_CLEAN_BODY, created_at: "2026-07-27T16:40:00Z" })],
+    reactions: [reaction({ created_at: "2026-07-27T16:40:02Z" })],
+    nowMs: COMMENT_NOW_MS,
+  });
+  assert.equal(result.verdict, "ack_unattributable");
+  assert.equal(result.mergeOk, false);
+});
+
+test("END TO END: the delayed clean verdict ALONE reports no ack of this head", () => {
+  // Deliberately not the new arm. With the +1 absent, nothing acks HEAD at all —
+  // Codex reviewed the previous commit and has not reported on this one — so
+  // `no_ack_yet` is literally true and its `@codex review` remediation is the
+  // right one. This is distinct from the round-3 defect, where Codex HAD
+  // reviewed HEAD and the gate said it had not.
+  const result = verdictForShape({
+    comments: [comment({ body: PREVIOUS_HEAD_CLEAN_BODY, created_at: "2026-07-27T16:40:00Z" })],
+    nowMs: COMMENT_NOW_MS,
+  });
+  assert.equal(result.verdict, "no_ack_yet");
+  assert.equal(result.ackOfHead, false);
+  assert.equal(result.mergeOk, false);
+});
+
+test("END TO END: the race resolves once Codex posts a verdict naming HEAD", () => {
+  // Both comments are present — the previous head's tail AND this head's real
+  // verdict — which is the state the PR reaches by re-polling. The gate must
+  // merge here, or the fix has converted a false pass into a permanent stall.
+  const result = verdictForShape({
+    comments: [
+      comment({ body: PREVIOUS_HEAD_CLEAN_BODY, created_at: "2026-07-27T16:40:00Z" }),
+      comment({
+        body: PREVIOUS_HEAD_CLEAN_BODY.replace(PREVIOUS_HEAD_SHA_SHORT, HEAD_SHA_SHORT),
+        created_at: "2026-07-27T16:41:00Z",
+      }),
+    ],
+    reactions: [reaction({ created_at: "2026-07-27T16:40:02Z" })],
+    nowMs: COMMENT_NOW_MS,
+  });
+  assert.equal(result.verdict, "ack_clean");
+  assert.equal(result.mergeOk, true);
+});
+
 test("a bare sha citation with no verdict and no findings is still not clean", () => {
   // Settled deliberately, so the settle window is not what saves this either.
   const result = verdictForShape({
@@ -1769,5 +2493,566 @@ test("a bare sha citation with no verdict and no findings is still not clean", (
     nowMs: COMMENT_NOW_MS,
   });
   assert.equal(result.verdict, "ack_without_verdict");
+  assert.equal(result.mergeOk, false);
+});
+
+// ------------------------------------------- observation baseline (R5-1)
+
+const PRE_BASELINE_ANCHORS = {
+  headShaShort: HEAD_SHA_SHORT,
+  // Stands in for the check-suite floor: on a sha pushed earlier on another
+  // branch this is the sha's first visibility ANYWHERE, which is what makes it
+  // predate the head update.
+  fallbackAnchorMs: Date.parse("2026-07-27T16:00:00Z"),
+  baselineMs: Date.parse("2026-07-27T16:30:00Z"),
+};
+
+test("R5-1: a +1 between the suite sighting and first sight of HEAD is refused", () => {
+  // The exact cross-branch shape. The reaction clears the check-suite anchor —
+  // which is why round 5 filed this — and predates the moment this gate first
+  // saw the sha as HEAD, so it cannot be a verdict on this head.
+  const result = derivePreBaselineAcks({
+    reactions: [reaction({ created_at: "2026-07-27T16:15:00Z" })],
+    comments: [],
+    ...PRE_BASELINE_ANCHORS,
+  });
+  assert.equal(result.ackPredatesBaseline, true);
+  assert.equal(result.preBaselineReactions.length, 1);
+});
+
+test("CONTROL: the same +1 AFTER first sight is not refused", () => {
+  const result = derivePreBaselineAcks({
+    reactions: [reaction({ created_at: "2026-07-27T16:40:00Z" })],
+    comments: [],
+    ...PRE_BASELINE_ANCHORS,
+  });
+  assert.equal(result.ackPredatesBaseline, false);
+});
+
+test("a +1 older than the FALLBACK anchor is not blamed on the baseline", () => {
+  // It was already stale under the previous behaviour, so reporting it here
+  // would send the operator to re-trigger over a floor that is not what
+  // rejected it. `ack_predates_baseline` has to mean the baseline, and only it.
+  const result = derivePreBaselineAcks({
+    reactions: [reaction({ created_at: "2026-07-27T09:00:00Z" })],
+    comments: [],
+    ...PRE_BASELINE_ANCHORS,
+  });
+  assert.equal(result.ackPredatesBaseline, false);
+  assert.equal(result.preBaselineReactions.length, 0);
+});
+
+test("a sha-less clean verdict in the same window is refused too", () => {
+  const result = derivePreBaselineAcks({
+    reactions: [],
+    comments: [comment({ created_at: "2026-07-27T16:15:00Z" })],
+    ...PRE_BASELINE_ANCHORS,
+  });
+  assert.equal(result.ackPredatesBaseline, true);
+  assert.equal(result.preBaselineCleanComments.length, 1);
+});
+
+test("a clean verdict NAMING HEAD is never refused — the sha binds it, not the floor", () => {
+  // The escape hatch, at the reconstruction layer. Today's clean-verdict format
+  // is this one, so over-reporting here would manufacture stalls on the modern
+  // shape while claiming the baseline caused them.
+  const result = derivePreBaselineAcks({
+    reactions: [],
+    comments: [
+      comment({
+        body: `Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** \`${HEAD_SHA_SHORT}\``,
+        created_at: "2026-07-27T16:15:00Z",
+      }),
+    ],
+    ...PRE_BASELINE_ANCHORS,
+  });
+  assert.equal(result.ackPredatesBaseline, false);
+});
+
+test("a clean verdict naming ANOTHER commit is not reported as a baseline refusal", () => {
+  // It is disqualified by its own words (the R4-2 leg), so attributing it to the
+  // baseline would print the wrong remediation for the right refusal.
+  const result = derivePreBaselineAcks({
+    reactions: [],
+    comments: [comment({ body: PREVIOUS_HEAD_CLEAN_BODY, created_at: "2026-07-27T16:15:00Z" })],
+    ...PRE_BASELINE_ANCHORS,
+  });
+  assert.equal(result.ackPredatesBaseline, false);
+});
+
+test("no baseline means no baseline refusal — not a fallback to rejecting everything", () => {
+  for (const baselineMs of [null, undefined, Number.NaN]) {
+    const result = derivePreBaselineAcks({
+      reactions: [reaction({ created_at: "2026-07-27T16:15:00Z" })],
+      comments: [comment({ created_at: "2026-07-27T16:15:00Z" })],
+      headShaShort: HEAD_SHA_SHORT,
+      fallbackAnchorMs: PRE_BASELINE_ANCHORS.fallbackAnchorMs,
+      baselineMs,
+    });
+    assert.equal(result.ackPredatesBaseline, false, String(baselineMs));
+  }
+});
+
+test("non-bot rows never count as refused acks", () => {
+  const result = derivePreBaselineAcks({
+    reactions: [reaction({ user: { login: "a-human" }, created_at: "2026-07-27T16:15:00Z" })],
+    comments: [comment({ user: { login: "a-human" }, created_at: "2026-07-27T16:15:00Z" })],
+    ...PRE_BASELINE_ANCHORS,
+  });
+  assert.equal(result.ackPredatesBaseline, false);
+});
+
+// ------------------------------------------ the baseline store on disk
+
+/** A throwaway state dir; every store test gets its own so none can see another's. */
+function withStateDir(run) {
+  const stateDir = mkdtempSync(join(tmpdir(), "codex-gate-baseline-"));
+  try {
+    return run(stateDir);
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+}
+
+const BASELINE_PR = 259;
+
+/**
+ * A full sha for a DIFFERENT commit, sharing its prefix with the previous-head
+ * fixture above so the two blocks describe the same imagined history. It must
+ * differ from HEAD_SHA within the first 12 characters, because that is the width
+ * `resolveBaselinePath` puts in the filename.
+ */
+const OTHER_FULL_SHA = `${PREVIOUS_HEAD_SHA_SHORT}40fbdb98acad7aa6cc37ec3b20997b`;
+
+test("the first sighting is stamped, and reports itself as the first", () => {
+  withStateDir((stateDir) => {
+    const nowMs = Date.parse("2026-07-27T20:56:24Z");
+    const result = observeBaseline({ stateDir, prNumber: BASELINE_PR, headSha: HEAD_SHA, nowMs });
+    assert.equal(result.baselineKnown, true);
+    assert.equal(result.observedAtMs, nowMs);
+    assert.equal(result.firstObservation, true);
+    assert.equal(result.baselineError, null);
+  });
+});
+
+test("a later poll adopts the EARLIER stamp — the floor never ratchets forward", () => {
+  // The concurrency case, and the direction matters. If a second run could move
+  // the baseline forward it would land on top of an ack that had already
+  // arrived, refusing a verdict the first run would have accepted — a stall
+  // manufactured by polling twice.
+  withStateDir((stateDir) => {
+    const firstMs = Date.parse("2026-07-27T20:56:24Z");
+    const laterMs = Date.parse("2026-07-27T21:30:00Z");
+    observeBaseline({ stateDir, prNumber: BASELINE_PR, headSha: HEAD_SHA, nowMs: firstMs });
+    const second = observeBaseline({
+      stateDir,
+      prNumber: BASELINE_PR,
+      headSha: HEAD_SHA,
+      nowMs: laterMs,
+    });
+    assert.equal(second.observedAtMs, firstMs);
+    assert.equal(second.firstObservation, false);
+    assert.equal(second.baselineKnown, true);
+  });
+});
+
+test("a different sha on the same PR gets its own baseline", () => {
+  withStateDir((stateDir) => {
+    const firstMs = Date.parse("2026-07-27T20:00:00Z");
+    const secondMs = Date.parse("2026-07-27T21:00:00Z");
+    observeBaseline({ stateDir, prNumber: BASELINE_PR, headSha: HEAD_SHA, nowMs: firstMs });
+    const other = observeBaseline({
+      stateDir,
+      prNumber: BASELINE_PR,
+      headSha: OTHER_FULL_SHA,
+      nowMs: secondMs,
+    });
+    assert.equal(other.observedAtMs, secondMs);
+    assert.equal(other.firstObservation, true);
+  });
+});
+
+test("a corrupt record is unusable, not silently re-stamped as now", () => {
+  // Re-stamping would be the tempting repair and it is the false-merge
+  // direction: `now` post-dates every ack on the PR, so the gate would go on
+  // to reject genuine acks while reporting a healthy baseline.
+  withStateDir((stateDir) => {
+    writeFileSync(
+      resolveBaselinePath({ stateDir, prNumber: BASELINE_PR, headSha: HEAD_SHA }),
+      "{not json",
+    );
+    const result = observeBaseline({
+      stateDir,
+      prNumber: BASELINE_PR,
+      headSha: HEAD_SHA,
+      nowMs: Date.now(),
+    });
+    assert.equal(result.baselineKnown, false);
+    assert.equal(result.observedAtMs, null);
+    assert.match(result.baselineError, /unreadable or corrupt/);
+  });
+});
+
+test("a record naming ANOTHER sha is refused rather than adopted", () => {
+  withStateDir((stateDir) => {
+    writeFileSync(
+      resolveBaselinePath({ stateDir, prNumber: BASELINE_PR, headSha: HEAD_SHA }),
+      JSON.stringify({ pr: BASELINE_PR, sha: OTHER_FULL_SHA, observedAtMs: 1 }),
+    );
+    const result = observeBaseline({
+      stateDir,
+      prNumber: BASELINE_PR,
+      headSha: HEAD_SHA,
+      nowMs: Date.now(),
+    });
+    assert.equal(result.baselineKnown, false);
+    assert.match(result.baselineError, /records sha/);
+  });
+});
+
+test("a record with an unusable timestamp is refused", () => {
+  withStateDir((stateDir) => {
+    writeFileSync(
+      resolveBaselinePath({ stateDir, prNumber: BASELINE_PR, headSha: HEAD_SHA }),
+      JSON.stringify({ pr: BASELINE_PR, sha: HEAD_SHA, observedAtMs: "whenever" }),
+    );
+    const result = observeBaseline({
+      stateDir,
+      prNumber: BASELINE_PR,
+      headSha: HEAD_SHA,
+      nowMs: Date.now(),
+    });
+    assert.equal(result.baselineKnown, false);
+    assert.match(result.baselineError, /no usable observedAtMs/);
+  });
+});
+
+test("a DIRECTORY sitting on the record path is refused, and is a deletable one", () => {
+  // Worth pinning because the errno is counter-intuitive. `O_CREAT | O_EXCL`
+  // against an existing directory reports EEXIST, not EISDIR — the exclusivity
+  // check fires before anything looks at the inode type — so this takes the
+  // re-read path and surfaces as an unusable record rather than as an unwritable
+  // one. That is the right remediation anyway (delete it), so the classification
+  // is correct; it is simply not the one the code shape suggests.
+  withStateDir((stateDir) => {
+    mkdirSync(resolveBaselinePath({ stateDir, prNumber: BASELINE_PR, headSha: HEAD_SHA }));
+    const result = observeBaseline({
+      stateDir,
+      prNumber: BASELINE_PR,
+      headSha: HEAD_SHA,
+      nowMs: Date.now(),
+    });
+    assert.equal(result.baselineKnown, false);
+    assert.equal(result.baselineWritable, true, "deletable, so the remediation is to delete it");
+    assert.match(result.baselineError, /unreadable or corrupt/);
+  });
+});
+
+test("a write that fails for any NON-EEXIST reason reports NOT WRITABLE", () => {
+  // The two failures need different remediations — delete the file vs repair the
+  // path — so the flag has to survive the return rather than collapsing.
+  //
+  // Provoked with an over-long filename rather than with chmod, deliberately: a
+  // permission probe is bypassed when the suite runs as root, which would leave
+  // this arm silently unexercised in exactly the environments where nobody is
+  // watching. ENAMETOOLONG does not care who is asking.
+  withStateDir((stateDir) => {
+    const result = observeBaseline({
+      stateDir,
+      prNumber: "9".repeat(5000),
+      headSha: HEAD_SHA,
+      nowMs: Date.now(),
+    });
+    assert.equal(result.baselineKnown, false);
+    assert.equal(result.baselineWritable, false);
+    assert.match(result.baselineError, /not writable/);
+  });
+});
+
+test("a state directory that cannot be created is reported, not thrown", () => {
+  withStateDir((stateDir) => {
+    const blocked = join(stateDir, "a-file");
+    writeFileSync(blocked, "not a directory");
+    const result = observeBaseline({
+      stateDir: join(blocked, "nested"),
+      prNumber: BASELINE_PR,
+      headSha: HEAD_SHA,
+      nowMs: Date.now(),
+    });
+    assert.equal(result.baselineKnown, false);
+    assert.equal(result.baselineWritable, false);
+    assert.match(result.baselineError, /not creatable/);
+  });
+});
+
+// ------------------------------- baseline verdicts in the ladder (R5-1)
+
+test("a refused ack reports ack_predates_baseline, NOT no_ack_yet", () => {
+  // The whole point of reconstructing the refused set. `no_ack_yet` tells the
+  // operator Codex has not looked; here Codex looked, published, and the gate
+  // declined to bind it. The two demand opposite next actions.
+  const result = computeVerdict(
+    cleanSignals({
+      reactionAcksHead: false,
+      commentAcksHead: false,
+      reviewAcksHead: false,
+      ackPredatesBaseline: true,
+    }),
+  );
+  assert.equal(result.verdict, "ack_predates_baseline");
+  assert.equal(result.mergeOk, false);
+});
+
+test("CONTROL: with nothing refused, the same shape is plain no_ack_yet", () => {
+  const result = computeVerdict(
+    cleanSignals({
+      reactionAcksHead: false,
+      commentAcksHead: false,
+      reviewAcksHead: false,
+      ackPredatesBaseline: false,
+    }),
+  );
+  assert.equal(result.verdict, "no_ack_yet");
+});
+
+test("a surviving ack outranks a refused one — the refusal is not sticky", () => {
+  // A stale +1 refused by the baseline must not shadow a genuine sha-bound
+  // verdict that arrived afterwards, or the gate would stall a clean merge on
+  // the strength of an ack it had already discarded.
+  const result = computeVerdict(
+    cleanSignals({
+      reactionAcksHead: false,
+      reviewAcksHead: true,
+      latestReviewAgeMs: DEFAULT_SETTLE_WINDOW_MS + 1,
+      ackPredatesBaseline: true,
+    }),
+  );
+  assert.equal(result.verdict, "ack_clean");
+  // ...and it MERGES. This assertion was inverted in review, and the inversion
+  // is the interesting part. Refusing the merge here sounds like the
+  // conservative choice, but it produced a state the operator cannot act on:
+  // verdict `ack_clean`, merge blocked, and no remediation printed, because
+  // both remediation blocks key on the two baseline verdict names and neither
+  // fires for `ack_clean`. That is a silent block, which this gate treats as a
+  // defect regardless of which direction it errs in. The substance is that a
+  // review naming THIS commit is dispositive evidence Codex reviewed it, and a
+  // discarded `+1` from before the first sighting is not evidence against that.
+  assert.equal(result.mergeOk, true);
+});
+
+test("REGRESSION: the stale-run window is anchored on the push, not the baseline", () => {
+  // The shape that made this a bug rather than a preference, taken from PR #259
+  // and reduced. A review for the PREVIOUS head lands 3s after the push; the
+  // gate's first sighting is an hour later; a bare +1 arrives after that
+  // sighting. If the stale-run detector is handed the raised baseline instead
+  // of the push anchor, the review falls below its floor and disappears, the +1
+  // clears the floor untouched, and the gate merges on a timestamp-only ack
+  // while a run for the previous commit is demonstrably still in flight.
+  //
+  // Asserted through the detector directly rather than through computeVerdict,
+  // because the defect was in which anchor the CALLER passed — a verdict-level
+  // test would have kept passing while the gate shipped the wrong argument.
+  const pushAnchorMs = HEAD_COMMITTED_AT_MS;
+  const baselineMs = pushAnchorMs + 60 * 60 * 1000;
+  const staleReviewAtMs = pushAnchorMs + 3_000;
+
+  const staleReviewForPreviousHead = [
+    {
+      user: { login: BOT_REST_LOGIN },
+      commit_id: OTHER_FULL_SHA,
+      submitted_at: new Date(staleReviewAtMs).toISOString(),
+      state: "COMMENTED",
+    },
+  ];
+
+  const atPushAnchor = deriveStaleRunEvidence({
+    botReviews: staleReviewForPreviousHead,
+    botComments: [],
+    headSha: HEAD_SHA,
+    headShaShort: HEAD_SHA_SHORT,
+    ackAnchorMs: pushAnchorMs,
+  });
+  assert.equal(atPushAnchor.staleRunLandedAfterPush, true);
+
+  // The negative control: the same reviews, read against the raised floor,
+  // report nothing. This is what the gate was doing.
+  const atBaseline = deriveStaleRunEvidence({
+    botReviews: staleReviewForPreviousHead,
+    botComments: [],
+    headSha: HEAD_SHA,
+    headShaShort: HEAD_SHA_SHORT,
+    ackAnchorMs: baselineMs,
+  });
+  assert.equal(atBaseline.staleRunLandedAfterPush, false);
+});
+
+test("a timestamp-only ack with no usable baseline cannot be vouched for", () => {
+  const result = computeVerdict(cleanSignals({ observationBaselineKnown: false }));
+  assert.equal(result.verdict, "ack_baseline_unavailable");
+  assert.equal(result.timestampOnlyAckUnvouchable, true);
+  assert.equal(result.mergeOk, false);
+});
+
+test("an ABSENT baseline signal fails closed exactly as a false one does", () => {
+  const signals = cleanSignals();
+  delete signals.observationBaselineKnown;
+  const result = computeVerdict(signals);
+  assert.equal(result.verdict, "ack_baseline_unavailable");
+  assert.equal(result.mergeOk, false);
+});
+
+test("ESCAPE HATCH: a sha-bound ack merges even with no baseline at all", () => {
+  // This is what keeps the strict floor from being a blanket stall. A review on
+  // HEAD needs no floor, and every clean verdict Codex has posted since
+  // 2026-06-22 carries the sha — so a broken store degrades to the sha-anchored
+  // path rather than to nothing.
+  const result = computeVerdict(
+    cleanSignals({
+      observationBaselineKnown: false,
+      reactionAcksHead: false,
+      reviewAcksHead: true,
+      latestReviewAgeMs: DEFAULT_SETTLE_WINDOW_MS + 1,
+    }),
+  );
+  assert.equal(result.verdict, "ack_clean");
+  assert.equal(result.mergeOk, true);
+});
+
+test("a sha-CITING comment ack is the other escape hatch", () => {
+  const result = computeVerdict(
+    cleanSignals({
+      observationBaselineKnown: false,
+      reactionAcksHead: false,
+      commentAcksHead: true,
+      commentAcksHeadBySha: true,
+      commentAssertsClean: true,
+      latestCommentAckAgeMs: DEFAULT_SETTLE_WINDOW_MS + 1,
+    }),
+  );
+  assert.equal(result.verdict, "ack_clean");
+  assert.equal(result.mergeOk, true);
+});
+
+test("stale-run evidence outranks a missing baseline when both hold", () => {
+  // Both are true statements about the same ack; the one naming a specific
+  // commit is the one the operator can act on.
+  const result = computeVerdict(
+    cleanSignals({ observationBaselineKnown: false, staleRunLandedAfterPush: true }),
+  );
+  assert.equal(result.verdict, "ack_unattributable");
+});
+
+test("visible findings still outrank both baseline verdicts", () => {
+  const result = computeVerdict(
+    cleanSignals({
+      observationBaselineKnown: false,
+      ackPredatesBaseline: true,
+      openThreadCount: 2,
+    }),
+  );
+  assert.equal(result.verdict, "ack_with_findings");
+});
+
+test("END TO END R5-1: a +1 for the previous head, in the cross-branch window", () => {
+  // The finding, whole. This sha was pushed on another branch first, so its
+  // earliest check suite — and therefore the old anchor — predates the moment it
+  // became this PR's HEAD. A +1 acking the PREVIOUS head lands in that window,
+  // clears the old anchor, and used to score merge_ok=1 with no review of the
+  // update. The first-sighting floor is what refuses it now.
+  const result = verdictForShape({
+    reactions: [reaction({ created_at: "2026-07-27T16:40:00Z" })],
+    baselineMs: Date.parse("2026-07-27T16:50:00Z"),
+    nowMs: Date.parse("2026-07-27T17:00:00Z"),
+  });
+  assert.equal(result.verdict, "ack_predates_baseline");
+  assert.equal(result.mergeOk, false);
+});
+
+test("END TO END R5-1 CONTROL: the same +1 after first sighting merges", () => {
+  // Same shape, one timestamp moved. If this did not merge, the floor would be
+  // stalling genuine clean passes rather than catching stale ones.
+  const result = verdictForShape({
+    reactions: [reaction({ created_at: "2026-07-27T16:55:00Z" })],
+    baselineMs: Date.parse("2026-07-27T16:50:00Z"),
+    nowMs: Date.parse("2026-07-27T17:00:00Z"),
+  });
+  assert.equal(result.verdict, "ack_clean");
+  assert.equal(result.mergeOk, true);
+});
+
+test("END TO END: a usage-limits notice in the push-to-sighting gap still reports rate_limited", () => {
+  // The third floor-conflation instance, and the reason `freshnessAnchorMs`
+  // exists. A quota notice is not a claim about any commit, so the ack floor is
+  // the wrong question to ask of it. Anchored on first sighting instead, this
+  // notice falls below the floor, `rateLimited` goes false, and the gate tells
+  // the operator to keep waiting for an ack that cannot arrive until the quota
+  // resets — the opposite of the action the notice calls for.
+  const result = verdictForShape({
+    comments: [
+      {
+        user: { login: BOT_REST_LOGIN },
+        body: "You have hit your usage limits",
+        created_at: "2026-07-27T16:36:25Z",
+      },
+    ],
+    baselineMs: Date.parse("2026-07-27T17:36:20Z"),
+    nowMs: Date.parse("2026-07-27T17:45:00Z"),
+  });
+  assert.equal(result.verdict, "rate_limited");
+  assert.equal(result.mergeOk, false);
+});
+
+test("END TO END: a stale review in the push-to-sighting gap still blocks a later +1", () => {
+  // The interaction between the two floors, end to end, and the case that made
+  // the anchor split a correctness fix rather than a tidy-up. A run for the
+  // PREVIOUS head finishes seconds after the push; the gate does not run until
+  // an hour later; a bare +1 lands after that first sighting.
+  //
+  // Each floor on its own says "merge": the +1 clears the baseline, so nothing
+  // is refused as pre-baseline. Only the stale-run detector objects, and only
+  // if its window still reaches back to the push. Handing it the raised
+  // baseline instead — which is what the gate did until review caught it —
+  // hides the review below the floor and this merges on a timestamp-only ack
+  // while a previous-head run is demonstrably in flight.
+  const result = verdictForShape({
+    reviews: [
+      review({
+        commit_id: OTHER_FULL_SHA,
+        submitted_at: "2026-07-27T16:36:23Z",
+        state: "COMMENTED",
+      }),
+    ],
+    reactions: [reaction({ created_at: "2026-07-27T17:40:00Z" })],
+    baselineMs: Date.parse("2026-07-27T17:36:20Z"),
+    nowMs: Date.parse("2026-07-27T17:45:00Z"),
+  });
+  assert.equal(result.mergeOk, false);
+  assert.equal(result.verdict, "ack_unattributable");
+});
+
+test("END TO END: a sha-citing clean verdict merges with NO baseline at all", () => {
+  // The escape hatch end to end, on today's clean-verdict format. A broken store
+  // must degrade to the sha-anchored path, not to a stalled gate.
+  const result = verdictForShape({
+    comments: [
+      comment({
+        body: `Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** \`${HEAD_SHA_SHORT}\``,
+        created_at: "2026-07-27T16:40:00Z",
+      }),
+    ],
+    baselineMs: Number.NaN,
+    nowMs: Date.parse("2026-07-27T17:00:00Z"),
+  });
+  assert.equal(result.verdict, "ack_clean");
+  assert.equal(result.mergeOk, true);
+});
+
+test("END TO END: a bare +1 with no baseline is held, not merged", () => {
+  const result = verdictForShape({
+    reactions: [reaction({ created_at: "2026-07-27T16:40:00Z" })],
+    baselineMs: Number.NaN,
+    nowMs: Date.parse("2026-07-27T17:00:00Z"),
+  });
+  assert.equal(result.verdict, "ack_baseline_unavailable");
   assert.equal(result.mergeOk, false);
 });

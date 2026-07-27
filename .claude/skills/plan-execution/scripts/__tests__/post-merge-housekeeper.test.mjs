@@ -2026,3 +2026,48 @@ test("every fixture emits the checklist item only as dischargeable work", () => 
     );
   }
 });
+
+// ---------- `affected_files` is an authorization scope, not a work list ----------
+//
+// Codex PR #259 R4: the subagent contract read membership in `affected_files` as
+// "Edit this file", so on the common plan-bound mid-phase run — where
+// `plan_done_checklist_evaluation` answers "not due" — the subagent had to
+// invent a plan edit or breach its own action contract. The declaration is an
+// upper bound: it authorizes the tick the evaluation MAY resolve to, and obliges
+// nothing. The only per-file edit obligation anywhere in the pipeline is the
+// `<TODO subagent prose>` scan (validator check #3), and the script writes that
+// token exclusively into the §6 corpus. This pins the split at the fixture level
+// so a future edit cannot silently re-couple declaration to obligation.
+
+const TODO_PLACEHOLDER = "<TODO subagent prose>";
+
+test("a declared plan file never carries the placeholder — declaration is not an edit obligation", () => {
+  let corpusFixturesCarryingPlaceholder = 0;
+  for (const fixture of listFixtures(FIXTURES_DIR).filter(RUNNABLE_FIXTURE)) {
+    for (const declared of readExpectedManifest(fixture).affected_files) {
+      const expectedPath = join(fixture.expectedDir, declared);
+      // Halt-path fixtures (exit 2 / 5) declare nothing, so this loop is empty
+      // for them; a declared path absent from `expected/` would be its own bug,
+      // already caught by the byte-for-byte tree comparison above.
+      if (!existsSync(expectedPath)) continue;
+      const carriesPlaceholder = readFileSync(expectedPath, "utf8").includes(TODO_PLACEHOLDER);
+      if (declared.startsWith("docs/plans/")) {
+        assert.ok(
+          !carriesPlaceholder,
+          `fixture ${fixture.name}: ${declared} is declared to authorize a conditional tick, ` +
+            "but a placeholder there would turn that authorization into a mandatory edit",
+        );
+      } else if (carriesPlaceholder) {
+        corpusFixturesCarryingPlaceholder += 1;
+      }
+    }
+  }
+  // Negative control, in the same run: the assertion above is a clean result,
+  // and a clean result is only evidence if the predicate can fire at all. It
+  // must find the token on the §6 corpus of the status-flip fixtures — the one
+  // place the script writes it.
+  assert.ok(
+    corpusFixturesCarryingPlaceholder > 0,
+    "no fixture's §6 corpus carries the placeholder — the plan-file scan above is vacuous",
+  );
+});
