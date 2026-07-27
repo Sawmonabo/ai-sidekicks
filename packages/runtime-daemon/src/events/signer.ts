@@ -477,6 +477,19 @@ export function verifyRow(
   // the range-walking caller checks — see the SCOPE note above for why that
   // obligation lives there and not here.
   //
+  // LINKAGE HAS ONE BLIND SPOT, AND IT IS THE WHOLE CHAIN. A zeroed row whose
+  // neighbour survives is caught from one side or the other — its zeroed
+  // `row_hash` fails the successor's compare, its zeroed `prev_hash` fails its
+  // own — so the only shape that walks clean is a session zeroed from genesis
+  // to its LAST row: zeros link consistently to zeros, and
+  // `prev_hash[0] = GENESIS_PREV_HASH` holds by definition. Every row then
+  // reports `signature_placeholder`, so a WHOLESALE neutralization of the log
+  // reads as a build-ordering mistake. No local check can close that — an
+  // at-rest adversary edits every local witness to it — which is why the
+  // `anchor_*` range modes verify a span against an UPLOADED Merkle anchor
+  // (T3.2): it commits to the real `row_hash` values off-machine, where the
+  // zeroing cannot reach. T4.1 must not read the linkage walk as total.
+  //
   // A LEGITIMATE GENESIS ROW MUST NOT TRIP THIS, AND THAT IS NOT OBVIOUS.
   // `0001-initial.ts` documents `prev_hash` as "32 bytes; zero-filled at
   // sequence=0" and {@link GENESIS_PREV_HASH} is that value, so a REAL genesis
