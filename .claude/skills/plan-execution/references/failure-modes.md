@@ -312,6 +312,18 @@ The `RESULT:` tag is at the **end** of the response. Everything before it is the
 
 ---
 
+## In-place source mutation poisons concurrent readers
+
+A harness that verifies by **mutating source in place** — a negative-control driver, mutation testing, any perturb-run-restore loop — leaves real files broken on disk for the length of each run, with nothing about the file announcing it. Every concurrent reader is a potential victim: a `git add`, a `git commit`, a parallel test run, an editor's autosave-format. Observed 2026-07-27 on PR #259, where a stage-and-commit racing a live perturbation captured `const signalTruncated = false;` into the commit — a gate that could never report truncation, which is a permanent false-clean of exactly the class that PR existed to close. The static gates on that commit were all green (pre-commit hooks, eslint, prettier, commitlint); a constant-folded predicate is valid code, and nothing in that set is shaped to notice one.
+
+**Once the harness restores, no working-tree run can detect it.** The tree is correct — it is the _staged snapshot_ that is wrong, so only the committed bytes carry the defect. That asymmetry is the lesson: verify a suspect commit from a detached worktree at that sha, never from the checkout you have been working in. (A crash mid-run is the easy case — the tree is left perturbed and the next test run fails loudly.)
+
+**A coverage-shaped invariant caught what the behavioural ones were not looking for.** The perturbation made the `signal_truncated` arm unreachable, so an "every verdict arm is reachable" assertion failed alongside the two tests that assert truncation behaviour directly — an assertion staged in the same commit it caught (absent at `bdfd3d0`, present at `bcc3ddb`). No assertion _about truncation_ hunts a constant-folded predicate; one over the shape of the decision space does, because deleting the behaviour deletes the arm.
+
+**Recovery and discipline.** Diff the suspect file against the pre-round commit, restore it, `git commit --amend`, then re-verify every leg from a detached worktree at the new sha with exit codes read bare. While a harness is live, do not stage, do not commit, and do not point a second harness at the same files; when two agents share a working tree, one of them owns git for the duration.
+
+---
+
 ## When to amend this file
 
 If a fifth exit state appears (e.g., `INCONCLUSIVE` — subagent genuinely can't tell whether they succeeded), or if the VERIFICATION/POLISH/ACTIONABLE discipline produces unproductive iteration spirals on real PRs, edit this file. Don't let new modes accumulate as ad-hoc handling — name them, document them, route them explicitly.
