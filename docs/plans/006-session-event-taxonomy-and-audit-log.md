@@ -735,6 +735,74 @@ shipped:
       ]
     notes: |
       Full-phase single-PR ship (T1.1-T1.10; T1.6 zero-diff verify, T1.7 verification-only). Phase D closed unanimous at the 3-round cap; Codex round 1 clean (reaction-swap verdict). Three cite-hygiene commits converted every drifted inbound line-cite into the two reshaped contracts files to symbol/field anchors. NS-37 auto-created in the housekeeping PR, which also carried the §2 contracts ownership-row true-up, the NS-31 leg-(c) until-clause true-up, and the CAT-07 abbreviated-citer Known-Gaps append.
+  - phase: 2
+    task: [T2.1, T2.2, T2.3, T2.4, T2.5, T2.7]
+    pr: 256
+    sha: faff8cc
+    merged_at: 2026-07-27
+    files:
+      - .gitleaks.toml
+      - docs/architecture/cross-plan-dependencies.md
+      - docs/architecture/schemas/local-sqlite-schema.md
+      - docs/architecture/security-architecture.md
+      - docs/plans/001-shared-session-core.md
+      - docs/plans/002-invite-membership-and-presence.md
+      - docs/plans/006-session-event-taxonomy-and-audit-log.md
+      - docs/plans/022-data-retention-and-gdpr.md
+      - docs/plans/027-cross-node-dispatch-and-approval.md
+      - docs/specs/006-session-event-taxonomy-and-audit-log.md
+      - docs/specs/022-data-retention-and-gdpr.md
+      - docs/superpowers/specs/2026-05-03-plan-execution-housekeeper-design.md
+      - packages/contracts/src/__tests__/session-event.test.ts
+      - packages/contracts/src/event.ts
+      - packages/control-plane/src/invites/invite-service.ts
+      - packages/runtime-daemon/package.json
+      - packages/runtime-daemon/src/events/__tests__/canonicalizer.golden.test.ts
+      - packages/runtime-daemon/src/events/__tests__/post-shred-verify.test.ts
+      - packages/runtime-daemon/src/events/__tests__/signer.golden.test.ts
+      - packages/runtime-daemon/src/events/__tests__/signing-key-source.test.ts
+      - packages/runtime-daemon/src/events/canonicalizer.ts
+      - packages/runtime-daemon/src/events/pii-indirection.ts
+      - packages/runtime-daemon/src/events/signer.ts
+      - packages/runtime-daemon/src/events/signing-key-source.ts
+      - packages/runtime-daemon/src/migrations/0005-daemon-signing-keys.ts
+      - packages/runtime-daemon/src/session/__tests__/migration-shape.test.ts
+      - packages/runtime-daemon/src/session/__tests__/session-service.test.ts
+      - packages/runtime-daemon/src/session/migration-runner.ts
+      - pnpm-lock.yaml
+    verifies_invariant:
+      [
+        I-006-1-03,
+        I-006-2-01,
+        I-006-2-02,
+        I-006-2-03,
+        I-006-2-04,
+        I-006-2-05,
+        I-006-2-06,
+        I-006-2-07,
+        I-006-2-08,
+        I-006-2-09,
+        I-006-2-10,
+        I-006-2-11,
+        I-006-2-12,
+        I-006-3-01,
+      ]
+    spec_coverage:
+      [
+        "Spec-006 §Canonical Serialization Rules (RFC 8785; Fields included — the canonical set; occurredAt; pii_ciphertext_digest)",
+        "Spec-006 §Integrity Protocol (chained to its predecessor; placeholder signatures are refused, never retro-signed)",
+        "Spec-006 §Canonical Serialization Rules (row_hash verification)",
+        "Spec-006 §Canonical Serialization Rules (same canonical form; RFC 8785; Fields included — the canonical set; present-but-null; occurredAt)",
+        "Spec-006 §Integrity Protocol (chained to its predecessor; signed by the emitting daemon with Ed25519 over the same canonical byte string)",
+        "Spec-006 §Canonical Serialization Rules (pii_ciphertext_digest)",
+        "Spec-022 §Daemon Master Key (the tier-1 @napi-rs/keyring v1.2.0 custody rung — declared here as the injected seal boundary, implemented by Plan-022 Tier 5 per CP-006-11)",
+        "ADR-004 §Decision (SQLite-local-state boundary)",
+      ]
+    notes: |
+      Full-phase single-PR ship less T2.6, which was DELETED during review rather than built: its retro-signing repair path was replaced by the fail-closed `signature_placeholder` verdict now specified on T2.2's `verifyRow` (`Spec-006 §Integrity Protocol`, 2026-07-26 amendment). Phase D closed unanimous; Codex ran the full five rounds, acking clean on `f530c71`.
+      The rounds closed one recurring class in exactly THREE instances — a value the audit trail depends on that nothing in the signed form commits to — each answered by a pure, total, never-throwing read-side predicate that emits no verdict, plus one new `failureMode` arm: the stored spelling of `occurred_at` (`isCanonicalOccurredAt` / `occurred_at_not_canonical`, I-006-2-10), the PII ciphertext bytes (`isCiphertextDigestBound` / `pii_ciphertext_digest_unbound`, I-006-2-11), and the PII owner stamp (`isPiiOwnerStampBound` / `pii_owner_stamp_unbound`, I-006-2-12). All three are deliberately unwired here on the provider/consumer split — Phase 2 decides, T4.1 reports. The owner stamp was the P1: an at-rest edit left hash, signature, and the digest check green while corrupting the `Spec-022 §Shred Fan-Out` Path-1 scope selector, and because Path 1 destroys the participant key, no later decrypt can re-attribute the ciphertext — the stamp is the sole surviving evidence of whose data a row held.
+      Also closed: the canonicalizer now REFUSES a callable `toJSON` at any depth including the prototype chain (a stateful `toJSON` makes canonicalization non-deterministic, which no output-side check can repair); `canonicalizeEvent` refuses an unsafe-integer `sequence`; the injected sealer is shape-guarded against an empty blob and against echoing the private key back in cleartext. With `signature_placeholder`, these take the `failureMode` enum from 11 values to 15.
+      Governance corpus moved in the same PR: I-006-2-09 through I-006-2-12 minted; CP-006-11 registered for the previously unowned `DaemonSigningKeySealer` seam; CP-006-12 widened to both PII columns across four surfaces; `session_events.pii_participant_id` registered as a §1 Contested Table row owned by T3.1 with Plan-022 as a read-only Path-1 consumer bound to preserve it. A late follow-up commit corrected five PII-commitment claim sites the owner stamp had falsified across Plan-022 and Spec-022 — one of them an invariant that shipped false and was caught post-push. NS-41 auto-created in the housekeeping PR.
 ```
 
 ### Notes
