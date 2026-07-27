@@ -4,7 +4,7 @@
   "plan": "001",
   "phase": "5",
   "task_id": "T-001-5-3",
-  "script_exit_code": 3,
+  "script_exit_code": 0,
   "matched_entry": {
     "ns_id": "NS-02",
     "heading": "### NS-02: Plan-001 Phase 5 split + dep alignment",
@@ -31,8 +31,7 @@
       "from": ":::ready",
       "to": ":::completed",
       "node_line": 21
-    },
-    "plan_checklist_ticks": []
+    }
   },
   "schema_violations": [],
   "verification_failures": [],
@@ -43,15 +42,10 @@
     "line_cite_sweep",
     "set_quantifier_reverification",
     "ns_auto_create_evaluation",
-    "unannotated_referenced_files_check"
+    "unannotated_referenced_files_check",
+    "plan_done_checklist_evaluation"
   ],
-  "warnings": [
-    {
-      "kind": "plan_checklist_not_found",
-      "plan": "001",
-      "phase": "5"
-    }
-  ],
+  "warnings": [],
   "_script_stage": {
     "affected_files": ["docs/architecture/cross-plan-dependencies.md"],
     "schema_violations": [],
@@ -62,7 +56,8 @@
       "line_cite_sweep",
       "set_quantifier_reverification",
       "ns_auto_create_evaluation",
-      "unannotated_referenced_files_check"
+      "unannotated_referenced_files_check",
+      "plan_done_checklist_evaluation"
     ]
   },
   "proposed_manifest_entry": null,

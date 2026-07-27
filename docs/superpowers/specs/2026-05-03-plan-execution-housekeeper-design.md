@@ -218,7 +218,7 @@ Steps 1–4 are mechanical. Steps 5–7 are semantic (require _understanding_ th
 
 ### 2.1 Goal
 
-Phase E of the plan-execution skill auto-updates `docs/architecture/cross-plan-dependencies.md` §6 NS-XX entries + the plan's §Done Checklist after a plan-execution PR squash-merges, **in the same PR as the execution work**. Closes the "manual cleanup PR" loop entirely. Preserves set-quantifier reverification, line-cite sweep, and ready-set re-derivation discipline. Handles 1:1 NS↔PR entries AND multi-PR NS entries via the §3a schema amendment.
+Phase E of the plan-execution skill auto-updates `docs/architecture/cross-plan-dependencies.md` §6 NS-XX entries after a plan-execution PR squash-merges, **in the same PR as the execution work**, and routes the plan's document-level `## Done Checklist` to the subagent as the `plan_done_checklist_evaluation` semantic-work item (per §5.1 step 7). Closes the "manual cleanup PR" loop entirely. Preserves set-quantifier reverification, line-cite sweep, and ready-set re-derivation discipline. Handles 1:1 NS↔PR entries AND multi-PR NS entries via the §3a schema amendment.
 
 ### 2.2 Non-goals (explicitly out of scope)
 
@@ -355,7 +355,7 @@ Phase E (with housekeeper):
   Run post-merge-housekeeper.mjs <PR#> <plan> <phase> [task-id] {--candidate-ns NS-XX | --auto-create}
        │  (with --candidate-ns: VERIFY candidate vs diff (Type-signature + file-overlap +
        │     plan-identity); on PASS apply mechanical edits — §6 status flip / PRs: tick +
-       │     completion-matrix recompute, mermaid class-attachment swap, plan §Done Checklist tick;
+       │     completion-matrix recompute, mermaid class-attachment swap;
        │   with --auto-create: reserve next free NS-NN + emit manifest stub; subagent does
        │     the new-entry composition)
        ▼
@@ -364,7 +364,8 @@ Phase E (with housekeeper):
        ▼
   Dispatch plan-execution-housekeeper subagent ──► extends manifest.json
        │  (semantic: ready-set prose re-derivation, line-cite sweep,
-       │   set-quantifier reverification, NS-XX auto-create composition, schema-violation findings)
+       │   set-quantifier reverification, plan §Done Checklist evaluation,
+       │   NS-XX auto-create composition, schema-violation findings)
        ▼
   Orchestrator validates manifest (subagent stage)
        │
@@ -502,7 +503,10 @@ Exit codes:  0  success
              1  --candidate-ns NS-XX not found in §6 (orchestrator misdispatch — halt)
              2  candidate verification failed (Type-signature / file-overlap / plan-identity
                    mismatch — halt BLOCKED via subagent surfacing of `verification_failures`)
-             3  plan §Done Checklist not found / already fully ticked
+             3  reserved — retired 2026-07-27; no longer produced by this script
+                   (was: plan §Done Checklist not found / already fully ticked; the
+                    checklist is now the subagent's `plan_done_checklist_evaluation`.
+                    Still reserved + routed — see §7.1)
              4  candidate is multi-PR shape but `--task <task-id>` arg missing (--candidate-ns mode only)
              5  schema violation: candidate has malformed `PRs:` block / missing required
                    sub-field (--candidate-ns) OR auto-create would duplicate an existing
@@ -560,21 +564,21 @@ Behavior (deterministic). The script branches on dispatch mode (`--candidate-ns`
 
 6. **Recolor matching mermaid node.** In §6's mermaid graph block (lines 282-336), find the node line `NS<NN>[<label>]:::<old-class>` and replace `:::ready` (or `:::blocked` / `:::completed`) per the §1.1.2 mermaid mapping table. `classDef` definitions (`classDef ready ...`) at the bottom of the graph are NOT touched.
 
-7. **Tick plan §Done Checklist.** Open `docs/plans/NNN-*.md`, find the matching `### Phase N — ...` section, locate its "Done Checklist" sub-section, and tick **all** boxes (rationale: Q11.7 — Phase E only fires after a complete Phase merges, so partial ticks indicate a bug elsewhere, not a feature here).
+7. **Route the plan's `## Done Checklist` to the subagent.** The script does not tick it. This step was originally a mechanical tick: open `docs/plans/NNN-*.md`, find the matching `### Phase N — ...` section, locate a `#### Done Checklist` sub-section nested inside it, and tick **all** boxes (rationale: Q11.7 — Phase E only fires after a complete Phase merges). **Retired 2026-07-27.** No plan in `docs/plans/` has ever carried that shape — all 29, template included, carry a document-level `## Done Checklist` at the end instead — so the tick never fired once in production and the run returned a silent exit 3. Repointing it at the real heading would have been worse than leaving it dead: those rows are evidence-bearing prose naming PRs, SHAs, and merge dates, and the checklist is plan-scoped rather than phase-scoped, so a blind tick on a mid-plan phase ship asserts done-ness both untraceably and early. The script instead emits `plan_done_checklist_evaluation` in `semantic_work_pending`; the subagent reads the plan and decides — tick the row with its evidence if due, or record `not due — phase N of M` if not. The item is evaluation-shaped (mirroring `ns_auto_create_evaluation`) so that the common "not due" answer is completed work rather than a `concerns` deferral that would make `DONE_WITH_CONCERNS` the default verdict.
 
 8. **Emit manifest** describing what was done + what semantic work remains.
 
 **`--auto-create` mode (orchestrator's lookup found zero candidates — genuinely new work):**
 
-In this mode the script does NOT apply candidate-side mechanical edits (steps 5a/5b/6 are skipped — there is no existing NS to flip / tick / recolor). It DOES perform schema reservation + plan §Done Checklist tick + manifest stub emission. The subagent composes the new NS entry's body in stage 2 (per §5.4).
+In this mode the script does NOT apply candidate-side mechanical edits (steps 5a/5b/6 are skipped — there is no existing NS to flip / tick / recolor). It DOES perform schema reservation + manifest stub emission. The subagent composes the new NS entry's body in stage 2 (per §5.4) and answers the `## Done Checklist` question per step 3'.
 
 1'. **Reserve next free NS-NN.** Walk all `### NS-(\d+)` headings via the regex; find the highest captured integer (ignoring sub-numbering letters like `13a` / `13b` and range-form upper bounds — the canonical numbering authority is the integer prefix). Reserve `NN+1` as the new entry's number. Defensive check: verify `NN+1` is not already present anywhere in §6 (catches manual numbering races).
 
 2'. **Duplicate-title guard.** Derive the would-be-allocated heading title from the merged PR's title (stripped of conventional-commit prefix) OR from `<plan-NNN> Phase <phase-N>`. Search existing `### NS-...` headings for any whose title is a substring-equivalent of the would-be heading (e.g., AUTO-CREATE for "Plan-024 Phase 1" when NS-01 already exists with that exact prose). On duplicate-title risk → exit 5 with `kind: auto_create_duplicate_title` in `schema_violations` (subagent surfaces NEEDS_CONTEXT for user disambiguation — this usually means the orchestrator's §6 lookup missed an existing candidate).
 
-3'. **Tick plan §Done Checklist.** (Same as `--candidate-ns` step 7. The dispatched Phase still completes regardless of whether an NS existed pre-merge.)
+3'. **Route the plan's `## Done Checklist` to the subagent.** (Same as `--candidate-ns` step 7 — the script does not tick it. The dispatched Phase still completes regardless of whether an NS existed pre-merge, so the checklist question is live on this branch too.)
 
-4'. **Emit manifest stub** with `auto_create.reserved_ns_nn`, `auto_create.derived_title_seed`, and `mechanical_edits.plan_checklist_ticks` populated. `mechanical_edits.status_flip` / `mermaid_class_swap` are absent (the new node is added by the subagent, not the script). `semantic_work_pending` includes the auto-create-specific items: `auto_create_compose_entry`, `auto_create_compose_mermaid_node`, `auto_create_derive_upstream`.
+4'. **Emit manifest stub** with `auto_create.reserved_ns_nn` and `auto_create.derived_title_seed` populated. `mechanical_edits.status_flip` / `mermaid_class_swap` are absent (the new node is added by the subagent, not the script). `semantic_work_pending` carries the auto-create-specific items `auto_create_compose_entry`, `auto_create_compose_mermaid_node`, `auto_create_derive_upstream`, plus `plan_done_checklist_evaluation` — the one item shared with the `--candidate-ns` branch, since a phase shipped either way.
 
 **Design choices for testability:**
 
@@ -654,10 +658,7 @@ One JSON file, two write stages, no versioning:
       "from": ":::ready",
       "to": ":::completed",
       "node_line": 285
-    },
-    "plan_checklist_ticks": [
-      { "file": "docs/plans/024-rust-pty-sidecar.md", "phase": "1", "items_ticked": 5 }
-    ]
+    }
   },
   "schema_violations": [],
   "verification_failures": [],
@@ -671,7 +672,8 @@ One JSON file, two write stages, no versioning:
     "line_cite_sweep",
     "set_quantifier_reverification",
     "ns_auto_create_evaluation",
-    "unannotated_referenced_files_check"
+    "unannotated_referenced_files_check",
+    "plan_done_checklist_evaluation"
   ],
   "warnings": [],
 
@@ -689,7 +691,7 @@ Stage 1 (script) writes the file with subagent fields stubbed. Stage 2 (subagent
 
 **Validation invariants (orchestrator):**
 
-- After script: `mechanical_edits` populated per `script_exit_code` (exit 1 → `matched_entry` and `status_flip` may be absent; exit 3 → `plan_checklist_ticks` may be empty; exit 5 → `schema_violations` non-empty + edits aborted). `semantic_work_pending` non-empty. `result === null`.
+- After script: `mechanical_edits` populated per `script_exit_code` (exit 1 → `matched_entry` and `status_flip` may be absent; exit 5 → `schema_violations` non-empty + edits aborted). `semantic_work_pending` non-empty. `result === null`.
 - After subagent: `result !== null`. Every item in `semantic_work_pending` appears in EITHER `semantic_edits.<item-key>` OR `concerns[]` with `addressing: <item-key>` matching the exact pending-item key (waived when `result === "BLOCKED"` or `"NEEDS_CONTEXT"`, since the subagent halted before completing semantic work). Every entry in `schema_violations` appears in `concerns` with matching `kind` (the violation's own kind verbatim — typically `"schema_violation"` for missing-required-field shapes, but the script also emits singletons like `"auto_create_title_seed_underivable"` with no `field`/`ns_id`), plus matching `field` and `ns_id` when the violation carries them, AND `result === "BLOCKED"`. No `<TODO subagent prose>` placeholders remain in any file under `affected_files`. `affected_files` ⊇ files actually edited (subagent did not sprawl outside declared scope; extensions to `affected_files` are documented in `concerns` with `kind: affected_files_extension`).
 
 If validation fails, orchestrator halts Phase E and surfaces the gap (script-stage failure) OR round-trips to the subagent (subagent-stage failure).
@@ -698,7 +700,7 @@ If validation fails, orchestrator halts Phase E and surfaces the gap (script-sta
 
 When the orchestrator's §6 candidate-lookup (per §4.3) finds zero candidates, it dispatches the script with the `--auto-create` flag (no `--candidate-ns` value). The script's `--auto-create` branch (per §5.1 steps 1'–4') reserves the next free `NS-NN` integer + emits a manifest stub with `auto_create.reserved_ns_nn` populated; the subagent stage then composes the new NS entry's body and inserts it into §6.
 
-This section specifies the contract the subagent follows when composing the new entry's body (the script does NOT compose the body — its job is reservation + duplicate-title guard + plan checklist tick).
+This section specifies the contract the subagent follows when composing the new entry's body (the script does NOT compose the body — its job is reservation + duplicate-title guard + manifest stub emission).
 
 **Out-of-scope shapes (orchestrator never auto-dispatches in `--auto-create` mode for these — they are manual housekeeping per §4.3.4):**
 
@@ -900,6 +902,8 @@ End-to-end sequence with failure branches:
                     Phase E DONE
 ```
 
+The `exit 3` branch above is reserved but no longer produced by the script — see §7.1.
+
 ### 6.1 Why Progress Log moves AFTER the housekeeper stages
 
 Today, Phase E's first step is "Append Progress Log" — written as its own commit. The new ordering moves Progress Log to **after** the housekeeper stages, in the **same commit** as the housekeeping edits. Three reasons:
@@ -948,7 +952,7 @@ Exit codes mirror §5.1 invocation-header definitions verbatim — this taxonomy
 | Script exit 0 — `--auto-create` mode succeeded | Script stage | Continue to manifest validation; subagent composes new NS body in stage 2 (per §5.4). NOTE: AUTO-CREATE is dispatched by orchestrator (per §4.3 zero-candidate path), not by a script-side exit code; the script-side outcome is exit 0 success. |
 | Script exit 1 (`--candidate-ns NS-XX` not found in §6) | Script stage | HALT — surface as orchestrator misdispatch (the orchestrator's §4.3 lookup named an NS-XX that doesn't exist in §6; either the orchestrator parsed §6 with a stale snapshot, or the user's manual `--candidate-ns` arg names a non-existent entry). Re-run §4.3 lookup against current §6; either correct the candidate or the user disambiguates. |
 | Script exit 2 (verification failed: Type-signature, file-overlap, or plan-identity mismatch) | Script stage | Subagent dispatched with `verification_failures` populated; subagent surfaces them in `concerns` with `kind: type_signature_mismatch` / `file_overlap_zero` / `plan_identity_missing` per §5.1 step 3, returns `RESULT: BLOCKED`. Orchestrator halts to user per `references/failure-modes.md` § BLOCKED routing. The fix is usually an orchestrator-misdispatch correction (different `--candidate-ns`) or a corpus correction (NS heading or References don't reflect the diff's actual shape). |
-| Script exit 3 (no plan checklist found / already fully ticked) | Script stage | Continue; subagent flags `concerns` entry with `kind: plan_checklist_not_found` (e.g., the plan §Phase N section has no Done Checklist sub-section, or all boxes are already ticked from a prior partial run) |
+| Script exit 3 — reserved, no longer produced (retired 2026-07-27) | Script stage | The code was the plan §Done Checklist tick's not-found outcome. That tick never fired against the real corpus (no plan carries a `#### Done Checklist` under `### Phase N`) and the checklist is now the subagent's `plan_done_checklist_evaluation` per §5.1 step 7; the `kind: plan_checklist_not_found` warning is retired with it. The code itself stays reserved and routed: `decideHousekeeperRouting` keeps its `0\|2\|3\|5 → dispatch` branch so a stray 3 from a stale in-session manifest soft-continues rather than falling to the default arm's `unknown-exit-code` hard-halt. |
 | Script exit 4 (multi-PR entry, no `--task` arg) | Script stage | HALT → NEEDS_CONTEXT (orchestrator should have passed `--task` for multi-PR Lane entries per §4.3.1; dispatch bug — surface to user with candidate's `PRs:` block to identify which task this PR ships) |
 | Script exit 5 — schema violation in matched NS (`--candidate-ns` mode) | Script stage | Subagent dispatched with `schema_violations` populated; subagent surfaces them in `concerns` with the violation's own `kind` verbatim (typically `"schema_violation"` for `--candidate-ns` shapes; the matcher discriminates by `kind` + `field` + `ns_id` so distinct-kind violations cannot share a concern) + structured remediation hint, returns `RESULT: BLOCKED`. Orchestrator halts to user per `references/failure-modes.md` § BLOCKED routing. |
 | Script exit 5 — auto-create would duplicate existing heading title (`--auto-create` mode) | Script stage | Subagent dispatched with `schema_violations` populated (kind: `auto_create_duplicate_title`); subagent surfaces NEEDS_CONTEXT for user disambiguation — usually means the orchestrator's §4.3 lookup missed an existing candidate that should have triggered `--candidate-ns` instead. |
@@ -1106,11 +1110,13 @@ Test surface: `(args, repo state) → (file edits, manifest, exit code)`.
     ├── 04-multi-pr-blocked-upstream/              # blocked-override fires
     ├── 05-exit-1-no-ns-match/
     ├── 06-exit-2-multi-ns-match/
-    ├── 07-exit-3-no-checklist/
+    ├── 07-plan-identity-violation/
     ├── 08-exit-4-multi-pr-no-task-id/
     ├── 09-exit-5-schema-violation-malformed-prs/
     └── 10-mermaid-class-attachment-variant/      # `:::ready` followed by edge syntax
 ```
+
+This tree — and §9.1's — is the 2026-05-03 design-time projection and has since diverged from disk; the shipped corpus is the 15 directories `00-loader-smoke` .. `14-multi-candidate-happy-path`, and the names above are indicative rather than a manifest. In particular the exit-3 fixture these trees originally named was never built (slot 07 shipped as `07-plan-identity-violation`), which is moot now that code 3 is no longer produced (§7.1).
 
 Test runner pattern (`node:test`):
 
@@ -1276,14 +1282,14 @@ The "Yes — see §10.4 CI wiring" rows depend on the new CI step being added (�
 │       ├── post-merge-housekeeper.test.mjs  ⬅️ NEW
 │       ├── helpers/
 │       │   └── fixture-loader.mjs           ⬅️ NEW (shared helper for the 10 fixtures)
-│       └── fixtures/                         ⬅️ NEW (10 scenarios)
+│       └── fixtures/                         ⬅️ NEW (10 scenarios — design-time projection; see §8.1)
 │           ├── 01-single-pr-happy-path/
 │           ├── 02-multi-pr-tick-only/
 │           ├── 03-multi-pr-completion/
 │           ├── 04-multi-pr-blocked-upstream/
 │           ├── 05-exit-1-no-ns-match/
 │           ├── 06-exit-2-multi-ns-match/
-│           ├── 07-exit-3-no-checklist/
+│           ├── 07-plan-identity-violation/
 │           ├── 08-exit-4-multi-pr-no-task-id/
 │           ├── 09-exit-5-schema-violation-malformed-prs/
 │           └── 10-mermaid-class-attachment-variant/

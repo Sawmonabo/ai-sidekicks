@@ -16,6 +16,20 @@ export default tseslint.config(
       "**/coverage/**",
       "**/.turbo/**",
       "**/*.tsbuildinfo",
+      // Three gitignored trees that a bare `eslint .` otherwise walks, because
+      // ESLint's ignore list is independent of .gitignore. Measured 2026-07-27
+      // on a clean checkout: 1001 errors, none of them about repo source —
+      // `target/doc` contributed 973 (cargo-doc ships browser JS assets that
+      // trip `no-undef` on `window`) and `.agents/tmp` 28. `.worktrees/`
+      // measured 0 only because none existed at the time; a live worktree
+      // re-adds the whole duplicated tree, and its files resolve outside the
+      // typed-lint tsconfigRootDir, so they fail differently and en masse.
+      "**/.worktrees/**",
+      "**/target/**",
+      // Scoped to `tmp/` deliberately, matching .gitignore — `.agents/` itself
+      // is NOT gitignored, so a blanket `.agents/**` would silently exempt
+      // future committed content under it.
+      "**/.agents/tmp/**",
     ],
   },
   js.configs.recommended,

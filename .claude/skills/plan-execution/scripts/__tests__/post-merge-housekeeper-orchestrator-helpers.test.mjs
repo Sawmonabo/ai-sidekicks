@@ -1637,7 +1637,7 @@ test("validateManifestSubagentStage: passes when schema_violations present AND r
 
 // ---------- BLOCKED-when-verification_failures enforcement ----------
 // Mirror of Finding 6's schema_violations BLOCKED check. Contract clause from
-// `references/post-merge-housekeeper-contract.md` §exit-code 2 line 79: "candidate
+// `references/post-merge-housekeeper-contract.md` §Exit codes, code 2: "candidate
 // verification failed (Type-signature / file-overlap / plan-identity mismatch — halt
 // BLOCKED via subagent surfacing of `verification_failures`)". Without this check, a
 // subagent could ship `DONE` / `DONE_WITH_CONCERNS` while verification_failures is

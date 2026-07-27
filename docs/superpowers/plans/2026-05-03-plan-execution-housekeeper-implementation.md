@@ -10,6 +10,10 @@
 
 **Spec:** `docs/superpowers/specs/2026-05-03-plan-execution-housekeeper-design.md` (status: `approved`, committed at `7ba2bd5`).
 
+> **Superseded in part, 2026-07-27 — the plan-checklist tick was retired.** The **Goal** and **Architecture** above list "plan §Done Checklists" / "plan checklist tick" among the script's mechanical edits. That deliverable shipped and then never fired: `tickPlanDoneChecklist` keyed on a `#### Done Checklist` nested under `### Phase N`, a shape no file under `docs/plans/` has ever carried — `git log -S'#### Done Checklist' -- docs/plans/` is empty across all history, and the only commits that ever introduced the string are this plan and the fixtures written from it. All 29 plans, the template included, put a document-level `## Done Checklist` at the end instead. Repointing the tick there would have been worse than leaving it dead: those rows are evidence-bearing prose naming PRs, SHAs and dates, and the checklist is plan-scoped, so a blind tick on a mid-plan phase ship asserts done-ness with no trace and asserts it early. The function, its three call sites, the `plan_checklist_ticks` manifest field and the `plan_checklist_not_found` warning are removed; deciding whether a tick is due is now the subagent's `plan_done_checklist_evaluation` semantic-work item. Exit code 3, which only that path produced, is reserved and still routed.
+>
+> The task bodies below are left as written — they record what was built in May 2026, including the fixture stubs authored to the invented shape, which is precisely how the mismatch survived a green test suite. Read them as history, not as a description of the current script. Two specifics a reader might otherwise chase: Task 3.14's `tickPlanDoneChecklist` implementation and tests no longer exist, and Task 3.26's `07-exit-3-no-checklist` fixture was never built at all — slot 07 shipped as `07-plan-identity-violation`, and the shipped corpus is the 15 directories `00-loader-smoke` .. `14-multi-candidate-happy-path`.
+
 ---
 
 ## Phasing & PR Boundaries

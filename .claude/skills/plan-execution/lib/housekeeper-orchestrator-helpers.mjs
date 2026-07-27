@@ -1029,10 +1029,19 @@ export function assertRepoRelative(path, repoRoot) {
  *   - 0  success                             → dispatch (happy path)
  *   - 1  --candidate-ns NS-XX not found      → HALT (orchestrator misdispatch)
  *   - 2  candidate verification failed       → dispatch (subagent surfaces BLOCKED)
- *   - 3  Done Checklist absent / fully ticked → dispatch (semantic work still applies)
+ *   - 3  reserved; no longer produced        → dispatch (see below)
  *   - 4  multi-PR shape, --task arg missing  → HALT (orchestrator misdispatch)
  *   - 5  schema_violations                   → dispatch (subagent surfaces BLOCKED)
  *   - ≥6 crash / IO error / arg-validation   → HALT (script crash)
+ *
+ * Code 3 meant "plan Done Checklist absent / already fully ticked" until
+ * 2026-07-27, when the mechanical tick that was its only producer was retired
+ * (the plan checklist is the subagent's `plan_done_checklist_evaluation` item
+ * now). The branch deliberately stays: the default arm below hard-halts on
+ * `unknown-exit-code`, so dropping code 3 would turn a stray 3 — from a stale
+ * in-session manifest — from a soft-continue into an aborted Phase E. Keeping
+ * an unproducible-but-routed code costs one branch; removing it has a failure
+ * mode.
  *
  * Defensive fallback: any exit code outside the documented set (negative,
  * non-integer, NaN) returns `halt` with `exitClass: "unknown-exit-code"`. The

@@ -1,7 +1,13 @@
 // GFM heading-slug computation modeled on github-slugger
-// (https://github.com/Flet/github-slugger). Used by the doc-corpus regression
-// hooks to verify GitHub-rendered anchor IDs against inbound `file.md#anchor`
-// citations elsewhere in the corpus.
+// (https://github.com/Flet/github-slugger). This module computes what GitHub
+// would render as a heading's anchor id. It verifies nothing on its own, and
+// no doc-corpus hook imports it — a claim this header carried until 2026-07-27
+// and which was never true of the shipped wiring. Inbound `file.md#anchor`
+// integrity is lychee's beat (the `lychee-inbound` required check in
+// `.github/workflows/docs-corpus.yml`), and the §-anchor gate in
+// `label-cite.ts` compares heading TEXT after normalization
+// (`normalizeTokenForMatch`) rather than by slug, so it does not consume this
+// module either.
 //
 // We keep a zero-dep snapshot (rather than a runtime dependency on
 // github-slugger) so the hook scripts stay directly runnable — `node
@@ -17,11 +23,14 @@
 //
 // Lychee's slug computation (`lychee-lib/src/extract/markdown.rs`) is the
 // CI-time fast path; this TS implementation is the local-test calibration
-// surface and the input to `move-heading` skill computations. Divergences
-// between the two are documented in `docs/operations/failure-mode-catalog.md`
+// surface. Its two real consumers are the oracle parity suite in
+// `__tests__/slug.test.ts` and the `ripple-check-heading-move` subagent, which
+// reads this file for the exact strip regex when it computes the slug a
+// renamed heading will render to (`.claude/agents/ripple-check-heading-move.md`).
+// The header previously named a `move-heading` skill as the second consumer;
+// no such skill exists in `.claude/skills/`. Divergences between the two
+// implementations are documented in `docs/operations/failure-mode-catalog.md`
 // (Known Limitations).
-
-import { readFileSync } from "node:fs";
 
 // Spliced verbatim from the packaged github-slugger@2.0.0 regex.js. Strips
 // Unicode punctuation / symbols. Keeps alphanumerics, hyphens, underscores,
@@ -65,32 +74,4 @@ export class SluggerSession {
   reset(): void {
     this.occurrences.clear();
   }
-}
-
-export function extractHeadingSlugs(filePath: string): Set<string> {
-  const content = readFileSync(filePath, "utf8");
-  const slugger = new SluggerSession();
-  const slugs = new Set<string>();
-  let inFence = false;
-  let fenceMarker = "";
-  for (const rawLine of content.split("\n")) {
-    const trimmed = rawLine.trimStart();
-    if (!inFence && (trimmed.startsWith("```") || trimmed.startsWith("~~~"))) {
-      inFence = true;
-      fenceMarker = trimmed.startsWith("```") ? "```" : "~~~";
-      continue;
-    }
-    if (inFence) {
-      if (trimmed.startsWith(fenceMarker)) {
-        inFence = false;
-        fenceMarker = "";
-      }
-      continue;
-    }
-    const m = /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(rawLine);
-    if (!m) continue;
-    const headingText = m[2].trim();
-    slugs.add(slugger.next(headingText));
-  }
-  return slugs;
 }

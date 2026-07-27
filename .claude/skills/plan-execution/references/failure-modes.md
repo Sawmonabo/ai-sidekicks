@@ -213,6 +213,17 @@ These rules apply in order. The first matching rule wins. Rule numbers are globa
 
 Full mechanics for the Phase D.5 step-3 wait. SKILL.md carries the skeleton; this section is the contract. The Codex bot's behavior is an external contract Anthropic does not control — when observed behavior contradicts this model, surface to the user before trusting the gate (SKILL.md § 0.3 codex-contract freshness check).
 
+> **Do not hand-roll the verdict predicate — run `scripts/codex-gate.mjs <PR#>`.**
+>
+> ```bash
+> node .claude/skills/plan-execution/scripts/codex-gate.mjs <PR#> [--repo owner/name]
+> # → GATE verdict=<ack_clean|ack_with_findings|ack_unsettled|no_ack_yet|rate_limited|draft_not_eligible> ack= unresolved= ci= merge_ok=
+> ```
+>
+> The prose below is the _model_; the script is the _implementation_, and it exists because the model was mis-transcribed five separate times (PR #171, #172, #199 r13, #255, #257). Every one of those monitors polled `pulls/<PR#>/reviews` and read a zero as "not reviewed yet". **A zero on the reviews endpoint is the normal shape of a CLEAN pass** — a no-findings verdict arrives as a 👍 on the PR _issue_ and often produces no review object and no comment at all. On #257 that misread was reported as "no Codex activity after 20 minutes" when the ack had landed in 3.5 minutes; on #250 the reviews leg _never_ matches HEAD (its four reviews sit on pre-fix commits) so a reviews-only poll would wait forever.
+>
+> The script encodes every condition this section describes — all three ack legs as a disjunction, `--paginate`, `reviewThreads(last:100)` with a truncation warning, REST-not-GraphQL reactions, an empty check rollup as `ci=none` rather than `green`, and the review-lands-before-its-threads race (§ Loop structure) as a distinct `ack_unsettled` verdict that can never score `merge_ok=1`. Wrap the script in Monitor for polling; read `merge_ok=1` as the only green light. Decision table: `scripts/lib/codex-verdict.mjs`; tests: `scripts/__tests__/codex-verdict.test.mjs`.
+
 ### Loop structure
 
 Step 3 is itself a loop, not a one-shot. Each `git push` after `gh pr ready` re-triggers Codex's auto-review path (auto-fires on every push to a non-draft PR, not just the ready-transition). The outer loop is per-HEAD: `(a) baseline → (b) eyes-poll → (c) verdict-poll`, with `(c)`'s "new push" intermediate-exit restarting from `(a)` on the new HEAD. After Phase D returns DONE the first iteration may complete on the unchanged HEAD; after any round-trip fix-up push, the next iteration MUST re-baseline (Codex's next verdict is on the new HEAD, not the old). A monitor that doesn't re-baseline silently waits for a verdict that never lands. Equally load-bearing: the resubmit-detection signal is `reviewThreads.totalCount > BASELINE_THREADS` — NEVER `latestReviews.length` (returns one row per author, stays at 1 across a Codex resubmit, silently fails). Both regressions burned in PR #83 (2026-05-20): a `latestReviews`-length-keyed Monitor missed the post-push Codex resubmit; the user surfaced the miss 20 min later.

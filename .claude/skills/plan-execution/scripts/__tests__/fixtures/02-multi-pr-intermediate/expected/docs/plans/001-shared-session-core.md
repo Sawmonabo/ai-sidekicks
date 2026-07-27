@@ -6,5 +6,5 @@ Tasks for Phase 5.
 
 #### Done Checklist
 
-- [x] Client SDK exports session creation API
-- [x] Desktop renderer bootstraps a session
+- [ ] Client SDK exports session creation API
+- [ ] Desktop renderer bootstraps a session

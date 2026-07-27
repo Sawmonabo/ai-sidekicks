@@ -34,10 +34,7 @@ The plan-execution housekeeper subagent and its companion script (`scripts/post-
       "from": ":::ready",
       "to": ":::completed",
       "node_line": 285
-    },
-    "plan_checklist_ticks": [
-      { "file": "docs/plans/024-rust-pty-sidecar.md", "phase": "1", "items_ticked": 5 }
-    ]
+    }
   },
   "schema_violations": [],
   "verification_failures": [],
@@ -51,7 +48,8 @@ The plan-execution housekeeper subagent and its companion script (`scripts/post-
     "line_cite_sweep",
     "set_quantifier_reverification",
     "ns_auto_create_evaluation",
-    "unannotated_referenced_files_check"
+    "unannotated_referenced_files_check",
+    "plan_done_checklist_evaluation"
   ],
   "warnings": [],
   "_script_stage": {
@@ -68,7 +66,8 @@ The plan-execution housekeeper subagent and its companion script (`scripts/post-
       "line_cite_sweep",
       "set_quantifier_reverification",
       "ns_auto_create_evaluation",
-      "unannotated_referenced_files_check"
+      "unannotated_referenced_files_check",
+      "plan_done_checklist_evaluation"
     ]
   },
   "proposed_manifest_entry": {
@@ -97,11 +96,13 @@ For multi-candidate runs (`--candidate-ns NS-XX,NS-YY` — comma-list dispatched
 
 - `matched_entry: null` and `matched_entries: [...]` carries per-NS metadata (one entry per NS in the comma list).
 - `mechanical_edits.status_flip` and `mechanical_edits.mermaid_class_swap` are absent (omitted from the JSON entirely, not null) and the plural `mechanical_edits.status_flips: [...]` and `mechanical_edits.mermaid_class_swaps: [...]` arrays carry one entry per processed NS.
-- `mechanical_edits.prs_block_ticks` and `mechanical_edits.plan_checklist_ticks` retain their array shape across both single- and multi-candidate runs (they were already arrays).
+- `mechanical_edits.prs_block_ticks` retains its array shape across both single- and multi-candidate runs (it was already an array).
 
 Subagent consumers detect multi-candidate by checking `Array.isArray(manifest.matched_entries)`; the canonical fixture for this shape is `scripts/__tests__/fixtures/14-multi-candidate-happy-path/expected-manifest.json`. The plural shape is independent of the per-NS multi-PR variation above — a multi-candidate run can include NS entries that are themselves multi-PR (each emits its own `status_flips[]` entry with `computed_via: "prs-matrix recompute"`).
 
 Stage 1 (script) writes the file with subagent fields stubbed. Stage 2 (subagent) reads, fills in its fields (including replacing the `<TODO subagent prose>` placeholders in `Status:` lines via direct file edits, then echoing the composed prose into `semantic_edits.completion_prose`), writes back.
+
+**`plan_done_checklist_evaluation`.** Evaluation-shaped, mirroring `ns_auto_create_evaluation`: the subagent decides whether the plan's document-level `## Done Checklist` is due a tick for the phase that just shipped, and records the decision either way under `semantic_edits.plan_done_checklist_evaluation`. Due → tick the row with the evidence those rows carry (PR #, squash SHA, merge date). Not due → record `not due — phase N of M`. The checklist is plan-scoped, so "not due" is the common case on a mid-plan phase ship, and recording it IS the completed work — a `concerns` entry is owed only when the subagent genuinely cannot decide. The script does not tick this checklist and never has (see §Exit codes, code 3). The item is emitted on both dispatch modes: a phase shipped either way, so the question is live whether or not an NS entry existed pre-merge.
 
 ## Proposed shipment-manifest entry
 
@@ -134,7 +135,10 @@ Exit codes:  0  success
              1  --candidate-ns NS-XX not found in §6 (orchestrator misdispatch — halt)
              2  candidate verification failed (Type-signature / file-overlap / plan-identity
                    mismatch — halt BLOCKED via subagent surfacing of `verification_failures`)
-             3  plan §Done Checklist not found / already fully ticked
+             3  reserved — retired 2026-07-27; no longer produced by this script
+                   (was: plan §Done Checklist not found / already fully ticked; the
+                    checklist is now the subagent's `plan_done_checklist_evaluation`.
+                    Still routed — see the dispatch/halt table below)
              4  candidate is multi-PR shape but `--task <task-id>` arg missing (--candidate-ns mode only)
              5  schema violation: candidate has malformed `PRs:` block / missing required
                    sub-field (--candidate-ns) OR auto-create would duplicate an existing
@@ -149,7 +153,7 @@ Exit codes:  0  success
 | 0 | `dispatch` | `subagent-handled` | success — subagent completes semantic work |
 | 1 | `halt` | `orchestrator-misdispatch` | NS-XX not in §6 — orchestrator dispatched with bad flags |
 | 2 | `dispatch` | `subagent-handled` | verification failed — subagent surfaces `verification_failures` as BLOCKED |
-| 3 | `dispatch` | `subagent-handled` | no checklist to tick — semantic work (set-quantifier reverification etc.) still applies |
+| 3 | `dispatch` | `subagent-handled` | reserved, no longer produced — the branch stays so a stray 3 from a stale in-session manifest soft-continues here instead of falling to the default arm's `unknown-exit-code` hard-halt |
 | 4 | `halt` | `orchestrator-misdispatch` | multi-PR shape, `--task` arg missing — orchestrator dispatch bug |
 | 5 | `dispatch` | `subagent-handled` | schema_violations — subagent surfaces as BLOCKED |
 | ≥6 | `halt` | `script-crash` | crash / IO / arg-validation — script-stage failure, operator inspects stderr |
@@ -161,7 +165,7 @@ Exit codes:  0  success
 
 **Validation invariants (orchestrator):**
 
-- After script: `mechanical_edits` populated per `script_exit_code` (exit 1 → `matched_entry` and `status_flip` may be absent; exit 3 → `plan_checklist_ticks` may be empty; exit 5 → `schema_violations` non-empty + edits aborted; multi-candidate runs emit plural `matched_entries`/`status_flips`/`mermaid_class_swaps` in place of the singular keys per the multi-candidate-shape paragraph above). `semantic_work_pending` non-empty. `result === null`.
+- After script: `mechanical_edits` populated per `script_exit_code` (exit 1 → `matched_entry` and `status_flip` may be absent; exit 5 → `schema_violations` non-empty + edits aborted; multi-candidate runs emit plural `matched_entries`/`status_flips`/`mermaid_class_swaps` in place of the singular keys per the multi-candidate-shape paragraph above). `semantic_work_pending` non-empty. `result === null`.
 - After subagent: `result !== null`. Every item in `semantic_work_pending` appears in EITHER `semantic_edits.<item-key>` OR `concerns[]` with `addressing: <item-key>` matching the exact pending-item key (waived when `result === "BLOCKED"` or `"NEEDS_CONTEXT"`, since the subagent halted before completing semantic work). Every entry in `schema_violations` appears in `concerns` with matching `kind` (the violation's own kind verbatim — typically `"schema_violation"` for missing-required-field shapes, but the script also emits singletons like `"auto_create_title_seed_underivable"` with no `field`/`ns_id`), plus matching `field` and `ns_id` when the violation carries them, AND `result === "BLOCKED"`. When `verification_failures` is non-empty (script exit-2 halt path — Type-signature / file-overlap / plan-identity mismatch or `multi_pr_task_not_in_block`), `result === "BLOCKED"` (mirrors the schema_violations rule — surfacing alone is insufficient; the BLOCKED state is load-bearing for the orchestrator's halt/routing-path determinism). No `<TODO subagent prose>` placeholders remain in any file under `affected_files`. `affected_files` ⊇ files actually edited (subagent did not sprawl outside declared scope; extensions to `affected_files` are documented in `concerns` with `kind: affected_files_extension`; deletion of a declared file is a contract violation surfaced by the validator's missing-file gap).
 
 If validation fails, orchestrator halts Phase E and surfaces the gap (script-stage failure) OR round-trips to the subagent (subagent-stage failure).

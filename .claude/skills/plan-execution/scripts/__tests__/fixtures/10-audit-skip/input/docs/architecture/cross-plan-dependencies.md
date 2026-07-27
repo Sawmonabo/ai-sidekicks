@@ -10,7 +10,7 @@
 - Upstream: none
 - References: [Plan-008](../plans/008-rust-pty-sidecar.md)
 - Summary: Audit-skip fixture — Type:audit; verifier trio carves out file-overlap (audit gets SKIP per FILE_OVERLAP_SKIP_TYPES branch) but keeps plan-identity (audit not in PLAN_IDENTITY_SKIP_TYPES). Heading carries Plan-008 substring → plan-identity matches args.plan="008".
-- Exit Criteria: Housekeeper exit 0; status flips todo→completed; mermaid :::ready→:::completed; plan-tick warns exit 3 unless plan file exists with Phase 2 Done Checklist.
+- Exit Criteria: Housekeeper exit 0; status flips todo→completed; mermaid :::ready→:::completed; plan file left untouched (the script no longer writes under `docs/plans/`).
 
 ```mermaid
 graph TB

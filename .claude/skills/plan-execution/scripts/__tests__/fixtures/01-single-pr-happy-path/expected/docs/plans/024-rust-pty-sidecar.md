@@ -6,5 +6,5 @@ Tasks for Phase 1.
 
 #### Done Checklist
 
-- [x] Rust crate builds green
-- [x] Content-Length framing tests pass
+- [ ] Rust crate builds green
+- [ ] Content-Length framing tests pass

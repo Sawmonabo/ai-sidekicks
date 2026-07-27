@@ -24,7 +24,6 @@ import {
   applyStatusFlipSinglePr,
   applyMultiPrTickAndRecompute,
   applyMermaidClassSwap,
-  tickPlanDoneChecklist,
   emitManifest,
   reserveNextFreeNs,
   checkDuplicateTitle,
@@ -901,36 +900,14 @@ test("applyMermaidClassSwap: never modifies classDef definitions", () => {
   assert.equal(result[0], "    classDef ready fill:#fff");
 });
 
-// ---------- tickPlanDoneChecklist (Task 3.14 — step 7) ----------
-
-test("tickPlanDoneChecklist: ticks all unchecked boxes in the matched Phase's checklist", () => {
-  const lines = [
-    "### Phase 1 — Rust crate scaffolding",
-    "...",
-    "#### Done Checklist",
-    "",
-    "- [ ] First item",
-    "- [ ] Second item",
-    "- [x] Third item already done",
-    "",
-    "### Phase 2 — Other",
-    "#### Done Checklist",
-    "",
-    "- [ ] Should NOT be ticked (different phase)",
-  ];
-  const { lines: result, ticksApplied } = tickPlanDoneChecklist({ lines, phase: "1" });
-  assert.equal(ticksApplied, 2);
-  assert.equal(result[4], "- [x] First item");
-  assert.equal(result[5], "- [x] Second item");
-  assert.equal(result[11], "- [ ] Should NOT be ticked (different phase)");
-});
-
-test("tickPlanDoneChecklist: returns ticksApplied=0 + flag when no checklist found", () => {
-  const lines = ["### Phase 1 — Foo", "no checklist sub-section"];
-  const { ticksApplied, notFound } = tickPlanDoneChecklist({ lines, phase: "1" });
-  assert.equal(ticksApplied, 0);
-  assert.equal(notFound, true);
-});
+// Two `tickPlanDoneChecklist` tests stood here until 2026-07-27. They passed
+// for the whole life of the function while it never once fired in production:
+// both fed it hand-built `### Phase N` / `#### Done Checklist` line arrays, a
+// shape no plan in `docs/plans/` has ever carried. The function is gone and the
+// plan checklist is now the subagent's `plan_done_checklist_evaluation` item.
+// The invariant that replaced them — the script writes nothing under
+// `docs/plans/` — is asserted at the bottom of this file and is enforced on
+// every fixture by the `expectFilesEqual` whole-tree comparison.
 
 // ---------- emitManifest (Task 3.15 — §5.3 schema) ----------
 
@@ -986,21 +963,25 @@ test("emitManifest writes auto-create stub manifest when scriptExitCode=0 + auto
       taskId: null,
       scriptExitCode: 0,
       autoCreate: { reservedNsNn: 24, derivedTitleSeed: "Plan-029 Phase 2 — example" },
-      mechanicalEdits: {
-        plan_checklist_ticks: [{ file: "docs/plans/029-foo.md", phase: "2", items_ticked: 4 }],
-      },
+      // Empty, and that is the whole shape of the auto-create branch now: the
+      // §6 entry and its mermaid node are the subagent's to compose, and the
+      // plan checklist moved to `plan_done_checklist_evaluation`. Nothing
+      // mechanical is left for the script to record here.
+      mechanicalEdits: {},
       schemaViolations: [],
-      affectedFiles: ["docs/architecture/cross-plan-dependencies.md", "docs/plans/029-foo.md"],
+      affectedFiles: ["docs/architecture/cross-plan-dependencies.md"],
       semanticWorkPending: [
         "auto_create_compose_entry",
         "auto_create_compose_mermaid_node",
         "auto_create_derive_upstream",
+        "plan_done_checklist_evaluation",
       ],
     });
     const written = JSON.parse(readFileSync(result.manifestPath, "utf8"));
     assert.equal(written.auto_create.reserved_ns_nn, 24);
     assert.equal(written.auto_create.derived_title_seed, "Plan-029 Phase 2 — example");
     assert.equal(written.mechanical_edits.status_flip, undefined);
+    assert.equal(written.mechanical_edits.plan_checklist_ticks, undefined);
   } finally {
     rmSync(tmpRepo, { recursive: true, force: true });
   }
@@ -1809,3 +1790,50 @@ test("extractFileReferences extracts the path from a #symbol-suffixed reference"
     result.files.includes("packages/runtime-daemon/src/bootstrap/secure-defaults-events.ts"),
   );
 });
+
+// ---------- File-ownership boundary (replaces the retired checklist tick) ----------
+//
+// Plan Invariant I-3 gives this script exactly two writable surfaces: the §6
+// corpus and its own manifest under `.agents/tmp/`. A mechanical plan-checklist
+// tick breached that from the start and was retired 2026-07-27 — it had also
+// never once fired, since it keyed on a `#### Done Checklist` under `### Phase N`
+// that no plan in `docs/plans/` has ever carried.
+//
+// These two pin the boundary itself rather than the absence of that one
+// function, so a future edit cannot quietly re-grant the plan tree. Both
+// branches are covered because each used to run its own copy of the tick:
+// `--candidate-ns` (fixture 01's tree) and auto-create (fixture 12's).
+for (const { branch, fixtureName, planFileName, args } of [
+  {
+    branch: "candidate-ns",
+    fixtureName: "01-single-pr-happy-path",
+    planFileName: "024-rust-pty-sidecar.md",
+    args: { prNumber: 30, plan: "024", phase: "1", task: null, candidateNs: "NS-01" },
+  },
+  {
+    branch: "auto-create",
+    fixtureName: "12-auto-create-happy-path",
+    planFileName: "029-orphan-pr-fixture.md",
+    args: { prNumber: 48, plan: "029", phase: "2", task: null, candidateNs: null },
+  },
+]) {
+  test(`runHousekeeper (${branch}) writes nothing under docs/plans/`, async () => {
+    const tmpRepo = mkdtempSync(join(tmpdir(), `plan-tree-untouched-${branch}-`));
+    try {
+      cpSync(join(HERE, "fixtures", fixtureName, "input"), tmpRepo, { recursive: true });
+      const planPath = join(tmpRepo, "docs", "plans", planFileName);
+      const planBytesBefore = readFileSync(planPath);
+      const result = await runHousekeeper({ args, repoRoot: tmpRepo, today: FIXTURE_TODAY });
+      // Guard the guard: an early bail would leave the plan untouched for the
+      // wrong reason and make the assertion below vacuous.
+      assert.equal(result.exitCode, 0, `${branch}: expected the branch to run to completion`);
+      assert.deepEqual(
+        readFileSync(planPath),
+        planBytesBefore,
+        `${branch}: the housekeeper script must never write under docs/plans/`,
+      );
+    } finally {
+      rmSync(tmpRepo, { recursive: true, force: true });
+    }
+  });
+}

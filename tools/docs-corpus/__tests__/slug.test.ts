@@ -124,10 +124,12 @@ function corpusMarkdownFiles(): string[] {
   return [...rootMarkdown, ...docsMarkdown];
 }
 
-// Mirrors the fence-aware ATX walk in ../lib/slug.ts extractHeadingSlugs —
-// duplicated here (texts, not slugs) because the parity assertions above need
-// the raw heading text to feed both sluggers. Walker fidelity only selects
-// test inputs; it cannot mask a slug divergence.
+// Fence-aware ATX heading walk. This is now the only such walk on the slug
+// path: ../lib/slug.ts carried a slug-emitting twin (`extractHeadingSlugs`)
+// that no caller ever reached, removed 2026-07-27. This one yields heading
+// TEXTS rather than slugs because the parity assertions above need the raw
+// text to feed both sluggers. Walker fidelity only selects test inputs; it
+// cannot mask a slug divergence.
 function extractHeadingTexts(content: string): string[] {
   const headingTexts: string[] = [];
   let inFence = false;
