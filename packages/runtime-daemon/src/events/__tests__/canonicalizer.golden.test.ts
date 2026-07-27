@@ -897,6 +897,11 @@ const OCCURRED_AT_NORMALIZATIONS: ReadonlyArray<{
     why: "a numeric zero offset is the Z instant",
   },
   {
+    input: "2026-01-01T00:00:00.000-00:00",
+    normalized: "2026-01-01T00:00:00.000Z",
+    why: "the NEGATIVE zero offset is the Z instant too — RFC 3339 §4.3 gives -00:00 the premise 'the time in UTC is known', and §4.2's local-minus-UTC arithmetic makes the fold exact (the sign yields -0, and x - (-0) === x). What -00:00 additionally conveyed in RFC 3339 — an unknown LOCAL offset — is provenance about the producer's clock, never a different instant, and RFC 9557 §2.2 (Standards Track, Updates: 3339) has since reassigned that meaning to Z itself. The sibling +00:00 row above says 'a numeric zero offset', sign-agnostic, but pinned only the positive spelling; this row is the other half of that claim",
+  },
+  {
     input: "2026-01-01T00:00:00.1Z",
     normalized: "2026-01-01T00:00:00.100Z",
     why: "a short fraction zero-pads to three digits",

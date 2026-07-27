@@ -955,6 +955,84 @@ function embedCiphertextDigest(
 }
 
 /**
+ * Read-side counterpart to {@link embedCiphertextDigest}: does the ciphertext a
+ * row is actually holding still hash to the digest its signature committed to?
+ *
+ * Deliberately adjacent to the mint. The digest was signed from the day this
+ * codec shipped and NOTHING ever compared it back — a signed-but-unchecked
+ * binding, the same shape as the `occurred_at` hole T2.1's
+ * `isCanonicalOccurredAt` closes. Keeping mint and check in one place is the
+ * structural half of the fix: a future editor cannot touch one without the other
+ * in view.
+ *
+ * NOT part of `verifyRow`. That function is handed already-canonicalized bytes
+ * and is never given the `pii_payload` column at all, so it is structurally
+ * unable to make this comparison — the check has to run over the column AS
+ * STORED, which is the read-side verifier's position. Emitting the verdict is
+ * `Security Architecture §Verification Rules` rule 2's job, as a POSTcondition
+ * rather than a precondition: the digest lives inside the signed payload, so it
+ * is only worth trusting once the Ed25519 verification has passed.
+ *
+ * TOTAL AND NEVER-THROWING, and here that is a hard requirement rather than
+ * defensive style — a verifier consumes this inside a range walk, and one throw
+ * would abort the walk and silence audit of the entire remaining tail. Both
+ * parameters are `unknown` because both arrive from SQLite: a `BLOB`-affinity
+ * column can hand back a JS `string`, and noble's `abytes` throws on one.
+ *
+ * The four states, all decided, none needing a caller-side guard:
+ *
+ * | stored `pii_payload` | signed digest | verdict                                  |
+ * | -------------------- | ------------- | ---------------------------------------- |
+ * | bytes                | present       | compare — the ordinary live PII row      |
+ * | NULL                 | absent        | bound: no PII, or a compacted stub       |
+ * | bytes                | absent        | UNBOUND — violates the non-NULL MUST     |
+ * | NULL                 | present       | UNBOUND — ciphertext destroyed at rest   |
+ *
+ * The fourth row is the one worth naming, because it is not what a reviewer
+ * asks for when they ask for a digest comparison: a signed digest with no
+ * ciphertext under it means the column was emptied AFTER signing, and the
+ * signature still verifies green over the digest that outlived its subject.
+ * That is evidence destruction, and comparing hashes alone would never see it.
+ * A legitimately compacted row does not land here — `Spec-006 §Compacted Event
+ * Format` NULLs `pii_payload` and replaces `payload` with a stub projection that
+ * carries no digest, so it lands in row two.
+ *
+ * A crypto-shredded row lands in row ONE and passes. `Spec-022 §Shred Fan-Out`
+ * Path 1 destroys the per-participant key and overwrites no column, so the
+ * ciphertext bytes are still there and still hash to the signed digest — which
+ * is exactly why this check needs no shred-state carve-out.
+ *
+ * Fail-closed on a shape it cannot digest: a non-`Uint8Array`, non-NULL column
+ * value is reported UNBOUND rather than skipped, because a verifier that cannot
+ * confirm the binding has not confirmed it. Hex comparison is exact and
+ * case-sensitive by contract — {@link embedCiphertextDigest} pins lowercase as a
+ * one-way door, so an uppercase digest is itself a divergence.
+ */
+export function isCiphertextDigestBound(
+  storedPiiPayload: unknown,
+  signedPayload: unknown,
+): boolean {
+  const signedDigest =
+    typeof signedPayload === "object" && signedPayload !== null
+      ? (signedPayload as Record<string, unknown>)[PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY]
+      : undefined;
+  const claimedDigest = typeof signedDigest === "string" ? signedDigest : undefined;
+
+  // `== null` is the deliberate loose form: it catches SQLite's NULL and an
+  // absent property in one test, and nothing else.
+  if (storedPiiPayload == null) {
+    return claimedDigest === undefined;
+  }
+  if (claimedDigest === undefined) {
+    return false;
+  }
+  if (!(storedPiiPayload instanceof Uint8Array)) {
+    return false;
+  }
+  return bytesToHex(blake3(storedPiiPayload)) === claimedDigest;
+}
+
+/**
  * Step 5 — canonicalize, narrowed to accept ONLY a digest-bearing envelope.
  *
  * T2.1's `canonicalizeEvent` accepts any `EventEnvelope`, correctly: it serves

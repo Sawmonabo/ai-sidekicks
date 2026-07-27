@@ -105,24 +105,22 @@ function captureThrownMessage(thunk: () => unknown): string {
 // NEVER cast here — it is obtained only from `canonicalizeJson`, the way every
 // production caller must.
 
-const RFC_8032_TEST_1_SECRET_KEY_HEX =
-  "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60";
+const RFC_8032_TEST_1_SEED_HEX = "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60";
 const RFC_8032_TEST_1_PUBLIC_KEY_HEX =
   "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
-const RFC_8032_TEST_2_SECRET_KEY_HEX =
-  "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb";
+const RFC_8032_TEST_2_SEED_HEX = "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb";
 const RFC_8032_TEST_2_PUBLIC_KEY_HEX =
   "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c";
 
 const DAEMON_SIGNING_KEY: Ed25519PrivateKey = hexToBytes(
-  RFC_8032_TEST_1_SECRET_KEY_HEX,
+  RFC_8032_TEST_1_SEED_HEX,
 ) as Ed25519PrivateKey;
 const DAEMON_PUBLIC_KEY: Ed25519PublicKey = ed25519.getPublicKey(
   DAEMON_SIGNING_KEY,
 ) as Ed25519PublicKey;
 
 const PARTICIPANT_SIGNING_KEY: Ed25519PrivateKey = hexToBytes(
-  RFC_8032_TEST_2_SECRET_KEY_HEX,
+  RFC_8032_TEST_2_SEED_HEX,
 ) as Ed25519PrivateKey;
 const PARTICIPANT_PUBLIC_KEY: Ed25519PublicKey = ed25519.getPublicKey(
   PARTICIPANT_SIGNING_KEY,

@@ -75,7 +75,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openDatabase } from "../../session/migration-runner.js";
 import { canonicalizeEvent, canonicalizeJson } from "../canonicalizer.js";
 import type { CanonicalBytes } from "../canonicalizer.js";
-import { PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY, writeEventWithPii } from "../pii-indirection.js";
+import {
+  isCiphertextDigestBound,
+  PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY,
+  writeEventWithPii,
+} from "../pii-indirection.js";
 import type {
   EventWithPiiDigest,
   PiiCarryingEventInput,
@@ -137,13 +141,11 @@ function concatenateChainInput(prevHash: Uint8Array, canonical: Uint8Array): Uin
 // it would add a T2.7 dependency to a task the plan scopes to T2.4, and T2.7's
 // own suite already covers custody.
 
-const RFC_8032_TEST_1_SECRET_KEY_HEX =
-  "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60";
-const RFC_8032_TEST_2_SECRET_KEY_HEX =
-  "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb";
+const RFC_8032_TEST_1_SEED_HEX = "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60";
+const RFC_8032_TEST_2_SEED_HEX = "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb";
 
 const DAEMON_SIGNING_KEY: Ed25519PrivateKey = hexToBytes(
-  RFC_8032_TEST_1_SECRET_KEY_HEX,
+  RFC_8032_TEST_1_SEED_HEX,
 ) as Ed25519PrivateKey;
 const DAEMON_PUBLIC_KEY: Ed25519PublicKey = ed25519.getPublicKey(
   DAEMON_SIGNING_KEY,
@@ -151,7 +153,7 @@ const DAEMON_PUBLIC_KEY: Ed25519PublicKey = ed25519.getPublicKey(
 
 /** A second, unrelated daemon identity — the wrong-signer control. */
 const OTHER_DAEMON_PUBLIC_KEY: Ed25519PublicKey = ed25519.getPublicKey(
-  hexToBytes(RFC_8032_TEST_2_SECRET_KEY_HEX) as Ed25519PrivateKey,
+  hexToBytes(RFC_8032_TEST_2_SEED_HEX) as Ed25519PrivateKey,
 ) as Ed25519PublicKey;
 
 // --------------------------------------------------------------------------
@@ -2196,5 +2198,135 @@ describe("Plan-006 T2.5 — a misordered PII write path is refused at runtime (I
     expect(forgedCiphertext.length).toBe(3);
     expect(forgedDigestBearingEnvelope.id).toBe(FIXTURE_EVENT_ID);
     expect(forgedSigningKey.length).toBe(32);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// I-006-2-11 — the signed pii_ciphertext_digest is CHECKED, not merely minted.
+// ---------------------------------------------------------------------------
+//
+// The suite above proves a post-shred row still VERIFIES. That is the property
+// the digest exists to protect, and on its own it is also the hole: `verifyRow`
+// is never handed `pii_payload`, so every case above stays green no matter what
+// the ciphertext column holds. These tests pin the missing half.
+describe("isCiphertextDigestBound — the ciphertext column's only integrity binding", () => {
+  const ciphertext = new Uint8Array([0xde, 0xad, 0xbe, 0xef, 0x01, 0x02, 0x03]);
+  const digestOf = (bytes: Uint8Array): string => bytesToHex(blake3(bytes));
+  const payloadWith = (digest: unknown): Record<string, unknown> => ({
+    kind: "message",
+    [PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY]: digest,
+  });
+
+  it("binds a live PII row whose ciphertext still hashes to the signed digest", () => {
+    expect(isCiphertextDigestBound(ciphertext, payloadWith(digestOf(ciphertext)))).toBe(true);
+  });
+
+  it("catches a substituted ciphertext that leaves hash and signature green", () => {
+    const substituted = new Uint8Array([0xff, 0xff, 0xff, 0xff, 0x01, 0x02, 0x03]);
+    expect(isCiphertextDigestBound(substituted, payloadWith(digestOf(ciphertext)))).toBe(false);
+  });
+
+  it("catches a truncated ciphertext", () => {
+    expect(isCiphertextDigestBound(ciphertext.slice(0, 3), payloadWith(digestOf(ciphertext)))).toBe(
+      false,
+    );
+  });
+
+  // The state a plain "recompute and compare" never reaches, because there is
+  // nothing left to recompute over. A digest whose subject was deleted after
+  // signing still verifies as part of the canonical bytes.
+  it("catches ciphertext deleted at rest while its signed digest survives", () => {
+    expect(isCiphertextDigestBound(null, payloadWith(digestOf(ciphertext)))).toBe(false);
+    expect(isCiphertextDigestBound(undefined, payloadWith(digestOf(ciphertext)))).toBe(false);
+  });
+
+  it("catches a non-NULL ciphertext carrying no digest at all", () => {
+    expect(isCiphertextDigestBound(ciphertext, { kind: "message" })).toBe(false);
+  });
+
+  it("passes an ordinary no-PII row: neither column nor digest present", () => {
+    expect(isCiphertextDigestBound(null, { kind: "message" })).toBe(true);
+  });
+
+  // Spec-006 §Compacted Event Format NULLs pii_payload and replaces payload
+  // with a stub projection carrying no digest — the both-absent state, which is
+  // why the check needs no retention-class branch.
+  it("passes a compacted audit stub", () => {
+    const stubProjection = {
+      id: FIXTURE_EVENT_ID,
+      retentionClass: "audit_stub",
+      summary: "a compacted event",
+    };
+    expect(isCiphertextDigestBound(null, stubProjection)).toBe(true);
+  });
+
+  // Spec-022 §Shred Fan-Out Path 1 destroys the key and overwrites no column,
+  // so the retained ciphertext still hashes to its digest. This is the test
+  // that would fail if a shred-state carve-out were ever added on the theory
+  // that shredding clears the column.
+  it("passes a crypto-shredded row, whose ciphertext Path 1 retains intact", () => {
+    const afterKeyDeletion = ciphertext;
+    expect(isCiphertextDigestBound(afterKeyDeletion, payloadWith(digestOf(ciphertext)))).toBe(true);
+  });
+
+  // SQLite BLOB affinity can hand back a string; noble's abytes throws on one.
+  // A verifier that cannot confirm the binding has not confirmed it.
+  it("fails closed on a column shape it cannot digest, without throwing", () => {
+    expect(() =>
+      isCiphertextDigestBound("deadbeef", payloadWith(digestOf(ciphertext))),
+    ).not.toThrow();
+    expect(isCiphertextDigestBound("deadbeef", payloadWith(digestOf(ciphertext)))).toBe(false);
+    expect(isCiphertextDigestBound(42, payloadWith(digestOf(ciphertext)))).toBe(false);
+  });
+
+  it("treats a non-string digest member as no digest", () => {
+    expect(isCiphertextDigestBound(ciphertext, payloadWith(12345))).toBe(false);
+    expect(isCiphertextDigestBound(null, payloadWith(12345))).toBe(true);
+  });
+
+  it("holds lowercase hex as the contract embedCiphertextDigest pins", () => {
+    const uppercased = digestOf(ciphertext).toUpperCase();
+    expect(isCiphertextDigestBound(ciphertext, payloadWith(uppercased))).toBe(false);
+  });
+
+  it("distinguishes an empty ciphertext from a missing one", () => {
+    const empty = new Uint8Array(0);
+    expect(isCiphertextDigestBound(empty, payloadWith(digestOf(empty)))).toBe(true);
+    expect(isCiphertextDigestBound(empty, payloadWith(digestOf(ciphertext)))).toBe(false);
+  });
+
+  // Never-throwing is a contract, not defensive style: T4.1 consumes this
+  // inside a range walk, where one throw aborts the walk and silences audit of
+  // the entire remaining tail.
+  it("returns a verdict for every hostile input pair rather than throwing", () => {
+    const columnValues: unknown[] = [
+      null,
+      undefined,
+      0,
+      "",
+      "zz",
+      42,
+      true,
+      {},
+      [],
+      new Uint8Array(0),
+      ciphertext,
+    ];
+    const payloadValues: unknown[] = [
+      null,
+      undefined,
+      0,
+      "",
+      "not-an-object",
+      [],
+      {},
+      payloadWith(null),
+      payloadWith(digestOf(ciphertext)),
+    ];
+    for (const columnValue of columnValues) {
+      for (const payloadValue of payloadValues) {
+        expect(typeof isCiphertextDigestBound(columnValue, payloadValue)).toBe("boolean");
+      }
+    }
   });
 });

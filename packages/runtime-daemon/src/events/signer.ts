@@ -233,11 +233,11 @@ export interface SignedRow {
  * predicate needs all three columns and why the verdict must not collapse into
  * `signature_mismatch`.
  *
- * This union is a SUBSET of the thirteen-value `failureMode` enum in
- * `Spec-006 §Audit Integrity (audit_integrity)`, and the other ten (thirteen,
+ * This union is a SUBSET of the fourteen-value `failureMode` enum in
+ * `Spec-006 §Audit Integrity (audit_integrity)`, and the other eleven (fourteen,
  * less this union's three — RE-DERIVE both numbers on any enum change rather
  * than incrementing one of them) sit outside
- * it for THREE different reasons rather than one. `anchor_*`, the proof modes,
+ * it for FOUR different reasons rather than one. `anchor_*`, the proof modes,
  * and the log-file modes are RANGE-level: they are computed over a span of rows
  * against an uploaded Merkle anchor, and this function is handed neither.
  * `stub_signature_invalid` and `stub_scalar_mismatch` are PER-ROW —
@@ -259,7 +259,18 @@ export interface SignedRow {
  * verify, but its stored spelling is not the one the signature committed to".
  * T2.1 exports `isCanonicalOccurredAt` for the second question and T4.1
  * composes the two; that predicate's contract explains why the composition —
- * not either half alone — is what byte-binds the column. That enum is
+ * not either half alone — is what byte-binds the column.
+ * `pii_ciphertext_digest_unbound` is the fourth reason, and it is the two
+ * previous ones at once, which is why it gets its own: like
+ * `occurred_at_not_canonical` it is a finding ON a row that genuinely verifies,
+ * and like the range modes it needs an input this function is never handed —
+ * `verifyRow` receives canonical bytes and the three integrity columns, never
+ * the `pii_payload` column, so it could not make the comparison even if the
+ * discriminant had room for it. That is not an accident of the signature: the
+ * canonical form EXCLUDES `pii_payload` on purpose, binding it indirectly
+ * through a digest member instead, so the column is structurally outside
+ * everything this function sees. T2.4 exports `isCiphertextDigestBound` for it
+ * and T4.1 runs it as a postcondition of a green verdict here. That enum is
  * Phase-4 contracts work and has not landed, so the literals are spelled here
  * and T4.1 owns the widening.
  */

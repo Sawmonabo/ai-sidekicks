@@ -49,13 +49,13 @@ useDefault = true
 # 64-hex key extracted as `Ed25519PrivateKeyf3a91c7d…` is waved straight
 # through (reproduced against v8.30.1). Anchoring makes each entry the equality
 # test its justification below asserts, which is the whole content of "this
-# exact token is not a secret". Verified for all six patterns below: each has
+# exact token is not a secret". Verified for all four patterns below: each has
 # been observed firing with its extracted secret equal to the token exactly,
 # and no finding in the unsuppressed whole-tree scan carries a secret that
-# merely CONTAINS one of the six — so anchoring suppresses precisely what the
+# merely CONTAINS one of the four — so anchoring suppresses precisely what the
 # unanchored form did and nothing more (whole-tree scan unchanged at zero
 # findings, planted-secret control still caught). Do not read "observed
-# firing" as "fires from committed content": five of the six do, but
+# firing" as "fires from committed content": three of the four do, but
 # `XChaCha20-Poly1305-wrapped` currently fires only from a gitignored
 # `.agents/tmp/` transient that `gitleaks dir` walks and neither gate sees,
 # since both scan git content. Entry 2 records why it is kept.
@@ -126,24 +126,37 @@ useDefault = true
 #    in PROVENANCE.md alongside an upstream commit-SHA audit log. Path-only
 #    suppression scopes this allowlist to the fixture file.
 #
-# 4. RFC 8032 §7.1 Ed25519 test-vector secret keys, plus the
-#    `Ed25519PrivateKey` type name. Two distinct finding kinds, both from the
-#    generic-api-key heuristic, both surfaced by Plan-006 T2.3's signer
+# 4. `Ed25519PrivateKey`, the type name, surfaced by Plan-006 T2.3's signer
 #    golden-vector suite:
 #
-#    (a) The TEST 1 / TEST 2 secret keys published verbatim in
-#        https://www.rfc-editor.org/rfc/rfc8032.txt §7.1 (verified against the
-#        RFC, 2026-07-26). Publication IS their purpose — the RFC prints them
-#        as a common baseline for Ed25519 conformance suites, and a suite that
-#        omitted them would drop that baseline. Suppressed by VALUE,
-#        deliberately not by path: keying on the two published constants means
-#        a genuine secret committed to the same test file still trips the
-#        gate, whereas a path allowlist would wave it through.
-#        Same reasoning as entry 3, tightened — prefer value-scoping wherever
-#        the not-a-secret property belongs to the value itself. The
-#        generic-api-key heuristic extracts each constant as the secret in its
-#        own right (`RFC_8032_TEST_1_SECRET_KEY_HEX = "9d61…"` yields secret
-#        `9d61…`), so secret-scoping is the exact spelling of "by value" here.
+#    (a) NO ENTRY — deliberately removed 2026-07-27, and the reasoning is worth
+#        keeping because the removed entries looked unavoidable. The RFC 8032
+#        §7.1 TEST 1 / TEST 2 vectors were suppressed here BY VALUE, on the
+#        argument that value-scoping beats path-scoping (a genuine secret in
+#        the same test file still trips the gate). That argument was right
+#        about paths and wrong about the alternative: a value-scoped entry on a
+#        GLOBAL allowlist suppresses the value EVERYWHERE, so the same 64-hex
+#        string in a real `.env`, Terraform var, or signing-key bootstrap would
+#        have been waved through in silence. Probed against the pinned v8.30.1:
+#        six of ten production-shaped contexts produced a finding whose secret
+#        was exactly the vector, and all six were suppressed.
+#
+#        The fix removes the need for an entry instead of rescoping one. The
+#        generic-api-key heuristic fires on a high-entropy value sitting under
+#        a trigger keyword, and the trigger was the CONSTANT NAME
+#        (`RFC_8032_TEST_1_SECRET_KEY_HEX`). Those constants now read
+#        `RFC_8032_TEST_1_SEED_HEX` — which is also the more accurate term,
+#        since RFC 8032 §5.1.5 makes the published 32 bytes the SEED that the
+#        private scalar and prefix are derived from. Nothing is suppressed, so
+#        the vector is caught wherever it appears under a real key-ish name,
+#        INCLUDING in these test files. Verified with a negative control in the
+#        same probe run: genuine secrets planted in the same `__tests__/`
+#        directory are still caught.
+#
+#        This is entry 1's rule run in reverse (see the closing note in (b)):
+#        the firing that justified the entry is gone, so the entry goes too.
+#        Renaming to dodge a scanner would be a smell if the rename were not
+#        independently correct; here the RFC's own vocabulary settles it.
 #
 #    (b) `Ed25519PrivateKey` — the heuristic reads
 #        `const DAEMON_SIGNING_KEY: Ed25519PrivateKey = …` as a
@@ -170,17 +183,35 @@ useDefault = true
 #        its token remains in-tree, even if the triggering phrasing drifts
 #        (see 2).
 [allowlist]
-description = "AWS KMS Ed25519 keyspec enum constant + crypto-algorithm prose tokens + PASETO v4 RFC test vectors + RFC 8032 §7.1 Ed25519 test vectors"
+description = "AWS KMS Ed25519 keyspec enum constant + crypto-algorithm prose tokens + Ed25519PrivateKey type name + PASETO v4 RFC test vectors"
 condition = "OR"
 regexTarget = "secret"
 regexes = [
   '''^ECC_NIST_EDWARDS25519$''',
   '''^XChaCha20-Poly1305-wrapped$''',
   '''^Argon2id-encrypted$''',
-  '''^9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60$''',
-  '''^4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb$''',
   '''^Ed25519PrivateKey$''',
 ]
 paths = [
   '''packages/crypto-paseto/src/__tests__/__fixtures__/v4\.json''',
+]
+# TRANSIENT — remove when this branch squash-merges (see entry 4(a)).
+#
+# The RFC 8032 vectors are no longer suppressed by value, so the two commits
+# that introduced them under the PRE-RENAME constant names are the only place
+# they still fire. Those commits exist on the `feat/plan-006-phase-2-crypto-core`
+# branch ONLY and are squashed away at merge; `develop` receives the post-rename
+# state, which scans clean with no entry at all. CI's gitleaks job scans the PR
+# commit RANGE (`actions/checkout` fetch-depth 0 + gitleaks-action), which is why
+# the working-tree fix alone does not make the job green.
+#
+# Blast radius is bounded by measurement, not assertion: scanning with the RFC
+# value regexes already removed yields exactly four findings across these two
+# commits, all four the published vectors. Allowlisting the pair therefore
+# suppresses precisely that known set and nothing else. Commit-scoping is
+# preferred over restoring the value regexes because it cannot reach a
+# production path — it names two immutable, about-to-vanish SHAs.
+commits = [
+  "59b957b248b9b3c2077b2548c15ac00d82fd13b7",
+  "aee71afbabf78a743025a3ab63f19b2c83f9ff8b",
 ]

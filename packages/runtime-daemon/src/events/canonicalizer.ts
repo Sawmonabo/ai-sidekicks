@@ -262,6 +262,18 @@ export function normalizeOccurredAt(occurredAt: string): string {
     );
   }
 
+  // `-00:00` IS ACCEPTED, DELIBERATELY. RFC 3339 §4.3 distinguishes it from
+  // `+00:00`/`Z` — but only to annotate that the producer's LOCAL offset is
+  // unknown, on the section's own premise that "the time in UTC is known". The
+  // instant is identical, §4.2's local-minus-UTC arithmetic makes the fold exact
+  // (the sign yields `-0`, and `x - (-0) === x`), and RFC 9557 §2.2 — Standards
+  // Track, `Updates: 3339` — has since reassigned that annotation to `Z` itself.
+  // So the fold below discards no time, only provenance the canonical form has
+  // no member to carry. This is the module's stated policy at the header applied
+  // as written: normalize where the rewrite BOTH preserves the instant AND lands
+  // in the canonical form. Refusing here would instead hard-reject conformant
+  // input from a future non-JS producer.
+  //
   // Absent sign ⇒ the `Z` branch matched ⇒ the fields already are UTC. A
   // present sign means the numeric-offset arm matched, which guarantees groups
   // 9 and 10, so they take the same `!` as groups 1–5 rather than a `?? "0"`
@@ -336,7 +348,7 @@ export function normalizeOccurredAt(occurredAt: string): string {
  * DELIBERATELY NOT WIRED INTO {@link canonicalizeEvent} OR `verifyRow`. T4.1
  * owns the read path, and emitting a verdict from here would be T2 code
  * deciding a T4.1 question. The verdict itself now exists:
- * `Spec-006 §Audit Integrity (audit_integrity)`'s thirteen-value `failureMode`
+ * `Spec-006 §Audit Integrity (audit_integrity)`'s fourteen-value `failureMode`
  * enum carries `occurred_at_not_canonical`, paired `failurePath: 'signature'`
  * because that field names the guarantee that failed — the signature binds the
  * stored bytes — not the column the defect occupies. What this predicate
