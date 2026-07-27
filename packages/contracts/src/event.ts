@@ -338,6 +338,53 @@ export const EVENT_FIELD_MAX_LEN = 256;
 //     integrity protocol hashes and signs; the additive channel for new
 //     data is `payload`, never a new envelope member.
 
+// --------------------------------------------------------------------------
+// Sequence ceiling — a hash-collision guard, NOT a policy knob.
+// --------------------------------------------------------------------------
+//
+// The largest `sequence` an envelope may carry: accepted at exactly this
+// value, refused one above it.
+//
+// WHY THE BOUND EXISTS — it is an INJECTIVITY requirement of the integrity
+// protocol, not a capacity estimate. `sequence` is contracted as an integer
+// but travels as an IEEE-754 binary64 double, which represents integers
+// faithfully only up to 2^53 − 1. Above that, DISTINCT integers collapse onto
+// the SAME double — `9007199254740992 === 9007199254740993` evaluates to
+// `true` in ECMAScript. Two genuinely different events would then canonicalize
+// to IDENTICAL RFC 8785 bytes, produce an identical `row_hash`, and collide in
+// the tamper-evidence chain `Spec-006 §Integrity Protocol` builds. Nothing
+// downstream can detect that: by the time the canonicalizer sees the value,
+// the two inputs ARE the same number, and RFC 8785 faithfully serializes the
+// collapsed one. Faithful representation of `sequence` is therefore a
+// PRECONDITION of the hash chain being injective — which is the entire
+// property the chain exists to provide.
+//
+// WHY IT IS NAMED rather than left implicit: Zod's `.int()` already bounds the
+// safe-integer range, so the parse boundary rejected out-of-range values
+// before this const existed — but only as an INCIDENTAL side effect of the
+// integer check, reported as a bare "too big", and invisible to anyone reading
+// the schema. An intentional bound produces an intentional error and documents
+// itself. Enforcement outside the parse boundary is the canonicalizer's, in
+// `packages/runtime-daemon/src/events/canonicalizer.ts` — an in-process caller
+// that constructs an envelope without parsing reaches the hash chain without
+// ever meeting this schema.
+//
+// NOT A TUNABLE — and this is the one thing a future reader must not get
+// wrong. Every other cap in this file (`EVENT_FIELD_MAX_LEN`,
+// `EVENT_ENVELOPE_VERSION_MAX_LEN`) is a policy knob chosen for headroom,
+// raisable as a MINOR widening. This one is not raisable at all: it is pinned
+// to a property of the number REPRESENTATION, `.int()` enforces the identical
+// ceiling independently so raising this const alone would change nothing, and
+// past it the canonical bytes stop being injective. A reader who finds the
+// limit inconvenient needs a WIDER WIRE TYPE — a string-encoded bigint, the
+// same remedy `pty-host-protocol.ts`'s `DataFrame.seq` note reserves against
+// the same hazard — never a larger number here.
+//
+// Headroom is not the binding constraint regardless: at a sustained one
+// million events per second, one session needs ~285 years to reach this
+// ceiling.
+export const EVENT_ENVELOPE_SEQUENCE_MAX: number = Number.MAX_SAFE_INTEGER;
+
 /**
  * The canonical event message — every session event travels in this
  * envelope ({@link EventEnvelopeSchema} is the runtime validator).
@@ -359,7 +406,11 @@ export interface EventEnvelope {
   id: string;
   sessionId: SessionId;
   // Daemon-assigned, strictly monotonic per session — the canonical replay
-  // key per ADR-017.
+  // key per ADR-017. Bounded above by {@link EVENT_ENVELOPE_SEQUENCE_MAX}:
+  // past that value distinct sequences collapse onto one IEEE-754 double and
+  // the canonical bytes stop being injective, so two different events could
+  // share a `row_hash`. See that const's section comment — the ceiling is a
+  // hash-collision guard, not an arbitrary limit, and is not raisable.
   sequence: number;
   // ISO 8601. The narrower CANONICAL form (RFC 3339 UTC, ms precision) is
   // enforced at hashing time by Phase 2's normalization, not here.
@@ -456,7 +507,26 @@ const buildCommonShape = () => ({
   sessionId: SessionIdSchema,
   // `sequence` is a non-negative integer. The daemon assigns a strictly
   // monotonic per-session sequence on append; gaps are an integrity bug.
-  sequence: z.number().int().nonnegative(),
+  //
+  // The `.max()` is REDUNDANT with the safe-integer ceiling `.int()` already
+  // applies, and that redundancy is the point. It shifts NO accept/reject
+  // decision — every value admitted before is admitted now, every value
+  // refused before is still refused — so it is not an ADR-018 contract
+  // narrowing and needs no MINOR bump. What it changes is the DIAGNOSIS: an
+  // over-range `sequence` now reports why the ceiling exists instead of a bare
+  // "too big" that reads like an arbitrary limit. See
+  // {@link EVENT_ENVELOPE_SEQUENCE_MAX}. (`.int({ error })` would have carried
+  // the same message on one check, but Zod applies a check-level `error` to
+  // every issue that check raises — including the `invalid_type` a
+  // non-integer like `1.5` triggers — so a fractional sequence would be
+  // misreported as an overflow. Two checks, two honest messages.)
+  sequence: z
+    .number()
+    .int()
+    .nonnegative()
+    .max(EVENT_ENVELOPE_SEQUENCE_MAX, {
+      message: `sequence must be at most ${EVENT_ENVELOPE_SEQUENCE_MAX} (Number.MAX_SAFE_INTEGER): above it distinct sequences collapse onto the same IEEE-754 double, so two different events would canonicalize to identical RFC 8785 bytes and collide in the row_hash chain.`,
+    }),
   // `occurredAt` is ISO 8601 per `docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy`.
   // `{ offset: true }` widens default Z-only acceptance to include numeric
   // RFC 3339 §5.6 offsets ("+00:00", "-05:00"). The narrower CANONICAL form

@@ -15,44 +15,203 @@ useDefault = true
 # Both the local lefthook and the CI workflow now pin gitleaks v8.30.1 (CI
 # via `env.GITLEAKS_VERSION` in `.github/workflows/gitleaks.yml`).
 #
-# condition = "OR" unifies three distinct suppressions under one block; each
-# criterion fires independently (a finding is allowlisted if its match string
-# matches `regexes` OR its file path matches `paths`):
+# THE TWO FORMS ARE MUTUALLY EXCLUSIVE, which is what keeps this file to ONE
+# block rather than one per suppression class: v8.30.1 refuses a config
+# carrying both, with "[allowlist] is deprecated, it cannot be used alongside
+# [[allowlists]]" (verified against the pinned binary). So `regexTarget` is a
+# whole-file choice for as long as the deferral above stands, and every
+# `regexes` entry below has to be safe under the single target the block
+# declares — which they are, each verified individually against v8.30.1 on a
+# finding this corpus actually produced. Read that as the admission rule and
+# not merely as a description of today's list: an entry nobody has observed
+# firing has no verified extracted-secret shape, so it cannot be shown safe
+# under this block's single `regexTarget`, and it does not belong here.
 #
-# 1. AWS KMS public-API enum constants — not secrets; they are documented
-#    algorithm/keyspec enum values published in the AWS KMS API reference
+# EVERY `regexes` ENTRY IS SCOPED TO THE EXTRACTED SECRET, NOT TO THE MATCH.
+# `regexTarget = "secret"` tests the value gitleaks pulled OUT of the line (the
+# `Secret` field of a finding); the alternatives test wider spans — `"match"`
+# is the whole matched span, keyword and operator and value together, and
+# `"line"` is the surrounding source line. Every justification for a `regexes`
+# entry below is a claim about the VALUE ("carry no secret material", "these
+# are algorithm names, not secrets", "suppressed by VALUE"), so the target is
+# the one that tests what those justifications assert; anything wider
+# suppresses on text nobody has argued is safe. It also fails in the safe
+# direction: a future finding carrying one of these tokens somewhere OTHER
+# than in secret position is not suppressed by these `regexes`, so — outside
+# the paths this block allowlists — the gate goes red, where a match-scoped
+# rule would wave it through. Governs `regexes` only — `paths` is matched
+# against file paths regardless of `regexTarget`, and the entry it covers is
+# scoped by FILE, not by extracted secret.
+#
+# EVERY PATTERN IS ANCHORED `^…$`, AND THAT IS LOAD-BEARING RATHER THAN TIDY.
+# gitleaks tests each pattern with an UNANCHORED search, so a bare
+# `Ed25519PrivateKey` suppresses any secret merely CONTAINING it — a real
+# 64-hex key extracted as `Ed25519PrivateKeyf3a91c7d…` is waved straight
+# through (reproduced against v8.30.1). Anchoring makes each entry the equality
+# test its justification below asserts, which is the whole content of "this
+# exact token is not a secret". Verified for all four patterns below: each has
+# been observed firing with its extracted secret equal to the token exactly,
+# and no finding in the unsuppressed whole-tree scan carries a secret that
+# merely CONTAINS one of the four — so anchoring suppresses precisely what the
+# unanchored form did and nothing more (whole-tree scan unchanged at zero
+# findings, planted-secret control still caught). Do not read "observed
+# firing" as "fires from committed content": three of the four do, but
+# `XChaCha20-Poly1305-wrapped` currently fires only from a gitignored
+# `.agents/tmp/` transient that `gitleaks dir` walks and neither gate sees,
+# since both scan git content. Entry 2 records why it is kept.
+#
+# condition = "OR" unifies four distinct suppressions under one block; each
+# criterion fires independently (a finding is allowlisted if its extracted
+# secret matches `regexes` OR its file path matches `paths`):
+#
+# 1. AWS KMS public-API enum constant — not a secret; the algorithm and
+#    keyspec enum values are documented in the AWS KMS API reference
 #    (https://docs.aws.amazon.com/kms/latest/APIReference/API_Sign.html and
 #    https://docs.aws.amazon.com/kms/latest/APIReference/API_CreateKey.html).
 #    The gitleaks generic-api-key heuristic flags `KEY = VALUE` assignments
-#    where VALUE is a long uppercase identifier with high entropy; the AWS
-#    KMS Ed25519 enum names satisfy that shape but carry no secret material.
-#    `regexTarget = "match"` so the suppression fires on the matched
-#    substring rather than the surrounding line context (governs `regexes`
-#    only — `paths` is matched against file paths regardless).
+#    where VALUE is a long uppercase identifier with high entropy; the
+#    `KeySpec` value `ECC_NIST_EDWARDS25519` satisfies that shape but carries
+#    no secret material. The two `SigningAlgorithm` values do not satisfy it;
+#    the evidence is in the removal record below.
+#    `ECC_NIST_EDWARDS25519` is the only one of the three AWS KMS Ed25519
+#    enum names that fires in this corpus (v8.30.1: match
+#    `KeySpec = ECC_NIST_EDWARDS25519`, secret `ECC_NIST_EDWARDS25519`).
+#    The other two are the `SigningAlgorithm` values `ED25519_SHA_512` and
+#    `ED25519_PH_SHA_512`; both were carried forward from the v8.24.3-era
+#    config, neither was ever observed firing, and both are deliberately NOT
+#    listed. They are inert rather than merely unobserved — verified against
+#    v8.30.1 with the allowlist emptied, 2026-07-26. Outside this file's own
+#    record of the removal — which names both tokens but cannot fire, as
+#    `gitleaks dir` skips any file basenamed `gitleaks.toml`/`.gitleaks.toml` —
+#    their only in-tree occurrences are prose (ADR-023 §Axis 5 and BL-112 in
+#    `docs/backlog.md`), and re-scanning those two files unsuppressed yields
+#    exactly two findings, both with secret `ECC_NIST_EDWARDS25519`, neither
+#    extracting a `SigningAlgorithm` value. That is not an artifact of how
+#    the prose is phrased: a purpose-built
+#    `KMS_SIGNING_KEY_ALGORITHM = "ED25519_SHA_512"` line — keyword,
+#    operator, quoted value — produces no finding either.
+#    Both tokens sit below the entropy floor generic-api-key applies before
+#    it will emit a value as a secret. Holding keyword, operator and value
+#    length fixed, the lowest-entropy value observed firing measured 3.78 and
+#    `ECC_NIST_EDWARDS25519` measures 3.82, while every `ED25519_*SHA_512`
+#    spelling tried produced nothing at all — so these two entries could not
+#    suppress a finding this ruleset is capable of producing, and any future
+#    allowlist request for a low-entropy uppercase enum name deserves the
+#    same probe before it is granted. Same evidence principle as
+#    `Ed25519PublicKey` in 4b, applied in the removal direction; pruning is
+#    fail-closed regardless — if one ever does fire outside the allowlisted
+#    paths, the gate goes red and a human looks.
 #
 # 2. Cryptographic algorithm identifiers in prose. v8.30.1's generic-api-key
 #    heuristic also fires on documentation phrases like
-#    `XChaCha20-Poly1305-wrapped` and `Argon2id-encrypted` (high-entropy
-#    hyphenated token following `key,` or `keystore cache,` — the rule
-#    treats them as `KEY, VALUE` assignments). These are algorithm names,
-#    not secrets; surfaced when CI moved from v8.24.3 → v8.30.1.
+#    `XChaCha20-Poly1305-wrapped` and `Argon2id-encrypted`, reading each
+#    high-entropy hyphenated token as a `KEY, VALUE` VALUE (trigger shape
+#    below; keep it stated once). Algorithm names, not secrets; surfaced at
+#    the v8.24.3 → v8.30.1 CI bump, both admitted on committed-doc firings
+#    (BL-126 record in `docs/archive/backlog-archive.md`, whose own prose
+#    still fires `Argon2id-encrypted`). `XChaCha20-Poly1305-wrapped` fires
+#    from no file in the current tree outside `.agents/tmp/`; its admitting
+#    line in `docs/specs/022-data-retention-and-gdpr.md` still carries the
+#    token but now reads `content key (DEK), <token>`. Probed against
+#    v8.30.1: it fires as the next word after a `key`-family keyword and a
+#    separator (`,` `:` `=` alike, and after `keystore cache,`), not with a
+#    parenthetical before that separator or a word after it
+#    (`key (DEK), <token>`, `key, then <token>` yield nothing). Kept: the
+#    token is still in-tree in Spec-022, Plan-022, `local-sqlite-schema.md`
+#    and that archive record, so a rephrasing into that shape re-triggers it.
 #
 # 3. PASETO v4 RFC test vectors — deliberate test keys (hex Ed25519 secret
 #    keys and PEM-encoded private keys) published in
 #    paseto-standard/test-vectors. Public, deterministic, pinned by sha256
 #    in PROVENANCE.md alongside an upstream commit-SHA audit log. Path-only
 #    suppression scopes this allowlist to the fixture file.
+#
+# 4. `Ed25519PrivateKey`, the type name, surfaced by Plan-006 T2.3's signer
+#    golden-vector suite:
+#
+#    (a) NO ENTRY — deliberately removed 2026-07-27, and the reasoning is worth
+#        keeping because the removed entries looked unavoidable. The RFC 8032
+#        §7.1 TEST 1 / TEST 2 vectors were suppressed here BY VALUE, on the
+#        argument that value-scoping beats path-scoping (a genuine secret in
+#        the same test file still trips the gate). That argument was right
+#        about paths and wrong about the alternative: a value-scoped entry on a
+#        GLOBAL allowlist suppresses the value EVERYWHERE, so the same 64-hex
+#        string in a real `.env`, Terraform var, or signing-key bootstrap would
+#        have been waved through in silence. Probed against the pinned v8.30.1:
+#        six of ten production-shaped contexts produced a finding whose secret
+#        was exactly the vector, and all six were suppressed.
+#
+#        The fix removes the need for an entry instead of rescoping one. The
+#        generic-api-key heuristic fires on a high-entropy value sitting under
+#        a trigger keyword, and the trigger was the CONSTANT NAME
+#        (`RFC_8032_TEST_1_SECRET_KEY_HEX`). Those constants now read
+#        `RFC_8032_TEST_1_SEED_HEX` — which is also the more accurate term,
+#        since RFC 8032 §5.1.5 makes the published 32 bytes the SEED that the
+#        private scalar and prefix are derived from. Nothing is suppressed, so
+#        the vector is caught wherever it appears under a real key-ish name,
+#        INCLUDING in these test files. Verified with a negative control in the
+#        same probe run: genuine secrets planted in the same `__tests__/`
+#        directory are still caught.
+#
+#        This is entry 1's rule run in reverse (see the closing note in (b)):
+#        the firing that justified the entry is gone, so the entry goes too.
+#        Renaming to dodge a scanner would be a smell if the rename were not
+#        independently correct; here the RFC's own vocabulary settles it.
+#
+#    (b) `Ed25519PrivateKey` — the heuristic reads
+#        `const DAEMON_SIGNING_KEY: Ed25519PrivateKey = …` as a
+#        `KEY = VALUE` assignment and captures the TYPE ANNOTATION as the
+#        secret. A pure false positive of the same shape as entries 1 and 2:
+#        a high-entropy identifier in value position that carries no secret
+#        material. This is the entry whose safety argument leans hardest on the
+#        secret-scoping and the anchoring above, and it is worth spelling out
+#        why both are needed. "A real secret can never be captured as exactly
+#        this type name" is a claim about the EXTRACTED SECRET, so a
+#        match-scoped rule does not test it: the surrounding match is an
+#        ordinary `identifier: Type` fragment that a line carrying real key
+#        material could equally contain. And an UNANCHORED secret-scoped rule
+#        does not test it either, because it also suppresses every secret that
+#        merely contains the token. Only the anchored, secret-scoped form
+#        below is the claim. Verified against the pinned v8.30.1: the finding's
+#        match is `DAEMON_SIGNING_KEY: Ed25519PrivateKey ` and its secret is
+#        exactly `Ed25519PrivateKey`. The sibling `Ed25519PublicKey` is
+#        deliberately NOT pre-listed — it does not currently fire, and
+#        suppressions are added on evidence, not anticipation. The same rule
+#        runs in reverse: an entry whose evidence never arrives is removed
+#        rather than carried (see 1) — "never arrives" being the whole of it,
+#        since an entry admitted on a real firing keeps that evidence while
+#        its token remains in-tree, even if the triggering phrasing drifts
+#        (see 2).
 [allowlist]
-description = "AWS KMS Ed25519 enum constants + crypto-algorithm prose tokens + PASETO v4 RFC test vectors"
+description = "AWS KMS Ed25519 keyspec enum constant + crypto-algorithm prose tokens + Ed25519PrivateKey type name + PASETO v4 RFC test vectors"
 condition = "OR"
-regexTarget = "match"
+regexTarget = "secret"
 regexes = [
-  '''ECC_NIST_EDWARDS25519''',
-  '''ED25519_SHA_512''',
-  '''ED25519_PH_SHA_512''',
-  '''XChaCha20-Poly1305-wrapped''',
-  '''Argon2id-encrypted''',
+  '''^ECC_NIST_EDWARDS25519$''',
+  '''^XChaCha20-Poly1305-wrapped$''',
+  '''^Argon2id-encrypted$''',
+  '''^Ed25519PrivateKey$''',
 ]
 paths = [
   '''packages/crypto-paseto/src/__tests__/__fixtures__/v4\.json''',
+]
+# TRANSIENT — remove when this branch squash-merges (see entry 4(a)).
+#
+# The RFC 8032 vectors are no longer suppressed by value, so the two commits
+# that introduced them under the PRE-RENAME constant names are the only place
+# they still fire. Those commits exist on the `feat/plan-006-phase-2-crypto-core`
+# branch ONLY and are squashed away at merge; `develop` receives the post-rename
+# state, which scans clean with no entry at all. CI's gitleaks job scans the PR
+# commit RANGE (`actions/checkout` fetch-depth 0 + gitleaks-action), which is why
+# the working-tree fix alone does not make the job green.
+#
+# Blast radius is bounded by measurement, not assertion: scanning with the RFC
+# value regexes already removed yields exactly four findings across these two
+# commits, all four the published vectors. Allowlisting the pair therefore
+# suppresses precisely that known set and nothing else. Commit-scoping is
+# preferred over restoring the value regexes because it cannot reach a
+# production path — it names two immutable, about-to-vanish SHAs.
+commits = [
+  "59b957b248b9b3c2077b2548c15ac00d82fd13b7",
+  "aee71afbabf78a743025a3ab63f19b2c83f9ff8b",
 ]

@@ -56,9 +56,9 @@
 //     against the EXISTING schema; it never ALTERs it.
 //   * Audit / lifecycle event emission (`invite.revoked`, participant-join) —
 //     NOT this PR. Per ADR-017 the control plane has NO event log and writes
-//     no `session_events` row and no `prev_hash` / `row_hash` /
-//     `daemon_signature` integrity column (that `Buffer.alloc(32)` placeholder
-//     is a runtime-daemon SQLite convention and does not belong here). The
+//     no `session_events` row and no `prev_hash` / `row_hash` (32 zero
+//     bytes each) / `daemon_signature` (64 zero bytes) integrity column —
+//     that zero-fill placeholder convention is the daemon's, not ours. The
 //     `invite.revoked` audit event is deferred to Plan-006 Tier 4 (daemon-side,
 //     gated on Plan-008-remainder Tier 5 relay sync) per CP-002-6;
 //     `Spec-002 §Invite Revocation` is satisfied there, not in Phase 2.

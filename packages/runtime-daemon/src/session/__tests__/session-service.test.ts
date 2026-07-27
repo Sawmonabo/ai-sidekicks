@@ -350,7 +350,13 @@ describe("SessionService — D4 (snapshot survives daemon restart)", () => {
     const versions = reopened
       .prepare("SELECT version FROM schema_version ORDER BY version")
       .all() as ReadonlyArray<{ version: number }>;
-    expect(versions).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }]);
+    expect(versions).toEqual([
+      { version: 1 },
+      { version: 2 },
+      { version: 3 },
+      { version: 4 },
+      { version: 5 },
+    ]);
   });
 
   it("applyMigrations is idempotent against direct re-call on the same handle", () => {
@@ -361,7 +367,13 @@ describe("SessionService — D4 (snapshot survives daemon restart)", () => {
     const versions = ctx.db
       .prepare("SELECT version FROM schema_version ORDER BY version")
       .all() as ReadonlyArray<{ version: number }>;
-    expect(versions).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }]);
+    expect(versions).toEqual([
+      { version: 1 },
+      { version: 2 },
+      { version: 3 },
+      { version: 4 },
+      { version: 5 },
+    ]);
   });
 
   it("applyMigrations on a second handle to the same file is a sequential no-op (read-after-write idempotency)", () => {
@@ -387,7 +399,13 @@ describe("SessionService — D4 (snapshot survives daemon restart)", () => {
       const versions = secondHandle
         .prepare("SELECT version FROM schema_version ORDER BY version")
         .all() as ReadonlyArray<{ version: number }>;
-      expect(versions).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }]);
+      expect(versions).toEqual([
+        { version: 1 },
+        { version: 2 },
+        { version: 3 },
+        { version: 4 },
+        { version: 5 },
+      ]);
     } finally {
       secondHandle.close();
     }
@@ -672,36 +690,44 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
     ).toBeLessThanOrEqual(FAILURE_THRESHOLD);
 
     // Belt-and-braces verification: every trial's database file must
-    // contain exactly the four expected schema_version rows [1, 2, 3, 4]
+    // contain exactly the five expected schema_version rows [1, 2, 3, 4, 5]
     // regardless of how many workers succeeded vs blocked. The
     // useDeferred:false worker calls PRODUCTION applyMigrations, so each
-    // trial exercises the version-1, version-2, version-3, and version-4
-    // migration blocks.
+    // trial exercises the version-1, version-2, version-3, version-4, and
+    // version-5 migration blocks.
     //
     // What this row-count assertion actually guarantees (claim no more):
     //   * it catches a broken or missing anchor INSERT for the newest
-    //     migration (a v4 migration that failed to write its
+    //     migration (a v5 migration that failed to write its
     //     schema_version row, or wrote the wrong version) — and likewise
-    //     for the v2 and v3 anchors, and
+    //     for the v2, v3, and v4 anchors, and
     //   * it catches a within-handle double-apply that duplicated any
     //     anchor row, and
     //   * it is a strict strengthening over the old `[1]` assertion (the
-    //     assertion evolved [1] → [1, 2] → [1, 2, 3] → [1, 2, 3, 4] as
-    //     each migration landed) — it cannot pass anything `[1]` would
-    //     have failed.
+    //     assertion evolved [1] → [1, 2] → [1, 2, 3] → [1, 2, 3, 4] →
+    //     [1, 2, 3, 4, 5] as each migration landed) — it cannot pass
+    //     anything `[1]` would have failed.
     //
     // What it does NOT deterministically catch: a newest-migration-ONLY
-    // `.immediate()` drop (today, v4). Tracing the race, a DEFERRED loser
+    // `.immediate()` drop (today, v5). Tracing the race, a DEFERRED loser
     // hits SQLITE_BUSY on the write-UPGRADE and bails BEFORE committing
     // its INSERT (so no duplicate row lands), and some worker always wins
-    // each BEGIN (so the row is never missing) — the [1, 2, 3, 4] count is
-    // therefore essentially immune to a v4-only `.immediate()` regression.
+    // each BEGIN (so the row is never missing) — the [1, 2, 3, 4, 5] count
+    // is therefore essentially immune to a v5-only `.immediate()`
+    // regression.
     // Deterministic detection of that class rides on the FAILURE_THRESHOLD
     // above (calibrated to v1's ~95% DEFERRED saturation) and is owned by
     // the `TODO(Plan-006)` threshold-calibration item; a racing CREATE
     // TABLE loss would also surface as a worker failure already counted
     // above. Loop over EVERY trial path so a partial regression that only
     // corrupts one trial still surfaces.
+    //
+    // That immunity argument carried from v4 to v5 only because
+    // `DAEMON_SIGNING_KEYS_MIGRATION_SQL` embeds its own version-5 anchor
+    // INSERT in the SAME single `.exec()` as its CREATE TABLE, exactly as
+    // v1-v4 do. A migration that committed its anchor row separately from
+    // its DDL would invalidate this paragraph rather than merely extend
+    // it — re-derive it, do not increment it.
     for (let trial = 0; trial < TRIAL_COUNT; trial++) {
       const trialPath: string = join(raceTmpDir, `imm-trial-${trial.toString()}.db`);
       const verifier: DatabaseType = new Database(trialPath);
@@ -712,8 +738,8 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
           .all() as ReadonlyArray<{ version: number }>;
         expect(
           rows,
-          `trial ${trial.toString()} expected exactly the four migration anchor rows [1, 2, 3, 4] (a broken/missing v4 INSERT — the newest migration — or a duplicated anchor row would fail here); got ${JSON.stringify(rows)}`,
-        ).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }]);
+          `trial ${trial.toString()} expected exactly the five migration anchor rows [1, 2, 3, 4, 5] (a broken/missing v5 INSERT — the newest migration — or a duplicated anchor row would fail here); got ${JSON.stringify(rows)}`,
+        ).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }]);
       } finally {
         verifier.close();
       }

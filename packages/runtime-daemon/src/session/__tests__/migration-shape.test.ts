@@ -51,13 +51,15 @@ const PLAN_001_TABLES: ReadonlyArray<string> = [
 
 // The full set of tables present after ALL migrations have applied
 // (Plan-001 version-1 tables + Plan-003 version-2 tables + Plan-005
-// version-3 tables + Plan-010 version-4 tables). Alphabetical by SQLite's
-// `ORDER BY name` — BINARY collation, so `_` (0x5F) sorts before every
-// lowercase letter and `run_execution_contexts` precedes `runtime_bindings`.
-// Kept separate from `PLAN_001_TABLES` so the snapshot loop's
-// 0001-immutability guard is unaffected by the 0002 / 0003 / 0004 additions.
+// version-3 tables + Plan-010 version-4 tables + the Plan-006 version-5
+// table). Alphabetical by SQLite's `ORDER BY name` — BINARY collation, so
+// `_` (0x5F) sorts before every lowercase letter and
+// `run_execution_contexts` precedes `runtime_bindings`. Kept separate from
+// `PLAN_001_TABLES` so the snapshot loop's 0001-immutability guard is
+// unaffected by the 0002 / 0003 / 0004 / 0005 additions.
 const ALL_EXPECTED_TABLES: ReadonlyArray<string> = [
   "branch_contexts",
+  "daemon_signing_keys",
   "driver_capabilities",
   "driver_contract_meta",
   "driver_tools",
@@ -110,12 +112,13 @@ describe("0001-initial migration shape", () => {
     const rows = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
       .all() as ReadonlyArray<{ name: string }>;
-    // After version-4 (Plan-010) the DB holds the full fourteen-table set:
+    // After version-5 (Plan-006) the DB holds the full fifteen-table set:
     // the four Plan-001 tables, the two Plan-003 tables (node_capabilities,
     // node_trust_state), the four Plan-005 tables (runtime_bindings,
-    // driver_capabilities, driver_tools, driver_contract_meta), and the
-    // four Plan-010 tables (worktrees, ephemeral_clones, branch_contexts,
-    // run_execution_contexts).
+    // driver_capabilities, driver_tools, driver_contract_meta), the four
+    // Plan-010 tables (worktrees, ephemeral_clones, branch_contexts,
+    // run_execution_contexts), and the one Plan-006 table
+    // (daemon_signing_keys).
     expect(rows.map((r) => r.name)).toEqual(ALL_EXPECTED_TABLES);
   });
 
@@ -162,28 +165,28 @@ describe("0001-initial migration shape", () => {
     expect(byName.get("monotonic_ns")?.notnull).toBe(1);
   });
 
-  it("anchors schema_version rows at versions [1, 2, 3, 4]", () => {
+  it("anchors schema_version rows at versions [1, 2, 3, 4, 5]", () => {
     // The `ORDER BY version` is load-bearing: without it the row order is
     // insertion-order luck and the assertion would silently stop pinning
     // which versions landed.
     const versionRows = db
       .prepare("SELECT version FROM schema_version ORDER BY version")
       .all() as ReadonlyArray<{ version: number }>;
-    expect(versionRows.map((r) => r.version)).toEqual([1, 2, 3, 4]);
+    expect(versionRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5]);
   });
 
   it("is idempotent when applyMigrations runs twice", () => {
     // Second invocation must be a no-op (the migration runner short-
     // circuits via hasMigrationApplied per version). Re-running must not
     // throw, must not double-insert any schema_version anchor row, must
-    // not duplicate tables. Four DISTINCT versions [1, 2, 3, 4] is not
+    // not duplicate tables. Five DISTINCT versions [1, 2, 3, 4, 5] is not
     // duplication.
     applyMigrations(db);
     const versionRows = db
       .prepare("SELECT version FROM schema_version ORDER BY version")
       .all() as ReadonlyArray<{ version: number }>;
-    expect(versionRows).toHaveLength(4);
-    expect(versionRows.map((r) => r.version)).toEqual([1, 2, 3, 4]);
+    expect(versionRows).toHaveLength(5);
+    expect(versionRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5]);
   });
 });
 
@@ -1590,5 +1593,263 @@ describe("0004-worktree-lifecycle migration shape", () => {
         FIXTURE_TIMESTAMP,
       );
     }).toThrow(/NOT NULL constraint failed: run_execution_contexts\.git_common_dir/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Plan-006 T2.7 — `daemon_signing_keys` (migration version 5).
+// ---------------------------------------------------------------------------
+//
+// The version-5 table was previously covered only by the table-name census in
+// `ALL_EXPECTED_TABLES`, which pins that it EXISTS and nothing about its shape:
+// a dropped NOT NULL, a widened PK, or a renamed column all pass that census.
+// This block closes that gap the way the 0002 / 0003 / 0004 blocks do for their
+// versions.
+//
+// Every value asserted below was read out of SQLite's own introspection
+// (`PRAGMA table_info` / `PRAGMA index_list`) against the pinned toolchain
+// (better-sqlite3 12.9.0 / SQLite 3.53.0) rather than reasoned from the DDL —
+// column ORDER especially, which no reading of the CREATE TABLE can certify.
+//
+// What this block does NOT re-assert, deliberately: the table-name census, the
+// `schema_version` `[1, 2, 3, 4, 5]` anchor, and applyMigrations idempotency
+// are all pinned by the 0001 block above and would be duplicate coverage here
+// — the same division the 0004 block observes.
+//
+// SHAPE-CHECKABLE CITES:
+//   * `Spec-022 §Daemon Master Key` — the private half is SEALED at rest via
+//     the OS-keystore master key; the column is BLOB NOT NULL and never holds
+//     cleartext key material. The sealing itself is `signing-key-source.ts`'s
+//     injected boundary, covered by that module's own suite.
+//   * `ADR-004 §Decision` — daemon-private key material is per-machine and
+//     lives in local SQLite, never in shared Postgres. That this table exists
+//     in THIS database is the assertion.
+//   * I-006-2-02's custody half — `session_id` is the PRIMARY KEY, so a second
+//     `create()` for one session is a constraint error rather than a silent
+//     re-key that would strand every already-signed row behind a public key no
+//     longer derivable from the stored private half.
+describe("0005-daemon-signing-keys migration shape", () => {
+  let db: DatabaseType;
+
+  const FIXTURE_TIMESTAMP: string = "2026-07-08T00:00:00.000Z";
+  const FIXTURE_PUBLIC_KEY: Buffer = Buffer.alloc(32, 0x01);
+  const FIXTURE_SEALED_PRIVATE_KEY: Buffer = Buffer.alloc(48, 0x02);
+
+  beforeEach(() => {
+    // Canonical factory (Plan-001): applyPragmas → applyMigrations in the
+    // pinned order, which now reaches version 5.
+    db = openDatabase(":memory:");
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  function insertSigningKeyRow(overrides: { sessionId: string; createdAt?: string }): void {
+    db.prepare(
+      `INSERT INTO daemon_signing_keys
+         (session_id, public_key, sealed_private_key, created_at)
+       VALUES (?, ?, ?, ?)`,
+    ).run(
+      overrides.sessionId,
+      FIXTURE_PUBLIC_KEY,
+      FIXTURE_SEALED_PRIVATE_KEY,
+      overrides.createdAt ?? FIXTURE_TIMESTAMP,
+    );
+  }
+
+  it("pins the column shape, single-column PK, and NOT NULL discipline of `daemon_signing_keys`", () => {
+    const columns = db
+      .prepare("PRAGMA table_info(daemon_signing_keys)")
+      .all() as ReadonlyArray<PragmaColumn>;
+
+    // Columns in CID (creation) order — fixed by the CREATE TABLE DDL.
+    expect(columns.map((c) => c.name)).toEqual([
+      "session_id",
+      "public_key",
+      "sealed_private_key",
+      "created_at",
+      "rotated_at",
+    ]);
+
+    const byName = new Map(columns.map((c) => [c.name, c]));
+
+    // Declared types. The two key columns are BLOB and that is load-bearing
+    // rather than cosmetic: `signing-key-source.ts` reads `sealed_private_key`
+    // back expecting bytes, and SQLite's BLOB affinity does NOT coerce a
+    // stored TEXT value (pinned by its own test below).
+    expect(byName.get("session_id")?.type).toBe("TEXT");
+    expect(byName.get("public_key")?.type).toBe("BLOB");
+    expect(byName.get("sealed_private_key")?.type).toBe("BLOB");
+    expect(byName.get("created_at")?.type).toBe("TEXT");
+    expect(byName.get("rotated_at")?.type).toBe("TEXT");
+
+    // Single-column PK on `session_id`; all others pk === 0. This is the
+    // exactly-once custody guard, asserted as shape here and as behaviour
+    // below.
+    expect(byName.get("session_id")?.pk).toBe(1);
+    for (const other of ["public_key", "sealed_private_key", "created_at", "rotated_at"]) {
+      expect(byName.get(other)?.pk).toBe(0);
+    }
+
+    // NOT NULL columns per the DDL. `session_id` is EXCLUDED: the canonical
+    // block declares it `session_id TEXT PRIMARY KEY` with no explicit
+    // `NOT NULL`, and SQLite does not imply NOT NULL on a non-INTEGER PRIMARY
+    // KEY column — the same documented quirk called out on the 0003 and 0004
+    // blocks above.
+    expect(byName.get("session_id")?.notnull).toBe(0);
+    for (const required of ["public_key", "sealed_private_key", "created_at"]) {
+      expect(byName.get(required)?.notnull).toBe(1);
+    }
+    // `rotated_at` is the forward-declared ADR-010 rotation stamp: nullable,
+    // and NULL for every V1 row because no code path writes it (the migration
+    // header's "ships unwritten" note).
+    expect(byName.get("rotated_at")?.notnull).toBe(0);
+
+    // No column carries a DEFAULT — every value is supplied by the writer.
+    for (const column of columns) {
+      expect(column.dflt_value).toBeNull();
+    }
+  });
+
+  it("creates no explicit index beyond the implicit PRIMARY KEY autoindex", () => {
+    const indexes = db.prepare("PRAGMA index_list(daemon_signing_keys)").all() as ReadonlyArray<{
+      name: string;
+      unique: 0 | 1;
+      origin: string;
+      partial: 0 | 1;
+    }>;
+
+    // One entry, and it is SQLite's own PK autoindex (origin "pk") rather than
+    // a CREATE INDEX the migration issued. Lookups are by `session_id` only, so
+    // the PK index is the whole access path.
+    expect(indexes.map((index) => index.name)).toEqual(["sqlite_autoindex_daemon_signing_keys_1"]);
+    expect(indexes[0]?.unique).toBe(1);
+    expect(indexes[0]?.origin).toBe("pk");
+    expect(indexes[0]?.partial).toBe(0);
+
+    const indexColumns = db
+      .prepare("PRAGMA index_info(sqlite_autoindex_daemon_signing_keys_1)")
+      .all() as ReadonlyArray<{ name: string }>;
+    expect(indexColumns.map((c) => c.name)).toEqual(["session_id"]);
+  });
+
+  it("anchors the version-5 schema_version row with its Plan-006 description", () => {
+    const anchorRows = db
+      .prepare("SELECT description FROM schema_version WHERE version = 5")
+      .all() as ReadonlyArray<{ description: string }>;
+    expect(anchorRows).toHaveLength(1);
+    expect(anchorRows[0]?.description).toBe("Daemon signing keys (daemon_signing_keys)");
+  });
+
+  it("rejects a second signing key for the same session (the exactly-once guard)", () => {
+    insertSigningKeyRow({ sessionId: "session-1" });
+
+    let observedError: unknown;
+    try {
+      db.prepare(
+        `INSERT INTO daemon_signing_keys
+           (session_id, public_key, sealed_private_key, created_at)
+         VALUES (?, ?, ?, ?)`,
+      ).run(
+        "session-1",
+        Buffer.alloc(32, 0xaa),
+        Buffer.alloc(48, 0xbb),
+        "2026-07-09T00:00:00.000Z",
+      );
+    } catch (error) {
+      observedError = error;
+    }
+
+    // `code` is better-sqlite3's SqliteError discriminator — the crisp half of
+    // the pin; the message text is the brittle half. SQLite reports a
+    // single-column PK collision as SQLITE_CONSTRAINT_PRIMARYKEY with a
+    // "UNIQUE constraint failed" message, which is worth pinning precisely
+    // because the two halves disagree in vocabulary.
+    expect(observedError).toBeInstanceOf(Error);
+    expect((observedError as { code?: string }).code).toBe("SQLITE_CONSTRAINT_PRIMARYKEY");
+    expect((observedError as Error).message).toMatch(
+      /UNIQUE constraint failed: daemon_signing_keys\.session_id/i,
+    );
+
+    // The rejection leaves the ORIGINAL key in place. This is the half that
+    // matters: a silent re-key would strand every row already signed with the
+    // first private key behind a public key no verifier can resolve.
+    const rows = db
+      .prepare("SELECT public_key, created_at FROM daemon_signing_keys")
+      .all() as ReadonlyArray<{ public_key: Uint8Array; created_at: string }>;
+    expect(rows).toHaveLength(1);
+    expect(Uint8Array.from(rows[0]?.public_key ?? [])).toEqual(Uint8Array.from(FIXTURE_PUBLIC_KEY));
+    expect(rows[0]?.created_at).toBe(FIXTURE_TIMESTAMP);
+  });
+
+  it("admits a second signing key for a DIFFERENT session", () => {
+    // Negative control for the PK test above: the collision is scoped to one
+    // session, so the table is genuinely per-session rather than per-daemon.
+    insertSigningKeyRow({ sessionId: "session-1" });
+    expect(() => {
+      insertSigningKeyRow({ sessionId: "session-2" });
+    }).not.toThrow();
+  });
+
+  it("rejects a row omitting public_key / sealed_private_key / created_at", () => {
+    for (const [omittedColumn, columnList, values] of [
+      [
+        "public_key",
+        "(session_id, sealed_private_key, created_at)",
+        ["session-no-public", FIXTURE_SEALED_PRIVATE_KEY, FIXTURE_TIMESTAMP],
+      ],
+      [
+        "sealed_private_key",
+        "(session_id, public_key, created_at)",
+        ["session-no-sealed", FIXTURE_PUBLIC_KEY, FIXTURE_TIMESTAMP],
+      ],
+      [
+        "created_at",
+        "(session_id, public_key, sealed_private_key)",
+        ["session-no-created", FIXTURE_PUBLIC_KEY, FIXTURE_SEALED_PRIVATE_KEY],
+      ],
+    ] as ReadonlyArray<[string, string, ReadonlyArray<string | Buffer>]>) {
+      // No DEFAULT on any column, so an omitted column resolves to NULL and
+      // the NOT NULL constraint is what rejects.
+      expect(() => {
+        db.prepare(
+          `INSERT INTO daemon_signing_keys ${columnList} VALUES (${values.map(() => "?").join(", ")})`,
+        ).run(...values);
+      }).toThrow(
+        new RegExp(`NOT NULL constraint failed: daemon_signing_keys\\.${omittedColumn}`, "i"),
+      );
+    }
+  });
+
+  it("accepts a row with rotated_at NULL — the column ships unwritten in V1", () => {
+    insertSigningKeyRow({ sessionId: "session-unrotated" });
+    const row = db
+      .prepare("SELECT rotated_at FROM daemon_signing_keys WHERE session_id = ?")
+      .get("session-unrotated") as { rotated_at: string | null };
+    expect(row.rotated_at).toBeNull();
+  });
+
+  it("does NOT coerce a TEXT value stored in the BLOB key columns", () => {
+    // The reason `signing-key-source.ts` guards its read: SQLite's BLOB
+    // declared type gives BLOB AFFINITY with NO coercion, so a TEXT value
+    // written into `sealed_private_key` comes back as a JS `string` past a
+    // `Uint8Array`-typed read. Nothing in the DDL prevents that write — the
+    // module-level guard is the only thing that catches it, so the DDL's
+    // permissiveness is pinned here rather than assumed away.
+    db.prepare(
+      `INSERT INTO daemon_signing_keys
+         (session_id, public_key, sealed_private_key, created_at)
+       VALUES (?, ?, ?, ?)`,
+    ).run("session-text-blob", FIXTURE_PUBLIC_KEY, "not-actually-bytes", FIXTURE_TIMESTAMP);
+
+    const row = db
+      .prepare(
+        `SELECT typeof(sealed_private_key) AS storage_class, sealed_private_key
+           FROM daemon_signing_keys WHERE session_id = ?`,
+      )
+      .get("session-text-blob") as { storage_class: string; sealed_private_key: unknown };
+    expect(row.storage_class).toBe("text");
+    expect(typeof row.sealed_private_key).toBe("string");
   });
 });

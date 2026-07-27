@@ -208,9 +208,18 @@ importers:
       '@ai-sidekicks/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@noble/curves':
+        specifier: ^2
+        version: 2.2.0
+      '@noble/hashes':
+        specifier: ^2
+        version: 2.2.0
       better-sqlite3:
         specifier: ^12.9.0
         version: 12.9.0
+      canonicalize:
+        specifier: 3.0.0
+        version: 3.0.0
       node-pty:
         specifier: ^1.2.0-beta.12
         version: 1.2.0-beta.12
@@ -1511,6 +1520,11 @@ packages:
 
   caniuse-lite@1.0.30001792:
     resolution: {integrity: sha512-hVLMUZFgR4JJ6ACt1uEESvQN1/dBVqPAKY0hgrV70eN3391K6juAfTjKZLKvOMsx8PxA7gsY1/tLMMTcfFLLpw==}
+
+  canonicalize@3.0.0:
+    resolution: {integrity: sha512-yYLfHyDMIXRyRqsKBRLX023riFLpXY2YOfdtqKXZRZy9qsfOJ9U+4F9YZL7MEzL5+ziN2x2nlBvY/Voi3EBljA==}
+    engines: {node: '>=18'}
+    hasBin: true
 
   chai@6.2.2:
     resolution: {integrity: sha512-NUPRluOfOiTKBKvWPtSD4PhFvWCqOi0BGStNWs57X9js7XGTprSmFoz5F0tWhR4WPjNeR9jXqdC7/UpSJTnlRg==}
@@ -4119,6 +4133,8 @@ snapshots:
   callsites@3.1.0: {}
 
   caniuse-lite@1.0.30001792: {}
+
+  canonicalize@3.0.0: {}
 
   chai@6.2.2: {}
 
