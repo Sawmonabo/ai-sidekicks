@@ -73,8 +73,8 @@ Target paths below assume the canonical implementation topology defined in [Cont
 #### Tasks
 
 1. Implement branch-context persistence tied to writable execution modes and runs.
-   - **Spec coverage:** Spec-011 line 40 (every writable run executes against an explicit branch context); line 41 (track base/head/worktree association); line 64 (`BranchContextRead` exposes base/head/upstream/worktree); AC line 173.
-   - **Verifies invariant:** — (no I-011 invariant governs persistence directly — A-011-2 adjudicates Task 1 as persistence backfill, not gated by an I-011 invariant).
+   - **Spec coverage:** Spec-011 line 40 (every writable run executes against an explicit branch context), line 41 (track base/head/worktree association), line 64 (`BranchContextRead` exposes base/head/upstream/worktree), AC line 173.
+   - **Verifies invariant:** none (no I-011 invariant governs persistence directly — A-011-2 adjudicates Task 1 as persistence backfill, not gated by an I-011 invariant).
    - **Consumes:**
      - `BranchContextId` ← Plan-010 provider (cross-plan-dependencies §1 line 22; Plan-010 CP-010-6) — minted by `repo.executionRootPrepare`; SHAPE verified present.
      - `branch_contexts` row (ALTER/extend) ← Plan-010 provider ([`branch_contexts`](../architecture/schemas/local-sqlite-schema.md#workspace-and-git-tables-plan-009-plan-010-plan-011); §1 line 22) — at-most-one association CHECK + (worktree_id, workspace_id) partial-unique index present.
@@ -82,7 +82,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 2. Build diff artifact generation with explicit attribution mode. Use Agent Trace standard and git trailers (`Agent-Run: <run-id>`, `Co-authored-by: <agent-name>`) for commit-level and line-level provenance. DiffArtifact is a specialized artifact (`artifactType: "diff"`) using the OCI manifest envelope defined in Spec-014.
    - **Attribution-mode value set (D-011-2 — resolved):** the `diff_artifacts.attribution_mode` value set is canonicalized to `run_attributed` / `workspace_fallback` (the `Spec-011 §Default Behavior` / `Spec-011 §Fallback Behavior` provenance-quality vocabulary), superseding the prior wire+schema `agent_trace`/`git_diff` pair that conflated provenance quality with the attribution mechanism. The enum/CHECK edge is now executable: `attributionMode: "run_attributed" | "workspace_fallback"` (api-payload-contracts.md) and `CHECK(attribution_mode IN ('run_attributed', 'workspace_fallback'))` (local-sqlite-schema.md). This reconciled an existing contract, not a new contract surface — the plan stays `approved`.
-   - **Spec coverage:** Spec-011 line 42 (diff provenance to producing run); line 43 (`artifactType: "diff"` in the Spec-014 envelope); line 44 (labeled workspace-level fallback); line 45 (Agent Trace + git trailers); line 52 / line 58 (the two attribution modes); AC line 174.
+   - **Spec coverage:** Spec-011 line 42 (diff provenance to producing run), line 43 (`artifactType: "diff"` in the Spec-014 envelope), line 44 (labeled workspace-level fallback), line 45 (Agent Trace + git trailers), line 52 (default attribution mode `run_attributed`), line 58 (fallback emits `workspace_fallback` with explicit labeling), AC line 174.
    - **Verifies invariant:** I-011-1 — workspace-fallback never labeled run-attributed.
    - **Consumes:**
      - `artifact_manifests` + OCI envelope, `artifactType: "diff"` ← Plan-014 provider ([`artifact_manifests`](../architecture/schemas/local-sqlite-schema.md#artifact-tables-plan-014); `Spec-014 §Interfaces And Contracts`, return-cite `Spec-014 §State And Data Implications`) — SHAPE verified: `"diff"` admitted by the artifactType discriminator.
@@ -90,8 +90,8 @@ Target paths below assume the canonical implementation topology defined in [Cont
      - `attributionMode` enum ← **RESOLVED (D-011-2)**: canonicalized to the Spec vocabulary `run_attributed` / `workspace_fallback` in both contract (api-payload-contracts.md `attributionMode: "run_attributed" | "workspace_fallback"`) and schema (local-sqlite-schema.md `CHECK(attribution_mode IN ('run_attributed', 'workspace_fallback'))`), matching the AC-174 Spec vocabulary. The prior `agent_trace`/`git_diff` pair is dropped.
 
 3. Build reviewable PR preparation records and remote mutation handoff. Implement the `GitHostingAdapter` interface with `gh` CLI as the V1 backend; use normalized `createChangeRequest` terminology and auto-detect provider from the git remote URL.
-   - **Spec coverage:** Spec-011 line 46 (PR prep uses recorded base/head, not client tab); line 47 (commit/push/PR reviewable before execution); line 51 (default PR target = recorded base); line 66 (`PRPrepare` reviewable proposal before remote mutation); line 67 (`GitActionExecute` preserves causation); line 68 + §Git Hosting Adapter lines 118-152 (GitHostingAdapter / gh / createChangeRequest / auto-detect); AC line 175.
-   - **Verifies invariant:** I-011-2 + I-011-3 — base/head from recorded context; durable reviewable record before remote mutation.
+   - **Spec coverage:** Spec-011 line 46 (PR prep uses recorded base/head, not client tab), line 47 (commit/push/PR reviewable before execution), line 51 (default PR target = recorded base), line 66 (`PRPrepare` reviewable proposal before remote mutation), line 67 (`GitActionExecute` preserves causation), line 68 + §Git Hosting Adapter lines 118-152 (GitHostingAdapter / gh / createChangeRequest / auto-detect), AC line 175.
+   - **Verifies invariant:** I-011-2 + I-011-3 — base/head from recorded context, durable reviewable record before remote mutation.
    - **Consumes:**
      - `pr_preparations` table (CREATE, Plan-011-owned) — fully specified ([`pr_preparations`](../architecture/schemas/local-sqlite-schema.md#workspace-and-git-tables-plan-009-plan-010-plan-011): branch_context_id FK, state CHECK, proposal_blob, target_branch).
      - `RepoMountId`, `RunId`, `ParticipantId` branded types ← upstream providers (GitActionExecute fields) — present.
@@ -99,7 +99,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
      - wire method names `gitflow.prPrepare` / `gitflow.gitActionExecute` ← **RESOLVED (A-011-1 + D-011-5)**: the request/response shapes are defined in api-payload-contracts.md (`PRPrepareRequest`/`PRPrepareResponse`, `GitActionExecuteRequest`/`GitActionExecuteResponse`), and the four `gitflow.*` wire method-name strings are now registered in the canonical method table there (`gitflow.branchContextRead` / `gitflow.diffArtifactCreate` / `gitflow.prPrepare` / `gitflow.gitActionExecute`) — `dotted-camelCase` per the `METHOD_NAME_FORMAT` registry, which **rejects** the PascalCase type symbols (`PRPrepare`, `GitActionExecute`) as method strings (D-011-5 supersedes A-011-1's earlier 'standing PascalCase convention' adjudication).
 
 4. Add desktop diff and PR preparation review surfaces.
-   - **Spec coverage:** Spec-011 line 47 (reviewable before execution); line 44 (explicit fallback labeling shown in UI); line 161 (attribution quality is a first-class field, not a UI decoration); AC line 174 (modes distinguished) + AC line 175 (reviewable proposal).
+   - **Spec coverage:** Spec-011 line 47 (reviewable before execution), line 44 (explicit fallback labeling, never implied run attribution), line 161 (attribution quality is a first-class field, not an inferred UI decoration), AC line 174 (modes distinguished) + AC line 175 (reviewable proposal).
    - **Verifies invariant:** I-011-1 — UI surfaces the fallback label honestly.
    - **Consumes:**
      - renderer path `apps/desktop/src/renderer/src/diff-review/` ← Plan-011-owned (cross-plan-dependencies §2, `apps/desktop/src/renderer/` row) — present/pinned.

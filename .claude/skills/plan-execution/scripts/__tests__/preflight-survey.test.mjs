@@ -13,8 +13,9 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, cpSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import process from "node:process";
@@ -201,13 +202,131 @@ test("surveyCorpus: zero-phase plan is a notice, not an anomaly; template is ski
   try {
     const survey = surveyCorpus({ repoRoot: tmp });
     assert.equal(survey.planCount, 2); // template excluded
-    assert.equal(survey.phaseCount, 1);
+    assert.equal(survey.phaseCount, 1); // the fallback unit is not a dispatchable phase
     assert.equal(survey.notices.length, 1);
     assert.match(survey.notices[0], /050-cluster-shaped\.md/);
     assert.deepEqual(survey.anomalies, []);
+    // The notice names the walkPhases gap, but the plan is still SWEPT — it is
+    // counted as covered via the whole-document fallback, never skipped.
+    assert.deepEqual(survey.fallbackPlans, ["050-cluster-shaped.md"]);
+    assert.deepEqual(survey.uncoveredPlans, []);
+    assert.equal(survey.surveyedPlanCount, 2);
     const text = formatSurvey(survey);
     assert.match(text, /notices \(1\):/);
     assert.match(text, /anomalies: none/);
+    assert.match(text, /coverage: 2\/2 plan\(s\) cite-swept, 0 uncovered/);
+    assert.match(text, /whole-document fallback \(1\): 050-cluster-shaped\.md/);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+// ---------- coverage: the whole-document fallback (false-clean verdict fix) ----------
+//
+// Phase-scoped sweeping used to `continue` past any plan without a `### Phase N`
+// heading BEFORE running a single cite screen, then print `cite anomalies: none`
+// — a false-clean verdict over 9 of the live corpus's 28 plans. These tests pin
+// the three properties that make the verdict honest again: the fallback CATCHES
+// what the skip hid, coverage is reported as a first-class number, and no third
+// silent-skip path survives.
+
+const PHASELESS_BAD_CITE_PLAN = `## Implementation Steps
+
+Prose-shaped plan with no \`### Phase N\` heading anywhere.
+
+#### Tasks
+
+- **T1.1 — task whose cites point at nothing**
+  - **Spec coverage:** Spec-999 §Nonexistent Section
+  - **Verifies invariant:** Spec-050 §Also Nonexistent Heading
+`;
+
+test("surveyCorpus: a phase-less plan's broken cites are CAUGHT, not skipped behind a clean verdict", () => {
+  const tmp = makeFixtureCorpus({ "062-phaseless-bad-cite.md": PHASELESS_BAD_CITE_PLAN });
+  try {
+    const survey = surveyCorpus({ repoRoot: tmp });
+    assert.deepEqual(survey.anomalies, []); // two-sided screen stays clean
+    assert.equal(survey.citeAnomalies.length, 2, survey.citeAnomalies.join("\n"));
+    assert.match(
+      survey.citeAnomalies[0],
+      /062-phaseless-bad-cite\.md \(whole document\) \[spec-file-not-found\]/,
+    );
+    assert.match(
+      survey.citeAnomalies[1],
+      /062-phaseless-bad-cite\.md \(whole document\) \[section-not-found\]/,
+    );
+    // Not a vacuous pass: this plan carries markers, so it is verified, not skipped.
+    assert.deepEqual(survey.markerlessFallbackPlans, []);
+    assert.doesNotMatch(formatSurvey(survey), /cite anomalies: none/);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("surveyCorpus: a markerless fallback plan is reported as a VACUOUS pass, not a verified one", () => {
+  const tmp = makeFixtureCorpus({
+    "063-phaseless-no-markers.md": "## Implementation Steps\n\nProse only, no cite markers.\n",
+  });
+  try {
+    const survey = surveyCorpus({ repoRoot: tmp });
+    assert.deepEqual(survey.citeAnomalies, []);
+    assert.deepEqual(survey.fallbackPlans, ["063-phaseless-no-markers.md"]);
+    assert.deepEqual(survey.markerlessFallbackPlans, ["063-phaseless-no-markers.md"]);
+    // "clean" here must be legible as "nothing to check", never as "verified".
+    const text = formatSurvey(survey);
+    assert.match(text, /swept but no cite markers to verify — vacuous pass \(1\)/);
+    assert.match(text, /063-phaseless-no-markers\.md/);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("surveyCorpus: a remainder-ONLY plan (### Phase R1, no numeric phase) is surveyed, not dropped", () => {
+  // The zero-phase guard used to key on walkPhases alone and `continue` BEFORE
+  // remainderLabels was computed, so a plan carrying only remainder/supplement
+  // headings was skipped whole — a second silent-skip path behind the same
+  // clean verdict. Keying the fallback on the COMBINED label set closes it, and
+  // this plan must take the normal PHASE route (no fallback, no notice).
+  const tmp = makeFixtureCorpus({
+    "064-remainder-only.md": `### Phase R1 — remainder work
+
+#### Tasks
+
+- **T-064-R1-1 — task with a phantom section cite**
+  - **Spec coverage:** Spec-050 §No Such Section
+  - **Verifies invariant:** Spec-050 §Required Behavior
+`,
+  });
+  try {
+    const survey = surveyCorpus({ repoRoot: tmp });
+    assert.equal(survey.phaseCount, 1);
+    assert.deepEqual(survey.fallbackPlans, []);
+    assert.deepEqual(survey.notices, []);
+    assert.equal(survey.citeAnomalies.length, 1, survey.citeAnomalies.join("\n"));
+    assert.match(survey.citeAnomalies[0], /064-remainder-only\.md Phase R1 \[section-not-found\]/);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("surveyCorpus: an unreadable plan is UNCOVERED and gates via anomalies (no silent third path)", () => {
+  // The residual leg of the fail-closed contract: when the sweep cannot reach a
+  // plan at all it must be named and gated, never folded into a clean verdict.
+  // A directory at a plan path makes readFileSync throw EISDIR deterministically.
+  const tmp = makeFixtureCorpus({ "065-fine.md": CLEAN_PHASE });
+  try {
+    mkdirSync(join(tmp, "docs", "plans", "066-unreadable.md"));
+    const survey = surveyCorpus({ repoRoot: tmp });
+    assert.equal(survey.planCount, 2);
+    assert.equal(survey.surveyedPlanCount, 1);
+    assert.equal(survey.uncoveredPlans.length, 1);
+    assert.equal(survey.uncoveredPlans[0].name, "066-unreadable.md");
+    // Gates unconditionally — it rides `anomalies`, so plain --survey blocks too.
+    assert.equal(survey.anomalies.length, 1);
+    assert.match(survey.anomalies[0], /066-unreadable\.md \[survey-uncovered\]/);
+    const text = formatSurvey(survey);
+    assert.match(text, /coverage: 1\/2 plan\(s\) cite-swept, 1 uncovered/);
+    assert.match(text, /uncovered \(1\) — gated via anomalies:/);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
@@ -282,13 +401,45 @@ test("surveyCorpus: REAL corpus has zero two-sided anomalies", () => {
   assert.ok(survey.phaseCount >= 63, `expected ≥63 walked phases, saw ${survey.phaseCount}`);
 });
 
-test("surveyCorpus: REAL corpus — gated cite anomalies clean; legacy-inline debt diverted + visible", () => {
+// The gated Gate-4 cite channel on the live corpus is EMPTY, and this pin is
+// what keeps it that way.
+//
+// History: the whole-document fallback (coverage fix) first exposed 53 gated
+// findings across Plan-011 / Plan-014 / Plan-015 — real debt the phase-scoped
+// sweep had never reached, because those plans carry no `### Phase N` heading.
+// They were pinned here as a temporary BASELINE and have since been healed:
+//   - the grammar learned the `AC line N` sub-anchor (corpus vocabulary shared
+//     by Plan-011 / Plan-014 / Plan-025) and gained quote-region tokenization;
+//   - Plan-011 moved its sub-anchor separators from `;` (unconditional
+//     new-namespace) to `,` (same-namespace continuation);
+//   - Plan-014 dropped a singular `line N-M` range and a `line N + M` bare-plus
+//     continuation, both one-plan idioms;
+//   - Plan-015 converted its `(`docs/specs/…md:LINE`)` prose anchors into the
+//     marker grammar, every line number preserved verbatim.
+//
+// Pinned as an exact SET (now empty), not a count, so the guard keeps teeth in
+// BOTH directions: a plan gaining cite debt lands here as an unexpected name.
+// The correct response is to FIX the cite — never to re-add a name to this
+// list, and never to widen LEGACY_INLINE_CITE_EXEMPT (its divert is scoped to
+// legacy marker-SHAPE kinds and deliberately excludes `unparseable-cite` /
+// `unparseable-spec-subanchor`).
+//
+// One non-obvious way this pin fails: `[stale-exemption]` findings ride the same
+// `citeAnomalies` channel keyed by bare basename, so re-authoring Plan-008 or
+// Plan-023 clean adds ITS name here. That failure is correct (the exemption must
+// be deleted in the same PR) but reads as a cite defect — check for
+// `[stale-exemption]` in the diff output before hunting for a malformed cite.
+
+test("surveyCorpus: REAL corpus — zero gated cite anomalies; legacy-inline debt diverted + visible", () => {
   const survey = surveyCorpus({ repoRoot: REPO_ROOT });
-  // The gated channel (what --enforce-cites folds into the exit) is empty: the
-  // healed plans carry no cite anomaly, the two compact-inline plans divert out,
-  // and no exemption has gone stale. A regression in any of those lands right here.
+  // Attribution ratchet on the gated channel (what --enforce-cites folds into
+  // the exit). A newly authored plan with a cite defect, or an exemption gone
+  // stale, lands right here as an unexpected plan name.
+  const plansWithGatedCiteAnomalies = [
+    ...new Set(survey.citeAnomalies.map((anomaly) => anomaly.split(" ")[0])),
+  ].sort();
   assert.deepEqual(
-    survey.citeAnomalies,
+    plansWithGatedCiteAnomalies,
     [],
     "gated cite anomalies on the live corpus:\n" + survey.citeAnomalies.join("\n"),
   );
@@ -1209,21 +1360,88 @@ test("surveyCorpus: a clean plan at an exempt path trips the stale-exemption rat
   }
 });
 
-test("preflight --survey --enforce-cites: real corpus exits 0 (armed — clean under enforcement)", () => {
-  // The load-bearing arming guard, matching the docs-corpus CI step. With the
-  // eight-plan cite heals landed and the two compact-inline plans diverted via
-  // LEGACY_INLINE_CITE_EXEMPT, the live corpus has zero GATED cite anomalies, so the
-  // armed survey exits 0. A future non-exempt plan gaining a cite defect — or an
-  // exempt plan re-authored clean (the stale-exemption ratchet) — flips this to
-  // exit 1: enforcement doing its job. The exempt block always prints so the
-  // remaining legacy-inline debt stays visible.
+test("preflight --survey --enforce-cites: real corpus exits 0 with zero gated cite anomalies (armed)", () => {
+  // The load-bearing arming guard, matching the docs-corpus CI step. It asserted
+  // exit 0 while the survey was skipping 9 of 28 plans outright — the false-clean
+  // verdict the coverage fix closed by surfacing 53 real findings. Those are now
+  // healed (see the KNOWN-clean note above), so the armed exit is 0 again — this
+  // time on a sweep that actually reaches all 28 plans. The `0 uncovered` +
+  // `cite anomalies: none` pair is what makes the green meaningful: either alone
+  // is satisfiable by a sweep that simply skipped the work.
   const run = spawnSync(process.execPath, [PREFLIGHT, "--survey", "--enforce-cites"], {
     encoding: "utf8",
     cwd: REPO_ROOT,
   });
   assert.equal(run.status, 0, run.stdout + run.stderr);
   assert.match(run.stdout, /distribution:/);
+  assert.ok(run.stdout.endsWith("\n"), "report truncated mid-line — stdout was not drained");
+  assert.match(run.stdout, /^cite anomalies: none$/m);
   assert.match(run.stdout, /cite-exempt \(legacy-inline, \d+ plan\(s\)/);
+  // Coverage is a first-class number on every run, and the residual stays at zero.
+  assert.match(run.stdout, /^coverage: (\d+)\/\1 plan\(s\) cite-swept, 0 uncovered$/m);
+});
+
+test("preflight --survey: an over-pipe-buffer report drains fully (no mid-line truncation)", () => {
+  // Pipe-drain regression guard, relocated off the real corpus. spawnSync reads
+  // stdout through a PIPE, where Node's writes are async; the old
+  // `process.exit()` discarded the buffer and cut the report at 8192 bytes
+  // mid-line, losing the whole trailing `cite-exempt` visible-debt block on
+  // exactly the failing runs CI reads. The fix is `process.exitCode` + return.
+  //
+  // The healed real-corpus report is ~5 KB — under the observed pipe boundary,
+  // so it can no longer exercise the path. Rather than drop the guard, the CLI
+  // is COPIED into a temp repo root (a symlink would not work: ESM resolves
+  // `import.meta.url` through symlinks, so the copy's derived REPO_ROOT would
+  // snap back to the real repo) over a synthetic corpus large enough to push
+  // the report well past 8192 bytes. This exercises the real `main()` survey
+  // branch, not a shim.
+  // realpathSync is load-bearing: preflight.mjs guards `main()` on
+  // `process.argv[1] === fileURLToPath(import.meta.url)`, and macOS resolves
+  // `/var/folders/…` (what mkdtempSync returns) to `/private/var/folders/…`
+  // (what ESM reports). Spawning the unresolved path makes the CLI a silent
+  // no-op that exits 0 with empty stdout.
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "survey-drain-")));
+  try {
+    const scriptsDir = join(root, ".claude", "skills", "plan-execution", "scripts");
+    mkdirSync(scriptsDir, { recursive: true });
+    cpSync(resolve(__dirname, ".."), scriptsDir, {
+      recursive: true,
+      filter: (src) => !src.includes("__tests__"),
+    });
+    const plansDir = join(root, "docs", "plans");
+    mkdirSync(plansDir, { recursive: true });
+    // Each plan contributes a long-titled phase line plus a cite anomaly line;
+    // 40 of them clear the boundary with margin on any platform.
+    for (let index = 0; index < 40; index += 1) {
+      const number = String(100 + index).padStart(3, "0");
+      writeFileSync(
+        join(plansDir, `${number}-drain-fixture-plan-with-a-deliberately-long-name.md`),
+        `### Phase 1 — drain fixture phase with a deliberately long title\n\n` +
+          `#### Tasks\n\n- **T1.1 — drain fixture task with a deliberately long title**\n` +
+          `  - **Spec coverage:** prose that matches no namespace pattern whatsoever\n` +
+          `  - **Verifies invariant:** none (drain fixture)\n`,
+      );
+    }
+    const copiedPreflight = join(scriptsDir, "preflight.mjs");
+    const run = spawnSync(process.execPath, [copiedPreflight, "--survey"], { encoding: "utf8" });
+    // Drain-completeness first. Under the `process.exit()` regression the report
+    // is cut exactly AT the pipe boundary, so a leading size assertion fires with
+    // "report too small" — diagnosing a shrunken FIXTURE when the CLI is what
+    // regressed. Ordering the semantic checks ahead of the adequacy check keeps
+    // the failure message pointed at the real cause.
+    assert.ok(run.stdout.endsWith("\n"), "report truncated mid-line — stdout was not drained");
+    // The trailing block is the one the truncation used to eat; assert the tail
+    // is structurally complete, not merely newline-terminated.
+    assert.match(run.stdout, /cite anomalies \(\d+\) \[warn-only/);
+    // Fixture adequacy last: a report under the boundary cannot exercise the path
+    // at all, so a shrunken corpus must fail loudly rather than pass vacuously.
+    assert.ok(
+      Buffer.byteLength(run.stdout) > 8192,
+      `report too small to exercise the pipe-drain path (${Buffer.byteLength(run.stdout)} bytes)`,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("preflight --survey --enforce-cites <plan>: still rejects an extra positional (exit 2)", () => {
@@ -1234,4 +1452,172 @@ test("preflight --survey --enforce-cites <plan>: still rejects an extra position
   );
   assert.equal(run.status, 2, run.stdout + run.stderr);
   assert.match(run.stderr, /runs alone/);
+});
+
+// ---------- intra-plan coverage: markers outside every survey unit ----------
+//
+// `N/M plan(s) cite-swept, 0 uncovered` counts PLANS, and a plan counts as swept
+// the moment ONE survey unit exists. Units are phase sections, so a bold cite
+// marker under a non-`Phase` `###` heading sits inside a counted plan and outside
+// every unit — never screened, yet reported as covered. The whole-document
+// fallback cannot rescue it: that fires only at `surveyUnits.length === 0`, so a
+// single `### Phase N` heading pins the plan to the per-phase path permanently.
+// Counting the residual is what keeps the plan-level number from being read as
+// marker-level coverage.
+
+// Mirrors the real Plan-025 layout: the carve-out sections sit BEFORE the only
+// `### Phase N` heading. Ordering is load-bearing — `extractPhaseSection` runs a
+// phase to EOF, so the same two sections placed AFTER Phase 1 would be swallowed
+// into its span and swept. `### Tier-7 Remainder — …` is prose, not a remainder
+// LABEL: the remainder walk matches `### Phase R1` / `### Phase 7A` only.
+const PARTIALLY_SWEPT_PLAN = `### Tier-7 Remainder — carve-out narrative
+
+#### Tasks
+
+- **T-R-1 — a task OUTSIDE every phase section**
+  - **Spec coverage:** Spec-999 §Nonexistent Section
+  - **Verifies invariant:** Spec-999 §Also Nonexistent
+
+### Phase 1 — swept work
+
+#### Tasks
+
+- **T1.1 — a task inside a phase section**
+  - **Spec coverage:** Spec-050 §Required Behavior
+  - **Verifies invariant:** Spec-050 §Framing (V1 Pairwise)
+`;
+
+test("surveyCorpus: bold markers outside every survey unit are COUNTED, not implied covered", () => {
+  const tmp = makeFixtureCorpus({ "065-partially-swept.md": PARTIALLY_SWEPT_PLAN });
+  try {
+    const survey = surveyCorpus({ repoRoot: tmp });
+    const entry = survey.unsweptMarkerPlans.find((p) => p.name === "065-partially-swept.md");
+    assert.ok(
+      entry,
+      `expected an unswept-marker entry, got ${JSON.stringify(survey.unsweptMarkerPlans)}`,
+    );
+    assert.equal(entry.total, 4);
+    assert.equal(entry.unswept, 2);
+
+    // The plan still reports as fully covered at PLAN granularity — that is the
+    // over-claim the printed residual exists to qualify, so both must be true.
+    const text = formatSurvey(survey);
+    assert.match(text, /coverage: 1\/1 plan\(s\) cite-swept, 0 uncovered/);
+    assert.match(
+      text,
+      /cite markers OUTSIDE every survey unit — counted as swept, never screened \(1 plan\(s\), 2 marker\(s\)\)/,
+    );
+    assert.match(text, /065-partially-swept\.md: 2 of 4 bold marker\(s\) outside every/);
+
+    // The unswept markers cite a nonexistent spec; the screen never reaches
+    // them, which is precisely why the count has to be printed. Pinning this
+    // keeps the test honest about what the residual means: the phantom cites
+    // in the unswept block produce NO anomaly.
+    assert.deepEqual(
+      survey.citeAnomalies.filter((a) => a.includes("Spec-999")),
+      [],
+    );
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("surveyCorpus: a plan whose markers all sit inside phases reports NO unswept residual", () => {
+  // Negative control — the counter must key on marker placement, not merely on
+  // a plan having more than one `###` heading.
+  const tmp = makeFixtureCorpus({
+    "066-fully-swept.md": `### Phase 1 — all markers inside
+
+#### Tasks
+
+- **T1.1 — task**
+  - **Spec coverage:** Spec-050 §Required Behavior
+  - **Verifies invariant:** Spec-050 §Framing (V1 Pairwise)
+
+### Phase 2 — also inside
+
+#### Tasks
+
+- **T2.1 — task**
+  - **Spec coverage:** Spec-050 §Required Behavior
+  - **Verifies invariant:** Spec-050 §Framing (V1 Pairwise)
+`,
+  });
+  try {
+    const survey = surveyCorpus({ repoRoot: tmp });
+    assert.deepEqual(survey.unsweptMarkerPlans, []);
+    assert.doesNotMatch(formatSurvey(survey), /OUTSIDE every survey unit/);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("surveyCorpus: REAL corpus — the unswept-marker residual is reported, never silent", () => {
+  // Corpus tripwire. The residual is a known, deliberately-unclosed gap (closing
+  // it needs a grammar decision, since most of the hidden cites are accurate
+  // corpus idiom the grammar cannot yet express). What must NOT happen is the
+  // gap going quiet: either it is reported with real numbers, or it is genuinely
+  // zero. A silently-emptied `unsweptMarkerPlans` would restore the exact
+  // over-claim this counter was added to end.
+  const survey = surveyCorpus({ repoRoot: REPO_ROOT });
+  const text = formatSurvey(survey);
+  if (survey.unsweptMarkerPlans.length === 0) {
+    assert.doesNotMatch(text, /OUTSIDE every survey unit/);
+    return;
+  }
+  for (const { name, unswept, total } of survey.unsweptMarkerPlans) {
+    assert.match(name, /^\d{3}-.+\.md$/);
+    assert.ok(
+      unswept > 0 && unswept <= total,
+      `${name}: ${unswept}/${total} is not a sane residual`,
+    );
+  }
+  const totalUnswept = survey.unsweptMarkerPlans.reduce((sum, plan) => sum + plan.unswept, 0);
+  assert.match(
+    text,
+    new RegExp(
+      `\\(${survey.unsweptMarkerPlans.length} plan\\(s\\), ${totalUnswept} marker\\(s\\)\\)`,
+    ),
+  );
+});
+
+test("surveyCorpus: the SAME carve-out placed after the last phase is swallowed and swept", () => {
+  // Ordering discriminator for the residual. `extractPhaseSection` runs a phase
+  // heading to EOF, so an identical non-phase `###` section trailing the last
+  // phase falls INSIDE that phase's span and is genuinely screened — the residual
+  // is a function of layout, not of the heading text. Pinning both directions
+  // keeps the counter from being read as "every non-phase heading is a gap", and
+  // documents why the fixture above orders its sections the way Plan-025 does.
+  const tmp = makeFixtureCorpus({
+    "067-carveout-trailing.md": `### Phase 1 — swept work
+
+#### Tasks
+
+- **T1.1 — a task inside a phase section**
+  - **Spec coverage:** Spec-050 §Required Behavior
+  - **Verifies invariant:** Spec-050 §Framing (V1 Pairwise)
+
+### Tier-7 Remainder — carve-out narrative
+
+#### Tasks
+
+- **T-R-1 — trailing carve-out, inside Phase 1's span**
+  - **Spec coverage:** Spec-999 §Nonexistent Section
+  - **Verifies invariant:** Spec-999 §Also Nonexistent
+`,
+  });
+  try {
+    const survey = surveyCorpus({ repoRoot: tmp });
+    assert.deepEqual(survey.unsweptMarkerPlans, []);
+    // Genuinely screened, not merely uncounted: the phantom spec in the trailing
+    // carve-out produces a real anomaly. This is the assertion that separates
+    // "swept" from "silently skipped" — without it the test would pass equally
+    // well if the section had been dropped.
+    assert.ok(
+      survey.citeAnomalies.some((a) => a.includes("Spec-999")),
+      `expected the trailing carve-out's phantom cites to be caught, got ${survey.citeAnomalies.join("\n")}`,
+    );
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
 });
