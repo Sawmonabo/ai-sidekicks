@@ -308,10 +308,63 @@ function buildPiiCarryingEventInput(
   };
 }
 
+/**
+ * `canonicalizer.ts`'s `CANONICAL_JSON_MAX_DEPTH`, RESTATED RATHER THAN
+ * IMPORTED — and not only because the const is module-private there. Same
+ * argument that module makes for not importing `EVENT_ENVELOPE_SEQUENCE_MAX`:
+ * a shared const would make the two surfaces agree BY CONSTRUCTION, including
+ * agreeing on a value that drifted. The paired cases below — a row minted AT
+ * this depth verifies, a row tampered one level past it throws — are the drift
+ * guard a shared const could not be.
+ */
+const CANONICAL_JSON_MAX_DEPTH = 64;
+
+/**
+ * Builds a `payload` whose DEEPEST container sits at `canonicalDepth`, counted
+ * exactly the way `canonicalizer.ts` counts: the projected envelope
+ * `canonicalizeEvent` hands the serializer is depth 1, `payload` itself is
+ * depth 2, and each further nesting level adds one. So a flat payload is
+ * `canonicalDepth = 2`, and the payload tree contributes `canonicalDepth - 2`
+ * levels below itself.
+ *
+ * Counting in the CEILING'S OWN UNIT rather than in payload-local levels is
+ * deliberate: the off-by-two between the two framings is exactly the mistake
+ * that would turn the boundary control below into a second throw case.
+ */
+function buildPayloadNestedToCanonicalDepth(canonicalDepth: number): Record<string, unknown> {
+  let node: Record<string, unknown> = {};
+  for (let depth = canonicalDepth; depth > 2; depth--) {
+    node = { nested: node };
+  }
+  return node;
+}
+
 // --------------------------------------------------------------------------
 // Storage fixture — stands in for T3.1's step 7 (see the header).
 // --------------------------------------------------------------------------
 
+/**
+ * The raw better-sqlite3 row shape.
+ *
+ * THE THREE INTEGRITY COLUMNS ARE `unknown` BECAUSE THIS FILE DISPROVES ANY
+ * NARROWER DECLARATION. SQLite's `BLOB` declared type gives BLOB AFFINITY with
+ * no coercion, so the 32-CHARACTER tamper case below writes a TEXT value that
+ * satisfies `CHECK(length(row_hash) = 32)` and asserts, on the way back out,
+ * that `typeof row.row_hash === "string"`. Declaring `Uint8Array` here would be
+ * a claim the suite itself falsifies one assertion later. Same register — and
+ * the same reasoning — as `signing-key-source.ts`'s
+ * `readonly sealed_private_key: unknown`: the column declaration is a claim
+ * TypeScript never checked, so the type says `unknown` and the narrowing
+ * happens where the CHECK happens (`verifyRow`'s stage-1 shape guard, reached
+ * through {@link toSignedRow}).
+ *
+ * The scalar columns keep their declared types, which is not an inconsistency:
+ * nothing in this suite disproves them, and declaring unverified scalar column
+ * types is the established register in this package
+ * (`session/session-service.ts`'s `SessionEventRow` does exactly that).
+ * `pii_payload` likewise — it is only ever read back as the bytes the encryptor
+ * produced or as SQL NULL, and no case tampers it.
+ */
 interface StoredSessionEventRow {
   readonly id: string;
   readonly session_id: string;
@@ -325,9 +378,9 @@ interface StoredSessionEventRow {
   readonly correlation_id: string | null;
   readonly causation_id: string | null;
   readonly version: string;
-  readonly prev_hash: Uint8Array;
-  readonly row_hash: Uint8Array;
-  readonly daemon_signature: Uint8Array;
+  readonly prev_hash: unknown;
+  readonly row_hash: unknown;
+  readonly daemon_signature: unknown;
 }
 
 function insertSignedPiiRow(database: DatabaseType, result: PiiEventWriteResult): void {
@@ -424,11 +477,25 @@ function rehydrateEnvelope(row: StoredSessionEventRow): EventEnvelope {
   });
 }
 
+/**
+ * THE FILE'S ONE NARROWING SITE for the three integrity columns.
+ *
+ * `SignedRow` declares three `Uint8Array`s and storage supplies three
+ * `unknown`s (see above), so SOMETHING has to assert across that gap — and the
+ * honest place is here, because this cast IS the claim the production read path
+ * makes. `verifyRow` guards both chain columns at stage 1 and the signature at
+ * stage 2 precisely because its own parameter declaration is unchecked, so
+ * handing it the unnarrowed value is what exercises those guards. Casting at
+ * each call site instead would spread the same unchecked claim over a dozen
+ * places and let one of them narrow to something production never sees; every
+ * case below that needs raw integrity bytes reads them off this function's
+ * result.
+ */
 function toSignedRow(row: StoredSessionEventRow): SignedRow {
   return {
-    prevHash: row.prev_hash,
-    rowHash: row.row_hash,
-    daemonSignature: row.daemon_signature,
+    prevHash: row.prev_hash as Uint8Array,
+    rowHash: row.row_hash as Uint8Array,
+    daemonSignature: row.daemon_signature as Uint8Array,
   };
 }
 
@@ -440,6 +507,26 @@ function verifyStoredRow(
   const row: StoredSessionEventRow = readStoredRow(database);
   const canonical: CanonicalBytes = canonicalizeEvent(rehydrateEnvelope(row));
   return verifyRow(canonical, toSignedRow(row), daemonPublicKey);
+}
+
+/**
+ * Runs {@link verifyStoredRow} and returns whatever ESCAPED it — or `undefined`
+ * when it produced a verdict instead.
+ *
+ * Used only by the characterization block at the end of leg 3, and shaped this
+ * way rather than as `expect(...).toThrow()` because every case there has to
+ * attribute WHICH LAYER threw: a `ZodError` and the `issues[].path` naming the
+ * offending member, or a plain `Error` and the wording naming the guard.
+ * `toThrow` matches a message and hands the caller no error object to inspect,
+ * so it cannot separate the three layers this suite exists to separate.
+ */
+function captureReadPathThrow(database: DatabaseType): unknown {
+  try {
+    verifyStoredRow(database);
+  } catch (error) {
+    return error;
+  }
+  return undefined;
 }
 
 /**
@@ -572,7 +659,7 @@ describe("Plan-006 T2.5 leg 2 — daemon_signature still verifies after pii_payl
     expect(Uint8Array.from(storedBeforeShred.pii_payload ?? [])).toEqual(
       Uint8Array.from(writeResult.piiPayload),
     );
-    expect(verifyStoredRow(database)).toEqual({ valid: true });
+    expect(verifyStoredRow(database)).toStrictEqual({ valid: true });
   });
 
   it("still verifies after the shred, over bytes rebuilt from the surviving columns", () => {
@@ -592,7 +679,7 @@ describe("Plan-006 T2.5 leg 2 — daemon_signature still verifies after pii_payl
     expect(storedAfterShred.payload).not.toContain(PII_PLAINTEXT_SENTINEL);
     // ...and the signature still verifies. That is `Spec-022 §Signature Safety
     // Under Shred` in one line.
-    expect(verifyStoredRow(database)).toEqual({ valid: true });
+    expect(verifyStoredRow(database)).toStrictEqual({ valid: true });
   });
 
   it("does not report signature_placeholder for a shredded GENESIS row", () => {
@@ -606,13 +693,17 @@ describe("Plan-006 T2.5 leg 2 — daemon_signature still verifies after pii_payl
     // `signature_placeholder` — a build-ordering verdict on a correctly signed
     // row, routed to the wrong on-call. Both preconditions are asserted so this
     // test cannot pass vacuously against a non-genesis fixture.
-    const stored: StoredSessionEventRow = readStoredRow(database);
-    expect(Uint8Array.from(stored.prev_hash)).toEqual(GENESIS_PREV_HASH);
-    expect(Uint8Array.from(stored.row_hash).every((byte) => byte === 0)).toBe(false);
+    const storedChainColumns: SignedRow = toSignedRow(readStoredRow(database));
+    expect(Uint8Array.from(storedChainColumns.prevHash)).toEqual(GENESIS_PREV_HASH);
+    expect(Uint8Array.from(storedChainColumns.rowHash).every((byte) => byte === 0)).toBe(false);
 
-    const verification: RowVerification = verifyStoredRow(database);
-    expect(verification).toEqual({ valid: true });
-    expect(verification).not.toHaveProperty("failureMode");
+    // `toStrictEqual`, not `toEqual`, for the reason every `RowVerification`
+    // assertion in this file uses it: `toEqual` ignores `undefined`-valued
+    // properties, so a `{ valid: true, failureMode: undefined }` would pass on
+    // a union whose whole purpose is WHICH ARM you landed on. The strict form
+    // subsumes the `not.toHaveProperty("failureMode")` this case used to carry
+    // alongside it.
+    expect(verifyStoredRow(database)).toStrictEqual({ valid: true });
   });
 
   it("DOES report signature_placeholder for a Plan-001 zero-filled row (stage-2 control)", () => {
@@ -626,7 +717,7 @@ describe("Plan-006 T2.5 leg 2 — daemon_signature still verifies after pii_payl
       )
       .run(Buffer.alloc(32), Buffer.alloc(32), Buffer.alloc(64));
 
-    expect(verifyStoredRow(database)).toEqual({
+    expect(verifyStoredRow(database)).toStrictEqual({
       valid: false,
       failureMode: "signature_placeholder",
     });
@@ -652,7 +743,7 @@ describe("Plan-006 T2.5 leg 2 — daemon_signature still verifies after pii_payl
       shredPiiPayload(nullActorDatabase);
 
       expect(readStoredRow(nullActorDatabase).actor).toBeNull();
-      expect(verifyStoredRow(nullActorDatabase)).toEqual({ valid: true });
+      expect(verifyStoredRow(nullActorDatabase)).toStrictEqual({ valid: true });
     } finally {
       nullActorDatabase.close();
     }
@@ -683,7 +774,7 @@ describe("Plan-006 T2.5 leg 2 — daemon_signature still verifies after pii_payl
       const stored: StoredSessionEventRow = readStoredRow(uncorrelatedDatabase);
       expect(stored.correlation_id).toBeNull();
       expect(stored.causation_id).toBeNull();
-      expect(verifyStoredRow(uncorrelatedDatabase)).toEqual({ valid: true });
+      expect(verifyStoredRow(uncorrelatedDatabase)).toStrictEqual({ valid: true });
     } finally {
       uncorrelatedDatabase.close();
     }
@@ -697,39 +788,106 @@ describe("Plan-006 T2.5 leg 2 — daemon_signature still verifies after pii_payl
 // ==========================================================================
 
 /**
+ * The canonical eleven as a RUNTIME value that cannot drift from
+ * `keyof EventEnvelope`.
+ *
+ * The `-?` mapped annotation is the same drift guard `canonicalizeEvent`'s
+ * projection literal uses, and it pins both directions at compile time: a
+ * twelfth contracts member leaves this literal incomplete (TS2741) and a member
+ * contracts drops makes it excessive (TS2353). So the key set below is a
+ * PROJECTION of the contracts type rather than a hand-maintained list that
+ * happens to agree with it today — which is what lets the tamper matrix be
+ * checked against it instead of against a number.
+ */
+const CANONICAL_ENVELOPE_MEMBERS: { readonly [MemberName in keyof EventEnvelope]-?: true } = {
+  id: true,
+  sessionId: true,
+  sequence: true,
+  occurredAt: true,
+  category: true,
+  type: true,
+  actor: true,
+  payload: true,
+  correlationId: true,
+  causationId: true,
+  version: true,
+};
+
+/** Sorted for the both-direction set comparisons below. */
+const CANONICAL_ENVELOPE_MEMBER_NAMES: ReadonlyArray<string> = Object.keys(
+  CANONICAL_ENVELOPE_MEMBERS,
+).sort();
+
+/**
  * The eleven canonical envelope members, each paired with the SQL that tampers
  * the column carrying it. Exhaustive on purpose (see the header): a verifier
  * that reads ten of eleven members passes any smaller matrix.
  *
+ * THIRTEEN ROWS OVER ELEVEN MEMBERS — `payload` carries three, because the two
+ * digest-specific cases attack a value INSIDE the member rather than the member
+ * itself. `member` is the case LABEL (what `it.each` prints) and is free-form
+ * for that reason; `canonicalMember` is the machine-checkable half, typed
+ * `keyof EventEnvelope` so a case naming a field the envelope does not have is
+ * a compile error rather than a matrix that quietly covers ten members. The
+ * exhaustiveness test below compares the `canonicalMember` SET against
+ * {@link CANONICAL_ENVELOPE_MEMBER_NAMES}; a label alone could never support
+ * that comparison.
+ *
  * Every replacement value is chosen to survive BOTH the `0001-initial.ts` CHECK
  * constraints and `EventEnvelopeSchema`, so each case reaches `verifyRow` and
  * the verdict is the verifier's — a rehydration throw would be a different test
- * failing for a different reason. `monotonic_ns` is absent because it is a
- * storage-only column and not one of the canonical eleven.
+ * failing for a different reason (the characterization block at the end of this
+ * leg is where the throwing shapes live). `monotonic_ns` is absent because it is
+ * a storage-only column and not one of the canonical eleven.
  */
 const CANONICAL_MEMBER_TAMPERS: ReadonlyArray<{
   readonly member: string;
+  readonly canonicalMember: keyof EventEnvelope;
   readonly sql: string;
 }> = [
-  { member: "id", sql: "UPDATE session_events SET id = '01960b3c-e1d0-7a41-b2c9-000000000000'" },
+  {
+    member: "id",
+    canonicalMember: "id",
+    sql: "UPDATE session_events SET id = '01960b3c-e1d0-7a41-b2c9-000000000000'",
+  },
   {
     member: "sessionId",
+    canonicalMember: "sessionId",
     sql: "UPDATE session_events SET session_id = '0192f3a4-5b6c-7d8e-9f01-ffffffffffff'",
   },
-  { member: "sequence", sql: "UPDATE session_events SET sequence = 1" },
+  {
+    member: "sequence",
+    canonicalMember: "sequence",
+    sql: "UPDATE session_events SET sequence = 1",
+  },
   {
     member: "occurredAt",
+    canonicalMember: "occurredAt",
     sql: "UPDATE session_events SET occurred_at = '2026-03-04T05:06:07.009Z'",
   },
-  { member: "category", sql: "UPDATE session_events SET category = 'membership_change'" },
-  { member: "type", sql: "UPDATE session_events SET type = 'participant.purged'" },
-  { member: "actor", sql: "UPDATE session_events SET actor = 'participant-ffff'" },
+  {
+    member: "category",
+    canonicalMember: "category",
+    sql: "UPDATE session_events SET category = 'membership_change'",
+  },
+  {
+    member: "type",
+    canonicalMember: "type",
+    sql: "UPDATE session_events SET type = 'participant.purged'",
+  },
+  {
+    member: "actor",
+    canonicalMember: "actor",
+    sql: "UPDATE session_events SET actor = 'participant-ffff'",
+  },
   {
     member: "payload (non-digest member)",
+    canonicalMember: "payload",
     sql: `UPDATE session_events SET payload = json_set(payload, '$.exportFormat', 'csv')`,
   },
   {
     member: `payload.${PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY}`,
+    canonicalMember: "payload",
     // The Spec-022 core: swapping the digest for the digest of DIFFERENT
     // ciphertext is how an attacker would try to re-point a shredded row at
     // PII the signer never saw.
@@ -737,6 +895,7 @@ const CANONICAL_MEMBER_TAMPERS: ReadonlyArray<{
   },
   {
     member: `payload.${PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY} (removed)`,
+    canonicalMember: "payload",
     // ABSENCE, which the substitution above cannot cover: a verifier comparing
     // the digest only where the member is PRESENT passes that case and waves
     // this row through. It is also the read side's only way to state the
@@ -748,12 +907,21 @@ const CANONICAL_MEMBER_TAMPERS: ReadonlyArray<{
   },
   {
     member: "correlationId",
+    canonicalMember: "correlationId",
     sql: "UPDATE session_events SET correlation_id = 'correlation-ffff'",
   },
-  { member: "causationId", sql: "UPDATE session_events SET causation_id = 'causation-ffff'" },
+  {
+    member: "causationId",
+    canonicalMember: "causationId",
+    sql: "UPDATE session_events SET causation_id = 'causation-ffff'",
+  },
   // `CHECK(version GLOB '[0-9]*.[0-9]*')` admits this, so the tamper reaches
   // the verifier rather than bouncing off the column constraint.
-  { member: "version", sql: "UPDATE session_events SET version = '2.0'" },
+  {
+    member: "version",
+    canonicalMember: "version",
+    sql: "UPDATE session_events SET version = '2.0'",
+  },
 ];
 
 describe("Plan-006 T2.5 leg 3 — post-shred tamper detection (negative control)", () => {
@@ -774,7 +942,7 @@ describe("Plan-006 T2.5 leg 3 — post-shred tamper detection (negative control)
     // The row is shredded AND verifying — the state every case below tampers
     // away from. Asserting it here is what makes each failure below
     // attributable to the tamper.
-    expect(verifyStoredRow(database)).toEqual({ valid: true });
+    expect(verifyStoredRow(database)).toStrictEqual({ valid: true });
   });
 
   afterEach(() => {
@@ -787,20 +955,75 @@ describe("Plan-006 T2.5 leg 3 — post-shred tamper detection (negative control)
       const result = database.prepare(sql).run();
       expect(result.changes).toBe(1);
 
-      expect(verifyStoredRow(database)).toEqual({
+      expect(verifyStoredRow(database)).toStrictEqual({
         valid: false,
         failureMode: "hash_mismatch",
       });
     },
   );
 
-  it("covers every canonical member exactly once", () => {
-    // Guards against a row being dropped during an edit: a shorter matrix would
-    // otherwise just be a quieter suite, not a failing one. Eleven members plus
-    // the two further `payload` cases that target the digest specifically — one
-    // replacing it, one removing it.
-    expect(CANONICAL_MEMBER_TAMPERS).toHaveLength(13);
-    expect(new Set(CANONICAL_MEMBER_TAMPERS.map((tamper) => tamper.member)).size).toBe(13);
+  it("attacks every canonical envelope member, and no member the envelope lacks", () => {
+    // THE DRIFT GUARD, AND IT IS A SET COMPARISON RATHER THAN A COUNT — the
+    // distinction is the whole point. A hand-bumped `toHaveLength(13)` passes on
+    // a SAME-SIZE SWAP: rename one case onto a field the envelope no longer has
+    // while another member loses its only case, and the count is still 13 while
+    // the matrix now covers ten of eleven — exactly the verifier this leg exists
+    // to catch. Sorted-array equality states both directions in one assertion:
+    // every canonical member attacked (⊇) and no case naming a non-member (⊆).
+    // Same register as
+    // `packages/contracts/src/__tests__/event-disposition.test.ts`'s
+    // registry-vs-census check, which rejects bare size comparisons for this
+    // reason.
+    const attackedMembers: ReadonlyArray<string> = [
+      ...new Set(CANONICAL_MEMBER_TAMPERS.map((tamper) => tamper.canonicalMember)),
+    ].sort();
+    expect(attackedMembers).toEqual(CANONICAL_ENVELOPE_MEMBER_NAMES);
+
+    // FIXTURE COMPLETENESS, WHICH THE TYPE CANNOT SUPPLY.
+    // `CANONICAL_ENVELOPE_MEMBERS` is compile-bound to `keyof EventEnvelope`,
+    // but a TYPE says nothing about which members reach the signed BYTES: the
+    // three optional ones vanish from the canonical output when absent, so a
+    // fixture that omitted `correlationId` would leave that member's tamper case
+    // attacking a key the verifier never reads, and the assertion above would
+    // stay green. Reading the members back off this suite's actual canonical
+    // bytes closes that gap.
+    const serializedMembers: ReadonlyArray<string> = Object.keys(
+      JSON.parse(
+        utf8Decoder.decode(canonicalizeEvent(rehydrateEnvelope(readStoredRow(database)))),
+      ) as Record<string, unknown>,
+    ).sort();
+    expect(serializedMembers).toEqual(CANONICAL_ENVELOPE_MEMBER_NAMES);
+
+    // The three `payload` rows are NOT interchangeable and the set check above
+    // cannot tell them apart — all three report `canonicalMember: "payload"`.
+    // Pinning their labels is what stops the two digest-specific cases
+    // (Spec-022's substitution core and its absence counterpart) from being
+    // deleted behind a still-green `payload` entry.
+    expect(
+      CANONICAL_MEMBER_TAMPERS.filter((tamper) => tamper.canonicalMember === "payload")
+        .map((tamper) => tamper.member)
+        .sort(),
+    ).toEqual([
+      "payload (non-digest member)",
+      `payload.${PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY}`,
+      `payload.${PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY} (removed)`,
+    ]);
+
+    // Labels are what `it.each` prints, so a duplicated one reports as the same
+    // test twice and hides which case was lost.
+    expect(new Set(CANONICAL_MEMBER_TAMPERS.map((tamper) => tamper.member)).size).toBe(
+      CANONICAL_MEMBER_TAMPERS.length,
+    );
+
+    // DELIBERATELY NO ROW-COUNT ASSERTION. The three checks above already catch
+    // every DROPPED row (a missing member fails the set equality; a missing
+    // `payload` case fails the label pin) and every row naming a dead member.
+    // What a `toHaveLength(13)` would add is a failure on a legitimately ADDED
+    // second case for an already-covered member — coverage growth, not drift —
+    // and that false positive is precisely what trains the number to be
+    // hand-bumped until it means nothing. The
+    // `event-disposition.test.ts` precedent keeps its length pin because it ties
+    // to an EXTERNAL plan-table `Count` row; this matrix has no such anchor.
   });
 
   it("reports signature_mismatch when the attacker also recomputes row_hash", () => {
@@ -815,15 +1038,15 @@ describe("Plan-006 T2.5 leg 3 — post-shred tamper detection (negative control)
     const tamperedRow: StoredSessionEventRow = readStoredRow(database);
     const tamperedCanonical: CanonicalBytes = canonicalizeEvent(rehydrateEnvelope(tamperedRow));
     const forgedRowHash: Uint8Array = blake3(
-      concatenateChainInput(tamperedRow.prev_hash, tamperedCanonical),
+      concatenateChainInput(toSignedRow(tamperedRow).prevHash, tamperedCanonical),
     );
     database.prepare("UPDATE session_events SET row_hash = ?").run(Buffer.from(forgedRowHash));
 
     // Stage 3 now passes on the forged chain digest...
     const refreshedRow: StoredSessionEventRow = readStoredRow(database);
-    expect(Uint8Array.from(refreshedRow.row_hash)).toEqual(forgedRowHash);
+    expect(Uint8Array.from(toSignedRow(refreshedRow).rowHash)).toEqual(forgedRowHash);
     // ...and stage 4 is what catches the row.
-    expect(verifyStoredRow(database)).toEqual({
+    expect(verifyStoredRow(database)).toStrictEqual({
       valid: false,
       failureMode: "signature_mismatch",
     });
@@ -833,7 +1056,7 @@ describe("Plan-006 T2.5 leg 3 — post-shred tamper detection (negative control)
     // The signature is bound to ONE daemon identity. Nothing about the shred
     // loosens that binding — an untampered shredded row must still fail against
     // the wrong public key.
-    expect(verifyStoredRow(database, OTHER_DAEMON_PUBLIC_KEY)).toEqual({
+    expect(verifyStoredRow(database, OTHER_DAEMON_PUBLIC_KEY)).toStrictEqual({
       valid: false,
       failureMode: "signature_mismatch",
     });
@@ -841,13 +1064,13 @@ describe("Plan-006 T2.5 leg 3 — post-shred tamper detection (negative control)
 
   it("reports signature_mismatch when the stored signature itself is flipped", () => {
     const original: StoredSessionEventRow = readStoredRow(database);
-    const corruptedSignature = Uint8Array.from(original.daemon_signature);
+    const corruptedSignature = Uint8Array.from(toSignedRow(original).daemonSignature);
     corruptedSignature[0] = (corruptedSignature[0] ?? 0) ^ 0x01;
     database
       .prepare("UPDATE session_events SET daemon_signature = ?")
       .run(Buffer.from(corruptedSignature));
 
-    expect(verifyStoredRow(database)).toEqual({
+    expect(verifyStoredRow(database)).toStrictEqual({
       valid: false,
       failureMode: "signature_mismatch",
     });
@@ -864,127 +1087,340 @@ describe("Plan-006 T2.5 leg 3 — post-shred tamper detection (negative control)
       .run();
     expect(typeof readStoredRow(database).row_hash).toBe("string");
 
-    expect(verifyStoredRow(database)).toEqual({
+    expect(verifyStoredRow(database)).toStrictEqual({
       valid: false,
       failureMode: "hash_mismatch",
     });
   });
 
-  it("THROWS instead of reporting a verdict when the stored sequence is past the ceiling", () => {
-    // CHARACTERIZATION, NOT ENDORSEMENT — the one place this suite pins a HOLE
-    // rather than a guarantee, and the exact mirror of the case above.
-    // `RowVerification` promises "a verdict, and never a throw, for every input
-    // the ROW itself supplies", because a throw means T4.1 emits no
-    // `audit_integrity_failed` and the tamper goes UNREPORTED. A 32-character
-    // chain column is that promise kept; a `sequence` past the safe-integer
-    // range is the same promise broken, reached through a column nobody
-    // shape-guards.
-    //
-    // WHICH LAYER THROWS — the attribution matters more than the assertion.
-    // It is `rehydrateEnvelope`'s `EventEnvelopeSchema.parse`, as a `ZodError`:
-    // the schema bounds `sequence` at `EVENT_ENVELOPE_SEQUENCE_MAX` and its
-    // `.int()` independently bounds the safe-integer range, so the parse
-    // refuses the collapsed value before any canonicalization runs. It is NOT
-    // `canonicalizer.ts`'s `assertRepresentableSequence`, and that guard is not
-    // dead either: it is unreachable from any path that PARSES, and it is the
-    // ONLY guard for a caller that builds an envelope literal instead — the
-    // shape `SessionService.hydrateRow` already uses, narrowing a
-    // `safeIntegers(true)` bigint with `Number(row.sequence)`. So the two
-    // guards cover disjoint read paths, and this one — the parsing one — is the
-    // path with the throw. The final assertion pins WHICH message escaped,
-    // because "it throws" is true of both and only one of them is the layer
-    // T4.1 has to route around.
-    //
-    // T4.1'S OBLIGATION, recorded here because this is where it gets
-    // rediscovered: pre-check representability ahead of the parse and report
-    // `hash_mismatch` — the verdict this module already gives every other
-    // malformed stored row, because
-    // `Spec-006 §Audit Integrity (audit_integrity)`'s enum has no
-    // malformed-stored-row arm.
-    //
-    // THIS TEST IS EXPECTED TO CHANGE WHEN THAT LANDS, and its failure is the
-    // SIGNAL rather than a regression: swap the throw assertions for the
-    // `hash_mismatch` verdict and keep the control below.
-    database.prepare("UPDATE session_events SET sequence = 9007199254740993").run();
+  // ========================================================================
+  // THE CHARACTERIZED HOLE — STORED-ROW SHAPES THAT THROW INSTEAD OF
+  // RETURNING A VERDICT. CHARACTERIZATION, NOT ENDORSEMENT.
+  // ========================================================================
+  //
+  // Everything above this point is `RowVerification`'s promise KEPT: "a verdict,
+  // and never a throw, for every input the ROW itself supplies" — the
+  // 32-CHARACTER chain-column case is that promise at its sharpest. This block
+  // is the same promise BROKEN, and it is broken as a CLASS rather than at one
+  // value, which is why the block is plural.
+  //
+  // WHY A THROW IS WORSE THAN A WRONG VERDICT. A throw means T4.1's verifier
+  // emits no `audit_integrity_failed`, so the poisoned row goes UNREPORTED —
+  // and because T4.1 walks a RANGE, one throwing row aborts the walk and
+  // suppresses verification of every row after it. An attacker who cannot forge
+  // a signature can still write one such row and silence the audit of the whole
+  // tail. That escalation — one row's malformed shape into a range-wide blind
+  // spot — is why the hole is characterized loudly here instead of left to be
+  // rediscovered at T4.1.
+  //
+  // THREE LAYERS THROW, AND THEY SHARE NO CHOKE POINT. That is the fact T4.1's
+  // design has to start from:
+  //
+  //   1. THE PARSE — `rehydrateEnvelope`'s `EventEnvelopeSchema.parse`, as a
+  //      `ZodError`. A `sequence` past `EVENT_ENVELOPE_SEQUENCE_MAX` is the
+  //      reachable instance.
+  //   2. `normalizeOccurredAt`, INSIDE `canonicalizeEvent` and strictly AFTER a
+  //      clean parse. `0001-initial.ts` declares `occurred_at TEXT NOT NULL`
+  //      with no format CHECK, and the wire schema is
+  //      `z.iso.datetime({ offset: true })` with no `precision` argument and no
+  //      year-range narrowing — so a sub-millisecond fraction (guard 2) and an
+  //      offset that folds outside the four-digit year (guard 4) both PARSE and
+  //      are refused later.
+  //   3. THE DEPTH CEILING, in `canonicalizeJson`. The payload schema is
+  //      `z.unknown().superRefine(…).pipe(z.record(z.string(), z.unknown()))`
+  //      and bounds no nesting depth, so a payload nested past
+  //      `CANONICAL_JSON_MAX_DEPTH` also parses cleanly, and
+  //      `assertWithinCanonicalDepth` refuses it.
+  //
+  // T4.1'S OBLIGATION, RECORDED HERE BECAUSE THIS IS WHERE IT GETS
+  // REDISCOVERED — and stated over the CLASS, because a fix aimed at any single
+  // case leaves the others live. WRAP THE WHOLE READ PATH — rehydrate,
+  // canonicalize, `verifyRow` — IN ONE `try`, AND MAP ANY THROW TO
+  // `hash_mismatch`: the verdict this module already gives every other
+  // malformed stored row, because
+  // `Spec-006 §Audit Integrity (audit_integrity)`'s enum has no
+  // malformed-stored-row arm. A PER-CASE PRE-CHECK IS THE WRONG SHAPE, and the
+  // narrower "pre-check `sequence` representability ahead of the parse" this
+  // block used to record is the worked example of why: it closes case 1 and
+  // leaves cases 2 and 3 throwing. The single `try` is also the only form that
+  // STAYS closed as contracts and the canonicalizer gain guards — every future
+  // refusal in either module lands inside it by construction, where a census of
+  // pre-checks would have to be re-derived on every schema edit.
+  //
+  // EVERY TEST IN THIS BLOCK IS EXPECTED TO CHANGE WHEN T4.1 LANDS, and its
+  // failure is the SIGNAL rather than a regression: swap each throw assertion
+  // for the `hash_mismatch` verdict and keep every control exactly as it stands.
+  //
+  // EACH THROW CASE HAS A PASSING CONTROL ONE STEP AWAY FROM IT. That pairing is
+  // not decoration: a throw assertion with no adjacent passing control proves
+  // the input is bad, never that the BOUNDARY sits where the case claims. The
+  // sequence ceiling, the third fractional digit, an in-range offset fold, and
+  // the depth ceiling each get one.
+  describe("stored-row shapes that THROW instead of reporting a verdict (T4.1)", () => {
+    it("LAYER 1 — the PARSE throws a ZodError when the stored sequence is past the ceiling", () => {
+      // The layer boundary here runs the OTHER way from cases 2 and 3: this
+      // value never reaches the canonicalizer at all.
+      //
+      // WHICH LAYER THROWS — the attribution matters more than the assertion.
+      // It is `rehydrateEnvelope`'s `EventEnvelopeSchema.parse`, as a
+      // `ZodError`: the schema bounds `sequence` at
+      // `EVENT_ENVELOPE_SEQUENCE_MAX` and its `.int()` independently bounds the
+      // safe-integer range, so the parse refuses the collapsed value before any
+      // canonicalization runs. It is NOT `canonicalizer.ts`'s
+      // `assertRepresentableSequence`, and that guard is not dead either: it is
+      // unreachable from any path that PARSES, and it is the ONLY guard for a
+      // caller that builds an envelope literal instead — the shape
+      // `SessionService.hydrateRow` already uses, narrowing a
+      // `safeIntegers(true)` bigint with `Number(row.sequence)`. So the two
+      // guards cover disjoint read paths, and this one — the parsing one — is
+      // the path with the throw. The final assertion pins WHICH message
+      // escaped, because "it throws" is true of both and only one of them is
+      // the layer T4.1 has to route around.
+      database.prepare("UPDATE session_events SET sequence = 9007199254740993").run();
 
-    // Genuinely a stored-data shape rather than a caller-constructed one:
-    // SQLite's INTEGER is 64-bit and holds the tampered value EXACTLY...
-    const storedSequenceText = database
-      .prepare("SELECT CAST(sequence AS TEXT) AS stored_sequence FROM session_events")
-      .get() as { readonly stored_sequence: string };
-    expect(storedSequenceText.stored_sequence).toBe("9007199254740993");
-    // ...and the READ is where fidelity is lost, on both read paths: this
-    // statement gets the collapsed double straight from better-sqlite3, and the
-    // `safeIntegers(true)` route lands on the identical value the moment
-    // `Number(...)` narrows the bigint. Neither recovers the stored integer.
-    const tamperedRow: StoredSessionEventRow = readStoredRow(database);
-    expect(tamperedRow.sequence).toBe(Number(9007199254740993n));
-    expect(Number.isSafeInteger(tamperedRow.sequence)).toBe(false);
+      // Genuinely a stored-data shape rather than a caller-constructed one:
+      // SQLite's INTEGER is 64-bit and holds the tampered value EXACTLY...
+      const storedSequenceText = database
+        .prepare("SELECT CAST(sequence AS TEXT) AS stored_sequence FROM session_events")
+        .get() as { readonly stored_sequence: string };
+      expect(storedSequenceText.stored_sequence).toBe("9007199254740993");
+      // ...and the READ is where fidelity is lost, on both read paths: this
+      // statement gets the collapsed double straight from better-sqlite3, and
+      // the `safeIntegers(true)` route lands on the identical value the moment
+      // `Number(...)` narrows the bigint. Neither recovers the stored integer.
+      const tamperedRow: StoredSessionEventRow = readStoredRow(database);
+      expect(tamperedRow.sequence).toBe(Number(9007199254740993n));
+      expect(Number.isSafeInteger(tamperedRow.sequence)).toBe(false);
+      // The parse REFUSES this row, which is what makes it layer 1 and what
+      // separates it from every case below.
+      expect(() => rehydrateEnvelope(tamperedRow)).toThrow();
 
-    let thrownByVerification: unknown;
-    try {
-      verifyStoredRow(database);
-    } catch (error) {
-      thrownByVerification = error;
-    }
-    // A verdict would leave this `undefined`, which is the assertion that fails
-    // the day the pre-check lands.
-    expect(thrownByVerification).toBeInstanceOf(Error);
-    expect((thrownByVerification as Error).name).toBe("ZodError");
-    // Positive evidence of the layer, pinned version-tolerantly: Zod issue
-    // CODES and wording are its own formatting detail, while the offending
-    // member's path is the contract. Without this, a parse failing for an
-    // unrelated reason would keep the test green and the characterization would
-    // silently drift.
-    const zodIssues = (
-      thrownByVerification as {
-        readonly issues: ReadonlyArray<{ readonly path: ReadonlyArray<PropertyKey> }>;
+      const thrown: unknown = captureReadPathThrow(database);
+      // A verdict would leave this `undefined`, which is the assertion that
+      // fails the day T4.1's single `try` lands.
+      expect(thrown).toBeInstanceOf(Error);
+      expect((thrown as Error).name).toBe("ZodError");
+      // Positive evidence of the layer, pinned version-tolerantly: Zod issue
+      // CODES and wording are its own formatting detail, while the offending
+      // member's path is the contract. Without this, a parse failing for an
+      // unrelated reason would keep the test green and the characterization
+      // would silently drift.
+      const zodIssues = (
+        thrown as {
+          readonly issues: ReadonlyArray<{ readonly path: ReadonlyArray<PropertyKey> }>;
+        }
+      ).issues;
+      expect(zodIssues.map((issue) => String(issue.path[0]))).toContain("sequence");
+      // `assertRepresentableSequence` throws a plain `Error` carrying this
+      // wording, so its ABSENCE is what attributes the failure to the parse.
+      expect((thrown as Error).message).not.toContain("canonicalization refused");
+    });
+
+    it("CONTROL — still verifies a row minted at the sequence ceiling", async () => {
+      // THE CONTROL FOR THE CASE ABOVE, and it is load-bearing: without it that
+      // throw is equally consistent with "a large sequence breaks this
+      // fixture". `Number.MAX_SAFE_INTEGER` is the largest value the canonical
+      // bytes can carry faithfully, and it survives the INTEGER column, the
+      // parse, and the canonicalizer untouched — so the boundary sits exactly
+      // where the previous test says it does, one integer above.
+      //
+      // MINTED at the ceiling, never TAMPERED to it. The matrix above rewrites
+      // `sequence` precisely BECAUSE that changes the canonical bytes, so an
+      // UPDATE here would report `hash_mismatch` and prove nothing about
+      // representability.
+      //
+      // IT CLAIMS NOTHING ABOUT LINKAGE. The fixture keeps `GENESIS_PREV_HASH`
+      // at a non-zero sequence, which I-006-2-04's `prev_hash[n] =
+      // row_hash[n-1]` would refuse; `verifyRow` is an intra-row check handed
+      // no neighbours (its SCOPE note), so that walk is T4.1's and this control
+      // is scoped to what `verifyRow` actually decides.
+      const ceilingDatabase: DatabaseType = openDatabase(":memory:");
+      try {
+        insertSignedPiiRow(
+          ceilingDatabase,
+          await writeEventWithPii(
+            buildPiiCarryingEventInput({ sequence: Number.MAX_SAFE_INTEGER }),
+            GENESIS_PREV_HASH,
+            new DeterministicTestPiiEncryptor(),
+            DAEMON_SIGNING_KEY,
+          ),
+        );
+        shredPiiPayload(ceilingDatabase);
+
+        const stored: StoredSessionEventRow = readStoredRow(ceilingDatabase);
+        expect(stored.sequence).toBe(Number.MAX_SAFE_INTEGER);
+        expect(Number.isSafeInteger(stored.sequence)).toBe(true);
+        expect(verifyStoredRow(ceilingDatabase)).toStrictEqual({ valid: true });
+      } finally {
+        ceilingDatabase.close();
       }
-    ).issues;
-    expect(zodIssues.map((issue) => String(issue.path[0]))).toContain("sequence");
-    // `assertRepresentableSequence` throws a plain `Error` carrying this
-    // wording, so its ABSENCE is what attributes the failure to the parse.
-    expect((thrownByVerification as Error).message).not.toContain("canonicalization refused");
-  });
+    });
 
-  it("still verifies a row minted at the sequence ceiling (representability control)", async () => {
-    // THE CONTROL FOR THE CASE ABOVE, and it is load-bearing: without it that
-    // throw is equally consistent with "a large sequence breaks this fixture".
-    // `Number.MAX_SAFE_INTEGER` is the largest value the canonical bytes can
-    // carry faithfully, and it survives the INTEGER column, the parse, and the
-    // canonicalizer untouched — so the boundary sits exactly where the previous
-    // test says it does, one integer above.
-    //
-    // MINTED at the ceiling, never TAMPERED to it. The matrix above rewrites
-    // `sequence` precisely BECAUSE that changes the canonical bytes, so an
-    // UPDATE here would report `hash_mismatch` and prove nothing about
-    // representability.
-    //
-    // IT CLAIMS NOTHING ABOUT LINKAGE. The fixture keeps `GENESIS_PREV_HASH` at
-    // a non-zero sequence, which I-006-2-04's `prev_hash[n] = row_hash[n-1]`
-    // would refuse; `verifyRow` is an intra-row check handed no neighbours (its
-    // SCOPE note), so that walk is T4.1's and this control is scoped to what
-    // `verifyRow` actually decides.
-    const ceilingDatabase: DatabaseType = openDatabase(":memory:");
-    try {
-      insertSignedPiiRow(
-        ceilingDatabase,
-        await writeEventWithPii(
-          buildPiiCarryingEventInput({ sequence: Number.MAX_SAFE_INTEGER }),
-          GENESIS_PREV_HASH,
-          new DeterministicTestPiiEncryptor(),
-          DAEMON_SIGNING_KEY,
-        ),
+    it("LAYER 2 — normalizeOccurredAt throws on a stored sub-millisecond occurredAt", () => {
+      // THE CASE THAT KILLS THE PARSE-LAYER-ONLY FIX. Nothing between the
+      // column and the canonicalizer objects to this value: `occurred_at TEXT`
+      // carries no format CHECK, and `z.iso.datetime({ offset: true })` takes no
+      // `precision` argument, so an arbitrary number of fractional digits
+      // parses. `normalizeOccurredAt`'s guard 2 then refuses it, because the
+      // canonical form holds exactly three fractional digits and TRUNCATING the
+      // fourth would leave `daemon_signature` not committing to the recorded
+      // timestamp.
+      //
+      // The write path already refuses this input at emit time (leg 4's
+      // "refuses a non-canonical occurredAt before the encrypt step"). That is
+      // the same guard reached from the other side, and it is exactly why the
+      // stored form is reachable only by TAMPER — which is the threat model
+      // this leg is written against.
+      database.prepare("UPDATE session_events SET occurred_at = '2026-03-04T05:06:07.0081Z'").run();
+
+      // THE LAYER BOUNDARY, ASSERTED RATHER THAN ASSUMED: the parse SUCCEEDS
+      // and hands back the tampered string verbatim. That single fact is what
+      // makes a pre-check sited at the parse boundary insufficient.
+      const rehydrated: EventEnvelope = rehydrateEnvelope(readStoredRow(database));
+      expect(rehydrated.occurredAt).toBe("2026-03-04T05:06:07.0081Z");
+
+      const thrown: unknown = captureReadPathThrow(database);
+      expect(thrown).toBeInstanceOf(Error);
+      // A plain `Error`, NOT a `ZodError` — the discriminator between this
+      // layer and layer 1, and the reason both assertions are here.
+      expect((thrown as Error).name).toBe("Error");
+      expect((thrown as Error).message).toContain("sub-millisecond precision");
+    });
+
+    it("CONTROL — still verifies when the stored occurredAt gains a trailing-zero digit", () => {
+      // THE BOUNDARY CONTROL FOR THE CASE ABOVE, and sharper than an
+      // exactly-three-digit control would be: three digits is the FIXTURE, whose
+      // clean verification `beforeEach` already asserts. This value carries a
+      // FOURTH digit and still verifies, because a zero past the third is pure
+      // notation — it folds away instant-preserved onto the identical canonical
+      // string the row was signed over. So the refusal above is attributable to
+      // sub-millisecond TIME specifically: not to digit COUNT, and not to the
+      // column having been rewritten at all (the tamper matrix's own
+      // `occurredAt` case already shows a rewrite producing a VERDICT).
+      //
+      // It is also the read side of the canonicalizer's many-to-one note, and
+      // that note calls this a documented RESIDUAL rather than a win:
+      // `daemon_signature` commits to the INSTANT, never to the bytes in
+      // `session_events.occurred_at`, so an at-rest attacker can respell the
+      // column and keep verification green while dropping the row out of every
+      // lexical date-range scan. Catching that is not `verifyRow`'s job; the
+      // append path persisting the NORMALIZED string is what keeps it rare.
+      database.prepare("UPDATE session_events SET occurred_at = '2026-03-04T05:06:07.0080Z'").run();
+      expect(readStoredRow(database).occurred_at).toBe("2026-03-04T05:06:07.0080Z");
+
+      expect(verifyStoredRow(database)).toStrictEqual({ valid: true });
+    });
+
+    it("LAYER 2 — normalizeOccurredAt throws when the stored occurredAt folds out of range", () => {
+      // THE SAME LAYER THROUGH A DIFFERENT GUARD, and it earns its own case
+      // because nothing about the input resembles the one above: no fractional
+      // digits at all, and the refusal comes from guard 4 rather than guard 2.
+      // `0000-01-01T00:00:00+05:00` is wire-legal (the schema's `\d{4}` year
+      // admits `0000`; `{ offset: true }` admits `+05:00`) and names a real
+      // instant — but folding the offset to UTC lands in year −1, which
+      // `toISOString()` renders `-000001-12-31T19:00:00.000Z`. The instant
+      // survived the fold; the canonical `YYYY-MM-DDTHH:MM:SS.sssZ` form simply
+      // cannot spell it, so the canonicalizer refuses rather than sign a shape
+      // the spec does not define.
+      //
+      // Two guards from ONE module reaching this block is the load-bearing
+      // observation, not a duplicate case: it is the direct evidence that
+      // enumerating throw sites does not converge, and therefore that T4.1 must
+      // catch rather than pre-check.
+      database.prepare("UPDATE session_events SET occurred_at = '0000-01-01T00:00:00+05:00'").run();
+
+      const rehydrated: EventEnvelope = rehydrateEnvelope(readStoredRow(database));
+      expect(rehydrated.occurredAt).toBe("0000-01-01T00:00:00+05:00");
+
+      const thrown: unknown = captureReadPathThrow(database);
+      expect(thrown).toBeInstanceOf(Error);
+      expect((thrown as Error).name).toBe("Error");
+      expect((thrown as Error).message).toContain("does not fold into the canonical form");
+      // NOT the sub-millisecond guard — the two share a layer and a module, so
+      // without this the case above could be re-run here and nothing would
+      // notice.
+      expect((thrown as Error).message).not.toContain("sub-millisecond precision");
+    });
+
+    it("CONTROL — still verifies when the stored occurredAt is respelled with an in-range offset", () => {
+      // THE BOUNDARY CONTROL FOR GUARD 4: a numeric offset is not what guard 4
+      // refuses — landing OUTSIDE the four-digit-year range is.
+      // `2026-03-04T00:06:07.008-05:00` folds to exactly the signed instant
+      // `2026-03-04T05:06:07.008Z`, so the offset arm is exercised end to end
+      // and the row still verifies.
+      database
+        .prepare("UPDATE session_events SET occurred_at = '2026-03-04T00:06:07.008-05:00'")
+        .run();
+      expect(readStoredRow(database).occurred_at).toBe("2026-03-04T00:06:07.008-05:00");
+
+      expect(verifyStoredRow(database)).toStrictEqual({ valid: true });
+    });
+
+    it("LAYER 3 — the canonicalizer's depth ceiling throws on an over-deep stored payload", () => {
+      // THE THIRD LAYER, AND THE ONLY ONE WHOSE THROW IS NOT ENVELOPE-SPECIFIC:
+      // it comes from `canonicalizeJson`, the generic entry point CP-006-3 also
+      // hands untrusted Spec-024 request bodies. The payload schema bounds NO
+      // nesting depth — it is `z.unknown().superRefine(…).pipe(z.record(…))` —
+      // so this row rehydrates perfectly and dies one call later, in
+      // `assertWithinCanonicalDepth`. The ceiling exists because
+      // `canonicalize@3.0.0` recurses once per level, making unbounded nesting a
+      // stack-overflow denial of service.
+      //
+      // The tamper writes RAW JSON rather than going through `json_set`: the
+      // column is `payload TEXT NOT NULL` with no JSON-validity CHECK, and the
+      // shape wanted here is a whole tree, not an edit to one path.
+      database
+        .prepare("UPDATE session_events SET payload = ?")
+        .run(JSON.stringify(buildPayloadNestedToCanonicalDepth(CANONICAL_JSON_MAX_DEPTH + 1)));
+
+      // Parse clean, as with layer 2 — stated as an assertion because it is the
+      // claim, not the setup.
+      const rehydrated: EventEnvelope = rehydrateEnvelope(readStoredRow(database));
+      expect(rehydrated.payload).toStrictEqual(
+        buildPayloadNestedToCanonicalDepth(CANONICAL_JSON_MAX_DEPTH + 1),
       );
-      shredPiiPayload(ceilingDatabase);
 
-      const stored: StoredSessionEventRow = readStoredRow(ceilingDatabase);
-      expect(stored.sequence).toBe(Number.MAX_SAFE_INTEGER);
-      expect(Number.isSafeInteger(stored.sequence)).toBe(true);
-      expect(verifyStoredRow(ceilingDatabase)).toEqual({ valid: true });
-    } finally {
-      ceilingDatabase.close();
-    }
+      const thrown: unknown = captureReadPathThrow(database);
+      expect(thrown).toBeInstanceOf(Error);
+      expect((thrown as Error).name).toBe("Error");
+      expect((thrown as Error).message).toContain(
+        `nests containers deeper than ${String(CANONICAL_JSON_MAX_DEPTH)} levels`,
+      );
+    });
+
+    it("CONTROL — still verifies a row minted with a payload AT the depth ceiling", async () => {
+      // THE BOUNDARY CONTROL FOR LAYER 3, and it pins the ceiling's VALUE as
+      // well as its existence: a payload one level shallower than the throwing
+      // one survives the write path, the column, the parse, and the
+      // canonicalizer, and verifies. Move `CANONICAL_JSON_MAX_DEPTH` in
+      // `canonicalizer.ts` without touching the local restatement and exactly
+      // one of this pair fails.
+      //
+      // MINTED, not tampered, for the sequence-ceiling control's reason: an
+      // UPDATE would change the canonical bytes and report `hash_mismatch`,
+      // which says nothing about whether the depth was serializable. Minting is
+      // also the stronger claim — it proves the WRITE path accepts the ceiling
+      // depth too, so the two paths agree on the boundary.
+      const ceilingDatabase: DatabaseType = openDatabase(":memory:");
+      try {
+        insertSignedPiiRow(
+          ceilingDatabase,
+          await writeEventWithPii(
+            buildPiiCarryingEventInput({
+              payload: buildPayloadNestedToCanonicalDepth(CANONICAL_JSON_MAX_DEPTH),
+            }),
+            GENESIS_PREV_HASH,
+            new DeterministicTestPiiEncryptor(),
+            DAEMON_SIGNING_KEY,
+          ),
+        );
+        shredPiiPayload(ceilingDatabase);
+
+        expect(verifyStoredRow(ceilingDatabase)).toStrictEqual({ valid: true });
+      } finally {
+        ceilingDatabase.close();
+      }
+    });
   });
 });
 
@@ -1094,21 +1530,218 @@ describe("Plan-006 T2.5 — a misordered PII write path is refused at runtime (I
         DAEMON_SIGNING_KEY,
       ),
     ).rejects.toThrow(/received a non-Uint8Array value of type string/);
+    // The OTHER direction of the ordering contract: this refusal legitimately
+    // costs a nonce, because there is no value to judge until the encryptor has
+    // run. Pinned as 1 rather than left unasserted so the encrypt-then-throw
+    // class is a documented member of the contract and not an omission.
+    expect(encryptor.encryptCallCount).toBe(1);
   });
 
-  it("refuses a prev_hash that is not 32 bytes, so no doomed signature is minted", async () => {
-    // Inherited from T2.2 rather than duplicated in the codec. A wrong-width
-    // link hashes happily and produces an UNTAMPERED row that can never verify
-    // — the failure mode with no recovery path, since the signature is over
-    // bytes no verifier can reconstruct.
+  it("refuses a prev_hash that is not 32 bytes BEFORE spending the nonce", async () => {
+    // HOISTED out of T2.2 in the Phase-D fix round, and the reason is the call
+    // site: T3.1 supplies this argument by reading the previous row's
+    // `row_hash` back out of SQLite, and a `BLOB` column can hand back a JS
+    // string. A wrong-width link hashes happily and produces an UNTAMPERED row
+    // that can never verify — the failure mode with no recovery path, since the
+    // signature is over bytes no verifier can reconstruct. `signRow` still
+    // refuses it, but only after the nonce is spent, and this codec is
+    // `manual_reconcile_only`.
+    const encryptor = new DeterministicTestPiiEncryptor();
+
     await expect(
       writeEventWithPii(
         buildPiiCarryingEventInput(),
         new Uint8Array(31),
-        new DeterministicTestPiiEncryptor(),
+        encryptor,
         DAEMON_SIGNING_KEY,
       ),
-    ).rejects.toThrow(/signRow requires a 32-byte Uint8Array prev_hash/);
+    ).rejects.toThrow(/writeEventWithPii requires a 32-byte Uint8Array prev_hash/);
+    expect(encryptor.encryptCallCount).toBe(0);
+  });
+
+  it("refuses a 32-CHARACTER string prev_hash before spending the nonce", async () => {
+    // BYTE-NESS, not just width — the conjunction `signRow` documents and the
+    // hoisted copy reproduces. 32 characters clear a bare length check and then
+    // coerce to near-zero bytes through `TypedArray.prototype.set`, which is the
+    // silent spelling of the same doomed row. It is also exactly what a `BLOB`
+    // column hands back once anything with write access leaves TEXT in it.
+    const encryptor = new DeterministicTestPiiEncryptor();
+
+    await expect(
+      writeEventWithPii(
+        buildPiiCarryingEventInput(),
+        "0".repeat(32) as unknown as Uint8Array,
+        encryptor,
+        DAEMON_SIGNING_KEY,
+      ),
+    ).rejects.toThrow(/received a non-Uint8Array value of type string/);
+    expect(encryptor.encryptCallCount).toBe(0);
+  });
+
+  it("refuses a NaN sequence before the encrypt step", async () => {
+    // HOISTED out of T2.1's `assertRepresentableSequence`. `Number.isSafeInteger`
+    // is the predicate on both sides, and it is total, so the early copy cannot
+    // disagree with the late one — `NaN` is refused here rather than one stage
+    // past the point where the nonce is gone.
+    const encryptor = new DeterministicTestPiiEncryptor();
+
+    await expect(
+      writeEventWithPii(
+        buildPiiCarryingEventInput({ sequence: Number.NaN }),
+        GENESIS_PREV_HASH,
+        encryptor,
+        DAEMON_SIGNING_KEY,
+      ),
+    ).rejects.toThrow(/writeEventWithPii refuses sequence NaN/);
+    expect(encryptor.encryptCallCount).toBe(0);
+  });
+
+  it("refuses a sequence past the safe-integer ceiling before the encrypt step", async () => {
+    // The collision case the guard actually exists for, as distinct from `NaN`:
+    // `9007199254740993` collapses onto `9007199254740992`, so two different
+    // events would canonicalize to identical bytes and share a `row_hash`. The
+    // interpolated value in the message is already the COLLAPSED one, which is
+    // the failure made visible rather than a reporting defect.
+    const encryptor = new DeterministicTestPiiEncryptor();
+
+    await expect(
+      writeEventWithPii(
+        buildPiiCarryingEventInput({ sequence: Number.MAX_SAFE_INTEGER + 2 }),
+        GENESIS_PREV_HASH,
+        encryptor,
+        DAEMON_SIGNING_KEY,
+      ),
+    ).rejects.toThrow(/writeEventWithPii refuses sequence 9007199254740992/);
+    expect(encryptor.encryptCallCount).toBe(0);
+  });
+
+  it("reports the SEQUENCE refusal for an input defective in both sequence and occurredAt", async () => {
+    // Refusal order is observable, and the hoisted sequence guard is placed
+    // ahead of `normalizeOccurredAt` on purpose: `canonicalizeEvent`'s own
+    // REFUSAL ORDER note fixes that precedence, so the PII write path and the
+    // plain one must not answer differently for one doubly-defective row. Before
+    // the hoist this input reported the timestamp refusal on this path and the
+    // sequence refusal on the plain one.
+    const encryptor = new DeterministicTestPiiEncryptor();
+
+    await expect(
+      writeEventWithPii(
+        buildPiiCarryingEventInput({
+          sequence: Number.NaN,
+          occurredAt: "2026-03-04T05:06:07.0081Z",
+        }),
+        GENESIS_PREV_HASH,
+        encryptor,
+        DAEMON_SIGNING_KEY,
+      ),
+    ).rejects.toThrow(/writeEventWithPii refuses sequence NaN/);
+    expect(encryptor.encryptCallCount).toBe(0);
+  });
+
+  it("still admits a valid input at the sequence ceiling (over-refusal control)", async () => {
+    // THE CONTROL FOR THE TWO CASES ABOVE. A guard that refused everything would
+    // satisfy them both, so the boundary is pinned from the accepting side too:
+    // `Number.MAX_SAFE_INTEGER` is representable, must pass, and must reach the
+    // encryptor exactly once.
+    const encryptor = new DeterministicTestPiiEncryptor();
+
+    const result: PiiEventWriteResult = await writeEventWithPii(
+      buildPiiCarryingEventInput({ sequence: Number.MAX_SAFE_INTEGER }),
+      GENESIS_PREV_HASH,
+      encryptor,
+      DAEMON_SIGNING_KEY,
+    );
+
+    expect(result.envelope.sequence).toBe(Number.MAX_SAFE_INTEGER);
+    expect(encryptor.encryptCallCount).toBe(1);
+  });
+
+  it("refuses an over-deep payload only AFTER the encrypt, and is off by one from a standalone walk", async () => {
+    // THE NARROWED HALF OF THE ORDERING CONTRACT, pinned rather than left as
+    // prose, together with the discriminator that decided the narrowing.
+    //
+    // `input.payload`'s nesting IS answerable from the input, and it is refused
+    // late anyway. T2.1 exports no depth-only checker, so a pre-check would be
+    // either a second full canonicalization of the row or a duplicate of T2.1's
+    // walk carrying a depth-offset correction — and the offset is real: the
+    // first assertion below shows this payload canonicalizing CLEANLY on its
+    // own, because a standalone walk seeds at the payload while
+    // `canonicalizeEvent` seeds at the envelope, one level up. A pre-check
+    // spelled `canonicalizeJson(input.payload)` would therefore ADMIT this
+    // input pre-encrypt and let the real guard refuse it post-encrypt, making
+    // the ordering claim false for exactly this row.
+    //
+    // The `encryptCallCount` assertion is what keeps the docstring's "two
+    // classes remain behind the encrypt" honest: hoist this refusal and the
+    // expectation fails, so the docstring gets revisited with the code.
+    const boundaryPayload: Record<string, unknown> = buildPayloadNestedToCanonicalDepth(
+      CANONICAL_JSON_MAX_DEPTH + 1,
+    );
+    expect(() => canonicalizeJson(boundaryPayload)).not.toThrow();
+    // ...and the offset is EXACTLY one, not merely non-zero: one level deeper
+    // and the standalone walk refuses too. Without this the assertion above
+    // would also pass against a depth guard that never fired at all.
+    expect(() =>
+      canonicalizeJson(buildPayloadNestedToCanonicalDepth(CANONICAL_JSON_MAX_DEPTH + 2)),
+    ).toThrow(
+      new RegExp(`nests containers deeper than ${String(CANONICAL_JSON_MAX_DEPTH)} levels`),
+    );
+
+    const encryptor = new DeterministicTestPiiEncryptor();
+    await expect(
+      writeEventWithPii(
+        buildPiiCarryingEventInput({ payload: boundaryPayload }),
+        GENESIS_PREV_HASH,
+        encryptor,
+        DAEMON_SIGNING_KEY,
+      ),
+    ).rejects.toThrow(
+      new RegExp(`nests containers deeper than ${String(CANONICAL_JSON_MAX_DEPTH)} levels`),
+    );
+    expect(encryptor.encryptCallCount).toBe(1);
+
+    // The accepting side of this boundary is already pinned, on the read path:
+    // "CONTROL — still verifies a row minted with a payload AT the depth
+    // ceiling" MINTS one level shallower through this same write path, so this
+    // case is a boundary rather than "deep payloads are rejected".
+  });
+
+  it("refuses a NaN inside payload only AFTER the encrypt, from the library's own guard", async () => {
+    // The second member of the post-encrypt class, and a different layer from
+    // the depth ceiling: this throw is `canonicalize@3.0.0`'s, with its bare
+    // wording. `NaN` is a SCALAR, so T2.1's depth walk never queues it and no
+    // depth pre-check would catch it either — only serialization does, and
+    // serialization of the envelope needs the digest, which needs the
+    // ciphertext.
+    const encryptor = new DeterministicTestPiiEncryptor();
+
+    await expect(
+      writeEventWithPii(
+        buildPiiCarryingEventInput({ payload: { exportFormat: "json", ratio: Number.NaN } }),
+        GENESIS_PREV_HASH,
+        encryptor,
+        DAEMON_SIGNING_KEY,
+      ),
+    ).rejects.toThrow(/NaN is not allowed/);
+    expect(encryptor.encryptCallCount).toBe(1);
+  });
+
+  it("refuses a NaN inside the PII partition BEFORE the encrypt (the mirror control)", async () => {
+    // The mirror of the case above, and what makes it a statement about WHERE
+    // the value sits rather than about `NaN`: the PII partition is serialized at
+    // step 2, ahead of the encrypt, so the identical defect one member over is
+    // refused for free.
+    const encryptor = new DeterministicTestPiiEncryptor();
+
+    await expect(
+      writeEventWithPii(
+        buildPiiCarryingEventInput({ piiPayload: { displayName: "Ada", ratio: Number.NaN } }),
+        GENESIS_PREV_HASH,
+        encryptor,
+        DAEMON_SIGNING_KEY,
+      ),
+    ).rejects.toThrow(/NaN is not allowed/);
+    expect(encryptor.encryptCallCount).toBe(0);
   });
 
   it("keeps the misordering a COMPILE error too — the brands admit no shortcut", () => {

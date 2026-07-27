@@ -3,7 +3,7 @@
 // WHY THIS FILE EXISTS. `signing-key-source.ts` is the one module in the
 // workspace that holds daemon-private key material and the one site where key
 // bytes enter the type system, and no Phase-2 task declared a suite for it. The
-// three properties below are the ones that would fail silently and expensively:
+// four properties below are the ones that would fail silently and expensively:
 //
 //   1. THE PUBLIC/PRIVATE SPLIT IS A SECURITY BOUNDARY. `create` resolves to the
 //      PUBLIC key and nothing else; the private half is reachable only through
@@ -19,6 +19,12 @@
 //      silent re-key is the worst outcome in the module: every
 //      `daemon_signature` already written under the old key would verify
 //      against nothing, producing an UNTAMPERED log that fails forever.
+//   4. `read` HANDS BACK A COPY, NEVER A VIEW OVER THE SEALER'S BUFFER. The
+//      seal boundary is injected, so `unseal` may legitimately return a scratch
+//      array it reuses; branded in place, that array is overwritten under a key
+//      the append path still holds across an `await`, and the row is signed
+//      with the wrong scalar. The result is a signature no roster public key
+//      verifies — which at the verifier is indistinguishable from tampering.
 //
 // TESTED THROUGH THE PUBLIC SURFACE AND A REAL DATABASE. The narrowing helpers
 // (`toEd25519PublicKey` / `toEd25519PrivateKey` / `assertEd25519KeyWidth`) are
@@ -53,7 +59,7 @@ import { openDatabase } from "../../session/migration-runner.js";
 import { canonicalizeJson } from "../canonicalizer.js";
 import type { CanonicalBytes } from "../canonicalizer.js";
 import { GENESIS_PREV_HASH, signRow, verifyRow } from "../signer.js";
-import type { Ed25519PrivateKey, Ed25519PublicKey, SignedRow } from "../signer.js";
+import type { Ed25519PrivateKey, SignedRow } from "../signer.js";
 import { OsKeystoreSealedDaemonSigningKeySource } from "../signing-key-source.js";
 import type {
   DaemonSigningKeyProvisioner,
@@ -181,6 +187,32 @@ class FixedUnsealResultSealer implements DaemonSigningKeySealer {
     // injection boundary this package neither owns nor imports, so its declared
     // return type is a claim nothing checked.
     return Promise.resolve(this.#unsealResult as Uint8Array);
+  }
+}
+
+/**
+ * Unseals into ONE array it reuses on every call — the shape the read-side copy
+ * defends against, and an entirely legitimate implementation.
+ *
+ * It is not a contrived fake: `DaemonSigningKeySealer.unseal` fixes no byte
+ * format and no allocation discipline, and an implementation that avoids
+ * allocating fresh secret-bearing memory per call is doing the hygienic thing,
+ * not the careless one. What makes it dangerous is on the CONSUMER's side —
+ * `read` is async, so a branded key is held across an `await` by every caller,
+ * and the next `unseal` writes through it. That is why the fix is a copy here
+ * rather than a prohibition there.
+ */
+class ScratchBufferReusingSealer implements DaemonSigningKeySealer {
+  /** The single buffer every `unseal` returns. Exposed so a test can assert identity. */
+  readonly scratch: Uint8Array = new Uint8Array(32);
+
+  seal(sessionId: SessionId, privateKey: Uint8Array): Promise<Uint8Array> {
+    return Promise.resolve(buildFakeEnvelope(sessionId, privateKey));
+  }
+
+  unseal(sessionId: SessionId, sealedPrivateKey: Uint8Array): Promise<Uint8Array> {
+    this.scratch.set(openFakeEnvelope(sessionId, sealedPrivateKey));
+    return Promise.resolve(this.scratch);
   }
 }
 
@@ -455,7 +487,59 @@ describe("OsKeystoreSealedDaemonSigningKeySource", () => {
       });
       const signed: SignedRow = signRow(canonical, GENESIS_PREV_HASH, privateKey);
 
-      expect(verifyRow(canonical, signed, publicKey as Ed25519PublicKey)).toEqual({ valid: true });
+      // No cast on `publicKey` — `create` resolves to
+      // `{ publicKey: Ed25519PublicKey }` already, and a brand assertion
+      // written where none is needed teaches the next reader that crossing
+      // this boundary by cast is routine, which is how a real one gets in.
+      // `toStrictEqual` and not `toEqual`, because `RowVerification` is a
+      // discriminated union whose valid arm carries `valid` and nothing else:
+      // `toEqual` ignores explicitly-`undefined` members, so it would also
+      // accept a `{ valid: true, failureMode: undefined }` the union forbids.
+      expect(verifyRow(canonical, signed, publicKey)).toStrictEqual({ valid: true });
+    });
+
+    it("copies the unsealed bytes, so a sealer reusing its buffer cannot corrupt a live key", async () => {
+      // THE FAILURE THIS PREVENTS IS SILENT AND INDISTINGUISHABLE FROM TAMPERING.
+      // Branded in place, the value `read` hands back IS the sealer's scratch
+      // array; the next `unseal` overwrites it under a key the append path is
+      // still holding across an `await`, `ed25519.sign` signs with a different
+      // scalar, and the row carries a `daemon_signature` no roster-registered
+      // public key verifies. At the verifier that is bit-for-bit the same
+      // observation as a forged row — an untampered log reported as tampered,
+      // with nothing in the record naming the cause.
+      const scratchSealer = new ScratchBufferReusingSealer();
+      const source: DaemonSigningKeySource = new OsKeystoreSealedDaemonSigningKeySource(
+        database,
+        scratchSealer,
+        { now: () => FIXTURE_CREATED_AT },
+      );
+      const sessionOneCreated = await source.create(SESSION_ONE);
+      await source.create(SESSION_TWO);
+
+      const sessionOneKey: Ed25519PrivateKey = await source.read(SESSION_ONE);
+      // IDENTITY, not content — content equality holds either way at this
+      // point, so this is the only assertion that proves a copy happened.
+      expect(sessionOneKey).not.toBe(scratchSealer.scratch);
+
+      // The second unseal writes straight through the sealer's buffer...
+      const sessionTwoKey: Ed25519PrivateKey = await source.read(SESSION_TWO);
+      expect(sessionTwoKey).not.toBe(scratchSealer.scratch);
+      expect(bytesToHex(sessionTwoKey)).not.toBe(bytesToHex(sessionOneKey));
+      // ...which the sealer's own state confirms, so the overwrite genuinely
+      // happened and the case is not vacuous.
+      expect(bytesToHex(scratchSealer.scratch)).toBe(bytesToHex(sessionTwoKey));
+
+      // ...and session one's key is untouched by it, still signing rows its own
+      // create-time public key verifies. This is the property; the byte
+      // comparison above could hold coincidentally, a valid signature cannot.
+      const canonical: CanonicalBytes = canonicalizeJson({
+        category: "audit_integrity",
+        type: "audit.chain_verified",
+      });
+      const signed: SignedRow = signRow(canonical, GENESIS_PREV_HASH, sessionOneKey);
+      expect(verifyRow(canonical, signed, sessionOneCreated.publicKey)).toStrictEqual({
+        valid: true,
+      });
     });
 
     it("refuses a session with no row, and does NOT mint one behind the read", async () => {

@@ -13,16 +13,15 @@
 // — the block below is copied from that section (its leading comment, the
 // CREATE TABLE, and the per-column comments) so the inline constant stays in
 // lockstep with the canonical doc, the same discipline
-// `0004-worktree-lifecycle.ts` applies to its four blocks. TWO substitutions,
-// both content-preserving and named here because the rest IS byte-verbatim:
-//
-//   1. The doc's `Migration: 0NNN-daemon-signing-keys.ts` placeholder is
-//      resolved to this file's actual `0005-` number.
-//   2. Where the doc cites Spec-022 by LINE NUMBER, the block below carries
-//      the stable heading anchor `Spec-022 §Daemon Master Key` instead — the
-//      cited line is the `@napi-rs/keyring` tier-1 bullet inside that
-//      section, so the anchor names the same content and does not go stale
-//      on the next edit above it.
+// `0004-worktree-lifecycle.ts` applies to its four blocks. The copy is
+// CONTENT-verbatim; the sole difference is line wrapping. This file formerly
+// substituted `0005-` for the doc's `0NNN-` migration placeholder, and the
+// stable heading anchor `Spec-022 §Daemon Master Key` for the doc's
+// `Spec-022` LINE cite; both have since landed in the canonical doc itself,
+// so NO content substitution remains. The doc absorbed the longer anchor into
+// its existing line rather than re-flowing the rest of the `@napi-rs/keyring`
+// sentence, while this copy re-flowed it — so that one sentence breaks at
+// different points in the two copies while spelling the same text.
 //
 // The two governing anchors, in their gate-checkable form:
 // `Spec-022 §Daemon Master Key` (the OS-keystore custody ladder the sealing

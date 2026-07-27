@@ -493,13 +493,44 @@ const CANONICAL_MEMBER_NAMES: readonly (keyof EventEnvelope)[] = [
 ];
 
 describe("actor is the canonical set's only null-admitting member", () => {
-  it("has exactly eleven canonical members", () => {
-    // I-006-1-03 fixes membership at eleven. `EventEnvelopeSchema` is
-    // `.strict()`, so an envelope carrying every listed member and nothing else
-    // parsing clean is a two-sided check: no member missing, none extra.
-    expect(CANONICAL_MEMBER_NAMES).toHaveLength(11);
+  it("set-equals the wire authority's declared member set (I-006-1-03)", () => {
+    // DERIVED SET-EQUALITY, NEVER A COUNT. The drift a pair of count
+    // assertions leaves wide open is a SCHEMA-side edit: `EventEnvelopeSchema`
+    // gaining a twelfth member — or losing one — while this hand-written list
+    // stays at eleven keeps both `toHaveLength(11)` and a deduplicated size
+    // green, and this list is what the runtime derivation below iterates.
+    // The same-size swap of a canonical name for a stray key is closed too,
+    // though that one the `keyof EventEnvelope` element type already refuses
+    // at compile time. No diagnostic code is named for it, deliberately:
+    // WHICH one fires depends on the stray key's edit distance from a real
+    // member — a `causationID` typo reports TS2820's spelling-suggestion form
+    // rather than a plain assignability error — so a comment pinning one
+    // number would be wrong for the other. Same rule as the contracts-side
+    // registries: both directions in one assertion, no member missing and
+    // none extra.
+    //
+    // Reaching the declared set needs a cast, scoped to this one expression:
+    // `EventEnvelopeSchema` is exported as `z.ZodType<EventEnvelope>` (the
+    // `isolatedDeclarations` annotation), which erases `.shape` from the
+    // declared type while leaving it on the runtime object. Same internals-cast
+    // idiom as the T1.3 membership pin in contracts' `session-event.test.ts`.
+    const declaredMembers = Object.keys(
+      (EventEnvelopeSchema as unknown as { shape: Record<string, unknown> }).shape,
+    ).sort();
+
+    // The count pin rides the DERIVED array, so I-006-1-03's "eleven" is tied
+    // to the wire authority rather than to this file's transcription of it.
+    expect(declaredMembers).toHaveLength(11);
+    expect([...CANONICAL_MEMBER_NAMES].sort()).toEqual(declaredMembers);
+    // Only the hand-written list can carry a duplicate — the schema side is
+    // object keys, unique by construction. A duplicate already fails the
+    // equality above, but as an opaque array diff; this names it.
+    expect(new Set(CANONICAL_MEMBER_NAMES).size).toBe(CANONICAL_MEMBER_NAMES.length);
+    // The fixture-side half: `EventEnvelopeSchema` is `.strict()`, so the
+    // golden envelope parsing clean says it carries every declared member and
+    // nothing else — which is what makes it a valid stand-in for the wire
+    // shape in every byte assertion above.
     expect(EventEnvelopeSchema.safeParse(GOLDEN_ENVELOPE).success).toBe(true);
-    expect(new Set(CANONICAL_MEMBER_NAMES).size).toBe(11);
   });
 
   it("derives the null-admitting member set from the contract, at compile time", () => {

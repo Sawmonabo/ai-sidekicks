@@ -61,10 +61,14 @@
 // reproducing the first; recovery is operator-driven reconciliation. The
 // contrast with `signer.ts` is exact and worth holding onto: Ed25519 derives its
 // nonce from the key and the message (RFC 8032 §5.1.6), so T2.2 IS `idempotent`
-// and its re-runs reproduce bytes. For that reason every refusal this module
-// can raise FROM THE INPUT ALONE is ordered before the encrypt step, so a
-// rejected append costs no nonce; the one guard that cannot be so ordered — the
-// shape of the encryptor's own result — is called out in `writeEventWithPii`.
+// and its re-runs reproduce bytes. For that reason the refusals this module can
+// raise FROM THE INPUT ALONE are ordered before the encrypt step, so a rejected
+// append costs no nonce — two of them hoisted out of the downstream stages that
+// still run them, T2.1's sequence guard and T2.2's `prevHash` guard. TWO
+// CLASSES STAY BEHIND THE ENCRYPT and `writeEventWithPii` names both: the shape
+// of the encryptor's own RESULT, which does not exist until it has run, and
+// `payload`'s own RFC 8785 refusals, whose only honest pre-check would be a
+// second canonicalization of the same row.
 //
 // CP-006-1 — THE PLAN-022 BOUNDARY. `PiiEncryptor` is an INTERFACE owned here;
 // Plan-022 (Tier 5) ships the AES-256-GCM implementation in
@@ -349,6 +353,21 @@ export interface PiiEventWriteResult {
   readonly signedRow: SignedRow;
 }
 
+/**
+ * The `prev_hash` width `signer.ts`'s `signRow` enforces, re-spelled here for
+ * the pre-encrypt guard in {@link writeEventWithPii} rather than imported —
+ * `signer.ts` keeps its own `CHAIN_HASH_LENGTH` module-private, and widening
+ * that module's export surface for one integer buys less than it costs.
+ * `signer.golden.test.ts` re-declares the same constant for the same reason.
+ *
+ * DRIFT HERE IS ONE-DIRECTIONAL AND LOUD, which is what makes the second
+ * spelling safe. This value is only ever consulted to refuse EARLY, and
+ * `signRow`'s own guard still runs afterwards over the same argument, so a
+ * stale value here can produce a false refusal — never a signature over a
+ * wrong-width chain link.
+ */
+const CHAIN_HASH_LENGTH = 32;
+
 // The refused set, spelled once for the refusal message. Its annotation and its
 // per-literal `satisfies` pins are two drift guards on two different axes, and
 // between them the three spellings of the refused set cannot drift apart
@@ -406,21 +425,59 @@ const PII_REFUSED_CATEGORY_NAMES: readonly PiiRefusedCategory[] = [
  * and it is a PARAMETER because reading it is only correct under the per-session
  * append lock T3.1 owns. This module holds no lock and touches no database, so
  * resolving the link here would race every concurrent append. `signRow` refuses
- * a `prevHash` that is not 32 bytes; that guard is not duplicated here.
+ * a `prevHash` that is not 32 bytes and remains the authority on that width;
+ * this function refuses the same value EARLIER, for the reason below.
  *
- * EVERY INPUT-DERIVED REFUSAL PRECEDES THE ENCRYPT STEP, ON PURPOSE. It is the
- * one irreversible step (a consumed random nonce, `manual_reconcile_only`), so
- * every check answerable from the input alone is made before it: throwing after
- * the encrypt stage burns a nonce and leaves a half-built commitment for an
- * operator to reconcile. Two refusals qualify and run first — a refused category
- * and a `payload` that already claims a digest. The encryptor-result shape guard
- * is the one exception and cannot move: it judges a value that does not exist
- * until the encryptor has run. Further refusals are INHERITED, at both T2.1 call
- * sites (`normalizeOccurredAt` on a non-canonical `occurredAt`, and
- * `canonicalizeJson` over the PII partition — its nesting ceiling, its
- * no-JSON-representation guard, and the library's own `NaN` / `Infinity` /
- * circular-reference throws, which the PII partition newly exposes) and from
- * T2.2's `prevHash` guard.
+ * REFUSALS ANSWERABLE FROM THE INPUT ALONE PRECEDE THE ENCRYPT STEP. It is the
+ * one irreversible stage (a consumed random nonce, `manual_reconcile_only`), so
+ * throwing after it burns that nonce and leaves a half-built commitment for an
+ * operator to reconcile. Refusal order is OBSERVABLE — first to fire is the only
+ * one the caller sees — so it is fixed here rather than left to the reading
+ * order of the body:
+ *
+ *   1. A refused category (I-006-3-01 layer 2).
+ *   2. A `payload` that already claims `pii_ciphertext_digest`.
+ *   3. A `sequence` that is not a safe integer. HOISTED from T2.1's
+ *      `assertRepresentableSequence`, and placed ahead of 4 rather than after it
+ *      because `canonicalizeEvent`'s own REFUSAL ORDER note fixes that same
+ *      precedence: an envelope defective in both members must report the
+ *      sequence refusal on this path too, or the PII write path and the plain
+ *      one would answer differently for one row.
+ *   4. A non-canonical `occurredAt` (T2.1's `normalizeOccurredAt`), then the PII
+ *      partition's own serialization refusals (T2.1's `canonicalizeJson` over
+ *      `piiPayload`: its nesting ceiling, its no-JSON-representation guard, and
+ *      `canonicalize@3.0.0`'s `NaN` / `Infinity` / circular-reference throws,
+ *      which the PII partition newly exposes).
+ *   5. A `prevHash` that is not 32 bytes. HOISTED from T2.2's `signRow`, and
+ *      placed LAST so hoisting it reordered nothing: it moved from after the
+ *      signature to immediately before the encrypt, and every other refusal
+ *      kept its relative position.
+ *
+ * 3 AND 5 ARE EARLY COPIES, NEVER REPLACEMENTS. `assertRepresentableSequence`
+ * and `signRow`'s guard both still run downstream and stay authoritative, so a
+ * copy that ever drifted could only refuse early — never admit late.
+ *
+ * TWO CLASSES REMAIN BEHIND THE ENCRYPT, AND NEITHER MOVES HONESTLY:
+ *
+ *   - THE ENCRYPTOR-RESULT SHAPE GUARD judges a value that does not exist until
+ *     the encryptor has run.
+ *   - `input.payload`'s OWN RFC 8785 REFUSALS — T2.1's nesting ceiling and
+ *     `canonicalize@3.0.0`'s `NaN` / `Infinity` / circular-reference throws —
+ *     fire inside `canonicalizeEvent`, at recipe step 5. They ARE answerable
+ *     from the input, and are left here anyway: T2.1 exports no depth checker,
+ *     so a pre-check is either a SECOND full canonicalization of the row (the
+ *     cost this module pays once, paid twice, on every append) or a duplicate of
+ *     T2.1's iterative walk carrying a DEPTH-OFFSET correction —
+ *     `canonicalizeEvent` seeds that walk at the envelope, which puts `payload`
+ *     one level down, so a standalone walk over `input.payload` disagrees with
+ *     the real guard at exactly the ceiling: a payload whose deepest container
+ *     sits at standalone depth 64 sits at 65 inside the envelope. A pre-check
+ *     that disagrees with the guard it stands in for would make the ordering
+ *     claim above FALSE for the boundary case, which is worse than refusing late
+ *     and saying so. `canonicalizeJson`'s no-JSON-representation guard is NOT in
+ *     this class: it fires only for a TOP-LEVEL value with no JSON
+ *     representation, and `canonicalizeEvent` always hands it an object, so it
+ *     is reachable only through the `piiPayload` call at 4 — above the encrypt.
  *
  * NOT IDEMPOTENT — see the module header. Re-running after a partial failure
  * mints a second, unrelated ciphertext and a second, unrelated signature.
@@ -479,6 +536,25 @@ export async function writeEventWithPii(
     );
   }
 
+  // REFUSAL 3 of the order documented above — T2.1's
+  // `assertRepresentableSequence`, hoisted ahead of the encrypt. `sequence`
+  // travels as an IEEE-754 double and holds integers faithfully only to
+  // 2^53 − 1; past that two genuinely different events canonicalize to identical
+  // bytes and collide inside the very chain `Spec-006 §Integrity Protocol`
+  // builds to make tampering detectable. That verdict is answerable from
+  // `input.sequence` and nothing else, and the predicate is
+  // `Number.isSafeInteger` — precisely T2.1's, and total — so the early copy
+  // cannot disagree with the late one on any input. T2.1's guard still runs
+  // inside `canonicalizeEvent` at recipe step 5 and stays the authority.
+  //
+  // AHEAD OF `normalizeOccurredAt`, deliberately: `canonicalizeEvent` runs its
+  // sequence guard first, and the PII path must not invert that.
+  if (!Number.isSafeInteger(input.sequence)) {
+    throw new Error(
+      `writeEventWithPii refuses sequence ${String(input.sequence)}: it is not a safe integer (|value| must be at most ${String(Number.MAX_SAFE_INTEGER)}, and it must be an integer), so distinct sequences would collapse onto one IEEE-754 double and two different events would produce an identical row_hash — a collision in the chain Spec-006 §Integrity Protocol relies on being injective. Refused before the encrypt step so a rejected append costs no AES-256-GCM nonce.`,
+    );
+  }
+
   // Normalized BEFORE encrypting so a malformed `occurredAt` costs no nonce, and
   // captured so the returned envelope carries the normalized string. T2.1's
   // `canonicalizeEvent` normalizes into a local of its own, which would leave the
@@ -494,6 +570,31 @@ export async function writeEventWithPii(
   // plain bytes deliberately. These are the PII PLAINTEXT bytes, not the row's
   // canonical bytes, and the brand must not suggest otherwise.
   const piiPlaintext: Uint8Array = canonicalizeJson(input.piiPayload);
+
+  // REFUSAL 5 of the order documented above — T2.2's `prevHash` guard, hoisted
+  // to the last position before the encrypt. A wrong-width link hashes happily and
+  // mints a signature over a chain input no verifier can ever reproduce: an
+  // untampered row that fails forever. `signRow` refuses it, but only after the
+  // nonce is spent, which on a `manual_reconcile_only` codec is a half-built
+  // commitment bought for a defect the caller handed in.
+  //
+  // NOT HYPOTHETICAL AT THE CALL SITE THIS CODEC IS FOR. T3.1 supplies this
+  // argument by reading the previous row's `row_hash` back out of SQLite, and a
+  // `BLOB` column can hand back a JS `string` — which is why the test is
+  // BYTE-NESS as well as width, the same conjunction `signRow` documents. A
+  // 32-CHARACTER string clears a bare length check and then coerces to near-zero
+  // bytes through `TypedArray.prototype.set`.
+  //
+  // POSITIONED HERE, after the PII partition has been serialized, so that
+  // hoisting it changed no existing refusal's relative order — it moved from
+  // after the signature to just before the encrypt, and nothing else moved.
+  // `signRow` re-checks the same argument at recipe step 6 and stays authoritative.
+  if (!(prevHash instanceof Uint8Array) || prevHash.length !== CHAIN_HASH_LENGTH) {
+    throw new Error(
+      `writeEventWithPii requires a ${CHAIN_HASH_LENGTH}-byte Uint8Array prev_hash — the previous row_hash for this session, or GENESIS_PREV_HASH at sequence 0 — per Spec-006 §Integrity Protocol; received ${describeByteShape(prevHash)}. Refused before the encrypt step so a rejected append costs no AES-256-GCM nonce; signRow re-checks the same value when the row is signed.`,
+    );
+  }
+
   const encryptorResult: Uint8Array = await encryptor.encrypt({
     participantId: input.piiParticipantId,
     eventId: input.id,
@@ -513,7 +614,7 @@ export async function writeEventWithPii(
   // module is entitled to assert.
   if (!(encryptorResult instanceof Uint8Array) || encryptorResult.length === 0) {
     throw new Error(
-      `PiiEncryptor.encrypt must return non-empty Uint8Array ciphertext for the session_events.pii_payload column per Spec-022 §PII Payload Column Pattern; received ${describeEncryptorResult(encryptorResult)}. That is an injection bug at the CP-006-1 boundary, not a tampered row.`,
+      `PiiEncryptor.encrypt must return non-empty Uint8Array ciphertext for the session_events.pii_payload column per Spec-022 §PII Payload Column Pattern; received ${describeByteShape(encryptorResult)}. That is an injection bug at the CP-006-1 boundary, not a tampered row.`,
     );
   }
 
@@ -627,13 +728,16 @@ function canonicalizeDigestBearingEvent(envelope: EventWithPiiDigest): Canonical
 }
 
 /**
- * Renders a refused encryptor result for a throw message without trusting its
+ * Renders a refused byte-shaped value for a throw message without trusting its
  * declared type — `value.length` on a `string` would report a character count as
- * a byte count and send the reader after the wrong bug. Deliberately local:
- * `signer.ts` keeps its own equivalent for its own refusals, and a shared
- * byte-shape describer is not a seam either module has asked for.
+ * a byte count and send the reader after the wrong bug. Serves both refusals
+ * that need it: the encryptor's result and the hoisted `prevHash` guard.
+ * Deliberately local, and named for the sibling helpers rather than for either
+ * call site: `signer.ts` and `signing-key-source.ts` each keep a
+ * `describeByteShape` of their own, and a shared byte-shape describer is not a
+ * seam any of the three has asked for.
  */
-function describeEncryptorResult(value: unknown): string {
+function describeByteShape(value: unknown): string {
   if (value instanceof Uint8Array) {
     return value.length === 0 ? "an empty Uint8Array" : `${value.length} bytes`;
   }

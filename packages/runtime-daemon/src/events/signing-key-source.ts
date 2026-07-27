@@ -149,7 +149,16 @@ const ED25519_KEY_LENGTH = 32;
 export interface DaemonSigningKeySealer {
   /** Seals a freshly generated 32-byte Ed25519 secret seed. */
   seal(sessionId: SessionId, privateKey: Uint8Array): Promise<Uint8Array>;
-  /** Reverses {@link DaemonSigningKeySealer.seal} for the same `sessionId`. */
+  /**
+   * Reverses {@link DaemonSigningKeySealer.seal} for the same `sessionId`.
+   *
+   * THE RESULT MAY BE A BUFFER THE IMPLEMENTATION REUSES. `read` copies these
+   * bytes before branding them, so an implementation is free to unseal into a
+   * scratch array it overwrites on its next call — this consumer retains no
+   * view over it. That is a promise this module keeps rather than a licence it
+   * takes, and it is the one the copy actually covers; see the note on the
+   * private-key narrowing site for the silent failure it prevents.
+   */
   unseal(sessionId: SessionId, sealedPrivateKey: Uint8Array): Promise<Uint8Array>;
 }
 
@@ -199,10 +208,13 @@ export interface DaemonSigningKeySource extends DaemonSigningKeyProvisioner {
   /**
    * Resolves this session's Ed25519 private key, unsealing it on the way out.
    *
-   * The result is a live secret. Hand it straight to `signRow` (or to
+   * The result is a live secret, and a FRESH array the implementation owns
+   * rather than a view over the sealer's buffer (see the private-key narrowing
+   * site for why). Hand it straight to `signRow` (or to
    * `mintParticipantSignature`) as the parameter it takes; do not cache it, log
    * it, or copy it into a longer-lived structure — every extra holder is one
-   * more place a master-key wipe cannot reach.
+   * more place a master-key wipe cannot reach, and this array is one the
+   * resolver cannot scrub on the caller's behalf.
    *
    * Rejects when the session has no row: `create` was never called, or the row
    * was removed. Deliberately NOT create-on-read — minting a second keypair
@@ -381,6 +393,11 @@ export class OsKeystoreSealedDaemonSigningKeySource implements DaemonSigningKeyS
  * The ONLY place an `Ed25519PublicKey` is minted. Not exported: `signer.ts`
  * withholds a brand constructor precisely so this stays the single site, and
  * re-exporting one from here would reopen the hole one module over.
+ *
+ * DOES NOT COPY, unlike its private-key sibling, and needs no equivalent note:
+ * its input is `ed25519.keygen()`'s own fresh output, allocated inside `create`
+ * and aliased by nothing that outlives the call — and a public key is not
+ * secret material in the first place.
  */
 function toEd25519PublicKey(bytes: Uint8Array): Ed25519PublicKey {
   assertEd25519KeyWidth(bytes, "public key");
@@ -398,10 +415,45 @@ function toEd25519PublicKey(bytes: Uint8Array): Ed25519PublicKey {
  * `ed25519.sign`, which refuses a wrong-length secret — but only after the
  * value has been laundered into a branded type and passed through the append
  * path, so the throw names the signer rather than the unseal that produced it.
+ *
+ * THE BYTES ARE COPIED, NEVER BRANDED IN PLACE — the read-side counterpart of
+ * the `Buffer.from(sealedPrivateKey)` copy `create` makes, and load-bearing
+ * where that one is merely the overload to keep. `unseal` may hand back a LIVE
+ * VIEW over a scratch buffer it reuses; `read` is async, so every caller holds
+ * the branded key across an `await`, and a concurrent or subsequent `unseal`
+ * then overwrites the bytes underneath it. `ed25519.sign` signs with a
+ * different scalar and mints signatures no roster-registered public key
+ * verifies — silent, and indistinguishable at the verifier from tampering.
+ * Doing this at the MINT SITE rather than at the call site makes it a property
+ * of the brand: no `Ed25519PrivateKey` in this workspace is a view over memory
+ * this module does not own. `new Uint8Array(...)` and deliberately not
+ * `.slice()` — `signer.ts` takes the same care with its `prevHash` echo and for
+ * the same reason: `Buffer.prototype.slice` returns a view onto the same
+ * memory, and a sealer reading from a keystore plausibly returns a `Buffer`.
+ *
+ * WHY A COPY AND NOT AN OBLIGATION ON THE INTERFACE. This module already
+ * refuses to trust `unseal`'s result for byte-ness and width, because it
+ * crosses an injection boundary nothing here checked; trusting that same
+ * boundary not to retain a view would be incoherent. A stated obligation is the
+ * right instrument for a property these types CANNOT enforce — the `sessionId`
+ * AAD binding is exactly that, having fixed no byte format. This one is
+ * enforceable, and the failure it prevents is silent.
+ *
+ * THE PRICE, STATED RATHER THAN GLOSSED: a SECOND unscrubbed allocation of
+ * private key material. It cannot be scrubbed here — it IS the returned value,
+ * and this function cannot know when the caller is done with it; the only thing
+ * shortening its life is {@link DaemonSigningKeySource.read}'s "hand it straight
+ * to `signRow`, do not cache it" obligation. Nor is the SEALER's array scrubbed
+ * on the way out, deliberately: `create` scrubs only what it allocated, and
+ * {@link DaemonSigningKeySealer} explicitly contemplates an implementation that
+ * caches to avoid re-prompting a WebAuthn ceremony after an idle master-key
+ * wipe — zeroing its buffer would corrupt that cache. The sealer's own
+ * allocation exists either way; what the copy adds is one 32-byte array.
  */
 function toEd25519PrivateKey(bytes: Uint8Array): Ed25519PrivateKey {
   assertEd25519KeyWidth(bytes, "private key");
-  return bytes as Ed25519PrivateKey;
+  const privateKeyCopy: Uint8Array = new Uint8Array(bytes);
+  return privateKeyCopy as Ed25519PrivateKey;
 }
 
 /**

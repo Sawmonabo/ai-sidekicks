@@ -15,9 +15,43 @@ useDefault = true
 # Both the local lefthook and the CI workflow now pin gitleaks v8.30.1 (CI
 # via `env.GITLEAKS_VERSION` in `.github/workflows/gitleaks.yml`).
 #
+# THE TWO FORMS ARE MUTUALLY EXCLUSIVE, which is what keeps this file to ONE
+# block rather than one per suppression class: v8.30.1 refuses a config
+# carrying both, with "[allowlist] is deprecated, it cannot be used alongside
+# [[allowlists]]" (verified against the pinned binary). So `regexTarget` is a
+# whole-file choice for as long as the deferral above stands, and every
+# `regexes` entry below has to be safe under the single target the block
+# declares — which they are, each verified individually against v8.30.1.
+#
+# EVERY `regexes` ENTRY IS SCOPED TO THE EXTRACTED SECRET, NOT TO THE MATCH.
+# `regexTarget = "secret"` tests the value gitleaks pulled OUT of the line (the
+# `Secret` field of a finding); the alternatives test wider spans — `"match"`
+# is the whole matched span, keyword and operator and value together, and
+# `"line"` is the surrounding source line. Every justification below is a claim
+# about the VALUE ("carry no secret material", "these are algorithm names, not
+# secrets", "suppressed by VALUE"), so the target is the one that tests what
+# the justifications assert; anything wider suppresses on text nobody has
+# argued is safe. It also fails in the safe direction: a future finding
+# carrying one of these tokens somewhere OTHER than in secret position is not
+# suppressed and the gate goes red, where a match-scoped rule would wave it
+# through. Governs `regexes` only — `paths` is matched against file paths
+# regardless of `regexTarget`.
+#
+# EVERY PATTERN IS ANCHORED `^…$`, AND THAT IS LOAD-BEARING RATHER THAN TIDY.
+# gitleaks tests each pattern with an UNANCHORED search, so a bare
+# `Ed25519PrivateKey` suppresses any secret merely CONTAINING it — a real
+# 64-hex key extracted as `Ed25519PrivateKeyf3a91c7d…` is waved straight
+# through (reproduced against v8.30.1). Anchoring makes each entry the equality
+# test its justification below asserts, which is the whole content of "this
+# exact token is not a secret". Verified for all six patterns observed firing
+# in this corpus: each one's extracted secret is exactly the token, so
+# anchoring suppresses precisely what the unanchored form did and nothing more
+# (whole-tree scan unchanged at zero findings, planted-secret control still
+# caught).
+#
 # condition = "OR" unifies three distinct suppressions under one block; each
-# criterion fires independently (a finding is allowlisted if its match string
-# matches `regexes` OR its file path matches `paths`):
+# criterion fires independently (a finding is allowlisted if its extracted
+# secret matches `regexes` OR its file path matches `paths`):
 #
 # 1. AWS KMS public-API enum constants — not secrets; they are documented
 #    algorithm/keyspec enum values published in the AWS KMS API reference
@@ -26,9 +60,15 @@ useDefault = true
 #    The gitleaks generic-api-key heuristic flags `KEY = VALUE` assignments
 #    where VALUE is a long uppercase identifier with high entropy; the AWS
 #    KMS Ed25519 enum names satisfy that shape but carry no secret material.
-#    `regexTarget = "match"` so the suppression fires on the matched
-#    substring rather than the surrounding line context (governs `regexes`
-#    only — `paths` is matched against file paths regardless).
+#    `ECC_NIST_EDWARDS25519` is the only one of the three observed firing in
+#    this corpus (v8.30.1: match `KeySpec = ECC_NIST_EDWARDS25519`, secret
+#    `ECC_NIST_EDWARDS25519`). `ED25519_SHA_512` / `ED25519_PH_SHA_512` are
+#    carried forward from the v8.24.3-era config and have not been observed
+#    firing since, so their extracted-secret shape is UNVERIFIED and the
+#    anchored form above may not suppress them if they ever fire. They stay
+#    listed rather than pruned on an absence of evidence, and that residual is
+#    fail-closed: the gate goes red and a human looks, which is the outcome to
+#    want from an unverified suppression.
 #
 # 2. Cryptographic algorithm identifiers in prose. v8.30.1's generic-api-key
 #    heuristic also fires on documentation phrases like
@@ -57,31 +97,43 @@ useDefault = true
 #        constants means a genuine secret committed to the same test file
 #        still trips the gate, whereas a path allowlist would wave it through.
 #        Same reasoning as entry 3, tightened — prefer value-scoping wherever
-#        the not-a-secret property belongs to the value itself.
+#        the not-a-secret property belongs to the value itself. The
+#        generic-api-key heuristic extracts each constant as the secret in its
+#        own right (`RFC_8032_TEST_1_SECRET_KEY_HEX = "9d61…"` yields secret
+#        `9d61…`), so secret-scoping is the exact spelling of "by value" here.
 #
 #    (b) `Ed25519PrivateKey` — the heuristic reads
 #        `const DAEMON_SIGNING_KEY: Ed25519PrivateKey = …` as a
 #        `KEY = VALUE` assignment and captures the TYPE ANNOTATION as the
 #        secret. A pure false positive of the same shape as entries 1 and 2:
 #        a high-entropy identifier in value position that carries no secret
-#        material. Suppressing the matched substring is safe because a real
-#        secret can never be captured as exactly this type name. The sibling
-#        `Ed25519PublicKey` is deliberately NOT pre-listed — it does not
-#        currently fire, and suppressions are added on evidence, not
-#        anticipation.
+#        material. This is the entry whose safety argument leans hardest on the
+#        secret-scoping and the anchoring above, and it is worth spelling out
+#        why both are needed. "A real secret can never be captured as exactly
+#        this type name" is a claim about the EXTRACTED SECRET, so a
+#        match-scoped rule does not test it: the surrounding match is an
+#        ordinary `identifier: Type` fragment that a line carrying real key
+#        material could equally contain. And an UNANCHORED secret-scoped rule
+#        does not test it either, because it also suppresses every secret that
+#        merely contains the token. Only the anchored, secret-scoped form
+#        below is the claim. Verified against the pinned v8.30.1: the finding's
+#        match is `DAEMON_SIGNING_KEY: Ed25519PrivateKey ` and its secret is
+#        exactly `Ed25519PrivateKey`. The sibling `Ed25519PublicKey` is
+#        deliberately NOT pre-listed — it does not currently fire, and
+#        suppressions are added on evidence, not anticipation.
 [allowlist]
 description = "AWS KMS Ed25519 enum constants + crypto-algorithm prose tokens + PASETO v4 RFC test vectors + RFC 8032 §7.1 Ed25519 test vectors"
 condition = "OR"
-regexTarget = "match"
+regexTarget = "secret"
 regexes = [
-  '''ECC_NIST_EDWARDS25519''',
-  '''ED25519_SHA_512''',
-  '''ED25519_PH_SHA_512''',
-  '''XChaCha20-Poly1305-wrapped''',
-  '''Argon2id-encrypted''',
-  '''9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60''',
-  '''4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb''',
-  '''Ed25519PrivateKey''',
+  '''^ECC_NIST_EDWARDS25519$''',
+  '''^ED25519_SHA_512$''',
+  '''^ED25519_PH_SHA_512$''',
+  '''^XChaCha20-Poly1305-wrapped$''',
+  '''^Argon2id-encrypted$''',
+  '''^9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60$''',
+  '''^4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb$''',
+  '''^Ed25519PrivateKey$''',
 ]
 paths = [
   '''packages/crypto-paseto/src/__tests__/__fixtures__/v4\.json''',

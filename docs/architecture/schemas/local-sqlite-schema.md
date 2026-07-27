@@ -283,9 +283,9 @@ The build-metadata rejection above is grounded in the SemVer specification itsel
 ## Audit Log Crypto Tables (Plan-006)
 
 ```sql
--- Owner: Plan-006 | Migration: 0NNN-daemon-signing-keys.ts (Tier 4 Phase 2)
+-- Owner: Plan-006 | Migration: 0005-daemon-signing-keys.ts (Tier 4 Phase 2)
 -- Per-session daemon Ed25519 signing keypair. Private key is sealed via the
--- OS keystore master key (@napi-rs/keyring v1.2.0 per Spec-022:146 — Keychain
+-- OS keystore master key (@napi-rs/keyring v1.2.0 per Spec-022 §Daemon Master Key — Keychain
 -- kSecAttrAccessibleWhenUnlockedThisDeviceOnly on macOS / CRED_TYPE_GENERIC
 -- CRED_PERSIST_LOCAL_MACHINE on Windows / Secret Service via libsecret +
 -- kwallet6 + keyutils fallback on Linux). Public key is registered in the
