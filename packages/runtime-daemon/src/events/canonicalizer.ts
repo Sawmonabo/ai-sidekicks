@@ -10,17 +10,28 @@
 // re-implementing the scheme. Two honest implementations that diverge here
 // produce incompatible hashes and signatures for identical events, which is
 // precisely why the divergence surface is kept to one module. Consumers inherit
-// its refusal boundary along with its bytes, and TWO refusals live on the
+// its refusal boundary along with its bytes, and THREE refusals live on the
 // GENERIC entry point: `canonicalizeJson` REFUSES any value nesting containers
-// past a fixed ceiling (see `CANONICAL_JSON_MAX_DEPTH`), and it REFUSES any
-// string or property name carrying an unpaired UTF-16 surrogate (see
-// `assertWellFormedStrings`). Both bind Plan-027 under CP-006-3 — its Spec-024
-// intake needs a registered rejection reason for each, an over-deep
-// `action_payload` and an ill-formed one — but they differ in KIND: the ceiling
-// is POLICY, renegotiated here rather than forked around, while the
-// well-formedness refusal is an RFC 8785 §3.2.2.2 normative MUST, not
-// renegotiable in either direction. `Plan-006 §Cross-Plan Obligations` now
-// registers both, and scopes the renegotiation affordance to the ceiling alone.
+// past a fixed ceiling (see `CANONICAL_JSON_MAX_DEPTH`), it REFUSES any value
+// carrying a callable `toJSON` (see `assertNoToJsonOverride`), and it REFUSES
+// any string or property name carrying an unpaired UTF-16 surrogate (see
+// `assertWellFormedStrings`).
+//
+// EXACTLY TWO OF THE THREE BIND Plan-027 under CP-006-3 — its Spec-024 intake
+// needs a registered rejection reason for each, an over-deep `action_payload`
+// and an ill-formed one — and those two differ in KIND: the ceiling is POLICY,
+// renegotiated here rather than forked around, while the well-formedness refusal
+// is an RFC 8785 §3.2.2.2 normative MUST, not renegotiable in either direction.
+// `Plan-006 §Cross-Plan Obligations` registers those two, and scopes the
+// renegotiation affordance to the ceiling alone. The `toJSON` refusal
+// deliberately adds NO third CP-006-3 row, because no Spec-024 body can reach
+// it: that intake arrives via `JSON.parse`, whose output has no function-valued
+// member anywhere — `{"toJSON":"x"}` yields a STRING, and a `"__proto__"` key
+// parses as an ordinary own data property rather than setting a prototype — so
+// the predicate `typeof value.toJSON === "function"` is unsatisfiable on parsed
+// input. Its KIND is a third one besides POLICY and MUST: it enforces the
+// DETERMINISM the integrity protocol assumes, that re-canonicalizing one value
+// reproduces one byte string.
 // The EVENT entry point carries one refusal neither generic one does:
 // `canonicalizeEvent` rejects a `sequence` outside the safe-integer range,
 // where distinct sequences collapse onto one IEEE-754 double and two different
@@ -48,7 +59,15 @@
 // untrusted CP-006-3 path arrives via `JSON.parse`, which produces no `NaN`, no
 // `Infinity`, and no cycle — but an in-process caller reaches the first two
 // with a plain `canonicalizeJson({ sequence: NaN })`, so the inventory names
-// them rather than claiming this module owns every throw. That example is
+// them rather than claiming this module owns every throw. The THIRD is now
+// SHADOWED in both shapes that could reach it: an own-property cycle drives the
+// depth walk past the ceiling and gets this module's depth wording, and a cycle
+// reachable only through a `toJSON` result is refused by
+// `assertNoToJsonOverride` before the serializer ever runs. What is left of it is
+// the non-idempotent-accessor residual `assertWithinCanonicalDepth` documents —
+// a getter handing the guards an acyclic tree and the serializer a cyclic one —
+// so it stays inventoried as that residual rather than as a live path. The
+// `NaN` example is
 // entry-point-specific: the SAME defect routed through `canonicalizeEvent`
 // meets `assertRepresentableSequence` first and gets this module's wording
 // instead, since a non-integer fails the safe-integer predicate too. Nothing
@@ -348,7 +367,7 @@ export function normalizeOccurredAt(occurredAt: string): string {
  * DELIBERATELY NOT WIRED INTO {@link canonicalizeEvent} OR `verifyRow`. T4.1
  * owns the read path, and emitting a verdict from here would be T2 code
  * deciding a T4.1 question. The verdict itself now exists:
- * `Spec-006 §Audit Integrity (audit_integrity)`'s fourteen-value `failureMode`
+ * `Spec-006 §Audit Integrity (audit_integrity)`'s fifteen-value `failureMode`
  * enum carries `occurred_at_not_canonical`, paired `failurePath: 'signature'`
  * because that field names the guarantee that failed — the signature binds the
  * stored bytes — not the column the defect occupies. What this predicate
@@ -413,20 +432,29 @@ const CANONICAL_JSON_MAX_DEPTH = 64;
  * ITERATIVE BY CONSTRUCTION: an explicit stack, never recursion — a recursive
  * depth check would just trade the serializer's stack overflow for its own.
  *
- * Walks own enumerable properties and never invokes `toJSON`, so it measures a
- * DIFFERENT tree than `canonicalize`, which recurses into the `toJSON()` RESULT.
- * The divergence runs both ways, and the BYPASSABLE direction is the shallow
- * one: an object at depth 1 whose `toJSON()` returns a 5,000-deep tree clears
- * this walk untouched and then overflows the serializer's stack — the guard
- * does not bound it (verified empirically). The conservative direction — a
- * deeply nested object carrying a SHALLOW `toJSON` — only over-counts and
- * refuses early, which is harmless. Nor is the walk free of caller code:
- * `Object.values` invokes own enumerable GETTERS once, {@link assertWellFormedStrings}'s
- * `Object.entries` invokes each once more, and the serializer then invokes each
- * a further three times per OBJECT member — five in total through
- * `canonicalizeJson`, all measured — so a non-idempotent getter puts all three
- * walks on different trees. Neither of these is reachable on the untrusted
- * CP-006-3 path — `JSON.parse` output carries no `toJSON` and no accessors.
+ * Walks own enumerable properties and never invokes `toJSON`, so THIS GUARD
+ * ALONE measures a DIFFERENT tree than `canonicalize`, which recurses into the
+ * `toJSON()` RESULT — and alone it under-counts: an object at depth 1 whose
+ * `toJSON()` returns a 5,000-deep tree clears this walk untouched and then
+ * overflows the serializer's stack (verified empirically). THE ENTRY POINT DOES
+ * NOT under-refuse, though, and that is where the claim now sits:
+ * {@link assertNoToJsonOverride} runs immediately after this walk and refuses any
+ * value carrying a callable `toJSON` at all, so every value that survives
+ * `canonicalizeJson`'s guards has a serialized tree IDENTICAL to the own-property
+ * tree measured here. What remains of the divergence is the conservative
+ * direction only — a deeply nested object refused here whose serialization the
+ * ceiling need not have bounded — which refuses early and is harmless.
+ *
+ * The walk is not free of caller code, though. `Object.values` invokes own
+ * enumerable GETTERS once, {@link assertNoToJsonOverride}'s `Object.values`
+ * invokes each a second time, {@link assertWellFormedStrings}'s `Object.entries`
+ * a third, and the serializer then invokes each a further three times per OBJECT
+ * member — six in total through `canonicalizeJson`, all measured — so a
+ * NON-IDEMPOTENT getter puts all four walks on different trees. That is the one
+ * residual the `toJSON` refusal does not close, and the only remaining way to
+ * hand the serializer a tree no guard inspected. It is unreachable on the
+ * untrusted CP-006-3 path — `JSON.parse` output carries no `toJSON` and no
+ * accessors.
  *
  * One visit per CONTAINER: scalars are never queued, because a scalar's depth is
  * never consulted (it has no children to push and cannot itself exceed the
@@ -448,8 +476,9 @@ const CANONICAL_JSON_MAX_DEPTH = 64;
  * `canonicalize`'s own `Circular reference detected`. Both refuse; only the
  * wording differs, and tracking visited nodes here to sharpen the message would
  * duplicate work the serializer already does. A cycle reachable ONLY through a
- * `toJSON` result is invisible to this walk and surfaces as the library's
- * message instead — the same blind spot as the depth bypass above.
+ * `toJSON` result is invisible to this walk too, but it no longer reaches the
+ * library either: {@link assertNoToJsonOverride} refuses the carrier one guard
+ * later, before any serialization runs.
  */
 function assertWithinCanonicalDepth(value: unknown): void {
   // Each entry pairs a value with the depth it would occupy IF it is a
@@ -486,6 +515,123 @@ function assertWithinCanonicalDepth(value: unknown): void {
     for (const childValue of Object.values(entry.node as Record<string, unknown>)) {
       if (childValue !== null && typeof childValue === "object") {
         pending.push({ node: childValue, depth: entry.depth + 1 });
+      }
+    }
+  }
+}
+
+// --------------------------------------------------------------------------
+// `toJSON` — refused outright, because it unbinds the bytes from the value.
+// --------------------------------------------------------------------------
+//
+// `canonicalize@3.0.0` tests `typeof object.toJSON === 'function'` FIRST for
+// every object — ahead of its own cycle detection and ahead of every other
+// branch — and then serializes the RESULT of calling it rather than the object
+// (`lib/canonicalize.js`). A value carrying a `toJSON` therefore hands the
+// serializer a tree that no walk in this module has seen, and every claim the
+// other two guards make is a claim about the OWN-PROPERTY tree, not about the
+// bytes. Three consequences, each verified against the pinned library:
+//
+//   1. NON-DETERMINISM, which is the one that decides the fix SHAPE. `toJSON`
+//      is arbitrary caller code, so it need not be a function of the value: a
+//      counter-incrementing `toJSON` canonicalizes to `{"v":1}` on the first
+//      pass and `{"v":2}` on the second, same object (measured). The whole
+//      integrity protocol assumes the opposite — verification RE-CANONICALIZES
+//      a rehydrated row and compares the bytes — so a value whose canonical
+//      form is not a function of the value has no `row_hash` and no
+//      `daemon_signature` that mean anything. No output-side check can repair
+//      that: scanning the produced bytes validates ONE draw, and the next draw
+//      is a different one. Only refusing the input closes it.
+//   2. THE DEPTH CEILING IS EVADED, and fails DIRTY rather than refusing: a
+//      depth-1 object whose `toJSON()` returns a 5,000-deep tree clears
+//      {@link assertWithinCanonicalDepth} and then throws the library's
+//      `RangeError: Maximum call stack size exceeded`.
+//   3. THE §3.2.2.2 REFUSAL IS EVADED: `{ toJSON: () => ({ a: "\ud800" }) }`
+//      clears {@link assertWellFormedStrings} and canonicalizes to
+//      `{"a":"\ud800"}` — a lone surrogate through both guards.
+//
+// So the refusal is on the CLASS, not on the lone-surrogate axis alone. It is
+// also FAIL-CLOSED by design: a caller who wants a `Date`, a `Buffer`, or a
+// domain object in the canonical bytes applies the conversion itself and hands
+// this module the converted plain-JSON value, which puts the projection under
+// the caller's version control instead of a prototype's.
+//
+// THE TRAP THIS GUARD EXISTS TO AVOID, stated because an own-property spelling
+// of it would read correct and close nothing. `typeof object.toJSON` is a
+// PROTOTYPE-CHAIN lookup, and the two most likely carriers inherit it:
+// `Object.entries(new Date())` is `[]` and `Object.hasOwn(new Date(), "toJSON")`
+// is `false`, while `typeof new Date().toJSON` is `"function"` (all measured;
+// `Buffer` behaves identically). A guard written with `Object.hasOwn` or
+// own-property enumeration therefore waves `Date` and `Buffer` straight through.
+// The predicate below is the LIBRARY'S OWN test, character for character, which
+// is the only spelling that refuses exactly the set the library would divert.
+// `Uint8Array` carries NO `toJSON` — `typeof new Uint8Array([1]).toJSON` is
+// `undefined` — so the crypto-relevant byte type is untouched by this refusal,
+// and a member literally NAMED `toJSON` whose VALUE is a string is untouched
+// too, which is what keeps every `JSON.parse`d body admissible.
+
+/**
+ * Refuses any value carrying a callable `toJSON`, at any depth.
+ *
+ * ITERATIVE BY CONSTRUCTION and RUNS STRICTLY AFTER THE DEPTH GUARD, for the
+ * reasons {@link assertWellFormedStrings} states at length and this docblock does
+ * not restate: a recursive walk over untrusted input trades one stack overflow
+ * for another, and this walk carries no cycle detection of its own, so it is
+ * safe only because {@link assertWithinCanonicalDepth} reports a cyclic
+ * own-property graph as depth exhaustion and throws first.
+ *
+ * IT RUNS BEFORE {@link assertWellFormedStrings}, AND THAT ORDER IS LOAD-BEARING
+ * IN THE OTHER DIRECTION. This refusal is what makes the well-formedness verdict
+ * a statement about the bytes rather than about a tree the serializer may
+ * discard, so it has to precede it. Reversed, a value carrying BOTH a `toJSON`
+ * and a lone surrogate in its own-property tree would report the surrogate — a
+ * defect in a subtree that would never have been serialized — and the accurate
+ * diagnosis would be the one withheld.
+ *
+ * THE PROPERTY PATH IS NEVER INTERPOLATED, on the same trade
+ * {@link assertNoLoneSurrogate} makes and for the same reason: T2.4's PII codec
+ * calls `canonicalizeJson(input.piiPayload)` directly, so this guard runs over
+ * PII plaintext and its message reaches logs. Property NAMES are caller data
+ * there too, so the message reports the nesting DEPTH — structure, which the
+ * depth ceiling's refusal already discloses — and nothing else.
+ *
+ * ONE RESIDUAL, and it is a relocation rather than a new class: a HOSTILE
+ * accessor named `toJSON` runs on the `typeof` read below, so a throwing one
+ * surfaces its own error instead of this module's wording. The library performs
+ * the identical read one step later, so the throw was always going to happen;
+ * only which line it happens on has moved.
+ */
+function assertNoToJsonOverride(value: unknown): void {
+  // Each entry pairs a node with how many containers sit above it, so the
+  // message can locate the offender without naming a property. The root is
+  // seeded only if it is an object at all: `typeof` on a primitive can never
+  // yield a callable `toJSON`, and the library reaches its own `toJSON` branch
+  // only after the same `typeof object !== 'object'` early return.
+  const pending: Array<{ readonly node: object; readonly containersAbove: number }> = [];
+  if (value !== null && typeof value === "object") {
+    pending.push({ node: value, containersAbove: 0 });
+  }
+  while (pending.length > 0) {
+    // Guaranteed by the loop condition — same register as the walks above.
+    const entry = pending.pop()!;
+    // THE LIBRARY'S OWN TEST, deliberately not `Object.hasOwn`: a
+    // prototype-chain read is the only one that sees `Date.prototype.toJSON`.
+    // See the trap note above.
+    if (typeof (entry.node as { readonly toJSON?: unknown }).toJSON === "function") {
+      throw new Error(
+        `RFC 8785 canonicalization refused: ${
+          entry.containersAbove === 0
+            ? "the top-level value"
+            : `a value nested ${String(entry.containersAbove)} containers deep`
+        } carries a callable toJSON, which canonicalize@3.0.0 invokes and serializes INSTEAD of the value — so the bytes hashed into row_hash and signed as daemon_signature would come from a tree none of this module's guards inspected, and a stateful toJSON makes two canonicalizations of one value produce DIFFERENT bytes, which no verifier recomputing row_hash can survive. Apply the conversion explicitly and pass the converted plain-JSON value instead. The property path is withheld: this entry point also canonicalizes PII plaintext.`,
+      );
+    }
+    // Container-filtered pushes and the `Object.values` cast, both for the
+    // reasons {@link assertWithinCanonicalDepth} gives; a scalar child can carry
+    // no `toJSON` the library would consult.
+    for (const childValue of Object.values(entry.node as Record<string, unknown>)) {
+      if (childValue !== null && typeof childValue === "object") {
+        pending.push({ node: childValue, containersAbove: entry.containersAbove + 1 });
       }
     }
   }
@@ -578,11 +724,12 @@ const LONE_SURROGATE_PATTERN =
  *
  * THE OFFENDING TEXT IS NEVER INTERPOLATED. T2.4's PII codec calls
  * `canonicalizeJson(input.piiPayload)` directly, so this guard runs over PII
- * PLAINTEXT and its message reaches logs. Three throw sites are reachable
- * through that call — the depth ceiling, the no-JSON-representation guard, and
- * this one — and the first two quote nothing from the input at all (a fixed
- * constant and a fixed sentence), which leaves this the only one whose message
- * could carry caller data if it were written the obvious way. The
+ * PLAINTEXT and its message reaches logs. Four throw sites are reachable
+ * through that call — the depth ceiling, the `toJSON` refusal, the
+ * no-JSON-representation guard, and this one — and the first three quote nothing
+ * from the input at all (a fixed constant, a nesting count, and a fixed
+ * sentence), which leaves this the only one whose message could carry caller
+ * data if it were written the obvious way. The
  * `normalizeOccurredAt` refusals DO quote their input, but no `piiPayload` call
  * reaches them. The code unit, its index, and whether it sat in a property name
  * or a value locate the defect precisely without quoting the value — the same
@@ -630,19 +777,21 @@ function assertNoLoneSurrogate(text: string, positionDescription: string): void 
  * entry rather than one per element. A top-level string is handled before the
  * loop, since the loop only ever sees strings as children.
  *
- * DIVERGES FROM THE SERIALIZED TREE IN BOTH DIRECTIONS, exactly as the depth
- * guard does. BYPASSABLE (under-refusal): this walk never invokes `toJSON`,
- * so an object whose `toJSON()` returns `{ a: "\ud800" }` clears it and is then
- * serialized with the lone surrogate intact — the guard does not close that
- * path, and the claim it supports is therefore about the OWN-PROPERTY tree, not
- * about every byte the serializer can emit. CONSERVATIVE (over-refusal), in
- * three shapes, all harmless: `canonicalize` DROPS an object member whose value
- * is `undefined` or a symbol, while this walk still checks that member's NAME;
- * it ignores an array's non-index own enumerable properties, while
- * `Object.entries` yields them here; and a `toJSON` that returns a SUBSET of the
- * own-property tree leaves the surplus checked but never serialized. Neither
- * direction is reachable on the untrusted CP-006-3 path, where `JSON.parse`
- * output carries no `toJSON`, no accessors, no `undefined`, and no symbols.
+ * DIVERGES FROM THE SERIALIZED TREE IN ONE DIRECTION ONLY — THE CONSERVATIVE
+ * ONE — which is what lets its verdict stand for the bytes. The under-refusal
+ * this walk used to carry is closed one guard EARLIER rather than here: it still
+ * never invokes `toJSON`, so an object whose `toJSON()` returned
+ * `{ a: "\ud800" }` would clear it, but {@link assertNoToJsonOverride} refuses
+ * that carrier before this walk runs, so nothing arriving here has a serialized
+ * tree it cannot see. The over-refusals remain, in two shapes, both harmless:
+ * `canonicalize` DROPS an object member whose value is `undefined` or a symbol,
+ * while this walk still checks that member's NAME; and it ignores an array's
+ * non-index own enumerable properties, while `Object.entries` yields them here.
+ * (A third shape is gone with the bypass — a `toJSON` returning a SUBSET of the
+ * own-property tree left the surplus checked but never serialized.) Neither
+ * remaining shape is reachable on the untrusted CP-006-3 path, where
+ * `JSON.parse` output carries no `toJSON`, no accessors, no `undefined`, and no
+ * symbols.
  */
 function assertWellFormedStrings(value: unknown): void {
   if (typeof value === "string") {
@@ -680,13 +829,18 @@ function assertWellFormedStrings(value: unknown): void {
  * path, so an event and a dispatch body can never drift onto two serializers.
  *
  * REFUSAL ORDER is observable — the first guard to fire is the only one the
- * caller sees — so it is fixed here rather than left to reading order. Depth
- * precedes well-formedness because the depth walk is what makes the second walk
- * terminate at all (see {@link assertWellFormedStrings}), which makes this
- * ordering a correctness constraint rather than a diagnostic preference.
+ * caller sees — so it is fixed here rather than left to reading order, and BOTH
+ * positions are correctness constraints rather than diagnostic preferences.
+ * Depth goes first because it is what makes the other two walks terminate at
+ * all: neither carries cycle detection, and a cyclic own-property graph would
+ * spin forever in either (see {@link assertWellFormedStrings}). The `toJSON`
+ * refusal goes second because it is what makes the third guard's verdict a
+ * statement about the serialized bytes rather than about the own-property tree
+ * (see {@link assertNoToJsonOverride}).
  */
 export function canonicalizeJson(value: unknown): CanonicalBytes {
   assertWithinCanonicalDepth(value);
+  assertNoToJsonOverride(value);
   assertWellFormedStrings(value);
   const canonicalText = canonicalize(value);
   if (typeof canonicalText !== "string") {
@@ -823,8 +977,9 @@ function assertRepresentableSequence(sequence: number): void {
  * the projection literal and therefore ahead of `normalizeOccurredAt`. An
  * envelope defective in both members reports the sequence refusal and never
  * the timestamp one. The full observable order on this entry point is
- * sequence → `occurredAt` → the depth ceiling → Unicode well-formedness, the
- * last two inherited from {@link canonicalizeJson} and ordered there.
+ * sequence → `occurredAt` → the depth ceiling → the `toJSON` refusal → Unicode
+ * well-formedness, the last three inherited from {@link canonicalizeJson} and
+ * ordered there.
  *
  * This entry point is the integrity boundary for BOTH write paths: T2.4's PII
  * codec builds its own member literal but routes through this function, so the

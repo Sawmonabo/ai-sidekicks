@@ -3,7 +3,7 @@
 // WHY THIS FILE EXISTS. `signing-key-source.ts` is the one module in the
 // workspace that holds daemon-private key material and the one site where key
 // bytes enter the type system, and no Phase-2 task declared a suite for it. The
-// five properties below are the ones that would fail silently and expensively:
+// six properties below are the ones that would fail silently and expensively:
 //
 //   1. THE PUBLIC/PRIVATE SPLIT IS A SECURITY BOUNDARY. `create` resolves to the
 //      PUBLIC key and nothing else; the private half is reachable only through
@@ -35,6 +35,21 @@
 //      possible-tampering verdict, on every row signed with it. `create` wrote
 //      both halves of one keypair into one row, so the row itself is what
 //      refutes the substitution.
+//   6. THE SEALER'S RESULT IS UNCHECKED INPUT, AND THE ROW IT WOULD WRITE
+//      CANNOT BE UNDONE. `seal` crosses the same CP-006-11 injection boundary,
+//      so an empty or non-byte result is a claim nothing verified — and
+//      `BLOB NOT NULL` refuses NULL and nothing else, so such a value
+//      PERSISTS. The `session_id` PRIMARY KEY then bars the re-provisioning
+//      that would fix it, leaving a session whose public half the roster holds
+//      and whose private half exists nowhere: unrecoverable, where every other
+//      failure in this module is at worst a refusal. Both sides are covered
+//      below, because they cover different rows — `create` refuses before the
+//      INSERT, and `read` refuses a zero-length blob that a build predating
+//      that guard already wrote. The same seam carries a WORSE failure that
+//      every shape check admits: a no-op sealer echoing the seed back persists
+//      the Ed25519 secret in CLEARTEXT under a column readers treat as sealed,
+//      so `create` refuses that identity case too — a heuristic that claims
+//      only "not literally the seed", never "sealed".
 //
 // TESTED THROUGH THE PUBLIC SURFACE AND A REAL DATABASE. The narrowing helpers
 // (`toEd25519PublicKey` / `toEd25519PrivateKey` / `assertEd25519KeyWidth`) are
@@ -205,6 +220,60 @@ class ThrowingFakeSealer implements DaemonSigningKeySealer {
 
   unseal(_sessionId: SessionId, _sealedPrivateKey: Uint8Array): Promise<Uint8Array> {
     return Promise.reject(new Error("keystore unavailable: no Secret Service on this host"));
+  }
+}
+
+/**
+ * Fails by RETURNING rather than by throwing: `seal` resolves to whatever the
+ * test names. The seal-side counterpart of {@link FixedUnsealResultSealer}, and
+ * the shape a stub at the CP-006-11 boundary actually takes — an implementation
+ * that is wired but not yet implemented resolves with something, and its
+ * declared return type is a claim nothing on this side checked.
+ *
+ * IT ALIASES THE SEED RATHER THAN COPYING IT, unlike {@link RecordingFakeSealer}
+ * and for the reason that fake's note gives in reverse: only a RETAINED VIEW can
+ * show that `create` zeroed the array it allocated. That assertion is the one
+ * that distinguishes a guard placed inside the `try` from one placed after it —
+ * both refuse the value, but only the first still reaches the `finally`.
+ */
+class FixedSealResultSealer implements DaemonSigningKeySealer {
+  retainedSeed: Uint8Array | null = null;
+  readonly #sealResult: unknown;
+
+  constructor(sealResult: unknown) {
+    this.#sealResult = sealResult;
+  }
+
+  seal(_sessionId: SessionId, privateKey: Uint8Array): Promise<Uint8Array> {
+    this.retainedSeed = privateKey;
+    return Promise.resolve(this.#sealResult as Uint8Array);
+  }
+
+  unseal(sessionId: SessionId, sealedPrivateKey: Uint8Array): Promise<Uint8Array> {
+    return Promise.resolve(openFakeEnvelope(sessionId, sealedPrivateKey));
+  }
+}
+
+/**
+ * Hands the seed straight back — the no-op sealer, and the shape a
+ * wired-but-unimplemented CP-006-11 boundary most plausibly takes. Its output
+ * clears every shape check in the module: non-empty, `Uint8Array`, 32 bytes.
+ *
+ * IT RETURNS A COPY RATHER THAN THE ARGUMENT, which is what makes the test
+ * meaningful: the guard compares CONTENT, so a stub echoing by reference is
+ * caught a fortiori. The seed itself is retained for the scrub assertion, as
+ * with the sealers above.
+ */
+class CleartextEchoingSealer implements DaemonSigningKeySealer {
+  retainedSeed: Uint8Array | null = null;
+
+  seal(_sessionId: SessionId, privateKey: Uint8Array): Promise<Uint8Array> {
+    this.retainedSeed = privateKey;
+    return Promise.resolve(Uint8Array.from(privateKey));
+  }
+
+  unseal(sessionId: SessionId, sealedPrivateKey: Uint8Array): Promise<Uint8Array> {
+    return Promise.resolve(openFakeEnvelope(sessionId, sealedPrivateKey));
   }
 }
 
@@ -437,6 +506,127 @@ describe("OsKeystoreSealedDaemonSigningKeySource", () => {
   });
 
   // ========================================================================
+  // The seal RESULT — the CP-006-11 shape guard.
+  // ========================================================================
+  //
+  // The block above covers a sealer that fails by THROWING, which is loud. This
+  // one covers the sealer that fails by RETURNING, which is silent and worse:
+  // `sealed_private_key` is `BLOB NOT NULL`, NOT NULL refuses only NULL, and
+  // `Buffer.from` coerces rather than refuses — so an empty or non-byte result
+  // lands as a row the DDL is happy with. That row is unrecoverable, because
+  // the `session_id` PRIMARY KEY then blocks the re-provisioning that would
+  // replace it. Each test below therefore asserts three things, and the last
+  // two are the ones that map to the failure rather than to the guard: that the
+  // seed was still scrubbed (the guard is INSIDE the `try`), and that the
+  // session can still be provisioned afterwards.
+
+  describe("a sealer returning a bad blob leaves no row", () => {
+    it("refuses an empty seal result, scrubs the seed, and leaves the retry open", async () => {
+      const emptyResultSealer = new FixedSealResultSealer(new Uint8Array(0));
+      const source: DaemonSigningKeySource = new OsKeystoreSealedDaemonSigningKeySource(
+        database,
+        emptyResultSealer,
+        { now: () => FIXTURE_CREATED_AT },
+      );
+
+      await expect(source.create(SESSION_ONE)).rejects.toThrow(
+        /DaemonSigningKeySealer\.seal must return a non-empty Uint8Array for daemon_signing_keys\.sealed_private_key; received 0 bytes\./,
+      );
+
+      // Refused ahead of the INSERT, so the PRIMARY KEY is still free.
+      expect(readSigningKeyRows(database)).toHaveLength(0);
+
+      // THE PLACEMENT ASSERTION. A guard written after the `try` — or after the
+      // INSERT — would refuse the same value and pass the same "no row" check
+      // while leaving the plaintext seed live for the whole unwind. The length
+      // check keeps it from passing vacuously on a null or empty retention.
+      expect(emptyResultSealer.retainedSeed?.length).toBe(32);
+      expect(Array.from(emptyResultSealer.retainedSeed ?? [1]).every((byte) => byte === 0)).toBe(
+        true,
+      );
+
+      // THE ASSERTION THAT MAPS TO THE FINDING. The harm was never the bad blob
+      // itself — it was that persisting one is terminal: the roster would hold a
+      // public key whose private half is lost, and no `create` could ever
+      // replace the row. Recovery is therefore the property under test, and it
+      // is asserted end to end rather than as a resolved promise.
+      const workingSource: DaemonSigningKeySource = new OsKeystoreSealedDaemonSigningKeySource(
+        database,
+        sealer,
+        { now: () => FIXTURE_CREATED_AT },
+      );
+      const retried = await workingSource.create(SESSION_ONE);
+      expect(ed25519.getPublicKey(await workingSource.read(SESSION_ONE))).toEqual(
+        retried.publicKey,
+      );
+    });
+
+    it("refuses a seal result that is not bytes at all, before Buffer.from coerces it", async () => {
+      // The stub shape CP-006-11 contemplates in the interim: a sealer that
+      // hands back its envelope as a STRING. Nothing in the type system stops
+      // it — `seal` crosses an injection boundary this package neither owns nor
+      // imports.
+      const stringResult = "fake-seal:v1:not-actually-bytes";
+      const stringResultSealer = new FixedSealResultSealer(stringResult);
+      const source: DaemonSigningKeySource = new OsKeystoreSealedDaemonSigningKeySource(
+        database,
+        stringResultSealer,
+        { now: () => FIXTURE_CREATED_AT },
+      );
+
+      // THE VACUITY CONTROL, AND THE REASON THE GUARD RUNS AHEAD OF THE BIND
+      // RATHER THAN RELYING ON IT. `Buffer.from` COERCES this value into a
+      // perfectly well-formed non-empty BLOB — one that satisfies NOT NULL and
+      // every length check downstream — so unguarded this persists as a
+      // healthy-looking row holding an envelope no `unseal` can ever open.
+      // Nothing about the database would have caught it.
+      expect(Buffer.from(stringResult).length).toBeGreaterThan(0);
+
+      await expect(source.create(SESSION_ONE)).rejects.toThrow(
+        /DaemonSigningKeySealer\.seal must return a non-empty Uint8Array for daemon_signing_keys\.sealed_private_key; received a non-Uint8Array value of type string\./,
+      );
+
+      expect(readSigningKeyRows(database)).toHaveLength(0);
+      expect(stringResultSealer.retainedSeed?.length).toBe(32);
+      expect(Array.from(stringResultSealer.retainedSeed ?? [1]).every((byte) => byte === 0)).toBe(
+        true,
+      );
+    });
+
+    it("refuses a sealer that echoes the seed back in cleartext", async () => {
+      // THE WORSE HARM AT THE SAME SEAM. The two cases above strand a session;
+      // this one is a key-custody breach — the Ed25519 secret seed persisted to
+      // `sealed_private_key` in the clear, under a column every reader of the
+      // table treats as sealed.
+      const echoingSealer = new CleartextEchoingSealer();
+      const source: DaemonSigningKeySource = new OsKeystoreSealedDaemonSigningKeySource(
+        database,
+        echoingSealer,
+        { now: () => FIXTURE_CREATED_AT },
+      );
+
+      // THE VACUITY CONTROL, on a throwaway instance so it does not disturb the
+      // scrub assertion below. The echoed blob clears every earlier guard —
+      // non-empty, `Uint8Array`, 32 bytes — so the refusal is this check's and
+      // nothing else's.
+      const echoProbe: Uint8Array = await new CleartextEchoingSealer().seal(
+        SESSION_ONE,
+        new Uint8Array(32).fill(7),
+      );
+      expect(echoProbe).toBeInstanceOf(Uint8Array);
+      expect(echoProbe.length).toBe(32);
+
+      await expect(source.create(SESSION_ONE)).rejects.toThrow(
+        /DaemonSigningKeySealer\.seal returned the private key unchanged .* would persist the Ed25519 secret seed in cleartext/,
+      );
+
+      expect(readSigningKeyRows(database)).toHaveLength(0);
+      expect(echoingSealer.retainedSeed?.length).toBe(32);
+      expect(Array.from(echoingSealer.retainedSeed ?? [1]).every((byte) => byte === 0)).toBe(true);
+    });
+  });
+
+  // ========================================================================
   // Exactly once per session — the PRIMARY KEY guard.
   // ========================================================================
 
@@ -603,10 +793,40 @@ describe("OsKeystoreSealedDaemonSigningKeySource", () => {
         .run("not-actually-bytes", SESSION_ONE);
 
       await expect(keySource.read(SESSION_ONE)).rejects.toThrow(
-        /sealed_private_key for session .* is not a BLOB: got a non-Uint8Array value of type string/,
+        /sealed_private_key for session .* is not a non-empty BLOB: got a non-Uint8Array value of type string/,
       );
       // Refused BEFORE the sealer is consulted — that is what keeps the
       // diagnostic naming the column.
+      expect(sealer.unsealCalls).toHaveLength(0);
+    });
+
+    it("refuses a stored zero-length blob, which NOT NULL does not", async () => {
+      // THE ROWS THE WRITE-SIDE GUARD CANNOT REACH. `create` now refuses an
+      // empty seal result before the INSERT, but that says nothing about rows
+      // already on disk — one written by a build predating the guard, or a
+      // column truncated at rest. This is the read-side half, and it is a
+      // genuinely distinct case from the one above: a zero-length blob IS a
+      // `Uint8Array`, so byte-ness alone waves it through.
+      await keySource.create(SESSION_ONE);
+      database
+        .prepare("UPDATE daemon_signing_keys SET sealed_private_key = ? WHERE session_id = ?")
+        .run(Buffer.alloc(0), SESSION_ONE);
+
+      // THE VACUITY CONTROL. `BLOB NOT NULL` refuses NULL and nothing else, so
+      // the write above genuinely succeeded and the row genuinely came back as
+      // zero bytes — without this the test could be passing against a database
+      // that had rejected the UPDATE.
+      const storedBlob: unknown = readSigningKeyRows(database)[0]?.sealed_private_key;
+      expect(storedBlob).toBeInstanceOf(Uint8Array);
+      expect((storedBlob as Uint8Array).length).toBe(0);
+
+      await expect(keySource.read(SESSION_ONE)).rejects.toThrow(
+        /sealed_private_key for session .* is not a non-empty BLOB: got 0 bytes/,
+      );
+      // Refused before the keystore is touched, like both sibling column
+      // guards: an empty envelope cannot open, so prompting for the WebAuthn
+      // ceremony `Spec-022 §Daemon Master Key` permits after an idle wipe would
+      // buy a refusal either way.
       expect(sealer.unsealCalls).toHaveLength(0);
     });
 

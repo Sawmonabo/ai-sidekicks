@@ -163,7 +163,15 @@ const ED25519_KEY_LENGTH = 32;
  * outright.
  */
 export interface DaemonSigningKeySealer {
-  /** Seals a freshly generated 32-byte Ed25519 secret seed. */
+  /**
+   * Seals a freshly generated 32-byte Ed25519 secret seed.
+   *
+   * MUST RESOLVE TO A NON-EMPTY `Uint8Array`, and that is the one shape clause
+   * an unfixed byte format still permits. `create` checks it and refuses
+   * anything else rather than persisting it — see the guard there for why an
+   * empty or non-byte blob is the unrecoverable failure on this path rather
+   * than merely a wrong one.
+   */
   seal(sessionId: SessionId, privateKey: Uint8Array): Promise<Uint8Array>;
   /**
    * Reverses {@link DaemonSigningKeySealer.seal} for the same `sessionId`.
@@ -207,6 +215,13 @@ export interface DaemonSigningKeyProvisioner {
    * they would verify against a public key the roster no longer holds, i.e.
    * an untampered log that fails forever. Failing loudly leaves the operator
    * an intact chain to reconcile.
+   *
+   * REJECTS A SEAL RESULT IT CANNOT PERSIST SAFELY, for that same reason read
+   * in reverse. An empty or non-`Uint8Array` blob from the injected
+   * {@link DaemonSigningKeySealer} would satisfy the column's `NOT NULL` and
+   * persist, and the PRIMARY KEY would then bar the re-provisioning that could
+   * fix it. Refused before the INSERT, it leaves no row and the retry stays
+   * open.
    */
   create(sessionId: SessionId): Promise<{ readonly publicKey: Ed25519PublicKey }>;
 }
@@ -243,7 +258,7 @@ export interface DaemonSigningKeySource extends DaemonSigningKeyProvisioner {
    *
    * ALSO REJECTS WHAT IT RESOLVES BUT CANNOT VOUCH FOR, and that half is the one
    * a caller cannot retry its way out of — including a stored
-   * `sealed_private_key` that is not a BLOB, a stored `public_key` that is not a
+   * `sealed_private_key` that is empty or not a BLOB, a stored `public_key` that is not a
    * 32-byte BLOB, an unsealed seed of the wrong width, and an unsealed seed
    * whose public half is not the `public_key` the same `create` wrote beside it.
    * Each is a custody failure rather than a transient one — `create`'s
@@ -354,6 +369,81 @@ export class OsKeystoreSealedDaemonSigningKeySource implements DaemonSigningKeyS
       // half was never sealed, and the PRIMARY KEY would then block the retry.
       const sealedPrivateKey = await this.#sealer.seal(sessionId, keyPair.secretKey);
 
+      // THE SEALER IS AN INJECTED SEAM AND ITS DECLARED RETURN TYPE IS A CLAIM
+      // NOTHING HERE CHECKED — the stance `pii-indirection.ts` takes toward its
+      // own CP-006-1 encryptor result, for a worse failure. This boundary is
+      // CP-006-11: Plan-022 owns the implementation at Tier 5, this module does
+      // not import it, and that registration contemplates a stub in the interim.
+      //
+      // AN UNGUARDED BAD RESULT IS NOT RECOVERABLE, WHICH IS WHAT SETS IT APART
+      // FROM THE SIBLING'S. It does not fail the write: `sealed_private_key` is
+      // `BLOB NOT NULL`, and NOT NULL refuses only NULL — a zero-length BLOB
+      // satisfies the column and persists. The row is then the one thing this
+      // table cannot hold. `session_id` is the PRIMARY KEY against a plain
+      // INSERT, so re-provisioning raises the collision instead of re-keying
+      // (this method's exactly-once note), leaving a session whose public half
+      // the roster holds and whose private half exists nowhere: every later
+      // `read` refuses, nothing can be signed, and the way out is the
+      // `manual_reconcile_only` register rather than a retry. Refusing here
+      // writes no row at all, so the retry stays open — the same property the
+      // seal-before-INSERT ordering above buys against a THROWING sealer, which
+      // this extends to one that fails by returning.
+      //
+      // EMPTY IS REFUSED ALONGSIDE NON-BYTES: no seal emits a zero-length
+      // envelope, so it means the implementation returned nothing while
+      // resolving as though it had succeeded. WIDTH IS NOT CHECKED — this
+      // interface fixes no byte format (the header's "What is NOT here" note),
+      // so the sealed blob has no width this module is entitled to assert.
+      //
+      // AHEAD OF `Buffer.from`, NEVER AFTER IT, for the sibling's reason: the
+      // constructor admits far more than the guard and COERCES where the guard
+      // refuses. `Buffer.from("not-bytes")` yields a NON-EMPTY UTF-8 buffer that
+      // a later length check waves straight through, and `Buffer.from(null)`
+      // throws a `TypeError` naming Buffer rather than the sealer that produced
+      // the value.
+      //
+      // INSIDE THE `try`, so the `finally` scrubs the seed on this throwing path
+      // too. The message carries a length or a `typeof` and never a byte.
+      if (!(sealedPrivateKey instanceof Uint8Array) || sealedPrivateKey.length === 0) {
+        throw new Error(
+          `DaemonSigningKeySealer.seal must return a non-empty Uint8Array for daemon_signing_keys.sealed_private_key; received ${describeByteShape(sealedPrivateKey)}. That is an injection bug at the CP-006-11 boundary, not a tampered row. No row was written, so create remains retriable once the sealer is fixed — persisting this value would have occupied the session_id PRIMARY KEY with a row whose private half cannot be recovered.`,
+        );
+      }
+
+      // A NO-OP SEALER IS THE WORSE FAILURE AT THIS SAME SEAM, AND EVERY CHECK
+      // ABOVE ADMITS IT. A stub that hands its input straight back — the shape a
+      // wired-but-unimplemented CP-006-11 boundary most plausibly takes —
+      // returns a non-empty 32-byte `Uint8Array`, which the shape guard accepts
+      // and the INSERT persists. What lands is not a stranded session but a
+      // KEY-CUSTODY BREACH: the Ed25519 secret seed written to
+      // `daemon_signing_keys.sealed_private_key` in cleartext, under a column
+      // every reader of this table treats as sealed. Refusing the empty blob
+      // while admitting this one would guard the lesser harm at this seam and
+      // wave the greater one through.
+      //
+      // A HEURISTIC, AND ONLY THE ONE IT NAMES. It catches the IDENTITY sealer
+      // and nothing else. A sealer that base64s the seed, XORs it under a fixed
+      // constant, or prefixes it into a longer envelope all pass here —
+      // `equalBytes` is `false` on any length mismatch — and no check this
+      // module can write would catch them, having fixed no byte format to
+      // measure against. The claim is exactly "the stored blob is not literally
+      // the seed", never "the stored blob is sealed".
+      //
+      // `equalBytes` BECAUSE IT IS THIS MODULE'S ONE BYTE-UTILITY SOURCE, the
+      // same call `read` makes, and it keeps `node:crypto` out of the import
+      // graph. Its accumulate-rather-than-early-exit property is INCIDENTAL
+      // here, unlike at the `read` comparison that argues for it: both operands
+      // are plaintext values this process already holds, so there is no timing
+      // oracle to leak and a constant-time compare would imply a threat model
+      // that does not exist — do not "fix" this into one. It runs AFTER the
+      // shape guard because noble's `abytes` throws on a non-`Uint8Array` with
+      // a message naming the library rather than the sealer.
+      if (equalBytes(sealedPrivateKey, keyPair.secretKey)) {
+        throw new Error(
+          `DaemonSigningKeySealer.seal returned the private key unchanged for daemon_signing_keys.sealed_private_key, which would persist the Ed25519 secret seed in cleartext under a column every reader treats as sealed. That is an injection bug at the CP-006-11 boundary — a no-op or not-yet-implemented sealer — and no row was written. The check is identity-only: it cannot attest that a non-matching blob is sealed.`,
+        );
+      }
+
       // better-sqlite3 binds a `Buffer` as the BLOB value — the register
       // `session-service.ts` uses (`Buffer.alloc`) for the chain columns.
       // `Buffer.from(typedArray)` COPIES, where the `Buffer.from(arrayBuffer)`
@@ -371,9 +461,10 @@ export class OsKeystoreSealedDaemonSigningKeySource implements DaemonSigningKeyS
     } finally {
       // Best-effort scrub of the generated secret, which this method never
       // returns and no longer needs. The `try` opens BEFORE the seal, not
-      // between it and the INSERT, so both throwing paths reach this line —
-      // a failed seal is exactly where the plaintext seed would otherwise
-      // stay reachable while the error unwinds.
+      // between it and the INSERT, so every throwing path reaches this line —
+      // a rejected seal, a seal RESULT the guard above refuses, and the
+      // PRIMARY KEY collision. The first two are exactly where the plaintext
+      // seed would otherwise stay reachable while the error unwinds.
       //
       // HONEST LIMIT — this is hygiene, not a guarantee, and the ways it falls
       // short are all outside this line's reach. V8 may have copied the buffer
@@ -410,10 +501,19 @@ export class OsKeystoreSealedDaemonSigningKeySource implements DaemonSigningKeyS
     // REPORT, whereas a malformed stored KEY is a custody failure with no
     // signature to adjudicate — there is nothing to return `false` about, and
     // the append path cannot proceed either way.
+    //
+    // EMPTY IS THE HALF OF THIS GUARD THAT `NOT NULL` DOES NOT COVER, and it is
+    // not only a hypothetical: NOT NULL refuses NULL and nothing else, so a
+    // zero-length BLOB satisfies the column and comes back from better-sqlite3
+    // as a `Uint8Array` of length 0 — `instanceof` alone waves it through, and
+    // it reaches the sealer as an envelope with nothing in it. `create` now
+    // refuses such a value before the INSERT, so this clause is the read-side
+    // half of the same guard, covering the rows that write path did not: any
+    // row written before it existed, plus any at-rest truncation of the column.
     const sealedPrivateKey = row.sealed_private_key;
-    if (!(sealedPrivateKey instanceof Uint8Array)) {
+    if (!(sealedPrivateKey instanceof Uint8Array) || sealedPrivateKey.length === 0) {
       throw new Error(
-        `daemon_signing_keys.sealed_private_key for session ${sessionId} is not a BLOB: got ${describeByteShape(sealedPrivateKey)}. The column is declared BLOB NOT NULL, so a non-byte value means the row was written or altered outside this module.`,
+        `daemon_signing_keys.sealed_private_key for session ${sessionId} is not a non-empty BLOB: got ${describeByteShape(sealedPrivateKey)}. The column is declared BLOB NOT NULL and create refuses an empty seal result, so a non-byte or zero-length value means the row was written or altered outside this module — or by a build predating that refusal. Unsealing it cannot produce this session's key, and the row cannot be re-provisioned over: reconcile it per the T2.7 manual_reconcile_only register.`,
       );
     }
 

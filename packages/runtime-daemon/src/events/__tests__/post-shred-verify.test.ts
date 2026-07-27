@@ -5,19 +5,36 @@
 // empirically demonstrates the claim the machinery exists to support —
 // `Spec-022 §Signature Safety Under Shred`: a `daemon_signature` taken over
 // canonical bytes that carry `pii_ciphertext_digest` (and never the ciphertext
-// itself) SURVIVES a Plan-022 Path-1 crypto-shred. Delete the participant's
-// content key, clear `session_events.pii_payload`, and the row is still
-// verifiable while the PII is irrecoverable. If that is not true, the audit log
-// and the right-to-erasure obligation are in direct conflict and one of them
-// has to be given up.
+// itself) SURVIVES a Plan-022 Path-1 crypto-shred. Destroy the participant's
+// content key and the row is still verifiable while the PII is irrecoverable.
+// If that is not true, the audit log and the right-to-erasure obligation are in
+// direct conflict and one of them has to be given up.
+//
+// A PATH-1 SHRED IS A KEY DELETION AND OVERWRITES NO COLUMN — the single fact
+// this suite is easiest to get wrong about. `Spec-022 §Shred Fan-Out` Path 1's
+// mechanism is `DELETE FROM participant_keys` (plus `artifact_encryption_keys`,
+// Plan-014's and not in this schema); its scope selector is the durable
+// participant-id stamp on the event row, NOT the ciphertext, which is opaque.
+// The ciphertext bytes STAY in `session_events.pii_payload` after the shred —
+// unreadable forever, because the only key that could decrypt them is gone, but
+// bytewise intact and still hashing to the digest the signature committed to.
+// Modelling the shred as `UPDATE … SET pii_payload = NULL` would be a different
+// operation with a different postcondition: that state is EVIDENCE DESTRUCTION,
+// which `isCiphertextDigestBound` classifies as UNBOUND (see the last describe
+// in this file). {@link nullPiiPayloadColumn} exists to produce it deliberately,
+// as a negative — never as a stand-in for a shred.
 //
 // THREE LEGS, AND THE THIRD IS A NEGATIVE CONTROL THAT IS NOT OPTIONAL.
 //
 //   1. `writeEventWithPii` produces canonical bytes that INCLUDE
 //      `pii_ciphertext_digest` and exclude every trace of the plaintext and of
 //      the ciphertext (`Spec-006 §Canonical Serialization Rules`, I-006-2-05).
-//   2. After `pii_payload` is set to NULL — the shred — the `daemon_signature`
-//      STILL verifies against bytes re-canonicalized from the surviving row.
+//   2. After the participant's content key is DELETEd — the shred — the
+//      `daemon_signature` STILL verifies against bytes re-canonicalized from the
+//      row AND the retained ciphertext STILL binds to its signed digest. The
+//      CONJUNCTION is the claim: the verify half alone is nearly vacuous across
+//      an operation that writes no column, and the binding half is what
+//      separates a shredded row from an evidence-destroyed one.
 //   3. Tampering ANY canonical envelope field post-shred makes verification
 //      FAIL.
 //
@@ -31,17 +48,30 @@
 // passes any smaller matrix.
 //
 // THE VERIFIED ENVELOPE IS REHYDRATED FROM THE STORED COLUMNS, NEVER REUSED
-// FROM THE WRITE. `verifyRow` is never handed `pii_payload` — it takes
-// canonical bytes, three integrity columns and a public key — so "shred it
-// in memory and verification still passes" is a tautology about a parameter
-// that does not exist. What makes leg 2 a real claim is the round trip: the
-// row is persisted, the ciphertext column is nulled by SQL, and the bytes fed
-// to `verifyRow` are rebuilt from what SURVIVED. That is also why this suite
-// runs against a real in-memory SQLite database on the shipped migrations
-// rather than against object literals — the `CHECK(length(prev_hash) = 32)` /
-// `CHECK(length(daemon_signature) = 64)` clauses in `0001-initial.ts` then
-// vouch for the widths on the way in, and the BLOB round trip is the one that
-// actually happens in production.
+// FROM THE WRITE — and the reason is REHYDRATION FIDELITY, not the shred.
+// Verifying the write-time envelope would test the canonicalizer against
+// itself: the bytes would never have crossed the column types, so every
+// storage-shaped divergence would be invisible. SQL NULL collapsing `actor`'s
+// present-and-null onto `correlationId`'s absent is the live instance — two
+// column groups that must rehydrate DIFFERENTLY to reproduce the signed bytes
+// (see {@link rehydrateEnvelope}), pinned by dedicated cases in leg 2. Rebuild
+// them the same way and an UNTAMPERED row reports `hash_mismatch`, at which
+// point the tempting "fix" is to verify the write-time envelope and lose the
+// whole leg. That is also why this suite runs against a real in-memory SQLite
+// database on the shipped migrations rather than against object literals — the
+// `CHECK(length(prev_hash) = 32)` / `CHECK(length(daemon_signature) = 64)`
+// clauses in `0001-initial.ts` then vouch for the widths on the way in, and the
+// BLOB round trip is the one that actually happens in production.
+//
+// THE ROUND TRIP IS ALSO WHAT LETS LEG 2 SAY ANYTHING ABOUT THE CIPHERTEXT.
+// `verifyRow` is never handed `pii_payload` — it takes canonical bytes, three
+// integrity columns and a public key — so it is structurally incapable of
+// noticing what the ciphertext column holds, and no arrangement of its
+// arguments will make it notice. Since a Path-1 shred writes no column at all,
+// a leg 2 built on `verifyRow` alone would be asserting that nothing changed
+// after nothing happened. `isCiphertextDigestBound` is the second reader, over
+// the stored column the verifier cannot see, and running BOTH over the SAME
+// persisted row is what makes the leg a claim rather than a restatement.
 //
 // THE INSERT BELOW IS A TEST FIXTURE, NOT AN APPEND PATH. Step 7 of
 // `Plan-006 §Encrypt-Then-Digest-Then-Sign Order` — persisting the row under
@@ -77,7 +107,9 @@ import { canonicalizeEvent, canonicalizeJson } from "../canonicalizer.js";
 import type { CanonicalBytes } from "../canonicalizer.js";
 import {
   isCiphertextDigestBound,
+  isPiiOwnerStampBound,
   PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY,
+  PII_PARTICIPANT_ID_PAYLOAD_KEY,
   writeEventWithPii,
 } from "../pii-indirection.js";
 import type {
@@ -426,8 +458,96 @@ interface StoredSessionEventRow {
 }
 
 /**
- * Persists three of the write unit's four members — `piiParticipantId` is the
- * one it drops, and the omission is the schema's, not this helper's.
+ * The custody row a sealed `pii_payload` implies, and the row Path 1 DELETEs.
+ *
+ * PROVISIONED HERE RATHER THAN AT EACH CALL SITE because it is not a second
+ * step: a `session_events` row holding ciphertext sealed under a participant's
+ * content key and NO `participant_keys` row for that participant is a state
+ * Plan-022 does not admit, so the two rows are one fixture state. Splitting them
+ * would leave every future test author one forgotten call away from a shred that
+ * reports `changes === 0` for a reason nothing in this file explains.
+ *
+ * THE TABLE IS REAL AND SHIPPED, WHICH IS WHY THE SHRED CAN BE. `0001-initial.ts`
+ * CREATEs `participant_keys` under `-- Owner: Spec-022 (GDPR)` — Plan-001 makes
+ * the empty table so downstream plans need not ALTER its shape, and Plan-022 owns
+ * the wrapping and the DELETE-as-crypto-shred lifecycle. So this suite invents no
+ * DDL; it writes a fixture row into shipped DDL, exactly as {@link
+ * insertSignedPiiRow} does for `session_events`.
+ *
+ * THE BLOB IS NOT A WRAPPED KEY AND NOTHING HERE PRETENDS OTHERWISE. Real
+ * custody is an AES-256 key envelope-encrypted under the daemon master key
+ * (`Spec-022 §PII Payload Column Pattern`); this suite's encryptor is the
+ * CP-006-1 stub, which derives its keystream from `participantId || eventId` and
+ * never reads this table. The row therefore models Plan-022's CUSTODY RECORD,
+ * not its cryptography — see {@link applyPath1CryptoShred} for what that does and
+ * does not license this suite to claim.
+ *
+ * ONE CUSTODY ROW PER PARTICIPANT, ONE EVENT ROW PER EVENT — the two are NOT
+ * 1:1, which is why this is idempotent rather than a bare INSERT.
+ * `participant_keys.participant_id` is `TEXT NOT NULL PRIMARY KEY`, and a second
+ * PII event from the same participant seals under the SAME content key (that is
+ * what makes a single DELETE erase a participant's whole history rather than one
+ * row of it). An unconditional INSERT survives only because every fixture here
+ * writes one event into a fresh `:memory:` database; the first two-event chain
+ * for one participant — the ordinary shape, and the one T3.1's
+ * `EventLogService.append` produces — would throw
+ * `SQLITE_CONSTRAINT_PRIMARYKEY` out of {@link insertSignedPiiRow}, where it
+ * would read as a `session_events` defect.
+ */
+function provisionParticipantContentKey(database: DatabaseType, participantId: string): void {
+  const custodyRow = database
+    .prepare("SELECT encrypted_key_blob FROM participant_keys WHERE participant_id = ?")
+    .get(participantId) as { readonly encrypted_key_blob: Uint8Array } | undefined;
+
+  // NOT `INSERT OR IGNORE`, which absorbs every conflict including the ones worth
+  // hearing about: a custody row whose blob is not the one this fixture writes has
+  // been rotated or overwritten by something else, and a shred asserted against it
+  // would be asserting over a key nothing in this file put there.
+  if (custodyRow !== undefined) {
+    // ASSERTED AS DECODED TEXT FIRST so the failure explains itself without anyone
+    // opening this helper. The blob is `test-wrapped-content-key-for-<id>`, so a
+    // fixture that provisioned two different content keys under one participant id
+    // prints those two ids side by side — where comparing the raw bytes would print
+    // two anonymous `Uint8Array`s and send the reader here to find out why.
+    expect(utf8Decoder.decode(Uint8Array.from(custodyRow.encrypted_key_blob))).toBe(
+      utf8Decoder.decode(participantContentKeyFixtureBlob(participantId)),
+    );
+    // AND AS BYTES, because the decode above is lossy: `TextDecoder` substitutes
+    // U+FFFD rather than throwing, so two DIFFERENT non-UTF-8 blobs can decode to
+    // the same replacement characters. The readable assertion catches the case that
+    // actually happens; this one closes the case that would otherwise pass.
+    expect(Uint8Array.from(custodyRow.encrypted_key_blob)).toEqual(
+      participantContentKeyFixtureBlob(participantId),
+    );
+    return;
+  }
+
+  const provisioning = database
+    .prepare(
+      `INSERT INTO participant_keys (participant_id, encrypted_key_blob, key_version, created_at)
+         VALUES (@participant_id, @encrypted_key_blob, 1, @created_at)`,
+    )
+    .run({
+      participant_id: participantId,
+      encrypted_key_blob: Buffer.from(participantContentKeyFixtureBlob(participantId)),
+      created_at: FIXTURE_OCCURRED_AT,
+    });
+  expect(provisioning.changes).toBe(1);
+}
+
+/**
+ * The stand-in for Plan-022's envelope-encrypted key material, derived from the
+ * participant id so {@link provisionParticipantContentKey} can recognize its own
+ * row on a re-provision without holding state between calls.
+ */
+function participantContentKeyFixtureBlob(participantId: string): Uint8Array {
+  return utf8Encoder.encode(`test-wrapped-content-key-for-${participantId}`);
+}
+
+/**
+ * Persists three of the write unit's four members into `session_events` —
+ * `piiParticipantId` is the one it drops, and the omission is the schema's, not
+ * this helper's — plus the {@link provisionParticipantContentKey} custody row.
  *
  * `0001-initial.ts` gives `session_events` no participant-id column for the PII
  * owner, and `actor` is a different value (it may be an agent id or NULL). So
@@ -436,10 +556,13 @@ interface StoredSessionEventRow {
  * `pii-indirection.ts`'s header names T3.1 as the phase that adds it. Until then
  * these tests exercise the shred-SIGNATURE property, which needs the ciphertext
  * and the signed columns; the shred SELECTOR property is Phase-3's to test,
- * because it is Phase 3 that will have a column to select on.
+ * because it is Phase 3 that will have a column to select on. The stamp is bound
+ * inside the SIGNED PAYLOAD in this phase (leg 1 asserts it), which is a
+ * different claim from a stored column and does not substitute for one.
  */
 function insertSignedPiiRow(database: DatabaseType, result: PiiEventWriteResult): void {
   const { envelope, piiPayload, signedRow } = result;
+  provisionParticipantContentKey(database, result.piiParticipantId);
   database
     .prepare(
       `INSERT INTO session_events (
@@ -585,24 +708,163 @@ function captureReadPathThrow(database: DatabaseType): unknown {
 }
 
 /**
- * PLAN-022 PATH-1 CRYPTO-SHRED, the half this package can perform.
+ * Reads the stored ciphertext column back as plain bytes, or `null`.
  *
- * The full operation is two writes: DELETE the participant's row from
- * `participant_keys` (the content key — Plan-022 owns that table and that
- * step, and without the key the ciphertext is unrecoverable even from a
- * backup) and clear `pii_payload`. Only the second touches a Plan-006 column,
- * so only the second is modelled here; the first has no effect on any input
- * `verifyRow` reads, which is precisely the property under test.
+ * `Uint8Array.from` rather than the raw better-sqlite3 `Buffer`, because these
+ * values are compared with `toEqual` across a shred and a `Buffer` compares
+ * equal to a `Uint8Array` of different contents under some matchers. Normalising
+ * at the read keeps the comparison about the BYTES.
  */
-function shredPiiPayload(database: DatabaseType): void {
-  const result = database.prepare("UPDATE session_events SET pii_payload = NULL").run();
-  expect(result.changes).toBe(1);
+function readStoredCiphertext(database: DatabaseType): Uint8Array | null {
+  const stored: Uint8Array | null = readStoredRow(database).pii_payload;
+  return stored === null ? null : Uint8Array.from(stored);
+}
+
+/**
+ * Does the stored ciphertext column still hash to the digest the SIGNATURE
+ * committed to? The read-side binding `verifyRow` structurally cannot make.
+ *
+ * Composed over the SAME persisted row the verifier reads, so the two verdicts
+ * are about one row rather than two fixtures. `payload` is parsed from the
+ * column rather than taken off the write-time envelope for {@link
+ * rehydrateEnvelope}'s reason: the write-time object would make the digest agree
+ * with itself.
+ */
+function isStoredCiphertextDigestBound(database: DatabaseType): boolean {
+  const row: StoredSessionEventRow = readStoredRow(database);
+  return isCiphertextDigestBound(
+    row.pii_payload,
+    JSON.parse(row.payload) as Record<string, unknown>,
+  );
+}
+
+/** Whether `participant_keys` still holds a custody row for the participant. */
+/**
+ * Row counts for the two tables this suite writes.
+ *
+ * The table name is interpolated rather than bound because SQLite binds VALUES
+ * and never identifiers — and the parameter is a two-member literal union, so
+ * the only strings that reach the SQL are the two written here. A reviewer
+ * scanning for interpolated SQL should stop at this comment rather than at the
+ * template literal.
+ */
+function countRows(
+  database: DatabaseType,
+  tableName: "session_events" | "participant_keys",
+): number {
+  const { rowCount } = database.prepare(`SELECT COUNT(*) AS rowCount FROM ${tableName}`).get() as {
+    readonly rowCount: number;
+  };
+  return rowCount;
+}
+
+function hasParticipantContentKey(database: DatabaseType, participantId: string): boolean {
+  const custodyRow = database
+    .prepare("SELECT participant_id FROM participant_keys WHERE participant_id = ?")
+    .get(participantId);
+  return custodyRow !== undefined;
+}
+
+/**
+ * PLAN-022 PATH-1 CRYPTO-SHRED — A KEY DELETION. IT OVERWRITES NO COLUMN.
+ *
+ * `Spec-022 §Shred Fan-Out` Path 1's mechanism is `DELETE FROM participant_keys`
+ * — destroying the random per-participant AES-256 key whose only persisted copy
+ * was that row, which is what makes the deletion a true cryptographic erasure —
+ * plus the same DELETE against `artifact_encryption_keys` on every node the
+ * participant runs. Its scope selector is the durable participant-id stamp on
+ * the event row, NOT the ciphertext, which is opaque. Nothing in Path 1 writes to
+ * `session_events`: the ciphertext bytes stay exactly where they were,
+ * permanently unreadable but bytewise intact, which is why the digest a
+ * pre-shred signature committed to still describes them.
+ *
+ * THE FIRST DELETE IS EXECUTED FOR REAL AGAINST SHIPPED DDL. `0001-initial.ts`
+ * CREATEs `participant_keys` (`-- Owner: Spec-022 (GDPR)`; Plan-001 makes the
+ * empty table, Plan-022 owns the lifecycle), so Path 1's primary mechanism is
+ * not hypothetical here — it runs, and `changes === 1` is the evidence it ran.
+ * `artifact_encryption_keys` is Plan-014's and no migration creates it, so that
+ * half stays unmodelled; it is a second key custody table and likewise writes no
+ * `session_events` column, so its absence changes nothing this suite observes.
+ *
+ * WHAT THIS DELETE DOES **NOT** PROVE, STATED SO NOBODY READS MORE INTO IT.
+ * The CP-006-1 stub encryptor derives its keystream from `participantId ||
+ * eventId` and never reads `participant_keys`, so the DELETE is causally inert
+ * with respect to every value this suite can observe. The irreversibility
+ * argument is Plan-022's (`Spec-022 §Signature Safety Under Shred`, steps 4-5),
+ * not something a test with a stub cipher can demonstrate. What IS demonstrated
+ * here is the property Plan-006 owns and I-006-2-05 asserts: the audit-integrity
+ * surface — signature, hash chain, and the ciphertext's digest binding — is
+ * INVARIANT across the operation, and the assertion below is what fires the day
+ * someone reintroduces a `pii_payload` write into this helper.
+ *
+ * THE TEETH ARE IN THE PAIRING, NOT IN THIS FUNCTION. A test that only asserts
+ * "still verifies after an operation that writes no column" is close to vacuous
+ * on its own. {@link nullPiiPayloadColumn} is its discriminating negative: the
+ * same row, the same verifier, a genuinely different postcondition.
+ */
+function applyPath1CryptoShred(database: DatabaseType, participantId: string): void {
+  const ciphertextBeforeShred: Uint8Array | null = readStoredCiphertext(database);
+  // A shred against a participant with no custody row is a no-op that would let
+  // every assertion below pass without the erasure ever happening.
+  expect(hasParticipantContentKey(database, participantId)).toBe(true);
+
+  const deletion = database
+    .prepare("DELETE FROM participant_keys WHERE participant_id = ?")
+    .run(participantId);
+  expect(deletion.changes).toBe(1);
+  expect(hasParticipantContentKey(database, participantId)).toBe(false);
+
+  // PATH 1 OVERWRITES NO COLUMN — the invariant this helper exists to hold, and
+  // the one a "shred clears pii_payload" rewrite breaks on its first run.
+  expect(readStoredCiphertext(database)).toEqual(ciphertextBeforeShred);
+}
+
+/**
+ * NULLs `session_events.pii_payload`. THIS IS NOT A SHRED — do not rename it
+ * into one.
+ *
+ * Deliberately named for the column write it performs rather than for any
+ * policy operation, because two DIFFERENT operations reach this state and
+ * neither of them is Path 1:
+ *
+ *   * `Spec-006 §Compacted Event Format` — compaction NULLs the column and
+ *     replaces `payload` with a stub projection carrying no digest, so the
+ *     post-state is BOTH-ABSENT and stays digest-bound.
+ *   * An at-rest adversary destroying evidence — the column NULLed while the
+ *     signed digest survives inside `payload`. That post-state is UNBOUND, and
+ *     `isCiphertextDigestBound` classifying it so is the whole reason the
+ *     predicate exists.
+ *
+ * Modelling a shred with this call collapses the second state onto Path 1's and
+ * asserts that evidence destruction is a legitimate, verifying end state. It is
+ * used below only as the negative that keeps {@link applyPath1CryptoShred}'s
+ * green verdicts meaningful.
+ */
+function nullPiiPayloadColumn(database: DatabaseType): void {
+  const update = database.prepare("UPDATE session_events SET pii_payload = NULL").run();
+  expect(update.changes).toBe(1);
 }
 
 // ==========================================================================
 // LEG 1 — the signed bytes commit to the DIGEST, never to the ciphertext or
 // the plaintext (I-006-2-05, `Spec-006 §Canonical Serialization Rules`).
 // ==========================================================================
+//
+// "NOTHING PII" MEANS THE PII PARTITION'S CONTENT, NOT IDENTIFIERS — A SCOPE
+// CLARIFICATION, NOT AN INVARIANT AMENDMENT. I-006-2-05 states that
+// `daemon_signature` covers canonical bytes that include the digest and exclude
+// `pii_payload`; the excluded thing it names is the PARTITION — plaintext and
+// ciphertext — and the leg's title is read against that. It has never meant
+// "carries no participant identifier": `actor` was in the canonical eleven from
+// Plan-001 and holds exactly such an identifier (`0001-initial.ts`'s
+// `session_events.actor` column comment: "participant_id or agent_id or NULL for
+// system"), and the projection literal in `pii-indirection.ts` has always
+// included it. So the PII owner stamp now riding inside `payload` as
+// `pii_participant_id` adds an identifier of a class the signed bytes already
+// carried, and it must: the Path-1 selector matches on the durable stamp
+// (`Spec-022 §Shred Fan-Out` Path 1 Scope), and an unsigned stamp is one an
+// at-rest adversary can rewrite to point the row at a participant who will never
+// be erased. Recorded here so this is not re-opened as a leak.
 
 describe("Plan-006 T2.5 leg 1 — canonical bytes carry pii_ciphertext_digest and nothing PII", () => {
   let encryptor: DeterministicTestPiiEncryptor;
@@ -645,20 +907,49 @@ describe("Plan-006 T2.5 leg 1 — canonical bytes carry pii_ciphertext_digest an
     );
     const canonicalText: string = utf8Decoder.decode(canonicalizeEvent(result.envelope));
 
-    // The signed bytes are the ONE place PII must never appear: a shred clears
-    // `pii_payload`, but canonical bytes are reproduced from surviving columns
-    // forever, so anything that lands here outlives the erasure.
+    // The signed bytes are the ONE place PII must never appear. A Path-1 shred
+    // writes no column, so the ciphertext survives at rest, and canonical bytes
+    // are reproducible from the surviving row forever — plaintext that lands
+    // here is signed into the audit record for as long as the row exists, past
+    // any erasure, and no later operation can take it back out without breaking
+    // every signature over it.
     expect(canonicalText).not.toContain(PII_PLAINTEXT_SENTINEL);
     expect(canonicalText).not.toContain(PII_PLAINTEXT_SENTINEL_KEY);
     expect(canonicalText).not.toContain("Ada Lovelace");
     expect(canonicalText).not.toContain("ada@example.invalid");
     // Nor the ciphertext, in the encoding it would most plausibly take.
-    // Ciphertext in the signed bytes would survive the shred and hand an
-    // attacker a length-and-structure oracle over the erased data.
+    // Ciphertext in the signed bytes would hand an attacker a
+    // length-and-structure oracle over data the shred rendered unreadable.
     expect(canonicalText).not.toContain(bytesToHex(result.piiPayload));
     expect(canonicalText).not.toContain("piiPayload");
-    expect(canonicalText).not.toContain("piiParticipantId");
     expect(canonicalText).not.toContain("pii_payload");
+
+    // THE OWNER STAMP IS SIGNED, AND THE TWO SPELLINGS SAY DIFFERENT THINGS —
+    // this pair replaces a bare `not.toContain("piiParticipantId")` that stayed
+    // green for the wrong reason once the stamp landed, since it happened to
+    // test the camelCase spelling of a member that arrived in snake_case.
+    //
+    //   * `pii_participant_id` (WIRE) MUST be present. It is the Path-1 selector
+    //     (`Spec-022 §Shred Fan-Out` Path 1 Scope) and the AAD's participant
+    //     half, and only a signed stamp is one an at-rest adversary cannot
+    //     rewrite to make the row unreachable by the erasure sweep. This is not
+    //     a leak: see the scope clarification on this leg's header.
+    //   * `piiParticipantId` (INPUT) MUST be absent, and the claim is unchanged
+    //     by the stamp landing. It is `PiiCarryingEventInput`'s member name, and
+    //     it can only reach the canonical bytes if `embedCiphertextDigest`
+    //     spreads `input` instead of projecting member by member — the
+    //     single-token regression that would carry `piiPayload` along with it.
+    //     So this assertion is a leak detector for the SPREAD, and the sentinel
+    //     assertions above are what catch the partition it would drag in.
+    expect(canonicalText).toContain(
+      `"${PII_PARTICIPANT_ID_PAYLOAD_KEY}":"${FIXTURE_PARTICIPANT_ID}"`,
+    );
+    expect(canonicalText).not.toContain("piiParticipantId");
+    // The wire spelling is pinned at exactly one site, because it is the byte
+    // string every independent verifier and every row on disk depends on — a
+    // constant renamed to a different value is a silent contract break that the
+    // assertion above, reading through the constant, could never see.
+    expect(PII_PARTICIPANT_ID_PAYLOAD_KEY).toBe("pii_participant_id");
 
     // The non-PII payload partition IS signed — without this the assertions
     // above could pass on an empty payload.
@@ -715,6 +1006,33 @@ describe("Plan-006 T2.5 leg 1 — canonical bytes carry pii_ciphertext_digest an
     // And it is the value that was actually bound into the AEAD's associated
     // data, not a second reading of the input taken after the encrypt.
     expect(result.piiParticipantId).toBe(encryptor.lastRequest?.participantId);
+
+    // AND IT REACHES THE SIGNED BYTES, which is the half a returned field cannot
+    // stand in for. `PiiEventWriteResult.piiParticipantId` is a value T3.1 reads
+    // to fill a column; only the canonical text is what `daemon_signature`
+    // commits to, so only this assertion distinguishes a stamp an at-rest
+    // adversary can rewrite from one they cannot.
+    //
+    // ON THIS FIXTURE SPECIFICALLY, because the divergence has to be visible
+    // INSIDE the bytes: a verifier reading them finds `"actor":null` beside a
+    // populated stamp, so the two are demonstrably different members carrying
+    // different values. The leak test above pins the same wire spelling on the
+    // default fixture, where `actor` and the stamp coincide — and on that
+    // fixture alone, a projection that read `actor` would produce byte-identical
+    // output and pass. This one closes that.
+    const canonicalText: string = utf8Decoder.decode(canonicalizeEvent(result.envelope));
+    expect(canonicalText).toContain(
+      `"${PII_PARTICIPANT_ID_PAYLOAD_KEY}":"${FIXTURE_PARTICIPANT_ID}"`,
+    );
+    expect(canonicalText).toContain('"actor":null');
+    // The read-side predicate names the value T3.1's column will have to hold,
+    // and the second line is the same divergence read from the other end: a T3.1
+    // that filled the column from `actor` would land a row this predicate reports
+    // UNBOUND. Called directly, because it is deliberately not wired into
+    // `canonicalizeEvent` or `verifyRow` (the I-006-2-10 pattern — a Phase-2
+    // module must not emit a T4.1 verdict), so it fires nowhere on this path.
+    expect(isPiiOwnerStampBound(FIXTURE_PARTICIPANT_ID, result.envelope.payload)).toBe(true);
+    expect(isPiiOwnerStampBound(result.envelope.actor, result.envelope.payload)).toBe(false);
   });
 
   it("copies the encryptor's ciphertext, so a reused scratch buffer cannot break the digest", async () => {
@@ -755,7 +1073,7 @@ describe("Plan-006 T2.5 leg 1 — canonical bytes carry pii_ciphertext_digest an
 // Shred`, I-006-2-05).
 // ==========================================================================
 
-describe("Plan-006 T2.5 leg 2 — daemon_signature still verifies after pii_payload is NULLed", () => {
+describe("Plan-006 T2.5 leg 2 — the audit surface is invariant across a Path-1 key deletion", () => {
   let database: DatabaseType;
   let writeResult: PiiEventWriteResult;
 
@@ -774,39 +1092,83 @@ describe("Plan-006 T2.5 leg 2 — daemon_signature still verifies after pii_payl
     database.close();
   });
 
-  it("verifies before the shred, with the ciphertext still in the column", () => {
+  it("verifies before the shred, with the ciphertext and its custody key both present", () => {
     // The precondition for the whole leg: if this failed, the post-shred
-    // `valid: true` below would prove nothing about the shred.
+    // `valid: true` below would prove nothing about the shred. The custody row
+    // is part of it — a shred against a participant holding no key deletes
+    // nothing, and every assertion downstream would pass anyway.
     const storedBeforeShred: StoredSessionEventRow = readStoredRow(database);
     expect(storedBeforeShred.pii_payload).not.toBeNull();
     expect(Uint8Array.from(storedBeforeShred.pii_payload ?? [])).toEqual(
       Uint8Array.from(writeResult.piiPayload),
     );
+    expect(hasParticipantContentKey(database, FIXTURE_PARTICIPANT_ID)).toBe(true);
+    expect(isStoredCiphertextDigestBound(database)).toBe(true);
     expect(verifyStoredRow(database)).toStrictEqual({ valid: true });
   });
 
   it("still verifies after the shred, over bytes rebuilt from the surviving columns", () => {
-    shredPiiPayload(database);
+    const ciphertextBeforeShred: Uint8Array | null = readStoredCiphertext(database);
+    applyPath1CryptoShred(database, FIXTURE_PARTICIPANT_ID);
 
     const storedAfterShred: StoredSessionEventRow = readStoredRow(database);
-    // The shred actually happened...
-    expect(storedAfterShred.pii_payload).toBeNull();
-    // ...the ciphertext is gone from the row entirely...
+    // The shred actually happened — the key is gone...
+    expect(hasParticipantContentKey(database, FIXTURE_PARTICIPANT_ID)).toBe(false);
+    // ...and the ciphertext is RETAINED, bytewise unchanged, which is the half
+    // of Path 1 a NULLing model gets backwards. It is now undecryptable rather
+    // than deleted, and that distinction is the entire content of this leg: the
+    // signature commits to a digest of these bytes, so bytes that survived are
+    // bytes the signature still describes.
+    expect(readStoredCiphertext(database)).toEqual(ciphertextBeforeShred);
+    expect(readStoredCiphertext(database)).toEqual(Uint8Array.from(writeResult.piiPayload));
+    // ...the ciphertext never appeared inside the signed payload...
     expect(storedAfterShred.payload).not.toContain(bytesToHex(writeResult.piiPayload));
-    // ...the digest standing in for it survived, inside `payload`...
+    // ...the digest standing in for it is there, inside `payload`...
     const survivingPayload = JSON.parse(storedAfterShred.payload) as Record<string, unknown>;
     expect(survivingPayload[PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY]).toBe(
       bytesToHex(blake3(writeResult.piiPayload)),
     );
-    // ...no plaintext survived anywhere in the row...
+    // ...no plaintext is anywhere in the row...
     expect(storedAfterShred.payload).not.toContain(PII_PLAINTEXT_SENTINEL);
+    // ...the retained ciphertext STILL hashes to that signed digest — the
+    // conjunct that keeps the verdict below from being a statement about
+    // nothing, and the one that separates this row from the NULLed row two
+    // cases down...
+    expect(isStoredCiphertextDigestBound(database)).toBe(true);
     // ...and the signature still verifies. That is `Spec-022 §Signature Safety
     // Under Shred` in one line.
     expect(verifyStoredRow(database)).toStrictEqual({ valid: true });
   });
 
+  it("goes UNBOUND when the ciphertext column is NULLed instead — the shred's discriminating negative", () => {
+    // THE CASE THAT GIVES THE ONE ABOVE ITS TEETH, and the reason this file
+    // stopped modelling a shred as a column NULL. Both operations leave
+    // `verifyRow` saying `valid: true` — it is handed canonical bytes, three
+    // integrity columns and a public key, and `pii_payload` is not among them,
+    // so no ciphertext state can move that verdict. If "still verifies" were the
+    // whole claim, the two operations would be indistinguishable and the claim
+    // would hold for an operation that DESTROYS the evidence.
+    //
+    // `isCiphertextDigestBound` is what tells them apart, and the split is the
+    // point: RETAINED-AND-BOUND after Path 1, UNBOUND after the NULL. A row
+    // carrying a signed digest whose subject was deleted at rest has nothing
+    // left tying it to the ciphertext it once held — a plain recompute-and-
+    // compare never reaches that state, because there is nothing to recompute
+    // over. `Spec-006 §Compacted Event Format` reaches the same NULL column
+    // LEGITIMATELY by also replacing `payload` with a digest-free stub, which is
+    // why the predicate keys on the PAIR and not on the column alone.
+    nullPiiPayloadColumn(database);
+
+    expect(readStoredCiphertext(database)).toBeNull();
+    // The signature is genuinely untouched. This verdict is correct, and it is
+    // exactly why it cannot be the only thing leg 2 checks.
+    expect(verifyStoredRow(database)).toStrictEqual({ valid: true });
+    // And this is the evidence destruction the green verdict cannot see.
+    expect(isStoredCiphertextDigestBound(database)).toBe(false);
+  });
+
   it("does not report signature_placeholder for a shredded GENESIS row", () => {
-    shredPiiPayload(database);
+    applyPath1CryptoShred(database, FIXTURE_PARTICIPANT_ID);
 
     // This assertion exists because of the exact case `signer.ts`'s stage-2
     // note calls non-obvious: a legitimate genesis row carries an ALL-ZERO
@@ -819,6 +1181,15 @@ describe("Plan-006 T2.5 leg 2 — daemon_signature still verifies after pii_payl
     const storedChainColumns: SignedRow = toSignedRow(readStoredRow(database));
     expect(Uint8Array.from(storedChainColumns.prevHash)).toEqual(GENESIS_PREV_HASH);
     expect(Uint8Array.from(storedChainColumns.rowHash).every((byte) => byte === 0)).toBe(false);
+
+    // THE BINDING CONJUNCT EVERY OTHER CASE IN THIS LEG CARRIES, and this one
+    // was the odd one out. Its subject is the placeholder arm, but it is still a
+    // leg-2 case, and leg 2's subject is the binding: `verifyStoredRow` is
+    // structurally blind to `pii_payload`, so on its own the verdict below would
+    // stay green over a row whose ciphertext had come unbound. Asserting the
+    // shred left the row BOUND is what makes "no placeholder verdict" a
+    // statement about a genesis row that is still whole.
+    expect(isStoredCiphertextDigestBound(database)).toBe(true);
 
     // `toStrictEqual`, not `toEqual`, for the reason every `RowVerification`
     // assertion in this file uses it: `toEqual` ignores `undefined`-valued
@@ -850,7 +1221,10 @@ describe("Plan-006 T2.5 leg 2 — daemon_signature still verifies after pii_payl
     // `actor` is the canonical set's only nullable member, and storage collapses
     // absent onto null. A rehydrator that maps SQL NULL to `undefined` drops the
     // key from the canonical bytes and breaks an untampered row — so the round
-    // trip is pinned rather than assumed.
+    // trip is pinned rather than assumed. THAT mapping is what this case tests;
+    // the shred is the state it is tested in, and it is also the fixture where
+    // `actor` and the PII owner diverge, so a row the shred selector must find
+    // through its stamp is exactly the row whose `actor` names nobody.
     const nullActorDatabase: DatabaseType = openDatabase(":memory:");
     try {
       const nullActorResult: PiiEventWriteResult = await writeEventWithPii(
@@ -863,12 +1237,72 @@ describe("Plan-006 T2.5 leg 2 — daemon_signature still verifies after pii_payl
         '"actor":null',
       );
       insertSignedPiiRow(nullActorDatabase, nullActorResult);
-      shredPiiPayload(nullActorDatabase);
+      applyPath1CryptoShred(nullActorDatabase, FIXTURE_PARTICIPANT_ID);
 
       expect(readStoredRow(nullActorDatabase).actor).toBeNull();
+      expect(isStoredCiphertextDigestBound(nullActorDatabase)).toBe(true);
       expect(verifyStoredRow(nullActorDatabase)).toStrictEqual({ valid: true });
     } finally {
       nullActorDatabase.close();
+    }
+  });
+
+  it("shares ONE custody row across a two-event chain, so a second append cannot collide", async () => {
+    // THE SHAPE T3.1 PRODUCES AND NOTHING ELSE IN THIS FILE BUILDS: two PII
+    // events from the SAME participant, chained. It is worth a case precisely
+    // because every other test writes one row into a fresh `:memory:` database,
+    // so `participant_keys.participant_id TEXT NOT NULL PRIMARY KEY` is never
+    // approached and their passing says nothing about it. A provisioning helper
+    // that INSERTed unconditionally would throw `SQLITE_CONSTRAINT_PRIMARYKEY`
+    // here — from inside {@link insertSignedPiiRow}, where it would read as a
+    // `session_events` defect rather than a custody one.
+    //
+    // ONE KEY PER PARTICIPANT IS THE MECHANISM, not an optimization: both rows
+    // seal under the same content key, which is what makes a single DELETE erase
+    // the participant's whole history instead of one row of it.
+    //
+    // Its own database because leg 2's shared fixture is single-row by
+    // construction — {@link readStoredRow} and {@link nullPiiPayloadColumn} both
+    // assume exactly one row and would misreport against two.
+    const chainDatabase: DatabaseType = openDatabase(":memory:");
+    try {
+      const firstEvent: PiiEventWriteResult = await writeEventWithPii(
+        buildPiiCarryingEventInput(),
+        GENESIS_PREV_HASH,
+        new DeterministicTestPiiEncryptor(),
+        DAEMON_SIGNING_KEY,
+      );
+      insertSignedPiiRow(chainDatabase, firstEvent);
+
+      const secondEvent: PiiEventWriteResult = await writeEventWithPii(
+        buildPiiCarryingEventInput({ id: "01960b3c-e1d0-7a41-b2c9-5f8e37d6a205", sequence: 1 }),
+        firstEvent.signedRow.rowHash,
+        new DeterministicTestPiiEncryptor(),
+        DAEMON_SIGNING_KEY,
+      );
+      // The append that a bare INSERT made impossible. Asserted as a non-throw
+      // ahead of the counts, because a throw here would abort them unread.
+      expect(() => {
+        insertSignedPiiRow(chainDatabase, secondEvent);
+      }).not.toThrow();
+
+      expect(countRows(chainDatabase, "session_events")).toBe(2);
+      expect(countRows(chainDatabase, "participant_keys")).toBe(1);
+
+      // AND ONE DELETE STRANDS BOTH CIPHERTEXTS — the property the shared key
+      // buys, and the reason Path 1 needs no per-row work. Run inline rather than
+      // through {@link applyPath1CryptoShred}, whose ciphertext assertion reads a
+      // single row; the counts here are what that helper cannot express.
+      const deletion = chainDatabase
+        .prepare("DELETE FROM participant_keys WHERE participant_id = ?")
+        .run(FIXTURE_PARTICIPANT_ID);
+      expect(deletion.changes).toBe(1);
+      expect(hasParticipantContentKey(chainDatabase, FIXTURE_PARTICIPANT_ID)).toBe(false);
+      // Both event rows survive the erasure intact, which is the whole of what
+      // Path 1 does to `session_events`: nothing.
+      expect(countRows(chainDatabase, "session_events")).toBe(2);
+    } finally {
+      chainDatabase.close();
     }
   });
 
@@ -892,11 +1326,12 @@ describe("Plan-006 T2.5 leg 2 — daemon_signature still verifies after pii_payl
       expect(canonicalText).not.toContain("causationId");
 
       insertSignedPiiRow(uncorrelatedDatabase, uncorrelatedResult);
-      shredPiiPayload(uncorrelatedDatabase);
+      applyPath1CryptoShred(uncorrelatedDatabase, FIXTURE_PARTICIPANT_ID);
 
       const stored: StoredSessionEventRow = readStoredRow(uncorrelatedDatabase);
       expect(stored.correlation_id).toBeNull();
       expect(stored.causation_id).toBeNull();
+      expect(isStoredCiphertextDigestBound(uncorrelatedDatabase)).toBe(true);
       expect(verifyStoredRow(uncorrelatedDatabase)).toStrictEqual({ valid: true });
     } finally {
       uncorrelatedDatabase.close();
@@ -946,9 +1381,24 @@ const CANONICAL_ENVELOPE_MEMBER_NAMES: ReadonlyArray<string> = Object.keys(
  * the column carrying it. Exhaustive on purpose (see the header): a verifier
  * that reads ten of eleven members passes any smaller matrix.
  *
- * THIRTEEN ROWS OVER ELEVEN MEMBERS — `payload` carries three, because the two
- * digest-specific cases attack a value INSIDE the member rather than the member
- * itself. `member` is the case LABEL (what `it.each` prints) and is free-form
+ * FIFTEEN ROWS OVER ELEVEN MEMBERS — `payload` carries five, because four cases
+ * attack a value INSIDE the member rather than the member itself. The count is
+ * ten single-member rows (`id`, `sessionId`, `sequence`, `occurredAt`,
+ * `category`, `type`, `actor`, `correlationId`, `causationId`, `version`) plus
+ * those five: one ordinary non-PII payload member, then SUBSTITUTION and REMOVAL
+ * for each of the two PII control values the signature carries —
+ * `pii_ciphertext_digest` (the ciphertext's only integrity binding) and
+ * `pii_participant_id` (the Path-1 shred selector). Both control values need
+ * both attacks for the same reason: a verifier comparing a member only where it
+ * is PRESENT waves the deletion straight through.
+ *
+ * ELEVEN IS THE ENVELOPE'S MEMBER COUNT AND DOES NOT MOVE WITH THIS MATRIX. The
+ * PII stamp landed inside `payload`, not beside it — no envelope member was
+ * added (`Spec-006 §Canonical Serialization Rules`' canonical set is unchanged),
+ * so what grew is the number of ROWS attacking `payload`, never the member
+ * census that {@link CANONICAL_ENVELOPE_MEMBER_NAMES} derives from contracts.
+ *
+ * `member` is the case LABEL (what `it.each` prints) and is free-form
  * for that reason; `canonicalMember` is the machine-checkable half, typed
  * `keyof EventEnvelope` so a case naming a field the envelope does not have is
  * a compile error rather than a matrix that quietly covers ten members. The
@@ -963,8 +1413,36 @@ const CANONICAL_ENVELOPE_MEMBER_NAMES: ReadonlyArray<string> = Object.keys(
  * constraints and `EventEnvelopeSchema`, so each case reaches `verifyRow` and
  * the verdict is the verifier's — a rehydration throw would be a different test
  * failing for a different reason (the characterization block at the end of this
- * leg is where the throwing shapes live). `monotonic_ns` is absent because it is
- * a storage-only column and not one of the canonical eleven.
+ * leg is where the throwing shapes live).
+ *
+ * `monotonic_ns` IS ABSENT, AND "IT IS NOT ONE OF THE ELEVEN" IS NOT THE REASON.
+ * That answer restates the fact it is asked to justify, and it is the same move
+ * ("it is row metadata") that failed for the owner stamp one round ago. Nothing
+ * signs `monotonic_ns` — that much is true and is exactly the property the three
+ * cases below make dangerous elsewhere — so the question is what a tamper of it
+ * makes FALSE. Nothing, and the reason is that it was never an ordering authority
+ * a reader could rely on across restarts: its "zero point is unspecified and
+ * changes on every daemon restart" (`Spec-015 §Clock Handling`), which also makes
+ * it "not a cross-daemon ordering primitive" there. A reader comparing two values
+ * of it from different daemon lifetimes is already wrong with no attacker
+ * involved. The durable per-session order is `sequence`, which IS one of the
+ * eleven, IS signed, and carries `UNIQUE(session_id, sequence)` in
+ * `0001-initial.ts` behind it. So no signed artifact and no retained compliance
+ * evidence changes truth value when `monotonic_ns` moves — which is precisely
+ * what separates it from the three real instances of the unsigned-value class:
+ *
+ *   1. `occurred_at` — signed, and the one signed column an at-rest respelling
+ *      rewrites while verification stays GREEN, because the canonical bytes carry
+ *      the NORMALIZED instant and every spelling of that instant verifies.
+ *      `isCanonicalOccurredAt` is the binding that closes it.
+ *   2. `pii_ciphertext_digest` — evidence destruction that still verifies green,
+ *      because `verifyRow` never receives `pii_payload`.
+ *      {@link isCiphertextDigestBound} is the binding that closes it.
+ *   3. The owner stamp — a falsified Path-1 SELECTOR, which mis-scopes an erasure
+ *      and then certifies the mis-scoping: `event.shredded` carries an
+ *      `affectedSessionIds` / `piiPayloadsCleared` census and is "retained
+ *      indefinitely" (`Spec-022 §Shred Fan-Out`). `isPiiOwnerStampBound` is the
+ *      binding that closes it, and the two rows below are its tamper cases.
  */
 const CANONICAL_MEMBER_TAMPERS: ReadonlyArray<{
   readonly member: string;
@@ -1027,9 +1505,35 @@ const CANONICAL_MEMBER_TAMPERS: ReadonlyArray<{
     // this row through. It is also the read side's only way to state the
     // sign-before-embed half of I-006-2-01 — bytes signed before the digest was
     // embedded are indistinguishable at rest from a digest deleted afterwards,
-    // and a shredded row carrying neither has nothing left tying it to the
-    // ciphertext it once held.
+    // and a row carrying neither has nothing tying its signature to the
+    // ciphertext still sitting in its `pii_payload` column.
     sql: `UPDATE session_events SET payload = json_remove(payload, '$.${PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY}')`,
+  },
+  {
+    member: `payload.${PII_PARTICIPANT_ID_PAYLOAD_KEY}`,
+    canonicalMember: "payload",
+    // THE SHRED SELECTOR, ATTACKED. `Spec-022 §Shred Fan-Out` Path 1 matches on
+    // the durable participant-id stamp, so repointing it at another participant
+    // is how an at-rest adversary makes a row survive the erasure sweep of the
+    // person it holds PII about — and lands it in the sweep of someone else,
+    // whose own shred then reports a row it has no key for. The stamp is also
+    // the AAD's participant half, so a rewritten stamp describes a decrypt no
+    // key can perform. Neither failure is visible to any other check in this
+    // file: the digest still matches, the ciphertext is untouched, and the
+    // chain relinks under any recomputation. Only the signature catches it, and
+    // only because the stamp is INSIDE the signed bytes.
+    sql: `UPDATE session_events SET payload = json_set(payload, '$.${PII_PARTICIPANT_ID_PAYLOAD_KEY}', 'participant-ffff')`,
+  },
+  {
+    member: `payload.${PII_PARTICIPANT_ID_PAYLOAD_KEY} (removed)`,
+    canonicalMember: "payload",
+    // ABSENCE, and the sharper of the two: a row with no stamp names no owner,
+    // so no participant's Path-1 selector will ever match it and the PII it
+    // holds is unreachable by every future erasure request — permanently, and
+    // silently. It is the at-rest spelling of the defect refusal 7 refuses at
+    // write time (see "refuses an empty piiParticipantId BEFORE spending the
+    // nonce"), which is why both sides are pinned.
+    sql: `UPDATE session_events SET payload = json_remove(payload, '$.${PII_PARTICIPANT_ID_PAYLOAD_KEY}')`,
   },
   {
     member: "correlationId",
@@ -1120,10 +1624,15 @@ describe("Plan-006 T2.5 leg 3 — post-shred tamper detection (negative control)
         DAEMON_SIGNING_KEY,
       ),
     );
-    shredPiiPayload(database);
-    // The row is shredded AND verifying — the state every case below tampers
-    // away from. Asserting it here is what makes each failure below
-    // attributable to the tamper.
+    applyPath1CryptoShred(database, FIXTURE_PARTICIPANT_ID);
+    // The row is shredded AND verifying AND digest-bound — the state every case
+    // below tampers away from. Asserting it here is what makes each failure
+    // below attributable to the tamper. The binding conjunct matters because a
+    // Path-1 shred retains the ciphertext: these cases attack a row that still
+    // HOLDS its (now unreadable) PII, which is the state a real post-shred
+    // database is in, not a hollowed-out one.
+    expect(hasParticipantContentKey(database, FIXTURE_PARTICIPANT_ID)).toBe(false);
+    expect(isStoredCiphertextDigestBound(database)).toBe(true);
     expect(verifyStoredRow(database)).toStrictEqual({ valid: true });
   });
 
@@ -1215,20 +1724,24 @@ describe("Plan-006 T2.5 leg 3 — post-shred tamper detection (negative control)
     ).sort();
     expect(serializedMembers).toEqual(CANONICAL_ENVELOPE_MEMBER_NAMES);
 
-    // The three `payload` rows are NOT interchangeable and the set check above
-    // cannot tell them apart — all three report `canonicalMember: "payload"`.
-    // Pinning their labels is what stops the two digest-specific cases
-    // (Spec-022's substitution core and its absence counterpart) from being
-    // deleted behind a still-green `payload` entry.
+    // The five `payload` rows are NOT interchangeable and the set check above
+    // cannot tell them apart — all five report `canonicalMember: "payload"`.
+    // Pinning their labels is what stops the four PII-specific cases (Spec-022's
+    // digest-substitution core, the shred selector, and each one's absence
+    // counterpart) from being deleted behind a still-green `payload` entry.
     expect(
       CANONICAL_MEMBER_TAMPERS.filter((tamper) => tamper.canonicalMember === "payload")
         .map((tamper) => tamper.member)
         .sort(),
-    ).toEqual([
-      "payload (non-digest member)",
-      `payload.${PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY}`,
-      `payload.${PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY} (removed)`,
-    ]);
+    ).toEqual(
+      [
+        "payload (non-digest member)",
+        `payload.${PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY}`,
+        `payload.${PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY} (removed)`,
+        `payload.${PII_PARTICIPANT_ID_PAYLOAD_KEY}`,
+        `payload.${PII_PARTICIPANT_ID_PAYLOAD_KEY} (removed)`,
+      ].sort(),
+    );
 
     // Labels are what `it.each` prints, so a duplicated one reports as the same
     // test twice and hides which case was lost.
@@ -1347,9 +1860,10 @@ describe("Plan-006 T2.5 leg 3 — post-shred tamper detection (negative control)
   //      year-range narrowing — so a sub-millisecond fraction (guard 2) and an
   //      offset that folds outside the four-digit year (guard 4) both PARSE and
   //      are refused later.
-  //   3. `canonicalizeJson`'S GENERIC GUARDS — TWO of them, and the layer is
-  //      stated over the pair rather than over either one, because a fix aimed
-  //      at one leaves the other live. The payload schema is
+  //   3. `canonicalizeJson`'S GENERIC GUARDS — TWO of them reachable from a
+  //      stored row, out of the THREE refusals the entry point now carries, and
+  //      the layer is stated over the set rather than over any one member,
+  //      because a fix aimed at one leaves the others live. The payload schema is
   //      `z.unknown().superRefine(…).pipe(z.record(z.string(), z.unknown()))`,
   //      which bounds no nesting depth AND requires no Unicode well-formedness.
   //      So a payload nested past `CANONICAL_JSON_MAX_DEPTH` parses cleanly and
@@ -1357,6 +1871,49 @@ describe("Plan-006 T2.5 leg 3 — post-shred tamper detection (negative control)
   //      unpaired UTF-16 surrogate in a string or a KEY parses cleanly too —
   //      `\ud800` rides through the wire text as a six-ASCII-character escape —
   //      and `assertWellFormedStrings` refuses it per RFC 8785 §3.2.2.2.
+  //
+  //      THE THIRD REFUSAL IS `assertNoToJsonOverride`, AND ITS ABSENCE FROM THIS
+  //      BLOCK IS THE FINDING, not an omission. It refuses any value carrying a
+  //      callable `toJSON` at any depth — which `canonicalize@3.0.0` would invoke
+  //      and serialize INSTEAD of the value — and a stored row cannot supply one:
+  //      the read path rebuilds `payload` with `JSON.parse`, whose output holds no
+  //      function-valued member at any depth for any input text. The guard is
+  //      therefore live on the WRITE path, where a caller can hand over a `Date`
+  //      or a class instance, and unsatisfiable from the column.
+  //
+  //      THE `Buffer`S IN THIS FILE ARE NOT A COUNTEREXAMPLE, and the reason is
+  //      the boundary a future reader is most likely to get wrong. Every `Buffer`
+  //      here is built for a SQLite BLOB bind — `pii_payload`, the three integrity
+  //      columns, the custody blob — so it enters better-sqlite3 BELOW the codec
+  //      and the canonicalizer never walks it. That matters because `Buffer` WOULD
+  //      be refused if one were ever routed THROUGH the codec:
+  //      `Buffer.prototype.toJSON` is real and callable, and it is inherited, so
+  //      an own-property check would miss it while the prototype-chain read this
+  //      guard performs catches it. If a fixture ever needs a `Buffer` inside a
+  //      `payload` or a `piiPayload`, convert it explicitly and pass plain JSON —
+  //      routing around the refusal would sign bytes from a tree no guard
+  //      inspected. ONE RESIDUAL,
+  //      stated rather than glossed: the check is a prototype-chain read (
+  //      deliberately — that is the only read that sees `Date.prototype.toJSON`),
+  //      so a process that pollutes `Object.prototype.toJSON` makes it fire on
+  //      parsed output too. That is a process-global condition, not a byte an
+  //      attacker writes into a row, so it falls outside the promise this block
+  //      characterizes: "for every input the ROW itself supplies".
+  //
+  //      ITS POSITION IS A CORRECTNESS CONSTRAINT IN BOTH DIRECTIONS, not a
+  //      diagnostic preference, which is why the order is recorded here rather
+  //      than left to be inferred. `assertWithinCanonicalDepth` MUST run first —
+  //      the `toJSON` walk carries no cycle detection of its own and the depth
+  //      ceiling is what reports a cycle as exhaustion — and it MUST run before
+  //      `assertWellFormedStrings`, whose verdict describes the bytes that will
+  //      actually be serialized only once no `toJSON` can divert them.
+  //      `canonicalizeJson` runs exactly that order.
+  //
+  //      THREE REFUSALS ON THE ENTRY POINT IS NOT THREE CP-006-3 OBLIGATIONS —
+  //      the counts are different quantities and conflating them is the error to
+  //      avoid. Plan-027 still inherits TWO, by the same reachability argument:
+  //      the Spec-024 request bodies it hands this entry point also arrive via
+  //      `JSON.parse`, so the `toJSON` predicate is unsatisfiable on them.
   //
   // T4.1'S OBLIGATION, RECORDED HERE BECAUSE THIS IS WHERE IT GETS
   // REDISCOVERED — and stated over the CLASS, because a fix aimed at any single
@@ -1471,7 +2028,7 @@ describe("Plan-006 T2.5 leg 3 — post-shred tamper detection (negative control)
             DAEMON_SIGNING_KEY,
           ),
         );
-        shredPiiPayload(ceilingDatabase);
+        applyPath1CryptoShred(ceilingDatabase, FIXTURE_PARTICIPANT_ID);
 
         const stored: StoredSessionEventRow = readStoredRow(ceilingDatabase);
         expect(stored.sequence).toBe(Number.MAX_SAFE_INTEGER);
@@ -1664,7 +2221,7 @@ describe("Plan-006 T2.5 leg 3 — post-shred tamper detection (negative control)
             DAEMON_SIGNING_KEY,
           ),
         );
-        shredPiiPayload(ceilingDatabase);
+        applyPath1CryptoShred(ceilingDatabase, FIXTURE_PARTICIPANT_ID);
 
         expect(verifyStoredRow(ceilingDatabase)).toStrictEqual({ valid: true });
       } finally {
@@ -1707,6 +2264,65 @@ describe("Plan-006 T2.5 — a misordered PII write path is refused at runtime (I
     // codec consumes a random nonce there and the codec is
     // `manual_reconcile_only`, so a post-encrypt throw leaves a half-built
     // commitment for an operator to reconcile.
+    expect(encryptor.encryptCallCount).toBe(0);
+  });
+
+  it("refuses a payload that already carries the OWNER STAMP, BEFORE spending the nonce", async () => {
+    // Refusal 2's second arm, and it answers for a different thing than the
+    // digest arm one step above. A stale digest is a claim about BYTES; a
+    // caller-supplied stamp is a claim about WHOSE data the row holds — and
+    // since the embed step projects `input.piiParticipantId` into this member so
+    // the signature binds it, a pre-seeded value would be SIGNED IN PLACE of the
+    // projection. That is the signed-but-unchecked hole the projection exists to
+    // close, reopened from the input side: the row would carry a signature
+    // vouching for an owner nothing checked, and `isPiiOwnerStampBound` would
+    // then report it divergent against whatever T3.1 wrote into the column.
+    //
+    // The forged value is a DIFFERENT participant from the fixture's, which is
+    // the attack rather than a duplicate: refusing only a value that disagrees
+    // with `piiParticipantId` would leave a caller free to pre-seed the matching
+    // one and have the codec silently accept a member it must be the sole
+    // producer of.
+    const encryptor = new DeterministicTestPiiEncryptor();
+    const forgedInput: PiiCarryingEventInput = buildPiiCarryingEventInput({
+      payload: {
+        exportFormat: "json",
+        [PII_PARTICIPANT_ID_PAYLOAD_KEY]: "participant-ffffffff-ffff-4fff-8fff-ffffffffffff",
+      },
+    });
+
+    await expect(
+      writeEventWithPii(forgedInput, GENESIS_PREV_HASH, encryptor, DAEMON_SIGNING_KEY),
+    ).rejects.toThrow(/refuses an event whose payload already carries pii_participant_id/);
+
+    // Same order assertion as the digest arm, for the same reason: a refusal
+    // that lands after the encrypt has already burnt a nonce on a write the
+    // codec then abandons.
+    expect(encryptor.encryptCallCount).toBe(0);
+  });
+
+  it("reports the STAMP refusal for an input defective in both the stamp and prev_hash", async () => {
+    // THE OBSERVABLE ORDER, pinned because the stamp arm MOVED it. The arm sits
+    // inside refusal 2, so it now answers first for every input that is also
+    // defective at refusals 3-7 — this pairing used to report the prev_hash
+    // refusal (refusal 5) and now reports the stamp. Without this case the
+    // reordering is a claim the implementation comment makes and nothing checks.
+    //
+    // Reporting the EARLIER defect is the right answer, not merely the observed
+    // one: refusals run cheapest-and-most-structural first, and a caller handed
+    // "your prev_hash is the wrong length" would fix the prev_hash and hit the
+    // stamp refusal on the next call anyway.
+    const encryptor = new DeterministicTestPiiEncryptor();
+    const doublyDefectiveInput: PiiCarryingEventInput = buildPiiCarryingEventInput({
+      payload: {
+        exportFormat: "json",
+        [PII_PARTICIPANT_ID_PAYLOAD_KEY]: "participant-ffffffff-ffff-4fff-8fff-ffffffffffff",
+      },
+    });
+
+    await expect(
+      writeEventWithPii(doublyDefectiveInput, new Uint8Array(31), encryptor, DAEMON_SIGNING_KEY),
+    ).rejects.toThrow(/refuses an event whose payload already carries pii_participant_id/);
     expect(encryptor.encryptCallCount).toBe(0);
   });
 
@@ -2206,9 +2822,15 @@ describe("Plan-006 T2.5 — a misordered PII write path is refused at runtime (I
 // ---------------------------------------------------------------------------
 //
 // The suite above proves a post-shred row still VERIFIES. That is the property
-// the digest exists to protect, and on its own it is also the hole: `verifyRow`
-// is never handed `pii_payload`, so every case above stays green no matter what
-// the ciphertext column holds. These tests pin the missing half.
+// the digest exists to protect, and `verifyRow` alone can never be the whole of
+// it: it is not handed `pii_payload`, so its verdict is blind to what the
+// ciphertext column holds. Leg 2 composes THIS predicate over the same stored
+// row for exactly that reason — a Path-1 shred writes no column, so
+// "still verifies" is a claim about the operation only when paired with a
+// binding check that a column NULL would break. The cases here are the
+// predicate's own contract at unit granularity: every column/payload pair it
+// must classify, including the two the DB-level cases cannot reach — a
+// substituted ciphertext, and a compacted stub.
 describe("isCiphertextDigestBound — the ciphertext column's only integrity binding", () => {
   const ciphertext = new Uint8Array([0xde, 0xad, 0xbe, 0xef, 0x01, 0x02, 0x03]);
   const digestOf = (bytes: Uint8Array): string => bytesToHex(blake3(bytes));
@@ -2326,6 +2948,169 @@ describe("isCiphertextDigestBound — the ciphertext column's only integrity bin
     for (const columnValue of columnValues) {
       for (const payloadValue of payloadValues) {
         expect(typeof isCiphertextDigestBound(columnValue, payloadValue)).toBe("boolean");
+      }
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The owner stamp is CHECKED too — the read half of the Path-1 selector.
+// ---------------------------------------------------------------------------
+//
+// The sibling predicate above binds the ciphertext to its signed digest. This
+// one binds the SELECTOR: `Spec-022 §Shred Fan-Out` Path 1 chooses which rows an
+// erasure covers by matching the durable participant-id stamp on the event row,
+// never the ciphertext, which is opaque. So a stamp the signature does not
+// vouch for is a selector an at-rest adversary can rewrite — and rewriting it
+// does not corrupt the erasure quietly, it CERTIFIES the corruption: the
+// `event.shredded` audit artifact carries an `affectedSessionIds` /
+// `piiPayloadsCleared` census and is retained indefinitely, so a row moved out
+// of the sweep's reach leaves behind a permanent record saying it was covered.
+//
+// TWO HALVES, AND THIS FILE NOW HOLDS BOTH. Leg 1 proves the stamp reaches the
+// canonical bytes (the write half); these cases are the read half at unit
+// granularity, over the column T3.1 will add. Neither half is the binding on its
+// own: a signed stamp nobody compares against the column, or a column compared
+// against nothing signed, each leave the selector unprotected.
+//
+// THE COLUMN DOES NOT EXIST YET, and these cases are written so that stays
+// visible. `0001-initial.ts` gives `session_events` no owner-stamp column —
+// `pii_payload BLOB` is the whole of its PII surface — so every case here passes
+// the stored value as a plain argument rather than reading it back from SQLite.
+// The DB-level counterparts belong to T3.1, which inherits the column.
+describe("isPiiOwnerStampBound — the Path-1 selector's only integrity binding", () => {
+  const ownerParticipantId = FIXTURE_PARTICIPANT_ID;
+  const otherParticipantId = "participant-ffffffff-ffff-4fff-8fff-ffffffffffff";
+  const payloadWithStamp = (stamp: unknown): Record<string, unknown> => ({
+    exportFormat: "json",
+    [PII_PARTICIPANT_ID_PAYLOAD_KEY]: stamp,
+  });
+  const payloadWithoutStamp: Record<string, unknown> = { exportFormat: "json" };
+
+  // STATE 1 of four — column present, claim present, and they agree.
+  it("binds a live PII row whose stored stamp matches the signed one", () => {
+    expect(isPiiOwnerStampBound(ownerParticipantId, payloadWithStamp(ownerParticipantId))).toBe(
+      true,
+    );
+  });
+
+  // STATE 1's failing half, and the tamper the predicate exists for: hash and
+  // signature both stay green, because neither commits to the column.
+  it("catches a stored stamp substituted to a DIFFERENT participant", () => {
+    expect(isPiiOwnerStampBound(otherParticipantId, payloadWithStamp(ownerParticipantId))).toBe(
+      false,
+    );
+  });
+
+  // STATE 2 — the ordinary no-PII row. Both absent is BOUND, which is what lets
+  // T4.1 run this over every row in a range instead of over a filtered subset.
+  it("passes an ordinary no-PII row: neither column nor signed stamp present", () => {
+    expect(isPiiOwnerStampBound(null, payloadWithoutStamp)).toBe(true);
+    expect(isPiiOwnerStampBound(undefined, payloadWithoutStamp)).toBe(true);
+  });
+
+  // STATE 3 — an owner nothing vouches for. The row claims a participant's data
+  // and the signature says nothing about whose, so the sweep would act on a
+  // value written after signing.
+  it("catches a stored stamp with NO signed claim behind it", () => {
+    expect(isPiiOwnerStampBound(ownerParticipantId, payloadWithoutStamp)).toBe(false);
+  });
+
+  // STATE 4 — the stamp cleared after signing, which is how a row is hidden from
+  // the sweep WITHOUT substituting a plausible-looking owner: a NULL selector
+  // matches no participant at all.
+  it("catches a signed stamp whose column was cleared after signing", () => {
+    expect(isPiiOwnerStampBound(null, payloadWithStamp(ownerParticipantId))).toBe(false);
+    expect(isPiiOwnerStampBound(undefined, payloadWithStamp(ownerParticipantId))).toBe(false);
+  });
+
+  // FAIL CLOSED ON A SHAPE IT CANNOT COMPARE. The column is `TEXT`, but anything
+  // with write access can leave a number or a blob in it, and SQLite's affinity
+  // rules do not coerce it back. A verifier that cannot confirm the binding has
+  // not confirmed it — reporting UNBOUND is the answer, and skipping the row is
+  // the one wrong answer, because "unverifiable" would then read as "verified".
+  it("fails closed on a non-string, non-NULL stored value rather than skipping it", () => {
+    const uncomparableStoredValues: unknown[] = [
+      42,
+      0,
+      true,
+      false,
+      {},
+      [],
+      new Uint8Array([1, 2, 3]),
+      Symbol("participant"),
+    ];
+    for (const storedValue of uncomparableStoredValues) {
+      expect(isPiiOwnerStampBound(storedValue, payloadWithStamp(ownerParticipantId))).toBe(false);
+      expect(isPiiOwnerStampBound(storedValue, payloadWithoutStamp)).toBe(false);
+    }
+  });
+
+  // The empty string is a STORED VALUE, not an absence — the distinction `== null`
+  // is written to preserve, and the one a truthiness test would collapse. Refusal
+  // 7 makes an empty `piiParticipantId` unwritable through the codec, so an empty
+  // column is already an anomaly; it must not read as an ordinary no-PII row.
+  it("distinguishes an empty stored stamp from an absent one", () => {
+    expect(isPiiOwnerStampBound("", payloadWithoutStamp)).toBe(false);
+    expect(isPiiOwnerStampBound("", payloadWithStamp(""))).toBe(true);
+    expect(isPiiOwnerStampBound("", payloadWithStamp(ownerParticipantId))).toBe(false);
+  });
+
+  // EXACT COMPARISON, no normalization. A participant id is an opaque token, so
+  // case-folding or trimming would make two different participants compare equal
+  // — and the whole point of the selector is telling participants apart.
+  it("compares exactly, folding no case and trimming no whitespace", () => {
+    expect(
+      isPiiOwnerStampBound(ownerParticipantId.toUpperCase(), payloadWithStamp(ownerParticipantId)),
+    ).toBe(false);
+    expect(
+      isPiiOwnerStampBound(` ${ownerParticipantId}`, payloadWithStamp(ownerParticipantId)),
+    ).toBe(false);
+  });
+
+  // A signed claim of the wrong TYPE folds to "no claim" — the shared residual
+  // the implementation documents rather than diverging from, pinned here so a
+  // future edit to either predicate has to change a test to change the behavior.
+  it("treats a non-string signed stamp as no claim, matching the sibling predicate", () => {
+    expect(isPiiOwnerStampBound(ownerParticipantId, payloadWithStamp(12345))).toBe(false);
+    expect(isPiiOwnerStampBound(null, payloadWithStamp(12345))).toBe(true);
+  });
+
+  // Never-throwing is a CONTRACT, not defensive style, and it is the same one the
+  // sibling carries: T4.1 calls this inside a range walk, where a single throw
+  // aborts the walk and silences audit of the entire remaining tail. One
+  // malformed row would otherwise buy an attacker a range-wide blind spot.
+  it("returns a verdict for every hostile input pair rather than throwing", () => {
+    const storedValues: unknown[] = [
+      null,
+      undefined,
+      "",
+      ownerParticipantId,
+      0,
+      42,
+      true,
+      {},
+      [],
+      new Uint8Array(0),
+      Object.create(null) as object,
+    ];
+    const payloadValues: unknown[] = [
+      null,
+      undefined,
+      0,
+      "",
+      "not-an-object",
+      [],
+      {},
+      payloadWithoutStamp,
+      payloadWithStamp(null),
+      payloadWithStamp(undefined),
+      payloadWithStamp(ownerParticipantId),
+      Object.create(null) as object,
+    ];
+    for (const storedValue of storedValues) {
+      for (const payloadValue of payloadValues) {
+        expect(typeof isPiiOwnerStampBound(storedValue, payloadValue)).toBe("boolean");
       }
     }
   });

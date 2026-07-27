@@ -233,8 +233,8 @@ export interface SignedRow {
  * predicate needs all three columns and why the verdict must not collapse into
  * `signature_mismatch`.
  *
- * This union is a SUBSET of the fourteen-value `failureMode` enum in
- * `Spec-006 §Audit Integrity (audit_integrity)`, and the other eleven (fourteen,
+ * This union is a SUBSET of the fifteen-value `failureMode` enum in
+ * `Spec-006 §Audit Integrity (audit_integrity)`, and the other twelve (fifteen,
  * less this union's three — RE-DERIVE both numbers on any enum change rather
  * than incrementing one of them) sit outside
  * it for FOUR different reasons rather than one. `anchor_*`, the proof modes,
@@ -260,19 +260,24 @@ export interface SignedRow {
  * T2.1 exports `isCanonicalOccurredAt` for the second question and T4.1
  * composes the two; that predicate's contract explains why the composition —
  * not either half alone — is what byte-binds the column.
- * `pii_ciphertext_digest_unbound` is the fourth reason, and it is the two
- * previous ones at once, which is why it gets its own: like
- * `occurred_at_not_canonical` it is a finding ON a row that genuinely verifies,
- * and like the range modes it needs an input this function is never handed —
- * `verifyRow` receives canonical bytes and the three integrity columns, never
- * the `pii_payload` column, so it could not make the comparison even if the
- * discriminant had room for it. That is not an accident of the signature: the
- * canonical form EXCLUDES `pii_payload` on purpose, binding it indirectly
- * through a digest member instead, so the column is structurally outside
- * everything this function sees. T2.4 exports `isCiphertextDigestBound` for it
- * and T4.1 runs it as a postcondition of a green verdict here. That enum is
- * Phase-4 contracts work and has not landed, so the literals are spelled here
- * and T4.1 owns the widening.
+ * The PII PAIR — `pii_ciphertext_digest_unbound` and `pii_owner_stamp_unbound`
+ * — is the fourth reason, and it is the two previous ones at once, which is why
+ * it gets its own: like `occurred_at_not_canonical` both are findings ON a row
+ * that genuinely verifies, and like the range modes both need an input this
+ * function is never handed — `verifyRow` receives canonical bytes and the three
+ * integrity columns, never the `pii_payload` column and never the PII owner
+ * stamp, so it could not make either comparison even if the discriminant had
+ * room for them. That is not an accident of the signature: the canonical form
+ * EXCLUDES `pii_payload` on purpose and binds it indirectly through a digest
+ * member, and it binds the owner by the same indirection through a stamp member,
+ * so both columns are structurally outside everything this function sees. They
+ * are ONE reason and TWO modes because they bind different things — the digest
+ * binds the ciphertext BYTES, the stamp binds WHOSE data they are, and after a
+ * `Spec-022 §Shred Fan-Out` Path 1 shred the second question has no other
+ * evidence left to answer it. T2.4 exports `isCiphertextDigestBound` and
+ * `isPiiOwnerStampBound` for them and T4.1 runs both as postconditions of a
+ * green verdict here. That enum is Phase-4 contracts work and has not landed, so
+ * the literals are spelled here and T4.1 owns the widening.
  */
 export type RowVerification =
   | { readonly valid: true }

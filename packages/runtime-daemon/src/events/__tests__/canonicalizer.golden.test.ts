@@ -39,6 +39,11 @@ import {
   SessionIdSchema,
 } from "@ai-sidekicks/contracts";
 import type { EventEnvelope, EventEnvelopeVersion, SessionId } from "@ai-sidekicks/contracts";
+// The pinned serializer itself, imported ONLY by the `toJSON` block below and
+// ONLY to pin the library behavior that block's guard exists for. Every other
+// assertion in this file goes through the module under test, deliberately: the
+// suite's job is to bind THIS module's bytes, not the dependency's.
+import canonicalize from "canonicalize";
 import { describe, expect, it } from "vitest";
 import {
   canonicalizeEvent,
@@ -863,6 +868,239 @@ describe("canonicalizeEvent — inherits the well-formedness refusal, no second 
 });
 
 // --------------------------------------------------------------------------
+// `toJSON` — refused, because it hands the serializer an uninspected tree.
+// --------------------------------------------------------------------------
+//
+// `canonicalize@3.0.0` tests `typeof object.toJSON === 'function'` before every
+// other branch and serializes the RESULT of calling it. Whatever this module's
+// walks concluded about the value is then a conclusion about a tree the
+// serializer did not read — which bypasses the depth ceiling and the §3.2.2.2
+// refusal alike, and, worse, makes the canonical form of a value stop being a
+// FUNCTION of that value. `canonicalizeJson` refuses the whole class rather than
+// patching either axis; this block pins the premise, the refusal, and the shapes
+// that must keep serializing.
+//
+// The block sits after the well-formedness suites rather than in module order so
+// it can reuse their surrogate fixtures; the guard itself runs BETWEEN the depth
+// ceiling and the well-formedness walk, which the order tests below pin.
+
+const TO_JSON_REFUSAL = /canonicalization refused: .* carries a callable toJSON/;
+
+describe("canonicalizeJson — refuses a callable toJSON", () => {
+  it("pins the LIBRARY behavior the guard exists for", () => {
+    // THE PREMISE, asserted against the pinned dependency rather than assumed —
+    // the one place in this file that calls `canonicalize` directly. The guard
+    // is justified only while the library still diverts to `toJSON`; if a bump
+    // ever stopped it, the refusal becomes pure over-refusal and this assertion
+    // is what says so.
+    expect(canonicalize({ toJSON: () => ({ substituted: true }) })).toBe('{"substituted":true}');
+    // ...and the bypass the finding names: a lone surrogate reaching the output
+    // through a value whose own-property tree carries no string at all.
+    expect(canonicalize({ toJSON: () => ({ a: LONE_HIGH_SURROGATE }) })).toBe('{"a":"\\ud800"}');
+  });
+
+  it("refuses a top-level callable toJSON, closing that bypass", () => {
+    const message = captureThrownMessage(() =>
+      canonicalizeJson({ toJSON: () => ({ a: LONE_HIGH_SURROGATE }) }),
+    );
+    expect(message).toMatch(TO_JSON_REFUSAL);
+    expect(message).toMatch(/the top-level value/);
+  });
+
+  it("catches a PROTOTYPE-CHAIN toJSON, which own-property enumeration cannot see", () => {
+    // THE TRAP, with its negative control inline. `Date.prototype.toJSON` and
+    // `Buffer.prototype.toJSON` are INHERITED, so a guard spelled with
+    // `Object.hasOwn` or with own-property enumeration reads correct and closes
+    // nothing. These three assertions per carrier are what make the refusal
+    // below prove the right thing: a bare "it throws" would still pass if the
+    // guard were rewritten as an own-property check and the carriers changed.
+    const date = new Date(0);
+    expect(Object.entries(date)).toStrictEqual([]);
+    expect(Object.hasOwn(date, "toJSON")).toBe(false);
+    expect(typeof date.toJSON).toBe("function");
+    expect(() => canonicalizeJson({ when: date })).toThrow(TO_JSON_REFUSAL);
+
+    const buffer = Buffer.from([1, 2, 3]);
+    expect(Object.hasOwn(buffer, "toJSON")).toBe(false);
+    expect(typeof buffer.toJSON).toBe("function");
+    expect(() => canonicalizeJson({ blob: buffer })).toThrow(TO_JSON_REFUSAL);
+  });
+
+  it("locates the offender by NESTING DEPTH and never by property path", () => {
+    // Same trade `assertNoLoneSurrogate` makes: T2.4's PII codec calls
+    // `canonicalizeJson(input.piiPayload)` directly, so property NAMES are
+    // caller data and this message reaches logs. Depth is structure, which the
+    // depth ceiling's own refusal already discloses.
+    const message = captureThrownMessage(() =>
+      canonicalizeJson({ record: { "patient-record-4417": new Date(0) } }),
+    );
+    expect(message).toMatch(TO_JSON_REFUSAL);
+    expect(message).toMatch(/nested 2 containers deep/);
+    expect(message).not.toContain("patient-record-4417");
+    expect(message).not.toContain("1970-01-01");
+  });
+
+  it("refuses an ARRAY carrying an own toJSON", () => {
+    // Arrays take the library's `toJSON` branch too — it is tested before the
+    // `Array.isArray` split — so the walk must pop them like any other object.
+    const arrayWithToJson: number[] & { toJSON?: () => unknown } = [1, 2];
+    arrayWithToJson.toJSON = (): unknown => ({ a: LONE_HIGH_SURROGATE });
+    expect(canonicalize(arrayWithToJson)).toBe('{"a":"\\ud800"}');
+    expect(() => canonicalizeJson({ items: arrayWithToJson })).toThrow(TO_JSON_REFUSAL);
+  });
+
+  it("admits every shape the library would NOT divert — the positive controls", () => {
+    // THE REASON THE REFUSALS ABOVE PROVE SOMETHING. A guard that refused every
+    // non-plain object, or every member NAMED `toJSON`, would pass all of them
+    // while breaking live callers and the untrusted CP-006-3 path.
+    //
+    // `Uint8Array` carries no `toJSON` at all, which matters because it is the
+    // crypto-relevant byte type on this path. The widening cast is what makes
+    // the read expressible — TS2339 otherwise, the type having no such member —
+    // and it is the same read the guard performs at runtime.
+    expect(typeof (new Uint8Array([1]) as { toJSON?: unknown }).toJSON).toBe("undefined");
+    expect(decodeUtf8(canonicalizeJson({ bytes: new Uint8Array([1, 2]) }))).toBe(
+      '{"bytes":{"0":1,"1":2}}',
+    );
+    // A member literally NAMED `toJSON` whose VALUE is a string is exactly what
+    // `JSON.parse` produces for that key — JSON has no function values — so
+    // refusing it would reject a well-formed Spec-024 dispatch body. This is the
+    // discriminating case for `typeof … === "function"` over a name check.
+    const parsedBody: unknown = JSON.parse('{"toJSON":"not-a-function"}');
+    expect(() => canonicalizeJson(parsedBody)).not.toThrow();
+    expect(decodeUtf8(canonicalizeJson(parsedBody))).toBe('{"toJSON":"not-a-function"}');
+    // A null-prototype object has no inherited `toJSON` and must not trip a
+    // TypeError on the lookup either.
+    const nullPrototype: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
+    nullPrototype["a"] = 1;
+    expect(decodeUtf8(canonicalizeJson(nullPrototype))).toBe('{"a":1}');
+    // ...and the RFC's own §3.2.2 sample document still canonicalizes, which is
+    // the standing regression control the conformance block at the top owns.
+    expect(() =>
+      canonicalizeJson(JSON.parse(RFC_8785_SAMPLE_DOCUMENT_SOURCE) as unknown),
+    ).not.toThrow();
+  });
+
+  it("refuses the NON-DETERMINISM that no output-side check could catch", () => {
+    // THE ARGUMENT FOR REFUSING RATHER THAN SCANNING, demonstrated in three
+    // steps rather than asserted.
+    //
+    // Step 1 — `toJSON` is arbitrary caller code, so the canonical form of a
+    // value need not be a function of the value. Two passes over ONE object.
+    let projectionCount = 0;
+    const statefulProjection = {
+      toJSON: (): unknown => ({ v: ++projectionCount }),
+    };
+    expect(canonicalize(statefulProjection)).toBe('{"v":1}');
+    expect(canonicalize(statefulProjection)).toBe('{"v":2}');
+
+    // Step 2 — that is fatal for the integrity protocol specifically.
+    // Verification RE-CANONICALIZES a rehydrated row and compares bytes
+    // (`Spec-006 §Integrity Protocol`), so a second draw that differs makes the
+    // row's own `row_hash` unreproducible from the row.
+    projectionCount = 0;
+    expect(canonicalize(statefulProjection)).not.toBe(canonicalize(statefulProjection));
+
+    // Step 3 — and no check on the PRODUCED bytes can see it: those bytes are
+    // one draw, and they are perfectly well-formed, correctly nested JSON. Only
+    // refusing the input closes it, which is why the guard sits on the input.
+    expect(() => canonicalizeJson(statefulProjection)).toThrow(TO_JSON_REFUSAL);
+  });
+
+  it("closes the DEPTH-CEILING evasion, not just the surrogate one", () => {
+    // The same over-deep tree, reached two ways. Directly, the depth walk sees
+    // it and the ceiling fires. Behind a `toJSON`, the carrier's own-property
+    // tree is depth 1 — its only member is a FUNCTION, which the walk's
+    // container filter skips — so the ceiling never saw it, and the library
+    // serialized it without complaint. The refusal is on the CLASS, so both are
+    // now refused; only the wording differs.
+    const overDeep = buildNestedContainerChain(200, 0);
+    expect(() => canonicalizeJson(overDeep)).toThrow(/nests containers deeper than 64 levels/);
+
+    const behindToJson = { toJSON: (): unknown => overDeep };
+    expect(Object.values(behindToJson).every((member) => typeof member === "function")).toBe(true);
+    expect(typeof canonicalize(behindToJson)).toBe("string");
+
+    const message = captureThrownMessage(() => canonicalizeJson(behindToJson));
+    expect(message).toMatch(TO_JSON_REFUSAL);
+    expect(message).not.toMatch(/nests containers deeper than 64 levels/);
+  });
+
+  it("costs one more getter invocation per member — the count the module documents", () => {
+    // THE PRICE OF A THIRD WALK, measured through the real entry point rather
+    // than asserted in a comment. `assertWithinCanonicalDepth`'s docblock states
+    // SIX invocations of an own enumerable getter end to end: one per walk
+    // (depth, `toJSON`, well-formedness) and three more inside the serializer's
+    // per-member `undefined` / `symbol` / recurse sequence. The number is
+    // load-bearing because a NON-IDEMPOTENT getter is the one residual the
+    // `toJSON` refusal does not close, so the count is what bounds how many
+    // different trees it can hand out.
+    let accessorCalls = 0;
+    const withGetter: Record<string, unknown> = {
+      get member(): unknown {
+        accessorCalls += 1;
+        return "value";
+      },
+    };
+    expect(decodeUtf8(canonicalizeJson(withGetter))).toBe('{"member":"value"}');
+    expect(accessorCalls).toBe(6);
+  });
+
+  it("runs AFTER the depth ceiling, so a cyclic graph still refuses instead of hanging", () => {
+    // Same correctness constraint the well-formedness walk carries: this walk
+    // has no cycle detection either, so it is safe only because
+    // `assertWithinCanonicalDepth` reports a cycle as depth exhaustion first.
+    // The input is cyclic AND carries a `toJSON`, so hoisting this guard above
+    // the depth walk turns this test from a refusal into a hang.
+    const cyclic: Record<string, unknown> = { toJSON: (): unknown => ({ v: 1 }) };
+    cyclic["self"] = cyclic;
+    const message = captureThrownMessage(() => canonicalizeJson(cyclic));
+    expect(message).toMatch(/nests containers deeper than 64 levels/);
+    expect(message).not.toMatch(TO_JSON_REFUSAL);
+  });
+
+  it("runs BEFORE the well-formedness walk, so the accurate refusal is the one reported", () => {
+    // THE OTHER HALF OF THE ORDER, and load-bearing in the opposite direction.
+    // This value carries a lone surrogate in a subtree the serializer would have
+    // DISCARDED — `toJSON` replaces it — so reporting §3.2.2.2 here would
+    // diagnose a defect in bytes that were never going to exist. The `toJSON`
+    // refusal is what makes the well-formedness verdict a claim about the
+    // output, so it has to fire first.
+    const carriesBoth = {
+      discarded: LONE_HIGH_SURROGATE,
+      toJSON: (): unknown => ({ kept: "well-formed" }),
+    };
+    const message = captureThrownMessage(() => canonicalizeJson(carriesBoth));
+    expect(message).toMatch(TO_JSON_REFUSAL);
+    expect(message).not.toMatch(LONE_SURROGATE_REFUSAL);
+  });
+
+  it("is inherited by canonicalizeEvent through the payload, with no second call site", () => {
+    // The event entry point routes through `canonicalizeJson`, so the guard
+    // covers it structurally — the same inheritance the well-formedness block
+    // above pins. A `Date` in a payload is the realistic carrier: it is what a
+    // producer reaches for when a schema says the member is a timestamp.
+    expect(() =>
+      canonicalizeEvent({
+        ...GOLDEN_ENVELOPE,
+        payload: { ...GOLDEN_ENVELOPE.payload, recordedAt: new Date(0) },
+      }),
+    ).toThrow(TO_JSON_REFUSAL);
+    // And the sequence guard still precedes it, per the entry point's fixed
+    // order: sequence → occurredAt → depth → toJSON → well-formedness.
+    const message = captureThrownMessage(() =>
+      canonicalizeEvent({
+        ...GOLDEN_ENVELOPE,
+        sequence: 9007199254740992,
+        payload: { ...GOLDEN_ENVELOPE.payload, recordedAt: new Date(0) },
+      }),
+    );
+    expect(message).toMatch(/canonicalization refused: sequence .* is not a safe integer/);
+    expect(message).not.toMatch(TO_JSON_REFUSAL);
+  });
+});
+
+// --------------------------------------------------------------------------
 // occurredAt normalization.
 // --------------------------------------------------------------------------
 
@@ -1244,7 +1482,7 @@ describe("canonicalizeJson — values with no JSON representation", () => {
     });
   }
 
-  it("surfaces the three library-originated refusals intelligibly", () => {
+  it("surfaces the two REACHABLE library-originated refusals intelligibly", () => {
     // These originate inside `canonicalize@3.0.0` and reach the caller with the
     // library's own bare wording. The module's header inventories them rather
     // than claiming it owns every throw; this pins the inventory so a library
@@ -1255,16 +1493,50 @@ describe("canonicalizeJson — values with no JSON representation", () => {
     expect(
       captureThrownMessage(() => canonicalizeJson({ sequence: Number.POSITIVE_INFINITY })),
     ).toBe("Infinity is not allowed");
+  });
 
-    // A cycle reachable ONLY through a `toJSON` result is invisible to the
-    // depth walk — `toJSON` is a function, so it fails the walk's
-    // `typeof === "object"` child filter and the walk terminates — so this is
-    // the one cycle shape that surfaces as the library's message rather than as
-    // depth exhaustion. Contrast with the plain own-property cycle above.
+  it("SHADOWS the library's third refusal in both shapes that could reach it", () => {
+    // `Circular reference detected` is the third throw the module's header
+    // inventories, and no ordinary input reaches it any more — which is the
+    // claim this pins, in both directions, because a regression in EITHER guard
+    // would surface as the library's bare wording instead.
+    //
+    // Shape 1 — an own-property cycle drives the depth walk past the ceiling,
+    // so this module's depth refusal fires first (also pinned in the depth
+    // block above, from the other side).
+    const ownPropertyCycle: Record<string, unknown> = {};
+    ownPropertyCycle["self"] = ownPropertyCycle;
+    expect(captureThrownMessage(() => canonicalizeJson(ownPropertyCycle))).not.toBe(
+      "Circular reference detected",
+    );
+
+    // Shape 2 — a cycle reachable ONLY through a `toJSON` result is invisible
+    // to both walks (`toJSON` is a function, so it fails their
+    // `typeof === "object"` child filter), and it used to be the one cycle
+    // shape that surfaced as the library's message. The `toJSON` refusal now
+    // catches its CARRIER before any serialization runs.
     const cycleReachableOnlyViaToJson: { toJSON: () => unknown } = {
       toJSON: () => ({ nested: cycleReachableOnlyViaToJson }),
     };
-    expect(captureThrownMessage(() => canonicalizeJson(cycleReachableOnlyViaToJson))).toBe(
+    const message = captureThrownMessage(() => canonicalizeJson(cycleReachableOnlyViaToJson));
+    expect(message).toMatch(TO_JSON_REFUSAL);
+    expect(message).not.toBe("Circular reference detected");
+
+    // THE RESIDUAL, characterized rather than glossed: a NON-IDEMPOTENT
+    // accessor still hands the guards one tree and the serializer another, so
+    // the library's cycle detection remains the last line for that shape alone.
+    // `canonicalizeJson` runs three walks over the value before serializing
+    // (depth, `toJSON`, well-formedness), so a getter that turns cyclic on call
+    // 4 shows every guard an acyclic tree and the serializer a cyclic one. The
+    // threshold is the walk count pinned by the six-invocation test above.
+    let accessorCalls = 0;
+    const nonIdempotentAccessor: Record<string, unknown> = {
+      get member(): unknown {
+        accessorCalls += 1;
+        return accessorCalls > 3 ? nonIdempotentAccessor : { acyclic: true };
+      },
+    };
+    expect(captureThrownMessage(() => canonicalizeJson(nonIdempotentAccessor))).toBe(
       "Circular reference detected",
     );
   });
