@@ -822,8 +822,10 @@ const NS_ID = (nsNum, suffix) => `NS-${String(nsNum).padStart(2, "0")}${suffix ?
 // `plan_done_checklist_evaluation` replaced a mechanical tick this script used
 // to attempt (2026-07-27). The tick looked for `#### Done Checklist` nested
 // under `### Phase N`; no plan in `docs/plans/` has ever carried that shape —
-// all 29, template included, put a document-level `## Done Checklist` at the
-// end instead — so the tick never fired once in production and every run
+// every plan file, template included, puts a single document-level
+// `## Done Checklist` at the end instead (enforced at runtime by
+// `__tests__/plan-done-checklist-corpus.test.mjs`, which pins no file count)
+// — so the tick never fired once in production and every run
 // carrying `--plan`/`--phase` returned a silent exit 3. Repointing it at the
 // real heading would have been worse than leaving it dead: those rows are
 // evidence-bearing prose naming PRs, SHAs and dates, and the checklist is

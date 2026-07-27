@@ -24,7 +24,11 @@
  * see that module's header for why a live probe cannot test them.
  *
  * Prints a human block, then a machine-readable final line:
- *   GATE verdict=<...> ack=<0|1> unresolved=<n> ci=<green|red|pending|none> state=<...> merge_state=<...> merge_ok=<0|1>
+ *   GATE verdict=<...> ack=<0|1> unresolved=<n> ci=<green|red|pending|none> state=<...> merge_state=<...> merge_ok=<0|1> head_sha=<40-hex>
+ *
+ * `head_sha` names the commit every other field on that line was measured
+ * against. Pass it to `gh pr merge --match-head-commit` so the merge refuses a
+ * head that moved after the gate printed.
  *
  * Exit code is always 0 on a successful probe — the verdict is the payload, not
  * the exit status. Exit 1 means the probe itself failed (bad PR, gh error).
@@ -221,8 +225,18 @@ const allComments = ghJsonPaginated([
   "api",
   `repos/${repository}/issues/${pullRequestNumber}/comments`,
 ]);
-const { botComments, shaCitingComments, freshCleanVerdictComments, commentAcksHead, rateLimited } =
-  deriveCommentSignals(allComments, { headShaShort, ackAnchorMs });
+const {
+  botComments,
+  shaCitingComments,
+  freshCleanVerdictComments,
+  cleanVerdictShaComments,
+  findingsShaComments,
+  commentAcksHead,
+  commentAssertsClean,
+  commentReportsFindings,
+  latestCommentAckAgeMs,
+  rateLimited,
+} = deriveCommentSignals(allComments, { headShaShort, ackAnchorMs, nowMs: Date.now() });
 
 // ------------------------------------------------------- unresolved threads
 
@@ -332,20 +346,53 @@ function checkName(check) {
   return check.name ?? check.context ?? "(unnamed check)";
 }
 
+// -------------------------------------------------------- HEAD, re-read last
+
+// Every probe above hangs off `headSha`, captured before any of them ran. A push
+// landing mid-probe leaves the acks, the threads and the CI status all describing
+// a commit that is no longer the one a merge would take, while merge_ok says go.
+// Re-read HEAD after the last probe so the window this cannot see shrinks to the
+// gap between here and the print — and the caller closes even that by passing
+// the printed head_sha to `gh pr merge --match-head-commit`, which makes the
+// merge itself refuse a head that moved after this line.
+const pullRequestAtFinish = ghJson([
+  "pr",
+  "view",
+  pullRequestNumber,
+  "--repo",
+  repository,
+  "--json",
+  "headRefOid",
+]);
+const headShaAtFinish = pullRequestAtFinish?.headRefOid;
+// A re-read that returns nothing is not evidence HEAD held still. Stopping is
+// the only honest option: reporting `head_moved` would name a move nobody saw,
+// and carrying on would authorise a merge against an unconfirmed head.
+if (!headShaAtFinish) {
+  fail(
+    `could not re-read HEAD for PR #${pullRequestNumber} — the gate cannot confirm what it read`,
+  );
+}
+const headUnchanged = headShaAtFinish === headSha;
+
 // ------------------------------------------------------------------ verdict
 
 const mergeStateStatus = pullRequest.mergeStateStatus;
 const isOpen = pullRequest.state === "OPEN";
-const { verdict, ackOfHead, mergeOk } = computeVerdict({
+const { verdict, ackOfHead, mergeOk, unsettledAckLeg, threadBearingAckAgeMs } = computeVerdict({
   isDraft: pullRequest.isDraft,
   isOpen,
+  headUnchanged,
   pushAnchorKnown,
   rateLimited,
   reviewAcksHead,
   reactionAcksHead,
   commentAcksHead,
+  commentAssertsClean,
+  commentReportsFindings,
   openThreadCount: unresolvedBotThreads.length,
   latestReviewAgeMs,
+  latestCommentAckAgeMs,
   threadWindowTruncated,
   checkWindowTruncated,
   ciStatus,
@@ -378,6 +425,8 @@ const lines = [
   `    review .commit_id == HEAD   ${reviewAcksHead ? "YES" : "no "}   (${botReviews.length} bot review(s) total)`,
   `    +1 on issue at/after anchor ${reactionAcksHead ? "YES" : "no "}   (${botThumbsUp.length} bot +1 total, ${freshThumbsUp.length} fresh)`,
   `    comment acks HEAD           ${commentAcksHead ? "YES" : "no "}   (${botComments.length} bot comment(s): ${shaCitingComments.length} cite the sha, ${freshCleanVerdictComments.length} fresh clean verdict(s))`,
+  `    ..and that ack says CLEAN   ${commentAssertsClean ? "YES" : "no "}   (${cleanVerdictShaComments.length} sha-cited clean verdict(s); citing a sha is not a verdict)`,
+  `    ..or carries FINDINGS       ${commentReportsFindings ? "YES" : "no "}   (${findingsShaComments.length} findings summary(ies) naming HEAD, findings in the body not in threads)`,
   "",
   `  unresolved bot threads  ${unresolvedBotThreads.length}  (${outdatedUnresolvedCount} outdated, counted anyway) of ${threadTotal} total thread(s)`,
   `  CI                ${ciStatus}  (${gatingChecks.length} of ${dedupedChecks.length} check(s) gate the merge [${ciMode}], ${failedChecks.length} failed, ${pendingChecks.length} pending${supersededCount > 0 ? `, ${supersededCount} superseded run(s) ignored` : ""})`,
@@ -438,10 +487,37 @@ if (verdict === "signal_truncated") {
 }
 if (verdict === "ack_unsettled") {
   lines.push(
-    `  !! review on HEAD is ${Math.round(latestReviewAgeMs / 1000)}s old with 0 visible threads —`,
+    `  !! ${unsettledAckLeg} ack of HEAD is ${Math.round(threadBearingAckAgeMs / 1000)}s old with 0 visible threads —`,
   );
   lines.push(
     "     cannot distinguish 'clean' from 'threads not yet materialised'. Re-poll; do NOT merge.",
+  );
+}
+if (verdict === "ack_findings_no_threads") {
+  lines.push(
+    `  !! Codex filed findings for HEAD in ${findingsShaComments.length} comment body(ies), with 0 review threads.`,
+  );
+  lines.push(
+    "     There is nothing to resolve, so require-conversation-resolution will NOT block this",
+  );
+  lines.push(
+    "     merge — this gate is the only thing that does. Read the comment(s), fix, re-push.",
+  );
+}
+if (verdict === "ack_without_verdict") {
+  lines.push(
+    "  !! Codex named this commit but published neither findings nor a clean verdict on it.",
+  );
+  lines.push(
+    "     A 'Reviewed commit:' citation says only that it looked. Re-poll for the verdict.",
+  );
+}
+if (verdict === "head_moved") {
+  lines.push(
+    `  !! HEAD moved mid-probe: ${headShaShort} -> ${headShaAtFinish.slice(0, 10)}. Every signal above`,
+  );
+  lines.push(
+    "     describes the OLD commit, so none of it decides anything. Re-run the gate on the new head.",
   );
 }
 if (!isOpen) {
@@ -463,8 +539,13 @@ if (verdict === "ack_clean" && isOpen && !mergeStateAllows) {
 }
 
 lines.push("");
+// `head_sha` is the sha every signal on this line was measured against, and it
+// is emitted on EVERY verdict rather than only the mergeable ones — a reader
+// diagnosing a refusal needs to know which commit was judged just as much as a
+// merger does. Feed it to `gh pr merge --match-head-commit` so the merge refuses
+// a head that moved between this print and the call.
 lines.push(
-  `GATE verdict=${verdict} ack=${ackOfHead ? 1 : 0} unresolved=${unresolvedBotThreads.length} ci=${ciStatus} state=${pullRequest.state} merge_state=${mergeStateStatus} merge_ok=${mergeOk ? 1 : 0}`,
+  `GATE verdict=${verdict} ack=${ackOfHead ? 1 : 0} unresolved=${unresolvedBotThreads.length} ci=${ciStatus} state=${pullRequest.state} merge_state=${mergeStateStatus} merge_ok=${mergeOk ? 1 : 0} head_sha=${headSha}`,
 );
 
 process.stdout.write(`${lines.join("\n")}\n`);

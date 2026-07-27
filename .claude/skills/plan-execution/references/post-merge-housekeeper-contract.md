@@ -131,7 +131,7 @@ This wiring is deliberate rather than decorative. A `plan_file_unresolved` warni
 | `phase` | `--phase` flag (script) | Coerced to integer; null if non-numeric (Tier-A) — script returns `proposed_manifest_entry: null` in that case. |
 | `task` | `--task` flag (script) | String form; legacy multi-task PRs use array form (Plan-007 PR #19). |
 | `pr` | `--pr` flag (script) | Integer. |
-| `sha` | `--squash-sha` flag (orchestrator-supplied) | Abbreviated hex (7+ chars). Source: `git rev-parse --short HEAD` after Phase D.5 step 4. |
+| `sha` | `--squash-sha` flag (orchestrator-supplied) | Abbreviated hex (7+ chars). Source: `git rev-parse --short HEAD` in Phase D.5 step 5. |
 | `merged_at` | `--merged-at` flag (orchestrator-supplied) | ISO date `YYYY-MM-DD`. Source: `gh pr view <PR#> --json mergedAt -q .mergedAt \| cut -dT -f1`. |
 | `files` | `diffTouchedFiles` from `git diff --name-only` (orchestrator-supplied) | Array; defaults to `[]` when caller didn't supply. |
 | `verifies_invariant` | Always `[]` at script stage | Audit-derived; orchestrator merges in DAG-task value via `enrichEntryWithDag` (lib/housekeeper-orchestrator-helpers.mjs). |

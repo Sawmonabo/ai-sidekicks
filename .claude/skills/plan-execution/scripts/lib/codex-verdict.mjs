@@ -281,6 +281,36 @@ const RATE_LIMIT_PATTERN = /usage limits/i;
 const CLEAN_VERDICT_PATTERN = /Didn['’]t find any major issues/i;
 
 /**
+ * A findings pass delivered as a COMMENT body instead of as inline threads.
+ *
+ * Codex reports findings two ways and this gate only ever read one of them. The
+ * other is a `### 💡 Codex Review` comment carrying the findings themselves —
+ * severity badge, permalink, prose — with no inline thread anywhere, no
+ * `Reviewed commit:` line and no clean verdict. It therefore matched NO ack leg:
+ * not `shaCitingComments`, which additionally requires "Reviewed commit"; not
+ * `freshCleanVerdictComments`, which requires the clean verdict. `ackOfHead`
+ * came out false and the gate reported `no_ack_yet` — "Codex has not looked at
+ * this yet" — about a commit Codex had reviewed and filed a P1 against.
+ *
+ * Observed, not hypothesised. On PR #28 the sha `f67a7bb` became head at
+ * 02:11:29Z, this comment landed at 02:18:54Z citing that exact sha, the next
+ * push was 02:27:03Z, the first bot review 02:30:39Z on a LATER sha, and the
+ * only bot `+1` 04:33:50Z. For those 8 minutes every ack leg was false while a
+ * P1 sat in a comment naming HEAD.
+ *
+ * Two markers, either sufficient, because they fail independently: an upstream
+ * emoji change kills the heading, a severity-scheme change kills the badge.
+ * Accepting either is the fail-closed direction here, since the defect being
+ * closed is a findings comment going unseen. Surveyed 2026-07-27 against all 48
+ * bot comments in the repo: each marker alone matched the same 5 findings
+ * summaries, neither matched any of the 36 clean verdicts or the 6 usage-limits
+ * notices, and neither matched the one conversational reply — which a
+ * permalink-based test WOULD have captured, so the permalink is deliberately
+ * not a marker.
+ */
+const FINDINGS_SUMMARY_PATTERN = /###\s*.{0,4}\s*Codex Review|!\[P\d+ Badge\]/u;
+
+/**
  * The instant an ack must post-date, given the HEAD commit and its check suites.
  *
  * The commit timestamp is the wrong anchor on its own: it is the LOCAL commit
@@ -316,7 +346,7 @@ const CLEAN_VERDICT_PATTERN = /Didn['’]t find any major issues/i;
  *   - suite creation and Codex's webhook are INDEPENDENT consumers of the same
  *     push, so nothing orders them: a `+1` posted before the earliest suite is
  *     rejected by an anchor derived from that suite. It does not strand the
- *     gate, because both observed ack shapes also carry a sha-exact leg that no
+ *     gate, because both observed ack shapes also carry a sha-bound leg that no
  *     timestamp can stale. A findings pass posts a review whose `commit_id` is
  *     HEAD (PR #259). A clean pass posts ONE comment that is both the clean
  *     verdict and a `Reviewed commit:` citation (PR #256, 2026-07-27), which
@@ -325,7 +355,11 @@ const CLEAN_VERDICT_PATTERN = /Didn['’]t find any major issues/i;
  *     case: #256 had four bot reviews and none on HEAD. Only a bare `+1` with
  *     neither a review nor a comment would strand it; no observed shape does
  *     that, and `no_ack_yet` already prints the `@codex review` re-trigger,
- *     whose fresh ack post-dates the anchor.
+ *     whose fresh ack post-dates the anchor. Two later changes narrowed this
+ *     recovery without removing it, and both are deliberate: the comment leg is
+ *     now inside the settle window, so it recovers one window late rather than
+ *     immediately, and it must assert cleanliness rather than only cite the sha
+ *     — #256's comment does both, so the observed clean shape still recovers.
  *
  * @param {number} committedAtMs
  * @param {Array<object>} checkSuites Raw `check_suites` rows for the head sha.
@@ -368,9 +402,10 @@ export function isAtOrAfter(timestamp, anchorMs) {
  *
  * `at(-1)` assumed both that the reviews endpoint returns ascending submission
  * order and that the page merge preserves it. Both hold today, but this is the
- * same hazard `selectNewestRunPerName` already exists to handle on the CI side,
- * and the cost of being wrong is the same: the gate anchors its ack decision AND
- * its settle-window age to the wrong review.
+ * same hazard `selectNewestRunPerName` already exists to handle on the CI side.
+ * Its callers now pre-filter to the HEAD-matching set, so ordering no longer
+ * decides whether an ack exists — that is set membership — but it still decides
+ * which review's age feeds the settle window.
  *
  * A tie, or a payload carrying no `submitted_at` at all, keeps the later array
  * position — so the degenerate case falls back to the documented order instead
@@ -396,10 +431,18 @@ export function selectNewestReview(reviews) {
 /**
  * Ack shape (3): a review object whose `.commit_id` is HEAD.
  *
+ * Filtered to HEAD BEFORE the newest is picked, never after. Taking the newest
+ * bot review globally and then testing its `commit_id` reports no ack whenever
+ * two review runs overlap and the one started on the OLDER head submits last:
+ * a review that does name HEAD is sitting in the same payload, ignored. The
+ * same inversion fed the settle window the age of a review this leg had just
+ * rejected, so both fields were describing the wrong object at once.
+ *
  * Intrinsically HEAD-bound, so the ack anchor never reaches this leg. The one
- * timestamp it derives, `latestReviewAgeMs`, is relative to wall-clock and
- * serves the settle window alone; that window is itself gated on
- * `reviewAcksHead`, so it cannot fire on a pass this leg did not ack.
+ * timestamp it derives, `latestReviewAgeMs`, is wall-clock relative and belongs
+ * to the newest HEAD-matching review, so it can only ever describe a review
+ * this leg actually acked. `computeVerdict` folds it into the settle window
+ * only while `reviewAcksHead` holds.
  *
  * Pagination at the call site is mandatory — the reviews endpoint pages at 30,
  * and on a many-round PR the newest review rolls onto page 2+ where an
@@ -411,13 +454,19 @@ export function selectNewestReview(reviews) {
  */
 export function deriveReviewAck(reviews, headSha, nowMs) {
   const botReviews = (reviews ?? []).filter((review) => review.user?.login === BOT_REST_LOGIN);
-  const latestBotReview = selectNewestReview(botReviews);
+  // An absent headSha must match nothing. Filtering on equality alone would let
+  // `undefined === undefined` pair a review carrying no `commit_id` with a head
+  // the caller never established — an ack invented out of two missing fields,
+  // and the fail-OPEN direction.
+  const headBotReviews = headSha ? botReviews.filter((review) => review.commit_id === headSha) : [];
+  const latestHeadReview = selectNewestReview(headBotReviews);
   return {
     botReviews,
-    latestBotReview,
-    reviewAcksHead: latestBotReview?.commit_id === headSha,
-    latestReviewAgeMs: latestBotReview?.submitted_at
-      ? nowMs - new Date(latestBotReview.submitted_at).getTime()
+    headBotReviews,
+    latestHeadReview,
+    reviewAcksHead: latestHeadReview !== null,
+    latestReviewAgeMs: latestHeadReview?.submitted_at
+      ? nowMs - new Date(latestHeadReview.submitted_at).getTime()
       : Number.POSITIVE_INFINITY,
   };
 }
@@ -443,13 +492,59 @@ export function deriveReactionAck(reactions, ackAnchorMs) {
 }
 
 /**
- * Comment-borne signals: two ack legs and the usage-limits non-ack.
+ * Wall-clock age of the newest row in a set, or Infinity when the set is empty
+ * or carries no parseable `created_at`.
  *
- * The two ack legs are bound to HEAD by DIFFERENT anchors and must not be
+ * Every non-finite result collapses to Infinity rather than propagating. A NaN
+ * age — from a missing `nowMs`, an unparseable stamp, or arithmetic on either —
+ * fails EVERY `<` comparison, so it would read as "comfortably outside the
+ * settle window" and wave through the exact false pass that window exists to
+ * catch. Infinity means the same thing to a `<` test but says it deliberately.
+ *
+ * @param {Array<object>} rows
+ * @param {number} nowMs
+ * @returns {number}
+ */
+function newestCreatedAgeMs(rows, nowMs) {
+  let newestCreatedMs = Number.NEGATIVE_INFINITY;
+  for (const row of rows) {
+    const createdMs = new Date(row.created_at ?? Number.NaN).getTime();
+    if (Number.isFinite(createdMs) && createdMs > newestCreatedMs) newestCreatedMs = createdMs;
+  }
+  const ageMs = nowMs - newestCreatedMs;
+  return Number.isFinite(ageMs) ? ageMs : Number.POSITIVE_INFINITY;
+}
+
+/**
+ * Comment-borne signals: three ack legs, a separate cleanliness assertion, a
+ * separate findings assertion, and the usage-limits non-ack.
+ *
+ * The three ack legs are bound to HEAD by DIFFERENT anchors and must not be
  * collapsed. A comment carrying `**Reviewed commit:** \`<sha10>\`` names the
  * commit it reviewed, so the sha IS the anchor and no timestamp filter applies.
- * The clean-verdict comment carries no sha at all, so `created_at >= ackAnchorMs`
+ * A findings summary is bound the same way, by the sha in its permalinks. The
+ * clean-verdict comment carries no sha at all, so `created_at >= ackAnchorMs`
  * is the only thing tying it to the current push.
+ *
+ * "Acks HEAD" and "asserts HEAD is clean" are also kept apart, because folding
+ * them together was a false pass. Citing a sha proves only that Codex looked at
+ * this commit; it says nothing whatever about what it found. A findings-bearing
+ * comment naming HEAD therefore satisfied the ack leg on its own, and in the
+ * window before its inline threads materialise the gate saw an ack with zero
+ * open threads and called it `ack_clean`. `commentAssertsClean` is the narrower
+ * fact — a comment that both names this commit and declares it clean, or a
+ * clean verdict fresh enough to belong to this push.
+ *
+ * `commentReportsFindings` is the opposite-signed narrow fact, and it is not the
+ * negation of the other: most comments assert neither. It says the body carries
+ * findings for THIS commit, which is what lets the caller distinguish "Codex
+ * reviewed this and its findings are in a comment" from "Codex has not looked
+ * yet" — two states that demand opposite next actions, and which the gate
+ * previously collapsed into `no_ack_yet`.
+ *
+ * `latestCommentAckAgeMs` is the age of the NEWEST acking comment, and newest
+ * rather than oldest is the conservative pick: the most recent ack is the one
+ * whose threads are likeliest still in flight.
  *
  * The usage-limits non-ack takes the same freshness binding, which
  * failure-modes.md already documents and the gate had drifted from: because
@@ -458,29 +553,61 @@ export function deriveReactionAck(reactions, ackAnchorMs) {
  * after a later HEAD collected a valid clean ack.
  *
  * @param {Array<object>} comments
- * @param {{headShaShort: string, ackAnchorMs: number}} anchors
+ * @param {{headShaShort: string, ackAnchorMs: number, nowMs: number}} anchors
  */
-export function deriveCommentSignals(comments, { headShaShort, ackAnchorMs }) {
+export function deriveCommentSignals(comments, { headShaShort, ackAnchorMs, nowMs }) {
   const botComments = (comments ?? []).filter((comment) => comment.user?.login === BOT_REST_LOGIN);
+  // An absent or empty headShaShort must cite nothing. `"anything".includes("")`
+  // is true, so an unset head would turn EVERY bot comment into a sha citation —
+  // an ack invented out of a missing field, the same fail-OPEN that
+  // `deriveReviewAck` guards on the review side.
+  const citesHead = (body) => Boolean(headShaShort) && body?.includes(headShaShort) === true;
   const shaCitingComments = botComments.filter(
-    (comment) =>
-      comment.body?.includes(headShaShort) && /Reviewed commit/i.test(comment.body ?? ""),
+    (comment) => citesHead(comment.body) && /Reviewed commit/i.test(comment.body ?? ""),
   );
   const freshCleanVerdictComments = botComments.filter(
     (comment) =>
       CLEAN_VERDICT_PATTERN.test(comment.body ?? "") &&
       isAtOrAfter(comment.created_at, ackAnchorMs),
   );
+  // Sha-cited AND clean: asserts cleanliness with no timestamp involved, which
+  // is what keeps an escape hatch open when the push anchor is wrong.
+  const cleanVerdictShaComments = shaCitingComments.filter((comment) =>
+    CLEAN_VERDICT_PATTERN.test(comment.body ?? ""),
+  );
+  // Findings in a comment body bind to HEAD by the sha their permalinks carry,
+  // with no timestamp involved — the same anchoring `shaCitingComments` uses, and
+  // the same shape: the 10-char head prefix appearing anywhere in the body, a
+  // substring test rather than an equality one, so a permalink to any commit
+  // sharing those 10 hex chars matches too. That is git's own abbreviation width,
+  // and a collision inside one PR's comments is not a practical risk. Binding to
+  // the sha at all is the point: a summary naming an OLDER sha is findings against
+  // a commit that has since been rewritten, and firing on it would pin the gate to
+  // a stale verdict forever. PR #235 is that case — the author pushed 108 seconds
+  // before the summary landed — and this leg staying silent there is the filter
+  // working, not a gap.
+  const findingsShaComments = botComments.filter(
+    (comment) => FINDINGS_SUMMARY_PATTERN.test(comment.body ?? "") && citesHead(comment.body),
+  );
   const freshRateLimitComments = botComments.filter(
     (comment) =>
       RATE_LIMIT_PATTERN.test(comment.body ?? "") && isAtOrAfter(comment.created_at, ackAnchorMs),
   );
+  const ackComments = [
+    ...new Set([...shaCitingComments, ...freshCleanVerdictComments, ...findingsShaComments]),
+  ];
   return {
     botComments,
     shaCitingComments,
     freshCleanVerdictComments,
+    cleanVerdictShaComments,
+    findingsShaComments,
     freshRateLimitComments,
-    commentAcksHead: shaCitingComments.length > 0 || freshCleanVerdictComments.length > 0,
+    ackComments,
+    commentAcksHead: ackComments.length > 0,
+    commentAssertsClean: cleanVerdictShaComments.length > 0 || freshCleanVerdictComments.length > 0,
+    commentReportsFindings: findingsShaComments.length > 0,
+    latestCommentAckAgeMs: newestCreatedAgeMs(ackComments, nowMs),
     rateLimited: freshRateLimitComments.length > 0,
   };
 }
@@ -510,16 +637,34 @@ export function selectUnresolvedBotThreads(threadNodes) {
 }
 
 /**
+ * An age is usable only if it is a real number. NaN and undefined both map to
+ * Infinity — "no evidence of recency" — because NaN fails every `<` comparison
+ * and would otherwise read as "safely outside the settle window", re-opening
+ * the false pass that window exists to close. `??` does not catch NaN, so the
+ * test has to be `Number.isFinite`.
+ *
+ * @param {number | undefined} ageMs
+ * @returns {number}
+ */
+function finiteAgeOrInfinity(ageMs) {
+  return Number.isFinite(ageMs) ? ageMs : Number.POSITIVE_INFINITY;
+}
+
+/**
  * @typedef {object} CodexSignals
  * @property {boolean} isDraft                 PR is a draft (Codex does not auto-review drafts).
  * @property {boolean} isOpen                  PR state is OPEN — not CLOSED, not MERGED.
+ * @property {boolean} headUnchanged           HEAD re-read after every probe still matches the snapshot they used.
  * @property {boolean} pushAnchorKnown         A check suite dated the push, so the ack anchor is server-side.
  * @property {boolean} rateLimited             Bot usage-limits comment at or after the ack anchor.
- * @property {boolean} reviewAcksHead          Newest bot review's commit_id === HEAD sha.
+ * @property {boolean} reviewAcksHead          A bot review names the HEAD sha in its commit_id.
  * @property {boolean} reactionAcksHead        Bot +1 on the PR issue, at or after the ack anchor.
  * @property {boolean} commentAcksHead         Bot comment citing the HEAD sha, or a fresh clean verdict.
+ * @property {boolean} commentAssertsClean     A bot comment asserts CLEAN, not merely that it read HEAD.
+ * @property {boolean} commentReportsFindings  A bot comment carries findings for HEAD in its own body.
  * @property {number}  openThreadCount         Bot threads that are unresolved, outdated or not.
- * @property {number}  latestReviewAgeMs       Age of the newest bot review; Infinity when none.
+ * @property {number}  latestReviewAgeMs       Age of the newest HEAD-matching bot review; Infinity when none.
+ * @property {number}  latestCommentAckAgeMs   Age of the newest acking bot comment; Infinity when none.
  * @property {boolean} [threadWindowTruncated] Review-thread connection did not drain fully.
  * @property {boolean} [checkWindowTruncated]  Check-rollup connection did not drain fully.
  * @property {"green"|"red"|"pending"|"none"} ciStatus
@@ -529,19 +674,60 @@ export function selectUnresolvedBotThreads(threadNodes) {
 
 /**
  * @param {CodexSignals} signals
- * @returns {{verdict: string, ackOfHead: boolean, mergeOk: boolean, unsettled: boolean, signalTruncated: boolean}}
+ * @returns {{verdict: string, ackOfHead: boolean, cleanAssertingAck: boolean, mergeOk: boolean, unsettled: boolean, unsettledAckLeg: "review"|"comment"|null, threadBearingAckAgeMs: number, signalTruncated: boolean}}
  */
 export function computeVerdict(signals) {
   const settleWindowMs = signals.settleWindowMs ?? DEFAULT_SETTLE_WINDOW_MS;
 
   const ackOfHead = signals.reviewAcksHead || signals.reactionAcksHead || signals.commentAcksHead;
 
-  // Scoped to the review leg only. A +1 means "no suggestions", so nothing is
-  // pending behind it; gating the reaction leg would stall every clean merge.
-  const unsettled =
-    signals.reviewAcksHead &&
-    signals.openThreadCount === 0 &&
-    signals.latestReviewAgeMs < settleWindowMs;
+  // Exactly ONE shape is excluded from carrying a clean verdict: a comment that
+  // acks HEAD without asserting HEAD is clean, when it is the ONLY ack. Citing a
+  // sha — or filing findings against it — proves Codex read this commit and is
+  // silent on what it found, so by itself it can never reach `ack_clean`.
+  //
+  // Written as a single named exclusion rather than as a general "an ack must
+  // assert clean" rule, and the difference is not stylistic. The general form
+  // silently drops any ack leg nobody remembers to re-add to it, and the live
+  // example is the bare `+1`: Codex uses it to mean "no suggestions", so a
+  // general rule would stop every reaction-only clean pass reaching `ack_clean`
+  // and stall those merges — a worse regression than the false pass being
+  // closed. The review leg is outside the exclusion for the same reason: a clean
+  // pass posts no HEAD review at all, so a review ON head whose threads are every
+  // one resolved is the ordinary fix-then-resolve-then-merge state.
+  const unverdictedCommentIsTheOnlyAck =
+    ackOfHead &&
+    signals.reviewAcksHead !== true &&
+    signals.reactionAcksHead !== true &&
+    signals.commentAssertsClean !== true;
+  const cleanAssertingAck = ackOfHead && !unverdictedCommentIsTheOnlyAck;
+
+  // The settle window covers every ack leg that can be FOLLOWED by inline
+  // threads — the review object and the acking comment — because the race it
+  // guards is thread materialisation lagging the ack that announces it. Scoping
+  // it to the review leg let a findings-bearing comment slip through the same
+  // window on the comment side. A leg that did not fire contributes Infinity,
+  // never a real age: feeding in the age of a leg the gate REJECTED would let
+  // that leg shorten a window it has no standing in. The reaction leg stays out
+  // on purpose — a +1 means "no suggestions", so nothing is pending behind it,
+  // and gating it would stall every clean merge.
+  const reviewAckAgeMs = signals.reviewAcksHead
+    ? finiteAgeOrInfinity(signals.latestReviewAgeMs)
+    : Number.POSITIVE_INFINITY;
+  const commentAckAgeMs = signals.commentAcksHead
+    ? finiteAgeOrInfinity(signals.latestCommentAckAgeMs)
+    : Number.POSITIVE_INFINITY;
+  const threadBearingAckAgeMs = Math.min(reviewAckAgeMs, commentAckAgeMs);
+  const unsettled = signals.openThreadCount === 0 && threadBearingAckAgeMs < settleWindowMs;
+
+  // Returned so the caller can say WHICH ack it is waiting on without
+  // re-deriving this min and drifting from it.
+  const unsettledAckLeg =
+    threadBearingAckAgeMs === Number.POSITIVE_INFINITY
+      ? null
+      : reviewAckAgeMs <= commentAckAgeMs
+        ? "review"
+        : "comment";
 
   // Either connection falling short means the counts fed in here are a floor,
   // not a total. A thread count the gate cannot vouch for is indistinguishable
@@ -551,7 +737,14 @@ export function computeVerdict(signals) {
     Boolean(signals.threadWindowTruncated) || Boolean(signals.checkWindowTruncated);
 
   let verdict;
-  if (signals.rateLimited) {
+  if (signals.headUnchanged === false) {
+    // Outranks everything, because everything else in this object was gathered
+    // against a sha that is no longer HEAD — the threads, the acks and the CI
+    // status all describe a commit a merge would not land. Named for the cause
+    // rather than downgraded to `no_ack_yet`, which would send the operator
+    // looking for a missing review that is not the problem.
+    verdict = "head_moved";
+  } else if (signals.rateLimited) {
     verdict = "rate_limited";
   } else if (signals.isDraft) {
     verdict = "draft_not_eligible";
@@ -559,10 +752,36 @@ export function computeVerdict(signals) {
     // Visible findings outrank truncation: they are already actionable, and
     // both refuse merge_ok, so nothing is lost by reporting the useful one.
     verdict = "ack_with_findings";
+  } else if (ackOfHead && signals.commentReportsFindings === true) {
+    // Findings exist, but in a comment body rather than in threads — so there is
+    // nothing for the operator to resolve and, crucially, nothing for GitHub's
+    // require-conversation-resolution to block on. This gate is the only thing
+    // standing between that PR and a merge, which is why the state gets its own
+    // name instead of sharing `ack_with_findings`: the remediation differs, and
+    // a reader who sees `unresolved=0` next to a findings verdict needs to be
+    // told where the findings actually are.
+    //
+    // Ahead of `unsettled` deliberately. The settle window exists to avoid
+    // mistaking "threads not yet materialised" for "clean"; here the answer is
+    // already in hand, so waiting a window to re-ask a settled question would
+    // only delay an actionable report.
+    verdict = "ack_findings_no_threads";
   } else if (unsettled) {
     verdict = "ack_unsettled";
   } else if (ackOfHead && signalTruncated) {
     verdict = "signal_truncated";
+  } else if (ackOfHead && !cleanAssertingAck) {
+    // Codex named this commit and asserted nothing about it — no clean verdict,
+    // and no findings this gate can read. Distinct from `no_ack_yet`, where
+    // Codex has not looked at all: here waiting is still right, but the reader
+    // is waiting on a verdict rather than on a review.
+    //
+    // Reached only by a citation with no recognisable body, so it is also where
+    // an UNRECOGNISED comment shape lands — which is the fail-closed direction
+    // and the reason this branch sits ahead of `ack_clean` rather than falling
+    // through to it. Zero live instances across the 48-comment corpus survey;
+    // every real findings pass carries a marker and lands on the branch above.
+    verdict = "ack_without_verdict";
   } else if (ackOfHead) {
     verdict = "ack_clean";
   } else {
@@ -589,14 +808,30 @@ export function computeVerdict(signals) {
   // window with no server-side sighting of the sha is already unmergeable for
   // other reasons today, but only incidentally, and this gate has been wrong
   // once already by blocking for a cause it could not name.
+  //
+  // `headUnchanged` is compared `=== true` while the verdict branch above tests
+  // `=== false`, and the asymmetry is the point: a caller that never re-read
+  // HEAD leaves the field undefined, which must not be reported as a move that
+  // was observed, but equally must not authorise a merge on a head nobody
+  // confirmed. Undefined therefore names no verdict and grants no merge.
   const mergeOk =
     verdict === "ack_clean" &&
     signals.isOpen === true &&
+    signals.headUnchanged === true &&
     signals.pushAnchorKnown === true &&
     signals.ciStatus === "green" &&
     signals.openThreadCount === 0 &&
     !signalTruncated &&
     mergeStateAllowsMerge(signals.mergeStateStatus);
 
-  return { verdict, ackOfHead, mergeOk, unsettled, signalTruncated };
+  return {
+    verdict,
+    ackOfHead,
+    cleanAssertingAck,
+    mergeOk,
+    unsettled,
+    unsettledAckLeg,
+    threadBearingAckAgeMs,
+    signalTruncated,
+  };
 }
