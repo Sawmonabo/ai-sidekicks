@@ -19,6 +19,18 @@
 //     illustrative "ECMAScript Sample Canonicalizer" source and publishes no
 //     vectors at all — keep this cite on B.
 //
+// The RFC also imposes exactly two MUST-TERMINATE obligations — the only two
+// sentences in it reading "MUST cause a compliant JCS implementation to
+// terminate", counted over the published text — and NEITHER publishes an
+// expected-output vector, so both are bound here as refusals rather than as
+// byte tables. They are not published alike, though: §3.2.2.3 on `NaN` /
+// `Infinity` does get two INPUT rows in Appendix B Table 1
+// (`7fffffffffffffff` and `7ff0000000000000`, output column empty, footnote (3)
+// pointing back at §3.2.2.3), transcribed below as that block's two
+// null-expectation rows; §3.2.2.2 on lone surrogates publishes nothing at all,
+// so its block further down is sourced from the prose alone. Same normative
+// register either way, so neither is read as advisory.
+//
 // Refs: `Spec-006 §Canonical Serialization Rules`, `Spec-006 §Integrity Protocol`.
 import {
   EVENT_ENVELOPE_SEQUENCE_MAX,
@@ -623,6 +635,225 @@ describe("canonicalizeJson — the nesting-depth ceiling", () => {
     const message = captureThrownMessage(() => canonicalizeJson(cyclic));
     expect(message).toMatch(/nests containers deeper than 64 levels/);
     expect(message).not.toMatch(/Circular reference detected/);
+  });
+});
+
+// --------------------------------------------------------------------------
+// Unicode well-formedness — RFC 8785 §3.2.2.2's MUST-terminate obligation.
+// --------------------------------------------------------------------------
+//
+// RFC 8785 §3.2.2.2, verbatim: "Since invalid Unicode data like "lone
+// surrogates" (e.g., U+DEAD) may lead to interoperability issues including
+// broken signatures, occurrences of such data MUST cause a compliant JCS
+// implementation to terminate with an appropriate error."
+//
+// The same normative register as the §3.2.2.3 NaN / Infinity Note this suite
+// already pins in the Appendix B block above — so both are tested as
+// requirements, not as advice.
+//
+// WHAT THE LIBRARY DOES INSTEAD, and why the defect is quiet: `canonicalize@3.0.0`
+// routes strings and property names through `JSON.stringify`, whose ES2019
+// well-formed behavior escapes a lone surrogate as `\ud800` rather than emitting
+// ill-formed UTF-16. The result is VALID JSON TEXT that round-trips through
+// `JSON.parse` — nothing downstream looks broken — while a conforming verifier
+// handed the same event terminates and produces no bytes at all. The guard
+// exists so this daemon never signs a byte string no conforming implementation
+// will agree is canonical.
+
+/** A lone HIGH surrogate (no low surrogate follows) — the U+D800 end of the range. */
+const LONE_HIGH_SURROGATE = "\ud800";
+/** A lone LOW surrogate — the RFC's own worked example, U+DEAD. */
+const LONE_LOW_SURROGATE = "\udead";
+/** A correctly paired U+1F600 GRINNING FACE, which MUST keep serializing. */
+const VALID_SURROGATE_PAIR = "😀";
+
+const LONE_SURROGATE_REFUSAL = /canonicalization refused: .* carries an unpaired UTF-16 surrogate/;
+
+describe("canonicalizeJson — RFC 8785 §3.2.2.2 refuses lone surrogates", () => {
+  const refusedPlacements: ReadonlyArray<{
+    readonly label: string;
+    readonly value: unknown;
+    readonly position: RegExp;
+  }> = [
+    {
+      label: "a lone HIGH surrogate in a string value",
+      value: { field: LONE_HIGH_SURROGATE },
+      position: /a string value/,
+    },
+    {
+      label: "a lone LOW surrogate in a string value",
+      value: { field: LONE_LOW_SURROGATE },
+      position: /a string value/,
+    },
+    {
+      label: "a lone surrogate in a PROPERTY NAME",
+      // §3.2.2.2 legislates over "JSON string data (which includes JSON object
+      // property names as well)", and §3.2.3 lex-sorts those names into the byte
+      // order — so an ill-formed name is load-bearing twice over.
+      value: { [LONE_HIGH_SURROGATE]: "well-formed value" },
+      position: /a property name/,
+    },
+    {
+      label: "a lone surrogate NESTED three containers deep",
+      value: { a: { b: { c: LONE_LOW_SURROGATE } } },
+      position: /a string value/,
+    },
+    {
+      label: "a lone surrogate in a nested ARRAY element",
+      value: { a: [{ b: [LONE_HIGH_SURROGATE] }] },
+      position: /a string value/,
+    },
+    {
+      label: "a lone surrogate in a NESTED property name",
+      value: { outer: { [LONE_LOW_SURROGATE]: "well-formed value" } },
+      position: /a property name/,
+    },
+    {
+      label: "a TOP-LEVEL string that is itself a lone surrogate",
+      // Covers the root-seed path: the walk only ever meets strings as a
+      // container's children, so a bare string root is handled before the loop.
+      value: LONE_HIGH_SURROGATE,
+      position: /the top-level string/,
+    },
+  ];
+
+  for (const { label, value, position } of refusedPlacements) {
+    it(`refuses ${label}`, () => {
+      const message = captureThrownMessage(() => canonicalizeJson(value));
+      expect(message).toMatch(LONE_SURROGATE_REFUSAL);
+      expect(message).toMatch(position);
+      // The cite is load-bearing: it is what tells a reader this is a
+      // conformance requirement rather than a local policy choice.
+      expect(message).toMatch(/RFC 8785 §3\.2\.2\.2/);
+    });
+  }
+
+  it("accepts a VALID surrogate pair and serializes it 'as is', never escaped", () => {
+    // THE POSITIVE CONTROL, and the reason the refusals above prove anything: a
+    // guard that simply rejected every surrogate code unit would pass every test
+    // in the loop above while breaking every emoji, every astral-plane script,
+    // and the §3.2.3 sorting vector at the top of this file — which carries
+    // "😀" as a property name and is the standing regression control
+    // for exactly this.
+    const canonicalText = decodeUtf8(canonicalizeJson({ pair: VALID_SURROGATE_PAIR }));
+    expect(canonicalText).toBe('{"pair":"😀"}');
+    // §3.2.2.2: a value outside the ASCII control range "MUST be serialized 'as
+    // is'" — so the pair must reach the bytes as UTF-8, not as a \uXXXX escape.
+    expect(bytesToHex(canonicalizeJson({ pair: VALID_SURROGATE_PAIR }))).toContain("f09f9880");
+    expect(canonicalText).not.toContain("\\u");
+    // The same pair as a property NAME, since names take a separate check.
+    expect(() => canonicalizeJson({ [VALID_SURROGATE_PAIR]: "v" })).not.toThrow();
+  });
+
+  it("discriminates a REVERSED pair from a valid one — order is what makes a pair", () => {
+    // THE DISCRIMINATING CASE for the pairing logic specifically. "\udc00\ud800"
+    // contains one low and one high surrogate, exactly as a valid pair does, and
+    // differs only in ORDER. A check that merely counted surrogates, or that
+    // looked for "a high followed by a low" anywhere in the string, would accept
+    // this; both code units are in fact unpaired.
+    const message = captureThrownMessage(() => canonicalizeJson({ reversed: "\udc00\ud800" }));
+    expect(message).toMatch(LONE_SURROGATE_REFUSAL);
+    // Reported at the FIRST offender, scanning left to right: the leading low
+    // surrogate at index 0, not the trailing high one.
+    expect(message).toMatch(/\(U\+DC00\) at index 0/);
+  });
+
+  it("reports the code unit and index but NEVER the offending string", () => {
+    // T2.4's PII codec calls `canonicalizeJson(input.piiPayload)` directly, so
+    // this guard runs over PII PLAINTEXT and its message reaches logs. The
+    // locator must be precise without quoting the value.
+    const secret = `patient-record-4417-${LONE_HIGH_SURROGATE}`;
+    const message = captureThrownMessage(() => canonicalizeJson({ note: secret }));
+    expect(message).toMatch(/\(U\+D800\) at index 20/);
+    expect(message).not.toContain("patient-record-4417");
+    expect(message).not.toContain(LONE_HIGH_SURROGATE);
+  });
+
+  it("accepts the code units either side of the surrogate range", () => {
+    // BOUNDARY PINS on the range itself. U+D7FF and U+E000 are the nearest
+    // non-surrogate code points below and above D800–DFFF; an off-by-one in
+    // either bound of either character class breaks exactly these.
+    expect(() => canonicalizeJson({ belowRange: "퟿", aboveRange: "" })).not.toThrow();
+    // ...and the four corners INSIDE it are all refused: both ends of the high
+    // range and both ends of the low range.
+    for (const loneCodeUnit of ["\ud800", "\udbff", "\udc00", "\udfff"]) {
+      expect(() => canonicalizeJson({ lone: loneCodeUnit }), loneCodeUnit).toThrow(
+        LONE_SURROGATE_REFUSAL,
+      );
+    }
+  });
+
+  it("runs AFTER the depth ceiling, so a cyclic graph still refuses instead of hanging", () => {
+    // ORDER AS A CORRECTNESS CONSTRAINT, not a diagnostic preference. The
+    // well-formedness walk carries no cycle detection and no depth bound of its
+    // own; on a cyclic own-property graph it would spin forever. It is safe only
+    // because `assertWithinCanonicalDepth` reports a cycle as depth exhaustion
+    // and throws first. This input is cyclic AND carries a lone surrogate, so
+    // reversing the two guards inside `canonicalizeJson` turns this test from a
+    // refusal into a hang — which is the failure this pins.
+    const cyclic: Record<string, unknown> = { field: LONE_HIGH_SURROGATE };
+    cyclic["self"] = cyclic;
+    const message = captureThrownMessage(() => canonicalizeJson(cyclic));
+    expect(message).toMatch(/nests containers deeper than 64 levels/);
+    expect(message).not.toMatch(LONE_SURROGATE_REFUSAL);
+  });
+});
+
+describe("canonicalizeEvent — inherits the well-formedness refusal, no second call site", () => {
+  // The event entry point routes through `canonicalizeJson`, so the guard covers
+  // it structurally. These pin that inheritance across BOTH shapes an envelope
+  // can carry an ill-formed string in: a canonical member, and the open payload.
+  it("refuses a lone surrogate in a canonical member (actor)", () => {
+    const message = captureThrownMessage(() =>
+      canonicalizeEvent({ ...GOLDEN_ENVELOPE, actor: `participant-${LONE_HIGH_SURROGATE}` }),
+    );
+    expect(message).toMatch(LONE_SURROGATE_REFUSAL);
+  });
+
+  it("refuses a lone surrogate in a payload VALUE and in a payload KEY", () => {
+    expect(() =>
+      canonicalizeEvent({
+        ...GOLDEN_ENVELOPE,
+        payload: { ...GOLDEN_ENVELOPE.payload, note: LONE_LOW_SURROGATE },
+      }),
+    ).toThrow(LONE_SURROGATE_REFUSAL);
+    expect(() =>
+      canonicalizeEvent({
+        ...GOLDEN_ENVELOPE,
+        payload: { ...GOLDEN_ENVELOPE.payload, [LONE_LOW_SURROGATE]: "well-formed value" },
+      }),
+    ).toThrow(LONE_SURROGATE_REFUSAL);
+  });
+
+  it("is reachable through a CLEAN PARSE — the wire schema admits what this refuses", () => {
+    // THE REACHABILITY PROOF, and the reason this guard is not defensive
+    // programming against an impossible input. `"\ud800"` is a six-ASCII-character
+    // escape in the wire text, so the ill-formed value rides inside a perfectly
+    // well-formed JSON document; `JSON.parse` then materializes the lone
+    // surrogate. Nothing upstream objects: `wireFreeFormString` bounds length and
+    // rejects NUL and whitespace-only but tests no well-formedness, and `payload`
+    // is an open record. So the envelope PARSES and the canonicalizer is the
+    // first and only refusal on the path.
+    const wireText = JSON.stringify({ ...GOLDEN_ENVELOPE, actor: LONE_HIGH_SURROGATE });
+    const parsed: unknown = JSON.parse(wireText);
+    const parseResult = EventEnvelopeSchema.safeParse(parsed);
+    expect(parseResult.success).toBe(true);
+    expect(() => canonicalizeEvent(parsed as EventEnvelope)).toThrow(LONE_SURROGATE_REFUSAL);
+  });
+
+  it("reports the sequence refusal ahead of a simultaneous lone surrogate", () => {
+    // Refusal order on this entry point is sequence → occurredAt → depth →
+    // well-formedness, and the first to fire is the only one the caller sees.
+    // Same shape as the occurredAt precedence test below.
+    const message = captureThrownMessage(() =>
+      canonicalizeEvent({
+        ...GOLDEN_ENVELOPE,
+        sequence: 9007199254740992,
+        actor: LONE_HIGH_SURROGATE,
+      }),
+    );
+    expect(message).toMatch(/canonicalization refused: sequence .* is not a safe integer/);
+    expect(message).not.toMatch(LONE_SURROGATE_REFUSAL);
   });
 });
 

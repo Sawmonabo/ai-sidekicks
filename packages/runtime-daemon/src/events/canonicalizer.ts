@@ -10,12 +10,18 @@
 // re-implementing the scheme. Two honest implementations that diverge here
 // produce incompatible hashes and signatures for identical events, which is
 // precisely why the divergence surface is kept to one module. Consumers inherit
-// its refusal boundary along with its bytes: `canonicalizeJson` REFUSES any
-// value nesting containers past a fixed ceiling (see
-// `CANONICAL_JSON_MAX_DEPTH`), so Plan-027's Spec-024 intake needs a registered
-// rejection reason for an over-deep `action_payload`, and a ceiling that proves
-// too tight is renegotiated here rather than forked around. The EVENT entry
-// point carries one refusal the generic one deliberately does not:
+// its refusal boundary along with its bytes, and TWO refusals live on the
+// GENERIC entry point: `canonicalizeJson` REFUSES any value nesting containers
+// past a fixed ceiling (see `CANONICAL_JSON_MAX_DEPTH`), and it REFUSES any
+// string or property name carrying an unpaired UTF-16 surrogate (see
+// `assertWellFormedStrings`). Both bind Plan-027 under CP-006-3 — its Spec-024
+// intake needs a registered rejection reason for each, an over-deep
+// `action_payload` and an ill-formed one — but they differ in KIND: the ceiling
+// is POLICY, renegotiated here rather than forked around, while the
+// well-formedness refusal is an RFC 8785 §3.2.2.2 normative MUST, not
+// renegotiable in either direction. `Plan-006 §Cross-Plan Obligations` now
+// registers both, and scopes the renegotiation affordance to the ceiling alone.
+// The EVENT entry point carries one refusal neither generic one does:
 // `canonicalizeEvent` rejects a `sequence` outside the safe-integer range,
 // where distinct sequences collapse onto one IEEE-754 double and two different
 // events could share a `row_hash` (see `assertRepresentableSequence`). That
@@ -325,11 +331,12 @@ const CANONICAL_JSON_MAX_DEPTH = 64;
  * does not bound it (verified empirically). The conservative direction — a
  * deeply nested object carrying a SHALLOW `toJSON` — only over-counts and
  * refuses early, which is harmless. Nor is the walk free of caller code:
- * `Object.values` invokes own enumerable GETTERS once, and the serializer then
- * invokes each of them again (three more times per OBJECT member, measured), so
- * a non-idempotent getter likewise puts the two walks on different trees. Neither
- * of these is reachable on the untrusted CP-006-3 path — `JSON.parse` output
- * carries no `toJSON` and no accessors.
+ * `Object.values` invokes own enumerable GETTERS once, {@link assertWellFormedStrings}'s
+ * `Object.entries` invokes each once more, and the serializer then invokes each
+ * a further three times per OBJECT member — five in total through
+ * `canonicalizeJson`, all measured — so a non-idempotent getter puts all three
+ * walks on different trees. Neither of these is reachable on the untrusted
+ * CP-006-3 path — `JSON.parse` output carries no `toJSON` and no accessors.
  *
  * One visit per CONTAINER: scalars are never queued, because a scalar's depth is
  * never consulted (it has no children to push and cannot itself exceed the
@@ -394,6 +401,185 @@ function assertWithinCanonicalDepth(value: unknown): void {
   }
 }
 
+// --------------------------------------------------------------------------
+// Unicode well-formedness — the refusal RFC 8785 §3.2.2.2 MANDATES.
+// --------------------------------------------------------------------------
+//
+// RFC 8785 §3.2.2.2 closes with a normative Note, quoted verbatim: "Since
+// invalid Unicode data like "lone surrogates" (e.g., U+DEAD) may lead to
+// interoperability issues including broken signatures, occurrences of such data
+// MUST cause a compliant JCS implementation to terminate with an appropriate
+// error." It is the same normative register as §3.2.2.3's NaN / Infinity Note,
+// which this module already honors through `canonicalize@3.0.0`'s own two
+// throws — so the two Notes are treated alike rather than one being read as
+// advisory.
+//
+// `canonicalize@3.0.0` DOES NOT terminate. It routes every string and every
+// property name through `JSON.stringify`, and ES2019's well-formed
+// `JSON.stringify` escapes a lone surrogate as `\ud800` instead of emitting
+// ill-formed UTF-16. The output is therefore VALID JSON TEXT — it round-trips
+// through `JSON.parse` and reports `isWellFormed()` — which is exactly what
+// makes the defect quiet: nothing downstream looks wrong. What it is not is
+// CONFORMING. A conforming independent verifier handed the same event
+// terminates rather than producing bytes, so this module would brand, chain,
+// and sign a byte string no conforming implementation will ever agree is the
+// canonical form of that event — the precise failure
+// `Spec-006 §Canonical Serialization Rules` names when it says two honest
+// implementations that diverge here "produce incompatible hashes and signatures
+// for identical events".
+//
+// REACHABLE, NOT HYPOTHETICAL — and this is where it parts company with the
+// library's other three refusals. The header notes that the untrusted CP-006-3
+// path arrives via `JSON.parse`, which produces no `NaN`, no `Infinity`, and no
+// cycle. `JSON.parse` DOES produce lone surrogates: `"\ud800"` is a six-ASCII-
+// character escape in the wire text, so the ill-formed value survives transport
+// through a well-formed document. Nothing upstream refuses it — verified by
+// parsing such an envelope: `EventEnvelopeSchema` admits lone surrogates in
+// `actor`, `correlationId`, `causationId`, in `payload` VALUES, and in `payload`
+// KEYS, because `wireFreeFormString` bounds length and rejects NUL and
+// whitespace-only but tests no well-formedness, and `payload` is an open
+// `z.record(z.string(), z.unknown())`. The parse boundary could reject earlier
+// and give a better-located diagnostic; it does not today, and that residual is
+// stated rather than glossed. It would not remove the need for this guard in any
+// case — `canonicalizeEvent` does not parse, and CP-006-3's Spec-024 bodies
+// never meet `EventEnvelopeSchema` at all.
+//
+// WHY HERE AND NOT ON THE EVENT ENTRY POINT — the exact mirror of the argument
+// {@link assertRepresentableSequence} makes for sitting there instead. That
+// guard is event-specific because RFC 8785 conformance FORBIDS a generic
+// unsafe-number refusal: Appendix B Table 1 lists unsafe integers as inputs with
+// MANDATED outputs. This one is generic because RFC 8785 conformance REQUIRES
+// it, of every string in every input, property names included. Conformance puts
+// the two guards on opposite entry points, and neither placement is stylistic.
+
+/**
+ * Matches the FIRST unpaired UTF-16 surrogate code unit in a string, or nothing
+ * if the string is well-formed.
+ *
+ * Two alternatives, one per failure shape: a HIGH surrogate not followed by a
+ * low one, and a LOW surrogate not preceded by a high one. A correctly paired
+ * `😀` matches neither, which is the property that keeps every
+ * astral-plane character — emoji, historic scripts — serializing untouched.
+ *
+ * DELIBERATELY NOT `u`-FLAGGED: without the flag the engine matches UTF-16 CODE
+ * UNITS, which is the level RFC 8785 §3.2.2.2 legislates at and the level a lone
+ * surrogate exists at. Under `/u` the same source text is matched by code point
+ * and the alternation stops meaning what it reads as.
+ *
+ * WHY A REGEX AND NOT `String.prototype.isWellFormed()`. The platform primitive
+ * is the ES2024 spelling of exactly this predicate and would be the obvious
+ * choice, but it does not typecheck here: the repo compiles at `lib: ["es2023"]`
+ * (`tsconfig.node22.json`, inherited by both the src and the test project), and
+ * referencing it fails with TS2550 — verified by compiling it, not assumed.
+ * Moving the repo-wide lib floor to `es2024` for one guard is a toolchain change
+ * with a far wider blast radius than the four lines below, and a `@ts-expect-error`
+ * cast on the hot path of the integrity boundary is worse than either. No
+ * third-party dependency is warranted for a two-alternative regex when the
+ * pinned dependency surface here is deliberately minimal. Equivalence to the
+ * primitive is not assumed either: a differential run over the boundary code
+ * units and 200,000 randomized surrogate-dense strings found zero disagreements
+ * with `isWellFormed()`, and the boundary cases are pinned in T2.3's suite.
+ */
+const LONE_SURROGATE_PATTERN =
+  /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+/**
+ * Refuses a string carrying an unpaired surrogate, naming WHERE it sat.
+ *
+ * THE OFFENDING TEXT IS NEVER INTERPOLATED. T2.4's PII codec calls
+ * `canonicalizeJson(input.piiPayload)` directly, so this guard runs over PII
+ * PLAINTEXT and its message reaches logs. Three throw sites are reachable
+ * through that call — the depth ceiling, the no-JSON-representation guard, and
+ * this one — and the first two quote nothing from the input at all (a fixed
+ * constant and a fixed sentence), which leaves this the only one whose message
+ * could carry caller data if it were written the obvious way. The
+ * `normalizeOccurredAt` refusals DO quote their input, but no `piiPayload` call
+ * reaches them. The code unit, its index, and whether it sat in a property name
+ * or a value locate the defect precisely without quoting the value — the same
+ * trade `signer.ts` makes for key material.
+ */
+function assertNoLoneSurrogate(text: string, positionDescription: string): void {
+  const match = LONE_SURROGATE_PATTERN.exec(text);
+  if (match === null) return;
+  // Both alternatives consume exactly ONE code unit — the lookahead and the
+  // lookbehind are zero-width — so the match begins AT the offending surrogate
+  // and a code-UNIT read there is the unit the pattern refused. `charCodeAt`
+  // rather than `codePointAt` for the same reason the pattern is not
+  // `u`-flagged: this reports at the level §3.2.2.2 legislates at.
+  const codeUnit = text.charCodeAt(match.index);
+  throw new Error(
+    `RFC 8785 canonicalization refused: ${positionDescription} carries an unpaired UTF-16 surrogate (U+${codeUnit.toString(16).toUpperCase().padStart(4, "0")}) at index ${String(match.index)}. RFC 8785 §3.2.2.2 requires a compliant JCS implementation to terminate on lone surrogates, but canonicalize@3.0.0 escapes them through JSON.stringify and keeps going — so these bytes would be hashed and signed here while any conforming verifier refuses to produce them at all, breaking the cross-implementation byte agreement Spec-006 §Canonical Serialization Rules depends on. The string itself is withheld: this entry point also canonicalizes PII plaintext.`,
+  );
+}
+
+/**
+ * Refuses any value carrying an unpaired surrogate in a string or a property
+ * name, at any depth.
+ *
+ * BOTH POSITIONS, because RFC 8785 §3.2.2.2 legislates over both in one breath
+ * — "For JSON string data (which includes JSON object property names as well)".
+ * Property names are not an edge case here: they are lex-sorted into the byte
+ * order per §3.2.3, so an ill-formed name is load-bearing twice over.
+ *
+ * ITERATIVE BY CONSTRUCTION, for the same reason {@link assertWithinCanonicalDepth}
+ * is: a recursive walk over untrusted input trades one stack overflow for
+ * another.
+ *
+ * RUNS STRICTLY AFTER THE DEPTH GUARD, AND THAT ORDER IS LOAD-BEARING RATHER
+ * THAN INCIDENTAL. This walk carries no cycle detection and no depth bound of
+ * its own, so on a cyclic own-property graph it would spin forever. It cannot
+ * meet one: `assertWithinCanonicalDepth` reports a cycle as depth exhaustion and
+ * throws first, which leaves this walk only acyclic, depth-bounded inputs.
+ * Reversing the two would turn the existing cyclic-input test from a refusal
+ * into a hang. The aliased-DAG caveat that guard documents applies here
+ * unchanged and is not restated.
+ *
+ * PEAK MEMORY IS O(containers), the property the depth guard's worklist note
+ * explains at length: strings are checked INLINE while iterating a container's
+ * children and never queued, so a body-cap-sized `["a","a",…]` costs one heap
+ * entry rather than one per element. A top-level string is handled before the
+ * loop, since the loop only ever sees strings as children.
+ *
+ * DIVERGES FROM THE SERIALIZED TREE IN BOTH DIRECTIONS, exactly as the depth
+ * guard does. BYPASSABLE (under-refusal): this walk never invokes `toJSON`,
+ * so an object whose `toJSON()` returns `{ a: "\ud800" }` clears it and is then
+ * serialized with the lone surrogate intact — the guard does not close that
+ * path, and the claim it supports is therefore about the OWN-PROPERTY tree, not
+ * about every byte the serializer can emit. CONSERVATIVE (over-refusal), in
+ * three shapes, all harmless: `canonicalize` DROPS an object member whose value
+ * is `undefined` or a symbol, while this walk still checks that member's NAME;
+ * it ignores an array's non-index own enumerable properties, while
+ * `Object.entries` yields them here; and a `toJSON` that returns a SUBSET of the
+ * own-property tree leaves the surplus checked but never serialized. Neither
+ * direction is reachable on the untrusted CP-006-3 path, where `JSON.parse`
+ * output carries no `toJSON`, no accessors, no `undefined`, and no symbols.
+ */
+function assertWellFormedStrings(value: unknown): void {
+  if (typeof value === "string") {
+    assertNoLoneSurrogate(value, "the top-level string");
+    return;
+  }
+  const pending: unknown[] = [value];
+  while (pending.length > 0) {
+    // Guaranteed by the loop condition — same register as the depth walk's pop.
+    const node = pending.pop()!;
+    if (node === null || typeof node !== "object") continue;
+    // Array INDICES are generated names ("0", "1", …) and can carry no
+    // surrogate, so the name check is skipped for arrays rather than run
+    // against strings that cannot fail it. The cast picks the
+    // indexed-signature overload, as in the depth walk above.
+    const isArray = Array.isArray(node);
+    for (const [memberName, memberValue] of Object.entries(node as Record<string, unknown>)) {
+      if (!isArray) assertNoLoneSurrogate(memberName, "a property name");
+      if (typeof memberValue === "string") {
+        assertNoLoneSurrogate(memberValue, "a string value");
+      } else if (memberValue !== null && typeof memberValue === "object") {
+        pending.push(memberValue);
+      }
+    }
+  }
+}
+
 /**
  * Canonicalizes an arbitrary JSON value to RFC 8785 bytes.
  *
@@ -402,9 +588,16 @@ function assertWithinCanonicalDepth(value: unknown): void {
  * Plan-027 MUST consume this function rather than re-implement the scheme.
  * {@link canonicalizeEvent} is the envelope-shaped caller of the same code
  * path, so an event and a dispatch body can never drift onto two serializers.
+ *
+ * REFUSAL ORDER is observable — the first guard to fire is the only one the
+ * caller sees — so it is fixed here rather than left to reading order. Depth
+ * precedes well-formedness because the depth walk is what makes the second walk
+ * terminate at all (see {@link assertWellFormedStrings}), which makes this
+ * ordering a correctness constraint rather than a diagnostic preference.
  */
 export function canonicalizeJson(value: unknown): CanonicalBytes {
   assertWithinCanonicalDepth(value);
+  assertWellFormedStrings(value);
   const canonicalText = canonicalize(value);
   if (typeof canonicalText !== "string") {
     // `canonicalize` DELEGATES to `JSON.stringify` for every non-object value,
@@ -539,7 +732,9 @@ function assertRepresentableSequence(sequence: number): void {
  * evaluation order: {@link assertRepresentableSequence} runs FIRST, ahead of
  * the projection literal and therefore ahead of `normalizeOccurredAt`. An
  * envelope defective in both members reports the sequence refusal and never
- * the timestamp one.
+ * the timestamp one. The full observable order on this entry point is
+ * sequence → `occurredAt` → the depth ceiling → Unicode well-formedness, the
+ * last two inherited from {@link canonicalizeJson} and ordered there.
  *
  * This entry point is the integrity boundary for BOTH write paths: T2.4's PII
  * codec builds its own member literal but routes through this function, so the

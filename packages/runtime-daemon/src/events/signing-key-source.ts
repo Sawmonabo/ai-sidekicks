@@ -63,7 +63,8 @@
 // What is NOT here: the seal itself
 // ----------------------------------------------------------------------------
 //
-// This module performs no cryptography beyond Ed25519 key generation. The seal
+// This module performs no cryptography beyond Ed25519 key generation and the
+// public-key derivation `read` checks an unsealed seed against. The seal
 // and unseal of the private half are an INJECTED boundary
 // ({@link DaemonSigningKeySealer}), for a reason that is a corpus fact rather
 // than a preference: no byte format for `daemon_signing_keys.sealed_private_key`
@@ -98,6 +99,7 @@
 // `docs/architecture/schemas/local-sqlite-schema.md §Audit Log Crypto Tables (Plan-006)`.
 import type { SessionId } from "@ai-sidekicks/contracts";
 import { ed25519 } from "@noble/curves/ed25519.js";
+import { equalBytes } from "@noble/curves/utils.js";
 import type { Database, Statement } from "better-sqlite3";
 
 import type { Ed25519PrivateKey, Ed25519PublicKey } from "./signer.js";
@@ -135,9 +137,17 @@ const ED25519_KEY_LENGTH = 32;
  * one row to another fails to unseal instead of silently authenticating the
  * wrong session's rows. This interface does NOT claim the binding happens —
  * it cannot, having fixed no format — so an implementation that ignores the
- * argument satisfies these types and defeats that property. Naming the
- * parameter is what makes the obligation reviewable at the implementation
- * site.
+ * argument satisfies these types.
+ *
+ * WHAT SUCH AN IMPLEMENTATION NO LONGER DOES IS DEFEAT THAT PROPERTY SILENTLY.
+ * {@link DaemonSigningKeySource.read} derives the public half of whatever
+ * `unseal` hands back and refuses it unless it matches that row's own
+ * `daemon_signing_keys.public_key`, so a copied blob surfaces as a refusal
+ * naming the row rather than as rows signed under another session's key. The
+ * AAD binding is still the better failure and still worth asking for: an AEAD
+ * that will not open at all never produces the key material in the first place,
+ * where the check downstream produces it and then refuses. Naming the parameter
+ * is what makes that obligation reviewable at the implementation site.
  *
  * ASYNCHRONOUS BECAUSE UNSEALING CAN BLOCK ON A HUMAN.
  * `Spec-022 §Daemon Master Key` wipes the in-memory master on an idle timer and
@@ -224,19 +234,31 @@ export interface DaemonSigningKeySource extends DaemonSigningKeyProvisioner {
    * behind a read would produce signatures no roster-registered public key
    * verifies, which is the failure `create`'s exactly-once note describes,
    * reached silently instead of loudly.
+   *
+   * ALSO REJECTS WHAT IT RESOLVES BUT CANNOT VOUCH FOR, and that half is the one
+   * a caller cannot retry its way out of — including a stored
+   * `sealed_private_key` that is not a BLOB, a stored `public_key` that is not a
+   * 32-byte BLOB, an unsealed seed of the wrong width, and an unsealed seed
+   * whose public half is not the `public_key` the same `create` wrote beside it.
+   * Each is a custody failure rather than a transient one — `create`'s
+   * `manual_reconcile_only` register — so a caller that retries a rejected
+   * `read` retries it forever, and the operator response is reconciliation, not
+   * a backoff. The implementation's own note on the last of those carries what
+   * it catches and what it does not.
    */
   read(sessionId: SessionId): Promise<Ed25519PrivateKey>;
 }
 
 // --------------------------------------------------------------------------
 // Private row interface (snake_case, raw DB shape) — the RuntimeBindingStore /
-// SessionService register. `sealed_private_key` is typed `unknown` rather than
-// `Uint8Array` deliberately: the column is declared `BLOB NOT NULL`, but that
-// declaration is a claim TypeScript never checked, and `read` is where the
-// check happens.
+// SessionService register. BOTH members are typed `unknown` rather than
+// `Uint8Array` deliberately: each column is declared `BLOB NOT NULL`, but that
+// declaration is a claim TypeScript never checked, and `read` is where both
+// checks happen.
 // --------------------------------------------------------------------------
 
 interface DaemonSigningKeyRow {
+  readonly public_key: unknown;
   readonly sealed_private_key: unknown;
 }
 
@@ -277,7 +299,7 @@ export class OsKeystoreSealedDaemonSigningKeySource implements DaemonSigningKeyS
   // RuntimeBindingStore / NodeRegistry / SessionService discipline (a prepared
   // statement internally keeps its parent connection alive).
   readonly #insertStmt: Statement;
-  readonly #selectSealedStmt: Statement;
+  readonly #selectKeyRowStmt: Statement;
   readonly #sealer: DaemonSigningKeySealer;
   /** Injected wall clock, for deterministic tests. */
   readonly #now: () => string;
@@ -301,8 +323,13 @@ export class OsKeystoreSealedDaemonSigningKeySource implements DaemonSigningKeyS
        VALUES
          (@session_id, @public_key, @sealed_private_key, @created_at)`,
     );
-    this.#selectSealedStmt = database.prepare(
-      `SELECT sealed_private_key
+    // BOTH halves, not just the sealed one: `create` wrote them from a single
+    // `ed25519.keygen()` result in one INSERT, so the row carries its own answer
+    // to "is the key that comes back out the key that went in" — see `read`.
+    // The public column costs one 32-byte read on a row the query already
+    // fetches.
+    this.#selectKeyRowStmt = database.prepare(
+      `SELECT public_key, sealed_private_key
          FROM daemon_signing_keys
         WHERE session_id = ?`,
     );
@@ -356,7 +383,7 @@ export class OsKeystoreSealedDaemonSigningKeySource implements DaemonSigningKeyS
   }
 
   async read(sessionId: SessionId): Promise<Ed25519PrivateKey> {
-    const row = this.#selectSealedStmt.get(sessionId) as DaemonSigningKeyRow | undefined;
+    const row = this.#selectKeyRowStmt.get(sessionId) as DaemonSigningKeyRow | undefined;
     if (row === undefined) {
       throw new Error(
         `No daemon signing key for session ${sessionId}: DaemonSigningKeyProvisioner.create must run at session creation (CP-006-7) before any row is signed. Reading does not mint a key — a second keypair would produce signatures the roster-registered public key cannot verify.`,
@@ -384,7 +411,121 @@ export class OsKeystoreSealedDaemonSigningKeySource implements DaemonSigningKeyS
       );
     }
 
-    return toEd25519PrivateKey(await this.#sealer.unseal(sessionId, sealedPrivateKey));
+    // The same read-side stance toward the sibling column, for the check below.
+    // Written out rather than delegated to `assertEd25519KeyWidth` for the
+    // reason the guard above is: that helper's message names the ROLE and the
+    // RFC width, and a value read out of a COLUMN needs a diagnostic that names
+    // the column.
+    //
+    // WIDTH AS WELL AS BYTE-NESS, and here the width clause is what keeps the
+    // diagnostic honest rather than merely early. A non-byte value would reach
+    // `equalBytes`, whose `abytes` raises a `TypeError` naming noble instead of
+    // this row. A wrong-WIDTH one would not throw at all: `equalBytes` returns
+    // `false` on a length mismatch, so a truncated `public_key` would fall
+    // through to the derivation check below and be reported as a key that does
+    // not match its row — a wrong-VALUE verdict on a wrong-SHAPE row, which
+    // sends the reader hunting a copied blob that was never there.
+    const storedPublicKey = row.public_key;
+    if (!(storedPublicKey instanceof Uint8Array) || storedPublicKey.length !== ED25519_KEY_LENGTH) {
+      throw new Error(
+        `daemon_signing_keys.public_key for session ${sessionId} is not a ${ED25519_KEY_LENGTH}-byte BLOB: got ${describeByteShape(storedPublicKey)}. The column is declared BLOB NOT NULL and create writes ed25519.keygen()'s 32-byte public half, so a wrong-shaped value means the row was written or altered outside this module.`,
+      );
+    }
+
+    // BOTH COLUMN GUARDS RUN AHEAD OF THE UNSEAL, WHICH IS A COST ARGUMENT AND
+    // NOT ONLY A DIAGNOSTIC ONE. `Spec-022 §Daemon Master Key` wipes the
+    // in-memory master on an idle timer and re-unwraps via a keystore + PRF
+    // assertion or a passphrase prompt on next access, so the first `unseal`
+    // after a wipe can await a human. Prompting for a ceremony to open a row
+    // that is going to be refused either way is the wrong trade — the same
+    // register in which `pii-indirection.ts` refuses a mis-shaped key before its
+    // encrypt step so a rejected append costs no AES-256-GCM nonce.
+    const unsealedSeed: Uint8Array = await this.#sealer.unseal(sessionId, sealedPrivateKey);
+
+    // ------------------------------------------------------------------
+    // THE UNSEALED SEED MUST BE THIS ROW'S SEED, AND THE ROW IS WHAT SAYS SO.
+    // ------------------------------------------------------------------
+    //
+    // `create` wrote `public_key` and `sealed_private_key` from ONE
+    // `ed25519.keygen()` result in ONE INSERT, so a coherent row is the only
+    // kind it produces — and it is this package's only writer of the table,
+    // since no rotate operation is published. Deriving the public half of what
+    // came back out and comparing it against the column is therefore a check
+    // with no legitimate failure case, which is what makes failing CLOSED on it
+    // correct rather than merely defensive.
+    //
+    // WHAT IT CLOSES. {@link DaemonSigningKeySealer} documents `sessionId` as
+    // available for AEAD associated data and explicitly does NOT require the
+    // binding, having fixed no byte format — so an implementation that ignores
+    // the argument satisfies the interface. Under such a sealer a
+    // `sealed_private_key` blob copied from one row onto another unseals
+    // cleanly, and without this check `read` would brand and return the OTHER
+    // session's key. Every row this session then appended would be signed under
+    // a key the roster does not hold for this node.
+    //
+    // WHY THAT ROUTES THE WRONG HUMAN. Unrefused, the failure surfaces at the
+    // verifier as `signature_mismatch` per
+    // `docs/architecture/security-architecture.md §Verification Rules` rule 2 —
+    // on every row signed with the wrong key — which is the possible-tampering
+    // verdict that warrants security incident response. Unlike `signer.ts`'s
+    // `verifyEd25519` public-key throw, the premise here is NOT "a plumbing bug,
+    // not a tamper": a copied blob IS an at-rest edit, so tampering is one of
+    // the live causes. What the refusal buys is the OBSERVABLE. At the verifier
+    // the two causes are one indistinguishable verdict arriving a session's
+    // worth of rows later; here the diagnostic names the row and the column that
+    // produced it, before a single unverifiable row is written.
+    //
+    // WHAT IT DOES NOT CLOSE. An adversary who rewrites BOTH columns installs a
+    // coherent foreign keypair and passes this check. Nothing local can refuse
+    // that row — it is self-consistent — and what refuses it is the roster,
+    // which is separate storage: `create`'s returned public key is what CP-006-7
+    // registers per
+    // `docs/architecture/security-architecture.md §Per-Event Daemon Signature`,
+    // and a verifier resolves THAT copy by `NodeId`. This check binds the seed
+    // to its row; it does not make the row self-authenticating.
+    //
+    // THE WIDTH ASSERT IS THE FIRST OF THREE ON THIS VALUE AND EARNS ITS PLACE.
+    // It runs here because `ed25519.getPublicKey` refuses a wrong-width seed
+    // with a message naming noble rather than the unseal that produced it;
+    // {@link toEd25519PrivateKey} runs it again at the mint site, where it is a
+    // property of the BRAND rather than of this caller, and `ed25519.sign` is
+    // the third, at use. Deleting the mint-site one because this line exists
+    // would make the brand's guarantee rest on a check a dozen lines up in its
+    // only current caller.
+    //
+    // COST AND FREQUENCY, TRACED RATHER THAN ASSUMED. `read` has no non-test
+    // consumer in this workspace today; the unlanded ones this module's notes
+    // name are T3.1's append path, T3.2's compactor and T3.3's anchor service,
+    // and under this interface's own "do not cache it" obligation an append path
+    // calls `read` once per row. So price it per row: one fixed-base scalar
+    // multiplication (RFC 8032 §5.1.5's `A = [s]B`), the same shape of operation
+    // `ed25519.sign` already performs once per row for its own `R = [r]B`
+    // (§5.1.6) — on a path that has just awaited an unseal the note above allows
+    // to block on a WebAuthn ceremony.
+    //
+    // `equalBytes` AND DELIBERATELY NOT `timingSafeEqual`. Both operands
+    // are public: the stored one is a column held in the clear whose value
+    // `create` hands Plan-002 for the participant roster, and the derived one is
+    // by construction the public half of the key, so neither is a secret a timing
+    // channel could leak and holding either grants no signing ability. The
+    // primitive is still the right default — `equalBytes` accumulates across the
+    // whole array rather than early-exiting on the first differing byte — and it
+    // keeps this module on `signer.ts`'s one byte-utility source with no
+    // `node:crypto` import. `node:crypto.timingSafeEqual` would additionally
+    // THROW on a length mismatch, resting its no-throw property on the two
+    // guards above rather than on itself.
+    //
+    // The message carries no key bytes, matching `pii-indirection.ts`'s rule for
+    // its own refusals: the columns are named, the values are not.
+    assertEd25519KeyWidth(unsealedSeed, "private key");
+    const derivedPublicKey: Uint8Array = ed25519.getPublicKey(unsealedSeed);
+    if (!equalBytes(derivedPublicKey, storedPublicKey)) {
+      throw new Error(
+        `daemon_signing_keys.sealed_private_key for session ${sessionId} unsealed to a key whose public half is not this row's public_key. Signing with it would mint daemon_signature values that fail against the NodeId-resolved roster key per Spec-006 §Canonical Serialization Rules, reported as signature_mismatch on every row signed with it. The row is inconsistent: a sealed blob copied from another row unseals cleanly under a sealer that does not bind sessionId as AEAD associated data, and an unseal that returns some other 32 bytes lands here identically.`,
+      );
+    }
+
+    return toEd25519PrivateKey(unsealedSeed);
   }
 }
 
@@ -419,6 +560,14 @@ function toEd25519PublicKey(bytes: Uint8Array): Ed25519PublicKey {
  * value has been laundered into a branded type and passed through the append
  * path, so the throw names the signer rather than the unseal that produced it.
  *
+ * IT IS NOW THE SECOND SUCH CHECK ON THE SAME VALUE, AND THAT IS THE POINT.
+ * `read` asserts the width itself before deriving the public key it compares
+ * against the row, for a reason local to that derivation — see its note. This
+ * one stays because the guarantee belongs to the BRAND rather than to today's
+ * only caller: dropping it would leave "no `Ed25519PrivateKey` in this workspace
+ * was minted from bytes of the wrong width" resting on a line a dozen up in one
+ * call site, and silently false the moment a second one appears.
+ *
  * THE BYTES ARE COPIED, NEVER BRANDED IN PLACE — the read-side counterpart of
  * the `Buffer.from(sealedPrivateKey)` copy `create` makes, and load-bearing
  * where that one is merely the overload to keep. `unseal` may hand back a LIVE
@@ -439,8 +588,18 @@ function toEd25519PublicKey(bytes: Uint8Array): Ed25519PublicKey {
  * crosses an injection boundary nothing here checked; trusting that same
  * boundary not to retain a view would be incoherent. A stated obligation is the
  * right instrument for a property these types CANNOT enforce — the `sessionId`
- * AAD binding is exactly that, having fixed no byte format. This one is
- * enforceable, and the failure it prevents is silent.
+ * AAD binding is exactly that: having fixed no byte format, nothing here can
+ * make a sealer bind it. This one is enforceable, and the failure it prevents is
+ * silent.
+ *
+ * THAT EXAMPLE HAS SINCE NARROWED, AND THE TWO NOTES SHOULD BE READ TOGETHER.
+ * The obligation is still the only instrument for the BINDING — but the
+ * OUTCOME it was there to buy is no longer left to it: `read` derives the public
+ * half of whatever `unseal` returned and refuses it unless it matches the row's
+ * own `public_key`, so a sealer that declines the binding produces a refusal
+ * naming the row rather than a silent wrong-session key. What the obligation
+ * still buys is the earlier and cleaner failure — an AEAD that will not open at
+ * all never produces the key material to refuse.
  *
  * THE PRICE, STATED RATHER THAN GLOSSED: a SECOND unscrubbed allocation of
  * private key material. It is not scrubbed under the current return-a-value

@@ -3,7 +3,7 @@
 // WHY THIS FILE EXISTS. `signing-key-source.ts` is the one module in the
 // workspace that holds daemon-private key material and the one site where key
 // bytes enter the type system, and no Phase-2 task declared a suite for it. The
-// four properties below are the ones that would fail silently and expensively:
+// five properties below are the ones that would fail silently and expensively:
 //
 //   1. THE PUBLIC/PRIVATE SPLIT IS A SECURITY BOUNDARY. `create` resolves to the
 //      PUBLIC key and nothing else; the private half is reachable only through
@@ -25,6 +25,16 @@
 //      the append path still holds across an `await`, and the row is signed
 //      with the wrong scalar. The result is a signature no roster public key
 //      verifies — which at the verifier is indistinguishable from tampering.
+//   5. `read` HANDS BACK THIS ROW'S KEY, PROVED AGAINST THIS ROW'S PUBLIC HALF.
+//      The same injected boundary is documented as free to IGNORE `sessionId`
+//      (the interface fixes no format, so it cannot require the AAD binding), so
+//      a `sealed_private_key` blob copied from one row onto another unseals
+//      cleanly. Branded unchecked, `read` returns the OTHER session's key and
+//      every row this session appends is signed under a key the roster does not
+//      hold for this node — `signature_mismatch` at the verifier, the
+//      possible-tampering verdict, on every row signed with it. `create` wrote
+//      both halves of one keypair into one row, so the row itself is what
+//      refutes the substitution.
 //
 // TESTED THROUGH THE PUBLIC SURFACE AND A REAL DATABASE. The narrowing helpers
 // (`toEd25519PublicKey` / `toEd25519PrivateKey` / `assertEd25519KeyWidth`) are
@@ -101,6 +111,8 @@ function hexToBytes(hex: string): Uint8Array {
 // than decorative.
 
 const FAKE_SEAL_PREFIX = "fake-seal:v1:";
+/** The {@link SessionIdIgnoringFakeSealer} envelope — same shape, no session id in it. */
+const UNBOUND_SEAL_PREFIX = "fake-seal-unbound:v1:";
 
 function buildFakeEnvelope(sessionId: SessionId, privateKey: Uint8Array): Uint8Array {
   return utf8Encoder.encode(`${FAKE_SEAL_PREFIX}${sessionId}:${bytesToHex(privateKey)}`);
@@ -139,6 +151,32 @@ class RecordingFakeSealer implements DaemonSigningKeySealer {
   unseal(sessionId: SessionId, sealedPrivateKey: Uint8Array): Promise<Uint8Array> {
     this.unsealCalls.push({ sessionId, sealedPrivateKey: Uint8Array.from(sealedPrivateKey) });
     return Promise.resolve(openFakeEnvelope(sessionId, sealedPrivateKey));
+  }
+}
+
+/**
+ * Binds NOTHING to the session — the implementation `DaemonSigningKeySealer`
+ * explicitly permits, and the one the cross-row copy test needs.
+ *
+ * Not a strawman. That interface passes `sessionId` on both sides so an
+ * implementation CAN use it as AEAD associated data and says in terms that it
+ * cannot require the binding, having fixed no byte format; a sealer that
+ * round-trips faithfully while ignoring the argument satisfies every clause of
+ * the contract. What it gives up is the property the binding buys — a blob
+ * copied between rows opens under it — which is exactly the input
+ * `read`'s public-key check has to survive.
+ */
+class SessionIdIgnoringFakeSealer implements DaemonSigningKeySealer {
+  seal(_sessionId: SessionId, privateKey: Uint8Array): Promise<Uint8Array> {
+    return Promise.resolve(utf8Encoder.encode(`${UNBOUND_SEAL_PREFIX}${bytesToHex(privateKey)}`));
+  }
+
+  unseal(_sessionId: SessionId, sealedPrivateKey: Uint8Array): Promise<Uint8Array> {
+    const text: string = utf8Decoder.decode(sealedPrivateKey);
+    if (!text.startsWith(UNBOUND_SEAL_PREFIX)) {
+      throw new Error(`unbound fake sealer: not one of its envelopes`);
+    }
+    return Promise.resolve(hexToBytes(text.slice(UNBOUND_SEAL_PREFIX.length)));
   }
 }
 
@@ -609,9 +647,11 @@ describe("OsKeystoreSealedDaemonSigningKeySource", () => {
       // The property the `sessionId` parameter on BOTH sealer methods exists to
       // make available: with the binding, a `sealed_private_key` blob copied
       // from one row to another fails to unseal instead of silently
-      // authenticating the wrong session's rows. The module cannot enforce this
-      // (it fixes no format), so what is pinned here is that it PASSES the
-      // session id on the read side — a sealer that binds is given what it needs.
+      // authenticating the wrong session's rows. The module cannot enforce the
+      // BINDING (it fixes no format), so what is pinned here is that it PASSES
+      // the session id on the read side — a sealer that binds is given what it
+      // needs. The next test covers the sealer that declines to use it, where
+      // the refusal has to come from the row instead.
       await keySource.create(SESSION_ONE);
       await keySource.create(SESSION_TWO);
       const rows = readSigningKeyRows(database);
@@ -625,6 +665,147 @@ describe("OsKeystoreSealedDaemonSigningKeySource", () => {
       await expect(keySource.read(SESSION_TWO)).rejects.toThrow(
         new RegExp(`envelope is not bound to session ${SESSION_TWO}`),
       );
+    });
+  });
+
+  // ========================================================================
+  // The unsealed seed belongs to the row it came out of.
+  // ========================================================================
+  //
+  // The one check in this module that does not take the injected boundary's
+  // word for anything: `create` wrote `public_key` and `sealed_private_key`
+  // from a single `ed25519.keygen()` result into a single row, so the row
+  // carries its own refutation of a substituted key.
+  //
+  // The first two cases hand `read` a 32-byte, well-formed, genuinely usable
+  // Ed25519 seed — every shape guard in the module passes it, and the
+  // derivation check is the only thing that refuses. The last two corrupt the
+  // `public_key` column that derivation is compared AGAINST, and are refused
+  // earlier and by a different guard; each pins a distinct reason that guard
+  // exists.
+
+  describe("read refuses a key that is not this row's", () => {
+    it("refuses a correctly-sized seed from a different keypair", async () => {
+      // Sourced from `ed25519.keygen()` rather than from arbitrary bytes so the
+      // refusal cannot be attributed to `getPublicKey` choking on an invalid
+      // seed: this value is a real secret key that derives a real public key,
+      // just not this row's.
+      const foreignKeyPair = ed25519.keygen();
+      const foreignSeed: Uint8Array = Uint8Array.from(foreignKeyPair.secretKey);
+      expect(foreignSeed.length).toBe(32);
+
+      const substitutingSource: DaemonSigningKeySource = new OsKeystoreSealedDaemonSigningKeySource(
+        database,
+        new FixedUnsealResultSealer(foreignSeed),
+        { now: () => FIXTURE_CREATED_AT },
+      );
+      const created = await substitutingSource.create(SESSION_ONE);
+
+      await expect(substitutingSource.read(SESSION_ONE)).rejects.toThrow(
+        /sealed_private_key for session .* unsealed to a key whose public half is not this row's public_key/,
+      );
+
+      // WHAT THE REFUSAL STANDS BETWEEN THE CALLER AND, spelled with the real
+      // verifier rather than asserted. Had the key escaped, the append path
+      // would have signed with it, and the row would come back from
+      // `verifyRow` as `signature_mismatch` — the possible-tampering verdict
+      // that warrants incident response — against the very public key `create`
+      // handed Plan-002 for the roster. The brand cast is the point rather than
+      // a shortcut: the mint site now refuses this seed, so there is no
+      // sanctioned way to obtain a branded key that does not match its row.
+      const canonical: CanonicalBytes = canonicalizeJson({
+        category: "audit_integrity",
+        type: "audit.chain_verified",
+      });
+      const signedWithForeignKey: SignedRow = signRow(
+        canonical,
+        GENESIS_PREV_HASH,
+        foreignSeed as Ed25519PrivateKey,
+      );
+      expect(verifyRow(canonical, signedWithForeignKey, created.publicKey)).toStrictEqual({
+        valid: false,
+        failureMode: "signature_mismatch",
+      });
+    });
+
+    it("refuses a blob copied from another row when the sealer does not bind the session id", async () => {
+      // THE REACHABLE SHAPE OF THE SUBSTITUTION, END TO END. The sealer here
+      // satisfies `DaemonSigningKeySealer` while ignoring `sessionId`, which
+      // that interface explicitly permits; an at-rest edit then copies session
+      // one's sealed blob onto session two's row. Both halves are things the
+      // module has no say over — the injected implementation, and write access
+      // to the database file it already guards against elsewhere.
+      const unboundSealer = new SessionIdIgnoringFakeSealer();
+      const source: DaemonSigningKeySource = new OsKeystoreSealedDaemonSigningKeySource(
+        database,
+        unboundSealer,
+        { now: () => FIXTURE_CREATED_AT },
+      );
+      const sessionOneCreated = await source.create(SESSION_ONE);
+      await source.create(SESSION_TWO);
+
+      const sessionOneSealed: Uint8Array = Uint8Array.from(
+        readSigningKeyRows(database).find((row) => row.session_id === SESSION_ONE)
+          ?.sealed_private_key as Uint8Array,
+      );
+      database
+        .prepare("UPDATE daemon_signing_keys SET sealed_private_key = ? WHERE session_id = ?")
+        .run(Buffer.from(sessionOneSealed), SESSION_TWO);
+
+      // THE VACUITY CONTROL. The sealer really does open the copied blob under
+      // the wrong session id — so the refusal below is the module's, not a
+      // fake that happened to fail. This is the same call `read` makes.
+      const unsealedUnderSessionTwo: Uint8Array = await unboundSealer.unseal(
+        SESSION_TWO,
+        sessionOneSealed,
+      );
+      expect(ed25519.getPublicKey(unsealedUnderSessionTwo)).toEqual(sessionOneCreated.publicKey);
+
+      await expect(source.read(SESSION_TWO)).rejects.toThrow(
+        /sealed_private_key for session .* unsealed to a key whose public half is not this row's public_key/,
+      );
+
+      // And session one — whose row was not touched — still reads under the
+      // same sealer, so the check refuses a substitution rather than refusing
+      // everything an unbound sealer produces.
+      expect(ed25519.getPublicKey(await source.read(SESSION_ONE))).toEqual(
+        sessionOneCreated.publicKey,
+      );
+    });
+
+    it("refuses a stored public key that is not bytes, before the sealer is consulted", async () => {
+      await keySource.create(SESSION_ONE);
+      // Same BLOB-affinity hole as the sibling column: SQLite coerces nothing,
+      // so anything with write access can leave TEXT here. Unguarded it would
+      // reach `equalBytes`, whose `abytes` raises a `TypeError` naming noble
+      // instead of this row.
+      database
+        .prepare("UPDATE daemon_signing_keys SET public_key = ? WHERE session_id = ?")
+        .run("not-actually-bytes", SESSION_ONE);
+
+      await expect(keySource.read(SESSION_ONE)).rejects.toThrow(
+        /daemon_signing_keys\.public_key for session .* is not a 32-byte BLOB: got a non-Uint8Array value of type string/,
+      );
+      // Both column guards run ahead of the unseal, so a malformed row costs no
+      // keystore access — `Spec-022 §Daemon Master Key` permits the first unseal
+      // after an idle wipe to block on a WebAuthn ceremony.
+      expect(sealer.unsealCalls).toHaveLength(0);
+    });
+
+    it("refuses a truncated stored public key rather than reporting it as the wrong key", async () => {
+      // WIDTH, NOT ONLY BYTE-NESS, AND THE DIAGNOSTIC IS THE REASON. A short
+      // `public_key` does not throw at `equalBytes` — it compares unequal — so
+      // without the width clause this row would be reported as a key that does
+      // not match, sending the reader after a copied blob that was never there.
+      const { publicKey } = await keySource.create(SESSION_ONE);
+      database
+        .prepare("UPDATE daemon_signing_keys SET public_key = ? WHERE session_id = ?")
+        .run(Buffer.from(publicKey.subarray(0, 31)), SESSION_ONE);
+
+      await expect(keySource.read(SESSION_ONE)).rejects.toThrow(
+        /daemon_signing_keys\.public_key for session .* is not a 32-byte BLOB: got 31 bytes/,
+      );
+      expect(sealer.unsealCalls).toHaveLength(0);
     });
   });
 });

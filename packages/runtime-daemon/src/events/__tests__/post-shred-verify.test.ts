@@ -247,6 +247,45 @@ class FixedResultPiiEncryptor implements PiiEncryptor {
   }
 }
 
+/**
+ * A stub that hands back ONE buffer to every caller and rewrites it afterwards —
+ * the reusable-scratch implementation CP-006-1 permits.
+ *
+ * `PiiEncryptor` fixes a return TYPE and says nothing about the lifetime of the
+ * memory behind it, so an implementation that keeps a scratch array and
+ * overwrites it on the next encrypt conforms to the interface completely. This
+ * stub exists because the hazard is otherwise untestable: it is a statement about
+ * what the CONTRACT allows, not about what any shipped code does.
+ *
+ * NO IN-REPO IMPLEMENTATION MUTATES A RETURNED BUFFER TODAY, and saying so is
+ * part of the test's honesty. `DeterministicTestPiiEncryptor` allocates a fresh
+ * array per call; `FixedResultPiiEncryptor` does return the same object every
+ * call — the aliasing half of the hazard, already in this file — but never writes
+ * through it; and Plan-022's real AES-256-GCM codec is a Tier-5 module that does
+ * not exist yet, which is precisely why this module cannot wait to find out.
+ */
+class ScratchBufferPiiEncryptor implements PiiEncryptor {
+  readonly #scratch: Uint8Array;
+
+  constructor(byteLength: number) {
+    this.#scratch = new Uint8Array(byteLength).fill(0xa5);
+  }
+
+  /** The array every call returns — the alias the codec must not carry forward. */
+  get scratch(): Uint8Array {
+    return this.#scratch;
+  }
+
+  /** Stands in for the NEXT encryption writing through the same memory. */
+  overwriteScratch(fillByte: number): void {
+    this.#scratch.fill(fillByte);
+  }
+
+  encrypt(_request: PiiEncryptionRequest): Promise<Uint8Array> {
+    return Promise.resolve(this.#scratch);
+  }
+}
+
 // --------------------------------------------------------------------------
 // Fixtures.
 // --------------------------------------------------------------------------
@@ -384,6 +423,19 @@ interface StoredSessionEventRow {
   readonly daemon_signature: unknown;
 }
 
+/**
+ * Persists three of the write unit's four members — `piiParticipantId` is the
+ * one it drops, and the omission is the schema's, not this helper's.
+ *
+ * `0001-initial.ts` gives `session_events` no participant-id column for the PII
+ * owner, and `actor` is a different value (it may be an agent id or NULL). So
+ * there is nowhere to put the stamp today, and inventing a column here would be
+ * this suite writing DDL for a table Plan-001 owns and a migration Phase 3 owns.
+ * `pii-indirection.ts`'s header names T3.1 as the phase that adds it. Until then
+ * these tests exercise the shred-SIGNATURE property, which needs the ciphertext
+ * and the signed columns; the shred SELECTOR property is Phase-3's to test,
+ * because it is Phase 3 that will have a column to select on.
+ */
 function insertSignedPiiRow(database: DatabaseType, result: PiiEventWriteResult): void {
   const { envelope, piiPayload, signedRow } = result;
   database
@@ -625,6 +677,74 @@ describe("Plan-006 T2.5 leg 1 — canonical bytes carry pii_ciphertext_digest an
     // partition, which is the convention `PiiEncryptionRequest.plaintext` fixes
     // for the eventual decrypt counterpart.
     expect(encryptor.lastRequest?.plaintext).toEqual(canonicalizeJson(input.piiPayload));
+  });
+
+  it("returns the PII owner's participant id, on an event whose actor is not that owner", async () => {
+    // The stamp is the only carrier of the PII owner on the persistence unit,
+    // and both things that need it later need it as an INPUT: the AAD is
+    // `participant_id || event_id`, which no decrypt can rebuild from the
+    // ciphertext, and the Path-1 selector in `Spec-022 §Shred Fan-Out` matches
+    // "the durable participant-id stamp on the event row, not the ciphertext
+    // (which is opaque)".
+    //
+    // `actor` IS NOT A SUBSTITUTE, which is why this case is built on the
+    // divergence rather than on the default fixture where the two coincide.
+    // `PiiEncryptionRequest.participantId` documents that `actor` may be an
+    // agent id or `null`; here it is `null`, so an implementation that stamped
+    // rows from `actor` would record no owner at all and lose the row to the
+    // shred selector forever.
+    //
+    // Leg 2's "survives a shred on a row whose actor is SQL NULL" reuses this
+    // same fixture shape for an unrelated claim — that the SQL-NULL round trip
+    // still reproduces the canonical bytes. Neither test subsumes the other.
+    const input: PiiCarryingEventInput = buildPiiCarryingEventInput({ actor: null });
+    const result: PiiEventWriteResult = await writeEventWithPii(
+      input,
+      GENESIS_PREV_HASH,
+      encryptor,
+      DAEMON_SIGNING_KEY,
+    );
+
+    expect(result.piiParticipantId).toBe(FIXTURE_PARTICIPANT_ID);
+    // The divergence is real on this fixture and not incidental: without this,
+    // the assertion above would also pass on an implementation that returned
+    // `actor`, since the default fixture sets both members to the same id.
+    expect(result.envelope.actor).toBeNull();
+    // And it is the value that was actually bound into the AEAD's associated
+    // data, not a second reading of the input taken after the encrypt.
+    expect(result.piiParticipantId).toBe(encryptor.lastRequest?.participantId);
+  });
+
+  it("copies the encryptor's ciphertext, so a reused scratch buffer cannot break the digest", async () => {
+    // CP-006-1 fixes a return TYPE and no buffer lifetime, so an implementation
+    // may hand back scratch memory and overwrite it on its next call. The digest
+    // and the signature commit to the bytes as of the encrypt; if the returned
+    // array were the encryptor's own, a later write through it would leave the
+    // caller persisting different bytes into `pii_payload` — an honest row that
+    // fails verification forever, defective in a module no verifier ever reads.
+    const encryptorWithScratch = new ScratchBufferPiiEncryptor(48);
+    const result: PiiEventWriteResult = await writeEventWithPii(
+      buildPiiCarryingEventInput(),
+      GENESIS_PREV_HASH,
+      encryptorWithScratch,
+      DAEMON_SIGNING_KEY,
+    );
+    const digestAtSigning: unknown = result.envelope.payload[PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY];
+
+    encryptorWithScratch.overwriteScratch(0x5a);
+
+    // THE INVARIANT: the ciphertext the caller holds still hashes to the digest
+    // the signature commits to. This is the assertion that fails if the copy is
+    // ever reverted to an alias.
+    expect(bytesToHex(blake3(result.piiPayload))).toBe(digestAtSigning);
+
+    // The structural reason it holds, pinned separately — the assertion above
+    // would keep passing under an alias in any test that happened not to mutate,
+    // so ownership is stated directly rather than inferred from agreement.
+    expect(result.piiPayload).not.toBe(encryptorWithScratch.scratch);
+    expect(result.piiPayload).not.toEqual(encryptorWithScratch.scratch);
+    // A copy, not a re-encryption: the bytes are the ones the encryptor returned.
+    expect(result.piiPayload).toEqual(new Uint8Array(48).fill(0xa5));
   });
 });
 
@@ -1225,11 +1345,16 @@ describe("Plan-006 T2.5 leg 3 — post-shred tamper detection (negative control)
   //      year-range narrowing — so a sub-millisecond fraction (guard 2) and an
   //      offset that folds outside the four-digit year (guard 4) both PARSE and
   //      are refused later.
-  //   3. THE DEPTH CEILING, in `canonicalizeJson`. The payload schema is
-  //      `z.unknown().superRefine(…).pipe(z.record(z.string(), z.unknown()))`
-  //      and bounds no nesting depth, so a payload nested past
-  //      `CANONICAL_JSON_MAX_DEPTH` also parses cleanly, and
-  //      `assertWithinCanonicalDepth` refuses it.
+  //   3. `canonicalizeJson`'S GENERIC GUARDS — TWO of them, and the layer is
+  //      stated over the pair rather than over either one, because a fix aimed
+  //      at one leaves the other live. The payload schema is
+  //      `z.unknown().superRefine(…).pipe(z.record(z.string(), z.unknown()))`,
+  //      which bounds no nesting depth AND requires no Unicode well-formedness.
+  //      So a payload nested past `CANONICAL_JSON_MAX_DEPTH` parses cleanly and
+  //      `assertWithinCanonicalDepth` refuses it; and a payload carrying an
+  //      unpaired UTF-16 surrogate in a string or a KEY parses cleanly too —
+  //      `\ud800` rides through the wire text as a six-ASCII-character escape —
+  //      and `assertWellFormedStrings` refuses it per RFC 8785 §3.2.2.2.
   //
   // T4.1'S OBLIGATION, RECORDED HERE BECAUSE THIS IS WHERE IT GETS
   // REDISCOVERED — and stated over the CLASS, because a fix aimed at any single
@@ -1850,6 +1975,89 @@ describe("Plan-006 T2.5 — a misordered PII write path is refused at runtime (I
 
     expect(result.envelope.sequence).toBe(Number.MAX_SAFE_INTEGER);
     expect(encryptor.encryptCallCount).toBe(1);
+  });
+
+  it("refuses an empty piiParticipantId BEFORE spending the nonce", async () => {
+    // REFUSAL 7, and the only guard on this path that fronts nothing: no later
+    // stage re-checks this value. `signRow` never sees it, step 5 keeps it out
+    // of the canonical bytes by design, and the one component that consumes it
+    // is across CP-006-1. So the failure it refuses is invisible to every other
+    // check here — the digest agrees, the signature verifies, the chain links,
+    // and the row holds PII sealed against an AAD no decrypt can rebuild while
+    // being unreachable by the `Spec-022 §Shred Fan-Out` Path-1 selector that
+    // matches on this stamp.
+    //
+    // An EMPTY string is the case with no type-system defence at all: it
+    // satisfies `PiiCarryingEventInput` completely and names no key holder.
+    const encryptor = new DeterministicTestPiiEncryptor();
+
+    await expect(
+      writeEventWithPii(
+        buildPiiCarryingEventInput({ piiParticipantId: "" }),
+        GENESIS_PREV_HASH,
+        encryptor,
+        DAEMON_SIGNING_KEY,
+      ),
+    ).rejects.toThrow(/requires a non-empty piiParticipantId/);
+    expect(encryptor.encryptCallCount).toBe(0);
+  });
+
+  it("refuses a non-string piiParticipantId before spending the nonce", async () => {
+    // The other half of the predicate, reachable the same way refusal 6's is:
+    // through a cast or an untyped boundary, since the input type declares the
+    // member a required `string`. The message reports a TYPE and never the
+    // value.
+    const encryptor = new DeterministicTestPiiEncryptor();
+
+    await expect(
+      writeEventWithPii(
+        buildPiiCarryingEventInput({ piiParticipantId: null as unknown as string }),
+        GENESIS_PREV_HASH,
+        encryptor,
+        DAEMON_SIGNING_KEY,
+      ),
+    ).rejects.toThrow(/received a non-string value of type object/);
+    expect(encryptor.encryptCallCount).toBe(0);
+  });
+
+  it("still admits an unusual but well-shaped piiParticipantId (over-refusal control)", async () => {
+    // THE CONTROL FOR THE TWO CASES ABOVE, and it discriminates more than a
+    // refuses-everything guard: a one-character id passes, because refusal 7 is
+    // a SHAPE check and nothing more. Whether `participant_keys` actually holds
+    // a row for an id is answerable only across CP-006-1, inside a module this
+    // one neither owns nor imports — a well-shaped id naming no key holder is
+    // the encryptor's verdict to give, not this guard's.
+    const encryptor = new DeterministicTestPiiEncryptor();
+
+    const result: PiiEventWriteResult = await writeEventWithPii(
+      buildPiiCarryingEventInput({ piiParticipantId: "x" }),
+      GENESIS_PREV_HASH,
+      encryptor,
+      DAEMON_SIGNING_KEY,
+    );
+
+    expect(encryptor.encryptCallCount).toBe(1);
+    expect(encryptor.lastRequest?.participantId).toBe("x");
+    expect(result.piiParticipantId).toBe("x");
+  });
+
+  it("reports the PREV_HASH refusal for an input defective in both prev_hash and piiParticipantId", async () => {
+    // Refusal 7 was added LAST of the pre-encrypt guards so that introducing it
+    // reordered nothing already shipped, and refusal order is observable — the
+    // first to fire is the only one the caller sees. This is the assertion that
+    // claim rests on rather than the docstring's reasoning: a doubly-defective
+    // append must still report the bug it reported before the guard existed.
+    const encryptor = new DeterministicTestPiiEncryptor();
+
+    await expect(
+      writeEventWithPii(
+        buildPiiCarryingEventInput({ piiParticipantId: "" }),
+        new Uint8Array(31),
+        encryptor,
+        DAEMON_SIGNING_KEY,
+      ),
+    ).rejects.toThrow(/writeEventWithPii requires a 32-byte Uint8Array prev_hash/);
+    expect(encryptor.encryptCallCount).toBe(0);
   });
 
   it("refuses an over-deep payload only AFTER the encrypt, and is off by one from a standalone walk", async () => {

@@ -37,6 +37,20 @@
 // holder of the per-session append lock — is the module that grows that
 // parameter and writes the row.
 //
+// T3.1 INHERITS A SECOND, LESS OBVIOUS COLUMN OBLIGATION: the participant-id
+// stamp on {@link PiiEventWriteResult}. `Spec-022 §Shred Fan-Out` Path 1 states
+// that the shred selector "uses the durable participant-id stamp on the event
+// row, not the ciphertext (which is opaque)", and `0001-initial.ts` has no such
+// column — `session_events.actor` is documented there as "participant_id or
+// agent_id or NULL for system", which is a different value with a different
+// meaning (see {@link PiiEncryptionRequest.participantId}). Unlike `pii_payload`,
+// which at least exists and is written NULL, the stamp column does not exist at
+// all; adding it is an additive migration under the `session_events` row of
+// `docs/architecture/cross-plan-dependencies.md §1. Table Ownership Map`, and
+// this module holds no lock, writes no row, and owns no migration. So the value
+// leaves here in the RETURN TYPE and stops there — the same produce-here /
+// persist-there split the paragraph above draws for the ciphertext itself.
+//
 // LAYER 2 OF I-006-3-01 LIVES HERE. `audit_integrity` and `event_maintenance`
 // events are never compacted and never crypto-shredded
 // (`Plan-006 §Audit Integrity Invariant`; declared symmetrically in
@@ -71,9 +85,12 @@
 // in for instead of identical to it; the guard itself says why that is still
 // only ever an early refusal. TWO CLASSES STAY BEHIND THE ENCRYPT and
 // `writeEventWithPii` names both: the shape of the encryptor's own RESULT,
-// which does not exist until it has run, and `payload`'s own RFC 8785 refusals,
-// whose only honest pre-check would be a second canonicalization of the same
-// row.
+// which does not exist until it has run, and `payload`'s own RFC 8785 refusals.
+// Those last are not one story — the nesting ceiling admits no honest pre-check
+// short of a second canonicalization of the same row, while T2.1's RFC 8785
+// §3.2.2.2 well-formedness guard COULD be pre-checked exactly and simply is not;
+// `writeEventWithPii`'s own note draws that line rather than letting the harder
+// case speak for both.
 //
 // CP-006-1 — THE PLAN-022 BOUNDARY. `PiiEncryptor` is an INTERFACE owned here;
 // Plan-022 (Tier 5) ships the AES-256-GCM implementation in
@@ -328,15 +345,19 @@ export type RawEventInput = PiiCarryingEventInput | PiiRefusedEventInput;
  * and a ciphertext off it would make it lie about its own shape — the same
  * reasoning by which it omits `participantSignature`.
  *
- * CALLER OBLIGATION — PERSIST THESE THREE AS A UNIT. `envelope` supplies
+ * CALLER OBLIGATION — PERSIST THESE FOUR AS A UNIT. `envelope` supplies
  * `payload` (carrying the digest) and the normalized `occurredAt`; `piiPayload`
  * is the `pii_payload` column; `signedRow` supplies `prev_hash` / `row_hash` /
- * `daemon_signature`. Substituting any one of them — a re-canonicalized
- * envelope, a re-encrypted ciphertext, a `prev_hash` read again after the
- * signature was minted — produces an untampered row that can never verify,
- * because the verifier recomputes the digest and the signature from what was
- * STORED. This is step 7 of `Plan-006 §Encrypt-Then-Digest-Then-Sign Order` and
- * it belongs to T3.1, which owns the INSERT and the lock.
+ * `daemon_signature`; `piiParticipantId` is the stamp the shred selector reads.
+ * Substituting one of the first three — a re-canonicalized envelope, a
+ * re-encrypted ciphertext, a `prev_hash` read again after the signature was
+ * minted — produces an untampered row that can never verify, because the
+ * verifier recomputes the digest and the signature from what was STORED.
+ * `piiParticipantId` fails DIFFERENTLY, which is why it is spelled out here
+ * rather than folded into that list: it sits outside the canonical bytes by
+ * design, so a wrong or missing value verifies cleanly forever while naming the
+ * wrong key. This is step 7 of `Plan-006 §Encrypt-Then-Digest-Then-Sign Order`
+ * and it belongs to T3.1, which owns the INSERT and the lock.
  *
  * CALLER OBLIGATION — TREAT `payload` AS FROZEN FROM THIS RETURN UNTIL THE
  * INSERT COMMITS. `envelope.payload` is a SHALLOW copy of the caller's: this
@@ -354,6 +375,44 @@ export type RawEventInput = PiiCarryingEventInput | PiiRefusedEventInput;
  */
 export interface PiiEventWriteResult {
   readonly envelope: EventWithPiiDigest;
+  /**
+   * The participant whose content key sealed `piiPayload` — echoed out of
+   * {@link PiiEncryptionRequest.participantId} as it was bound into the AEAD's
+   * associated data (`participant_id || event_id`,
+   * `Spec-022 §PII Payload Column Pattern`).
+   *
+   * ECHOED RATHER THAN LEFT FOR THE CALLER TO RE-READ OFF ITS OWN INPUT. The
+   * caller does still hold `input.piiParticipantId`, so this is not the only
+   * reachable copy — it is the only one the persistence contract admits.
+   * {@link EventWithPiiDigest} already says PERSIST THIS ENVELOPE, NOT THE
+   * CALLER'S INPUT, and a result that made T3.1 reach back into the input for
+   * one of the four column values it writes would reopen exactly the reach-back
+   * that rule closes. `signer.ts` makes the same call for `SignedRow.prevHash`,
+   * which the caller also still holds.
+   *
+   * NOTHING ELSE ON THE ROW RECOVERS IT. `actor` is a different value —
+   * `0001-initial.ts` documents that column "participant_id or agent_id or NULL
+   * for system", and {@link PiiEncryptionRequest.participantId} says why the key
+   * holder cannot be derived from it. The ciphertext does not carry it either:
+   * AEAD associated data is authenticated, not transported, so `participant_id`
+   * is an INPUT to any future decrypt rather than an output of it. Persist no
+   * stamp and the row is unreadable once its key is gone AND invisible to the
+   * Path-1 selector in `Spec-022 §Shred Fan-Out` that was supposed to shred it.
+   *
+   * NOT IN THE CANONICAL BYTES, DELIBERATELY. `embedCiphertextDigest` projects
+   * envelope members one at a time and never spreads the input, so this value
+   * cannot reach the signature — and should not: it is row metadata, and signing
+   * a participant identifier would leave it legible in bytes that outlive the
+   * shred, which is the shape of hazard `Spec-022 §Signature Safety Under Shred`
+   * exists to keep out of the signed form.
+   *
+   * Plain `string`, matching {@link PiiEncryptionRequest.participantId} and
+   * `session/types.ts`'s `MembershipProjection.participantId`, rather than the
+   * contracts-side branded `ParticipantId`: nothing on this path mints that
+   * brand, and its schema requires a UUID this module has no standing to demand
+   * of an injected key holder.
+   */
+  readonly piiParticipantId: string;
   readonly piiPayload: PiiPayloadCiphertext;
   readonly signedRow: SignedRow;
 }
@@ -479,7 +538,8 @@ const PII_REFUSED_CATEGORY_NAMES: readonly PiiRefusedCategory[] = [
  *      one would answer differently for one row.
  *   4. A non-canonical `occurredAt` (T2.1's `normalizeOccurredAt`), then the PII
  *      partition's own serialization refusals (T2.1's `canonicalizeJson` over
- *      `piiPayload`: its nesting ceiling, its no-JSON-representation guard, and
+ *      `piiPayload`: its nesting ceiling, its RFC 8785 §3.2.2.2 Unicode
+ *      well-formedness guard, its no-JSON-representation guard, and
  *      `canonicalize@3.0.0`'s `NaN` / `Infinity` / circular-reference throws,
  *      which the PII partition newly exposes).
  *   5. A `prevHash` that is not 32 bytes. HOISTED from T2.2's `signRow`, and
@@ -490,8 +550,17 @@ const PII_REFUSED_CATEGORY_NAMES: readonly PiiRefusedCategory[] = [
  *      own `abytes` — a LIBRARY guard rather than a sibling module's, because
  *      `signRow` guards `prevHash` and nothing else — and placed after 5 on the
  *      same no-reordering ground: it fired dead last of every refusal on this
- *      path before the hoist, being the deepest call on the sign path, and it
- *      fires last of the pre-encrypt refusals now.
+ *      path before the hoist, being the deepest call on the sign path, and of
+ *      the three hoists it still fires last.
+ *   7. A `piiParticipantId` that is not a non-empty string. NOT A HOIST — the
+ *      one refusal on this path that fronts nothing, because nothing downstream
+ *      re-checks the value: `signRow` never sees it, step 5 excludes it from the
+ *      canonical bytes by design, and the single component that does consume it
+ *      — the injected {@link PiiEncryptor} — is across CP-006-1, where this
+ *      module owns no implementation and may therefore require no behavior of
+ *      one. Placed last so it reorders nothing that shipped before it: any input
+ *      that drew a refusal without this guard draws the identical refusal with
+ *      it, since 1–6 are answerable from members it does not read.
  *
  * 3, 5, AND 6 ARE EARLY COPIES, NEVER REPLACEMENTS.
  * `assertRepresentableSequence`, `signRow`'s guard, and `ed25519.sign`'s
@@ -500,11 +569,19 @@ const PII_REFUSED_CATEGORY_NAMES: readonly PiiRefusedCategory[] = [
  * to the guards they front; 6 is deliberately narrower, and its own note says
  * both why and in which direction.
  *
+ * 7 IS NOT IN THAT SET, and the sentence above must not be read as covering it.
+ * It is the first and last word on its own value, so there is no downstream
+ * authority to be an early copy OF and no drift for a late guard to catch. That
+ * is an argument for the guard rather than against it: the failure it refuses is
+ * silent, permanent, and invisible to every other check in the pipeline — the
+ * guard's own note carries the reasoning.
+ *
  * TWO CLASSES REMAIN BEHIND THE ENCRYPT, AND NEITHER MOVES HONESTLY:
  *
  *   - THE ENCRYPTOR-RESULT SHAPE GUARD judges a value that does not exist until
  *     the encryptor has run.
- *   - `input.payload`'s OWN RFC 8785 REFUSALS — T2.1's nesting ceiling and
+ *   - `input.payload`'s OWN RFC 8785 REFUSALS — T2.1's nesting ceiling, its
+ *     RFC 8785 §3.2.2.2 Unicode well-formedness guard, and
  *     `canonicalize@3.0.0`'s `NaN` / `Infinity` / circular-reference throws —
  *     fire inside `canonicalizeEvent`, at recipe step 5. They ARE answerable
  *     from the input, and are left here anyway: T2.1 exports no depth checker,
@@ -517,7 +594,14 @@ const PII_REFUSED_CATEGORY_NAMES: readonly PiiRefusedCategory[] = [
  *     sits at standalone depth 64 sits at 65 inside the envelope. A pre-check
  *     that disagrees with the guard it stands in for would make the ordering
  *     claim above FALSE for the boundary case, which is worse than refusing late
- *     and saying so. `canonicalizeJson`'s no-JSON-representation guard is NOT in
+ *     and saying so. THAT DEPTH-OFFSET ARGUMENT DOES NOT CARRY THE
+ *     WELL-FORMEDNESS GUARD, and it is not stretched to: well-formedness is a
+ *     property of each string alone, so a standalone walk over `input.payload`
+ *     would agree with the real guard exactly, at every input. It stays late for
+ *     the weaker reason only — T2.1 exports no well-formedness checker either,
+ *     and hoisting one would reorder a refusal sequence this block fixes
+ *     deliberately — which is a residual worth naming rather than a forced
+ *     placement. `canonicalizeJson`'s no-JSON-representation guard is NOT in
  *     this class: it fires only for a TOP-LEVEL value with no JSON
  *     representation, and `canonicalizeEvent` always hands it an object, so it
  *     is reachable only through the `piiPayload` call at 4 — above the encrypt.
@@ -545,11 +629,18 @@ export async function writeEventWithPii(
   // names are spelled out here as well as in that array.
   //
   // THAT NARROWING IS NOT A BELIEF ABOUT THE COMPILER — it is re-checked on every
-  // build. If it ever stops holding, the two sites that consume it stop
-  // compiling: `participantId: input.piiParticipantId` in the encrypt call below,
-  // and the `embedCiphertextDigest(input, ...)` argument after it. Those two
-  // errors are also the widening half of the drift guard documented on
-  // `PII_REFUSED_CATEGORY_NAMES`.
+  // build. The refused arm declares both members optional `never`, so without the
+  // narrowing they read as `undefined`-bearing, and every site below that DEMANDS
+  // the real value stops compiling: `participantId: input.piiParticipantId` in
+  // the encrypt call, the `embedCiphertextDigest(input, ...)` argument, and the
+  // `piiParticipantId` echoed into the return. Those errors are the widening half
+  // of the drift guard documented on `PII_REFUSED_CATEGORY_NAMES`.
+  //
+  // TWO SITES BELOW READ THESE MEMBERS AND ARE NOT PART OF THAT GUARD, which is
+  // worth naming so neither is mistaken for one: refusal 7 tests
+  // `input.piiParticipantId` for shape at RUNTIME and is deliberately tolerant of
+  // a wider static type, and `canonicalizeJson(input.piiPayload)` takes
+  // `unknown`. Both would keep compiling if the narrowing broke.
   //
   // No `default:` clause, deliberately. The case body throws, so the only
   // reachable path past the switch is "no case matched" — that flow edge is what
@@ -678,6 +769,38 @@ export async function writeEventWithPii(
     );
   }
 
+  // REFUSAL 7 of the order documented above — the one guard on this path that is
+  // an AUTHORITY rather than an early copy, because nothing downstream ever
+  // looks at this value again.
+  //
+  // `piiParticipantId` selects the content key that seals this row and supplies
+  // half of the AEAD's associated data (`participant_id || event_id`,
+  // `Spec-022 §PII Payload Column Pattern`). An empty or non-string value breaks
+  // the row in two directions and is loud in neither: the ciphertext is sealed
+  // against associated data no decrypt can reconstruct, and the Path-1 selector
+  // in `Spec-022 §Shred Fan-Out` — which matches the durable participant-id
+  // stamp, never the opaque ciphertext — has nothing to find when the
+  // participant asks to be erased. Every other check still passes. The digest
+  // agrees, the signature verifies, the chain links, and what lands is a
+  // healthy-looking row holding PII that can be neither read nor shredded.
+  //
+  // A SHAPE GUARD, NOT AN EXISTENCE CHECK, and the distinction is load-bearing:
+  // whether `participant_keys` holds a row for this id is answerable only across
+  // CP-006-1, inside an implementation this module does not own, import, or
+  // share a database handle with. A well-shaped id naming no key holder still
+  // passes here — that verdict belongs to the encryptor.
+  //
+  // The predicate is `session-projector.ts`'s test for a participant id arriving
+  // off a payload: non-string OR empty, because an empty string names no key
+  // holder while satisfying every `string` in the pipeline. Reachable only
+  // through a cast or an untyped boundary, like refusal 6 —
+  // `PiiCarryingEventInput` declares the member a required `string`.
+  if (typeof input.piiParticipantId !== "string" || input.piiParticipantId.length === 0) {
+    throw new Error(
+      `writeEventWithPii requires a non-empty piiParticipantId: it names the participant whose content key seals this row and whose participant_keys DELETE crypto-shreds it, and it is the stamp the Spec-022 §Shred Fan-Out Path 1 selector matches on; received ${describeParticipantIdShape(input.piiParticipantId)}. Refused before the encrypt step so a rejected append costs no AES-256-GCM nonce; unlike the guards above it, nothing downstream re-checks this value.`,
+    );
+  }
+
   const encryptorResult: Uint8Array = await encryptor.encrypt({
     participantId: input.piiParticipantId,
     eventId: input.id,
@@ -701,8 +824,44 @@ export async function writeEventWithPii(
     );
   }
 
-  // The ONE site where `PiiPayloadCiphertext` enters the type system (I-006-2-02).
-  const piiPayload: PiiPayloadCiphertext = encryptorResult as PiiPayloadCiphertext;
+  // The ONE site where `PiiPayloadCiphertext` enters the type system
+  // (I-006-2-02) — and it brands an OWNED COPY, not the encryptor's own array.
+  //
+  // `PiiEncryptor` is an injection boundary (CP-006-1): it fixes a return TYPE
+  // and says nothing about the LIFETIME of the buffer behind it, so a conforming
+  // implementation may hand back a reusable scratch array and overwrite it on
+  // its next call. Nothing here can forbid that — Plan-022 owns the
+  // implementation, sits a tier above, and never consults this file. The row it
+  // would produce is the nastiest kind: the digest below commits to the bytes as
+  // of NOW and the signature commits to that digest, so a later encrypt writing
+  // through the same array leaves the caller persisting different bytes into
+  // `pii_payload` — an honest row that fails verification forever, with the
+  // defect in a module no verifier will ever look at. Copying costs one
+  // allocation of the ciphertext's width per PII append; no width is named here
+  // because the interface fixes no AEAD.
+  //
+  // `new Uint8Array(...)` and deliberately NOT `.slice()`, exactly as
+  // `signer.ts` copies `prevHash`: `Buffer.prototype.slice` returns a VIEW onto
+  // the same memory, so it would copy nothing while reading as though it had.
+  //
+  // AFTER THE SHAPE GUARD, NEVER BEFORE IT. This constructor admits far more
+  // than the guard does and COERCES where the guard refuses, differently
+  // depending on the value: `new Uint8Array(null)` and `new Uint8Array("abc")`
+  // allocate zero bytes, `new Uint8Array("3")` allocates three zero bytes — a
+  // non-empty all-zero ciphertext that a length check waves straight through —
+  // and a long numeric-looking string is read as a LENGTH, which is why the hex
+  // string this suite injects at the shape guard raises `RangeError: Array
+  // buffer allocation failed` rather than producing anything at all. Copying
+  // first would trade one refusal that names the CP-006-1 boundary and routes to
+  // the encryptor's author for one of those, so the guard runs first and this
+  // line only ever copies bytes it has already been told are bytes.
+  //
+  // CLOSES THE ENCRYPTOR-SIDE ALIAS ONLY. A caller that writes into the array on
+  // this result before its INSERT commits reproduces the same disagreement from
+  // the other side, and no copy taken here can prevent it; that one is the
+  // obligation {@link PiiEventWriteResult} states, on the same footing as the
+  // one `signer.ts` states for `SignedRow.prevHash`.
+  const piiPayload: PiiPayloadCiphertext = new Uint8Array(encryptorResult) as PiiPayloadCiphertext;
 
   // --- Steps 3 + 4: DIGEST, then EMBED --------------------------------------
   const envelope: EventWithPiiDigest = embedCiphertextDigest(
@@ -715,7 +874,11 @@ export async function writeEventWithPii(
   const canonical: CanonicalBytes = canonicalizeDigestBearingEvent(envelope);
   const signedRow: SignedRow = signRow(canonical, prevHash, daemonSigningKey);
 
-  return { envelope, piiPayload, signedRow };
+  // `piiParticipantId` rides out with the other three: it is a column value T3.1
+  // must write, and the input is not a source the persistence contract admits.
+  // Safe to echo by reference where the ciphertext was not — a `string` is
+  // immutable, so there is no aliasing hazard to close.
+  return { envelope, piiParticipantId: input.piiParticipantId, piiPayload, signedRow };
 }
 
 // --------------------------------------------------------------------------
@@ -814,8 +977,11 @@ function canonicalizeDigestBearingEvent(envelope: EventWithPiiDigest): Canonical
  * Renders a refused byte-shaped value for a throw message without trusting its
  * declared type — `value.length` on a `string` would report a character count as
  * a byte count and send the reader after the wrong bug. Serves every refusal
- * that needs it: the encryptor's result, and the two hoisted byte guards
- * (`prevHash` and `daemonSigningKey`).
+ * over a BYTE-shaped value: the encryptor's result, and the two hoisted byte
+ * guards (`prevHash` and `daemonSigningKey`). Refusal 7's value is a `string` by
+ * contract rather than bytes, so it is described by
+ * {@link describeParticipantIdShape} instead — the two split by the shape of the
+ * subject, not by call site.
  * Deliberately local, and named for the sibling helpers rather than for any one
  * call site: `signer.ts` and `signing-key-source.ts` each keep a
  * `describeByteShape` of their own, and a shared byte-shape describer is not a
@@ -826,4 +992,26 @@ function describeByteShape(value: unknown): string {
     return value.length === 0 ? "an empty Uint8Array" : `${value.length} bytes`;
   }
   return `a non-Uint8Array value of type ${typeof value}`;
+}
+
+/**
+ * Renders a refused participant id for a throw message without reproducing it.
+ *
+ * NOT withheld on privacy grounds — the id is a column value T3.1 persists and a
+ * shred erases the KEY rather than the stamp, so a throw message is not where it
+ * would leak. It is withheld because there is nothing to print: refusal 7 reaches
+ * this only with a non-string or the empty string, so a type — plus a character
+ * count where there are characters to count — is the whole of what a reader can
+ * act on. The sibling {@link describeByteShape} answers in that same shape for a
+ * genuinely different reason: a refused signing key IS secret material.
+ *
+ * Total rather than narrowed to the values refusal 7 refuses, so it will not
+ * start lying if a second call site ever appears. That is what the non-empty
+ * branch is for; refusal 7 never reaches it.
+ */
+function describeParticipantIdShape(value: unknown): string {
+  if (typeof value === "string") {
+    return value.length === 0 ? "an empty string" : `a ${value.length}-character string`;
+  }
+  return `a non-string value of type ${typeof value}`;
 }
