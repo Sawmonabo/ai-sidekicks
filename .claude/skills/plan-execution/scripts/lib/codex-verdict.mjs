@@ -302,7 +302,7 @@ const CLEAN_VERDICT_PATTERN = /Didn['’]t find any major issues/i;
  * ahead of the Actions ones.
  *
  * Combined with `max` rather than by replacement, so the anchor can only move
- * LATER than the previous behaviour, never earlier. Two residuals worth naming
+ * LATER than the previous behaviour, never earlier. Three residuals worth naming
  * rather than implying they are closed:
  *   - a sha pushed earlier on another branch carries that earlier suite, so this
  *     is the first moment the sha was visible anywhere in the repo, not the
@@ -313,6 +313,19 @@ const CLEAN_VERDICT_PATTERN = /Didn['’]t find any major issues/i;
  *     That is the fail-closed direction, and the caller prints the anchor it
  *     chose and which source won, so the cause is legible rather than a silent
  *     spin.
+ *   - suite creation and Codex's webhook are INDEPENDENT consumers of the same
+ *     push, so nothing orders them: a `+1` posted before the earliest suite is
+ *     rejected by an anchor derived from that suite. It does not strand the
+ *     gate, because both observed ack shapes also carry a sha-exact leg that no
+ *     timestamp can stale. A findings pass posts a review whose `commit_id` is
+ *     HEAD (PR #259). A clean pass posts ONE comment that is both the clean
+ *     verdict and a `Reviewed commit:` citation (PR #256, 2026-07-27), which
+ *     `deriveCommentSignals` matches on the sha via `shaCitingComments`
+ *     regardless of the anchor — note the review leg does NOT carry the clean
+ *     case: #256 had four bot reviews and none on HEAD. Only a bare `+1` with
+ *     neither a review nor a comment would strand it; no observed shape does
+ *     that, and `no_ack_yet` already prints the `@codex review` re-trigger,
+ *     whose fresh ack post-dates the anchor.
  *
  * @param {number} committedAtMs
  * @param {Array<object>} checkSuites Raw `check_suites` rows for the head sha.
@@ -383,10 +396,14 @@ export function selectNewestReview(reviews) {
 /**
  * Ack shape (3): a review object whose `.commit_id` is HEAD.
  *
- * Intrinsically HEAD-bound, so no freshness check applies. Pagination at the
- * call site is mandatory — the reviews endpoint pages at 30, and on a many-round
- * PR the newest review rolls onto page 2+ where an unpaginated `last` returns a
- * permanently stale review (PR #199 r8).
+ * Intrinsically HEAD-bound, so the ack anchor never reaches this leg. The one
+ * timestamp it derives, `latestReviewAgeMs`, is relative to wall-clock and
+ * serves the settle window alone; that window is itself gated on
+ * `reviewAcksHead`, so it cannot fire on a pass this leg did not ack.
+ *
+ * Pagination at the call site is mandatory — the reviews endpoint pages at 30,
+ * and on a many-round PR the newest review rolls onto page 2+ where an
+ * unpaginated `last` returns a permanently stale review (PR #199 r8).
  *
  * @param {Array<object>} reviews Every review on the PR.
  * @param {string} headSha
