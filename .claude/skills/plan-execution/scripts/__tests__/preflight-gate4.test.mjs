@@ -1193,8 +1193,10 @@ test("findSectionHeading: punctuation-only suffixes survive exact-normalization 
 test("findSectionHeading: blockquoted fences hide their example headings", () => {
   // Codex round-5 P2 on PR #224: `> ```md` opens a fence whose
   // lazy-continuation interior lines (no `>` prefix) are still fenced
-  // content. Prefix handling mirrors tools/docs-corpus/lib/
-  // markdown-fences.ts stripBlockquotePrefix.
+  // content. This test pins the BEHAVIOUR; the claim that the prefix
+  // handling matches tools/docs-corpus/lib/markdown-fences.ts is pinned
+  // separately, and by assertion rather than by this comment, in
+  // preflight-external-contracts.test.mjs.
   const specLines = ["> ```md", "## Phantom (v1)", "> ```", "## Real (v2)", "body"];
   assert.equal(findSectionHeading("Phantom", specLines).found, false);
   assert.equal(findSectionHeading("Real", specLines).found, true);

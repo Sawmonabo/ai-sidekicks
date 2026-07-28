@@ -27,6 +27,20 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+// The ONE fence tracker. This file used to carry its own copy, byte-equal in
+// rule set but enforced by nothing — the CommonMark fence rules have already
+// been corrected four times (PR #207 rounds 2-4), and the next correction
+// would have landed in one copy only. Importing the canonical module is what
+// makes "these agree" a fact rather than a coincidence maintained by hand.
+//
+// Cross-extension import (`.mjs` importing `.ts`) is sound HERE and only here:
+// the test runner passes `--experimental-strip-types`. Bare `node` cannot load
+// it at all (ERR_UNKNOWN_FILE_EXTENSION on 22.12), which is why production
+// `preflight.mjs` keeps its own tracker rather than importing this one.
+import {
+  advanceFenceState,
+  stripBlockquotePrefix,
+} from "../../../../../tools/docs-corpus/lib/markdown-fences.ts";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../../..");
 const PLANS_DIR = join(REPO_ROOT, "docs/plans");
@@ -42,44 +56,6 @@ const DONE_CHECKLIST_HEADING = /^ {0,3}(#{1,6})[ \t]+Done Checklist[ \t]*$/;
 // failure message explaining it can never disagree — a perturbation control
 // caught them drifting apart while this suite was being written.
 const DOCUMENT_LEVEL = 2;
-
-// A fence delimiter: 0-3 leading spaces (4+ is an indented code block, whose
-// literal backticks open nothing) and a run of 3+ backticks or tildes.
-const FENCE_DELIMITER = /^ {0,3}(`{3,}|~{3,})(.*)$/;
-
-/**
- * Advance fenced-code-block state by one line, per CommonMark 4.5.
- *
- * A run of length N opens a block that only a run of the SAME character and
- * length >= N closes, and a closer carries no info string — so a 4-backtick
- * fence legitimately contains 3-backtick lines, which is the nesting plan
- * files actually use. A BACKTICK fence's info string may not itself contain a
- * backtick, so a ```` ```ts`x ```` line is inline code rather than a delimiter
- * and must not swallow the headings that follow it.
- *
- * @param {string} line
- * @param {{ char: string, len: number }} state
- * @returns {{ char: string, len: number }} the state AFTER this line
- */
-function advanceFenceState(line, state) {
-  const match = FENCE_DELIMITER.exec(line);
-  if (!match) return state;
-  const run = match[1];
-  const char = run[0];
-  const len = run.length;
-  const tail = match[2];
-
-  if (state.char) {
-    // Only a bare, same-character, long-enough run closes.
-    if (char === state.char && len >= state.len && tail.trim() === "") {
-      return { char: "", len: 0 };
-    }
-    return state;
-  }
-  // A backtick opener's info string may not contain a backtick.
-  if (char === "`" && tail.includes("`")) return state;
-  return { char, len };
-}
 
 /**
  * Advance HTML-comment state by one line. Every plan file carries HTML
@@ -127,7 +103,7 @@ function advanceCommentState(line, inComment) {
 function findDoneChecklistHeadings(source) {
   const headings = [];
   const hidden = [];
-  let fenceState = { char: "", len: 0 };
+  let openFence = null;
   let inComment = false;
 
   const lines = source.split("\n");
@@ -135,7 +111,7 @@ function findDoneChecklistHeadings(source) {
     const line = lines[index];
     const lineNumber = index + 1;
     const commentOpenAtLineStart = inComment;
-    const inFenceAtLineStart = fenceState.char !== "";
+    const inFenceAtLineStart = openFence !== null;
 
     const match = DONE_CHECKLIST_HEADING.exec(line);
     if (match) {
@@ -146,7 +122,13 @@ function findDoneChecklistHeadings(source) {
     }
 
     // A fence delimiter inside an open comment is comment text, not a fence.
-    if (!commentOpenAtLineStart) fenceState = advanceFenceState(line, fenceState);
+    // The shared tracker's contract takes a BLOCKQUOTE-STRIPPED line, so a
+    // quoted opener (`> ```md`) hides quoted example headings the same way an
+    // unquoted one does. The heading test above stays on the RAW line, so
+    // `> ## quoted` is still correctly not a heading.
+    if (!commentOpenAtLineStart) {
+      ({ openFence } = advanceFenceState(stripBlockquotePrefix(line), openFence));
+    }
     // Fenced code cannot open an HTML comment.
     if (!inFenceAtLineStart) inComment = advanceCommentState(line, inComment);
   }
