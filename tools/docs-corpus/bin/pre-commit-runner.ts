@@ -13,6 +13,11 @@
 // does its own whole-repo enumeration — path-ripple greps the registry `scope`
 // globs, manifest-presence walks `git ls-files docs/plans/`).
 //
+// Optional `--min-md=N` / `--min-code=N` arm a per-lane floor (see
+// `parseRunnerArguments`). Off by default, which is the pre-commit posture;
+// CI arms both because there an empty lane means enumeration failed rather
+// than "this commit touched nothing of that kind".
+//
 // Cite-target-existence runs against the staged `.md` files PLUS any
 // governance-corpus file whose outbound `:NNN` cites resolve into the staged
 // set — see `../lib/inbound-cite-discovery.ts`. This widens local pre-commit
@@ -106,16 +111,122 @@ function isCodeFile(p: string): boolean {
   return p.startsWith("packages/") || p.startsWith("apps/");
 }
 
+export interface RunnerArguments {
+  files: string[];
+  minimumMd: number;
+  minimumCode: number;
+}
+
+const LANE_FLOOR_RE = /^--min-(md|code)(?:=(.*))?$/;
+
+/**
+ * Split argv into file paths and the two optional per-lane floors.
+ *
+ * The floors default to `0` — OFF — because the same runner serves two callers
+ * for which an empty lane means opposite things. At pre-commit, lefthook passes
+ * `{staged_files}`: a commit touching only `.json` derives an empty `.md` lane
+ * legitimately, and a hook that refused it would block work it has nothing to
+ * say about. In CI the argv comes from `git ls-files` over the whole tracked
+ * tree, so an empty lane is an enumeration failure — the `|| true` on those
+ * pipelines converts a broken `git ls-files` into an empty array and the
+ * required check goes green having validated almost nothing. The flag is what
+ * tells the two apart; see `tools/run-node-tests.mjs` `--min-files` for the
+ * same floor against the same class (a required gate passing over a zero-match
+ * glob).
+ */
+export function parseRunnerArguments(argv: string[]): RunnerArguments {
+  const files: string[] = [];
+  let minimumMd = 0;
+  let minimumCode = 0;
+
+  for (const argument of argv) {
+    const floorMatch = LANE_FLOOR_RE.exec(argument);
+    if (floorMatch) {
+      const lane = floorMatch[1];
+      const rawValue = floorMatch[2];
+      const parsed = Number(rawValue);
+      // `rawValue === ""` is rejected explicitly: `Number("")` is `0`, an
+      // integer and non-negative, so a bare `--min-md=` would otherwise parse
+      // as a silently disarmed floor — the failure mode this flag exists to
+      // close, reintroduced through its own parser.
+      if (rawValue === undefined || rawValue === "" || !Number.isInteger(parsed) || parsed < 0) {
+        throw new Error(
+          `--min-${lane} requires a non-negative integer in \`--min-${lane}=N\` form, got: ${argument}`,
+        );
+      }
+      if (lane === "md") minimumMd = parsed;
+      else minimumCode = parsed;
+      continue;
+    }
+    // Unknown options THROW rather than falling through to the file list. Both
+    // lane filters stat their argument, so a `--min-mb=200` typo would be
+    // silently discarded as a nonexistent path, leaving the floor at 0 and the
+    // gate reporting clean over a run nothing enforced.
+    if (argument.startsWith("-")) {
+      throw new Error(`unknown option: ${argument}`);
+    }
+    files.push(argument);
+  }
+
+  return { files, minimumMd, minimumCode };
+}
+
 export interface RunChecksResult {
   exitCode: number;
   messages: string[];
+  laneCounts: { md: number; code: number };
 }
 
-export function runChecks(args: string[]): RunChecksResult {
+export interface LaneFloors {
+  minimumMd?: number;
+  minimumCode?: number;
+}
+
+export function runChecks(args: string[], floors: LaneFloors = {}): RunChecksResult {
   const stagedMd = args.filter(isMdFile).filter(isInGovernanceCorpus);
   const stagedCode = args.filter(isCodeFile);
+  const laneCounts = { md: stagedMd.length, code: stagedCode.length };
   const messages: string[] = [];
   let exitCode = 0;
+
+  // Lane floors are enforced on the PARTITIONED lanes, not on raw argv, and
+  // before any check runs.
+  //
+  // The partition is exactly where a collapse stops being visible. CI passes
+  // `"${md_files[@]}" "${code_files[@]}"` as one flat argv, so if the `.md`
+  // enumeration collapses while the code one survives, argv is still hundreds
+  // of entries long and an argv-total floor passes — while five of the six
+  // argv-scoped checks (mermaid, table-total, cite-target, section-cite, md
+  // deny) are skipped by their `stagedMd.length > 0` guards and the required
+  // check reports success. Only a per-lane count can see that.
+  //
+  // Returns BEFORE running anything, unlike the per-check failures below: a
+  // verdict computed over a collapsed lane is precisely the false clean the
+  // floor exists to prevent, and printing it beside the breach invites reading
+  // it as coverage.
+  const { minimumMd = 0, minimumCode = 0 } = floors;
+  const floorBreaches: string[] = [];
+  if (stagedMd.length < minimumMd) {
+    floorBreaches.push(
+      `  .md lane resolved ${stagedMd.length} file(s), --min-md=${minimumMd} required`,
+    );
+  }
+  if (stagedCode.length < minimumCode) {
+    floorBreaches.push(
+      `  code lane resolved ${stagedCode.length} file(s), --min-code=${minimumCode} required`,
+    );
+  }
+  if (floorBreaches.length > 0) {
+    messages.push(
+      [
+        "docs-corpus: a lane resolved fewer files than its floor — refusing to report a verdict.",
+        ...floorBreaches,
+        "Either the corpus lost files or the caller's enumeration stopped matching them.",
+        "Checks scoped to a collapsed lane are SKIPPED, so the run would otherwise exit 0 having validated almost nothing.",
+      ].join("\n"),
+    );
+    return { exitCode: 1, messages, laneCounts };
+  }
 
   const pathHits = checkPathCanonicalRipple();
   if (pathHits.length > 0) {
@@ -257,11 +368,30 @@ export function runChecks(args: string[]): RunChecksResult {
     }
   }
 
-  return { exitCode, messages };
+  return { exitCode, messages, laneCounts };
 }
 
 function main(): number {
-  const { exitCode, messages } = runChecks(process.argv.slice(2));
+  let parsed: RunnerArguments;
+  try {
+    parsed = parseRunnerArguments(process.argv.slice(2));
+  } catch (error) {
+    console.error(`docs-corpus: ${error instanceof Error ? error.message : String(error)}`);
+    return 2;
+  }
+  const { files, minimumMd, minimumCode } = parsed;
+  const { exitCode, messages, laneCounts } = runChecks(files, { minimumMd, minimumCode });
+  // Disclosed only when a floor is armed, which is the enforcement context.
+  // A floor that is merely CLEARED still hides a partial drop — 260 `.md`
+  // files falling to 40 passes `--min-md=20` silently — so the resolved counts
+  // are printed for a human to notice, the same reason run-node-tests prints
+  // its resolved file count. The hook path stays quiet: unarmed means
+  // per-commit, where the counts are noise on every single commit.
+  if (minimumMd > 0 || minimumCode > 0) {
+    console.log(
+      `docs-corpus: lanes resolved — ${laneCounts.md} .md file(s), ${laneCounts.code} code file(s)`,
+    );
+  }
   if (messages.length > 0) {
     console.error(messages.join("\n\n"));
   }
