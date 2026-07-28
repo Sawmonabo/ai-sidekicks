@@ -35,6 +35,12 @@
 // total — failing the census-drift class from the PR #152 retrospective (a
 // summary asserting a count while its own column summed to a different one).
 // Opt-in by marker, within-document only. See `../lib/table-total-coherence.ts`.
+//
+// table-arity runs against staged `.md` files: every row of a GFM table must
+// carry its header's cell count. Unlike table-total it is NOT opt-in — the
+// invariant is structural and holds for every table. Catches the unescaped-`|`
+// corruption that prettier then makes permanent and formatting-stable. See
+// `../lib/table-arity.ts`.
 
 import { realpathSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -65,6 +71,7 @@ import {
   checkPlanManifestPresence,
   formatPlanManifestViolations,
 } from "../lib/plan-manifest-presence.ts";
+import { checkTableArity, formatTableArityViolations } from "../lib/table-arity.ts";
 import {
   checkTableTotalCoherence,
   formatTableTotalViolations,
@@ -270,6 +277,19 @@ export function runChecks(args: string[], floors: LaneFloors = {}): RunChecksRes
     const totalHits = checkTableTotalCoherence(stagedMd);
     if (totalHits.length > 0) {
       messages.push(formatTableTotalViolations(totalHits));
+      exitCode = 1;
+    }
+  }
+
+  // Structural guard on EVERY table (no marker opt-in): each row must carry its
+  // header's cell count. An unescaped `|` inside a cell — a code span included,
+  // since backticks do not shield it — silently re-splits the row, and prettier
+  // then reflows the table around the stray pipe and passes every subsequent
+  // `--check` on the corrupted result. Formatting-stable is not correct.
+  if (stagedMd.length > 0) {
+    const arityHits = checkTableArity(stagedMd);
+    if (arityHits.length > 0) {
+      messages.push(formatTableArityViolations(arityHits));
       exitCode = 1;
     }
   }

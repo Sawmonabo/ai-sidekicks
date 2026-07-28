@@ -214,12 +214,12 @@ Session events carry two timestamps: `occurred_at` (RFC 3339 wall-clock UTC) for
 Daemon startup runs a platform-appropriate NTP-sync probe before accepting mutable writes. The platform matrix:
 
 | Platform | Command | Pass Condition |
-| --- | --- | --- | --- |
+| --- | --- | --- |
 | Linux (systemd) | `timedatectl show --property=NTPSynchronized --value` | stdout is `yes` |
 | Linux (chrony, no systemd) | `chronyc tracking` | `Leap status` is `Normal` (not `Not synchronised`) |
 | Windows | `w32tm /query /status /verbose` | `Last Sync Error == 0` AND `Stratum < 16` AND `Source != "Local CMOS Clock"` |
 | macOS | `systemsetup -getusingnetworktime` + `sntp -sS time.apple.com` | `getusingnetworktime` returns `On` AND `sntp` offset within ±500 ms |
-| Container | Probe the host, not the container | via `--ntp-sync-status-override=<env | file>` or host D-Bus socket mount |
+| Container | Probe the host, not the container | via `--ntp-sync-status-override=<env \| file>` or host D-Bus socket mount |
 
 The Linux `NTPSynchronized` property reads the kernel `adjtimex(2)` flag via the `org.freedesktop.timedate1` D-Bus interface and is authoritative regardless of which daemon (timesyncd, chrony, ntpd) maintains sync ([man.archlinux.org/man/core/systemd/org.freedesktop.timedate1.5.en](https://man.archlinux.org/man/core/systemd/org.freedesktop.timedate1.5.en), fetched 2026-04-19). Windows parses multiple fields because no single boolean exists ([learn.microsoft.com/en-us/windows-server/networking/windows-time-service/windows-time-service-tools-and-settings](https://learn.microsoft.com/en-us/windows-server/networking/windows-time-service/windows-time-service-tools-and-settings), page dated 2025-09-18, fetched 2026-04-19). macOS has no single-boolean equivalent; its probe is explicitly best-effort and may false-negative on recently-restarted hosts before `timed` syncs. Containers inherit the host kernel clock but typically lack a `timedate1` D-Bus service, so detection must be hoisted out of the container — the override env var/path is the sanctioned escape hatch.
 
