@@ -1765,16 +1765,28 @@ test("preflight --survey --enforce-cites <plan>: still rejects an extra position
   assert.match(run.stderr, /runs alone/);
 });
 
-// ---------- intra-plan coverage: markers outside every survey unit ----------
+// ---------- intra-plan coverage: markers outside every phase section ----------
 //
 // `N/M plan(s) cite-swept, 0 uncovered` counts PLANS, and a plan counts as swept
-// the moment ONE survey unit exists. Units are phase sections, so a bold cite
-// marker under a non-`Phase` `###` heading sits inside a counted plan and outside
-// every unit — never screened, yet reported as covered. The whole-document
-// fallback cannot rescue it: that fires only at `surveyUnits.length === 0`, so a
-// single `### Phase N` heading pins the plan to the per-phase path permanently.
-// Counting the residual is what keeps the plan-level number from being read as
-// marker-level coverage.
+// the moment ONE survey unit exists. Units were once phase sections ONLY, so a
+// bold cite marker under a non-`Phase` `###` heading sat inside a counted plan
+// and outside every unit — never screened, yet reported as covered. That is
+// CAT-10: a gate reporting clean over work it did not do. The whole-document
+// fallback cannot rescue it either — that fires only at `surveyUnits.length === 0`,
+// so a single `### Phase N` heading pins the plan to the per-phase path forever.
+//
+// The complement path closes it: phase spans and their set-difference partition
+// the plan source, so every marker now lands in some unit and IS screened. The
+// discriminator is POSITION, not heading shape — deriving the complement by
+// subtraction rather than by matching a heading grammar is what makes it
+// exhaustive against the next spelling nobody predicted.
+//
+// This test pins BOTH directions, because either alone is satisfiable by a
+// no-op: that the complement's markers really are screened (phantom cites in
+// the out-of-phase block DO raise anomalies), and that a phase-only screen
+// provably CANNOT reach them (the markers lie outside every phase span). The
+// printed `complement` count is the screen's must-not-be-zero denominator —
+// without it a complement regressed to a no-op reads exactly like a clean run.
 
 // Mirrors the real Plan-025 layout: the carve-out sections sit BEFORE the only
 // `### Phase N` heading. Ordering is load-bearing — `extractPhaseSection` runs a
@@ -1798,36 +1810,61 @@ const PARTIALLY_SWEPT_PLAN = `### Tier-7 Remainder — carve-out narrative
   - **Verifies invariant:** Spec-050 §Framing (V1 Pairwise)
 `;
 
-test("surveyCorpus: bold markers outside every survey unit are COUNTED, not implied covered", () => {
+test("surveyCorpus: bold markers outside every phase section ARE screened via the complement", () => {
   const tmp = makeFixtureCorpus({ "065-partially-swept.md": PARTIALLY_SWEPT_PLAN });
   try {
     const survey = surveyCorpus({ repoRoot: tmp });
-    const entry = survey.unsweptMarkerPlans.find((p) => p.name === "065-partially-swept.md");
+
+    // DIRECTION 1 — the complement really screens. The out-of-phase block cites
+    // a nonexistent spec; if those markers are reached, that phantom surfaces.
+    // This is the assertion the pre-complement gate failed: it returned clean
+    // over a block holding two unresolvable cites.
+    const phantoms = survey.citeAnomalies.filter((a) => a.includes("Spec-999"));
+    assert.ok(
+      phantoms.length > 0,
+      `expected the complement screen to surface the out-of-phase Spec-999 phantoms, got none. ` +
+        `All anomalies: ${JSON.stringify(survey.citeAnomalies)}`,
+    );
+
+    // DIRECTION 2 — negative control. A phase-only screen provably cannot reach
+    // them: the markers sit outside every phase span, so their being surfaced
+    // above is attributable to the complement and to nothing else. Without this
+    // half, direction 1 would also pass if the markers had silently migrated
+    // into a phase section.
+    const phaseOne = extractPhaseSection(PARTIALLY_SWEPT_PLAN, 1);
+    assert.ok(phaseOne, "fixture must expose a locatable Phase 1 span");
+    assert.ok(
+      !phaseOne.includes("Spec-999"),
+      "fixture invariant broken: the phantom cites must lie OUTSIDE Phase 1, " +
+        "otherwise the phase path alone would surface them and the complement is untested",
+    );
+
+    // The screen's must-not-be-zero denominator: 2 of the plan's 4 markers were
+    // screened through 1 complement unit. A complement that regressed to a no-op
+    // would zero this while every other line of output stayed identical.
+    const entry = survey.complementMarkerPlans.find((p) => p.name === "065-partially-swept.md");
     assert.ok(
       entry,
-      `expected an unswept-marker entry, got ${JSON.stringify(survey.unsweptMarkerPlans)}`,
+      `expected a complement-screened entry, got ${JSON.stringify(survey.complementMarkerPlans)}`,
     );
     assert.equal(entry.total, 4);
-    assert.equal(entry.unswept, 2);
+    assert.equal(entry.complement, 2);
+    assert.equal(entry.units, 1);
 
-    // The plan still reports as fully covered at PLAN granularity — that is the
-    // over-claim the printed residual exists to qualify, so both must be true.
+    // Plan-granular coverage still reads 1/1 — but it is no longer an over-claim,
+    // because the complement line below it discloses the marker-level denominator
+    // the plan count cannot express.
     const text = formatSurvey(survey);
     assert.match(text, /coverage: 1\/1 plan\(s\) cite-swept, 0 uncovered/);
     assert.match(
       text,
-      /cite markers OUTSIDE every survey unit — counted as swept, never screened \(1 plan\(s\), 2 marker\(s\)\)/,
+      /Gate-4 markers OUTSIDE every `### Phase N` section — screened via the complement path \(1 plan\(s\), 2 marker\(s\)\)/,
     );
-    assert.match(text, /065-partially-swept\.md: 2 of 4 bold marker\(s\) outside every/);
+    assert.match(text, /065-partially-swept\.md: 2 of 4 marker\(s\) in 1 complement unit\(s\)/);
 
-    // The unswept markers cite a nonexistent spec; the screen never reaches
-    // them, which is precisely why the count has to be printed. Pinning this
-    // keeps the test honest about what the residual means: the phantom cites
-    // in the unswept block produce NO anomaly.
-    assert.deepEqual(
-      survey.citeAnomalies.filter((a) => a.includes("Spec-999")),
-      [],
-    );
+    // Phase spans and their complement PARTITION the source, so nothing may be
+    // left over. A non-empty unswept residual means the partition leaked.
+    assert.deepEqual(survey.unsweptMarkerPlans ?? [], []);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
