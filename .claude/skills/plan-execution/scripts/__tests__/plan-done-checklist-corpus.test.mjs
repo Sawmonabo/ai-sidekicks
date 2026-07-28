@@ -52,6 +52,13 @@ const PLANS_DIR = join(REPO_ROOT, "docs/plans");
 // instead of passing on a heading nobody meant.
 const DONE_CHECKLIST_HEADING = /^ {0,3}(#{1,6})[ \t]+Done Checklist[ \t]*$/;
 
+// Any ATX heading, used to detect the end of a blockquote. Tested against the
+// RAW line, which is what makes it mean "an UNQUOTED heading": a line carrying
+// a blockquote prefix has `>` before the `#` and cannot match. No separate
+// unquoted check is needed, and adding one would be redundant rather than
+// defensive.
+const ATX_HEADING = /^ {0,3}#{1,6}(?:[ \t]|$)/;
+
 // The one legal level. Named rather than repeated so a condition and the
 // failure message explaining it can never disagree — a perturbation control
 // caught them drifting apart while this suite was being written.
@@ -104,6 +111,7 @@ function findDoneChecklistHeadings(source) {
   const headings = [];
   const hidden = [];
   let openFence = null;
+  let fenceOpenedInQuote = false;
   let inComment = false;
 
   const lines = source.split("\n");
@@ -111,6 +119,30 @@ function findDoneChecklistHeadings(source) {
     const line = lines[index];
     const lineNumber = index + 1;
     const commentOpenAtLineStart = inComment;
+
+    // A blockquote ends at the first line that cannot continue it, and an ATX
+    // heading never can — CommonMark lazy continuation covers paragraph text
+    // only. So an unquoted heading ends the quote AND closes any fence opened
+    // inside it, making the heading itself real. Without this, one unclosed
+    // quoted fence hides every heading after it: a duplicate `## Done
+    // Checklist` would go unseen and this suite would report clean, which is
+    // the direction that fails silently.
+    //
+    // The deliberate boundary, stated because it is a judgement and not a
+    // derivation: a bare `## Done Checklist` written inside a quoted fence as
+    // EXAMPLE prose also counts here. The blockquote has ended by that line, so
+    // every renderer shows it as a real heading too. Accepted failure class —
+    // an author whose example was not quoted gets a real heading. Refused
+    // failure class — a genuine duplicate goes unseen. Quoted example headings
+    // (`> ## …`) stay hidden on either reading; the controls pin both.
+    //
+    // Scoped to a fence opened INSIDE a quote: an ordinary unquoted fence must
+    // keep hiding the headings in it, which is the control directly below.
+    if (openFence !== null && fenceOpenedInQuote && ATX_HEADING.test(line)) {
+      openFence = null;
+      fenceOpenedInQuote = false;
+    }
+
     const inFenceAtLineStart = openFence !== null;
 
     const match = DONE_CHECKLIST_HEADING.exec(line);
@@ -127,7 +159,10 @@ function findDoneChecklistHeadings(source) {
     // unquoted one does. The heading test above stays on the RAW line, so
     // `> ## quoted` is still correctly not a heading.
     if (!commentOpenAtLineStart) {
-      ({ openFence } = advanceFenceState(stripBlockquotePrefix(line), openFence));
+      const stripped = stripBlockquotePrefix(line);
+      ({ openFence } = advanceFenceState(stripped, openFence));
+      if (!inFenceAtLineStart && openFence !== null) fenceOpenedInQuote = stripped !== line;
+      if (openFence === null) fenceOpenedInQuote = false;
     }
     // Fenced code cannot open an HTML comment.
     if (!inFenceAtLineStart) inComment = advanceCommentState(line, inComment);
@@ -195,6 +230,44 @@ test("control: a backtick info string containing a backtick opens no fence", () 
     ["# Plan-099", "", "```ts`x", "", "## Done Checklist", ""].join("\n"),
   );
   assert.equal(headings.length, 1);
+  assert.equal(headings[0].level, 2);
+});
+
+test("control: an unclosed quoted fence does not hide the heading that follows it", () => {
+  // The false-clean this file's fence handling used to carry. The quoted fence
+  // is never closed, so a flat tracker keeps it open past the blockquote and
+  // swallows every later heading — including a duplicate, which is exactly what
+  // this suite exists to catch.
+  const { headings, hidden } = findDoneChecklistHeadings(
+    ["# Plan-099", "", "> ```md", "> ## quoted example", "", "## Done Checklist", ""].join("\n"),
+  );
+  assert.equal(headings.length, 1, "the unquoted heading ends the blockquote and is real");
+  assert.equal(headings[0].level, 2);
+  assert.equal(hidden.length, 0);
+});
+
+test("control: the chosen boundary — an unquoted heading inside a quoted fence COUNTS", () => {
+  // The deliberate deviation, pinned so it is a decision rather than a
+  // side effect. An author may have meant this as example content; CommonMark
+  // and every renderer disagree, because the unquoted heading terminates the
+  // blockquote and the fence inside it. Flipping this expectation is a
+  // deliberate re-ruling, not a bug fix — see findDoneChecklistHeadings.
+  const { headings } = findDoneChecklistHeadings(
+    ["# Plan-099", "", "> ```md", "## Done Checklist", "> ```", ""].join("\n"),
+  );
+  assert.equal(headings.length, 1);
+  assert.equal(headings[0].level, 2);
+});
+
+test("control: a QUOTED example heading inside a quoted fence stays hidden", () => {
+  // The complement of the boundary above: the shape an author who quoted the
+  // whole example actually writes must still not count.
+  const { headings } = findDoneChecklistHeadings(
+    ["# Plan-099", "", "> ```md", "> ## Done Checklist", "> ```", "", "## Done Checklist", ""].join(
+      "\n",
+    ),
+  );
+  assert.equal(headings.length, 1, "only the real heading counts, not the quoted example");
   assert.equal(headings[0].level, 2);
 });
 
