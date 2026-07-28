@@ -107,8 +107,10 @@ function statIsFile(p: string): boolean {
 // files, not ours, so cite-target-existence's missing-target check would
 // generate false positives on path-shapes that happen to coincide with our
 // own. path-canonical-ripple has its own per-entry scope/exclude in the
-// registry and is unaffected.
-const PER_FILE_CHECK_EXCLUDED_PREFIXES = ["docs/archive/", "docs/reference/"];
+// registry and is unaffected. Exported so the measurement harness
+// (harness/measure-table-recognition.ts) enumerates the SAME enforced
+// population instead of maintaining a drift-prone local copy.
+export const PER_FILE_CHECK_EXCLUDED_PREFIXES: string[] = ["docs/archive/", "docs/reference/"];
 
 function isInGovernanceCorpus(p: string): boolean {
   return !PER_FILE_CHECK_EXCLUDED_PREFIXES.some((prefix) => p.startsWith(prefix));
