@@ -72,7 +72,8 @@ pre-commit:
               fi
 
           # Doc-corpus regression checks (extends ADR-023 §Axis 2 pre-commit chain).
-          # Staged-impact-only to stay under the <1s typical / <5s p99 latency budget.
+          # Staged-impact-only to stay inside the <5s p99 latency budget (current
+          # end-to-end measurement: ~2.3s p50 — see the header comment).
           # Full-repo sweep runs in CI (.github/workflows/docs-corpus.yml).
           # See docs/operations/failure-mode-catalog.md for the catalog these enforce.
           - name: docs-anchor-check
