@@ -3305,7 +3305,24 @@ export const G4_GRAMMAR_DEMOTE_KINDS = new Set([
 
 export function gateTasksBlockCites(phaseSection, planNumber, phaseNumber, opts = {}) {
   const counts = countCites(phaseSection);
-  if (!(counts.spec_coverage > 0 && counts.verifies_invariant > 0)) {
+  // Marker floor. The DISPATCH path requires BOTH sides: a phase's `#### Tasks`
+  // block carrying one marker is a partial audit, and "audit has not run" is
+  // the correct read — that arm stays byte-identical.
+  //
+  // A COMPLEMENT has no audit output, so the pair requirement is not just
+  // unnecessary there, it is a false-clean generator: an out-of-phase block
+  // holding only `**Spec coverage:** Spec-999 §Missing` failed the AND, took
+  // this early return, and its anchors were never handed to extractCiteAnchors
+  // — zero findings, while the report counted that marker as screened. That is
+  // the exact CAT-10 shape this screen was built to close, reproduced inside
+  // it (Codex P1, PR #262 round 1; confirmed by probe against a negative
+  // control that fires on the same cite when a second marker sits beside it).
+  // So complements verify whatever anchors are present: ANY marker is enough.
+  const hasMarkerFloor =
+    opts.requireBothMarkers === false
+      ? counts.spec_coverage > 0 || counts.verifies_invariant > 0
+      : counts.spec_coverage > 0 && counts.verifies_invariant > 0;
+  if (!hasMarkerFloor) {
     return {
       ok: false,
       // No Spec-coverage / Verifies-invariant markers at all — the audit has
@@ -5156,7 +5173,13 @@ export function surveyCorpus({
         // skipped — hasCiteMarkers guards that.
         let citeResult;
         try {
-          citeResult = runCiteGate(section, name.slice(0, 3), label, { repoRoot });
+          citeResult = runCiteGate(section, name.slice(0, 3), label, {
+            repoRoot,
+            // Complements verify whatever markers they carry; phases still
+            // require the complete pair. See the marker-floor comment in
+            // gateTasksBlockCites for why the asymmetry is load-bearing.
+            requireBothMarkers: !isComplement,
+          });
         } catch (err) {
           // `anomalies`, not `pushCite`. A gate that THREW did not judge cite
           // quality — it failed to run, which is a structural failure of the
@@ -5180,22 +5203,31 @@ export function surveyCorpus({
         // "Spec coverage" prose mention trips neither check. Skipped when the gate
         // threw (that unit already carries a [cite-check-threw] anomaly).
         //
-        // NOT run on complements, and the residual is written down rather than
-        // left implicit: both checks below assert a property of a PHASE's audit
-        // output — that the audit emitted a complete marker PAIR for a
-        // dispatchable phase. A complement has no audit output to be complete or
-        // partial, so a remainder block carrying a lone `**Spec coverage:**`
-        // summary row would be reported as a partial audit that never happened,
-        // through a channel that turns red under --enforce-cites.
+        // The two checks below are split by whether their predicate is about
+        // AUDIT OUTPUT or about EXTRACTOR REACH — they are not interchangeable,
+        // and running both phase-only was the bug (Codex P1, PR #262 round 1).
         //
-        // What that leaves unscreened, stated plainly: marker-pair completeness
-        // and legacy-unbold shape inside complement regions. The cite screen
-        // above verifies every ANCHOR those markers carry — which is the finding
-        // class this change was built to surface and the one it measured — but
-        // it does not check that a complement's Spec-coverage marker has an
-        // invariant marker beside it. Naming that is the point; an assertion
-        // whose scope outruns its predicate is the row this work registers.
-        if (citeResult && !isComplement) {
+        // W4 legacy-unbold asks "does this region hold markers whose anchors the
+        // bold extractor cannot parse?" That question is well-posed anywhere
+        // text carries markers. countCites reads bare substrings, so it counts
+        // unbold markers and clears the floor, while extractCiteAnchors parses
+        // only the bold shape — leaving a region that reads as screened with
+        // nothing actually verified. That false-clean does not care whether the
+        // text sits inside a phase, so W4 runs on EVERY unit, complements
+        // included.
+        //
+        // W3 partial-marker asks "did the audit emit a complete marker PAIR for
+        // a dispatchable phase?" That predicate genuinely has no referent in a
+        // complement — there is no audit output there to be complete or partial
+        // — so a remainder block carrying a lone `**Spec coverage:**` summary
+        // row would be reported as a partial audit that never happened, through
+        // a channel that turns red under --enforce-cites. W3 stays phase-only.
+        //
+        // Residual, stated plainly and now much smaller: marker-PAIR
+        // completeness inside complement regions is deliberately unscreened.
+        // Every anchor a complement marker carries IS verified — one-sided
+        // included, per the marker floor in gateTasksBlockCites.
+        if (citeResult) {
           const markers = classifyPhaseMarkers(section);
           const realSpec = markers.boldSpec + markers.unboldSpec;
           const realInvariant = markers.boldInvariant + markers.unboldInvariant;
@@ -5218,7 +5250,7 @@ export function surveyCorpus({
           // divertable on exempt paths); ANY bold marker in a partial unit is
           // new-grammar authoring that must land the complete pair, so it keeps
           // the always-gating [markers-partial] kind even on an exempt path.
-          if (realSpec > 0 !== realInvariant > 0) {
+          if (!isComplement && realSpec > 0 !== realInvariant > 0) {
             const present = realSpec > 0 ? "Spec coverage" : "Verifies invariant";
             const missing = realSpec > 0 ? "Verifies invariant" : "Spec coverage";
             const boldMarkers = markers.boldSpec + markers.boldInvariant;

@@ -41,6 +41,7 @@ import {
   verifyInlineAnchorFloor,
   walkPhases,
   extractPhaseSection,
+  gateTasksBlockCites,
 } from "../preflight.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -1868,6 +1869,80 @@ test("surveyCorpus: bold markers outside every phase section ARE screened via th
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
+});
+
+// A complement holding exactly ONE Gate-4 field. The pair requirement is right
+// for a phase (one marker = partial audit output) and wrong for a complement,
+// which has no audit output at all — there it silently skipped anchor parsing
+// entirely, so the phantom below was screened by nothing while the report
+// counted its marker as swept. CAT-10 reproduced inside the CAT-10 fix
+// (Codex P1, PR #262 round 1).
+const ONE_SIDED_COMPLEMENT_PLAN = `### Tier-7 Remainder — carve-out narrative
+
+#### Tasks
+
+- **T-R-1 — a task OUTSIDE every phase, carrying ONE field only**
+  - **Spec coverage:** Spec-999 §Nonexistent Section
+
+### Phase 1 — swept work
+
+#### Tasks
+
+- **T1.1 — a task inside a phase section**
+  - **Spec coverage:** Spec-050 §Required Behavior
+  - **Verifies invariant:** Spec-050 §Framing (V1 Pairwise)
+`;
+
+test("surveyCorpus: a ONE-SIDED complement marker still has its anchors verified", () => {
+  const tmp = makeFixtureCorpus({ "067-one-sided-complement.md": ONE_SIDED_COMPLEMENT_PLAN });
+  try {
+    const survey = surveyCorpus({ repoRoot: tmp });
+
+    // The finding class. Before the marker-floor split this was empty: the
+    // both-markers-required guard returned before extractCiteAnchors ran, so a
+    // cite naming a spec that does not exist produced no anomaly and
+    // --enforce-cites exited 0.
+    const phantoms = survey.citeAnomalies.filter((a) => a.includes("Spec-999"));
+    assert.ok(
+      phantoms.length > 0,
+      `a lone **Spec coverage:** marker outside every phase must still have its ` +
+        `anchor verified; got: ${JSON.stringify(survey.citeAnomalies)}`,
+    );
+
+    // The deliberate exclusion, pinned so a later "just run both checks
+    // everywhere" simplification cannot quietly take it. W3 partial-marker
+    // asserts a property of AUDIT OUTPUT, and a complement has none — firing it
+    // here would report a partial audit that never happened.
+    const partial = survey.citeAnomalies.filter((a) => a.includes("markers-partial"));
+    assert.deepEqual(
+      partial,
+      [],
+      `partial-marker is a phase-only predicate; a complement must not be judged ` +
+        `on marker-pair completeness. Got: ${JSON.stringify(partial)}`,
+    );
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("gateTasksBlockCites: the DISPATCH path still requires the complete marker pair", () => {
+  // The other half of the asymmetry. Relaxing the floor for complements must not
+  // relax it for phases — a phase Tasks block carrying one marker is a partial
+  // audit, and "audit has not run" stays the correct dispatch read.
+  const oneSidedPhase = `#### Tasks
+
+- **T1.1 — task**
+  - **Spec coverage:** Spec-050 §Required Behavior
+`;
+
+  const dispatch = gateTasksBlockCites(oneSidedPhase, "050", 1);
+  assert.equal(dispatch.hasCiteMarkers, false, "phase default must keep the pair requirement");
+  assert.deepEqual(dispatch.findings, []);
+
+  // Same input, complement semantics: the lone marker now clears the floor and
+  // its anchors are parsed and judged.
+  const complement = gateTasksBlockCites(oneSidedPhase, "050", 1, { requireBothMarkers: false });
+  assert.equal(complement.hasCiteMarkers, true, "complement must verify whichever markers exist");
 });
 
 test("surveyCorpus: a plan whose markers all sit inside phases reports NO unswept residual", () => {
