@@ -1945,6 +1945,74 @@ test("gateTasksBlockCites: the DISPATCH path still requires the complete marker 
   assert.equal(complement.hasCiteMarkers, true, "complement must verify whichever markers exist");
 });
 
+// The third arm of the same round-1 read. W3 and W4 were both phase-gated; only
+// W3's predicate is phase-only. W4 asks "does this region hold markers whose
+// anchors the bold extractor cannot parse?", which is well-posed anywhere text
+// carries markers — and the false-clean it names is sharper in a complement than
+// in a phase: countCites reads bare substrings, so unbold markers CLEAR the
+// hasCiteMarkers floor, while extractCiteAnchors parses only the bold shape and
+// returns nothing. The region reads as screened with zero anchors verified.
+//
+// No corpus plan carries an out-of-phase unbold marker today, so this path is
+// unreachable from the live tree — which is exactly why it needs a fixture. Left
+// unpinned, a later "just gate both screens the same way" simplification would
+// restore the hole while the corpus and the other two tests stayed green.
+const UNBOLD_COMPLEMENT_PLAN = `### Tier-7 Remainder — legacy inline carve-out
+
+#### Tasks
+
+- **T-R-1 — a task OUTSIDE every phase, in the legacy inline marker style**
+  - Spec coverage: Spec-050 §Required Behavior
+  - Verifies invariant: Spec-050 §Framing (V1 Pairwise)
+
+### Phase 1 — swept work, all markers bold
+
+#### Tasks
+
+- **T1.1 — a task inside a phase section**
+  - **Spec coverage:** Spec-050 §Required Behavior
+  - **Verifies invariant:** Spec-050 §Framing (V1 Pairwise)
+`;
+
+test("surveyCorpus: legacy-unbold markers are screened OUTSIDE phases too", () => {
+  const tmp = makeFixtureCorpus({ "068-unbold-complement.md": UNBOLD_COMPLEMENT_PLAN });
+  try {
+    const survey = surveyCorpus({ repoRoot: tmp });
+
+    const unbold = survey.citeAnomalies.filter((a) => a.includes("legacy-unbold-marker"));
+    assert.equal(
+      unbold.length,
+      1,
+      `the complement's two unbold markers must raise exactly one legacy-unbold ` +
+        `finding; got: ${JSON.stringify(survey.citeAnomalies)}`,
+    );
+
+    // Localized to the complement, not merely present. The phase in this fixture
+    // is all-bold, so a finding attributed to it would mean the screen fired on
+    // the wrong region rather than reaching the newly-covered one.
+    assert.match(unbold[0], /\(outside every phase\)/);
+    assert.match(unbold[0], /2 unbold field marker\(s\)/);
+
+    // And the complement genuinely cleared the marker floor while verifying
+    // nothing — the precise condition that makes W4's reach load-bearing. If
+    // extractCiteAnchors ever learns the unbold shape, this line fails and the
+    // screen's justification needs rewriting rather than silently rotting.
+    const gate = gateTasksBlockCites(extractComplement(UNBOLD_COMPLEMENT_PLAN), "068", 1, {
+      requireBothMarkers: false,
+    });
+    assert.equal(gate.hasCiteMarkers, true, "bare-substring counting clears the floor");
+    assert.deepEqual(gate.findings, [], "yet the bold extractor parses no anchor from it");
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+// The complement region of UNBOLD_COMPLEMENT_PLAN, sliced the way surveyCorpus
+// slices it: everything before the first `### Phase` heading.
+function extractComplement(planSource) {
+  return planSource.slice(0, planSource.indexOf("### Phase 1"));
+}
+
 test("surveyCorpus: a plan whose markers all sit inside phases reports NO unswept residual", () => {
   // Negative control — the counter must key on marker placement, not merely on
   // a plan having more than one `###` heading.
