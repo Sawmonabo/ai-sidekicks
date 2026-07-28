@@ -2771,6 +2771,35 @@ test("survey denominator and unit gates share one content boundary", () => {
   );
 });
 
+test("maskInlineCodeSpans honors escaped backticks — escaped runs never open a span", () => {
+  // CommonMark: `\`` is a literal backtick, so a REAL marker wrapped in escaped
+  // backticks is prose, not a code span. Pairing the escaped runs blanked the
+  // marker out of every counter and let the survey pass without verifying its
+  // anchor (Codex P2, PR #262 round 7).
+  const doc = "- **T1.1 — Row.** \\`**Spec coverage:** Spec-002 AC1\\` escaped rendering.\n";
+  assert.equal(maskInlineCodeSpans(doc), doc, "escaped backticks must not pair");
+  assert.equal(countCites(doc).spec_coverage, 1, "the real marker must still count");
+  // The stray `\`` in the payload keeps this from parsing as a clean anchor —
+  // fine. The invariant is VISIBILITY: the gate extracts it or flags it, and
+  // under escape-blind pairing it did neither (marker blanked, 0 + 0).
+  const { anchors, failures } = extractCiteAnchors(doc);
+  assert.ok(
+    anchors.length + failures.length >= 1,
+    "the marker must be visible to the gate — extracted or flagged, never vanished",
+  );
+});
+
+test("maskInlineCodeSpans does not escape-check closers — no escapes inside spans", () => {
+  // CommonMark: backslash escapes do not work inside code spans, so in
+  // `code\` the trailing backtick CLOSES the span even though a backslash
+  // precedes it; the backslash is span content and is blanked with it.
+  const line = "Span: `code\\` then **Spec coverage:** outside.";
+  const masked = maskInlineCodeSpans(line);
+  assert.equal(masked.length, line.length, "length must be preserved — offsets are load-bearing");
+  assert.ok(!masked.includes("code"), "the span interior including the backslash must be blanked");
+  assert.ok(masked.includes("**Spec coverage:**"), "prose after the closer must survive");
+});
+
 test("maskInlineCodeSpans finds a closer past an unmatched run (no positional pairing)", () => {
   // Runs are [2, 1, 1]. Pairing off two at a time compares (2,1), skips BOTH on
   // the length mismatch, and leaves the REAL span at (1,2) unmasked — so its

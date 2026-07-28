@@ -450,14 +450,41 @@ export function maskInlineCodeSpans(text) {
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
     const line = lines[lineIndex];
     if (!line.includes("`")) continue;
-    const runs = [...line.matchAll(/`+/g)];
+    // Two CommonMark escaping rules bound what counts as a delimiter (Codex
+    // P2, PR #262 round 7):
+    //   1. A backslash-escaped backtick is literal, so it cannot OPEN a span.
+    //      `\`**Spec coverage:** ...\`` is prose around a real marker — pairing
+    //      those escaped runs blanked the marker out of every counter and let
+    //      --survey --enforce-cites pass without verifying its anchor.
+    //   2. Backslash escapes do not work INSIDE code spans, so a closer is
+    //      never escape-checked: in `` `a\` `` the second backtick closes.
+    // An odd number of preceding backslashes escapes the run's first backtick
+    // only; the remainder still forms a (shorter) run for opener purposes.
+    const runs = [...line.matchAll(/`+/g)].map((match) => {
+      let backslashes = 0;
+      for (let at = match.index - 1; at >= 0 && line[at] === "\\"; at -= 1) backslashes += 1;
+      const escapedFirst = backslashes % 2 === 1;
+      return {
+        index: match.index,
+        length: match[0].length,
+        openIndex: match.index + (escapedFirst ? 1 : 0),
+        openLength: match[0].length - (escapedFirst ? 1 : 0),
+      };
+    });
     let masked = line;
     let runIndex = 0;
     while (runIndex < runs.length) {
       const open = runs[runIndex];
+      if (open.openLength === 0) {
+        // Fully escaped: literal backtick, never an opener. It remains a
+        // valid CLOSER candidate for earlier openers via its raw length.
+        runIndex += 1;
+        continue;
+      }
       let closeIndex = -1;
       for (let candidate = runIndex + 1; candidate < runs.length; candidate += 1) {
-        if (runs[candidate][0].length === open[0].length) {
+        // Raw length on the closer side — rule 2 above.
+        if (runs[candidate].length === open.openLength) {
           closeIndex = candidate;
           break;
         }
@@ -468,7 +495,7 @@ export function maskInlineCodeSpans(text) {
         runIndex += 1;
         continue;
       }
-      const from = open.index + open[0].length;
+      const from = open.openIndex + open.openLength;
       const to = runs[closeIndex].index;
       masked = masked.slice(0, from) + " ".repeat(to - from) + masked.slice(to);
       runIndex = closeIndex + 1;
@@ -901,6 +928,20 @@ export const TASK_ID_SHAPE = String.raw`T(?=[-\d])[-a-zA-Z0-9.]+`;
 // This recognizer must only ever see CONTENT: `extractTasksBlock` masks fenced
 // and raw-HTML regions out of its input, so a fenced example row reaches
 // neither consumer. Feeding it raw text re-opens that hole.
+//
+// KNOWN, MEASURED LIMIT of that content boundary: CommonMark INDENTED code
+// blocks (4-space/tab) are not modeled, so a task-shaped row inside one would
+// be recognized as a declaration (Codex P2, PR #262 round 7). Declined here
+// with measurement: the corpus holds ZERO task-shaped rows at >=4-space indent
+// in ANY role — no illustrations to screen and no real declarations to
+// protect. Every local fix trades worse: capping recognizer indent at <=3
+// splits "what is a task row" between this parser and the omission oracle
+// (the divergent-copies fork the shared recognizer exists to prevent), and
+// masking indented chunks without tracking list context blanks legitimate
+// list-item continuations. Correct handling needs a real CommonMark
+// tokenizer at the content boundary — owned by the gate-hardening sweep's
+// fence-tracker unification, where fences, inline spans, escaping, and
+// indented code become one tokenizer instead of four hand-rolled layers.
 export function taskHeaderMatches(text) {
   return [
     ...text.matchAll(new RegExp(String.raw`^#####\s+(${TASK_ID_SHAPE})\b`, "gm")),
