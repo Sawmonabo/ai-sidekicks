@@ -424,6 +424,125 @@ function maskNonContentLines(text) {
   return masked.join("\n");
 }
 
+// Blank the INTERIOR of every same-line inline code span, preserving byte
+// length for the same offset-stability reason as maskNonContentLines.
+//
+// maskNonContentLines is LINE-granular by construction — structuralScanConsumes
+// reports "this whole line is a structural region", which is the right shape
+// for fences, raw-HTML blocks and MULTI-line spans. A span that opens and
+// closes on one line is sub-line: blanking the line would take real prose with
+// it, so it is masked here instead, at span granularity.
+//
+// The delimiters themselves are left in place; only the bytes between an
+// opening run and its closer are blanked. A run with no closer is prose — a
+// lone backtick does not open a span that swallows the rest of the line.
+//
+// Closers are found by SEARCHING FORWARD for the next run of equal length, per
+// CommonMark, not by pairing runs off two at a time. Positional pairing is
+// wrong whenever a line holds an unmatched run before a real span: in
+// "Use `` for empty, and `**Spec coverage:**` here." the runs are [2, 1, 1],
+// positional pairing compares (2,1), skips BOTH on the length mismatch, and
+// leaves the genuine span at (1,2) unmasked — so the marker inside it counts as
+// audit output. That fails OPEN, the same direction as the hole this masker
+// exists to close.
+//
+// KNOWN, MEASURED LIMIT: spans are masked per LINE by design, but CommonMark
+// inline code spans can cross line boundaries inside a paragraph, so a marker
+// on a multiline span's opening line stays visible to the counters and the
+// extractor (Codex P2, PR #262 round 8). Declined with measurement: the
+// corpus holds ZERO multiline inline spans (58 plan+spec files, paragraph-
+// scoped residual-parity scan) — and the miss is LOUD, not silent: an
+// illustrated marker on such a line draws a spurious verification failure
+// under --enforce-cites rather than passing anything unverified. Sub-line
+// span state across lines is inline tokenization — owned by the
+// gate-hardening sweep's fence-tracker unification, alongside CommonMark
+// indented code (see the matching note at taskHeaderMatches).
+export function maskInlineCodeSpans(text) {
+  const lines = text.split("\n");
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const line = lines[lineIndex];
+    if (!line.includes("`")) continue;
+    // Two CommonMark escaping rules bound what counts as a delimiter (Codex
+    // P2, PR #262 round 7):
+    //   1. A backslash-escaped backtick is literal, so it cannot OPEN a span.
+    //      `\`**Spec coverage:** ...\`` is prose around a real marker — pairing
+    //      those escaped runs blanked the marker out of every counter and let
+    //      --survey --enforce-cites pass without verifying its anchor.
+    //   2. Backslash escapes do not work INSIDE code spans, so a closer is
+    //      never escape-checked: in `` `a\` `` the second backtick closes.
+    // An odd number of preceding backslashes escapes the run's first backtick
+    // only; the remainder still forms a (shorter) run for opener purposes.
+    const runs = [...line.matchAll(/`+/g)].map((match) => {
+      let backslashes = 0;
+      for (let at = match.index - 1; at >= 0 && line[at] === "\\"; at -= 1) backslashes += 1;
+      const escapedFirst = backslashes % 2 === 1;
+      return {
+        index: match.index,
+        length: match[0].length,
+        openIndex: match.index + (escapedFirst ? 1 : 0),
+        openLength: match[0].length - (escapedFirst ? 1 : 0),
+      };
+    });
+    let masked = line;
+    let runIndex = 0;
+    while (runIndex < runs.length) {
+      const open = runs[runIndex];
+      if (open.openLength === 0) {
+        // Fully escaped: literal backtick, never an opener. It remains a
+        // valid CLOSER candidate for earlier openers via its raw length.
+        runIndex += 1;
+        continue;
+      }
+      let closeIndex = -1;
+      for (let candidate = runIndex + 1; candidate < runs.length; candidate += 1) {
+        // Raw length on the closer side — rule 2 above.
+        if (runs[candidate].length === open.openLength) {
+          closeIndex = candidate;
+          break;
+        }
+      }
+      if (closeIndex === -1) {
+        // No closer of matching length: this run is literal. Advance by ONE so
+        // the runs after it are still considered as openers.
+        runIndex += 1;
+        continue;
+      }
+      const from = open.openIndex + open.openLength;
+      const to = runs[closeIndex].index;
+      masked = masked.slice(0, from) + " ".repeat(to - from) + masked.slice(to);
+      runIndex = closeIndex + 1;
+    }
+    lines[lineIndex] = masked;
+  }
+  return lines.join("\n");
+}
+
+// The CITE content boundary: what counts as audit output for cite screening.
+// One definition, three consumers (countCites, classifyPhaseMarkers,
+// extractCiteAnchors) — settled in one place for the same reason round 4
+// masked the INPUT to extractTasksBlock rather than its three call sites: a
+// consumer holding a different view of which bytes are content is how a gate
+// reports clean over work it did not do.
+//
+// A marker inside an inline code span is illustration. Prose reading "write
+// `**Spec coverage:** Spec-001 §Goals`" was previously EXTRACTED and VERIFIED:
+// the example resolved against real spec files and reported clean, and a unit
+// whose only markers were illustrations passed the floor as audited (Codex P2,
+// PR #262 round 5). The fenced-block form of exactly this argument is at
+// maskNonContentLines; a same-line span renders as code for the same reason.
+//
+// Measured across every phase and complement unit in the live corpus (walking
+// `### Phase` headings directly — both walkPhases and the integer
+// extractPhaseSection walk are blind to R-remainder and supplement labels, so
+// neither is a safe denominator here): ZERO units flip the floor they are
+// actually evaluated under. Eight units' raw counts move and four complements'
+// STRICT floor would flip, but complements are screened on the relaxed arm by
+// construction (`requireBothMarkers: false`), and no PHASE unit moves either
+// floor. Re-run that measurement before narrowing or widening this boundary.
+export function maskCiteContent(text) {
+  return maskInlineCodeSpans(maskNonContentLines(text));
+}
+
 // Byte offset within `body` of the first `### Phase N` / `## ` heading that
 // sits OUTSIDE any fenced code block or multi-line HTML comment, or -1 if
 // none. Split out of extractPhaseSection so the structural state machine is
@@ -458,7 +577,7 @@ export function findSectionBoundary(body) {
 // example's markers reaching it is what makes an unaudited phase read as
 // audited (Codex P2, PR #260 round 2).
 export function countCites(phaseSection) {
-  const scanned = maskNonContentLines(phaseSection);
+  const scanned = maskCiteContent(phaseSection);
   return {
     spec_coverage: (scanned.match(/Spec coverage/g) || []).length,
     verifies_invariant: (scanned.match(/Verifies invariant/g) || []).length,
@@ -478,9 +597,9 @@ export function countCites(phaseSection) {
 // present) and legacy-unbold (marker the bold extractor can't verify) classes.
 export function classifyPhaseMarkers(phaseSection) {
   const counts = { boldSpec: 0, boldInvariant: 0, unboldSpec: 0, unboldInvariant: 0 };
-  // Fence-masked for the same reason as countCites: an example block is not
-  // audit output, and this classifier feeds the partial/unbold marker screens.
-  const scanned = maskNonContentLines(phaseSection);
+  // Masked for the same reason as countCites: an example is not audit output,
+  // and this classifier feeds the partial/unbold marker screens.
+  const scanned = maskCiteContent(phaseSection);
   const boldMarker = /\*\*(Spec coverage|Verifies invariant):\*\*/g;
   for (const match of scanned.matchAll(boldMarker)) {
     if (match[1] === "Spec coverage") counts.boldSpec += 1;
@@ -725,45 +844,131 @@ export function extractAdrStatus(source) {
 // both slice the same region without re-implementing the heading boundary
 // logic.
 export function extractTasksBlock(phaseSection) {
+  // Fenced examples are ILLUSTRATION, not declared work. A ```markdown block
+  // demonstrating the Tasks-row shape (`- **T9.9 — illustrative row**`) is read
+  // by every consumer below as a real declared task, and each one fails in a
+  // different direction: Gate 3's set-comparison sees a phantom id that will
+  // never ship, so a fully-shipped phase reads unshipped and the auto-walk
+  // re-enters completed work; `classifyPhaseSize` counts it, moving an S phase
+  // to M and demoting G4 grammar findings; and the substrate_exempt resolver
+  // halts on a `Spec coverage: [...]` cite that exists only inside the example.
+  // The survey oracle could not catch any of it — it scanned the same raw text
+  // and agreed (Codex P2, PR #262 round 4).
+  //
+  // Masking here rather than at the three call sites is deliberate: this is the
+  // one place that decides what text IS the Tasks block, so the content
+  // boundary is settled once and no consumer can hold a different view of it.
+  // The oracle's independence is a claim about the ROW-SHAPE recognizer, not
+  // about which bytes are content — sharing this boundary is what stops the
+  // oracle from reporting a phantom row the extractor is right to skip.
+  //
+  // Masking the INPUT, not the sliced blocks: maskNonContentLines starts its
+  // fence tracker closed, and a phase section always begins at a fence-closed
+  // point (findSectionBoundary is fence-aware), so parity holds. Masking the
+  // joined blocks instead would start the tracker mid-document and invert the
+  // parity of every fence inside them.
+  //
+  // Measured against the live corpus: masking changes ZERO declared-id sets,
+  // ZERO block-presence verdicts, and ZERO oracle rows across every phase
+  // carrying a Tasks block. Both directions were checked — no real row is
+  // masked away either, because a task row indented under a bullet is not a
+  // structural region (the scanner consumes fences, raw-HTML blocks, and
+  // multi-line code spans; a 2-space list indent is none of those).
+  const scanned = maskNonContentLines(phaseSection);
   // A phase's declared tasks are the UNION of all its `#### Tasks` blocks —
   // refinement-lane phases (Plan-007 Phase 3, Plan-008 Phase 1) carry a second
   // block, and reading only the first made its task ids invisible to Gate 3:
   // the phase could read fully_shipped while lane tasks were still pending
   // (same class as the Codex P1 on PR #190; found by the omission survey).
-  const blocks = [
-    ...phaseSection.matchAll(/####\s*Tasks\s*\n([\s\S]*?)(?=\n####\s|\n###\s|$)/g),
-  ].map((m) => m[1]);
+  const blocks = [...scanned.matchAll(/####\s*Tasks\s*\n([\s\S]*?)(?=\n####\s|\n###\s|$)/g)].map(
+    (m) => m[1],
+  );
   return blocks.length ? blocks.join("\n") : null;
 }
 
-// Extract declared task ids from a phase's `#### Tasks` block. Returns a
-// sorted unique array. Handles both audit-Tasks-block layouts:
-//   Pattern A: sub-header form     `##### T1.1 — title`
-//   Pattern B: bullet+bold inline  `- **T-007p-1-1** (Files: ...)`
-// Both patterns coexist across the corpus (Plan-001 phases use A;
-// Plan-007 partial phases use B); the audit runbook treats them as
-// equivalent and Gate 3's set-comparison must accept both.
+// The corpus's task-header spellings, defined ONCE. Two independent copies of
+// this recognizer already drifted: Gate 3's declared-id extractor was hardened
+// on PR #190 to accept every shape, while the cite-attribution copy kept the
+// narrow `**id**` form and silently mis-labeled findings under 241 headers
+// across 12 plans (220 of them in-phase). A single definition is the only thing
+// that stops "what counts as a task row" from forking again.
+//
+// (?=[-\d]) pins the task-id SHAPE: a digit (T1.1) or hyphen (T-100-1.1) must
+// follow T — otherwise prose bolds/headings starting with T ("Tests:",
+// "Testing") phantom-match. A phantom declared id makes Gate 3 see the phase as
+// never fully shipped (auto-walk re-enters shipped work — Codex P1, PR #190,
+// reproduced on Plan-003 Phase 1).
+export const TASK_ID_SHAPE = String.raw`T(?=[-\d])[-a-zA-Z0-9.]+`;
+
+// Both audit-Tasks-block layouts, every observed spelling:
+//   A. sub-header     `##### T1.1 — title`
+//   B. bullet + bold  `- **T-007p-1-1** (Files: …)`      bold closes after id
+//                     `- **T1.1 — title**`               title INSIDE the bold
+//                     `- [ ] **T21.1-1 — …**`            GFM checkbox
+//                     `  - **T-007r-3-15 (slice a) …**`  indented sub-slice
+//
+// No closing-`**` tail is required: titles containing a literal `*` (Plan-009
+// `repo.*`, Plan-018 `participant.*`, Plan-022 `gdpr.*`) broke a `[^*\n]*\*\*`
+// tail, and the omitted id let Gate 3 mark a phase fully shipped with work
+// still pending (Codex P1, PR #190).
+//
+// Indent tolerance is shared deliberately: it was measured corpus-neutral —
+// across every phase carrying a `#### Tasks` block it adds ZERO declared ids —
+// so both consumers can hold one anchor without moving any Gate-3 verdict.
+// Widening this pattern widens a GATING path, not just a diagnostic one;
+// `extractDeclaredTaskIds` feeds `classifyPhaseSize`, which demotes G4 grammar
+// findings for S/M phases. Re-run that corpus measurement before loosening it.
+//
+// State no phase COUNT here. Every walk in this file disagrees about how many
+// phases exist — `walkPhases` and the integer `extractPhaseSection` walk are
+// both blind to R-remainder and supplement labels (`### Phase R3`), so a
+// maintainer re-measuring via the production path lands on a different number
+// and reads it as drift. The quantifier is what carries the claim; a
+// denominator nothing reproduces only decorates it.
+//
+// The indented alternative admits nested rows whose bold closes immediately
+// after the id (`  - **T9.9** is a prerequisite`), which is a REFERENCE, not a
+// declaration. That shape is not separable here: 175 live column-0
+// declarations across Plan-005/007/008/023/024/025 use exactly it
+// (`- **T1.1** — Author the interface`), so rejecting on bold-close position
+// would drop real declarations — a missed declaration reads as a phase shipped
+// prematurely, which fails OPEN. Closing it needs a POSITIVE discriminator
+// (the row carries task metadata: `(Files:`, `**Files:**`), measured on its
+// own; zero live instances today (Codex P2, PR #262 round 5, declined with
+// measurement).
+//
+// This recognizer must only ever see CONTENT: `extractTasksBlock` masks fenced
+// and raw-HTML regions out of its input, so a fenced example row reaches
+// neither consumer. Feeding it raw text re-opens that hole.
+//
+// KNOWN, MEASURED LIMIT of that content boundary: CommonMark INDENTED code
+// blocks (4-space/tab) are not modeled, so a task-shaped row inside one would
+// be recognized as a declaration (Codex P2, PR #262 round 7). Declined here
+// with measurement: the corpus holds ZERO task-shaped rows at >=4-space indent
+// in ANY role — no illustrations to screen and no real declarations to
+// protect. Every local fix trades worse: capping recognizer indent at <=3
+// splits "what is a task row" between this parser and the omission oracle
+// (the divergent-copies fork the shared recognizer exists to prevent), and
+// masking indented chunks without tracking list context blanks legitimate
+// list-item continuations. Correct handling needs a real CommonMark
+// tokenizer at the content boundary — owned by the gate-hardening sweep's
+// fence-tracker unification, where fences, inline spans, escaping, and
+// indented code become one tokenizer instead of four hand-rolled layers.
+export function taskHeaderMatches(text) {
+  return [
+    ...text.matchAll(new RegExp(String.raw`^#####\s+(${TASK_ID_SHAPE})\b`, "gm")),
+    ...text.matchAll(
+      new RegExp(String.raw`^[ \t]*-\s+(?:\[[ xX]\]\s+)?\*\*(${TASK_ID_SHAPE})\b`, "gm"),
+    ),
+  ];
+}
+
+// Declared task ids for a phase's `#### Tasks` block — sorted, unique.
+// Gate 3's set-comparison treats every spelling above as equivalent.
 export function extractDeclaredTaskIds(phaseSection) {
   const block = extractTasksBlock(phaseSection);
   if (block === null) return [];
-  const ids = new Set();
-  // (?=[-\d]) pins the task-id SHAPE: a digit (T1.1) or hyphen (T-100-1.1)
-  // must follow T — otherwise prose bolds/headings starting with T ("Test",
-  // "Testing") phantom-match, and a phantom declared id makes Gate 3 see the
-  // phase as never fully shipped (auto-walk re-enters shipped work — Codex P1,
-  // PR #190, reproduced on Plan-003 Phase 1).
-  for (const m of block.matchAll(/^#####\s+(T(?=[-\d])[-a-zA-Z0-9.]+)\b/gm)) ids.add(m[1]);
-  // Bullet shapes: `- **T-100-1.1** — title` (bold closes after the id),
-  // `- **T1.1 — title**` (title INSIDE the bold — Plan-009/016), optional GFM
-  // checkbox (`- [ ] **T21.1-1 — …**` — Plan-021). No closing-`**` tail is
-  // required: titles containing a literal `*` (Plan-009 `repo.*`, Plan-018
-  // `participant.*`, Plan-022 `gdpr.*`) broke a `[^*\n]*\*\*` tail and the
-  // omitted id let Gate 3 mark the phase fully shipped while that task was
-  // still pending (Codex P1, PR #190). The top-level-bullet anchor + `**T` +
-  // digit/hyphen lookahead are the guards against prose bolds.
-  for (const m of block.matchAll(/^-\s+(?:\[[ xX]\]\s+)?\*\*(T(?=[-\d])[-a-zA-Z0-9.]+)\b/gm))
-    ids.add(m[1]);
-  return [...ids].sort();
+  return [...new Set(taskHeaderMatches(block).map((m) => m[1]))].sort();
 }
 
 // --- Size classification (design memo §5, 2026-07-06 refinement) ---
@@ -2454,13 +2659,31 @@ export function extractCiteAnchors(phaseSection) {
   const failures = [];
   const targetMarkerRe = /\*\*(Spec coverage|Verifies invariant):\*\*/g;
   const anyMarkerRe = /\*\*[A-Z][\w ]*:\*\*/g;
-  // Fence-masked, and length-preserving so every offset below still indexes the
-  // raw source. Extracting a fenced example's cites would VERIFY them — the
-  // example resolves against real spec files and reports clean, which is how a
-  // plan with no real audit output passed as screened (Codex P2, #260 round 2).
+  // Masked, and length-preserving so every offset below still indexes the raw
+  // source. Extracting an example's cites would VERIFY them — the example
+  // resolves against real spec files and reports clean, which is how a plan
+  // with no real audit output passed as screened (Codex P2, #260 round 2 for
+  // the fenced form; #262 round 5 for the inline-span form).
   const scanned = maskNonContentLines(phaseSection);
-  const targetMarkers = [...scanned.matchAll(targetMarkerRe)];
-  const anyMarkers = [...scanned.matchAll(anyMarkerRe)];
+  // TWO VIEWS, one offset space. Inline-code masking decides WHICH MARKERS ARE
+  // REAL; it must not touch the bytes a payload is sliced from.
+  //
+  // Cite payloads legitimately contain inline code — 196 live anchors carry a
+  // backticked identifier inside their `(descriptor)` tail. Slicing those from
+  // span-masked text blanks the identifier, and `raw` is not merely
+  // diagnostic: `demotionKeepsExistenceFloor` greps it for `Spec-NNN` to decide
+  // whether a demotion keeps the spec-existence floor, and the paren-stripped
+  // section fallback compares the descriptor's cited suffix. A blanked
+  // `Spec-NNN` inside backticks would silently drop out of that floor — a
+  // fails-open regression introduced by the very screen meant to close one.
+  //
+  // Both maskers are length-preserving, so `markerView` indexes identically to
+  // `scanned`: marker POSITIONS come from the masked view, payload BYTES from
+  // the unmasked one. Terminators use the masked view too — a backticked
+  // `**Files:**` inside a payload is illustration and must not end it.
+  const markerView = maskInlineCodeSpans(scanned);
+  const targetMarkers = [...markerView.matchAll(targetMarkerRe)];
+  const anyMarkers = [...markerView.matchAll(anyMarkerRe)];
   for (const marker of targetMarkers) {
     const field = marker[1];
     const startIdx = marker.index + marker[0].length;
@@ -2468,17 +2691,64 @@ export function extractCiteAnchors(phaseSection) {
     const nextMarkerIdx = nextAnyMarker ? nextAnyMarker.index : scanned.length;
     const nextNewlineIdx = scanned.indexOf("\n", startIdx);
     const endIdx = Math.min(nextMarkerIdx, nextNewlineIdx === -1 ? scanned.length : nextNewlineIdx);
+    // Payload bytes from `scanned` — backticked identifiers intact (see the
+    // two-views note above).
     let payload = scanned.slice(startIdx, endIdx).trim();
     // Strip trailing sentence-end punctuation that follows the closing paren
     // of the last cite descriptor (`(...).` → `(...)`).
     payload = payload.replace(/[.,;:]+\s*$/, "");
-    if (!payload) continue;
-    const prefix = scanned.slice(0, marker.index);
-    const taskMatch =
-      [...prefix.matchAll(/^#####\s+(T[-\w.]+)/gm)].pop() ??
-      [...prefix.matchAll(/^-\s+\*\*(T[-\w.]+)\*\*/gm)].pop();
+    // Attribution scans the MASKED view: a task id inside a code span is a
+    // mention, not a header.
+    const prefix = markerView.slice(0, marker.index);
+    // Attribution = the NEAREST PRECEDING task header, in any spelling — hence
+    // the shared `taskHeaderMatches` recognizer rather than a private copy.
+    // Both halves of this were wrong before, and both mis-LABEL findings rather
+    // than mis-gate them (`taskId` is diagnostic; it never feeds a pass/fail
+    // decision), which is exactly why it went unnoticed — the gate's verdict
+    // stayed correct while its finger pointed at the wrong row:
+    //
+    //   1. The private bullet form required `**` to close immediately after the
+    //      id (`- **T-025d-14-1** (Files: …)`). The corpus-dominant spelling
+    //      closes it after the TITLE (`- **T1.2 — Seven wire pairs.**`). 241
+    //      headers across 12 plans went unrecognized — 220 in-phase — so every
+    //      marker under one inherited the last id that DID match.
+    //   2. `??` preferred the heading form whenever any `#####` header appeared
+    //      anywhere in the prefix, even with a bullet header closer to the
+    //      marker. Nearest-preceding means latest by INDEX, not by spelling.
+    const taskMatch = taskHeaderMatches(prefix).reduce(
+      (latest, m) => (latest === null || m.index > latest.index ? m : latest),
+      null,
+    );
     const taskId = taskMatch ? taskMatch[1] : null;
     const lineNo = prefix.split("\n").length;
+    // An empty payload is a FINDING, not a skip. The bare `continue` that stood
+    // here produced the gate's purest false clean: the marker floor counts the
+    // marker (the field is present and correctly spelled), the extractor
+    // silently drops it, and the unit returns
+    // `{ok: true, hasCiteMarkers: true, findings: []}` — the report credits a
+    // cite as screened when nothing was verified, which is strictly worse than
+    // the missing-marker case the floor already halts on (Codex P2, PR #262
+    // round 5).
+    //
+    // Deliberately NOT in G4_GRAMMAR_DEMOTE_KINDS: that set is fail-closed by
+    // polarity, so an unlisted kind stays a hard error for every size class. A
+    // marker claiming coverage while naming nothing is existence-shaped, not a
+    // grammar slip, and demoting it for S/M would reopen this hole for exactly
+    // the classes with the least reviewer coverage.
+    if (!payload) {
+      failures.push({
+        kind: "empty-cite-payload",
+        raw: marker[0],
+        field,
+        taskId,
+        lineNo,
+        message: `\`${marker[0]}\` names no cite — the marker is present but its payload is empty.`,
+        remediation:
+          "Give the marker a cite payload, or delete the marker. An empty field is indistinguishable from an unaudited one.",
+        severity: "error",
+      });
+      continue;
+    }
     const { anchors: a, failures: f } = parseCitePayload(payload);
     for (const anchor of a) {
       anchors.push({ ...anchor, field, taskId, lineNo });
@@ -3270,7 +3540,42 @@ export const G4_GRAMMAR_DEMOTE_KINDS = new Set([
 
 export function gateTasksBlockCites(phaseSection, planNumber, phaseNumber, opts = {}) {
   const counts = countCites(phaseSection);
-  if (!(counts.spec_coverage > 0 && counts.verifies_invariant > 0)) {
+  // Marker floor. The DISPATCH path requires BOTH sides: a phase's `#### Tasks`
+  // block carrying one marker is a partial audit, and "audit has not run" is
+  // the correct read — that arm stays byte-identical.
+  //
+  // A COMPLEMENT has no audit output, so the pair requirement is not just
+  // unnecessary there, it is a false-clean generator: an out-of-phase block
+  // holding only `**Spec coverage:** Spec-999 §Missing` failed the AND, took
+  // this early return, and its anchors were never handed to extractCiteAnchors
+  // — zero findings, while the report counted that marker as screened. That is
+  // the exact CAT-10 shape this screen was built to close, reproduced inside
+  // it (Codex P1, PR #262 round 1; confirmed by probe against a negative
+  // control that fires on the same cite when a second marker sits beside it).
+  // So complements verify whatever anchors are present: ANY marker is enough.
+  //
+  // ANY MARKER, not any MENTION. Relaxing AND to OR without also tightening
+  // what counts as a marker traded one false-clean for another: countCites
+  // matches the bare substring `Spec coverage` with no field colon, and a
+  // complement is by construction a plan's NARRATIVE region — preamble, prose
+  // between phases, appendices — which is exactly where a sentence like "Spec
+  // coverage is added by the audit" lives. Under the AND that prose had to
+  // coincide twice to matter; under the OR one mention was enough to set
+  // hasCiteMarkers, drop the plan out of `markerlessPlans`, and print
+  // `cite-swept` + `cite anomalies: none` over a region where
+  // extractCiteAnchors verified nothing and the complement denominator stayed
+  // zero. So the relaxed arm keys on classifyPhaseMarkers, which is anchored to
+  // a FIELD POSITION (bold `**Spec coverage:**`, or a bullet head / inline
+  // `;`-`(` delimiter followed by a colon) and therefore cannot be tripped by
+  // prose. The strict arm keeps countCites verbatim — the dispatch path is
+  // byte-identical by contract (Codex P1, PR #262 round 2).
+  const fieldMarkers = classifyPhaseMarkers(phaseSection);
+  const hasMarkerFloor =
+    opts.requireBothMarkers === false
+      ? fieldMarkers.boldSpec + fieldMarkers.unboldSpec > 0 ||
+        fieldMarkers.boldInvariant + fieldMarkers.unboldInvariant > 0
+      : counts.spec_coverage > 0 && counts.verifies_invariant > 0;
+  if (!hasMarkerFloor) {
     return {
       ok: false,
       // No Spec-coverage / Verifies-invariant markers at all — the audit has
@@ -4158,7 +4463,18 @@ export function gatePlanPreconditionBoxes(planSource, planFile) {
 // The oracle is a screen, not a proof — see the boundary note below.
 // Contract: ../references/preflight-contract.md § Survey mode.
 
-const SURVEY_ORACLE_RE = /^(?:-\s+(?:\[[ xX]\]\s+)?\*{1,3}T[-\d]|#####\s+T[-\d])/;
+// Leading-indent tolerance mirrors taskHeaderMatches deliberately. The oracle is
+// an INDEPENDENT line-shape scan — that independence is what makes it a
+// cross-check — but independence is about not calling the parser, not about
+// disagreeing on where a task row may begin. While the two disagreed, an
+// indented row declaring its own id (the `  - **T-007r-3-15 (slice a) …**`
+// spelling taskHeaderMatches documents as observed) parsed to a declared id the
+// oracle could not see, and surfaced as `[phantom] parsed id on no task-shaped
+// row` — a gating anomaly whose message points the reader at the parser when the
+// oracle is what missed the row. Fails loud rather than open, so it could not
+// manufacture a clean verdict; it manufactured a wrong one (Codex P2, PR #262
+// round 2). Measured corpus-neutral when introduced: zero verdict delta.
+const SURVEY_ORACLE_RE = /^(?:[ \t]*-\s+(?:\[[ xX]\]\s+)?\*{1,3}T[-\d]|#####\s+T[-\d])/;
 
 // Reconciliation compares HEAD ids exactly, not row substrings. The lineage
 // (Codex P2 rounds 2-5): bare `includes` let parsed `T1.1` cover a `T1.10`
@@ -4768,21 +5084,68 @@ export function verifyInlineAnchorFloor(phaseSection, { repoRoot = REPO_ROOT } =
 // discards that prose), so a non-numeric label is safe there.
 const WHOLE_DOCUMENT_UNIT_LABEL = "(whole document)";
 
+// Sentinel unit label for a COMPLEMENT unit — a contiguous run of plan source
+// that no `### Phase N` section covers. Carries the same `phaseNumber` safety
+// argument as the whole-document sentinel above: gateTasksBlockCites reads its
+// phase argument only to build halt prose, which the survey discards.
+const COMPLEMENT_UNIT_LABEL = "(outside every phase)";
+
 // Bold Gate-4 field markers. Mirrors the `boldMarker` pattern extractCiteAnchors
 // scans with, so "markers this plan holds" and "markers the extractor would read"
 // are the same population — a divergence here would make the intra-plan coverage
 // count describe something other than what the screen actually parses. Only these
 // two fields are Gate-4 fields; `**Consumes:**` payloads are never anchor-verified
 // anywhere, inside a swept section or out.
-const BOLD_CITE_MARKER_RE = /\*\*(?:Spec coverage|Verifies invariant):\*\*/g;
+// Constructed per call, never shared: the sole consumer drives it with matchAll,
+// which seeds its clone from this object's `lastIndex`, so a module-level `g`
+// instance would silently start mid-document if any future caller left a
+// non-zero index behind.
+const boldCiteMarkerPattern = () => /\*\*(?:Spec coverage|Verifies invariant):\*\*/g;
 
-function countBoldCiteMarkers(text) {
-  return (maskNonContentLines(text).match(BOLD_CITE_MARKER_RE) || []).length;
+/**
+ * Assign each bold-marker offset to the survey unit whose byte range covers it.
+ *
+ * Split out and exported for ONE reason: the `unswept` count it returns is an
+ * invariant assertion, and on today's code paths that invariant holds — phase
+ * spans plus their derived complements partition the source, so nothing is left
+ * over. A check that cannot be made to fail is a check nobody can trust, so the
+ * partition is a pure function over (offsets, units) and its failure mode is
+ * reachable from a test by handing it a deliberately holed unit list. The
+ * alternative — asserting exhaustiveness only in a comment — is what this whole
+ * screen exists to stop doing.
+ *
+ * `find` (not `filter`) so an overlapping range counts a marker exactly once, in
+ * the first unit that claims it. The subtraction this replaced summed per-unit
+ * counts, which let an overlap inflate the swept side and mask a real hole.
+ *
+ * @param {number[]} markerOffsets Match offsets into the masked source.
+ * @param {{start?: number, end?: number, isComplement?: boolean}[]} units
+ * @returns {{phase: number, complement: number, unswept: number, perUnit: number[]}}
+ */
+export function partitionMarkerOffsets(markerOffsets, units) {
+  const covers = (unit, offset) =>
+    unit.start != null && unit.end != null && offset >= unit.start && offset < unit.end;
+  const perUnit = units.map(() => 0);
+  let phase = 0;
+  let complement = 0;
+  let unswept = 0;
+  for (const offset of markerOffsets) {
+    const index = units.findIndex((unit) => covers(unit, offset));
+    if (index === -1) {
+      unswept += 1;
+      continue;
+    }
+    perUnit[index] += 1;
+    if (units[index].isComplement) complement += 1;
+    else phase += 1;
+  }
+  return { phase, complement, unswept, perUnit };
 }
 
 /**
  * @param options.runCiteGate - seam for the per-unit Gate-4 cite screen.
  * @param options.runInlineAnchorFloor - seam for the inline anchor-existence floor.
+ * @param options.partitionMarkers - seam for the marker/unit partition.
  *
  * Both screens are internally fail-closed: a missing or unreadable spec becomes a
  * `[spec-file-not-found]` FINDING rather than a throw, so no corpus fixture can
@@ -4790,11 +5153,20 @@ function countBoldCiteMarkers(text) {
  * what stands between a crashed screen and a green verdict — so they are made
  * reachable by injection, in the same idiom as the `repoRoot` / `specsDir`
  * seams elsewhere in this file. Production callers pass neither.
+ *
+ * `partitionMarkers` is the same idiom for the same reason. The unit cover is
+ * exhaustive by construction — the complement is the phase spans' set difference
+ * — so no corpus fixture can produce a leftover marker, which leaves the residual
+ * gate that reports one unreachable and therefore unverified. Injecting the
+ * partition drives that gate and, more importantly, the terminal
+ * uncovered-vs-markerless decision it feeds, which is where the two prior
+ * regressions in this area actually lived. Production callers pass nothing.
  */
 export function surveyCorpus({
   repoRoot = REPO_ROOT,
   runCiteGate = gateTasksBlockCites,
   runInlineAnchorFloor = verifyInlineAnchorFloor,
+  partitionMarkers = partitionMarkerOffsets,
 } = {}) {
   const plansDir = resolve(repoRoot, "docs", "plans");
   const planFileNames = readdirSync(plansDir)
@@ -4836,6 +5208,14 @@ export function surveyCorpus({
   // Plans counted as swept that nonetheless hold cite markers outside every
   // survey unit — the intra-plan residual the plan-level count cannot express.
   const unsweptMarkerPlans = [];
+  // Plans carrying Gate-4 markers OUTSIDE every `### Phase N` section, which the
+  // complement units below now screen. This is the screen's non-zero denominator
+  // (see the emit site), not a defect list.
+  const complementMarkerPlans = [];
+  // Complement markers a screen was supposed to judge and did not, because that
+  // unit's cite gate threw. Kept OUT of `complementMarkerPlans` so the
+  // denominator never counts an unrun screen as coverage.
+  const unjudgedComplementPlans = [];
   for (const name of planFileNames) {
     // Fail-closed coverage: ANY throw while surveying a plan records it as
     // uncovered and gates, instead of aborting the whole run or — the defect
@@ -4895,6 +5275,21 @@ export function surveyCorpus({
       // gate reads by task id, turning a silent pass here into a confusing
       // failure there.
       const surveyUnits = [];
+      // Whether every unit carries a located byte range. Hoisted out of the
+      // complement block below because the marker-coverage residual — which now
+      // GATES — must know that its partition is derivable before treating a
+      // leftover marker as a real hole rather than a symptom of the span that
+      // already failed to locate.
+      let coverComplete = true;
+      // Set by the marker-coverage residual below; CONSUMED by the single
+      // uncovered-vs-markerless decision after the unit loop. The residual used
+      // to call markUncovered itself, which put a second decision point outside
+      // that terminal chain: a plan whose only markers sat in the partition hole
+      // reached the `else if` with no unit reporting a marker, so the same run
+      // printed it as `uncovered` AND as `swept but no cite markers to verify —
+      // vacuous pass`. Routing the reason through one variable makes the
+      // contradiction unrepresentable rather than merely absent.
+      let partitionHole = null;
       for (const label of allPhaseLabels) {
         const section = extractPhaseSection(source, label);
         if (section == null) {
@@ -4906,7 +5301,7 @@ export function surveyCorpus({
           );
           continue;
         }
-        surveyUnits.push({ label, section, isWholeDocument: false });
+        surveyUnits.push({ label, section, isWholeDocument: false, isComplement: false });
       }
       if (surveyUnits.length === 0) {
         // Still a NOTICE, not an anomaly — the walkPhases gap is real and a
@@ -4921,8 +5316,104 @@ export function surveyCorpus({
         surveyUnits.push({
           label: WHOLE_DOCUMENT_UNIT_LABEL,
           section: source,
+          // Byte range in `source`, carried by EVERY unit so the marker-coverage
+          // residual below can bucket markers by position against one globally
+          // masked view instead of re-masking each unit's text in isolation.
+          start: 0,
+          end: source.length,
           isWholeDocument: true,
+          isComplement: false,
         });
+      } else {
+        // COMPLEMENT UNITS — every byte no `### Phase N` span covers.
+        //
+        // Survey units are phase sections, so a plan's preamble, its appendices,
+        // and any `### Tier-7 Remainder`-shaped block sit inside a plan the
+        // coverage line counts as swept and outside every unit that screens
+        // anything. The whole-document fallback cannot rescue them: it fires only
+        // at `surveyUnits.length === 0`, so ONE phase heading pins a plan to the
+        // per-phase path permanently. Plan-025 is the live instance — 32 of its
+        // 42 Gate-4 markers sit above its single phase heading, and screening
+        // them surfaces findings the armed survey has never once produced while
+        // printing `cite anomalies: none`.
+        //
+        // The discriminator is POSITION, not heading shape. A fix keyed on which
+        // `###` spellings look phase-like would be keyed on the wrong property
+        // and would miss the next spelling nobody predicted; complements are
+        // derived by SUBTRACTION, so they cover every shape by construction and
+        // stay correct when a new one is invented.
+        const coveredRanges = [];
+        for (const unit of surveyUnits) {
+          // extractPhaseSection returns an exact substring that BEGINS with the
+          // unique `### Phase <label> — <title>` heading, so a plain indexOf is
+          // unambiguous — and, unlike a monotone cursor, it tolerates labels
+          // arriving out of document order (remainder and supplement labels are
+          // appended after the numeric walk, but `### Phase 3B` sits before
+          // `### Phase 4` in the source).
+          const at = source.indexOf(unit.section);
+          if (at === -1) {
+            // Fail CLOSED, and through `anomalies` (unconditional) rather than
+            // the cite channel: a span the survey cannot locate makes the
+            // complement below a subtraction against an incomplete cover, so it
+            // would UNDER-report the unscreened region. Skipping quietly here is
+            // this screen's own failure mode — a gate reporting clean over work
+            // it did not do — not a judgement about cite quality.
+            anomalies.push(
+              `${name} [survey-span-unlocatable] Phase ${unit.label} section could not be located in the plan source; complement coverage is not derivable for this plan`,
+            );
+            coverComplete = false;
+            continue;
+          }
+          unit.start = at;
+          unit.end = at + unit.section.length;
+          coveredRanges.push([at, at + unit.section.length]);
+        }
+        if (coverComplete) {
+          coveredRanges.sort((a, b) => a[0] - b[0]);
+          const gaps = [];
+          let cursor = 0;
+          for (const [start, end] of coveredRanges) {
+            if (start > cursor) gaps.push([cursor, start]);
+            cursor = Math.max(cursor, end);
+          }
+          if (cursor < source.length) gaps.push([cursor, source.length]);
+          for (const [start, end] of gaps) {
+            const section = source.slice(start, end);
+            if (section.trim() === "") continue;
+            // Deliberately NOT filtered on marker count. A predicate deciding
+            // which gaps "have claims worth screening" would be a hand-chosen
+            // proxy standing in for the screens' own judgement — the exact
+            // construct this change exists to remove, and the one that has
+            // already been wrong three times on this surface. Both screens
+            // self-filter (gateTasksBlockCites on hasCiteMarkers, the inline
+            // floor on its own field-marker anchors), so a claim-free gap costs
+            // two cheap no-ops and buys back zero judgement calls.
+            //
+            // What each screen actually contributes here, measured at
+            // introduction rather than assumed: the bold Gate-4 cite screen is
+            // the one doing the work — it finds real anchor defects in this
+            // region today. The inline anchor floor finds nothing, because every
+            // inline cite payload in the corpus currently sits inside a phase
+            // section; its zero is VACUOUS, not clean. It is wired up anyway so
+            // that an inline marker authored outside a phase later is screened
+            // instead of invisible — which is future-proofing, and must not be
+            // read as present coverage.
+            //
+            // One unit per CONTIGUOUS gap, never one merged unit: concatenating
+            // non-adjacent regions would splice unrelated text together and let
+            // a cite appear to span the join.
+            const startLine = source.slice(0, start).split("\n").length;
+            const endLine = startLine + section.split("\n").length - 1;
+            surveyUnits.push({
+              label: `${COMPLEMENT_UNIT_LABEL} lines ${startLine}-${endLine}`,
+              section,
+              start,
+              end,
+              isWholeDocument: false,
+              isComplement: true,
+            });
+          }
+        }
       }
       // Intra-plan coverage. `N/M plan(s) cite-swept` counts PLANS, and a plan
       // counts as swept the moment one survey unit exists — but units are phase
@@ -4932,17 +5423,85 @@ export function surveyCorpus({
       // at `surveyUnits.length === 0`, so ONE phase heading pins the plan to the
       // per-phase path forever. Counting markers here keeps the plan-level number
       // from implying marker-level coverage it does not have — the same reason
-      // the coverage line exists at all. Units are disjoint substrings of source,
-      // so summing their marker counts is sound; clamped because a future
-      // extractor change that overlapped them must not print a negative.
-      const totalMarkers = countBoldCiteMarkers(source);
-      const sweptMarkers = surveyUnits.reduce(
-        (sum, unit) => sum + countBoldCiteMarkers(unit.section),
-        0,
+      // the coverage line exists at all.
+      //
+      // Counted by POSITION against one globally masked source, never by
+      // re-masking each unit's text (Codex P1, PR #262 round 3). The subtraction
+      // this replaces masked the whole document and then masked each unit
+      // independently, and fence state does not survive that split: a unit begins
+      // with its own fence tracker closed, so a ``` that
+      // CLOSES a fence for the whole document OPENS one for the unit, and every
+      // marker after it is counted by the whole and masked by the part. The
+      // residual then went positive with no coverage hole behind it — a masking
+      // artifact, which is exactly why the old comment argued the line had to stay
+      // non-gating. Masking once removes the disagreement instead of tolerating
+      // it, and that is what lets the residual gate below.
+      //
+      // maskCiteContent — fences PLUS same-line inline code spans — is the SAME
+      // content boundary the per-unit cite gates judge through. Counting here
+      // through only the fence layer let an inline-code illustration into the
+      // denominator: the complement entry reported it "screened via the
+      // complement path" while the unit's gate, masking it, judged nothing —
+      // and the same plan landed in `markerlessPlans` as having no markers to
+      // verify (Codex P2, PR #262 round 6). Two censuses, one marker,
+      // contradictory verdicts. One boundary ends the disagreement.
+      //
+      // Layer safety: both maskers replace bytes with spaces of equal length,
+      // so the masked copy stays byte-for-byte offset-identical to `source`
+      // and a unit's `[start, end)` indexes the same bytes in both. The fence
+      // layer must be applied globally (fence state does not survive per-unit
+      // splits — see above); the inline-span layer is line-local, so global
+      // and per-unit application cannot disagree on it.
+      // Bucketing each match START offset assigns every marker to at most one unit
+      // even if a future extractor overlapped two ranges, so no clamp is needed
+      // and — unlike the subtraction — an overlap can no longer hide a hole by
+      // double-counting the swept side.
+      const maskedSource = maskCiteContent(source);
+      const markerOffsets = [...maskedSource.matchAll(boldCiteMarkerPattern())].map(
+        (match) => match.index,
       );
-      const unsweptMarkers = Math.max(0, totalMarkers - sweptMarkers);
-      if (unsweptMarkers > 0) {
+      const totalMarkers = markerOffsets.length;
+      // Only the residual and the per-unit counts are consumed here. The
+      // partition also reports phase/complement totals, but the complement
+      // DENOMINATOR deliberately does not come from them: those count markers a
+      // unit CONTAINS, and the denominator must count markers a screen JUDGED,
+      // which is only knowable once that unit's gate has run.
+      const { unswept: unsweptMarkers, perUnit: unitMarkerCounts } = partitionMarkers(
+        markerOffsets,
+        surveyUnits,
+      );
+      // Markers no unit's byte range covers. With one masking pass this is no
+      // longer a count that two disagreeing maskers can manufacture: it is a
+      // genuine hole in the phase-spans-plus-their-complement partition, i.e.
+      // bytes carrying Gate-4 markers that reached no screen at all. That is this
+      // screen's own failure mode, so it FAILS CLOSED through `anomalies`
+      // (unconditional) rather than waiting for --enforce-cites to be armed —
+      // matching [survey-span-unlocatable] and [cite-check-threw], the sibling
+      // structural failures, and NOT the cite channel, which judges cite quality.
+      // The plan also loses its swept status: markers went unjudged, so calling it
+      // covered is the same false-clean the disclosure was meant to expose.
+      //
+      // Expected to be ZERO on every current path — the complement is derived by
+      // subtraction, so the cover is exhaustive by construction and this is an
+      // invariant check, not a routine finding. Written as a gate anyway because
+      // the exhaustiveness argument is exactly the kind of reasoning that stops
+      // being true after an unrelated edit to gap construction or span extraction,
+      // and the failure it would produce is silent. partitionMarkerOffsets is
+      // exported so the assertion is falsifiable from a test rather than only
+      // arguable from this comment.
+      //
+      // Suppressed when a phase span failed to locate: that already fired a louder
+      // anomaly, the partition is known non-derivable, and re-reporting the same
+      // root cause as an independent hole would double-count one failure.
+      if (unsweptMarkers > 0 && coverComplete) {
         unsweptMarkerPlans.push({ name, unswept: unsweptMarkers, total: totalMarkers });
+        anomalies.push(
+          `${name} [markers-unswept] ${unsweptMarkers} of ${totalMarkers} bold Gate-4 marker(s) fall outside every phase span AND outside their complement; the cite partition is not exhaustive and those markers reached no screen`,
+        );
+        // Recorded, not marked: the single markUncovered decision lives in the
+        // terminal chain after the unit loop, where it can also see whether a
+        // screen threw. See the `partitionHole` declaration for why.
+        partitionHole = `${unsweptMarkers} bold Gate-4 marker(s) reached no survey unit`;
       }
       // Vacuous-pass tracking is per PLAN, not per unit, and deliberately NOT
       // restricted to the whole-document fallback. A plan whose units carry no
@@ -4956,24 +5515,61 @@ export function surveyCorpus({
       // is the fourth path the coverage contract says cannot exist. Plan-028 is
       // the live instance: five phases, zero markers, previously invisible.
       let planHasAnyCiteMarker = false;
-      for (const { label, section, isWholeDocument } of surveyUnits) {
+      // The complement denominator is accumulated DURING the loop and published
+      // after it, keyed on whether each unit's bold cite gate actually ran
+      // (Codex P2, PR #262 round 3). Recording it before the loop let
+      // formatSurvey report markers as "screened via the complement path" on a
+      // plan whose complement screen had thrown: the outer bookkeeping correctly
+      // marked the plan uncovered, but the denominator line kept asserting the
+      // screen succeeded — a gate reporting clean over work it did not do, inside
+      // the very observable built to expose that. Failed units are tracked
+      // separately rather than collapsing the whole plan's entry, so with several
+      // complement units the report names WHICH markers went unjudged instead of
+      // silently dropping a number.
+      //
+      // Keyed on the bold gate specifically because these ARE its markers; the
+      // inline anchor floor screens a different population (unbold payloads) and
+      // its own failure is disclosed through its own [cite-check-threw] anomaly.
+      let complementMarkersScreened = 0;
+      let complementUnitsScreened = 0;
+      let complementMarkersUnjudged = 0;
+      let complementUnitsUnjudged = 0;
+      for (const [unitIndex, unit] of surveyUnits.entries()) {
+        const { label, section, isWholeDocument, isComplement } = unit;
+        // Same assignment the residual above was derived from, so the denominator
+        // and the residual can never disagree about which unit owns a marker.
+        const unitMarkerCount = unitMarkerCounts[unitIndex];
         const unitPrefix = isWholeDocument
           ? `${name} ${WHOLE_DOCUMENT_UNIT_LABEL}`
-          : `${name} Phase ${label}`;
-        const result = surveyPhase(section);
-        // Phase-shaped metrics count real phases only: a whole-document unit is a
-        // coverage device, not a dispatchable phase, and folding it in would
-        // report a size class for something that never gets dispatched.
-        if (!isWholeDocument) {
-          phaseCount += 1;
-          distribution[result.sizeClass] += 1;
-          phaseSummaries.push(`P${label} ${result.sizeClass}(${result.ids.length})`);
-        }
-        for (const line of result.omissions) {
-          anomalies.push(`${unitPrefix} [omission] task-shaped row not parsed: ${line.trim()}`);
-        }
-        for (const id of result.phantoms) {
-          anomalies.push(`${unitPrefix} [phantom] parsed id on no task-shaped row: ${id}`);
+          : isComplement
+            ? `${name} ${label}`
+            : `${name} Phase ${label}`;
+        // surveyPhase reconciles task-shaped rows against parsed task ids. It
+        // runs for phase units and for the whole-document fallback (which stands
+        // in for a plan's phases), but NOT for complements: a complement is by
+        // construction the region outside every phase, so it has no dispatchable
+        // task set to reconcile. Running it there would read whatever task-shaped
+        // rows a remainder block or an appendix happens to carry and report them
+        // as omissions against a phase that does not exist — through `anomalies`,
+        // which gates unconditionally. The cite screens below are
+        // position-independent and DO run on complements; that is why complements
+        // are constructed at all.
+        if (!isComplement) {
+          const result = surveyPhase(section);
+          // Phase-shaped metrics count real phases only: a whole-document unit is
+          // a coverage device, not a dispatchable phase, and folding it in would
+          // report a size class for something that never gets dispatched.
+          if (!isWholeDocument) {
+            phaseCount += 1;
+            distribution[result.sizeClass] += 1;
+            phaseSummaries.push(`P${label} ${result.sizeClass}(${result.ids.length})`);
+          }
+          for (const line of result.omissions) {
+            anomalies.push(`${unitPrefix} [omission] task-shaped row not parsed: ${line.trim()}`);
+          }
+          for (const id of result.phantoms) {
+            anomalies.push(`${unitPrefix} [phantom] parsed id on no task-shaped row: ${id}`);
+          }
         }
         // Per-unit Gate-4 cite screen (all kinds), written to citeAnomalies.
         // Fail-closed: a thrown gate is itself an anomaly, never a silent skip.
@@ -4981,7 +5577,13 @@ export function surveyCorpus({
         // skipped — hasCiteMarkers guards that.
         let citeResult;
         try {
-          citeResult = runCiteGate(section, name.slice(0, 3), label, { repoRoot });
+          citeResult = runCiteGate(section, name.slice(0, 3), label, {
+            repoRoot,
+            // Complements verify whatever markers they carry; phases still
+            // require the complete pair. See the marker-floor comment in
+            // gateTasksBlockCites for why the asymmetry is load-bearing.
+            requireBothMarkers: !isComplement,
+          });
         } catch (err) {
           // `anomalies`, not `pushCite`. A gate that THREW did not judge cite
           // quality — it failed to run, which is a structural failure of the
@@ -4992,6 +5594,20 @@ export function surveyCorpus({
           anomalies.push(`${unitPrefix} [cite-check-threw] ${reason}`);
           citeScreenFailure ??= `cite screen threw on ${unitPrefix}: ${reason}`;
           citeResult = null;
+        }
+        // Denominator bookkeeping, recorded at the ONLY point where "did this
+        // unit's bold cite screen run?" is knowable. `citeResult === null` means
+        // the gate threw; a non-null result means it judged this unit's markers —
+        // including the hasCiteMarkers-false case, which is a real verdict
+        // ("nothing here to verify"), not a skipped screen.
+        if (isComplement) {
+          if (citeResult === null) {
+            complementUnitsUnjudged += 1;
+            complementMarkersUnjudged += unitMarkerCount;
+          } else {
+            complementUnitsScreened += 1;
+            complementMarkersScreened += unitMarkerCount;
+          }
         }
         if (citeResult?.hasCiteMarkers) planHasAnyCiteMarker = true;
         if (citeResult?.hasCiteMarkers) {
@@ -5004,6 +5620,31 @@ export function surveyCorpus({
         // byte-identical). classifyPhaseMarkers is line-anchored, so a narrative
         // "Spec coverage" prose mention trips neither check. Skipped when the gate
         // threw (that unit already carries a [cite-check-threw] anomaly).
+        //
+        // The two checks below are split by whether their predicate is about
+        // AUDIT OUTPUT or about EXTRACTOR REACH — they are not interchangeable,
+        // and running both phase-only was the bug (Codex P1, PR #262 round 1).
+        //
+        // W4 legacy-unbold asks "does this region hold markers whose anchors the
+        // bold extractor cannot parse?" That question is well-posed anywhere
+        // text carries markers. countCites reads bare substrings, so it counts
+        // unbold markers and clears the floor, while extractCiteAnchors parses
+        // only the bold shape — leaving a region that reads as screened with
+        // nothing actually verified. That false-clean does not care whether the
+        // text sits inside a phase, so W4 runs on EVERY unit, complements
+        // included.
+        //
+        // W3 partial-marker asks "did the audit emit a complete marker PAIR for
+        // a dispatchable phase?" That predicate genuinely has no referent in a
+        // complement — there is no audit output there to be complete or partial
+        // — so a remainder block carrying a lone `**Spec coverage:**` summary
+        // row would be reported as a partial audit that never happened, through
+        // a channel that turns red under --enforce-cites. W3 stays phase-only.
+        //
+        // Residual, stated plainly and now much smaller: marker-PAIR
+        // completeness inside complement regions is deliberately unscreened.
+        // Every anchor a complement marker carries IS verified — one-sided
+        // included, per the marker floor in gateTasksBlockCites.
         if (citeResult) {
           const markers = classifyPhaseMarkers(section);
           const realSpec = markers.boldSpec + markers.unboldSpec;
@@ -5027,7 +5668,7 @@ export function surveyCorpus({
           // divertable on exempt paths); ANY bold marker in a partial unit is
           // new-grammar authoring that must land the complete pair, so it keeps
           // the always-gating [markers-partial] kind even on an exempt path.
-          if (realSpec > 0 !== realInvariant > 0) {
+          if (!isComplement && realSpec > 0 !== realInvariant > 0) {
             const present = realSpec > 0 ? "Spec coverage" : "Verifies invariant";
             const missing = realSpec > 0 ? "Verifies invariant" : "Spec coverage";
             const boldMarkers = markers.boldSpec + markers.boldInvariant;
@@ -5059,7 +5700,40 @@ export function surveyCorpus({
           citeScreenFailure ??= `inline anchor floor threw on ${unitPrefix}: ${reason}`;
         }
       }
-      if (citeScreenFailure !== null) {
+      // The must-not-be-zero denominator for this screen, published only for
+      // markers a complement screen actually judged. If complement construction
+      // ever regresses to a no-op, every plan's line disappears from this list
+      // while the plans keep their out-of-phase markers — so the screen going
+      // dark is visible as an absence of output, not as a clean verdict. Without
+      // it, a broken complement path and a corpus with no out-of-phase markers
+      // print identically.
+      if (complementMarkersScreened > 0) {
+        complementMarkerPlans.push({
+          name,
+          complement: complementMarkersScreened,
+          total: totalMarkers,
+          units: complementUnitsScreened,
+        });
+      }
+      // Markers inside a complement whose screen threw. Disclosed on its own line
+      // rather than folded into the entry above, so the report never counts an
+      // unrun screen toward the coverage it claims. `anomalies` already carries
+      // the [cite-check-threw] for each such unit and the plan is marked uncovered
+      // below; this is the marker-level accounting those two do not provide.
+      if (complementMarkersUnjudged > 0) {
+        unjudgedComplementPlans.push({
+          name,
+          unjudged: complementMarkersUnjudged,
+          units: complementUnitsUnjudged,
+        });
+      }
+      // THE uncovered-vs-markerless decision — one point, so a plan can never
+      // land in both lists. Precedence is unchanged from when the residual
+      // marked directly: it ran before the unit loop, so its reason won the
+      // markUncovered dedupe. Both reasons still reach the reader regardless —
+      // each pushed its own anomaly line — so this only picks the label shown
+      // beside the plan in the uncovered list.
+      if (partitionHole !== null || citeScreenFailure !== null) {
         // A screen that threw judged nothing, so this plan is NOT swept.
         // Without this the coverage line still counted it (`surveyedPlanCount`
         // subtracts only `uncoveredPlans`), `markerlessPlans` labelled the unrun
@@ -5068,7 +5742,7 @@ export function surveyCorpus({
         // exemption on evidence that was never gathered. That last guard already
         // existed for the OUTER catch via `uncoveredPlanNames`; the per-unit
         // catches walked straight past it (Codex P2, PR #260 round 2).
-        markUncovered(name, citeScreenFailure);
+        markUncovered(name, partitionHole ?? citeScreenFailure);
       } else if (surveyUnits.length > 0 && !planHasAnyCiteMarker) {
         markerlessPlans.push(name);
       }
@@ -5131,6 +5805,8 @@ export function surveyCorpus({
     exemptFiles,
     fallbackPlans,
     unsweptMarkerPlans,
+    complementMarkerPlans,
+    unjudgedComplementPlans,
     markerlessPlans,
     uncoveredPlans,
   };
@@ -5158,22 +5834,56 @@ export function formatSurvey(survey, { enforceCites = false } = {}) {
     `coverage: ${survey.surveyedPlanCount ?? 0}/${survey.planCount} plan(s) cite-swept, ` +
       `${uncoveredPlans.length} uncovered`,
   );
+  // The complement path's DENOMINATOR — the one count on this screen that must
+  // not be zero while the corpus holds out-of-phase markers. A finding count of
+  // zero is ambiguous between "clean" and "never ran"; this number is not. If
+  // complement construction regresses to a no-op, this block stops printing
+  // while the plans keep their markers, so the screen going dark shows up as
+  // missing output instead of as a clean verdict.
+  const complementMarkerPlans = survey.complementMarkerPlans ?? [];
+  if (complementMarkerPlans.length) {
+    const totalComplement = complementMarkerPlans.reduce((sum, plan) => sum + plan.complement, 0);
+    lines.push(
+      `  Gate-4 markers OUTSIDE every \`### Phase N\` section — screened via the complement path ` +
+        `(${complementMarkerPlans.length} plan(s), ${totalComplement} marker(s)):`,
+    );
+    for (const { name, complement, total, units } of complementMarkerPlans) {
+      lines.push(
+        `    - ${name}: ${complement} of ${total} marker(s) in ${units} complement unit(s)`,
+      );
+    }
+  }
+  // The counter-line to the denominator above: complement markers whose screen
+  // THREW. Printed adjacent to it so the two are read together — the block above
+  // claims markers were screened, and this one names the markers for which that
+  // claim does not hold. Never folded into the same numbers; a screen that failed
+  // to run is not coverage.
+  const unjudgedComplementPlans = survey.unjudgedComplementPlans ?? [];
+  if (unjudgedComplementPlans.length) {
+    const totalUnjudged = unjudgedComplementPlans.reduce((sum, plan) => sum + plan.unjudged, 0);
+    lines.push(
+      `  Gate-4 markers in complement units whose cite screen THREW — NOT screened ` +
+        `(${unjudgedComplementPlans.length} plan(s), ${totalUnjudged} marker(s)):`,
+    );
+    for (const { name, unjudged, units } of unjudgedComplementPlans) {
+      lines.push(`    - ${name}: ${unjudged} marker(s) in ${units} failed complement unit(s)`);
+    }
+  }
   const unsweptMarkerPlans = survey.unsweptMarkerPlans ?? [];
   if (unsweptMarkerPlans.length) {
-    // Printed with the coverage block, not with the anomalies, because these
-    // plans WERE swept — the count above is true, just coarser than it reads.
-    // Naming the residual is what keeps `N/M plan(s) cite-swept` from implying
-    // marker-level coverage; without it a plan whose Tasks blocks sit outside
-    // every phase section reads as fully screened.
+    // Printed with the coverage block for readability, but this list is NOT a
+    // soft disclosure: every entry also carries a [markers-unswept] anomaly and
+    // costs its plan the swept status. Phase spans and their complement partition
+    // the source and markers are bucketed by offset against a single masked copy,
+    // so a non-empty list is a genuine hole — not the masking disagreement that
+    // once made this residual too noisy to gate on (Codex P1, PR #262 round 3).
     const totalUnswept = unsweptMarkerPlans.reduce((sum, plan) => sum + plan.unswept, 0);
     lines.push(
-      `  cite markers OUTSIDE every survey unit — counted as swept, never screened ` +
+      `  Gate-4 markers in NEITHER a phase section nor its complement — unscreened ` +
         `(${unsweptMarkerPlans.length} plan(s), ${totalUnswept} marker(s)):`,
     );
     for (const { name, unswept, total } of unsweptMarkerPlans) {
-      lines.push(
-        `    - ${name}: ${unswept} of ${total} bold marker(s) outside every \`### Phase N\` section`,
-      );
+      lines.push(`    - ${name}: ${unswept} of ${total} bold marker(s) reached by no survey unit`);
     }
   }
   if (fallbackPlans.length) {

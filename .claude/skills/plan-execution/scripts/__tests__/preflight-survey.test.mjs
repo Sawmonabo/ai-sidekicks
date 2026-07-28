@@ -41,6 +41,8 @@ import {
   verifyInlineAnchorFloor,
   walkPhases,
   extractPhaseSection,
+  gateTasksBlockCites,
+  partitionMarkerOffsets,
 } from "../preflight.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -1765,16 +1767,28 @@ test("preflight --survey --enforce-cites <plan>: still rejects an extra position
   assert.match(run.stderr, /runs alone/);
 });
 
-// ---------- intra-plan coverage: markers outside every survey unit ----------
+// ---------- intra-plan coverage: markers outside every phase section ----------
 //
 // `N/M plan(s) cite-swept, 0 uncovered` counts PLANS, and a plan counts as swept
-// the moment ONE survey unit exists. Units are phase sections, so a bold cite
-// marker under a non-`Phase` `###` heading sits inside a counted plan and outside
-// every unit — never screened, yet reported as covered. The whole-document
-// fallback cannot rescue it: that fires only at `surveyUnits.length === 0`, so a
-// single `### Phase N` heading pins the plan to the per-phase path permanently.
-// Counting the residual is what keeps the plan-level number from being read as
-// marker-level coverage.
+// the moment ONE survey unit exists. Units were once phase sections ONLY, so a
+// bold cite marker under a non-`Phase` `###` heading sat inside a counted plan
+// and outside every unit — never screened, yet reported as covered. That is
+// CAT-10: a gate reporting clean over work it did not do. The whole-document
+// fallback cannot rescue it either — that fires only at `surveyUnits.length === 0`,
+// so a single `### Phase N` heading pins the plan to the per-phase path forever.
+//
+// The complement path closes it: phase spans and their set-difference partition
+// the plan source, so every marker now lands in some unit and IS screened. The
+// discriminator is POSITION, not heading shape — deriving the complement by
+// subtraction rather than by matching a heading grammar is what makes it
+// exhaustive against the next spelling nobody predicted.
+//
+// This test pins BOTH directions, because either alone is satisfiable by a
+// no-op: that the complement's markers really are screened (phantom cites in
+// the out-of-phase block DO raise anomalies), and that a phase-only screen
+// provably CANNOT reach them (the markers lie outside every phase span). The
+// printed `complement` count is the screen's must-not-be-zero denominator —
+// without it a complement regressed to a no-op reads exactly like a clean run.
 
 // Mirrors the real Plan-025 layout: the carve-out sections sit BEFORE the only
 // `### Phase N` heading. Ordering is load-bearing — `extractPhaseSection` runs a
@@ -1798,39 +1812,285 @@ const PARTIALLY_SWEPT_PLAN = `### Tier-7 Remainder — carve-out narrative
   - **Verifies invariant:** Spec-050 §Framing (V1 Pairwise)
 `;
 
-test("surveyCorpus: bold markers outside every survey unit are COUNTED, not implied covered", () => {
+test("surveyCorpus: bold markers outside every phase section ARE screened via the complement", () => {
   const tmp = makeFixtureCorpus({ "065-partially-swept.md": PARTIALLY_SWEPT_PLAN });
   try {
     const survey = surveyCorpus({ repoRoot: tmp });
-    const entry = survey.unsweptMarkerPlans.find((p) => p.name === "065-partially-swept.md");
+
+    // DIRECTION 1 — the complement really screens. The out-of-phase block cites
+    // a nonexistent spec; if those markers are reached, that phantom surfaces.
+    // This is the assertion the pre-complement gate failed: it returned clean
+    // over a block holding two unresolvable cites.
+    const phantoms = survey.citeAnomalies.filter((a) => a.includes("Spec-999"));
+    assert.ok(
+      phantoms.length > 0,
+      `expected the complement screen to surface the out-of-phase Spec-999 phantoms, got none. ` +
+        `All anomalies: ${JSON.stringify(survey.citeAnomalies)}`,
+    );
+
+    // DIRECTION 2 — negative control. A phase-only screen provably cannot reach
+    // them: the markers sit outside every phase span, so their being surfaced
+    // above is attributable to the complement and to nothing else. Without this
+    // half, direction 1 would also pass if the markers had silently migrated
+    // into a phase section.
+    const phaseOne = extractPhaseSection(PARTIALLY_SWEPT_PLAN, 1);
+    assert.ok(phaseOne, "fixture must expose a locatable Phase 1 span");
+    assert.ok(
+      !phaseOne.includes("Spec-999"),
+      "fixture invariant broken: the phantom cites must lie OUTSIDE Phase 1, " +
+        "otherwise the phase path alone would surface them and the complement is untested",
+    );
+
+    // The screen's must-not-be-zero denominator: 2 of the plan's 4 markers were
+    // screened through 1 complement unit. A complement that regressed to a no-op
+    // would zero this while every other line of output stayed identical.
+    const entry = survey.complementMarkerPlans.find((p) => p.name === "065-partially-swept.md");
     assert.ok(
       entry,
-      `expected an unswept-marker entry, got ${JSON.stringify(survey.unsweptMarkerPlans)}`,
+      `expected a complement-screened entry, got ${JSON.stringify(survey.complementMarkerPlans)}`,
     );
     assert.equal(entry.total, 4);
-    assert.equal(entry.unswept, 2);
+    assert.equal(entry.complement, 2);
+    assert.equal(entry.units, 1);
 
-    // The plan still reports as fully covered at PLAN granularity — that is the
-    // over-claim the printed residual exists to qualify, so both must be true.
+    // Plan-granular coverage still reads 1/1 — but it is no longer an over-claim,
+    // because the complement line below it discloses the marker-level denominator
+    // the plan count cannot express.
     const text = formatSurvey(survey);
     assert.match(text, /coverage: 1\/1 plan\(s\) cite-swept, 0 uncovered/);
     assert.match(
       text,
-      /cite markers OUTSIDE every survey unit — counted as swept, never screened \(1 plan\(s\), 2 marker\(s\)\)/,
+      /Gate-4 markers OUTSIDE every `### Phase N` section — screened via the complement path \(1 plan\(s\), 2 marker\(s\)\)/,
     );
-    assert.match(text, /065-partially-swept\.md: 2 of 4 bold marker\(s\) outside every/);
+    assert.match(text, /065-partially-swept\.md: 2 of 4 marker\(s\) in 1 complement unit\(s\)/);
 
-    // The unswept markers cite a nonexistent spec; the screen never reaches
-    // them, which is precisely why the count has to be printed. Pinning this
-    // keeps the test honest about what the residual means: the phantom cites
-    // in the unswept block produce NO anomaly.
+    // Phase spans and their complement PARTITION the source, so nothing may be
+    // left over. A non-empty unswept residual means the partition leaked.
+    assert.deepEqual(survey.unsweptMarkerPlans ?? [], []);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+// A complement holding exactly ONE Gate-4 field. The pair requirement is right
+// for a phase (one marker = partial audit output) and wrong for a complement,
+// which has no audit output at all — there it silently skipped anchor parsing
+// entirely, so the phantom below was screened by nothing while the report
+// counted its marker as swept. CAT-10 reproduced inside the CAT-10 fix
+// (Codex P1, PR #262 round 1).
+const ONE_SIDED_COMPLEMENT_PLAN = `### Tier-7 Remainder — carve-out narrative
+
+#### Tasks
+
+- **T-R-1 — a task OUTSIDE every phase, carrying ONE field only**
+  - **Spec coverage:** Spec-999 §Nonexistent Section
+
+### Phase 1 — swept work
+
+#### Tasks
+
+- **T1.1 — a task inside a phase section**
+  - **Spec coverage:** Spec-050 §Required Behavior
+  - **Verifies invariant:** Spec-050 §Framing (V1 Pairwise)
+`;
+
+test("surveyCorpus: a ONE-SIDED complement marker still has its anchors verified", () => {
+  const tmp = makeFixtureCorpus({ "067-one-sided-complement.md": ONE_SIDED_COMPLEMENT_PLAN });
+  try {
+    const survey = surveyCorpus({ repoRoot: tmp });
+
+    // The finding class. Before the marker-floor split this was empty: the
+    // both-markers-required guard returned before extractCiteAnchors ran, so a
+    // cite naming a spec that does not exist produced no anomaly and
+    // --enforce-cites exited 0.
+    const phantoms = survey.citeAnomalies.filter((a) => a.includes("Spec-999"));
+    assert.ok(
+      phantoms.length > 0,
+      `a lone **Spec coverage:** marker outside every phase must still have its ` +
+        `anchor verified; got: ${JSON.stringify(survey.citeAnomalies)}`,
+    );
+
+    // The deliberate exclusion, pinned so a later "just run both checks
+    // everywhere" simplification cannot quietly take it. W3 partial-marker
+    // asserts a property of AUDIT OUTPUT, and a complement has none — firing it
+    // here would report a partial audit that never happened.
+    const partial = survey.citeAnomalies.filter((a) => a.includes("markers-partial"));
     assert.deepEqual(
-      survey.citeAnomalies.filter((a) => a.includes("Spec-999")),
+      partial,
       [],
+      `partial-marker is a phase-only predicate; a complement must not be judged ` +
+        `on marker-pair completeness. Got: ${JSON.stringify(partial)}`,
     );
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
+});
+
+test("gateTasksBlockCites: the DISPATCH path still requires the complete marker pair", () => {
+  // The other half of the asymmetry. Relaxing the floor for complements must not
+  // relax it for phases — a phase Tasks block carrying one marker is a partial
+  // audit, and "audit has not run" stays the correct dispatch read.
+  const oneSidedPhase = `#### Tasks
+
+- **T1.1 — task**
+  - **Spec coverage:** Spec-050 §Required Behavior
+`;
+
+  const dispatch = gateTasksBlockCites(oneSidedPhase, "050", 1);
+  assert.equal(dispatch.hasCiteMarkers, false, "phase default must keep the pair requirement");
+  assert.deepEqual(dispatch.findings, []);
+
+  // Same input, complement semantics: the lone marker now clears the floor and
+  // its anchors are parsed and judged.
+  const complement = gateTasksBlockCites(oneSidedPhase, "050", 1, { requireBothMarkers: false });
+  assert.equal(complement.hasCiteMarkers, true, "complement must verify whichever markers exist");
+});
+
+// The third arm of the same round-1 read. W3 and W4 were both phase-gated; only
+// W3's predicate is phase-only. W4 asks "does this region hold markers whose
+// anchors the bold extractor cannot parse?", which is well-posed anywhere text
+// carries markers — and the false-clean it names is sharper in a complement than
+// in a phase: countCites reads bare substrings, so unbold markers CLEAR the
+// hasCiteMarkers floor, while extractCiteAnchors parses only the bold shape and
+// returns nothing. The region reads as screened with zero anchors verified.
+//
+// No corpus plan carries an out-of-phase unbold marker today, so this path is
+// unreachable from the live tree — which is exactly why it needs a fixture. Left
+// unpinned, a later "just gate both screens the same way" simplification would
+// restore the hole while the corpus and the other two tests stayed green.
+const UNBOLD_COMPLEMENT_PLAN = `### Tier-7 Remainder — legacy inline carve-out
+
+#### Tasks
+
+- **T-R-1 — a task OUTSIDE every phase, in the legacy inline marker style**
+  - Spec coverage: Spec-050 §Required Behavior
+  - Verifies invariant: Spec-050 §Framing (V1 Pairwise)
+
+### Phase 1 — swept work, all markers bold
+
+#### Tasks
+
+- **T1.1 — a task inside a phase section**
+  - **Spec coverage:** Spec-050 §Required Behavior
+  - **Verifies invariant:** Spec-050 §Framing (V1 Pairwise)
+`;
+
+test("surveyCorpus: legacy-unbold markers are screened OUTSIDE phases too", () => {
+  const tmp = makeFixtureCorpus({ "068-unbold-complement.md": UNBOLD_COMPLEMENT_PLAN });
+  try {
+    const survey = surveyCorpus({ repoRoot: tmp });
+
+    const unbold = survey.citeAnomalies.filter((a) => a.includes("legacy-unbold-marker"));
+    assert.equal(
+      unbold.length,
+      1,
+      `the complement's two unbold markers must raise exactly one legacy-unbold ` +
+        `finding; got: ${JSON.stringify(survey.citeAnomalies)}`,
+    );
+
+    // Localized to the complement, not merely present. The phase in this fixture
+    // is all-bold, so a finding attributed to it would mean the screen fired on
+    // the wrong region rather than reaching the newly-covered one.
+    assert.match(unbold[0], /\(outside every phase\)/);
+    assert.match(unbold[0], /2 unbold field marker\(s\)/);
+
+    // And the complement genuinely cleared the marker floor while verifying
+    // nothing — the precise condition that makes W4's reach load-bearing. If
+    // extractCiteAnchors ever learns the unbold shape, this line fails and the
+    // screen's justification needs rewriting rather than silently rotting.
+    const gate = gateTasksBlockCites(extractComplement(UNBOLD_COMPLEMENT_PLAN), "068", 1, {
+      requireBothMarkers: false,
+    });
+    assert.equal(gate.hasCiteMarkers, true, "bare-substring counting clears the floor");
+    assert.deepEqual(gate.findings, [], "yet the bold extractor parses no anchor from it");
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+// The complement region of UNBOLD_COMPLEMENT_PLAN, sliced the way surveyCorpus
+// slices it: everything before the first `### Phase` heading.
+function extractComplement(planSource) {
+  return planSource.slice(0, planSource.indexOf("### Phase 1"));
+}
+
+// Relaxing the complement floor from AND to OR without tightening what counts
+// as a marker traded one false-clean for another. countCites matches the bare
+// substring `Spec coverage` — no field colon — and a complement is a plan's
+// NARRATIVE region by construction, so one prose sentence sufficed to set
+// hasCiteMarkers, drop the plan out of the vacuous-pass disclosure, and print
+// `cite-swept` + `cite anomalies: none` over a region where extractCiteAnchors
+// verified nothing (Codex P1, PR #262 round 2).
+//
+// The phase here deliberately carries NO markers, so the prose in the
+// complement is the plan's only marker-shaped text — which is what makes the
+// vacuous-pass disclosure the observable under test.
+const PROSE_ONLY_COMPLEMENT_PLAN = `### Tier-7 Remainder — narrative only
+
+Spec coverage for this remainder is added by the Tier-7 audit, and the
+Verifies invariant fields land with it.
+
+### Phase 1 — work whose audit has not run
+
+#### Tasks
+
+- **T1.1 — a task carrying no cite markers at all**
+`;
+
+test("surveyCorpus: complement PROSE does not manufacture a verified result", () => {
+  const tmp = makeFixtureCorpus({ "069-prose-complement.md": PROSE_ONLY_COMPLEMENT_PLAN });
+  try {
+    const survey = surveyCorpus({ repoRoot: tmp });
+
+    // The observable. This plan has no cite marker anywhere, so it must be
+    // disclosed as a vacuous pass. Before the field-marker floor it was absent
+    // from this list — prose alone had promoted it to "verified".
+    assert.deepEqual(
+      survey.markerlessPlans,
+      ["069-prose-complement.md"],
+      `a plan whose only marker-shaped text is complement prose must still be ` +
+        `disclosed as a vacuous pass; got: ${JSON.stringify(survey.markerlessPlans)}`,
+    );
+    assert.deepEqual(survey.citeAnomalies, []);
+    assert.deepEqual(survey.anomalies, []);
+
+    // The half that must NOT regress: countCites still sees the prose. This is
+    // the exact gap between the two predicates, pinned — if countCites is ever
+    // taught the field colon, the floor comment above needs rewriting rather
+    // than silently becoming a tautology.
+    const complementText = PROSE_ONLY_COMPLEMENT_PLAN.slice(
+      0,
+      PROSE_ONLY_COMPLEMENT_PLAN.indexOf("### Phase 1"),
+    );
+    assert.ok(countCites(complementText).spec_coverage > 0, "substring counter sees the prose");
+    const fieldMarkers = classifyPhaseMarkers(complementText);
+    assert.equal(fieldMarkers.boldSpec + fieldMarkers.unboldSpec, 0, "field counter does not");
+
+    // And the floor itself, at the relaxed setting that made this reachable.
+    const gate = gateTasksBlockCites(complementText, "069", 1, { requireBothMarkers: false });
+    assert.equal(gate.hasCiteMarkers, false, "prose must not clear the relaxed complement floor");
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("surveyPhase: an INDENTED task row is not reported as a phantom", () => {
+  // taskHeaderMatches admits `  - **T-… — …**` (the indented sub-slice spelling
+  // it documents as observed) while SURVEY_ORACLE_RE was anchored at column
+  // zero. The row parsed to a declared id the oracle could not see, so it
+  // surfaced as `[phantom] parsed id on no task-shaped row` — a gating anomaly
+  // blaming the parser for a row the ORACLE missed (Codex P2, PR #262 round 2).
+  const indentedSubSlice = `#### Tasks
+
+- **T1.1 — column-zero row**
+  - **T-007r-3-15 — indented sub-slice carrying its own id**
+`;
+
+  const result = surveyPhase(indentedSubSlice);
+  assert.deepEqual(result.ids, ["T-007r-3-15", "T1.1"], "both spellings declare an id");
+  assert.deepEqual(result.phantoms, [], "the indented row is visible to the oracle");
+  assert.deepEqual(result.omissions, []);
+  assert.equal(result.oracleLines.length, 2, "the oracle sees BOTH rows, not just column zero");
 });
 
 test("surveyCorpus: a plan whose markers all sit inside phases reports NO unswept residual", () => {
@@ -2060,4 +2320,218 @@ test("classifyPhaseMarkers ignores fenced markers but still counts real ones", (
     unboldSpec: 0,
     unboldInvariant: 0,
   });
+});
+
+// ---------- marker partition (Codex P1 + P2, PR #262 round 3) ----------
+
+// The intra-plan residual is an invariant assertion: phase spans plus their
+// derived complements cover every byte, so on today's paths nothing is ever left
+// over and `[markers-unswept]` never fires against the real corpus. A check that
+// cannot be observed failing is a check nobody can trust, which is why the
+// partition is a pure exported function — these four cases are the proof that it
+// detects a hole rather than merely never seeing one.
+test("partitionMarkerOffsets: a HOLED partition reports the uncovered marker", () => {
+  const holed = partitionMarkerOffsets(
+    [10, 50, 120],
+    [
+      { start: 0, end: 40, isComplement: false },
+      { start: 100, end: 200, isComplement: true },
+    ],
+  );
+  assert.equal(holed.unswept, 1, "offset 50 falls in no unit and must be reported");
+  assert.equal(holed.phase, 1);
+  assert.equal(holed.complement, 1);
+  assert.deepEqual(holed.perUnit, [1, 1]);
+});
+
+test("partitionMarkerOffsets: an EXHAUSTIVE partition leaves nothing unswept", () => {
+  const whole = partitionMarkerOffsets(
+    [10, 50, 120],
+    [
+      { start: 0, end: 100, isComplement: false },
+      { start: 100, end: 200, isComplement: true },
+    ],
+  );
+  assert.equal(whole.unswept, 0);
+  assert.equal(whole.phase, 2);
+  assert.equal(whole.complement, 1);
+});
+
+test("partitionMarkerOffsets: overlapping ranges count a marker ONCE", () => {
+  // The subtraction this replaced summed per-unit counts, so an overlap inflated
+  // the swept side and could cancel out a real hole. First claimant wins.
+  const overlap = partitionMarkerOffsets(
+    [150],
+    [
+      { start: 0, end: 200, isComplement: false },
+      { start: 100, end: 200, isComplement: true },
+    ],
+  );
+  assert.equal(overlap.phase, 1);
+  assert.equal(overlap.complement, 0);
+  assert.equal(overlap.unswept, 0);
+});
+
+test("partitionMarkerOffsets: a unit with NO byte range covers nothing", () => {
+  // The [survey-span-unlocatable] shape. A rangeless unit must not silently
+  // absorb markers it never located.
+  const rangeless = partitionMarkerOffsets([10], [{ isComplement: false }]);
+  assert.equal(rangeless.unswept, 1);
+  assert.deepEqual(rangeless.perUnit, [0]);
+});
+
+// A plan whose out-of-phase markers live in a `## Tier-7 Remainder` block: the
+// complement carries two bold markers, the phase carries two of its own.
+const COMPLEMENT_MARKER_PLAN = [
+  "# Plan-069",
+  "",
+  "## Tier-7 Remainder",
+  "",
+  "- **T-069r-1 — out-of-phase task**",
+  "",
+  "  **Spec coverage:** Spec-050 §Required Behavior",
+  "",
+  "  **Verifies invariant:** I-069-9",
+  "",
+  "### Phase 1 — real work",
+  "",
+  "#### Tasks",
+  "",
+  "- **T1.1 — a task** (Files: packages/a/src/x.ts)",
+  "",
+  "  **Spec coverage:** Spec-050 §Required Behavior",
+  "",
+  "  **Verifies invariant:** I-050-1",
+  "",
+].join("\n");
+
+test("surveyCorpus: complement markers are credited only when their screen RAN", () => {
+  // The denominator was recorded BEFORE the screening loop, so a complement unit
+  // whose cite gate threw still had its markers reported as "screened via the
+  // complement path". The plan was correctly marked uncovered, but the very
+  // observable built to expose a gate reporting clean over work it did not do was
+  // itself asserting a screen had succeeded when it had thrown (Codex P2, PR #262
+  // round 3).
+  const benign = () => ({ hasCiteMarkers: true, findings: [] });
+
+  // Positive control — every screen runs, so the markers ARE credited. Without
+  // this the negative control below would pass just as well against a complement
+  // path that had stopped producing a denominator at all.
+  const clean = makeFixtureCorpus({ "069-complement.md": COMPLEMENT_MARKER_PLAN });
+  try {
+    const survey = surveyCorpus({ repoRoot: clean, runCiteGate: benign });
+    assert.deepEqual(survey.complementMarkerPlans, [
+      { name: "069-complement.md", complement: 2, total: 4, units: 1 },
+    ]);
+    assert.deepEqual(survey.unjudgedComplementPlans, []);
+  } finally {
+    rmSync(clean, { recursive: true, force: true });
+  }
+
+  // Negative control — the COMPLEMENT screen throws while the phase screen is
+  // fine, so the two populations must separate.
+  const thrown = makeFixtureCorpus({ "069-complement.md": COMPLEMENT_MARKER_PLAN });
+  try {
+    const survey = surveyCorpus({
+      repoRoot: thrown,
+      runCiteGate: (section, planPrefix, label) => {
+        if (String(label).includes("outside every phase")) {
+          throw new Error("injected complement failure");
+        }
+        return benign();
+      },
+    });
+    assert.deepEqual(
+      survey.complementMarkerPlans,
+      [],
+      "a thrown complement screen credits NOTHING to the screened denominator",
+    );
+    assert.deepEqual(survey.unjudgedComplementPlans, [
+      { name: "069-complement.md", unjudged: 2, units: 1 },
+    ]);
+    assert.deepEqual(
+      survey.uncoveredPlans.map((plan) => plan.name),
+      ["069-complement.md"],
+    );
+    const text = formatSurvey(survey);
+    assert.doesNotMatch(
+      text,
+      /screened via the complement path/,
+      "the report must not claim a screen that threw had screened anything",
+    );
+    assert.match(text, /cite screen THREW — NOT screened \(1 plan\(s\), 2 marker\(s\)\)/);
+  } finally {
+    rmSync(thrown, { recursive: true, force: true });
+  }
+});
+
+test("surveyCorpus: a partition hole marks the plan uncovered, never a vacuous pass", () => {
+  // The marker-coverage residual called markUncovered itself, from before the
+  // unit loop — a second decision point outside the terminal chain that owns
+  // uncovered-vs-markerless. A plan whose markers all fell in the partition hole
+  // therefore reached the `else if` with no unit reporting a marker, and one run
+  // printed it BOTH as uncovered AND as "swept but no cite markers to verify —
+  // vacuous pass": the report contradicting itself precisely when the residual
+  // did its job.
+  //
+  // The unit cover is exhaustive by construction, so no fixture can produce a
+  // real hole; the partition is injected instead (see the surveyCorpus seam
+  // docstring). `hasCiteMarkers: false` on every unit is the other half of the
+  // shape — markers present in the DOCUMENT that no unit saw.
+  const blindScreen = () => ({ hasCiteMarkers: false, findings: [] });
+  const holePartition = (markerOffsets, units) => ({
+    phase: 0,
+    complement: 0,
+    unswept: markerOffsets.length,
+    perUnit: units.map(() => 0),
+  });
+
+  // Positive control — same blind screen, REAL partition. No hole, so the
+  // markerless path still owns this plan. Without it the negative control below
+  // would pass against a build where markerlessPlans had stopped filling at all.
+  const intact = makeFixtureCorpus({ "069-complement.md": COMPLEMENT_MARKER_PLAN });
+  try {
+    const survey = surveyCorpus({ repoRoot: intact, runCiteGate: blindScreen });
+    assert.deepEqual(survey.markerlessPlans, ["069-complement.md"]);
+    assert.deepEqual(survey.uncoveredPlans, []);
+    assert.deepEqual(survey.unsweptMarkerPlans, []);
+    assert.match(formatSurvey(survey), /vacuous pass/);
+  } finally {
+    rmSync(intact, { recursive: true, force: true });
+  }
+
+  // Negative control — every marker lands in the hole.
+  const holed = makeFixtureCorpus({ "069-complement.md": COMPLEMENT_MARKER_PLAN });
+  try {
+    const survey = surveyCorpus({
+      repoRoot: holed,
+      runCiteGate: blindScreen,
+      partitionMarkers: holePartition,
+    });
+    assert.deepEqual(
+      survey.uncoveredPlans.map((plan) => plan.name),
+      ["069-complement.md"],
+    );
+    assert.match(survey.uncoveredPlans[0].reason, /reached no survey unit/);
+    assert.deepEqual(
+      survey.markerlessPlans,
+      [],
+      "a plan holding markers no screen reached is not a vacuous pass",
+    );
+    assert.deepEqual(survey.unsweptMarkerPlans, [
+      { name: "069-complement.md", unswept: 4, total: 4 },
+    ]);
+    assert.ok(
+      survey.anomalies.some((line) => line.includes("[markers-unswept]")),
+      "the residual must gate through anomalies, not merely disclose",
+    );
+    const text = formatSurvey(survey);
+    assert.doesNotMatch(
+      text,
+      /vacuous pass/,
+      "the same run must not call an uncovered plan a vacuous pass",
+    );
+  } finally {
+    rmSync(holed, { recursive: true, force: true });
+  }
 });

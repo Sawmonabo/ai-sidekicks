@@ -5,7 +5,15 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { mkdtempSync, mkdirSync, symlinkSync, existsSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  symlinkSync,
+  existsSync,
+  writeFileSync,
+  readdirSync,
+  readFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import process from "node:process";
@@ -21,8 +29,15 @@ import {
   classifyPhaseSize,
   extractDeclaredFilePaths,
   extractDeclaredTaskIds,
+  extractTasksBlock,
+  walkPhases,
+  extractPhaseSection,
   G4_GRAMMAR_DEMOTE_KINDS,
   LEGACY_INLINE_EXEMPT_KINDS,
+  maskInlineCodeSpans,
+  countCites,
+  classifyPhaseMarkers,
+  surveyCorpus,
 } from "../preflight.mjs";
 
 const FIXTURE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "preflight-gate4-fixtures");
@@ -416,6 +431,142 @@ test("extractCiteAnchors picks up both Spec coverage and Verifies invariant payl
   assert.equal(anchors[0].field, "Spec coverage");
   assert.equal(anchors[0].taskId, "T1.1");
   assert.equal(anchors[1].field, "Verifies invariant");
+});
+
+// Attribution keys on the NEAREST PRECEDING task header in ANY corpus spelling.
+// The bullet recognizer once required `**` to close right after the id
+// (`- **T-025d-14-1** (Files: …)`), but the corpus-dominant spelling closes it
+// after the TITLE. 241 headers across 12 plans were unrecognized (220 in-phase),
+// so their markers silently inherited whichever id last matched — findings got
+// reported against the wrong task. `taskId` is diagnostic and never gates, which
+// is exactly why this survived: the gate's verdict stayed correct while its
+// finger pointed at the wrong row.
+test("extractCiteAnchors attributes markers to the nearest preceding task header, any spelling", () => {
+  const sec = `#### Tasks
+
+- **T-025d-14-1** (Files: deploy/x.yml) — bold closes after the id.
+  - **Spec coverage:** Spec-002 line 13 (PresenceUpdate)
+
+- **T-025s-1 — bold closes after the TITLE, not the id.**
+  - **Spec coverage:** Spec-002 line 13 (PresenceUpdate)
+
+- [ ] **T21.1-2 — a checkbox sits between the dash and the id.**
+  - **Spec coverage:** Spec-002 line 13 (PresenceUpdate)
+
+  - **T-007r-3-15 (slice a) — indented, parenthetical after the id.**
+    - **Spec coverage:** Spec-002 line 13 (PresenceUpdate)
+
+- **Tests:** an ordinary bold field beginning with T is NOT a task header.
+  - **Spec coverage:** Spec-002 line 13 (PresenceUpdate)
+`;
+  const { anchors } = extractCiteAnchors(sec);
+  assert.deepEqual(
+    anchors.map((a) => a.taskId),
+    ["T-025d-14-1", "T-025s-1", "T21.1-2", "T-007r-3-15", "T-007r-3-15"],
+  );
+});
+
+test("extractCiteAnchors prefers the nearest header, not the heading-form one", () => {
+  // `??` used to take the `#####` match whenever one existed anywhere in the
+  // prefix, even with a bullet header sitting closer to the marker.
+  const sec = `#### Tasks
+
+##### T1.1 — heading-form task
+
+- **T2.9 — a bullet-form task that comes LATER.**
+  - **Spec coverage:** Spec-002 line 13 (PresenceUpdate)
+`;
+  const { anchors } = extractCiteAnchors(sec);
+  assert.equal(anchors.length, 1);
+  assert.equal(anchors[0].taskId, "T2.9");
+});
+
+// Anti-drift, over the REAL corpus. Cite attribution and Gate 3's declared-id
+// extraction are two consumers of one question — "what is a task row?" — and
+// they already forked once: Gate 3 was hardened on PR #190 while attribution
+// kept the narrow `**id**` form, mis-labeling findings under 241 headers in 12
+// plans. They now share `taskHeaderMatches`; this pins that they agree, so a
+// future private copy in either consumer fails here instead of silently
+// mis-routing findings again. Attribution is diagnostic and Gate 3 gates, so
+// divergence never shows up as a red build on its own.
+test("corpus: every marker is attributed to its nearest preceding declared task header", () => {
+  const plansDir = resolve(
+    dirname(fileURLToPath(import.meta.url)),
+    "..",
+    "..",
+    "..",
+    "..",
+    "..",
+    "docs",
+    "plans",
+  );
+  const planFiles = readdirSync(plansDir).filter((n) => /^\d{3}-.*\.md$/.test(n));
+  assert.ok(
+    planFiles.length >= 20,
+    `expected the real plans corpus, saw ${planFiles.length} file(s)`,
+  );
+
+  let attributedCount = 0;
+  const orphans = [];
+  for (const name of planFiles) {
+    const src = readFileSync(resolve(plansDir, name), "utf8");
+    for (const phase of walkPhases(src)) {
+      const section = extractPhaseSection(src, phase.number ?? phase);
+      if (!section) continue;
+      const block = extractTasksBlock(section);
+      if (block === null) continue;
+      const declared = extractDeclaredTaskIds(section);
+      const lines = block.split("\n");
+      // Independent oracle. Deliberately NOT `taskHeaderMatches` — reusing the
+      // implementation would make this tautological. Instead, take Gate 3's
+      // declared ids as the authority and locate each one positionally, then
+      // assert attribution picked the nearest preceding one. "Attributed id is
+      // SOME declared id" is too weak to catch the original defect: markers
+      // under `T-025s-1` were attributed to `T-025d-19-1`, which is itself a
+      // declared id, so a membership check passes over the exact bug.
+      const headerIdByLine = lines.map((line) => {
+        for (const id of declared) {
+          const esc = id.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&");
+          if (
+            new RegExp(String.raw`^(?:#####\s+|\s*-\s+(?:\[[ xX]\]\s+)?\*\*)${esc}\b`).test(line)
+          ) {
+            return id;
+          }
+        }
+        return null;
+      });
+      for (const anchor of extractCiteAnchors(block).anchors) {
+        if (!anchor.taskId) continue;
+        attributedCount++;
+        let expected = null;
+        for (let i = Math.min(anchor.lineNo, lines.length) - 1; i >= 0; i--) {
+          if (headerIdByLine[i]) {
+            expected = headerIdByLine[i];
+            break;
+          }
+        }
+        if (expected !== null && anchor.taskId !== expected) {
+          orphans.push(
+            `${name} Phase ${phase.number ?? phase} line ${anchor.lineNo}: ` +
+              `attributed ${anchor.taskId}, nearest preceding header is ${expected}`,
+          );
+        }
+      }
+    }
+  }
+
+  // Non-vacuity floor: a zero denominator would make the assertion below pass
+  // over nothing at all, which is the exact false-clean shape this suite exists
+  // to catch. If attribution stops resolving ids, fail loudly here.
+  assert.ok(
+    attributedCount > 50,
+    `expected the corpus to attribute many anchors; got ${attributedCount}`,
+  );
+  assert.deepEqual(
+    orphans,
+    [],
+    `markers attributed to a task other than their nearest preceding header:\n  ${orphans.join("\n  ")}`,
+  );
 });
 
 test("gateTasksBlockCites passes on clean Tasks block with verified anchors", () => {
@@ -2543,4 +2694,221 @@ test("a DUPLICATED section heading accepts a line under EITHER occurrence", () =
   assert.equal(verdict.valid, false);
   assert.equal(verdict.reason, "line-outside-section");
   assert.match(verdict.evidence, /section spans 3-6, 11-14/);
+});
+
+// ---------------------------------------------------------------------------
+// Codex PR #262 round 5 — the cite content boundary and the empty-payload skip.
+// ---------------------------------------------------------------------------
+
+test("maskInlineCodeSpans blanks span interiors and preserves byte length", () => {
+  const line = "Write `**Spec coverage:** Spec-1 §A` in the block.";
+  const masked = maskInlineCodeSpans(line);
+  assert.equal(masked.length, line.length, "length must be preserved — offsets are load-bearing");
+  assert.ok(!masked.includes("Spec coverage"), "span interior was not blanked");
+  assert.ok(masked.startsWith("Write `"), "the opening delimiter must survive");
+  assert.ok(masked.endsWith("` in the block."), "text after the span must survive");
+});
+
+test("maskInlineCodeSpans leaves unbalanced and mismatched backtick runs alone", () => {
+  const lone = "a lone ` backtick with **Spec coverage:** after it";
+  assert.equal(maskInlineCodeSpans(lone), lone, "an unpaired run is prose, not a span");
+  const mismatched = "``double open with **Spec coverage:** and ` single close";
+  assert.equal(maskInlineCodeSpans(mismatched), mismatched, "runs must be equal length to pair");
+});
+
+test("maskInlineCodeSpans masks a double-backtick span wrapping literal backticks (2/1/1/2)", () => {
+  // The canonical CommonMark idiom for showing code that itself contains a
+  // backtick. Runs are [2, 1, 1, 2]: the len-2 closer sits two runs away, so
+  // positional pairing rejects (2,1) and (1,2) on length and the illustrated
+  // marker inside counts as audit output (Codex P2, PR #262 round 6).
+  const line = "An outer span: `` `**Spec coverage:** Spec-999 §Missing` `` illustrates the form.";
+  const masked = maskInlineCodeSpans(line);
+  assert.equal(masked.length, line.length, "length must be preserved — offsets are load-bearing");
+  assert.ok(!masked.includes("Spec coverage"), "the wrapped illustration must be blanked");
+  const { anchors, failures } = extractCiteAnchors(`${line}\n`);
+  assert.equal(anchors.length, 0, "an illustrated marker must not be extracted");
+  assert.equal(failures.length, 0, "an illustration is not a defect either");
+});
+
+test("survey denominator and unit gates share one content boundary", () => {
+  // The complement's ONLY marker-shaped text is an inline-code illustration.
+  // Counting the denominator through a laxer mask than the unit gates let the
+  // survey report that marker as "screened via the complement path" while the
+  // same plan sat in `markerlessPlans` as having nothing to verify — two
+  // censuses, one marker, contradictory verdicts (Codex P2, PR #262 round 6).
+  const fixtureRoot = mkdtempSync(resolve(tmpdir(), "preflight-census-"));
+  const planDir = resolve(fixtureRoot, "docs", "plans");
+  mkdirSync(planDir, { recursive: true });
+  writeFileSync(
+    resolve(planDir, "101-census-fixture.md"),
+    [
+      "# Plan-101 census fixture",
+      "",
+      "Authoring guidance: write `**Spec coverage:** Spec-001 §Goals` on each task row.",
+      "",
+      "### Phase 1 — No markers",
+      "",
+      "#### Tasks",
+      "",
+      "- **T-101-1.1** — A row with no cite markers.",
+      "",
+    ].join("\n"),
+  );
+  const survey = surveyCorpus({ repoRoot: fixtureRoot });
+  assert.deepEqual(
+    survey.complementMarkerPlans,
+    [],
+    "an illustrated marker must not enter the complement-screened denominator",
+  );
+  assert.ok(
+    survey.markerlessPlans.includes("101-census-fixture.md"),
+    "the one honest census entry is markerless — swept, nothing to verify",
+  );
+  assert.deepEqual(
+    survey.uncoveredPlans ?? [],
+    [],
+    "the fixture must be swept, or the census assertions above are vacuous",
+  );
+});
+
+test("maskInlineCodeSpans honors escaped backticks — escaped runs never open a span", () => {
+  // CommonMark: `\`` is a literal backtick, so a REAL marker wrapped in escaped
+  // backticks is prose, not a code span. Pairing the escaped runs blanked the
+  // marker out of every counter and let the survey pass without verifying its
+  // anchor (Codex P2, PR #262 round 7).
+  const doc = "- **T1.1 — Row.** \\`**Spec coverage:** Spec-002 AC1\\` escaped rendering.\n";
+  assert.equal(maskInlineCodeSpans(doc), doc, "escaped backticks must not pair");
+  assert.equal(countCites(doc).spec_coverage, 1, "the real marker must still count");
+  // The stray `\`` in the payload keeps this from parsing as a clean anchor —
+  // fine. The invariant is VISIBILITY: the gate extracts it or flags it, and
+  // under escape-blind pairing it did neither (marker blanked, 0 + 0).
+  const { anchors, failures } = extractCiteAnchors(doc);
+  assert.ok(
+    anchors.length + failures.length >= 1,
+    "the marker must be visible to the gate — extracted or flagged, never vanished",
+  );
+});
+
+test("maskInlineCodeSpans does not escape-check closers — no escapes inside spans", () => {
+  // CommonMark: backslash escapes do not work inside code spans, so in
+  // `code\` the trailing backtick CLOSES the span even though a backslash
+  // precedes it; the backslash is span content and is blanked with it.
+  const line = "Span: `code\\` then **Spec coverage:** outside.";
+  const masked = maskInlineCodeSpans(line);
+  assert.equal(masked.length, line.length, "length must be preserved — offsets are load-bearing");
+  assert.ok(!masked.includes("code"), "the span interior including the backslash must be blanked");
+  assert.ok(masked.includes("**Spec coverage:**"), "prose after the closer must survive");
+});
+
+test("maskInlineCodeSpans finds a closer past an unmatched run (no positional pairing)", () => {
+  // Runs are [2, 1, 1]. Pairing off two at a time compares (2,1), skips BOTH on
+  // the length mismatch, and leaves the REAL span at (1,2) unmasked — so its
+  // marker counts as audit output. Forward search pairs (1,2) correctly.
+  const line = "Use `` for empty, and `**Spec coverage:** Spec-1 §A` here.";
+  const masked = maskInlineCodeSpans(line);
+  assert.equal(masked.length, line.length, "length must be preserved — offsets are load-bearing");
+  assert.ok(!masked.includes("Spec coverage"), "the span after the unmatched run must be blanked");
+  assert.ok(masked.startsWith("Use `` for empty, and `"), "text before the span must survive");
+  assert.equal(
+    classifyPhaseMarkers(`### Phase 1 — X\n\n${line}\n`).boldSpec,
+    0,
+    "the relaxed floor must not count a marker the mask should have removed",
+  );
+});
+
+test("a marker inside a same-line code span is neither extracted nor counted", () => {
+  const illustrated = "Prose showing the form: `**Spec coverage:** Spec-999 §Nope` inline.\n";
+  const { anchors, failures } = extractCiteAnchors(illustrated);
+  assert.equal(anchors.length, 0, "an illustrated marker must not be extracted");
+  assert.equal(failures.length, 0, "an illustration is not a defect either");
+  assert.equal(countCites(illustrated).spec_coverage, 0, "the strict floor must not count it");
+  assert.equal(
+    classifyPhaseMarkers(illustrated).boldSpec,
+    0,
+    "the relaxed floor must not count it",
+  );
+});
+
+test("NEGATIVE CONTROL: a real marker whose payload contains inline code keeps it intact", () => {
+  // The regression this pins was live for one edit: masking the bytes a payload
+  // is sliced from blanked backticked identifiers inside `(descriptor)` tails.
+  // 196 live anchors carry one. `raw` is not cosmetic — demotionKeepsExistenceFloor
+  // greps it for `Spec-NNN`, so a blanked cite silently leaves that floor.
+  const real = "- **T1.1** **Spec coverage:** Spec-001 §Goals (`SessionSchema` shape)\n";
+  const { anchors } = extractCiteAnchors(real);
+  assert.equal(anchors.length, 1, "the real marker must still be extracted");
+  assert.ok(
+    anchors[0].raw.includes("`SessionSchema`"),
+    `payload lost its backticked identifier: ${anchors[0].raw}`,
+  );
+  assert.equal(anchors[0].section, "Goals", "the section anchor must be unaffected");
+});
+
+test("an empty-payload bold marker is a finding, not a silent skip", () => {
+  const emptyPayload = "#### Tasks\n\n- **T1.1 — Row.** **Spec coverage:**\n";
+  const { anchors, failures } = extractCiteAnchors(emptyPayload);
+  assert.equal(anchors.length, 0, "there is no cite to extract");
+  assert.equal(failures.length, 1, "but the marker must not vanish silently");
+  assert.equal(failures[0].kind, "empty-cite-payload");
+  assert.equal(failures[0].field, "Spec coverage");
+  assert.equal(failures[0].taskId, "T1.1", "the finding must attribute to the enclosing row");
+  assert.equal(failures[0].severity, "error");
+});
+
+test("NEGATIVE CONTROL: the same marker WITH a payload produces no empty-payload finding", () => {
+  const withPayload = "#### Tasks\n\n- **T1.1 — Row.** **Spec coverage:** Spec-001 §Goals\n";
+  const { anchors, failures } = extractCiteAnchors(withPayload);
+  assert.equal(anchors.length, 1);
+  assert.equal(
+    failures.filter((f) => f.kind === "empty-cite-payload").length,
+    0,
+    "a populated marker must not trip the empty-payload screen",
+  );
+});
+
+test("empty-cite-payload stays HARD for S/M — it is not in the demote set", () => {
+  assert.ok(
+    !G4_GRAMMAR_DEMOTE_KINDS.has("empty-cite-payload"),
+    "demoting this kind reopens the false clean for the least-reviewed size classes",
+  );
+});
+
+test("a complement whose only marker has an empty payload no longer reports clean", () => {
+  // The exact CAT-10 shape: floor admits the marker, extractor produced nothing,
+  // and the unit returned {ok: true, hasCiteMarkers: true, findings: []}.
+  const complement = "Some narrative.\n\n- **T9.1 — Row.** **Spec coverage:**\n";
+  const result = gateTasksBlockCites(complement, "025", 1, {
+    repoRoot: resolveFixtureRepoRoot(),
+    requireBothMarkers: false,
+  });
+  assert.equal(result.hasCiteMarkers, true, "the marker IS present — this is not the missing case");
+  assert.equal(result.ok, false, "a marker that verified nothing must not pass");
+  assert.ok(
+    result.findings.some((f) => f.kind === "empty-cite-payload"),
+    "the verdict must name why it failed",
+  );
+});
+
+test("INTERACTION: illustrated marker + empty-payload marker yields exactly one finding", () => {
+  // Ordering guard. The two round-5 fixes touch the same path in opposite
+  // directions: the content boundary REMOVES illustrated markers, the
+  // empty-payload screen ADDS findings for admitted ones. Applied in the wrong
+  // order the illustration itself is flagged — a false positive replacing a
+  // false clean, and neither single-fix test above can catch it because each
+  // exercises only one shape.
+  const both = [
+    "Narrative that documents the form: `**Spec coverage:** Spec-999 §Nope`.",
+    "",
+    "- **T9.1 — Real row.** **Spec coverage:**",
+    "",
+  ].join("\n");
+  const { anchors, failures } = extractCiteAnchors(both);
+  assert.equal(anchors.length, 0, "the illustration must not be extracted");
+  assert.equal(failures.length, 1, `expected exactly one finding, got ${failures.length}`);
+  assert.equal(failures[0].kind, "empty-cite-payload");
+  assert.equal(
+    failures[0].taskId,
+    "T9.1",
+    "the finding must name the REAL row, not the illustration",
+  );
 });
