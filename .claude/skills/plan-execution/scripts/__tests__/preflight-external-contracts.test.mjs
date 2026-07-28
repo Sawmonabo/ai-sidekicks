@@ -37,9 +37,14 @@ const REPO_ROOT = resolve(SCRIPTS_DIR, "../../../..");
 // duplication is forced. What is NOT forced is leaving the two copies
 // unchecked.
 //
-// The 4-space and tab entries below are the load-bearing ones: they are what
-// distinguishes CommonMark's ` {0,3}` indent budget from a naive `\s*`, and
-// the control test that follows goes vacuous if either is dropped.
+// These named cases are for READABILITY — they say what the grammar means, in
+// shapes a person can check by eye. They are no longer what enforces the
+// parity: a hand-written list can only fail on a divergence somebody thought
+// to write down, and measuring showed it missing one. Perturbing the shared
+// pattern's trailing ` ?` to `[ \t]?` diverges on a tab directly after the last
+// marker, no case here contains that, and all fourteen passed the wrong
+// pattern — a control that proved nothing about the rule it names. The
+// exhaustive comparison below is the enforcement; this list documents intent.
 const BLOCKQUOTE_CASES = [
   "> ```md",
   ">> nested quote",
@@ -67,16 +72,103 @@ test("blockquote-prefix strip is byte-identical to the shared tracker's", () => 
   }
 });
 
-test("control: the parity check can FAIL — a perturbed pattern is caught", () => {
-  // Without this, a comparison of two identical no-op regexes would pass
-  // forever and prove nothing. `\s*` is the naive form CommonMark rejects.
-  const perturbed = /^(?:\s*>)+ ?/;
-  const divergent = BLOCKQUOTE_CASES.filter(
-    (line) => line.replace(perturbed, "") !== stripBlockquotePrefix(line),
+// The alphabet the prefix grammar is written over: the marker itself, both
+// indent characters (spaces are budgeted, a tab is not), a fence character so a
+// stripped result is something the tracker would go on to classify, and one
+// ordinary letter to terminate a prefix. No character outside this set can
+// change how a blockquote prefix parses.
+const PREFIX_ALPHABET = [" ", "\t", ">", "`", "a"];
+
+// Enumerating every string over that alphabet up to this length. Seven covers
+// any string holding two full levels (`   >` is four characters) plus a
+// trailing character, which is where a per-level, repetition, or trailing-space
+// divergence has room to appear.
+//
+// Read this as MEASURED COVERAGE, not proof: it is exhaustive over this
+// alphabet up to this bound, not over all strings. What it demonstrably does is
+// separate both perturbations below, which the named list could not.
+const PREFIX_BOUND = 7;
+
+/**
+ * Every string over `alphabet` up to `maxLength` characters, shortest first.
+ *
+ * @param {string[]} alphabet
+ * @param {number} maxLength
+ * @returns {Generator<string>}
+ */
+function* stringsOverAlphabet(alphabet, maxLength) {
+  const buffer = [];
+  function* extend() {
+    yield buffer.join("");
+    if (buffer.length === maxLength) return;
+    for (const character of alphabet) {
+      buffer.push(character);
+      yield* extend();
+      buffer.pop();
+    }
+  }
+  yield* extend();
+}
+
+/**
+ * Compare a candidate prefix pattern against the shared tracker's strip over
+ * the whole enumeration.
+ *
+ * @param {RegExp} pattern
+ * @returns {{ divergent: string[], checked: number }}
+ */
+function prefixParity(pattern) {
+  const divergent = [];
+  let checked = 0;
+  for (const line of stringsOverAlphabet(PREFIX_ALPHABET, PREFIX_BOUND)) {
+    checked++;
+    if (line.replace(pattern, "") !== stripBlockquotePrefix(line)) divergent.push(line);
+  }
+  return { divergent, checked };
+}
+
+test("blockquote-prefix strip is byte-identical to the shared tracker's, exhaustively", () => {
+  const { divergent, checked } = prefixParity(BLOCKQUOTE_PREFIX_RE);
+  assert.deepEqual(
+    divergent.slice(0, 8).map((line) => JSON.stringify(line)),
+    [],
+    `preflight.mjs and markdown-fences.ts have drifted on ${divergent.length} of ${checked} inputs`,
   );
+  // Closed form for sum(alphabet^k, k=0..BOUND). Pinned so a generator that
+  // stopped early cannot report a clean sweep over almost nothing — the same
+  // empty-input vacuity this suite exists to prevent elsewhere.
+  assert.equal(
+    checked,
+    (PREFIX_ALPHABET.length ** (PREFIX_BOUND + 1) - 1) / (PREFIX_ALPHABET.length - 1),
+  );
+});
+
+test("control: the parity check can FAIL — both perturbed patterns are caught", () => {
+  // Without this, a comparison of two identical no-op regexes would pass
+  // forever and prove nothing.
+
+  // `\s*` is the naive indent form CommonMark rejects: it lets a tab or a
+  // fourth space stand in for the three-space marker budget.
+  const naiveIndent = prefixParity(/^(?:\s*>)+ ?/);
   assert.ok(
-    divergent.length > 0,
-    "the case list cannot distinguish a wrong pattern — it is not exercising the indentation rule",
+    naiveIndent.divergent.length > 0,
+    "the enumeration cannot distinguish a naive indent budget",
+  );
+
+  // `[ \t]?` is the drift the named list missed entirely, and the reason this
+  // control moved off it: it differs from ` ?` on exactly one shape, a TAB
+  // directly after the last marker, and the whole named list passed it.
+  const tabAfterMarker = prefixParity(/^(?: {0,3}>)+[ \t]?/);
+  assert.ok(
+    tabAfterMarker.divergent.length > 0,
+    "the enumeration cannot distinguish the trailing `[ \\t]?` drift",
+  );
+  // Every separating input is the predicted shape, so the control is failing
+  // for the stated reason rather than for some unrelated accident.
+  assert.deepEqual(
+    tabAfterMarker.divergent.filter((line) => !/^(?: {0,3}>)+\t/.test(line)),
+    [],
+    "a separating input did not carry a tab directly after the marker run",
   );
 });
 
@@ -158,13 +250,27 @@ export function dynamicLoadForms(source) {
 //
 // Imports made by the bootstrap module itself are skipped, so the log contains
 // the graph's own edges and not the harness's.
-const RESOLVE_HOOK_SOURCE = `import { appendFileSync } from "node:fs";
+// The LOAD hook is what answers "is this module CommonJS?", and it is the only
+// thing that can. Measured on Node 22.12, all three of these disagree:
+//
+//   resolve hook, `.cjs`  -> format "commonjs"
+//   resolve hook, `.js`   -> format ABSENT, though the module is CommonJS
+//   load hook,    `.js`   -> format "commonjs"
+//
+// So a resolve-time format check reports clean on a plain `.js` CommonJS
+// module, and an extension check never sees it either — `.js` is CommonJS or
+// ESM depending on the nearest `package.json` `type`, which is a fact about a
+// file the graph walk never reads. Node must settle the question to execute the
+// module at all, so the load hook is asked instead of re-deriving it.
+const MODULE_HOOKS_SOURCE = `import { appendFileSync } from "node:fs";
 
 let logPath;
+let loadLogPath;
 let bootstrapURL;
 
 export function initialize(data) {
   logPath = data.logPath;
+  loadLogPath = data.loadLogPath;
   bootstrapURL = data.bootstrapURL;
 }
 
@@ -186,15 +292,28 @@ export async function resolve(specifier, context, nextResolve) {
     }
   }
 }
+
+export async function load(url, context, nextLoad) {
+  let loaded = null;
+  try {
+    loaded = await nextLoad(url, context);
+    return loaded;
+  } finally {
+    appendFileSync(
+      loadLogPath,
+      JSON.stringify({ url, format: loaded === null ? null : loaded.format }) + "\\n",
+    );
+  }
+}
 `;
 
 const BOOTSTRAP_SOURCE = `import { register } from "node:module";
 import { pathToFileURL } from "node:url";
 
-const [entry, logPath] = process.argv.slice(2);
-register("./resolve-hook.mjs", {
+const [entry, logPath, loadLogPath] = process.argv.slice(2);
+register("./module-hooks.mjs", {
   parentURL: import.meta.url,
-  data: { logPath, bootstrapURL: import.meta.url },
+  data: { logPath, loadLogPath, bootstrapURL: import.meta.url },
 });
 await import(pathToFileURL(entry).href);
 `;
@@ -204,20 +323,38 @@ await import(pathToFileURL(entry).href);
  *
  * @param {string} entry absolute path to the entry module
  * @returns {{ ok: boolean, stderr: string, files: string[],
- *             records: Array<{ specifier: string, parentURL: string | null, url: string | null }> }}
+ *             records: Array<{ specifier: string, parentURL: string | null, url: string | null }>,
+ *             loaded: Array<{ url: string, format: string | null }> }}
  */
 function enumerateGraph(entry) {
   const directory = mkdtempSync(join(tmpdir(), "preflight-graph-"));
   try {
     const logPath = join(directory, "graph.jsonl");
+    const loadLogPath = join(directory, "loads.jsonl");
     const bootstrap = join(directory, "bootstrap.mjs");
-    writeFileSync(join(directory, "resolve-hook.mjs"), RESOLVE_HOOK_SOURCE);
+    writeFileSync(join(directory, "module-hooks.mjs"), MODULE_HOOKS_SOURCE);
     writeFileSync(bootstrap, BOOTSTRAP_SOURCE);
     writeFileSync(logPath, "");
+    writeFileSync(loadLogPath, "");
 
-    // The child must behave like the engines floor, not like whatever node the
-    // developer or CI happens to run. Two mechanisms enforce that, and the
-    // relationship between them was measured rather than assumed:
+    // What this child is NOT: a Node 22.12 runtime. It executes on whatever
+    // binary runs this suite, and the flags below do not downgrade it. An API
+    // that exists in Node 24 and not at the engines floor — a `node:module`
+    // addition, say — is available to the graph here and would load happily,
+    // so this child cannot answer whether the graph runs at the floor.
+    //
+    // FLOOR AUTHORITY IS CI, and it already covers this test. The `test-node22`
+    // job in `.github/workflows/ci.yml` pins `node: ["22.12"]`, surfacing as the
+    // required check `test (ubuntu-latest / node 22.12)`, and its "Run
+    // plan-execution skill tests (Layer 1 + Layer 2)" step runs this file. The
+    // graph is therefore enumerated by an actual engines-floor binary on every
+    // PR, which is what catches an API-availability divergence.
+    //
+    // What the two mechanisms below do is narrower, and local: they stop the
+    // TypeScript assertions from going VACUOUS when the suite runs on a newer
+    // runtime, so a developer's node 24 cannot report a clean pass that CI
+    // would not have given. The relationship between them was measured rather
+    // than assumed:
     //
     //   - `--no-experimental-strip-types` pins type-stripping OFF. Node 22.18+
     //     strips by default, so on a newer runtime this is the ONLY thing
@@ -240,14 +377,18 @@ function enumerateGraph(entry) {
 
     const child = spawnSync(
       process.execPath,
-      ["--no-experimental-strip-types", bootstrap, entry, logPath],
+      ["--no-experimental-strip-types", bootstrap, entry, logPath, loadLogPath],
       { encoding: "utf8", env: childEnvironment },
     );
 
-    const records = readFileSync(logPath, "utf8")
-      .split("\n")
-      .filter((line) => line.length > 0)
-      .map((line) => JSON.parse(line));
+    const readLog = (path) =>
+      readFileSync(path, "utf8")
+        .split("\n")
+        .filter((line) => line.length > 0)
+        .map((line) => JSON.parse(line));
+
+    const records = readLog(logPath);
+    const loaded = readLog(loadLogPath);
 
     // The entry is seeded explicitly: nothing imports it, so it never appears
     // as a resolved target, and a source scan over resolved targets alone would
@@ -264,6 +405,7 @@ function enumerateGraph(entry) {
       stderr: child.stderr ?? "",
       files: [...new Set(files)],
       records,
+      loaded,
     };
   } finally {
     rmSync(directory, { recursive: true, force: true });
@@ -369,6 +511,56 @@ test("the preflight production graph loads under bare node, so no TypeScript sou
   }
 });
 
+/**
+ * CommonJS modules among a loaded set, by URL.
+ *
+ * Named and shared with the controls below on purpose. An assertion that
+ * filtered inline would leave the controls proving only what NODE reports,
+ * pinning nothing about what the assertion keys ON — so swapping this test for
+ * a `.cjs` extension check would break no control while silently reverting the
+ * property. Routing both through one function is what makes that mutation
+ * visible.
+ *
+ * @param {Array<{ url: string, format: string | null }>} loaded
+ * @returns {string[]}
+ */
+function commonjsModules(loaded) {
+  return loaded.filter((module) => module.format === "commonjs").map((module) => module.url);
+}
+
+test("no module in the preflight production graph loads as CommonJS", () => {
+  // The structural half of the runtime-resolved ban below. `require` is a
+  // binding only a CommonJS module has; in ESM it does not exist, so an alias
+  // (`const load = require; load("micromark")`) cannot be written at all — and
+  // `createRequire`, the single route from ESM to a `require`, is already banned
+  // as a bare word. An all-ESM graph therefore closes the aliasing evasion by
+  // construction, which no token pattern can: a scan chasing `require` through
+  // arbitrary renamings is chasing an unbounded set, and every pattern added to
+  // it is one more thing to evade.
+  //
+  // "All-ESM" is ASSERTED here, not assumed, and it does not follow from an
+  // extension ban. A `.cjs` check would leave the property resting on the root
+  // `package.json` saying `"type": "module"` — a manifest this graph walk never
+  // reads and nothing here enforces — because a plain `.js` file is CommonJS or
+  // ESM by that field alone. Node settles the question to execute the module;
+  // the load hook reports what it decided. See MODULE_HOOKS_SOURCE for the
+  // measured disagreement between the resolve-time and load-time answers.
+  const { ok, stderr, loaded } = enumerateGraph(PREFLIGHT);
+  assert.ok(ok, `bare node could not load the preflight graph:\n${stderr}`);
+  // Liveness. An empty log satisfies the emptiness check below without having
+  // asked the runtime anything — the same vacuity the file-count pin guards
+  // against in the scan test.
+  assert.ok(
+    loaded.some((module) => module.format === "module"),
+    `no ESM module was loaded at all, so the load hook is not firing: ${JSON.stringify(loaded)}`,
+  );
+  assert.deepEqual(
+    commonjsModules(loaded),
+    [],
+    "a CommonJS module can bind `require` under any name, which a source scan cannot follow",
+  );
+});
+
 test("the preflight production graph uses no runtime-resolved import form", () => {
   // A static-specifier ban is trivially evaded by `await import("micromark")`,
   // and after such a ban exists that is the ONLY form that still works — so it
@@ -448,6 +640,59 @@ test("control: the child refuses a TypeScript source, so the floor assertion is 
         stderr,
         /ERR_UNKNOWN_FILE_EXTENSION/,
         `expected a TypeScript load refusal, got:\n${stderr}`,
+      );
+    },
+  );
+});
+
+test("control: a .cjs module in the graph is reported as CommonJS", () => {
+  withModuleDirectory(
+    {
+      "legacy.cjs": "module.exports = { value: 1 };\n",
+      "entry.mjs": 'import legacy from "./legacy.cjs";\nexport const value = legacy.value;\n',
+    },
+    (directory) => {
+      const { ok, loaded } = enumerateGraph(join(directory, "entry.mjs"));
+      assert.ok(ok, "the fixture must load — a control that fails to run proves nothing");
+      const commonjs = commonjsModules(loaded);
+      assert.equal(commonjs.length, 1, `expected one CommonJS module: ${JSON.stringify(loaded)}`);
+      assert.match(commonjs[0], /legacy\.cjs$/);
+    },
+  );
+});
+
+test("control: a plain .js CommonJS module is caught, which an extension ban cannot do", () => {
+  // The discriminating fixture, and the whole reason the assertion asks node
+  // instead of reading filenames. Nothing about `helper.js` says CommonJS — not
+  // its extension, not its contents until they are parsed as such. It is
+  // CommonJS because the nearest `package.json` says so, a file two directories
+  // of graph-walking would never open.
+  //
+  // A `.cjs` extension ban reports this graph clean while it holds a module
+  // that can bind `require` under any name it likes. That is the same
+  // proxy-instead-of-property failure the source-scanning revision of this
+  // section was rewritten to remove.
+  withModuleDirectory(
+    {
+      "package.json": '{ "name": "cjs-fixture", "type": "commonjs" }\n',
+      "helper.js": "module.exports = { value: 1 };\n",
+      "entry.mjs": 'import helper from "./helper.js";\nexport const value = helper.value;\n',
+    },
+    (directory) => {
+      const { ok, loaded } = enumerateGraph(join(directory, "entry.mjs"));
+      assert.ok(ok, "the fixture must load — a control that fails to run proves nothing");
+      const commonjs = commonjsModules(loaded);
+      assert.equal(
+        commonjs.length,
+        1,
+        `the .js module must load as CommonJS: ${JSON.stringify(loaded)}`,
+      );
+      assert.match(commonjs[0], /helper\.js$/);
+      // Stated as an assertion rather than left to the comment: the caught path
+      // carries no CommonJS marker, so an extension check has nothing to see.
+      assert.ok(
+        !commonjs[0].endsWith(".cjs"),
+        "this fixture only discriminates while the CommonJS module is NOT a .cjs file",
       );
     },
   );
