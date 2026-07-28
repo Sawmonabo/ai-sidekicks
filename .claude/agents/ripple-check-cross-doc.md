@@ -23,7 +23,7 @@ The orchestrator passes you:
 
 - A list of modified files (repo-relative paths).
 - The diff hunks for those files.
-- A list of docs across the corpus that reference any of the modified files (the orchestrator computed this via `Grep` over `**/*.md` for each modified file's stem).
+- A list of docs across the corpus that reference any of the modified files, built by the orchestrator's three-pass enumeration: path / stem, label token (`Spec-006`), and self-citation inside the modified file itself. Entries from the self pass are tagged as such — treat them as first-class, because a stale citer sitting in the same file as its target is exactly the case a file-scoped sweep misses.
 
 If any input is missing or unparseable, return `exit_state: NEEDS_CONTEXT` with a `narrative` describing the gap.
 

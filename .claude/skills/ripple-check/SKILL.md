@@ -7,7 +7,7 @@ description: Use when about to push or stage doc-corpus changes that other docs 
 
 An author-invoked orchestrator that fans out adversarial corpus-regression review across the failure-mode catalog. Layered on top of the static pre-commit + CI hooks; covers the residual classes those hooks cannot enforce. Each invocation dispatches up to 5 narrowly-scoped subagents in parallel, aggregates findings, and (optionally) applies proposed fixes through per-subagent git worktrees.
 
-The catalog at [`docs/operations/failure-mode-catalog.md`](../../../docs/operations/failure-mode-catalog.md) is the single source of truth for what corpus regressions exist. This skill walks the catalog at runtime — adding a new failure pattern means adding a catalog row, not editing this skill.
+The catalog at [`docs/operations/failure-mode-catalog.md`](../../../docs/operations/failure-mode-catalog.md) is the single source of truth for every registered failure pattern, and this skill walks it at runtime — adding a **corpus-regression** pattern means adding a catalog row, not editing this skill. The catalog is deliberately broader than this skill's remit, though: it also carries **gate-integrity** rows (CAT-10), whose regression lives inside a gate's logic rather than in the corpus a diff touches. A new row falls in this skill's scope only when a structural action ON THE CORPUS makes it visible in a staged diff; a gate-integrity row has no such signal, so it is registered in the catalog and closed by a gate of its own, and wiring a subagent for one would mean dispatching on a signal that never appears.
 
 ## Your role: orchestrator
 
@@ -67,7 +67,7 @@ Override the diff source. Default is `git diff HEAD` ∪ `git diff --cached` (wo
    | A staged governance doc is cited by line from other `.md` docs (docs→docs `:NNN`, incl. label forms) | **Subagent D** (CAT-06 / CAT-07) | `ripple-check-line-cite` |
    | A staged doc's HEADINGS are renamed / deleted while cited via backticked `§Heading` anchors (in `.md` or code) | **Subagent B** (CAT-03 / CAT-04) | `ripple-check-heading-move` |
    | A staged code file's EXPORTED SYMBOLS are renamed / removed while cited via `#symbol` anchors in docs | **Subagent A** (CAT-02) | `ripple-check-path-identifier` |
-   | Any modified `.md` file is referenced by other docs | **Subagent E** (cross-doc coherence) | `ripple-check-cross-doc` |
+   | A modified `.md` file is referenced by another doc — by path / stem, by label token (`Spec-006`), or by a `§Heading` anchor — OR it cites a section of ITSELF that the diff modifies | **Subagent E** (cross-doc coherence) | `ripple-check-cross-doc` |
 
    CAT-08 (outbound HTTP / file-link breakage) and CAT-09 (table-total arithmetic drift) fire no subagent — each is fully covered by a deterministic hook: `lychee` at CI for CAT-08, and `table-total-coherence` at pre-commit + CI for CAT-09. (A marked-table row change still dispatches Subagent C for its broader CAT-05 set-quantifier ripple; only the within-document arithmetic is the hook's deterministic slice.) CAT-10 (a gate reporting clean over work it did not do) also fires no subagent, but because it has no doc-diff signal at all — it lives in a gate's logic rather than in the corpus, and is a code-review finding. See § What this skill does NOT do.
 
@@ -82,13 +82,20 @@ Override the diff source. Default is `git diff HEAD` ∪ `git diff --cached` (wo
 
    Drop bare mentions with neither line nor anchor (a path or token with no `:NNN`, no `§`, no `#symbol`) — there is nothing cited to drift.
 
+   **Subagent E dependent-doc enumeration — path, label, AND self.** Grepping the corpus for the modified file's stem under-builds E's input in two directions, and both directions are the stale-forward-reference shape CAT-07 records. Build E's list from three passes and dispatch E when ANY of them returns a hit:
+   1. **Path / stem** — grep `**/*.md` for the repo-relative path and the basename stem.
+   2. **Label token** — for a doc that has one (`docs/specs/006-…` → `Spec-006`), grep the token as well. A citer writing `Spec-006 §Compacted Event Format` never mentions the stem, so pass 1 cannot see it, and in this corpus the label-only spelling is the COMMON one, not an edge case — the 2026-07-17 md-lane deny pushed volatile cites toward exactly this durable form.
+   3. **Self** — grep the modified file for cites to its OWN sections: `§Heading` anchors naming a heading in the same file, and self-label cites (a backticked `Spec-NNN §Heading` anchor written inside Spec-NNN itself). A target section and a stale citer of that section routinely coexist in one file; PR #256 produced two such instances, and file-scoped sweeping is precisely what missed them.
+
+   Passes 2 and 3 are what make the stale-forward-reference case reachable at all: a diff that decides a disposition its own earlier prose still calls pending is usually cited by label or from within the same file, so a stem-only enumeration returns nothing and the ripple check reports clean over the one class it was extended to catch.
+
 ### Phase 1 — Parallel subagent dispatch
 
 Dispatch the queued subagents in a **single message** with multiple `Agent` tool calls so they run concurrently. The dispatch is deterministic — the runtime auto-loads each agent's system prompt from [`.claude/agents/ripple-check-<role>.md`](../../agents/) when you pass the matching `subagent_type`. You do NOT read the agent file or substitute placeholders.
 
 For each subagent:
 
-- Construct the `prompt` parameter as a plain text payload containing the runtime data the agent expects (its `## Inputs` section in `.claude/agents/ripple-check-<role>.md` is the source of truth). At minimum: the modified-file list and the diff hunks scoped to the agent's axis. Axis-specific additions: registry path (A), recent lychee output (B, optional), confirmation that `mermaid-set-coherence` already passed (C), the inbound `<file>:NNN` cite list spanning `.md` AND code citers, each entry origin-tagged (D; built per the Phase 0 enumeration recipe — B and E payloads additionally carry the heading / symbol anchor-exposure lists from the same recipe), the list of dependent docs (E).
+- Construct the `prompt` parameter as a plain text payload containing the runtime data the agent expects (its `## Inputs` section in `.claude/agents/ripple-check-<role>.md` is the source of truth). At minimum: the modified-file list and the diff hunks scoped to the agent's axis. Axis-specific additions: registry path (A), recent lychee output (B, optional), confirmation that `mermaid-set-coherence` already passed (C), the inbound `<file>:NNN` cite list spanning `.md` AND code citers, each entry origin-tagged (D; built per the Phase 0 enumeration recipe — B and E payloads additionally carry the heading / symbol anchor-exposure lists from the same recipe), the list of dependent docs built by the three-pass path / label / self enumeration, with self-citations tagged as such (E).
 - Pass hunks, not the full repo — context discipline is load-bearing for parallel cost and signal-to-noise.
 - The shared output schema and behavioral contract are inlined into each agent's system prompt. Do NOT restate the schema in the dispatch prompt.
 - For `--with-fixes` mode, pass `isolation: "worktree"` to each `Agent` call. Subagents in worktree mode write file edits but do **not** run `git` (their definitions intentionally omit the `Bash` tool); the orchestrator extracts the diff in Phase 3.
