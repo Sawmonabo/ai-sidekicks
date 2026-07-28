@@ -82,6 +82,14 @@ function listPlanFiles(repoRoot: string): string[] {
       cwd: repoRoot,
       encoding: "utf8",
       maxBuffer: 16 * 1024 * 1024,
+      // Pipe stderr: with no stdio option, execFileSync ALSO passes the
+      // child's stderr through to the parent, so a deliberate not-a-repo
+      // probe (the fail-closed test) bleeds a raw `fatal:` line into suite
+      // output. Piping keeps the output clean while losing nothing — Node
+      // folds the captured stderr into the Error message it throws, so the
+      // diagnosis still reaches the wrapped error below. `"ignore"` for
+      // stderr would silence the bleed too, but by stripping that diagnosis.
+      stdio: ["ignore", "pipe", "pipe"],
     });
   } catch (err) {
     // Fail closed: a presence gate that cannot enumerate the corpus must surface
@@ -109,6 +117,8 @@ function readPlanFromIndex(repoRoot: string, file: string): string {
       cwd: repoRoot,
       encoding: "utf8",
       maxBuffer: 16 * 1024 * 1024,
+      // Piped for the same reason as listPlanFiles above.
+      stdio: ["ignore", "pipe", "pipe"],
     });
   } catch (err) {
     throw new Error(

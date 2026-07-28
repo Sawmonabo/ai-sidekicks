@@ -13,8 +13,26 @@
 // Doesn't catch (residuals, see failure-mode-catalog.md CAT-05 known gaps):
 //   - Set claims expressed in tables / lists.
 //   - Cross-file enumerations.
+//   - Blockquoted mermaid graphs: fence tracking looks through `>` prefixes
+//     (suppression of quoted examples works), but node collection and the
+//     classDef scan read the RAW line, so a quoted graph stays illustrative —
+//     never collected, never validated (Codex, PR #270 round 1; zero such
+//     graphs in the tracked corpus). Validating them needs blockquote-depth
+//     matching on BOTH the collection and enumeration sides — without it, a
+//     quoted example's classDef would pollute the file-global class set.
+//
+// Content arrives through an injected FileContentReader (defaulting to a plain
+// disk read): the pre-commit runner passes its commit-snapshot reader so the
+// check validates the STAGED blob rather than the editor buffer.
 
 import { readFileSync } from "node:fs";
+
+import type { FileContentReader } from "./cite-target-existence.ts";
+import {
+  advanceFenceState,
+  type OpenFenceState,
+  stripBlockquotePrefix,
+} from "./markdown-fences.ts";
 
 export interface MermaidViolation {
   file: string;
@@ -28,27 +46,54 @@ export interface MermaidViolation {
 
 const ENUM_RE = /^.*?\b(?<adjective>[a-z]+) set \((?<list>[A-Za-z0-9,\- ]+)\)/i;
 
-export function parseFile(filePath: string): MermaidViolation[] {
-  const content = readFileSync(filePath, "utf8");
+const readFromDisk: FileContentReader = (absolutePath) => readFileSync(absolutePath, "utf8");
+
+// A fence opener whose info string names mermaid. Applied ONLY to a line the
+// shared tracker has already classified as an opener, so this refinement can
+// never disagree with `advanceFenceState` about what counts as a delimiter —
+// it only decides which kind of fence just opened.
+const MERMAID_OPENER_RE = /^ {0,3}(?:`{3,}|~{3,})[ \t]*mermaid\b/;
+
+export function parseFile(
+  filePath: string,
+  readContent: FileContentReader = readFromDisk,
+): MermaidViolation[] {
+  const content = readContent(filePath);
   const violations: MermaidViolation[] = [];
 
   const classDefLines = [...content.matchAll(/^\s*classDef\s+(\w+)\b/gm)];
   if (classDefLines.length === 0) return [];
   const declaredClasses = new Set(classDefLines.map((m) => m[1]));
 
+  // One shared-tracker walk feeds both scans: node collection (inside mermaid
+  // fences only) and the `fenced` lookup the enumeration scan consults. The
+  // private toggles this replaces closed a fence on ANY same-marker line, so an
+  // info-string'd inner delimiter ended suppression early and prose below it
+  // was scanned as live enumeration; they also opened fences on indented code
+  // (4+ spaces) and never looked through blockquote containers. Delimiter lines
+  // count as fenced, matching the old `continue` on both fence boundaries.
+  // Blockquote stripping here serves fence TRACKING (suppressing quoted
+  // examples); the node matcher below and the classDef scan above read the
+  // RAW line by design, so a graph inside a blockquote is illustrative, not
+  // validated — see the header residuals.
   const nodeIdsByClass = new Map<string, Set<string>>();
-  let inMermaid = false;
   const lines = content.split("\n");
-  for (const line of lines) {
-    if (/^```mermaid\b/.test(line.trim())) {
-      inMermaid = true;
-      continue;
+  const fenced = new Array<boolean>(lines.length).fill(false);
+  let openFence: OpenFenceState = null;
+  let inMermaidFence = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const stripped = stripBlockquotePrefix(line);
+    const stepped = advanceFenceState(stripped, openFence);
+    fenced[i] = openFence !== null || stepped.isDelimiterLine;
+    if (openFence === null && stepped.openFence !== null) {
+      inMermaidFence = MERMAID_OPENER_RE.test(stripped);
+    } else if (stepped.openFence === null) {
+      inMermaidFence = false;
     }
-    if (inMermaid && line.trim().startsWith("```")) {
-      inMermaid = false;
-      continue;
-    }
-    if (!inMermaid) continue;
+    const isMermaidContent = openFence !== null && stepped.openFence !== null && inMermaidFence;
+    openFence = stepped.openFence;
+    if (!isMermaidContent) continue;
     const m = /^\s*(\w+)\s*\[[^\]]*\]\s*:::\s*(\w+)/.exec(line);
     if (!m) continue;
     const [, nodeId, className] = m;
@@ -59,23 +104,9 @@ export function parseFile(filePath: string): MermaidViolation[] {
 
   if (nodeIdsByClass.size === 0) return [];
 
-  let inAnyFence = false;
-  let fenceMarker = "";
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const t = line.trimStart();
-    if (!inAnyFence && (t.startsWith("```") || t.startsWith("~~~"))) {
-      inAnyFence = true;
-      fenceMarker = t.startsWith("```") ? "```" : "~~~";
-      continue;
-    }
-    if (inAnyFence) {
-      if (t.startsWith(fenceMarker)) {
-        inAnyFence = false;
-        fenceMarker = "";
-      }
-      continue;
-    }
+    if (fenced[i]) continue;
     const m = ENUM_RE.exec(line);
     if (!m) continue;
     const adjective = (m.groups!.adjective || "").toLowerCase();
@@ -109,10 +140,13 @@ export function parseFile(filePath: string): MermaidViolation[] {
   return violations;
 }
 
-export function checkMermaidSetCoherence(files: string[]): MermaidViolation[] {
+export function checkMermaidSetCoherence(
+  files: string[],
+  readContent: FileContentReader = readFromDisk,
+): MermaidViolation[] {
   const violations: MermaidViolation[] = [];
   for (const f of files) {
-    violations.push(...parseFile(f));
+    violations.push(...parseFile(f, readContent));
   }
   return violations;
 }

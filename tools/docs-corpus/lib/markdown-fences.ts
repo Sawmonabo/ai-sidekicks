@@ -1,7 +1,9 @@
 // Shared CommonMark fence-state tracker — the ONE implementation behind every
 // fence-aware markdown scanner in the docs-corpus tools (label-cite's heading
 // collection, floor/§-cite extractor, and volatile-cite deny; cite-target-
-// existence's bare-volatile pass). Call with the blockquote-stripped line; an
+// existence's bare-volatile pass; table-arity's boundary scan; mermaid-set-
+// coherence's and table-total-coherence's fence suppression). Call with the
+// blockquote-stripped line; an
 // opener may carry an info string (` ```ts `), and a CLOSER is the same
 // delimiter character, at least the opener's length, followed by whitespace
 // only — a delimiter-looking line with trailing text inside a fence is fence
@@ -27,6 +29,22 @@ export function advanceFenceState(
   // (`    ``` `) as an opener, exempting the ordinary prose after it from
   // the volatile-cite deny and §-cite extraction until the next delimiter
   // (Codex, PR #207 round 3).
+  //
+  // Container context is root-or-blockquote only. A fence nested under a
+  // LIST ITEM whose content column is four or more (an ordered `10. ` item,
+  // deeper nestings) is valid CommonMark — the list container's indent is
+  // consumed before the three-space budget applies — but a line-local
+  // classifier cannot know a continuation line's container column, because
+  // continuation lines carry no marker; such a fence is therefore treated
+  // as indented-code content. A disclosed and measured bound (Codex, PR
+  // #270 round 1): the tracked corpus holds no fence delimiter at four-plus
+  // columns or after a tab — every indented delimiter sits within the root
+  // budget. The consequence runs both directions: content inside such a
+  // fence stays LIVE (a corpus:total-check marker there would false-block a
+  // commit — fail-closed, immediately visible), and a list-nested mermaid
+  // graph is not collected (fail-silent). Modeling list containers means a
+  // block parser shared across every consumer above — a module-level
+  // follow-up, never a local workaround in one check.
   const fenceDelimiter = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(unquotedLine);
   if (fenceDelimiter === null) return { openFence, isDelimiterLine: false };
   // A backtick fence's info string may not contain a backtick (CommonMark

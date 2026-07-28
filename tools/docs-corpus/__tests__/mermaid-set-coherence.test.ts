@@ -241,6 +241,146 @@ describe("mermaid-set-coherence — KNOWN GAP: shapes the enumeration regex cann
   });
 });
 
+// Both scans (mermaid node collection and the enumeration guard) run on the
+// shared advanceFenceState tracker. The private toggles they replaced diverged
+// from CommonMark: they closed a fence on ANY same-marker line (an
+// info-string'd inner delimiter ended suppression early), and the node scan
+// recognized only an exactly-three-backtick mermaid opener.
+describe("mermaid-set-coherence — fence tracking (shared advanceFenceState)", () => {
+  // NS22 decorated :::ready but absent from any (NS-01)-only enumeration — the
+  // incoherence every fixture below carries.
+  const GRAPH_LINES = [
+    "```mermaid",
+    "graph TB",
+    "  NS01[NS-01: a]:::ready",
+    "  NS22[NS-22: b]:::ready",
+    "",
+    "  classDef ready fill:#9f9,stroke:#0a0,color:#000",
+    "```",
+  ];
+
+  it("keeps an enumeration under an info-string'd inner delimiter fenced (the naive-toggle mis-close)", () => {
+    // CommonMark: a closing fence carries NO info text, so the ```ts line is
+    // content of the open ```markdown fence — the toggle read it as the closer
+    // and scanned the quoted example enumeration as live prose.
+    const doc = [
+      "# Page",
+      "",
+      ...GRAPH_LINES,
+      "",
+      "```markdown",
+      "Example of a nested opener rendered literally:",
+      "```ts",
+      "The ready set (NS-01) shares no code paths.",
+      "```",
+      "",
+      "Prose after.",
+    ].join("\n");
+    withFile(doc, (file) => {
+      expect(parseFile(file)).toEqual([]);
+    });
+  });
+
+  it("control: the same enumeration OUTSIDE the fence still fires", () => {
+    // Also pins the inverse toggle failure: after the mis-close, the REAL
+    // closer re-opened a phantom fence over the following prose, hiding a live
+    // enumeration exactly there.
+    const doc = [
+      "# Page",
+      "",
+      ...GRAPH_LINES,
+      "",
+      "```markdown",
+      "Example of a nested opener rendered literally:",
+      "```ts",
+      "literal content",
+      "```",
+      "",
+      "The ready set (NS-01) shares no code paths.",
+    ].join("\n");
+    withFile(doc, (file) => {
+      const violations = parseFile(file);
+      expect(violations).toHaveLength(1);
+      expect(violations[0].extra).toContain("NS22");
+    });
+  });
+
+  it("does not scan an enumeration inside a blockquoted fence", () => {
+    const doc = [
+      "# Page",
+      "",
+      ...GRAPH_LINES,
+      "",
+      "> ```text",
+      "> The ready set (NS-01) shares no code paths.",
+      "> ```",
+      "",
+      "Prose after.",
+    ].join("\n");
+    withFile(doc, (file) => {
+      expect(parseFile(file)).toEqual([]);
+    });
+  });
+
+  it("BOUND: a mermaid fence nested under a wide list item is not collected (container context not modeled)", () => {
+    // Under `10. ` the content column is 4, so CommonMark reads a four-space
+    // ```mermaid line as a valid list-nested fence — but the shared tracker
+    // classifies containers as root-or-blockquote only (its disclosed,
+    // corpus-measured bound; see markdown-fences.ts), so no mermaid block
+    // opens and the graph's nodes are never collected: the enumeration guard
+    // for that graph is dead (fail-silent), the direction the old trim()-based
+    // opener handled by accident. This pin documents the bound; a
+    // container-aware tracker would flip this expectation to one violation.
+    const doc = [
+      "# Page",
+      "",
+      "10. A list item wide enough to shift the fence budget:",
+      "",
+      ...GRAPH_LINES.map((line) => `    ${line}`),
+      "",
+      "The ready set (NS-01) shares no code paths.",
+    ].join("\n");
+    withFile(doc, (file) => {
+      expect(parseFile(file)).toEqual([]);
+    });
+  });
+
+  it("collects nodes from a tilde-fenced mermaid block (a CommonMark fence the old opener regex never saw)", () => {
+    const doc = [
+      "# Page",
+      "",
+      "~~~mermaid",
+      "graph TB",
+      "  NS01[NS-01: a]:::ready",
+      "  NS22[NS-22: b]:::ready",
+      "",
+      "  classDef ready fill:#9f9,stroke:#0a0,color:#000",
+      "~~~",
+      "",
+      "The ready set (NS-01) shares no code paths.",
+    ].join("\n");
+    withFile(doc, (file) => {
+      const violations = parseFile(file);
+      expect(violations).toHaveLength(1);
+      expect(violations[0].extra).toContain("NS22");
+    });
+  });
+
+  it("reads content through an injected reader (no disk access for the runner's staged blobs)", () => {
+    const doc = [
+      "# Page",
+      "",
+      ...GRAPH_LINES,
+      "The ready set (NS-01) shares no code paths.",
+      "",
+    ].join("\n");
+    const violations = parseFile("/virtual/graph.md", () => doc);
+    expect(violations).toHaveLength(1);
+    expect(violations[0].file).toBe("/virtual/graph.md");
+    expect(violations[0].extra).toContain("NS22");
+  });
+});
+
 // Deliberately NOT inside the KNOWN GAP block above: this is a live defect on a
 // shape the checker DOES see, and burying it among characterization tests would
 // hide it from anyone skimming for real bugs.
