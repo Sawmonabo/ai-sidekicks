@@ -991,6 +991,94 @@ export function extractDeclaredTaskIds(phaseSection) {
 // against heading shapes.
 const OWNING_INVARIANT_ID_RE = /^I-(\d{3})-\d+(?:-\d+)*$/;
 
+// The STRUCTURED-INVARIANT NAMESPACE: an `I-` id carrying a PLAN SEGMENT — digits
+// followed by a further `-` or a `..`. Every id in this namespace claims to name
+// an owning document, so every id in it must either resolve or produce a finding;
+// that claim is the discriminator, exactly as at OWNING_INVARIANT_ID_RE, and it is
+// what keeps the resolver's fail-closed arm off the plan-local shapes it has no
+// business judging.
+//
+// Deliberately WIDER than OWNING_INVARIANT_ID_RE, which is the whole point: these
+// sit inside the namespace, outside the owning shape, and returned SILENTLY — each
+// one an unresolved reference that passed an armed survey.
+//   I-024-1..5      the range spelling PLAN_LOCAL_ID_RE explicitly accepts
+//   I-024..025-1    a range in the PLAN segment
+//   I-24-3          a two-digit plan segment, one keystroke from I-024-3
+//   I-008-          a plan segment with no invariant number after it
+//
+// Deliberately NARROWER than "starts with `I-`". A single-segment `I-1` encodes no
+// owning document at all — it is the dashed spelling of the plan-local `In` form
+// PLAN_LOCAL_ID_RE accepts alongside `Pr-n` — so it stays on the plan-local arm
+// where it has always been. Zero live instances either way (measured: all 233
+// distinct ids in `Verifies invariant` fields carry the owning shape).
+const STRUCTURED_INVARIANT_NAMESPACE_RE = /^I-\d+(?:-|\.\.)/;
+
+// A structured invariant reference may name a RANGE. `parseCitePayload` advertises
+// the spelling in its own remediation text (`I-NNN-N..M (structured invariant
+// range)`) and PLAN_LOCAL_ID_RE accepts it, so a range arrives at the resolver as
+// an ordinary `plan-local-id` anchor whose id simply misses the owning shape.
+//
+// A range is a claim about EVERY id it spans, so it is expanded and each member is
+// resolved on its own: `I-024-999..1000` names two undeclared invariants and must
+// report two, not pass because the token happened to contain a `..`.
+//
+// The range sits on the LAST segment, which is where a plan numbers its invariants
+// (`I-006-2-01..12` spans Plan-006's second family). Zero-padding follows the START
+// endpoint's literal width, so `01..12` expands to the zero-padded spellings
+// Plan-006 actually declares while `1..12` expands to unpadded ones. padStart never
+// truncates, so a widening range (`1..10`) expands correctly under either rule.
+const OWNING_INVARIANT_RANGE_RE = /^I-(\d{3})-((?:\d+-)*)(\d+)\.\.(\d+)$/;
+
+// Expansion ceiling. A range is authored by hand across a handful of adjacent
+// invariants; a four-digit span is a typo (`I-024-1..9999`), and expanding it would
+// bury the real defect under thousands of undeclared-member findings. Above the
+// ceiling the range is reported as malformed — one finding, naming the span.
+const INVARIANT_RANGE_MEMBER_CEILING = 64;
+
+/**
+ * Classify one structured-invariant reference for resolution.
+ *
+ * Exported and separately tested for the same reason as `facetBaseId`: the live
+ * corpus contains ZERO range references (measured across all 233 distinct ids in
+ * `Verifies invariant` fields), so every branch here is unobservable against real
+ * plans and a wrong one would look correct forever.
+ *
+ * @returns `{ kind: "plan-local" }` for an id that names no owning document,
+ *   `{ kind: "members", ids }` for a single id or an expanded range, or
+ *   `{ kind: "malformed", reason }` for anything inside the structured namespace
+ *   that neither shape accepts — never a silent skip.
+ */
+export function classifyInvariantReference(id) {
+  if (OWNING_INVARIANT_ID_RE.test(id)) return { kind: "members", ids: [id] };
+  if (!STRUCTURED_INVARIANT_NAMESPACE_RE.test(id)) return { kind: "plan-local" };
+  const range = OWNING_INVARIANT_RANGE_RE.exec(id);
+  if (range === null) {
+    return {
+      kind: "malformed",
+      reason:
+        "it is neither `I-NNN-M` (a three-digit plan segment) nor `I-NNN-…-A..B` (a range on the last segment)",
+    };
+  }
+  const [, planNumber, leadingSegments, startText, endText] = range;
+  const start = Number(startText);
+  const end = Number(endText);
+  if (end < start) {
+    return { kind: "malformed", reason: `the range ends at ${endText} but starts at ${startText}` };
+  }
+  const span = end - start + 1;
+  if (span > INVARIANT_RANGE_MEMBER_CEILING) {
+    return {
+      kind: "malformed",
+      reason: `the range spans ${span} invariants, past the ${INVARIANT_RANGE_MEMBER_CEILING}-member ceiling — ranges are authored across adjacent ids, so this is a typo, not a citation`,
+    };
+  }
+  const ids = [];
+  for (let member = start; member <= end; member += 1) {
+    ids.push(`I-${planNumber}-${leadingSegments}${String(member).padStart(startText.length, "0")}`);
+  }
+  return { kind: "members", ids };
+}
+
 // No id matching THIS pattern carries a trailing letter, because
 // PLAN_LOCAL_ID_RE ends at `$` with no letter allowed — a facet-suffixed id
 // (`I-008-7c`) never becomes an anchor at all. Facets are handled instead by
@@ -1015,7 +1103,12 @@ const OWNING_INVARIANT_ID_RE = /^I-(\d{3})-\d+(?:-\d+)*$/;
 // Plan-001:393 + :709 spelled `I5` where the line's own Files and Spec-coverage
 // fields both already say `I-024-4`. Three plans (001, 002, 003) carry `I<n>`
 // test tables; only 001 leaked one into an invariant field.
-const PLAN_LOCAL_TEST_ID_RE = /^I\d+$/;
+//
+// The optional `..N` tail keeps the range spelling on THIS arm rather than
+// letting `I5..7` fall through to the same silence the structured range fix
+// closes one branch over — same defect class, same function, and it only selects
+// which message an already-returning branch prints.
+const PLAN_LOCAL_TEST_ID_RE = /^I\d+(?:\.\.\d+)?$/;
 
 // The declaration grammars, all four observed spellings across three patterns.
 // Measured against the corpus rather than assumed — a bolded table row is live
@@ -4728,7 +4821,36 @@ export function extractInlineCitePayloads(phaseSection) {
   // Fence-masked on the same grounds as the bold extractor: the inline anchor
   // floor must not verify — and thereby bless — an example block's cites.
   const scanned = maskNonContentLines(phaseSection);
-  for (const match of scanned.matchAll(markerRe)) {
+  // MARKER DETECTION runs over the fence mask COMPOSED WITH the inline-span
+  // mask — the same boundary `maskCiteContent` gives the bold extractor, and for
+  // the same reason: prose illustrating the compact syntax inside a same-line
+  // code span (`` `(Verifies invariant: I-999-1)` ``) is documentation, not
+  // audit output. Detected off `scanned` alone it was extracted, parsed, and
+  // resolved — the invariant resolver emitted `invariant-plan-not-found` against
+  // an example, which is a red gate over text that cites nothing.
+  //
+  // Detection only. The PAYLOAD BOUNDARY walk below stays on `scanned` and the
+  // payload BYTES stay on the raw input, because a masked-view slice would blank
+  // the live backticked payloads (`I-008-9, I-008-11, I-008-7c (substrate — the
+  // `relay_connections` rows …)` at Plan-008:370 and 31 siblings) before
+  // parseCitePayload ever saw them, degrading failures[].raw for the facet
+  // roll-up and the existence floor at once.
+  const markerView = maskInlineCodeSpans(scanned);
+  // LENGTH-PRESERVATION IS LOAD-BEARING, so it is asserted rather than assumed.
+  // Every offset below is shared across three views: `match.index` indexes
+  // markerView, the boundary walk indexes `scanned`, the slice indexes
+  // phaseSection, and `lineNo` — derived by counting newlines in a markerView
+  // prefix — is handed to nearestTaskIdAt, which indexes RAW lines. A masker
+  // that ever moved a byte would misattribute findings to the wrong task id
+  // silently. Throwing is the fail-closed disposition: every caller (the survey
+  // units, the inline floor, the invariant resolver, the phase path) treats a
+  // throw from this layer as a gating structural failure.
+  if (markerView.length !== phaseSection.length) {
+    throw new Error(
+      `inline marker view is ${markerView.length} bytes for a ${phaseSection.length}-byte section — the cite maskers must preserve length`,
+    );
+  }
+  for (const match of markerView.matchAll(markerRe)) {
     let depth = 0;
     const start = match.index + match[0].length;
     let end = start;
@@ -4756,7 +4878,7 @@ export function extractInlineCitePayloads(phaseSection) {
       // payloads before parseCitePayload ever saw them, degrading
       // failures[].raw for the facet roll-up and the existence floor at once.
       payload: phaseSection.slice(start, end).trim(),
-      lineNo: scanned.slice(0, match.index).split("\n").length,
+      lineNo: markerView.slice(0, match.index).split("\n").length,
     });
   }
   return payloads;
@@ -5191,7 +5313,7 @@ export function verifyInlineAnchorFloor(phaseSection, { repoRoot = REPO_ROOT } =
 // ---------- Invariant-reference resolution screen ----------
 
 // Second reference channel: `verifies_invariant: [I-024-4]` inside the task-DAG
-// and shipment-manifest YAML. Every one of the corpus's 43 such lines sits
+// and shipment-manifest YAML. Every one of the corpus's 41 such KEY lines sits
 // INSIDE a fence, so maskNonContentLines hides them from extractCiteAnchors —
 // deliberately: verifying a fenced example's cites is what let a plan with no
 // real audit output read as screened (Codex P2, #260 round 2).
@@ -5203,17 +5325,96 @@ export function verifyInlineAnchorFloor(phaseSection, { repoRoot = REPO_ROOT } =
 // printing a clean verdict — would describe a second channel as checked when it
 // was never read. That is the same false-clean shape the screen exists to close,
 // so it must not be reintroduced by the screen's own reporting.
+//
+// The unit counted is a REFERENCE, not a key line: YAML writes the same list
+// three ways, and only one of them keeps every id on the key line.
+//
+//   inline flow      `verifies_invariant: [I-002-1, I-002-2]`
+//   block sequence   `verifies_invariant:` + `  - I-024-1` continuation lines
+//   wrapped flow     `verifies_invariant:` + `  [` + one id per line + `  ]`
+//
+// Reading only the key line counted 48 where 67 exist — 19 ids sat on
+// continuation lines (14 under Plan-006's wrapped flow list, 5 across Plan-024's
+// two block sequences). A disclosure that under-reports the channel it exists to
+// disclose is the same false-clean it was written to prevent, one layer in.
+//
+// The FENCEDNESS ORACLE is applied per COUNTED LINE — `maskedLines[i] !==
+// rawLines[i]` on the continuation line itself, never inherited from its key
+// line — for the same reason the key-line exclusion below exists: an unfenced
+// continuation is a different defect and must not be folded into a count that
+// says "fenced". Bytes are always read from the RAW side; the masked side is
+// consulted only as that oracle.
+// Constructed per call for the same reason as boldCiteMarkerPattern: a shared
+// `g` instance carries `lastIndex` between consumers.
+const fencedInvariantYamlIdPattern = () => /\bI-?\d[-\dA-Za-z]*\b/g;
+const FENCED_INVARIANT_YAML_KEY_RE = /^(\s*)verifies_invariant:(.*)$/;
+
+// Net `[` − `]` across one line, so a wrapped flow list can be followed to its
+// closing bracket rather than guessed at by indentation.
+function flowBracketDelta(text) {
+  let delta = 0;
+  for (const character of text) {
+    if (character === "[") delta += 1;
+    else if (character === "]") delta -= 1;
+  }
+  return delta;
+}
+
 function countFencedInvariantYamlRefs(section) {
   const rawLines = section.split("\n");
   const maskedLines = maskNonContentLines(section).split("\n");
+  // The masker is length-preserving, so a line it consumed differs from its raw
+  // form iff the raw form had any non-space byte. A whitespace-only line is
+  // therefore invisible to the oracle in BOTH directions — see the skip below.
+  const isFenced = (index) => maskedLines[index] !== rawLines[index];
+  const countIds = (text) => (text.match(fencedInvariantYamlIdPattern()) || []).length;
   let count = 0;
-  for (let i = 0; i < rawLines.length; i++) {
-    if (!/^\s*verifies_invariant:/.test(rawLines[i])) continue;
+  for (let index = 0; index < rawLines.length; index += 1) {
+    const key = FENCED_INVARIANT_YAML_KEY_RE.exec(rawLines[index]);
+    if (key === null) continue;
     // Only the MASKED (fenced) ones are out of the bold extractor's reach. An
     // unfenced one would be visible to nothing either, but it is a different
     // defect and must not be silently folded into this count.
-    if (maskedLines[i] === rawLines[i]) continue;
-    count += (rawLines[i].match(/\bI-?\d[-\dA-Za-z]*\b/g) || []).length;
+    if (!isFenced(index)) continue;
+    const [, keyIndent, keyTail] = key;
+    count += countIds(keyTail);
+    let openBrackets = flowBracketDelta(keyTail);
+    // A value that closed on the key line (`[I-001-1]`, `[]`, a bare id) has no
+    // continuation to read. An EMPTY tail always does — that is both the block
+    // sequence and the wrapped flow list.
+    if (openBrackets <= 0 && keyTail.trim() !== "") continue;
+    for (let cursor = index + 1; cursor < rawLines.length; cursor += 1) {
+      const line = rawLines[cursor];
+      // A blank line carries no ids, so skipping it folds nothing unfenced into
+      // the count — and it must be skipped rather than treated as the fence's
+      // end, because the oracle cannot see it (it masks to itself). The next
+      // NON-blank line is oracle-visible and stops the scan if the fence closed.
+      if (line.trim() === "") continue;
+      if (!isFenced(cursor)) break;
+      if (openBrackets > 0) {
+        count += countIds(line);
+        openBrackets += flowBracketDelta(line);
+        if (openBrackets <= 0) break;
+        continue;
+      }
+      const content = line.trimStart();
+      // The wrapped-flow opener, on the line AFTER the key.
+      if (content.startsWith("[")) {
+        count += countIds(line);
+        openBrackets += flowBracketDelta(line);
+        if (openBrackets <= 0) break;
+        continue;
+      }
+      // Block-sequence members. YAML permits them at or beneath the key's own
+      // indent, so the scan ends on a genuine dedent or on the first line that
+      // is not a sequence entry (the next mapping key) — never on indentation
+      // alone, which would drop the same-indent spelling.
+      if (line.length - content.length >= keyIndent.length && /^-\s/.test(content)) {
+        count += countIds(line);
+        continue;
+      }
+      break;
+    }
   }
   return count;
 }
@@ -5318,44 +5519,29 @@ export function verifyInvariantReferences(
   const bold = { resolved: 0, noneArm: 0, parentResolved: 0 };
   const legacy = { resolved: 0, noneArm: 0, parentResolved: 0 };
 
-  // One resolution core for both channels. `facet` carries the original token
-  // when the id arrived via roll-up, so the message names what the author
-  // actually wrote rather than a base they never typed.
-  const resolveInvariantId = (id, tally, taskId, facet) => {
+  // Resolve ONE member id against its owning plan's declared set. Returns whether
+  // the member resolved, so the caller can decide the fate of the REFERENCE that
+  // produced it. `shown` is the token the author actually wrote (a facet suffix,
+  // a range) and `referenceId` is what that token resolved to; for an ordinary
+  // single id all three are the same string and every message below is
+  // byte-identical to what it was before ranges existed.
+  const resolveInvariantMember = (member, tally, taskId, shown, facet, referenceId) => {
     const where = taskId ? `${taskId}: ` : "";
-    const shown = facet ?? id;
-    const owning = OWNING_INVARIANT_ID_RE.exec(id);
-    if (!owning) {
-      if (PLAN_LOCAL_TEST_ID_RE.test(id)) {
-        findings.push({
-          kind: "invariant-test-id",
-          evidence: `${where}\`${id}\` looks like a test id, not an invariant id — plan test tables declare \`I<n>\` rows (\`## Test And Verification Plan\`), and an invariant id carries its owning plan (\`I-024-4\`). Cite the invariant this task verifies, or \`none\` if it verifies none; do NOT mint an invariant to match \`${id}\`.`,
-        });
-      }
-      // Cn / Pn / Pr-n and a bare In are plan-local by construction: they name
-      // no owning document, so there is nothing to resolve them against. That
-      // is the true half of the premise at verifyAnchorAgainstSpec.
-      return;
-    }
-    const planNumber = owning[1];
+    const planNumber = OWNING_INVARIANT_ID_RE.exec(member)[1];
     const entry = loadPlanInvariants(planNumber, repoRoot, cache);
     if (entry.kind === "ok") {
-      if (entry.ids.includes(id)) {
-        tally.resolved += 1;
-        if (facet) tally.parentResolved += 1;
-      } else {
-        findings.push({
-          kind: "invariant-undeclared",
-          evidence: `${where}\`${shown}\` is not declared by ${planLabel(planNumber)}${facet ? ` (rolled up to parent \`${id}\`, which is also absent)` : ""} (its \`## Invariants\` block declares ${entry.ids.length}: ${entry.ids.slice(0, 6).join(", ")}${entry.ids.length > 6 ? ", …" : ""})`,
-        });
-      }
-      return;
+      if (entry.ids.includes(member)) return true;
+      findings.push({
+        kind: "invariant-undeclared",
+        evidence: `${where}\`${shown}\` is not declared by ${planLabel(planNumber)}${facet ? ` (rolled up to parent \`${referenceId}\`, which is also absent)` : ""}${member === referenceId ? "" : ` (range member \`${member}\`)`} (its \`## Invariants\` block declares ${entry.ids.length}: ${entry.ids.slice(0, 6).join(", ")}${entry.ids.length > 6 ? ", …" : ""})`,
+      });
+      return false;
     }
     // Structural failures are reported ONCE per owning plan, not once per
     // reference. One unreadable Invariants block would otherwise emit a finding
     // against every innocent line that cites it, burying the single real defect
     // under a flood pointing at the wrong places.
-    if (entry.reported) return;
+    if (entry.reported) return false;
     entry.reported = true;
     if (entry.kind === "plan-not-found") {
       findings.push({
@@ -5378,6 +5564,59 @@ export function verifyInvariantReferences(
         evidence: `${planLabel(planNumber)} has an \`## Invariants\` block that parsed to ZERO ids — the declaration extractor does not recognize its shape, so no reference to this plan can be resolved (references are NOT reported individually)`,
       });
     }
+    return false;
+  };
+
+  // One resolution core for both channels. `facet` carries the original token
+  // when the id arrived via roll-up, so the message names what the author
+  // actually wrote rather than a base they never typed.
+  //
+  // THE UNIT OF COUNT IS THE REFERENCE, NOT THE MEMBER. "575 resolved" means 575
+  // citations were checked; a range that expands to five declared members is ONE
+  // resolved reference, and a range with a single undeclared member is zero
+  // resolved references plus a finding naming that member. Counting members
+  // instead would move the census whenever a plan respelled a list as a range,
+  // saying nothing about the corpus while looking like it had.
+  const resolveInvariantId = (id, tally, taskId, facet) => {
+    const where = taskId ? `${taskId}: ` : "";
+    const shown = facet ?? id;
+    const reference = classifyInvariantReference(id);
+    if (reference.kind === "malformed") {
+      // Fail closed. Every id in the structured namespace claims an owning plan,
+      // so one this screen cannot expand is an unresolved reference — the exact
+      // disposition the silent return used to deny it (`I-024-999..1000` passed
+      // an armed survey with zero findings because a supported parser spelling
+      // met an unsupported resolver shape and nothing spoke in between).
+      findings.push({
+        kind: "invariant-reference-malformed",
+        evidence: `${where}\`${shown}\` is in the structured invariant namespace (\`I-NNN-…\`) but ${reference.reason} — nothing here can be resolved against a declared set`,
+      });
+      return;
+    }
+    if (reference.kind === "plan-local") {
+      if (PLAN_LOCAL_TEST_ID_RE.test(id)) {
+        findings.push({
+          kind: "invariant-test-id",
+          evidence: `${where}\`${id}\` looks like a test id, not an invariant id — plan test tables declare \`I<n>\` rows (\`## Test And Verification Plan\`), and an invariant id carries its owning plan (\`I-024-4\`). Cite the invariant this task verifies, or \`none\` if it verifies none; do NOT mint an invariant to match \`${id}\`.`,
+        });
+      }
+      // Cn / Pn / Pr-n and a bare In are plan-local by construction: they name
+      // no owning document, so there is nothing to resolve them against. That
+      // is the true half of the premise at verifyAnchorAgainstSpec.
+      return;
+    }
+    // EVERY member must resolve for the reference to count as resolved, and every
+    // failing member reports on its own — a range is a claim about each id it
+    // spans, so a partially-declared range is a defect, not a partial credit.
+    let everyMemberResolved = true;
+    for (const member of reference.ids) {
+      if (!resolveInvariantMember(member, tally, taskId, shown, facet, id)) {
+        everyMemberResolved = false;
+      }
+    }
+    if (!everyMemberResolved) return;
+    tally.resolved += 1;
+    if (facet) tally.parentResolved += 1;
   };
 
   const consumeAnchor = (anchor, tally, taskId) => {
@@ -5398,14 +5637,46 @@ export function verifyInvariantReferences(
   // any OTHER unparseable segment returns null from facetBaseId and is left
   // alone — a roll-up that fired on the wrong failure would mint resolutions out
   // of text nobody checked.
+  //
+  // Falling out of the roll-up used to mean falling out of the screen. `I-008-7cc`
+  // — one keystroke from the live `I-008-7c` — parses to `plan-local-id-unparseable`
+  // (warn severity), so the inline floor skips it, Gate 4's blocking filter drops
+  // it, and the exemption diverts the marker-shape finding that would otherwise
+  // have carried it: `--survey --enforce-cites` accepted a reference to nothing.
+  // A non-facet failure in this namespace now reports, fail-closed.
+  //
+  // SCOPED BY SHAPE, NOT BY CALL SITE, and deliberately narrower than "every
+  // parse failure in a Verifies-invariant field". Measured across the corpus, the
+  // field carries exactly three parse-failure instances beyond the one live facet:
+  // two `unparseable-cite` prose descriptors (`substrate boots` at Plan-023:275,
+  // `substrate - the audited primitive libraries …` at Plan-008:456), and the
+  // field also carries three Spec-§ references (Plan-023:271/:272/:274) that parse
+  // cleanly as spec anchors. Whether the field may name a spec clause at all is a
+  // FIELD-CONTENT question under separate adjudication; answering it here would
+  // emit non-divertable findings against formatting debt on exempt plans. So the
+  // discriminator is the STRUCTURED-INVARIANT NAMESPACE: a token this screen is
+  // supposed to resolve and cannot.
+  const INVARIANT_FAILURE_LEAD_TOKEN_RE = /^[\w.-]+/;
   const consumeFailure = (failure, tally, taskId) => {
     if (failure.kind !== "plan-local-id-unparseable") return;
     const base = facetBaseId(failure.raw);
-    if (base === null) return;
-    const token = String(failure.raw)
-      .trim()
-      .slice(0, base.length + 1);
-    resolveInvariantId(base, tally, taskId, token);
+    if (base !== null) {
+      const token = String(failure.raw)
+        .trim()
+        .slice(0, base.length + 1);
+      resolveInvariantId(base, tally, taskId, token);
+      return;
+    }
+    // The lead token is what parsePlanLocalIdSegment itself tried to read as the
+    // id (its own `^([\w.-]+)` capture), so this classifies the same bytes the
+    // parser rejected rather than a re-reading of the whole segment.
+    const leadToken = INVARIANT_FAILURE_LEAD_TOKEN_RE.exec(String(failure.raw).trim())?.[0] ?? "";
+    if (!STRUCTURED_INVARIANT_NAMESPACE_RE.test(leadToken)) return;
+    const where = taskId ? `${taskId}: ` : "";
+    findings.push({
+      kind: "invariant-reference-malformed",
+      evidence: `${where}\`${leadToken}\` is in the structured invariant namespace (\`I-NNN-…\`) but did not parse as an invariant id, and it is not a facet reference to a declared parent (\`I-008-7c\` rolls up to \`I-008-7\`) — nothing here can be resolved against a declared set`,
+    });
   };
 
   // ---- Channel 1: bold `**Verifies invariant:**` markers.
@@ -6390,6 +6661,74 @@ export function formatSurvey(survey, { enforceCites = false } = {}) {
 
 // ---------- orchestration ----------
 
+/**
+ * Gate 4's unresolved half on the DISPATCH path.
+ *
+ * `gateTasksBlockCites` verifies every anchor it parses, and it accepts every
+ * `plan-local-id` on the stated grounds that a plan-local id has no external
+ * document to verify — true for `C5` / `P3`, false for `I-024-4`, which names
+ * Plan-024 in its own bytes. So a phase declaring `**Verifies invariant:**
+ * I-999-1` cleared dispatch preflight while the armed survey reported the same
+ * reference as a defect: two screens over one corpus disagreeing about whether a
+ * reference resolves, with the LOOSER one guarding the thing that actually ships.
+ *
+ * Same screen, same classification, same fail-closed posture as the survey path —
+ * `verifyInvariantReferences` is called once per phase section and covers BOTH
+ * marker channels (bold `**Verifies invariant:**` and the compact-inline form),
+ * because wiring only the channel `extractCiteAnchors` already reads would leave
+ * the legacy channel unscreened on dispatch exactly as it was on the survey.
+ *
+ * Runs for substrate-exempt phases too, unlike Gate 4 itself. The exemption
+ * exists because criterion (3) phases carry no Spec AC coverage and Gate 4's
+ * marker floor would halt them by design; this screen has no floor — a phase with
+ * no invariant references produces no findings — so running it costs a legitimate
+ * substrate phase nothing and denies a bad reference one place to hide.
+ *
+ * The COUNTS are deliberately dropped. They are census output: their consumer is
+ * the survey report, where a zero tells "clean" from "never ran" across the whole
+ * corpus. A per-phase tally answers no question dispatch asks, and printing one
+ * here would put a second, differently-scoped census into circulation.
+ */
+function gatePhaseInvariantReferences(phaseSection, planNumber, phaseNumber, opts = {}) {
+  let findings;
+  try {
+    findings = verifyInvariantReferences(phaseSection, {
+      repoRoot: opts.repoRoot ?? REPO_ROOT,
+      // One cache per RUN, threaded from runPreflight: the structural
+      // report-once dedupe lives on the cache entry, so a fresh cache per phase
+      // would re-read every owning plan and re-report one unreadable
+      // `## Invariants` block once per phase of the walk.
+      cache: opts.invariantCache ?? new Map(),
+    }).findings;
+  } catch (err) {
+    // A screen that could not RUN judged nothing. Fail closed, in the same idiom
+    // as the survey's per-unit catch.
+    return {
+      ok: false,
+      halt: [
+        "## Preflight halt: invariant-reference resolution failed to run",
+        "",
+        `Plan-${planNumber} Phase ${phaseNumber}: ${String(err?.message ?? err).slice(0, 240)}`,
+        "",
+        "The screen throwing is structural — it is not evidence the phase is clean.",
+      ].join("\n"),
+    };
+  }
+  if (findings.length === 0) return { ok: true };
+  const lines = [
+    "## Preflight halt: Gate 4 invariant-reference resolution failed",
+    "",
+    `Plan-${planNumber} Phase ${phaseNumber} has ${findings.length} unresolved invariant reference(s).`,
+    "Every `Verifies invariant:` id that names an owning plan (`I-024-4` names Plan-024)",
+    "is resolved against that plan's declared `## Invariants` set.",
+    "",
+  ];
+  for (const finding of findings) lines.push(`- [${finding.kind}] ${finding.evidence}`);
+  lines.push("");
+  lines.push("Authoring contract: docs/operations/plan-implementation-readiness-audit-runbook.md");
+  return { ok: false, halt: lines.join("\n") };
+}
+
 function _checkPhase(planSource, planNumber, phase, planFile, opts) {
   const ship = gatePhaseUnshipped(planSource, planNumber, phase);
   if (!ship.ok) return { eligible: false, reason: ship.kind, halt: ship.halt };
@@ -6423,6 +6762,16 @@ function _checkPhase(planSource, planNumber, phase, planFile, opts) {
     g4 = gateTasksBlockCites(sec, planNumber, phase.number, { ...opts, sizeClass });
     if (!g4.ok) return { eligible: false, reason: "audit", halt: g4.halt };
   }
+  const g4Invariants = gatePhaseInvariantReferences(sec, planNumber, phase.number, opts);
+  if (!g4Invariants.ok)
+    return {
+      eligible: false,
+      reason: "audit",
+      halt: g4Invariants.halt,
+      // Demoted G4 warnings ride every halt path, not just the pass path — the
+      // never-silent contract (Codex, PR #190) covers new halts too.
+      warnings: g4?.warnings ?? [],
+    };
   const g5 = gatePreconditions(sec, planFile, phase.number, {
     ...opts,
     phaseSection: sec,
@@ -6494,7 +6843,10 @@ export function runPreflight(
     if (!g6.ok) return { exit: 1, stdout: g6.halt };
   }
 
-  const opts = { repoRoot };
+  // One invariant-declaration cache per RUN, so the auto-walk parses each owning
+  // plan's `## Invariants` block once and reports a structural failure on it once
+  // — the same one-cache-per-run shape surveyCorpus uses.
+  const opts = { repoRoot, invariantCache: new Map() };
   if (phaseArg !== undefined && phaseArg !== null) {
     const target = phases.find((p) => p.number === phaseArg);
     if (!target)

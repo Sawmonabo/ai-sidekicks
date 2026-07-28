@@ -25,11 +25,11 @@ shipped: []
 - **T-204-1.1** — Task whose only G4 defect is grammar-shaped
   - **Files:** `packages/a/src/x.ts`
   - **Spec coverage:** xyz random junk
-  - **Verifies invariant:** I-204-1
+  - **Verifies invariant:** I-1
 - **T-204-1.2** — Valid sibling keeping the phase M-classified (demotion still applies)
   - **Files:** `packages/a/src/y.ts`
   - **Spec coverage:** none (test placeholder)
-  - **Verifies invariant:** I-204-2
+  - **Verifies invariant:** I-2
 
 ### Phase 2 — Clean phase the walk selects
 
@@ -38,4 +38,4 @@ shipped: []
 - **T-204-2.1** — Valid task
   - **Files:** `packages/a/src/z.ts`
   - **Spec coverage:** none (test placeholder)
-  - **Verifies invariant:** I-204-3
+  - **Verifies invariant:** I-3

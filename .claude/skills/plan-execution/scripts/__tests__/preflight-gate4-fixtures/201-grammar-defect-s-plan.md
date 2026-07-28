@@ -23,4 +23,4 @@ shipped: []
 - **T-201-1.1** — Single fixture task with an unparseable cite form
   - **Files:** `packages/a/src/x.ts`
   - **Spec coverage:** xyz random junk
-  - **Verifies invariant:** I-201-1
+  - **Verifies invariant:** I-1

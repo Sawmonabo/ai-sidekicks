@@ -713,6 +713,37 @@ test("shippedTaskIdsForPhase returns empty Set for unparseable manifest", () => 
 
 // ---------- gates with temp filesystem ----------
 
+// Gate 4's invariant-reference resolution runs on the DISPATCH path, not only in
+// the corpus survey: every `Verifies invariant:` id that names an owning plan
+// (`I-001-1` names Plan-001) is resolved against that plan's declared
+// `## Invariants` set. The synthetic plans below cite their own `I-001-N` ids, so
+// they have to declare them — a plan citing an invariant nothing declares is the
+// unresolved reference the screen exists to catch, not a fixture detail.
+//
+// Appended at END OF FILE, after `### Notes`, so no phase-section boundary moves:
+// `extractPhaseSection` stops at the next `##` heading, and the last-phase
+// precondition regressions below depend on the last phase still running through
+// `## Progress Log`.
+//
+// Covers 1-9 because `buildTestRepo` mints one id per PHASE NUMBER
+// (`**Verifies invariant:** I-001-${n}`), and its callers number phases up to 5.
+// Declaring a superset is the right side to err on for a fixture: a declared id
+// nothing cites is inert, while an undeclared cited id halts every test that
+// dispatches the phase holding it.
+const SYNTHETIC_PLAN_INVARIANTS = `
+## Invariants
+
+- **I-001-1 — fixture invariant**
+- **I-001-2 — fixture invariant**
+- **I-001-3 — fixture invariant**
+- **I-001-4 — fixture invariant**
+- **I-001-5 — fixture invariant**
+- **I-001-6 — fixture invariant**
+- **I-001-7 — fixture invariant**
+- **I-001-8 — fixture invariant**
+- **I-001-9 — fixture invariant**
+`;
+
 function makeTempRepo() {
   const dir = mkdtempSync(join(tmpdir(), "preflight-test-"));
   mkdirSync(join(dir, "docs", "plans"), { recursive: true });
@@ -1178,7 +1209,7 @@ shipped:
 \`\`\`
 
 ### Notes
-`,
+${SYNTHETIC_PLAN_INVARIANTS}`,
   );
   const r = resolvePrecondition(
     { type: "plan_phase", plan: 7, phase: 3, status: "merged" },
@@ -1224,7 +1255,7 @@ shipped:
 \`\`\`
 
 ### Notes
-`,
+${SYNTHETIC_PLAN_INVARIANTS}`,
   );
   const r = resolvePrecondition(
     { type: "plan_phase", plan: 1, phase: 5, status: "merged" },
@@ -1265,7 +1296,7 @@ shipped: []
 \`\`\`
 
 ### Notes
-`,
+${SYNTHETIC_PLAN_INVARIANTS}`,
   );
   const r = resolvePrecondition(
     { type: "plan_phase", plan: 10, phase: 1, status: "merged" },
@@ -1316,7 +1347,7 @@ shipped:
 \`\`\`
 
 ### Notes
-`,
+${SYNTHETIC_PLAN_INVARIANTS}`,
   );
   const r = resolvePrecondition(
     { type: "plan_phase", plan: 7, phase: 3, status: "merged" },
@@ -1347,7 +1378,7 @@ shipped: []
 \`\`\`
 
 ### Notes
-`,
+${SYNTHETIC_PLAN_INVARIANTS}`,
   );
   const r = resolvePrecondition(
     { type: "plan_phase", plan: 7, phase: 3, status: "merged" },
@@ -1389,7 +1420,7 @@ shipped:
 \`\`\`
 
 ### Notes
-`,
+${SYNTHETIC_PLAN_INVARIANTS}`,
   );
   const r = resolvePrecondition(
     { type: "plan_phase", plan: 7, phase: 3, status: "merged" },
@@ -1458,7 +1489,7 @@ shipped: []
 \`\`\`
 
 ### Notes
-`,
+${SYNTHETIC_PLAN_INVARIANTS}`,
   );
   const r = resolvePrecondition(
     { type: "plan_phase", plan: 7, phase: 3, status: "merged" },
@@ -1508,7 +1539,7 @@ shipped:
 \`\`\`
 
 ### Notes
-`,
+${SYNTHETIC_PLAN_INVARIANTS}`,
   );
   const r = resolvePrecondition({ type: "plan_unshipped", plan: 21 }, { repoRoot: repo });
   assert.equal(r.ok, true);
@@ -1569,7 +1600,7 @@ ${manifestEntries}
 \`\`\`
 
 ### Notes
-`,
+${SYNTHETIC_PLAN_INVARIANTS}`,
   );
   return { repo, skillMd, planFile };
 }
@@ -1653,7 +1684,7 @@ shipped:
 \`\`\`
 
 ### Notes
-`,
+${SYNTHETIC_PLAN_INVARIANTS}`,
   );
   const r = runPreflight(planFile, undefined, { repoRoot: repo, skillMd });
   assert.equal(r.exit, 0, `exit was ${r.exit}; stdout=${r.stdout}; stderr=${r.stderr}`);
@@ -1729,7 +1760,7 @@ shipped: []
 \`\`\`
 
 ### Notes
-`,
+${SYNTHETIC_PLAN_INVARIANTS}`,
   );
   const r = runPreflight(planFile, 2, { repoRoot: repo, skillMd });
   assert.equal(r.exit, 1, `exit was ${r.exit}; stdout=${r.stdout}; stderr=${r.stderr}`);
@@ -1798,7 +1829,7 @@ shipped: []
 \`\`\`
 
 ### Notes
-`,
+${SYNTHETIC_PLAN_INVARIANTS}`,
   );
   const r = runPreflight(planFile, 2, { repoRoot: repo, skillMd });
   assert.equal(r.exit, 1, `exit was ${r.exit}; stdout=${r.stdout}; stderr=${r.stderr}`);
@@ -1834,7 +1865,7 @@ shipped: []
 \`\`\`
 
 ### Notes
-`,
+${SYNTHETIC_PLAN_INVARIANTS}`,
   );
   const r = runPreflight(planFile, 1, { repoRoot: repo, skillMd });
   assert.equal(r.exit, 1);
@@ -2002,7 +2033,7 @@ shipped:
 \`\`\`
 
 ### Notes
-`,
+${SYNTHETIC_PLAN_INVARIANTS}`,
   );
   const r = runPreflight(planFile, undefined, { repoRoot: repo, skillMd });
   assert.equal(r.exit, 1);
@@ -2145,7 +2176,7 @@ shipped: []
 \`\`\`
 
 ### Notes
-`,
+${SYNTHETIC_PLAN_INVARIANTS}`,
   );
   const r = runPreflight(planFile, undefined, { repoRoot: repo, skillMd });
   assert.equal(
@@ -3289,7 +3320,7 @@ shipped: []
 \`\`\`
 
 ### Notes
-`,
+${SYNTHETIC_PLAN_INVARIANTS}`,
   );
   const r = runPreflight(planFile, undefined, { repoRoot: repo, skillMd });
   assert.equal(r.exit, 0, `exit was ${r.exit}; stdout=${r.stdout}; stderr=${r.stderr}`);
@@ -3359,7 +3390,7 @@ shipped:
 \`\`\`
 
 ### Notes
-`,
+${SYNTHETIC_PLAN_INVARIANTS}`,
   );
   // Explicit phase 2 — phase 1 is fully shipped per the manifest.
   const r = runPreflight(planFile, 2, { repoRoot: repo, skillMd });
@@ -3440,7 +3471,7 @@ shipped: []
 \`\`\`
 
 ### Notes
-`,
+${SYNTHETIC_PLAN_INVARIANTS}`,
   );
   const r = spawnSync(
     process.execPath,
@@ -3513,7 +3544,7 @@ shipped:
 \`\`\`
 
 ### Notes
-`,
+${SYNTHETIC_PLAN_INVARIANTS}`,
   );
   const r = runPreflight(planFile, 2, { repoRoot: repo, skillMd });
   assert.equal(r.exit, 0, `exit was ${r.exit}; stdout=${r.stdout}; stderr=${r.stderr}`);

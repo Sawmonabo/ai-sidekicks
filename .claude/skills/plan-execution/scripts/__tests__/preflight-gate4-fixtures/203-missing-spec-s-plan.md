@@ -23,4 +23,4 @@ shipped: []
 - **T-203-1.1** — Single fixture task citing a spec absent from the real corpus
   - **Files:** `packages/a/src/x.ts`
   - **Spec coverage:** Spec-100 line 3 (MissingFixtureIdentifier)
-  - **Verifies invariant:** I-203-1
+  - **Verifies invariant:** I-1
