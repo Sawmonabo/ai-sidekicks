@@ -144,16 +144,26 @@ export function parseRunnerArguments(argv: string[]): RunnerArguments {
     if (floorMatch) {
       const lane = floorMatch[1];
       const rawValue = floorMatch[2];
-      const parsed = Number(rawValue);
-      // `rawValue === ""` is rejected explicitly: `Number("")` is `0`, an
-      // integer and non-negative, so a bare `--min-md=` would otherwise parse
-      // as a silently disarmed floor — the failure mode this flag exists to
-      // close, reintroduced through its own parser.
-      if (rawValue === undefined || rawValue === "" || !Number.isInteger(parsed) || parsed < 0) {
+      // Validate the SHAPE, then convert — never convert then validate.
+      // `Number()` maps every whitespace-only string to `0` ("", " ", "\t"),
+      // which is an integer and non-negative, so a `--min-md=` or a
+      // quoted/config-generated `--min-md=" "` would parse as a silently
+      // DISARMED floor: the exact failure this flag exists to close,
+      // reintroduced inside its own parser. Number-then-validate also admits
+      // `1e3` and `0x10`.
+      //
+      // `/^\d+$/` allowlists the one legal spelling instead of enumerating
+      // illegal ones, so it subsumes all of those in a single bounded rule —
+      // the same inversion as the `import.meta` allowlist (PR #265 round 5):
+      // ban the capability, do not chase the spellings. A value too large to
+      // represent fails CLOSED (an unreachable floor breaches loudly), so the
+      // unbounded digit run needs no separate ceiling.
+      if (rawValue === undefined || !/^\d+$/.test(rawValue)) {
         throw new Error(
           `--min-${lane} requires a non-negative integer in \`--min-${lane}=N\` form, got: ${argument}`,
         );
       }
+      const parsed = Number(rawValue);
       if (lane === "md") minimumMd = parsed;
       else minimumCode = parsed;
       continue;

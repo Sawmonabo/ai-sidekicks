@@ -587,20 +587,44 @@ describe("pre-commit-runner — argv parsing for the lane floors", () => {
   });
 
   it("rejects every malformed floor value rather than defaulting it to zero", () => {
-    // `--min-md=` is the trap this list exists for: `Number("")` is `0`, an
-    // integer and non-negative, so a lenient parser reads a typo'd flag as a
-    // deliberately disarmed floor — the false clean the floor was added to
-    // close, reintroduced by its own parser.
+    // The parser validates SHAPE (`/^\d+$/`) before converting, so this list is
+    // a sample of one bounded rule rather than an enumeration the rule was
+    // built around — the distinction that matters, because the dangerous
+    // members were the ones nobody thought to enumerate.
+    //
+    // Every whitespace-only value converts to `0` via `Number()` — an integer,
+    // non-negative, and therefore a silently DISARMED floor. `--min-md=` is the
+    // bare form; `--min-md=" "` and a tab are the reachable-through-quoting and
+    // config-generated forms (Codex, PR #267 round 1). `1e3`, `0x10` and `+1`
+    // are the other side of the same coin: `Number()` accepts them and would
+    // set a floor the operator never wrote.
     for (const malformed of [
       "--min-md",
       "--min-md=",
+      "--min-md= ",
+      "--min-md=\t",
       "--min-md=abc",
       "--min-md=-1",
+      "--min-md=+1",
       "--min-md=1.5",
+      "--min-md=1e3",
+      "--min-md=0x10",
     ]) {
       expect(() => parseRunnerArguments([malformed]), malformed).toThrow(/--min-md requires/);
     }
     expect(() => parseRunnerArguments(["--min-code=x"])).toThrow(/--min-code requires/);
+  });
+
+  it("rejects a newline-bearing floor value through the unknown-option arm", () => {
+    // Boundary note, pinned so the split is deliberate rather than incidental:
+    // `LANE_FLOOR_RE`'s `(.*)` cannot match a line terminator, so `--min-md=\n`
+    // never reaches the digits check and falls through to the unknown-option
+    // throw instead. Different message, same fail-closed outcome — but only
+    // BECAUSE the unknown-option arm exists. Without it these would land in the
+    // file list and disarm the floor silently.
+    for (const value of ["--min-md=\n", "--min-md=\r"]) {
+      expect(() => parseRunnerArguments([value]), JSON.stringify(value)).toThrow(/unknown option/);
+    }
   });
 
   it("rejects an unknown option instead of silently filing it as a path", () => {
