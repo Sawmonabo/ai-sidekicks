@@ -4768,6 +4768,12 @@ export function verifyInlineAnchorFloor(phaseSection, { repoRoot = REPO_ROOT } =
 // discards that prose), so a non-numeric label is safe there.
 const WHOLE_DOCUMENT_UNIT_LABEL = "(whole document)";
 
+// Sentinel unit label for a COMPLEMENT unit — a contiguous run of plan source
+// that no `### Phase N` section covers. Carries the same `phaseNumber` safety
+// argument as the whole-document sentinel above: gateTasksBlockCites reads its
+// phase argument only to build halt prose, which the survey discards.
+const COMPLEMENT_UNIT_LABEL = "(outside every phase)";
+
 // Bold Gate-4 field markers. Mirrors the `boldMarker` pattern extractCiteAnchors
 // scans with, so "markers this plan holds" and "markers the extractor would read"
 // are the same population — a divergence here would make the intra-plan coverage
@@ -4836,6 +4842,10 @@ export function surveyCorpus({
   // Plans counted as swept that nonetheless hold cite markers outside every
   // survey unit — the intra-plan residual the plan-level count cannot express.
   const unsweptMarkerPlans = [];
+  // Plans carrying Gate-4 markers OUTSIDE every `### Phase N` section, which the
+  // complement units below now screen. This is the screen's non-zero denominator
+  // (see the emit site), not a defect list.
+  const complementMarkerPlans = [];
   for (const name of planFileNames) {
     // Fail-closed coverage: ANY throw while surveying a plan records it as
     // uncovered and gates, instead of aborting the whole run or — the defect
@@ -4906,7 +4916,7 @@ export function surveyCorpus({
           );
           continue;
         }
-        surveyUnits.push({ label, section, isWholeDocument: false });
+        surveyUnits.push({ label, section, isWholeDocument: false, isComplement: false });
       }
       if (surveyUnits.length === 0) {
         // Still a NOTICE, not an anomaly — the walkPhases gap is real and a
@@ -4922,7 +4932,95 @@ export function surveyCorpus({
           label: WHOLE_DOCUMENT_UNIT_LABEL,
           section: source,
           isWholeDocument: true,
+          isComplement: false,
         });
+      } else {
+        // COMPLEMENT UNITS — every byte no `### Phase N` span covers.
+        //
+        // Survey units are phase sections, so a plan's preamble, its appendices,
+        // and any `### Tier-7 Remainder`-shaped block sit inside a plan the
+        // coverage line counts as swept and outside every unit that screens
+        // anything. The whole-document fallback cannot rescue them: it fires only
+        // at `surveyUnits.length === 0`, so ONE phase heading pins a plan to the
+        // per-phase path permanently. Plan-025 is the live instance — 32 of its
+        // 42 Gate-4 markers sit above its single phase heading, and screening
+        // them surfaces findings the armed survey has never once produced while
+        // printing `cite anomalies: none`.
+        //
+        // The discriminator is POSITION, not heading shape. A fix keyed on which
+        // `###` spellings look phase-like would be keyed on the wrong property
+        // and would miss the next spelling nobody predicted; complements are
+        // derived by SUBTRACTION, so they cover every shape by construction and
+        // stay correct when a new one is invented.
+        const coveredRanges = [];
+        let coverComplete = true;
+        for (const unit of surveyUnits) {
+          // extractPhaseSection returns an exact substring that BEGINS with the
+          // unique `### Phase <label> — <title>` heading, so a plain indexOf is
+          // unambiguous — and, unlike a monotone cursor, it tolerates labels
+          // arriving out of document order (remainder and supplement labels are
+          // appended after the numeric walk, but `### Phase 3B` sits before
+          // `### Phase 4` in the source).
+          const at = source.indexOf(unit.section);
+          if (at === -1) {
+            // Fail CLOSED, and through `anomalies` (unconditional) rather than
+            // the cite channel: a span the survey cannot locate makes the
+            // complement below a subtraction against an incomplete cover, so it
+            // would UNDER-report the unscreened region. Skipping quietly here is
+            // this screen's own failure mode — a gate reporting clean over work
+            // it did not do — not a judgement about cite quality.
+            anomalies.push(
+              `${name} [survey-span-unlocatable] Phase ${unit.label} section could not be located in the plan source; complement coverage is not derivable for this plan`,
+            );
+            coverComplete = false;
+            continue;
+          }
+          coveredRanges.push([at, at + unit.section.length]);
+        }
+        if (coverComplete) {
+          coveredRanges.sort((a, b) => a[0] - b[0]);
+          const gaps = [];
+          let cursor = 0;
+          for (const [start, end] of coveredRanges) {
+            if (start > cursor) gaps.push([cursor, start]);
+            cursor = Math.max(cursor, end);
+          }
+          if (cursor < source.length) gaps.push([cursor, source.length]);
+          for (const [start, end] of gaps) {
+            const section = source.slice(start, end);
+            if (section.trim() === "") continue;
+            // Deliberately NOT filtered on marker count. A predicate deciding
+            // which gaps "have claims worth screening" would be a hand-chosen
+            // proxy standing in for the screens' own judgement — the exact
+            // construct this change exists to remove, and the one that has
+            // already been wrong three times on this surface. Both screens
+            // self-filter (gateTasksBlockCites on hasCiteMarkers, the inline
+            // floor on its own field-marker anchors), so a claim-free gap costs
+            // two cheap no-ops and buys back zero judgement calls.
+            //
+            // What each screen actually contributes here, measured at
+            // introduction rather than assumed: the bold Gate-4 cite screen is
+            // the one doing the work — it finds real anchor defects in this
+            // region today. The inline anchor floor finds nothing, because every
+            // inline cite payload in the corpus currently sits inside a phase
+            // section; its zero is VACUOUS, not clean. It is wired up anyway so
+            // that an inline marker authored outside a phase later is screened
+            // instead of invisible — which is future-proofing, and must not be
+            // read as present coverage.
+            //
+            // One unit per CONTIGUOUS gap, never one merged unit: concatenating
+            // non-adjacent regions would splice unrelated text together and let
+            // a cite appear to span the join.
+            const startLine = source.slice(0, start).split("\n").length;
+            const endLine = startLine + section.split("\n").length - 1;
+            surveyUnits.push({
+              label: `${COMPLEMENT_UNIT_LABEL} lines ${startLine}-${endLine}`,
+              section,
+              isWholeDocument: false,
+              isComplement: true,
+            });
+          }
+        }
       }
       // Intra-plan coverage. `N/M plan(s) cite-swept` counts PLANS, and a plan
       // counts as swept the moment one survey unit exists — but units are phase
@@ -4936,13 +5034,41 @@ export function surveyCorpus({
       // so summing their marker counts is sound; clamped because a future
       // extractor change that overlapped them must not print a negative.
       const totalMarkers = countBoldCiteMarkers(source);
-      const sweptMarkers = surveyUnits.reduce(
-        (sum, unit) => sum + countBoldCiteMarkers(unit.section),
-        0,
-      );
-      const unsweptMarkers = Math.max(0, totalMarkers - sweptMarkers);
+      const countMarkersIn = (predicate) =>
+        surveyUnits
+          .filter(predicate)
+          .reduce((sum, unit) => sum + countBoldCiteMarkers(unit.section), 0);
+      const phaseSweptMarkers = countMarkersIn((unit) => !unit.isComplement);
+      const complementSweptMarkers = countMarkersIn((unit) => unit.isComplement);
+      const complementUnitCount = surveyUnits.filter((unit) => unit.isComplement).length;
+      // The residual is now measured against BOTH paths, so a non-zero value no
+      // longer means "outside every phase" — the complements cover that. It means
+      // a marker fell outside the phase spans AND outside their complement, which
+      // the subtraction above makes impossible unless a span went unlocated (that
+      // gates on its own, above) or the two counts disagree about masking. Kept
+      // as a disclosure rather than promoted to an anomaly precisely because the
+      // masking direction is not provably identical: countBoldCiteMarkers masks
+      // fenced lines per TEXT, and a gap that begins mid-fence can mask
+      // differently than the same bytes did inside the whole document. That skews
+      // toward OVER-counting the swept side, which the clamp absorbs; leaving the
+      // line non-gating means a masking artifact cannot manufacture a red gate.
+      const unsweptMarkers = Math.max(0, totalMarkers - phaseSweptMarkers - complementSweptMarkers);
       if (unsweptMarkers > 0) {
         unsweptMarkerPlans.push({ name, unswept: unsweptMarkers, total: totalMarkers });
+      }
+      // The must-not-be-zero denominator for this screen. If complement
+      // construction ever regresses to a no-op, every plan's line disappears from
+      // this list while the plans keep their out-of-phase markers — so the screen
+      // going dark is visible as an absence of output, not as a clean verdict.
+      // Without it, a broken complement path and a corpus with no out-of-phase
+      // markers print identically.
+      if (complementSweptMarkers > 0) {
+        complementMarkerPlans.push({
+          name,
+          complement: complementSweptMarkers,
+          total: totalMarkers,
+          units: complementUnitCount,
+        });
       }
       // Vacuous-pass tracking is per PLAN, not per unit, and deliberately NOT
       // restricted to the whole-document fallback. A plan whose units carry no
@@ -4956,24 +5082,38 @@ export function surveyCorpus({
       // is the fourth path the coverage contract says cannot exist. Plan-028 is
       // the live instance: five phases, zero markers, previously invisible.
       let planHasAnyCiteMarker = false;
-      for (const { label, section, isWholeDocument } of surveyUnits) {
+      for (const { label, section, isWholeDocument, isComplement } of surveyUnits) {
         const unitPrefix = isWholeDocument
           ? `${name} ${WHOLE_DOCUMENT_UNIT_LABEL}`
-          : `${name} Phase ${label}`;
-        const result = surveyPhase(section);
-        // Phase-shaped metrics count real phases only: a whole-document unit is a
-        // coverage device, not a dispatchable phase, and folding it in would
-        // report a size class for something that never gets dispatched.
-        if (!isWholeDocument) {
-          phaseCount += 1;
-          distribution[result.sizeClass] += 1;
-          phaseSummaries.push(`P${label} ${result.sizeClass}(${result.ids.length})`);
-        }
-        for (const line of result.omissions) {
-          anomalies.push(`${unitPrefix} [omission] task-shaped row not parsed: ${line.trim()}`);
-        }
-        for (const id of result.phantoms) {
-          anomalies.push(`${unitPrefix} [phantom] parsed id on no task-shaped row: ${id}`);
+          : isComplement
+            ? `${name} ${label}`
+            : `${name} Phase ${label}`;
+        // surveyPhase reconciles task-shaped rows against parsed task ids. It
+        // runs for phase units and for the whole-document fallback (which stands
+        // in for a plan's phases), but NOT for complements: a complement is by
+        // construction the region outside every phase, so it has no dispatchable
+        // task set to reconcile. Running it there would read whatever task-shaped
+        // rows a remainder block or an appendix happens to carry and report them
+        // as omissions against a phase that does not exist — through `anomalies`,
+        // which gates unconditionally. The cite screens below are
+        // position-independent and DO run on complements; that is why complements
+        // are constructed at all.
+        if (!isComplement) {
+          const result = surveyPhase(section);
+          // Phase-shaped metrics count real phases only: a whole-document unit is
+          // a coverage device, not a dispatchable phase, and folding it in would
+          // report a size class for something that never gets dispatched.
+          if (!isWholeDocument) {
+            phaseCount += 1;
+            distribution[result.sizeClass] += 1;
+            phaseSummaries.push(`P${label} ${result.sizeClass}(${result.ids.length})`);
+          }
+          for (const line of result.omissions) {
+            anomalies.push(`${unitPrefix} [omission] task-shaped row not parsed: ${line.trim()}`);
+          }
+          for (const id of result.phantoms) {
+            anomalies.push(`${unitPrefix} [phantom] parsed id on no task-shaped row: ${id}`);
+          }
         }
         // Per-unit Gate-4 cite screen (all kinds), written to citeAnomalies.
         // Fail-closed: a thrown gate is itself an anomaly, never a silent skip.
@@ -5004,7 +5144,23 @@ export function surveyCorpus({
         // byte-identical). classifyPhaseMarkers is line-anchored, so a narrative
         // "Spec coverage" prose mention trips neither check. Skipped when the gate
         // threw (that unit already carries a [cite-check-threw] anomaly).
-        if (citeResult) {
+        //
+        // NOT run on complements, and the residual is written down rather than
+        // left implicit: both checks below assert a property of a PHASE's audit
+        // output — that the audit emitted a complete marker PAIR for a
+        // dispatchable phase. A complement has no audit output to be complete or
+        // partial, so a remainder block carrying a lone `**Spec coverage:**`
+        // summary row would be reported as a partial audit that never happened,
+        // through a channel that turns red under --enforce-cites.
+        //
+        // What that leaves unscreened, stated plainly: marker-pair completeness
+        // and legacy-unbold shape inside complement regions. The cite screen
+        // above verifies every ANCHOR those markers carry — which is the finding
+        // class this change was built to surface and the one it measured — but
+        // it does not check that a complement's Spec-coverage marker has an
+        // invariant marker beside it. Naming that is the point; an assertion
+        // whose scope outruns its predicate is the row this work registers.
+        if (citeResult && !isComplement) {
           const markers = classifyPhaseMarkers(section);
           const realSpec = markers.boldSpec + markers.unboldSpec;
           const realInvariant = markers.boldInvariant + markers.unboldInvariant;
@@ -5131,6 +5287,7 @@ export function surveyCorpus({
     exemptFiles,
     fallbackPlans,
     unsweptMarkerPlans,
+    complementMarkerPlans,
     markerlessPlans,
     uncoveredPlans,
   };
@@ -5158,22 +5315,42 @@ export function formatSurvey(survey, { enforceCites = false } = {}) {
     `coverage: ${survey.surveyedPlanCount ?? 0}/${survey.planCount} plan(s) cite-swept, ` +
       `${uncoveredPlans.length} uncovered`,
   );
+  // The complement path's DENOMINATOR — the one count on this screen that must
+  // not be zero while the corpus holds out-of-phase markers. A finding count of
+  // zero is ambiguous between "clean" and "never ran"; this number is not. If
+  // complement construction regresses to a no-op, this block stops printing
+  // while the plans keep their markers, so the screen going dark shows up as
+  // missing output instead of as a clean verdict.
+  const complementMarkerPlans = survey.complementMarkerPlans ?? [];
+  if (complementMarkerPlans.length) {
+    const totalComplement = complementMarkerPlans.reduce((sum, plan) => sum + plan.complement, 0);
+    lines.push(
+      `  Gate-4 markers OUTSIDE every \`### Phase N\` section — screened via the complement path ` +
+        `(${complementMarkerPlans.length} plan(s), ${totalComplement} marker(s)):`,
+    );
+    for (const { name, complement, total, units } of complementMarkerPlans) {
+      lines.push(
+        `    - ${name}: ${complement} of ${total} marker(s) in ${units} complement unit(s)`,
+      );
+    }
+  }
   const unsweptMarkerPlans = survey.unsweptMarkerPlans ?? [];
   if (unsweptMarkerPlans.length) {
     // Printed with the coverage block, not with the anomalies, because these
-    // plans WERE swept — the count above is true, just coarser than it reads.
-    // Naming the residual is what keeps `N/M plan(s) cite-swept` from implying
-    // marker-level coverage; without it a plan whose Tasks blocks sit outside
-    // every phase section reads as fully screened.
+    // plans WERE swept. Post-complement this residual should be EMPTY — phase
+    // spans and their complement partition the source — so a non-empty list
+    // means the two marker counts disagree, most plausibly because fence masking
+    // resolved differently for a gap that begins mid-fence. It stays a
+    // disclosure rather than an anomaly for exactly that reason: a masking
+    // artifact must not be able to manufacture a red gate. A real coverage hole
+    // gates through [survey-span-unlocatable] instead.
     const totalUnswept = unsweptMarkerPlans.reduce((sum, plan) => sum + plan.unswept, 0);
     lines.push(
-      `  cite markers OUTSIDE every survey unit — counted as swept, never screened ` +
+      `  Gate-4 markers in NEITHER a phase section nor its complement — unscreened ` +
         `(${unsweptMarkerPlans.length} plan(s), ${totalUnswept} marker(s)):`,
     );
     for (const { name, unswept, total } of unsweptMarkerPlans) {
-      lines.push(
-        `    - ${name}: ${unswept} of ${total} bold marker(s) outside every \`### Phase N\` section`,
-      );
+      lines.push(`    - ${name}: ${unswept} of ${total} bold marker(s) reached by no survey unit`);
     }
   }
   if (fallbackPlans.length) {
