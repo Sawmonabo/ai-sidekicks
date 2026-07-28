@@ -4746,7 +4746,16 @@ export function extractInlineCitePayloads(phaseSection) {
     }
     payloads.push({
       field: match[1],
-      payload: scanned.slice(start, end).trim(),
+      // Two views over one offset space, same rule as the bold extractor:
+      // POSITIONS come from the masked view, payload BYTES from the raw input.
+      // Under the current line-granular fence mask the two slices are
+      // byte-identical on content lines, so this is not a behavior change —
+      // it is the guard that keeps it that way: route `scanned` through the
+      // inline-span masker (the fence-tracker unification will) and a
+      // masked-view slice would silently blank the ~8 live backticked legacy
+      // payloads before parseCitePayload ever saw them, degrading
+      // failures[].raw for the facet roll-up and the existence floor at once.
+      payload: phaseSection.slice(start, end).trim(),
       lineNo: scanned.slice(0, match.index).split("\n").length,
     });
   }
