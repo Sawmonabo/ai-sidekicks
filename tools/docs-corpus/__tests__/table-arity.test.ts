@@ -3,6 +3,7 @@ import { writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { parseFile, checkTableArity, formatTableArityViolations } from "../lib/table-arity.ts";
+import { containsUnescapedPipe, splitRow } from "../lib/markdown-tables.ts";
 
 function withFile(content: string, fn: (path: string) => void): void {
   const dir = mkdtempSync(resolve(tmpdir(), "arity-"));
@@ -180,9 +181,28 @@ Here is what the corruption looks like:
       });
     });
 
-    it("accepts GFM rows written without outer pipes", () => {
+    // GFM makes the outer pipes optional, so this IS a body row — and its
+    // excess cell is exactly the corruption the check exists to find. The
+    // earlier version of this test used a matching-arity row (`a | b` under a
+    // 2-cell header), which passed whether the body loop continued over it or
+    // ended at it, so the false negative went unpinned (Codex, PR #269 R1).
+    it("FLAGS an over-wide body row written without outer pipes", () => {
+      withFile("| a | b |\n| --- | --- |\n1 | 2 | 3\n", (file) => {
+        expect(parseFile(file)).toMatchObject([{ kind: "row-arity", expected: 2, actual: 3 }]);
+      });
+    });
+
+    it("accepts a matching-arity body row written without outer pipes", () => {
       withFile("| a | b |\n| --- | --- |\na | b\n", (file) => {
         expect(parseFile(file)).toEqual([]);
+      });
+    });
+
+    it("ends the table at a blank line, not at the first pipe-less row", () => {
+      withFile("| a | b |\n| --- | --- |\n1 | 2 | 3\n\n1 | 2 | 3\n", (file) => {
+        // Only the row INSIDE the table is compared; the one after the blank
+        // line belongs to no table.
+        expect(parseFile(file)).toMatchObject([{ line: 3, kind: "row-arity" }]);
       });
     });
 
@@ -190,6 +210,127 @@ Here is what the corruption looks like:
       withFile("| a | b | c |\n|:--- | :---: | ---:|\n| 1 | 2 | 3 |\n", (file) => {
         expect(parseFile(file)).toEqual([]);
       });
+    });
+  });
+
+  // CommonMark caps a block at three spaces of indentation; four or more (or a
+  // tab) makes it an indented CODE block. Without the bound, a table-shaped
+  // EXAMPLE indented under a list or paragraph reads as live markup and can
+  // fail the gate on documentation (Codex, PR #269 R1).
+  describe("indentation bound", () => {
+    it("IGNORES a malformed table indented four spaces (indented code)", () => {
+      withFile("    | a | b |\n    | --- | --- | --- |\n    | 1 | 2 | 3 |\n", (file) => {
+        expect(parseFile(file)).toEqual([]);
+      });
+    });
+
+    it("IGNORES a tab-indented malformed table", () => {
+      withFile("\t| a | b |\n\t| --- | --- | --- |\n", (file) => {
+        expect(parseFile(file)).toEqual([]);
+      });
+    });
+
+    // The bound must not over-suppress: three spaces is still a live table.
+    it("FLAGS a broken table indented three spaces", () => {
+      withFile("   | a | b |\n   | --- | --- |\n   | 1 | 2 | 3 |\n", (file) => {
+        expect(parseFile(file)).toMatchObject([{ kind: "row-arity", expected: 2, actual: 3 }]);
+      });
+    });
+  });
+
+  // HTML comment content is not rendered as markdown, so a malformed table
+  // drawn inside one is documentation, not a table (Codex, PR #269 R1).
+  describe("HTML comment state", () => {
+    const COMMENTED = `<!--
+| a | b |
+| --- | --- | --- |
+| 1 | 2 | 3 |
+-->
+
+| Real | Table |
+| --- | --- |
+| x | y |
+`;
+
+    it("IGNORES a malformed table inside a multi-line comment", () => {
+      withFile(COMMENTED, (file) => {
+        expect(parseFile(file)).toEqual([]);
+      });
+    });
+
+    // Bounded-suppression control, mirroring the fence one: if the comment
+    // never closed, the trailing table would be swallowed and this would pass
+    // for the wrong reason. The mutated row is deliberately spelled `| x | y |`
+    // — unique to the REAL table, because the commented block above also holds
+    // an `| a | b |` row and replacing that one corrupts the suppressed copy
+    // while leaving the live table intact (caught by this control on first run).
+    it("resumes scanning after the comment closes", () => {
+      withFile(COMMENTED.replace("| x | y |\n", "| x | y | z |\n"), (file) => {
+        const violations = parseFile(file);
+        expect(violations).toHaveLength(1);
+        expect(violations[0]).toMatchObject({ kind: "row-arity", expected: 2, actual: 3 });
+      });
+    });
+
+    it("does NOT suppress a row carrying an inline comment that also closes", () => {
+      withFile("| a | b |\n| --- | --- |\n| 1 | 2 | 3 | <!-- note -->\n", (file) => {
+        expect(parseFile(file)).toMatchObject([{ kind: "row-arity", expected: 2, actual: 4 }]);
+      });
+    });
+
+    // A line can CLOSE one comment and OPEN another. The open scan reads the
+    // LAST `<!--` on the line for exactly this case: scanning from the first
+    // one finds the intervening `-->`, concludes the comment closed, and leaves
+    // the following commented block live.
+    it("enters comment state when a line closes one comment and opens another", () => {
+      withFile("<!-- note --> <!--\n| a | b |\n| --- | --- | --- |\n-->\n", (file) => {
+        expect(parseFile(file)).toEqual([]);
+      });
+    });
+  });
+
+  // Escape handling is by backslash-RUN PARITY. The naive "is the previous
+  // character a backslash" test read `\\|` (escaped backslash + live
+  // delimiter) as an escaped pipe and undercounted the row (Codex, PR #269 R1).
+  // Fixtures use String.raw so the backslash counts in the SOURCE are exactly
+  // what reaches the splitter — with an ordinary template literal `\|` would
+  // collapse to a bare pipe and invert what each case proves.
+  describe("backslash-run parity", () => {
+    // Inputs use String.raw (source bytes as written); expectations use
+    // ordinary escapes, so `"x \\"` below is the two characters `x \`.
+    it("treats an ODD run before a pipe as an escape", () => {
+      expect(splitRow(String.raw`x \| y`)).toEqual(["x | y"]);
+      expect(splitRow(String.raw`x \\\| y`)).toEqual(["x \\| y"]);
+    });
+
+    it("treats an EVEN run before a pipe as a live delimiter", () => {
+      expect(splitRow(String.raw`x \\| y`)).toEqual(["x \\", "y"]);
+      expect(splitRow(String.raw`x \\\\| y`)).toEqual(["x \\\\", "y"]);
+    });
+
+    it("keeps a lone backslash before a NON-pipe as content", () => {
+      expect(splitRow(String.raw`x \y | z`)).toEqual(["x \\y", "z"]);
+    });
+
+    it("applies the same parity to the body-continuation test", () => {
+      expect(containsUnescapedPipe(String.raw`x \| y`)).toBe(false);
+      expect(containsUnescapedPipe(String.raw`x \\| y`)).toBe(true);
+      expect(containsUnescapedPipe(String.raw`x \\\| y`)).toBe(false);
+      expect(containsUnescapedPipe("no pipes here")).toBe(false);
+    });
+
+    it("counts an even-run row at its true arity end to end", () => {
+      withFile(
+        `| a | b |
+| --- | --- |
+${String.raw`| x \\| y | z |`}
+`,
+        (file) => {
+          // `\\|` is an escaped backslash then a REAL delimiter, so this row
+          // holds three cells against a two-cell header.
+          expect(parseFile(file)).toMatchObject([{ kind: "row-arity", expected: 2, actual: 3 }]);
+        },
+      );
     });
   });
 
@@ -213,6 +354,26 @@ Here is what the corruption looks like:
     // bound tolerable rather than a live hole.
     it("does NOT see a table whose header omits outer pipes (measured-zero scope bound)", () => {
       withFile("a | b\n--- | ---\n1 | 2 | 3\n", (file) => {
+        expect(parseFile(file)).toEqual([]);
+      });
+    });
+
+    // GFM absorbs a non-empty pipe-less line abutting a table as a lazy
+    // one-cell continuation row (the spec's own `bar` example), so this row is
+    // one the check declines to compare. Closing it would need full block-start
+    // classification — a heading, list item, or fence abutting a table is NOT
+    // absorbed — which is out of proportion to a population measured at zero
+    // across the 230 enforced files.
+    it("ends the table at a pipe-less line GFM would absorb (measured-zero scope bound)", () => {
+      withFile("| a | b |\n| --- | --- |\n| 1 | 2 |\nbar\n", (file) => {
+        expect(parseFile(file)).toEqual([]);
+      });
+    });
+
+    // Scope bound 3: the line carrying `-->` is suppressed whole, so live
+    // markup in its tail is not checked. Also measured at zero.
+    it("does not check live markup in the tail after a comment closes", () => {
+      withFile("<!--\ncomment\n--> | a | b |\n| --- | --- |\n| 1 | 2 | 3 |\n", (file) => {
         expect(parseFile(file)).toEqual([]);
       });
     });
