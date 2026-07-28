@@ -2464,3 +2464,74 @@ test("surveyCorpus: complement markers are credited only when their screen RAN",
     rmSync(thrown, { recursive: true, force: true });
   }
 });
+
+test("surveyCorpus: a partition hole marks the plan uncovered, never a vacuous pass", () => {
+  // The marker-coverage residual called markUncovered itself, from before the
+  // unit loop — a second decision point outside the terminal chain that owns
+  // uncovered-vs-markerless. A plan whose markers all fell in the partition hole
+  // therefore reached the `else if` with no unit reporting a marker, and one run
+  // printed it BOTH as uncovered AND as "swept but no cite markers to verify —
+  // vacuous pass": the report contradicting itself precisely when the residual
+  // did its job.
+  //
+  // The unit cover is exhaustive by construction, so no fixture can produce a
+  // real hole; the partition is injected instead (see the surveyCorpus seam
+  // docstring). `hasCiteMarkers: false` on every unit is the other half of the
+  // shape — markers present in the DOCUMENT that no unit saw.
+  const blindScreen = () => ({ hasCiteMarkers: false, findings: [] });
+  const holePartition = (markerOffsets, units) => ({
+    phase: 0,
+    complement: 0,
+    unswept: markerOffsets.length,
+    perUnit: units.map(() => 0),
+  });
+
+  // Positive control — same blind screen, REAL partition. No hole, so the
+  // markerless path still owns this plan. Without it the negative control below
+  // would pass against a build where markerlessPlans had stopped filling at all.
+  const intact = makeFixtureCorpus({ "069-complement.md": COMPLEMENT_MARKER_PLAN });
+  try {
+    const survey = surveyCorpus({ repoRoot: intact, runCiteGate: blindScreen });
+    assert.deepEqual(survey.markerlessPlans, ["069-complement.md"]);
+    assert.deepEqual(survey.uncoveredPlans, []);
+    assert.deepEqual(survey.unsweptMarkerPlans, []);
+    assert.match(formatSurvey(survey), /vacuous pass/);
+  } finally {
+    rmSync(intact, { recursive: true, force: true });
+  }
+
+  // Negative control — every marker lands in the hole.
+  const holed = makeFixtureCorpus({ "069-complement.md": COMPLEMENT_MARKER_PLAN });
+  try {
+    const survey = surveyCorpus({
+      repoRoot: holed,
+      runCiteGate: blindScreen,
+      partitionMarkers: holePartition,
+    });
+    assert.deepEqual(
+      survey.uncoveredPlans.map((plan) => plan.name),
+      ["069-complement.md"],
+    );
+    assert.match(survey.uncoveredPlans[0].reason, /reached no survey unit/);
+    assert.deepEqual(
+      survey.markerlessPlans,
+      [],
+      "a plan holding markers no screen reached is not a vacuous pass",
+    );
+    assert.deepEqual(survey.unsweptMarkerPlans, [
+      { name: "069-complement.md", unswept: 4, total: 4 },
+    ]);
+    assert.ok(
+      survey.anomalies.some((line) => line.includes("[markers-unswept]")),
+      "the residual must gate through anomalies, not merely disclose",
+    );
+    const text = formatSurvey(survey);
+    assert.doesNotMatch(
+      text,
+      /vacuous pass/,
+      "the same run must not call an uncovered plan a vacuous pass",
+    );
+  } finally {
+    rmSync(holed, { recursive: true, force: true });
+  }
+});

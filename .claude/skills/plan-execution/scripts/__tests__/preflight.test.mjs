@@ -24,6 +24,7 @@ import {
   extractAdrStatus,
   extractDeclaredTaskIds,
   extractTasksBlock,
+  classifyPhaseSize,
   extractSection5,
   shippedTaskIdsForPhase,
   gateProjectLocality,
@@ -2181,6 +2182,61 @@ test("extractTasksBlock returns null when no Tasks block", () => {
   assert.equal(extractTasksBlock("### Phase 1 — Bootstrap\n\nNo tasks here."), null);
 });
 
+test("extractTasksBlock drops fenced example rows, keeping real indented ones", () => {
+  // A ```markdown block demonstrating the row shape is illustration, not
+  // declared work. Read raw, the example ids reach Gate 3's shipped-task
+  // comparison (a phantom id makes a shipped phase read unshipped) and
+  // classifyPhaseSize (an S phase inflates to M, demoting G4 findings). The
+  // indented example is the shape the whitespace-tolerant bullet anchor newly
+  // admitted; the column-0 one was already reachable (Codex P2, PR #262 r4).
+  const sec = `### Phase 1 — Bootstrap
+
+#### Tasks
+
+- **T1.1 — real row** (Files: packages/a/src/x.ts)
+  - **T-001r-1-2 (slice a) — real indented sub-slice** (Files: packages/a/src/y.ts)
+
+Authors write rows like this:
+
+\`\`\`markdown
+- **T9.9 — illustrative row**
+    - **T9.8 — indented illustrative row**
+\`\`\`
+
+### Phase 2`;
+  // The real indented row is NOT collateral damage: a list indent is not a
+  // structural region, so only fenced/raw-HTML/multi-line-span text is masked.
+  const declared = extractDeclaredTaskIds(sec);
+  assert.deepEqual(declared, ["T-001r-1-2", "T1.1"]);
+  // The gating consequence, both sides: two real tasks in one package root is
+  // an M phase; the four-id set the raw scan produced classified L, which is a
+  // different reviewer set and a different G4 strictness.
+  const paths = ["packages/a/src/x.ts", "packages/a/src/y.ts"];
+  assert.equal(classifyPhaseSize(declared, paths), "M");
+  assert.equal(classifyPhaseSize([...declared, "T9.8", "T9.9"], paths), "L");
+});
+
+test("extractTasksBlock ignores a fenced `#### Tasks` heading", () => {
+  // The block slicer is a plain regex, so a fenced example of the heading
+  // itself opened a phantom block whose contents were read as declared work.
+  const sec = `### Phase 1 — Bootstrap
+
+#### Tasks
+
+- **T1.1 — real row** (Files: a.ts)
+
+The audit emits:
+
+\`\`\`markdown
+#### Tasks
+
+- **T9.9 — illustrative row**
+\`\`\`
+
+### Phase 2`;
+  assert.deepEqual(extractDeclaredTaskIds(sec), ["T1.1"]);
+});
+
 // ---------- extractSection5 (cross-plan-deps §5 scoping) ----------
 
 test("extractSection5 slices §5 from `## 5. Canonical Build Order` heading", () => {
@@ -2424,6 +2480,49 @@ test("audit_status: substrate_exempt passes when §5 ref + sentinel + no bracket
     { repoRoot: repo, phaseSection: SUBSTRATE_PHASE_FIXTURE, phaseNumber: 1 },
   );
   assert.equal(r.ok, true, `halt: ${r.halt}`);
+});
+
+test("audit_status: substrate_exempt tolerates a FENCED bracket-form Spec coverage cite", () => {
+  // The sibling-consistency check scans the Tasks block for bracket-form
+  // `Spec coverage: [...]` and halts on a hit. Read raw, a fenced example row
+  // carrying one halts a phase that declares no Spec AC anywhere in its real
+  // rows — the fence-blindness class failing in the opposite direction from the
+  // phantom task ids (Codex P2, PR #262 round 4).
+  const repo = repoWithXplan(SUBSTRATE_XPLAN_FIXTURE);
+  const phaseWithFencedCite = `${SUBSTRATE_PHASE_FIXTURE}
+Row shape, for reference:
+
+\`\`\`markdown
+- **T-023p-1-9** (Files: z.ts; Spec coverage: [Spec-023 row 4]) — example only
+\`\`\`
+`;
+  const r = resolvePrecondition(
+    {
+      type: "audit_status",
+      status: "substrate_exempt",
+      carve_out_ref: "Plan-023 Substrate-vs-Namespace Carve-Out",
+    },
+    { repoRoot: repo, phaseSection: phaseWithFencedCite, phaseNumber: 1 },
+  );
+  assert.equal(r.ok, true, `halt: ${r.halt}`);
+});
+
+test("audit_status: substrate_exempt still halts on a REAL bracket-form Spec coverage cite", () => {
+  // Negative control for the test above: masking must not have blinded the
+  // check to the unfenced cite it exists to catch.
+  const repo = repoWithXplan(SUBSTRATE_XPLAN_FIXTURE);
+  const phaseWithRealCite = `${SUBSTRATE_PHASE_FIXTURE}- **T-023p-1-9** (Files: z.ts; Spec coverage: [Spec-023 row 4]) — real row
+`;
+  const r = resolvePrecondition(
+    {
+      type: "audit_status",
+      status: "substrate_exempt",
+      carve_out_ref: "Plan-023 Substrate-vs-Namespace Carve-Out",
+    },
+    { repoRoot: repo, phaseSection: phaseWithRealCite, phaseNumber: 1 },
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /conflicts with Tasks-block Spec coverage cites/);
 });
 
 test("audit_status: substrate_exempt fails when carve_out_ref missing", () => {

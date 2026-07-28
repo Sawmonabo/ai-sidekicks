@@ -725,14 +725,45 @@ export function extractAdrStatus(source) {
 // both slice the same region without re-implementing the heading boundary
 // logic.
 export function extractTasksBlock(phaseSection) {
+  // Fenced examples are ILLUSTRATION, not declared work. A ```markdown block
+  // demonstrating the Tasks-row shape (`- **T9.9 — illustrative row**`) is read
+  // by every consumer below as a real declared task, and each one fails in a
+  // different direction: Gate 3's set-comparison sees a phantom id that will
+  // never ship, so a fully-shipped phase reads unshipped and the auto-walk
+  // re-enters completed work; `classifyPhaseSize` counts it, moving an S phase
+  // to M and demoting G4 grammar findings; and the substrate_exempt resolver
+  // halts on a `Spec coverage: [...]` cite that exists only inside the example.
+  // The survey oracle could not catch any of it — it scanned the same raw text
+  // and agreed (Codex P2, PR #262 round 4).
+  //
+  // Masking here rather than at the three call sites is deliberate: this is the
+  // one place that decides what text IS the Tasks block, so the content
+  // boundary is settled once and no consumer can hold a different view of it.
+  // The oracle's independence is a claim about the ROW-SHAPE recognizer, not
+  // about which bytes are content — sharing this boundary is what stops the
+  // oracle from reporting a phantom row the extractor is right to skip.
+  //
+  // Masking the INPUT, not the sliced blocks: maskNonContentLines starts its
+  // fence tracker closed, and a phase section always begins at a fence-closed
+  // point (findSectionBoundary is fence-aware), so parity holds. Masking the
+  // joined blocks instead would start the tracker mid-document and invert the
+  // parity of every fence inside them.
+  //
+  // Measured against the live corpus: masking changes ZERO declared-id sets,
+  // ZERO block-presence verdicts, and ZERO oracle rows across all 71 phases
+  // carrying a Tasks block. Both directions were checked — no real row is
+  // masked away either, because a task row indented under a bullet is not a
+  // structural region (the scanner consumes fences, raw-HTML blocks, and
+  // multi-line code spans; a 2-space list indent is none of those).
+  const scanned = maskNonContentLines(phaseSection);
   // A phase's declared tasks are the UNION of all its `#### Tasks` blocks —
   // refinement-lane phases (Plan-007 Phase 3, Plan-008 Phase 1) carry a second
   // block, and reading only the first made its task ids invisible to Gate 3:
   // the phase could read fully_shipped while lane tasks were still pending
   // (same class as the Codex P1 on PR #190; found by the omission survey).
-  const blocks = [
-    ...phaseSection.matchAll(/####\s*Tasks\s*\n([\s\S]*?)(?=\n####\s|\n###\s|$)/g),
-  ].map((m) => m[1]);
+  const blocks = [...scanned.matchAll(/####\s*Tasks\s*\n([\s\S]*?)(?=\n####\s|\n###\s|$)/g)].map(
+    (m) => m[1],
+  );
   return blocks.length ? blocks.join("\n") : null;
 }
 
@@ -763,11 +794,17 @@ export const TASK_ID_SHAPE = String.raw`T(?=[-\d])[-a-zA-Z0-9.]+`;
 // still pending (Codex P1, PR #190).
 //
 // Indent tolerance is shared deliberately: it was measured corpus-neutral —
-// across all 77 phases it adds ZERO declared ids — so both consumers can hold
-// one anchor without moving any Gate-3 verdict. Widening this pattern widens a
-// GATING path, not just a diagnostic one; `extractDeclaredTaskIds` feeds
+// across all 71 phases carrying a `#### Tasks` block (of 76 phase sections in
+// 28 plans) it adds ZERO declared ids — so both consumers can hold one anchor
+// without moving any Gate-3 verdict. Widening this pattern widens a GATING
+// path, not just a diagnostic one; `extractDeclaredTaskIds` feeds
 // `classifyPhaseSize`, which demotes G4 grammar findings for S/M phases. Re-run
-// that corpus measurement before loosening it.
+// that corpus measurement before loosening it — and note the denominator is the
+// Tasks-block-bearing phases, since a phase without one declares no ids at all.
+//
+// This recognizer must only ever see CONTENT: `extractTasksBlock` masks fenced
+// and raw-HTML regions out of its input, so a fenced example row reaches
+// neither consumer. Feeding it raw text re-opens that hole.
 export function taskHeaderMatches(text) {
   return [
     ...text.matchAll(new RegExp(String.raw`^#####\s+(${TASK_ID_SHAPE})\b`, "gm")),
@@ -4910,6 +4947,7 @@ export function partitionMarkerOffsets(markerOffsets, units) {
 /**
  * @param options.runCiteGate - seam for the per-unit Gate-4 cite screen.
  * @param options.runInlineAnchorFloor - seam for the inline anchor-existence floor.
+ * @param options.partitionMarkers - seam for the marker/unit partition.
  *
  * Both screens are internally fail-closed: a missing or unreadable spec becomes a
  * `[spec-file-not-found]` FINDING rather than a throw, so no corpus fixture can
@@ -4917,11 +4955,20 @@ export function partitionMarkerOffsets(markerOffsets, units) {
  * what stands between a crashed screen and a green verdict — so they are made
  * reachable by injection, in the same idiom as the `repoRoot` / `specsDir`
  * seams elsewhere in this file. Production callers pass neither.
+ *
+ * `partitionMarkers` is the same idiom for the same reason. The unit cover is
+ * exhaustive by construction — the complement is the phase spans' set difference
+ * — so no corpus fixture can produce a leftover marker, which leaves the residual
+ * gate that reports one unreachable and therefore unverified. Injecting the
+ * partition drives that gate and, more importantly, the terminal
+ * uncovered-vs-markerless decision it feeds, which is where the two prior
+ * regressions in this area actually lived. Production callers pass nothing.
  */
 export function surveyCorpus({
   repoRoot = REPO_ROOT,
   runCiteGate = gateTasksBlockCites,
   runInlineAnchorFloor = verifyInlineAnchorFloor,
+  partitionMarkers = partitionMarkerOffsets,
 } = {}) {
   const plansDir = resolve(repoRoot, "docs", "plans");
   const planFileNames = readdirSync(plansDir)
@@ -5036,6 +5083,15 @@ export function surveyCorpus({
       // leftover marker as a real hole rather than a symptom of the span that
       // already failed to locate.
       let coverComplete = true;
+      // Set by the marker-coverage residual below; CONSUMED by the single
+      // uncovered-vs-markerless decision after the unit loop. The residual used
+      // to call markUncovered itself, which put a second decision point outside
+      // that terminal chain: a plan whose only markers sat in the partition hole
+      // reached the `else if` with no unit reporting a marker, so the same run
+      // printed it as `uncovered` AND as `swept but no cite markers to verify —
+      // vacuous pass`. Routing the reason through one variable makes the
+      // contradiction unrepresentable rather than merely absent.
+      let partitionHole = null;
       for (const label of allPhaseLabels) {
         const section = extractPhaseSection(source, label);
         if (section == null) {
@@ -5200,7 +5256,7 @@ export function surveyCorpus({
       // DENOMINATOR deliberately does not come from them: those count markers a
       // unit CONTAINS, and the denominator must count markers a screen JUDGED,
       // which is only knowable once that unit's gate has run.
-      const { unswept: unsweptMarkers, perUnit: unitMarkerCounts } = partitionMarkerOffsets(
+      const { unswept: unsweptMarkers, perUnit: unitMarkerCounts } = partitionMarkers(
         markerOffsets,
         surveyUnits,
       );
@@ -5232,7 +5288,10 @@ export function surveyCorpus({
         anomalies.push(
           `${name} [markers-unswept] ${unsweptMarkers} of ${totalMarkers} bold Gate-4 marker(s) fall outside every phase span AND outside their complement; the cite partition is not exhaustive and those markers reached no screen`,
         );
-        markUncovered(name, `${unsweptMarkers} bold Gate-4 marker(s) reached no survey unit`);
+        // Recorded, not marked: the single markUncovered decision lives in the
+        // terminal chain after the unit loop, where it can also see whether a
+        // screen threw. See the `partitionHole` declaration for why.
+        partitionHole = `${unsweptMarkers} bold Gate-4 marker(s) reached no survey unit`;
       }
       // Vacuous-pass tracking is per PLAN, not per unit, and deliberately NOT
       // restricted to the whole-document fallback. A plan whose units carry no
@@ -5458,7 +5517,13 @@ export function surveyCorpus({
           units: complementUnitsUnjudged,
         });
       }
-      if (citeScreenFailure !== null) {
+      // THE uncovered-vs-markerless decision — one point, so a plan can never
+      // land in both lists. Precedence is unchanged from when the residual
+      // marked directly: it ran before the unit loop, so its reason won the
+      // markUncovered dedupe. Both reasons still reach the reader regardless —
+      // each pushed its own anomaly line — so this only picks the label shown
+      // beside the plan in the uncovered list.
+      if (partitionHole !== null || citeScreenFailure !== null) {
         // A screen that threw judged nothing, so this plan is NOT swept.
         // Without this the coverage line still counted it (`surveyedPlanCount`
         // subtracts only `uncoveredPlans`), `markerlessPlans` labelled the unrun
@@ -5467,7 +5532,7 @@ export function surveyCorpus({
         // exemption on evidence that was never gathered. That last guard already
         // existed for the OUTER catch via `uncoveredPlanNames`; the per-unit
         // catches walked straight past it (Codex P2, PR #260 round 2).
-        markUncovered(name, citeScreenFailure);
+        markUncovered(name, partitionHole ?? citeScreenFailure);
       } else if (surveyUnits.length > 0 && !planHasAnyCiteMarker) {
         markerlessPlans.push(name);
       }
