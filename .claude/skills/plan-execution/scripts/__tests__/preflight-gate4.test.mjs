@@ -1967,6 +1967,133 @@ test("a nested child heading does not truncate §Acceptance Criteria", () => {
   assert.equal(pastSibling.reason, "ac-line-outside-section");
 });
 
+test("a named section must CONTAIN the acceptance criterion it points at", () => {
+  // Resolving the heading proved only that it EXISTS somewhere in the spec, so
+  // `§Required Behavior AC line 9` was certified by a bullet that actually sits
+  // under §Acceptance Criteria — the qualifier was decorative and a stale one
+  // stayed green (Codex P1, PR #260 round 2). The plain line/line-range anchors
+  // had carried this check since the Plan-015 T15.1 shape; the AC family was
+  // simply left behind.
+  const tmp = mkdtempSync(resolve(tmpdir(), "preflight-ac-named-section-"));
+  writeFileSync(
+    resolve(tmp, "305-ac-named-section.md"),
+    [
+      "# Temp spec", // 1
+      "", // 2
+      "## Required Behavior", // 3
+      "", // 4
+      "Prose that is not an acceptance criterion.", // 5
+      "", // 6
+      "## Acceptance Criteria", // 7
+      "", // 8
+      "- [ ] First criterion.", // 9
+      "- [ ] Second criterion.", // 10
+      "", // 11
+      "## Other", // 12
+      "",
+    ].join("\n"),
+  );
+  const dirs = { specsDir: tmp };
+
+  const wrongSection = verifyAnchorAgainstSpec(
+    {
+      type: "ac-line",
+      spec: 305,
+      line: 9,
+      section: "Required Behavior",
+      sectionFromPrefix: true,
+      raw: "Spec-305 §Required Behavior AC line 9",
+    },
+    dirs,
+  );
+  assert.equal(
+    wrongSection.valid,
+    false,
+    "a section that does not contain the criterion must fail",
+  );
+  assert.equal(wrongSection.reason, "line-outside-section");
+
+  // Naming the section that DOES contain it still passes — the two bounds
+  // compose, they do not conflict.
+  const rightSection = verifyAnchorAgainstSpec(
+    {
+      type: "ac-line",
+      spec: 305,
+      line: 9,
+      section: "Acceptance Criteria",
+      sectionFromPrefix: true,
+      raw: "Spec-305 §Acceptance Criteria AC line 9",
+    },
+    dirs,
+  );
+  assert.equal(
+    rightSection.valid,
+    true,
+    `expected valid; got ${rightSection.reason}: ${rightSection.evidence}`,
+  );
+
+  // The ORDINAL shape is bounded too, though it cites no line at all: the
+  // criterion's own resolved line is the containment subject. Without deriving
+  // it there is nothing to hold `§Required Behavior AC1` to.
+  const ordinalWrong = verifyAnchorAgainstSpec(
+    {
+      type: "ac",
+      spec: 305,
+      ac: 1,
+      lineHint: null,
+      section: "Required Behavior",
+      sectionFromPrefix: true,
+      raw: "Spec-305 §Required Behavior AC1",
+    },
+    dirs,
+  );
+  assert.equal(ordinalWrong.valid, false, "AC<N> with a wrong named section must fail");
+  assert.equal(ordinalWrong.reason, "line-outside-section");
+});
+
+test("a sibling's §section does not bound a trailing AC line cite", () => {
+  // The negative control for the check above, and not a hypothetical: arming
+  // containment without it turned a VALID Plan-011 cite red. `section` is
+  // sticky across sub-tokens by design (`§Foo line 10, line 12` — both in
+  // §Foo), and an `AC line N` token can never carry its own `§` because its
+  // regex is anchored at `^AC`. So a mid-payload re-section leaks forward onto
+  // the AC claim: Plan-011 cites `… line 68 + §Git Hosting Adapter lines
+  // 118-152 (…), AC line 175`, where line 175 is a correct §Acceptance Criteria
+  // bullet that has nothing to do with §Git Hosting Adapter. Only a section the
+  // anchor itself claims — the payload's own `§` prefix — may bound it.
+  const inherited = parseCitePayload(
+    "Spec-002 line 10 (InviteCreate), §Rate Limiting lines 17-20 (rate limit thresholds), AC line 45",
+  ).anchors.find((anchor) => anchor.type === "ac-line");
+  assert.equal(
+    inherited.section,
+    "Rate Limiting",
+    "the sticky section still parses onto the anchor",
+  );
+  assert.equal(inherited.sectionFromPrefix, false, "but it is NOT this anchor's own claim");
+
+  const authored = parseCitePayload("Spec-002 §Rate Limiting AC line 45").anchors.find(
+    (anchor) => anchor.type === "ac-line",
+  );
+  assert.equal(authored.sectionFromPrefix, true, "a payload-prefix section IS this anchor's claim");
+
+  // End-to-end against the real fixture spec: the inherited shape verifies
+  // clean, the authored one is held to the section it names.
+  const { verifyFailures: inheritedFailures } = verifyAll(
+    "Spec-002 line 10 (InviteCreate), §Rate Limiting lines 17-20 (rate limit thresholds), AC line 45",
+  );
+  assert.deepEqual(
+    inheritedFailures.map((failure) => failure.result.reason),
+    [],
+    `inherited-section AC cite must not fail: ${JSON.stringify(inheritedFailures)}`,
+  );
+  const { verifyFailures: authoredFailures } = verifyAll("Spec-002 §Rate Limiting AC line 45");
+  assert.deepEqual(
+    authoredFailures.map((failure) => failure.result.reason),
+    ["line-outside-section"],
+    "an authored §section that does not contain the criterion must still fail",
+  );
+});
+
 test("AC line N rejects a descriptor subject absent from the cited criterion", () => {
   // Fixture line 47 names `ChannelList`; `PresenceUpdate` is elsewhere in the
   // spec, so the subject rule must fire rather than accepting any AC bullet.
@@ -2232,13 +2359,14 @@ test("the realistic inch-mark straddle gates instead of dropping the second clai
   assert.equal(unquoted.verifyFailures[0].result.reason, "line-out-of-range");
 });
 
-test("a quoted run that only OPENS a bracket is NOT flagged — the check is one-sided", () => {
-  // The discriminator against an over-eager symmetric check. Here the quoted
-  // run drives the local depth POSITIVE (`(` with no `)`), so it swallows no
-  // closing bracket and strands no separator: both anchors parse and the
-  // payload is clean. A check that keyed on "local depth != 0 at close", or on
-  // end-of-payload depth, would falsely flag this. Deleting the `localDepth < 0`
-  // condition in favour of `localDepth !== 0` turns this test red.
+test("a quoted run that opens a bracket but swallows NO separator is not flagged", () => {
+  // The discriminator against an over-eager symmetric check, and the reason the
+  // net-non-zero signature below is CONJOINED with "the run carried a
+  // separator". Here the quoted run drives the local depth positive (`(` with
+  // no `)`) and so ends net non-zero — but it contains no `,`/`;`/`+`, strands
+  // no separator, and both anchors parse. A check keying on "local depth != 0
+  // at close" ALONE, or on end-of-payload depth, would falsely flag this.
+  // Dropping the runHasSeparator conjunct turns this test red.
   const { anchors, parseFailures } = verifyAll('Spec-002 line 10 ("foo (bar"), line 20');
   assert.deepEqual(
     parseFailures.map((f) => f.kind),
@@ -2248,6 +2376,21 @@ test("a quoted run that only OPENS a bracket is NOT flagged — the check is one
     anchors.map((a) => a.line),
     [10, 20],
     "a run that swallows no separator must leave BOTH claims extracted and verifiable",
+  );
+});
+
+test("a nested opener inside the run does not hide the straddle", () => {
+  // The hole the dip test alone left open. This run consumes a closer for a
+  // group opened BEFORE it, but an opener inside the run keeps the running
+  // local depth from ever going negative: `(` +1, `)` 0, `(` +1. The dip test
+  // sees nothing, the quote count is even so parity sees nothing, and the
+  // splitters emit ONE anchor for line 10 with ZERO failures — the `line 99999`
+  // claim is silently discarded (Codex P2, PR #260 round 2). What catches it is
+  // the second signature: the run ends net non-zero AND carried a separator.
+  const quoted = verifyAll('Spec-002 line 10 (5" (window), line 99999 (30" grace)');
+  assert.ok(
+    quoted.parseFailures.some((f) => f.kind === "unbalanced-cite-quote"),
+    `expected unbalanced-cite-quote, got ${quoted.parseFailures.map((f) => f.kind).join(", ") || "no failures"}`,
   );
 });
 

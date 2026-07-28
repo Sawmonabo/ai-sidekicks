@@ -1932,3 +1932,132 @@ test("surveyCorpus: the SAME carve-out placed after the last phase is swallowed 
     rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+// ---------- a screen that THREW is not a screen that passed ----------
+
+// One phase, one well-formed task, real markers: nothing here is malformed, so
+// every finding below comes from the injected failure and not from the fixture.
+const HEALTHY_PLAN =
+  "### Phase 1 — real work\n\n#### Tasks\n\n" +
+  "- **T1.1 — a task** (Files: packages/a/src/x.ts)\n\n" +
+  "  **Spec coverage:** Spec-050 §Required Behavior\n\n" +
+  "  **Verifies invariant:** I-050-1\n";
+
+test("surveyCorpus: a cite screen that THREW leaves its plan uncovered, not swept", () => {
+  // The generalized defect this PR exists to close, found once more in the very
+  // screen that closes it. The catch recorded a `[cite-check-threw]` anomaly —
+  // so the run does gate — but left the plan inside `surveyedPlanCount`, so the
+  // coverage line still read `1/1 plan(s) cite-swept` over a screen that never
+  // ran, and `markerlessPlans` additionally labelled the unrun screen a vacuous
+  // pass (Codex P2, PR #260 round 2).
+  const tmp = makeFixtureCorpus({ "069-throwing-screen.md": HEALTHY_PLAN });
+  try {
+    const survey = surveyCorpus({
+      repoRoot: tmp,
+      runCiteGate: () => {
+        throw new Error("injected screen failure");
+      },
+    });
+    assert.equal(survey.planCount, 1);
+    assert.equal(survey.surveyedPlanCount, 0, "a plan whose screen threw is NOT cite-swept");
+    assert.deepEqual(
+      survey.uncoveredPlans.map((plan) => plan.name),
+      ["069-throwing-screen.md"],
+    );
+    assert.ok(
+      survey.anomalies.some((anomaly) => anomaly.includes("[cite-check-threw]")),
+      `expected a [cite-check-threw] anomaly, got ${survey.anomalies.join("\n")}`,
+    );
+    assert.deepEqual(survey.markerlessPlans, [], "an unrun screen is not a vacuous pass");
+    const text = formatSurvey(survey);
+    assert.match(text, /coverage: 0\/1 plan\(s\) cite-swept, 1 uncovered/);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("surveyCorpus: an exempt plan whose screen threw is not called re-authored", () => {
+  // The sharpest edge of the same bug. The stale-exemption ratchet fires when an
+  // exempt plan emits ZERO cite findings — "re-authored clean, delete the
+  // entry". A screen that threw emits zero findings in exactly the same way, so
+  // the ratchet would advise deleting a live exemption on evidence that was
+  // never gathered, dropping real debt coverage. The guard for this already
+  // existed for the OUTER per-plan catch (`uncoveredPlanNames`); the per-unit
+  // cite-screen catch walked straight past it.
+  const exemptName = LEGACY_INLINE_CITE_EXEMPT[0].slice("docs/plans/".length);
+  const tmp = makeFixtureCorpus({ [exemptName]: HEALTHY_PLAN });
+  try {
+    const survey = surveyCorpus({
+      repoRoot: tmp,
+      runCiteGate: () => {
+        throw new Error("injected screen failure");
+      },
+    });
+    assert.deepEqual(
+      survey.citeAnomalies.filter((anomaly) => anomaly.includes("[stale-exemption]")),
+      [],
+      "an exemption must not be declared stale on a screen that never ran",
+    );
+    // The row is still PRINTED — `exemptFiles.length` is the dead-entry detector
+    // for a renamed or removed exempt plan, so only the verdict is withheld.
+    assert.equal(survey.exemptFiles.length, 1);
+    assert.equal(survey.exemptFiles[0].uncovered, true);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+// ---------- a fenced example is illustration, not audit output ----------
+
+const FENCED_EXAMPLE_ONLY_PLAN = `# Plan-068: Fenced Example Only
+
+## Overview
+
+No \`### Phase N\` headings, so this plan takes the whole-document fallback.
+Its only cite markers live inside a fenced example block.
+
+\`\`\`markdown
+- **T-068r-1-1 — illustrative task** (Files: packages/x/src/a.ts)
+
+  **Spec coverage:** Spec-050 §Required Behavior
+
+  **Verifies invariant:** I-050-1
+\`\`\`
+`;
+
+test("surveyCorpus: fenced example markers do not make a plan look audited", () => {
+  // Passing the complete source as the fallback unit let the raw marker regexes
+  // read a ```markdown example as audit output: the plan reported cite-swept,
+  // non-vacuous and anomaly-free, and the screen even VERIFIED the example's
+  // cites against real spec files — a complete false clean (Codex P2, PR #260
+  // round 2). Marker detection and cite extraction are now fence-masked.
+  const tmp = makeFixtureCorpus({ "068-fenced-only.md": FENCED_EXAMPLE_ONLY_PLAN });
+  try {
+    const survey = surveyCorpus({ repoRoot: tmp });
+    assert.deepEqual(
+      survey.markerlessPlans,
+      ["068-fenced-only.md"],
+      "a plan whose only markers are fenced has NO audit output to verify",
+    );
+    assert.match(formatSurvey(survey), /vacuous pass \(1\): 068-fenced-only\.md/);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("classifyPhaseMarkers ignores fenced markers but still counts real ones", () => {
+  // The isolating control: identical marker text, once fenced and once not.
+  const markerBody = "**Spec coverage:** Spec-050 §Required Behavior\n";
+  assert.deepEqual(classifyPhaseMarkers(markerBody), {
+    boldSpec: 1,
+    boldInvariant: 0,
+    unboldSpec: 0,
+    unboldInvariant: 0,
+  });
+  assert.deepEqual(classifyPhaseMarkers("```markdown\n" + markerBody + "```\n"), {
+    boldSpec: 0,
+    boldInvariant: 0,
+    unboldSpec: 0,
+    unboldInvariant: 0,
+  });
+});

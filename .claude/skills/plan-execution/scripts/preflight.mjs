@@ -388,6 +388,42 @@ function structuralScanConsumes(state, lines, index) {
   return false;
 }
 
+// Blank every line the structural scanner consumes — fenced code, raw-HTML
+// blocks, HTML comments, multi-line inline code spans — preserving each line's
+// exact byte length.
+//
+// Length-preserving is load-bearing, not tidiness. Cite extraction is
+// offset-driven: `marker.index` slices the payload, and `lineNo` is derived by
+// counting newlines in the prefix. Replacing a consumed line with spaces (not
+// with "") keeps every downstream offset and every reported line number
+// byte-identical to the raw source, so masking changes which markers are SEEN
+// without moving any of them.
+//
+// A `**Spec coverage:**` row inside a fenced ```markdown example is
+// illustration, not audit output. Counting it let a phase-less plan whose ONLY
+// markers lived in an example block report as cite-swept, non-vacuous and
+// anomaly-free — a complete false clean, the same class this screen exists to
+// close (Codex P2, PR #260 round 2). The scanner's other regions carry the same
+// argument: a marker inside an HTML comment or an indented code span does not
+// render either.
+//
+// Measured against the live corpus when armed: zero plans carry a bold cite
+// marker inside any consumed region, so this moves no existing verdict — it
+// closes the shape before a plan lands that has one.
+function maskNonContentLines(text) {
+  const lines = text.split("\n");
+  // Masked into a COPY: structuralScanConsumes reads ahead in `lines` (the
+  // multi-line code-span lookahead), so the scan must keep seeing raw text.
+  const masked = lines.slice();
+  const scanState = createStructuralScanState();
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    if (structuralScanConsumes(scanState, lines, lineIndex)) {
+      masked[lineIndex] = " ".repeat(lines[lineIndex].length);
+    }
+  }
+  return masked.join("\n");
+}
+
 // Byte offset within `body` of the first `### Phase N` / `## ` heading that
 // sits OUTSIDE any fenced code block or multi-line HTML comment, or -1 if
 // none. Split out of extractPhaseSection so the structural state machine is
@@ -418,10 +454,14 @@ export function findSectionBoundary(body) {
   return -1;
 }
 
+// Fence-masked: this count is what `hasCiteMarkers` keys on, so a fenced
+// example's markers reaching it is what makes an unaudited phase read as
+// audited (Codex P2, PR #260 round 2).
 export function countCites(phaseSection) {
+  const scanned = maskNonContentLines(phaseSection);
   return {
-    spec_coverage: (phaseSection.match(/Spec coverage/g) || []).length,
-    verifies_invariant: (phaseSection.match(/Verifies invariant/g) || []).length,
+    spec_coverage: (scanned.match(/Spec coverage/g) || []).length,
+    verifies_invariant: (scanned.match(/Verifies invariant/g) || []).length,
   };
 }
 
@@ -438,8 +478,11 @@ export function countCites(phaseSection) {
 // present) and legacy-unbold (marker the bold extractor can't verify) classes.
 export function classifyPhaseMarkers(phaseSection) {
   const counts = { boldSpec: 0, boldInvariant: 0, unboldSpec: 0, unboldInvariant: 0 };
+  // Fence-masked for the same reason as countCites: an example block is not
+  // audit output, and this classifier feeds the partial/unbold marker screens.
+  const scanned = maskNonContentLines(phaseSection);
   const boldMarker = /\*\*(Spec coverage|Verifies invariant):\*\*/g;
-  for (const match of phaseSection.matchAll(boldMarker)) {
+  for (const match of scanned.matchAll(boldMarker)) {
     if (match[1] === "Spec coverage") counts.boldSpec += 1;
     else counts.boldInvariant += 1;
   }
@@ -447,7 +490,7 @@ export function classifyPhaseMarkers(phaseSection) {
   // or an inline `;`/`(` delimiter (`; Verifies invariant:`). The trailing
   // `(?!\*)` keeps the bold form above from being double-counted here.
   const unboldMarker = /(?:^\s*[-*]+\s+|[;(]\s*)(Spec coverage|Verifies invariant):(?!\*)/gm;
-  for (const match of phaseSection.matchAll(unboldMarker)) {
+  for (const match of scanned.matchAll(unboldMarker)) {
     if (match[1] === "Spec coverage") counts.unboldSpec += 1;
     else counts.unboldInvariant += 1;
   }
@@ -1495,26 +1538,49 @@ const CITE_QUOTE_CHAR = '"';
  * — exactly the condition that leaves the splitters' depth counter stranded
  * above 0 and disables every separator behind it.
  *
- * Deliberately ONE-SIDED. A run that merely OPENS a bracket without closing it
- * (`line 10 ("foo (bar"), line 20`) drives the local depth positive, never
- * negative, and swallows no separator — so it is not flagged. End-of-payload
- * depth is the wrong test for the same reason the parity count is: the
- * realistic inch-mark case `line 10 (5" window), line 99999 (30" grace)` nets
- * back to zero while still dropping the second claim.
+ * Second signature — a run that ends NET NON-ZERO while carrying a separator.
+ * The negative-dip test alone is defeated by an opener inside the run:
+ * `line 10 (5" (window), line 99999 (30" grace)` runs +1/0/+1, never dips, and
+ * the splitters emit ONE anchor for line 10 with zero failures — the line-99999
+ * claim is silently dropped (Codex P2, PR #260 round 2). The splitters skip a
+ * run's characters wholesale, which is sound only when the run's brackets net
+ * to zero; a non-zero net means the depth they carried past the run described a
+ * different nesting than the text does, and any separator inside the run was
+ * discarded on the strength of that wrong depth.
  *
- * Measured against all cite payloads in `docs/plans/` before being armed: zero
- * matches, so this adds no false positives to the standing corpus.
+ * The separator conjunct is what keeps this from over-firing. A run that merely
+ * OPENS a bracket (`line 10 ("foo (bar"), line 20`) also nets non-zero, but it
+ * contains no separator, the splitters' depth outside it is unaffected, and the
+ * payload still yields both anchors — so it stays unflagged. End-of-payload
+ * depth remains the wrong test for the reason the parity count is: the inch-mark
+ * case `line 10 (5" window), line 99999 (30" grace)` nets back to zero overall
+ * and is caught by the dip test instead.
+ *
+ * Both signatures measured against every cite payload in `docs/plans/` before
+ * being armed: zero matches, so neither adds a false positive to the standing
+ * corpus.
  */
 function quotedRunSwallowsBracket(payload) {
   let inQuote = false;
   let localDepth = 0;
+  let runHasSeparator = false;
   for (const ch of payload) {
     if (ch === CITE_QUOTE_CHAR) {
-      if (!inQuote) localDepth = 0;
+      // Closing a run: the splitters skipped every character in it, which is
+      // sound ONLY if the run's brackets net to zero. A run that nets non-zero
+      // leaves the splitters' depth describing a different nesting than the
+      // text does, and any separator that rode inside the run was dropped on
+      // the strength of that wrong depth.
+      if (inQuote && localDepth !== 0 && runHasSeparator) return true;
+      if (!inQuote) {
+        localDepth = 0;
+        runHasSeparator = false;
+      }
       inQuote = !inQuote;
       continue;
     }
     if (!inQuote) continue;
+    if (ch === "," || ch === ";" || ch === "+") runHasSeparator = true;
     localDepth += bracketDelta(ch);
     if (localDepth < 0) return true;
   }
@@ -1882,6 +1948,13 @@ function parseSpecSegmentInner(segment) {
         spec,
         line,
         section: currentSection,
+        // Provenance of `section`, for the containment check in
+        // verifyAcLineAnchor. An `AC line N` token can never carry its own `§`
+        // (this regex is anchored at `^AC`), so the section is either the
+        // payload's own `§` prefix — an authored claim about THIS criterion —
+        // or a sibling sub-token's re-section leaking forward through the
+        // sticky `currentSection`. Only the former may bound the line.
+        sectionFromPrefix: inOriginalSection,
         sectionDescriptor: inOriginalSection ? sectionDescriptor : null,
         subject: subjects[0] ?? null,
         descriptor,
@@ -1902,6 +1975,10 @@ function parseSpecSegmentInner(segment) {
         ac,
         lineHint: lineHint ? Number(lineHint[1]) : null,
         section: currentSection,
+        // Same provenance rule as the `ac-line` branch above: `^AC\d+` cannot
+        // carry its own `§`, so only a prefix-scoped section is this
+        // criterion's own claim.
+        sectionFromPrefix: inOriginalSection,
         // Prefix-consumed suffix rides only pre-re-section anchors — the
         // inOriginalSection latch at the loop head owns the rule.
         sectionDescriptor: inOriginalSection ? sectionDescriptor : null,
@@ -2377,24 +2454,26 @@ export function extractCiteAnchors(phaseSection) {
   const failures = [];
   const targetMarkerRe = /\*\*(Spec coverage|Verifies invariant):\*\*/g;
   const anyMarkerRe = /\*\*[A-Z][\w ]*:\*\*/g;
-  const targetMarkers = [...phaseSection.matchAll(targetMarkerRe)];
-  const anyMarkers = [...phaseSection.matchAll(anyMarkerRe)];
+  // Fence-masked, and length-preserving so every offset below still indexes the
+  // raw source. Extracting a fenced example's cites would VERIFY them — the
+  // example resolves against real spec files and reports clean, which is how a
+  // plan with no real audit output passed as screened (Codex P2, #260 round 2).
+  const scanned = maskNonContentLines(phaseSection);
+  const targetMarkers = [...scanned.matchAll(targetMarkerRe)];
+  const anyMarkers = [...scanned.matchAll(anyMarkerRe)];
   for (const marker of targetMarkers) {
     const field = marker[1];
     const startIdx = marker.index + marker[0].length;
     const nextAnyMarker = anyMarkers.find((m) => m.index > marker.index);
-    const nextMarkerIdx = nextAnyMarker ? nextAnyMarker.index : phaseSection.length;
-    const nextNewlineIdx = phaseSection.indexOf("\n", startIdx);
-    const endIdx = Math.min(
-      nextMarkerIdx,
-      nextNewlineIdx === -1 ? phaseSection.length : nextNewlineIdx,
-    );
-    let payload = phaseSection.slice(startIdx, endIdx).trim();
+    const nextMarkerIdx = nextAnyMarker ? nextAnyMarker.index : scanned.length;
+    const nextNewlineIdx = scanned.indexOf("\n", startIdx);
+    const endIdx = Math.min(nextMarkerIdx, nextNewlineIdx === -1 ? scanned.length : nextNewlineIdx);
+    let payload = scanned.slice(startIdx, endIdx).trim();
     // Strip trailing sentence-end punctuation that follows the closing paren
     // of the last cite descriptor (`(...).` → `(...)`).
     payload = payload.replace(/[.,;:]+\s*$/, "");
     if (!payload) continue;
-    const prefix = phaseSection.slice(0, marker.index);
+    const prefix = scanned.slice(0, marker.index);
     const taskMatch =
       [...prefix.matchAll(/^#####\s+(T[-\w.]+)/gm)].pop() ??
       [...prefix.matchAll(/^-\s+\*\*(T[-\w.]+)\*\*/gm)].pop();
@@ -2989,9 +3068,17 @@ const AC_SECTION_MISSING_FAILURE = {
 // `- [ ]` checkbox bullet — plus the descriptor-subject match every line
 // anchor carries, so accepting the shape strengthens verification instead.
 function verifyAcLineAnchor(anchor, source, specLines) {
+  let sectionHeadingText = null;
   if (anchor.section) {
     const sec = findSectionHeading(anchor.section, specLines, anchor.sectionDescriptor || null);
     if (!sec.found) return sectionNotFoundFailure(anchor.section);
+    // Bound the line only by a section this anchor ITSELF claims. `section` is
+    // sticky across sub-tokens by design, so a sibling's `§` leaks in — and
+    // Plan-011 is the live proof: `§Git Hosting Adapter lines 118-152 (…), AC
+    // line 175` cites a genuine AC bullet at 175, which holding to the
+    // sibling's 118-152 span would have failed. Existence is still checked
+    // above either way; only the span claim needs authorship.
+    if (anchor.sectionFromPrefix !== false) sectionHeadingText = sec.headingLine;
   }
   const acceptanceCriteria = locateAcceptanceCriteria(source);
   if (!acceptanceCriteria.found) return AC_SECTION_MISSING_FAILURE;
@@ -3011,6 +3098,25 @@ function verifyAcLineAnchor(anchor, source, specLines) {
       reason: "ac-line-outside-section",
       evidence: `Line ${anchor.line} is outside §Acceptance Criteria (section spans lines ${acceptanceCriteria.headingLineNum + 1}-${acceptanceCriteria.lastLineNum}).`,
     };
+  }
+  // A NAMED section must also contain the cited line. Resolving the heading
+  // proves only that it exists somewhere in the spec, so before this check
+  // `Spec-001 §Required Behavior AC line 7` was certified whenever line 7 sat
+  // under §Acceptance Criteria — the qualifier was decorative and a stale one
+  // stayed green (Codex P1, PR #260 round 2). The two bounds compose: the AC
+  // bounds above keep the line an acceptance criterion, this keeps the section
+  // name honest. Same helper the plain line/line-range anchors use, so a cite
+  // naming a nested AC subsection (`§API criteria AC line 9`) still passes —
+  // it is contained by both.
+  if (sectionHeadingText !== null) {
+    const outside = sectionContainmentFailure(
+      anchor,
+      specLines,
+      sectionHeadingText,
+      anchor.line,
+      anchor.line,
+    );
+    if (outside) return outside;
   }
   const content = specLines[anchor.line - 1] ?? "";
   if (!/^- \[[ x]\]/.test(content)) {
@@ -3034,9 +3140,12 @@ function verifyAcLineAnchor(anchor, source, specLines) {
 }
 
 function verifyAcAnchor(anchor, source, specLines) {
+  let sectionHeadingText = null;
   if (anchor.section) {
     const sec = findSectionHeading(anchor.section, specLines, anchor.sectionDescriptor || null);
     if (!sec.found) return sectionNotFoundFailure(anchor.section);
+    // Authored-section rule, identical to verifyAcLineAnchor's.
+    if (anchor.sectionFromPrefix !== false) sectionHeadingText = sec.headingLine;
   }
   const acceptanceCriteria = locateAcceptanceCriteria(source);
   if (!acceptanceCriteria.found) return AC_SECTION_MISSING_FAILURE;
@@ -3048,6 +3157,13 @@ function verifyAcAnchor(anchor, source, specLines) {
       evidence: `Spec has ${bullets.length} AC bullets; cited AC${anchor.ac} does not exist.`,
     };
   }
+  // Hoisted out of the lineHint branch below: the resolved bullet's line is the
+  // containment subject for BOTH shapes. `AC4` alone cites no line, so without
+  // deriving one there is nothing to hold a named section to — which is exactly
+  // how `§Required Behavior AC4` used to pass while counting bullets from
+  // §Acceptance Criteria.
+  const targetBulletAbsIdx = acStart + bullets[anchor.ac - 1].index;
+  const targetBulletLineNum = source.slice(0, targetBulletAbsIdx).split("\n").length;
   // Best-effort line-hint verification: if hint given, the hinted line must
   // (1) be in range, (2) sit INSIDE the §Acceptance Criteria section, and
   // (3) match an AC bullet shape. Without the section bound, a checkbox
@@ -3081,8 +3197,6 @@ function verifyAcAnchor(anchor, source, specLines) {
     // N-th `- [ ]` bullet within §Acceptance Criteria. Without this check
     // `Spec-002 AC3 (line 45)` false-passes when line 45 is actually AC1
     // (Codex P2 on PR #96 line 1571).
-    const targetBulletAbsIdx = acStart + bullets[anchor.ac - 1].index;
-    const targetBulletLineNum = source.slice(0, targetBulletAbsIdx).split("\n").length;
     if (anchor.lineHint !== targetBulletLineNum) {
       return {
         valid: false,
@@ -3090,6 +3204,21 @@ function verifyAcAnchor(anchor, source, specLines) {
         evidence: `Line ${anchor.lineHint} is an AC bullet but not AC${anchor.ac}; AC${anchor.ac} sits at line ${targetBulletLineNum}.`,
       };
     }
+  }
+  // Named-section containment, checked LAST so the hint-specific diagnostics
+  // above keep reporting the more precise cause. Checked on the resolved bullet
+  // rather than on `anchor.lineHint`, which covers the hintless `§X AC4` shape
+  // and is identical when a hint is present (the wrong-bullet check just proved
+  // they are the same line).
+  if (sectionHeadingText !== null) {
+    const outside = sectionContainmentFailure(
+      anchor,
+      specLines,
+      sectionHeadingText,
+      targetBulletLineNum,
+      targetBulletLineNum,
+    );
+    if (outside) return outside;
   }
   return { valid: true, reason: "ac-bullet-exists", evidence: `AC${anchor.ac} bullet found.` };
 }
@@ -4183,30 +4312,29 @@ const INLINE_FIELD_INTRO_RE = /^\s*(?:Files|Verifies invariant|Spec coverage):/;
 export function extractInlineCitePayloads(phaseSection) {
   const markerRe = /(?:^\s*[-*]+\s+|[;(]\s*)(Spec coverage|Verifies invariant):(?!\*)/gm;
   const payloads = [];
-  for (const match of phaseSection.matchAll(markerRe)) {
+  // Fence-masked on the same grounds as the bold extractor: the inline anchor
+  // floor must not verify — and thereby bless — an example block's cites.
+  const scanned = maskNonContentLines(phaseSection);
+  for (const match of scanned.matchAll(markerRe)) {
     let depth = 0;
     const start = match.index + match[0].length;
     let end = start;
-    while (end < phaseSection.length) {
-      const ch = phaseSection[end];
+    while (end < scanned.length) {
+      const ch = scanned[end];
       if (ch === "\n") break;
       if (ch === "(") depth += 1;
       else if (ch === ")") {
         if (depth === 0) break;
         depth -= 1;
-      } else if (
-        ch === ";" &&
-        depth === 0 &&
-        INLINE_FIELD_INTRO_RE.test(phaseSection.slice(end + 1))
-      ) {
+      } else if (ch === ";" && depth === 0 && INLINE_FIELD_INTRO_RE.test(scanned.slice(end + 1))) {
         break;
       }
       end += 1;
     }
     payloads.push({
       field: match[1],
-      payload: phaseSection.slice(start, end).trim(),
-      lineNo: phaseSection.slice(0, match.index).split("\n").length,
+      payload: scanned.slice(start, end).trim(),
+      lineNo: scanned.slice(0, match.index).split("\n").length,
     });
   }
   return payloads;
@@ -4649,7 +4777,7 @@ const WHOLE_DOCUMENT_UNIT_LABEL = "(whole document)";
 const BOLD_CITE_MARKER_RE = /\*\*(?:Spec coverage|Verifies invariant):\*\*/g;
 
 function countBoldCiteMarkers(text) {
-  return (text.match(BOLD_CITE_MARKER_RE) || []).length;
+  return (maskNonContentLines(text).match(BOLD_CITE_MARKER_RE) || []).length;
 }
 
 /**
@@ -4698,6 +4826,13 @@ export function surveyCorpus({
   const fallbackPlans = [];
   const markerlessPlans = [];
   const uncoveredPlans = [];
+  // Two paths reach "uncovered" — a per-unit cite screen that threw, and the
+  // outer per-plan catch — and a plan can hit both in one pass. Deduped by name
+  // so the coverage denominator stays a plan count.
+  const markUncovered = (planName, reason) => {
+    if (uncoveredPlans.some((entry) => entry.name === planName)) return;
+    uncoveredPlans.push({ name: planName, reason });
+  };
   // Plans counted as swept that nonetheless hold cite markers outside every
   // survey unit — the intra-plan residual the plan-level count cannot express.
   const unsweptMarkerPlans = [];
@@ -4705,6 +4840,10 @@ export function surveyCorpus({
     // Fail-closed coverage: ANY throw while surveying a plan records it as
     // uncovered and gates, instead of aborting the whole run or — the defect
     // this guards — letting one plan vanish behind a clean verdict.
+    //
+    // Declared OUTSIDE the try so the per-unit cite-screen catches can reach it.
+    // A screen that threw did not judge; its plan is not swept.
+    let citeScreenFailure = null;
     try {
       const source = readFileSync(resolve(plansDir, name), "utf8");
       // Route every cite anomaly for this plan: exempt plans divert their legacy
@@ -4849,9 +4988,9 @@ export function surveyCorpus({
           // screen itself, the same class the outer catch routes here. Left in
           // `citeAnomalies` it waits for --enforce-cites to be armed, so a plain
           // `--survey` run would exit 0 over a unit that was never screened.
-          anomalies.push(
-            `${unitPrefix} [cite-check-threw] ${String(err?.message ?? err).slice(0, 160)}`,
-          );
+          const reason = String(err?.message ?? err).slice(0, 160);
+          anomalies.push(`${unitPrefix} [cite-check-threw] ${reason}`);
+          citeScreenFailure ??= `cite screen threw on ${unitPrefix}: ${reason}`;
           citeResult = null;
         }
         if (citeResult?.hasCiteMarkers) planHasAnyCiteMarker = true;
@@ -4913,13 +5052,24 @@ export function surveyCorpus({
           }
         } catch (err) {
           // Same reasoning as the gateTasksBlockCites catch above: the floor
-          // failing to RUN is structural, so it gates unconditionally.
-          anomalies.push(
-            `${unitPrefix} [cite-check-threw] inline anchor floor: ${String(err?.message ?? err).slice(0, 160)}`,
-          );
+          // failing to RUN is structural, so it gates unconditionally — and it
+          // costs the plan its swept status for the same reason.
+          const reason = String(err?.message ?? err).slice(0, 160);
+          anomalies.push(`${unitPrefix} [cite-check-threw] inline anchor floor: ${reason}`);
+          citeScreenFailure ??= `inline anchor floor threw on ${unitPrefix}: ${reason}`;
         }
       }
-      if (surveyUnits.length > 0 && !planHasAnyCiteMarker) {
+      if (citeScreenFailure !== null) {
+        // A screen that threw judged nothing, so this plan is NOT swept.
+        // Without this the coverage line still counted it (`surveyedPlanCount`
+        // subtracts only `uncoveredPlans`), `markerlessPlans` labelled the unrun
+        // screen a vacuous pass, and — worst — the stale-exemption ratchet below
+        // saw zero cite findings for an exempt plan and advised deleting a live
+        // exemption on evidence that was never gathered. That last guard already
+        // existed for the OUTER catch via `uncoveredPlanNames`; the per-unit
+        // catches walked straight past it (Codex P2, PR #260 round 2).
+        markUncovered(name, citeScreenFailure);
+      } else if (surveyUnits.length > 0 && !planHasAnyCiteMarker) {
         markerlessPlans.push(name);
       }
       reportLines.push(
@@ -4929,7 +5079,7 @@ export function surveyCorpus({
       );
     } catch (err) {
       const reason = String(err?.message ?? err).slice(0, 160);
-      uncoveredPlans.push({ name, reason });
+      markUncovered(name, reason);
       // Gates through `anomalies` (unconditional), not citeAnomalies: a plan the
       // survey could not read or walk is a structural failure of the screen
       // itself, so it must not wait for --enforce-cites to be armed.
