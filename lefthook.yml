@@ -3,11 +3,11 @@
 # Job ORDER is load-bearing, not stylistic. `lint-staged` rewrites staged files
 # (`prettier --write`, `eslint --fix`) and re-stages them twice over: once itself
 # (`git add` inside lint-staged's `applyModifications`) and once via `stage_fixed: true`
-# when the job exits. Every screen below reads a substrate lint-staged mutates —
-# `docs-corpus-checks` reads INDEX content (`git show :path`), `gitleaks --staged`
-# reads the same index, and `docs-anchor-check` reads the worktree, which lint-staged
-# stashes and force-checks-out mid-run. Run concurrently with lint-staged, a screen
-# can pass over a blob that is NOT the one committed: the commit then carries
+# when the job exits. Every screen below screens INDEX content — the blob set that
+# commits: `docs-corpus-checks` reads it via `git show :path`, `gitleaks --staged`
+# scans the same index, and `docs-anchor-check` runs lychee against a
+# `git checkout-index` materialization of it. Run concurrently with lint-staged, a
+# screen can pass over a blob that is NOT the one committed: the commit then carries
 # unscreened content and the hook still reports clean. Worse, the docs-corpus reader
 # memoizes per path, so one run can mix two index generations and validate a citer
 # against a target that never coexisted with it. The screens therefore run AFTER
@@ -16,8 +16,9 @@
 # Parallelism is preserved where it is safe and still pays: the three screens run
 # concurrently with each other (ADR-023 §Axis 2 Synthesis item 1 — Husky has no
 # parallel primitive at all). Measured cost of the ordering, end-to-end on this
-# repo (three timed runs per shape over the same staged diff): ~1.4s -> ~2.3s
-# p50, still inside the <5s p99 budget.
+# repo (three timed runs per shape over the same staged diff): ~1.4s -> ~2.4s
+# p50 (including the docs-anchor-check index materialization), still inside the
+# <5s p99 budget.
 #
 # CI parity for the `git commit --no-verify` bypass closure (ADR-023 §Axis 2 D-1) is
 # enforced via explicit `eslint .` + `prettier --check .` invocations in
@@ -73,11 +74,16 @@ pre-commit:
 
           # Doc-corpus regression checks (extends ADR-023 §Axis 2 pre-commit chain).
           # Staged-impact-only to stay inside the <5s p99 latency budget (current
-          # end-to-end measurement: ~2.3s p50 — see the header comment).
+          # end-to-end measurement: ~2.4s p50 — see the header comment).
           # Full-repo sweep runs in CI (.github/workflows/docs-corpus.yml).
           # See docs/operations/failure-mode-catalog.md for the catalog these enforce.
           - name: docs-anchor-check
-            # lychee — inbound `file.md#anchor` + outbound link verification.
+            # lychee — inbound `file.md#anchor` + outbound link verification, run
+            # against the INDEX, not the worktree: `git checkout-index -a` materializes
+            # the staged tree into a temp dir (~0.2s for the 683-file tree, measured
+            # 2026-07-28) and lychee runs there. lint-staged restores unstaged edits to
+            # partially staged files after its tasks, so the worktree copy can differ
+            # from the blob that commits — the materialized index cannot.
             # `pnpm install` provisions lychee at node_modules/.bin/lychee via
             # tools/install-lychee.mjs (postinstall). The conditional remains
             # graceful: if `--ignore-scripts` was used, fresh-clone state without
@@ -86,12 +92,19 @@ pre-commit:
             glob: "*.md"
             run: |
               if command -v lychee >/dev/null 2>&1; then
-                lychee --offline --no-progress --config .lychee.toml {staged_files}
+                lycheeBinary=$(command -v lychee)
               elif [ -x node_modules/.bin/lychee ]; then
-                node_modules/.bin/lychee --offline --no-progress --config .lychee.toml {staged_files}
+                lycheeBinary="$PWD/node_modules/.bin/lychee"
               else
+                lycheeBinary=""
                 echo "WARNING: lychee not installed locally; CI docs-corpus job is the authoritative gate." >&2
                 echo "WARNING: Run 'pnpm install' to provision, or 'cargo install lychee' for a system install." >&2
+              fi
+              if [ -n "$lycheeBinary" ]; then
+                indexTree=$(mktemp -d)
+                trap 'rm -rf "$indexTree"' EXIT
+                git checkout-index -a --prefix="$indexTree/"
+                (cd "$indexTree" && "$lycheeBinary" --offline --no-progress --config .lychee.toml {staged_files})
               fi
 
           - name: docs-corpus-checks
