@@ -794,13 +794,16 @@ export const TASK_ID_SHAPE = String.raw`T(?=[-\d])[-a-zA-Z0-9.]+`;
 // still pending (Codex P1, PR #190).
 //
 // Indent tolerance is shared deliberately: it was measured corpus-neutral —
-// across all 71 phases carrying a `#### Tasks` block (of 76 phase sections in
-// 28 plans) it adds ZERO declared ids — so both consumers can hold one anchor
-// without moving any Gate-3 verdict. Widening this pattern widens a GATING
-// path, not just a diagnostic one; `extractDeclaredTaskIds` feeds
-// `classifyPhaseSize`, which demotes G4 grammar findings for S/M phases. Re-run
-// that corpus measurement before loosening it — and note the denominator is the
-// Tasks-block-bearing phases, since a phase without one declares no ids at all.
+// across all 71 phases carrying a `#### Tasks` block it adds ZERO declared ids
+// — so both consumers can hold one anchor without moving any Gate-3 verdict.
+// Widening this pattern widens a GATING path, not just a diagnostic one;
+// `extractDeclaredTaskIds` feeds `classifyPhaseSize`, which demotes G4 grammar
+// findings for S/M phases. Re-run that corpus measurement before loosening it.
+// The denominator is Tasks-block-bearing phases, reachable by walking every
+// plan's phase sections and keeping those `extractTasksBlock` resolves — a
+// phase without a Tasks block declares no ids at all, so it cannot move the
+// count. Do not restate a total-phase figure here: walking labels and walking
+// section numbers disagree, and only the 71 is load-bearing.
 //
 // This recognizer must only ever see CONTENT: `extractTasksBlock` masks fenced
 // and raw-HTML regions out of its input, so a fenced example row reaches
