@@ -213,6 +213,187 @@ Here is what the corruption looks like:
     });
   });
 
+  // A table opens only at a BLOCK BOUNDARY, and a body line that starts a new
+  // block closes the table instead of being compared as a row. Three review
+  // rounds returned findings of one shape — a table-shaped line that is not a
+  // table — so this is the general rule rather than a fourth context-specific
+  // suppression (Codex, PR #269 round 3).
+  describe("block boundaries", () => {
+    it("recognizes a table that is the file's first content line", () => {
+      withFile("| a | b |\n| --- | --- |\n| 1 | 2 | 3 |\n", (file) => {
+        expect(parseFile(file)).toMatchObject([{ line: 3, kind: "row-arity", actual: 3 }]);
+      });
+    });
+
+    // The boundary-leaving lines, each with NO blank line before the table: a
+    // heading is a one-line block, and a fence or comment closer ends its own.
+    // Miss any of these and the rule stops being a boundary rule and starts
+    // being "must follow a blank line", which would blind the check to real
+    // tables — the recall direction this design spends its budget avoiding.
+    it("recognizes a table abutting a heading", () => {
+      withFile("# Doc\n| a | b |\n| --- | --- |\n| 1 | 2 | 3 |\n", (file) => {
+        expect(parseFile(file)).toMatchObject([{ line: 4, kind: "row-arity", actual: 3 }]);
+      });
+    });
+
+    it("recognizes a table abutting a closing fence", () => {
+      withFile("```\ncode\n```\n| a | b |\n| --- | --- |\n| 1 | 2 | 3 |\n", (file) => {
+        expect(parseFile(file)).toMatchObject([{ line: 6, kind: "row-arity", actual: 3 }]);
+      });
+    });
+
+    it("recognizes a table abutting a comment closer", () => {
+      withFile("<!--\nnote\n-->\n| a | b |\n| --- | --- |\n| 1 | 2 | 3 |\n", (file) => {
+        expect(parseFile(file)).toMatchObject([{ line: 6, kind: "row-arity", actual: 3 }]);
+      });
+    });
+
+    // A paragraph line then a header/delimiter pair. Whether a table may
+    // INTERRUPT a paragraph is contested — the GFM spec is silent on it and
+    // implementations diverge — so the check declines to classify the shape
+    // rather than adjudicating the question (bound 7).
+    it("does not recognize a header/delimiter pair continuing a paragraph", () => {
+      withFile("text\n| a | b |\n| --- | --- | --- |\n", (file) => {
+        expect(parseFile(file)).toEqual([]);
+      });
+    });
+
+    // The discriminating half: the SAME pair one blank line down is a table and
+    // still flags. Without it, a mutation that never recognizes anything would
+    // pass the case above.
+    it("recognizes the same pair once a blank line precedes it", () => {
+      withFile("text\n\n| a | b |\n| --- | --- | --- |\n", (file) => {
+        expect(parseFile(file)).toMatchObject([
+          { line: 4, headerLine: 3, kind: "delimiter-arity", expected: 2, actual: 3 },
+        ]);
+      });
+    });
+
+    // Unlike the pair above, this exclusion is NOT contested: CommonMark lets a
+    // blockquote interrupt a paragraph, so GFM renders this quoted table. It is
+    // bound 7's one plain recall miss — declined because the prose line leaves
+    // no boundary, measured zero, and disclosed as such in the module header.
+    it("does not recognize a quoted pair directly under unquoted prose", () => {
+      withFile("text\n> | a | b |\n> | --- | --- | --- |\n", (file) => {
+        expect(parseFile(file)).toEqual([]);
+      });
+    });
+
+    // A table drawn inside `<div>` is raw HTML, which GFM does not parse as
+    // markdown at all. The tag line being a non-boundary excludes it with no
+    // HTML state machine — the alternative the reviewer raising it also
+    // declined.
+    it("does not recognize a table wrapped in a `<div>`", () => {
+      withFile("<div>\n| a | b |\n| --- | --- | --- |\n</div>\n", (file) => {
+        expect(parseFile(file)).toEqual([]);
+      });
+    });
+
+    // A blank line ENDS a CommonMark type-6 HTML block, so what follows is
+    // markdown again and the table is real. The pair is what makes this a
+    // boundary rule rather than a `<div>`-shaped suppression.
+    it("recognizes a table after a blank line inside a `<div>` block", () => {
+      withFile("<div>\n\n| a | b |\n| --- | --- | --- |\n", (file) => {
+        expect(parseFile(file)).toMatchObject([
+          { line: 4, headerLine: 3, kind: "delimiter-arity", expected: 2, actual: 3 },
+        ]);
+      });
+    });
+
+    // GFM ends a table "at the first empty line, or beginning of another
+    // block-level structure", so a pipe-bearing heading, list item or HTML tag
+    // is the NEXT block, never a malformed row of the table above it — which is
+    // what the check reported before (Codex, PR #269 round 3). Each fixture
+    // keeps a genuinely broken row above the block start, so passing by
+    // suppressing the whole table is not available.
+    it("ends the table at a pipe-bearing heading, still checking the rows above", () => {
+      withFile("| a | b |\n| --- | --- |\n| 1 | 2 | 3 |\n# A | B | C\n", (file) => {
+        expect(parseFile(file)).toMatchObject([{ line: 3, kind: "row-arity", actual: 3 }]);
+      });
+    });
+
+    it("ends the table at a pipe-bearing list item, still checking the rows above", () => {
+      withFile("| a | b |\n| --- | --- |\n| 1 | 2 | 3 |\n- item | x | y\n", (file) => {
+        expect(parseFile(file)).toMatchObject([{ line: 3, kind: "row-arity", actual: 3 }]);
+      });
+    });
+
+    it("ends the table at a pipe-bearing HTML tag, still checking the rows above", () => {
+      withFile("| a | b |\n| --- | --- |\n| 1 | 2 | 3 |\n<div> | x | y\n", (file) => {
+        expect(parseFile(file)).toMatchObject([{ line: 3, kind: "row-arity", actual: 3 }]);
+      });
+    });
+
+    // A table's own header and delimiter are block machinery, so the pair
+    // leaves a boundary behind it. Without that, the first line after a table
+    // could never open one — here a depth change ends the unquoted table and
+    // the quoted table immediately below it, with no blank line between, is
+    // still recognized and still flagged.
+    it("leaves a boundary after a recognized pair, so an abutting table opens", () => {
+      withFile("| a | b |\n| --- | --- |\n> | x | y |\n> | --- | --- | --- |\n", (file) => {
+        expect(parseFile(file)).toMatchObject([
+          { line: 4, headerLine: 3, kind: "delimiter-arity", expected: 2, actual: 3 },
+        ]);
+      });
+    });
+
+    // The block start falls through to the recognition branch on its way out,
+    // where a mis-ordered classifier would let it open a table of its own. The
+    // delimiter-shaped line beneath it is what makes that visible.
+    it("does not open a new table from the block-start line that closed one", () => {
+      withFile(
+        "| a | b |\n| --- | --- |\n| 1 | 2 |\n- item | x | y\n| --- | --- | --- |\n",
+        (file) => {
+          expect(parseFile(file)).toEqual([]);
+        },
+      );
+    });
+  });
+
+  // GFM's delimiter row holds "cells whose only content are hyphens and
+  // optionally, a leading or trailing colon, or both". `isDelimiterRow` asks
+  // only for one dash somewhere in a line of pipes, spaces, colons and dashes,
+  // so `| --- | : |` satisfied it while GFM rejects the table outright (Codex,
+  // PR #269 round 3). The per-cell rule is local to `table-arity.ts`:
+  // `isDelimiterRow` is shared with table-total-coherence, where narrowing it
+  // would change a required gate's table-boundary detection.
+  describe("delimiter cell grammar", () => {
+    it("DECLINES a pair whose delimiter carries a colon-only cell", () => {
+      withFile("| a | b |\n| --- | : |\n", (file) => {
+        expect(parseFile(file)).toEqual([]);
+      });
+    });
+
+    // Declining means the block is not a table at all, so the rows beneath are
+    // not compared either. A decline that still opened a table would report row
+    // arity against a header GFM never rendered.
+    it("leaves no table open after declining, so later rows are not compared", () => {
+      withFile("| a | b |\n| --- | : |\n| 1 | 2 | 3 |\n", (file) => {
+        expect(parseFile(file)).toEqual([]);
+      });
+    });
+
+    // The rule must not over-reject: colons on either side or both are legal
+    // alignment. Recognition is what this assertion rests on, since the body
+    // row is the thing being flagged.
+    it("still recognizes a delimiter built from legal alignment cells", () => {
+      withFile("| a | b |\n| :-: | ---: |\n| 1 | 2 | 3 |\n", (file) => {
+        expect(parseFile(file)).toMatchObject([{ kind: "row-arity", expected: 2, actual: 3 }]);
+      });
+    });
+
+    // The Spec-015 class itself: every cell well formed, the COUNT wrong. Cell
+    // validation runs before the arity comparison, so this must still reach it
+    // — the ordering is what keeps the check's primary finding.
+    it("still flags a well-formed delimiter with the wrong cell count", () => {
+      withFile("| a | b |\n| --- | --- | --- |\n", (file) => {
+        expect(parseFile(file)).toMatchObject([
+          { kind: "delimiter-arity", expected: 2, actual: 3 },
+        ]);
+      });
+    });
+  });
+
   // CommonMark caps a block at three spaces of indentation; four or more (or a
   // tab) makes it an indented CODE block. Without the bound, a table-shaped
   // EXAMPLE indented under a list or paragraph reads as live markup and can
@@ -281,9 +462,12 @@ Here is what the corruption looks like:
     // A line can CLOSE one comment and OPEN another. The open scan reads the
     // LAST `<!--` on the line for exactly this case: scanning from the first
     // one finds the intervening `-->`, concludes the comment closed, and leaves
-    // the following commented block live.
+    // the following commented block live. The blank line inside the comment is
+    // what makes the fixture discriminate: without it the boundary rule (bound
+    // 7) declines the table shape anyway, since the opener line is prose, and
+    // a first-`<!--` scan becomes invisible to the suite.
     it("enters comment state when a line closes one comment and opens another", () => {
-      withFile("<!-- note --> <!--\n| a | b |\n| --- | --- | --- |\n-->\n", (file) => {
+      withFile("<!-- note --> <!--\n\n| a | b |\n| --- | --- | --- |\n-->\n", (file) => {
         expect(parseFile(file)).toEqual([]);
       });
     });
@@ -351,9 +535,15 @@ Here is what the corruption looks like:
   describe("YAML front matter", () => {
     // A folded block scalar carrying markdown is the plausible shape, and it
     // discriminates: without the suppression these two lines are a header and a
-    // 3-cell delimiter row.
+    // 3-cell delimiter row. The blank line inside the scalar is load-bearing —
+    // it puts that shape at a block boundary, so the front-matter skip is the
+    // ONLY thing that can suppress it. Without the blank line the boundary rule
+    // (bound 7) declines the shape as paragraph continuation as well, and
+    // deleting the front-matter tracker outright becomes invisible to the suite
+    // — which is exactly what the round-3 mutation matrix caught.
     const FRONT_MATTER = `---
 description: >
+
   | a | b |
   | --- | --- | --- |
 `;
@@ -372,7 +562,7 @@ description: >
 
     it("checks content after the terminator normally, at its true line numbers", () => {
       withFile(`${FRONT_MATTER}---\n\n| x | y |\n| --- | --- |\n| 1 | 2 | 3 |\n`, (file) => {
-        expect(parseFile(file)).toMatchObject([{ line: 9, headerLine: 7, kind: "row-arity" }]);
+        expect(parseFile(file)).toMatchObject([{ line: 10, headerLine: 8, kind: "row-arity" }]);
       });
     });
 
@@ -382,7 +572,7 @@ description: >
     it("treats an unterminated opener as ordinary content", () => {
       withFile(FRONT_MATTER, (file) => {
         expect(parseFile(file)).toMatchObject([
-          { kind: "delimiter-arity", expected: 2, actual: 3 },
+          { line: 5, headerLine: 4, kind: "delimiter-arity", expected: 2, actual: 3 },
         ]);
       });
     });
@@ -505,10 +695,11 @@ ${String.raw`| x \\| y | z |`}
 
     // GFM absorbs a non-empty pipe-less line abutting a table as a lazy
     // one-cell continuation row (the spec's own `bar` example), so this row is
-    // one the check declines to compare. Closing it would need full block-start
-    // classification — a heading, list item, or fence abutting a table is NOT
-    // absorbed — which is out of proportion to a population measured at zero
-    // across the 230 enforced files.
+    // one the check declines to compare. The shapes GFM does NOT absorb — a
+    // heading, list item, HTML tag or fence abutting a table — are classified
+    // rather than left to this bound (see "block boundaries" above), so what
+    // remains here is the lazy prose case alone, measured at zero across the
+    // 230 enforced files.
     it("ends the table at a pipe-less line GFM would absorb", () => {
       withFile("| a | b |\n| --- | --- |\n| 1 | 2 |\nbar\n", (file) => {
         expect(parseFile(file)).toEqual([]);
@@ -533,16 +724,46 @@ ${String.raw`| x \\| y | z |`}
       });
     });
 
-    // Bound 6, the one bound in the PRECISION direction: comment state is
-    // entered only from a block-level opener, so a comment opened mid-line no
-    // longer suppresses its interior — that interior is read as live markup and
-    // a malformed table inside it WOULD be flagged. The narrowing is worth the
-    // residual: the alternative blanked out checks from any `<!--` in a code
-    // span, and this shape measures zero.
-    it("reads the interior of a mid-line-opened comment as live markup", () => {
+    // Bound 6, one of the two bounds in the PRECISION direction: comment state
+    // is entered only from a block-level opener, so a comment opened mid-line
+    // no longer suppresses its interior — that interior is read as live markup.
+    // The narrowing is worth the residual: the alternative blanked out checks
+    // from any `<!--` in a code span, and this shape measures zero.
+    //
+    // Bound 7 then cuts the residual down, which is why this pair replaces the
+    // single wider assertion the previous round pinned. The opener line is
+    // prose, so it leaves no block boundary and the first interior line opens
+    // nothing:
+    it("does not recognize a table on the first line inside a mid-line comment", () => {
       withFile("prose <!--\n| a | b |\n| --- | --- | --- |\n-->\n", (file) => {
+        expect(parseFile(file)).toEqual([]);
+      });
+    });
+
+    // ...and what survives needs an interior BLANK line to re-open a boundary.
+    // This is the residual as it actually stands — pinned separately so it is
+    // not mistaken for the wider one, and so a mutation restoring the wider
+    // exposure has a fixture that disagrees with it.
+    it("reads markup after a blank line inside a mid-line comment as live", () => {
+      withFile("prose <!--\n\n| a | b |\n| --- | --- | --- |\n-->\n", (file) => {
         expect(parseFile(file)).toMatchObject([
-          { kind: "delimiter-arity", expected: 2, actual: 3 },
+          { line: 4, headerLine: 3, kind: "delimiter-arity", expected: 2, actual: 3 },
+        ]);
+      });
+    });
+
+    // Bound 8, the other PRECISION bound: a CommonMark TYPE-1 HTML block
+    // (`pre`, `script`, `style`, `textarea`) spans blank lines, while a blank
+    // line opens a boundary here unconditionally — so a table shape after one
+    // inside such a block is read as live markup. Excluding it means tracking
+    // type-1 openers against their matching closers, HTML state this design
+    // declines to hold for a population measured at zero. The type-6 case
+    // (`<div>`, under "block boundaries") is NOT this: those blocks END at a
+    // blank line, so reading what follows as markdown is correct there.
+    it("reads a table shape after a blank line inside a `<pre>` block as live", () => {
+      withFile("<pre>\nliteral\n\n| a | b |\n| --- | --- | --- |\n</pre>\n", (file) => {
+        expect(parseFile(file)).toMatchObject([
+          { line: 5, headerLine: 4, kind: "delimiter-arity", expected: 2, actual: 3 },
         ]);
       });
     });
@@ -595,6 +816,40 @@ ${String.raw`| x \\| y | z |`}
         expect(formatTableArityViolations(parseFile(file))).toContain(
           "renders the missing cells as empty",
         );
+      });
+    });
+
+    // The remedy is direction-specific and the two directions are OPPOSITES. An
+    // unconditional "never widen the delimiter row" trailer contradicted the
+    // per-violation line for a row NARROWER than its header, where widening a
+    // short delimiter is the only repair (Codex, PR #269 round 3).
+    it("gives the widening ban only when a row is WIDER than its header", () => {
+      withFile("| a | b |\n| --- | --- |\n| 1 | 2 | 3 |\n", (file) => {
+        const rendered = formatTableArityViolations(parseFile(file));
+        expect(rendered).toContain("Do NOT reconcile by widening the delimiter row");
+        expect(rendered).not.toContain("NARROWER than the header");
+      });
+    });
+
+    it("gives the add-cells remedy, and no widening ban, when a row is NARROWER", () => {
+      withFile("| a | b | c |\n| --- | --- | --- |\n| 1 | 2 |\n", (file) => {
+        const rendered = formatTableArityViolations(parseFile(file));
+        expect(rendered).toContain("NARROWER than the header");
+        expect(rendered).toContain("that means widening it");
+        expect(rendered).not.toContain("Do NOT reconcile by widening the delimiter row");
+      });
+    });
+
+    // The runner reports every staged file in one message, so a batch spanning
+    // both directions is the ordinary case rather than an edge — each remedy
+    // scoped to the direction that earned it.
+    it("emits both remedies for a mixed batch", () => {
+      withFile("| a | b |\n| --- | --- |\n| 1 | 2 | 3 |\n", (wider) => {
+        withFile("| a | b | c |\n| --- | --- | --- |\n| 1 | 2 |\n", (narrower) => {
+          const rendered = formatTableArityViolations(checkTableArity([wider, narrower]));
+          expect(rendered).toContain("WIDER than the header");
+          expect(rendered).toContain("NARROWER than the header");
+        });
       });
     });
   });

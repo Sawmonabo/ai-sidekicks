@@ -39,6 +39,19 @@
 // subset excludes is a disclosed and MEASURED bound, and the gate never fails
 // on markup it cannot confidently classify.
 //
+// That last clause is three rules in the code, each failing CLOSED — declining
+// to recognize rather than declining to report:
+//   - a table opens only at a BLOCK BOUNDARY, so a header/delimiter pair inside
+//     a paragraph or a raw-HTML block is never read as a table;
+//   - a body line not confidently a row — blank, pipe-less, at another
+//     blockquote depth, or starting a new block — CLOSES the table and is never
+//     compared against its header;
+//   - a delimiter row with any cell outside `:?-+:?` declines recognition
+//     outright, rather than being measured for arity.
+// Three review rounds each returned a finding of the same shape: some context
+// where a table-shaped line is not a table. These rules are the general answer
+// to that shape, which is why the third round adds no new suppression list.
+//
 // The asymmetry is what makes a subset the right design rather than a shortcut.
 // A false positive fails a REQUIRED gate on valid documentation, and the
 // author's only recourse is to mangle correct markup to appease it. A false
@@ -83,7 +96,7 @@
 // DISCLOSED BOUNDS — the subset's edge. Each is measured over the 230 enforced
 // `.md` files with a predicate proven to fire on a synthetic positive in the
 // same run, and each is pinned by a test below so it stays a decision on record
-// rather than an unnoticed gap. All six measure ZERO:
+// rather than an unnoticed gap. All nine measure ZERO:
 //   1. (recall) A table is RECOGNIZED only when its header line starts with
 //      `|`. GFM also permits the outer pipes to be omitted entirely (`a | b`
 //      over `--- | ---`); such a table is never visited. Prettier writes outer
@@ -94,8 +107,9 @@
 //   2. (recall) A table body ENDS at a pipe-less line. GFM would absorb such a
 //      line as a lazy one-cell continuation row (the spec's own `bar` example),
 //      so a pipe-less line abutting a table is a row this check does not
-//      compare. Closing it needs full block-start classification — a heading,
-//      list item, or fence abutting a table is NOT absorbed.
+//      compare. The shapes GFM does NOT absorb — a heading, list item, HTML tag
+//      or fence abutting a table — are classified rather than left to this
+//      bound, so the residual is the lazy prose case alone.
 //   3. (recall) An HTML comment closing mid-line suppresses the whole of that
 //      line, so live markup in the TAIL after `-->` is not checked.
 //   4. (recall) A header indented four or more spaces, or by a tab, is never
@@ -109,12 +123,40 @@
 //      table early can only lose findings, never invent them, whereas without
 //      it a quoted header abutting an unquoted delimiter synthesizes a table
 //      GFM never renders and then reports its "rows" (Codex, PR #269 round 2).
-//   6. (precision — the one bound in the other direction) An HTML comment
+//   6. (precision — one of the two bounds in that direction) An HTML comment
 //      opened MID-LINE does not suppress its interior, because entering comment
 //      state on any `<!--` anywhere on a line let a code span containing the
 //      literal characters `<!--` blank out the rest of a document (Codex,
-//      PR #269 round 2). The interior of such a comment is now read as live
-//      markup, so a malformed table drawn inside one would be flagged.
+//      PR #269 round 2). The interior is read as live markup. Bound 7 narrows
+//      what that costs: the opener line is prose and so not a boundary, which
+//      leaves a table shape on the FIRST interior line unrecognized too — only
+//      one preceded by a blank line inside the comment is still exposed.
+//   7. (recall) A header/delimiter pair is recognized only at a BLOCK BOUNDARY:
+//      after a blank line, a heading, a fence or comment closer, table
+//      machinery, or at the start of the scan. A pair anywhere else is not
+//      compared — continuing a paragraph, inside a raw-HTML block, inside a
+//      tight list, or directly beneath a single-line `<!-- … -->` comment (a
+//      CommonMark type-2 block, which this classifier does not credit as a
+//      boundary). Whether a table may interrupt a paragraph is contested — the
+//      spec is silent and implementations diverge — so the check declines to
+//      classify contested markup rather than adjudicating it (Codex, PR #269
+//      round 3). Not every excluded shape is contested: CommonMark lets a
+//      blockquote interrupt a paragraph, so a QUOTED pair directly under
+//      unquoted prose is a plain recall miss — same zero measurement, and
+//      pinned below.
+//   8. (precision — the second) A CommonMark TYPE-1 HTML block (`pre`, `script`,
+//      `style`, `textarea`) spans blank lines, while a blank line here opens a
+//      boundary unconditionally, so a table shape after a blank line INSIDE such
+//      a block would be recognized. Excluding it means tracking type-1 openers
+//      and their matching closers — HTML state this design declines to hold for
+//      a population of zero. Type-6 blocks (`<div>` and friends) are unaffected:
+//      they END at a blank line, so reading what follows as markdown is correct.
+//   9. (recall) A pair whose delimiter row carries any cell outside `:?-+:?`
+//      (`| --- | : |`) is not recognized, so neither that row nor the rows below
+//      it are compared. GFM does not recognize it either, which is what makes
+//      declining the honest answer: a malformed delimiter CELL goes unreported,
+//      while a well-formed delimiter with the wrong cell COUNT — the Spec-015
+//      class — is still the check's primary finding (Codex, PR #269 round 3).
 
 import { readFileSync } from "node:fs";
 
@@ -207,6 +249,93 @@ function frontMatterEndIndex(lines: string[]): number {
   return -1;
 }
 
+/** ATX heading, within CommonMark's three-space block bound: `# x` … `###### x`. */
+const ATX_HEADING_PATTERN = /^ {0,3}#{1,6}(?:[ \t]|$)/;
+/** List item marker, bullet or ordered: `- x`, `* x`, `1. x`, `9999.) x`. */
+const LIST_MARKER_PATTERN = /^ {0,3}(?:[-+*]|\d{1,9}[.)])[ \t]/;
+/** A line opening with an HTML tag — the shape CommonMark reads as a block start. */
+const HTML_TAG_LINE_PATTERN = /^ {0,3}<\/?[A-Za-z][A-Za-z0-9-]*(?:[ \t/>]|$)/;
+
+/**
+ * Does a new block-level structure begin on this line?
+ *
+ * GFM ends a table "at the first empty line, or beginning of another
+ * block-level structure", so a pipe-bearing heading, list item, or HTML tag
+ * abutting a table body is the NEXT block and never a row of the previous one.
+ * Comparing its cell count reports a row GFM does not render — a false positive
+ * on valid documentation, which is the direction this check must not fail in.
+ *
+ * Enumerated rather than exhaustive: these are the three shapes that can carry a
+ * pipe and still start a block. A table body ending early can only lose
+ * findings, never invent them, so an omission here stays on the recall side.
+ */
+function startsBlockLevelStructure(line: string): boolean {
+  return (
+    ATX_HEADING_PATTERN.test(line) ||
+    LIST_MARKER_PATTERN.test(line) ||
+    HTML_TAG_LINE_PATTERN.test(line)
+  );
+}
+
+/**
+ * Does this line leave the NEXT one at a BLOCK BOUNDARY — a position where GFM
+ * would let a new block, and so a table header, begin?
+ *
+ * A blank line closes whatever was open and a heading is a one-line block, so
+ * both leave the next line free. Everything else — prose, an HTML tag, a list
+ * marker, a pipe-bearing line that opened no table — leaves the next line INSIDE
+ * something, where a header/delimiter pair is that block's content rather than a
+ * table (bound 7).
+ *
+ * This is what keeps the check out of paragraph interiors and raw-HTML blocks
+ * without modelling either, and two shapes raised independently collapse into
+ * it. A paragraph line followed by a header/delimiter pair is contested markup:
+ * the spec is silent on whether a table may interrupt a paragraph and
+ * implementations diverge, so the check declines to classify it rather than
+ * adjudicating the question. A table drawn inside `<div>` is raw HTML, excluded
+ * because the tag line is a non-boundary — no HTML state machine involved. A
+ * blank line both ENDS a CommonMark type-6 HTML block and opens a boundary, so
+ * `<div>`, blank, table is still recognized, which is right: there the table is
+ * markdown again.
+ */
+function leavesBlockBoundary(line: string): boolean {
+  return line.trim() === "" || ATX_HEADING_PATTERN.test(line);
+}
+
+/** A GFM delimiter CELL: hyphens, with an optional leading and/or trailing colon. */
+const DELIMITER_CELL_PATTERN = /^:?-+:?$/;
+
+/**
+ * Is every cell of this delimiter row a legal alignment spec?
+ *
+ * `isDelimiterRow` asks only that the line hold a dash and nothing outside
+ * pipes, whitespace, colons and dashes — which `| --- | : |` satisfies while GFM
+ * rejects it, the delimiter row consisting of "cells whose only content are
+ * hyphens and optionally, a leading or trailing colon, or both". The check is
+ * local to this module because `isDelimiterRow` is shared with
+ * table-total-coherence, where narrowing it would change a required gate's
+ * table-boundary detection.
+ *
+ * A pair GFM does not recognize is not a table, so this DECLINES rather than
+ * reporting an arity — which is why it runs before the delimiter-arity
+ * comparison: a malformed cell means no table, and no table means nothing to
+ * measure (bound 9).
+ *
+ * It SUBSUMES `isDelimiterRow`: every cell matching the cell grammar forces at
+ * least one dash and nothing outside dashes, colons, pipes and whitespace, so
+ * nothing reaches here that the shared predicate would reject. That predicate
+ * stays the first gate deliberately — it is this corpus's shared vocabulary for
+ * "delimiter row", shared with table-total-coherence, and reading the guard
+ * without it would leave the two checks looking like they disagree about what
+ * one is. The redundancy is why the mutation arm for the shared predicate
+ * deletes both gates rather than one.
+ */
+function hasOnlyValidDelimiterCells(delimiter: string): boolean {
+  const cells = splitRow(delimiter);
+  if (cells.length === 0) return false;
+  return cells.every((cell) => DELIMITER_CELL_PATTERN.test(cell.trim()));
+}
+
 export function parseFile(
   filePath: string,
   readContent: FileContentReader = readFromDisk,
@@ -221,6 +350,12 @@ export function parseFile(
   // and one of those could itself be a fence opener (``` with a pipe in its
   // info string), which an index-skip would swallow and desynchronize.
   let openTable: { headerLine: number; expected: number; depth: number } | null = null;
+  // Is the line about to be read at a block boundary? A header/delimiter pair is
+  // recognized only there (bound 7), which is the single rule that replaced a
+  // growing list of per-context suppressions. True at the start: the first
+  // content line of a file — or the first after front matter, which is not
+  // markdown and leaves nothing open — begins a block.
+  let atBlockBoundary = true;
 
   for (let i = frontMatterEndIndex(lines) + 1; i < lines.length; i++) {
     const unquoted = stripBlockquotePrefix(lines[i]);
@@ -235,6 +370,7 @@ export function parseFile(
     if (inHtmlComment) {
       if (unquoted.includes("-->")) inHtmlComment = false;
       openTable = null;
+      atBlockBoundary = true;
       continue;
     }
 
@@ -245,6 +381,7 @@ export function parseFile(
     openFence = nextFence;
     if (fenceSuppressed) {
       openTable = null;
+      atBlockBoundary = true;
       continue;
     }
 
@@ -254,18 +391,31 @@ export function parseFile(
     // row GFM does not render. A comment that opens AND closes on one line is
     // not an HTML block: an inline `<!-- note -->` inside a real table row
     // leaves that row live.
+    // Every suppressed line above leaves a boundary behind it: a fence and a
+    // block-level comment are both blocks that END on their closer, so the line
+    // after one begins a new block. A table abutting a closing ``` or `-->` with
+    // no blank line between is therefore still recognized.
     if (opensBlockLevelHtmlComment(unquoted)) {
       inHtmlComment = true;
       openTable = null;
+      atBlockBoundary = true;
       continue;
     }
 
     if (openTable !== null) {
       // GFM makes the outer pipes optional, so the body continues over any
       // pipe-BEARING line at the header's depth, not only those with a leading
-      // `|`. It ends at a blank line, a pipe-less one (bound 2), or a change of
-      // blockquote depth (bound 5).
-      if (depth === openTable.depth && unquoted.trim() !== "" && containsUnescapedPipe(unquoted)) {
+      // `|`. It ends at a blank line, a pipe-less one (bound 2), a change of
+      // blockquote depth (bound 5), or the start of another block-level
+      // structure — the last of these tested BEFORE the comparison, so a heading
+      // or list item that happens to carry a pipe closes the table instead of
+      // being reported as a malformed row of it.
+      if (
+        depth === openTable.depth &&
+        unquoted.trim() !== "" &&
+        containsUnescapedPipe(unquoted) &&
+        !startsBlockLevelStructure(unquoted)
+      ) {
         const actual = splitRow(unquoted).length;
         if (actual !== openTable.expected) {
           violations.push({
@@ -278,23 +428,37 @@ export function parseFile(
             excerpt: excerptOf(unquoted),
           });
         }
+        // Restating the invariant rather than establishing it: the flag is
+        // already true for every line of a recognized table, set when the pair
+        // opened. Kept so the transition is stated wherever a line is consumed.
+        atBlockBoundary = true;
         continue;
       }
       openTable = null;
-      // Fall through: this line may itself open a new table, at its own depth.
+      // Fall through: this line takes its own classification below and may
+      // itself open a new table, at its own depth.
     }
 
-    // A table starts at a row whose NEXT line is a delimiter row. Both must be
-    // table rows (the delimiter test alone matches a horizontal rule `---`),
-    // both must clear the three-space indent bound or the block is indented
-    // code rather than a table (bounds 1 and 4), and both must sit at the same
-    // blockquote depth (bound 5).
+    // Classify this line for the next iteration BEFORE the recognition guards
+    // start returning: a line that fails any of them is ordinary content and
+    // leaves no boundary behind it. Opening a table overrides this to true.
+    const mayOpenTable = atBlockBoundary;
+    atBlockBoundary = leavesBlockBoundary(unquoted);
+
+    // A table starts at a row whose NEXT line is a delimiter row, and only at a
+    // block boundary (bound 7). Both rows must be table rows (the delimiter test
+    // alone matches a horizontal rule `---`), both must clear the three-space
+    // indent bound or the block is indented code rather than a table (bounds 1
+    // and 4), both must sit at the same blockquote depth (bound 5), and every
+    // delimiter cell must be a legal alignment spec (bound 9).
+    if (!mayOpenTable) continue;
     if (!isTableRow(unquoted) || !hasLegalTableIndent(unquoted)) continue;
     if (i + 1 >= lines.length) continue;
     const delimiter = stripBlockquotePrefix(lines[i + 1]);
     if (!isTableRow(delimiter) || !isDelimiterRow(delimiter)) continue;
     if (!hasLegalTableIndent(delimiter)) continue;
     if (blockquoteDepth(lines[i + 1]) !== depth) continue;
+    if (!hasOnlyValidDelimiterCells(delimiter)) continue;
 
     const expected = splitRow(unquoted).length;
     const headerLine = i + 1;
@@ -313,6 +477,9 @@ export function parseFile(
     }
 
     openTable = { headerLine, expected, depth };
+    // Header and delimiter are both table machinery, so the pair leaves the
+    // first body candidate at a boundary.
+    atBlockBoundary = true;
     // Consume the delimiter row. Safe to skip without re-walking block state:
     // it matched `isDelimiterRow`, so it holds only pipes, dashes, colons and
     // spaces — it can be neither a fence delimiter nor an HTML comment.
@@ -353,9 +520,25 @@ export function formatTableArityViolations(violations: TableArityViolation[]): s
     );
   }
   lines.push("");
-  lines.push(
-    `table-arity: ${violations.length} violation(s). A literal \`|\` splits cells even inside a code span — write \`\\|\` to keep it in the cell. ` +
-      `Do NOT reconcile by widening the delimiter row: prettier will reflow the table around the stray pipe and every later format check passes on the corrupted result.`,
-  );
+  lines.push(`table-arity: ${violations.length} violation(s).`);
+  // The remedy is direction-specific and the two directions are OPPOSITES, so
+  // the guidance is keyed on direction rather than on kind. A row wider than its
+  // header is a stray pipe to escape, and widening the delimiter to match is
+  // exactly what made the Spec-015 typo permanent. A row narrower than its
+  // header is a missing cell — and when the short row IS the delimiter, widening
+  // it is the correct repair. One unconditional trailer told that second case
+  // never to do the only thing that fixes it.
+  if (violations.some((violation) => violation.actual > violation.expected)) {
+    lines.push(
+      `  WIDER than the header: a literal \`|\` splits cells even inside a code span — write \`\\|\` to keep it in the cell. ` +
+        `Do NOT reconcile by widening the delimiter row: prettier will reflow the table around the stray pipe and every later format check passes on the corrupted result.`,
+    );
+  }
+  if (violations.some((violation) => violation.actual < violation.expected)) {
+    lines.push(
+      `  NARROWER than the header: add the missing cell(s) to match the header. ` +
+        `Where the short row is the delimiter, that means widening it — the opposite of the case above, and the right move here: until header and delimiter agree on the count, GFM renders no table at all.`,
+    );
+  }
   return lines.join("\n");
 }
