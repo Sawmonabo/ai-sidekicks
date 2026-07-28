@@ -34,6 +34,9 @@ import {
   extractPhaseSection,
   G4_GRAMMAR_DEMOTE_KINDS,
   LEGACY_INLINE_EXEMPT_KINDS,
+  maskInlineCodeSpans,
+  countCites,
+  classifyPhaseMarkers,
 } from "../preflight.mjs";
 
 const FIXTURE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "preflight-gate4-fixtures");
@@ -2690,4 +2693,121 @@ test("a DUPLICATED section heading accepts a line under EITHER occurrence", () =
   assert.equal(verdict.valid, false);
   assert.equal(verdict.reason, "line-outside-section");
   assert.match(verdict.evidence, /section spans 3-6, 11-14/);
+});
+
+// ---------------------------------------------------------------------------
+// Codex PR #262 round 5 — the cite content boundary and the empty-payload skip.
+// ---------------------------------------------------------------------------
+
+test("maskInlineCodeSpans blanks span interiors and preserves byte length", () => {
+  const line = "Write `**Spec coverage:** Spec-1 §A` in the block.";
+  const masked = maskInlineCodeSpans(line);
+  assert.equal(masked.length, line.length, "length must be preserved — offsets are load-bearing");
+  assert.ok(!masked.includes("Spec coverage"), "span interior was not blanked");
+  assert.ok(masked.startsWith("Write `"), "the opening delimiter must survive");
+  assert.ok(masked.endsWith("` in the block."), "text after the span must survive");
+});
+
+test("maskInlineCodeSpans leaves unbalanced and mismatched backtick runs alone", () => {
+  const lone = "a lone ` backtick with **Spec coverage:** after it";
+  assert.equal(maskInlineCodeSpans(lone), lone, "an unpaired run is prose, not a span");
+  const mismatched = "``double open with **Spec coverage:** and ` single close";
+  assert.equal(maskInlineCodeSpans(mismatched), mismatched, "runs must be equal length to pair");
+});
+
+test("a marker inside a same-line code span is neither extracted nor counted", () => {
+  const illustrated = "Prose showing the form: `**Spec coverage:** Spec-999 §Nope` inline.\n";
+  const { anchors, failures } = extractCiteAnchors(illustrated);
+  assert.equal(anchors.length, 0, "an illustrated marker must not be extracted");
+  assert.equal(failures.length, 0, "an illustration is not a defect either");
+  assert.equal(countCites(illustrated).spec_coverage, 0, "the strict floor must not count it");
+  assert.equal(
+    classifyPhaseMarkers(illustrated).boldSpec,
+    0,
+    "the relaxed floor must not count it",
+  );
+});
+
+test("NEGATIVE CONTROL: a real marker whose payload contains inline code keeps it intact", () => {
+  // The regression this pins was live for one edit: masking the bytes a payload
+  // is sliced from blanked backticked identifiers inside `(descriptor)` tails.
+  // 196 live anchors carry one. `raw` is not cosmetic — demotionKeepsExistenceFloor
+  // greps it for `Spec-NNN`, so a blanked cite silently leaves that floor.
+  const real = "- **T1.1** **Spec coverage:** Spec-001 §Goals (`SessionSchema` shape)\n";
+  const { anchors } = extractCiteAnchors(real);
+  assert.equal(anchors.length, 1, "the real marker must still be extracted");
+  assert.ok(
+    anchors[0].raw.includes("`SessionSchema`"),
+    `payload lost its backticked identifier: ${anchors[0].raw}`,
+  );
+  assert.equal(anchors[0].section, "Goals", "the section anchor must be unaffected");
+});
+
+test("an empty-payload bold marker is a finding, not a silent skip", () => {
+  const emptyPayload = "#### Tasks\n\n- **T1.1 — Row.** **Spec coverage:**\n";
+  const { anchors, failures } = extractCiteAnchors(emptyPayload);
+  assert.equal(anchors.length, 0, "there is no cite to extract");
+  assert.equal(failures.length, 1, "but the marker must not vanish silently");
+  assert.equal(failures[0].kind, "empty-cite-payload");
+  assert.equal(failures[0].field, "Spec coverage");
+  assert.equal(failures[0].taskId, "T1.1", "the finding must attribute to the enclosing row");
+  assert.equal(failures[0].severity, "error");
+});
+
+test("NEGATIVE CONTROL: the same marker WITH a payload produces no empty-payload finding", () => {
+  const withPayload = "#### Tasks\n\n- **T1.1 — Row.** **Spec coverage:** Spec-001 §Goals\n";
+  const { anchors, failures } = extractCiteAnchors(withPayload);
+  assert.equal(anchors.length, 1);
+  assert.equal(
+    failures.filter((f) => f.kind === "empty-cite-payload").length,
+    0,
+    "a populated marker must not trip the empty-payload screen",
+  );
+});
+
+test("empty-cite-payload stays HARD for S/M — it is not in the demote set", () => {
+  assert.ok(
+    !G4_GRAMMAR_DEMOTE_KINDS.has("empty-cite-payload"),
+    "demoting this kind reopens the false clean for the least-reviewed size classes",
+  );
+});
+
+test("a complement whose only marker has an empty payload no longer reports clean", () => {
+  // The exact CAT-10 shape: floor admits the marker, extractor produced nothing,
+  // and the unit returned {ok: true, hasCiteMarkers: true, findings: []}.
+  const complement = "Some narrative.\n\n- **T9.1 — Row.** **Spec coverage:**\n";
+  const result = gateTasksBlockCites(complement, "025", 1, {
+    repoRoot: resolveFixtureRepoRoot(),
+    requireBothMarkers: false,
+  });
+  assert.equal(result.hasCiteMarkers, true, "the marker IS present — this is not the missing case");
+  assert.equal(result.ok, false, "a marker that verified nothing must not pass");
+  assert.ok(
+    result.findings.some((f) => f.kind === "empty-cite-payload"),
+    "the verdict must name why it failed",
+  );
+});
+
+test("INTERACTION: illustrated marker + empty-payload marker yields exactly one finding", () => {
+  // Ordering guard. The two round-5 fixes touch the same path in opposite
+  // directions: the content boundary REMOVES illustrated markers, the
+  // empty-payload screen ADDS findings for admitted ones. Applied in the wrong
+  // order the illustration itself is flagged — a false positive replacing a
+  // false clean, and neither single-fix test above can catch it because each
+  // exercises only one shape.
+  const both = [
+    "Narrative that documents the form: `**Spec coverage:** Spec-999 §Nope`.",
+    "",
+    "- **T9.1 — Real row.** **Spec coverage:**",
+    "",
+  ].join("\n");
+  const { anchors, failures } = extractCiteAnchors(both);
+  assert.equal(anchors.length, 0, "the illustration must not be extracted");
+  assert.equal(failures.length, 1, `expected exactly one finding, got ${failures.length}`);
+  assert.equal(failures[0].kind, "empty-cite-payload");
+  assert.equal(
+    failures[0].taskId,
+    "T9.1",
+    "the finding must name the REAL row, not the illustration",
+  );
 });

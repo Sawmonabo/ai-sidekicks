@@ -424,6 +424,66 @@ function maskNonContentLines(text) {
   return masked.join("\n");
 }
 
+// Blank the INTERIOR of every same-line inline code span, preserving byte
+// length for the same offset-stability reason as maskNonContentLines.
+//
+// maskNonContentLines is LINE-granular by construction — structuralScanConsumes
+// reports "this whole line is a structural region", which is the right shape
+// for fences, raw-HTML blocks and MULTI-line spans. A span that opens and
+// closes on one line is sub-line: blanking the line would take real prose with
+// it, so it is masked here instead, at span granularity.
+//
+// The delimiters themselves are left in place; only the bytes between a
+// matched pair of equal-length backtick runs are blanked. Unbalanced runs (an
+// odd count, or a mismatched length) are left entirely alone — a lone backtick
+// is prose, not an unterminated span.
+export function maskInlineCodeSpans(text) {
+  const lines = text.split("\n");
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const line = lines[lineIndex];
+    if (!line.includes("`")) continue;
+    const runs = [...line.matchAll(/`+/g)];
+    let masked = line;
+    for (let runIndex = 0; runIndex + 1 < runs.length; runIndex += 2) {
+      const open = runs[runIndex];
+      const close = runs[runIndex + 1];
+      // CommonMark closes a span only on a run of EQUAL length.
+      if (open[0].length !== close[0].length) continue;
+      const from = open.index + open[0].length;
+      const to = close.index;
+      masked = masked.slice(0, from) + " ".repeat(to - from) + masked.slice(to);
+    }
+    lines[lineIndex] = masked;
+  }
+  return lines.join("\n");
+}
+
+// The CITE content boundary: what counts as audit output for cite screening.
+// One definition, three consumers (countCites, classifyPhaseMarkers,
+// extractCiteAnchors) — settled in one place for the same reason round 4
+// masked the INPUT to extractTasksBlock rather than its three call sites: a
+// consumer holding a different view of which bytes are content is how a gate
+// reports clean over work it did not do.
+//
+// A marker inside an inline code span is illustration. Prose reading "write
+// `**Spec coverage:** Spec-001 §Goals`" was previously EXTRACTED and VERIFIED:
+// the example resolved against real spec files and reported clean, and a unit
+// whose only markers were illustrations passed the floor as audited (Codex P2,
+// PR #262 round 5). The fenced-block form of exactly this argument is at
+// maskNonContentLines; a same-line span renders as code for the same reason.
+//
+// Measured across every phase and complement unit in the live corpus (walking
+// `### Phase` headings directly — both walkPhases and the integer
+// extractPhaseSection walk are blind to R-remainder and supplement labels, so
+// neither is a safe denominator here): ZERO units flip the floor they are
+// actually evaluated under. Eight units' raw counts move and four complements'
+// STRICT floor would flip, but complements are screened on the relaxed arm by
+// construction (`requireBothMarkers: false`), and no PHASE unit moves either
+// floor. Re-run that measurement before narrowing or widening this boundary.
+export function maskCiteContent(text) {
+  return maskInlineCodeSpans(maskNonContentLines(text));
+}
+
 // Byte offset within `body` of the first `### Phase N` / `## ` heading that
 // sits OUTSIDE any fenced code block or multi-line HTML comment, or -1 if
 // none. Split out of extractPhaseSection so the structural state machine is
@@ -458,7 +518,7 @@ export function findSectionBoundary(body) {
 // example's markers reaching it is what makes an unaudited phase read as
 // audited (Codex P2, PR #260 round 2).
 export function countCites(phaseSection) {
-  const scanned = maskNonContentLines(phaseSection);
+  const scanned = maskCiteContent(phaseSection);
   return {
     spec_coverage: (scanned.match(/Spec coverage/g) || []).length,
     verifies_invariant: (scanned.match(/Verifies invariant/g) || []).length,
@@ -478,9 +538,9 @@ export function countCites(phaseSection) {
 // present) and legacy-unbold (marker the bold extractor can't verify) classes.
 export function classifyPhaseMarkers(phaseSection) {
   const counts = { boldSpec: 0, boldInvariant: 0, unboldSpec: 0, unboldInvariant: 0 };
-  // Fence-masked for the same reason as countCites: an example block is not
-  // audit output, and this classifier feeds the partial/unbold marker screens.
-  const scanned = maskNonContentLines(phaseSection);
+  // Masked for the same reason as countCites: an example is not audit output,
+  // and this classifier feeds the partial/unbold marker screens.
+  const scanned = maskCiteContent(phaseSection);
   const boldMarker = /\*\*(Spec coverage|Verifies invariant):\*\*/g;
   for (const match of scanned.matchAll(boldMarker)) {
     if (match[1] === "Spec coverage") counts.boldSpec += 1;
@@ -750,7 +810,7 @@ export function extractTasksBlock(phaseSection) {
   // parity of every fence inside them.
   //
   // Measured against the live corpus: masking changes ZERO declared-id sets,
-  // ZERO block-presence verdicts, and ZERO oracle rows across all 71 phases
+  // ZERO block-presence verdicts, and ZERO oracle rows across every phase
   // carrying a Tasks block. Both directions were checked — no real row is
   // masked away either, because a task row indented under a bullet is not a
   // structural region (the scanner consumes fences, raw-HTML blocks, and
@@ -794,16 +854,29 @@ export const TASK_ID_SHAPE = String.raw`T(?=[-\d])[-a-zA-Z0-9.]+`;
 // still pending (Codex P1, PR #190).
 //
 // Indent tolerance is shared deliberately: it was measured corpus-neutral —
-// across all 71 phases carrying a `#### Tasks` block it adds ZERO declared ids
-// — so both consumers can hold one anchor without moving any Gate-3 verdict.
+// across every phase carrying a `#### Tasks` block it adds ZERO declared ids —
+// so both consumers can hold one anchor without moving any Gate-3 verdict.
 // Widening this pattern widens a GATING path, not just a diagnostic one;
 // `extractDeclaredTaskIds` feeds `classifyPhaseSize`, which demotes G4 grammar
 // findings for S/M phases. Re-run that corpus measurement before loosening it.
-// The denominator is Tasks-block-bearing phases, reachable by walking every
-// plan's phase sections and keeping those `extractTasksBlock` resolves — a
-// phase without a Tasks block declares no ids at all, so it cannot move the
-// count. Do not restate a total-phase figure here: walking labels and walking
-// section numbers disagree, and only the 71 is load-bearing.
+//
+// State no phase COUNT here. Every walk in this file disagrees about how many
+// phases exist — `walkPhases` and the integer `extractPhaseSection` walk are
+// both blind to R-remainder and supplement labels (`### Phase R3`), so a
+// maintainer re-measuring via the production path lands on a different number
+// and reads it as drift. The quantifier is what carries the claim; a
+// denominator nothing reproduces only decorates it.
+//
+// The indented alternative admits nested rows whose bold closes immediately
+// after the id (`  - **T9.9** is a prerequisite`), which is a REFERENCE, not a
+// declaration. That shape is not separable here: 175 live column-0
+// declarations across Plan-005/007/008/023/024/025 use exactly it
+// (`- **T1.1** — Author the interface`), so rejecting on bold-close position
+// would drop real declarations — a missed declaration reads as a phase shipped
+// prematurely, which fails OPEN. Closing it needs a POSITIVE discriminator
+// (the row carries task metadata: `(Files:`, `**Files:**`), measured on its
+// own; zero live instances today (Codex P2, PR #262 round 5, declined with
+// measurement).
 //
 // This recognizer must only ever see CONTENT: `extractTasksBlock` masks fenced
 // and raw-HTML regions out of its input, so a fenced example row reaches
@@ -2513,13 +2586,31 @@ export function extractCiteAnchors(phaseSection) {
   const failures = [];
   const targetMarkerRe = /\*\*(Spec coverage|Verifies invariant):\*\*/g;
   const anyMarkerRe = /\*\*[A-Z][\w ]*:\*\*/g;
-  // Fence-masked, and length-preserving so every offset below still indexes the
-  // raw source. Extracting a fenced example's cites would VERIFY them — the
-  // example resolves against real spec files and reports clean, which is how a
-  // plan with no real audit output passed as screened (Codex P2, #260 round 2).
+  // Masked, and length-preserving so every offset below still indexes the raw
+  // source. Extracting an example's cites would VERIFY them — the example
+  // resolves against real spec files and reports clean, which is how a plan
+  // with no real audit output passed as screened (Codex P2, #260 round 2 for
+  // the fenced form; #262 round 5 for the inline-span form).
   const scanned = maskNonContentLines(phaseSection);
-  const targetMarkers = [...scanned.matchAll(targetMarkerRe)];
-  const anyMarkers = [...scanned.matchAll(anyMarkerRe)];
+  // TWO VIEWS, one offset space. Inline-code masking decides WHICH MARKERS ARE
+  // REAL; it must not touch the bytes a payload is sliced from.
+  //
+  // Cite payloads legitimately contain inline code — 196 live anchors carry a
+  // backticked identifier inside their `(descriptor)` tail. Slicing those from
+  // span-masked text blanks the identifier, and `raw` is not merely
+  // diagnostic: `demotionKeepsExistenceFloor` greps it for `Spec-NNN` to decide
+  // whether a demotion keeps the spec-existence floor, and the paren-stripped
+  // section fallback compares the descriptor's cited suffix. A blanked
+  // `Spec-NNN` inside backticks would silently drop out of that floor — a
+  // fails-open regression introduced by the very screen meant to close one.
+  //
+  // Both maskers are length-preserving, so `markerView` indexes identically to
+  // `scanned`: marker POSITIONS come from the masked view, payload BYTES from
+  // the unmasked one. Terminators use the masked view too — a backticked
+  // `**Files:**` inside a payload is illustration and must not end it.
+  const markerView = maskInlineCodeSpans(scanned);
+  const targetMarkers = [...markerView.matchAll(targetMarkerRe)];
+  const anyMarkers = [...markerView.matchAll(anyMarkerRe)];
   for (const marker of targetMarkers) {
     const field = marker[1];
     const startIdx = marker.index + marker[0].length;
@@ -2527,12 +2618,15 @@ export function extractCiteAnchors(phaseSection) {
     const nextMarkerIdx = nextAnyMarker ? nextAnyMarker.index : scanned.length;
     const nextNewlineIdx = scanned.indexOf("\n", startIdx);
     const endIdx = Math.min(nextMarkerIdx, nextNewlineIdx === -1 ? scanned.length : nextNewlineIdx);
+    // Payload bytes from `scanned` — backticked identifiers intact (see the
+    // two-views note above).
     let payload = scanned.slice(startIdx, endIdx).trim();
     // Strip trailing sentence-end punctuation that follows the closing paren
     // of the last cite descriptor (`(...).` → `(...)`).
     payload = payload.replace(/[.,;:]+\s*$/, "");
-    if (!payload) continue;
-    const prefix = scanned.slice(0, marker.index);
+    // Attribution scans the MASKED view: a task id inside a code span is a
+    // mention, not a header.
+    const prefix = markerView.slice(0, marker.index);
     // Attribution = the NEAREST PRECEDING task header, in any spelling — hence
     // the shared `taskHeaderMatches` recognizer rather than a private copy.
     // Both halves of this were wrong before, and both mis-LABEL findings rather
@@ -2554,6 +2648,34 @@ export function extractCiteAnchors(phaseSection) {
     );
     const taskId = taskMatch ? taskMatch[1] : null;
     const lineNo = prefix.split("\n").length;
+    // An empty payload is a FINDING, not a skip. The bare `continue` that stood
+    // here produced the gate's purest false clean: the marker floor counts the
+    // marker (the field is present and correctly spelled), the extractor
+    // silently drops it, and the unit returns
+    // `{ok: true, hasCiteMarkers: true, findings: []}` — the report credits a
+    // cite as screened when nothing was verified, which is strictly worse than
+    // the missing-marker case the floor already halts on (Codex P2, PR #262
+    // round 5).
+    //
+    // Deliberately NOT in G4_GRAMMAR_DEMOTE_KINDS: that set is fail-closed by
+    // polarity, so an unlisted kind stays a hard error for every size class. A
+    // marker claiming coverage while naming nothing is existence-shaped, not a
+    // grammar slip, and demoting it for S/M would reopen this hole for exactly
+    // the classes with the least reviewer coverage.
+    if (!payload) {
+      failures.push({
+        kind: "empty-cite-payload",
+        raw: marker[0],
+        field,
+        taskId,
+        lineNo,
+        message: `\`${marker[0]}\` names no cite — the marker is present but its payload is empty.`,
+        remediation:
+          "Give the marker a cite payload, or delete the marker. An empty field is indistinguishable from an unaudited one.",
+        severity: "error",
+      });
+      continue;
+    }
     const { anchors: a, failures: f } = parseCitePayload(payload);
     for (const anchor of a) {
       anchors.push({ ...anchor, field, taskId, lineNo });
