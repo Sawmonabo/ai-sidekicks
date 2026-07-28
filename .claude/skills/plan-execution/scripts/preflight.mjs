@@ -8,7 +8,7 @@
 //       surfaces verbatim).
 //   2 — internal error (malformed input); stderr describes; stdout empty.
 
-import { readFileSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync, realpathSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { resolve, dirname, basename } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -1465,13 +1465,61 @@ function bracketDelta(ch) {
 // deliberately NOT a toggle — `don't` must stay inert rather than opening
 // a region that swallows the rest of the payload.
 //
-// Failure posture on an UNBALANCED quote: the toggle stays open through
-// end-of-payload, so the tail collapses into ONE buffered token rather
-// than splitting. That token matches no sub-anchor shape, so the gate
-// still FIRES — fail-closed, never a silent pass, and never a mis-span
-// past the payload (both splitters are single forward passes over a
-// bounded string with no backtracking, so malformed input cannot hang).
+// Failure posture on a MALFORMED quote — two distinct shapes, neither of
+// which the splitters catch on their own:
+//
+//  1. ODD count. The toggle stays open through end-of-payload, so the tail
+//     collapses into ONE buffered token. That token usually matches no
+//     sub-anchor shape, but "usually" is not a gate: the anchors AHEAD of the
+//     stray quote parse clean, so the payload can still report zero failures
+//     while the claims behind it are never extracted. `parseCitePayload`'s
+//     parity check is what actually fires.
+//  2. EVEN count STRADDLING a bracket boundary. Both splitters toggle
+//     `inQuote` and `continue` BEFORE consulting `bracketDelta`, so a `"`
+//     opened inside `(...)` suppresses that group's `)`. Depth never returns
+//     to 0, the next depth-0 separator is not honoured, and two cites merge
+//     into one — the surviving token can parse as a perfectly valid anchor
+//     while the second claim is silently discarded. Parity cannot see this
+//     (the count is even); `quotedRunSwallowsBracket` is what fires.
+//
+// Both splitters remain single forward passes over a bounded string with no
+// backtracking, so malformed input cannot hang.
 const CITE_QUOTE_CHAR = '"';
+
+/**
+ * Detect a quoted run that swallows a bracket opened OUTSIDE it.
+ *
+ * Signature: walk the payload; on each quote-open start a local depth at 0 and
+ * apply `bracketDelta` only while inside the run. A local depth that goes
+ * NEGATIVE means the run consumed a closer for a group opened before the quote
+ * — exactly the condition that leaves the splitters' depth counter stranded
+ * above 0 and disables every separator behind it.
+ *
+ * Deliberately ONE-SIDED. A run that merely OPENS a bracket without closing it
+ * (`line 10 ("foo (bar"), line 20`) drives the local depth positive, never
+ * negative, and swallows no separator — so it is not flagged. End-of-payload
+ * depth is the wrong test for the same reason the parity count is: the
+ * realistic inch-mark case `line 10 (5" window), line 99999 (30" grace)` nets
+ * back to zero while still dropping the second claim.
+ *
+ * Measured against all cite payloads in `docs/plans/` before being armed: zero
+ * matches, so this adds no false positives to the standing corpus.
+ */
+function quotedRunSwallowsBracket(payload) {
+  let inQuote = false;
+  let localDepth = 0;
+  for (const ch of payload) {
+    if (ch === CITE_QUOTE_CHAR) {
+      if (!inQuote) localDepth = 0;
+      inQuote = !inQuote;
+      continue;
+    }
+    if (!inQuote) continue;
+    localDepth += bracketDelta(ch);
+    if (localDepth < 0) return true;
+  }
+  return false;
+}
 
 function splitOnSemicolon(payload) {
   const out = [];
@@ -1626,11 +1674,20 @@ function parseSpecSegmentInner(segment) {
   }
 
   // Section-prefix detection. `§<Heading>` after the namespace and before the
-  // first `line/lines/AC` keyword. The greedy boundary makes the section
-  // capture stop at the keyword.
+  // first `line/lines/AC` keyword. The lazy boundary makes the section capture
+  // stop at the keyword.
+  //
+  // The keyword alternation must spell BOTH acceptance-criterion shapes —
+  // indexed (`AC4`) and by-line (`AC line 45`). Matching only `AC\d` let the
+  // lazy capture run past a bare `AC` to the following `line`, which is
+  // net-LOOSER twice over: the section captured a heading that does not exist
+  // (`§Acceptance Criteria AC`), and the anchor degraded from `ac-line` — which
+  // additionally proves in-section, is-a-checkbox-bullet, and subject-match —
+  // down to a plain `line` anchor that proves only in-range and non-blank. A
+  // section prefix must never weaken the anchor it prefixes.
   let section = null;
   let body = rest;
-  const sectionMatch = body.match(/^§([^,;+]+?)(?=\s+(?:lines?|AC\d)|\s*$|\s*\()/);
+  const sectionMatch = body.match(/^§([^,;+]+?)(?=\s+(?:lines?|AC\d|AC\s+lines?\b)|\s*$|\s*\()/);
   if (sectionMatch) {
     section = sectionMatch[1].trim();
     body = body.slice(sectionMatch[0].length).trim();
@@ -1658,7 +1715,12 @@ function parseSpecSegmentInner(segment) {
       const nextGroup = leadingParenGroup(body.slice(consumedEnd));
       if (!nextGroup) break;
       consumedEnd += nextGroup.end;
-      if (/^\s+(?:lines?|AC\d+)\b/.test(body.slice(consumedEnd))) {
+      // Same both-AC-shapes rule as the section-prefix lookahead above. With
+      // only `AC\d+` here, `§X (suffix) AC line 45` never consumed the paren
+      // run, so `body` still began with `(` and the section-only branch below
+      // swallowed the whole tail as descriptor text — the `line 45` claim
+      // vanished entirely instead of being verified.
+      if (/^\s+(?:lines?|AC\d+|AC\s+lines?)\b/.test(body.slice(consumedEnd))) {
         sectionDescriptor = body.slice(0, consumedEnd).trim();
         body = body.slice(consumedEnd).trim();
         break;
@@ -2221,13 +2283,27 @@ export function parseCitePayload(rawPayload) {
   // false-clean shape this gate exists to prevent. Without this check
   // `Spec-015 line 47 — "oops, Spec-011 line 99999` yields ONE anchor and zero
   // failures, while the same text unquoted yields two anchors and gates on the
-  // bad line. Parity is the exact test — `"` is a single toggling delimiter
-  // with no escape form, so an odd count is unbalanced by construction.
-  // Deliberately absent from G4_GRAMMAR_DEMOTE_KINDS, INLINE_SHAPE_PARSE_KINDS,
-  // and LEGACY_INLINE_EXEMPT_KINDS (all three are allowlists), so it stays a
-  // hard error on every path and for every size class. Anchors ahead of the
-  // stray quote still parse and verify — the finding gates the payload without
-  // discarding what was legible.
+  // bad line. Parity is the exact test for THAT shape — `"` is a single
+  // toggling delimiter with no escape form, so an odd count is unbalanced by
+  // construction.
+  //
+  // Parity alone is NOT sufficient. An EVEN number of quotes straddling a
+  // bracket boundary produces the same silent truncation without ever
+  // unbalancing the count: `Spec-002 line 10 (5" window), line 99999 (30"
+  // grace)` yields ONE anchor (`line 10`) and zero failures, because the
+  // quoted run swallowed the first group's `)` and stranded the splitters'
+  // depth above 0 — the `line 99999` claim is discarded unverified, while the
+  // same text unquoted yields two anchors and gates on the bad line. The two
+  // checks are complementary, not redundant: parity sees the odd no-bracket
+  // case that carries no bracket to straddle, and the depth signature sees the
+  // even case parity is blind to. Both emit the same kind — one hole, two
+  // signatures.
+  //
+  // The kind is deliberately absent from G4_GRAMMAR_DEMOTE_KINDS,
+  // INLINE_SHAPE_PARSE_KINDS, and LEGACY_INLINE_EXEMPT_KINDS (all three are
+  // allowlists), so it stays a hard error on every path and for every size
+  // class. Anchors ahead of the malformed quote still parse and verify — the
+  // finding gates the payload without discarding what was legible.
   const quoteCount = normalized.split(CITE_QUOTE_CHAR).length - 1;
   if (quoteCount % 2 !== 0) {
     failures.push(
@@ -2236,6 +2312,15 @@ export function parseCitePayload(rawPayload) {
         normalized,
         `Cite payload holds an unbalanced ${CITE_QUOTE_CHAR} (${quoteCount} occurrence(s)); separators after the stray quote are swallowed, so any claim behind it is silently dropped instead of verified.`,
         `Close the quoted run, or delete the stray ${CITE_QUOTE_CHAR}. Quoting is only needed to protect commas or semicolons INSIDE a quoted spec sentence.`,
+      ),
+    );
+  } else if (quotedRunSwallowsBracket(normalized)) {
+    failures.push(
+      makeFailure(
+        "unbalanced-cite-quote",
+        normalized,
+        `Cite payload opens a ${CITE_QUOTE_CHAR} inside a bracketed group and closes it outside — the quoted run swallows that group's closing bracket, so every separator behind it is ignored and the following claim is merged away instead of verified.`,
+        `Move the ${CITE_QUOTE_CHAR}…${CITE_QUOTE_CHAR} run so it opens and closes within one bracketed group, or drop the quotes. A quote used as an inch/second mark (5${CITE_QUOTE_CHAR}) must be spelled out instead — quoting is only needed to protect commas or semicolons INSIDE a quoted spec sentence.`,
       ),
     );
   }
@@ -2831,17 +2916,45 @@ function verifyLineRangeAnchor(anchor, specLines) {
 // the two structural scanners. Bullet `.index` values stay relative to
 // `bodyStart`, matching the pre-factoring arithmetic exactly. Returns
 // `{ found: false }` when the spec carries no §Acceptance Criteria heading.
+/**
+ * Character offset of the next ATX heading in `text`, or -1 if there is none.
+ *
+ * Fence-aware: a fenced block routinely carries lines that begin with `#`
+ * (shell comments, embedded markdown samples). Treating one as the section
+ * terminator truncates the section, which would REJECT a correct acceptance-
+ * criterion cite sitting below the fence — a false red rather than a false
+ * clean, but a gate that reds correct input is still a broken gate.
+ */
+function findNextHeadingOffset(text) {
+  let offset = 0;
+  let inFence = false;
+  for (const line of text.split("\n")) {
+    if (/^\s*(?:```|~~~)/.test(line)) inFence = !inFence;
+    else if (!inFence && /^#+\s+\S/.test(line)) return offset;
+    offset += line.length + 1;
+  }
+  return -1;
+}
+
 function locateAcceptanceCriteria(source) {
   const headingMatch = source.match(/^#+\s+Acceptance Criteria\s*$/m);
   if (!headingMatch) return { found: false };
   const bodyStart = headingMatch.index + headingMatch[0].length;
   const after = source.slice(bodyStart);
-  const nextSection = after.match(/^#+\s+\S/m);
-  const body = nextSection ? after.slice(0, nextSection.index) : after;
+  const nextHeadingOffset = findNextHeadingOffset(after);
+  const hasFollowingSection = nextHeadingOffset !== -1;
+  const body = hasFollowingSection ? after.slice(0, nextHeadingOffset) : after;
   const bullets = [...body.matchAll(/^- \[[ x]\]/gm)];
   const headingLineNum = source.slice(0, headingMatch.index).split("\n").length;
-  const endCharIdx = nextSection ? bodyStart + nextSection.index : source.length;
-  const lastLineNum = source.slice(0, endCharIdx).split("\n").length;
+  // `lastLineNum` is the last line INSIDE the section, and both callers read it
+  // that way (`anchor.line > lastLineNum` => outside). When a following heading
+  // exists the slice ends at that heading's first character, so the line count
+  // lands ON the heading — one line past the section — hence the -1. Without it
+  // the bounds admit the heading line itself and the "section spans X-Y"
+  // evidence string names a line that is not in the section.
+  const endCharIdx = hasFollowingSection ? bodyStart + nextHeadingOffset : source.length;
+  const lineCountThroughEnd = source.slice(0, endCharIdx).split("\n").length;
+  const lastLineNum = hasFollowingSection ? lineCountThroughEnd - 1 : lineCountThroughEnd;
   return { found: true, bodyStart, bullets, headingLineNum, lastLineNum };
 }
 
@@ -4523,7 +4636,22 @@ function countBoldCiteMarkers(text) {
   return (text.match(BOLD_CITE_MARKER_RE) || []).length;
 }
 
-export function surveyCorpus({ repoRoot = REPO_ROOT } = {}) {
+/**
+ * @param options.runCiteGate - seam for the per-unit Gate-4 cite screen.
+ * @param options.runInlineAnchorFloor - seam for the inline anchor-existence floor.
+ *
+ * Both screens are internally fail-closed: a missing or unreadable spec becomes a
+ * `[spec-file-not-found]` FINDING rather than a throw, so no corpus fixture can
+ * reach their `catch` arms. Those arms still have to gate correctly — they are
+ * what stands between a crashed screen and a green verdict — so they are made
+ * reachable by injection, in the same idiom as the `repoRoot` / `specsDir`
+ * seams elsewhere in this file. Production callers pass neither.
+ */
+export function surveyCorpus({
+  repoRoot = REPO_ROOT,
+  runCiteGate = gateTasksBlockCites,
+  runInlineAnchorFloor = verifyInlineAnchorFloor,
+} = {}) {
   const plansDir = resolve(repoRoot, "docs", "plans");
   const planFileNames = readdirSync(plansDir)
     .filter((name) => /^\d{3}-.+\.md$/.test(name) && !name.startsWith("000-"))
@@ -4659,10 +4787,14 @@ export function surveyCorpus({ repoRoot = REPO_ROOT } = {}) {
         // skipped — hasCiteMarkers guards that.
         let citeResult;
         try {
-          citeResult = gateTasksBlockCites(section, name.slice(0, 3), label, { repoRoot });
+          citeResult = runCiteGate(section, name.slice(0, 3), label, { repoRoot });
         } catch (err) {
-          pushCite(
-            "cite-check-threw",
+          // `anomalies`, not `pushCite`. A gate that THREW did not judge cite
+          // quality — it failed to run, which is a structural failure of the
+          // screen itself, the same class the outer catch routes here. Left in
+          // `citeAnomalies` it waits for --enforce-cites to be armed, so a plain
+          // `--survey` run would exit 0 over a unit that was never screened.
+          anomalies.push(
             `${unitPrefix} [cite-check-threw] ${String(err?.message ?? err).slice(0, 160)}`,
           );
           citeResult = null;
@@ -4725,12 +4857,13 @@ export function surveyCorpus({ repoRoot = REPO_ROOT } = {}) {
         // LEGACY_INLINE_EXEMPT_KINDS). Independent of gateTasksBlockCites, so it
         // runs even when the gate threw; its own failure is fail-closed too.
         try {
-          for (const finding of verifyInlineAnchorFloor(section, { repoRoot })) {
+          for (const finding of runInlineAnchorFloor(section, { repoRoot })) {
             pushCite(finding.kind, `${unitPrefix} [${finding.kind}] ${finding.evidence}`);
           }
         } catch (err) {
-          pushCite(
-            "cite-check-threw",
+          // Same reasoning as the gateTasksBlockCites catch above: the floor
+          // failing to RUN is structural, so it gates unconditionally.
+          anomalies.push(
             `${unitPrefix} [cite-check-threw] inline anchor floor: ${String(err?.message ?? err).slice(0, 160)}`,
           );
         }
@@ -4758,12 +4891,24 @@ export function surveyCorpus({ repoRoot = REPO_ROOT } = {}) {
   // under --enforce-cites (warn-only under plain --survey) until the entry is
   // deleted. This is what keeps the exemption list from outliving its debt.
   const exemptFiles = [];
+  // A plan the survey could not read or walk emits NO cite anomalies, so it
+  // reaches the zero-count branch looking exactly like a re-authored one. Acting
+  // on that would tell the author to delete an exemption on evidence that was
+  // never gathered — dropping real debt coverage because the scan failed. Such a
+  // plan already gates through the unconditional `[survey-uncovered]` anomaly,
+  // so skipping it here loses nothing.
+  // The entry still gets PUSHED — `exemptFiles.length` is the dead-entry
+  // detector (a renamed or removed exempt plan drops it below the list length),
+  // so suppressing the row would conflate "no longer in the corpus" with "could
+  // not be read". Only the verdict is withheld.
+  const uncoveredPlanNames = new Set(uncoveredPlans.map(({ name }) => name));
   for (const relPath of LEGACY_INLINE_CITE_EXEMPT) {
     const base = relPath.slice("docs/plans/".length);
     if (!planFileNames.includes(base)) continue;
+    const uncovered = uncoveredPlanNames.has(base);
     const count = exemptAnomalyCount.get(base) ?? 0;
-    exemptFiles.push({ base, count });
-    if (count === 0) {
+    exemptFiles.push({ base, count, uncovered });
+    if (count === 0 && !uncovered) {
       citeAnomalies.push(
         `${base} [stale-exemption] exempt plan scans clean — re-authored; remove it from LEGACY_INLINE_CITE_EXEMPT`,
       );
@@ -4801,8 +4946,12 @@ export function formatSurvey(survey, { enforceCites = false } = {}) {
   const fallbackPlans = survey.fallbackPlans ?? [];
   const markerlessFallbackPlans = survey.markerlessFallbackPlans ?? [];
   const uncoveredPlans = survey.uncoveredPlans ?? [];
+  // `?? 0`, never `?? survey.planCount`: a survey object missing the field must
+  // read as NO coverage, not FULL coverage. This is the one line whose whole
+  // job is to avoid overstating what was checked, so its fallback has to fail
+  // in the safe direction.
   lines.push(
-    `coverage: ${survey.surveyedPlanCount ?? survey.planCount}/${survey.planCount} plan(s) cite-swept, ` +
+    `coverage: ${survey.surveyedPlanCount ?? 0}/${survey.planCount} plan(s) cite-swept, ` +
       `${uncoveredPlans.length} uncovered`,
   );
   const unsweptMarkerPlans = survey.unsweptMarkerPlans ?? [];
@@ -4866,9 +5015,16 @@ export function formatSurvey(survey, { enforceCites = false } = {}) {
     lines.push(
       `cite-exempt (legacy-inline, ${exemptFiles.length} plan(s), ${suppressed} anomaly(ies) suppressed):`,
     );
-    for (const { base, count } of exemptFiles) {
-      const note =
-        count === 0 ? "clean — stale entry (ratcheted)" : `${count} anomaly(ies) suppressed`;
+    for (const { base, count, uncovered } of exemptFiles) {
+      // A zero count means "scanned and found nothing" ONLY when the plan was
+      // actually scanned. For an uncovered plan it means "never measured", and
+      // printing the ratchet note there would recommend deleting an exemption
+      // on evidence that does not exist.
+      const note = uncovered
+        ? "not scanned (see uncovered) — exemption retained"
+        : count === 0
+          ? "clean — stale entry (ratcheted)"
+          : `${count} anomaly(ies) suppressed`;
       lines.push(`  - ${base}: ${note}`);
     }
   }
@@ -5185,7 +5341,30 @@ async function main() {
   process.exitCode = result.exit;
 }
 
-if (process.argv[1] && process.argv[1] === fileURLToPath(import.meta.url)) {
+/**
+ * Direct-invocation guard — same form as `validate-review-response.mjs`
+ * § isDirectlyInvoked and `tools/docs-corpus/bin/pre-commit-runner.ts`.
+ *
+ * The previous spelling compared `process.argv[1]` to `fileURLToPath(...)`
+ * directly: encoding-correct, but not realpath-normalised, so an invocation
+ * through a symlinked path (macOS `/tmp` -> `/private/tmp`, or a checkout under
+ * a symlink) compared unequal and this gate silently no-opped with exit 0 —
+ * a required CI check reporting clean over work it never did, which is the
+ * exact failure class the rest of this file exists to close.
+ */
+function isDirectlyInvoked() {
+  const invokedPath = process.argv[1];
+  if (typeof invokedPath !== "string") return false;
+  try {
+    return realpathSync(invokedPath) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    // A path that will not resolve to a real file was not this module's entry
+    // point, so `false` is the correct answer rather than a swallowed failure.
+    return false;
+  }
+}
+
+if (isDirectlyInvoked()) {
   main().catch((e) => {
     process.stderr.write(`internal error: ${e.message || String(e)}\n`);
     process.exit(2);

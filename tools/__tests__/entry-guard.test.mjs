@@ -37,6 +37,10 @@ const CLI_SCRIPTS = [
   { relativePath: ".claude/skills/plan-execution/scripts/post-merge-housekeeper.mjs", args: [] },
   { relativePath: ".claude/skills/plan-execution/scripts/rebuild-shipment-manifest.mjs", args: [] },
   { relativePath: ".claude/skills/plan-execution/scripts/validate-review-response.mjs", args: [] },
+  // Runs as a required CI check (`.github/workflows/docs-corpus.yml`, the
+  // plan-cite Gate-4 survey step). A no-op here is a green check over an
+  // unrun gate, so this entry is the load-bearing one in the list.
+  { relativePath: ".claude/skills/plan-execution/scripts/preflight.mjs", args: [] },
 ];
 
 /**

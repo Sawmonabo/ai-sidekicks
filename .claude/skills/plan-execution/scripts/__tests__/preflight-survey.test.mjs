@@ -741,6 +741,117 @@ test("surveyCorpus: legacy marker-shape debt at an exempt path diverts out of th
   }
 });
 
+test("a cite gate that THREW gates unconditionally, not only under --enforce-cites", () => {
+  // A screen that failed to RUN is a structural failure of the survey, not a
+  // judgement about cite quality — the same class the outer catch already
+  // routes to `anomalies`. Parked in `citeAnomalies` it waited for
+  // --enforce-cites to be armed, so a plain `--survey` run exited 0 over a unit
+  // that was never screened: a green verdict covering work that did not happen.
+  const tmp = makeFixtureCorpus({ "071-gate-throws.md": CLEAN_PHASE });
+  try {
+    const survey = surveyCorpus({
+      repoRoot: tmp,
+      runCiteGate: () => {
+        throw new Error("synthetic gate explosion");
+      },
+    });
+    assert.equal(
+      survey.citeAnomalies.filter((a) => a.includes("[cite-check-threw]")).length,
+      0,
+      "a thrown gate must not sit in the channel that only gates when armed",
+    );
+    const structural = survey.anomalies.filter((a) => a.includes("[cite-check-threw]"));
+    assert.equal(structural.length, 1, survey.anomalies.join("\n"));
+    assert.match(structural[0], /synthetic gate explosion/);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("an inline-anchor-floor throw also gates unconditionally", () => {
+  // Second catch arm, same policy. Pinned separately because the two screens
+  // are independent — the floor deliberately runs even when the cite gate threw.
+  const tmp = makeFixtureCorpus({ "072-floor-throws.md": CLEAN_PHASE });
+  try {
+    const survey = surveyCorpus({
+      repoRoot: tmp,
+      runInlineAnchorFloor: () => {
+        throw new Error("synthetic floor explosion");
+      },
+    });
+    assert.equal(survey.citeAnomalies.filter((a) => a.includes("[cite-check-threw]")).length, 0);
+    const structural = survey.anomalies.filter((a) => a.includes("[cite-check-threw]"));
+    assert.equal(structural.length, 1, survey.anomalies.join("\n"));
+    assert.match(structural[0], /inline anchor floor: synthetic floor explosion/);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("the injected screens default to the real ones (the seam is test-only)", () => {
+  // Guards the seam itself: a default that silently pointed at a no-op would
+  // disable the entire cite screen in production while every fixture above
+  // still passed. Same fixture, no injection — the real gate must produce the
+  // real finding.
+  const tmp = makeFixtureCorpus({ "073-real-default.md": BAD_CITE_PLAN });
+  try {
+    const survey = surveyCorpus({ repoRoot: tmp });
+    assert.ok(
+      survey.citeAnomalies.length > 0,
+      "the un-injected survey must run the REAL cite gate and find the malformed payload",
+    );
+    assert.equal(
+      survey.anomalies.filter((a) => a.includes("[cite-check-threw]")).length,
+      0,
+      "the real gate is fail-closed internally and must not throw",
+    );
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("an exempt plan the survey could NOT read is never ratcheted as re-authored", () => {
+  // A plan that fails to scan emits zero cite anomalies, so by COUNT ALONE it
+  // is indistinguishable from one that was scanned and found clean. The ratchet
+  // acting on that count told the author to delete the exemption — dropping
+  // real debt coverage on evidence that was never gathered.
+  const exemptBase = LEGACY_INLINE_CITE_EXEMPT[0].slice("docs/plans/".length);
+  const tmp = makeFixtureCorpus({ [exemptBase]: LEGACY_UNBOLD_PHASE });
+  try {
+    // Replace the plan file with a directory of the same name so readFileSync
+    // throws EISDIR — a portable way to force the scan to fail.
+    const planPath = join(tmp, "docs", "plans", exemptBase);
+    rmSync(planPath);
+    mkdirSync(planPath);
+
+    const survey = surveyCorpus({ repoRoot: tmp });
+    assert.equal(
+      survey.uncoveredPlans.length,
+      1,
+      "fixture must actually fail the scan or it proves nothing",
+    );
+    assert.equal(survey.uncoveredPlans[0].name, exemptBase);
+
+    assert.deepEqual(
+      survey.citeAnomalies.filter((a) => a.includes("[stale-exemption]")),
+      [],
+      "an unscanned exempt plan must not be ratcheted as clean",
+    );
+    // It still gates — via the unconditional survey-uncovered channel, so
+    // withholding the ratchet verdict hides nothing.
+    assert.ok(
+      survey.anomalies.some((a) => a.includes("[survey-uncovered]")),
+      "the unreadable plan must still gate",
+    );
+    // The dead-entry detector keeps its meaning: the row is present, flagged.
+    assert.equal(survey.exemptFiles.length, 1);
+    assert.equal(survey.exemptFiles[0].uncovered, true);
+    assert.match(formatSurvey(survey), /not scanned \(see uncovered\) — exemption retained/);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 test("surveyCorpus: a verifier-class defect at an exempt path GATES — the divert is kind-scoped (Codex P1, PR #214)", () => {
   // Regression control for the kind-blind divert: the exemption hides only the
   // legacy marker-SHAPE classes. An extractor/verifier finding (here
