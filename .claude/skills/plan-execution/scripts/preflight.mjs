@@ -736,34 +736,53 @@ export function extractTasksBlock(phaseSection) {
   return blocks.length ? blocks.join("\n") : null;
 }
 
-// Extract declared task ids from a phase's `#### Tasks` block. Returns a
-// sorted unique array. Handles both audit-Tasks-block layouts:
-//   Pattern A: sub-header form     `##### T1.1 — title`
-//   Pattern B: bullet+bold inline  `- **T-007p-1-1** (Files: ...)`
-// Both patterns coexist across the corpus (Plan-001 phases use A;
-// Plan-007 partial phases use B); the audit runbook treats them as
-// equivalent and Gate 3's set-comparison must accept both.
+// The corpus's task-header spellings, defined ONCE. Two independent copies of
+// this recognizer already drifted: Gate 3's declared-id extractor was hardened
+// on PR #190 to accept every shape, while the cite-attribution copy kept the
+// narrow `**id**` form and silently mis-labeled findings under 241 headers
+// across 12 plans (220 of them in-phase). A single definition is the only thing
+// that stops "what counts as a task row" from forking again.
+//
+// (?=[-\d]) pins the task-id SHAPE: a digit (T1.1) or hyphen (T-100-1.1) must
+// follow T — otherwise prose bolds/headings starting with T ("Tests:",
+// "Testing") phantom-match. A phantom declared id makes Gate 3 see the phase as
+// never fully shipped (auto-walk re-enters shipped work — Codex P1, PR #190,
+// reproduced on Plan-003 Phase 1).
+export const TASK_ID_SHAPE = String.raw`T(?=[-\d])[-a-zA-Z0-9.]+`;
+
+// Both audit-Tasks-block layouts, every observed spelling:
+//   A. sub-header     `##### T1.1 — title`
+//   B. bullet + bold  `- **T-007p-1-1** (Files: …)`      bold closes after id
+//                     `- **T1.1 — title**`               title INSIDE the bold
+//                     `- [ ] **T21.1-1 — …**`            GFM checkbox
+//                     `  - **T-007r-3-15 (slice a) …**`  indented sub-slice
+//
+// No closing-`**` tail is required: titles containing a literal `*` (Plan-009
+// `repo.*`, Plan-018 `participant.*`, Plan-022 `gdpr.*`) broke a `[^*\n]*\*\*`
+// tail, and the omitted id let Gate 3 mark a phase fully shipped with work
+// still pending (Codex P1, PR #190).
+//
+// Indent tolerance is shared deliberately: it was measured corpus-neutral —
+// across all 77 phases it adds ZERO declared ids — so both consumers can hold
+// one anchor without moving any Gate-3 verdict. Widening this pattern widens a
+// GATING path, not just a diagnostic one; `extractDeclaredTaskIds` feeds
+// `classifyPhaseSize`, which demotes G4 grammar findings for S/M phases. Re-run
+// that corpus measurement before loosening it.
+export function taskHeaderMatches(text) {
+  return [
+    ...text.matchAll(new RegExp(String.raw`^#####\s+(${TASK_ID_SHAPE})\b`, "gm")),
+    ...text.matchAll(
+      new RegExp(String.raw`^[ \t]*-\s+(?:\[[ xX]\]\s+)?\*\*(${TASK_ID_SHAPE})\b`, "gm"),
+    ),
+  ];
+}
+
+// Declared task ids for a phase's `#### Tasks` block — sorted, unique.
+// Gate 3's set-comparison treats every spelling above as equivalent.
 export function extractDeclaredTaskIds(phaseSection) {
   const block = extractTasksBlock(phaseSection);
   if (block === null) return [];
-  const ids = new Set();
-  // (?=[-\d]) pins the task-id SHAPE: a digit (T1.1) or hyphen (T-100-1.1)
-  // must follow T — otherwise prose bolds/headings starting with T ("Test",
-  // "Testing") phantom-match, and a phantom declared id makes Gate 3 see the
-  // phase as never fully shipped (auto-walk re-enters shipped work — Codex P1,
-  // PR #190, reproduced on Plan-003 Phase 1).
-  for (const m of block.matchAll(/^#####\s+(T(?=[-\d])[-a-zA-Z0-9.]+)\b/gm)) ids.add(m[1]);
-  // Bullet shapes: `- **T-100-1.1** — title` (bold closes after the id),
-  // `- **T1.1 — title**` (title INSIDE the bold — Plan-009/016), optional GFM
-  // checkbox (`- [ ] **T21.1-1 — …**` — Plan-021). No closing-`**` tail is
-  // required: titles containing a literal `*` (Plan-009 `repo.*`, Plan-018
-  // `participant.*`, Plan-022 `gdpr.*`) broke a `[^*\n]*\*\*` tail and the
-  // omitted id let Gate 3 mark the phase fully shipped while that task was
-  // still pending (Codex P1, PR #190). The top-level-bullet anchor + `**T` +
-  // digit/hyphen lookahead are the guards against prose bolds.
-  for (const m of block.matchAll(/^-\s+(?:\[[ xX]\]\s+)?\*\*(T(?=[-\d])[-a-zA-Z0-9.]+)\b/gm))
-    ids.add(m[1]);
-  return [...ids].sort();
+  return [...new Set(taskHeaderMatches(block).map((m) => m[1]))].sort();
 }
 
 // --- Size classification (design memo §5, 2026-07-06 refinement) ---
@@ -2474,30 +2493,25 @@ export function extractCiteAnchors(phaseSection) {
     payload = payload.replace(/[.,;:]+\s*$/, "");
     if (!payload) continue;
     const prefix = scanned.slice(0, marker.index);
-    // Attribution = the NEAREST PRECEDING task header, whichever spelling it
-    // uses. Both halves of this were wrong before and both mis-label findings
-    // rather than mis-gate them (`taskId` is diagnostic — it never feeds a
-    // pass/fail decision), which is exactly why it went unnoticed:
+    // Attribution = the NEAREST PRECEDING task header, in any spelling — hence
+    // the shared `taskHeaderMatches` recognizer rather than a private copy.
+    // Both halves of this were wrong before, and both mis-LABEL findings rather
+    // than mis-gate them (`taskId` is diagnostic; it never feeds a pass/fail
+    // decision), which is exactly why it went unnoticed — the gate's verdict
+    // stayed correct while its finger pointed at the wrong row:
     //
-    //   1. The bullet form required the `**` to close immediately after the id
-    //      (`- **T-025d-14-1** (Files: …)`). The corpus-dominant spelling closes
-    //      it after the TITLE (`- **T1.2 — Seven wire pairs.**`), and a checkbox
-    //      may sit between the dash and the id. 241 headers across 12 plans went
-    //      unrecognized — 220 of them inside phase sections — so every marker
-    //      under one silently inherited the last id that DID match.
-    //   2. `??` preferred the heading form whenever any `#####` header existed
-    //      anywhere in the prefix, even when a bullet header sat closer to the
-    //      marker. Nearest-preceding means latest by index, not by spelling.
-    //
-    // The id shape is constrained to `T` + digit-or-hyphen so ordinary bold
-    // fields (`- **Tests:**`, `- **Target areas:**`) cannot be read as tasks.
-    const TASK_ID = String.raw`T(?:\d|-)[-\w.]*`;
-    const taskMatch = [
-      ...prefix.matchAll(new RegExp(String.raw`^#####\s+(${TASK_ID})`, "gm")),
-      ...prefix.matchAll(
-        new RegExp(String.raw`^[ \t]*-\s+(?:\[[ xX]\]\s+)?\*\*(${TASK_ID})\b`, "gm"),
-      ),
-    ].reduce((latest, m) => (latest === null || m.index > latest.index ? m : latest), null);
+    //   1. The private bullet form required `**` to close immediately after the
+    //      id (`- **T-025d-14-1** (Files: …)`). The corpus-dominant spelling
+    //      closes it after the TITLE (`- **T1.2 — Seven wire pairs.**`). 241
+    //      headers across 12 plans went unrecognized — 220 in-phase — so every
+    //      marker under one inherited the last id that DID match.
+    //   2. `??` preferred the heading form whenever any `#####` header appeared
+    //      anywhere in the prefix, even with a bullet header closer to the
+    //      marker. Nearest-preceding means latest by INDEX, not by spelling.
+    const taskMatch = taskHeaderMatches(prefix).reduce(
+      (latest, m) => (latest === null || m.index > latest.index ? m : latest),
+      null,
+    );
     const taskId = taskMatch ? taskMatch[1] : null;
     const lineNo = prefix.split("\n").length;
     const { anchors: a, failures: f } = parseCitePayload(payload);

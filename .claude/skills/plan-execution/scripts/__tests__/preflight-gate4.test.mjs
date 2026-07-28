@@ -5,7 +5,15 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { mkdtempSync, mkdirSync, symlinkSync, existsSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  symlinkSync,
+  existsSync,
+  writeFileSync,
+  readdirSync,
+  readFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import process from "node:process";
@@ -21,6 +29,9 @@ import {
   classifyPhaseSize,
   extractDeclaredFilePaths,
   extractDeclaredTaskIds,
+  extractTasksBlock,
+  walkPhases,
+  extractPhaseSection,
   G4_GRAMMAR_DEMOTE_KINDS,
   LEGACY_INLINE_EXEMPT_KINDS,
 } from "../preflight.mjs";
@@ -464,6 +475,94 @@ test("extractCiteAnchors prefers the nearest header, not the heading-form one", 
   const { anchors } = extractCiteAnchors(sec);
   assert.equal(anchors.length, 1);
   assert.equal(anchors[0].taskId, "T2.9");
+});
+
+// Anti-drift, over the REAL corpus. Cite attribution and Gate 3's declared-id
+// extraction are two consumers of one question — "what is a task row?" — and
+// they already forked once: Gate 3 was hardened on PR #190 while attribution
+// kept the narrow `**id**` form, mis-labeling findings under 241 headers in 12
+// plans. They now share `taskHeaderMatches`; this pins that they agree, so a
+// future private copy in either consumer fails here instead of silently
+// mis-routing findings again. Attribution is diagnostic and Gate 3 gates, so
+// divergence never shows up as a red build on its own.
+test("corpus: every marker is attributed to its nearest preceding declared task header", () => {
+  const plansDir = resolve(
+    dirname(fileURLToPath(import.meta.url)),
+    "..",
+    "..",
+    "..",
+    "..",
+    "..",
+    "docs",
+    "plans",
+  );
+  const planFiles = readdirSync(plansDir).filter((n) => /^\d{3}-.*\.md$/.test(n));
+  assert.ok(
+    planFiles.length >= 20,
+    `expected the real plans corpus, saw ${planFiles.length} file(s)`,
+  );
+
+  let attributedCount = 0;
+  const orphans = [];
+  for (const name of planFiles) {
+    const src = readFileSync(resolve(plansDir, name), "utf8");
+    for (const phase of walkPhases(src)) {
+      const section = extractPhaseSection(src, phase.number ?? phase);
+      if (!section) continue;
+      const block = extractTasksBlock(section);
+      if (block === null) continue;
+      const declared = extractDeclaredTaskIds(section);
+      const lines = block.split("\n");
+      // Independent oracle. Deliberately NOT `taskHeaderMatches` — reusing the
+      // implementation would make this tautological. Instead, take Gate 3's
+      // declared ids as the authority and locate each one positionally, then
+      // assert attribution picked the nearest preceding one. "Attributed id is
+      // SOME declared id" is too weak to catch the original defect: markers
+      // under `T-025s-1` were attributed to `T-025d-19-1`, which is itself a
+      // declared id, so a membership check passes over the exact bug.
+      const headerIdByLine = lines.map((line) => {
+        for (const id of declared) {
+          const esc = id.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&");
+          if (
+            new RegExp(String.raw`^(?:#####\s+|\s*-\s+(?:\[[ xX]\]\s+)?\*\*)${esc}\b`).test(line)
+          ) {
+            return id;
+          }
+        }
+        return null;
+      });
+      for (const anchor of extractCiteAnchors(block).anchors) {
+        if (!anchor.taskId) continue;
+        attributedCount++;
+        let expected = null;
+        for (let i = Math.min(anchor.lineNo, lines.length) - 1; i >= 0; i--) {
+          if (headerIdByLine[i]) {
+            expected = headerIdByLine[i];
+            break;
+          }
+        }
+        if (expected !== null && anchor.taskId !== expected) {
+          orphans.push(
+            `${name} Phase ${phase.number ?? phase} line ${anchor.lineNo}: ` +
+              `attributed ${anchor.taskId}, nearest preceding header is ${expected}`,
+          );
+        }
+      }
+    }
+  }
+
+  // Non-vacuity floor: a zero denominator would make the assertion below pass
+  // over nothing at all, which is the exact false-clean shape this suite exists
+  // to catch. If attribution stops resolving ids, fail loudly here.
+  assert.ok(
+    attributedCount > 50,
+    `expected the corpus to attribute many anchors; got ${attributedCount}`,
+  );
+  assert.deepEqual(
+    orphans,
+    [],
+    `markers attributed to a task other than their nearest preceding header:\n  ${orphans.join("\n  ")}`,
+  );
 });
 
 test("gateTasksBlockCites passes on clean Tasks block with verified anchors", () => {
