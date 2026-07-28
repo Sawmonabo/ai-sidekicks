@@ -47,6 +47,7 @@
 // `../lib/table-arity.ts`.
 
 import { realpathSync, statSync } from "node:fs";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -57,6 +58,7 @@ import {
   expandToInboundCiteCorpus,
   findGovernanceCitersOfCode,
   getRepoRoot,
+  listGitIndexPaths,
   makeCommitSnapshotReader,
 } from "../lib/inbound-cite-discovery.ts";
 import {
@@ -81,9 +83,16 @@ import {
   formatTableTotalViolations,
 } from "../lib/table-total-coherence.ts";
 
-function isMdFile(p: string): boolean {
+// Lane predicates split SHAPE (extension/prefix rules on the path string)
+// from EXISTENCE (membership below): shape is pure, existence is
+// index-OR-worktree, and `runChecks` composes them.
+function isMdPath(p: string): boolean {
+  return p.endsWith(".md");
+}
+
+function statIsFile(p: string): boolean {
   try {
-    return statSync(p).isFile() && p.endsWith(".md");
+    return statSync(p).isFile();
   } catch {
     return false;
   }
@@ -111,12 +120,7 @@ function isInGovernanceCorpus(p: string): boolean {
 // required gate to source a developer actually edits.
 const CODE_FILE_RE = /\.(ts|tsx|mts|cts)$/;
 
-function isCodeFile(p: string): boolean {
-  try {
-    if (!statSync(p).isFile()) return false;
-  } catch {
-    return false;
-  }
+function isCodePath(p: string): boolean {
   if (!CODE_FILE_RE.test(p) || p.endsWith(".d.ts")) return false;
   if (p.includes("/dist/") || p.startsWith("dist/")) return false;
   return p.startsWith("packages/") || p.startsWith("apps/");
@@ -180,9 +184,10 @@ export function parseRunnerArguments(argv: string[]): RunnerArguments {
       continue;
     }
     // Unknown options THROW rather than falling through to the file list. Both
-    // lane filters stat their argument, so a `--min-mb=200` typo would be
-    // silently discarded as a nonexistent path, leaving the floor at 0 and the
-    // gate reporting clean over a run nothing enforced.
+    // lane filters require an existing file (git index or worktree), so a
+    // `--min-mb=200` typo would be silently discarded as a nonexistent path,
+    // leaving the floor at 0 and the gate reporting clean over a run nothing
+    // enforced.
     if (argument.startsWith("-")) {
       throw new Error(`unknown option: ${argument}`);
     }
@@ -204,8 +209,22 @@ export interface LaneFloors {
 }
 
 export function runChecks(args: string[], floors: LaneFloors = {}): RunChecksResult {
-  const stagedMd = args.filter(isMdFile).filter(isInGovernanceCorpus);
-  const stagedCode = args.filter(isCodeFile);
+  const repoRoot = getRepoRoot();
+  // Lane EXISTENCE matches what the commit-snapshot reader below can serve:
+  // present in the git INDEX or on disk. Stat-only classification silently
+  // dropped a staged file whose worktree copy was renamed or deleted without
+  // `git rm` — commit content invisible to every per-file check, a required
+  // gate failing open (Codex, PR #269 round 4). A path in NEITHER place stays
+  // dropped: with no index blob and no disk copy there is nothing any check
+  // could read (a true staged deletion — which lefthook's `--diff-filter=ACMR`
+  // never passes anyway — must not crash the disk fallback). Outside a git
+  // repo the enumeration is null and classification degrades to stat-only,
+  // which was already correct for ad-hoc probes and bare temp fixtures.
+  const gitIndexPaths = listGitIndexPaths(repoRoot);
+  const existsForLane = (p: string): boolean =>
+    (gitIndexPaths !== null && gitIndexPaths.has(resolve(p))) || statIsFile(p);
+  const stagedMd = args.filter((p) => isMdPath(p) && existsForLane(p)).filter(isInGovernanceCorpus);
+  const stagedCode = args.filter((p) => isCodePath(p) && existsForLane(p));
   const laneCounts = { md: stagedMd.length, code: stagedCode.length };
   const messages: string[] = [];
   let exitCode = 0;
@@ -265,8 +284,17 @@ export function runChecks(args: string[], floors: LaneFloors = {}): RunChecksRes
     exitCode = 1;
   }
 
-  if (stagedMd.length > 0) {
-    const mermaidHits = checkMermaidSetCoherence(stagedMd);
+  // mermaid + table-total read the WORKTREE directly (they take file paths,
+  // not an injected reader), so they get the disk-present subset of the lane:
+  // an index-only member would ENOENT mid-check. For these two checks that
+  // subset IS the pre-round-4 lane — behavior unchanged — while the
+  // reader-based checks below take the full lane, index-only members
+  // included. The split dissolves when these two migrate to the shared
+  // commit-snapshot reader.
+  const stagedMdOnDisk = stagedMd.filter(statIsFile);
+
+  if (stagedMdOnDisk.length > 0) {
+    const mermaidHits = checkMermaidSetCoherence(stagedMdOnDisk);
     if (mermaidHits.length > 0) {
       messages.push(formatMermaidViolations(mermaidHits));
       exitCode = 1;
@@ -277,8 +305,8 @@ export function runChecks(args: string[], floors: LaneFloors = {}): RunChecksRes
   // tables: re-sum the marked column and reconcile it against the in-table
   // **Total** row and any declared prose total. Closes the F-4 gap from the
   // PR #152 retrospective (a census summary that drifted from its own column).
-  if (stagedMd.length > 0) {
-    const totalHits = checkTableTotalCoherence(stagedMd);
+  if (stagedMdOnDisk.length > 0) {
+    const totalHits = checkTableTotalCoherence(stagedMdOnDisk);
     if (totalHits.length > 0) {
       messages.push(formatTableTotalViolations(totalHits));
       exitCode = 1;
@@ -306,7 +334,6 @@ export function runChecks(args: string[], floors: LaneFloors = {}): RunChecksRes
   // invocation-agnostic. Constructed here, ahead of its first consumer: it
   // opens no subprocess until a path is actually read, and it memoizes, so the
   // two lanes share one `git show` per file rather than one each.
-  const repoRoot = getRepoRoot();
   const reader = makeCommitSnapshotReader(repoRoot, args);
 
   // Structural guard on EVERY table (no marker opt-in): each row must carry its

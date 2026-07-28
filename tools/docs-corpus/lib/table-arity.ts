@@ -39,7 +39,7 @@
 // subset excludes is a disclosed and MEASURED bound, and the gate never fails
 // on markup it cannot confidently classify.
 //
-// That last clause is three rules in the code, each failing CLOSED — declining
+// That last clause is four rules in the code, each failing CLOSED — declining
 // to recognize rather than declining to report:
 //   - a table opens only at a BLOCK BOUNDARY, so a header/delimiter pair inside
 //     a paragraph or a raw-HTML block is never read as a table;
@@ -47,7 +47,9 @@
 //     blockquote depth, or starting a new block — CLOSES the table and is never
 //     compared against its header;
 //   - a delimiter row with any cell outside `:?-+:?` declines recognition
-//     outright, rather than being measured for arity.
+//     outright, rather than being measured for arity;
+//   - a lone `|` header declines recognition: the one character cannot serve
+//     as both outer pipes, and GFM renders the pair as prose.
 // Three review rounds each returned a finding of the same shape: some context
 // where a table-shaped line is not a table. These rules are the general answer
 // to that shape, which is why the third round adds no new suppression list.
@@ -71,14 +73,19 @@
 //     illustrative table inside ``` is prose ABOUT a table, not one (which is
 //     what lets the failure-mode catalog print the broken shape without the
 //     gate failing on the documentation of itself);
-//   - HTML comments opened at BLOCK level, opener and closer lines included —
-//     an HTML block interrupts what precedes it and its content is not
-//     markdown, so comparing the opener's own pipes would flag a line GFM never
-//     renders as a row;
+//   - terminating raw-HTML blocks opened at BLOCK level — comment, processing
+//     instruction, declaration, CDATA (CommonMark types 2-5), opener and
+//     closer lines included: an HTML block interrupts what precedes it, its
+//     content is not markdown, and all four forms span blank lines until
+//     their closing sequence, so comparing the opener's own pipes would flag
+//     a line GFM never renders as a row;
 //   - leading YAML front matter, which is not markdown at all: 27 of the
 //     enforced files carry it — 12 `.claude/agents/` definitions, 12 preflight
 //     Gate-4 fixtures, 3 skill files — 0 with a pipe in the block today, and a
-//     future `description: a | b` must not be read as a row;
+//     future `description: a | b` must not be read as a row. Closed at the
+//     first BARE `---`/`...` fence; failing that, at the first fence carrying
+//     a trailing YAML comment (`frontMatterEndIndex` holds the two-reading
+//     union argument);
 //   - indented code, via CommonMark's three-space block bound on a table's
 //     header and delimiter rows (`hasLegalTableIndent`).
 // Cell splitting is the shared `markdown-tables.ts` walk, whose backslash-run
@@ -110,8 +117,9 @@
 //      compare. The shapes GFM does NOT absorb — a heading, list item, HTML tag
 //      or fence abutting a table — are classified rather than left to this
 //      bound, so the residual is the lazy prose case alone.
-//   3. (recall) An HTML comment closing mid-line suppresses the whole of that
-//      line, so live markup in the TAIL after `-->` is not checked.
+//   3. (recall) A terminating raw-HTML block closing mid-line suppresses the
+//      whole of that line, so live markup in the TAIL after its closer —
+//      `-->`, `?>`, `>`, `]]>` — is not checked.
 //   4. (recall) A header indented four or more spaces, or by a tab, is never
 //      recognized. This is the superset of the list-container case (a table
 //      nested under a list item carries that indentation), and taking it as one
@@ -123,16 +131,17 @@
 //      table early can only lose findings, never invent them, whereas without
 //      it a quoted header abutting an unquoted delimiter synthesizes a table
 //      GFM never renders and then reports its "rows" (Codex, PR #269 round 2).
-//   6. (precision — one of the two bounds in that direction) An HTML comment
-//      opened MID-LINE does not suppress its interior, because entering comment
-//      state on any `<!--` anywhere on a line let a code span containing the
-//      literal characters `<!--` blank out the rest of a document (Codex,
-//      PR #269 round 2). The interior is read as live markup. Bound 7 narrows
-//      what that costs: the opener line is prose and so not a boundary, which
-//      leaves a table shape on the FIRST interior line unrecognized too — only
-//      one preceded by a blank line inside the comment is still exposed.
+//   6. (precision — one of the two bounds in that direction) A terminating
+//      raw-HTML block opened MID-LINE does not suppress its interior, because
+//      entering suppression on an opener anywhere on a line let a code span
+//      containing the literal characters `<!--` blank out the rest of a
+//      document (Codex, PR #269 round 2). The interior is read as live markup.
+//      Bound 7 narrows what that costs: the opener line is prose and so not a
+//      boundary, which leaves a table shape on the FIRST interior line
+//      unrecognized too — only one preceded by a blank line inside the block
+//      is still exposed.
 //   7. (recall) A header/delimiter pair is recognized only at a BLOCK BOUNDARY:
-//      after a blank line, a heading, a fence or comment closer, table
+//      after a blank line, a heading, a fence or raw-HTML-block closer, table
 //      machinery, or at the start of the scan. A pair anywhere else is not
 //      compared — continuing a paragraph, inside a raw-HTML block, inside a
 //      tight list, or directly beneath a single-line `<!-- … -->` comment (a
@@ -147,10 +156,12 @@
 //   8. (precision — the second) A CommonMark TYPE-1 HTML block (`pre`, `script`,
 //      `style`, `textarea`) spans blank lines, while a blank line here opens a
 //      boundary unconditionally, so a table shape after a blank line INSIDE such
-//      a block would be recognized. Excluding it means tracking type-1 openers
-//      and their matching closers — HTML state this design declines to hold for
-//      a population of zero. Type-6 blocks (`<div>` and friends) are unaffected:
-//      they END at a blank line, so reading what follows as markdown is correct.
+//      a block would be recognized. Types 2-5 ARE tracked — each is a literal
+//      opener/closer pair — but type 1 opens on a case-insensitive TAG-NAME set
+//      and closes on any of four end tags, a different shape of state this
+//      design declines to hold for a population of zero. Type-6 blocks (`<div>`
+//      and friends) are unaffected: they END at a blank line, so reading what
+//      follows as markdown is correct.
 //   9. (recall) A pair whose delimiter row carries any cell outside `:?-+:?`
 //      (`| --- | : |`) is not recognized, so neither that row nor the rows below
 //      it are compared. GFM does not recognize it either, which is what makes
@@ -202,27 +213,74 @@ function excerptOf(row: string): string {
 const readFromDisk: FileContentReader = (absolutePath) => readFileSync(absolutePath, "utf8");
 
 /**
- * Does a BLOCK-LEVEL HTML comment open on this line and stay open past its end?
+ * The CommonMark raw-HTML block forms that TERMINATE on a closing sequence
+ * rather than at a blank line: type 2 (comment), type 5 (CDATA), type 4
+ * (declaration), type 3 (processing instruction). Each spans blank lines until
+ * its closer appears, so tracking only the comment left a blank line inside
+ * the other three re-opening a block boundary — and a table shape after it
+ * read as live markup (Codex, PR #269 round 4). Types 6/7 are absent because
+ * they END at a blank line, which the boundary rule already classifies
+ * correctly; type 1 (`pre`/`script`/`style`/`textarea`) is bound 8.
  *
- * Block-level is the whole point: the line's content must START with `<!--`
- * within CommonMark's three-space block bound (`hasLegalTableIndent` is that
- * bound — it is not table-specific). Scanning for `<!--` anywhere on the line
- * meant a code span holding the literal characters — `` `<!--` `` in prose
- * about HTML comments — opened comment state and suppressed every check until
- * the next `-->`, or the end of the file (Codex, PR #269 round 2).
- *
- * `lastIndexOf` within that block-level line so one that closes a comment and
- * opens another (`<!-- a --> <!--`) is read by its FINAL state, not its first.
- * The `startsWith` guard above is what makes that index non-negative — a bare
- * `lastIndexOf` with no found-check reports "opens a comment" for every line
- * that contains none.
+ * `opens` is tested against the trimmed line START (block level); `opener` is
+ * the literal token the same-line-close scan anchors on. For the declaration
+ * form that token is `<!` — the required ASCII letter is part of the start
+ * condition, not of the token. The four start conditions are mutually
+ * disjoint (`<!--` is `<!` + `-`, not a letter; `<![CDATA[` is `<!` + `[`),
+ * so the array order carries no precedence.
  */
-function opensBlockLevelHtmlComment(line: string): boolean {
-  if (!hasLegalTableIndent(line)) return false;
-  if (!line.trimStart().startsWith("<!--")) return false;
-  const openIndex = line.lastIndexOf("<!--");
-  return line.indexOf("-->", openIndex + 4) === -1;
+interface TerminatingHtmlBlockForm {
+  opens(trimmedLine: string): boolean;
+  opener: string;
+  closer: string;
 }
+
+const TERMINATING_HTML_BLOCK_FORMS: TerminatingHtmlBlockForm[] = [
+  { opens: (trimmedLine) => trimmedLine.startsWith("<!--"), opener: "<!--", closer: "-->" },
+  {
+    opens: (trimmedLine) => trimmedLine.startsWith("<![CDATA["),
+    opener: "<![CDATA[",
+    closer: "]]>",
+  },
+  { opens: (trimmedLine) => /^<![A-Za-z]/.test(trimmedLine), opener: "<!", closer: ">" },
+  { opens: (trimmedLine) => trimmedLine.startsWith("<?"), opener: "<?", closer: "?>" },
+];
+
+/**
+ * Does a terminating raw-HTML block open at BLOCK level on this line and stay
+ * open past its end? Returns the closer to watch for, or null.
+ *
+ * Block-level is the whole point: the line's content must START with the
+ * opener within CommonMark's three-space block bound (`hasLegalTableIndent`
+ * is that bound — it is not table-specific). Scanning for `<!--` anywhere on
+ * the line meant a code span holding the literal characters — `` `<!--` `` in
+ * prose about HTML comments — opened comment state and suppressed every check
+ * until the next `-->`, or the end of the file (Codex, PR #269 round 2). The
+ * same rule now guards all four forms.
+ *
+ * `lastIndexOf` within that block-level line so one that closes a block and
+ * opens another (`<!-- a --> <!--`) is read by its FINAL state, not its
+ * first. The `opens` guard above is what makes that index non-negative — a
+ * bare `lastIndexOf` with no found-check reports "opens a block" for every
+ * line that contains none.
+ */
+function blockLevelTerminatingHtmlBlockCloser(line: string): string | null {
+  if (!hasLegalTableIndent(line)) return null;
+  const trimmedLine = line.trimStart();
+  for (const form of TERMINATING_HTML_BLOCK_FORMS) {
+    if (!form.opens(trimmedLine)) continue;
+    const openIndex = line.lastIndexOf(form.opener);
+    return line.indexOf(form.closer, openIndex + form.opener.length) === -1 ? form.closer : null;
+  }
+  return null;
+}
+
+/**
+ * A closing fence carrying a trailing YAML comment: `--- # end`, `... # done`.
+ * YAML requires whitespace before a `#` comment, so the glued `---#x` is not a
+ * marker-plus-comment in any reading and stays content.
+ */
+const CONTESTED_FRONT_MATTER_CLOSER_PATTERN = /^(?:---|\.\.\.)[ \t]+#/;
 
 /**
  * Index of the line that CLOSES leading YAML front matter, or -1 when the file
@@ -230,23 +288,43 @@ function opensBlockLevelHtmlComment(line: string): boolean {
  *
  * Front matter exists only at the very start of a file: line 1 must be the
  * opening `---`, and a `---` anywhere else is a thematic break. It ends at the
- * first following line that is `---` or `...`, both of which YAML accepts as
- * document terminators. An UNTERMINATED opener is not front matter at all — a
- * closing fence is required for the block to exist — so the file is scanned
- * from line 1 as ordinary content rather than silently swallowed whole.
+ * first following BARE fence — `---` or `...`, both YAML document terminators.
+ * An UNTERMINATED opener is not front matter at all — a closing fence is
+ * required for the block to exist — so the file is scanned from line 1 as
+ * ordinary content rather than silently swallowed whole.
  *
- * Both fences are matched after `trimEnd()`, which tolerates a CRLF file's
+ * A fence carrying a trailing YAML comment (`--- # end`) is CONTESTED markup:
+ * bare-fence hosts (Jekyll's `^(---|\.\.\.)\s*$`, Hugo, gray-matter's
+ * delimiter match) do not close on it, while YAML's own document-marker
+ * grammar does — as does this repo's operative front-matter consumer,
+ * preflight's `parseFrontmatter`
+ * (.claude/skills/plan-execution/scripts/preflight.mjs), which closes on any
+ * following line that merely STARTS with `---`. So the fence tiers rather
+ * than adjudicating: the first bare fence closes whenever one exists anywhere
+ * below; only when none does, the first comment-carrying fence closes (Codex,
+ * PR #269 round 4). That is the UNION of the two readings' front-matter
+ * extents — under either authority every line that authority calls front
+ * matter is suppressed, so a divergent closer can cost recall on the
+ * contested region but never a false positive. The residual is the
+ * prefix-only closer shape the bare-fence hosts and YAML BOTH reject
+ * (`---suffix`, `----`), credited by nothing here — measured zero.
+ *
+ * Fences are matched after `trimEnd()`, which tolerates a CRLF file's
  * trailing `\r` (content is split on `\n`) and stray trailing spaces. Leading
- * whitespace is NOT tolerated on either fence: an indented `---` is not a front
+ * whitespace is NOT tolerated on any fence: an indented `---` is not a front
  * matter delimiter, and accepting one would extend the suppression.
  */
 function frontMatterEndIndex(lines: string[]): number {
   if (lines.length === 0 || lines[0].trimEnd() !== "---") return -1;
+  let contestedCloserIndex = -1;
   for (let index = 1; index < lines.length; index++) {
     const trimmed = lines[index].trimEnd();
     if (trimmed === "---" || trimmed === "...") return index;
+    if (contestedCloserIndex === -1 && CONTESTED_FRONT_MATTER_CLOSER_PATTERN.test(trimmed)) {
+      contestedCloserIndex = index;
+    }
   }
-  return -1;
+  return contestedCloserIndex;
 }
 
 /** ATX heading, within CommonMark's three-space block bound: `# x` … `###### x`. */
@@ -343,7 +421,9 @@ export function parseFile(
   const lines = readContent(filePath).split("\n");
   const violations: TableArityViolation[] = [];
   let openFence: OpenFenceState = null;
-  let inHtmlComment = false;
+  // The closer of the terminating raw-HTML block currently open, if any —
+  // `-->`, `?>`, `>` or `]]>` per TERMINATING_HTML_BLOCK_FORMS.
+  let openHtmlBlockCloser: string | null = null;
   // The table currently being consumed, if any. Held as loop state rather than
   // walked by an inner loop so that fence and comment tracking advance over
   // EVERY line: body rows may be pipe-bearing lines that are not table rows,
@@ -364,11 +444,11 @@ export function parseFile(
     // is the unbounded path this check declines to walk (bound 5).
     const depth = blockquoteDepth(lines[i]);
 
-    // HTML comments first: their content is not markdown at all, so it must
-    // not move fence state either. The line carrying `-->` is suppressed with
-    // the rest (bound 3).
-    if (inHtmlComment) {
-      if (unquoted.includes("-->")) inHtmlComment = false;
+    // Terminating raw-HTML blocks first: their content is not markdown at
+    // all, so it must not move fence state either. The line carrying the
+    // closer is suppressed with the rest (bound 3).
+    if (openHtmlBlockCloser !== null) {
+      if (unquoted.includes(openHtmlBlockCloser)) openHtmlBlockCloser = null;
       openTable = null;
       atBlockBoundary = true;
       continue;
@@ -388,15 +468,16 @@ export function parseFile(
     // An HTML block interrupts whatever precedes it, so the OPENER line ends
     // any open table and is itself suppressed — symmetric with the closer
     // above. Comparing it would flag the pipes in `<!-- | x | y | z |` as a
-    // row GFM does not render. A comment that opens AND closes on one line is
-    // not an HTML block: an inline `<!-- note -->` inside a real table row
-    // leaves that row live.
+    // row GFM does not render. A block that opens AND closes on one line is
+    // not entered: an inline `<!-- note -->` inside a real table row leaves
+    // that row live.
     // Every suppressed line above leaves a boundary behind it: a fence and a
-    // block-level comment are both blocks that END on their closer, so the line
+    // block-level terminating HTML block both END on their closer, so the line
     // after one begins a new block. A table abutting a closing ``` or `-->` with
     // no blank line between is therefore still recognized.
-    if (opensBlockLevelHtmlComment(unquoted)) {
-      inHtmlComment = true;
+    const closerOfOpenedBlock = blockLevelTerminatingHtmlBlockCloser(unquoted);
+    if (closerOfOpenedBlock !== null) {
+      openHtmlBlockCloser = closerOfOpenedBlock;
       openTable = null;
       atBlockBoundary = true;
       continue;
@@ -453,6 +534,17 @@ export function parseFile(
     // delimiter cell must be a legal alignment spec (bound 9).
     if (!mayOpenTable) continue;
     if (!isTableRow(unquoted) || !hasLegalTableIndent(unquoted)) continue;
+    // A lone `|` delimits no cell: the one character cannot serve as BOTH the
+    // leading and the trailing outer pipe, yet the shared splitter strips it
+    // twice and mints one empty cell — the same count as `||` — so a `|`
+    // header over a `|-|` delimiter opened a synthetic table and reported an
+    // arity on markup GitHub renders as a paragraph (Codex, PR #269 round 4).
+    // A guard, not a disclosed bound: GFM recognizes no table here either, so
+    // the decline excludes nothing GFM renders — while `||` and `| |` DO open
+    // a real one-column table and stay recognized. Local to the open path
+    // because the splitter is shared with table-total-coherence; header-side
+    // only because the delimiter side already declines (`|` holds no dash).
+    if (unquoted.trim() === "|") continue;
     if (i + 1 >= lines.length) continue;
     const delimiter = stripBlockquotePrefix(lines[i + 1]);
     if (!isTableRow(delimiter) || !isDelimiterRow(delimiter)) continue;
@@ -482,7 +574,7 @@ export function parseFile(
     atBlockBoundary = true;
     // Consume the delimiter row. Safe to skip without re-walking block state:
     // it matched `isDelimiterRow`, so it holds only pipes, dashes, colons and
-    // spaces — it can be neither a fence delimiter nor an HTML comment.
+    // spaces — it can be neither a fence delimiter nor a raw-HTML opener.
     i++;
   }
 

@@ -198,6 +198,33 @@ export function makeCommitSnapshotReader(
   };
 }
 
+// Absolute path of every entry in the git INDEX (tracked + staged-new), for
+// the runner's lane classification: a staged file whose worktree copy is gone
+// (`git add` then `mv`/`rm` without `git rm`) is still commit content the
+// commit-snapshot reader above can serve, and a lane filter that only stats
+// the worktree silently dropped it from every per-file check — a required
+// gate failing open (Codex, PR #269 round 4). One batched `git ls-files`
+// rather than a per-path probe, for the same subprocess-count reason
+// `enumerateGovernanceCorpus` batches. `-z` so no filename quoting applies.
+//
+// Returns null — not an empty set — when enumeration is unavailable (no git,
+// not a repository): callers degrade to worktree-only classification, which
+// is exactly right for non-repo invocations (ad-hoc probes, test fixtures in
+// bare temp directories). An empty SET is a real answer: a repo whose index
+// is empty has no staged-only files to preserve.
+export function listGitIndexPaths(repoRoot: string): Set<string> | null {
+  const lsFiles = spawnSync("git", ["-C", repoRoot, "ls-files", "-z", "--cached"], {
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  if (lsFiles.status !== 0) return null;
+  const indexPaths = new Set<string>();
+  for (const relPath of lsFiles.stdout.split("\0")) {
+    if (relPath !== "") indexPaths.add(resolve(repoRoot, relPath));
+  }
+  return indexPaths;
+}
+
 // Grep needles for one staged file: always its basename; for a governance doc
 // in a label-token tree (`docs/specs/016-…` → `Spec-016`), ALSO the token —
 // §-form citers reference the token, never the filename, so basename-only

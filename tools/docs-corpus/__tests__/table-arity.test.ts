@@ -496,6 +496,133 @@ Here is what the corruption looks like:
     });
   });
 
+  // CommonMark HTML block types 3 (`<?` processing instruction), 4 (`<!` +
+  // ASCII letter declaration) and 5 (`<![CDATA[`) terminate on a closing
+  // sequence, not at a blank line — exactly like the type-2 comment above.
+  // Tracking only the comment left a blank line inside the other three
+  // re-opening a block boundary, and a table shape after it was read as live
+  // markup (Codex, PR #269 round 4). Each form gets the discriminating pair:
+  // suppressed inside, still scanned after its closer — the same shape as the
+  // fence and comment bounded-suppression controls.
+  describe("terminating raw-HTML blocks (types 3-5)", () => {
+    const PI_BLOCK =
+      "<?php\n\n| a | b |\n| --- | --- | --- |\n?>\n\n| x | y |\n| --- | --- |\n| 1 | 2 |\n";
+    const DECLARATION_BLOCK =
+      "<!DOCTYPE broken [\n\n| a | b |\n| --- | --- | --- |\n]>\n\n| x | y |\n| --- | --- |\n| 1 | 2 |\n";
+    const CDATA_BLOCK =
+      "<![CDATA[\n\n| a | b |\n| --- | --- | --- |\n]]>\n\n| x | y |\n| --- | --- |\n| 1 | 2 |\n";
+
+    it("IGNORES a table shape after a blank line inside a processing instruction", () => {
+      withFile(PI_BLOCK, (file) => {
+        expect(parseFile(file)).toEqual([]);
+      });
+    });
+
+    it("resumes scanning after `?>` closes the instruction", () => {
+      withFile(PI_BLOCK.replace("| 1 | 2 |", "| 1 | 2 | 3 |"), (file) => {
+        expect(parseFile(file)).toMatchObject([
+          { line: 9, headerLine: 7, kind: "row-arity", expected: 2, actual: 3 },
+        ]);
+      });
+    });
+
+    it("IGNORES a table shape after a blank line inside a declaration", () => {
+      withFile(DECLARATION_BLOCK, (file) => {
+        expect(parseFile(file)).toEqual([]);
+      });
+    });
+
+    it("resumes scanning after `>` closes the declaration", () => {
+      withFile(DECLARATION_BLOCK.replace("| 1 | 2 |", "| 1 | 2 | 3 |"), (file) => {
+        expect(parseFile(file)).toMatchObject([
+          { line: 9, headerLine: 7, kind: "row-arity", expected: 2, actual: 3 },
+        ]);
+      });
+    });
+
+    it("IGNORES a table shape after a blank line inside a CDATA section", () => {
+      withFile(CDATA_BLOCK, (file) => {
+        expect(parseFile(file)).toEqual([]);
+      });
+    });
+
+    it("resumes scanning after `]]>` closes the CDATA section", () => {
+      withFile(CDATA_BLOCK.replace("| 1 | 2 |", "| 1 | 2 | 3 |"), (file) => {
+        expect(parseFile(file)).toMatchObject([
+          { line: 9, headerLine: 7, kind: "row-arity", expected: 2, actual: 3 },
+        ]);
+      });
+    });
+
+    // A block that opens AND closes on one line is not entered — same rule the
+    // single-line comment already gets. If suppression wrongly engaged here,
+    // the malformed pair below would vanish.
+    it("does not enter suppression from an instruction that closes on its own line", () => {
+      withFile('<?xml version="1.0"?>\n\n| a | b |\n| --- | --- | --- |\n', (file) => {
+        expect(parseFile(file)).toMatchObject([
+          { line: 4, headerLine: 3, kind: "delimiter-arity", expected: 2, actual: 3 },
+        ]);
+      });
+    });
+
+    // Block-level entry only, inherited from the comment fix (Codex, PR #269
+    // round 2): a code span holding the literal opener characters is prose.
+    it("does NOT enter suppression from `<?` inside a code span", () => {
+      withFile(
+        "Suppression begins at a `<?` opener.\n\n| a | b |\n| --- | --- |\n| 1 | 2 | 3 |\n",
+        (file) => {
+          expect(parseFile(file)).toMatchObject([{ line: 5, kind: "row-arity", actual: 3 }]);
+        },
+      );
+    });
+
+    // Bound 3, generalized: the line carrying the closer is suppressed whole,
+    // tail included.
+    it("does not check live markup in the tail after `?>` closes", () => {
+      withFile("<?\ndata\n?> | a | b |\n| --- | --- |\n| 1 | 2 | 3 |\n", (file) => {
+        expect(parseFile(file)).toEqual([]);
+      });
+    });
+  });
+
+  // splitRow strips the leading and the trailing outer pipe INDEPENDENTLY, so
+  // a lone `|` — one character serving as both — mints one empty cell, the
+  // same count as `||`. Opening on it synthesized a one-column table from a
+  // `|`/`|-|` pair GitHub renders as a paragraph, and pipe-bearing prose
+  // below was then reported against it (Codex, PR #269 round 4). The decline
+  // is a guard, not a disclosed bound: GFM recognizes no table there either —
+  // verified against GitHub's own renderer — so nothing GFM renders is
+  // excluded. It is local to the open path because the splitter is shared
+  // with table-total-coherence.
+  describe("lone-pipe header", () => {
+    it("does not open a table from a lone `|` header over a `|-|` delimiter", () => {
+      withFile("|\n|-|\ntext | with pipes\n", (file) => {
+        expect(parseFile(file)).toEqual([]);
+      });
+    });
+
+    it("declines a padded, legally-indented lone pipe the same way", () => {
+      withFile("  |  \n|-|\ntext | with pipes\n", (file) => {
+        expect(parseFile(file)).toEqual([]);
+      });
+    });
+
+    // GitHub DOES render these as one-column tables (the excess body cell is
+    // dropped — content loss, the check's primary quarry), so the guard must
+    // not widen past the single character.
+    it("still opens a one-column table from a `||` header", () => {
+      withFile("||\n|-|\n| 1 | 2 |\n", (file) => {
+        expect(parseFile(file)).toMatchObject([{ kind: "row-arity", expected: 1, actual: 2 }]);
+      });
+    });
+
+    it("still opens a one-column table from a `| |` header", () => {
+      withFile("| |\n|-|\n| 1 | 2 |\n", (file) => {
+        expect(parseFile(file)).toMatchObject([{ kind: "row-arity", expected: 1, actual: 2 }]);
+      });
+    });
+  });
+
   // GFM builds a table only from rows in the same container. Without a depth
   // check the parser synthesizes a table GFM never renders — a false POSITIVE
   // class, which is why this one is a guard rather than a disclosed bound
@@ -587,6 +714,61 @@ description: >
       withFile("# Doc\n\n---\n\n| a | b |\n| --- | --- | --- |\n\n---\n\nafter\n", (file) => {
         expect(parseFile(file)).toMatchObject([
           { kind: "delimiter-arity", expected: 2, actual: 3 },
+        ]);
+      });
+    });
+
+    // A closing fence carrying a trailing YAML comment (`--- # end`) is
+    // CONTESTED markup: bare-fence hosts (Jekyll, Hugo, gray-matter) do not
+    // close on it, while YAML's own document-marker grammar — and this repo's
+    // operative front-matter consumer, preflight's parseFrontmatter — do.
+    // Requiring a bare fence alone counted a comment-closed file as
+    // UNTERMINATED and scanned its YAML as markdown (Codex, PR #269 round 4).
+    // The tiered rule suppresses the UNION of the two readings' extents:
+    // the first bare fence closes when one exists anywhere below, else the
+    // first comment-carrying fence does — fail-closed under either authority.
+    it("closes front matter at a `--- # comment` fence when no bare fence follows", () => {
+      withFile(
+        `${FRONT_MATTER}--- # end of front matter\n\n| x | y |\n| --- | --- |\n| 1 | 2 | 3 |\n`,
+        (file) => {
+          expect(parseFile(file)).toMatchObject([
+            { line: 10, headerLine: 8, kind: "row-arity", expected: 2, actual: 3 },
+          ]);
+        },
+      );
+    });
+
+    it("accepts `... # comment` as the contested closer", () => {
+      withFile(`${FRONT_MATTER}... # end\n\n| x | y |\n| --- | --- | --- |\n`, (file) => {
+        expect(parseFile(file)).toMatchObject([
+          { line: 9, headerLine: 8, kind: "delimiter-arity", expected: 2, actual: 3 },
+        ]);
+      });
+    });
+
+    // The union order: with BOTH closers present, suppression runs through
+    // the first BARE fence — the wider extent, containing every line either
+    // reading calls front matter. A rule that closed at the comment-carrying
+    // fence would scan the pair between them and add a second violation.
+    it("prefers the first BARE fence over an earlier comment-carrying one", () => {
+      withFile(
+        `${FRONT_MATTER}--- # a yaml comment, not a bare fence\n\n| a | b |\n| --- | --- | --- |\n---\n\n| x | y |\n| --- | --- |\n| 1 | 2 | 3 |\n`,
+        (file) => {
+          expect(parseFile(file)).toMatchObject([
+            { line: 14, headerLine: 12, kind: "row-arity", expected: 2, actual: 3 },
+          ]);
+        },
+      );
+    });
+
+    // YAML itself requires whitespace before a `#` comment and bare-fence
+    // hosts reject the line outright, so the glued form closes nothing in ANY
+    // reading — the opener is unterminated and the file is ordinary content,
+    // exactly like the unterminated case above.
+    it("does not credit a fence glued to its comment (`---#x`) as a closer", () => {
+      withFile(`${FRONT_MATTER}---#x\n`, (file) => {
+        expect(parseFile(file)).toMatchObject([
+          { line: 5, headerLine: 4, kind: "delimiter-arity", expected: 2, actual: 3 },
         ]);
       });
     });

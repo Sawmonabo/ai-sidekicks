@@ -583,6 +583,69 @@ describe("pre-commit-runner — staged-deletion vs untracked fallback (commit-sn
   });
 });
 
+describe("pre-commit-runner — index-first lane membership", () => {
+  // `git add` then `mv`/`rm` (without `git rm`) leaves a path staged WITH
+  // content and absent from the worktree. The stat-only lane filters dropped
+  // it from both lanes, so every per-file check skipped commit content — a
+  // required gate failing open (Codex, PR #269 round 4). Membership is now
+  // index-OR-worktree, matching what the commit-snapshot reader can serve.
+  it("md lane: a staged table-arity violation is still caught after the worktree copy is removed", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md":
+        "# Spec\n\n| a | b |\n| --- | --- |\n| 1 | 2 | 3 |\n",
+    });
+    try {
+      rmSync(resolve(root, "docs/specs/003-runtime-node-attach.md"));
+      const result = withRepoRoot(root, () =>
+        runChecks([resolve(root, "docs/specs/003-runtime-node-attach.md")]),
+      );
+      expect(result.laneCounts.md).toBe(1);
+      expect(result.exitCode).toBe(1);
+      expect(result.messages.join("\n")).toContain("table-arity");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("code lane: a staged raw line-cite is still denied after the worktree copy is removed", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md": "# Spec\n\nline three\nline four\nline five\n",
+      "packages/x/src/f.ts": "// admission is governed by Spec-003 line 4 today\n",
+      "tools/docs-corpus/canonical-paths.json": '{ "paths": [] }\n',
+    });
+    const previousCwd = process.cwd();
+    const physicalRoot = realpathSync(root);
+    try {
+      rmSync(resolve(physicalRoot, "packages/x/src/f.ts"));
+      process.chdir(physicalRoot);
+      const result = withRepoRoot(physicalRoot, () => runChecks(["packages/x/src/f.ts"]));
+      expect(result.laneCounts.code).toBe(1);
+      expect(result.exitCode).toBe(1);
+      expect(result.messages.join("\n")).toContain("line-anchored-cite-in-code");
+    } finally {
+      process.chdir(previousCwd);
+      cleanup();
+    }
+  });
+
+  it("a path in neither the index nor the worktree stays out of the lane", () => {
+    // A true staged deletion never reaches lefthook's argv
+    // (`--diff-filter=ACMR`), but a caller passing a stale path must degrade
+    // to a skip: with no index blob and no disk copy there is nothing any
+    // check could read — inclusion would ENOENT the disk fallback mid-check.
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md": "# Spec\n",
+    });
+    try {
+      const result = withRepoRoot(root, () => runChecks([resolve(root, "docs/specs/ghost.md")]));
+      expect(result.laneCounts.md).toBe(0);
+      expect(result.exitCode).toBe(0);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
 describe("pre-commit-runner — argv parsing for the lane floors", () => {
   it("defaults both floors OFF and treats every positional as a file", () => {
     // OFF is the lefthook posture: `{staged_files}` on a commit touching only
