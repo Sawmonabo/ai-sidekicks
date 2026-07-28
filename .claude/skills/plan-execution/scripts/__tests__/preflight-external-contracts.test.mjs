@@ -216,11 +216,12 @@ const TYPESCRIPT_EXTENSIONS = [".ts", ".mts", ".cts", ".tsx"];
 // stripper mis-parsed the file around it is the failure this file exists to
 // prevent.
 //
-// Both widenings below only ADD matches, so the fail-closed direction is
+// Every widening below only ADDS matches, so the fail-closed direction is
 // preserved and prose like `import (something)` inside a comment now trips the
 // gate. That is the intended strict direction and it costs nothing today —
 // measured against the real graph, not assumed: the live match count is still
 // zero, which the assertion in the scan test is what actually enforces.
+//
 // What may sit between a callee and its `(`. JS permits comments there —
 // `import /* optional */ ("pkg")` is a valid dynamic import — and `\s*` cannot
 // span a comment, so the narrower pattern missed that call entirely. The
@@ -229,11 +230,53 @@ const TYPESCRIPT_EXTENSIONS = [".ts", ".mts", ".cts", ".tsx"];
 // because the call never executes, so BOTH layers reported clean.
 const CALLEE_GAP = String.raw`(?:\s|/\*[\s\S]*?\*/|//[^\n]*\n)*`;
 
+// `import.meta` is ALLOWLISTED rather than blocklisted, because it is a
+// resolution CAPABILITY rather than a call.
+//
+// `import.meta.resolve("micromark")` returns a URL without importing anything,
+// so no hook fires; deferred inside a function nobody invokes at load time, the
+// graph walk reports a clean dependency-free tree while preflight throws
+// ERR_MODULE_NOT_FOUND on the line that finally runs it — in precisely the
+// fresh worktree this contract exists to protect.
+//
+// A fourth named CALL pattern would not have closed that. `import.meta.resolve(`
+// is evaded by aliasing the method (`const resolveSpecifier =
+// import.meta.resolve;` — no parenthesis at the access site), by computed
+// access (`import.meta["resolve"]`), and by passing the whole object elsewhere
+// and reaching through it there. Enumerating the spellings of a capability is
+// the mechanism this file has now been burned by three times; naming the one
+// LEGAL continuation and rejecting every other is bounded by construction, and
+// an evasion has to become legal code to get through.
+//
+// `.url` is that continuation because it RESOLVES NOTHING — it reports where
+// the module already is. That, not the census below, is why it is the legal
+// one.
+//
+// Separately, and only as a statement of what the arm costs today: the graph
+// uses `import.meta` twice, both `.url` (preflight.mjs § __dirname and
+// § isDirectlyInvoked), none in lib/manifest.mjs — measured, not assumed. So
+// the arm matches nothing now.
+//
+// The allowlist is therefore expected to GROW. A legitimate later use of a
+// property that also resolves nothing — `import.meta.dirname`, say — will fail
+// this arm, and the correct response is to add it here, not to loosen the
+// pattern. Failing closed on an unrecognised capability is the behaviour being
+// bought; the entry above just records which one is currently spent.
+//
+// Gaps are admitted on both sides of each token because `import . meta . url`
+// is the same MetaProperty to the parser.
+const IMPORT_META = String.raw`\bimport${CALLEE_GAP}\.${CALLEE_GAP}meta\b`;
+const ALLOWED_IMPORT_META_PROPERTY = String.raw`${CALLEE_GAP}\.${CALLEE_GAP}url\b`;
+
 const DYNAMIC_LOAD_FORMS = [
   ["dynamic import()", new RegExp(String.raw`\bimport${CALLEE_GAP}\(`)],
   // A bare-word match — no parenthesis, so no gap to span.
   ["createRequire", /\bcreateRequire\b/],
   ["require()", new RegExp(String.raw`\brequire${CALLEE_GAP}\(`)],
+  // Named for what was SEEN rather than for the spelling that motivated it: the
+  // failure should report that a non-`.url` `import.meta` use is present, in
+  // whatever form, since the arm exists precisely because the forms are open.
+  ["import.meta (non-url)", new RegExp(`${IMPORT_META}(?!${ALLOWED_IMPORT_META_PROPERTY})`)],
 ];
 
 /** @param {string} source @returns {string[]} banned runtime-resolved forms present */
@@ -719,15 +762,60 @@ test("control: a comment between `import` and `(` does not evade the dynamic-for
   assert.deepEqual(dynamicLoadForms(evasiveRequire), ["require()"]);
 });
 
+test("control: every non-url `import.meta` spelling is caught, not just the call", () => {
+  // The round-5 finding. `import.meta.resolve` resolves a specifier WITHOUT
+  // importing it, so neither hook ever fires; deferred in an uncalled function
+  // it is invisible to the graph walk too, and the failure lands in the fresh
+  // worktree at the moment the line first executes.
+  //
+  // Each spelling below defeats a named-call pattern in a different way, which
+  // is the argument for allowlisting the continuation instead. They are checked
+  // one per assertion so a failure names the spelling that regressed.
+  const deferredCall = [
+    "export function neverCalledAtLoadTime() {",
+    '  return import.meta.resolve("third-party");',
+    "}",
+    "",
+  ].join("\n");
+  assert.deepEqual(dynamicLoadForms(deferredCall), ["import.meta (non-url)"]);
+
+  // No parenthesis at the access site at all — a call pattern has nothing to
+  // anchor on, and the capability escapes into a variable.
+  const aliasedMethod = "const resolveSpecifier = import.meta.resolve;\n";
+  assert.deepEqual(dynamicLoadForms(aliasedMethod), ["import.meta (non-url)"]);
+
+  // The property name is a string, so no `.resolve` token exists to match.
+  const computedAccess = 'const url = import.meta["resolve"]("third-party");\n';
+  assert.deepEqual(dynamicLoadForms(computedAccess), ["import.meta (non-url)"]);
+
+  // The whole object escapes; the resolution happens somewhere else entirely.
+  const escapedObject = "const meta = import.meta;\n";
+  assert.deepEqual(dynamicLoadForms(escapedObject), ["import.meta (non-url)"]);
+
+  // Comments between every token, on both sides of the dot. `import . meta` is
+  // one MetaProperty to the parser, so a gap-blind pattern misses all of these.
+  const commentGaps = 'import /* a */ . /* b */ meta /* c */ . /* d */ resolve("third-party");\n';
+  assert.deepEqual(dynamicLoadForms(commentGaps), ["import.meta (non-url)"]);
+});
+
 test("control: the widened patterns do not match ordinary static-import source", () => {
   // The widening only ever ADDS matches, so its risk is false positives on the
   // real graph rather than misses. This pins the shapes that must stay clean:
   // a static import (`import {` — the gap admits whitespace and comments, not
-  // a brace), `import.meta`, and an identifier that merely ends in `require`.
+  // a brace), `import.meta.url`, and an identifier that merely ends in
+  // `require`.
+  //
+  // The `.url` lines are load-bearing twice over. They are the graph's real
+  // shape (both live occurrences are `.url`), and they are the ONLY thing
+  // keeping the allowlist arm above from being a blanket `import.meta` ban that
+  // would fail the production scan outright. The gapped spelling is here
+  // because the allowlist admits gaps in the continuation as well as in the
+  // prefix — if it did not, legal code would trip the gate.
   const ordinary = [
     'import { readFileSync } from "node:fs";',
     'import process from "node:process";',
     "const here = import.meta.url;",
+    "const gapped = import.meta /* still legal */ . /* and here */ url;",
     "const configureRequire = () => 1;",
     "",
   ].join("\n");
@@ -778,6 +866,9 @@ test("control: the dynamic-form scan catches every form it claims to", () => {
     "createRequire",
   ]);
   assert.deepEqual(dynamicLoadForms('const fs = require("node:fs");'), ["require()"]);
+  assert.deepEqual(dynamicLoadForms('const url = import.meta.resolve("micromark");'), [
+    "import.meta (non-url)",
+  ]);
   assert.deepEqual(dynamicLoadForms('import { readFileSync } from "node:fs";'), []);
 });
 
