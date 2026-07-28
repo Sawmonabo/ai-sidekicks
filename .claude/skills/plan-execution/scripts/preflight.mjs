@@ -971,6 +971,103 @@ export function extractDeclaredTaskIds(phaseSection) {
   return [...new Set(taskHeaderMatches(block).map((m) => m[1]))].sort();
 }
 
+// --- Invariant-reference resolution (Gate 4's unresolved half) ---
+//
+// `**Verifies invariant:**` payloads parse to `plan-local-id` anchors, and
+// verifyAnchorAgainstSpec passes every one of them trivially on the stated
+// grounds that a plan-local id has "no external document to verify". That
+// premise splits in two, and only one half is true:
+//
+//   C5 / P3 / I5   genuinely plan-local — nothing outside the plan to check.
+//   I-024-4        names Plan-024 IN ITS OWN BYTES.
+//
+// So the structured references — 737 id-mentions across 567 marker lines —
+// were accepted without anything confirming the invariant they name exists.
+//
+// The discriminator below is that PROPERTY ("does this id encode an owning
+// document?"), never a list of accepted spellings. A shape enumeration is what
+// misses the next spelling somebody invents; this is the same argument that
+// made the Gate-4 complement a subtraction over positions rather than a match
+// against heading shapes.
+const OWNING_INVARIANT_ID_RE = /^I-(\d{3})-\d+(?:-\d+)*$/;
+
+// No id matching THIS pattern carries a trailing letter, because
+// PLAN_LOCAL_ID_RE ends at `$` with no letter allowed — a facet-suffixed id
+// (`I-008-7c`) never becomes an anchor at all. Facets are handled instead by
+// the roll-up at FACET_INVARIANT_HEAD_RE, which reads them out of `failures`.
+//
+// A correction worth keeping, because the wrong version of it survived a
+// review: an earlier comment here explained facet invisibility by that
+// rejection path. The rejection is real, but it was NOT the operative cause —
+// every facet in the corpus lives in Plan-008, which carries zero bold markers,
+// so its ids never reached the bold extractor to BE rejected. Right conclusion,
+// wrong mechanism; the same class as a comment describing a branch that turned
+// out to be dead. Corpus shape: 7 distinct facet spellings across 24 `.md`
+// occurrences (21 under docs/plans/), all bases declared, exactly one in field-
+// VALUE position (Plan-008:370, task `T-008r-1-4`).
+
+// Test-tier ids from a plan's `## Test And Verification Plan` tables (`I5`)
+// share the `I` prefix with invariant ids and carry NO plan segment. They are
+// declared — as TESTS — so a reference to one is a namespace collision, not a
+// dangling pointer, and the message has to say so: "undeclared invariant" sends
+// the next author hunting for a declaration that should never exist, and the
+// obvious way to silence it is to mint a fake invariant id. Live instance:
+// Plan-001:393 + :709 spelled `I5` where the line's own Files and Spec-coverage
+// fields both already say `I-024-4`. Three plans (001, 002, 003) carry `I<n>`
+// test tables; only 001 leaked one into an invariant field.
+const PLAN_LOCAL_TEST_ID_RE = /^I\d+$/;
+
+// The declaration grammars, all four observed spellings across three patterns.
+// Measured against the corpus rather than assumed — a bolded table row is live
+// here, so a pattern requiring a bare `| I-NNN-N |` under-counts silently.
+//
+//   A. heading      `### I-008-7 — Control-plane …`
+//   B. bullet+bold  `- **I-006-4-01 — …**`
+//   C. table row    `| I-021-7 | …`   and   `| **I-021-7** | …`
+//
+// Each anchors the id at a structural position (heading marker, bullet bold
+// open, first table cell) so a prose mention of an id cannot declare it.
+const INVARIANT_ID_SHAPE = String.raw`I-\d{3}-\d+(?:-\d+)*`;
+
+function invariantDeclarationMatches(text) {
+  return [
+    ...text.matchAll(new RegExp(String.raw`^#{2,5}\s+(${INVARIANT_ID_SHAPE})\b`, "gm")),
+    ...text.matchAll(new RegExp(String.raw`^[ \t]*-\s+\*\*(${INVARIANT_ID_SHAPE})\b`, "gm")),
+    ...text.matchAll(new RegExp(String.raw`^\|\s*\**\s*(${INVARIANT_ID_SHAPE})\**\s*\|`, "gm")),
+  ];
+}
+
+// The `## Invariants` block, masked. Bound is the NESTED reading — to the next
+// heading of the SAME-OR-HIGHER level (`#` or `##`) — so the `### I-NNN-M`
+// heading grammar stays INSIDE its own block instead of terminating it at the
+// first declaration.
+export function extractInvariantsBlock(planSource) {
+  const masked = maskNonContentLines(planSource);
+  const heading = /^##\s+Invariants\s*$/m.exec(masked);
+  if (!heading) return null;
+  const from = heading.index + heading[0].length;
+  const rest = masked.slice(from);
+  const next = /^#{1,2}\s+\S/m.exec(rest);
+  return rest.slice(0, next ? next.index : rest.length);
+}
+
+// Declared invariant ids for one plan — sorted, unique.
+//
+// Returns `hasBlock` alongside the ids because the two zero-cases are NOT the
+// same and must not resolve the same way. A plan with no `## Invariants` block
+// declares nothing (references to it are undeclared). A plan WITH a block that
+// parses to zero ids means the extractor failed to recognize a shape — and
+// reporting every reference to that plan as "undeclared" would bury one
+// extractor defect under a flood of wrong findings pointing at innocent lines.
+// The caller reports the block once and resolves nothing against it. Returning
+// a bare `[]` for both is the CAT-10 shape this gate exists to close.
+export function extractDeclaredInvariantIds(planSource) {
+  const block = extractInvariantsBlock(planSource);
+  if (block === null) return { ids: [], hasBlock: false };
+  const ids = [...new Set(invariantDeclarationMatches(block).map((m) => m[1]))].sort();
+  return { ids, hasBlock: true };
+}
+
 // --- Size classification (design memo §5, 2026-07-06 refinement) ---
 // S: ≤1 declared task. M: 2-3 tasks whose Files: paths sit in one top-level
 // packages/<name> | apps/<name> root (non-code paths don't count against it).
@@ -5082,6 +5179,258 @@ export function verifyInlineAnchorFloor(phaseSection, { repoRoot = REPO_ROOT } =
 // Sentinel unit label for the whole-document cite sweep. gateTasksBlockCites
 // consumes its `phaseNumber` argument only to build halt prose (the survey
 // discards that prose), so a non-numeric label is safe there.
+// ---------- Invariant-reference resolution screen ----------
+
+// Second reference channel: `verifies_invariant: [I-024-4]` inside the task-DAG
+// and shipment-manifest YAML. Every one of the corpus's 43 such lines sits
+// INSIDE a fence, so maskNonContentLines hides them from extractCiteAnchors —
+// deliberately: verifying a fenced example's cites is what let a plan with no
+// real audit output read as screened (Codex P2, #260 round 2).
+//
+// Whether a fenced YAML manifest is audit OUTPUT (screen it) or an embedded
+// record (leave it) is a policy question about the masking contract, not a
+// mechanical one, so this screen does not answer it. It COUNTS the channel and
+// reports the number, because the alternative — resolving the bold channel and
+// printing a clean verdict — would describe a second channel as checked when it
+// was never read. That is the same false-clean shape the screen exists to close,
+// so it must not be reintroduced by the screen's own reporting.
+function countFencedInvariantYamlRefs(section) {
+  const rawLines = section.split("\n");
+  const maskedLines = maskNonContentLines(section).split("\n");
+  let count = 0;
+  for (let i = 0; i < rawLines.length; i++) {
+    if (!/^\s*verifies_invariant:/.test(rawLines[i])) continue;
+    // Only the MASKED (fenced) ones are out of the bold extractor's reach. An
+    // unfenced one would be visible to nothing either, but it is a different
+    // defect and must not be silently folded into this count.
+    if (maskedLines[i] === rawLines[i]) continue;
+    count += (rawLines[i].match(/\bI-?\d[-\dA-Za-z]*\b/g) || []).length;
+  }
+  return count;
+}
+
+// Resolve one plan's declared invariants, memoized per run.
+function loadPlanInvariants(planNumber, repoRoot, cache) {
+  if (cache.has(planNumber)) return cache.get(planNumber);
+  const matches = findPaddedFiles(resolve(repoRoot, "docs", "plans"), planNumber);
+  let entry;
+  if (matches.length === 0) {
+    entry = { kind: "plan-not-found", ids: [] };
+  } else if (matches.length > 1) {
+    // Same fail-closed posture as every other findPaddedFiles caller: a numeric
+    // prefix collision means we cannot say WHICH plan owns the id.
+    entry = { kind: "plan-ambiguous", ids: [], detail: matches.map((p) => basename(p)).join(", ") };
+  } else {
+    const { ids, hasBlock } = extractDeclaredInvariantIds(readFileSync(matches[0], "utf8"));
+    entry = hasBlock
+      ? ids.length > 0
+        ? { kind: "ok", ids }
+        : { kind: "block-unparsed", ids: [] }
+      : { kind: "block-absent", ids: [] };
+  }
+  entry.reported = false;
+  cache.set(planNumber, entry);
+  return entry;
+}
+
+// A facet id (`I-008-7c`) is a sub-clause reference to a DECLARED PARENT, never
+// its own declaration: the corpus declares bare `### I-008-7` / `### I-008-12`
+// and writes the `a`/`b`/`c`/`d` suffix at the reference site to say WHICH
+// sub-clause a task verifies. PLAN_LOCAL_ID_RE ends at `$` with no letter, so a
+// facet never becomes an anchor — it lands in `failures` as
+// `plan-local-id-unparseable` carrying the offending segment in `.raw`.
+//
+// The roll-up therefore reads FAILURES, not anchors, and it happens at the
+// RESOLUTION layer: nothing about what parses changes and the corpus keeps
+// writing the suffix. Widening PLAN_LOCAL_ID_RE would move a GATING path to
+// serve a resolution-layer need; normalizing at parse time would erase which
+// sub-clause the citing text meant. Both are the wrong layer.
+//
+// HONEST LIMIT — this resolves the PARENT, not the sub-clause. `I-008-12z`
+// rolls up to a declared `I-008-12` and counts exactly like `I-008-12a`,
+// because no plan declares its facet letters anywhere a screen can read them.
+// The counter is named `parentResolved` for that reason: "the parent is
+// declared" is the claim, NOT "the reference is verified" — the sub-clause
+// analogue of the accepted-vs-verified line the `none` arm prints.
+const FACET_INVARIANT_HEAD_RE = /^(I-\d{3}-\d+(?:-\d+)*)[a-z](?![\w-])/;
+
+// Exported and separately tested: this is a branch whose negative cases CANNOT
+// be observed against the corpus — today every `plan-local-id-unparseable` in
+// an invariant field is a facet (measured: zero non-facet instances), so a
+// wrong `null` arm would fire on nothing and look correct forever. Testing it
+// directly is the only thing that pins it.
+export function facetBaseId(rawSegment) {
+  const match = FACET_INVARIANT_HEAD_RE.exec(String(rawSegment).trim());
+  return match ? match[1] : null;
+}
+
+// Nearest preceding task id for a legacy compact-inline marker. The slice is
+// INCLUSIVE of the marker's own line because the compact-inline shape packs the
+// header and the field onto one line (`- **T-008r-1-4** (…; Verifies invariant:
+// …)`) — an exclusive slice would attribute every finding to the PREVIOUS task.
+// `lineNo` indexes the raw source (verified: 48 of 48 corpus markers land on a
+// line that holds the marker text), because the masking that produced it is
+// length-preserving.
+function nearestTaskIdAt(lines, lineNo) {
+  const prefix = lines.slice(0, lineNo).join("\n");
+  const match = taskHeaderMatches(prefix).reduce(
+    (latest, m) => (latest === null || m.index > latest.index ? m : latest),
+    null,
+  );
+  return match ? match[1] : null;
+}
+
+/**
+ * Resolve every `Verifies invariant:` reference against the invariants its
+ * owning plan actually declares, across BOTH marker channels.
+ *
+ * Mirrors verifyInlineAnchorFloor's contract (per-section, fail-closed, own
+ * findings) rather than threading a plansDir through verifyAnchorAgainstSpec —
+ * the resolution needs a document the anchor verifier was built never to have.
+ *
+ * TWO CHANNELS, REPORTED SEPARATELY, NEVER SUMMED. `extractCiteAnchors` reads
+ * only the bold `**Verifies invariant:**` form; the compact-inline form
+ * (`- **T-…** (…; Verifies invariant: …)`) is `extractInlineCitePayloads`'s.
+ * Screening only the first is how 56 ids across Plan-008 — a plan with ZERO
+ * bold markers — reached no screen while the gate printed a clean total. There
+ * is deliberately no combined `resolved` field: when the legacy channel is
+ * retired its number must go visibly to zero as a CHANNEL CLOSING, not vanish
+ * into a total that quietly shrinks.
+ *
+ * Returns counts alongside findings because a zero finding count is ambiguous
+ * between "clean" and "never ran", and these numbers are the ONLY evidence that
+ * anything was checked at all.
+ */
+export function verifyInvariantReferences(
+  section,
+  { repoRoot = REPO_ROOT, cache = new Map() } = {},
+) {
+  const findings = [];
+  const bold = { resolved: 0, noneArm: 0, parentResolved: 0 };
+  const legacy = { resolved: 0, noneArm: 0, parentResolved: 0 };
+
+  // One resolution core for both channels. `facet` carries the original token
+  // when the id arrived via roll-up, so the message names what the author
+  // actually wrote rather than a base they never typed.
+  const resolveInvariantId = (id, tally, taskId, facet) => {
+    const where = taskId ? `${taskId}: ` : "";
+    const shown = facet ?? id;
+    const owning = OWNING_INVARIANT_ID_RE.exec(id);
+    if (!owning) {
+      if (PLAN_LOCAL_TEST_ID_RE.test(id)) {
+        findings.push({
+          kind: "invariant-test-id",
+          evidence: `${where}\`${id}\` looks like a test id, not an invariant id — plan test tables declare \`I<n>\` rows (\`## Test And Verification Plan\`), and an invariant id carries its owning plan (\`I-024-4\`). Cite the invariant this task verifies, or \`none\` if it verifies none; do NOT mint an invariant to match \`${id}\`.`,
+        });
+      }
+      // Cn / Pn / Pr-n and a bare In are plan-local by construction: they name
+      // no owning document, so there is nothing to resolve them against. That
+      // is the true half of the premise at verifyAnchorAgainstSpec.
+      return;
+    }
+    const planNumber = owning[1];
+    const entry = loadPlanInvariants(planNumber, repoRoot, cache);
+    if (entry.kind === "ok") {
+      if (entry.ids.includes(id)) {
+        tally.resolved += 1;
+        if (facet) tally.parentResolved += 1;
+      } else {
+        findings.push({
+          kind: "invariant-undeclared",
+          evidence: `${where}\`${shown}\` is not declared by ${planLabel(planNumber)}${facet ? ` (rolled up to parent \`${id}\`, which is also absent)` : ""} (its \`## Invariants\` block declares ${entry.ids.length}: ${entry.ids.slice(0, 6).join(", ")}${entry.ids.length > 6 ? ", …" : ""})`,
+        });
+      }
+      return;
+    }
+    // Structural failures are reported ONCE per owning plan, not once per
+    // reference. One unreadable Invariants block would otherwise emit a finding
+    // against every innocent line that cites it, burying the single real defect
+    // under a flood pointing at the wrong places.
+    if (entry.reported) return;
+    entry.reported = true;
+    if (entry.kind === "plan-not-found") {
+      findings.push({
+        kind: "invariant-plan-not-found",
+        evidence: `${where}\`${shown}\` names ${planLabel(planNumber)}, which has no \`docs/plans/${planNumber}-*.md\` file`,
+      });
+    } else if (entry.kind === "plan-ambiguous") {
+      findings.push({
+        kind: "invariant-plan-ambiguous",
+        evidence: `${where}\`${shown}\` names ${planLabel(planNumber)}, which resolves to multiple files (${entry.detail}) — cannot determine the owning declaration set`,
+      });
+    } else if (entry.kind === "block-absent") {
+      findings.push({
+        kind: "invariant-block-absent",
+        evidence: `${where}\`${shown}\` names ${planLabel(planNumber)}, which has no \`## Invariants\` block — it declares no invariants at all`,
+      });
+    } else {
+      findings.push({
+        kind: "invariant-block-unparsed",
+        evidence: `${planLabel(planNumber)} has an \`## Invariants\` block that parsed to ZERO ids — the declaration extractor does not recognize its shape, so no reference to this plan can be resolved (references are NOT reported individually)`,
+      });
+    }
+  };
+
+  const consumeAnchor = (anchor, tally, taskId) => {
+    // `none` is a legitimate, load-bearing value: Plan-003:517 and :525 spell
+    // `none (I1 is an AC-coverage test — no Plan-003 invariant exclusively
+    // verified here)` for a task that genuinely verifies no invariant. It is
+    // ACCEPTED and COUNTED, never verified — see the emit site, where the count
+    // is printed as asserted-not-verified debt.
+    if (anchor.type === "none-literal") {
+      tally.noneArm += 1;
+      return;
+    }
+    if (anchor.type !== "plan-local-id") return;
+    resolveInvariantId(anchor.id, tally, taskId, null);
+  };
+
+  // Facet roll-up. Keyed on the failure KIND plus a `^`-anchored facet shape, so
+  // any OTHER unparseable segment returns null from facetBaseId and is left
+  // alone — a roll-up that fired on the wrong failure would mint resolutions out
+  // of text nobody checked.
+  const consumeFailure = (failure, tally, taskId) => {
+    if (failure.kind !== "plan-local-id-unparseable") return;
+    const base = facetBaseId(failure.raw);
+    if (base === null) return;
+    const token = String(failure.raw)
+      .trim()
+      .slice(0, base.length + 1);
+    resolveInvariantId(base, tally, taskId, token);
+  };
+
+  // ---- Channel 1: bold `**Verifies invariant:**` markers.
+  const boldExtract = extractCiteAnchors(section);
+  for (const anchor of boldExtract.anchors) {
+    if (anchor.field !== "Verifies invariant") continue;
+    consumeAnchor(anchor, bold, anchor.taskId);
+  }
+  for (const failure of boldExtract.failures) {
+    if (failure.field !== "Verifies invariant") continue;
+    consumeFailure(failure, bold, failure.taskId);
+  }
+
+  // ---- Channel 2: legacy compact-inline markers.
+  // Disjoint from channel 1 BY CONSTRUCTION: extractInlineCitePayloads's marker
+  // regex carries a `(?!\*)` lookahead that excludes the bold spelling, and its
+  // lead-in requires `^- ` or `;`/`(`, which the bold form never presents. A
+  // section holding both spellings is therefore counted once in each channel and
+  // never twice in either — asserted by test, because that is a reading of two
+  // regexes agreeing with itself and this screen exists because such readings
+  // have been wrong twice.
+  const lines = section.split("\n");
+  for (const payload of extractInlineCitePayloads(section)) {
+    if (payload.field !== "Verifies invariant") continue;
+    const taskId = nearestTaskIdAt(lines, payload.lineNo);
+    const { anchors, failures } = parseCitePayload(payload.payload);
+    for (const anchor of anchors) consumeAnchor(anchor, legacy, taskId);
+    for (const failure of failures) consumeFailure(failure, legacy, taskId);
+  }
+
+  // No combined `resolved`: see the two-channel note on the doc comment.
+  return { findings, bold, legacy, fencedYamlRefs: countFencedInvariantYamlRefs(section) };
+}
+
 const WHOLE_DOCUMENT_UNIT_LABEL = "(whole document)";
 
 // Sentinel unit label for a COMPLEMENT unit — a contiguous run of plan source
@@ -5166,6 +5515,7 @@ export function surveyCorpus({
   repoRoot = REPO_ROOT,
   runCiteGate = gateTasksBlockCites,
   runInlineAnchorFloor = verifyInlineAnchorFloor,
+  runInvariantReferences = verifyInvariantReferences,
   partitionMarkers = partitionMarkerOffsets,
 } = {}) {
   const plansDir = resolve(repoRoot, "docs", "plans");
@@ -5216,6 +5566,19 @@ export function surveyCorpus({
   // unit's cite gate threw. Kept OUT of `complementMarkerPlans` so the
   // denominator never counts an unrun screen as coverage.
   const unjudgedComplementPlans = [];
+  // Invariant-reference resolution counters. `invariantRefsResolved` is this
+  // screen's must-not-be-zero denominator: a finding count of zero is ambiguous
+  // between "every reference resolves" and "the screen never ran", and this
+  // number tells them apart. The other two are DEBT disclosures, not work done —
+  // see the emit site. One cache spans the whole run so each owning plan's
+  // `## Invariants` block is parsed once, and so a structural failure on that
+  // block is reported once rather than once per citing line.
+  const invariantCache = new Map();
+  // Per-CHANNEL, never merged: a single total would let the legacy channel drop
+  // to zero without the number moving enough to notice.
+  const invariantBold = { resolved: 0, noneArm: 0, parentResolved: 0 };
+  const invariantLegacy = { resolved: 0, noneArm: 0, parentResolved: 0 };
+  let invariantFencedYamlRefs = 0;
   for (const name of planFileNames) {
     // Fail-closed coverage: ANY throw while surveying a plan records it as
     // uncovered and gates, instead of aborting the whole run or — the defect
@@ -5699,6 +6062,25 @@ export function surveyCorpus({
           anomalies.push(`${unitPrefix} [cite-check-threw] inline anchor floor: ${reason}`);
           citeScreenFailure ??= `inline anchor floor threw on ${unitPrefix}: ${reason}`;
         }
+        // Invariant-reference resolution: every `Verifies invariant:` id that
+        // names an owning plan is resolved against that plan's declared set, in
+        // BOTH marker channels. Position-independent like the cite screens, so
+        // it runs on complements too. Fail-closed on the same terms as above.
+        try {
+          const invariants = runInvariantReferences(section, { repoRoot, cache: invariantCache });
+          for (const finding of invariants.findings) {
+            pushCite(finding.kind, `${unitPrefix} [${finding.kind}] ${finding.evidence}`);
+          }
+          for (const key of ["resolved", "noneArm", "parentResolved"]) {
+            invariantBold[key] += invariants.bold[key];
+            invariantLegacy[key] += invariants.legacy[key];
+          }
+          invariantFencedYamlRefs += invariants.fencedYamlRefs;
+        } catch (err) {
+          const reason = String(err?.message ?? err).slice(0, 160);
+          anomalies.push(`${unitPrefix} [cite-check-threw] invariant resolution: ${reason}`);
+          citeScreenFailure ??= `invariant resolution threw on ${unitPrefix}: ${reason}`;
+        }
       }
       // The must-not-be-zero denominator for this screen, published only for
       // markers a complement screen actually judged. If complement construction
@@ -5809,6 +6191,9 @@ export function surveyCorpus({
     unjudgedComplementPlans,
     markerlessPlans,
     uncoveredPlans,
+    invariantBold,
+    invariantLegacy,
+    invariantFencedYamlRefs,
   };
 }
 
@@ -5869,6 +6254,55 @@ export function formatSurvey(survey, { enforceCites = false } = {}) {
       lines.push(`    - ${name}: ${unjudged} marker(s) in ${units} failed complement unit(s)`);
     }
   }
+  // Invariant-reference resolution: one line of work done, two of debt.
+  //
+  // `?? 0` for the same reason the coverage line uses it — a survey object
+  // missing these fields must read as NOTHING checked, never as everything
+  // checked. This block is printed UNCONDITIONALLY, including at zero: the
+  // resolved count going to zero is precisely the signal that the screen has
+  // stopped running, and a block that disappears when it regresses would make
+  // "broken" and "clean" print identically.
+  //
+  // Every line NAMES ITS OWN POPULATION rather than relying on position, and
+  // the two channels are never summed: a combined total would let the legacy
+  // channel go to zero — by retirement or by regression — without the printed
+  // number moving enough to notice which of the two happened.
+  const boldTally = survey.invariantBold ?? {};
+  const legacyTally = survey.invariantLegacy ?? {};
+  lines.push(
+    `invariant references: ${boldTally.resolved ?? 0} resolved (bold \`**Verifies invariant:**\` markers) ` +
+      `against the declared \`## Invariants\` set of the plan each id names`,
+  );
+  lines.push(
+    `  ${legacyTally.resolved ?? 0} resolved (legacy compact-inline \`Verifies invariant:\` markers) — separate channel, never summed with the bold count`,
+  );
+  // Facet roll-ups resolved the PARENT only. `I-008-7c` proves `I-008-7` is
+  // declared; nothing anywhere declares the `c`, so the sub-clause itself is
+  // unverifiable by construction. Printed as its own number for the same reason
+  // the `none` arm is: it is a weaker claim wearing the same word.
+  //
+  // Split per channel rather than summed, even though the roll-up itself is
+  // channel-agnostic: these are sub-populations OF the two totals above, and a
+  // combined figure here would be the one number a reader could mistake for a
+  // cross-channel total. Same form as the `none` arm line below.
+  lines.push(
+    `  of which ${boldTally.parentResolved ?? 0} bold + ${legacyTally.parentResolved ?? 0} legacy facet reference(s) resolved to a declared PARENT only — the sub-clause letter is declared nowhere and is not verified`,
+  );
+  // The `none` arm is ACCEPTED, never verified. Plan-003:517/:525 show the
+  // honest use (`none (I1 is an AC-coverage test)`), but nothing distinguishes
+  // that from a task that does verify an invariant and writes `none` anyway —
+  // so the size of the accepted-unverified population is printed rather than
+  // implied. Visible debt, not silent acceptance.
+  lines.push(
+    `  ${boldTally.noneArm ?? 0} bold + ${legacyTally.noneArm ?? 0} legacy marker(s) accepted on the \`none\` arm — asserted, not verified`,
+  );
+  // Second reference channel, deliberately unscreened: `verifies_invariant:`
+  // inside fenced task-DAG / manifest YAML, which maskNonContentLines hides
+  // from the bold extractor by design. Counted so that "N resolved" is never
+  // read as "every reference in the corpus".
+  lines.push(
+    `  ${survey.invariantFencedYamlRefs ?? 0} reference(s) in fenced \`verifies_invariant:\` YAML — not screened (masked as fenced content)`,
+  );
   const unsweptMarkerPlans = survey.unsweptMarkerPlans ?? [];
   if (unsweptMarkerPlans.length) {
     // Printed with the coverage block for readability, but this list is NOT a

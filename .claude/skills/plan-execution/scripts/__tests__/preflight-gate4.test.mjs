@@ -38,9 +38,21 @@ import {
   countCites,
   classifyPhaseMarkers,
   surveyCorpus,
+  extractDeclaredInvariantIds,
+  verifyInvariantReferences,
+  facetBaseId,
 } from "../preflight.mjs";
 
 const FIXTURE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "preflight-gate4-fixtures");
+// `__tests__` → `scripts` → `plan-execution` → `skills` → `.claude` → repo root.
+const REPO_ROOT_FOR_TESTS = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "..",
+  "..",
+  "..",
+  "..",
+);
 const FIXTURE_CROSS_PLAN_DEPS = resolve(FIXTURE_DIR, "cross-plan-dependencies.md");
 
 function verifyAll(payload) {
@@ -2911,4 +2923,395 @@ test("INTERACTION: illustrated marker + empty-payload marker yields exactly one 
     "T9.1",
     "the finding must name the REAL row, not the illustration",
   );
+});
+
+// ---------- Invariant-reference resolution ----------
+//
+// Gate 4 minted a `plan-local-id` anchor for every `**Verifies invariant:**` id
+// and passed it on the grounds that a plan-local id has "no external document to
+// verify". True for `C5`/`P3`; false for `I-024-4`, which names Plan-024 in its
+// own bytes. These cover the resolution that premise was skipping.
+
+// A tmp repoRoot whose docs/plans holds exactly the given `NNN-name.md` sources.
+function makeInvariantRepoRoot(plans) {
+  const root = mkdtempSync(resolve(tmpdir(), "preflight-invariants-"));
+  const plansDir = resolve(root, "docs", "plans");
+  mkdirSync(plansDir, { recursive: true });
+  for (const [name, body] of Object.entries(plans)) {
+    writeFileSync(resolve(plansDir, name), body);
+  }
+  return root;
+}
+
+const marker = (payload) => `- **T1.1 — x.** **Verifies invariant:** ${payload}`;
+
+// The legacy compact-inline spelling — the ONLY form Plan-008 and Plan-023 use.
+// `extractCiteAnchors` cannot see it, which is how 58 references reached no
+// screen while the gate printed a clean total.
+const inlineMarker = (payload, taskId = "T-100r-1-1") =>
+  `- **${taskId}** (Files: \`x.ts\` (CREATE); Verifies invariant: ${payload}; Spec coverage: \`Spec-100 §Interfaces And Contracts\`) — Do the thing.`;
+
+test("declaration extractor reads all four corpus spellings", () => {
+  const { ids, hasBlock } = extractDeclaredInvariantIds(
+    [
+      "## Invariants",
+      "",
+      "### I-100-1 — heading form",
+      "",
+      "- **I-100-2 — bullet+bold form**",
+      "",
+      "| ID | What |",
+      "| --- | --- |",
+      "| I-100-3 | plain table row |",
+      "| **I-100-4** | bolded table row |",
+      "",
+      "## Next Section",
+      "### I-100-99 — outside the block, must NOT be declared",
+    ].join("\n"),
+  );
+  assert.equal(hasBlock, true);
+  assert.deepEqual(ids, ["I-100-1", "I-100-2", "I-100-3", "I-100-4"]);
+});
+
+test("declaration extractor distinguishes NO block from an UNPARSED block", () => {
+  // The two zero-cases must not resolve the same way: an absent block declares
+  // nothing, an unreadable one means the extractor failed. Collapsing them to
+  // `[]` would report every reference to the plan as undeclared, burying one
+  // extractor defect under a flood of findings against innocent lines.
+  const absent = extractDeclaredInvariantIds("## Overview\n\nNo invariants here.\n");
+  assert.deepEqual(absent, { ids: [], hasBlock: false });
+
+  const unparsed = extractDeclaredInvariantIds(
+    "## Invariants\n\nProse only — mentions I-100-1 but declares nothing structurally.\n",
+  );
+  assert.equal(unparsed.hasBlock, true);
+  assert.deepEqual(unparsed.ids, []);
+});
+
+test("a `### I-NNN-M` declaration does not terminate its own `## Invariants` block", () => {
+  // Nested bound: the block runs to the next SAME-OR-HIGHER heading. A strict
+  // "next heading of any level" reading would end the block at the first
+  // declaration and silently declare exactly one id.
+  const { ids } = extractDeclaredInvariantIds(
+    "## Invariants\n\n### I-100-1 — first\n\n### I-100-2 — second\n\n### I-100-3 — third\n",
+  );
+  assert.deepEqual(ids, ["I-100-1", "I-100-2", "I-100-3"]);
+});
+
+test("references resolve within a plan and ACROSS plans", () => {
+  const root = makeInvariantRepoRoot({
+    "100-a.md": "## Invariants\n\n### I-100-1 — a\n",
+    "101-b.md": "## Invariants\n\n### I-101-1 — b\n",
+  });
+  const r = verifyInvariantReferences(marker("I-100-1, I-101-1"), { repoRoot: root });
+  assert.deepEqual(r.findings, []);
+  assert.equal(r.bold.resolved, 2);
+  assert.equal(r.legacy.resolved, 0);
+});
+
+test("an undeclared id fires, and names the declaring set", () => {
+  const root = makeInvariantRepoRoot({ "100-a.md": "## Invariants\n\n### I-100-1 — a\n" });
+  const r = verifyInvariantReferences(marker("I-100-9"), { repoRoot: root });
+  assert.equal(r.bold.resolved, 0);
+  assert.equal(r.findings.length, 1);
+  assert.equal(r.findings[0].kind, "invariant-undeclared");
+  assert.match(r.findings[0].evidence, /I-100-1/);
+});
+
+test("an id naming a nonexistent plan fires plan-not-found", () => {
+  const root = makeInvariantRepoRoot({ "100-a.md": "## Invariants\n\n### I-100-1 — a\n" });
+  const r = verifyInvariantReferences(marker("I-777-1"), { repoRoot: root });
+  assert.equal(r.findings.length, 1);
+  assert.equal(r.findings[0].kind, "invariant-plan-not-found");
+});
+
+test("a TEST id is named as a test id, not as an undeclared invariant", () => {
+  // Plan-001:393/:709 spelled `I5` — a declared INTEGRATION TEST row from
+  // `## Test And Verification Plan`, not a dangling pointer. Calling it
+  // "undeclared invariant" sends the next author hunting for a declaration that
+  // should never exist, and the obvious way to silence that is to mint a fake
+  // invariant id. The message has to name the namespace collision instead.
+  const root = makeInvariantRepoRoot({ "100-a.md": "## Invariants\n\n### I-100-1 — a\n" });
+  const r = verifyInvariantReferences(marker("I5"), { repoRoot: root });
+  assert.equal(r.findings.length, 1);
+  assert.equal(r.findings[0].kind, "invariant-test-id");
+  assert.match(r.findings[0].evidence, /looks like a test id, not an invariant id/);
+  assert.doesNotMatch(r.findings[0].evidence, /undeclared/);
+});
+
+test("`none` is counted on its own arm, and a test id in its DESCRIPTOR does not fire", () => {
+  // The live negative fixture: Plan-003:517 and :525 spell
+  // `none (I1 is an AC-coverage test — no Plan-003 invariant exclusively
+  // verified here)`. The value is `none`; the test id sits in the parenthetical.
+  // A line-scoped net flags these; the gate must key on the VALUE.
+  const root = makeInvariantRepoRoot({ "100-a.md": "## Invariants\n\n### I-100-1 — a\n" });
+  const r = verifyInvariantReferences(
+    marker("none (I1 is an AC-coverage test — no Plan-100 invariant exclusively verified here)"),
+    { repoRoot: root },
+  );
+  assert.deepEqual(r.findings, []);
+  assert.equal(r.bold.noneArm, 1);
+  assert.equal(r.bold.resolved, 0);
+});
+
+test("plan-local ids that name no owning document are silent", () => {
+  const root = makeInvariantRepoRoot({ "100-a.md": "## Invariants\n\n### I-100-1 — a\n" });
+  const r = verifyInvariantReferences(marker("C5, P3"), { repoRoot: root });
+  assert.deepEqual(r.findings, []);
+  assert.equal(r.bold.resolved, 0);
+});
+
+test("a FENCED marker is not resolved (masking is preserved)", () => {
+  const root = makeInvariantRepoRoot({ "100-a.md": "## Invariants\n\n### I-100-1 — a\n" });
+  const fenced = "```\n" + marker("I-100-9") + "\n```";
+  const r = verifyInvariantReferences(fenced, { repoRoot: root });
+  assert.deepEqual(r.findings, []);
+  assert.equal(r.bold.resolved, 0);
+});
+
+test("a structural failure is reported ONCE per plan, not once per reference", () => {
+  const root = makeInvariantRepoRoot({
+    "100-a.md": "## Invariants\n\nProse only, nothing structural.\n",
+  });
+  const section = [marker("I-100-1"), marker("I-100-2"), marker("I-100-3")].join("\n\n");
+  const r = verifyInvariantReferences(section, { repoRoot: root });
+  assert.equal(r.findings.length, 1);
+  assert.equal(r.findings[0].kind, "invariant-block-unparsed");
+});
+
+test("a plan with no Invariants block at all is distinguished from an unparsed one", () => {
+  const root = makeInvariantRepoRoot({ "100-a.md": "## Overview\n\nNothing.\n" });
+  const r = verifyInvariantReferences(marker("I-100-1"), { repoRoot: root });
+  assert.equal(r.findings.length, 1);
+  assert.equal(r.findings[0].kind, "invariant-block-absent");
+});
+
+test("CORPUS ORACLE: every invariant reference in docs/plans resolves, with a floor", () => {
+  // Non-vacuity floor first — a zero denominator would make the clean verdict
+  // below meaningless, which is the failure mode this whole screen exists to
+  // close. The floor is deliberately well under the live count (574) so ordinary
+  // corpus churn does not trip it, but a screen that stops running does.
+  const plansDir = resolve(REPO_ROOT_FOR_TESTS, "docs", "plans");
+  const cache = new Map();
+  let boldTotal = 0;
+  let legacyTotal = 0;
+  const findings = [];
+  for (const name of readdirSync(plansDir).filter(
+    (n) => /^\d{3}-.+\.md$/.test(n) && !n.startsWith("000-"),
+  )) {
+    const r = verifyInvariantReferences(readFileSync(resolve(plansDir, name), "utf8"), { cache });
+    boldTotal += r.bold.resolved;
+    legacyTotal += r.legacy.resolved;
+    for (const f of r.findings) findings.push(`${name} [${f.kind}] ${f.evidence}`);
+  }
+  assert.ok(
+    boldTotal > 400,
+    `expected the corpus to resolve >400 BOLD invariant references, got ${boldTotal} — the screen is not running`,
+  );
+  // A SEPARATE floor for the legacy channel, and this is the load-bearing one.
+  // A single combined floor is exactly what let the legacy channel sit at zero
+  // undetected: 574 bold references sailed over any plausible total-floor while
+  // Plan-008's entire contribution was missing. Each channel must prove it ran.
+  assert.ok(
+    legacyTotal > 40,
+    `expected the corpus to resolve >40 LEGACY compact-inline invariant references, got ${legacyTotal} — the legacy channel is not running (this is how Plan-008 went unscreened)`,
+  );
+  // Asserted STRICT, with no known-defect allowlist. The corpus holds exactly
+  // one violation today — `I5` at Plan-001 T5.3, a declared integration-test id
+  // in an invariant field — and the repair is one line the line itself already
+  // spells in two other fields (`I-024-4`). Allowlisting it would build
+  // scaffolding around a one-line fix, and an allowlist that keeps a new
+  // screen's first real finding from turning anything red is the same
+  // report-clean-over-real-debt shape this screen was written to close.
+  assert.deepEqual(findings, [], `unresolved invariant references:\n${findings.join("\n")}`);
+});
+
+test("CORPUS ORACLE negative control: perturbing a real id makes the oracle fail", () => {
+  // Proves the oracle above can fail. Without this, a resolver that silently
+  // returned no findings would pass it forever.
+  const plansDir = resolve(REPO_ROOT_FOR_TESTS, "docs", "plans");
+  const real = readFileSync(
+    resolve(plansDir, "006-session-event-taxonomy-and-audit-log.md"),
+    "utf8",
+  );
+  const perturbed = real.replace(
+    /\*\*Verifies invariant:\*\* I-006-/,
+    "**Verifies invariant:** I-006-99999-",
+  );
+  assert.notEqual(perturbed, real, "perturbation did not apply — the fixture shape moved");
+  const r = verifyInvariantReferences(perturbed, { cache: new Map() });
+  assert.ok(
+    r.findings.some((f) => f.kind === "invariant-undeclared"),
+    "perturbed corpus produced no undeclared finding — the oracle cannot fail",
+  );
+});
+
+// ---------- Second marker channel: legacy compact-inline ----------
+
+test("legacy compact-inline markers resolve, on their OWN channel", () => {
+  const root = makeInvariantRepoRoot({ "100-a.md": "## Invariants\n\n### I-100-1 — a\n" });
+  const r = verifyInvariantReferences(inlineMarker("I-100-1"), { repoRoot: root });
+  assert.deepEqual(r.findings, []);
+  assert.equal(r.legacy.resolved, 1);
+  assert.equal(r.bold.resolved, 0, "a compact-inline marker must not be counted as bold");
+});
+
+test("an undeclared id in a legacy marker fires, attributed to its task", () => {
+  const root = makeInvariantRepoRoot({ "100-a.md": "## Invariants\n\n### I-100-1 — a\n" });
+  const r = verifyInvariantReferences(inlineMarker("I-100-9", "T-100r-2-3"), { repoRoot: root });
+  assert.equal(r.findings.length, 1);
+  assert.equal(r.findings[0].kind, "invariant-undeclared");
+  // Attribution is derived from an INCLUSIVE line slice: the compact-inline
+  // shape puts the task header and the field on ONE line, so an exclusive slice
+  // would name the previous task — the mis-attribution class the round-2
+  // `taskHeaderMatches` fix closed on the bold path.
+  assert.match(r.findings[0].evidence, /^T-100r-2-3: /);
+});
+
+test("the two channels are DISJOINT — a section holding both counts each once", () => {
+  // The disjointness argument is a reading of two regexes (`(?!\*)` plus a
+  // lead-in the bold form never presents). That is the shape of reasoning that
+  // has been wrong twice on this surface, so it is asserted rather than argued.
+  const root = makeInvariantRepoRoot({ "100-a.md": "## Invariants\n\n### I-100-1 — a\n" });
+  const both = [marker("I-100-1"), "", inlineMarker("I-100-1")].join("\n");
+  const r = verifyInvariantReferences(both, { repoRoot: root });
+  assert.deepEqual(r.findings, []);
+  assert.equal(r.bold.resolved, 1, "bold marker double-counted or missed");
+  assert.equal(r.legacy.resolved, 1, "inline marker double-counted or missed");
+});
+
+test("`none` on a legacy marker lands on the legacy none arm", () => {
+  const root = makeInvariantRepoRoot({ "100-a.md": "## Invariants\n\n### I-100-1 — a\n" });
+  const r = verifyInvariantReferences(inlineMarker("none"), { repoRoot: root });
+  assert.deepEqual(r.findings, []);
+  assert.equal(r.legacy.noneArm, 1);
+  assert.equal(r.bold.noneArm, 0);
+});
+
+// ---------- Facet roll-up ----------
+
+test("facetBaseId strips a sub-clause letter, and ONLY that", () => {
+  assert.equal(facetBaseId("I-008-7c"), "I-008-7");
+  assert.equal(facetBaseId("I-008-12d"), "I-008-12");
+  assert.equal(facetBaseId("I-006-4-01a"), "I-006-4-01");
+  // The `.raw` a failure carries is a SEGMENT, not a bare token — the trailing
+  // descriptor must not defeat the match.
+  assert.equal(facetBaseId("I-008-7c (substrate - the rows correlate)"), "I-008-7");
+  assert.equal(facetBaseId("  I-008-7c  "), "I-008-7");
+});
+
+test("facetBaseId returns null for every NON-facet shape", () => {
+  // These negatives cannot be drawn from the corpus: today every
+  // `plan-local-id-unparseable` in an invariant field IS a facet (measured:
+  // zero non-facet instances), so a wrong null arm would fire on nothing and
+  // look correct forever. A roll-up that fired on one of these would mint a
+  // resolution out of text nobody checked.
+  for (const notAFacet of [
+    "I-008-7", // already a clean id — no letter to strip
+    "I-008-7cc", // two letters is not the facet shape
+    "I-008-7-c", // hyphenated, not a suffix
+    "I-008-7c-1", // letter mid-id, not terminal
+    "I-008-7class", // word, not a sub-clause letter
+    "C5", // plan-local, different namespace
+    "Pr-3.5",
+    "I5", // test id
+    "not an id at all",
+    "",
+  ]) {
+    assert.equal(facetBaseId(notAFacet), null, `expected null for ${JSON.stringify(notAFacet)}`);
+  }
+});
+
+test("a facet reference rolls up to its declared PARENT and is counted as parent-only", () => {
+  const root = makeInvariantRepoRoot({ "100-a.md": "## Invariants\n\n### I-100-7 — parent\n" });
+  const r = verifyInvariantReferences(inlineMarker("I-100-7c"), { repoRoot: root });
+  assert.deepEqual(r.findings, []);
+  assert.equal(r.legacy.resolved, 1);
+  // Counted separately because it is a WEAKER claim wearing the same word: the
+  // parent is declared, the sub-clause letter is declared nowhere and so is not
+  // verified by anything. `I-100-7z` would resolve identically.
+  assert.equal(r.legacy.parentResolved, 1);
+});
+
+test("a facet whose PARENT is undeclared fires, naming what the author wrote", () => {
+  const root = makeInvariantRepoRoot({ "100-a.md": "## Invariants\n\n### I-100-1 — a\n" });
+  const r = verifyInvariantReferences(inlineMarker("I-100-7c"), { repoRoot: root });
+  assert.equal(r.findings.length, 1);
+  assert.equal(r.findings[0].kind, "invariant-undeclared");
+  // The message must name the facet the author actually typed, and disclose the
+  // roll-up — pointing only at a base they never wrote sends them hunting.
+  assert.match(r.findings[0].evidence, /I-100-7c/);
+  assert.match(r.findings[0].evidence, /rolled up to parent/);
+});
+
+test("the roll-up is INERT on the parent's own honest spelling", () => {
+  // `I-008-7 (a/b/c)` — base plus descriptor — parses to a clean anchor and must
+  // resolve on the ordinary path, contributing nothing to the parent-only count.
+  const root = makeInvariantRepoRoot({ "100-a.md": "## Invariants\n\n### I-100-7 — parent\n" });
+  const r = verifyInvariantReferences(inlineMarker("I-100-7 (a/b/c)"), { repoRoot: root });
+  assert.deepEqual(r.findings, []);
+  assert.equal(r.legacy.resolved, 1);
+  assert.equal(r.legacy.parentResolved, 0);
+});
+
+test("CORPUS: Plan-008 is screened — the plan that had ZERO bold markers", () => {
+  // The regression guard for the coverage hole itself. Plan-008 carries 41
+  // compact-inline markers and no bold ones; before the legacy channel existed
+  // it contributed 0 resolved references while the gate printed a clean total.
+  const plan008 = readFileSync(
+    resolve(REPO_ROOT_FOR_TESTS, "docs", "plans", "008-control-plane-relay-and-session-join.md"),
+    "utf8",
+  );
+  const r = verifyInvariantReferences(plan008, { cache: new Map() });
+  assert.equal(r.bold.resolved, 0, "Plan-008 has no bold markers — if this moved, the fixture did");
+  assert.ok(
+    r.legacy.resolved > 50,
+    `Plan-008 must resolve >50 references on the legacy channel, got ${r.legacy.resolved}`,
+  );
+  assert.deepEqual(r.findings, []);
+  // Pins the facet roll-up to its ONLY live instance in the corpus: `I-008-7c`
+  // at Plan-008:370. Without this the roll-up rots SILENTLY, and measurably so:
+  // degrade that one token to its base and `parentResolved` goes 1 → 0 while
+  // `legacy.resolved` stays at 58 and `findings` stays empty — because the base
+  // id still resolves, it is simply no longer a facet. Every other assertion in
+  // this test stays green. The roll-up becomes dead code reporting success, and
+  // this line is the only thing that notices.
+  //
+  // Concretely load-bearing against content masking: `consumeFailure` reads
+  // `failure.raw`, so the roll-up REQUIRES raw to carry unmasked payload bytes.
+  // :370's payload is backticked (`relay_connections`), one of 8 such among the
+  // 48 legacy payloads. The ids there precede the first backtick, so masking
+  // code spans should not reach them — this assertion is what proves that
+  // holds rather than assuming it.
+  assert.equal(
+    r.legacy.parentResolved,
+    1,
+    `Plan-008 must roll up exactly one facet (I-008-7c), got ${r.legacy.parentResolved} — if 0, check that failure.raw still carries unmasked bytes`,
+  );
+});
+
+test("CORPUS negative control: perturbing a real LEGACY marker makes Plan-008 fail", () => {
+  // The test above asserts a CLEAN result on real corpus text, and a clean
+  // result is worth exactly what the checker's failure mode is worth. The
+  // bold-channel oracle has its own negative control at "CORPUS ORACLE negative
+  // control" above; this is the legacy channel's, and it is not redundant with
+  // the synthetic one. The synthetic control feeds `inlineMarker()`, whose shape
+  // I chose; Plan-008 writes the field unbolded, inside a parenthetical, after a
+  // task-header lead-in. Proving the screen fires on MY shape does not prove it
+  // fires on the corpus's — that gap is how the original coverage hole survived.
+  const plan008 = readFileSync(
+    resolve(REPO_ROOT_FOR_TESTS, "docs", "plans", "008-control-plane-relay-and-session-join.md"),
+    "utf8",
+  );
+  const perturbed = plan008.replace(
+    /Verifies invariant: I-008-/,
+    "Verifies invariant: I-008-99999-",
+  );
+  assert.notEqual(perturbed, plan008, "perturbation did not apply — the fixture shape moved");
+  const r = verifyInvariantReferences(perturbed, { cache: new Map() });
+  assert.ok(
+    r.findings.some((f) => f.kind === "invariant-undeclared"),
+    "perturbed Plan-008 produced no undeclared finding — the legacy screen cannot fail",
+  );
+  assert.equal(r.bold.resolved, 0, "the finding must have come through the legacy channel");
 });
