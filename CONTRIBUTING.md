@@ -106,7 +106,7 @@ Either form drives a major-version bump in [`release-please-action`](https://git
 
 ## Pre-Commit Hooks
 
-`pnpm install` provisions the [lefthook](https://github.com/evilmartians/lefthook) chain (`lefthook install` runs via `prepare` script). The chain runs in parallel: `lint-staged` + `gitleaks` + `docs-anchor-check` + `docs-corpus-checks`, then `commitlint` on the message. CI re-runs the same checks as the authoritative gate per [ADR-023 §Axis 2](docs/decisions/023-v1-ci-cd-and-release-automation.md#axis-2--pre-commit-hook-framework).
+`pnpm install` provisions the [lefthook](https://github.com/evilmartians/lefthook) chain (`lefthook install` runs via `prepare` script). `lint-staged` runs first, because it rewrites and re-stages fixable files; the three screens — `gitleaks` + `docs-anchor-check` + `docs-corpus-checks` — then run in parallel with each other against the index lint-staged produced, so no screen can pass over content that is not what commits. `commitlint` runs on the message. CI re-runs the same checks as the authoritative gate per [ADR-023 §Axis 2](docs/decisions/023-v1-ci-cd-and-release-automation.md#axis-2--pre-commit-hook-framework).
 
 **Gitleaks (canonical version v8.30.1)** per [ADR-023 §Axis 4 sub-axis 4](docs/decisions/023-v1-ci-cd-and-release-automation.md#axis-4--supply-chain-hygiene). Install locally:
 
