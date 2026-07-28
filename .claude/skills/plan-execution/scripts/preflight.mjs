@@ -445,6 +445,18 @@ function maskNonContentLines(text) {
 // leaves the genuine span at (1,2) unmasked — so the marker inside it counts as
 // audit output. That fails OPEN, the same direction as the hole this masker
 // exists to close.
+//
+// KNOWN, MEASURED LIMIT: spans are masked per LINE by design, but CommonMark
+// inline code spans can cross line boundaries inside a paragraph, so a marker
+// on a multiline span's opening line stays visible to the counters and the
+// extractor (Codex P2, PR #262 round 8). Declined with measurement: the
+// corpus holds ZERO multiline inline spans (58 plan+spec files, paragraph-
+// scoped residual-parity scan) — and the miss is LOUD, not silent: an
+// illustrated marker on such a line draws a spurious verification failure
+// under --enforce-cites rather than passing anything unverified. Sub-line
+// span state across lines is inline tokenization — owned by the
+// gate-hardening sweep's fence-tracker unification, alongside CommonMark
+// indented code (see the matching note at taskHeaderMatches).
 export function maskInlineCodeSpans(text) {
   const lines = text.split("\n");
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
