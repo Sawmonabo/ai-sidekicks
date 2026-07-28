@@ -337,4 +337,29 @@ describe("table-total-coherence — fence tracking (shared advanceFenceState)", 
       asserted: 1,
     });
   });
+
+  it("BOUND: a marker inside a fence nested under a wide list item goes live (container context not modeled)", () => {
+    // Under `10. ` the content column is 4, so CommonMark reads a four-space
+    // fence as a valid list-nested fence — but the shared tracker classifies
+    // containers as root-or-blockquote only (its disclosed, corpus-measured
+    // bound; see markdown-fences.ts), so the delimiter is indented-code
+    // content and the example marker below it is LIVE. Fail-closed: the
+    // false block is immediately visible at commit time, never a silent
+    // miss. This pin documents the bound's direction; a container-aware
+    // tracker would flip this expectation to [].
+    const doc = [
+      "# Doc",
+      "",
+      "10. A list item wide enough to shift the fence budget:",
+      "",
+      "    ```markdown",
+      ...DRIFTED_TABLE.map((line) => `    ${line}`),
+      "    ```",
+    ].join("\n");
+    withFile(doc, (file) => {
+      const violations = parseFile(file);
+      expect(violations).toHaveLength(1);
+      expect(violations[0]).toMatchObject({ kind: "total-row-mismatch", sum: 99, asserted: 1 });
+    });
+  });
 });

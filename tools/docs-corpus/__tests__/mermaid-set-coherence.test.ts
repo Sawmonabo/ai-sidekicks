@@ -322,6 +322,29 @@ describe("mermaid-set-coherence — fence tracking (shared advanceFenceState)", 
     });
   });
 
+  it("BOUND: a mermaid fence nested under a wide list item is not collected (container context not modeled)", () => {
+    // Under `10. ` the content column is 4, so CommonMark reads a four-space
+    // ```mermaid line as a valid list-nested fence — but the shared tracker
+    // classifies containers as root-or-blockquote only (its disclosed,
+    // corpus-measured bound; see markdown-fences.ts), so no mermaid block
+    // opens and the graph's nodes are never collected: the enumeration guard
+    // for that graph is dead (fail-silent), the direction the old trim()-based
+    // opener handled by accident. This pin documents the bound; a
+    // container-aware tracker would flip this expectation to one violation.
+    const doc = [
+      "# Page",
+      "",
+      "10. A list item wide enough to shift the fence budget:",
+      "",
+      ...GRAPH_LINES.map((line) => `    ${line}`),
+      "",
+      "The ready set (NS-01) shares no code paths.",
+    ].join("\n");
+    withFile(doc, (file) => {
+      expect(parseFile(file)).toEqual([]);
+    });
+  });
+
   it("collects nodes from a tilde-fenced mermaid block (a CommonMark fence the old opener regex never saw)", () => {
     const doc = [
       "# Page",

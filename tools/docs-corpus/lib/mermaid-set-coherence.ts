@@ -13,6 +13,13 @@
 // Doesn't catch (residuals, see failure-mode-catalog.md CAT-05 known gaps):
 //   - Set claims expressed in tables / lists.
 //   - Cross-file enumerations.
+//   - Blockquoted mermaid graphs: fence tracking looks through `>` prefixes
+//     (suppression of quoted examples works), but node collection and the
+//     classDef scan read the RAW line, so a quoted graph stays illustrative —
+//     never collected, never validated (Codex, PR #270 round 1; zero such
+//     graphs in the tracked corpus). Validating them needs blockquote-depth
+//     matching on BOTH the collection and enumeration sides — without it, a
+//     quoted example's classDef would pollute the file-global class set.
 //
 // Content arrives through an injected FileContentReader (defaulting to a plain
 // disk read): the pre-commit runner passes its commit-snapshot reader so the
@@ -65,6 +72,10 @@ export function parseFile(
   // was scanned as live enumeration; they also opened fences on indented code
   // (4+ spaces) and never looked through blockquote containers. Delimiter lines
   // count as fenced, matching the old `continue` on both fence boundaries.
+  // Blockquote stripping here serves fence TRACKING (suppressing quoted
+  // examples); the node matcher below and the classDef scan above read the
+  // RAW line by design, so a graph inside a blockquote is illustrative, not
+  // validated — see the header residuals.
   const nodeIdsByClass = new Map<string, Set<string>>();
   const lines = content.split("\n");
   const fenced = new Array<boolean>(lines.length).fill(false);

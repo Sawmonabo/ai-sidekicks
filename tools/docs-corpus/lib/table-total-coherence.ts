@@ -118,7 +118,11 @@ export function parseFile(
   // fences on indented code (4+ spaces) and never looked through blockquote
   // containers. Both delimiter lines count as fenced — the toggle marked opener
   // and closer alike, and a marker ON a delimiter line is fence punctuation,
-  // not a live marker.
+  // not a live marker. Container context is root-or-blockquote only (the
+  // shared tracker's disclosed bound — see markdown-fences.ts): a marker
+  // inside an example fence nested under a list item with content column 4+
+  // would go LIVE and false-block — fail-closed, and measured absent from
+  // the tracked corpus (Codex, PR #270 round 1).
   const fenced = new Array<boolean>(lines.length).fill(false);
   let openFence: OpenFenceState = null;
   for (let i = 0; i < lines.length; i++) {
