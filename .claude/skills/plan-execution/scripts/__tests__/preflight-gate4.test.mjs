@@ -22,6 +22,7 @@ import {
   extractDeclaredFilePaths,
   extractDeclaredTaskIds,
   G4_GRAMMAR_DEMOTE_KINDS,
+  LEGACY_INLINE_EXEMPT_KINDS,
 } from "../preflight.mjs";
 
 const FIXTURE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "preflight-gate4-fixtures");
@@ -1709,4 +1710,837 @@ test("auto-walk carries demoted warnings from SKIPPED phases into the selection 
     walk.warnings.some((w) => w.kind === "unparseable-cite"),
     "phase 1's demoted grammar finding must ride the phase-2 selection, never silently dropped",
   );
+});
+
+// ============================================================
+// `AC line N` — the by-line acceptance-criterion sub-anchor
+// ============================================================
+// Established corpus vocabulary (Plan-011 / Plan-014 / Plan-025, 16 marker
+// payloads) that the grammar previously rejected as
+// `unparseable-spec-subanchor`. It is admitted as its OWN anchor type so the
+// verifier can prove the cited line is an acceptance criterion — folding it
+// into a plain `line` anchor would have made Gate 4 net-LOOSER, since a line
+// anchor proves only in-range + non-blank.
+
+test("AC line N parses as an `ac-line` anchor, never a plain `line` anchor", () => {
+  const { anchors, parseFailures } = verifyAll("Spec-002 AC line 45");
+  assert.equal(parseFailures.length, 0);
+  assert.equal(anchors.length, 1);
+  assert.equal(anchors[0].type, "ac-line", "must NOT degrade to the weaker `line` anchor type");
+  assert.equal(anchors[0].line, 45);
+  assert.equal(anchors[0].spec, 2);
+});
+
+test("AC line N verifies VALID against a real §Acceptance Criteria checkbox", () => {
+  // Fixture line 45 is the first `- [ ]` bullet under `## Acceptance Criteria`.
+  const { verifyFailures } = verifyAll("Spec-002 AC line 45");
+  assert.equal(verifyFailures.length, 0);
+});
+
+test("AC line N rejects a line past EOF with `ac-line-out-of-range`", () => {
+  const { verifyFailures } = verifyAll("Spec-002 AC line 9999");
+  assert.equal(verifyFailures.length, 1);
+  assert.equal(verifyFailures[0].result.reason, "ac-line-out-of-range");
+});
+
+test("AC line N rejects a non-checkbox line inside §Acceptance Criteria", () => {
+  // Fixture line 48 is the blank line between the last AC bullet and the next
+  // heading — inside the section bounds, but not a criterion.
+  const { verifyFailures } = verifyAll("Spec-002 AC line 48");
+  assert.equal(verifyFailures.length, 1);
+  assert.equal(verifyFailures[0].result.reason, "ac-line-not-bullet");
+});
+
+test("AC line N rejects a CHECKBOX-shaped line OUTSIDE §Acceptance Criteria", () => {
+  // The decisive bounds proof: without the §Acceptance Criteria line-bounds
+  // check, a `- [ ]` bullet anywhere in the spec would satisfy the
+  // bullet-shape test and the anchor would false-pass. Built as a temp
+  // fixture because the shared 002 fixture holds no checkbox outside its AC
+  // section (and adding one there would renumber every existing line cite).
+  const tmp = mkdtempSync(resolve(tmpdir(), "preflight-ac-line-bounds-"));
+  writeFileSync(
+    resolve(tmp, "300-ac-bounds.md"),
+    [
+      "# Temp spec",
+      "",
+      "## Pitfalls To Avoid",
+      "",
+      "- [ ] A checkbox-shaped bullet OUTSIDE the acceptance-criteria section.",
+      "",
+      "## Acceptance Criteria",
+      "",
+      "- [ ] The one real acceptance criterion.",
+      "",
+    ].join("\n"),
+  );
+  const outside = verifyAnchorAgainstSpec(
+    { type: "ac-line", spec: 300, line: 5, raw: "Spec-300 AC line 5" },
+    { specsDir: tmp },
+  );
+  assert.equal(outside.valid, false);
+  assert.equal(outside.reason, "ac-line-outside-section");
+  const inside = verifyAnchorAgainstSpec(
+    { type: "ac-line", spec: 300, line: 9, raw: "Spec-300 AC line 9" },
+    { specsDir: tmp },
+  );
+  assert.equal(inside.valid, true, "the genuine criterion on line 9 must still verify");
+});
+
+test("the AC section ENDS before the following heading, not on it", () => {
+  // Off-by-one pin. `lastLineNum` is derived from a slice that stops at the
+  // next heading's first character, so the raw line count lands ON that
+  // heading. Un-corrected, the bounds admit the heading line: the cite falls
+  // through to the bullet check and reports `ac-line-not-bullet`, while the
+  // `section spans lines X-Y` evidence names a line that is not in the section.
+  const tmp = mkdtempSync(resolve(tmpdir(), "preflight-ac-section-end-"));
+  writeFileSync(
+    resolve(tmp, "301-ac-section-end.md"),
+    [
+      "# Temp spec", // 1
+      "", // 2
+      "## Acceptance Criteria", // 3
+      "", // 4
+      "- [ ] The one real acceptance criterion.", // 5
+      "", // 6
+      "## Following Section", // 7
+      "", // 8
+      "Prose.", // 9
+      "",
+    ].join("\n"),
+  );
+  const onHeading = verifyAnchorAgainstSpec(
+    { type: "ac-line", spec: 301, line: 7, raw: "Spec-301 AC line 7" },
+    { specsDir: tmp },
+  );
+  assert.equal(onHeading.valid, false);
+  assert.equal(
+    onHeading.reason,
+    "ac-line-outside-section",
+    "the following heading's line is OUTSIDE the section, not a non-bullet inside it",
+  );
+  assert.match(
+    onHeading.evidence,
+    /section spans lines 4-6/,
+    `evidence must name the true span; got: ${onHeading.evidence}`,
+  );
+
+  const inside = verifyAnchorAgainstSpec(
+    { type: "ac-line", spec: 301, line: 5, raw: "Spec-301 AC line 5" },
+    { specsDir: tmp },
+  );
+  assert.equal(inside.valid, true, "the genuine criterion must still verify");
+});
+
+test("a fenced `#` line does not truncate the AC section (no false red)", () => {
+  // Fence-awareness pin. `^#+\s+\S` matches a shell comment inside a fenced
+  // block, so a fence-blind scan ends the section at line 8 and REJECTS the
+  // correct criterion on line 11 as out-of-section — a gate reddening correct
+  // input. Zero specs carry this shape today; the check exists so the corpus
+  // can grow one without the gate lying about it.
+  const tmp = mkdtempSync(resolve(tmpdir(), "preflight-ac-fence-"));
+  writeFileSync(
+    resolve(tmp, "302-ac-fence.md"),
+    [
+      "# Temp spec", // 1
+      "", // 2
+      "## Acceptance Criteria", // 3
+      "", // 4
+      "- [ ] First criterion.", // 5
+      "", // 6
+      "```bash", // 7
+      "# a shell comment, not a heading", // 8
+      "```", // 9
+      "", // 10
+      "- [ ] Second criterion below the fence.", // 11
+      "", // 12
+      "## Following Section", // 13
+      "",
+    ].join("\n"),
+  );
+  const belowFence = verifyAnchorAgainstSpec(
+    { type: "ac-line", spec: 302, line: 11, raw: "Spec-302 AC line 11" },
+    { specsDir: tmp },
+  );
+  assert.equal(
+    belowFence.valid,
+    true,
+    `criterion below the fence must verify; got ${belowFence.reason}: ${belowFence.evidence}`,
+  );
+
+  // The heading AFTER the fence still terminates the section, so the bounds
+  // did not simply run to EOF.
+  const past = verifyAnchorAgainstSpec(
+    { type: "ac-line", spec: 302, line: 13, raw: "Spec-302 AC line 13" },
+    { specsDir: tmp },
+  );
+  assert.equal(past.valid, false);
+  assert.equal(past.reason, "ac-line-outside-section");
+});
+
+test("a FENCED `## Acceptance Criteria` is not selectable as the real section", () => {
+  // The false-CLEAN twin of the fence test above: that one pins the section
+  // TERMINATOR as fence-aware, this pins the section LOCATOR. Locating the
+  // heading with a raw `/^#+\s+Acceptance Criteria$/m` picks the example inside
+  // the fence, so `AC line N` verifies GREEN against an example bullet in a spec
+  // carrying no acceptance-criteria section at all — the gate certifying a
+  // criterion that does not exist (Codex P2, PR #260 round 1).
+  const tmp = mkdtempSync(resolve(tmpdir(), "preflight-ac-fenced-heading-"));
+  writeFileSync(
+    resolve(tmp, "303-ac-fenced-heading.md"),
+    [
+      "# Temp spec", // 1
+      "", // 2
+      "## How To Write A Spec", // 3
+      "", // 4
+      "```markdown", // 5
+      "## Acceptance Criteria", // 6
+      "", // 7
+      "- [ ] An EXAMPLE criterion, not a real one.", // 8
+      "```", // 9
+      "", // 10
+      "## Required Behavior", // 11
+      "", // 12
+      "Prose.", // 13
+      "",
+    ].join("\n"),
+  );
+  const fenced = verifyAnchorAgainstSpec(
+    { type: "ac-line", spec: 303, line: 8, raw: "Spec-303 AC line 8" },
+    { specsDir: tmp },
+  );
+  assert.equal(
+    fenced.valid,
+    false,
+    `a bullet inside a fenced example must never satisfy an AC cite; got: ${fenced.evidence}`,
+  );
+  assert.equal(
+    fenced.reason,
+    "ac-section-missing",
+    "the spec has no REAL §Acceptance Criteria, so the cite fails for absence — not for bounds",
+  );
+});
+
+test("a nested child heading does not truncate §Acceptance Criteria", () => {
+  // Terminating on the next heading of ANY level ends the section at its own
+  // legitimate child, so criteria under `### API criteria` are rejected as
+  // out-of-section even though Markdown containment places them inside — a gate
+  // reddening correct input (Codex P2, PR #260 round 1). Containment must stop
+  // only at a heading whose level is <= the AC heading's, which is how
+  // sectionSpansForHeadingText has always computed the general §Section case.
+  const tmp = mkdtempSync(resolve(tmpdir(), "preflight-ac-nested-child-"));
+  writeFileSync(
+    resolve(tmp, "304-ac-nested-child.md"),
+    [
+      "# Temp spec", // 1
+      "", // 2
+      "## Acceptance Criteria", // 3
+      "", // 4
+      "- [ ] A criterion directly under the parent.", // 5
+      "", // 6
+      "### API criteria", // 7
+      "", // 8
+      "- [ ] A criterion under a legitimate CHILD heading.", // 9
+      "", // 10
+      "## Required Behavior", // 11
+      "", // 12
+      "Prose.", // 13
+      "",
+    ].join("\n"),
+  );
+  const underChild = verifyAnchorAgainstSpec(
+    { type: "ac-line", spec: 304, line: 9, raw: "Spec-304 AC line 9" },
+    { specsDir: tmp },
+  );
+  assert.equal(
+    underChild.valid,
+    true,
+    `a criterion under a child heading is INSIDE the section; got ${underChild.reason}: ${underChild.evidence}`,
+  );
+
+  // The sibling-level heading still terminates, so the bounds did not simply
+  // run to EOF — the fix widened containment, it did not remove it.
+  const pastSibling = verifyAnchorAgainstSpec(
+    { type: "ac-line", spec: 304, line: 13, raw: "Spec-304 AC line 13" },
+    { specsDir: tmp },
+  );
+  assert.equal(pastSibling.valid, false);
+  assert.equal(pastSibling.reason, "ac-line-outside-section");
+});
+
+test("a named section must CONTAIN the acceptance criterion it points at", () => {
+  // Resolving the heading proved only that it EXISTS somewhere in the spec, so
+  // `§Required Behavior AC line 9` was certified by a bullet that actually sits
+  // under §Acceptance Criteria — the qualifier was decorative and a stale one
+  // stayed green (Codex P1, PR #260 round 2). The plain line/line-range anchors
+  // had carried this check since the Plan-015 T15.1 shape; the AC family was
+  // simply left behind.
+  const tmp = mkdtempSync(resolve(tmpdir(), "preflight-ac-named-section-"));
+  writeFileSync(
+    resolve(tmp, "305-ac-named-section.md"),
+    [
+      "# Temp spec", // 1
+      "", // 2
+      "## Required Behavior", // 3
+      "", // 4
+      "Prose that is not an acceptance criterion.", // 5
+      "", // 6
+      "## Acceptance Criteria", // 7
+      "", // 8
+      "- [ ] First criterion.", // 9
+      "- [ ] Second criterion.", // 10
+      "", // 11
+      "## Other", // 12
+      "",
+    ].join("\n"),
+  );
+  const dirs = { specsDir: tmp };
+
+  const wrongSection = verifyAnchorAgainstSpec(
+    {
+      type: "ac-line",
+      spec: 305,
+      line: 9,
+      section: "Required Behavior",
+      sectionFromPrefix: true,
+      raw: "Spec-305 §Required Behavior AC line 9",
+    },
+    dirs,
+  );
+  assert.equal(
+    wrongSection.valid,
+    false,
+    "a section that does not contain the criterion must fail",
+  );
+  assert.equal(wrongSection.reason, "line-outside-section");
+
+  // Naming the section that DOES contain it still passes — the two bounds
+  // compose, they do not conflict.
+  const rightSection = verifyAnchorAgainstSpec(
+    {
+      type: "ac-line",
+      spec: 305,
+      line: 9,
+      section: "Acceptance Criteria",
+      sectionFromPrefix: true,
+      raw: "Spec-305 §Acceptance Criteria AC line 9",
+    },
+    dirs,
+  );
+  assert.equal(
+    rightSection.valid,
+    true,
+    `expected valid; got ${rightSection.reason}: ${rightSection.evidence}`,
+  );
+
+  // The ORDINAL shape is bounded too, though it cites no line at all: the
+  // criterion's own resolved line is the containment subject. Without deriving
+  // it there is nothing to hold `§Required Behavior AC1` to.
+  const ordinalWrong = verifyAnchorAgainstSpec(
+    {
+      type: "ac",
+      spec: 305,
+      ac: 1,
+      lineHint: null,
+      section: "Required Behavior",
+      sectionFromPrefix: true,
+      raw: "Spec-305 §Required Behavior AC1",
+    },
+    dirs,
+  );
+  assert.equal(ordinalWrong.valid, false, "AC<N> with a wrong named section must fail");
+  assert.equal(ordinalWrong.reason, "line-outside-section");
+});
+
+test("a sibling's §section does not bound a trailing AC line cite", () => {
+  // The negative control for the check above, and not a hypothetical: arming
+  // containment without it turned a VALID Plan-011 cite red. `section` is
+  // sticky across sub-tokens by design (`§Foo line 10, line 12` — both in
+  // §Foo), and an `AC line N` token can never carry its own `§` because its
+  // regex is anchored at `^AC`. So a mid-payload re-section leaks forward onto
+  // the AC claim: Plan-011 cites `… line 68 + §Git Hosting Adapter lines
+  // 118-152 (…), AC line 175`, where line 175 is a correct §Acceptance Criteria
+  // bullet that has nothing to do with §Git Hosting Adapter. Only a section the
+  // anchor itself claims — the payload's own `§` prefix — may bound it.
+  const inherited = parseCitePayload(
+    "Spec-002 line 10 (InviteCreate), §Rate Limiting lines 17-20 (rate limit thresholds), AC line 45",
+  ).anchors.find((anchor) => anchor.type === "ac-line");
+  assert.equal(
+    inherited.section,
+    "Rate Limiting",
+    "the sticky section still parses onto the anchor",
+  );
+  assert.equal(inherited.sectionFromPrefix, false, "but it is NOT this anchor's own claim");
+
+  const authored = parseCitePayload("Spec-002 §Rate Limiting AC line 45").anchors.find(
+    (anchor) => anchor.type === "ac-line",
+  );
+  assert.equal(authored.sectionFromPrefix, true, "a payload-prefix section IS this anchor's claim");
+
+  // End-to-end against the real fixture spec: the inherited shape verifies
+  // clean, the authored one is held to the section it names.
+  const { verifyFailures: inheritedFailures } = verifyAll(
+    "Spec-002 line 10 (InviteCreate), §Rate Limiting lines 17-20 (rate limit thresholds), AC line 45",
+  );
+  assert.deepEqual(
+    inheritedFailures.map((failure) => failure.result.reason),
+    [],
+    `inherited-section AC cite must not fail: ${JSON.stringify(inheritedFailures)}`,
+  );
+  const { verifyFailures: authoredFailures } = verifyAll("Spec-002 §Rate Limiting AC line 45");
+  assert.deepEqual(
+    authoredFailures.map((failure) => failure.result.reason),
+    ["line-outside-section"],
+    "an authored §section that does not contain the criterion must still fail",
+  );
+});
+
+test("AC line N rejects a descriptor subject absent from the cited criterion", () => {
+  // Fixture line 47 names `ChannelList`; `PresenceUpdate` is elsewhere in the
+  // spec, so the subject rule must fire rather than accepting any AC bullet.
+  const { verifyFailures } = verifyAll("Spec-002 AC line 47 (PresenceUpdate projection)");
+  assert.equal(verifyFailures.length, 1);
+  assert.equal(verifyFailures[0].result.reason, "subject-mismatch");
+  const ok = verifyAll("Spec-002 AC line 47 (ChannelList projection)");
+  assert.equal(ok.verifyFailures.length, 0);
+});
+
+test("a §Section prefix must not WEAKEN the AC-line anchor it prefixes", () => {
+  // The section-prefix lookahead spelled the keyword `AC\d`, which requires a
+  // digit — so on the by-line shape (`AC line 45`) the lazy capture ran past
+  // the bare `AC` to the following `line`. Two losses at once: the section
+  // captured `Acceptance Criteria AC` (a heading that does not exist), and the
+  // anchor degraded from `ac-line` to a plain `line`, silently dropping the
+  // in-section / is-a-bullet / subject-match checks. Adding context to a cite
+  // must never buy weaker verification than leaving it off.
+  const [prefixed] = parseCitePayload("Spec-002 §Acceptance Criteria AC line 45").anchors;
+  assert.equal(prefixed.type, "ac-line", "the prefixed form must stay an ac-line anchor");
+  assert.equal(prefixed.section, "Acceptance Criteria");
+  assert.equal(prefixed.line, 45);
+
+  // Parity with the unprefixed spelling: same type, same strength.
+  const [bare] = parseCitePayload("Spec-002 AC line 45").anchors;
+  assert.equal(bare.type, prefixed.type);
+
+  // The indexed shape (`AC4`) was already covered by the `AC\d` spelling and
+  // must not regress.
+  const [indexed] = parseCitePayload("Spec-002 §Acceptance Criteria AC4 (line 45)").anchors;
+  assert.equal(indexed.type, "ac");
+  assert.equal(indexed.section, "Acceptance Criteria");
+});
+
+test("a section-adjacent parenthetical before `AC line N` does not swallow the anchor", () => {
+  // The paren-run consumer used the same digit-requiring `AC\d+` spelling, so
+  // `§X (suffix) AC line N` never consumed the run; `body` still began with `(`
+  // and the section-only branch took the whole tail as descriptor text. The
+  // line claim then vanished entirely — not verified, not reported.
+  const { anchors, failures } = parseCitePayload(
+    "Spec-002 §Channel Membership (channels) AC line 45",
+  );
+  assert.deepEqual(
+    failures.map((f) => f.kind),
+    [],
+  );
+  assert.equal(anchors.length, 1);
+  assert.equal(anchors[0].type, "ac-line", "must not collapse to section-only");
+  assert.equal(
+    anchors[0].line,
+    45,
+    "the line claim must survive rather than becoming descriptor text",
+  );
+});
+
+test("AC line N composes with sibling line sub-anchors under one Spec namespace", () => {
+  // The live Plan-011 / Plan-014 marker shape: comma-joined line anchors with
+  // a trailing `AC line N`, plus the `+`-combined AC pair.
+  const { anchors, parseFailures, verifyFailures } = verifyAll(
+    "Spec-002 line 10 (`InviteCreate` payload), line 15 (`ChannelList` projection), AC line 45 + AC line 46",
+  );
+  assert.equal(parseFailures.length, 0);
+  assert.equal(verifyFailures.length, 0);
+  assert.equal(anchors.filter((a) => a.type === "line").length, 2);
+  assert.deepEqual(
+    anchors.filter((a) => a.type === "ac-line").map((a) => a.line),
+    [45, 46],
+  );
+});
+
+test("AC line N is not confused with the ordinal `ACn` form", () => {
+  const ordinal = verifyAll("Spec-002 AC1 (line 45)");
+  assert.equal(ordinal.anchors[0].type, "ac");
+  assert.equal(ordinal.parseFailures.length, 0);
+  assert.equal(ordinal.verifyFailures.length, 0);
+});
+
+// ============================================================
+// Quote-aware tokenization (splitWithinNamespace + splitOnSemicolon)
+// ============================================================
+// Quoting the spec text a cite describes is the repo's preferred anchoring
+// style. Before quote tracking, a comma or semicolon inside that quoted run
+// sat at bracket depth 0 and was read as an anchor separator, shattering one
+// cite into several unparseable fragments.
+
+test("a quoted descriptor's internal comma does not shatter the cite (one anchor)", () => {
+  const { anchors, parseFailures, verifyFailures } = verifyAll(
+    'Spec-002 line 45 - "joins active sessions, without resetting active runs"',
+  );
+  // Pre-fix this split into `line 45 - "joins active sessions` (an anchor with
+  // a truncated descriptor) plus `without resetting active runs"` (an
+  // unparseable fragment). The quoted run is now one token.
+  assert.equal(parseFailures.length, 0, "the quoted comma must not create a fragment");
+  assert.equal(anchors.length, 1);
+  assert.equal(anchors[0].type, "line");
+  assert.equal(anchors[0].line, 45);
+  assert.equal(anchors[0].descriptor, '"joins active sessions, without resetting active runs"');
+  assert.equal(verifyFailures.length, 0);
+});
+
+test("a quoted descriptor's internal semicolon does not open a new namespace segment", () => {
+  // splitOnSemicolon symmetry: a depth-0 `;` inside quotes would otherwise
+  // start a namespace-less segment and emit `unparseable-cite`.
+  const { anchors, parseFailures } = verifyAll('Spec-002 line 45 - "accepted; not reset"');
+  assert.equal(parseFailures.length, 0);
+  assert.equal(anchors.length, 1);
+  assert.equal(anchors[0].descriptor, '"accepted; not reset"');
+});
+
+test("quote tracking keeps a multi-comma quoted sentence as ONE sub-token", () => {
+  // Regression pin for the shatter case: the Plan-015 shape quoted a spec
+  // sentence carrying four commas at bracket depth 0, which produced FIVE
+  // fragments. It is now exactly one — still unparseable as an anchor (a
+  // quoted sentence is not a sub-anchor shape), but no longer multiplied.
+  const { parseFailures } = verifyAll(
+    'Spec-002 "must include session events, queue state, approvals, runtime bindings, and command receipts"',
+  );
+  assert.equal(parseFailures.length, 1, "one fragment, not one per quoted comma");
+  assert.equal(
+    parseFailures[0].raw,
+    '"must include session events, queue state, approvals, runtime bindings, and command receipts"',
+  );
+});
+
+test("an UNBALANCED quote fails closed — collapses the tail, never a silent pass", () => {
+  // Documented failure posture: the toggle stays open through end-of-payload,
+  // so the tail buffers into one token that matches no sub-anchor shape. The
+  // gate still fires, and the single forward pass cannot hang.
+  const { anchors, parseFailures } = verifyAll('Spec-002 line 45, "unterminated, line 46');
+  assert.ok(
+    parseFailures.some((f) => f.severity !== "warn"),
+    "an unbalanced quote must still produce a blocking failure",
+  );
+  assert.ok(
+    !anchors.some((a) => a.line === 46),
+    "the swallowed tail must NOT silently emit a line-46 anchor",
+  );
+});
+
+test("an ASCII apostrophe is inert and never opens a quoted region", () => {
+  // `don't` must not swallow the rest of the payload; the following comma is
+  // still a live sub-anchor separator.
+  const { anchors, parseFailures, verifyFailures } = verifyAll(
+    "Spec-002 line 10 (the driver doesn't reset), line 15 (`ChannelList` projection)",
+  );
+  assert.equal(parseFailures.length, 0);
+  assert.equal(verifyFailures.length, 0);
+  assert.deepEqual(
+    anchors.map((a) => a.line),
+    [10, 15],
+  );
+});
+
+// ============================================================
+// Malformed quoted runs (`unbalanced-cite-quote`)
+// ============================================================
+// Quote tracking bought comma/semicolon protection inside a quoted spec
+// sentence, and with it a new false-clean. ONE hole, TWO signatures — the
+// checks are complementary and neither alone is sufficient:
+//
+//   1. ODD count. `"` is a single toggling delimiter with no escape form, so a
+//      STRAY one stays open through end-of-payload and absorbs every separator
+//      behind it. Caught by parity.
+//   2. EVEN count STRADDLING a bracket. Both splitters toggle `inQuote` and
+//      `continue` BEFORE consulting `bracketDelta`, so a `"` opened inside
+//      `(...)` suppresses that group's `)`; depth never returns to 0 and the
+//      next depth-0 separator is ignored. Parity is blind to it — the count is
+//      even. Caught by the negative-local-depth signature.
+//
+// Either way the claims behind the quote are never extracted, so they are never
+// verified, and the payload reports nothing — exactly the shape this gate
+// exists to prevent. Parity between the quoted and unquoted spellings of the
+// same text is the test for both.
+
+test("an unbalanced quote absorbed as a DESCRIPTOR still gates (parity with unquoted)", () => {
+  // The pre-existing unbalanced-quote test puts the tail in its own token, so
+  // it fails as an unparseable sub-anchor and never exercised absorption. Here
+  // the stray quote opens mid-descriptor and swallows the following separator
+  // whole: without the parity guard this payload yields ONE anchor and ZERO
+  // failures while the same text unquoted yields two anchors and gates on the
+  // past-EOF line.
+  const quoted = verifyAll('Spec-002 line 10 — "oops, line 99999 (`PresenceRead`)');
+  assert.ok(
+    quoted.parseFailures.some((f) => f.kind === "unbalanced-cite-quote"),
+    `expected unbalanced-cite-quote, got ${quoted.parseFailures.map((f) => f.kind).join(", ") || "no failures"}`,
+  );
+
+  // Parity control: strip the stray quote and the second claim becomes visible
+  // to the verifier, which gates on it. Either spelling must gate; the quoted
+  // one must not be the quiet path.
+  const unquoted = verifyAll("Spec-002 line 10 — oops, line 99999 (`PresenceRead`)");
+  assert.equal(unquoted.parseFailures.length, 0);
+  assert.equal(unquoted.verifyFailures.length, 1);
+  assert.equal(unquoted.verifyFailures[0].result.reason, "line-out-of-range");
+});
+
+test("anchors AHEAD of a stray quote still parse — the guard gates without discarding", () => {
+  const { anchors, parseFailures } = verifyAll(
+    'Spec-002 line 10 (`InviteCreate`), line 15 — "oops',
+  );
+  assert.ok(parseFailures.some((f) => f.kind === "unbalanced-cite-quote"));
+  assert.ok(
+    anchors.some((a) => a.line === 10),
+    "the legible anchor ahead of the stray quote must survive",
+  );
+});
+
+test("a BALANCED quoted run does not trip the parity guard (negative control)", () => {
+  // Proves the guard keys on parity, not on the mere presence of a quote —
+  // otherwise it would break the very anchoring style quote tracking enabled.
+  const { parseFailures, verifyFailures } = verifyAll(
+    'Spec-002 line 10 ("session id, inviter, expiry")',
+  );
+  assert.deepEqual(
+    parseFailures.map((f) => f.kind),
+    [],
+  );
+  assert.equal(verifyFailures.length, 0);
+});
+
+test("an EVEN quote count straddling a bracket still gates (parity is blind to it)", () => {
+  // Signature 2. The quote opens inside `(...)` and closes inside the NEXT
+  // `(...)`, so the first group's `)` is consumed while `inQuote` and the
+  // splitters' depth never returns to 0 — the `, ` separator is ignored and
+  // both cites merge into one. The count is EVEN, so the parity check cannot
+  // see this; without the depth signature the payload yields ONE anchor and
+  // ZERO failures.
+  const payload = 'Spec-002 AC1 ("a), AC7 (b")';
+  assert.equal(
+    (payload.split('"').length - 1) % 2,
+    0,
+    "fixture must carry an EVEN quote count or it proves nothing about parity blindness",
+  );
+
+  const quoted = verifyAll(payload);
+  assert.ok(
+    quoted.parseFailures.some((f) => f.kind === "unbalanced-cite-quote"),
+    `expected unbalanced-cite-quote, got ${quoted.parseFailures.map((f) => f.kind).join(", ") || "no failures"}`,
+  );
+});
+
+test("the realistic inch-mark straddle gates instead of dropping the second claim", () => {
+  // The shape a plan author actually produces: `5"` and `30"` as inch/second
+  // marks. Nothing looks quoted, the count is even, and the run nets back to
+  // bracket depth 0 — which is why end-of-payload depth is the WRONG test. The
+  // `line 99999` claim is silently discarded; unquoted, the verifier gates on
+  // it. Either spelling must gate; the quoted one must not be the quiet path.
+  const quoted = verifyAll('Spec-002 line 10 (5" heartbeat window), line 99999 (30" grace window)');
+  assert.ok(
+    quoted.parseFailures.some((f) => f.kind === "unbalanced-cite-quote"),
+    `expected unbalanced-cite-quote, got ${quoted.parseFailures.map((f) => f.kind).join(", ") || "no failures"}`,
+  );
+  assert.ok(
+    quoted.anchors.some((a) => a.line === 10),
+    "the legible anchor ahead of the straddling quote must survive",
+  );
+
+  // Parity control: the same claims without the inch marks split into two
+  // anchors and the past-EOF one is caught by the verifier.
+  const unquoted = verifyAll("Spec-002 line 10 (heartbeat window), line 99999 (grace window)");
+  assert.equal(unquoted.parseFailures.length, 0);
+  assert.equal(unquoted.verifyFailures.length, 1);
+  assert.equal(unquoted.verifyFailures[0].result.reason, "line-out-of-range");
+});
+
+test("a quoted run that opens a bracket but swallows NO separator is not flagged", () => {
+  // The discriminator against an over-eager symmetric check, and the reason the
+  // net-non-zero signature below is CONJOINED with "the run carried a
+  // separator". Here the quoted run drives the local depth positive (`(` with
+  // no `)`) and so ends net non-zero — but it contains no `,`/`;`/`+`, strands
+  // no separator, and both anchors parse. A check keying on "local depth != 0
+  // at close" ALONE, or on end-of-payload depth, would falsely flag this.
+  // Dropping the runHasSeparator conjunct turns this test red.
+  const { anchors, parseFailures } = verifyAll('Spec-002 line 10 ("foo (bar"), line 20');
+  assert.deepEqual(
+    parseFailures.map((f) => f.kind),
+    [],
+  );
+  assert.deepEqual(
+    anchors.map((a) => a.line),
+    [10, 20],
+    "a run that swallows no separator must leave BOTH claims extracted and verifiable",
+  );
+});
+
+test("a nested opener inside the run does not hide the straddle", () => {
+  // The hole the dip test alone left open. This run consumes a closer for a
+  // group opened BEFORE it, but an opener inside the run keeps the running
+  // local depth from ever going negative: `(` +1, `)` 0, `(` +1. The dip test
+  // sees nothing, the quote count is even so parity sees nothing, and the
+  // splitters emit ONE anchor for line 10 with ZERO failures — the `line 99999`
+  // claim is silently discarded (Codex P2, PR #260 round 2). What catches it is
+  // the second signature: the run ends net non-zero AND carried a separator.
+  const quoted = verifyAll('Spec-002 line 10 (5" (window), line 99999 (30" grace)');
+  assert.ok(
+    quoted.parseFailures.some((f) => f.kind === "unbalanced-cite-quote"),
+    `expected unbalanced-cite-quote, got ${quoted.parseFailures.map((f) => f.kind).join(", ") || "no failures"}`,
+  );
+});
+
+test("brackets fully nested INSIDE a quoted run do not trip the depth signature", () => {
+  // The local depth resets to 0 at each quote-open, so a balanced parenthetical
+  // inside a quoted spec sentence goes +1 then back to 0 and never negative.
+  // Without the reset, a quoted run following an earlier group would inherit a
+  // stale depth and misfire on correct corpus idiom.
+  const { parseFailures, verifyFailures } = verifyAll(
+    'Spec-002 line 10 ("the daemon (local) pushes, then acks")',
+  );
+  assert.deepEqual(
+    parseFailures.map((f) => f.kind),
+    [],
+  );
+  assert.equal(verifyFailures.length, 0);
+});
+
+test("unbalanced-cite-quote is in NO demote/exempt allowlist — it gates on every path", () => {
+  // All three classification sets are allowlists, so a kind absent from each
+  // stays a hard error for every size class and every plan. Pinning the absence
+  // keeps a future "add the new kind to the demote set" edit from silently
+  // reopening the false-clean. (INLINE_SHAPE_PARSE_KINDS is module-private; the
+  // gate-level test below covers that path behaviorally.)
+  assert.equal(G4_GRAMMAR_DEMOTE_KINDS.has("unbalanced-cite-quote"), false);
+  assert.equal(LEGACY_INLINE_EXEMPT_KINDS.has("unbalanced-cite-quote"), false);
+});
+
+test("gateTasksBlockCites halts on an unbalanced cite quote (size-class S, the demote path)", () => {
+  // S is the size class that demotes grammar-shaped kinds to warnings, so a
+  // halt here proves the kind is not riding that demotion.
+  const sec = `#### Tasks
+
+##### T9.1 — cite carrying a stray quote
+
+- **Spec coverage:** Spec-002 line 10 — "oops, line 99999
+- **Verifies invariant:** I-024-3
+`;
+  const r = gateTasksBlockCites(sec, 2, 9, { repoRoot: resolveFixtureRepoRoot() });
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /unbalanced-cite-quote/);
+  assert.match(r.halt, /T9\.1/);
+});
+
+// ============================================================
+// §Section ↔ line containment
+// ============================================================
+// A cite naming BOTH a section and a line asserts the line sits under that
+// heading. Verifying only that the heading EXISTS let the halves drift apart
+// silently — Plan-015 T15.1 cited `§Two-Phase Receipt Commit lines 79-110`
+// against a subsection starting at 81 and the armed gate passed it. Fixture
+// spans (nested model: a heading runs until the next heading of level <= its
+// own): `## Interfaces and Contracts` 8-42, `### Rate Limiting` 17-24,
+// `### Rate Limit Response` 25-36, `### Token Security Properties` 37-42.
+
+test("a line OUTSIDE its named section is rejected with line-outside-section", () => {
+  // Line 39 is a Token Security Properties bullet, not a Rate Limiting row.
+  const { verifyFailures } = verifyAll("Spec-002 §Rate Limiting line 39");
+  assert.equal(verifyFailures.length, 1);
+  assert.equal(verifyFailures[0].result.reason, "line-outside-section");
+  assert.match(verifyFailures[0].result.evidence, /section spans 17-24/);
+});
+
+test("a line RANGE starting above its named section is rejected (the T15.1 shape)", () => {
+  // `lines 21-30` under a section that begins at 25 — the exact Plan-015 defect
+  // shape, where the range straddles the heading it names.
+  const { verifyFailures } = verifyAll("Spec-002 §Rate Limit Response lines 21-30");
+  assert.equal(verifyFailures.length, 1);
+  assert.equal(verifyFailures[0].result.reason, "line-range-outside-section");
+  assert.match(verifyFailures[0].result.evidence, /section spans 25-36/);
+});
+
+test("a line range spilling PAST its section's end is rejected", () => {
+  const { verifyFailures } = verifyAll("Spec-002 §Rate Limiting lines 21-30");
+  assert.equal(verifyFailures.length, 1);
+  assert.equal(verifyFailures[0].result.reason, "line-range-outside-section");
+});
+
+test("containment is NESTED — a line in a `###` child satisfies its `##` parent", () => {
+  // The load-bearing model test. Under a FLAT model (section ends at the next
+  // heading of ANY level) `## Interfaces and Contracts` would stop at line 16
+  // and this correct cite would be rejected — the false-violation shape that
+  // showed up on two real corpus cites during measurement.
+  const { anchors, parseFailures, verifyFailures } = verifyAll(
+    "Spec-002 §Interfaces and Contracts line 21",
+  );
+  assert.equal(parseFailures.length, 0);
+  assert.deepEqual(
+    verifyFailures.map((f) => f.result.reason),
+    [],
+  );
+  assert.equal(anchors[0].line, 21);
+});
+
+test("a line range fully inside its named section stays VALID (negative control)", () => {
+  const { verifyFailures } = verifyAll("Spec-002 §Rate Limit Response lines 28-33");
+  assert.deepEqual(
+    verifyFailures.map((f) => f.result.reason),
+    [],
+  );
+});
+
+test("an out-of-file line reports line-out-of-range, not line-outside-section", () => {
+  // Ordering pin: containment is checked AFTER the range/blank guards so the
+  // report names the more specific cause. A line past EOF is outside every
+  // section too, and the less useful reason must not win.
+  const { verifyFailures } = verifyAll("Spec-002 §Rate Limiting line 9999");
+  assert.equal(verifyFailures.length, 1);
+  assert.equal(verifyFailures[0].result.reason, "line-out-of-range");
+});
+
+test("a DUPLICATED section heading accepts a line under EITHER occurrence", () => {
+  // findSectionHeading resolves to the FIRST match, so containment re-scans by
+  // heading TEXT and collects every same-named span. Without that, a cite into
+  // the second occurrence of a repeated heading would be a false violation.
+  const root = mkdtempSync(resolve(tmpdir(), "preflight-dup-heading-"));
+  const specsDir = resolve(root, "docs", "specs");
+  mkdirSync(specsDir, { recursive: true });
+  writeFileSync(
+    resolve(specsDir, "077-dup-heading.md"),
+    [
+      "# Spec-077: duplicate headings", // 1
+      "", // 2
+      "## Retry Policy", // 3
+      "", // 4
+      "- first occurrence body", // 5
+      "", // 6
+      "## Unrelated", // 7
+      "", // 8
+      "- filler", // 9
+      "", // 10
+      "## Retry Policy", // 11
+      "", // 12
+      "- second occurrence body", // 13
+      "", // 14
+    ].join("\n"),
+  );
+  const opts = { specsDir, adrsDir: specsDir, archDocsDir: specsDir };
+
+  const second = parseCitePayload("Spec-077 §Retry Policy line 13").anchors[0];
+  assert.equal(verifyAnchorAgainstSpec(second, opts).valid, true);
+
+  const first = parseCitePayload("Spec-077 §Retry Policy line 5").anchors[0];
+  assert.equal(verifyAnchorAgainstSpec(first, opts).valid, true);
+
+  // Negative control: line 9 sits under `## Unrelated`, between the two
+  // occurrences — inside neither span, so it must still be rejected.
+  const between = parseCitePayload("Spec-077 §Retry Policy line 9").anchors[0];
+  const verdict = verifyAnchorAgainstSpec(between, opts);
+  assert.equal(verdict.valid, false);
+  assert.equal(verdict.reason, "line-outside-section");
+  assert.match(verdict.evidence, /section spans 3-6, 11-14/);
 });

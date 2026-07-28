@@ -231,7 +231,12 @@ jobs:
           node --experimental-strip-types tools/docs-corpus/bin/pre-commit-runner.ts "${md_files[@]}" "${code_files[@]}"
 
       - name: plan-cite Gate-4 survey (enforced)
-        # Corpus-wide Gate-4 cite screen over every walked plan phase. ARMED:
+        # Corpus-wide Gate-4 cite screen over every survey unit — each walked plan
+        # phase, plus one whole-document unit for a plan carrying no `### Phase N`
+        # heading, which the phase-scoped screen used to skip entirely while still
+        # printing `cite anomalies: none`. The run prints a `coverage: N/M plan(s)
+        # cite-swept, K uncovered` line so a clean verdict is only readable as
+        # clean when the screen actually reached every plan. ARMED:
         # `--survey --enforce-cites` folds citeAnomalies into the exit, so a new or
         # edited plan carrying a malformed Gate-4 cite fails the gate. The two
         # compact-inline legacy plans (Plan-008/023) are diverted via
