@@ -7,6 +7,7 @@ import { execSync } from "node:child_process";
 import {
   expandToInboundCiteCorpus,
   findGovernanceCitersOfCode,
+  makeCommitSnapshotReader,
   makeIndexAwareReader,
 } from "../lib/inbound-cite-discovery.ts";
 import { extractCites } from "../lib/cite-target-existence.ts";
@@ -470,6 +471,78 @@ describe("expandToInboundCiteCorpus — section-cite citers (extraCiteTargets)",
       const staged = [resolve(root, "docs/specs/003-runtime-node-attach.md")];
       const expanded = withRepoRoot(root, () => expandToInboundCiteCorpus(staged));
       expect(expanded).not.toContain(resolve(root, "docs/plans/009-y.md"));
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+// makeCommitSnapshotReader shipped with no test at all: replacing its body with
+// `() => null` passed the entire suite, even though the two evasion closures
+// documented in its own comment rest on it (CAT-10 mutation pass 3). The four
+// cases below are a discriminating matrix rather than four happy paths — each
+// gutting fails a DIFFERENT pair, so no single wrong reader survives all four:
+//
+//   returns null / undefined everywhere ....... fails all four
+//   throws unconditionally ................... fails INDEX and PROBE
+//   catch-all disk fallback (the round-3 bug) . fails DELETION and UNTRACKED
+//   index-only, no probe escape (over-strict) . fails PROBE
+describe("inbound-cite-discovery — makeCommitSnapshotReader commit-snapshot rule", () => {
+  it("INDEX: reads the staged bytes, not the worktree's", () => {
+    // Sources the index specifically. A reader that fell through to disk would
+    // return "worktree" and still look like it was working.
+    const { root, cleanup } = setupRepo({ "docs/plans/002-foo.md": "staged\n" });
+    try {
+      const target = resolve(root, "docs/plans/002-foo.md");
+      writeFileSync(target, "worktree\n");
+      expect(makeCommitSnapshotReader(root)(target)).toBe("staged\n");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("DELETION: refuses a staged deletion whose worktree copy was restored", () => {
+    // Round-3 evasion (PR #207): the commit deletes the target, the worktree
+    // copy is restored, and the earlier catch-all fallback validated the
+    // restored copy — §-verifying a citation the commit leaves broken.
+    const { root, cleanup } = setupRepo({ "docs/plans/002-foo.md": "body\n" });
+    try {
+      const target = resolve(root, "docs/plans/002-foo.md");
+      // `--cached` drops it from the index while leaving the worktree copy —
+      // the fixture's whole point. (A plain `git rm` cannot run here: the
+      // harness stages without committing, so there is no HEAD to delete from.)
+      execSync("git rm -q --cached docs/plans/002-foo.md", { cwd: root });
+      writeFileSync(target, "restored\n");
+      expect(() => makeCommitSnapshotReader(root)(target)).toThrow();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("UNTRACKED: refuses a never-committed target that was not named as input", () => {
+    // Round-4 evasion (Codex, PR #207): the HEAD-presence probe classified
+    // never-committed targets as probe files and read them from disk.
+    const { root, cleanup } = setupRepo({ "docs/plans/002-foo.md": "body\n" });
+    try {
+      const untracked = resolve(root, "docs/plans/003-never-committed.md");
+      writeFileSync(untracked, "on disk only\n");
+      expect(() => makeCommitSnapshotReader(root)(untracked)).toThrow();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("PROBE: reads that same untracked file from disk when it IS an explicit input", () => {
+    // The discriminating positive. Without it, a reader that threw on every
+    // index miss would satisfy both evasion cases above while breaking the
+    // ad-hoc probe and preview invocations the fallback exists to serve —
+    // an untracked file the operator NAMED is the invocation's subject, not a
+    // resolved citation target.
+    const { root, cleanup } = setupRepo({ "docs/plans/002-foo.md": "body\n" });
+    try {
+      const untracked = resolve(root, "docs/plans/003-never-committed.md");
+      writeFileSync(untracked, "on disk only\n");
+      expect(makeCommitSnapshotReader(root, [untracked])(untracked)).toBe("on disk only\n");
     } finally {
       cleanup();
     }
