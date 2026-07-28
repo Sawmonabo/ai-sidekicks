@@ -96,6 +96,19 @@ const CLI_SCRIPTS = [
   // plan-cite Gate-4 survey step). A no-op here is a green check over an
   // unrun gate, so this entry is the load-bearing one in the list.
   { relativePath: ".claude/skills/plan-execution/scripts/preflight.mjs", args: () => [] },
+  // Carries NO entry guard and needs none: it consults `import.meta.url` only
+  // to resolve the repo root and `process.argv` only to parse flags, and
+  // exports nothing. It is spawned here anyway, because the invariant this file
+  // really pins is "the CLI does not silently no-op when invoked through a
+  // hostile path" — worth asserting whether or not a guard mediates it.
+  //
+  // Listing it is also what lets this file have no exemption channel at all. An
+  // earlier revision exempted it and validated the exemption by export count;
+  // that proxy would have kept passing if the file later grew a real (and
+  // broken) guard while still exporting nothing, and the exemption filter would
+  // have hidden it from the comparison below — a false clean manufactured by
+  // the very mechanism meant to prevent one (Codex, round 5).
+  { relativePath: ".claude/skills/plan-execution/scripts/codex-gate.mjs", args: () => [] },
   // The lefthook pre-commit docs-corpus gate. A silent no-op here disables
   // every pre-commit corpus check at once, which makes this the highest-blast-
   // radius guard in the repo.
@@ -169,7 +182,7 @@ test("the fixture path genuinely exercises the encoding axis", () => {
 });
 
 for (const { relativePath, args, nodeOptions = [], stdin = "", env } of CLI_SCRIPTS) {
-  test(`${relativePath}: entry guard fires through a spaced, symlinked path`, () => {
+  test(`${relativePath}: does not silently no-op through a spaced, symlinked path`, () => {
     withSpacedSymlinkedRepo((spacedRepoLink, fixtureDirectory) => {
       const scriptPath = join(spacedRepoLink, relativePath);
       assert.ok(existsSync(scriptPath), `fixture script missing: ${scriptPath}`);
@@ -226,46 +239,6 @@ function collectSourceFiles(directory, collected) {
   return collected;
 }
 
-// Files that trip the two-marker signal without carrying an entry guard. Each
-// entry is a CLAIM that the file has no imported-vs-invoked distinction to
-// guard, and the test below checks that claim rather than trusting it, so the
-// exemption cannot quietly rot into a real guard nobody spawns.
-//
-// Honest limit: "no exports" rules out importing a module for its bindings, not
-// a bare side-effect `import`. For an always-run CLI a side-effect import IS
-// running it, so the distinction the guard protects does not arise — but the
-// check is a proxy, not a proof, and is written down as one.
-const NON_GUARD_MODULE_URL_USERS = [
-  {
-    relativePath: ".claude/skills/plan-execution/scripts/codex-gate.mjs",
-    reason:
-      "consults import.meta.url only to resolve the repo root (so a gate run from a worktree finds the same store) and process.argv only to parse flags — an always-run CLI with no exports, so it has no guard to exercise",
-  },
-];
-
-test("declared non-guards really are non-guards", () => {
-  for (const { relativePath, reason } of NON_GUARD_MODULE_URL_USERS) {
-    const absolutePath = join(REPO_ROOT, relativePath);
-    assert.ok(
-      existsSync(absolutePath),
-      `NON_GUARD_MODULE_URL_USERS names a file that no longer exists: ${relativePath} — ` +
-        "drop the stale entry, or the exemption silently covers nothing",
-    );
-    assert.ok(reason.length > 0, `${relativePath} must record WHY it needs no entry guard`);
-    // An always-run CLI has nothing to export. The moment one grows an export it
-    // becomes importable for its bindings, at which point it needs a guard and
-    // must move into CLI_SCRIPTS instead of staying exempt.
-    const exportCount = (readFileSync(absolutePath, "utf8").match(/^export[\s{]/gm) || []).length;
-    assert.equal(
-      exportCount,
-      0,
-      `${relativePath} is exempted as an always-run CLI with no module consumers, but it now ` +
-        `has ${exportCount} export(s) — it is importable, so it needs an entry guard and a ` +
-        "CLI_SCRIPTS entry rather than an exemption",
-    );
-  }
-});
-
 test("the list is complete — every guarded CLI in the tree is spawned above", () => {
   const searchRoots = ["tools", ".claude", "packages", "apps"]
     .map((root) => join(REPO_ROOT, root))
@@ -289,15 +262,17 @@ test("the list is complete — every guarded CLI in the tree is spawned above", 
   // exact way the comment here used to deny, since `const argv = process.argv`,
   // a destructure, or `process.argv.at(1)` all evade it while guarding the same
   // thing. Over-inclusion is the deliberate trade — a file that consults both
-  // for unrelated reasons is caught and must be declared below, which is a
-  // visible, justified exemption rather than a silent regex-shaped hole.
+  // for unrelated reasons is caught and simply joins the fixture list, where it
+  // gets the same does-it-actually-run assertion. There is deliberately NO
+  // exemption channel: an exemption can only be validated by a proxy for
+  // "carries no guard", and a proxy that drifts produces exactly the false
+  // clean this file exists to prevent.
   const guardedPaths = candidates
     .filter((absolutePath) => {
       const source = readFileSync(absolutePath, "utf8");
       return source.includes("import.meta.url") && /process\.argv/.test(source);
     })
     .map((absolutePath) => relative(REPO_ROOT, absolutePath).split(sep).join("/"))
-    .filter((path) => !NON_GUARD_MODULE_URL_USERS.some((entry) => entry.relativePath === path))
     .sort();
 
   const listedPaths = CLI_SCRIPTS.map((entry) => entry.relativePath).sort();
