@@ -42,6 +42,7 @@ import {
   walkPhases,
   extractPhaseSection,
   gateTasksBlockCites,
+  partitionMarkerOffsets,
 } from "../preflight.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -2319,4 +2320,147 @@ test("classifyPhaseMarkers ignores fenced markers but still counts real ones", (
     unboldSpec: 0,
     unboldInvariant: 0,
   });
+});
+
+// ---------- marker partition (Codex P1 + P2, PR #262 round 3) ----------
+
+// The intra-plan residual is an invariant assertion: phase spans plus their
+// derived complements cover every byte, so on today's paths nothing is ever left
+// over and `[markers-unswept]` never fires against the real corpus. A check that
+// cannot be observed failing is a check nobody can trust, which is why the
+// partition is a pure exported function — these four cases are the proof that it
+// detects a hole rather than merely never seeing one.
+test("partitionMarkerOffsets: a HOLED partition reports the uncovered marker", () => {
+  const holed = partitionMarkerOffsets(
+    [10, 50, 120],
+    [
+      { start: 0, end: 40, isComplement: false },
+      { start: 100, end: 200, isComplement: true },
+    ],
+  );
+  assert.equal(holed.unswept, 1, "offset 50 falls in no unit and must be reported");
+  assert.equal(holed.phase, 1);
+  assert.equal(holed.complement, 1);
+  assert.deepEqual(holed.perUnit, [1, 1]);
+});
+
+test("partitionMarkerOffsets: an EXHAUSTIVE partition leaves nothing unswept", () => {
+  const whole = partitionMarkerOffsets(
+    [10, 50, 120],
+    [
+      { start: 0, end: 100, isComplement: false },
+      { start: 100, end: 200, isComplement: true },
+    ],
+  );
+  assert.equal(whole.unswept, 0);
+  assert.equal(whole.phase, 2);
+  assert.equal(whole.complement, 1);
+});
+
+test("partitionMarkerOffsets: overlapping ranges count a marker ONCE", () => {
+  // The subtraction this replaced summed per-unit counts, so an overlap inflated
+  // the swept side and could cancel out a real hole. First claimant wins.
+  const overlap = partitionMarkerOffsets(
+    [150],
+    [
+      { start: 0, end: 200, isComplement: false },
+      { start: 100, end: 200, isComplement: true },
+    ],
+  );
+  assert.equal(overlap.phase, 1);
+  assert.equal(overlap.complement, 0);
+  assert.equal(overlap.unswept, 0);
+});
+
+test("partitionMarkerOffsets: a unit with NO byte range covers nothing", () => {
+  // The [survey-span-unlocatable] shape. A rangeless unit must not silently
+  // absorb markers it never located.
+  const rangeless = partitionMarkerOffsets([10], [{ isComplement: false }]);
+  assert.equal(rangeless.unswept, 1);
+  assert.deepEqual(rangeless.perUnit, [0]);
+});
+
+// A plan whose out-of-phase markers live in a `## Tier-7 Remainder` block: the
+// complement carries two bold markers, the phase carries two of its own.
+const COMPLEMENT_MARKER_PLAN = [
+  "# Plan-069",
+  "",
+  "## Tier-7 Remainder",
+  "",
+  "- **T-069r-1 — out-of-phase task**",
+  "",
+  "  **Spec coverage:** Spec-050 §Required Behavior",
+  "",
+  "  **Verifies invariant:** I-069-9",
+  "",
+  "### Phase 1 — real work",
+  "",
+  "#### Tasks",
+  "",
+  "- **T1.1 — a task** (Files: packages/a/src/x.ts)",
+  "",
+  "  **Spec coverage:** Spec-050 §Required Behavior",
+  "",
+  "  **Verifies invariant:** I-050-1",
+  "",
+].join("\n");
+
+test("surveyCorpus: complement markers are credited only when their screen RAN", () => {
+  // The denominator was recorded BEFORE the screening loop, so a complement unit
+  // whose cite gate threw still had its markers reported as "screened via the
+  // complement path". The plan was correctly marked uncovered, but the very
+  // observable built to expose a gate reporting clean over work it did not do was
+  // itself asserting a screen had succeeded when it had thrown (Codex P2, PR #262
+  // round 3).
+  const benign = () => ({ hasCiteMarkers: true, findings: [] });
+
+  // Positive control — every screen runs, so the markers ARE credited. Without
+  // this the negative control below would pass just as well against a complement
+  // path that had stopped producing a denominator at all.
+  const clean = makeFixtureCorpus({ "069-complement.md": COMPLEMENT_MARKER_PLAN });
+  try {
+    const survey = surveyCorpus({ repoRoot: clean, runCiteGate: benign });
+    assert.deepEqual(survey.complementMarkerPlans, [
+      { name: "069-complement.md", complement: 2, total: 4, units: 1 },
+    ]);
+    assert.deepEqual(survey.unjudgedComplementPlans, []);
+  } finally {
+    rmSync(clean, { recursive: true, force: true });
+  }
+
+  // Negative control — the COMPLEMENT screen throws while the phase screen is
+  // fine, so the two populations must separate.
+  const thrown = makeFixtureCorpus({ "069-complement.md": COMPLEMENT_MARKER_PLAN });
+  try {
+    const survey = surveyCorpus({
+      repoRoot: thrown,
+      runCiteGate: (section, planPrefix, label) => {
+        if (String(label).includes("outside every phase")) {
+          throw new Error("injected complement failure");
+        }
+        return benign();
+      },
+    });
+    assert.deepEqual(
+      survey.complementMarkerPlans,
+      [],
+      "a thrown complement screen credits NOTHING to the screened denominator",
+    );
+    assert.deepEqual(survey.unjudgedComplementPlans, [
+      { name: "069-complement.md", unjudged: 2, units: 1 },
+    ]);
+    assert.deepEqual(
+      survey.uncoveredPlans.map((plan) => plan.name),
+      ["069-complement.md"],
+    );
+    const text = formatSurvey(survey);
+    assert.doesNotMatch(
+      text,
+      /screened via the complement path/,
+      "the report must not claim a screen that threw had screened anything",
+    );
+    assert.match(text, /cite screen THREW — NOT screened \(1 plan\(s\), 2 marker\(s\)\)/);
+  } finally {
+    rmSync(thrown, { recursive: true, force: true });
+  }
 });
