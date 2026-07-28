@@ -25,14 +25,13 @@ export default {
     () => "tsc -b",
   ],
   // tools/docs-corpus sits OUTSIDE the root solution file's project-references
-  // graph, so the `tsc -b` above never typechecks it (and vitest transforms
-  // TypeScript without checking it). This scoped key runs the tree's own
-  // tsconfig only when files under it are staged, so unrelated commits don't
-  // pay for the check; CI's docs-corpus `Typecheck hook implementations` step
-  // is the required backstop when hooks are skipped. Function form for the
-  // same verbatim-invocation reason as `tsc -b` above — appending filenames
-  // would defeat the project invocation (TS5042).
-  "tools/docs-corpus/**/*.ts": [() => "tsc -p tools/docs-corpus"],
+  // graph, so the `tsc -b` above never typechecks it. Its typecheck is NOT a
+  // lint-staged key: this file's keys match staged files via
+  // `--diff-filter=ACMR`, so a deletion-only commit under the tree would
+  // fire nothing while leaving broken imports behind. The pre-commit leg is
+  // the `docs-corpus-typecheck` screen in lefthook.yml (index-materialized,
+  // deletion-aware); CI's docs-corpus `Typecheck hook implementations` step
+  // is the required backstop when hooks are skipped.
   // Match the TS/TSX rule: eslint first, prettier last so CI's
   // `prettier --check "**/*.{ts,tsx,js,mjs,cjs,...}"` (see package.json
   // `format:check`) is a redundancy gate rather than a discovery surface

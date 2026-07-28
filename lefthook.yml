@@ -116,6 +116,33 @@ pre-commit:
             # and table-total-coherence (corpus:total-check column re-sum vs Total row + prose total).
             run: node --experimental-strip-types tools/docs-corpus/bin/pre-commit-runner.ts {staged_files}
 
+          - name: docs-corpus-typecheck
+            # Pre-commit leg of the tools/docs-corpus typecheck gate (CI's
+            # `Typecheck hook implementations` step is the required backstop).
+            # It lives here, NOT as a lint-staged key, because lint-staged
+            # matches staged files with `--diff-filter=ACMR` — a commit that
+            # only DELETES (or renames away) a file under the tree fires no
+            # key, and the broken imports it leaves would reach CI unchecked
+            # (Codex finding, PR #268). No lefthook `glob:` either: glob'd
+            # jobs skip on the same deletion-blind staged-file list. The
+            # trigger below reads the index diff directly — `--no-renames` so
+            # a rename-away decomposes into a D on its old path — over the
+            # tree plus the two base tsconfigs its config extends. The check
+            # runs against a `git checkout-index` materialization because
+            # screens screen INDEX content (header comment): a worktree
+            # invocation would false-clean on `git rm --cached`, where the
+            # worktree file survives while the commit loses it. node_modules
+            # is symlinked in for typescript + @types resolution; the project
+            # is noEmit, so the materialized tree stays read-only.
+            run: |
+              if git diff --cached --name-only --no-renames -- tools/docs-corpus tsconfig.node22.json tsconfig.base.json | grep -q .; then
+                indexTree=$(mktemp -d)
+                trap 'rm -rf "$indexTree"' EXIT
+                git checkout-index -a --prefix="$indexTree/"
+                ln -s "$PWD/node_modules" "$indexTree/node_modules"
+                pnpm exec tsc -p "$indexTree/tools/docs-corpus"
+              fi
+
 commit-msg:
   jobs:
     - name: commitlint

@@ -284,9 +284,10 @@ jobs:
         # own tsconfig was documentation with no gate behind it (the
         # documented-pin-not-enforced class). Fail-closed by construction:
         # tsc exits non-zero on a missing or invalid project path, so the
-        # step cannot silently no-op if the tree moves. A scoped lint-staged
-        # entry runs the same check at pre-commit; this required step is the
-        # backstop when hooks are skipped.
+        # step cannot silently no-op if the tree moves. The
+        # `docs-corpus-typecheck` lefthook screen runs the same check at
+        # pre-commit against the materialized staged index (deletion-aware);
+        # this required step is the backstop when hooks are skipped.
         run: pnpm exec tsc -p tools/docs-corpus
 
       - name: Unit tests for hook implementations
