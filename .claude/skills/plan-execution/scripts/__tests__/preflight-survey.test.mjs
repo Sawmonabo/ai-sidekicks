@@ -2013,6 +2013,85 @@ function extractComplement(planSource) {
   return planSource.slice(0, planSource.indexOf("### Phase 1"));
 }
 
+// Relaxing the complement floor from AND to OR without tightening what counts
+// as a marker traded one false-clean for another. countCites matches the bare
+// substring `Spec coverage` — no field colon — and a complement is a plan's
+// NARRATIVE region by construction, so one prose sentence sufficed to set
+// hasCiteMarkers, drop the plan out of the vacuous-pass disclosure, and print
+// `cite-swept` + `cite anomalies: none` over a region where extractCiteAnchors
+// verified nothing (Codex P1, PR #262 round 2).
+//
+// The phase here deliberately carries NO markers, so the prose in the
+// complement is the plan's only marker-shaped text — which is what makes the
+// vacuous-pass disclosure the observable under test.
+const PROSE_ONLY_COMPLEMENT_PLAN = `### Tier-7 Remainder — narrative only
+
+Spec coverage for this remainder is added by the Tier-7 audit, and the
+Verifies invariant fields land with it.
+
+### Phase 1 — work whose audit has not run
+
+#### Tasks
+
+- **T1.1 — a task carrying no cite markers at all**
+`;
+
+test("surveyCorpus: complement PROSE does not manufacture a verified result", () => {
+  const tmp = makeFixtureCorpus({ "069-prose-complement.md": PROSE_ONLY_COMPLEMENT_PLAN });
+  try {
+    const survey = surveyCorpus({ repoRoot: tmp });
+
+    // The observable. This plan has no cite marker anywhere, so it must be
+    // disclosed as a vacuous pass. Before the field-marker floor it was absent
+    // from this list — prose alone had promoted it to "verified".
+    assert.deepEqual(
+      survey.markerlessPlans,
+      ["069-prose-complement.md"],
+      `a plan whose only marker-shaped text is complement prose must still be ` +
+        `disclosed as a vacuous pass; got: ${JSON.stringify(survey.markerlessPlans)}`,
+    );
+    assert.deepEqual(survey.citeAnomalies, []);
+    assert.deepEqual(survey.anomalies, []);
+
+    // The half that must NOT regress: countCites still sees the prose. This is
+    // the exact gap between the two predicates, pinned — if countCites is ever
+    // taught the field colon, the floor comment above needs rewriting rather
+    // than silently becoming a tautology.
+    const complementText = PROSE_ONLY_COMPLEMENT_PLAN.slice(
+      0,
+      PROSE_ONLY_COMPLEMENT_PLAN.indexOf("### Phase 1"),
+    );
+    assert.ok(countCites(complementText).spec_coverage > 0, "substring counter sees the prose");
+    const fieldMarkers = classifyPhaseMarkers(complementText);
+    assert.equal(fieldMarkers.boldSpec + fieldMarkers.unboldSpec, 0, "field counter does not");
+
+    // And the floor itself, at the relaxed setting that made this reachable.
+    const gate = gateTasksBlockCites(complementText, "069", 1, { requireBothMarkers: false });
+    assert.equal(gate.hasCiteMarkers, false, "prose must not clear the relaxed complement floor");
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("surveyPhase: an INDENTED task row is not reported as a phantom", () => {
+  // taskHeaderMatches admits `  - **T-… — …**` (the indented sub-slice spelling
+  // it documents as observed) while SURVEY_ORACLE_RE was anchored at column
+  // zero. The row parsed to a declared id the oracle could not see, so it
+  // surfaced as `[phantom] parsed id on no task-shaped row` — a gating anomaly
+  // blaming the parser for a row the ORACLE missed (Codex P2, PR #262 round 2).
+  const indentedSubSlice = `#### Tasks
+
+- **T1.1 — column-zero row**
+  - **T-007r-3-15 — indented sub-slice carrying its own id**
+`;
+
+  const result = surveyPhase(indentedSubSlice);
+  assert.deepEqual(result.ids, ["T-007r-3-15", "T1.1"], "both spellings declare an id");
+  assert.deepEqual(result.phantoms, [], "the indented row is visible to the oracle");
+  assert.deepEqual(result.omissions, []);
+  assert.equal(result.oracleLines.length, 2, "the oracle sees BOTH rows, not just column zero");
+});
+
 test("surveyCorpus: a plan whose markers all sit inside phases reports NO unswept residual", () => {
   // Negative control — the counter must key on marker placement, not merely on
   // a plan having more than one `###` heading.

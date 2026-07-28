@@ -3318,9 +3318,27 @@ export function gateTasksBlockCites(phaseSection, planNumber, phaseNumber, opts 
   // it (Codex P1, PR #262 round 1; confirmed by probe against a negative
   // control that fires on the same cite when a second marker sits beside it).
   // So complements verify whatever anchors are present: ANY marker is enough.
+  //
+  // ANY MARKER, not any MENTION. Relaxing AND to OR without also tightening
+  // what counts as a marker traded one false-clean for another: countCites
+  // matches the bare substring `Spec coverage` with no field colon, and a
+  // complement is by construction a plan's NARRATIVE region — preamble, prose
+  // between phases, appendices — which is exactly where a sentence like "Spec
+  // coverage is added by the audit" lives. Under the AND that prose had to
+  // coincide twice to matter; under the OR one mention was enough to set
+  // hasCiteMarkers, drop the plan out of `markerlessPlans`, and print
+  // `cite-swept` + `cite anomalies: none` over a region where
+  // extractCiteAnchors verified nothing and the complement denominator stayed
+  // zero. So the relaxed arm keys on classifyPhaseMarkers, which is anchored to
+  // a FIELD POSITION (bold `**Spec coverage:**`, or a bullet head / inline
+  // `;`-`(` delimiter followed by a colon) and therefore cannot be tripped by
+  // prose. The strict arm keeps countCites verbatim — the dispatch path is
+  // byte-identical by contract (Codex P1, PR #262 round 2).
+  const fieldMarkers = classifyPhaseMarkers(phaseSection);
   const hasMarkerFloor =
     opts.requireBothMarkers === false
-      ? counts.spec_coverage > 0 || counts.verifies_invariant > 0
+      ? fieldMarkers.boldSpec + fieldMarkers.unboldSpec > 0 ||
+        fieldMarkers.boldInvariant + fieldMarkers.unboldInvariant > 0
       : counts.spec_coverage > 0 && counts.verifies_invariant > 0;
   if (!hasMarkerFloor) {
     return {
@@ -4210,7 +4228,18 @@ export function gatePlanPreconditionBoxes(planSource, planFile) {
 // The oracle is a screen, not a proof — see the boundary note below.
 // Contract: ../references/preflight-contract.md § Survey mode.
 
-const SURVEY_ORACLE_RE = /^(?:-\s+(?:\[[ xX]\]\s+)?\*{1,3}T[-\d]|#####\s+T[-\d])/;
+// Leading-indent tolerance mirrors taskHeaderMatches deliberately. The oracle is
+// an INDEPENDENT line-shape scan — that independence is what makes it a
+// cross-check — but independence is about not calling the parser, not about
+// disagreeing on where a task row may begin. While the two disagreed, an
+// indented row declaring its own id (the `  - **T-007r-3-15 (slice a) …**`
+// spelling taskHeaderMatches documents as observed) parsed to a declared id the
+// oracle could not see, and surfaced as `[phantom] parsed id on no task-shaped
+// row` — a gating anomaly whose message points the reader at the parser when the
+// oracle is what missed the row. Fails loud rather than open, so it could not
+// manufacture a clean verdict; it manufactured a wrong one (Codex P2, PR #262
+// round 2). Measured corpus-neutral when introduced: zero verdict delta.
+const SURVEY_ORACLE_RE = /^(?:[ \t]*-\s+(?:\[[ xX]\]\s+)?\*{1,3}T[-\d]|#####\s+T[-\d])/;
 
 // Reconciliation compares HEAD ids exactly, not row substrings. The lineage
 // (Codex P2 rounds 2-5): bare `includes` let parsed `T1.1` cover a `T1.10`
