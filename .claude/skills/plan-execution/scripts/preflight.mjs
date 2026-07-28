@@ -4674,12 +4674,13 @@ export function surveyCorpus({
   let phaseCount = 0;
   // Coverage bookkeeping. `cite anomalies: none` is only honest when every plan
   // was actually screened, so the survey reports WHICH plans it reached and how:
-  // fallbackPlans rode the whole-document sweep, markerlessFallbackPlans were
-  // swept but carry no cite markers to verify (a vacuous pass, named so it cannot
-  // masquerade as a verified one), uncoveredPlans is the residual the sweep could
-  // not reach at all — and that residual gates through `anomalies`.
+  // fallbackPlans rode the whole-document sweep, markerlessPlans were swept but
+  // carry no cite markers to verify anywhere (a vacuous pass, named so it cannot
+  // masquerade as a verified one — phase-based and whole-document alike),
+  // uncoveredPlans is the residual the sweep could not reach at all — and that
+  // residual gates through `anomalies`.
   const fallbackPlans = [];
-  const markerlessFallbackPlans = [];
+  const markerlessPlans = [];
   const uncoveredPlans = [];
   // Plans counted as swept that nonetheless hold cite markers outside every
   // survey unit — the intra-plan residual the plan-level count cannot express.
@@ -4762,6 +4763,18 @@ export function surveyCorpus({
       if (unsweptMarkers > 0) {
         unsweptMarkerPlans.push({ name, unswept: unsweptMarkers, total: totalMarkers });
       }
+      // Vacuous-pass tracking is per PLAN, not per unit, and deliberately NOT
+      // restricted to the whole-document fallback. A plan whose units carry no
+      // cite marker anywhere was swept without a single claim being checked, and
+      // the coverage line counts it as swept either way. Gating this on
+      // `isWholeDocument` left the phase-based spelling of the same emptiness
+      // undisclosed: a plan with `### Phase` headings never takes the fallback
+      // (that fires only at `surveyUnits.length === 0`), every markerless phase
+      // is skipped by `hasCiteMarkers`, and nothing recorded it — so it landed
+      // inside `N/N plan(s) cite-swept, 0 uncovered` with zero anomalies. That
+      // is the fourth path the coverage contract says cannot exist. Plan-028 is
+      // the live instance: five phases, zero markers, previously invisible.
+      let planHasAnyCiteMarker = false;
       for (const { label, section, isWholeDocument } of surveyUnits) {
         const unitPrefix = isWholeDocument
           ? `${name} ${WHOLE_DOCUMENT_UNIT_LABEL}`
@@ -4799,11 +4812,7 @@ export function surveyCorpus({
           );
           citeResult = null;
         }
-        // A markerless whole-document sweep passes vacuously — record it so the
-        // coverage line can distinguish "verified clean" from "nothing to verify".
-        if (isWholeDocument && citeResult && !citeResult.hasCiteMarkers) {
-          markerlessFallbackPlans.push(name);
-        }
+        if (citeResult?.hasCiteMarkers) planHasAnyCiteMarker = true;
         if (citeResult?.hasCiteMarkers) {
           for (const finding of citeResult.findings) {
             const where = finding.taskId ? `${finding.taskId} (${finding.field})` : finding.field;
@@ -4868,6 +4877,9 @@ export function surveyCorpus({
           );
         }
       }
+      if (surveyUnits.length > 0 && !planHasAnyCiteMarker) {
+        markerlessPlans.push(name);
+      }
       reportLines.push(
         allPhaseLabels.length === 0
           ? `${name}: 0 phase(s) — whole-document cite sweep`
@@ -4927,7 +4939,7 @@ export function surveyCorpus({
     exemptFiles,
     fallbackPlans,
     unsweptMarkerPlans,
-    markerlessFallbackPlans,
+    markerlessPlans,
     uncoveredPlans,
   };
 }
@@ -4944,7 +4956,7 @@ export function formatSurvey(survey, { enforceCites = false } = {}) {
   // that needed the whole-document fallback, the ones that passed vacuously for
   // want of any cite marker, and the residual it could not reach at all.
   const fallbackPlans = survey.fallbackPlans ?? [];
-  const markerlessFallbackPlans = survey.markerlessFallbackPlans ?? [];
+  const markerlessPlans = survey.markerlessPlans ?? [];
   const uncoveredPlans = survey.uncoveredPlans ?? [];
   // `?? 0`, never `?? survey.planCount`: a survey object missing the field must
   // read as NO coverage, not FULL coverage. This is the one line whose whole
@@ -4975,9 +4987,9 @@ export function formatSurvey(survey, { enforceCites = false } = {}) {
   if (fallbackPlans.length) {
     lines.push(`  whole-document fallback (${fallbackPlans.length}): ${fallbackPlans.join(", ")}`);
   }
-  if (markerlessFallbackPlans.length) {
+  if (markerlessPlans.length) {
     lines.push(
-      `  swept but no cite markers to verify — vacuous pass (${markerlessFallbackPlans.length}): ${markerlessFallbackPlans.join(", ")}`,
+      `  swept but no cite markers to verify — vacuous pass (${markerlessPlans.length}): ${markerlessPlans.join(", ")}`,
     );
   }
   if (uncoveredPlans.length) {

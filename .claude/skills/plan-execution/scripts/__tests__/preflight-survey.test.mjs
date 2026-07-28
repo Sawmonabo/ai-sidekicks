@@ -256,7 +256,7 @@ test("surveyCorpus: a phase-less plan's broken cites are CAUGHT, not skipped beh
       /062-phaseless-bad-cite\.md \(whole document\) \[section-not-found\]/,
     );
     // Not a vacuous pass: this plan carries markers, so it is verified, not skipped.
-    assert.deepEqual(survey.markerlessFallbackPlans, []);
+    assert.deepEqual(survey.markerlessPlans, []);
     assert.doesNotMatch(formatSurvey(survey), /cite anomalies: none/);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
@@ -271,11 +271,65 @@ test("surveyCorpus: a markerless fallback plan is reported as a VACUOUS pass, no
     const survey = surveyCorpus({ repoRoot: tmp });
     assert.deepEqual(survey.citeAnomalies, []);
     assert.deepEqual(survey.fallbackPlans, ["063-phaseless-no-markers.md"]);
-    assert.deepEqual(survey.markerlessFallbackPlans, ["063-phaseless-no-markers.md"]);
+    assert.deepEqual(survey.markerlessPlans, ["063-phaseless-no-markers.md"]);
     // "clean" here must be legible as "nothing to check", never as "verified".
     const text = formatSurvey(survey);
     assert.match(text, /swept but no cite markers to verify — vacuous pass \(1\)/);
     assert.match(text, /063-phaseless-no-markers\.md/);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("a PHASE-based plan with no cite markers is a vacuous pass too, not silent coverage", () => {
+  // The fourth path the coverage contract says cannot exist. Vacuous-pass
+  // disclosure used to be gated on `isWholeDocument`, but a plan with even one
+  // `### Phase` heading never takes the whole-document fallback (that fires only
+  // at `surveyUnits.length === 0`), and every markerless phase is skipped by
+  // `hasCiteMarkers`. Nothing recorded it, so the plan landed inside
+  // `N/N plan(s) cite-swept, 0 uncovered` with zero anomalies — swept on paper,
+  // never screened in fact. Two real plans (023, 028) were hidden this way.
+  const tmp = makeFixtureCorpus({
+    "064-phases-no-markers.md":
+      "### Phase 1 — work\n\n#### Tasks\n\n- **T1.1 something** — prose only, no cite markers.\n" +
+      "\n### Phase 2 — more work\n\n#### Tasks\n\n- **T2.1 something else** — also prose only.\n",
+  });
+  try {
+    const survey = surveyCorpus({ repoRoot: tmp });
+    assert.deepEqual(
+      survey.fallbackPlans,
+      [],
+      "a phase-based plan must NOT take the whole-document fallback — that is what hid it",
+    );
+    assert.deepEqual(survey.markerlessPlans, ["064-phases-no-markers.md"]);
+    assert.match(
+      formatSurvey(survey),
+      /swept but no cite markers to verify — vacuous pass \(1\): 064-phases-no-markers\.md/,
+    );
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("a plan with markers in SOME phases is verified, not reported vacuous", () => {
+  // Boundary control for the per-plan rollup: the flag must key on "no unit
+  // anywhere had markers", not "some unit lacked them". Otherwise every plan
+  // with one markerless phase would be mislabelled as unverified and the
+  // vacuous-pass list would stop meaning anything.
+  const tmp = makeFixtureCorpus({
+    "065-mixed-markers.md":
+      "### Phase 1 — cited work\n\n#### Tasks\n\n" +
+      "- **T1.1 thing** — **Spec coverage:** Spec-050 §Required Behavior\n" +
+      "  **Verifies invariant:** Spec-050 §Framing (V1 Pairwise)\n" +
+      "\n### Phase 2 — prose only\n\n#### Tasks\n\n- **T2.1 something else** — no markers here.\n",
+  });
+  try {
+    const survey = surveyCorpus({ repoRoot: tmp });
+    assert.deepEqual(
+      survey.markerlessPlans,
+      [],
+      "one markerless phase must not mark the whole plan unverified",
+    );
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
