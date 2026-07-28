@@ -5384,14 +5384,26 @@ export function surveyCorpus({
       // non-gating. Masking once removes the disagreement instead of tolerating
       // it, and that is what lets the residual gate below.
       //
-      // maskNonContentLines replaces each masked line with spaces of equal length
-      // and rejoins on "\n", so the masked copy is byte-for-byte offset-identical
-      // to `source` and a unit's `[start, end)` indexes the same bytes in both.
+      // maskCiteContent — fences PLUS same-line inline code spans — is the SAME
+      // content boundary the per-unit cite gates judge through. Counting here
+      // through only the fence layer let an inline-code illustration into the
+      // denominator: the complement entry reported it "screened via the
+      // complement path" while the unit's gate, masking it, judged nothing —
+      // and the same plan landed in `markerlessPlans` as having no markers to
+      // verify (Codex P2, PR #262 round 6). Two censuses, one marker,
+      // contradictory verdicts. One boundary ends the disagreement.
+      //
+      // Layer safety: both maskers replace bytes with spaces of equal length,
+      // so the masked copy stays byte-for-byte offset-identical to `source`
+      // and a unit's `[start, end)` indexes the same bytes in both. The fence
+      // layer must be applied globally (fence state does not survive per-unit
+      // splits — see above); the inline-span layer is line-local, so global
+      // and per-unit application cannot disagree on it.
       // Bucketing each match START offset assigns every marker to at most one unit
       // even if a future extractor overlapped two ranges, so no clamp is needed
       // and — unlike the subtraction — an overlap can no longer hide a hole by
       // double-counting the swept side.
-      const maskedSource = maskNonContentLines(source);
+      const maskedSource = maskCiteContent(source);
       const markerOffsets = [...maskedSource.matchAll(boldCiteMarkerPattern())].map(
         (match) => match.index,
       );

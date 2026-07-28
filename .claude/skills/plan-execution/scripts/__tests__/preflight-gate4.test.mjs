@@ -37,6 +37,7 @@ import {
   maskInlineCodeSpans,
   countCites,
   classifyPhaseMarkers,
+  surveyCorpus,
 } from "../preflight.mjs";
 
 const FIXTURE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "preflight-gate4-fixtures");
@@ -2713,6 +2714,61 @@ test("maskInlineCodeSpans leaves unbalanced and mismatched backtick runs alone",
   assert.equal(maskInlineCodeSpans(lone), lone, "an unpaired run is prose, not a span");
   const mismatched = "``double open with **Spec coverage:** and ` single close";
   assert.equal(maskInlineCodeSpans(mismatched), mismatched, "runs must be equal length to pair");
+});
+
+test("maskInlineCodeSpans masks a double-backtick span wrapping literal backticks (2/1/1/2)", () => {
+  // The canonical CommonMark idiom for showing code that itself contains a
+  // backtick. Runs are [2, 1, 1, 2]: the len-2 closer sits two runs away, so
+  // positional pairing rejects (2,1) and (1,2) on length and the illustrated
+  // marker inside counts as audit output (Codex P2, PR #262 round 6).
+  const line = "An outer span: `` `**Spec coverage:** Spec-999 §Missing` `` illustrates the form.";
+  const masked = maskInlineCodeSpans(line);
+  assert.equal(masked.length, line.length, "length must be preserved — offsets are load-bearing");
+  assert.ok(!masked.includes("Spec coverage"), "the wrapped illustration must be blanked");
+  const { anchors, failures } = extractCiteAnchors(`${line}\n`);
+  assert.equal(anchors.length, 0, "an illustrated marker must not be extracted");
+  assert.equal(failures.length, 0, "an illustration is not a defect either");
+});
+
+test("survey denominator and unit gates share one content boundary", () => {
+  // The complement's ONLY marker-shaped text is an inline-code illustration.
+  // Counting the denominator through a laxer mask than the unit gates let the
+  // survey report that marker as "screened via the complement path" while the
+  // same plan sat in `markerlessPlans` as having nothing to verify — two
+  // censuses, one marker, contradictory verdicts (Codex P2, PR #262 round 6).
+  const fixtureRoot = mkdtempSync(resolve(tmpdir(), "preflight-census-"));
+  const planDir = resolve(fixtureRoot, "docs", "plans");
+  mkdirSync(planDir, { recursive: true });
+  writeFileSync(
+    resolve(planDir, "101-census-fixture.md"),
+    [
+      "# Plan-101 census fixture",
+      "",
+      "Authoring guidance: write `**Spec coverage:** Spec-001 §Goals` on each task row.",
+      "",
+      "### Phase 1 — No markers",
+      "",
+      "#### Tasks",
+      "",
+      "- **T-101-1.1** — A row with no cite markers.",
+      "",
+    ].join("\n"),
+  );
+  const survey = surveyCorpus({ repoRoot: fixtureRoot });
+  assert.deepEqual(
+    survey.complementMarkerPlans,
+    [],
+    "an illustrated marker must not enter the complement-screened denominator",
+  );
+  assert.ok(
+    survey.markerlessPlans.includes("101-census-fixture.md"),
+    "the one honest census entry is markerless — swept, nothing to verify",
+  );
+  assert.deepEqual(
+    survey.uncoveredPlans ?? [],
+    [],
+    "the fixture must be swept, or the census assertions above are vacuous",
+  );
 });
 
 test("maskInlineCodeSpans finds a closer past an unmatched run (no positional pairing)", () => {
