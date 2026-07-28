@@ -116,6 +116,11 @@ export function isTableRow(line: string): boolean {
  * an example as live markup and can fail the gate on documentation (Codex,
  * PR #269 round 1). Body rows are deliberately not held to it: they join an
  * already-open table by lazy continuation.
+ *
+ * The rule is CommonMark's general BLOCK-indent bound rather than anything
+ * table-specific — it governs fence openers and HTML blocks identically — so
+ * callers classifying other block starts share it instead of restating the
+ * threshold (table-arity's block-level HTML-comment opener test).
  */
 export function hasLegalTableIndent(line: string): boolean {
   const leadingWhitespace = /^[ \t]*/.exec(line)?.[0] ?? "";

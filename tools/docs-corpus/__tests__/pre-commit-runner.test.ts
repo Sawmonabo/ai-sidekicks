@@ -464,6 +464,31 @@ describe("pre-commit-runner — commit-snapshot (index) reads across every lane"
     expect(result.exitCode).toBe(0);
   });
 
+  // table-arity joined the commit-snapshot reader in PR #269 round 2. The
+  // parseFile-level test pins that an injected reader is honored; this one pins
+  // that the RUNNER injects it — with the disk fallback covering every argv
+  // path, a runner that silently kept reading the worktree would still exit 0
+  // over the real corpus and look identical.
+  it("md lane: table-arity flags the STAGED table even when the worktree already fixed it", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md":
+        "# Spec\n\n| a | b |\n| --- | --- |\n| 1 | 2 | 3 |\n",
+    });
+    try {
+      writeFileSync(
+        resolve(root, "docs/specs/003-runtime-node-attach.md"),
+        "# Spec\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n",
+      );
+      const result = withRepoRoot(root, () =>
+        runChecks([resolve(root, "docs/specs/003-runtime-node-attach.md")]),
+      );
+      expect(result.exitCode).toBe(1);
+      expect(result.messages.join("\n")).toContain("table-arity");
+    } finally {
+      cleanup();
+    }
+  });
+
   it("§-verification reads the STAGED target: a coherent staged rename passes despite a stale worktree target", () => {
     const { root, cleanup } = setupRepo({
       "docs/specs/003-runtime-node-attach.md": "# Spec\n\n## Renamed Heading\n\nbody\n",

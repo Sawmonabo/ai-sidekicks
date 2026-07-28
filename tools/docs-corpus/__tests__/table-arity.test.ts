@@ -287,6 +287,147 @@ Here is what the corruption looks like:
         expect(parseFile(file)).toEqual([]);
       });
     });
+
+    // Comment state is entered only from a BLOCK-LEVEL opener. Scanning for
+    // `<!--` anywhere on the line meant a code span holding those literal
+    // characters — prose about HTML comments, which this corpus writes — blanked
+    // out every check to the next `-->` or to end of file (Codex, PR #269 R2).
+    it("does NOT enter comment state from `<!--` inside a code span", () => {
+      withFile(
+        "Suppression begins at a `<!--` opener.\n\n| a | b |\n| --- | --- |\n| 1 | 2 | 3 |\n",
+        (file) => {
+          expect(parseFile(file)).toMatchObject([{ line: 5, kind: "row-arity", actual: 3 }]);
+        },
+      );
+    });
+
+    // An HTML block interrupts what precedes it and its content is not
+    // markdown, so the OPENER line is suppressed exactly like the closer. The
+    // opener falling through to the body comparison flagged the pipes in a line
+    // GFM renders as an HTML block, never as a row.
+    it("does not compare the pipes on a block-level comment opener line", () => {
+      withFile("| a | b |\n| --- | --- |\n| 1 | 2 |\n<!-- | x | y | z |\n-->\n", (file) => {
+        expect(parseFile(file)).toEqual([]);
+      });
+    });
+  });
+
+  // GFM builds a table only from rows in the same container. Without a depth
+  // check the parser synthesizes a table GFM never renders — a false POSITIVE
+  // class, which is why this one is a guard rather than a disclosed bound
+  // (Codex, PR #269 R2). Depth is counted, not stacked: a container stack is
+  // the unbounded path this check declines.
+  describe("blockquote depth", () => {
+    // The delimiter arity deliberately DISAGREES with the header's. A matching
+    // delimiter makes the fixture pass on the body guard alone, so dropping the
+    // open-side equality survived it — the first version of this test did
+    // exactly that.
+    it("does not synthesize a table from a quoted header and an unquoted delimiter", () => {
+      withFile("> | a | b |\n| --- | --- | --- |\n| 1 | 2 | 3 |\n", (file) => {
+        expect(parseFile(file)).toEqual([]);
+      });
+    });
+
+    it("ends the table when a body row changes depth", () => {
+      withFile("| a | b |\n| --- | --- |\n> | 1 | 2 | 3 |\n", (file) => {
+        expect(parseFile(file)).toEqual([]);
+      });
+    });
+
+    // The guard must not collapse to "unquoted only" — a consistently quoted
+    // table at any depth is a real table and stays checked.
+    it("checks a consistently double-quoted table", () => {
+      withFile(">> | a | b |\n>> | --- | --- |\n>> | 1 | 2 | 3 |\n", (file) => {
+        expect(parseFile(file)).toMatchObject([{ kind: "row-arity", expected: 2, actual: 3 }]);
+      });
+    });
+  });
+
+  // Front matter is YAML, not markdown — GitHub renders it as document
+  // metadata. 27 enforced files carry it (agent definitions, skill files,
+  // preflight fixtures); none holds a pipe today, so this protects a real
+  // population against a future `description: a | b` rather than repairing a
+  // live break (Codex, PR #269 R2).
+  describe("YAML front matter", () => {
+    // A folded block scalar carrying markdown is the plausible shape, and it
+    // discriminates: without the suppression these two lines are a header and a
+    // 3-cell delimiter row.
+    const FRONT_MATTER = `---
+description: >
+  | a | b |
+  | --- | --- | --- |
+`;
+
+    it("ignores markdown-shaped content inside leading front matter", () => {
+      withFile(`${FRONT_MATTER}---\n\n# Doc\n`, (file) => {
+        expect(parseFile(file)).toEqual([]);
+      });
+    });
+
+    it("accepts `...` as the terminator", () => {
+      withFile(`${FRONT_MATTER}...\n\n| x | y |\n| --- | --- |\n| 1 | 2 |\n`, (file) => {
+        expect(parseFile(file)).toEqual([]);
+      });
+    });
+
+    it("checks content after the terminator normally, at its true line numbers", () => {
+      withFile(`${FRONT_MATTER}---\n\n| x | y |\n| --- | --- |\n| 1 | 2 | 3 |\n`, (file) => {
+        expect(parseFile(file)).toMatchObject([{ line: 9, headerLine: 7, kind: "row-arity" }]);
+      });
+    });
+
+    // An unterminated opener is not front matter at all — a closing fence is
+    // required for the block to exist — so the file is scanned as ordinary
+    // content instead of being swallowed to end of file.
+    it("treats an unterminated opener as ordinary content", () => {
+      withFile(FRONT_MATTER, (file) => {
+        expect(parseFile(file)).toMatchObject([
+          { kind: "delimiter-arity", expected: 2, actual: 3 },
+        ]);
+      });
+    });
+
+    // TWO thematic breaks, with the broken table between them: a tracker that
+    // scanned forward for its opener instead of requiring line 1 would pair
+    // them and skip everything in between. With a single break there is no
+    // terminator to find, such a tracker gives up, and the fixture passes
+    // either way — which is how the first version of this test let that
+    // mutation live.
+    it("does not treat a mid-file `---` as front matter", () => {
+      withFile("# Doc\n\n---\n\n| a | b |\n| --- | --- | --- |\n\n---\n\nafter\n", (file) => {
+        expect(parseFile(file)).toMatchObject([
+          { kind: "delimiter-arity", expected: 2, actual: 3 },
+        ]);
+      });
+    });
+  });
+
+  // The runner validates the COMMIT, not the editor buffer: it hands the check
+  // the same commit-snapshot (`git show :path`) reader its cite checks use, so
+  // a staged-broken table fixed only in the worktree still blocks (Codex,
+  // PR #269 R2). The default reads from disk, which is what these tests and
+  // ad-hoc probes want.
+  describe("injected content reader", () => {
+    it("checks the INJECTED content, not what is on disk", () => {
+      withFile("| a | b |\n| --- | --- |\n| 1 | 2 |\n", (file) => {
+        const staged = "| a | b |\n| --- | --- |\n| 1 | 2 | 3 |\n";
+        expect(parseFile(file, () => staged)).toMatchObject([
+          { kind: "row-arity", expected: 2, actual: 3 },
+        ]);
+        // Same path, default reader: the clean worktree copy. The pair is what
+        // proves the injection is live rather than incidentally agreeing.
+        expect(parseFile(file)).toEqual([]);
+      });
+    });
+
+    it("forwards the reader through checkTableArity", () => {
+      withFile("| a | b |\n| --- | --- |\n| 1 | 2 |\n", (file) => {
+        expect(checkTableArity([file], () => "| a |\n| --- |\n| 1 | 2 |\n")).toMatchObject([
+          { kind: "row-arity", expected: 1, actual: 2 },
+        ]);
+        expect(checkTableArity([file])).toEqual([]);
+      });
+    });
   });
 
   // Escape handling is by backslash-RUN PARITY. The naive "is the previous
@@ -334,7 +475,11 @@ ${String.raw`| x \\| y | z |`}
     });
   });
 
-  describe("documented residual", () => {
+  // The recognized subset's edge. Every bound below is measured at ZERO over
+  // the 230 enforced `.md` files, with a predicate proven to fire on a
+  // synthetic positive in the same run — and pinned here so it stays a decision
+  // on record rather than an unnoticed gap.
+  describe("disclosed bounds", () => {
     // Arity is a WITHIN-table invariant by design: it finds rows that disagree
     // with their header, never headers that disagree with the author's intent.
     // A uniformly-wrong table is internally consistent and passes — pinned so
@@ -352,7 +497,7 @@ ${String.raw`| x \\| y | z |`}
     // table-boundary detection. The enforced corpus was probed for this shape
     // and holds zero instances (see the module header), which is what makes the
     // bound tolerable rather than a live hole.
-    it("does NOT see a table whose header omits outer pipes (measured-zero scope bound)", () => {
+    it("does NOT see a table whose header omits outer pipes", () => {
       withFile("a | b\n--- | ---\n1 | 2 | 3\n", (file) => {
         expect(parseFile(file)).toEqual([]);
       });
@@ -364,17 +509,41 @@ ${String.raw`| x \\| y | z |`}
     // classification — a heading, list item, or fence abutting a table is NOT
     // absorbed — which is out of proportion to a population measured at zero
     // across the 230 enforced files.
-    it("ends the table at a pipe-less line GFM would absorb (measured-zero scope bound)", () => {
+    it("ends the table at a pipe-less line GFM would absorb", () => {
       withFile("| a | b |\n| --- | --- |\n| 1 | 2 |\nbar\n", (file) => {
         expect(parseFile(file)).toEqual([]);
       });
     });
 
-    // Scope bound 3: the line carrying `-->` is suppressed whole, so live
-    // markup in its tail is not checked. Also measured at zero.
+    // Bound 3: the line carrying `-->` is suppressed whole, so live markup in
+    // its tail is not checked. Also measured at zero.
     it("does not check live markup in the tail after a comment closes", () => {
       withFile("<!--\ncomment\n--> | a | b |\n| --- | --- |\n| 1 | 2 | 3 |\n", (file) => {
         expect(parseFile(file)).toEqual([]);
+      });
+    });
+
+    // Bound 4: four spaces or a tab makes the block indented code. This is the
+    // superset of the list-container case — a table nested under a list item
+    // carries that indentation — and taking it as one indentation rule is what
+    // avoids tracking container stacks for a population measured at zero.
+    it("does not see a table indented under a list item", () => {
+      withFile("- item\n\n    | a | b |\n    | --- | --- | --- |\n    | 1 | 2 | 3 |\n", (file) => {
+        expect(parseFile(file)).toEqual([]);
+      });
+    });
+
+    // Bound 6, the one bound in the PRECISION direction: comment state is
+    // entered only from a block-level opener, so a comment opened mid-line no
+    // longer suppresses its interior — that interior is read as live markup and
+    // a malformed table inside it WOULD be flagged. The narrowing is worth the
+    // residual: the alternative blanked out checks from any `<!--` in a code
+    // span, and this shape measures zero.
+    it("reads the interior of a mid-line-opened comment as live markup", () => {
+      withFile("prose <!--\n| a | b |\n| --- | --- | --- |\n-->\n", (file) => {
+        expect(parseFile(file)).toMatchObject([
+          { kind: "delimiter-arity", expected: 2, actual: 3 },
+        ]);
       });
     });
   });
