@@ -6,9 +6,11 @@
 // presence, mermaid-set-coherence, cite-target-existence). Same coverage; one
 // less layer of config.
 //
-// argv: zero or more file paths, partitioned by extension into two disjoint
-// per-file lanes: staged `.md` governance docs (mermaid + cite) and staged
-// `packages/**`+`apps/**` TypeScript (the label-cite floor).
+// argv: zero or more file paths, partitioned into two disjoint per-file lanes
+// by SHAPE (extension/prefix) and EXISTENCE (present in the git index or on
+// disk — see `runChecks`): staged `.md` governance docs (mermaid + table
+// checks + cite) and staged `packages/**`+`apps/**` TypeScript (the label-cite
+// floor).
 // path-canonical-ripple and plan-manifest-presence run unconditionally (each
 // does its own whole-repo enumeration — path-ripple greps the registry `scope`
 // globs, manifest-presence walks `git ls-files docs/plans/`).
@@ -29,14 +31,14 @@
 // `file.md:NNN` cites — closing the gap where a spec amendment silently
 // invalidated code-comment line cites (PR #139). See `../lib/label-cite.ts`.
 //
-// table-total-coherence runs against staged `.md` files: a breakdown table
+// table-total-coherence runs against the staged `.md` lane: a breakdown table
 // marked `<!-- corpus:total-check column="..." -->` has that column re-summed
 // and reconciled against the in-table **Total** row and any declared prose
 // total — failing the census-drift class from the PR #152 retrospective (a
 // summary asserting a count while its own column summed to a different one).
 // Opt-in by marker, within-document only. See `../lib/table-total-coherence.ts`.
 //
-// table-arity runs against staged `.md` files: every row of a RECOGNIZED GFM
+// table-arity runs against the staged `.md` lane: every row of a RECOGNIZED GFM
 // table must carry its header's cell count. Unlike table-total it needs no
 // opt-in marker — the invariant is structural, true of any table, rather than
 // something a document declares. Recognition, however, is a deliberately
@@ -284,46 +286,20 @@ export function runChecks(args: string[], floors: LaneFloors = {}): RunChecksRes
     exitCode = 1;
   }
 
-  // mermaid + table-total read the WORKTREE directly (they take file paths,
-  // not an injected reader), so they get the disk-present subset of the lane:
-  // an index-only member would ENOENT mid-check. For these two checks that
-  // subset IS the pre-round-4 lane — behavior unchanged — while the
-  // reader-based checks below take the full lane, index-only members
-  // included. The split dissolves when these two migrate to the shared
-  // commit-snapshot reader.
-  const stagedMdOnDisk = stagedMd.filter(statIsFile);
-
-  if (stagedMdOnDisk.length > 0) {
-    const mermaidHits = checkMermaidSetCoherence(stagedMdOnDisk);
-    if (mermaidHits.length > 0) {
-      messages.push(formatMermaidViolations(mermaidHits));
-      exitCode = 1;
-    }
-  }
-
-  // Arithmetic guard for opt-in `<!-- corpus:total-check ... -->` breakdown
-  // tables: re-sum the marked column and reconcile it against the in-table
-  // **Total** row and any declared prose total. Closes the F-4 gap from the
-  // PR #152 retrospective (a census summary that drifted from its own column).
-  if (stagedMdOnDisk.length > 0) {
-    const totalHits = checkTableTotalCoherence(stagedMdOnDisk);
-    if (totalHits.length > 0) {
-      messages.push(formatTableTotalViolations(totalHits));
-      exitCode = 1;
-    }
-  }
-
   // Every content-reading check below validates the COMMIT, not the editor
-  // buffer: ONE commit-snapshot reader serves table-arity, the cite floors,
-  // §-verification, and both volatile-cite denies. Citers and targets alike
-  // read the git INDEX (`git show :path`) — the staged blob is what ships, so
+  // buffer: ONE commit-snapshot reader serves mermaid, table-total,
+  // table-arity, the cite floors, §-verification, and both volatile-cite
+  // denies. Citers and targets alike read the git INDEX (`git show :path`) —
+  // the staged blob is what ships, so
   // a raw cite that is staged-but-fixed-only-in-worktree still blocks, clean
   // staged content is never blamed for unstaged WIP, and a staged heading
   // rename verifies against the staged target (Codex, PR #207 round 2 for the
   // md deny; extended to every pass in round 3 — a split-reader runner re-opens
   // the same staged-vs-worktree divergence in whichever lane keeps the worktree
   // read, which is why table-arity joined it rather than keeping its own
-  // `readFileSync`: PR #269 round 2). The disk fallback applies ONLY to files
+  // `readFileSync` (PR #269 round 2), and why mermaid + table-total followed,
+  // dissolving the disk-present-subset split round 4 had left them). The disk
+  // fallback applies ONLY to files
   // named in THIS invocation's argv (probes, previews) — any other index miss
   // throws, so neither a staged deletion with a restored worktree copy nor a
   // staged citer citing an untracked target can pass (see
@@ -335,6 +311,26 @@ export function runChecks(args: string[], floors: LaneFloors = {}): RunChecksRes
   // opens no subprocess until a path is actually read, and it memoizes, so the
   // two lanes share one `git show` per file rather than one each.
   const reader = makeCommitSnapshotReader(repoRoot, args);
+
+  if (stagedMd.length > 0) {
+    const mermaidHits = checkMermaidSetCoherence(stagedMd, reader);
+    if (mermaidHits.length > 0) {
+      messages.push(formatMermaidViolations(mermaidHits));
+      exitCode = 1;
+    }
+  }
+
+  // Arithmetic guard for opt-in `<!-- corpus:total-check ... -->` breakdown
+  // tables: re-sum the marked column and reconcile it against the in-table
+  // **Total** row and any declared prose total. Closes the F-4 gap from the
+  // PR #152 retrospective (a census summary that drifted from its own column).
+  if (stagedMd.length > 0) {
+    const totalHits = checkTableTotalCoherence(stagedMd, reader);
+    if (totalHits.length > 0) {
+      messages.push(formatTableTotalViolations(totalHits));
+      exitCode = 1;
+    }
+  }
 
   // Structural guard on EVERY table (no marker opt-in): each row must carry its
   // header's cell count. An unescaped `|` inside a cell — a code span included,

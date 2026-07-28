@@ -96,11 +96,21 @@ function gitGrep(
       cwd,
       encoding: "utf8",
       maxBuffer: 16 * 1024 * 1024,
+      // Pipe stderr: with no stdio option, execFileSync also passes the
+      // child's stderr through to the parent, bleeding a raw git error line
+      // into hook output alongside the thrown message (which Node already
+      // builds from the captured stderr) — same class as plan-manifest-
+      // presence's fail-closed probe.
+      stdio: ["ignore", "pipe", "pipe"],
     });
   } catch (err) {
     const e = err as { status?: number; stdout?: string };
+    // `git grep` exits 1 for "no matches" — the clean outcome, not a fault.
     if (e.status === 1) return [];
-    throw err;
+    throw new Error(
+      `path-canonical-ripple: git grep --cached failed: ${err instanceof Error ? err.message : String(err)}`,
+      { cause: err },
+    );
   }
   return out
     .split("\n")

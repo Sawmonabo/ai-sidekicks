@@ -607,6 +607,69 @@ describe("pre-commit-runner — index-first lane membership", () => {
     }
   });
 
+  // mermaid + table-total ran on the disk-present SUBSET of the lane until
+  // their reader migration — an index-only member silently skipped exactly
+  // these two checks while the reader-based ones saw it. Both now take the
+  // full lane through the shared commit-snapshot reader; these pin it.
+  it("md lane: a staged mermaid-set violation is still caught after the worktree copy is removed", () => {
+    const MERMAID_INCOHERENT = [
+      "# Page",
+      "",
+      "```mermaid",
+      "graph TB",
+      "  NS01[NS-01: a]:::ready",
+      "  NS22[NS-22: b]:::ready",
+      "",
+      "  classDef ready fill:#9f9,stroke:#0a0,color:#000",
+      "```",
+      "",
+      "The ready set (NS-01) shares no code paths.",
+      "",
+    ].join("\n");
+    const { root, cleanup } = setupRepo({
+      "docs/architecture/deployment-graph.md": MERMAID_INCOHERENT,
+    });
+    try {
+      rmSync(resolve(root, "docs/architecture/deployment-graph.md"));
+      const result = withRepoRoot(root, () =>
+        runChecks([resolve(root, "docs/architecture/deployment-graph.md")]),
+      );
+      expect(result.laneCounts.md).toBe(1);
+      expect(result.exitCode).toBe(1);
+      expect(result.messages.join("\n")).toContain("mermaid-set-coherence");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("md lane: a staged table-total drift is still caught after the worktree copy is removed", () => {
+    const DRIFTED_CENSUS = [
+      "# Spec",
+      "",
+      '<!-- corpus:total-check column="Count" -->',
+      "| Category | Count |",
+      "| --- | --- |",
+      "| a | 12 |",
+      "| b | 18 |",
+      "| **Total** | **25** |",
+      "",
+    ].join("\n");
+    const { root, cleanup } = setupRepo({
+      "docs/specs/003-runtime-node-attach.md": DRIFTED_CENSUS,
+    });
+    try {
+      rmSync(resolve(root, "docs/specs/003-runtime-node-attach.md"));
+      const result = withRepoRoot(root, () =>
+        runChecks([resolve(root, "docs/specs/003-runtime-node-attach.md")]),
+      );
+      expect(result.laneCounts.md).toBe(1);
+      expect(result.exitCode).toBe(1);
+      expect(result.messages.join("\n")).toContain("table-total-coherence");
+    } finally {
+      cleanup();
+    }
+  });
+
   it("code lane: a staged raw line-cite is still denied after the worktree copy is removed", () => {
     const { root, cleanup } = setupRepo({
       "docs/specs/003-runtime-node-attach.md": "# Spec\n\nline three\nline four\nline five\n",

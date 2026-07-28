@@ -238,6 +238,11 @@ describe("plan-manifest-presence", () => {
     try {
       process.env.REPO_ROOT = root; // no `git init` → git ls-files errors
       expect(() => checkPlanManifestPresence()).toThrow(/could not enumerate plans/i);
+      // git's own diagnosis must stay in the thrown message (Node folds the
+      // child's CAPTURED stderr into the error it raises). This pins stderr
+      // as piped: silencing the raw `fatal:` bleed with a stderr of "ignore"
+      // instead would strip the one line that explains the failure.
+      expect(() => checkPlanManifestPresence()).toThrow(/not a git repository/i);
     } finally {
       if (prev === undefined) delete process.env.REPO_ROOT;
       else process.env.REPO_ROOT = prev;

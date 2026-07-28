@@ -40,9 +40,21 @@
 // table after the marker, or a non-numeric data cell in the summed column. A
 // silently-skipped marker is the vacuous-pass failure the runbook's own
 // byte-identity lesson warns against.
+//
+// Content arrives through an injected FileContentReader (defaulting to a plain
+// disk read): the pre-commit runner passes its commit-snapshot reader so the
+// check validates the STAGED blob, while the standalone G7 bin keeps the disk
+// default — its inputs are pre-swap working copies that exist only on disk
+// (see ../bin/table-total-check.ts).
 
 import { readFileSync } from "node:fs";
 
+import type { FileContentReader } from "./cite-target-existence.ts";
+import {
+  advanceFenceState,
+  type OpenFenceState,
+  stripBlockquotePrefix,
+} from "./markdown-fences.ts";
 import { isDelimiterRow, isTableRow, splitRow } from "./markdown-tables.ts";
 
 export type TableTotalViolationKind =
@@ -70,6 +82,8 @@ export interface TableTotalViolation {
 
 const MARKER_RE = /<!--\s*corpus:total-check\b([^>]*?)-->/;
 
+const readFromDisk: FileContentReader = (absolutePath) => readFileSync(absolutePath, "utf8");
+
 function escapeRegExp(source: string): string {
   return source.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -87,33 +101,30 @@ function parseCellNumber(cell: string | undefined): number | null {
   return Number.parseInt(cleaned, 10);
 }
 
-export function parseFile(filePath: string): TableTotalViolation[] {
-  const content = readFileSync(filePath, "utf8");
+export function parseFile(
+  filePath: string,
+  readContent: FileContentReader = readFromDisk,
+): TableTotalViolation[] {
+  const content = readContent(filePath);
   const lines = content.split("\n");
   const violations: TableTotalViolation[] = [];
 
   // Pre-scan: which lines sit inside a fenced code block. Markers shown as
   // examples inside ```/~~~ fences (e.g. this convention documented in the audit
-  // runbook) are NOT live markers and must be skipped.
+  // runbook) are NOT live markers and must be skipped. State comes from the
+  // shared tracker: the private toggle this replaces closed a fence on ANY
+  // same-marker line, so an info-string'd inner delimiter ended suppression
+  // early and a documented example marker below it went live; it also opened
+  // fences on indented code (4+ spaces) and never looked through blockquote
+  // containers. Both delimiter lines count as fenced — the toggle marked opener
+  // and closer alike, and a marker ON a delimiter line is fence punctuation,
+  // not a live marker.
   const fenced = new Array<boolean>(lines.length).fill(false);
-  let inFence = false;
-  let fenceMarker = "";
+  let openFence: OpenFenceState = null;
   for (let i = 0; i < lines.length; i++) {
-    const t = lines[i].trimStart();
-    if (!inFence && (t.startsWith("```") || t.startsWith("~~~"))) {
-      inFence = true;
-      fenceMarker = t.startsWith("```") ? "```" : "~~~";
-      fenced[i] = true;
-      continue;
-    }
-    if (inFence) {
-      fenced[i] = true;
-      if (t.startsWith(fenceMarker)) {
-        inFence = false;
-        fenceMarker = "";
-      }
-      continue;
-    }
+    const stepped = advanceFenceState(stripBlockquotePrefix(lines[i]), openFence);
+    fenced[i] = openFence !== null || stepped.isDelimiterLine;
+    openFence = stepped.openFence;
   }
 
   for (let i = 0; i < lines.length; i++) {
@@ -240,10 +251,13 @@ export function parseFile(filePath: string): TableTotalViolation[] {
   return violations;
 }
 
-export function checkTableTotalCoherence(files: string[]): TableTotalViolation[] {
+export function checkTableTotalCoherence(
+  files: string[],
+  readContent: FileContentReader = readFromDisk,
+): TableTotalViolation[] {
   const violations: TableTotalViolation[] = [];
   for (const file of files) {
-    violations.push(...parseFile(file));
+    violations.push(...parseFile(file, readContent));
   }
   return violations;
 }

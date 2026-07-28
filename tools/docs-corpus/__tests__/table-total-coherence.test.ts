@@ -251,3 +251,90 @@ Just prose, no table.
     });
   });
 });
+
+// The fence pre-scan runs on the shared advanceFenceState tracker. The private
+// toggle it replaced diverged from CommonMark in three ways, each pinned here:
+// it closed a fence on ANY same-marker line (an info-string'd inner delimiter
+// ended suppression early), it opened fences on indented code, and it never
+// looked through blockquote containers.
+describe("table-total-coherence — fence tracking (shared advanceFenceState)", () => {
+  // Sums 99 but asserts 1 — fires total-row-mismatch anywhere it goes live.
+  const DRIFTED_TABLE = [
+    '<!-- corpus:total-check column="Count" -->',
+    "| Category | Count |",
+    "| --- | --- |",
+    "| a | 99 |",
+    "| **Total** | **1** |",
+  ];
+
+  it("keeps a marker below an info-string'd inner delimiter fenced (the naive-toggle mis-close)", () => {
+    // CommonMark: a closing fence carries NO info text, so the interior
+    // ```ts line is fence CONTENT of the open ```markdown fence — the toggle
+    // read it as the closer and let the documented example marker go live.
+    const doc = [
+      "# Runbook",
+      "",
+      "```markdown",
+      "Example of a nested opener rendered literally:",
+      "```ts",
+      'const marker = "corpus";',
+      "",
+      ...DRIFTED_TABLE,
+      "```",
+      "",
+      "End of example.",
+    ].join("\n");
+    withFile(doc, (file) => {
+      expect(parseFile(file)).toEqual([]);
+    });
+  });
+
+  it("treats an indented fence-lookalike as code content, keeping the marker below it live", () => {
+    // Four spaces of indentation makes the ``` line indented-code CONTENT
+    // (CommonMark), not a delimiter — the toggle opened a fence on it and
+    // silently suppressed every live marker below.
+    const doc = [
+      "# Doc",
+      "",
+      "Indented four spaces, code content rather than a delimiter:",
+      "",
+      "    ```",
+      "",
+      ...DRIFTED_TABLE,
+    ].join("\n");
+    withFile(doc, (file) => {
+      const violations = parseFile(file);
+      expect(violations).toHaveLength(1);
+      expect(violations[0]).toMatchObject({ kind: "total-row-mismatch", sum: 99, asserted: 1 });
+    });
+  });
+
+  it("keeps a marker inside a blockquoted fence inert", () => {
+    const doc = [
+      "# Doc",
+      "",
+      "> Illustrative only:",
+      ">",
+      "> ```markdown",
+      ...DRIFTED_TABLE.map((line) => `> ${line}`),
+      "> ```",
+      "",
+      "Prose after.",
+    ].join("\n");
+    withFile(doc, (file) => {
+      expect(parseFile(file)).toEqual([]);
+    });
+  });
+
+  it("reads content through an injected reader (no disk access for the runner's staged blobs)", () => {
+    const doc = ["# Spec", "", ...DRIFTED_TABLE, ""].join("\n");
+    const violations = parseFile("/virtual/case.md", () => doc);
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toMatchObject({
+      file: "/virtual/case.md",
+      kind: "total-row-mismatch",
+      sum: 99,
+      asserted: 1,
+    });
+  });
+});
