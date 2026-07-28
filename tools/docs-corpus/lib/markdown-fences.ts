@@ -64,6 +64,31 @@ export function advanceFenceState(
 // not matched between opener and closer — the pragmatic bound for this
 // illustrative-example exemption, shared by every scanner that tracks
 // fences.
+const BLOCKQUOTE_PREFIX_RE = /^(?: {0,3}>)+ ?/;
+
 export function stripBlockquotePrefix(line: string): string {
-  return line.replace(/^(?: {0,3}>)+ ?/, "");
+  return line.replace(BLOCKQUOTE_PREFIX_RE, "");
+}
+
+/**
+ * How many blockquote markers `stripBlockquotePrefix` consumes on this line.
+ *
+ * Shares the prefix pattern with the strip above rather than restating it, so
+ * the two can never disagree about what counts as a container marker. Fence
+ * tracking does not need this — its quote-depth tolerance is deliberate (see
+ * above) — but a scanner tracking a MULTI-LINE construct inside a quote does:
+ * GFM builds a table only from rows in the same container, so `table-arity`
+ * requires header and delimiter to sit at one depth before it will read them
+ * as a table at all. Without that, a quoted header abutting an unquoted
+ * delimiter synthesizes a table GFM never renders and then reports its "rows"
+ * (Codex, PR #269 round 2).
+ */
+export function blockquoteDepth(line: string): number {
+  const prefix = BLOCKQUOTE_PREFIX_RE.exec(line);
+  if (prefix === null) return 0;
+  let depth = 0;
+  for (const character of prefix[0]) {
+    if (character === ">") depth++;
+  }
+  return depth;
 }

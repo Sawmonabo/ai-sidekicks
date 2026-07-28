@@ -35,8 +35,19 @@
 // total — failing the census-drift class from the PR #152 retrospective (a
 // summary asserting a count while its own column summed to a different one).
 // Opt-in by marker, within-document only. See `../lib/table-total-coherence.ts`.
+//
+// table-arity runs against staged `.md` files: every row of a RECOGNIZED GFM
+// table must carry its header's cell count. Unlike table-total it needs no
+// opt-in marker — the invariant is structural, true of any table, rather than
+// something a document declares. Recognition, however, is a deliberately
+// CONSERVATIVE subset of GFM: each table shape outside it is a disclosed and
+// measured bound in that module's header, and the gate never fails on markup it
+// cannot confidently classify. Catches the unescaped-`|` corruption that
+// prettier then makes permanent and formatting-stable. See
+// `../lib/table-arity.ts`.
 
 import { realpathSync, statSync } from "node:fs";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -47,6 +58,7 @@ import {
   expandToInboundCiteCorpus,
   findGovernanceCitersOfCode,
   getRepoRoot,
+  listGitIndexPaths,
   makeCommitSnapshotReader,
 } from "../lib/inbound-cite-discovery.ts";
 import {
@@ -65,14 +77,22 @@ import {
   checkPlanManifestPresence,
   formatPlanManifestViolations,
 } from "../lib/plan-manifest-presence.ts";
+import { checkTableArity, formatTableArityViolations } from "../lib/table-arity.ts";
 import {
   checkTableTotalCoherence,
   formatTableTotalViolations,
 } from "../lib/table-total-coherence.ts";
 
-function isMdFile(p: string): boolean {
+// Lane predicates split SHAPE (extension/prefix rules on the path string)
+// from EXISTENCE (membership below): shape is pure, existence is
+// index-OR-worktree, and `runChecks` composes them.
+function isMdPath(p: string): boolean {
+  return p.endsWith(".md");
+}
+
+function statIsFile(p: string): boolean {
   try {
-    return statSync(p).isFile() && p.endsWith(".md");
+    return statSync(p).isFile();
   } catch {
     return false;
   }
@@ -100,12 +120,7 @@ function isInGovernanceCorpus(p: string): boolean {
 // required gate to source a developer actually edits.
 const CODE_FILE_RE = /\.(ts|tsx|mts|cts)$/;
 
-function isCodeFile(p: string): boolean {
-  try {
-    if (!statSync(p).isFile()) return false;
-  } catch {
-    return false;
-  }
+function isCodePath(p: string): boolean {
   if (!CODE_FILE_RE.test(p) || p.endsWith(".d.ts")) return false;
   if (p.includes("/dist/") || p.startsWith("dist/")) return false;
   return p.startsWith("packages/") || p.startsWith("apps/");
@@ -169,9 +184,10 @@ export function parseRunnerArguments(argv: string[]): RunnerArguments {
       continue;
     }
     // Unknown options THROW rather than falling through to the file list. Both
-    // lane filters stat their argument, so a `--min-mb=200` typo would be
-    // silently discarded as a nonexistent path, leaving the floor at 0 and the
-    // gate reporting clean over a run nothing enforced.
+    // lane filters require an existing file (git index or worktree), so a
+    // `--min-mb=200` typo would be silently discarded as a nonexistent path,
+    // leaving the floor at 0 and the gate reporting clean over a run nothing
+    // enforced.
     if (argument.startsWith("-")) {
       throw new Error(`unknown option: ${argument}`);
     }
@@ -193,8 +209,22 @@ export interface LaneFloors {
 }
 
 export function runChecks(args: string[], floors: LaneFloors = {}): RunChecksResult {
-  const stagedMd = args.filter(isMdFile).filter(isInGovernanceCorpus);
-  const stagedCode = args.filter(isCodeFile);
+  const repoRoot = getRepoRoot();
+  // Lane EXISTENCE matches what the commit-snapshot reader below can serve:
+  // present in the git INDEX or on disk. Stat-only classification silently
+  // dropped a staged file whose worktree copy was renamed or deleted without
+  // `git rm` — commit content invisible to every per-file check, a required
+  // gate failing open (Codex, PR #269 round 4). A path in NEITHER place stays
+  // dropped: with no index blob and no disk copy there is nothing any check
+  // could read (a true staged deletion — which lefthook's `--diff-filter=ACMR`
+  // never passes anyway — must not crash the disk fallback). Outside a git
+  // repo the enumeration is null and classification degrades to stat-only,
+  // which was already correct for ad-hoc probes and bare temp fixtures.
+  const gitIndexPaths = listGitIndexPaths(repoRoot);
+  const existsForLane = (p: string): boolean =>
+    (gitIndexPaths !== null && gitIndexPaths.has(resolve(p))) || statIsFile(p);
+  const stagedMd = args.filter((p) => isMdPath(p) && existsForLane(p)).filter(isInGovernanceCorpus);
+  const stagedCode = args.filter((p) => isCodePath(p) && existsForLane(p));
   const laneCounts = { md: stagedMd.length, code: stagedCode.length };
   const messages: string[] = [];
   let exitCode = 0;
@@ -254,8 +284,17 @@ export function runChecks(args: string[], floors: LaneFloors = {}): RunChecksRes
     exitCode = 1;
   }
 
-  if (stagedMd.length > 0) {
-    const mermaidHits = checkMermaidSetCoherence(stagedMd);
+  // mermaid + table-total read the WORKTREE directly (they take file paths,
+  // not an injected reader), so they get the disk-present subset of the lane:
+  // an index-only member would ENOENT mid-check. For these two checks that
+  // subset IS the pre-round-4 lane — behavior unchanged — while the
+  // reader-based checks below take the full lane, index-only members
+  // included. The split dissolves when these two migrate to the shared
+  // commit-snapshot reader.
+  const stagedMdOnDisk = stagedMd.filter(statIsFile);
+
+  if (stagedMdOnDisk.length > 0) {
+    const mermaidHits = checkMermaidSetCoherence(stagedMdOnDisk);
     if (mermaidHits.length > 0) {
       messages.push(formatMermaidViolations(mermaidHits));
       exitCode = 1;
@@ -266,115 +305,131 @@ export function runChecks(args: string[], floors: LaneFloors = {}): RunChecksRes
   // tables: re-sum the marked column and reconcile it against the in-table
   // **Total** row and any declared prose total. Closes the F-4 gap from the
   // PR #152 retrospective (a census summary that drifted from its own column).
-  if (stagedMd.length > 0) {
-    const totalHits = checkTableTotalCoherence(stagedMd);
+  if (stagedMdOnDisk.length > 0) {
+    const totalHits = checkTableTotalCoherence(stagedMdOnDisk);
     if (totalHits.length > 0) {
       messages.push(formatTableTotalViolations(totalHits));
       exitCode = 1;
     }
   }
 
-  // Every cite check below validates the COMMIT, not the editor buffer: ONE
-  // commit-snapshot reader serves floors, §-verification, and both volatile-
-  // cite denies. Citers and targets alike read the git INDEX
-  // (`git show :path`) — the staged blob is what ships, so a raw cite that is
-  // staged-but-fixed-only-in-worktree still blocks, clean staged content is
-  // never blamed for unstaged WIP, and a staged heading rename verifies
-  // against the staged target (Codex, PR #207 round 2 for the md deny;
-  // extended to every pass in round 3 — a split-reader runner re-opens the
-  // same staged-vs-worktree divergence in whichever lane keeps the worktree
-  // read). The disk fallback applies ONLY to files named in THIS
-  // invocation's argv (probes, previews) — any other index miss throws, so
-  // neither a staged deletion with a restored worktree copy nor a staged
-  // citer citing an untracked target can pass (see makeCommitSnapshotReader,
-  // rounds 3-4). CI invokes this same runner on a clean checkout where
-  // index and worktree are identical, so the reader is invocation-agnostic.
-  if (stagedMd.length > 0 || stagedCode.length > 0) {
-    const repoRoot = getRepoRoot();
-    const reader = makeCommitSnapshotReader(repoRoot, args);
+  // Every content-reading check below validates the COMMIT, not the editor
+  // buffer: ONE commit-snapshot reader serves table-arity, the cite floors,
+  // §-verification, and both volatile-cite denies. Citers and targets alike
+  // read the git INDEX (`git show :path`) — the staged blob is what ships, so
+  // a raw cite that is staged-but-fixed-only-in-worktree still blocks, clean
+  // staged content is never blamed for unstaged WIP, and a staged heading
+  // rename verifies against the staged target (Codex, PR #207 round 2 for the
+  // md deny; extended to every pass in round 3 — a split-reader runner re-opens
+  // the same staged-vs-worktree divergence in whichever lane keeps the worktree
+  // read, which is why table-arity joined it rather than keeping its own
+  // `readFileSync`: PR #269 round 2). The disk fallback applies ONLY to files
+  // named in THIS invocation's argv (probes, previews) — any other index miss
+  // throws, so neither a staged deletion with a restored worktree copy nor a
+  // staged citer citing an untracked target can pass (see
+  // makeCommitSnapshotReader, rounds 3-4). Both per-file lanes are subsets of
+  // argv, so every file they hand the reader is on that allowlist and an index
+  // miss falls back to disk instead of throwing. CI invokes this same runner on
+  // a clean checkout where index and worktree are identical, so the reader is
+  // invocation-agnostic. Constructed here, ahead of its first consumer: it
+  // opens no subprocess until a path is actually read, and it memoizes, so the
+  // two lanes share one `git show` per file rather than one each.
+  const reader = makeCommitSnapshotReader(repoRoot, args);
 
-    if (stagedMd.length > 0) {
-      // §-form citers reach the expansion via the extractor callback — their
-      // cite shape lives in label-cite, not extractCites (a staged heading
-      // rename must pull in the unstaged `Spec-NNN §Old Heading` citer).
-      const sectionCiteTargets = (candidate: string): string[] =>
-        extractLabelCites(candidate, reader)
-          .filter((cite) => cite.section !== undefined)
-          .map((cite) => cite.targetPath);
-      const expanded = expandToInboundCiteCorpus(stagedMd, repoRoot, reader, sectionCiteTargets);
-      const citeHits = checkCiteTargetExistence(expanded, reader);
-      if (citeHits.length > 0) {
-        messages.push(formatCiteTargetViolations(citeHits));
-        exitCode = 1;
-      }
-      // Backticked `Spec-NNN §Heading` cites in DOCS verify against the
-      // resolved doc's headings, same as code citers — a section-only walk
-      // (frozen-pin md floors stay cite-target-existence's beat above; raw
-      // volatile md spellings are the deny's beat below).
-      const sectionHits = checkSectionCites(expanded, reader);
-      if (sectionHits.length > 0) {
-        messages.push(formatLabelCiteViolations(sectionHits));
-        exitCode = 1;
-      }
-      // Volatile line-cite DENY for md citers (post-sweep ratchet, 2026-07
-      // corpus-wide sweep): raw label / docs-path / link colon and line-word
-      // spellings — including wrap-split pairs — are denied outside the named
-      // exemptions (frozen targets, exempt citer trees, plan Tasks-block
-      // grammar, waiver-marked example lines, fences). Scoped to argv-staged
-      // md, NOT the expanded corpus: the deny gates INTRODUCTION, and blaming
-      // a bystander commit for an unstaged citer's pre-existing pin would
-      // block developers on debt they did not write. CI passes the full
-      // tracked md tree through this same runner, so corpus-wide enforcement
-      // still holds on every PR. Content comes from the shared commit-
-      // snapshot (index-first) reader above.
-      const mdDenyHits = checkMarkdownVolatileCites(stagedMd, reader);
-      if (mdDenyHits.length > 0) {
-        messages.push(formatLabelCiteViolations(mdDenyHits));
-        exitCode = 1;
-      }
+  // Structural guard on EVERY table (no marker opt-in): each row must carry its
+  // header's cell count. An unescaped `|` inside a cell — a code span included,
+  // since backticks do not shield it — silently re-splits the row, and prettier
+  // then reflows the table around the stray pipe and passes every subsequent
+  // `--check` on the corrupted result. Formatting-stable is not correct.
+  if (stagedMd.length > 0) {
+    const arityHits = checkTableArity(stagedMd, reader);
+    if (arityHits.length > 0) {
+      messages.push(formatTableArityViolations(arityHits));
+      exitCode = 1;
+    }
+  }
+
+  if (stagedMd.length > 0) {
+    // §-form citers reach the expansion via the extractor callback — their
+    // cite shape lives in label-cite, not extractCites (a staged heading
+    // rename must pull in the unstaged `Spec-NNN §Old Heading` citer).
+    const sectionCiteTargets = (candidate: string): string[] =>
+      extractLabelCites(candidate, reader)
+        .filter((cite) => cite.section !== undefined)
+        .map((cite) => cite.targetPath);
+    const expanded = expandToInboundCiteCorpus(stagedMd, repoRoot, reader, sectionCiteTargets);
+    const citeHits = checkCiteTargetExistence(expanded, reader);
+    if (citeHits.length > 0) {
+      messages.push(formatCiteTargetViolations(citeHits));
+      exitCode = 1;
+    }
+    // Backticked `Spec-NNN §Heading` cites in DOCS verify against the
+    // resolved doc's headings, same as code citers — a section-only walk
+    // (frozen-pin md floors stay cite-target-existence's beat above; raw
+    // volatile md spellings are the deny's beat below).
+    const sectionHits = checkSectionCites(expanded, reader);
+    if (sectionHits.length > 0) {
+      messages.push(formatLabelCiteViolations(sectionHits));
+      exitCode = 1;
+    }
+    // Volatile line-cite DENY for md citers (post-sweep ratchet, 2026-07
+    // corpus-wide sweep): raw label / docs-path / link colon and line-word
+    // spellings — including wrap-split pairs — are denied outside the named
+    // exemptions (frozen targets, exempt citer trees, plan Tasks-block
+    // grammar, waiver-marked example lines, fences). Scoped to argv-staged
+    // md, NOT the expanded corpus: the deny gates INTRODUCTION, and blaming
+    // a bystander commit for an unstaged citer's pre-existing pin would
+    // block developers on debt they did not write. CI passes the full
+    // tracked md tree through this same runner, so corpus-wide enforcement
+    // still holds on every PR. Content comes from the shared commit-
+    // snapshot (index-first) reader above.
+    const mdDenyHits = checkMarkdownVolatileCites(stagedMd, reader);
+    if (mdDenyHits.length > 0) {
+      messages.push(formatLabelCiteViolations(mdDenyHits));
+      exitCode = 1;
+    }
+  }
+
+  if (stagedCode.length > 0) {
+    // Governance LABEL cites (`Spec-NNN:LL`) — the deterministic floor the
+    // markdown-only walk never reached. Citers and their resolved doc
+    // targets both read the shared commit-snapshot reader: the code lane's
+    // deny (passes 5-6) gates introduction on the staged blob exactly like
+    // the md deny above. No inbound-expansion for code: CI's full-tree
+    // sweep re-checks every code cite on each PR, the backstop for the doc-
+    // only-amend case (a spec shifts with no code file staged), so code-side
+    // inbound discovery would only duplicate it.
+    //
+    // Backtick PATH-form cites (`docs/specs/003-x.md:12`) are deliberately NOT
+    // floored here: that extractor resolves the target repo-root-relative —
+    // correct for governance docs, but it mints false positives on the
+    // package-relative code-to-code refs that dominate comments
+    // (`internal/branded.ts:25` → `packages/contracts/src/internal/branded.ts`).
+    // The lone governance path-cite in code was normalized to the LABEL form;
+    // NEW path / basename line-word spellings are denied by label-cite
+    // passes 5-6 (CAT-07 ratchet), wrap-split pairs included — the
+    // audit-layer residual via /ripple-check is what no static key reaches
+    // (label-less continuations; semantic drift under an intact anchor).
+    const labelHits = checkLabelCiteTargets(stagedCode, reader);
+    if (labelHits.length > 0) {
+      messages.push(formatLabelCiteViolations(labelHits));
+      exitCode = 1;
     }
 
-    if (stagedCode.length > 0) {
-      // Governance LABEL cites (`Spec-NNN:LL`) — the deterministic floor the
-      // markdown-only walk never reached. Citers and their resolved doc
-      // targets both read the shared commit-snapshot reader: the code lane's
-      // deny (passes 5-6) gates introduction on the staged blob exactly like
-      // the md deny above. No inbound-expansion for code: CI's full-tree
-      // sweep re-checks every code cite on each PR, the backstop for the doc-
-      // only-amend case (a spec shifts with no code file staged), so code-side
-      // inbound discovery would only duplicate it.
-      //
-      // Backtick PATH-form cites (`docs/specs/003-x.md:12`) are deliberately NOT
-      // floored here: that extractor resolves the target repo-root-relative —
-      // correct for governance docs, but it mints false positives on the
-      // package-relative code-to-code refs that dominate comments
-      // (`internal/branded.ts:25` → `packages/contracts/src/internal/branded.ts`).
-      // The lone governance path-cite in code was normalized to the LABEL form;
-      // NEW path / basename line-word spellings are denied by label-cite
-      // passes 5-6 (CAT-07 ratchet), wrap-split pairs included — the
-      // audit-layer residual via /ripple-check is what no static key reaches
-      // (label-less continuations; semantic drift under an intact anchor).
-      const labelHits = checkLabelCiteTargets(stagedCode, reader);
-      if (labelHits.length > 0) {
-        messages.push(formatLabelCiteViolations(labelHits));
-        exitCode = 1;
+    // C-lite reverse-direction advisory (never blocks): a staged code file
+    // that governance docs cite may have moved/removed the cited content —
+    // tell the developer which citers to eyeball. CI's full sweep remains
+    // the enforcement backstop.
+    const reverseCiters = findGovernanceCitersOfCode(stagedCode, repoRoot, reader);
+    if (reverseCiters.size > 0) {
+      const warnLines = [
+        "WARNING (advisory): staged code is cited by governance docs — if this edit moved or removed the cited content, update the citing docs:",
+      ];
+      for (const [citer, targets] of reverseCiters) {
+        warnLines.push(`  ${citer} → ${targets.join(", ")}`);
       }
-
-      // C-lite reverse-direction advisory (never blocks): a staged code file
-      // that governance docs cite may have moved/removed the cited content —
-      // tell the developer which citers to eyeball. CI's full sweep remains
-      // the enforcement backstop.
-      const reverseCiters = findGovernanceCitersOfCode(stagedCode, repoRoot, reader);
-      if (reverseCiters.size > 0) {
-        const warnLines = [
-          "WARNING (advisory): staged code is cited by governance docs — if this edit moved or removed the cited content, update the citing docs:",
-        ];
-        for (const [citer, targets] of reverseCiters) {
-          warnLines.push(`  ${citer} → ${targets.join(", ")}`);
-        }
-        messages.push(warnLines.join("\n"));
-        // exitCode deliberately NOT set.
-      }
+      messages.push(warnLines.join("\n"));
+      // exitCode deliberately NOT set.
     }
   }
 

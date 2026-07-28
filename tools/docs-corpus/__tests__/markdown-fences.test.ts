@@ -13,7 +13,11 @@
 // individually rather than as one happy-path walk.
 
 import { describe, it, expect } from "vitest";
-import { advanceFenceState, stripBlockquotePrefix } from "../lib/markdown-fences.ts";
+import {
+  advanceFenceState,
+  blockquoteDepth,
+  stripBlockquotePrefix,
+} from "../lib/markdown-fences.ts";
 import type { OpenFenceState } from "../lib/markdown-fences.ts";
 
 /** Walk a document, returning the 0-based indices whose content is fenced. */
@@ -128,6 +132,44 @@ describe("markdown-fences — stripBlockquotePrefix", () => {
     expect(stripBlockquotePrefix("   > three spaces")).toBe("three spaces");
     expect(stripBlockquotePrefix("    > four spaces")).toBe("    > four spaces");
     expect(stripBlockquotePrefix("\t> tab")).toBe("\t> tab");
+  });
+});
+
+describe("markdown-fences — blockquoteDepth", () => {
+  // Pinned at its own boundary, not through table-arity: the depth and the
+  // strip share one prefix pattern, and a regression in either would otherwise
+  // surface as a table that stopped being recognized.
+  it("reports zero for an unquoted line", () => {
+    expect(blockquoteDepth("| a | b |")).toBe(0);
+    expect(blockquoteDepth("")).toBe(0);
+  });
+
+  it("counts each level, adjacent or space-separated", () => {
+    expect(blockquoteDepth("> quoted")).toBe(1);
+    expect(blockquoteDepth(">> nested")).toBe(2);
+    expect(blockquoteDepth("> > spaced")).toBe(2);
+    expect(blockquoteDepth(">>> three")).toBe(3);
+  });
+
+  it("agrees with stripBlockquotePrefix on what counts as a marker", () => {
+    // Same three-space budget: a four-space-indented `>` is indented code, so
+    // the strip leaves it in place and the depth must stay 0 — the two must
+    // never disagree about where the container prefix ends.
+    expect(blockquoteDepth("   > three spaces")).toBe(1);
+    expect(stripBlockquotePrefix("   > three spaces")).toBe("three spaces");
+    expect(blockquoteDepth("    > four spaces")).toBe(0);
+    expect(stripBlockquotePrefix("    > four spaces")).toBe("    > four spaces");
+    expect(blockquoteDepth("\t> tab")).toBe(0);
+  });
+
+  it("counts a marker with no following space", () => {
+    expect(blockquoteDepth(">no space after marker")).toBe(1);
+    expect(blockquoteDepth(">")).toBe(1);
+  });
+
+  it("stops at the first non-marker, ignoring a later `>` in content", () => {
+    expect(blockquoteDepth("> a > b")).toBe(1);
+    expect(blockquoteDepth("prose > not a quote")).toBe(0);
   });
 });
 

@@ -43,6 +43,8 @@
 
 import { readFileSync } from "node:fs";
 
+import { isDelimiterRow, isTableRow, splitRow } from "./markdown-tables.ts";
+
 export type TableTotalViolationKind =
   | "total-row-mismatch"
   | "prose-total-mismatch"
@@ -83,39 +85,6 @@ function parseCellNumber(cell: string | undefined): number | null {
   const cleaned = stripCell(cell).replace(/,/g, "");
   if (!/^-?\d+$/.test(cleaned)) return null;
   return Number.parseInt(cleaned, 10);
-}
-
-/** Split a GFM table row into trimmed cells, honoring `\|` escapes. */
-function splitRow(row: string): string[] {
-  const trimmed = row.trim().replace(/^\|/, "").replace(/\|$/, "");
-  const cells: string[] = [];
-  let current = "";
-  for (let i = 0; i < trimmed.length; i++) {
-    const ch = trimmed[i];
-    if (ch === "\\" && trimmed[i + 1] === "|") {
-      current += "|";
-      i++;
-      continue;
-    }
-    if (ch === "|") {
-      cells.push(current.trim());
-      current = "";
-      continue;
-    }
-    current += ch;
-  }
-  cells.push(current.trim());
-  return cells;
-}
-
-function isTableRow(line: string): boolean {
-  return line.trim().startsWith("|");
-}
-
-/** A GFM delimiter row: only pipes, dashes, colons, spaces (and at least one dash). */
-function isDelimiterRow(line: string): boolean {
-  const t = line.trim();
-  return /-/.test(t) && /^[|\s:-]+$/.test(t);
 }
 
 export function parseFile(filePath: string): TableTotalViolation[] {
