@@ -15,7 +15,16 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, cpSync, realpathSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  cpSync,
+  realpathSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import process from "node:process";
@@ -30,6 +39,8 @@ import {
   LEGACY_INLINE_CITE_EXEMPT,
   extractInlineCitePayloads,
   verifyInlineAnchorFloor,
+  walkPhases,
+  extractPhaseSection,
 } from "../preflight.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -532,6 +543,62 @@ test("surveyCorpus: REAL corpus has zero two-sided anomalies", () => {
   );
   assert.ok(survey.planCount >= 27, `expected ≥27 plans, saw ${survey.planCount}`);
   assert.ok(survey.phaseCount >= 63, `expected ≥63 walked phases, saw ${survey.phaseCount}`);
+});
+
+test("REAL corpus: no phase label ever yields an empty survey unit", () => {
+  // The generalized form of a defect this screen has now shipped three times —
+  // `?? []` on a survey field, `?? planCount` on the coverage line, `?? ""` on a
+  // failed phase extraction. Every instance is the same move: a nullish default
+  // converting "could not determine" into "determined to be empty", which reads
+  // downstream as verified-and-clean. The per-instance fixtures pin the three
+  // known spellings; this pins the PROPERTY, so a fourth spelling — by any
+  // mechanism, `??`, a silent catch, a bad slice — reds here without anyone
+  // having predicted it.
+  //
+  // An empty unit is never legitimate: a phase label exists because a heading
+  // matched, and a matched heading always has a body before the next boundary.
+  //
+  // The emptiness test is on the BODY, not the returned section, and that
+  // distinction is the whole check. `extractPhaseSection` slices from
+  // `startIdx` — the heading line itself — so its result contains the heading
+  // even when the body is empty and `section.trim() === ""` can therefore never
+  // be true. Writing it that way produces a check that cannot fail: a
+  // vacuously-green assertion, which is the same silently-disabled-gate class
+  // this whole PR is about, reproduced inside the guard meant to prevent it.
+  // Verified by perturbation: forcing `endIdx = bodyStart` (every body empty)
+  // leaves the section-level spelling GREEN and reds only this body-level one.
+  //
+  // Measured across the live corpus: 85 units, 0 null extractions, smallest
+  // body 414 chars. If a real plan ever trips this, the plan is malformed and
+  // the right response is to fix the plan, not to relax the assertion.
+  const planDir = resolve(REPO_ROOT, "docs", "plans");
+  const offenders = [];
+  let unitCount = 0;
+  for (const file of readdirSync(planDir).filter((name) => /^\d{3}-.*\.md$/.test(name))) {
+    const source = readFileSync(resolve(planDir, file), "utf8");
+    const labels = [
+      ...walkPhases(source).map((phase) => phase.number),
+      ...[...source.matchAll(/^### Phase (R\d+|\d+[A-Z])\b/gm)].map((match) => match[1]),
+    ];
+    for (const label of labels) {
+      unitCount += 1;
+      const section = extractPhaseSection(source, label);
+      if (section == null) {
+        offenders.push(`${file} Phase ${label}: extraction returned null`);
+        continue;
+      }
+      // `indexOf` returns -1 when the section is a bare heading with no newline
+      // — exactly the empty-body case — and `slice(-1 + 1)` is `slice(0)`, which
+      // hands back the whole heading and reads as a healthy body. Treating the
+      // sentinel as "no body" rather than letting it fall through is what makes
+      // this assertion falsifiable at all.
+      const newlineIndex = section.indexOf("\n");
+      const body = newlineIndex === -1 ? "" : section.slice(newlineIndex + 1).trim();
+      if (body === "") offenders.push(`${file} Phase ${label}: unit body is empty`);
+    }
+  }
+  assert.deepEqual(offenders, [], `silently-empty survey unit(s):\n${offenders.join("\n")}`);
+  assert.ok(unitCount >= 80, `expected ≥80 phase units on the live corpus, saw ${unitCount}`);
 });
 
 // The gated Gate-4 cite channel on the live corpus is EMPTY, and this pin is
