@@ -30,9 +30,29 @@
 // re-derives the guarded set from the source tree on every run so the fixture
 // cannot silently under-cover again. Catalogued as CAT-10 in
 // `docs/operations/failure-mode-catalog.md`.
+//
+// THE DERIVATION READS CODE, NOT TEXT
+// -----------------------------------
+// Every earlier revision derived that set by regex over the raw source, and
+// each review round found another spelling the regex did not know: first the
+// `.mjs` glob, then `process.argv[1]`, then `import.meta.url`, then argv
+// reached through a destructuring alias. A hand-chosen textual pattern standing
+// in for "this script discriminates invoked from imported" is the registered
+// row one level down, and widening it again would only move the next miss.
+//
+// The source is parsed instead, and the operands are matched as AST nodes. That
+// closes the class rather than one more instance: a comment, a string literal,
+// and a regex literal are not expressions, so a file can no longer be
+// classified by its own PROSE. The old regex could be — which is precisely why
+// `__tests__` used to be pruned from the walk, to stop this file's own
+// explanatory comments flagging it. Pruning a directory to suppress a wrong
+// match is the same defect wearing a disguise: the match was wrong, not the
+// directory. Both that prune and the `build` prune are gone, the walk covers
+// 297 files where it covered 171, and the derived set is unchanged at nine.
 
 import test from "node:test";
 import assert from "node:assert/strict";
+import ts from "typescript";
 import { spawnSync } from "node:child_process";
 import {
   mkdtempSync,
@@ -45,7 +65,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, dirname, relative, sep } from "node:path";
+import { join, dirname, relative, sep, extname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -212,20 +232,173 @@ for (const { relativePath, args, nodeOptions = [], stdin = "", env } of CLI_SCRI
   });
 }
 
-// Directories that hold no first-party CLI source. `__tests__` is excluded
-// because a test file legitimately references both markers while spawning the
-// scripts under test — including it would make this check flag itself.
+// Directories that hold no first-party source: dependency trees, build output,
+// coverage reports, and sibling checkouts. `build` is deliberately absent —
+// `apps/desktop/build/assert-webprefs.ts` is tracked source invoked by two
+// `package.json` scripts, so pruning on that NAME hid a real source directory
+// from the walk (Codex, round 6). `__tests__` is absent for the reason given in
+// the header: it existed only to suppress a text match that no longer happens.
 const SKIPPED_DIRECTORY_NAMES = new Set([
   "node_modules",
   "dist",
-  "build",
   "coverage",
   ".git",
   ".turbo",
   ".worktrees",
-  "__tests__",
 ]);
 const SOURCE_EXTENSIONS = /\.(mjs|cjs|js|ts|mts|cts|tsx)$/;
+
+const SCRIPT_KIND_BY_EXTENSION = new Map([
+  [".ts", ts.ScriptKind.TS],
+  [".mts", ts.ScriptKind.TS],
+  [".cts", ts.ScriptKind.TS],
+  [".tsx", ts.ScriptKind.TSX],
+  [".mjs", ts.ScriptKind.JS],
+  [".cjs", ts.ScriptKind.JS],
+  [".js", ts.ScriptKind.JS],
+]);
+
+/**
+ * Report which of a guard's two operands a source file actually evaluates.
+ *
+ * A script that discriminates "imported as a module" from "invoked as a
+ * command" has to consult BOTH its own module URL and the path it was invoked
+ * as. `import.meta.main` is the exception: it IS the whole comparison and takes
+ * no second operand, so it is reported on its own channel.
+ *
+ * Each operand is matched as a FAMILY of expressions rather than as one
+ * spelling, because every spelling-specific predicate this file has carried was
+ * eventually evaded by an equivalent idiom. The invoked-path family covers
+ * member access (`process.argv`), computed access (`process["argv"]`), object
+ * destructuring off `process` (renamed bindings included), and a named import
+ * from `node:process`. The self-reference family covers `import.meta.url` and
+ * `import.meta.filename`.
+ *
+ * Over-inclusion is the deliberate trade: a file that consults both operands
+ * for unrelated reasons is reported as guarded, joins the fixture list, and
+ * earns the same does-it-actually-run assertion. Under-inclusion is the one
+ * failure that matters, because it is silent.
+ */
+function classifyGuardOperands(sourceText, scriptKind) {
+  const sourceFile = ts.createSourceFile(
+    "guard-probe",
+    sourceText,
+    ts.ScriptTarget.Latest,
+    /* setParentNodes */ false,
+    scriptKind,
+  );
+  let readsWholeGuard = false;
+  let readsSelfReference = false;
+  let readsInvokedPath = false;
+
+  const isImportMeta = (node) => ts.isMetaProperty(node) && node.name.text === "meta";
+  const isProcess = (node) => ts.isIdentifier(node) && node.text === "process";
+
+  const visit = (node) => {
+    if (ts.isPropertyAccessExpression(node)) {
+      if (isImportMeta(node.expression)) {
+        if (node.name.text === "main") readsWholeGuard = true;
+        else if (node.name.text === "url" || node.name.text === "filename") {
+          readsSelfReference = true;
+        }
+      }
+      if (isProcess(node.expression) && node.name.text === "argv") readsInvokedPath = true;
+    }
+    if (
+      ts.isElementAccessExpression(node) &&
+      isProcess(node.expression) &&
+      ts.isStringLiteralLike(node.argumentExpression) &&
+      node.argumentExpression.text === "argv"
+    ) {
+      readsInvokedPath = true;
+    }
+    // `const { argv } = process` / `const { argv: invokedArguments } = process`
+    if (
+      ts.isVariableDeclaration(node) &&
+      node.initializer &&
+      isProcess(node.initializer) &&
+      ts.isObjectBindingPattern(node.name)
+    ) {
+      for (const element of node.name.elements) {
+        const boundName = element.propertyName ?? element.name;
+        if (ts.isIdentifier(boundName) && boundName.text === "argv") readsInvokedPath = true;
+      }
+    }
+    // `import { argv } from "node:process"`
+    if (ts.isImportDeclaration(node) && ts.isStringLiteralLike(node.moduleSpecifier)) {
+      const moduleName = node.moduleSpecifier.text;
+      const namedBindings = node.importClause?.namedBindings;
+      if (
+        (moduleName === "node:process" || moduleName === "process") &&
+        namedBindings &&
+        ts.isNamedImports(namedBindings)
+      ) {
+        for (const element of namedBindings.elements) {
+          if ((element.propertyName ?? element.name).text === "argv") readsInvokedPath = true;
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+
+  return { readsWholeGuard, readsSelfReference, readsInvokedPath };
+}
+
+function consultsBothGuardOperands(sourceText, scriptKind) {
+  const { readsWholeGuard, readsSelfReference, readsInvokedPath } = classifyGuardOperands(
+    sourceText,
+    scriptKind,
+  );
+  return readsWholeGuard || (readsSelfReference && readsInvokedPath);
+}
+
+// The derivation's own negative control, and the one this file lacked while it
+// was regex-based: every claim the comment above makes is asserted here against
+// a snippet, in BOTH directions. The three `false` rows carrying the operand
+// names inside a comment, a string, and a regex are the load-bearing ones — a
+// text matcher passes all three, which is how a file could be classified as a
+// guarded CLI without containing a guard, and how a real guard could be deleted
+// while its explanatory comment kept the classification alive.
+const CLASSIFIER_CONTROLS = [
+  ["subscripted argv", "import.meta.url === toUrl(process.argv[1]);", true],
+  ["assigned argv alias", "const argv = process.argv;\nimport.meta.url === argv[1];", true],
+  ["destructured argv", "const { argv } = process;\nimport.meta.url === argv[1];", true],
+  [
+    "renamed destructured argv",
+    "const { argv: invoked } = process;\nimport.meta.filename === invoked[1];",
+    true,
+  ],
+  ["computed argv access", 'import.meta.url === process["argv"][1];', true],
+  ["named argv import", 'import { argv } from "node:process";\nimport.meta.url === argv[1];', true],
+  ["import.meta.main alone", "if (import.meta.main) main();", true],
+  ["import.meta.filename", "import.meta.filename === process.argv[1];", true],
+  [
+    "operands named only in a comment",
+    "// import.meta.url and process.argv\nexport const x = 1;",
+    false,
+  ],
+  ["operands named only in a string", 'const help = "import.meta.url vs process.argv";', false],
+  [
+    "operands named only in a regex",
+    "const p = /import\\.meta\\.url/;\nconst q = /process\\.argv/;",
+    false,
+  ],
+  ["self-reference without argv", "const here = dirname(fileURLToPath(import.meta.url));", false],
+  ["argv without self-reference", "const flags = process.argv.slice(2);", false],
+];
+
+test("the guarded-set derivation reads code, not comments or strings", () => {
+  for (const [label, snippet, expected] of CLASSIFIER_CONTROLS) {
+    assert.equal(
+      consultsBothGuardOperands(snippet, ts.ScriptKind.JS),
+      expected,
+      `classifier disagreed on "${label}" — expected ${expected}. A derivation that ` +
+        "cannot distinguish an evaluated operand from a mention of one silently decides " +
+        "which CLIs this suite covers",
+    );
+  }
+});
 
 function collectSourceFiles(directory, collected) {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -240,14 +413,16 @@ function collectSourceFiles(directory, collected) {
 }
 
 // Negative control on the scan, expressed PER ROOT. One global threshold is
-// carried by whichever root is largest, and here that is `packages/` (~118
-// files) which holds ZERO guarded CLIs — so losing `tools/` outright, 4 of the 9
-// guards including `pre-commit-runner.ts`, still left ~156 files and sailed past
-// a `> 100` global check. The floor was guarding the root that mattered least.
+// carried by whichever root is largest, and here that is `packages/` (211 of
+// the 297 files) which holds ZERO guarded CLIs — so losing `tools/` outright, 4
+// of the 9 guards including `pre-commit-runner.ts`, still left a large majority
+// of the walk and sailed past a global count check. The floor was guarding the
+// root that mattered least.
 //
-// Each floor sits well below today's count so routine deletions do not trip it,
-// and far enough above zero that a root which stops resolving does.
-const SEARCH_ROOT_FLOORS = { tools: 8, ".claude": 8, packages: 50, apps: 10 };
+// Each floor sits well below today's count (tools 28, .claude 29, packages 211,
+// apps 29) so routine deletions do not trip it, and far enough above zero that
+// a root which stops resolving does.
+const SEARCH_ROOT_FLOORS = { tools: 12, ".claude": 12, packages: 90, apps: 12 };
 
 test("the list is complete — every guarded CLI in the tree is spawned above", () => {
   const candidates = [];
@@ -271,32 +446,18 @@ test("the list is complete — every guarded CLI in the tree is spawned above", 
     candidates.push(...found);
   }
 
-  // The signal for "this script discriminates imported-vs-invoked" is that it
-  // consults BOTH its own module URL and the path it was invoked as. The
-  // invoked-path half is matched as bare `process.argv`, NOT `process.argv[1]`:
-  // keying on the subscripted spelling made the signal idiom-dependent in the
-  // exact way the comment here used to deny, since `const argv = process.argv`,
-  // a destructure, or `process.argv.at(1)` all evade it while guarding the same
-  // thing. Over-inclusion is the deliberate trade — a file that consults both
-  // for unrelated reasons is caught and simply joins the fixture list, where it
-  // gets the same does-it-actually-run assertion. There is deliberately NO
-  // exemption channel: an exemption can only be validated by a proxy for
-  // "carries no guard", and a proxy that drifts produces exactly the false
-  // clean this file exists to prevent.
+  // `classifyGuardOperands` is the whole derivation, and the control table above
+  // is what licenses trusting it here. There is deliberately NO exemption
+  // channel: an exemption can only be validated by some proxy for "carries no
+  // guard", and a proxy that drifts produces exactly the false clean this file
+  // exists to prevent (Codex, round 5).
   const guardedPaths = candidates
-    .filter((absolutePath) => {
-      const source = readFileSync(absolutePath, "utf8");
-      // `import.meta.main` (Node 24) IS the whole guard — it takes no
-      // invoked-path operand — so it cannot be expressed as half of a pair.
-      if (/import\.meta\.main/.test(source)) return true;
-      // Both operands are matched as families rather than as one spelling each.
-      // Fixing only the argv side (round 4) left the self-reference side just as
-      // narrow: `import.meta.filename` is the more modern spelling and carries no
-      // `import.meta.url`, so a guard written with it would have been invisible
-      // for exactly the reason the original `.mjs` glob was.
-      const selfReference = /import\.meta\.(url|filename)/.test(source);
-      return selfReference && /process\.argv/.test(source);
-    })
+    .filter((absolutePath) =>
+      consultsBothGuardOperands(
+        readFileSync(absolutePath, "utf8"),
+        SCRIPT_KIND_BY_EXTENSION.get(extname(absolutePath)),
+      ),
+    )
     .map((absolutePath) => relative(REPO_ROOT, absolutePath).split(sep).join("/"))
     .sort();
 
@@ -311,12 +472,23 @@ test("the list is complete — every guarded CLI in the tree is spawned above", 
       `script it never spawns:\n  ${unlisted.join("\n  ")}`,
   );
 
-  // The converse: an entry naming a script that no longer carries a guard is a
-  // test that can no longer fail for the reason it claims to.
+  // The converse: an entry naming a script that stopped consulting either
+  // operand — deleted, or rewritten into a plain module — is a fixture whose
+  // subject has moved out from under it.
+  //
+  // This assertion's message says what its predicate ESTABLISHES and no more.
+  // It used to read "no longer carries an entry guard", which claimed a
+  // detection the derivation cannot perform: a script that keeps a real
+  // `process.argv` read for flag parsing still consults both operands after its
+  // guard conditional is deleted, so removal of a guard from a listed script
+  // does not surface here. Under-detection stated as detection is this PR's own
+  // subject; the honest scope is written into the text rather than left for a
+  // reader to discover (Codex, round 6).
   const stale = listedPaths.filter((path) => !guardedPaths.includes(path));
   assert.deepEqual(
     stale,
     [],
-    `CLI_SCRIPTS names script(s) that no longer carry an entry guard:\n  ${stale.join("\n  ")}`,
+    "CLI_SCRIPTS names script(s) that no longer consult both guard operands — the entry's " +
+      `subject changed or the file was removed:\n  ${stale.join("\n  ")}`,
   );
 });
