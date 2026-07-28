@@ -239,21 +239,37 @@ function collectSourceFiles(directory, collected) {
   return collected;
 }
 
+// Negative control on the scan, expressed PER ROOT. One global threshold is
+// carried by whichever root is largest, and here that is `packages/` (~118
+// files) which holds ZERO guarded CLIs — so losing `tools/` outright, 4 of the 9
+// guards including `pre-commit-runner.ts`, still left ~156 files and sailed past
+// a `> 100` global check. The floor was guarding the root that mattered least.
+//
+// Each floor sits well below today's count so routine deletions do not trip it,
+// and far enough above zero that a root which stops resolving does.
+const SEARCH_ROOT_FLOORS = { tools: 8, ".claude": 8, packages: 50, apps: 10 };
+
 test("the list is complete — every guarded CLI in the tree is spawned above", () => {
-  const searchRoots = ["tools", ".claude", "packages", "apps"]
-    .map((root) => join(REPO_ROOT, root))
-    .filter((root) => existsSync(root));
-
-  const candidates = searchRoots.flatMap((root) => collectSourceFiles(root, []));
-
-  // Negative control on the scan itself. If the walk returns nothing — a moved
-  // directory, a broadened skip list — every assertion below passes vacuously,
-  // which is the same false clean in a different costume.
-  assert.ok(
-    candidates.length > 100,
-    `source scan found only ${candidates.length} file(s) under ${searchRoots.length} root(s) — ` +
-      "the walk is broken, so a clean result here would prove nothing",
-  );
+  const candidates = [];
+  for (const [rootName, floor] of Object.entries(SEARCH_ROOT_FLOORS)) {
+    const rootPath = join(REPO_ROOT, rootName);
+    // Assert, never filter. `.filter(existsSync)` silently shrank the scan when
+    // a root was renamed, which is the same false clean the floors exist to
+    // catch — a smaller walk that still reports complete.
+    assert.ok(
+      existsSync(rootPath),
+      `search root ${rootName}/ does not exist — it was renamed or removed. Update ` +
+        "SEARCH_ROOT_FLOORS deliberately; dropping it silently would narrow this scan while " +
+        "it still claims to cover the tree",
+    );
+    const found = collectSourceFiles(rootPath, []);
+    assert.ok(
+      found.length >= floor,
+      `source scan found only ${found.length} file(s) under ${rootName}/ (floor ${floor}) — ` +
+        "the walk is broken for that root, so a clean result here would prove nothing",
+    );
+    candidates.push(...found);
+  }
 
   // The signal for "this script discriminates imported-vs-invoked" is that it
   // consults BOTH its own module URL and the path it was invoked as. The
@@ -270,7 +286,16 @@ test("the list is complete — every guarded CLI in the tree is spawned above", 
   const guardedPaths = candidates
     .filter((absolutePath) => {
       const source = readFileSync(absolutePath, "utf8");
-      return source.includes("import.meta.url") && /process\.argv/.test(source);
+      // `import.meta.main` (Node 24) IS the whole guard — it takes no
+      // invoked-path operand — so it cannot be expressed as half of a pair.
+      if (/import\.meta\.main/.test(source)) return true;
+      // Both operands are matched as families rather than as one spelling each.
+      // Fixing only the argv side (round 4) left the self-reference side just as
+      // narrow: `import.meta.filename` is the more modern spelling and carries no
+      // `import.meta.url`, so a guard written with it would have been invisible
+      // for exactly the reason the original `.mjs` glob was.
+      const selfReference = /import\.meta\.(url|filename)/.test(source);
+      return selfReference && /process\.argv/.test(source);
     })
     .map((absolutePath) => relative(REPO_ROOT, absolutePath).split(sep).join("/"))
     .sort();
