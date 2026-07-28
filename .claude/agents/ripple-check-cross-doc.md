@@ -92,11 +92,12 @@ Return the JSON object as the final message in both modes.
 
 The four row-keyed subagents ask the forward question: "given my edit, is the structural action propagated everywhere it needs to be?" YOU ask the inverse: "given my edit, does any claim in any dependent doc become false / stale / misleading even though no shared literal string changed?"
 
-Three failure shapes drive this:
+Four failure shapes drive this:
 
 - **Tier-gating**: "Plan-X step 4 is blocked until Plan-Y ships at Tier 8" — when the Tier 8 assumption changes in Plan-Y (Plan-Y moved to Tier 6, or the gating reason was lifted), the dependent gating-prose in Plan-X may be invalidated even though no shared literal string changed.
 - **ADR-implicit-assumption**: "ADR-022 selects pnpm over npm for engines pinning" — if Plan-001 implicitly assumes npm-compatible install behavior, the assumption is now stale.
 - **Backlog-resolution drift**: "BL-107 was archived because the underlying constraint was lifted" — if Plan-024 still gates on the BL-107 constraint, the gate is stale.
+- **Stale forward reference**: an earlier-written surface in THIS SAME diff calls a later one open — "the compacted-row disposition is not yet decided", "pending", "if it resolves the other way", "awaiting". The citing anchor stays valid, so every deterministic layer passes; only the disposition state the citer attributes to its target has gone stale, and always in one direction (the diff decides what the citer calls undecided). Search the pending-state vocabulary in every doc that cites a section this diff MODIFIES — including the modified file itself, since a target and a stale citer can coexist in one file, and that intra-file case is the one file-scoped sweeps miss. Recorded as the 2026-07-27 Known Gaps entry on catalog row **CAT-07** in `docs/operations/failure-mode-catalog.md`.
 
 ## Tasks
 
