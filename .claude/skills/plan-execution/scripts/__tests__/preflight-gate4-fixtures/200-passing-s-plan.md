@@ -23,4 +23,4 @@ shipped: []
 - **T-200-1.1** — Single fixture task
   - **Files:** `packages/a/src/x.ts`
   - **Spec coverage:** none (test placeholder)
-  - **Verifies invariant:** I-200-1
+  - **Verifies invariant:** I-1
