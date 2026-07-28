@@ -123,10 +123,25 @@ const TYPESCRIPT_EXTENSIONS = [".ts", ".mts", ".cts", ".tsx"];
 // a loud, correct-direction failure; a live one slipping through because a
 // stripper mis-parsed the file around it is the failure this file exists to
 // prevent.
+//
+// Both widenings below only ADD matches, so the fail-closed direction is
+// preserved and prose like `import (something)` inside a comment now trips the
+// gate. That is the intended strict direction and it costs nothing today —
+// measured against the real graph, not assumed: the live match count is still
+// zero, which the assertion in the scan test is what actually enforces.
+// What may sit between a callee and its `(`. JS permits comments there —
+// `import /* optional */ ("pkg")` is a valid dynamic import — and `\s*` cannot
+// span a comment, so the narrower pattern missed that call entirely. The
+// evasion was total rather than partial: a dynamic import inside a function
+// that is never invoked at load time is also invisible to the resolve hook,
+// because the call never executes, so BOTH layers reported clean.
+const CALLEE_GAP = String.raw`(?:\s|/\*[\s\S]*?\*/|//[^\n]*\n)*`;
+
 const DYNAMIC_LOAD_FORMS = [
-  ["dynamic import()", /\bimport\s*\(/],
+  ["dynamic import()", new RegExp(String.raw`\bimport${CALLEE_GAP}\(`)],
+  // A bare-word match — no parenthesis, so no gap to span.
   ["createRequire", /\bcreateRequire\b/],
-  ["require()", /\brequire\s*\(/],
+  ["require()", new RegExp(String.raw`\brequire${CALLEE_GAP}\(`)],
 ];
 
 /** @param {string} source @returns {string[]} banned runtime-resolved forms present */
@@ -436,6 +451,42 @@ test("control: the child refuses a TypeScript source, so the floor assertion is 
       );
     },
   );
+});
+
+test("control: a comment between `import` and `(` does not evade the dynamic-form scan", () => {
+  // The shape that evaded BOTH layers at once, which is why it is a control
+  // rather than a note. The call sits in a function nobody invokes at load
+  // time, so the resolve hook never fires — the specifier is never resolved,
+  // and a graph enumeration reports a clean two-file dependency-free walk. The
+  // source scan was the only remaining net, and `\s*` cannot span a comment, so
+  // it reported clean too. Two independent layers, one blind spot, no signal.
+  const evasive = [
+    "export function neverCalledAtLoadTime() {",
+    '  return import /* optional */ ("third-party");',
+    "}",
+    "",
+  ].join("\n");
+  assert.deepEqual(dynamicLoadForms(evasive), ["dynamic import()"]);
+
+  // The `require` analogue, including a line comment — which must consume its
+  // newline, so the pattern cannot silently swallow the rest of the file.
+  const evasiveRequire = ["const load = require // why", '  ("third-party");', ""].join("\n");
+  assert.deepEqual(dynamicLoadForms(evasiveRequire), ["require()"]);
+});
+
+test("control: the widened patterns do not match ordinary static-import source", () => {
+  // The widening only ever ADDS matches, so its risk is false positives on the
+  // real graph rather than misses. This pins the shapes that must stay clean:
+  // a static import (`import {` — the gap admits whitespace and comments, not
+  // a brace), `import.meta`, and an identifier that merely ends in `require`.
+  const ordinary = [
+    'import { readFileSync } from "node:fs";',
+    'import process from "node:process";',
+    "const here = import.meta.url;",
+    "const configureRequire = () => 1;",
+    "",
+  ].join("\n");
+  assert.deepEqual(dynamicLoadForms(ordinary), []);
 });
 
 test("control: a relative specifier reaching into node_modules is reported by name", () => {

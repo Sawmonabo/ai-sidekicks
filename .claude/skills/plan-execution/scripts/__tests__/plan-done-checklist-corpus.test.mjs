@@ -38,20 +38,27 @@ import { fileURLToPath } from "node:url";
 // it at all (ERR_UNKNOWN_FILE_EXTENSION on 22.12), which is why production
 // `preflight.mjs` keeps its own tracker rather than importing this one.
 //
-// DIVERGENCE, deliberate and one-directional: the tracker treats quoted and
-// unquoted fences as one flat state stream. This scanner is STRICTER — it also
-// tracks whether a quote-opened fence is still inside its blockquote, and ends
-// it at the first unquoted line (see findDoneChecklistHeadings). The tracker's
-// rule set is untouched; this is a container rule layered above it, so the two
+// DIVERGENCE: the tracker treats quoted and unquoted fences as one flat state
+// stream. This scanner tracks which container a fence opened in and feeds the
+// tracker the matching line form (see findDoneChecklistHeadings). The tracker's
+// own rule set is untouched — this is a container layer above it, so the two
 // cannot drift.
 //
-// The asymmetry is deliberate because this is a DUPLICATE-DETECTION surface,
-// where the two error directions are not equally bad. Ending the fence too
-// eagerly over-reports a heading — loud, and the failure names the file and
-// line. Keeping it open too long swallows every heading after it, so a genuine
-// duplicate `## Done Checklist` goes unseen and the suite reports clean. A
-// scanner whose whole purpose is catching duplicates must not fail in the
-// direction that hides them.
+// The result is spec-faithful on BOTH shapes the flat stream gets wrong: a
+// quote-opened fence ends at the first unquoted line, and a quoted delimiter
+// inside an unquoted fence is content rather than a closer. One inherited
+// approximation remains, and it is the tracker's, stated precisely: quote DEPTH
+// is not matched between a quoted opener and a quoted closer, so `>> ``` `
+// closes a fence opened by `> ``` `.
+//
+// No error direction here is safe, which is why correctness is tracked rather
+// than a preferred failure mode. Both of this file's assertions are EQUALITY
+// assertions (exactly one heading, at level 2), so over-reporting and
+// under-reporting each produce a silent pass on some real document: swallow a
+// heading and a duplicate goes unseen; invent one and a plan carrying no
+// checklist reports a clean single. An earlier revision of this comment claimed
+// over-reporting was the loud direction. It is not — that claim was refuted by
+// the fenced-example counterexample the third arm now handles.
 import {
   advanceFenceState,
   stripBlockquotePrefix,
@@ -168,8 +175,8 @@ function findDoneChecklistHeadings(source) {
     // The tracking is kept because that equivalence rests on the anchoring:
     // move the pattern to the stripped line and dropping this rule silently
     // restores the round-1 swallowed-heading defect. The claim does NOT extend
-    // to quoted fence lines generally — a quoted CLOSER on an unquoted fence is
-    // observable, and has its own control below.
+    // to quoted fence lines generally — a quoted delimiter inside an
+    // UNQUOTED-opened fence is observable, and is the third arm below.
     if (openFence !== null && fenceOpenedInQuote && stripBlockquotePrefix(line) === line) {
       openFence = null;
       fenceOpenedInQuote = false;
@@ -186,15 +193,37 @@ function findDoneChecklistHeadings(source) {
     }
 
     // A fence delimiter inside an open comment is comment text, not a fence.
-    // The shared tracker's contract takes a BLOCKQUOTE-STRIPPED line, so a
-    // quoted opener (`> ```md`) is recognised as a delimiter at all — which is
-    // what `fenceOpenedInQuote` above needs in order to know the fence began
-    // inside a container. It is NOT what hides quoted example headings: the
-    // heading test runs on the RAW line, so `> ## quoted` fails to match and is
-    // never a candidate, fence or no fence.
+    //
+    // A FENCE'S DELIMITERS LIVE IN THE CONTAINER WHERE IT OPENED. Three arms,
+    // one principle — which line form to hand the tracker is decided by the
+    // open fence's container, not by the current line:
+    //
+    //   no fence open        -> STRIPPED, so a quoted opener (`> ```md`) is
+    //                           seen at all, and `fenceOpenedInQuote` records
+    //                           which container it opened in.
+    //   fence opened QUOTED  -> STRIPPED, so its quoted closer closes it. The
+    //                           container rule above kills it at the first
+    //                           unquoted line.
+    //   fence opened UNQUOTED-> RAW, so a quoted line inside it fails the
+    //                           delimiter pattern and is CONTENT, per spec.
+    //
+    // The third arm closes a false clean, and is the one this file got wrong
+    // twice. A `> ``` ` line cannot close a top-level fence — CommonMark allows
+    // a closer at most three spaces of indentation, and a blockquote marker is
+    // not indentation, so inside an open fence that line is literal content.
+    // Advancing on the stripped line closed the fence there, which turned the
+    // rest of the document into live markdown and let a fenced EXAMPLE heading
+    // be counted as the document's real one. On the `exactly one` assertion
+    // that reads as a pass: a plan carrying NO checklist reports one. Silent,
+    // on a positive requirement — not the loud direction claimed here before.
+    //
+    // Note what this is NOT: the heading test runs on the RAW line, so a quoted
+    // heading (`> ## …`) never matches and is never a candidate, fence or no
+    // fence. Fence tracking is not what hides those.
     if (!commentOpenAtLineStart) {
       const stripped = stripBlockquotePrefix(line);
-      ({ openFence } = advanceFenceState(stripped, openFence));
+      const fenceLine = inFenceAtLineStart && !fenceOpenedInQuote ? line : stripped;
+      ({ openFence } = advanceFenceState(fenceLine, openFence));
       if (!inFenceAtLineStart && openFence !== null) fenceOpenedInQuote = stripped !== line;
       if (openFence === null) fenceOpenedInQuote = false;
     }
@@ -349,31 +378,29 @@ test("control: a QUOTED example heading inside a quoted fence stays hidden", () 
   assert.deepEqual(hidden, [], "the quoted line is never a heading candidate in the first place");
 });
 
-test("control: a quoted closer ends an UNQUOTED fence — the tracker's approximation, pinned", () => {
-  // The one shape where handing `advanceFenceState` the stripped line rather
-  // than the raw one is observable in this scanner's output, so it is the only
-  // thing pinning that call. Without it, the stripped/raw choice is a free
-  // variable no assertion here constrains (mutation-measured).
+test("control: a quoted line inside an UNQUOTED fence is content, not a closer", () => {
+  // The false clean this scanner shipped for two rounds, now the third arm's
+  // regression guard. `> ``` ` cannot close a top-level fence: CommonMark
+  // permits a closer at most three spaces of indentation, and a blockquote
+  // marker is not indentation, so inside an open fence that line is literal
+  // content. This whole document is one fenced example and contains NO real
+  // checklist heading.
   //
-  // This deviates from strict CommonMark, deliberately and by inheritance: a
-  // `> ``` ` line is NOT a valid closer for a top-level fence — inside an open
-  // fence it is content, so a spec parser keeps the fence open and hides the
-  // heading. The shared tracker declines to match quote DEPTH between opener
-  // and closer (its documented pragmatic bound for illustrative examples), and
-  // this scanner inherits that.
-  //
-  // Pinned rather than filed as a defect because the inherited behavior errs in
-  // the LOUD direction — it over-reports a heading. The spec-exact behavior
-  // hides one, which on a duplicate-detection surface is the silent failure
-  // this suite exists to prevent. If the shared tracker ever tightens to match
-  // quote depth, this control fails and names the decision instead of letting
-  // the corpus census quietly shrink.
+  // Why it was silent rather than loud, which is the part the earlier ruling
+  // got backwards: the corpus assertion is `exactly one`. Closing the fence on
+  // the quoted line made the example heading count, taking the file from zero
+  // real headings to one — straight onto the passing value. A plan carrying no
+  // Done Checklist at all would have sailed through the gate whose entire job
+  // is to notice that.
   const { headings, hidden } = findDoneChecklistHeadings(
-    ["# Plan-099", "", "```md", "> ```", "## Done Checklist", ""].join("\n"),
+    ["# Plan-099", "", "```md", "> ```", "## Done Checklist", "", "- [ ] example", ""].join("\n"),
   );
-  assert.equal(headings.length, 1, "the quoted closer ends the unquoted fence");
-  assert.equal(headings[0].level, 2);
-  assert.deepEqual(hidden, []);
+  assert.equal(headings.length, 0, "the document has no real checklist; the fence never closed");
+  assert.deepEqual(
+    hidden.map((entry) => entry.reason),
+    ["fenced-code"],
+    "the heading is hidden as fence CONTENT",
+  );
 });
 
 test("control: a heading inside an HTML comment is NOT a heading", () => {
