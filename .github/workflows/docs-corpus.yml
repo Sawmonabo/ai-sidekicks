@@ -225,10 +225,30 @@ jobs:
         # diff) is the backstop for the doc-only-amend case: a spec amendment that
         # shifts line numbers with no code file in the diff still re-checks every
         # `Spec-NNN:LL` code cite repo-wide here.
+        #
+        # `--min-md` / `--min-code` arm the runner's per-lane floors. Both
+        # pipelines below end in `|| true`, so a `git ls-files` that fails —
+        # or a `grep` whose pattern stops matching after an unrelated edit —
+        # yields an EMPTY array rather than a non-zero exit, and every check
+        # scoped to that lane is silently skipped while this required job
+        # exits 0. The floors are per-lane, not a total, because argv is one
+        # flat list here: an `.md` collapse alongside a healthy code lane
+        # still leaves argv hundreds of entries long.
+        #
+        # Each floor sits at roughly HALF the live lane (~230 `.md` after the
+        # runner drops `docs/reference/`, ~230 code), because the two failure
+        # directions are handled by different mechanisms: the floor is the
+        # tripwire for a COLLAPSE (enumeration breaks, the lane goes to ~0),
+        # while a partial drop is caught by the `lanes resolved` counts the
+        # runner prints whenever a floor is armed. Buying collapse-detection
+        # cheaply matters more than a tight bound here — this is a required
+        # check, so a floor that false-trips blocks every PR. A breach means
+        # enumeration broke; repair it rather than lowering the floor.
         run: |
           mapfile -t md_files < <(git ls-files '*.md' | grep -v '^docs/archive/' || true)
           mapfile -t code_files < <(git ls-files 'packages/' 'apps/' | grep -E '\.(ts|tsx|mts|cts)$' | grep -v '/dist/' || true)
-          node --experimental-strip-types tools/docs-corpus/bin/pre-commit-runner.ts "${md_files[@]}" "${code_files[@]}"
+          node --experimental-strip-types tools/docs-corpus/bin/pre-commit-runner.ts \
+            --min-md=100 --min-code=100 "${md_files[@]}" "${code_files[@]}"
 
       - name: plan-cite Gate-4 survey (enforced)
         # Corpus-wide Gate-4 cite screen over every survey unit — each walked plan
