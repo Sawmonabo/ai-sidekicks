@@ -311,6 +311,85 @@ test("a PHASE-based plan with no cite markers is a vacuous pass too, not silent 
   }
 });
 
+// The fifth path, and this screen committing its OWN defect class. The
+// remainder/supplement label scan is a loose `### Phase (R\d+|\d+[A-Z])`, but
+// `extractPhaseSection` additionally demands a ` — Title` separator. A heading
+// that matches the first and fails the second used to have its null coerced to
+// `""` — a silent-empty exactly like the `?? []` this PR closes elsewhere. The
+// empty unit kept `surveyUnits` nonempty, which permanently suppressed the
+// whole-document fallback, so every cite under the malformed heading went
+// unparsed while `--survey --enforce-cites` exited 0 calling the plan
+// cite-swept (Codex P1, PR #260 round 1).
+
+// Task id follows the live remainder-phase idiom (Plan-008's `T-008r-1-1`), so
+// the fixture exercises the label defect and nothing else. The heading is the
+// only malformed thing here: real remainder headings carry the ` — Title` the
+// extractor requires, and this one deliberately does not.
+const UNEXTRACTABLE_LABEL_PLAN = `### Phase R1
+
+#### Tasks
+
+- **T-066r-1-1 — task whose cites point at nothing**
+  - **Spec coverage:** Spec-999 §Nonexistent Section
+  - **Verifies invariant:** Spec-050 §Also Nonexistent Heading
+`;
+
+test("surveyCorpus: an unextractable phase label gates AND leaves its cites screened", () => {
+  const tmp = makeFixtureCorpus({ "066-unextractable-label.md": UNEXTRACTABLE_LABEL_PLAN });
+  try {
+    const survey = surveyCorpus({ repoRoot: tmp });
+    // Half one — VISIBLE. `anomalies`, not `citeAnomalies`: a heading the
+    // extractor cannot read is a structural failure of the screen, so it gates
+    // without waiting for --enforce-cites to be armed.
+    assert.equal(survey.anomalies.length, 1, survey.anomalies.join("\n"));
+    assert.match(survey.anomalies[0], /066-unextractable-label\.md \[phase-unextractable\]/);
+    assert.match(survey.anomalies[0], /### Phase R1/);
+    // Half two — SCREENED. Dropping the failed label lets the whole-document
+    // fallback fire, so the broken cite underneath is actually caught. Reporting
+    // alone would have left it unread.
+    assert.deepEqual(survey.fallbackPlans, ["066-unextractable-label.md"]);
+    assert.equal(survey.citeAnomalies.length, 2, survey.citeAnomalies.join("\n"));
+    assert.match(
+      survey.citeAnomalies[0],
+      /066-unextractable-label\.md \(whole document\) \[spec-file-not-found\]/,
+    );
+    assert.match(
+      survey.citeAnomalies[1],
+      /066-unextractable-label\.md \(whole document\) \[section-not-found\]/,
+    );
+    const text = formatSurvey(survey);
+    assert.doesNotMatch(text, /cite anomalies: none/);
+    assert.match(text, /all 1 phase label\(s\) failed extraction/);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("surveyCorpus: one unextractable label among GOOD phases still gates", () => {
+  // Mixed shape: the fallback correctly does NOT fire (a real phase extracted),
+  // so the malformed heading's cites are genuinely unswept. The run must then
+  // fail loudly on the anomaly rather than report a clean verdict over them —
+  // refusing is honest, exiting 0 is the false clean.
+  const tmp = makeFixtureCorpus({
+    "067-mixed-extractable.md":
+      "### Phase 1 — real work\n\n#### Tasks\n\n" +
+      "- **T1.1 thing** — **Spec coverage:** Spec-050 §Required Behavior\n" +
+      "\n### Phase R1\n\n#### Tasks\n\n- **T-067r-1-1 thing** — **Spec coverage:** Spec-999 §Nope\n",
+  });
+  try {
+    const survey = surveyCorpus({ repoRoot: tmp });
+    assert.equal(survey.anomalies.length, 1, survey.anomalies.join("\n"));
+    assert.match(survey.anomalies[0], /\[phase-unextractable\]/);
+    assert.deepEqual(
+      survey.fallbackPlans,
+      [],
+      "a plan with one good phase must NOT take the whole-document fallback",
+    );
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 test("a plan with markers in SOME phases is verified, not reported vacuous", () => {
   // Boundary control for the per-plan rollup: the flag must key on "no unit
   // anywhere had markers", not "some unit lacked them". Otherwise every plan

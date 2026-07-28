@@ -1877,6 +1877,96 @@ test("a fenced `#` line does not truncate the AC section (no false red)", () => 
   assert.equal(past.reason, "ac-line-outside-section");
 });
 
+test("a FENCED `## Acceptance Criteria` is not selectable as the real section", () => {
+  // The false-CLEAN twin of the fence test above: that one pins the section
+  // TERMINATOR as fence-aware, this pins the section LOCATOR. Locating the
+  // heading with a raw `/^#+\s+Acceptance Criteria$/m` picks the example inside
+  // the fence, so `AC line N` verifies GREEN against an example bullet in a spec
+  // carrying no acceptance-criteria section at all — the gate certifying a
+  // criterion that does not exist (Codex P2, PR #260 round 1).
+  const tmp = mkdtempSync(resolve(tmpdir(), "preflight-ac-fenced-heading-"));
+  writeFileSync(
+    resolve(tmp, "303-ac-fenced-heading.md"),
+    [
+      "# Temp spec", // 1
+      "", // 2
+      "## How To Write A Spec", // 3
+      "", // 4
+      "```markdown", // 5
+      "## Acceptance Criteria", // 6
+      "", // 7
+      "- [ ] An EXAMPLE criterion, not a real one.", // 8
+      "```", // 9
+      "", // 10
+      "## Required Behavior", // 11
+      "", // 12
+      "Prose.", // 13
+      "",
+    ].join("\n"),
+  );
+  const fenced = verifyAnchorAgainstSpec(
+    { type: "ac-line", spec: 303, line: 8, raw: "Spec-303 AC line 8" },
+    { specsDir: tmp },
+  );
+  assert.equal(
+    fenced.valid,
+    false,
+    `a bullet inside a fenced example must never satisfy an AC cite; got: ${fenced.evidence}`,
+  );
+  assert.equal(
+    fenced.reason,
+    "ac-section-missing",
+    "the spec has no REAL §Acceptance Criteria, so the cite fails for absence — not for bounds",
+  );
+});
+
+test("a nested child heading does not truncate §Acceptance Criteria", () => {
+  // Terminating on the next heading of ANY level ends the section at its own
+  // legitimate child, so criteria under `### API criteria` are rejected as
+  // out-of-section even though Markdown containment places them inside — a gate
+  // reddening correct input (Codex P2, PR #260 round 1). Containment must stop
+  // only at a heading whose level is <= the AC heading's, which is how
+  // sectionSpansForHeadingText has always computed the general §Section case.
+  const tmp = mkdtempSync(resolve(tmpdir(), "preflight-ac-nested-child-"));
+  writeFileSync(
+    resolve(tmp, "304-ac-nested-child.md"),
+    [
+      "# Temp spec", // 1
+      "", // 2
+      "## Acceptance Criteria", // 3
+      "", // 4
+      "- [ ] A criterion directly under the parent.", // 5
+      "", // 6
+      "### API criteria", // 7
+      "", // 8
+      "- [ ] A criterion under a legitimate CHILD heading.", // 9
+      "", // 10
+      "## Required Behavior", // 11
+      "", // 12
+      "Prose.", // 13
+      "",
+    ].join("\n"),
+  );
+  const underChild = verifyAnchorAgainstSpec(
+    { type: "ac-line", spec: 304, line: 9, raw: "Spec-304 AC line 9" },
+    { specsDir: tmp },
+  );
+  assert.equal(
+    underChild.valid,
+    true,
+    `a criterion under a child heading is INSIDE the section; got ${underChild.reason}: ${underChild.evidence}`,
+  );
+
+  // The sibling-level heading still terminates, so the bounds did not simply
+  // run to EOF — the fix widened containment, it did not remove it.
+  const pastSibling = verifyAnchorAgainstSpec(
+    { type: "ac-line", spec: 304, line: 13, raw: "Spec-304 AC line 13" },
+    { specsDir: tmp },
+  );
+  assert.equal(pastSibling.valid, false);
+  assert.equal(pastSibling.reason, "ac-line-outside-section");
+});
+
 test("AC line N rejects a descriptor subject absent from the cited criterion", () => {
   // Fixture line 47 names `ChannelList`; `PresenceUpdate` is elsewhere in the
   // spec, so the subject rule must fire rather than accepting any AC bullet.

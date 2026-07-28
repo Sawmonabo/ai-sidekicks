@@ -2916,46 +2916,62 @@ function verifyLineRangeAnchor(anchor, specLines) {
 // the two structural scanners. Bullet `.index` values stay relative to
 // `bodyStart`, matching the pre-factoring arithmetic exactly. Returns
 // `{ found: false }` when the spec carries no §Acceptance Criteria heading.
-/**
- * Character offset of the next ATX heading in `text`, or -1 if there is none.
- *
- * Fence-aware: a fenced block routinely carries lines that begin with `#`
- * (shell comments, embedded markdown samples). Treating one as the section
- * terminator truncates the section, which would REJECT a correct acceptance-
- * criterion cite sitting below the fence — a false red rather than a false
- * clean, but a gate that reds correct input is still a broken gate.
- */
-function findNextHeadingOffset(text) {
-  let offset = 0;
-  let inFence = false;
-  for (const line of text.split("\n")) {
-    if (/^\s*(?:```|~~~)/.test(line)) inFence = !inFence;
-    else if (!inFence && /^#+\s+\S/.test(line)) return offset;
-    offset += line.length + 1;
-  }
-  return -1;
-}
-
+//
+// Heading discovery AND section termination both run through that shared walk.
+// Two Codex P2 findings (PR #260 round 1) came from this function having only
+// CLAIMED that kinship in the comment above while implementing its own regexes:
+//
+//   - The heading was located with a raw `/^#+\s+Acceptance Criteria$/m`, so a
+//     `## Acceptance Criteria` inside a FENCED example was selectable as the
+//     real section. An `AC line N` cite could then verify green against an
+//     example bullet in a spec that has no acceptance-criteria section at all —
+//     a false clean, the class this PR exists to close.
+//   - Termination stopped at the next heading of ANY level, so a legitimate
+//     child (`### API criteria`) truncated its own parent, and cites to bullets
+//     under that child were rejected as outside the section even though
+//     Markdown containment places them inside — a gate reddening correct input.
+//
+// Walking structurally fixes the first; stopping only at a heading whose level
+// is <= the AC heading's fixes the second. Both now match how
+// sectionSpansForHeadingText has always computed containment, so the AC path
+// and the general §Section path can no longer disagree about the same spec.
 function locateAcceptanceCriteria(source) {
-  const headingMatch = source.match(/^#+\s+Acceptance Criteria\s*$/m);
-  if (!headingMatch) return { found: false };
-  const bodyStart = headingMatch.index + headingMatch[0].length;
-  const after = source.slice(bodyStart);
-  const nextHeadingOffset = findNextHeadingOffset(after);
-  const hasFollowingSection = nextHeadingOffset !== -1;
-  const body = hasFollowingSection ? after.slice(0, nextHeadingOffset) : after;
-  const bullets = [...body.matchAll(/^- \[[ x]\]/gm)];
-  const headingLineNum = source.slice(0, headingMatch.index).split("\n").length;
+  const sourceLines = source.split("\n");
+  const headings = [];
+  const scanState = createStructuralScanState();
+  for (let lineIndex = 0; lineIndex < sourceLines.length; lineIndex += 1) {
+    const line = sourceLines[lineIndex];
+    if (structuralScanConsumes(scanState, sourceLines, lineIndex) || !/^#{1,6}\s+/.test(line)) {
+      continue;
+    }
+    headings.push({
+      lineNumber: lineIndex + 1,
+      level: /^(#{1,6})/.exec(line)[1].length,
+      text: line,
+    });
+  }
+  const acIndex = headings.findIndex((heading) =>
+    /^#{1,6}\s+Acceptance Criteria\s*$/.test(heading.text),
+  );
+  if (acIndex === -1) return { found: false };
+  const acHeading = headings[acIndex];
+  const terminator = headings
+    .slice(acIndex + 1)
+    .find((heading) => heading.level <= acHeading.level);
+  const lineStartOffset = (lineNumber) =>
+    sourceLines.slice(0, lineNumber - 1).reduce((sum, line) => sum + line.length + 1, 0);
+  // `bodyStart` sits at end-of-heading-text (before its newline), preserving the
+  // pre-factoring offset exactly so bullet `.index` arithmetic is unchanged.
+  const bodyStart =
+    lineStartOffset(acHeading.lineNumber) + sourceLines[acHeading.lineNumber - 1].length;
   // `lastLineNum` is the last line INSIDE the section, and both callers read it
-  // that way (`anchor.line > lastLineNum` => outside). When a following heading
-  // exists the slice ends at that heading's first character, so the line count
-  // lands ON the heading — one line past the section — hence the -1. Without it
-  // the bounds admit the heading line itself and the "section spans X-Y"
-  // evidence string names a line that is not in the section.
-  const endCharIdx = hasFollowingSection ? bodyStart + nextHeadingOffset : source.length;
-  const lineCountThroughEnd = source.slice(0, endCharIdx).split("\n").length;
-  const lastLineNum = hasFollowingSection ? lineCountThroughEnd - 1 : lineCountThroughEnd;
-  return { found: true, bodyStart, bullets, headingLineNum, lastLineNum };
+  // that way (`anchor.line > lastLineNum` => outside) — hence `terminator - 1`,
+  // so the bounds never admit the terminator heading line itself and the
+  // "section spans X-Y" evidence string names only lines that are in the section.
+  const endCharIdx = terminator ? lineStartOffset(terminator.lineNumber) : source.length;
+  const lastLineNum = terminator ? terminator.lineNumber - 1 : sourceLines.length;
+  const bullets = [...source.slice(bodyStart, endCharIdx).matchAll(/^- \[[ x]\]/gm)];
+  return { found: true, bodyStart, bullets, headingLineNum: acHeading.lineNumber, lastLineNum };
 }
 
 const AC_SECTION_MISSING_FAILURE = {
@@ -4724,17 +4740,43 @@ export function surveyCorpus({
       // clean" when the truth is "never checked". Keying the fallback on
       // allPhaseLabels (not on `phases`) also covers the remainder-only shape,
       // which the numeric walk alone would drop.
-      const surveyUnits = allPhaseLabels.map((label) => ({
-        label,
-        section: extractPhaseSection(source, label) ?? "",
-        isWholeDocument: false,
-      }));
+      // A label can match the loose remainder/supplement regex above and STILL
+      // fail `extractPhaseSection` — `### Phase R1` with no ` — Title` separator
+      // is the shape. Coercing that null to `""` (the `?? ""` this replaces) was
+      // this screen's own silent-empty defect, the same class the PR closes
+      // elsewhere: the empty unit kept `surveyUnits` nonempty, which permanently
+      // suppressed the whole-document fallback below, so every cite under the
+      // malformed heading went unparsed and `--survey --enforce-cites` exited 0
+      // calling the plan cite-swept (Codex P1, PR #260 round 1).
+      //
+      // Both halves are needed. Dropping the failed label keeps the cites
+      // SCREENED (the fallback can now fire); the anomaly keeps the malformed
+      // heading VISIBLE. Reporting alone would leave the cites unread; falling
+      // back alone would hide a heading the downstream external_plan_phase_merged
+      // gate reads by task id, turning a silent pass here into a confusing
+      // failure there.
+      const surveyUnits = [];
+      for (const label of allPhaseLabels) {
+        const section = extractPhaseSection(source, label);
+        if (section == null) {
+          // `anomalies`, not `citeAnomalies`: a heading the extractor cannot read
+          // is a structural failure of the screen, so it gates without waiting for
+          // --enforce-cites — matching the [survey-uncovered] catch arm below.
+          anomalies.push(
+            `${name} [phase-unextractable] \`### Phase ${label}\` matched the phase-label scan but not the extractor's heading shape; its cites cannot be swept per-phase`,
+          );
+          continue;
+        }
+        surveyUnits.push({ label, section, isWholeDocument: false });
+      }
       if (surveyUnits.length === 0) {
         // Still a NOTICE, not an anomaly — the walkPhases gap is real and a
         // dispatch run on this plan exits 2 (fail-closed). The notice names the
         // gap; the sweep below is what keeps the cite verdict honest.
         notices.push(
-          `${name}: no \`### Phase N\` headings — invisible to walkPhases (dispatch exits 2); cite-swept as one whole-document unit`,
+          allPhaseLabels.length === 0
+            ? `${name}: no \`### Phase N\` headings — invisible to walkPhases (dispatch exits 2); cite-swept as one whole-document unit`
+            : `${name}: all ${allPhaseLabels.length} phase label(s) failed extraction (see [phase-unextractable] above); cite-swept as one whole-document unit`,
         );
         fallbackPlans.push(name);
         surveyUnits.push({
