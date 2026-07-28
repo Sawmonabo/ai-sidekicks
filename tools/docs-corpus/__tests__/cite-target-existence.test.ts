@@ -3,7 +3,11 @@ import { writeFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { execSync } from "node:child_process";
-import { extractCites, checkCiteTargetExistence } from "../lib/cite-target-existence.ts";
+import {
+  extractCites,
+  checkCiteTargetExistence,
+  formatCiteTargetViolations,
+} from "../lib/cite-target-existence.ts";
 
 function setupRepo(files: Record<string, string>): { root: string; cleanup: () => void } {
   const root = mkdtempSync(resolve(tmpdir(), "cte-"));
@@ -627,6 +631,42 @@ describe("cite-target-existence — flush-digit locator boundary + shared fence 
         checkCiteTargetExistence([resolve(root, "docs/live.md")]),
       );
       expect(liveViolations).toHaveLength(1);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+// formatCiteTargetViolations shipped with no test: replacing its body with
+// `return ""` passed the entire suite (CAT-10 mutation pass 3). The runner
+// pushes its return value straight into the operator-facing failure message
+// (pre-commit-runner.ts), so an empty or field-poor string is a gate that
+// blocks the commit while saying nothing about what to fix.
+//
+// The violation is produced END-TO-END rather than hand-built: a literal
+// CiteViolation would keep passing after the real shape drifted away from it.
+describe("cite-target-existence — formatCiteTargetViolations operator message", () => {
+  it("names file, line, target, reason and detail, and totals the violations", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/note.md": "See [Plan-002](plans/002-foo.md):99 for context.\n",
+      "docs/plans/002-foo.md": "# Plan-002\n\nonly three\nlines here\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/note.md")]),
+      );
+      expect(violations).toHaveLength(1);
+
+      const message = formatCiteTargetViolations(violations);
+      // Each assertion is a separate field an operator needs to locate and fix
+      // the cite; asserting only "message !== ''" would pass on a string that
+      // named the count and nothing else.
+      expect(message).toContain("docs/note.md");
+      expect(message).toContain(`:${violations[0].cite.line}`);
+      expect(message).toContain(violations[0].cite.rawTarget);
+      expect(message).toContain(violations[0].reason);
+      expect(message).toContain(violations[0].detail);
+      expect(message).toContain("1 violation(s)");
     } finally {
       cleanup();
     }
