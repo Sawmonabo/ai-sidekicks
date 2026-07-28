@@ -329,6 +329,24 @@ function scanLineContent(state, lines, index, text) {
   }
 }
 
+// Blockquote-prefix strip, held byte-equal to `stripBlockquotePrefix` in
+// tools/docs-corpus/lib/markdown-fences.ts: a quoted fence opener (`> ```md`)
+// with lazy-continuation interior lines hides quoted example headings exactly
+// like an unquoted fence (Codex round-5, PR #224). Quoted and unquoted fences
+// share one state stream — the same flat approximation the shared tracker
+// makes.
+//
+// Exported ONLY so that equality can be asserted rather than asserted-in-prose.
+// This file cannot import the shared module at the engines floor: `preflight.mjs`
+// runs under bare `node` (SKILL.md Phase 0.2), and on Node 22.12 — the
+// `package.json` engines minimum — loading a `.ts` source fails outright with
+// ERR_UNKNOWN_FILE_EXTENSION. (Node 22.18+ strips types by default, so this is
+// a statement about the floor the skill must support, not about every Node.)
+// Duplication is therefore forced here — so the duplicate is pinned by
+// `preflight-external-contracts.test.mjs` instead of by a comment claiming
+// parity, which is what this comment used to be.
+export const BLOCKQUOTE_PREFIX_RE = /^(?: {0,3}>)+ ?/;
+
 // Advances `state` across `lines[index]`. Returns true when the line is
 // structural interior/delimiter (fence delimiter, fenced content, raw
 // HTML block, multi-line span interior) that no heading scan may read;
@@ -336,14 +354,9 @@ function scanLineContent(state, lines, index, text) {
 // tentative span openers need lookahead to the closer-or-interrupter.
 function structuralScanConsumes(state, lines, index) {
   const line = lines[index];
-  // Blockquote-prefix parity with tools/docs-corpus/lib/markdown-fences.ts
-  // `stripBlockquotePrefix`: a quoted fence opener (`> ```md`) with
-  // lazy-continuation interior lines hides quoted example headings exactly
-  // like an unquoted fence (Codex round-5, PR #224). Quoted and unquoted
-  // fences share one state stream — the same flat approximation the shared
-  // tracker makes. Fence detection reads the stripped content; heading
-  // tests in the callers stay raw, so `> ## quoted` is still not a heading.
-  const content = line.replace(/^(?: {0,3}>)+ ?/, "");
+  // Fence detection reads the stripped content; heading tests in the callers
+  // stay raw, so `> ## quoted` is still not a heading.
+  const content = line.replace(BLOCKQUOTE_PREFIX_RE, "");
   const fenceMatch = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(content);
   const fence =
     fenceMatch && !(fenceMatch[1][0] === "`" && fenceMatch[2].includes("`")) ? fenceMatch : null;
