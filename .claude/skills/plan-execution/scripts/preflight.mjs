@@ -433,10 +433,18 @@ function maskNonContentLines(text) {
 // closes on one line is sub-line: blanking the line would take real prose with
 // it, so it is masked here instead, at span granularity.
 //
-// The delimiters themselves are left in place; only the bytes between a
-// matched pair of equal-length backtick runs are blanked. Unbalanced runs (an
-// odd count, or a mismatched length) are left entirely alone — a lone backtick
-// is prose, not an unterminated span.
+// The delimiters themselves are left in place; only the bytes between an
+// opening run and its closer are blanked. A run with no closer is prose — a
+// lone backtick does not open a span that swallows the rest of the line.
+//
+// Closers are found by SEARCHING FORWARD for the next run of equal length, per
+// CommonMark, not by pairing runs off two at a time. Positional pairing is
+// wrong whenever a line holds an unmatched run before a real span: in
+// "Use `` for empty, and `**Spec coverage:**` here." the runs are [2, 1, 1],
+// positional pairing compares (2,1), skips BOTH on the length mismatch, and
+// leaves the genuine span at (1,2) unmasked — so the marker inside it counts as
+// audit output. That fails OPEN, the same direction as the hole this masker
+// exists to close.
 export function maskInlineCodeSpans(text) {
   const lines = text.split("\n");
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
@@ -444,14 +452,26 @@ export function maskInlineCodeSpans(text) {
     if (!line.includes("`")) continue;
     const runs = [...line.matchAll(/`+/g)];
     let masked = line;
-    for (let runIndex = 0; runIndex + 1 < runs.length; runIndex += 2) {
+    let runIndex = 0;
+    while (runIndex < runs.length) {
       const open = runs[runIndex];
-      const close = runs[runIndex + 1];
-      // CommonMark closes a span only on a run of EQUAL length.
-      if (open[0].length !== close[0].length) continue;
+      let closeIndex = -1;
+      for (let candidate = runIndex + 1; candidate < runs.length; candidate += 1) {
+        if (runs[candidate][0].length === open[0].length) {
+          closeIndex = candidate;
+          break;
+        }
+      }
+      if (closeIndex === -1) {
+        // No closer of matching length: this run is literal. Advance by ONE so
+        // the runs after it are still considered as openers.
+        runIndex += 1;
+        continue;
+      }
       const from = open.index + open[0].length;
-      const to = close.index;
+      const to = runs[closeIndex].index;
       masked = masked.slice(0, from) + " ".repeat(to - from) + masked.slice(to);
+      runIndex = closeIndex + 1;
     }
     lines[lineIndex] = masked;
   }

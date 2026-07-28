@@ -2715,6 +2715,22 @@ test("maskInlineCodeSpans leaves unbalanced and mismatched backtick runs alone",
   assert.equal(maskInlineCodeSpans(mismatched), mismatched, "runs must be equal length to pair");
 });
 
+test("maskInlineCodeSpans finds a closer past an unmatched run (no positional pairing)", () => {
+  // Runs are [2, 1, 1]. Pairing off two at a time compares (2,1), skips BOTH on
+  // the length mismatch, and leaves the REAL span at (1,2) unmasked — so its
+  // marker counts as audit output. Forward search pairs (1,2) correctly.
+  const line = "Use `` for empty, and `**Spec coverage:** Spec-1 §A` here.";
+  const masked = maskInlineCodeSpans(line);
+  assert.equal(masked.length, line.length, "length must be preserved — offsets are load-bearing");
+  assert.ok(!masked.includes("Spec coverage"), "the span after the unmatched run must be blanked");
+  assert.ok(masked.startsWith("Use `` for empty, and `"), "text before the span must survive");
+  assert.equal(
+    classifyPhaseMarkers(`### Phase 1 — X\n\n${line}\n`).boldSpec,
+    0,
+    "the relaxed floor must not count a marker the mask should have removed",
+  );
+});
+
 test("a marker inside a same-line code span is neither extracted nor counted", () => {
   const illustrated = "Prose showing the form: `**Spec coverage:** Spec-999 §Nope` inline.\n";
   const { anchors, failures } = extractCiteAnchors(illustrated);
