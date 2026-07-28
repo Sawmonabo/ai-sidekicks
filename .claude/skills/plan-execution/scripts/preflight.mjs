@@ -2474,9 +2474,30 @@ export function extractCiteAnchors(phaseSection) {
     payload = payload.replace(/[.,;:]+\s*$/, "");
     if (!payload) continue;
     const prefix = scanned.slice(0, marker.index);
-    const taskMatch =
-      [...prefix.matchAll(/^#####\s+(T[-\w.]+)/gm)].pop() ??
-      [...prefix.matchAll(/^-\s+\*\*(T[-\w.]+)\*\*/gm)].pop();
+    // Attribution = the NEAREST PRECEDING task header, whichever spelling it
+    // uses. Both halves of this were wrong before and both mis-label findings
+    // rather than mis-gate them (`taskId` is diagnostic — it never feeds a
+    // pass/fail decision), which is exactly why it went unnoticed:
+    //
+    //   1. The bullet form required the `**` to close immediately after the id
+    //      (`- **T-025d-14-1** (Files: …)`). The corpus-dominant spelling closes
+    //      it after the TITLE (`- **T1.2 — Seven wire pairs.**`), and a checkbox
+    //      may sit between the dash and the id. 241 headers across 12 plans went
+    //      unrecognized — 220 of them inside phase sections — so every marker
+    //      under one silently inherited the last id that DID match.
+    //   2. `??` preferred the heading form whenever any `#####` header existed
+    //      anywhere in the prefix, even when a bullet header sat closer to the
+    //      marker. Nearest-preceding means latest by index, not by spelling.
+    //
+    // The id shape is constrained to `T` + digit-or-hyphen so ordinary bold
+    // fields (`- **Tests:**`, `- **Target areas:**`) cannot be read as tasks.
+    const TASK_ID = String.raw`T(?:\d|-)[-\w.]*`;
+    const taskMatch = [
+      ...prefix.matchAll(new RegExp(String.raw`^#####\s+(${TASK_ID})`, "gm")),
+      ...prefix.matchAll(
+        new RegExp(String.raw`^[ \t]*-\s+(?:\[[ xX]\]\s+)?\*\*(${TASK_ID})\b`, "gm"),
+      ),
+    ].reduce((latest, m) => (latest === null || m.index > latest.index ? m : latest), null);
     const taskId = taskMatch ? taskMatch[1] : null;
     const lineNo = prefix.split("\n").length;
     const { anchors: a, failures: f } = parseCitePayload(payload);

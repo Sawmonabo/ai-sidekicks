@@ -418,6 +418,54 @@ test("extractCiteAnchors picks up both Spec coverage and Verifies invariant payl
   assert.equal(anchors[1].field, "Verifies invariant");
 });
 
+// Attribution keys on the NEAREST PRECEDING task header in ANY corpus spelling.
+// The bullet recognizer once required `**` to close right after the id
+// (`- **T-025d-14-1** (Files: …)`), but the corpus-dominant spelling closes it
+// after the TITLE. 241 headers across 12 plans were unrecognized (220 in-phase),
+// so their markers silently inherited whichever id last matched — findings got
+// reported against the wrong task. `taskId` is diagnostic and never gates, which
+// is exactly why this survived: the gate's verdict stayed correct while its
+// finger pointed at the wrong row.
+test("extractCiteAnchors attributes markers to the nearest preceding task header, any spelling", () => {
+  const sec = `#### Tasks
+
+- **T-025d-14-1** (Files: deploy/x.yml) — bold closes after the id.
+  - **Spec coverage:** Spec-002 line 13 (PresenceUpdate)
+
+- **T-025s-1 — bold closes after the TITLE, not the id.**
+  - **Spec coverage:** Spec-002 line 13 (PresenceUpdate)
+
+- [ ] **T21.1-2 — a checkbox sits between the dash and the id.**
+  - **Spec coverage:** Spec-002 line 13 (PresenceUpdate)
+
+  - **T-007r-3-15 (slice a) — indented, parenthetical after the id.**
+    - **Spec coverage:** Spec-002 line 13 (PresenceUpdate)
+
+- **Tests:** an ordinary bold field beginning with T is NOT a task header.
+  - **Spec coverage:** Spec-002 line 13 (PresenceUpdate)
+`;
+  const { anchors } = extractCiteAnchors(sec);
+  assert.deepEqual(
+    anchors.map((a) => a.taskId),
+    ["T-025d-14-1", "T-025s-1", "T21.1-2", "T-007r-3-15", "T-007r-3-15"],
+  );
+});
+
+test("extractCiteAnchors prefers the nearest header, not the heading-form one", () => {
+  // `??` used to take the `#####` match whenever one existed anywhere in the
+  // prefix, even with a bullet header sitting closer to the marker.
+  const sec = `#### Tasks
+
+##### T1.1 — heading-form task
+
+- **T2.9 — a bullet-form task that comes LATER.**
+  - **Spec coverage:** Spec-002 line 13 (PresenceUpdate)
+`;
+  const { anchors } = extractCiteAnchors(sec);
+  assert.equal(anchors.length, 1);
+  assert.equal(anchors[0].taskId, "T2.9");
+});
+
 test("gateTasksBlockCites passes on clean Tasks block with verified anchors", () => {
   const sec = `#### Tasks
 
