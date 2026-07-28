@@ -24,6 +24,14 @@ export default {
     // `dist/` which is gitignored.
     () => "tsc -b",
   ],
+  // tools/docs-corpus sits OUTSIDE the root solution file's project-references
+  // graph, so the `tsc -b` above never typechecks it. Its typecheck is NOT a
+  // lint-staged key: this file's keys match staged files via
+  // `--diff-filter=ACMR`, so a deletion-only commit under the tree would
+  // fire nothing while leaving broken imports behind. The pre-commit leg is
+  // the `docs-corpus-typecheck` screen in lefthook.yml (index-materialized,
+  // deletion-aware); CI's docs-corpus `Typecheck hook implementations` step
+  // is the required backstop when hooks are skipped.
   // Match the TS/TSX rule: eslint first, prettier last so CI's
   // `prettier --check "**/*.{ts,tsx,js,mjs,cjs,...}"` (see package.json
   // `format:check`) is a redundancy gate rather than a discovery surface

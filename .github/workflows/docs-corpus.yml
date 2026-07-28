@@ -275,6 +275,21 @@ jobs:
         # shape dispatch merely warns on does not land anew.
         run: node .claude/skills/plan-execution/scripts/preflight.mjs --survey --enforce-cites
 
+      - name: Typecheck hook implementations
+        # tools/docs-corpus sits OUTSIDE the root solution file's project-
+        # references graph (tsconfig.json references packages/* + apps/desktop
+        # only), so lint-staged's `tsc -b` never reaches it — and vitest below
+        # TRANSFORMS TypeScript without checking it, so a type error in a path
+        # the tests do not execute lands green. Until this step, the tree's
+        # own tsconfig was documentation with no gate behind it (the
+        # documented-pin-not-enforced class). Fail-closed by construction:
+        # tsc exits non-zero on a missing or invalid project path, so the
+        # step cannot silently no-op if the tree moves. The
+        # `docs-corpus-typecheck` lefthook screen runs the same check at
+        # pre-commit against the materialized staged index (deletion-aware);
+        # this required step is the backstop when hooks are skipped.
+        run: pnpm exec tsc -p tools/docs-corpus
+
       - name: Unit tests for hook implementations
         run: pnpm exec vitest run --root tools/docs-corpus
 
