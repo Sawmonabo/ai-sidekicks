@@ -126,6 +126,10 @@ function widenDelimiterRows(content: string, predicates: WidenerPredicates): str
 }
 
 const stage = mkdtempSync(join(tmpdir(), "table-recognition-"));
+// The `finally` below covers the normal path, but the fail-closed
+// process.exit(2) guards inside the try skip it — the 'exit' event fires on
+// every termination path, so the stage never outlives the run either way.
+process.on("exit", () => rmSync(stage, { recursive: true, force: true }));
 try {
   // Materialize the baseline lib flat into the stage; sibling relative imports
   // between the lib modules resolve against this directory.

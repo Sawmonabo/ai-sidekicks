@@ -13,8 +13,10 @@
 // a `finally` restores all three targets on any error, and SIGINT/SIGTERM are
 // trapped to restore before exiting. A SIGKILL between mutate and restore
 // still leaves residue — the harness therefore REFUSES to start unless the
-// three target files are committed clean, so recovery is always
-// `git checkout -- <targets>` with nothing of yours in the blast radius.
+// docs-corpus tree (harness/ excepted — never loaded by a suite) is committed
+// clean, so recovery is always `git checkout -- <targets>` with nothing of
+// yours in the blast radius, and no arm is ever scored against a hybrid of
+// committed targets and dirty dependency code.
 //
 // Arm decay — the failure mode the repo's gates cannot see: the typecheck and
 // lint gates keep this file compiling, not meaningful, and nothing runs it
@@ -38,7 +40,12 @@ const RUNNER = join(REPO_ROOT, "tools/docs-corpus/bin/pre-commit-runner.ts");
 // `.worktrees/` and dilute each arm's failure set with unmutated copies.
 const ARITY_SUITE = join(REPO_ROOT, "tools/docs-corpus/__tests__/table-arity.test.ts");
 const RUNNER_SUITE = join(REPO_ROOT, "tools/docs-corpus/__tests__/pre-commit-runner.test.ts");
-const REPORT = join(mkdtempSync(join(tmpdir(), "table-arity-mutation-")), "report.json");
+const REPORT_DIRECTORY = mkdtempSync(join(tmpdir(), "table-arity-mutation-"));
+const REPORT = join(REPORT_DIRECTORY, "report.json");
+// The 'exit' event fires on EVERY termination path — normal completion, the
+// fail-closed process.exit(2) refusals (which skip `finally`), and the signal
+// handlers' process.exit — so the temp directory never outlives the run.
+process.on("exit", () => rmSync(REPORT_DIRECTORY, { recursive: true, force: true }));
 
 interface Mutation {
   name: string;
@@ -380,18 +387,24 @@ const MUTATIONS: Mutation[] = [
 
 const TARGET_FILES = [ARITY, TABLES, RUNNER];
 
-// Refuse dirty targets AND dirty suites. Targets, because restoration on a
-// kill is `git checkout -- <targets>`, which is only safe when the committed
-// state IS the pre-run state. Suites, because every arm's failure signature is
-// a claim about the COMMITTED tests — uncommitted suite edits would silently
-// reshape every signature the run reports.
+// Refuse a dirty docs-corpus tree (the harness's own directory excepted).
+// Targets, because restoration on a kill is `git checkout -- <targets>`,
+// which is only safe when the committed state IS the pre-run state. And
+// everything the suites LOAD — the tests themselves, libs the targets import
+// (markdown-fences.ts is neither a target nor a suite, yet table-arity.ts
+// rides it), the runner, the vitest config — because every arm's failure
+// signature is a claim about the COMMITTED implementation: scoring against a
+// hybrid of committed targets and dirty dependency code describes neither
+// state. The harness/ exclusion is deliberate: the harness orchestrates the
+// runs but is never loaded by a suite, and excluding it keeps
+// run-before-commit iteration on a new arm possible.
 const dirtyFiles = execFileSync(
   "git",
-  ["status", "--porcelain", "--", ...TARGET_FILES, ARITY_SUITE, RUNNER_SUITE],
+  ["status", "--porcelain", "--", "tools/docs-corpus", ":(exclude)tools/docs-corpus/harness"],
   { cwd: REPO_ROOT, encoding: "utf8" },
 ).trim();
 if (dirtyFiles !== "") {
-  console.error("refusing to run: mutation targets or their suites have uncommitted changes:");
+  console.error("refusing to run: the docs-corpus tree has uncommitted changes:");
   console.error(dirtyFiles);
   console.error("commit or stash them first so a mid-run kill is recoverable by git checkout.");
   process.exit(2);
@@ -506,6 +519,7 @@ try {
   const signatures = new Map<string, string>();
   let survived = 0;
   let skipped = 0;
+  let duplicateSignatures = 0;
   for (const mutation of MUTATIONS) {
     const original = originalContents.get(mutation.file)!;
     if (!original.includes(mutation.from)) {
@@ -531,12 +545,28 @@ try {
       console.log("    !! MUTATION SURVIVED — behavior is untested");
       survived++;
     }
-    if (duplicate) console.log(`    !! SAME failure set as ${duplicate}`);
+    if (duplicate) {
+      console.log(`    !! SAME failure set as ${duplicate}`);
+      duplicateSignatures++;
+    }
     console.log("");
   }
   console.log(
-    `=== ${MUTATIONS.length} arms: ${MUTATIONS.length - survived - skipped} killed, ${survived} survived, ${skipped} skipped ===`,
+    `=== ${MUTATIONS.length} arms: ${MUTATIONS.length - survived - skipped} killed, ` +
+      `${survived} survived, ${skipped} skipped, ${duplicateSignatures} duplicate signature(s) ===`,
   );
+  // Decay is a FAILURE, not a footnote: a green exit beside a SURVIVED,
+  // SKIPPED, or duplicate-signature arm reads as "the matrix holds" while its
+  // discriminating invariant is broken (Codex, PR #271 round 3).
+  if (survived !== 0 || skipped !== 0 || duplicateSignatures !== 0) {
+    console.error(
+      "matrix decayed — repair the arms, do not retire them: " +
+        `${survived} survived (fixture no longer discriminates), ` +
+        `${skipped} skipped (anchor moved), ` +
+        `${duplicateSignatures} duplicate signature(s) (arms fail identically).`,
+    );
+    process.exitCode = 1;
+  }
 } finally {
   restoreAllTargets();
   console.log("restored all three source files");
