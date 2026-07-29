@@ -25,6 +25,7 @@
     "@commitlint/config-conventional": "^20.5.0",
     "@eslint/js": "^10.0.1",
     "@types/node": "^25.6.0",
+    "commonmark": "0.31.2",
     "eslint": "^10.2.1",
     "github-slugger": "2.0.0",
     "lefthook": "^2.1.6",
