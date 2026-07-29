@@ -403,6 +403,30 @@ describe("markdown-fences — paragraph interruption (CommonMark 0.31.2 §5.2)",
     expect(fenced).toEqual([]);
   });
 
+  it("suppresses nothing when the false container's content stays INSIDE it", () => {
+    // The case above is weaker than it looks, and this one is why it needs a
+    // partner. Disable the interruption rule entirely and `2.` does push a
+    // container and the four-space line does open a false fence — but the pin
+    // below it sits at column 0, which leaves the list item, and the
+    // container-exit rule kills that fence before it suppresses anything. The
+    // fixture reports `[]` either way and cannot tell a working rule from a
+    // missing one.
+    //
+    // Indent the fence's content so it stays inside the container the false
+    // item would create, and the exit rule can no longer mask the defect: the
+    // suppression the round-1 finding was about becomes observable as a fenced
+    // line. Measured — with the rule disabled this returns `[3]`.
+    const fenced = fencedLineIndices([
+      "Some ordinary prose.",
+      "2. not a list — paragraph text",
+      "    ```ts",
+      "    packages/x.ts:24",
+      "    ```",
+      "live prose after",
+    ]);
+    expect(fenced).toEqual([]);
+  });
+
   it("DOES open a list for `1.` under prose, which may interrupt", () => {
     // The complement. Without it the rule above could be over-applied to every
     // ordered marker and nothing would notice.
