@@ -10,7 +10,7 @@ Canonical schema for the collaboration control plane's shared Postgres database.
 
 Per [ADR-017: Shared Event-Sourcing Scope](../../decisions/017-shared-event-sourcing-scope.md), this schema declares the following invariants that constrain all downstream table additions:
 
-1. **Coordination records only.** Shared Postgres stores session metadata, memberships, invites, presence history, runtime-node attachments, session-directory entries, relay-connection records, notification preferences, health snapshots, event-log anchors (Merkle-root witnesses, not event payloads), cross-node dispatch coordination rows, session terminal-lease coordination rows (current holder only — the `pty.control_changed` event stream stays daemon-local), and artifact-relay blob-store coordination rows (blob metadata + per-participant wrapped CEKs — ciphertext key envelopes and delivery/lease state, never event payloads and never the chunk bytes, which live in the deployment's object store). It does **not** store event payloads.
+1. **Coordination records only.** Shared Postgres stores session metadata, memberships, invites, presence history, runtime-node attachments, session-directory entries, relay-connection records, notification preferences, health snapshots, event-log anchors (Merkle-root witnesses, not event payloads), cross-node dispatch coordination rows, session terminal-lease coordination rows (current holder only — the `pty.control_changed` event stream stays daemon-local), daemon signing-key verification-roster rows (session-scoped Ed25519 PUBLIC keys only — the private halves stay sealed in daemon-local SQLite per ADR-004, and the `runtime_node.*` lifecycle event stream stays daemon-local), and artifact-relay blob-store coordination rows (blob metadata + per-participant wrapped CEKs — ciphertext key envelopes and delivery/lease state, never event payloads and never the chunk bytes, which live in the deployment's object store). It does **not** store event payloads.
 2. **No `session_events_shared`, `session_events_global`, or equivalent cross-participant event table exists in V1.** The absence is intentional, not an oversight. Grepping this file for `session_events_shared` must return this invariant note — never a table definition. Proposals to add one are out of V1 scope.
 3. **Per-daemon local `session_events` is authoritative** per ADR-017 and [local-sqlite-schema.md](./local-sqlite-schema.md). Each daemon owns its own event log with its own monotonic sequence number; cross-participant audit is federated via log export and merge per [Data Architecture §Federated audit model](../data-architecture.md#event-sourcing-scope).
 4. **Supersession gates.** Introducing a shared session-event table requires (a) an ADR superseding ADR-017, and (b) completion of the MLS promotion gates named in [ADR-010 §MLS Promotion Criteria](../../decisions/010-paseto-webauthn-mls-auth.md) — audit visibility, interop tests, and the 4-week soak requirement — because a shared event table is meaningful only if payload-level privacy is carried by group-keyed encryption rather than per-pair PASETO wrapping.
@@ -191,7 +191,7 @@ CREATE INDEX idx_revoked_families_expires ON revoked_token_families(expires_at);
 ## Runtime Node Attachments (Plan-003)
 
 ```sql
--- Owner: Plan-003 | Extended by: Plan-006 (additive nullable daemon_signing_public_key — attach-time signing-key roster registration, T4.10 per CP-006-7 leg B / CP-003-5; own Plan-006 control-plane migration, never a Plan-003 migration edit)
+-- Owner: Plan-003
 CREATE TABLE runtime_node_attachments (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   session_id      UUID NOT NULL REFERENCES sessions(id),
@@ -201,8 +201,7 @@ CREATE TABLE runtime_node_attachments (
   client_version  TEXT NOT NULL,                 -- daemon semver "MAJOR.MINOR" at attach; floor-compared vs sessions.min_client_version (ADR-018 §Decision #4) — makes the read-only verdict auditable + roster-displayable
   state           TEXT NOT NULL DEFAULT 'registering'
                   CHECK(state IN ('registering', 'online', 'degraded', 'offline', 'revoked')),
-  attached_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-  daemon_signing_public_key BYTEA                -- 32-byte Ed25519 public key registered at attach (Plan-006 T4.10 additive migration 0NNN-attachment-signing-key.ts per CP-006-7 leg B / CP-003-5); the NodeId-keyed verification-key resolution surface per security-architecture.md §Per-Event Daemon Signature. Register-once: a reconnect presenting a DIFFERENT key is refused with a typed conflict error (Plan-006 T4.2 refuse_on_rotation mirror). NULL = attached before leg B landed or by a pre-leg-B daemon (that node's uploaded anchors stay emitter-only-verifiable).
+  attached_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX idx_node_attachments_session ON runtime_node_attachments(session_id);
@@ -500,7 +499,39 @@ CREATE INDEX idx_event_log_anchors_session ON event_log_anchors(session_id, anch
 CREATE INDEX idx_event_log_anchors_node ON event_log_anchors(node_id, anchored_at DESC);
 ```
 
-**Verification**: an audit reader resolves the emitting daemon's Ed25519 public key from the session participant roster (keyed by `node_id` with validity windows for rotation per [ADR-010](../../decisions/010-paseto-webauthn-mls-auth.md)) and checks `root_signature` against `merkle_root`. Anchor cadence defaults (`ANCHOR_INTERVAL_EVENTS = 1000` events or `ANCHOR_INTERVAL_SECONDS = 300` seconds, whichever first) are set in [Spec-006 § Integrity Protocol](../../specs/006-session-event-taxonomy-and-audit-log.md#integrity-protocol).
+**Verification**: an audit reader resolves the emitting daemon's Ed25519 public key by `node_id` from the [§Daemon Signing Public Keys](#daemon-signing-public-keys-plan-006--verification-key-roster) verification-key roster below and checks `root_signature` against `merkle_root`. V1 ships no daemon signing-key rotation ceremony — registration is register-once per `(session_id, node_id)` and a different-key registration is refused, per [Security Architecture §Per-Event Daemon Signature](../security-architecture.md#per-event-daemon-signature); validity-window resolution of superseded keys is the V1.1+ extension a specified rotation ceremony would unlock. Anchor cadence defaults (`ANCHOR_INTERVAL_EVENTS = 1000` events or `ANCHOR_INTERVAL_SECONDS = 300` seconds, whichever first) are set in [Spec-006 § Integrity Protocol](../../specs/006-session-event-taxonomy-and-audit-log.md#integrity-protocol).
+
+---
+
+## Daemon Signing Public Keys (Plan-006 — Verification-Key Roster)
+
+The `NodeId`-keyed resolution surface behind [Security Architecture §Per-Event Daemon Signature](../security-architecture.md#per-event-daemon-signature): one session-scoped Ed25519 PUBLIC key per `(session, node)`, registered by the emitting daemon after a successful attach via `runtimenode.signingkeyregister` (daemon-called mutation) and resolved by verifiers via `runtimenode.signingkeyroster` (query) — both registered in the [api-payload §Signing-Key Registration Method Registry](../contracts/api-payload-contracts.md#signing-key-registration-method-registry-tier-4-plan-006-t410). **Forward-declared:** the additive migration ships with Plan-006 T4.10 (Tier 4 Phase 4, CP-006-7 leg B / CP-003-5); the DDL is pinned here so the registration service, the resolution query, and the migration share one canonical shape.
+
+```sql
+-- Owner: Plan-006 (T4.10 additive control-plane migration per CP-006-7 leg B / CP-003-5)
+-- Verification keys only: the 32-byte Ed25519 PUBLIC half of the daemon's session-scoped signing
+-- keypair (64-char lowercase hex on the wire, hex-decoded at persist). The private half never
+-- leaves the emitting daemon (local sealed daemon_signing_keys per ADR-004; local-sqlite-schema.md).
+-- Register-once: a registration presenting a DIFFERENT key for a registered (session, node) pair is
+-- refused with a typed conflict error, never overwritten (the Plan-006 T4.2 refuse_on_rotation
+-- mirror). An absent row = the node attached under a pre-leg-B daemon or control plane (its
+-- uploaded anchors stay emitter-only-verifiable -- the honest degrade).
+-- Deliberately NO participant FK: key material is machine-generated and carries no personal data,
+-- so this table sits outside the Spec-022 §Shred Fan-Out Path-2 REFERENCES participants(id)
+-- closure and SURVIVES participant erasure. That durability is load-bearing, not incidental: the
+-- crypto-shredded runtime_node.* event stream and the event_log_anchors rows this key verifies are
+-- RETAINED post-erasure (unlike runtime_node_attachments' operational hard-DELETE disposition), so
+-- the verification key must outlive the attachment that registered it.
+CREATE TABLE daemon_signing_public_keys (
+  session_id      UUID NOT NULL REFERENCES sessions(id),
+  node_id         TEXT NOT NULL,                 -- emitting daemon's NodeId (roster key; matches event_log_anchors.node_id)
+  public_key      BYTEA NOT NULL,                -- 32 bytes; Ed25519 public key
+  registered_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (session_id, node_id)              -- register-once carrier: the PK is the refusal's uniqueness substrate
+);
+```
+
+**Verification**: consistent with the invariants at the top of this file — a single current-state coordination/roster row per `(session, node)`, never an event log; the `runtime_node.*` lifecycle event stream stays in the daemon-local event store per ADR-017.
 
 ---
 

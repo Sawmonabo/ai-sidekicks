@@ -9,7 +9,7 @@
 //      PUBLIC key and nothing else; the private half is reachable only through
 //      the signer-local `read`. A regression that widened `create`'s result
 //      would leak daemon-private material into CP-006-7's provisioning
-//      call-sites (the composition-root caller, leg A; the attach-time roster
+//      call-sites (the composition-root caller, leg A; the post-attach roster
 //      registrar, leg B) — a boundary crossing the T2.7 row forbids outright,
 //      and one no downstream test would notice.
 //   2. THE SEAL IS AN INJECTED BOUNDARY, so a private key at rest is never

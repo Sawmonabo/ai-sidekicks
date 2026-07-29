@@ -15,9 +15,9 @@
 // ----------------------------------------------------------------------------
 //
 // CP-006-7's provisioning caller registers the daemon's PUBLIC key in the
-// session participant roster (leg B — the attach flow, Plan-006 T4.10 per
-// CP-003-5) — the key a verifier later resolves by `NodeId` per
-// `Spec-006 §Canonical Serialization Rules`. It has no business holding the
+// session participant roster (leg B — the post-attach control-plane
+// registration, Plan-006 T4.10 per CP-003-5) — the key a verifier later
+// resolves by `NodeId` per `Spec-006 §Canonical Serialization Rules`. It has no business holding the
 // private half, and the Plan-006 T2.7 row says so: daemon-private signing
 // material never crosses the provisioning boundary.
 //
@@ -195,7 +195,7 @@ export interface DaemonSigningKeySealer {
 /**
  * The PUBLIC-KEY-ONLY half of daemon signing-key custody — the type CP-006-7's
  * provisioning call-sites are annotated with (the composition-root
- * session-establishment caller, leg A; the attach-time roster registrar
+ * session-establishment caller, leg A; the post-attach roster registrar
  * consumes its return, leg B per CP-003-5).
  *
  * This is the narrow surface the header's structural argument rests on: it
