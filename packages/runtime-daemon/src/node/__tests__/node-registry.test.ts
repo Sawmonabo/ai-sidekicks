@@ -166,8 +166,9 @@ afterEach(() => {
 // shared by SessionService, the emitter, and the registry. `now` is injectable
 // for deterministic timestamp assertions; the emitter id source is a collision-
 // free counter so multiple emits never violate the `TEXT PRIMARY KEY`. The
-// append opt-in is test-only: a production composition root wires Plan-006
-// T3.1's EventLogService as the emitter's SessionEventLog instead.
+// append opt-in is test-only: production wiring is Plan-006 T3.1's own leg,
+// which re-points this seam onto the durable append path (the async
+// `EventLogService.append` does not satisfy the synchronous seam directly).
 function makeRegistry(now: () => string = () => "2026-06-02T12:00:00.000Z"): NodeRegistry {
   const sessionService: SessionService = new SessionService(ctx.db, {
     allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly(),

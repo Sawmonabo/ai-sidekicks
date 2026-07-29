@@ -162,8 +162,9 @@ function makeAdvancingClock(): () => string {
 
 // Wire the Phase-2 object graph over the current `ctx.db`. `now` defaults
 // to an advancing clock; the emitter id source is a collision-free counter.
-// The append opt-in is test-only: a production composition root wires
-// Plan-006 T3.1's EventLogService as the emitter's SessionEventLog instead.
+// The append opt-in is test-only: production wiring is Plan-006 T3.1's own
+// leg, which re-points this seam onto the durable append path (the async
+// `EventLogService.append` does not satisfy the synchronous seam directly).
 function makeCapabilityService(now: () => string = makeAdvancingClock()): NodeCapabilityService {
   const sessionService: SessionService = new SessionService(ctx.db, {
     allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly(),

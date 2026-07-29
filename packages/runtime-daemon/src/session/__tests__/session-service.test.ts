@@ -7,7 +7,7 @@
 // D4: Snapshot survives daemon restart and yields identical projection
 //     on rehydrate (durability across restart; Spec-001 AC2 + AC6).
 //
-// Append-guard coverage (Plan-006 §Phase 3 T3.1 precondition):
+// Append-guard coverage (the `Plan-006 §T3.1 — Append-path service writing integrity columns + Plan-022 Path 1 shred callback` precondition):
 //   * `append()` refuses on a default-constructed service; reads need
 //     no opt-in. The `beforeEach` fixture opts in explicitly
 //     (`allowUnsignedPlaceholderAppend`) so the D2/D3/D4 blocks can
@@ -1099,7 +1099,7 @@ describe("session_events integrity-column CHECK constraints", () => {
 });
 
 // ----------------------------------------------------------------------------
-// Append guard (Plan-006 §Phase 3 T3.1 precondition)
+// Append guard (the `Plan-006 §T3.1 — Append-path service writing integrity columns + Plan-022 Path 1 shred callback` precondition)
 // ----------------------------------------------------------------------------
 //
 // `append()` writes zero-filled integrity placeholders — exactly the rows

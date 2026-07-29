@@ -106,8 +106,9 @@ function makeAdvancingClock(): () => string {
 // free deterministic event-id source so `session_events.id` (TEXT PRIMARY KEY)
 // never collides across emits. Returns the writer + the SessionService (so tests
 // can read the emitted events off the same connection). The append opt-in is
-// test-only: a production composition root wires Plan-006 T3.1's
-// EventLogService as the emitter's SessionEventLog instead.
+// test-only: production wiring is Plan-006 T3.1's own leg, which re-points
+// this seam onto the durable append path (the async `EventLogService.append`
+// does not satisfy the synchronous seam directly).
 function makeWriter(now: () => string = makeAdvancingClock()): {
   writer: DriverCapabilitiesWriter;
   sessionService: SessionService;

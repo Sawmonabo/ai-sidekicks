@@ -7,8 +7,9 @@
 // (mirrors `session-service.test.ts` lifecycle: `openDatabase`
 // factory → per-test tmp file → `afterEach` close + unlink). The
 // structural-seam block at the bottom proves the emitter also accepts a
-// plain-object log implementation (the shape Plan-006 T3.1's
-// `EventLogService` will satisfy).
+// plain-object log implementation — structural decoupling only: T3.1's
+// async `EventLogService.append` does NOT satisfy this synchronous seam;
+// T3.1's own leg re-points it onto the durable append path.
 //
 // Coverage map (cites are the authoritative contract, not just the ACs):
 //   * D5 (Plan-003 T2.3 required assertion / I-003-4): a persisted
@@ -530,12 +531,12 @@ describe("RuntimeNodeEventEmitter — sequence allocation", () => {
 });
 
 // ----------------------------------------------------------------------------
-// SessionEventLog seam — structural decoupling (Plan-006 §Phase 3 T3.1
+// SessionEventLog seam — structural decoupling (the `Plan-006 §T3.1 — Append-path service writing integrity columns + Plan-022 Path 1 shred callback`
 // precondition: the emitter names no concrete storage class)
 // ----------------------------------------------------------------------------
 
 describe("RuntimeNodeEventEmitter — SessionEventLog seam (structural, no SessionService dependency)", () => {
-  it("emits through a plain-object SessionEventLog implementation (the shape EventLogService will satisfy)", () => {
+  it("emits through a plain-object SessionEventLog implementation (no SessionService, no database)", () => {
     const appended: AppendableEvent[] = [];
     const inMemoryEventLog: SessionEventLog = {
       append: (event) => {

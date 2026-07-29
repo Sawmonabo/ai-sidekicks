@@ -2,7 +2,7 @@
 //
 // Plan-001 PR #3 ships the session storage + projection slice:
 //   * SessionService — append + replay over Local SQLite (append guarded
-//     test-only since 2026-07-28 per the Plan-006 §Phase 3 T3.1
+//     test-only since 2026-07-28 per the `Plan-006 §T3.1 — Append-path service writing integrity columns + Plan-022 Path 1 shred callback`
 //     precondition — durable production writes belong to EventLogService)
 //   * session projector — pure-functional fold from event stream to
 //     `DaemonSessionSnapshot`

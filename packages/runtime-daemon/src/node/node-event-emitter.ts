@@ -4,7 +4,7 @@
 // `runtime_node.*` event through the injected durable session-event log
 // (the `SessionEventLog` seam below). As shipped (PR #137) the seam was
 // typed against Plan-001's `SessionService.append`; decoupled 2026-07-28
-// per the Plan-006 §Phase 3 T3.1 precondition, so the emitter names no
+// per the `Plan-006 §T3.1 — Append-path service writing integrity columns + Plan-022 Path 1 shred callback` precondition, so the emitter names no
 // concrete storage class. The seam is SYNCHRONOUS-TRANSACTIONAL by
 // contract (see `SessionEventLog` below): Plan-006 T3.1's async
 // `EventLogService.append` does NOT satisfy it directly — T3.1's own
@@ -107,7 +107,7 @@ const RUNTIME_NODE_EVENT_VERSION: string = "1.0";
 // --------------------------------------------------------------------------
 
 // The durable session-event log this emitter appends to. Structural on
-// purpose — it names no concrete class, per the Plan-006 §Phase 3 T3.1
+// purpose — it names no concrete class, per the `Plan-006 §T3.1 — Append-path service writing integrity columns + Plan-022 Path 1 shred callback`
 // precondition ("Plan-003's shipped `RuntimeNodeEventEmitter` re-pointed
 // off" `SessionService.append`): the two methods are the exact surface
 // the emitter consumes, so any implementation satisfies it without a
