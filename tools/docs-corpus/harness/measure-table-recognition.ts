@@ -14,8 +14,15 @@
 //
 // The baseline `lib/` is materialized from git at <rev> into a temp directory
 // and dynamically imported; the edited side is the working tree via a normal
-// static import. Same tree + `--baseline=HEAD` must report a zero delta with
-// an equal denominator — that is the instrument's own sanity check.
+// static import. EACH side widens its own copy of the corpus with ITS OWN row
+// predicates (`stripBlockquotePrefix` / `isTableRow` / `isDelimiterRow`) — a
+// shared widener would leave any delimiter shape the edited predicates stop
+// accepting unwidened on BOTH sides, hiding exactly the recognition loss the
+// instrument exists to surface (Codex, PR #271). The baseline rev must
+// therefore export those three predicates and emit `headerLine`-bearing
+// violations; a rev that predates them fails closed with a named message.
+// Same tree + `--baseline=HEAD` must report a zero delta with an equal
+// denominator — that is the instrument's own sanity check.
 //
 // Run this for any PR that changes recognition rules in `lib/table-arity.ts`
 // or the shared modules it consumes (`markdown-tables.ts`,
@@ -27,9 +34,13 @@
 // Honest limits: the tree's typecheck/lint gates keep this file compiling,
 // not correct — a green gate is no evidence the measurement still measures.
 // A LOST/GAINED delta is a finding to adjudicate, not automatically a
-// failure: a recognition-widening change EXPECTS gains. And the widener
-// itself rides the WORKING-TREE row predicates — if an edit changes what
-// counts as a delimiter row, read the LOST list with that in mind.
+// failure: a recognition-widening change EXPECTS gains. And the denominator
+// counts VIOLATIONS, which equals the table count only while every recognized
+// table yields exactly one forced hit: a body row that is itself
+// delimiter-shaped would be widened too and add a second hit under the same
+// header (Codex, PR #271 — measured population today: zero across the 230
+// enforced files). The per-side multi-hit tripwire below turns that silent
+// overcount into a hard failure the day the population stops being empty.
 
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -45,13 +56,28 @@ import { isDelimiterRow, isTableRow } from "../lib/markdown-tables.ts";
 const REPO_ROOT = resolve(import.meta.dirname, "..", "..", "..");
 const BASELINE_LIB_GIT_PREFIX = "tools/docs-corpus/lib";
 
-// The baseline module is loaded from a computed specifier, so the compiler
-// cannot type it; this is the slice of its surface the measurement consumes.
+// The baseline modules are loaded from computed specifiers, so the compiler
+// cannot type them; these are the slices of their surface the measurement
+// consumes. `headerLine` is optional because it crosses the same untyped
+// boundary — the multi-hit tripwire guards its presence at runtime.
 interface RecognitionHit {
   file: string;
   line: number;
+  headerLine?: number;
 }
 type TableArityCheck = (files: string[]) => RecognitionHit[];
+
+/** The row predicates the widener rides — one bundle per side. */
+interface WidenerPredicates {
+  stripBlockquotePrefix(line: string): string;
+  isTableRow(line: string): boolean;
+  isDelimiterRow(line: string): boolean;
+}
+const workingTreePredicates: WidenerPredicates = {
+  stripBlockquotePrefix,
+  isTableRow,
+  isDelimiterRow,
+};
 
 function repoGit(args: string[]): string {
   return execFileSync("git", args, { cwd: REPO_ROOT, encoding: "utf8" });
@@ -87,12 +113,12 @@ const enforcedFiles = repoGit(["ls-files", "-z", "--", "*.md"])
 console.log(`baseline: ${baselineRevision}`);
 console.log(`enforced files: ${enforcedFiles.length}`);
 
-function widenDelimiterRows(content: string): string {
+function widenDelimiterRows(content: string, predicates: WidenerPredicates): string {
   return content
     .split("\n")
     .map((line) => {
-      const unquoted = stripBlockquotePrefix(line);
-      if (!isTableRow(unquoted) || !isDelimiterRow(unquoted)) return line;
+      const unquoted = predicates.stripBlockquotePrefix(line);
+      if (!predicates.isTableRow(unquoted) || !predicates.isDelimiterRow(unquoted)) return line;
       const trimmedEnd = line.trimEnd();
       return trimmedEnd.endsWith("|") ? `${trimmedEnd} --- |` : `${trimmedEnd} | ---`;
     })
@@ -127,31 +153,78 @@ try {
   )) as { checkTableArity: TableArityCheck };
   const checkBaseline = baselineModule.checkTableArity;
 
-  const widenedPaths: string[] = [];
+  // The BASELINE side widens with the BASELINE predicates. A single widener
+  // riding the working-tree predicates leaves any delimiter shape an edited
+  // predicate stops accepting unwidened on both sides — the baseline scan
+  // then emits no forced violation for it and the recognition loss never
+  // reaches the LOST list (Codex, PR #271).
+  const baselineFencesModule = (await import(
+    pathToFileURL(join(baselineLibDirectory, "markdown-fences.ts")).href
+  )) as Partial<WidenerPredicates>;
+  const baselineTablesModule = (await import(
+    pathToFileURL(join(baselineLibDirectory, "markdown-tables.ts")).href
+  )) as Partial<WidenerPredicates>;
+  const baselinePredicateEntries = {
+    stripBlockquotePrefix: baselineFencesModule.stripBlockquotePrefix,
+    isTableRow: baselineTablesModule.isTableRow,
+    isDelimiterRow: baselineTablesModule.isDelimiterRow,
+  };
+  for (const [exportName, predicate] of Object.entries(baselinePredicateEntries)) {
+    if (typeof predicate !== "function") {
+      console.error(
+        `baseline ${baselineRevision.slice(0, 7)} does not export ${exportName} from its lib — ` +
+          `the per-side widener needs it; pick a baseline at or after the table-arity landing (PR #269).`,
+      );
+      process.exit(2);
+    }
+  }
+  const baselinePredicates = baselinePredicateEntries as WidenerPredicates;
+
+  const baselineWidenedRoot = join(stage, "widened-baseline");
+  const editedWidenedRoot = join(stage, "widened-edited");
+  const pristineRoot = join(stage, "pristine");
+  const baselineWidenedPaths: string[] = [];
+  const editedWidenedPaths: string[] = [];
   const pristinePaths: string[] = [];
   for (const file of enforcedFiles) {
     const relativePath = relative(REPO_ROOT, file);
     const content = readFileSync(file, "utf8");
-    const widenedPath = join(stage, "widened", relativePath);
-    mkdirSync(dirname(widenedPath), { recursive: true });
-    writeFileSync(widenedPath, widenDelimiterRows(content));
-    widenedPaths.push(widenedPath);
-    const pristinePath = join(stage, "pristine", relativePath);
-    mkdirSync(dirname(pristinePath), { recursive: true });
-    writeFileSync(pristinePath, content);
-    pristinePaths.push(pristinePath);
+    const stagedCopies = [
+      {
+        root: baselineWidenedRoot,
+        transformed: widenDelimiterRows(content, baselinePredicates),
+        collection: baselineWidenedPaths,
+      },
+      {
+        root: editedWidenedRoot,
+        transformed: widenDelimiterRows(content, workingTreePredicates),
+        collection: editedWidenedPaths,
+      },
+      { root: pristineRoot, transformed: content, collection: pristinePaths },
+    ];
+    for (const { root, transformed, collection } of stagedCopies) {
+      const stagedPath = join(root, relativePath);
+      mkdirSync(dirname(stagedPath), { recursive: true });
+      writeFileSync(stagedPath, transformed);
+      collection.push(stagedPath);
+    }
   }
 
-  const baselineHits = checkBaseline(widenedPaths);
-  const editedHits = checkTableArity(widenedPaths);
+  const baselineHits = checkBaseline(baselineWidenedPaths);
+  const editedHits = checkTableArity(editedWidenedPaths);
   console.log(`\n── recognition denominator (widened delimiters) ──`);
   console.log(`  baseline (${baselineRevision.slice(0, 7)}): ${baselineHits.length}`);
   console.log(`  edited (working tree):  ${editedHits.length}`);
   console.log(`  delta:                  ${editedHits.length - baselineHits.length}`);
 
-  const hitKey = (hit: RecognitionHit) => `${relative(stage, hit.file)}:${hit.line}`;
-  const baselineKeys = new Set(baselineHits.map(hitKey));
-  const editedKeys = new Set(editedHits.map(hitKey));
+  // Keys are relative to each side's OWN widened root: the two sides stage
+  // the same corpus layout under different directories, and keying on the
+  // shared stage would make every hit LOST on one side and GAINED on the
+  // other. Widening edits lines in place, so line numbers stay comparable.
+  const hitKey = (root: string) => (hit: RecognitionHit) =>
+    `${relative(root, hit.file)}:${hit.line}`;
+  const baselineKeys = new Set(baselineHits.map(hitKey(baselineWidenedRoot)));
+  const editedKeys = new Set(editedHits.map(hitKey(editedWidenedRoot)));
   const lost = [...baselineKeys].filter((key) => !editedKeys.has(key));
   const gained = [...editedKeys].filter((key) => !baselineKeys.has(key));
   console.log(`  LOST:   ${lost.length}`);
@@ -161,16 +234,16 @@ try {
 
   // Per-file identity, not just totals: two files could trade a table and
   // leave the count unchanged.
-  const perFileCounts = (hits: RecognitionHit[]) => {
+  const perFileCounts = (hits: RecognitionHit[], root: string) => {
     const counts = new Map<string, number>();
     for (const hit of hits) {
-      const relativePath = relative(stage, hit.file);
+      const relativePath = relative(root, hit.file);
       counts.set(relativePath, (counts.get(relativePath) ?? 0) + 1);
     }
     return counts;
   };
-  const baselinePerFile = perFileCounts(baselineHits);
-  const editedPerFile = perFileCounts(editedHits);
+  const baselinePerFile = perFileCounts(baselineHits, baselineWidenedRoot);
+  const editedPerFile = perFileCounts(editedHits, editedWidenedRoot);
   const movedFiles = [...new Set([...baselinePerFile.keys(), ...editedPerFile.keys()])].filter(
     (file) => (baselinePerFile.get(file) ?? 0) !== (editedPerFile.get(file) ?? 0),
   );
@@ -179,6 +252,45 @@ try {
     console.log(
       `    ${file}: ${baselinePerFile.get(file) ?? 0} -> ${editedPerFile.get(file) ?? 0}`,
     );
+  }
+
+  // TRIPWIRE: the denominator counts violations, which equals the recognized
+  // TABLE count only while every table yields exactly one forced hit. A body
+  // row that is itself delimiter-shaped gets widened too and lands as a
+  // second hit under the same header (Codex, PR #271) — measured zero across
+  // the corpus today, and this check is what stops that zero from decaying
+  // silently. Violations carry table identity as `headerLine`; a scan that
+  // omits it cannot be tripwired, so its absence fails closed.
+  const tablesWithMultipleHits = (hits: RecognitionHit[], root: string) => {
+    const hitsPerTable = new Map<string, number>();
+    for (const hit of hits) {
+      if (typeof hit.headerLine !== "number") {
+        console.error(
+          "scan emitted a violation without a numeric headerLine — without table identity the " +
+            "multi-hit tripwire cannot run; pick a baseline at or after the table-arity landing (PR #269).",
+        );
+        process.exit(2);
+      }
+      const tableKey = `${relative(root, hit.file)}@${hit.headerLine}`;
+      hitsPerTable.set(tableKey, (hitsPerTable.get(tableKey) ?? 0) + 1);
+    }
+    return [...hitsPerTable].filter(([, count]) => count > 1);
+  };
+  const multiHitSides = [
+    { side: "baseline", multiHit: tablesWithMultipleHits(baselineHits, baselineWidenedRoot) },
+    { side: "edited", multiHit: tablesWithMultipleHits(editedHits, editedWidenedRoot) },
+  ];
+  for (const { side, multiHit } of multiHitSides) {
+    if (multiHit.length === 0) continue;
+    console.error(
+      `  TRIPWIRE ${side}: ${multiHit.length} table(s) yielded more than one forced hit — ` +
+        `the denominator above overcounts recognized tables; adjudicate:`,
+    );
+    for (const [tableKey, count] of multiHit) console.error(`    ${tableKey} x${count}`);
+    process.exitCode = 1;
+  }
+  if (multiHitSides.every(({ multiHit }) => multiHit.length === 0)) {
+    console.log(`  tripwire clean: every recognized table yielded exactly one hit on both sides`);
   }
 
   // NEGATIVE CONTROL for the method: the widening must be what produces the

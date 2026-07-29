@@ -437,7 +437,18 @@ function runSuite(suite: string = ARITY_SUITE): string[] {
 try {
   console.log("=== BASELINE (unmutated) ===");
   const baseline = [...runSuite(ARITY_SUITE), ...runSuite(RUNNER_SUITE)];
-  console.log(baseline.length === 0 ? "  all pass\n" : `  UNEXPECTED failures: ${baseline}\n`);
+  if (baseline.length !== 0) {
+    // A red baseline poisons every arm's failure set: a surviving mutation
+    // inherits the pre-existing failures, reports a non-empty set, and scores
+    // as killed — and the shared failures collapse distinct arms' signatures
+    // in the dedup map. Nothing has been mutated yet, so exiting here needs
+    // no restoration.
+    console.error("refusing to score mutations against a red baseline:");
+    for (const title of baseline) console.error(`  - ${title}`);
+    console.error("fix the suite first — a kill is only evidence against a green baseline.");
+    process.exit(2);
+  }
+  console.log("  all pass\n");
 
   const signatures = new Map<string, string>();
   let survived = 0;
