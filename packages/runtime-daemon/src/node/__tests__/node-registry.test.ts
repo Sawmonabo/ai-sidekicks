@@ -162,12 +162,16 @@ afterEach(() => {
   rmSync(ctx.tmpDir, { recursive: true, force: true });
 });
 
-// Wire the production composition root over the current `ctx.db`: same handle
+// Wire the Phase-2 object graph over the current `ctx.db`: same handle
 // shared by SessionService, the emitter, and the registry. `now` is injectable
 // for deterministic timestamp assertions; the emitter id source is a collision-
-// free counter so multiple emits never violate the `TEXT PRIMARY KEY`.
+// free counter so multiple emits never violate the `TEXT PRIMARY KEY`. The
+// append opt-in is test-only: a production composition root wires Plan-006
+// T3.1's EventLogService as the emitter's SessionEventLog instead.
 function makeRegistry(now: () => string = () => "2026-06-02T12:00:00.000Z"): NodeRegistry {
-  const sessionService: SessionService = new SessionService(ctx.db);
+  const sessionService: SessionService = new SessionService(ctx.db, {
+    allowUnsignedPlaceholderAppend: true,
+  });
   let idCounter: number = 0;
   const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
     sessionEvents: sessionService,
@@ -385,7 +389,9 @@ describe("NodeRegistry — atomicity (throwing emit rolls back the trust-state u
     // The REAL emitter with an injected throwing `nextSequence` — the throw
     // lands INSIDE the emit, AFTER the upsert ran in the transaction, so the
     // rollback of the already-applied upsert is what is under test.
-    const sessionService: SessionService = new SessionService(ctx.db);
+    const sessionService: SessionService = new SessionService(ctx.db, {
+      allowUnsignedPlaceholderAppend: true,
+    });
     const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
       sessionEvents: sessionService,
       nextSequence: () => {

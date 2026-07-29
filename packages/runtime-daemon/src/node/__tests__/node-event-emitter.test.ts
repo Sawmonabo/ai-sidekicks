@@ -1,9 +1,14 @@
 // RuntimeNodeEventEmitter — Plan-003 Phase 2 (T2.3).
 //
 // Exercises the emission seam that routes `runtime_node.*` events through
-// the canonical Plan-001 `SessionService.append` path over a real test
-// SQLite DB (mirrors `session-service.test.ts` lifecycle: `openDatabase`
-// factory → per-test tmp file → `afterEach` close + unlink).
+// the injected `SessionEventLog` — implemented here by Plan-001's
+// `SessionService` with the test-only append opt-in
+// (`allowUnsignedPlaceholderAppend`) — over a real test SQLite DB
+// (mirrors `session-service.test.ts` lifecycle: `openDatabase`
+// factory → per-test tmp file → `afterEach` close + unlink). The
+// structural-seam block at the bottom proves the emitter also accepts a
+// plain-object log implementation (the shape Plan-006 T3.1's
+// `EventLogService` will satisfy).
 //
 // Coverage map (cites are the authoritative contract, not just the ACs):
 //   * D5 (Plan-003 T2.3 required assertion / I-003-4): a persisted
@@ -43,7 +48,7 @@ import { openDatabase } from "../../session/migration-runner.js";
 import { SessionService } from "../../session/session-service.js";
 import type { AppendableEvent, StoredEvent } from "../../session/types.js";
 import { RuntimeNodeEventEmitter } from "../node-event-emitter.js";
-import type { RuntimeNodeEventEmitterDeps } from "../node-event-emitter.js";
+import type { RuntimeNodeEventEmitterDeps, SessionEventLog } from "../node-event-emitter.js";
 
 // ----------------------------------------------------------------------------
 // Fixtures
@@ -126,7 +131,9 @@ beforeEach(() => {
   // `TEXT NOT NULL`), so emitting against a bare session id is valid, exactly
   // as the existing append tests do.
   const db: DatabaseType = openDatabase(dbPath);
-  ctx = { db, service: new SessionService(db), tmpDir };
+  // Test-only opt-in to the guarded append path — the emitter persists
+  // through this service (session-service.test.ts pins the guard itself).
+  ctx = { db, service: new SessionService(db, { allowUnsignedPlaceholderAppend: true }), tmpDir };
 });
 
 afterEach(() => {
@@ -513,6 +520,50 @@ describe("RuntimeNodeEventEmitter — sequence allocation", () => {
     // colliding second emit left no partial state (a single-statement INSERT, so
     // the constraint violation persists nothing of the second event).
     expect(readRawRows(ctx.db, SESSION_ID)).toHaveLength(1);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// SessionEventLog seam — structural decoupling (Plan-006 §Phase 3 T3.1
+// precondition: the emitter names no concrete storage class)
+// ----------------------------------------------------------------------------
+
+describe("RuntimeNodeEventEmitter — SessionEventLog seam (structural, no SessionService dependency)", () => {
+  it("emits through a plain-object SessionEventLog implementation (the shape EventLogService will satisfy)", () => {
+    const appended: AppendableEvent[] = [];
+    const inMemoryEventLog: SessionEventLog = {
+      append: (event) => {
+        appended.push(event);
+      },
+      readEvents: () => appended.map((event) => ({ sequence: event.sequence })),
+    };
+    const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
+      sessionEvents: inMemoryEventLog,
+      newEventId: makeCounterIdSource("structural"),
+    });
+
+    const first: AppendableEvent = emitter.emitOnline({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      newState: "online",
+    });
+    const second: AppendableEvent = emitter.emitCapabilityDeclared({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      capability: "provider-driver",
+      capabilityDetails: { contractVersion: "1.0" },
+    });
+
+    // Both events landed in the fake, and the log-derive default allocator
+    // worked against the fake's narrowed readEvents — no SessionService (and
+    // no database) anywhere in this path.
+    expect(appended).toHaveLength(2);
+    expect(first.sequence).toBe(0);
+    expect(second.sequence).toBe(1);
+    expect(appended.map((event) => event.type)).toEqual([
+      "runtime_node.online",
+      "runtime_node.capability_declared",
+    ]);
   });
 });
 

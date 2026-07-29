@@ -7,6 +7,12 @@
 // D4: Snapshot survives daemon restart and yields identical projection
 //     on rehydrate (durability across restart; Spec-001 AC2 + AC6).
 //
+// Append-guard coverage (Plan-006 §Phase 3 T3.1 precondition):
+//   * `append()` refuses on a default-constructed service; reads need
+//     no opt-in. The `beforeEach` fixture opts in explicitly
+//     (`allowUnsignedPlaceholderAppend`) so the D2/D3/D4 blocks can
+//     seed placeholder rows; see the append-guard describe block.
+//
 // Migration runner coverage:
 //   * `openDatabase` factory: idempotent reopen test.
 //   * `applyMigrations` sequential idempotency on a second handle.
@@ -132,7 +138,10 @@ beforeEach(() => {
   const db: DatabaseType = openDatabase(dbPath);
   ctx = {
     db,
-    service: new SessionService(db),
+    // Explicit test-only opt-in to the guarded append path — this suite's
+    // D2/D3/D4 blocks seed placeholder rows through it (the append-guard
+    // describe block pins the refusal on a default-constructed service).
+    service: new SessionService(db, { allowUnsignedPlaceholderAppend: true }),
     dbPath,
     tmpDir,
   };
@@ -311,6 +320,9 @@ describe("SessionService — D4 (snapshot survives daemon restart)", () => {
 
     // Reopen the SAME file (proves on-disk durability — not in-memory
     // pages — backs the projection). Re-uses the canonical factory.
+    // Default construction (no append opt-in) is deliberate: the reopened
+    // service only replays, and reads need no opt-in — this doubles as a
+    // live proof of the guard's read-side contract.
     const reopenedDb: DatabaseType = openDatabase(ctx.dbPath);
     const reopenedService: SessionService = new SessionService(reopenedDb);
 
@@ -1081,6 +1093,43 @@ describe("session_events integrity-column CHECK constraints", () => {
     // This is already covered by D2/D3/D4 but pinning it here makes the
     // CHECK-constraint test block read as a self-contained proof.
     expect(() => ctx.service.append(makeCreatedEvent())).not.toThrow();
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Append guard (Plan-006 §Phase 3 T3.1 precondition)
+// ----------------------------------------------------------------------------
+//
+// `append()` writes zero-filled integrity placeholders — exactly the rows
+// Plan-006's `verifyRow` refuses fail-closed (`signature_placeholder`) — so
+// the writer is guarded behind an explicit test-only construction opt-in.
+// A default-constructed service is read-only: a composition root wiring a
+// real database cannot reach the unsigned append path by accident. The
+// refusal test below is the guard's own negative control — it proves the
+// guard fires, so the opted-in green suite is not vacuous evidence.
+
+describe("SessionService — append guard (unsigned placeholder writes are opt-in)", () => {
+  it("refuses append on a default-constructed service, naming the replacement writer and the opt-in", () => {
+    const guardedService: SessionService = new SessionService(ctx.db);
+    expect(() => guardedService.append(makeCreatedEvent())).toThrow(
+      /SessionService\.append is guarded/,
+    );
+    // The refusal names where durable writes belong and how tests opt in —
+    // the diagnostic is the contract, not just the throw.
+    expect(() => guardedService.append(makeCreatedEvent())).toThrow(/EventLogService\.append/);
+    expect(() => guardedService.append(makeCreatedEvent())).toThrow(
+      /allowUnsignedPlaceholderAppend/,
+    );
+    // The refusal happens before any INSERT — nothing was persisted.
+    expect(guardedService.readEvents(SESSION_ID)).toHaveLength(0);
+  });
+
+  it("reads need no opt-in — a default-constructed service replays rows an opted-in writer seeded", () => {
+    ctx.service.append(makeCreatedEvent());
+    const readOnlyService: SessionService = new SessionService(ctx.db);
+    expect(readOnlyService.readEvents(SESSION_ID)).toHaveLength(1);
+    const snapshot = readOnlyService.replay(SESSION_ID);
+    expect(snapshot).not.toBeNull();
   });
 });
 

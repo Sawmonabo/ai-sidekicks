@@ -600,7 +600,13 @@ describe("Pr4 — durable presence-state-change events round-trip to real sessio
     // Canonical factory — same code path production daemon takes (pragmas +
     // migrations, in order).
     const db = openDatabase(dbPath);
-    pr4Ctx = { db, service: new SessionService(db), tmpDir };
+    // Test-only opt-in to the guarded append path — Pr4 seeds presence rows
+    // through it (session-service.test.ts pins the guard itself).
+    pr4Ctx = {
+      db,
+      service: new SessionService(db, { allowUnsignedPlaceholderAppend: true }),
+      tmpDir,
+    };
   });
 
   afterEach(() => {

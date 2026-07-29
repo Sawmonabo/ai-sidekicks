@@ -6,6 +6,7 @@
 // contract translation layer.
 
 export { SessionService } from "./session-service.js";
+export type { SessionServiceOptions } from "./session-service.js";
 export { applyMigrations, applyPragmas, openDatabase } from "./migration-runner.js";
 export { projectEvent, replay } from "./session-projector.js";
 export { translateSpawnCwd } from "./spawn-cwd-translator.js";

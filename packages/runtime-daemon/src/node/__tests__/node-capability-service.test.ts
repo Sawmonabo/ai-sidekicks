@@ -160,10 +160,14 @@ function makeAdvancingClock(): () => string {
   };
 }
 
-// Wire the production composition root over the current `ctx.db`. `now` defaults
+// Wire the Phase-2 object graph over the current `ctx.db`. `now` defaults
 // to an advancing clock; the emitter id source is a collision-free counter.
+// The append opt-in is test-only: a production composition root wires
+// Plan-006 T3.1's EventLogService as the emitter's SessionEventLog instead.
 function makeCapabilityService(now: () => string = makeAdvancingClock()): NodeCapabilityService {
-  const sessionService: SessionService = new SessionService(ctx.db);
+  const sessionService: SessionService = new SessionService(ctx.db, {
+    allowUnsignedPlaceholderAppend: true,
+  });
   let idCounter: number = 0;
   const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
     sessionEvents: sessionService,
@@ -391,7 +395,9 @@ describe("NodeCapabilityService — atomicity (throwing emit rolls back the capa
     // REAL emitter with an injected throwing `nextSequence` — the throw lands
     // INSIDE the emit, AFTER the upsert ran in the transaction, so the rollback
     // of the already-applied upsert is what is under test.
-    const sessionService: SessionService = new SessionService(ctx.db);
+    const sessionService: SessionService = new SessionService(ctx.db, {
+      allowUnsignedPlaceholderAppend: true,
+    });
     const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
       sessionEvents: sessionService,
       nextSequence: () => {

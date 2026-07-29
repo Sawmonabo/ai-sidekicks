@@ -205,11 +205,15 @@ interface Stack {
 
 let db: DatabaseType;
 
-// Wire the production composition root over the current `db`. A collision-free
+// Wire the Phase-2 object graph over the current `db`. A collision-free
 // deterministic event-id source so `session_events.id` (TEXT PRIMARY KEY) never
-// collides across the multiple emits a declared→updated sequence produces.
+// collides across the multiple emits a declared→updated sequence produces. The
+// append opt-in is test-only: a production composition root wires Plan-006
+// T3.1's EventLogService as the emitter's SessionEventLog instead.
 function makeStack(): Stack {
-  const sessionService: SessionService = new SessionService(db);
+  const sessionService: SessionService = new SessionService(db, {
+    allowUnsignedPlaceholderAppend: true,
+  });
   let eventIdCounter: number = 0;
   const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
     sessionEvents: sessionService,

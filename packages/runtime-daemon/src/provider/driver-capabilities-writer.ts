@@ -122,7 +122,9 @@
 //
 // WIRING CONTRACT (T2.5 / daemon bootstrap)
 // --------------------------------------------------------------------------
-// The injected `RuntimeNodeEventEmitter`'s `SessionService` MUST share the SAME
+// The injected `RuntimeNodeEventEmitter`'s `SessionEventLog` (today the guarded
+// test-only `SessionService`; Plan-006 T3.1's `EventLogService` in production)
+// MUST share the SAME
 // `better-sqlite3` connection (`db`) as this writer. The emitter's append runs
 // an INSERT on that connection, so it JOINS this writer's transaction and the
 // cache write + the event commit atomically. Wiring the emitter over a DIFFERENT

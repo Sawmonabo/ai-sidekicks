@@ -1,18 +1,24 @@
 // RuntimeNodeEventEmitter — Plan-003 Phase 2 (T2.3).
 //
 // The single emission seam that routes every daemon-reachable
-// `runtime_node.*` event through the canonical Plan-001 session-event
-// append path (`SessionService.append`). T2.1's node-registry and T2.2's
-// node-capability-service both import this standalone module rather than
-// re-implementing event construction, so the two L2 producers cannot
-// drift in how they shape, validate, or sequence runtime-node events
-// (corrected 2026-06-02, PR #137: a standalone L1 module keeps this task's
-// file disjoint from the L2 consumers that import it and the L3 tasks that
-// extend them).
+// `runtime_node.*` event through the injected durable session-event log
+// (the `SessionEventLog` seam below). As shipped (PR #137) the seam was
+// typed against Plan-001's `SessionService.append`; decoupled 2026-07-28
+// per the Plan-006 §Phase 3 T3.1 precondition, so Plan-006 T3.1's
+// `EventLogService` — the sole durable production writer — can be
+// injected without this module changing again. Until T3.1 lands, the
+// only implementation is Plan-001's `SessionService`, whose `append` is
+// now guarded test-only (`allowUnsignedPlaceholderAppend`). T2.1's
+// node-registry and T2.2's node-capability-service both import this
+// standalone module rather than re-implementing event construction, so
+// the two L2 producers cannot drift in how they shape, validate, or
+// sequence runtime-node events (corrected 2026-06-02, PR #137: a
+// standalone L1 module keeps this task's file disjoint from the L2
+// consumers that import it and the L3 tasks that extend them).
 //
 // What this module DOES:
 //   * Builds each `runtime_node.*` event as an `AppendableEvent` and routes
-//     it through `SessionService.append`.
+//     it through the injected `SessionEventLog.append`.
 //   * Validates the payload at the emission boundary with the matching
 //     T2.0 payload-shape schema's `.parse()` (the CP-003-1 validation seam,
 //     in place of ad-hoc objects). The PARSED output — not the caller's
@@ -37,12 +43,14 @@
 //     parallel to CP-003-1's interim-opaque payload fields).
 //
 // What this module does NOT do (deferred — do not add here):
-//   * Integrity columns. `SessionService.append` already zero-fills
-//     `prev_hash` / `row_hash` / `daemon_signature` and writes the
-//     caller-supplied `monotonic_ns` (CP-003-1). Plan-006 Tier 4 lands the
-//     real BLAKE3 hash-chain + dual signatures + RFC 8785 JCS. This emitter
-//     never computes or passes integrity bytes — it passes only the
-//     `AppendableEvent` fields and the append path zero-fills the rest.
+//   * Integrity columns. The injected append path owns them: the guarded
+//     test-only `SessionService.append` zero-fills `prev_hash` /
+//     `row_hash` / `daemon_signature` and writes the caller-supplied
+//     `monotonic_ns` (CP-003-1); Plan-006 Tier 4's `EventLogService`
+//     computes the real BLAKE3 hash-chain + dual signatures + RFC 8785
+//     JCS. This emitter never computes or passes integrity bytes — it
+//     passes only the `AppendableEvent` fields and the append path owns
+//     the rest.
 //   * `degraded` / `revoked` constructors. Their producers are server-derived
 //     (heartbeat-loss, authority revocation): no V1 party can author them as
 //     durable events, so their schemas are V1.1-gated on the node-identity
@@ -72,7 +80,6 @@ import {
   type RuntimeNodeRegisteredPayload,
 } from "@ai-sidekicks/contracts";
 
-import type { SessionService } from "../session/session-service.js";
 import type { AppendableEvent } from "../session/types.js";
 
 // --------------------------------------------------------------------------
@@ -96,13 +103,28 @@ const RUNTIME_NODE_EVENT_VERSION: string = "1.0";
 // Injected dependencies
 // --------------------------------------------------------------------------
 
+// The durable session-event log this emitter appends to. Structural on
+// purpose — it names no concrete class, per the Plan-006 §Phase 3 T3.1
+// precondition ("Plan-003's shipped `RuntimeNodeEventEmitter` re-pointed
+// off" `SessionService.append`): the two methods are the exact surface
+// the emitter consumes, so any implementation satisfies it without a
+// nominal dependency. Implementations: Plan-001's `SessionService`
+// (append guarded test-only via `allowUnsignedPlaceholderAppend`) today;
+// Plan-006 T3.1's `EventLogService` — the sole durable production
+// writer — once it lands. `readEvents` is deliberately narrowed to the
+// `sequence`-only row shape the log-derive allocator needs, so a writer
+// that stores events differently can still satisfy the seam.
+export interface SessionEventLog {
+  append(event: AppendableEvent): void;
+  readEvents(sessionId: string): ReadonlyArray<{ readonly sequence: number }>;
+}
+
 export interface RuntimeNodeEventEmitterDeps {
-  // Plan-001-owned durable storage. Type-only `Pick` of the two methods this
-  // emitter needs — `append` to persist, `readEvents` for the log-derive
-  // sequence default. Keeping it a `Pick` (not the full `SessionService`)
-  // documents the exact surface consumed and lets tests pass a narrow fake
-  // if they ever need one (the production path passes a real `SessionService`).
-  readonly sessionEvents: Pick<SessionService, "append" | "readEvents">;
+  // The durable append seam — see `SessionEventLog` above for the
+  // implementation landscape (`append` to persist, `readEvents` for the
+  // log-derive sequence default). The narrow structural type documents
+  // the exact surface consumed and lets tests pass a plain fake.
+  readonly sessionEvents: SessionEventLog;
 
   // Per-session sequence allocator (forward-dep on Plan-001 Phase 5). When
   // omitted, defaults to a log-derive over `readEvents` (last `sequence` + 1,
@@ -215,7 +237,7 @@ export interface EmitCapabilityUpdatedInput extends RuntimeNodeEmitBase {
 // --------------------------------------------------------------------------
 
 export class RuntimeNodeEventEmitter {
-  readonly #sessionEvents: Pick<SessionService, "append" | "readEvents">;
+  readonly #sessionEvents: SessionEventLog;
   readonly #nextSequence: (sessionId: string) => number;
   readonly #monotonicNow: () => bigint;
   readonly #now: () => string;
@@ -326,8 +348,8 @@ export class RuntimeNodeEventEmitter {
 
   /**
    * Construct the `AppendableEvent` from the validated payload + the shared
-   * envelope inputs, allocate the sequence, and route through
-   * `SessionService.append`. The PARSED payload is persisted (not the
+   * envelope inputs, allocate the sequence, and route through the injected
+   * `SessionEventLog.append`. The PARSED payload is persisted (not the
    * caller's input object), so storage reflects the schema's normalized
    * shape. Returns the constructed event so callers can read `sequence`/`id`.
    */

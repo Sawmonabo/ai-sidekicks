@@ -1,6 +1,16 @@
 // SessionService — durable append + replay over Local SQLite.
 //
-// Append path (Plan-001 owned):
+// Append path (Plan-001 owned — GUARDED, test-only, 2026-07-28):
+//   - `append()` refuses to run unless the service was constructed with
+//     `{ allowUnsignedPlaceholderAppend: true }`. The rows this path
+//     writes carry zero-filled integrity placeholders — exactly the
+//     never-signed rows Plan-006's `verifyRow` refuses fail-closed
+//     (`signature_placeholder`) — so no production composition root may
+//     reach it, per the Plan-006 §Phase 3 T3.1 precondition (added
+//     2026-07-27): durable production writes belong to Plan-006 T3.1's
+//     `EventLogService.append`, the sole durable writer. Tests seeding
+//     placeholder rows opt in explicitly at construction. The read
+//     paths (`readEvents` / `replay`) need no opt-in.
 //   - Writes one `session_events` row per event. Single-statement
 //     INSERT is implicitly atomic in SQLite; Plan-006 will introduce a
 //     `db.transaction(...)` wrapper once snapshot writes land alongside
@@ -75,6 +85,18 @@ interface SessionEventRow {
   readonly version: string;
 }
 
+// Construction options for `SessionService`.
+export interface SessionServiceOptions {
+  // TEST-ONLY. Permits `append()`'s zero-filled integrity placeholders
+  // (see the guard rationale in the file header). Typed as the literal
+  // `true` — not `boolean` — so the opt-in cannot be threaded through a
+  // computed or environment-derived flag without an explicit cast: an
+  // env-keyed guard is exactly the silently-disabled failure mode this
+  // option exists to prevent. Production composition roots construct
+  // WITHOUT options and get a read-only service (`readEvents`/`replay`).
+  readonly allowUnsignedPlaceholderAppend?: true;
+}
+
 export class SessionService {
   // The Database handle itself is not held — better-sqlite3's prepared
   // statements internally reference their parent DB, so the statements
@@ -82,8 +104,10 @@ export class SessionService {
   // of this service instance.
   readonly #insertStmt: Statement;
   readonly #replayStmt: Statement;
+  readonly #allowUnsignedPlaceholderAppend: boolean;
 
-  constructor(db: Database) {
+  constructor(db: Database, options?: SessionServiceOptions) {
+    this.#allowUnsignedPlaceholderAppend = options?.allowUnsignedPlaceholderAppend === true;
     this.#insertStmt = db.prepare(
       `INSERT INTO session_events (
          id, session_id, sequence, occurred_at, monotonic_ns,
@@ -115,8 +139,21 @@ export class SessionService {
    * Append one event to the session log. Synchronous — better-sqlite3
    * is fully synchronous by design. Throws on UNIQUE(session_id,
    * sequence) violations (the caller must coordinate sequence assignment).
+   *
+   * GUARDED (Plan-006 §Phase 3 T3.1 precondition): throws unless the
+   * service was constructed with `{ allowUnsignedPlaceholderAppend:
+   * true }` — see the file header and `SessionServiceOptions`.
    */
   append(event: AppendableEvent): void {
+    if (!this.#allowUnsignedPlaceholderAppend) {
+      throw new Error(
+        "SessionService.append is guarded: it writes zero-filled prev_hash / row_hash / " +
+          "daemon_signature placeholders, which integrity verification refuses fail-closed " +
+          "(failureMode signature_placeholder). Durable production writes belong to Plan-006 " +
+          "T3.1's EventLogService.append. Tests seeding placeholder rows opt in explicitly: " +
+          "new SessionService(db, { allowUnsignedPlaceholderAppend: true }).",
+      );
+    }
     const result: RunResult = this.#insertStmt.run({
       id: event.id,
       session_id: event.sessionId,

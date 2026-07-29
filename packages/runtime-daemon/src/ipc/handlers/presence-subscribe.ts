@@ -182,8 +182,10 @@ export interface PresenceSubscribeDeps {
    * presence TRANSITIONS for the session this subscription targets.
    *
    * On EVERY presence state transition, the substrate MUST append one
-   * `AppendableEvent` to the session's durable event log via
-   * `SessionService.append` with EXACTLY this shape:
+   * `AppendableEvent` to the session's durable event log via the durable
+   * append path — Plan-006 T3.1's `EventLogService.append` once it lands;
+   * Plan-001's `SessionService.append` is guarded test-only per the T3.1
+   * precondition — with EXACTLY this shape:
    *
    *   * `category: "membership_change"`
    *       NOT "presence". `Spec-002 §State And Data Implications` prose says "under the `presence`
