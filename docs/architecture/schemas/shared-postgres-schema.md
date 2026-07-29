@@ -191,7 +191,7 @@ CREATE INDEX idx_revoked_families_expires ON revoked_token_families(expires_at);
 ## Runtime Node Attachments (Plan-003)
 
 ```sql
--- Owner: Plan-003
+-- Owner: Plan-003 | Extended by: Plan-006 (additive nullable daemon_signing_public_key — attach-time signing-key roster registration, T4.10 per CP-006-7 leg B / CP-003-5; own Plan-006 control-plane migration, never a Plan-003 migration edit)
 CREATE TABLE runtime_node_attachments (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   session_id      UUID NOT NULL REFERENCES sessions(id),
@@ -201,7 +201,8 @@ CREATE TABLE runtime_node_attachments (
   client_version  TEXT NOT NULL,                 -- daemon semver "MAJOR.MINOR" at attach; floor-compared vs sessions.min_client_version (ADR-018 §Decision #4) — makes the read-only verdict auditable + roster-displayable
   state           TEXT NOT NULL DEFAULT 'registering'
                   CHECK(state IN ('registering', 'online', 'degraded', 'offline', 'revoked')),
-  attached_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+  attached_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  daemon_signing_public_key BYTEA                -- 32-byte Ed25519 public key registered at attach (Plan-006 T4.10 additive migration 0NNN-attachment-signing-key.ts per CP-006-7 leg B / CP-003-5); the NodeId-keyed verification-key resolution surface per security-architecture.md §Per-Event Daemon Signature. Register-once: a reconnect presenting a DIFFERENT key is refused with a typed conflict error (Plan-006 T4.2 refuse_on_rotation mirror). NULL = attached before leg B landed or by a pre-leg-B daemon (that node's uploaded anchors stay emitter-only-verifiable).
 );
 
 CREATE INDEX idx_node_attachments_session ON runtime_node_attachments(session_id);

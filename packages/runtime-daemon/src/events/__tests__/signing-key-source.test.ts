@@ -8,9 +8,10 @@
 //   1. THE PUBLIC/PRIVATE SPLIT IS A SECURITY BOUNDARY. `create` resolves to the
 //      PUBLIC key and nothing else; the private half is reachable only through
 //      the signer-local `read`. A regression that widened `create`'s result
-//      would leak daemon-private material into Plan-002's session-create call
-//      site (CP-006-7) — a boundary crossing the T2.7 row forbids outright, and
-//      one no downstream test would notice.
+//      would leak daemon-private material into CP-006-7's provisioning
+//      call-sites (the composition-root caller, leg A; the attach-time roster
+//      registrar, leg B) — a boundary crossing the T2.7 row forbids outright,
+//      and one no downstream test would notice.
 //   2. THE SEAL IS AN INJECTED BOUNDARY, so a private key at rest is never
 //      cleartext and a test never touches a real keystore. The fakes below are
 //      what a headless CI box gets instead of Secret Service.
@@ -375,14 +376,15 @@ describe("OsKeystoreSealedDaemonSigningKeySource", () => {
 
       // The runtime half of the boundary. A widened result — `{ publicKey,
       // privateKey }`, a `secretKey` echo added "for convenience", a debug
-      // `sealedPrivateKey` — is exactly the regression Plan-002's call site
-      // could not detect, because it would simply receive more than it reads.
+      // `sealedPrivateKey` — is exactly the regression CP-006-7's provisioning
+      // caller could not detect, because it would simply receive more than it
+      // reads.
       expect(Object.keys(created)).toEqual(["publicKey"]);
       expect(created.publicKey).toBeInstanceOf(Uint8Array);
       expect(created.publicKey.length).toBe(32);
     });
 
-    it("hands Plan-002 a public key that is genuinely this session's", async () => {
+    it("hands the provisioning caller a public key that is genuinely this session's", async () => {
       const { publicKey } = await keySource.create(SESSION_ONE);
 
       // The seed the sealer saw is the private half of the SAME keypair. This is
@@ -402,7 +404,7 @@ describe("OsKeystoreSealedDaemonSigningKeySource", () => {
       // interface the `tsc -p tsconfig.test.json` pass fails.
       const provisioner: DaemonSigningKeyProvisioner = keySource;
 
-      // @ts-expect-error `read` is not on DaemonSigningKeyProvisioner — daemon-private signing material never crosses the Plan-006/Plan-002 boundary (CP-006-7)
+      // @ts-expect-error `read` is not on DaemonSigningKeyProvisioner — daemon-private signing material never crosses the provisioning boundary (CP-006-7)
       const unreachableRead: unknown = provisioner.read;
 
       // THE SPLIT IS A TYPE-LEVEL BOUNDARY AND THE ASSERTION SAYS SO. The
@@ -930,7 +932,7 @@ describe("OsKeystoreSealedDaemonSigningKeySource", () => {
       // would have signed with it, and the row would come back from
       // `verifyRow` as `signature_mismatch` — the possible-tampering verdict
       // that warrants incident response — against the very public key `create`
-      // handed Plan-002 for the roster. The brand cast is the point rather than
+      // handed the roster registrar. The brand cast is the point rather than
       // a shortcut: the mint site now refuses this seed, so there is no
       // sanctioned way to obtain a branded key that does not match its row.
       const canonical: CanonicalBytes = canonicalizeJson({

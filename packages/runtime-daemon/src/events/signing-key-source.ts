@@ -14,11 +14,12 @@
 // The public/private split, and exactly how much of it the types enforce
 // ----------------------------------------------------------------------------
 //
-// Plan-002's session-create call site registers the daemon's PUBLIC key in the
-// session participant roster (CP-006-7) — the key a verifier later resolves by
-// `NodeId` per `Spec-006 §Canonical Serialization Rules`. It has no business
-// holding the private half, and the Plan-006 T2.7 row says so: daemon-private
-// signing material never crosses the Plan-006/Plan-002 boundary.
+// CP-006-7's provisioning caller registers the daemon's PUBLIC key in the
+// session participant roster (leg B — the attach flow, Plan-006 T4.10 per
+// CP-003-5) — the key a verifier later resolves by `NodeId` per
+// `Spec-006 §Canonical Serialization Rules`. It has no business holding the
+// private half, and the Plan-006 T2.7 row says so: daemon-private signing
+// material never crosses the provisioning boundary.
 //
 // STRUCTURALLY ENFORCED. {@link DaemonSigningKeyProvisioner} declares `create`
 // and NOTHING else, and `create` resolves to `{ publicKey }` only. Code holding
@@ -29,12 +30,13 @@
 // A CALLER OBLIGATION, AND NAMED HERE BECAUSE IT IS NOT ENFORCED. TypeScript is
 // structurally typed, so the ONE
 // {@link OsKeystoreSealedDaemonSigningKeySource} instance the composition root
-// builds satisfies both interfaces at once. Nothing forces the Plan-002 call
-// site to ANNOTATE what it receives as the narrow type — handed the instance
-// under the wide {@link DaemonSigningKeySource} annotation, or under an
-// inferred type, it can call `read`. The obligation therefore lands on the
-// composition root that wires Plan-002's session-create path: declare that
-// parameter `DaemonSigningKeyProvisioner`. What the split buys is that
+// builds satisfies both interfaces at once. Nothing forces CP-006-7's
+// provisioning call-site to ANNOTATE what it receives as the narrow type —
+// handed the instance under the wide {@link DaemonSigningKeySource}
+// annotation, or under an inferred type, it can call `read`. The obligation
+// therefore lands on the composition root that wires the daemon's
+// session-establishment path: declare that parameter
+// `DaemonSigningKeyProvisioner`. What the split buys is that
 // upholding it is one annotation rather than a review convention, and that
 // breaking it is visible in a signature rather than buried in a call.
 //
@@ -191,8 +193,10 @@ export interface DaemonSigningKeySealer {
 // --------------------------------------------------------------------------
 
 /**
- * The PUBLIC-KEY-ONLY half of daemon signing-key custody — the type Plan-002's
- * session-create call site is annotated with (CP-006-7).
+ * The PUBLIC-KEY-ONLY half of daemon signing-key custody — the type CP-006-7's
+ * provisioning call-sites are annotated with (the composition-root
+ * session-establishment caller, leg A; the attach-time roster registrar
+ * consumes its return, leg B per CP-003-5).
  *
  * This is the narrow surface the header's structural argument rests on: it
  * declares `create` and nothing else, so a holder cannot reach
@@ -483,7 +487,7 @@ export class OsKeystoreSealedDaemonSigningKeySource implements DaemonSigningKeyS
     const row = this.#selectKeyRowStmt.get(sessionId) as DaemonSigningKeyRow | undefined;
     if (row === undefined) {
       throw new Error(
-        `No daemon signing key for session ${sessionId}: DaemonSigningKeyProvisioner.create must run at session creation (CP-006-7) before any row is signed. Reading does not mint a key — a second keypair would produce signatures the roster-registered public key cannot verify.`,
+        `No daemon signing key for session ${sessionId}: DaemonSigningKeyProvisioner.create must run at the daemon's local session-establishment (CP-006-7) before any row is signed. Reading does not mint a key — a second keypair would produce signatures the roster-registered public key cannot verify.`,
       );
     }
 
@@ -611,7 +615,7 @@ export class OsKeystoreSealedDaemonSigningKeySource implements DaemonSigningKeyS
     //
     // `equalBytes` AND DELIBERATELY NOT `timingSafeEqual`. Both operands
     // are public: the stored one is a column held in the clear whose value
-    // `create` hands Plan-002 for the participant roster, and the derived one is
+    // `create` hands the roster registrar (CP-006-7 leg B), and the derived one is
     // by construction the public half of the key, so neither is a secret a timing
     // channel could leak and holding either grants no signing ability. The
     // primitive is still the right default — `equalBytes` accumulates across the
