@@ -60,7 +60,7 @@ import {
 
 import { RuntimeNodeEventEmitter } from "../../node/node-event-emitter.js";
 import { openDatabase } from "../../session/migration-runner.js";
-import { SessionService } from "../../session/session-service.js";
+import { SessionService, UnsignedPlaceholderAppendToken } from "../../session/session-service.js";
 import { DriverCapabilitiesWriter } from "../driver-capabilities-writer.js";
 import {
   DriverCapabilityUnsupportedError,
@@ -212,7 +212,7 @@ let db: DatabaseType;
 // T3.1's EventLogService as the emitter's SessionEventLog instead.
 function makeStack(): Stack {
   const sessionService: SessionService = new SessionService(db, {
-    allowUnsignedPlaceholderAppend: true,
+    allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly(),
   });
   let eventIdCounter: number = 0;
   const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({

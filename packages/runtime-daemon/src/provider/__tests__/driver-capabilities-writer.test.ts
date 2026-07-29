@@ -41,7 +41,7 @@ import {
 
 import { RuntimeNodeEventEmitter } from "../../node/node-event-emitter.js";
 import { openDatabase } from "../../session/migration-runner.js";
-import { SessionService } from "../../session/session-service.js";
+import { SessionService, UnsignedPlaceholderAppendToken } from "../../session/session-service.js";
 import { DriverCapabilitiesWriter } from "../driver-capabilities-writer.js";
 import { ProviderOutputValidationError } from "../provider-output-validation.js";
 
@@ -113,7 +113,7 @@ function makeWriter(now: () => string = makeAdvancingClock()): {
   sessionService: SessionService;
 } {
   const sessionService: SessionService = new SessionService(db, {
-    allowUnsignedPlaceholderAppend: true,
+    allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly(),
   });
   let idCounter: number = 0;
   const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
@@ -1139,7 +1139,7 @@ describe("DriverCapabilitiesWriter — hydrate (cold-start cache read)", () => {
 describe("DriverCapabilitiesWriter — atomic dual-write (throwing emit rolls back)", () => {
   it("rolls back all three table writes when the emit throws (no rows for that driver)", () => {
     const sessionService: SessionService = new SessionService(db, {
-      allowUnsignedPlaceholderAppend: true,
+      allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly(),
     });
     // A REAL emitter whose append runs on the SAME connection, but whose emit is
     // forced to throw AFTER the writes ran inside the txn — an injected

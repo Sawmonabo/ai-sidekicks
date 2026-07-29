@@ -70,7 +70,7 @@ import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { openDatabase } from "../../session/migration-runner.js";
-import { SessionService } from "../../session/session-service.js";
+import { SessionService, UnsignedPlaceholderAppendToken } from "../../session/session-service.js";
 import { NodeCapabilityService } from "../node-capability-service.js";
 import { RuntimeNodeEventEmitter } from "../node-event-emitter.js";
 
@@ -166,7 +166,7 @@ function makeAdvancingClock(): () => string {
 // Plan-006 T3.1's EventLogService as the emitter's SessionEventLog instead.
 function makeCapabilityService(now: () => string = makeAdvancingClock()): NodeCapabilityService {
   const sessionService: SessionService = new SessionService(ctx.db, {
-    allowUnsignedPlaceholderAppend: true,
+    allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly(),
   });
   let idCounter: number = 0;
   const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
@@ -396,7 +396,7 @@ describe("NodeCapabilityService — atomicity (throwing emit rolls back the capa
     // INSIDE the emit, AFTER the upsert ran in the transaction, so the rollback
     // of the already-applied upsert is what is under test.
     const sessionService: SessionService = new SessionService(ctx.db, {
-      allowUnsignedPlaceholderAppend: true,
+      allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly(),
     });
     const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
       sessionEvents: sessionService,

@@ -7,6 +7,10 @@
 
 export { SessionService } from "./session-service.js";
 export type { SessionServiceOptions } from "./session-service.js";
+// `UnsignedPlaceholderAppendToken` is deliberately NOT re-exported: the
+// test-only append opt-in must stay unreachable from the package root, so
+// out-of-package composition roots cannot enable placeholder-signed writes.
+// In-package tests import it relatively from `session-service.js`.
 export { applyMigrations, applyPragmas, openDatabase } from "./migration-runner.js";
 export { projectEvent, replay } from "./session-projector.js";
 export { translateSpawnCwd } from "./spawn-cwd-translator.js";

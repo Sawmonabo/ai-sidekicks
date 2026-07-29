@@ -67,7 +67,10 @@ import { MethodRegistryImpl, RegistryRegistrationError } from "../../registry.js
 import { StreamingPrimitive, StreamingValidationError } from "../../streaming-primitive.js";
 
 import { openDatabase } from "../../../session/migration-runner.js";
-import { SessionService } from "../../../session/session-service.js";
+import {
+  SessionService,
+  UnsignedPlaceholderAppendToken,
+} from "../../../session/session-service.js";
 import type { AppendableEvent } from "../../../session/types.js";
 
 import { registerPresenceSubscribe, type PresenceSubscribeDeps } from "../presence-subscribe.js";
@@ -604,7 +607,9 @@ describe("Pr4 — durable presence-state-change events round-trip to real sessio
     // through it (session-service.test.ts pins the guard itself).
     pr4Ctx = {
       db,
-      service: new SessionService(db, { allowUnsignedPlaceholderAppend: true }),
+      service: new SessionService(db, {
+        allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly(),
+      }),
       tmpDir,
     };
   });

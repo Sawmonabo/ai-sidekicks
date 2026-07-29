@@ -120,11 +120,17 @@ const RUNTIME_NODE_EVENT_VERSION: string = "1.0";
 // execute — and its failure must THROW — synchronously inside the
 // caller's transaction, or the rollback semantics those producers ship
 // (a throwing emit rolls back the durable write that preceded it) are
-// silently lost. TypeScript's void-return exception would absorb a
-// Promise-returning `append` here without a compile error, turning a
-// durable-write failure into an unobserved rejection AFTER the caller's
-// transaction committed — so `#appendRuntimeNodeEvent` refuses a
-// thenable `append` result fail-closed rather than awaiting it.
+// silently lost. Two enforcement layers:
+//   1. COMPILE TIME: `append` returns `undefined`, not `void`.
+//      TypeScript's void-return exception would silently absorb a
+//      Promise-returning implementation; `Promise` is NOT assignable to
+//      `undefined`, so an async `append` fails the assignment at the
+//      wiring site instead of becoming a fire-and-forget (an
+//      implementation with no return statement still satisfies
+//      `undefined` under contextual typing / an explicit annotation).
+//   2. RUNTIME: `#appendRuntimeNodeEvent` refuses a thenable `append`
+//      result fail-closed — the tripwire for wiring that reaches this
+//      seam past the compiler (plain JS, `as unknown as` casts).
 //
 // Implementations: Plan-001's `SessionService` (append guarded test-only
 // via `allowUnsignedPlaceholderAppend`) today. Plan-006 T3.1's
@@ -136,10 +142,12 @@ const RUNTIME_NODE_EVENT_VERSION: string = "1.0";
 // `withSessionAppendLock`, rather than injecting an async append into a
 // sync seam. `readEvents` is deliberately narrowed to the
 // `sequence`-only row shape the log-derive allocator needs (synchronous
-// reads stay honest for any better-sqlite3-backed writer), so a writer
-// that stores events differently can still satisfy the seam.
+// reads stay honest for any better-sqlite3-backed writer) and promises
+// NO row ordering — the allocator computes the maximum explicitly — so
+// a writer that stores or orders events differently can still satisfy
+// the seam.
 export interface SessionEventLog {
-  append(event: AppendableEvent): void;
+  append(event: AppendableEvent): undefined;
   readEvents(sessionId: string): ReadonlyArray<{ readonly sequence: number }>;
 }
 
@@ -418,7 +426,9 @@ export class RuntimeNodeEventEmitter {
       version: RUNTIME_NODE_EVENT_VERSION,
     };
     const appendResult: unknown = this.#sessionEvents.append(event);
-    // Fail-closed thenable guard — the `SessionEventLog` seam contract above.
+    // Fail-closed thenable guard — layer 2 of the `SessionEventLog` seam
+    // contract above, backstopping the `undefined`-return compile-time layer
+    // for wiring the compiler never saw (plain JS, `as unknown as` casts).
     // A tripwire, not a recovery path: by the time a thenable comes back the
     // implementation's synchronous prefix has already run, so this guard
     // cannot undo that work — it exists to make wiring an async append LOUD
@@ -442,9 +452,13 @@ export class RuntimeNodeEventEmitter {
 
   /**
    * Phase-2 default sequence allocator: the next per-session `sequence` is
-   * the last durable event's `sequence` + 1, or 0 for an empty log. Reading
-   * and appending happen synchronously with no `await` between them, so the
-   * read-then-append is atomic in the single-threaded daemon; `append`'s
+   * the highest durable `sequence` + 1, or 0 for an empty log. The maximum
+   * is computed explicitly rather than read off the final element because
+   * the `SessionEventLog` seam promises NO row ordering — a structural
+   * implementation returning rows in descending or unspecified SQL order
+   * must still allocate correctly. Reading and appending happen
+   * synchronously with no `await` between them, so the read-then-append is
+   * atomic in the single-threaded daemon; `append`'s
    * `UNIQUE(session_id, sequence)` throw is the backstop if that assumption
    * is ever violated. Replaced by Plan-001 Phase 5's coordinated allocator
    * via the `nextSequence` dep.
@@ -452,17 +466,12 @@ export class RuntimeNodeEventEmitter {
   #deriveNextSequence(sessionId: string): number {
     const events: ReadonlyArray<{ readonly sequence: number }> =
       this.#sessionEvents.readEvents(sessionId);
-    if (events.length === 0) {
-      return 0;
+    let highestSequence = -1;
+    for (const event of events) {
+      if (event.sequence > highestSequence) {
+        highestSequence = event.sequence;
+      }
     }
-    const lastEvent = events[events.length - 1];
-    // `readEvents` returns sequence-ASC, so the final element carries the
-    // highest sequence. The `undefined` guard is a type-narrowing formality
-    // (the length check above guarantees presence) — TypeScript cannot infer
-    // non-emptiness from `.length`.
-    if (lastEvent === undefined) {
-      return 0;
-    }
-    return lastEvent.sequence + 1;
+    return highestSequence + 1;
   }
 }

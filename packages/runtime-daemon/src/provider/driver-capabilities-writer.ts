@@ -123,15 +123,17 @@
 // WIRING CONTRACT (T2.5 / daemon bootstrap)
 // --------------------------------------------------------------------------
 // The injected `RuntimeNodeEventEmitter`'s `SessionEventLog` (today the guarded
-// test-only `SessionService`; Plan-006 T3.1's `EventLogService` in production)
-// MUST share the SAME
+// test-only `SessionService`; the seam is synchronous-transactional by contract,
+// so Plan-006 T3.1's async `EventLogService.append` does NOT satisfy it — T3.1's
+// own leg re-points the emitter and restructures this writer's dual-write
+// atomicity around `withSessionAppendLock`) MUST share the SAME
 // `better-sqlite3` connection (`db`) as this writer. The emitter's append runs
 // an INSERT on that connection, so it JOINS this writer's transaction and the
 // cache write + the event commit atomically. Wiring the emitter over a DIFFERENT
 // connection would break the atomic dual-write (the event would commit on its
 // own connection independently of this transaction's rollback). T2.5 / the
 // daemon root composition is responsible for honoring this same-connection
-// obligation.
+// obligation until T3.1's restructuring supersedes it.
 //
 // Spec coverage: `Spec-005 §Required Behavior` (runtime treats undeclared capabilities as
 // unsupported — the cache the gate reads), `Spec-005 §Default Behavior` (driver capability

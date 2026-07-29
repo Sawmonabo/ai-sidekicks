@@ -45,7 +45,7 @@ import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { openDatabase } from "../../session/migration-runner.js";
-import { SessionService } from "../../session/session-service.js";
+import { SessionService, UnsignedPlaceholderAppendToken } from "../../session/session-service.js";
 import type { AppendableEvent, StoredEvent } from "../../session/types.js";
 import { RuntimeNodeEventEmitter } from "../node-event-emitter.js";
 import type { RuntimeNodeEventEmitterDeps, SessionEventLog } from "../node-event-emitter.js";
@@ -133,7 +133,13 @@ beforeEach(() => {
   const db: DatabaseType = openDatabase(dbPath);
   // Test-only opt-in to the guarded append path — the emitter persists
   // through this service (session-service.test.ts pins the guard itself).
-  ctx = { db, service: new SessionService(db, { allowUnsignedPlaceholderAppend: true }), tmpDir };
+  ctx = {
+    db,
+    service: new SessionService(db, {
+      allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly(),
+    }),
+    tmpDir,
+  };
 });
 
 afterEach(() => {
@@ -566,25 +572,73 @@ describe("RuntimeNodeEventEmitter — SessionEventLog seam (structural, no Sessi
     ]);
   });
 
+  it("allocates from the MAXIMUM sequence, not the final array element (the seam promises no row order)", () => {
+    // The `SessionEventLog` seam requires only an array of sequence-bearing
+    // rows — a structural implementation backed by a different SQL ORDER BY
+    // (or none) is contract-conforming. Descending order is the adversarial
+    // case: a last-element allocator would read sequence 0 and re-allocate 1,
+    // colliding with the existing row (PR #272 Codex round 2).
+    const descendingEventLog: SessionEventLog = {
+      append: () => {},
+      readEvents: () => [{ sequence: 41 }, { sequence: 7 }, { sequence: 0 }],
+    };
+    const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
+      sessionEvents: descendingEventLog,
+    });
+
+    const emitted: AppendableEvent = emitter.emitOnline({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      newState: "online",
+    });
+    expect(emitted.sequence).toBe(42);
+  });
+
   // The seam is synchronous-transactional BY CONTRACT (the L2 producers emit
   // inside better-sqlite3 connection-level transactions whose rollback
-  // semantics need append's failure to throw synchronously). TypeScript's
-  // void-return exception means an async implementation TYPE-CHECKS against
-  // `append(event): void`, so the refusal below is the only thing standing
-  // between the seam and a silent fire-and-forget — these tests are the
-  // guard's negative controls (PR #272 Codex round 1).
+  // semantics need append's failure to throw synchronously), enforced at two
+  // layers (PR #272 Codex rounds 1-2): `append` returns `undefined` — not
+  // `void` — so a Promise-returning implementation fails the ASSIGNMENT at
+  // compile time (the compile-time control below), and the runtime thenable
+  // refusal backstops wiring the compiler never saw (plain JS,
+  // `as unknown as` casts — which is why these fakes need exactly such a
+  // cast to reach the runtime guard at all). These tests are the guard's
+  // negative controls.
   describe("synchronous-transactional contract — thenable append refused fail-closed", () => {
+    it("rejects a Promise-returning append at COMPILE time (undefined return, not void)", () => {
+      // Layer 1: `Promise` is not assignable to `undefined`, so the exact
+      // fire-and-forget shape round 1 guarded against no longer typechecks.
+      // Deleting the directive below must yield the underlying assignment
+      // error — an unused-directive TS2578 here would mean the compile-time
+      // layer silently regressed to accepting async appenders.
+      const compileRejectedEventLog: SessionEventLog = {
+        // @ts-expect-error — an async `append` (returns `Promise<void>`) does
+        // not satisfy `append(event): undefined`; TS's void-return exception
+        // no longer applies.
+        append: async (): Promise<void> => {},
+        readEvents: () => [],
+      };
+      // The object still exists at runtime; the runtime tripwire covers it.
+      expect(() =>
+        new RuntimeNodeEventEmitter({ sessionEvents: compileRejectedEventLog }).emitOnline({
+          sessionId: SESSION_ID,
+          nodeId: NODE_ID,
+          newState: "online",
+        }),
+      ).toThrow(/synchronous-transactional/);
+    });
+
     it("refuses a Promise-returning append with a pointed error naming the T3.1 re-point", () => {
       const appendCalls: AppendableEvent[] = [];
       // Deliberately async: this is exactly the shape Plan-006 T3.1's
       // `EventLogService.append` will have, and exactly what must NOT be
       // silently absorbed here.
       const asyncEventLog: SessionEventLog = {
-        append: (event): void => {
+        append: (event): undefined => {
           appendCalls.push(event);
-          // A Promise-returning implementation seen through the void-typed
-          // seam — the TS void-return exception admits it without error.
-          return Promise.resolve() as unknown as void;
+          // A Promise-returning implementation smuggled past the compile-time
+          // layer — the cast models plain-JS / cast-through wiring.
+          return Promise.resolve() as unknown as undefined;
         },
         readEvents: () => [],
       };
@@ -610,7 +664,7 @@ describe("RuntimeNodeEventEmitter — SessionEventLog seam (structural, no Sessi
       // only failure surfaced. An unswallowed rejection would fail this test
       // file at the runner level once the microtask queue drains.
       const rejectingEventLog: SessionEventLog = {
-        append: (): void => Promise.reject(new Error("mutex lost")) as unknown as void,
+        append: (): undefined => Promise.reject(new Error("mutex lost")) as unknown as undefined,
         readEvents: () => [],
       };
       const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
@@ -632,7 +686,7 @@ describe("RuntimeNodeEventEmitter — SessionEventLog seam (structural, no Sessi
       // the same fire-and-forget.
       const customThenable = { then: (resolve?: (value?: unknown) => void) => resolve?.() };
       const thenableEventLog: SessionEventLog = {
-        append: (): void => customThenable as unknown as void,
+        append: (): undefined => customThenable as unknown as undefined,
         readEvents: () => [],
       };
       const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({

@@ -46,7 +46,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { deriveMainChannelId } from "@ai-sidekicks/contracts";
 
 import { applyMigrations, applyPragmas, openDatabase } from "../migration-runner.js";
-import { SessionService } from "../session-service.js";
+import { SessionService, UnsignedPlaceholderAppendToken } from "../session-service.js";
 import type { AppendableEvent } from "../types.js";
 
 // ----------------------------------------------------------------------------
@@ -141,7 +141,9 @@ beforeEach(() => {
     // Explicit test-only opt-in to the guarded append path — this suite's
     // D2/D3/D4 blocks seed placeholder rows through it (the append-guard
     // describe block pins the refusal on a default-constructed service).
-    service: new SessionService(db, { allowUnsignedPlaceholderAppend: true }),
+    service: new SessionService(db, {
+      allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly(),
+    }),
     dbPath,
     tmpDir,
   };
@@ -1118,10 +1120,28 @@ describe("SessionService — append guard (unsigned placeholder writes are opt-i
     // the diagnostic is the contract, not just the throw.
     expect(() => guardedService.append(makeCreatedEvent())).toThrow(/EventLogService\.append/);
     expect(() => guardedService.append(makeCreatedEvent())).toThrow(
-      /allowUnsignedPlaceholderAppend/,
+      /allowUnsignedPlaceholderAppend.*UnsignedPlaceholderAppendToken\.forTestsOnly\(\)/s,
     );
     // The refusal happens before any INSERT — nothing was persisted.
     expect(guardedService.readEvents(SESSION_ID)).toHaveLength(0);
+  });
+
+  it("refuses a FORGED token — the guard checks identity against the module-private singleton, not structure", () => {
+    // A boolean opt-in (even the literal `true`) can be threaded from
+    // configuration (`condition ? true : undefined` typechecks; an `if`
+    // narrows `boolean` to `true`) — PR #272 Codex round 2. The token
+    // closes that: deserialized or hand-built data can never BE the
+    // singleton, so even a cast-through structural lookalike still throws.
+    const forgedToken = Object.freeze({
+      brand: "unsigned-placeholder-append-test-only",
+    }) as unknown as UnsignedPlaceholderAppendToken;
+    const forgedService: SessionService = new SessionService(ctx.db, {
+      allowUnsignedPlaceholderAppend: forgedToken,
+    });
+    expect(() => forgedService.append(makeCreatedEvent())).toThrow(
+      /SessionService\.append is guarded/,
+    );
+    expect(forgedService.readEvents(SESSION_ID)).toHaveLength(0);
   });
 
   it("reads need no opt-in — a default-constructed service replays rows an opted-in writer seeded", () => {

@@ -57,7 +57,7 @@ import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { openDatabase } from "../../session/migration-runner.js";
-import { SessionService } from "../../session/session-service.js";
+import { SessionService, UnsignedPlaceholderAppendToken } from "../../session/session-service.js";
 import type { NodeTrustStateRow } from "../node-registry.js";
 import { NodeRegistry } from "../node-registry.js";
 import { RuntimeNodeEventEmitter } from "../node-event-emitter.js";
@@ -170,7 +170,7 @@ afterEach(() => {
 // T3.1's EventLogService as the emitter's SessionEventLog instead.
 function makeRegistry(now: () => string = () => "2026-06-02T12:00:00.000Z"): NodeRegistry {
   const sessionService: SessionService = new SessionService(ctx.db, {
-    allowUnsignedPlaceholderAppend: true,
+    allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly(),
   });
   let idCounter: number = 0;
   const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
@@ -390,7 +390,7 @@ describe("NodeRegistry — atomicity (throwing emit rolls back the trust-state u
     // lands INSIDE the emit, AFTER the upsert ran in the transaction, so the
     // rollback of the already-applied upsert is what is under test.
     const sessionService: SessionService = new SessionService(ctx.db, {
-      allowUnsignedPlaceholderAppend: true,
+      allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly(),
     });
     const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
       sessionEvents: sessionService,

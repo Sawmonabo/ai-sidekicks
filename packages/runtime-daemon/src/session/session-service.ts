@@ -2,8 +2,9 @@
 //
 // Append path (Plan-001 owned — GUARDED, test-only, 2026-07-28):
 //   - `append()` refuses to run unless the service was constructed with
-//     `{ allowUnsignedPlaceholderAppend: true }`. The rows this path
-//     writes carry zero-filled integrity placeholders — exactly the
+//     the module-private `UnsignedPlaceholderAppendToken` singleton
+//     (`UnsignedPlaceholderAppendToken.forTestsOnly()`). The rows this
+//     path writes carry zero-filled integrity placeholders — exactly the
 //     never-signed rows Plan-006's `verifyRow` refuses fail-closed
 //     (`signature_placeholder`) — so no production composition root may
 //     reach it, per the Plan-006 §Phase 3 T3.1 precondition (added
@@ -85,16 +86,69 @@ interface SessionEventRow {
   readonly version: string;
 }
 
+/**
+ * Capability token gating `SessionService.append`'s zero-filled
+ * placeholder writes (see the guard rationale in the file header).
+ *
+ * A boolean opt-in — even one typed as the literal `true` — is not a
+ * real barrier: TypeScript narrows a `boolean` to `true` inside an
+ * `if`, and `condition ? true : undefined` assigns without a cast, so
+ * a configuration- or environment-derived flag could thread through
+ * (PR #272 Codex round 2). This token closes that hole at BOTH layers:
+ *
+ *   - COMPILE TIME: the `#brand` private field makes the type nominal —
+ *     no object literal, config value, or structural lookalike is
+ *     assignable to it — and the `private` constructor means the only
+ *     way to obtain one is `forTestsOnly()`, a loud, grep-able act no
+ *     data-driven wiring can perform.
+ *   - RUNTIME: the guard compares against the module-private singleton
+ *     by IDENTITY (`isGenuine`), so even an `as unknown as` cast of a
+ *     forged object still throws — deserialized data can never BE this
+ *     object.
+ *
+ * Honest limit: code inside this package (including the daemon's own
+ * composition root) can still import and call `forTestsOnly()` — no
+ * language construct prevents that. The name is the mitigation: a
+ * production call site invoking `forTestsOnly()` is self-describing in
+ * review. The token is deliberately NOT re-exported from the `session`
+ * barrel or the package root, so out-of-package composition roots
+ * cannot reach it at all.
+ */
+export class UnsignedPlaceholderAppendToken {
+  static readonly #singleton: UnsignedPlaceholderAppendToken = new UnsignedPlaceholderAppendToken();
+
+  // Nominal-typing brand: a private field is invisible to structural
+  // assignability, so only instances of THIS class satisfy the type.
+  readonly #brand = "unsigned-placeholder-append-test-only" as const;
+
+  private constructor() {}
+
+  /** The sole issuance path. TEST-ONLY — see the class doc. */
+  static forTestsOnly(): UnsignedPlaceholderAppendToken {
+    return UnsignedPlaceholderAppendToken.#singleton;
+  }
+
+  /** Identity check against the module-private singleton (never structural). */
+  static isGenuine(candidate: UnsignedPlaceholderAppendToken | undefined): boolean {
+    return (
+      candidate !== undefined &&
+      candidate === UnsignedPlaceholderAppendToken.#singleton &&
+      candidate.#brand === "unsigned-placeholder-append-test-only"
+    );
+  }
+}
+
 // Construction options for `SessionService`.
 export interface SessionServiceOptions {
   // TEST-ONLY. Permits `append()`'s zero-filled integrity placeholders
-  // (see the guard rationale in the file header). Typed as the literal
-  // `true` — not `boolean` — so the opt-in cannot be threaded through a
-  // computed or environment-derived flag without an explicit cast: an
-  // env-keyed guard is exactly the silently-disabled failure mode this
-  // option exists to prevent. Production composition roots construct
-  // WITHOUT options and get a read-only service (`readEvents`/`replay`).
-  readonly allowUnsignedPlaceholderAppend?: true;
+  // (see the guard rationale in the file header). Takes the nominal
+  // identity-checked `UnsignedPlaceholderAppendToken` — not a boolean —
+  // so the opt-in cannot be threaded through a computed or
+  // environment-derived flag: an env-keyed guard is exactly the
+  // silently-disabled failure mode this option exists to prevent.
+  // Production composition roots construct WITHOUT options and get a
+  // read-only service (`readEvents`/`replay`).
+  readonly allowUnsignedPlaceholderAppend?: UnsignedPlaceholderAppendToken;
 }
 
 export class SessionService {
@@ -107,7 +161,11 @@ export class SessionService {
   readonly #allowUnsignedPlaceholderAppend: boolean;
 
   constructor(db: Database, options?: SessionServiceOptions) {
-    this.#allowUnsignedPlaceholderAppend = options?.allowUnsignedPlaceholderAppend === true;
+    // IDENTITY check against the module-private singleton — a forged or
+    // deserialized object (even one cast to the token type) never passes.
+    this.#allowUnsignedPlaceholderAppend = UnsignedPlaceholderAppendToken.isGenuine(
+      options?.allowUnsignedPlaceholderAppend,
+    );
     this.#insertStmt = db.prepare(
       `INSERT INTO session_events (
          id, session_id, sequence, occurred_at, monotonic_ns,
@@ -141,17 +199,24 @@ export class SessionService {
    * sequence) violations (the caller must coordinate sequence assignment).
    *
    * GUARDED (Plan-006 §Phase 3 T3.1 precondition): throws unless the
-   * service was constructed with `{ allowUnsignedPlaceholderAppend:
-   * true }` — see the file header and `SessionServiceOptions`.
+   * service was constructed with the genuine
+   * `UnsignedPlaceholderAppendToken` — see the file header, the token's
+   * class doc, and `SessionServiceOptions`.
+   *
+   * Returns `undefined` (not `void`) to satisfy the synchronous-
+   * transactional `SessionEventLog` seam in `node-event-emitter.ts`,
+   * whose `undefined` return type rejects Promise-returning
+   * implementations at compile time.
    */
-  append(event: AppendableEvent): void {
+  append(event: AppendableEvent): undefined {
     if (!this.#allowUnsignedPlaceholderAppend) {
       throw new Error(
         "SessionService.append is guarded: it writes zero-filled prev_hash / row_hash / " +
           "daemon_signature placeholders, which integrity verification refuses fail-closed " +
           "(failureMode signature_placeholder). Durable production writes belong to Plan-006 " +
-          "T3.1's EventLogService.append. Tests seeding placeholder rows opt in explicitly: " +
-          "new SessionService(db, { allowUnsignedPlaceholderAppend: true }).",
+          "T3.1's EventLogService.append. Tests seeding placeholder rows opt in explicitly " +
+          "with the identity-checked capability token: new SessionService(db, " +
+          "{ allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly() }).",
       );
     }
     const result: RunResult = this.#insertStmt.run({
