@@ -43,7 +43,7 @@
 // overcount into a hard failure the day the population stops being empty.
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -102,13 +102,17 @@ const baselineRevision = repoGit([
 // The enforced population: every tracked `.md` minus the runner's exported
 // exclusion prefixes — the same per-file population the pre-commit runner
 // gates, enumerated from the index rather than a directory walk so untracked
-// scratch files can never inflate the denominator.
+// scratch files can never inflate the denominator. Repo-relative: content is
+// read from the index too (`git show :<path>` in the staging loop below), so
+// the measurement is over the SNAPSHOT the runner enforces — enumerating from
+// the index while reading worktree bytes measured a hybrid corpus, where an
+// unstaged local edit could silently move the denominator or hide a
+// recognition loss from LOST (Codex, PR #271 round 4).
 const enforcedFiles = repoGit(["ls-files", "-z", "--", "*.md"])
   .split("\0")
   .filter((path) => path !== "")
   .filter((path) => !PER_FILE_CHECK_EXCLUDED_PREFIXES.some((prefix) => path.startsWith(prefix)))
-  .sort()
-  .map((path) => join(REPO_ROOT, path));
+  .sort();
 
 console.log(`baseline: ${baselineRevision}`);
 console.log(`enforced files: ${enforcedFiles.length}`);
@@ -190,9 +194,8 @@ try {
   const baselineWidenedPaths: string[] = [];
   const editedWidenedPaths: string[] = [];
   const pristinePaths: string[] = [];
-  for (const file of enforcedFiles) {
-    const relativePath = relative(REPO_ROOT, file);
-    const content = readFileSync(file, "utf8");
+  for (const relativePath of enforcedFiles) {
+    const content = repoGit(["show", `:${relativePath}`]);
     const stagedCopies = [
       {
         root: baselineWidenedRoot,
