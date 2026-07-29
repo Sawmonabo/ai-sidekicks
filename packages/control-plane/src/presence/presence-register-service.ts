@@ -509,8 +509,10 @@ export interface PresenceRegisterServiceOptions {
   // Observation seam for T3.3 durable presence-event emission (see
   // `PresenceTransitionEvent`). Absent => transitions are applied to the live
   // CRDT only (no observer). T3.2 itself never persists. The return type admits
-  // `Promise<void>` because T3.3 wires this to `SessionService.append` (an async
-  // DB write); `#transition` catches BOTH a sync throw and an async rejection so
+  // `Promise<void>` because T3.3 wires this to the daemon's durable append path
+  // (Plan-006 T3.1's `EventLogService.append` — Plan-001's `SessionService.append`
+  // is guarded test-only per the T3.1 precondition), an async
+  // DB write; `#transition` catches BOTH a sync throw and an async rejection so
   // either failure mode degrades gracefully instead of crashing the daemon on
   // the detached timer boundary. A plain `() => void` callback still satisfies it.
   readonly onTransition?: (event: PresenceTransitionEvent) => void | Promise<void>;
@@ -1077,7 +1079,9 @@ export class PresenceRegisterService {
     // `setTimeout` grace-timer callback (`#armGraceTimer`), so this stack has NO
     // surrounding try/catch and runs outside any caller's reach. The
     // `onTransition` observer is documented as the durable-emission seam wired to
-    // `SessionService.append` (T3.3), an ASYNC DB write that CAN fail two ways —
+    // the daemon's durable append path (T3.3; Plan-006 T3.1's
+    // `EventLogService.append` — `SessionService.append` is guarded test-only
+    // per the T3.1 precondition), an ASYNC DB write that CAN fail two ways —
     // a SYNCHRONOUS throw (a guard/validation error before the await) OR a
     // REJECTED promise (SQLite `SQLITE_BUSY`, a `monotonic_ns` unique-violation,
     // a Zod failure inside the async body). On this detached timer boundary a

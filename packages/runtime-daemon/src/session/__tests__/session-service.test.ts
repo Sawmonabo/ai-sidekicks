@@ -7,6 +7,12 @@
 // D4: Snapshot survives daemon restart and yields identical projection
 //     on rehydrate (durability across restart; Spec-001 AC2 + AC6).
 //
+// Append-guard coverage (the `Plan-006 §T3.1 — Append-path service writing integrity columns + Plan-022 Path 1 shred callback` precondition):
+//   * `append()` refuses on a default-constructed service; reads need
+//     no opt-in. The `beforeEach` fixture opts in explicitly
+//     (`allowUnsignedPlaceholderAppend`) so the D2/D3/D4 blocks can
+//     seed placeholder rows; see the append-guard describe block.
+//
 // Migration runner coverage:
 //   * `openDatabase` factory: idempotent reopen test.
 //   * `applyMigrations` sequential idempotency on a second handle.
@@ -40,7 +46,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { deriveMainChannelId } from "@ai-sidekicks/contracts";
 
 import { applyMigrations, applyPragmas, openDatabase } from "../migration-runner.js";
-import { SessionService } from "../session-service.js";
+import { SessionService, UnsignedPlaceholderAppendToken } from "../session-service.js";
 import type { AppendableEvent } from "../types.js";
 
 // ----------------------------------------------------------------------------
@@ -132,7 +138,12 @@ beforeEach(() => {
   const db: DatabaseType = openDatabase(dbPath);
   ctx = {
     db,
-    service: new SessionService(db),
+    // Explicit test-only opt-in to the guarded append path — this suite's
+    // D2/D3/D4 blocks seed placeholder rows through it (the append-guard
+    // describe block pins the refusal on a default-constructed service).
+    service: new SessionService(db, {
+      allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly(),
+    }),
     dbPath,
     tmpDir,
   };
@@ -311,6 +322,9 @@ describe("SessionService — D4 (snapshot survives daemon restart)", () => {
 
     // Reopen the SAME file (proves on-disk durability — not in-memory
     // pages — backs the projection). Re-uses the canonical factory.
+    // Default construction (no append opt-in) is deliberate: the reopened
+    // service only replays, and reads need no opt-in — this doubles as a
+    // live proof of the guard's read-side contract.
     const reopenedDb: DatabaseType = openDatabase(ctx.dbPath);
     const reopenedService: SessionService = new SessionService(reopenedDb);
 
@@ -1081,6 +1095,71 @@ describe("session_events integrity-column CHECK constraints", () => {
     // This is already covered by D2/D3/D4 but pinning it here makes the
     // CHECK-constraint test block read as a self-contained proof.
     expect(() => ctx.service.append(makeCreatedEvent())).not.toThrow();
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Append guard (the `Plan-006 §T3.1 — Append-path service writing integrity columns + Plan-022 Path 1 shred callback` precondition)
+// ----------------------------------------------------------------------------
+//
+// `append()` writes zero-filled integrity placeholders — exactly the rows
+// Plan-006's `verifyRow` refuses fail-closed (`signature_placeholder`) — so
+// the writer is guarded behind an explicit test-only construction opt-in.
+// A default-constructed service is read-only: a composition root wiring a
+// real database cannot reach the unsigned append path by accident. The
+// refusal test below is the guard's own negative control — it proves the
+// guard fires, so the opted-in green suite is not vacuous evidence.
+
+// The guard's negative controls' titles, bound to exported identifiers so
+// governance docs can cite the controls durably (the docs-corpus gate's
+// symbol matcher is identifier-shaped): renaming or deleting either test
+// breaks the inbound cite instead of leaving it validating against nothing
+// (same pattern as migration-shape.test.ts's exported titles).
+export const DEFAULT_CONSTRUCTED_APPEND_REFUSAL_TEST: string =
+  "refuses append on a default-constructed service, naming the replacement writer and the opt-in";
+export const FORGED_TOKEN_REFUSAL_TEST: string =
+  "refuses a FORGED token — the guard checks identity against the module-private singleton, not structure";
+
+describe("SessionService — append guard (unsigned placeholder writes are opt-in)", () => {
+  it(DEFAULT_CONSTRUCTED_APPEND_REFUSAL_TEST, () => {
+    const guardedService: SessionService = new SessionService(ctx.db);
+    expect(() => guardedService.append(makeCreatedEvent())).toThrow(
+      /SessionService\.append is guarded/,
+    );
+    // The refusal names where durable writes belong and how tests opt in —
+    // the diagnostic is the contract, not just the throw.
+    expect(() => guardedService.append(makeCreatedEvent())).toThrow(/EventLogService\.append/);
+    expect(() => guardedService.append(makeCreatedEvent())).toThrow(
+      /allowUnsignedPlaceholderAppend.*UnsignedPlaceholderAppendToken\.forTestsOnly\(\)/s,
+    );
+    // The refusal happens before any INSERT — nothing was persisted.
+    expect(guardedService.readEvents(SESSION_ID)).toHaveLength(0);
+  });
+
+  it(FORGED_TOKEN_REFUSAL_TEST, () => {
+    // A boolean opt-in (even the literal `true`) can be threaded from
+    // configuration (`condition ? true : undefined` typechecks; an `if`
+    // narrows `boolean` to `true`) — PR #272 Codex round 2. The token
+    // closes that: deserialized or hand-built data can never BE the
+    // singleton, so even a cast-through structural lookalike still throws.
+    const forgedToken = Object.freeze({
+      brand: "unsigned-placeholder-append-test-only",
+    }) as unknown as UnsignedPlaceholderAppendToken;
+    const forgedService: SessionService = new SessionService(ctx.db, {
+      allowUnsignedPlaceholderAppend: forgedToken,
+    });
+    expect(() => forgedService.append(makeCreatedEvent())).toThrow(
+      /SessionService\.append is guarded/,
+    );
+    expect(forgedService.readEvents(SESSION_ID)).toHaveLength(0);
+  });
+
+  it("reads need no opt-in — a default-constructed service replays rows an opted-in writer seeded", () => {
+    ctx.service.append(makeCreatedEvent());
+    const readOnlyService: SessionService = new SessionService(ctx.db);
+    expect(readOnlyService.readEvents(SESSION_ID)).toHaveLength(1);
+    const snapshot = readOnlyService.replay(SESSION_ID);
+    expect(snapshot).not.toBeNull();
   });
 });
 

@@ -1,6 +1,17 @@
 // SessionService — durable append + replay over Local SQLite.
 //
-// Append path (Plan-001 owned):
+// Append path (Plan-001 owned — GUARDED, test-only, 2026-07-28):
+//   - `append()` refuses to run unless the service was constructed with
+//     the module-private `UnsignedPlaceholderAppendToken` singleton
+//     (`UnsignedPlaceholderAppendToken.forTestsOnly()`). The rows this
+//     path writes carry zero-filled integrity placeholders — exactly the
+//     never-signed rows Plan-006's `verifyRow` refuses fail-closed
+//     (`signature_placeholder`) — so no production composition root may
+//     reach it, per the `Plan-006 §T3.1 — Append-path service writing integrity columns + Plan-022 Path 1 shred callback` precondition
+//     (added 2026-07-27): durable production writes belong to T3.1's
+//     `EventLogService.append`, the sole durable writer. Tests seeding
+//     placeholder rows opt in explicitly at construction. The read
+//     paths (`readEvents` / `replay`) need no opt-in.
 //   - Writes one `session_events` row per event. Single-statement
 //     INSERT is implicitly atomic in SQLite; Plan-006 will introduce a
 //     `db.transaction(...)` wrapper once snapshot writes land alongside
@@ -75,6 +86,90 @@ interface SessionEventRow {
   readonly version: string;
 }
 
+/**
+ * Capability token gating `SessionService.append`'s zero-filled
+ * placeholder writes (see the guard rationale in the file header).
+ *
+ * A boolean opt-in — even one typed as the literal `true` — is not a
+ * real barrier: TypeScript narrows a `boolean` to `true` inside an
+ * `if`, and `condition ? true : undefined` assigns without a cast, so
+ * a configuration- or environment-derived flag could thread through
+ * (PR #272 Codex round 2). What this token guarantees — and what it
+ * does not (scoped in Codex round 3):
+ *
+ *   - COMPILE TIME: the `#brand` private field makes the type nominal —
+ *     no object literal, config value, or structural lookalike is
+ *     assignable to it — and the `private` constructor means the only
+ *     way to obtain one is `forTestsOnly()`, a loud, grep-able act no
+ *     data-driven wiring can perform.
+ *   - RUNTIME: the guard compares against the module-private singleton
+ *     by IDENTITY (`isGenuine`), so even an `as unknown as` cast of a
+ *     forged object still throws — deserialized data can never BE this
+ *     object.
+ *   - OUT-OF-PACKAGE: unreachable. The token is deliberately NOT
+ *     re-exported from the `session` barrel or the package root, and
+ *     the package `exports` map declares only `"."`, so Node itself
+ *     refuses a deep import of this module from outside the package.
+ *
+ * Honest limit (Codex round 3): none of the above stops IN-PACKAGE code
+ * from gating a genuine `forTestsOnly()` call behind an environment
+ * check — `process.env.X ? UnsignedPlaceholderAppendToken.forTestsOnly()
+ * : undefined` returns the real singleton and passes `isGenuine`. The
+ * token blocks data-DERIVED enablement, not code that deliberately
+ * calls the factory. That residual is closed mechanically by lint:
+ * `eslint.config.mjs` denies `forTestsOnly` member access in
+ * `packages/runtime-daemon/src/**` outside `__tests__/`, so a
+ * production call site fails `pnpm lint` (and CI). A lint-suppressed
+ * bypass remains expressible — there the loud name is the review
+ * signal.
+ */
+export class UnsignedPlaceholderAppendToken {
+  static readonly #singleton: UnsignedPlaceholderAppendToken = new UnsignedPlaceholderAppendToken();
+
+  // Nominal-typing brand: a private field is invisible to structural
+  // assignability, so only instances of THIS class satisfy the type.
+  readonly #brand = "unsigned-placeholder-append-test-only" as const;
+
+  private constructor() {}
+
+  /** The sole issuance path. TEST-ONLY — see the class doc. */
+  static forTestsOnly(): UnsignedPlaceholderAppendToken {
+    return UnsignedPlaceholderAppendToken.#singleton;
+  }
+
+  /** Identity check against the module-private singleton (never structural). */
+  static isGenuine(candidate: UnsignedPlaceholderAppendToken | undefined): boolean {
+    // The singleton identity comparison alone decides the verdict. The
+    // trailing `#brand` read is a redundant assertion, NOT a second
+    // check — the singleton always carries the brand, so the conjunct
+    // can never flip the result. It stays because the brand field
+    // exists for nominal typing and this is its one read site, keeping
+    // that intent visible (and the field non-dead) where the token is
+    // consumed.
+    return (
+      candidate !== undefined &&
+      candidate === UnsignedPlaceholderAppendToken.#singleton &&
+      candidate.#brand === "unsigned-placeholder-append-test-only"
+    );
+  }
+}
+
+// Construction options for `SessionService`.
+export interface SessionServiceOptions {
+  // TEST-ONLY. Permits `append()`'s zero-filled integrity placeholders
+  // (see the guard rationale in the file header). Takes the nominal
+  // identity-checked `UnsignedPlaceholderAppendToken` — not a boolean —
+  // so the opt-in can never be MANUFACTURED from data: no config value,
+  // env string, or deserialized object is the singleton. Obtaining it
+  // requires a literal `forTestsOnly()` call, which lint denies outside
+  // `__tests__/` (see the token's class doc for the exact guarantee
+  // boundary — an env-keyed guard around a genuine factory call is
+  // in-package code, stopped by the lint gate, not by the type).
+  // Production composition roots construct WITHOUT options and get a
+  // read-only service (`readEvents`/`replay`).
+  readonly allowUnsignedPlaceholderAppend?: UnsignedPlaceholderAppendToken;
+}
+
 export class SessionService {
   // The Database handle itself is not held — better-sqlite3's prepared
   // statements internally reference their parent DB, so the statements
@@ -82,8 +177,14 @@ export class SessionService {
   // of this service instance.
   readonly #insertStmt: Statement;
   readonly #replayStmt: Statement;
+  readonly #allowUnsignedPlaceholderAppend: boolean;
 
-  constructor(db: Database) {
+  constructor(db: Database, options?: SessionServiceOptions) {
+    // IDENTITY check against the module-private singleton — a forged or
+    // deserialized object (even one cast to the token type) never passes.
+    this.#allowUnsignedPlaceholderAppend = UnsignedPlaceholderAppendToken.isGenuine(
+      options?.allowUnsignedPlaceholderAppend,
+    );
     this.#insertStmt = db.prepare(
       `INSERT INTO session_events (
          id, session_id, sequence, occurred_at, monotonic_ns,
@@ -115,8 +216,28 @@ export class SessionService {
    * Append one event to the session log. Synchronous — better-sqlite3
    * is fully synchronous by design. Throws on UNIQUE(session_id,
    * sequence) violations (the caller must coordinate sequence assignment).
+   *
+   * GUARDED (the `Plan-006 §T3.1 — Append-path service writing integrity columns + Plan-022 Path 1 shred callback` precondition): throws unless the
+   * service was constructed with the genuine
+   * `UnsignedPlaceholderAppendToken` — see the file header, the token's
+   * class doc, and `SessionServiceOptions`.
+   *
+   * Returns `undefined` (not `void`) to satisfy the synchronous-
+   * transactional `SessionEventLog` seam in `node-event-emitter.ts`,
+   * whose `undefined` return type rejects Promise-returning
+   * implementations at compile time.
    */
-  append(event: AppendableEvent): void {
+  append(event: AppendableEvent): undefined {
+    if (!this.#allowUnsignedPlaceholderAppend) {
+      throw new Error(
+        "SessionService.append is guarded: it writes zero-filled prev_hash / row_hash / " +
+          "daemon_signature placeholders, which integrity verification refuses fail-closed " +
+          "(failureMode signature_placeholder). Durable production writes belong to Plan-006 " +
+          "T3.1's EventLogService.append. Tests seeding placeholder rows opt in explicitly " +
+          "with the identity-checked capability token: new SessionService(db, " +
+          "{ allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly() }).",
+      );
+    }
     const result: RunResult = this.#insertStmt.run({
       id: event.id,
       session_id: event.sessionId,

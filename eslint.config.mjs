@@ -149,4 +149,36 @@ export default tseslint.config(
       ],
     },
   },
+  // `Plan-006 §T3.1 — Append-path service writing integrity columns + Plan-022 Path 1 shred callback`
+  // precondition enforcement (PR #272 Codex round 3) — the unsigned-placeholder
+  // append opt-in is TEST-ONLY. The `UnsignedPlaceholderAppendToken` type is
+  // nominal and identity-checked, so the opt-in cannot be manufactured from
+  // config or env DATA — but in-package code could still gate a genuine
+  // `forTestsOnly()` call behind an environment check. This rule closes that
+  // residual mechanically: outside `__tests__/`, runtime-daemon sources may
+  // not call (or even name) the factory. Both the static and computed
+  // (`["forTestsOnly"]`) member forms are denied; an aliased-class bypass
+  // stays expressible and is left to review, where the loud name is the
+  // signal (see the token's class doc in session/session-service.ts).
+  {
+    files: ["packages/runtime-daemon/src/**/*.ts"],
+    ignores: ["packages/runtime-daemon/src/**/__tests__/**"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "MemberExpression[object.name='UnsignedPlaceholderAppendToken'][property.name='forTestsOnly']",
+          message:
+            "UnsignedPlaceholderAppendToken.forTestsOnly() is TEST-ONLY (Plan-006 T3.1 precondition): production code must never enable SessionService.append's zero-filled placeholder writes. Durable writes belong to EventLogService.append.",
+        },
+        {
+          selector:
+            "MemberExpression[object.name='UnsignedPlaceholderAppendToken'][property.value='forTestsOnly']",
+          message:
+            "UnsignedPlaceholderAppendToken['forTestsOnly'] is TEST-ONLY (Plan-006 T3.1 precondition): production code must never enable SessionService.append's zero-filled placeholder writes. Durable writes belong to EventLogService.append.",
+        },
+      ],
+    },
+  },
 );

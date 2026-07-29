@@ -57,7 +57,7 @@ import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { openDatabase } from "../../session/migration-runner.js";
-import { SessionService } from "../../session/session-service.js";
+import { SessionService, UnsignedPlaceholderAppendToken } from "../../session/session-service.js";
 import type { NodeTrustStateRow } from "../node-registry.js";
 import { NodeRegistry } from "../node-registry.js";
 import { RuntimeNodeEventEmitter } from "../node-event-emitter.js";
@@ -162,12 +162,17 @@ afterEach(() => {
   rmSync(ctx.tmpDir, { recursive: true, force: true });
 });
 
-// Wire the production composition root over the current `ctx.db`: same handle
+// Wire the Phase-2 object graph over the current `ctx.db`: same handle
 // shared by SessionService, the emitter, and the registry. `now` is injectable
 // for deterministic timestamp assertions; the emitter id source is a collision-
-// free counter so multiple emits never violate the `TEXT PRIMARY KEY`.
+// free counter so multiple emits never violate the `TEXT PRIMARY KEY`. The
+// append opt-in is test-only: production wiring is Plan-006 T3.1's own leg,
+// which re-points this seam onto the durable append path (the async
+// `EventLogService.append` does not satisfy the synchronous seam directly).
 function makeRegistry(now: () => string = () => "2026-06-02T12:00:00.000Z"): NodeRegistry {
-  const sessionService: SessionService = new SessionService(ctx.db);
+  const sessionService: SessionService = new SessionService(ctx.db, {
+    allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly(),
+  });
   let idCounter: number = 0;
   const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
     sessionEvents: sessionService,
@@ -385,7 +390,9 @@ describe("NodeRegistry — atomicity (throwing emit rolls back the trust-state u
     // The REAL emitter with an injected throwing `nextSequence` — the throw
     // lands INSIDE the emit, AFTER the upsert ran in the transaction, so the
     // rollback of the already-applied upsert is what is under test.
-    const sessionService: SessionService = new SessionService(ctx.db);
+    const sessionService: SessionService = new SessionService(ctx.db, {
+      allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly(),
+    });
     const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
       sessionEvents: sessionService,
       nextSequence: () => {

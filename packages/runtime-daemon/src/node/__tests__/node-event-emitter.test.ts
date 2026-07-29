@@ -1,9 +1,15 @@
 // RuntimeNodeEventEmitter — Plan-003 Phase 2 (T2.3).
 //
 // Exercises the emission seam that routes `runtime_node.*` events through
-// the canonical Plan-001 `SessionService.append` path over a real test
-// SQLite DB (mirrors `session-service.test.ts` lifecycle: `openDatabase`
-// factory → per-test tmp file → `afterEach` close + unlink).
+// the injected `SessionEventLog` — implemented here by Plan-001's
+// `SessionService` with the test-only append opt-in
+// (`allowUnsignedPlaceholderAppend`) — over a real test SQLite DB
+// (mirrors `session-service.test.ts` lifecycle: `openDatabase`
+// factory → per-test tmp file → `afterEach` close + unlink). The
+// structural-seam block at the bottom proves the emitter also accepts a
+// plain-object log implementation — structural decoupling only: T3.1's
+// async `EventLogService.append` does NOT satisfy this synchronous seam;
+// T3.1's own leg re-points it onto the durable append path.
 //
 // Coverage map (cites are the authoritative contract, not just the ACs):
 //   * D5 (Plan-003 T2.3 required assertion / I-003-4): a persisted
@@ -40,10 +46,10 @@ import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { openDatabase } from "../../session/migration-runner.js";
-import { SessionService } from "../../session/session-service.js";
+import { SessionService, UnsignedPlaceholderAppendToken } from "../../session/session-service.js";
 import type { AppendableEvent, StoredEvent } from "../../session/types.js";
 import { RuntimeNodeEventEmitter } from "../node-event-emitter.js";
-import type { RuntimeNodeEventEmitterDeps } from "../node-event-emitter.js";
+import type { RuntimeNodeEventEmitterDeps, SessionEventLog } from "../node-event-emitter.js";
 
 // ----------------------------------------------------------------------------
 // Fixtures
@@ -67,6 +73,14 @@ const PARTICIPANT_ID: string = "01J0PA0000NN5J5J5J5J5J5J5J";
 // these; D5 asserts the append path materialized them.
 const ZERO_HASH_LEN: number = 32;
 const ZERO_SIGNATURE_LEN: number = 64;
+
+// The compile-time async-append-rejection control's title, bound to an
+// exported identifier so governance docs can cite the control durably (the
+// docs-corpus gate's symbol matcher is identifier-shaped): renaming or
+// deleting the test breaks the inbound cite instead of leaving it validating
+// against nothing (same pattern as migration-shape.test.ts's exported titles).
+export const COMPILE_TIME_ASYNC_APPEND_REJECTION_TEST: string =
+  "rejects a Promise-returning append at COMPILE time (undefined return, not void)";
 
 // Raw read shape for the integrity columns that `StoredEvent` does not expose.
 interface IntegrityRow {
@@ -126,7 +140,15 @@ beforeEach(() => {
   // `TEXT NOT NULL`), so emitting against a bare session id is valid, exactly
   // as the existing append tests do.
   const db: DatabaseType = openDatabase(dbPath);
-  ctx = { db, service: new SessionService(db), tmpDir };
+  // Test-only opt-in to the guarded append path — the emitter persists
+  // through this service (session-service.test.ts pins the guard itself).
+  ctx = {
+    db,
+    service: new SessionService(db, {
+      allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly(),
+    }),
+    tmpDir,
+  };
 });
 
 afterEach(() => {
@@ -513,6 +535,177 @@ describe("RuntimeNodeEventEmitter — sequence allocation", () => {
     // colliding second emit left no partial state (a single-statement INSERT, so
     // the constraint violation persists nothing of the second event).
     expect(readRawRows(ctx.db, SESSION_ID)).toHaveLength(1);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// SessionEventLog seam — structural decoupling (the `Plan-006 §T3.1 — Append-path service writing integrity columns + Plan-022 Path 1 shred callback`
+// precondition: the emitter names no concrete storage class)
+// ----------------------------------------------------------------------------
+
+describe("RuntimeNodeEventEmitter — SessionEventLog seam (structural, no SessionService dependency)", () => {
+  it("emits through a plain-object SessionEventLog implementation (no SessionService, no database)", () => {
+    const appended: AppendableEvent[] = [];
+    const inMemoryEventLog: SessionEventLog = {
+      append: (event) => {
+        appended.push(event);
+      },
+      readEvents: () => appended.map((event) => ({ sequence: event.sequence })),
+    };
+    const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
+      sessionEvents: inMemoryEventLog,
+      newEventId: makeCounterIdSource("structural"),
+    });
+
+    const first: AppendableEvent = emitter.emitOnline({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      newState: "online",
+    });
+    const second: AppendableEvent = emitter.emitCapabilityDeclared({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      capability: "provider-driver",
+      capabilityDetails: { contractVersion: "1.0" },
+    });
+
+    // Both events landed in the fake, and the log-derive default allocator
+    // worked against the fake's narrowed readEvents — no SessionService (and
+    // no database) anywhere in this path.
+    expect(appended).toHaveLength(2);
+    expect(first.sequence).toBe(0);
+    expect(second.sequence).toBe(1);
+    expect(appended.map((event) => event.type)).toEqual([
+      "runtime_node.online",
+      "runtime_node.capability_declared",
+    ]);
+  });
+
+  it("allocates from the MAXIMUM sequence, not the final array element (the seam promises no row order)", () => {
+    // The `SessionEventLog` seam requires only an array of sequence-bearing
+    // rows — a structural implementation backed by a different SQL ORDER BY
+    // (or none) is contract-conforming. Descending order is the adversarial
+    // case: a last-element allocator would read sequence 0 and re-allocate 1,
+    // colliding with the existing row (PR #272 Codex round 2).
+    const descendingEventLog: SessionEventLog = {
+      append: () => {},
+      readEvents: () => [{ sequence: 41 }, { sequence: 7 }, { sequence: 0 }],
+    };
+    const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
+      sessionEvents: descendingEventLog,
+    });
+
+    const emitted: AppendableEvent = emitter.emitOnline({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      newState: "online",
+    });
+    expect(emitted.sequence).toBe(42);
+  });
+
+  // The seam is synchronous-transactional BY CONTRACT (the L2 producers emit
+  // inside better-sqlite3 connection-level transactions whose rollback
+  // semantics need append's failure to throw synchronously), enforced at two
+  // layers (PR #272 Codex rounds 1-2): `append` returns `undefined` — not
+  // `void` — so a Promise-returning implementation fails the ASSIGNMENT at
+  // compile time (the compile-time control below), and the runtime thenable
+  // refusal backstops wiring the compiler never saw (plain JS,
+  // `as unknown as` casts — which is why these fakes need exactly such a
+  // cast to reach the runtime guard at all). These tests are the guard's
+  // negative controls.
+  describe("synchronous-transactional contract — thenable append refused fail-closed", () => {
+    it(COMPILE_TIME_ASYNC_APPEND_REJECTION_TEST, () => {
+      // Layer 1: `Promise` is not assignable to `undefined`, so the exact
+      // fire-and-forget shape round 1 guarded against no longer typechecks.
+      // Deleting the directive below must yield the underlying assignment
+      // error — an unused-directive TS2578 here would mean the compile-time
+      // layer silently regressed to accepting async appenders.
+      const compileRejectedEventLog: SessionEventLog = {
+        // @ts-expect-error — an async `append` (returns `Promise<void>`) does
+        // not satisfy `append(event): undefined`; TS's void-return exception
+        // no longer applies.
+        append: async (): Promise<void> => {},
+        readEvents: () => [],
+      };
+      // The object still exists at runtime; the runtime tripwire covers it.
+      expect(() =>
+        new RuntimeNodeEventEmitter({ sessionEvents: compileRejectedEventLog }).emitOnline({
+          sessionId: SESSION_ID,
+          nodeId: NODE_ID,
+          newState: "online",
+        }),
+      ).toThrow(/synchronous-transactional/);
+    });
+
+    it("refuses a Promise-returning append with a pointed error naming the T3.1 re-point", () => {
+      const appendCalls: AppendableEvent[] = [];
+      // Deliberately async: this is exactly the shape Plan-006 T3.1's
+      // `EventLogService.append` will have, and exactly what must NOT be
+      // silently absorbed here.
+      const asyncEventLog: SessionEventLog = {
+        append: (event): undefined => {
+          appendCalls.push(event);
+          // A Promise-returning implementation smuggled past the compile-time
+          // layer — the cast models plain-JS / cast-through wiring.
+          return Promise.resolve() as unknown as undefined;
+        },
+        readEvents: () => [],
+      };
+      const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
+        sessionEvents: asyncEventLog,
+      });
+
+      expect(() =>
+        emitter.emitOnline({ sessionId: SESSION_ID, nodeId: NODE_ID, newState: "online" }),
+      ).toThrow(
+        /synchronous-transactional[\s\S]*EventLogService\.append[\s\S]*Plan-006 T3\.1[\s\S]*withSessionAppendLock/,
+      );
+
+      // Tripwire, not prevention: the implementation's synchronous prefix has
+      // already run by the time the thenable comes back — the guard's job is
+      // to be LOUD on the first emit, not to undo that work.
+      expect(appendCalls).toHaveLength(1);
+    });
+
+    it("refuses a REJECTING thenable without leaking an unhandled rejection", async () => {
+      // The orphaned promise settles on its own after the guard throws; the
+      // guard observes its rejection channel so the tripwire error is the
+      // only failure surfaced. An unswallowed rejection would fail this test
+      // file at the runner level once the microtask queue drains.
+      const rejectingEventLog: SessionEventLog = {
+        append: (): undefined => Promise.reject(new Error("mutex lost")) as unknown as undefined,
+        readEvents: () => [],
+      };
+      const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
+        sessionEvents: rejectingEventLog,
+      });
+
+      expect(() =>
+        emitter.emitOnline({ sessionId: SESSION_ID, nodeId: NODE_ID, newState: "online" }),
+      ).toThrow(/synchronous-transactional/);
+
+      // Drain the microtask queue so the swallowed rejection would have
+      // surfaced by now if the guard failed to observe it.
+      await Promise.resolve();
+    });
+
+    it("refuses a custom thenable (duck-typed, not instanceof Promise)", () => {
+      // `await` latches onto ANY `then` function, so the guard must too — a
+      // Promise-instanceof check would wave custom thenables through into
+      // the same fire-and-forget.
+      const customThenable = { then: (resolve?: (value?: unknown) => void) => resolve?.() };
+      const thenableEventLog: SessionEventLog = {
+        append: (): undefined => customThenable as unknown as undefined,
+        readEvents: () => [],
+      };
+      const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
+        sessionEvents: thenableEventLog,
+      });
+
+      expect(() =>
+        emitter.emitOnline({ sessionId: SESSION_ID, nodeId: NODE_ID, newState: "online" }),
+      ).toThrow(/synchronous-transactional/);
+    });
   });
 });
 

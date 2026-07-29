@@ -60,7 +60,7 @@ import {
 
 import { RuntimeNodeEventEmitter } from "../../node/node-event-emitter.js";
 import { openDatabase } from "../../session/migration-runner.js";
-import { SessionService } from "../../session/session-service.js";
+import { SessionService, UnsignedPlaceholderAppendToken } from "../../session/session-service.js";
 import { DriverCapabilitiesWriter } from "../driver-capabilities-writer.js";
 import {
   DriverCapabilityUnsupportedError,
@@ -205,11 +205,16 @@ interface Stack {
 
 let db: DatabaseType;
 
-// Wire the production composition root over the current `db`. A collision-free
+// Wire the Phase-2 object graph over the current `db`. A collision-free
 // deterministic event-id source so `session_events.id` (TEXT PRIMARY KEY) never
-// collides across the multiple emits a declared→updated sequence produces.
+// collides across the multiple emits a declared→updated sequence produces. The
+// append opt-in is test-only: production wiring is Plan-006 T3.1's own leg,
+// which re-points this seam onto the durable append path (the async
+// `EventLogService.append` does not satisfy the synchronous seam directly).
 function makeStack(): Stack {
-  const sessionService: SessionService = new SessionService(db);
+  const sessionService: SessionService = new SessionService(db, {
+    allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly(),
+  });
   let eventIdCounter: number = 0;
   const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
     sessionEvents: sessionService,

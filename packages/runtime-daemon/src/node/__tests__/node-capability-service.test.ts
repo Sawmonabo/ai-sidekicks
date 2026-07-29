@@ -70,7 +70,7 @@ import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { openDatabase } from "../../session/migration-runner.js";
-import { SessionService } from "../../session/session-service.js";
+import { SessionService, UnsignedPlaceholderAppendToken } from "../../session/session-service.js";
 import { NodeCapabilityService } from "../node-capability-service.js";
 import { RuntimeNodeEventEmitter } from "../node-event-emitter.js";
 
@@ -160,10 +160,15 @@ function makeAdvancingClock(): () => string {
   };
 }
 
-// Wire the production composition root over the current `ctx.db`. `now` defaults
+// Wire the Phase-2 object graph over the current `ctx.db`. `now` defaults
 // to an advancing clock; the emitter id source is a collision-free counter.
+// The append opt-in is test-only: production wiring is Plan-006 T3.1's own
+// leg, which re-points this seam onto the durable append path (the async
+// `EventLogService.append` does not satisfy the synchronous seam directly).
 function makeCapabilityService(now: () => string = makeAdvancingClock()): NodeCapabilityService {
-  const sessionService: SessionService = new SessionService(ctx.db);
+  const sessionService: SessionService = new SessionService(ctx.db, {
+    allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly(),
+  });
   let idCounter: number = 0;
   const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
     sessionEvents: sessionService,
@@ -391,7 +396,9 @@ describe("NodeCapabilityService — atomicity (throwing emit rolls back the capa
     // REAL emitter with an injected throwing `nextSequence` — the throw lands
     // INSIDE the emit, AFTER the upsert ran in the transaction, so the rollback
     // of the already-applied upsert is what is under test.
-    const sessionService: SessionService = new SessionService(ctx.db);
+    const sessionService: SessionService = new SessionService(ctx.db, {
+      allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly(),
+    });
     const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
       sessionEvents: sessionService,
       nextSequence: () => {

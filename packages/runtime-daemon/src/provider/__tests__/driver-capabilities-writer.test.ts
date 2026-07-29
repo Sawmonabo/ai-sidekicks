@@ -41,7 +41,7 @@ import {
 
 import { RuntimeNodeEventEmitter } from "../../node/node-event-emitter.js";
 import { openDatabase } from "../../session/migration-runner.js";
-import { SessionService } from "../../session/session-service.js";
+import { SessionService, UnsignedPlaceholderAppendToken } from "../../session/session-service.js";
 import { DriverCapabilitiesWriter } from "../driver-capabilities-writer.js";
 import { ProviderOutputValidationError } from "../provider-output-validation.js";
 
@@ -102,15 +102,20 @@ function makeAdvancingClock(): () => string {
   };
 }
 
-// Wire the production composition root over the current `db`, with a collision-
+// Wire the Phase-2 object graph over the current `db`, with a collision-
 // free deterministic event-id source so `session_events.id` (TEXT PRIMARY KEY)
 // never collides across emits. Returns the writer + the SessionService (so tests
-// can read the emitted events off the same connection).
+// can read the emitted events off the same connection). The append opt-in is
+// test-only: production wiring is Plan-006 T3.1's own leg, which re-points
+// this seam onto the durable append path (the async `EventLogService.append`
+// does not satisfy the synchronous seam directly).
 function makeWriter(now: () => string = makeAdvancingClock()): {
   writer: DriverCapabilitiesWriter;
   sessionService: SessionService;
 } {
-  const sessionService: SessionService = new SessionService(db);
+  const sessionService: SessionService = new SessionService(db, {
+    allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly(),
+  });
   let idCounter: number = 0;
   const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
     sessionEvents: sessionService,
@@ -1134,7 +1139,9 @@ describe("DriverCapabilitiesWriter — hydrate (cold-start cache read)", () => {
 
 describe("DriverCapabilitiesWriter — atomic dual-write (throwing emit rolls back)", () => {
   it("rolls back all three table writes when the emit throws (no rows for that driver)", () => {
-    const sessionService: SessionService = new SessionService(db);
+    const sessionService: SessionService = new SessionService(db, {
+      allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly(),
+    });
     // A REAL emitter whose append runs on the SAME connection, but whose emit is
     // forced to throw AFTER the writes ran inside the txn — an injected
     // `nextSequence` that throws makes `emitCapabilityDeclared` throw at append

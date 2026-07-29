@@ -54,8 +54,10 @@
 // not a DDL default). Shipping `DEFAULT zeroblob(32)` here would silently
 // mask future programming errors where the writer forgot to populate the
 // chain — defects we want to catch loudly. The application writer
-// (SessionService) is responsible for materializing the placeholder bytes
-// per-event.
+// (SessionService — append guarded test-only per the Plan-006 T3.1
+// precondition; T3.1's EventLogService succeeds it as the durable writer
+// with real integrity bytes) is responsible for materializing the
+// placeholder bytes per-event.
 //
 // Why CHECK(length(...)) on the integrity BLOBs: the schema doc names
 // exact byte widths (32/32/64). Adding a length CHECK at INSERT time
