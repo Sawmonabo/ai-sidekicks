@@ -565,6 +565,85 @@ describe("RuntimeNodeEventEmitter — SessionEventLog seam (structural, no Sessi
       "runtime_node.capability_declared",
     ]);
   });
+
+  // The seam is synchronous-transactional BY CONTRACT (the L2 producers emit
+  // inside better-sqlite3 connection-level transactions whose rollback
+  // semantics need append's failure to throw synchronously). TypeScript's
+  // void-return exception means an async implementation TYPE-CHECKS against
+  // `append(event): void`, so the refusal below is the only thing standing
+  // between the seam and a silent fire-and-forget — these tests are the
+  // guard's negative controls (PR #272 Codex round 1).
+  describe("synchronous-transactional contract — thenable append refused fail-closed", () => {
+    it("refuses a Promise-returning append with a pointed error naming the T3.1 re-point", () => {
+      const appendCalls: AppendableEvent[] = [];
+      // Deliberately async: this is exactly the shape Plan-006 T3.1's
+      // `EventLogService.append` will have, and exactly what must NOT be
+      // silently absorbed here.
+      const asyncEventLog: SessionEventLog = {
+        append: (event): void => {
+          appendCalls.push(event);
+          // A Promise-returning implementation seen through the void-typed
+          // seam — the TS void-return exception admits it without error.
+          return Promise.resolve() as unknown as void;
+        },
+        readEvents: () => [],
+      };
+      const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
+        sessionEvents: asyncEventLog,
+      });
+
+      expect(() =>
+        emitter.emitOnline({ sessionId: SESSION_ID, nodeId: NODE_ID, newState: "online" }),
+      ).toThrow(
+        /synchronous-transactional[\s\S]*EventLogService\.append[\s\S]*Plan-006 T3\.1[\s\S]*withSessionAppendLock/,
+      );
+
+      // Tripwire, not prevention: the implementation's synchronous prefix has
+      // already run by the time the thenable comes back — the guard's job is
+      // to be LOUD on the first emit, not to undo that work.
+      expect(appendCalls).toHaveLength(1);
+    });
+
+    it("refuses a REJECTING thenable without leaking an unhandled rejection", async () => {
+      // The orphaned promise settles on its own after the guard throws; the
+      // guard observes its rejection channel so the tripwire error is the
+      // only failure surfaced. An unswallowed rejection would fail this test
+      // file at the runner level once the microtask queue drains.
+      const rejectingEventLog: SessionEventLog = {
+        append: (): void => Promise.reject(new Error("mutex lost")) as unknown as void,
+        readEvents: () => [],
+      };
+      const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
+        sessionEvents: rejectingEventLog,
+      });
+
+      expect(() =>
+        emitter.emitOnline({ sessionId: SESSION_ID, nodeId: NODE_ID, newState: "online" }),
+      ).toThrow(/synchronous-transactional/);
+
+      // Drain the microtask queue so the swallowed rejection would have
+      // surfaced by now if the guard failed to observe it.
+      await Promise.resolve();
+    });
+
+    it("refuses a custom thenable (duck-typed, not instanceof Promise)", () => {
+      // `await` latches onto ANY `then` function, so the guard must too — a
+      // Promise-instanceof check would wave custom thenables through into
+      // the same fire-and-forget.
+      const customThenable = { then: (resolve?: (value?: unknown) => void) => resolve?.() };
+      const thenableEventLog: SessionEventLog = {
+        append: (): void => customThenable as unknown as void,
+        readEvents: () => [],
+      };
+      const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
+        sessionEvents: thenableEventLog,
+      });
+
+      expect(() =>
+        emitter.emitOnline({ sessionId: SESSION_ID, nodeId: NODE_ID, newState: "online" }),
+      ).toThrow(/synchronous-transactional/);
+    });
+  });
 });
 
 // ----------------------------------------------------------------------------

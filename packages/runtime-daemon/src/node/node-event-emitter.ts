@@ -4,9 +4,12 @@
 // `runtime_node.*` event through the injected durable session-event log
 // (the `SessionEventLog` seam below). As shipped (PR #137) the seam was
 // typed against Plan-001's `SessionService.append`; decoupled 2026-07-28
-// per the Plan-006 §Phase 3 T3.1 precondition, so Plan-006 T3.1's
-// `EventLogService` — the sole durable production writer — can be
-// injected without this module changing again. Until T3.1 lands, the
+// per the Plan-006 §Phase 3 T3.1 precondition, so the emitter names no
+// concrete storage class. The seam is SYNCHRONOUS-TRANSACTIONAL by
+// contract (see `SessionEventLog` below): Plan-006 T3.1's async
+// `EventLogService.append` does NOT satisfy it directly — T3.1's own
+// wiring leg re-points this emitter and restructures the producers'
+// transactional atomicity around `withSessionAppendLock`. Until then the
 // only implementation is Plan-001's `SessionService`, whose `append` is
 // now guarded test-only (`allowUnsignedPlaceholderAppend`). T2.1's
 // node-registry and T2.2's node-capability-service both import this
@@ -108,11 +111,32 @@ const RUNTIME_NODE_EVENT_VERSION: string = "1.0";
 // precondition ("Plan-003's shipped `RuntimeNodeEventEmitter` re-pointed
 // off" `SessionService.append`): the two methods are the exact surface
 // the emitter consumes, so any implementation satisfies it without a
-// nominal dependency. Implementations: Plan-001's `SessionService`
-// (append guarded test-only via `allowUnsignedPlaceholderAppend`) today;
-// Plan-006 T3.1's `EventLogService` — the sole durable production
-// writer — once it lands. `readEvents` is deliberately narrowed to the
-// `sequence`-only row shape the log-derive allocator needs, so a writer
+// nominal dependency.
+//
+// SYNCHRONOUS-TRANSACTIONAL BY CONTRACT. The three L2 producers
+// (NodeRegistry.register's dual-write, node-capability-service's and
+// driver-capabilities-writer's guarded writes) invoke emits inside
+// better-sqlite3 connection-level transactions: `append`'s INSERT must
+// execute — and its failure must THROW — synchronously inside the
+// caller's transaction, or the rollback semantics those producers ship
+// (a throwing emit rolls back the durable write that preceded it) are
+// silently lost. TypeScript's void-return exception would absorb a
+// Promise-returning `append` here without a compile error, turning a
+// durable-write failure into an unobserved rejection AFTER the caller's
+// transaction committed — so `#appendRuntimeNodeEvent` refuses a
+// thenable `append` result fail-closed rather than awaiting it.
+//
+// Implementations: Plan-001's `SessionService` (append guarded test-only
+// via `allowUnsignedPlaceholderAppend`) today. Plan-006 T3.1's
+// `EventLogService.append(envelope, options): Promise<...>` — the sole
+// durable production writer — is async (its per-session mutex; the
+// better-sqlite3 storage underneath is synchronous) and therefore does
+// NOT satisfy this seam: T3.1's wiring leg re-points the emitter and
+// restructures the producers' transactional atomicity around its
+// `withSessionAppendLock`, rather than injecting an async append into a
+// sync seam. `readEvents` is deliberately narrowed to the
+// `sequence`-only row shape the log-derive allocator needs (synchronous
+// reads stay honest for any better-sqlite3-backed writer), so a writer
 // that stores events differently can still satisfy the seam.
 export interface SessionEventLog {
   append(event: AppendableEvent): void;
@@ -230,6 +254,18 @@ export interface EmitCapabilityUpdatedInput extends RuntimeNodeEmitBase {
   // node-capability-service's JSON-round-tripped records.
   readonly previousState: RuntimeNodeCapabilityUpdatedPayload["previousState"];
   readonly newState: RuntimeNodeCapabilityUpdatedPayload["newState"];
+}
+
+/**
+ * A thenable by the Promises/A+ duck test (`typeof then === "function"` on an
+ * object or function) — the same shape `await` would latch onto. Used by the
+ * `#appendRuntimeNodeEvent` guard to refuse async `SessionEventLog.append`
+ * implementations fail-closed; see the seam contract above.
+ */
+function isThenable(value: unknown): value is PromiseLike<unknown> {
+  if (value === null) return false;
+  if (typeof value !== "object" && typeof value !== "function") return false;
+  return typeof (value as { then?: unknown }).then === "function";
 }
 
 // --------------------------------------------------------------------------
@@ -381,7 +417,26 @@ export class RuntimeNodeEventEmitter {
       causationId: base.causationId ?? null,
       version: RUNTIME_NODE_EVENT_VERSION,
     };
-    this.#sessionEvents.append(event);
+    const appendResult: unknown = this.#sessionEvents.append(event);
+    // Fail-closed thenable guard — the `SessionEventLog` seam contract above.
+    // A tripwire, not a recovery path: by the time a thenable comes back the
+    // implementation's synchronous prefix has already run, so this guard
+    // cannot undo that work — it exists to make wiring an async append LOUD
+    // on the first emit any test exercises, instead of a silent
+    // fire-and-forget that reports success before the durable write settles.
+    if (isThenable(appendResult)) {
+      // The orphaned promise still settles on its own; observe its rejection
+      // channel so the tripwire throw below is the ONLY failure surfaced
+      // (never a duplicate unhandled-rejection crash).
+      appendResult.then(undefined, () => {});
+      throw new Error(
+        "SessionEventLog.append returned a thenable: this seam is synchronous-transactional " +
+          "(the Plan-003 producers emit inside better-sqlite3 connection-level transactions " +
+          "whose rollback semantics need append's failure to throw synchronously). Wiring the " +
+          "async EventLogService.append is Plan-006 T3.1's own leg: it re-points this emitter " +
+          "and restructures the producers' atomicity around withSessionAppendLock.",
+      );
+    }
     return event;
   }
 
