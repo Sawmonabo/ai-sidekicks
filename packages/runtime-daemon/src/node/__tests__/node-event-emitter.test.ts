@@ -74,6 +74,14 @@ const PARTICIPANT_ID: string = "01J0PA0000NN5J5J5J5J5J5J5J";
 const ZERO_HASH_LEN: number = 32;
 const ZERO_SIGNATURE_LEN: number = 64;
 
+// The compile-time async-append-rejection control's title, bound to an
+// exported identifier so governance docs can cite the control durably (the
+// docs-corpus gate's symbol matcher is identifier-shaped): renaming or
+// deleting the test breaks the inbound cite instead of leaving it validating
+// against nothing (same pattern as migration-shape.test.ts's exported titles).
+export const COMPILE_TIME_ASYNC_APPEND_REJECTION_TEST: string =
+  "rejects a Promise-returning append at COMPILE time (undefined return, not void)";
+
 // Raw read shape for the integrity columns that `StoredEvent` does not expose.
 interface IntegrityRow {
   readonly sequence: bigint;
@@ -606,7 +614,7 @@ describe("RuntimeNodeEventEmitter — SessionEventLog seam (structural, no Sessi
   // cast to reach the runtime guard at all). These tests are the guard's
   // negative controls.
   describe("synchronous-transactional contract — thenable append refused fail-closed", () => {
-    it("rejects a Promise-returning append at COMPILE time (undefined return, not void)", () => {
+    it(COMPILE_TIME_ASYNC_APPEND_REJECTION_TEST, () => {
       // Layer 1: `Promise` is not assignable to `undefined`, so the exact
       // fire-and-forget shape round 1 guarded against no longer typechecks.
       // Deleting the directive below must yield the underlying assignment

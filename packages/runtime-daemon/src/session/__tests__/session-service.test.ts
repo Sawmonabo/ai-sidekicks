@@ -1110,8 +1110,18 @@ describe("session_events integrity-column CHECK constraints", () => {
 // refusal test below is the guard's own negative control — it proves the
 // guard fires, so the opted-in green suite is not vacuous evidence.
 
+// The guard's negative controls' titles, bound to exported identifiers so
+// governance docs can cite the controls durably (the docs-corpus gate's
+// symbol matcher is identifier-shaped): renaming or deleting either test
+// breaks the inbound cite instead of leaving it validating against nothing
+// (same pattern as migration-shape.test.ts's exported titles).
+export const DEFAULT_CONSTRUCTED_APPEND_REFUSAL_TEST: string =
+  "refuses append on a default-constructed service, naming the replacement writer and the opt-in";
+export const FORGED_TOKEN_REFUSAL_TEST: string =
+  "refuses a FORGED token — the guard checks identity against the module-private singleton, not structure";
+
 describe("SessionService — append guard (unsigned placeholder writes are opt-in)", () => {
-  it("refuses append on a default-constructed service, naming the replacement writer and the opt-in", () => {
+  it(DEFAULT_CONSTRUCTED_APPEND_REFUSAL_TEST, () => {
     const guardedService: SessionService = new SessionService(ctx.db);
     expect(() => guardedService.append(makeCreatedEvent())).toThrow(
       /SessionService\.append is guarded/,
@@ -1126,7 +1136,7 @@ describe("SessionService — append guard (unsigned placeholder writes are opt-i
     expect(guardedService.readEvents(SESSION_ID)).toHaveLength(0);
   });
 
-  it("refuses a FORGED token — the guard checks identity against the module-private singleton, not structure", () => {
+  it(FORGED_TOKEN_REFUSAL_TEST, () => {
     // A boolean opt-in (even the literal `true`) can be threaded from
     // configuration (`condition ? true : undefined` typechecks; an `if`
     // narrows `boolean` to `true`) — PR #272 Codex round 2. The token
