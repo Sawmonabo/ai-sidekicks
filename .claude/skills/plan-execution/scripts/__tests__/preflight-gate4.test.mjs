@@ -1204,7 +1204,7 @@ test("findSectionHeading: blockquoted fences hide their example headings", () =>
 
 test("findSectionHeading: backtick-fence info strings may not contain backticks", () => {
   // Codex round-6 P2 on PR #224: a ```ts`x line is inline code, not a
-  // fence opener (CommonMark 4.5; advanceFenceState parity) — treating it
+  // fence opener (CommonMark 4.5; advanceScanState parity) — treating it
   // as a fence swallowed every later heading until a matching closer.
   const inlineCode = ["```ts`inline`x", "## Real (v1)", "body"];
   assert.equal(findSectionHeading("Real", inlineCode).found, true);

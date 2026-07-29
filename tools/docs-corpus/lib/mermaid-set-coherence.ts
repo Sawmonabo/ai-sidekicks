@@ -28,12 +28,7 @@
 import { readFileSync } from "node:fs";
 
 import type { FileContentReader } from "./cite-target-existence.ts";
-import {
-  advanceFenceState,
-  INITIAL_SCAN_STATE,
-  type MarkdownScanState,
-  stripBlockquotePrefix,
-} from "./markdown-fences.ts";
+import { advanceScanState, INITIAL_SCAN_STATE, type MarkdownScanState } from "./markdown-fences.ts";
 
 export interface MermaidViolation {
   file: string;
@@ -88,16 +83,15 @@ export function parseFile(
   let inMermaidFence = false;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const stripped = stripBlockquotePrefix(line);
-    const stepped = advanceFenceState(stripped, scanState);
-    fenced[i] = scanState.openFence !== null || stepped.isDelimiterLine;
-    if (scanState.openFence === null && stepped.state.openFence !== null) {
+    const stepped = advanceScanState(line, scanState);
+    fenced[i] = stepped.openFenceAtLineStart !== null || stepped.isDelimiterLine;
+    if (stepped.openFenceAtLineStart === null && stepped.state.openFence !== null) {
       inMermaidFence = MERMAID_INFO_STRING_RE.test(stepped.state.openFence.infoString);
     } else if (stepped.state.openFence === null) {
       inMermaidFence = false;
     }
     const isMermaidContent =
-      scanState.openFence !== null && stepped.state.openFence !== null && inMermaidFence;
+      stepped.openFenceAtLineStart !== null && stepped.state.openFence !== null && inMermaidFence;
     scanState = stepped.state;
     if (!isMermaidContent) continue;
     const m = /^\s*(\w+)\s*\[[^\]]*\]\s*:::\s*(\w+)/.exec(line);

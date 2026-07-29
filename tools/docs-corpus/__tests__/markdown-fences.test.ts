@@ -1,6 +1,6 @@
 // Direct suite for the shared fence tracker.
 //
-// Coverage was never the gap: perturbing advanceFenceState already reddens the
+// Coverage was never the gap: perturbing advanceScanState already reddens the
 // suite — but via 13 of 15 failures spread across label-cite and
 // cite-target-existence, two modules that merely CONSUME it. The failure text
 // then describes a heading that went uncollected or a cite that went
@@ -19,10 +19,11 @@
 
 import { describe, it, expect } from "vitest";
 import {
-  advanceFenceState,
+  advanceScanState,
   blockquoteDepth,
   INITIAL_SCAN_STATE,
   stripBlockquotePrefix,
+  stripQuoteLevels,
 } from "../lib/markdown-fences.ts";
 import type { MarkdownScanState, OpenFence } from "../lib/markdown-fences.ts";
 
@@ -31,9 +32,8 @@ function fencedLineIndices(lines: string[]): number[] {
   let scanState: MarkdownScanState = INITIAL_SCAN_STATE;
   const fenced: number[] = [];
   lines.forEach((line, index) => {
-    const openAtLineStart = scanState.openFence !== null;
-    const result = advanceFenceState(stripBlockquotePrefix(line), scanState);
-    if (openAtLineStart && !result.isDelimiterLine) fenced.push(index);
+    const result = advanceScanState(line, scanState);
+    if (result.openFenceAtLineStart !== null && !result.isDelimiterLine) fenced.push(index);
     scanState = result.state;
   });
   return fenced;
@@ -41,21 +41,31 @@ function fencedLineIndices(lines: string[]): number[] {
 
 /** A state holding one open fence and no list containers. */
 function fenceOpen(marker: string, length: number, infoString = ""): MarkdownScanState {
-  return { containers: [], openFence: { marker, length, infoString } };
+  return {
+    containers: [],
+    openFence: { marker, length, infoString, blockquoteDepth: 0 },
+    blockquoteDepth: 0,
+    inParagraph: false,
+  };
 }
 
 /** Walk a container opener then a delimiter, returning the fence that opened. */
 function fenceUnderContainer(containerLine: string, delimiterLine: string): OpenFence | null {
-  const afterContainer = advanceFenceState(containerLine, INITIAL_SCAN_STATE).state;
-  return advanceFenceState(delimiterLine, afterContainer).state.openFence;
+  const afterContainer = advanceScanState(containerLine, INITIAL_SCAN_STATE).state;
+  return advanceScanState(delimiterLine, afterContainer).state.openFence;
 }
 
 describe("markdown-fences — opener indentation (CommonMark 0-3 spaces)", () => {
   it("opens on 0 through 3 leading spaces", () => {
     for (const indent of ["", " ", "  ", "   "]) {
-      const { state, isDelimiterLine } = advanceFenceState(`${indent}\`\`\``, INITIAL_SCAN_STATE);
+      const { state, isDelimiterLine } = advanceScanState(`${indent}\`\`\``, INITIAL_SCAN_STATE);
       expect(isDelimiterLine, `${JSON.stringify(indent)} must open a fence`).toBe(true);
-      expect(state.openFence).toEqual({ marker: "`", length: 3, infoString: "" });
+      expect(state.openFence).toEqual({
+        marker: "`",
+        length: 3,
+        infoString: "",
+        blockquoteDepth: 0,
+      });
     }
   });
 
@@ -67,13 +77,13 @@ describe("markdown-fences — opener indentation (CommonMark 0-3 spaces)", () =>
     // This is also the negative control for every container fixture below: the
     // SAME four spaces open a fence once a list item puts the content column
     // there, so what distinguishes them is container context and nothing else.
-    const { state, isDelimiterLine } = advanceFenceState("    ```", INITIAL_SCAN_STATE);
+    const { state, isDelimiterLine } = advanceScanState("    ```", INITIAL_SCAN_STATE);
     expect(isDelimiterLine).toBe(false);
     expect(state.openFence).toBeNull();
   });
 
   it("does NOT open on a leading tab — it expands past the three-space limit", () => {
-    const { state, isDelimiterLine } = advanceFenceState("\t```", INITIAL_SCAN_STATE);
+    const { state, isDelimiterLine } = advanceScanState("\t```", INITIAL_SCAN_STATE);
     expect(isDelimiterLine).toBe(false);
     expect(state.openFence).toBeNull();
   });
@@ -83,7 +93,7 @@ describe("markdown-fences — info strings (CommonMark 4.5)", () => {
   it("does NOT treat a backtick-bearing backtick info string as a delimiter", () => {
     // PR #207 round 4: ```` ```ts`x ```` is inline code. Opening a fence here
     // would exempt the following prose from the volatile-cite deny.
-    const { state, isDelimiterLine } = advanceFenceState("```ts`x", INITIAL_SCAN_STATE);
+    const { state, isDelimiterLine } = advanceScanState("```ts`x", INITIAL_SCAN_STATE);
     expect(isDelimiterLine).toBe(false);
     expect(state.openFence).toBeNull();
   });
@@ -91,16 +101,22 @@ describe("markdown-fences — info strings (CommonMark 4.5)", () => {
   it("DOES allow a backtick inside a tilde info string", () => {
     // The complement — without it the rule above could be over-applied to
     // every marker and nothing would notice.
-    const { state, isDelimiterLine } = advanceFenceState("~~~ts`x", INITIAL_SCAN_STATE);
+    const { state, isDelimiterLine } = advanceScanState("~~~ts`x", INITIAL_SCAN_STATE);
     expect(isDelimiterLine).toBe(true);
-    expect(state.openFence).toEqual({ marker: "~", length: 3, infoString: "ts`x" });
+    expect(state.openFence).toEqual({
+      marker: "~",
+      length: 3,
+      infoString: "ts`x",
+      blockquoteDepth: 0,
+    });
   });
 
   it("opens on an ordinary info string", () => {
-    expect(advanceFenceState("```ts", INITIAL_SCAN_STATE).state.openFence).toEqual({
+    expect(advanceScanState("```ts", INITIAL_SCAN_STATE).state.openFence).toEqual({
       marker: "`",
       length: 3,
       infoString: "ts",
+      blockquoteDepth: 0,
     });
   });
 
@@ -112,7 +128,7 @@ describe("markdown-fences — info strings (CommonMark 4.5)", () => {
     // Reading the info string keeps the delimiter's shape the tracker's business
     // alone.
     expect(fenceUnderContainer("10. item", "    ```mermaid")?.infoString).toBe("mermaid");
-    expect(advanceFenceState("~~~  mermaid", INITIAL_SCAN_STATE).state.openFence?.infoString).toBe(
+    expect(advanceScanState("~~~  mermaid", INITIAL_SCAN_STATE).state.openFence?.infoString).toBe(
       "  mermaid",
     );
   });
@@ -122,36 +138,42 @@ describe("markdown-fences — closer rules", () => {
   const OPEN_THREE = fenceOpen("`", 3);
 
   it("closes on the same marker at the opener's length", () => {
-    expect(advanceFenceState("```", OPEN_THREE).state.openFence).toBeNull();
+    expect(advanceScanState("```", OPEN_THREE).state.openFence).toBeNull();
   });
 
   it("closes on a LONGER run of the same marker", () => {
-    expect(advanceFenceState("````", OPEN_THREE).state.openFence).toBeNull();
+    expect(advanceScanState("````", OPEN_THREE).state.openFence).toBeNull();
   });
 
   it("does NOT close on a shorter run than the opener", () => {
     const openFour = fenceOpen("`", 4);
-    const result = advanceFenceState("```", openFour);
-    expect(result.state.openFence).toEqual({ marker: "`", length: 4, infoString: "" });
+    const result = advanceScanState("```", openFour);
+    expect(result.state.openFence).toEqual({
+      marker: "`",
+      length: 4,
+      infoString: "",
+      blockquoteDepth: 0,
+    });
     // Still a delimiter LINE — it is fence content that looks like a
     // delimiter, and callers must not treat it as prose.
     expect(result.isDelimiterLine).toBe(true);
   });
 
   it("does NOT close a backtick fence with tildes", () => {
-    expect(advanceFenceState("~~~", OPEN_THREE).state.openFence).toEqual({
+    expect(advanceScanState("~~~", OPEN_THREE).state.openFence).toEqual({
       marker: "`",
       length: 3,
       infoString: "",
+      blockquoteDepth: 0,
     });
   });
 
   it("does NOT close when the tail carries non-whitespace", () => {
-    expect(advanceFenceState("``` js", OPEN_THREE).state.openFence).not.toBeNull();
+    expect(advanceScanState("``` js", OPEN_THREE).state.openFence).not.toBeNull();
   });
 
   it("DOES close when the tail is whitespace only", () => {
-    expect(advanceFenceState("```   ", OPEN_THREE).state.openFence).toBeNull();
+    expect(advanceScanState("```   ", OPEN_THREE).state.openFence).toBeNull();
   });
 });
 
@@ -286,7 +308,7 @@ describe("markdown-fences — stripBlockquotePrefix", () => {
 
   it("strips up to three spaces before a marker but not four, and not a tab", () => {
     // Same CommonMark budget as the opener rule; stripping past it would hand
-    // advanceFenceState a synthetic delimiter that bypasses its own guard
+    // advanceScanState a synthetic delimiter that bypasses its own guard
     // (PR #207 round 4).
     expect(stripBlockquotePrefix("   > three spaces")).toBe("three spaces");
     expect(stripBlockquotePrefix("    > four spaces")).toBe("    > four spaces");
@@ -349,5 +371,231 @@ describe("markdown-fences — document walk", () => {
   it("treats a quoted fence as a fence, so quoted examples stay hidden", () => {
     const fenced = fencedLineIndices(["> ```md", "> ## quoted heading", "> ```", "after"]);
     expect(fenced).toEqual([1]);
+  });
+});
+
+describe("markdown-fences — paragraph interruption (CommonMark 0.31.2 §5.2)", () => {
+  // Codex, PR #273 round 1. `2. text` under prose is paragraph text, not a
+  // list: pushing a container for it moved the delimiter budget, so the
+  // four-space backtick line below became a list-relative FENCE instead of
+  // indented code, and every fence-aware check went silent over the live prose
+  // after it. Suppression is the fail-open direction, so each case here is
+  // paired with the complement that must still open a list.
+
+  it("does not open a list for an ordered marker other than 1 under prose", () => {
+    const fenced = fencedLineIndices([
+      "Some ordinary prose.",
+      "2. not a list — paragraph text",
+      "    ```ts",
+      "packages/x.ts:24",
+      "    ```",
+      "live prose after",
+    ]);
+    // No container, so the four-space delimiters are indented code and open
+    // nothing: not one line is fenced, and the pin below EOF stays live.
+    expect(fenced).toEqual([]);
+  });
+
+  it("DOES open a list for `1.` under prose, which may interrupt", () => {
+    // The complement. Without it the rule above could be over-applied to every
+    // ordered marker and nothing would notice.
+    const fenced = fencedLineIndices([
+      "Some ordinary prose.",
+      "1. a list that legitimately interrupts",
+      "   ```ts",
+      "code",
+      "   ```",
+    ]);
+    expect(fenced).toEqual([3]);
+  });
+
+  it("DOES open a list for a bullet under prose", () => {
+    const fenced = fencedLineIndices([
+      "Some ordinary prose.",
+      "- a bullet interrupts a paragraph",
+      "  ```ts",
+      "code",
+      "  ```",
+    ]);
+    expect(fenced).toEqual([3]);
+  });
+
+  it("does not open a list for an EMPTY item under prose (Example 285)", () => {
+    // Asserted on the container stack, not through a fence: an empty bullet's
+    // content column is 2, which is a legal root-relative delimiter indent
+    // either way, so fence classification cannot discriminate this rule.
+    const afterProse = advanceScanState("Some ordinary prose.", INITIAL_SCAN_STATE).state;
+    expect(afterProse.inParagraph).toBe(true);
+    expect(advanceScanState("-", afterProse).state.containers).toEqual([]);
+    // The complement: with no paragraph open, the same empty item DOES push.
+    expect(advanceScanState("-", INITIAL_SCAN_STATE).state.containers).toEqual([2]);
+  });
+
+  it("lets a non-1 marker continue a list that is already open", () => {
+    // The restriction binds only a list's FIRST item. `1.` opens the list, so
+    // `10.` continues it and its content column still governs — over-applying
+    // the rule here would drop the container and mis-measure the fence.
+    const fenced = fencedLineIndices([
+      "1. first item",
+      "10. second item",
+      "    ```ts",
+      "code",
+      "    ```",
+    ]);
+    expect(fenced).toEqual([3]);
+  });
+
+  it("re-arms after a blank line ends the paragraph", () => {
+    const fenced = fencedLineIndices([
+      "Some ordinary prose.",
+      "",
+      "2. now a real list — no paragraph to interrupt",
+      "    ```ts",
+      "code",
+      "    ```",
+    ]);
+    expect(fenced).toEqual([4]);
+  });
+
+  it("re-arms after a heading, which is not paragraph text", () => {
+    const fenced = fencedLineIndices([
+      "## A heading",
+      "2. a list under a heading",
+      "    ```ts",
+      "code",
+      "    ```",
+    ]);
+    expect(fenced).toEqual([3]);
+  });
+});
+
+describe("markdown-fences — blockquote containers (CommonMark 0.31.2 §5.1)", () => {
+  // Codex, PR #273 round 1. Callers used to strip the `>` before the tracker
+  // saw the line, so a quote exit was invisible and a quoted list's content
+  // column leaked to root level.
+
+  it("drops a quoted list's containers when the quote ends", () => {
+    const fenced = fencedLineIndices([
+      "> 10. quoted item",
+      "    ```ts",
+      "Spec-001:12",
+      "    ```",
+      "live prose after",
+    ]);
+    // The `10. ` container died with the blockquote, so the root-level
+    // four-space delimiter is indented code, not a fence.
+    expect(fenced).toEqual([]);
+  });
+
+  it("still honours the container while the quote continues", () => {
+    // The complement: inside the quote the content column is real.
+    const fenced = fencedLineIndices(["> 10. quoted item", ">     ```ts", "> code", ">     ```"]);
+    expect(fenced).toEqual([2]);
+  });
+
+  it("kills a fence at the first line shallower than its opener (Example 237)", () => {
+    // The third line RE-OPENS a fence at top level, which is why the shallower
+    // line is processed normally rather than skipped.
+    const fenced = fencedLineIndices(["> ```", "foo", "```", "after"]);
+    // `foo` left the quote, so the quoted fence died and `foo` is live prose.
+    // The third line then RE-OPENS a fence at top level — the example's whole
+    // point — so `after` is fence content.
+    expect(fenced).toEqual([3]);
+  });
+
+  it("treats a DEEPER delimiter inside a quoted fence as content", () => {
+    const fenced = fencedLineIndices(["> ```md", ">> ```", "> still inside", "> ```", "after"]);
+    expect(fenced).toEqual([1, 2]);
+  });
+
+  it("keeps a quoted paragraph open across an unquoted line (laziness)", () => {
+    // CommonMark 0.31.2 §5.1 laziness: an unquoted line whose content is
+    // paragraph continuation text continues the quoted paragraph. `2. x`
+    // cannot interrupt a paragraph, so it IS that continuation text and opens
+    // no list — clearing paragraph state on the depth change would let it push
+    // a container and re-create the false fence R1-2 is about.
+    const fenced = fencedLineIndices([
+      "> Some quoted prose.",
+      "2. still the same paragraph",
+      "    ```ts",
+      "Spec-001:12",
+      "    ```",
+    ]);
+    expect(fenced).toEqual([]);
+  });
+
+  it("treats a quoted delimiter inside an UNQUOTED fence as content", () => {
+    const fenced = fencedLineIndices(["```md", "> ```", "still inside", "```", "after"]);
+    expect(fenced).toEqual([1, 2]);
+  });
+});
+
+describe("markdown-fences — stripQuoteLevels", () => {
+  it("agrees with the shared strip at full depth, exhaustively", () => {
+    // `stripQuoteLevels(line, blockquoteDepth(line))` must equal
+    // `stripBlockquotePrefix(line)` for every line — that equality is what
+    // makes the depth-limited strip a REFINEMENT of the shared one rather than
+    // a second implementation of it, and it is the only thing standing between
+    // "exactly D levels" and a subtly different prefix grammar.
+    //
+    // Checked by exhaustive enumeration rather than by examples. The alphabet
+    // is the grammar's own: quote marker, both indent characters, a fence
+    // character, and one ordinary letter — nothing else can change how the
+    // prefix parses. This control was carried down from the Done-Checklist
+    // census when the mechanism moved here; it now tests the live
+    // implementation instead of that file's copy of it.
+    const QUOTE_ALPHABET = [" ", "\t", ">", "`", "a"];
+    const BOUND = 6;
+
+    function* stringsOverAlphabet(alphabet: string[], maxLength: number): Generator<string> {
+      const buffer: string[] = [];
+      function* extend(): Generator<string> {
+        yield buffer.join("");
+        if (buffer.length === maxLength) return;
+        for (const character of alphabet) {
+          buffer.push(character);
+          yield* extend();
+          buffer.pop();
+        }
+      }
+      yield* extend();
+    }
+
+    let checked = 0;
+    const divergent: string[] = [];
+    // Non-vacuity, measured in the SAME pass: a strip that consumed the
+    // trailing space even when no marker was present must be SEPARATED by this
+    // enumeration, or the sweep proves nothing about the zero-level case.
+    let separatedFromZeroLevelSlip = 0;
+    const zeroLevelSlip = (line: string, levels: number): string => {
+      let rest = line;
+      for (let level = 0; level < levels; level++) rest = rest.replace(/^ {0,3}>/, "");
+      return rest.replace(/^ ?/, "");
+    };
+
+    for (const line of stringsOverAlphabet(QUOTE_ALPHABET, BOUND)) {
+      checked++;
+      const depth = blockquoteDepth(line);
+      if (stripQuoteLevels(line, depth) !== stripBlockquotePrefix(line)) divergent.push(line);
+      if (zeroLevelSlip(line, depth) !== stripBlockquotePrefix(line)) separatedFromZeroLevelSlip++;
+    }
+
+    expect(divergent.slice(0, 8)).toEqual([]);
+    // The closed form for sum(5^k, k=0..BOUND). Pinned so a generator that
+    // silently stops early cannot report a clean sweep over almost nothing.
+    expect(checked).toBe((QUOTE_ALPHABET.length ** (BOUND + 1) - 1) / (QUOTE_ALPHABET.length - 1));
+    expect(separatedFromZeroLevelSlip).toBeGreaterThan(0);
+  });
+
+  it("leaves a deeper marker in place as content", () => {
+    expect(stripQuoteLevels(">> ```", 1)).toBe("> ```");
+    expect(stripQuoteLevels("> ```", 1)).toBe("```");
+  });
+
+  it("does not eat a space when no marker was stripped", () => {
+    // A root-level `    ``` ` read against a depth-1 fence must not lose a
+    // space and become a valid three-space closer.
+    expect(stripQuoteLevels("    ```", 1)).toBe("    ```");
+    expect(stripQuoteLevels("    ```", 0)).toBe("    ```");
   });
 });

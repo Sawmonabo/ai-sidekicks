@@ -242,11 +242,11 @@ describe("mermaid-set-coherence — KNOWN GAP: shapes the enumeration regex cann
 });
 
 // Both scans (mermaid node collection and the enumeration guard) run on the
-// shared advanceFenceState tracker. The private toggles they replaced diverged
+// shared advanceScanState tracker. The private toggles they replaced diverged
 // from CommonMark: they closed a fence on ANY same-marker line (an
 // info-string'd inner delimiter ended suppression early), and the node scan
 // recognized only an exactly-three-backtick mermaid opener.
-describe("mermaid-set-coherence — fence tracking (shared advanceFenceState)", () => {
+describe("mermaid-set-coherence — fence tracking (shared advanceScanState)", () => {
   // NS22 decorated :::ready but absent from any (NS-01)-only enumeration — the
   // incoherence every fixture below carries.
   const GRAPH_LINES = [

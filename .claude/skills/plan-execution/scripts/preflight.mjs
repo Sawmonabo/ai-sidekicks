@@ -102,7 +102,7 @@ export function extractPhaseSection(planSource, phaseNumber) {
 // info string — closes, so a longer outer run contains shorter inner runs
 // (a 4-backtick fence wraps 3-backtick lines), matching the nesting plans
 // use. A BACKTICK fence's info string may not itself contain a backtick
-// (CommonMark 4.5; parity with tools/docs-corpus advanceFenceState —
+// (CommonMark 4.5; parity with tools/docs-corpus advanceScanState —
 // Codex round-6, PR #224): a ```ts`x line is inline code, not a
 // delimiter, and must not swallow the headings that follow. Tilde info
 // strings may carry backticks; closers are unaffected (their tails are

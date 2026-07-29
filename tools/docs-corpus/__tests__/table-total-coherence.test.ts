@@ -252,12 +252,12 @@ Just prose, no table.
   });
 });
 
-// The fence pre-scan runs on the shared advanceFenceState tracker. The private
+// The fence pre-scan runs on the shared advanceScanState tracker. The private
 // toggle it replaced diverged from CommonMark in three ways, each pinned here:
 // it closed a fence on ANY same-marker line (an info-string'd inner delimiter
 // ended suppression early), it opened fences on indented code, and it never
 // looked through blockquote containers.
-describe("table-total-coherence — fence tracking (shared advanceFenceState)", () => {
+describe("table-total-coherence — fence tracking (shared advanceScanState)", () => {
   // Sums 99 but asserts 1 — fires total-row-mismatch anywhere it goes live.
   const DRIFTED_TABLE = [
     '<!-- corpus:total-check column="Count" -->',

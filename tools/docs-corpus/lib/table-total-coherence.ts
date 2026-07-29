@@ -50,12 +50,7 @@
 import { readFileSync } from "node:fs";
 
 import type { FileContentReader } from "./cite-target-existence.ts";
-import {
-  advanceFenceState,
-  INITIAL_SCAN_STATE,
-  type MarkdownScanState,
-  stripBlockquotePrefix,
-} from "./markdown-fences.ts";
+import { advanceScanState, INITIAL_SCAN_STATE, type MarkdownScanState } from "./markdown-fences.ts";
 import { isDelimiterRow, isTableRow, splitRow } from "./markdown-tables.ts";
 
 export type TableTotalViolationKind =
@@ -127,8 +122,8 @@ export function parseFile(
   const fenced = new Array<boolean>(lines.length).fill(false);
   let scanState: MarkdownScanState = INITIAL_SCAN_STATE;
   for (let i = 0; i < lines.length; i++) {
-    const stepped = advanceFenceState(stripBlockquotePrefix(lines[i]), scanState);
-    fenced[i] = scanState.openFence !== null || stepped.isDelimiterLine;
+    const stepped = advanceScanState(lines[i], scanState);
+    fenced[i] = stepped.openFenceAtLineStart !== null || stepped.isDelimiterLine;
     scanState = stepped.state;
   }
 

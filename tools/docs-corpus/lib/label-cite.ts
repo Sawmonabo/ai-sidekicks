@@ -56,7 +56,7 @@ import {
   type FileContentReader,
 } from "./cite-target-existence.ts";
 import {
-  advanceFenceState,
+  advanceScanState,
   INITIAL_SCAN_STATE,
   type MarkdownScanState,
   stripBlockquotePrefix,
@@ -268,18 +268,24 @@ function collapseDotSegments(path: string): string {
 // info-string closer lines are handled exactly like the deny loop; heading
 // collection itself stays on the RAW line — a blockquoted `> ## Heading` is
 // quoted example prose, not a citable section.
+//
+// The tracker takes that RAW line too: the blockquote prefix is what carries
+// depth, and a pre-stripped line reads as depth 0 forever, so a `> ``` `
+// example fence would be recorded at top level and outlive the quote that
+// holds it, suppressing every real heading below (PR #273 round 1).
 function listDocHeadings(docContent: string): string[] {
   const headings: string[] = [];
   let scanState: MarkdownScanState = INITIAL_SCAN_STATE;
   for (const line of docContent.split("\n")) {
-    const advanced = advanceFenceState(stripBlockquotePrefix(line), scanState);
+    const advanced = advanceScanState(line, scanState);
     // Assigned on EVERY line, not only delimiters: the state carries the list
-    // container stack, which an ordinary marker line is what advances. Fence
-    // state itself is unchanged off delimiter lines, so the open-fence test
-    // below reads the same value it always did.
+    // container stack, which an ordinary marker line is what advances. The
+    // fence test reads `openFenceAtLineStart`, never the settled state — a
+    // fence dies on the line that leaves its container, and that line's own
+    // content is already outside it.
     scanState = advanced.state;
     if (advanced.isDelimiterLine) continue;
-    if (scanState.openFence === null && /^#+\s+/.test(line)) {
+    if (advanced.openFenceAtLineStart === null && /^#+\s+/.test(line)) {
       headings.push(line.replace(/^#+\s+/, "").trim());
     }
   }
@@ -675,13 +681,15 @@ function extractLabelCitesFrom(
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (trackFences) {
-      const advanced = advanceFenceState(stripBlockquotePrefix(line), scanState);
+      const advanced = advanceScanState(line, scanState);
       // Assigned on EVERY line: the state carries the list container stack,
-      // which ordinary marker lines advance. Fence state is unchanged off
-      // delimiter lines, so the open-fence test below is what it always was.
+      // which ordinary marker lines advance. The fence test reads
+      // `openFenceAtLineStart`, never the settled state — a fence dies on the
+      // line that leaves its container, and that line's own content is
+      // already outside it.
       scanState = advanced.state;
       if (advanced.isDelimiterLine) continue;
-      if (scanState.openFence !== null) continue;
+      if (advanced.openFenceAtLineStart !== null) continue;
     }
     let m: RegExpExecArray | null;
 
@@ -1156,26 +1164,30 @@ export function checkMarkdownVolatileCites(
       }
     };
 
-    // Fence tracking via the shared CommonMark tracker (blockquote-stripped
-    // input; delimiter-matched, whitespace-only closers — see
-    // advanceFenceState). A delimiter line of either kind breaks wrap
-    // adjacency: the label half of a wrapped cite cannot sit on the far side
-    // of a fence boundary from its locator.
+    // Fence tracking via the shared CommonMark tracker (RAW input — it does
+    // its own container-relative stripping; delimiter-matched, whitespace-only
+    // closers — see advanceScanState). A delimiter line of either kind breaks
+    // wrap adjacency: the label half of a wrapped cite cannot sit on the far
+    // side of a fence boundary from its locator. `unquoted` below is a
+    // SEPARATE, all-levels strip for this loop's own prose parsing, which
+    // wants the line's text whatever container holds it.
     let scanState: MarkdownScanState = INITIAL_SCAN_STATE;
     let previousProseLine: string | null = null;
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const unquoted = stripBlockquotePrefix(line);
-      const advanced = advanceFenceState(unquoted, scanState);
+      const advanced = advanceScanState(line, scanState);
       // Assigned on EVERY line: the state carries the list container stack,
-      // which ordinary marker lines advance. Fence state is unchanged off
-      // delimiter lines, so the open-fence test below is what it always was.
+      // which ordinary marker lines advance. The fence test reads
+      // `openFenceAtLineStart`, never the settled state — a fence dies on the
+      // line that leaves its container, and that line's own content is
+      // already outside it.
       scanState = advanced.state;
       if (advanced.isDelimiterLine) {
         previousProseLine = null;
         continue;
       }
-      if (scanState.openFence !== null) continue;
+      if (advanced.openFenceAtLineStart !== null) continue;
       if (line.includes(CITE_SHAPE_EXAMPLE_MARKER)) {
         previousProseLine = null;
         continue;

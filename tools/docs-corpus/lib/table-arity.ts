@@ -184,7 +184,7 @@ import { readFileSync } from "node:fs";
 
 import type { FileContentReader } from "./cite-target-existence.ts";
 import {
-  advanceFenceState,
+  advanceScanState,
   blockquoteDepth,
   INITIAL_SCAN_STATE,
   type MarkdownScanState,
@@ -469,10 +469,14 @@ export function parseFile(
       continue;
     }
 
-    const { state: nextScanState, isDelimiterLine } = advanceFenceState(unquoted, scanState);
+    const {
+      state: nextScanState,
+      isDelimiterLine,
+      openFenceAtLineStart,
+    } = advanceScanState(lines[i], scanState);
     // The opener, the closer, and everything between are fence CONTENT: an
     // illustrative table inside ``` is prose about a table, not one.
-    const fenceSuppressed = scanState.openFence !== null || isDelimiterLine;
+    const fenceSuppressed = openFenceAtLineStart !== null || isDelimiterLine;
     scanState = nextScanState;
     if (fenceSuppressed) {
       openTable = null;
