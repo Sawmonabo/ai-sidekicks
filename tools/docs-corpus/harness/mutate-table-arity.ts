@@ -25,7 +25,7 @@
 // do not retire the arm.
 
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -412,7 +412,27 @@ process.on("SIGTERM", () => {
   process.exit(143);
 });
 
-function runSuite(suite: string = ARITY_SUITE): string[] {
+/**
+ * One vitest run's outcome. Harvesting only failed assertions is not enough:
+ * a run can fail at REPORTER level with zero failing assertions — a
+ * transform/import/setup error writes a failed suite entry with an empty
+ * `assertionResults`, and a path that matches no test writes `success: false`
+ * with an empty `testResults` — and reading either as "no failures" turns a
+ * red run green (Codex, PR #271 round 2; both shapes probed against vitest's
+ * actual JSON output). `failures` therefore carries failing assertion titles
+ * AND suite-level error lines, and `reportedSuccess` is the report's own
+ * top-level verdict — a run counts as green only when both agree.
+ */
+interface SuiteVerdict {
+  reportedSuccess: boolean;
+  failures: string[];
+}
+
+function runSuite(suite: string = ARITY_SUITE): SuiteVerdict {
+  // Delete the previous report first: a run that crashes before reporting
+  // would otherwise leave the PRIOR run's report in place, and re-reading it
+  // silently scores this run with the previous run's failure set.
+  rmSync(REPORT, { force: true });
   try {
     execFileSync(
       "pnpm",
@@ -422,29 +442,62 @@ function runSuite(suite: string = ARITY_SUITE): string[] {
   } catch {
     /* a non-zero exit is the EXPECTED outcome for a mutation */
   }
+  if (!existsSync(REPORT)) {
+    return {
+      reportedSuccess: false,
+      failures: [`vitest wrote no JSON report for ${suite} — the run crashed before reporting`],
+    };
+  }
   const report = JSON.parse(readFileSync(REPORT, "utf8")) as {
-    testResults?: { assertionResults?: { status: string; title: string }[] }[];
+    success?: boolean;
+    testResults?: {
+      status?: string;
+      name?: string;
+      message?: string;
+      assertionResults?: { status: string; title: string }[];
+    }[];
   };
-  const failed: string[] = [];
+  const failures: string[] = [];
   for (const suiteResult of report.testResults ?? []) {
+    let suiteHasFailedAssertion = false;
     for (const assertion of suiteResult.assertionResults ?? []) {
-      if (assertion.status === "failed") failed.push(assertion.title);
+      if (assertion.status === "failed") {
+        failures.push(assertion.title);
+        suiteHasFailedAssertion = true;
+      }
+    }
+    if (suiteResult.status === "failed" && !suiteHasFailedAssertion) {
+      const messageHead = (suiteResult.message ?? "").split("\n")[0].slice(0, 200);
+      failures.push(
+        `suite-level failure in ${suiteResult.name ?? suite}: ` +
+          (messageHead !== "" ? messageHead : "no failing assertion and no message"),
+      );
     }
   }
-  return failed;
+  const reportedSuccess = report.success === true;
+  if (!reportedSuccess && failures.length === 0) {
+    // Fail closed on shape drift: the report says red but nothing above
+    // captured why (the no-matching-test shape lands here).
+    failures.push(`report.success=false for ${suite} with no parsed failure detail`);
+  }
+  return { reportedSuccess, failures };
 }
 
 try {
   console.log("=== BASELINE (unmutated) ===");
-  const baseline = [...runSuite(ARITY_SUITE), ...runSuite(RUNNER_SUITE)];
-  if (baseline.length !== 0) {
+  const baselineVerdicts = [runSuite(ARITY_SUITE), runSuite(RUNNER_SUITE)];
+  if (
+    baselineVerdicts.some((verdict) => !verdict.reportedSuccess || verdict.failures.length !== 0)
+  ) {
     // A red baseline poisons every arm's failure set: a surviving mutation
     // inherits the pre-existing failures, reports a non-empty set, and scores
     // as killed — and the shared failures collapse distinct arms' signatures
     // in the dedup map. Nothing has been mutated yet, so exiting here needs
     // no restoration.
     console.error("refusing to score mutations against a red baseline:");
-    for (const title of baseline) console.error(`  - ${title}`);
+    for (const verdict of baselineVerdicts) {
+      for (const failure of verdict.failures) console.error(`  - ${failure}`);
+    }
     console.error("fix the suite first — a kill is only evidence against a green baseline.");
     process.exit(2);
   }
@@ -461,16 +514,20 @@ try {
       continue;
     }
     writeFileSync(mutation.file, original.replace(mutation.from, mutation.to));
-    const failed = runSuite(mutation.suite ?? ARITY_SUITE);
+    const verdict = runSuite(mutation.suite ?? ARITY_SUITE);
     writeFileSync(mutation.file, original);
 
-    const signature = [...failed].sort().join(" || ");
+    // An arm survives only when the report itself says green AND nothing
+    // failed. A reporter-level crash (import error, no report) is a KILL —
+    // the mutation stopped the suite from passing — and its failure line
+    // joins the signature so the dedup map still discriminates crash arms.
+    const signature = [...verdict.failures].sort().join(" || ");
     const duplicate = signatures.get(signature);
     if (!duplicate) signatures.set(signature, mutation.name);
     console.log(mutation.name);
-    console.log(`  ${failed.length} test(s) failed`);
-    for (const title of failed) console.log(`    - ${title}`);
-    if (failed.length === 0) {
+    console.log(`  ${verdict.failures.length} failure(s)`);
+    for (const failure of verdict.failures) console.log(`    - ${failure}`);
+    if (verdict.reportedSuccess && verdict.failures.length === 0) {
       console.log("    !! MUTATION SURVIVED — behavior is untested");
       survived++;
     }
