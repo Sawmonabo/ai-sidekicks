@@ -50,11 +50,7 @@
 import { readFileSync } from "node:fs";
 
 import type { FileContentReader } from "./cite-target-existence.ts";
-import {
-  advanceFenceState,
-  type OpenFenceState,
-  stripBlockquotePrefix,
-} from "./markdown-fences.ts";
+import { advanceScanState, INITIAL_SCAN_STATE, type MarkdownScanState } from "./markdown-fences.ts";
 import { isDelimiterRow, isTableRow, splitRow } from "./markdown-tables.ts";
 
 export type TableTotalViolationKind =
@@ -118,17 +114,17 @@ export function parseFile(
   // fences on indented code (4+ spaces) and never looked through blockquote
   // containers. Both delimiter lines count as fenced — the toggle marked opener
   // and closer alike, and a marker ON a delimiter line is fence punctuation,
-  // not a live marker. Container context is root-or-blockquote only (the
-  // shared tracker's disclosed bound — see markdown-fences.ts): a marker
-  // inside an example fence nested under a list item with content column 4+
-  // would go LIVE and false-block — fail-closed, and measured absent from
-  // the tracked corpus (Codex, PR #270 round 1).
+  // not a live marker. The tracker measures the fence budget from the
+  // enclosing list item's content column, so a marker inside an example fence
+  // nested under a `10. ` item is inert like any other (task #83; through PR
+  // #270 that delimiter read as indented code and the marker below it went
+  // LIVE — fail-closed, and measured absent from the tracked corpus).
   const fenced = new Array<boolean>(lines.length).fill(false);
-  let openFence: OpenFenceState = null;
+  let scanState: MarkdownScanState = INITIAL_SCAN_STATE;
   for (let i = 0; i < lines.length; i++) {
-    const stepped = advanceFenceState(stripBlockquotePrefix(lines[i]), openFence);
-    fenced[i] = openFence !== null || stepped.isDelimiterLine;
-    openFence = stepped.openFence;
+    const stepped = advanceScanState(lines[i], scanState);
+    fenced[i] = stepped.openFenceAtLineStart !== null || stepped.isDelimiterLine;
+    scanState = stepped.state;
   }
 
   for (let i = 0; i < lines.length; i++) {

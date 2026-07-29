@@ -38,25 +38,18 @@ import { fileURLToPath } from "node:url";
 // it at all (ERR_UNKNOWN_FILE_EXTENSION on 22.12), which is why production
 // `preflight.mjs` keeps its own tracker rather than importing this one.
 //
-// DIVERGENCE: the tracker treats quoted and unquoted fences as one flat state
-// stream, and its strip is depth-agnostic — it removes every blockquote level,
-// so it cannot tell a depth-2 line from a depth-1 one. This scanner records the
-// DEPTH its fence opened at and hands the tracker each line reduced to exactly
-// that container (see findDoneChecklistHeadings). The tracker's own rule set is
-// untouched — this is a container layer above it, so the two cannot drift.
+// The container rules this file used to add on top of the tracker are now IN
+// the tracker: a fence records how many containers were open when it opened,
+// dies on the first line that matches fewer of them, and reads its interior
+// after those containers are consumed — so a closer at another depth cannot
+// reach it. They were worked out here across two findings, and moved down once
+// the tracker grew a threaded scan state (task #83 round 2) — the local copies,
+// and the exhaustive strip-parity control that guarded them, now live in the
+// tracker's own suite against the live implementation rather than a copy.
 //
-// The result is spec-faithful on every shape the flat stream gets wrong: a
-// quote-opened fence ends at the first line SHALLOWER than its opener, a DEEPER
-// line inside it is content rather than a closer, and a quoted delimiter inside
-// an unquoted fence is content too.
-//
-// The tracker's depth-agnostic strip still exists, but it is no longer reachable
-// through this scanner for any depth decision: every line handed to it has
-// already had exactly the opener's levels removed, so a `>> ``` ` line arrives
-// as `> ``` ` and fails the delimiter pattern instead of closing a depth-1
-// fence. What remains inherited is only what the tracker decides about a line
-// ALREADY reduced to its container — the delimiter, info-string, and indent
-// rules — which is the shared behaviour this scanner wants.
+// The tracker states this in CONTAINER terms rather than blockquote depth
+// because quote depth alone could not express a quote nested inside a list
+// item, which is what PR #273 round 2 corrected.
 //
 // No error direction here is safe, which is why correctness is tracked rather
 // than a preferred failure mode. Both of this file's assertions are EQUALITY
@@ -68,8 +61,8 @@ import { fileURLToPath } from "node:url";
 // the fenced-example counterexample the D=0 case now handles, and the
 // depth-agnostic strip it replaced produced BOTH directions from one defect.
 import {
-  advanceFenceState,
-  stripBlockquotePrefix,
+  advanceScanState,
+  INITIAL_SCAN_STATE,
 } from "../../../../../tools/docs-corpus/lib/markdown-fences.ts";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../../..");
@@ -86,89 +79,6 @@ const DONE_CHECKLIST_HEADING = /^ {0,3}(#{1,6})[ \t]+Done Checklist[ \t]*$/;
 // failure message explaining it can never disagree — a perturbation control
 // caught them drifting apart while this suite was being written.
 const DOCUMENT_LEVEL = 2;
-
-// ONE blockquote level, with CommonMark's marker-indent budget: at most three
-// SPACES before the `>`. Four spaces (or a tab) makes the line indented code,
-// not a quote — the same boundary the shared tracker's strip enforces, and the
-// reason this cannot be `\s*>`.
-//
-// This is deliberately the inner group of the shared `^(?: {0,3}>)+ ?` and
-// nothing more. Repeating it N times plus ONE trailing optional space is that
-// pattern's exact semantics, which is what lets the two agree by construction
-// rather than by inspection — pinned exhaustively by a control below.
-const QUOTE_LEVEL_RE = /^ {0,3}>/;
-
-/**
- * How many blockquote levels a line opens with.
- *
- * @param {string} line
- * @returns {number}
- */
-function quoteDepth(line) {
-  let depth = 0;
-  let rest = line;
-  for (;;) {
-    const next = rest.replace(QUOTE_LEVEL_RE, "");
-    if (next === rest) return depth;
-    depth++;
-    rest = next;
-  }
-}
-
-/**
- * Strip EXACTLY `levels` blockquote levels — no more, no fewer.
- *
- * The shared `stripBlockquotePrefix` removes ALL of them, which is the right
- * thing when no fence is open and the wrong thing inside one: a line deeper
- * than the fence's container is fence CONTENT, and flattening it hands the
- * tracker a delimiter that closes a fence the spec says is still open.
- *
- * Zero levels returns the line untouched, INCLUDING any leading space. That is
- * not an optimisation — the shared pattern's trailing ` ?` sits inside a match
- * that requires at least one level, so with no levels present nothing is
- * stripped at all. Consuming a space here would silently corrupt the
- * unquoted-fence arm, where the raw line is what the tracker must see.
- *
- * Callers guarantee `quoteDepth(line) >= levels`.
- *
- * @param {string} line
- * @param {number} levels
- * @returns {string}
- */
-function stripQuoteLevels(line, levels) {
-  if (levels === 0) return line;
-  let rest = line;
-  for (let level = 0; level < levels; level++) {
-    rest = rest.replace(QUOTE_LEVEL_RE, "");
-  }
-  return rest.replace(/^ ?/, "");
-}
-
-/**
- * Every string over `alphabet` up to `maxLength` characters, shortest first.
- *
- * Test-local on purpose. A sibling suite carries its own copy for a different
- * alphabet and bound; the copies cannot drift into a false clean because each
- * pins its own enumeration SIZE against a closed form, so a generator that
- * stopped early would fail there rather than quietly sweep a smaller space.
- *
- * @param {string[]} alphabet
- * @param {number} maxLength
- * @returns {Generator<string>}
- */
-function* stringsOverAlphabet(alphabet, maxLength) {
-  const buffer = [];
-  function* extend() {
-    yield buffer.join("");
-    if (buffer.length === maxLength) return;
-    for (const character of alphabet) {
-      buffer.push(character);
-      yield* extend();
-      buffer.pop();
-    }
-  }
-  yield* extend();
-}
 
 /**
  * Advance HTML-comment state by one line. Every plan file carries HTML
@@ -216,8 +126,7 @@ function advanceCommentState(line, inComment) {
 function findDoneChecklistHeadings(source) {
   const headings = [];
   const hidden = [];
-  let openFence = null;
-  let fenceQuoteDepth = 0;
+  let scanState = INITIAL_SCAN_STATE;
   let inComment = false;
 
   const lines = source.split("\n");
@@ -225,49 +134,23 @@ function findDoneChecklistHeadings(source) {
     const line = lines[index];
     const lineNumber = index + 1;
     const commentOpenAtLineStart = inComment;
-    const depth = quoteDepth(line);
 
-    // A fence dies at the first line SHALLOWER than the container it opened in,
-    // whatever that line is, and dies BEFORE the line is processed.
-    //
-    // This is a derivation, not a policy choice. CommonMark laziness applies to
-    // paragraph continuation text and nothing else, so fence CONTENT is never
-    // lazily continued — the spec says outright that "we can't omit the `>` in
-    // front of subsequent lines of an indented or fenced code block"
-    // (CommonMark 0.31.2 §5.1). A line that drops below the opener's depth has
-    // therefore left the container, and the fence inside it closes with the
-    // container. Spec example 237 is this exact shape:
-    //
-    //     > ```        ->  <blockquote><pre><code></code></pre></blockquote>
-    //     foo              <p>foo</p>
-    //     ```              <pre><code></code></pre>
-    //
-    // — note the third line RE-OPENS a fence at top level, which is why the
-    // line is processed normally after the container closes rather than being
-    // skipped.
-    //
-    // DEPTH, not quotedness. The predecessor of this rule asked only "is the
-    // line unquoted?", which is the depth>=1 -> 0 case of it, and that gap was
-    // exploitable: inside a `> ``` ` fence, a `> <!--` line is still in the
-    // container and must NOT end it, while a depth-1 line inside a `>> ``` `
-    // fence has left the container and must. A boolean cannot say both.
-    //
-    // The unquoted-opened fence is the SAME rule at D=0: no line can be
-    // shallower than depth 0, so the fence never dies here and only its own
-    // closer ends it — which is why there is no separate arm for it. That is
-    // the second special case this rule absorbed rather than accumulated.
-    //
-    // Two earlier revisions enumerated the line types that end a blockquote —
-    // first ATX headings, then unquoted lines. Each drew a finding for the case
-    // it missed (`<!--` under the first, quote DEPTH under the second), because
-    // enumerating line types is the wrong mechanism; asking whether the line is
-    // still inside the container the fence opened in is the right one.
-    if (openFence !== null && depth < fenceQuoteDepth) {
-      openFence = null;
-      fenceQuoteDepth = 0;
-    }
-
-    const inFenceAtLineStart = openFence !== null;
+    // A FENCE LIVES IN THE CONTAINER IT OPENED IN — it dies at the first line
+    // shallower than that container, its closer must match the opener's quote
+    // depth, and while it is open a line is read relative to the fence's own
+    // depth rather than flattened. All three rules, and the CommonMark 0.31.2
+    // §5.1 derivation behind them, moved into the shared tracker
+    // (tools/docs-corpus/lib/markdown-fences.ts) when it grew a threaded scan
+    // state. This file is where they were worked out, across two findings in
+    // the same fail-silent direction; a second copy here is exactly the drift
+    // the shared module exists to end.
+    // Stepped BEFORE the heading test, and the line's fenced-ness read off
+    // `openFenceAtLineStart` rather than the pre-call state: a fence dies on
+    // the very line that leaves its container, so the incoming state still
+    // holds it and testing that would hide one live line.
+    const advanced = commentOpenAtLineStart ? null : advanceScanState(line, scanState);
+    const inFenceAtLineStart =
+      advanced === null ? scanState.openFence !== null : advanced.openFenceAtLineStart !== null;
 
     const match = DONE_CHECKLIST_HEADING.exec(line);
     if (match) {
@@ -279,48 +162,10 @@ function findDoneChecklistHeadings(source) {
 
     // A fence delimiter inside an open comment is comment text, not a fence.
     //
-    // A FENCE'S DELIMITERS LIVE IN THE CONTAINER WHERE IT OPENED. One rule,
-    // parameterised by that container's depth D — which line form the tracker
-    // sees is decided by the open fence, never by the current line:
-    //
-    //   no fence open -> ALL levels stripped, so a quoted opener (`> ```md`) is
-    //                    seen at all; `fenceQuoteDepth` then records the depth
-    //                    it opened at.
-    //   fence open    -> EXACTLY D levels stripped, so the line is expressed
-    //                    relative to the fence's own container. A line at depth
-    //                    D reads as the tracker's ordinary case; a DEEPER line
-    //                    still carries `>` afterwards, fails the delimiter
-    //                    pattern, and is CONTENT — which is what the spec says.
-    //
-    // D=0 is the unquoted-opened fence and needs no arm of its own: stripping
-    // zero levels is the raw line, so a `> ``` ` inside a top-level fence is
-    // content by the same sentence.
-    //
-    // This is where two rounds of false cleans lived, both in the same
-    // direction. A `> ``` ` line cannot close a top-level fence, and a
-    // `>> ``` ` line cannot close a `> ``` ` one: CommonMark allows a closer at
-    // most three spaces of indentation, and a blockquote marker is not
-    // indentation, so inside an open fence either line is literal content.
-    // Flattening it closed the fence early, turned the rest of the document
-    // into live markdown, and let example content be read as real. Against the
-    // `exactly one` assertion that direction is SILENT, not loud — it takes a
-    // file from zero real headings to one, landing on the passing value, so a
-    // plan carrying no Done Checklist sails through the gate whose whole job is
-    // noticing that. The same flattening also ends the fence early enough to
-    // start comment tracking on a `> <!--` line, which then hides a REAL
-    // heading — the under-reporting direction, in the same defect.
-    //
-    // Note what this is NOT: the heading test runs on the RAW line, so a quoted
-    // heading (`> ## …`) never matches and is never a candidate, fence or no
-    // fence. Fence tracking is not what hides those.
-    if (!commentOpenAtLineStart) {
-      const fenceLine = inFenceAtLineStart
-        ? stripQuoteLevels(line, fenceQuoteDepth)
-        : stripBlockquotePrefix(line);
-      ({ openFence } = advanceFenceState(fenceLine, openFence));
-      if (!inFenceAtLineStart && openFence !== null) fenceQuoteDepth = depth;
-      if (openFence === null) fenceQuoteDepth = 0;
-    }
+    // The tracker takes the RAW line. Stripping the blockquote prefix before
+    // the call is what blinded it to a container exit: the prefix is what
+    // carries depth, so a pre-stripped line cannot express one.
+    if (advanced !== null) scanState = advanced.state;
     // Fenced code cannot open an HTML comment.
     if (!inFenceAtLineStart) inComment = advanceCommentState(line, inComment);
   }
@@ -567,53 +412,6 @@ test("control: a depth-2 closer closes a depth-2 fence", () => {
   assert.deepEqual(
     hidden.map((entry) => entry.reason),
     ["html-comment"],
-  );
-});
-
-test("control: the depth-limited strip agrees with the shared strip at full depth", () => {
-  // `stripQuoteLevels(line, quoteDepth(line))` must equal the shared
-  // `stripBlockquotePrefix(line)` for every line — that equality is what makes
-  // the local helper a REFINEMENT of the shared one rather than a second
-  // implementation of it, and it is the only thing standing between "exactly D
-  // levels" and a subtly different prefix grammar.
-  //
-  // Checked by exhaustive enumeration rather than by examples. The alphabet is
-  // the grammar's own: quote marker, both indent characters, a fence character,
-  // and one ordinary letter — nothing else can change how the prefix parses.
-  const QUOTE_ALPHABET = [" ", "\t", ">", "`", "a"];
-  const BOUND = 6;
-
-  let checked = 0;
-  const divergent = [];
-  // Non-vacuity, measured in the SAME pass: a helper that strips the trailing
-  // space even at zero levels must be SEPARATED by this enumeration. That is
-  // the exact slip the D=0 arm rides on — it would feed the tracker a line one
-  // space short and silently change indent-budget decisions.
-  let separatedFromZeroLevelSlip = 0;
-  const zeroLevelSlip = (line, levels) => {
-    let rest = line;
-    for (let level = 0; level < levels; level++) rest = rest.replace(QUOTE_LEVEL_RE, "");
-    return rest.replace(/^ ?/, "");
-  };
-
-  for (const line of stringsOverAlphabet(QUOTE_ALPHABET, BOUND)) {
-    checked++;
-    const depth = quoteDepth(line);
-    if (stripQuoteLevels(line, depth) !== stripBlockquotePrefix(line)) divergent.push(line);
-    if (zeroLevelSlip(line, depth) !== stripBlockquotePrefix(line)) separatedFromZeroLevelSlip++;
-  }
-
-  assert.deepEqual(
-    divergent.slice(0, 8),
-    [],
-    `depth-limited strip diverges on ${divergent.length}`,
-  );
-  // The closed form for sum(5^k, k=0..BOUND). Pinned so a generator that
-  // silently stops early cannot report a clean sweep over almost nothing.
-  assert.equal(checked, (QUOTE_ALPHABET.length ** (BOUND + 1) - 1) / (QUOTE_ALPHABET.length - 1));
-  assert.ok(
-    separatedFromZeroLevelSlip > 0,
-    "the enumeration cannot separate a wrong zero-level case — it proves nothing",
   );
 });
 

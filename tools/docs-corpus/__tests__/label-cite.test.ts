@@ -1804,19 +1804,73 @@ describe("label-cite — shared CommonMark fence tracker across heading collecti
     expect(verifySectionHeading(doc, "Fenced Example Heading")).toBe(false);
   });
 
-  it("a blockquote-nested fence exempts its (lazily unquoted) content from heading collection", () => {
+  // A blockquote-nested fence exempts the content INSIDE the quote and
+  // nothing below it. The unquoted line is spec example 237's exact shape:
+  // laziness continues paragraph text only, so an unquoted line leaves the
+  // blockquote and the fence closes with it, making the heading real in every
+  // renderer. This assertion previously read `false` — written before the
+  // tracker modeled containers, when a quoted fence was recorded at top level
+  // and swallowed everything after it (PR #273 round 1).
+  it("a blockquote-nested fence exempts quoted content, and the unquoted line that leaves the quote is a real heading", () => {
     const doc = [
       "# Doc",
       "",
       "> ```text",
-      "## Lazily Quoted Example",
+      "> ## Quoted Example",
       "> ```",
       "",
       "## Real Heading",
       "",
     ].join("\n");
     expect(verifySectionHeading(doc, "Real Heading")).toBe(true);
-    expect(verifySectionHeading(doc, "Lazily Quoted Example")).toBe(false);
+    expect(verifySectionHeading(doc, "Quoted Example")).toBe(false);
+
+    const leavesTheQuote = [
+      "# Doc",
+      "",
+      "> ```text",
+      "## Heading Below The Quote",
+      "> ```",
+      "",
+    ].join("\n");
+    expect(verifySectionHeading(leavesTheQuote, "Heading Below The Quote")).toBe(true);
+  });
+
+  // The heading lane's own policy, independent of any fence: a quoted heading
+  // is someone else's document being reproduced, not a section of THIS one, so
+  // a `§Quoted Section` cite against it must not resolve. Collection tests the
+  // RAW line for that reason, and this is the fixture that pins it — the
+  // fenced cases above cannot, since the fence guard excludes them first.
+  it("a blockquoted heading outside any fence is not a citable section", () => {
+    const doc = ["# Doc", "", "> ## Quoted Section", "", "## Real Heading", ""].join("\n");
+    expect(verifySectionHeading(doc, "Real Heading")).toBe(true);
+    expect(verifySectionHeading(doc, "Quoted Section")).toBe(false);
+  });
+
+  // The heading lane reads RAW lines, so the tracker must too: handed a
+  // pre-stripped line it sees depth 0 forever, an unterminated `> ``` `
+  // example is recorded at top level, and every real heading below the quote
+  // stops resolving — a valid `§Real Heading` cite reported as a violation.
+  it("an unterminated blockquote-nested fence does not suppress the headings below the quote", () => {
+    const doc = [
+      "# Doc",
+      "",
+      "> ```text",
+      "> an example fence the author never closed",
+      "",
+      "## Real Heading",
+      "",
+      "## Another Real Heading",
+      "",
+    ].join("\n");
+    expect(verifySectionHeading(doc, "Real Heading")).toBe(true);
+    expect(verifySectionHeading(doc, "Another Real Heading")).toBe(true);
+    // Non-vacuity: the same unterminated fence at TOP level still suppresses
+    // them, so the assertions above turn on the container, not on the tracker
+    // having stopped tracking.
+    const unquoted = doc.replace(/^> /gm, "");
+    expect(verifySectionHeading(unquoted, "Real Heading")).toBe(false);
+    expect(verifySectionHeading(unquoted, "Another Real Heading")).toBe(false);
   });
 
   it("floor lane: a fenced example with an interior info-string line stays exempt — and the same cite outside a fence still fails", () => {

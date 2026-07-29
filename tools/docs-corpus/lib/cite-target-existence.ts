@@ -18,11 +18,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import { dirname, relative, resolve, isAbsolute, sep } from "node:path";
 
-import {
-  advanceFenceState,
-  type OpenFenceState,
-  stripBlockquotePrefix,
-} from "./markdown-fences.ts";
+import { advanceScanState, INITIAL_SCAN_STATE, type MarkdownScanState } from "./markdown-fences.ts";
 
 export interface Cite {
   file: string;
@@ -142,12 +138,12 @@ export function extractCites(
   // stripped input, delimiter-matched whitespace-only closers) — the naive
   // toggle it replaces flipped on info-string lines and never saw
   // blockquote-nested fences (PR #207 round 3).
-  let openFence: OpenFenceState = null;
+  let scanState: MarkdownScanState = INITIAL_SCAN_STATE;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const advanced = advanceFenceState(stripBlockquotePrefix(line), openFence);
-    openFence = advanced.openFence;
-    const insideFence = openFence !== null || advanced.isDelimiterLine;
+    const advanced = advanceScanState(line, scanState);
+    scanState = advanced.state;
+    const insideFence = advanced.openFenceAtLineStart !== null || advanced.isDelimiterLine;
     let m: RegExpExecArray | null;
     while ((m = linkRe.exec(line)) !== null) {
       const relTarget = m[1].trim();

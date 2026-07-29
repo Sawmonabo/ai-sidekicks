@@ -258,7 +258,7 @@ test("findSectionBoundary treats a 4-space-indented ``` as literal, not a fence 
 });
 
 test("findSectionBoundary rejects backtick-fence info strings containing backticks", () => {
-  // Codex round-6, PR #224 (advanceFenceState parity): a ```md`inline line
+  // Codex round-6, PR #224 (advanceScanState parity): a ```md`inline line
   // is inline code, not a fence opener — under the unguarded regex it
   // opened phantom fence state and swallowed the real boundary.
   const inlineCode = ["intro", "```md`inline", "prose", "## Real Boundary"].join("\n");

@@ -60,7 +60,7 @@ const MUTATIONS: Mutation[] = [
   {
     name: "M1 fence suppression disabled",
     file: ARITY,
-    from: "const fenceSuppressed = openFence !== null || isDelimiterLine;",
+    from: "const fenceSuppressed = openFenceAtLineStart !== null || isDelimiterLine;",
     to: "const fenceSuppressed = false;",
   },
   {
