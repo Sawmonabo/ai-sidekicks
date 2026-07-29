@@ -265,7 +265,10 @@ function findEqualBacktickRun(text, length) {
 // A line that ends the paragraph a tentative code span lives in — the
 // span opener is literal backticks when one of these arrives before its
 // closer. Tested on blockquote-stripped content; quote depth is
-// deliberately transparent, matching the fence tracker's flat rule.
+// deliberately transparent here. That is this helper's OWN simplification
+// and no longer mirrors the shared tracker, which models an ordered
+// container stack (task #83 round 2): a code span is a single-paragraph
+// question, so the containers a paragraph sits in cannot change inside it.
 function isParagraphInterrupter(content) {
   if (/^\s*$/.test(content)) return true;
   if (/^ {0,3}#{1,6}(?:\s|$)/.test(content)) return true;

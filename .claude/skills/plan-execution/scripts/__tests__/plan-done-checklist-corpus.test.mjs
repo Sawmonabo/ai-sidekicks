@@ -39,13 +39,17 @@ import { fileURLToPath } from "node:url";
 // `preflight.mjs` keeps its own tracker rather than importing this one.
 //
 // The container rules this file used to add on top of the tracker are now IN
-// the tracker: a fence records the blockquote depth it opened at, dies at the
-// first line shallower than that container, refuses a closer at another depth,
-// and reads its interior relative to its own depth. They were worked out here
-// across two findings, and moved down once the tracker grew a threaded scan
-// state (task #83 round 2) — the local copies, and the exhaustive strip-parity
-// control that guarded them, now live in the tracker's own suite against the
-// live implementation rather than against a copy of it.
+// the tracker: a fence records how many containers were open when it opened,
+// dies on the first line that matches fewer of them, and reads its interior
+// after those containers are consumed — so a closer at another depth cannot
+// reach it. They were worked out here across two findings, and moved down once
+// the tracker grew a threaded scan state (task #83 round 2) — the local copies,
+// and the exhaustive strip-parity control that guarded them, now live in the
+// tracker's own suite against the live implementation rather than a copy.
+//
+// The tracker states this in CONTAINER terms rather than blockquote depth
+// because quote depth alone could not express a quote nested inside a list
+// item, which is what PR #273 round 2 corrected.
 //
 // No error direction here is safe, which is why correctness is tracked rather
 // than a preferred failure mode. Both of this file's assertions are EQUALITY
