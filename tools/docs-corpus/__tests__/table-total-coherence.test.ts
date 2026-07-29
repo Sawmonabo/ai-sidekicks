@@ -338,15 +338,18 @@ describe("table-total-coherence — fence tracking (shared advanceFenceState)", 
     });
   });
 
-  it("BOUND: a marker inside a fence nested under a wide list item goes live (container context not modeled)", () => {
+  it("keeps a marker inside a fence nested under a wide list item inert", () => {
     // Under `10. ` the content column is 4, so CommonMark reads a four-space
-    // fence as a valid list-nested fence — but the shared tracker classifies
-    // containers as root-or-blockquote only (its disclosed, corpus-measured
-    // bound; see markdown-fences.ts), so the delimiter is indented-code
-    // content and the example marker below it is LIVE. Fail-closed: the
-    // false block is immediately visible at commit time, never a silent
-    // miss. This pin documents the bound's direction; a container-aware
-    // tracker would flip this expectation to [].
+    // fence as a valid list-nested fence. Through PR #270 the shared tracker
+    // classified containers as root-or-blockquote only, so that delimiter was
+    // indented-code content and the example marker below it went LIVE — a
+    // false block, fail-closed and immediately visible at commit time. Task
+    // #83 gave the tracker a list container stack, and this pin flipped from
+    // the one-violation expectation it carried as a disclosed bound.
+    //
+    // The complement is the root-level fixture above: four spaces with no
+    // enclosing item is still indented code, and the marker under it is still
+    // live. Container context is the only thing separating the two.
     const doc = [
       "# Doc",
       "",
@@ -357,9 +360,7 @@ describe("table-total-coherence — fence tracking (shared advanceFenceState)", 
       "    ```",
     ].join("\n");
     withFile(doc, (file) => {
-      const violations = parseFile(file);
-      expect(violations).toHaveLength(1);
-      expect(violations[0]).toMatchObject({ kind: "total-row-mismatch", sum: 99, asserted: 1 });
+      expect(parseFile(file)).toEqual([]);
     });
   });
 });

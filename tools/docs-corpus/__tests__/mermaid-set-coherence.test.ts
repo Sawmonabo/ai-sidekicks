@@ -322,15 +322,19 @@ describe("mermaid-set-coherence — fence tracking (shared advanceFenceState)", 
     });
   });
 
-  it("BOUND: a mermaid fence nested under a wide list item is not collected (container context not modeled)", () => {
+  it("collects a mermaid graph nested under a wide list item", () => {
     // Under `10. ` the content column is 4, so CommonMark reads a four-space
-    // ```mermaid line as a valid list-nested fence — but the shared tracker
-    // classifies containers as root-or-blockquote only (its disclosed,
-    // corpus-measured bound; see markdown-fences.ts), so no mermaid block
-    // opens and the graph's nodes are never collected: the enumeration guard
-    // for that graph is dead (fail-silent), the direction the old trim()-based
-    // opener handled by accident. This pin documents the bound; a
-    // container-aware tracker would flip this expectation to one violation.
+    // ```mermaid line as a valid list-nested fence. Through PR #270 the shared
+    // tracker classified containers as root-or-blockquote only and no mermaid
+    // block opened here, leaving the enumeration guard for that graph dead —
+    // fail-silent, the direction the old trim()-based opener handled by
+    // accident. Task #83 gave the tracker a list container stack, and this pin
+    // flipped from the empty expectation it carried as a disclosed bound.
+    //
+    // Collection needs BOTH halves of that change: the fence opens on the
+    // container's content column, and the mermaid refinement reads the info
+    // string the tracker reports rather than re-matching the raw line against
+    // its own `^ {0,3}` prefix, which a four-space opener fails.
     const doc = [
       "# Page",
       "",
@@ -341,7 +345,9 @@ describe("mermaid-set-coherence — fence tracking (shared advanceFenceState)", 
       "The ready set (NS-01) shares no code paths.",
     ].join("\n");
     withFile(doc, (file) => {
-      expect(parseFile(file)).toEqual([]);
+      const violations = parseFile(file);
+      expect(violations).toHaveLength(1);
+      expect(violations[0].extra).toContain("NS22");
     });
   });
 

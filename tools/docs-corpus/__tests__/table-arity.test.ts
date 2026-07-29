@@ -626,8 +626,9 @@ Here is what the corruption looks like:
   // GFM builds a table only from rows in the same container. Without a depth
   // check the parser synthesizes a table GFM never renders — a false POSITIVE
   // class, which is why this one is a guard rather than a disclosed bound
-  // (Codex, PR #269 R2). Depth is counted, not stacked: a container stack is
-  // the unbounded path this check declines.
+  // (Codex, PR #269 R2). BLOCKQUOTE depth is counted, not stacked: that stack
+  // is the path this check declines. The list container stack the shared fence
+  // tracker keeps is a different thing, and table recognition does not read it.
   describe("blockquote depth", () => {
     // The delimiter arity deliberately DISAGREES with the header's. A matching
     // delimiter makes the fixture pass on the body guard alone, so dropping the
@@ -896,10 +897,12 @@ ${String.raw`| x \\| y | z |`}
       });
     });
 
-    // Bound 4: four spaces or a tab makes the block indented code. This is the
-    // superset of the list-container case — a table nested under a list item
-    // carries that indentation — and taking it as one indentation rule is what
-    // avoids tracking container stacks for a population measured at zero.
+    // Bound 4: four spaces or a tab makes the block indented code, measured
+    // from column zero. The shared fence tracker does carry a list container
+    // stack (task #83), so this is table recognition declining to consume that
+    // context rather than a structural limit — one flat indentation rule for
+    // header, delimiter, and body, over a residual measured at zero both
+    // enclosed and at root.
     it("does not see a table indented under a list item", () => {
       withFile("- item\n\n    | a | b |\n    | --- | --- | --- |\n    | 1 | 2 | 3 |\n", (file) => {
         expect(parseFile(file)).toEqual([]);

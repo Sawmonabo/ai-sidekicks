@@ -30,7 +30,8 @@ import { readFileSync } from "node:fs";
 import type { FileContentReader } from "./cite-target-existence.ts";
 import {
   advanceFenceState,
-  type OpenFenceState,
+  INITIAL_SCAN_STATE,
+  type MarkdownScanState,
   stripBlockquotePrefix,
 } from "./markdown-fences.ts";
 
@@ -48,11 +49,15 @@ const ENUM_RE = /^.*?\b(?<adjective>[a-z]+) set \((?<list>[A-Za-z0-9,\- ]+)\)/i;
 
 const readFromDisk: FileContentReader = (absolutePath) => readFileSync(absolutePath, "utf8");
 
-// A fence opener whose info string names mermaid. Applied ONLY to a line the
-// shared tracker has already classified as an opener, so this refinement can
-// never disagree with `advanceFenceState` about what counts as a delimiter —
-// it only decides which kind of fence just opened.
-const MERMAID_OPENER_RE = /^ {0,3}(?:`{3,}|~{3,})[ \t]*mermaid\b/;
+// A fence whose info string names mermaid. Read from the INFO STRING the
+// tracker returns, never re-matched against the raw line: restating the
+// delimiter prefix here meant restating its indentation budget too, and once
+// the tracker measured that budget from a list container's content column
+// (task #83) a valid `10. `-nested ```mermaid opener passed the tracker and
+// failed this regex — the fence opened, the graph went uncollected. The
+// refinement now decides only WHICH kind of fence opened, which is all it was
+// ever meant to decide.
+const MERMAID_INFO_STRING_RE = /^[ \t]*mermaid\b/;
 
 export function parseFile(
   filePath: string,
@@ -79,20 +84,21 @@ export function parseFile(
   const nodeIdsByClass = new Map<string, Set<string>>();
   const lines = content.split("\n");
   const fenced = new Array<boolean>(lines.length).fill(false);
-  let openFence: OpenFenceState = null;
+  let scanState: MarkdownScanState = INITIAL_SCAN_STATE;
   let inMermaidFence = false;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const stripped = stripBlockquotePrefix(line);
-    const stepped = advanceFenceState(stripped, openFence);
-    fenced[i] = openFence !== null || stepped.isDelimiterLine;
-    if (openFence === null && stepped.openFence !== null) {
-      inMermaidFence = MERMAID_OPENER_RE.test(stripped);
-    } else if (stepped.openFence === null) {
+    const stepped = advanceFenceState(stripped, scanState);
+    fenced[i] = scanState.openFence !== null || stepped.isDelimiterLine;
+    if (scanState.openFence === null && stepped.state.openFence !== null) {
+      inMermaidFence = MERMAID_INFO_STRING_RE.test(stepped.state.openFence.infoString);
+    } else if (stepped.state.openFence === null) {
       inMermaidFence = false;
     }
-    const isMermaidContent = openFence !== null && stepped.openFence !== null && inMermaidFence;
-    openFence = stepped.openFence;
+    const isMermaidContent =
+      scanState.openFence !== null && stepped.state.openFence !== null && inMermaidFence;
+    scanState = stepped.state;
     if (!isMermaidContent) continue;
     const m = /^\s*(\w+)\s*\[[^\]]*\]\s*:::\s*(\w+)/.exec(line);
     if (!m) continue;

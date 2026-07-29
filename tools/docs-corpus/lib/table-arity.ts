@@ -66,7 +66,11 @@
 // anywhere in this repo's dependency tree. Taking a production dependency to
 // close gaps that all measure ZERO would be the disproportionate move. So the
 // bounds below are the design's edge, drawn deliberately and measured — not an
-// apology for an unfinished parser.
+// apology for an unfinished parser. One of those rules has since been written
+// by hand: the shared fence tracker models list containers, because a fence's
+// indentation budget is meaningless without them (task #83). Table recognition
+// does not consume that context — see bound 4 — and the argument above is
+// unchanged for the rest of the sequence.
 //
 // SUPPRESSED — never read as live markup:
 //   - fenced blocks, via the shared `markdown-fences.ts` tracker: an
@@ -121,9 +125,16 @@
 //      whole of that line, so live markup in the TAIL after its closer —
 //      `-->`, `?>`, `>`, `]]>` — is not checked.
 //   4. (recall) A header indented four or more spaces, or by a tab, is never
-//      recognized. This is the superset of the list-container case (a table
-//      nested under a list item carries that indentation), and taking it as one
-//      indentation rule is what avoids tracking container stacks.
+//      recognized, because `hasLegalTableIndent` measures from column zero.
+//      The shared fence tracker now carries a list container stack (task #83),
+//      so this is a decision rather than a structural limit: table recognition
+//      deliberately does not consume that context, keeping one flat
+//      indentation rule for the header, the delimiter, and every body row.
+//      The residual splits two ways, both measured at zero over the 230
+//      enforced files — 0 ENCLOSED (a table sitting within three spaces of a
+//      list item's content column, which GFM does render and this declines)
+//      and 0 ROOT (a table indented four-plus with no container, which is
+//      indented code, where declining is simply correct).
 //   5. (recall) A table opens only when its header and delimiter rows sit at
 //      the SAME blockquote depth, and its body continues only at the header's
 //      depth. A lazily-continued or depth-mixed quoted table is therefore not
@@ -175,8 +186,9 @@ import type { FileContentReader } from "./cite-target-existence.ts";
 import {
   advanceFenceState,
   blockquoteDepth,
+  INITIAL_SCAN_STATE,
+  type MarkdownScanState,
   stripBlockquotePrefix,
-  type OpenFenceState,
 } from "./markdown-fences.ts";
 import {
   containsUnescapedPipe,
@@ -420,7 +432,7 @@ export function parseFile(
 ): TableArityViolation[] {
   const lines = readContent(filePath).split("\n");
   const violations: TableArityViolation[] = [];
-  let openFence: OpenFenceState = null;
+  let scanState: MarkdownScanState = INITIAL_SCAN_STATE;
   // The closer of the terminating raw-HTML block currently open, if any —
   // `-->`, `?>`, `>` or `]]>` per TERMINATING_HTML_BLOCK_FORMS.
   let openHtmlBlockCloser: string | null = null;
@@ -440,8 +452,11 @@ export function parseFile(
   for (let i = frontMatterEndIndex(lines) + 1; i < lines.length; i++) {
     const unquoted = stripBlockquotePrefix(lines[i]);
     // GFM builds a table only from rows in the same container. Depth is the
-    // count of markers the shared strip consumes — NOT a container stack, which
-    // is the unbounded path this check declines to walk (bound 5).
+    // count of BLOCKQUOTE markers the shared strip consumes — not a stack of
+    // them, which is the path this check declines to walk (bound 5). The
+    // shared tracker does carry a LIST container stack, but only to place a
+    // fence delimiter's indentation budget; table recognition stays on the
+    // flat root-relative rule (bound 4).
     const depth = blockquoteDepth(lines[i]);
 
     // Terminating raw-HTML blocks first: their content is not markdown at
@@ -454,11 +469,11 @@ export function parseFile(
       continue;
     }
 
-    const { openFence: nextFence, isDelimiterLine } = advanceFenceState(unquoted, openFence);
+    const { state: nextScanState, isDelimiterLine } = advanceFenceState(unquoted, scanState);
     // The opener, the closer, and everything between are fence CONTENT: an
     // illustrative table inside ``` is prose about a table, not one.
-    const fenceSuppressed = openFence !== null || isDelimiterLine;
-    openFence = nextFence;
+    const fenceSuppressed = scanState.openFence !== null || isDelimiterLine;
+    scanState = nextScanState;
     if (fenceSuppressed) {
       openTable = null;
       atBlockBoundary = true;
