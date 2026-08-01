@@ -513,7 +513,7 @@ The `NodeId`-keyed resolution surface behind [Security Architecture §Per-Event 
 -- keypair (64-char lowercase hex on the wire, hex-decoded at persist). The private half never
 -- leaves the emitting daemon (local sealed daemon_signing_keys per ADR-004; local-sqlite-schema.md).
 -- Register-once: a registration presenting a DIFFERENT key for a registered (session, node) pair is
--- refused with a typed conflict error, never overwritten (the Plan-006 T4.2 refuse_on_rotation
+-- refused with typed runtimenode.signingkeyregister_conflict, never overwritten (the Plan-006 T4.2 refuse_on_rotation
 -- mirror). An absent row = the node attached under a pre-leg-B daemon or control plane (its
 -- uploaded anchors stay emitter-only-verifiable -- the honest degrade).
 -- Deliberately NO participant FK: key material is machine-generated and carries no personal data,

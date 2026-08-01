@@ -431,7 +431,11 @@ describe("OsKeystoreSealedDaemonSigningKeySource", () => {
       expect(Uint8Array.from(row?.public_key as Uint8Array)).toEqual(Uint8Array.from(publicKey));
       // The injected clock, not `new Date()` — the constructor's `deps.now` seam.
       expect(row?.created_at).toBe(FIXTURE_CREATED_AT);
-      // No rotate operation ships in V1 (the ADR-010 forward declaration).
+      // No rotate operation ships in V1 — no rotation ceremony is specified in
+      // any governing document (V1's rotation policy is refusal, per
+      // `docs/architecture/security-architecture.md §Per-Event Daemon Signature`;
+      // ADR-010 governs CLI-identity custody, not daemon session keys), so
+      // `rotated_at` is reserved storage that nothing writes.
       expect(row?.rotated_at).toBeNull();
 
       // THE AT-REST ASSERTION. The stored private half is the SEALER's output,
