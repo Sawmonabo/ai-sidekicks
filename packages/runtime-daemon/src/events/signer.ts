@@ -233,11 +233,11 @@ export interface SignedRow {
  * predicate needs all three columns and why the verdict must not collapse into
  * `signature_mismatch`.
  *
- * This union is a SUBSET of the fifteen-value `failureMode` enum in
- * `Spec-006 §Audit Integrity (audit_integrity)`, and the other twelve (fifteen,
+ * This union is a SUBSET of the sixteen-value `failureMode` enum in
+ * `Spec-006 §Audit Integrity (audit_integrity)`, and the other thirteen (sixteen,
  * less this union's three — RE-DERIVE both numbers on any enum change rather
  * than incrementing one of them) sit outside
- * it for FOUR different reasons rather than one. `anchor_*`, the proof modes,
+ * it for FIVE different reasons rather than one. `anchor_*`, the proof modes,
  * and the log-file modes are RANGE-level: they are computed over a span of rows
  * against an uploaded Merkle anchor, and this function is handed neither.
  * `stub_signature_invalid` and `stub_scalar_mismatch` are PER-ROW —
@@ -276,7 +276,14 @@ export interface SignedRow {
  * `Spec-022 §Shred Fan-Out` Path 1 shred the second question has no other
  * evidence left to answer it. T2.4 exports `isCiphertextDigestBound` and
  * `isPiiOwnerStampBound` for them and T4.1 runs both as postconditions of a
- * green verdict here. That enum is Phase-4 contracts work and has not landed, so
+ * green verdict here.
+ * `signing_key_slot_conflict` is the fifth reason: it is not a read-side
+ * verification outcome at ALL. No row and no range is being verified when it
+ * fires — T4.10's daemon-side registrar appends it when the control plane
+ * refuses its re-registration 409 for a `(session_id, node_id)` slot already
+ * holding a DIFFERENT key, so its emitter is the registrar's conflict handler
+ * rather than any verifier, and this function could never report it.
+ * That enum is Phase-4 contracts work and has not landed, so
  * the literals are spelled here and T4.1 owns the widening.
  */
 export type RowVerification =
