@@ -315,8 +315,11 @@ CREATE TABLE daemon_signing_keys (
 -- and the registrar's post-resolution re-persist. Here the event.deliverAttachmentId
 -- handler commits this row BEFORE acknowledging (acked-means-durable; INSERT OR
 -- REPLACE, last-write-wins per session — a re-attach mints a new id, so the latest
--- delivery wins, the pair one atomic binding), and the registrar's attachment-id
--- source hydrates from it at start. Sole write path: events/attachment-delivery-store.ts.
+-- delivery wins, the pair one atomic binding). recordDelivery reads the prior row in
+-- the same transaction and returns the comparison: an attachment-id change releases a
+-- floor-parked registrar, a differing prior delivered_node_id is logged loudly (round
+-- 5). The registrar's attachment-id source hydrates from it at start. Sole write path:
+-- events/attachment-delivery-store.ts.
 CREATE TABLE daemon_attachment_deliveries (
   session_id               TEXT PRIMARY KEY,
   delivered_node_id        TEXT NOT NULL,
