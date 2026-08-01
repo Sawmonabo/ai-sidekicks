@@ -56,9 +56,11 @@
 // `rotated_at` SHIPS UNWRITTEN. The column is in the canonical DDL and is
 // mirrored faithfully, but no V1 code path sets it: `signing-key-source.ts`
 // publishes no rotate operation, and the session_id PRIMARY KEY makes
-// re-creation an error rather than a silent re-key. It is forward-declared
-// storage for the ADR-010 rotation its own column comment names, on the same
-// "get the envelope right in the initial migration" discipline as
+// re-creation an error rather than a silent re-key. It is reserved storage
+// for a rotation ceremony no V1 document specifies — V1's rotation policy is
+// refusal, per `security-architecture.md §Per-Event Daemon Signature`
+// (ADR-010 governs CLI-identity custody, not daemon session keys) — kept on
+// the same "get the envelope right in the initial migration" discipline as
 // `participant_keys.rotated_at` (pinned NULL in V1 by I-022-10).
 //
 // The sibling Plan-006 tables are NOT here. `pending_anchor_uploads` ships in
@@ -82,12 +84,16 @@ export const DAEMON_SIGNING_KEYS_MIGRATION_SQL: string = `
 -- §Per-Event Daemon Signature. Sealed-key storage
 -- lives in local SQLite (NOT shared-Postgres sessions) per ADR-004 SQLite-
 -- local-state boundary — daemon-private secrets are per-machine.
+-- rotated_at is reserved and unwritten in V1: no daemon signing-key rotation
+-- ceremony is specified anywhere (a different-key registration is refused per
+-- security-architecture.md §Per-Event Daemon Signature); only a future
+-- rotation extension writes it.
 CREATE TABLE daemon_signing_keys (
   session_id          TEXT PRIMARY KEY,
   public_key          BLOB NOT NULL,         -- Ed25519 32-byte public key
   sealed_private_key  BLOB NOT NULL,         -- Ed25519 private key sealed via OS keystore master key
   created_at          TEXT NOT NULL,
-  rotated_at          TEXT                   -- non-NULL when key has been rotated per ADR-010
+  rotated_at          TEXT                   -- reserved; see rotation note above
 );
 
 INSERT INTO schema_version (version, applied_at, description)

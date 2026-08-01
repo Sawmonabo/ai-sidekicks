@@ -312,7 +312,10 @@ interface DaemonSigningKeyRow {
  * mirrored by `migrations/0005-daemon-signing-keys.ts`.
  *
  * NO ROTATE OPERATION IN V1. `daemon_signing_keys.rotated_at` exists in the
- * canonical DDL against the ADR-010 rotation its column comment names, and
+ * canonical DDL as reserved storage for a rotation ceremony no V1 document
+ * specifies (V1's rotation policy is refusal, per
+ * `docs/architecture/security-architecture.md §Per-Event Daemon Signature`;
+ * ADR-010 governs CLI-identity custody, not daemon session keys), and
  * nothing here writes it — consistent with `participant_keys.rotated_at`, which
  * `Spec-022 §Participant Keys` pins NULL for V1 (I-022-10). Rotating a signing
  * key is not a re-key in isolation: it needs a roster update and a rule for

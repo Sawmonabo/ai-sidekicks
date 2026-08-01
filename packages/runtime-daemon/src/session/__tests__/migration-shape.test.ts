@@ -1701,9 +1701,9 @@ describe("0005-daemon-signing-keys migration shape", () => {
     for (const required of ["public_key", "sealed_private_key", "created_at"]) {
       expect(byName.get(required)?.notnull).toBe(1);
     }
-    // `rotated_at` is the forward-declared ADR-010 rotation stamp: nullable,
-    // and NULL for every V1 row because no code path writes it (the migration
-    // header's "ships unwritten" note).
+    // `rotated_at` is reserved for a rotation ceremony V1 does not specify:
+    // nullable, and NULL for every V1 row because no code path writes it (the
+    // migration header's "ships unwritten" note).
     expect(byName.get("rotated_at")?.notnull).toBe(0);
 
     // No column carries a DEFAULT — every value is supplied by the writer.
