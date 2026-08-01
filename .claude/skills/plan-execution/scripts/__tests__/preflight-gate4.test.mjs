@@ -3472,7 +3472,10 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     }
   }
   assert.deepEqual(census, {
-    bold: { resolved: 576, noneArm: 104, parentResolved: 0 },
+    // 576/104 -> 577/106 (2026-08-01, PR #278): the Plan-006 T4.10 audit delta
+    // minted T1.11 + T1.12 (each a bold none-arm) and added I-006-4-09 to the
+    // T4.10 row (one more bold resolved reference).
+    bold: { resolved: 577, noneArm: 106, parentResolved: 0 },
     legacy: { resolved: 58, noneArm: 3, parentResolved: 1 },
   });
 });
