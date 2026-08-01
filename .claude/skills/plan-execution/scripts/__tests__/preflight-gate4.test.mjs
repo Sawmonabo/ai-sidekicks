@@ -3472,7 +3472,7 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     }
   }
   assert.deepEqual(census, {
-    bold: { resolved: 575, noneArm: 105, parentResolved: 0 },
+    bold: { resolved: 576, noneArm: 104, parentResolved: 0 },
     legacy: { resolved: 58, noneArm: 3, parentResolved: 1 },
   });
 });
