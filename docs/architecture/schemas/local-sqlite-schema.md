@@ -284,7 +284,6 @@ The build-metadata rejection above is grounded in the SemVer specification itsel
 
 ```sql
 -- Owner: Plan-006 | Migration: 0005-daemon-signing-keys.ts (Tier 4 Phase 2)
---        + 0NNN-attachment-delivery-columns.ts (Tier 4 Phase 4, T4.10 — the two delivery columns)
 -- Per-session daemon Ed25519 signing keypair. Private key is sealed via the
 -- OS keystore master key (@napi-rs/keyring v1.2.0 per Spec-022 §Daemon Master Key — Keychain
 -- kSecAttrAccessibleWhenUnlockedThisDeviceOnly on macOS / CRED_TYPE_GENERIC
@@ -303,16 +302,26 @@ CREATE TABLE daemon_signing_keys (
   public_key          BLOB NOT NULL,         -- Ed25519 32-byte public key
   sealed_private_key  BLOB NOT NULL,         -- Ed25519 private key sealed via OS keystore master key
   created_at          TEXT NOT NULL,
-  rotated_at          TEXT,                  -- reserved; see rotation note above
-  -- T4.10 delivery pair (additive 0NNN-attachment-delivery-columns.ts): the attach
-  -- response's server-minted attachment binding — write-through persisted by the
-  -- event.deliverAttachmentId handler, re-persisted by the registrar after key
-  -- resolution (closing the delivery-races-provisioning window), and hydrating the
-  -- registrar's attachment-id source at start, so a daemon restart with registration
-  -- still pending proceeds without a fresh delivery (Codex PR #278 round 2). Written
-  -- atomically as one pair; NULL until the first delivery lands.
-  delivered_node_id        TEXT,
-  delivered_attachment_id  TEXT
+  rotated_at          TEXT                   -- reserved; see rotation note above
+);
+
+-- Owner: Plan-006 | Migration: 0NNN-attachment-deliveries.ts (Tier 4 Phase 4, T4.10)
+-- Durable record of the attach response's server-minted attachment binding, delivered
+-- by the renderer over event.deliverAttachmentId. Deliberately its OWN table, never
+-- columns on daemon_signing_keys (Codex PR #278 round 3, re-designing round 2's
+-- column-add): that table's NOT NULL key columns admit no delivery-only row, and key
+-- provisioning can await the Spec-022 §Daemon Master Key custody ceremony — coupling
+-- delivery durability to it left a crash window between a best-effort handler write
+-- and the registrar's post-resolution re-persist. Here the event.deliverAttachmentId
+-- handler commits this row BEFORE acknowledging (acked-means-durable; INSERT OR
+-- REPLACE, last-write-wins per session — a re-attach mints a new id, so the latest
+-- delivery wins, the pair one atomic binding), and the registrar's attachment-id
+-- source hydrates from it at start. Sole write path: events/attachment-delivery-store.ts.
+CREATE TABLE daemon_attachment_deliveries (
+  session_id               TEXT PRIMARY KEY,
+  delivered_node_id        TEXT NOT NULL,
+  delivered_attachment_id  TEXT NOT NULL,
+  delivered_at             TEXT NOT NULL
 );
 
 -- Owner: Plan-006 | Migration: 0NNN-pending-anchor-uploads.ts (Tier 4 Phase 3)
