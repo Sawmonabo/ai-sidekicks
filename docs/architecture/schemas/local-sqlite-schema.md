@@ -305,6 +305,28 @@ CREATE TABLE daemon_signing_keys (
   rotated_at          TEXT                   -- reserved; see rotation note above
 );
 
+-- Owner: Plan-006 | Migration: 0NNN-attachment-deliveries.ts (Tier 4 Phase 4, T4.10)
+-- Durable record of the attach response's server-minted attachment binding, delivered
+-- by the renderer over event.deliverAttachmentId. Deliberately its OWN table, never
+-- columns on daemon_signing_keys (Codex PR #278 round 3, re-designing round 2's
+-- column-add): that table's NOT NULL key columns admit no delivery-only row, and key
+-- provisioning can await the Spec-022 §Daemon Master Key custody ceremony — coupling
+-- delivery durability to it left a crash window between a best-effort handler write
+-- and the registrar's post-resolution re-persist. Here the event.deliverAttachmentId
+-- handler commits this row BEFORE acknowledging (acked-means-durable; INSERT OR
+-- REPLACE, last-write-wins per session — a re-attach mints a new id, so the latest
+-- delivery wins, the pair one atomic binding). recordDelivery reads the prior row in
+-- the same transaction and returns the comparison: an attachment-id change releases a
+-- floor-parked registrar, a differing prior delivered_node_id is logged loudly (round
+-- 5). The registrar's attachment-id source hydrates from it at start. Sole write path:
+-- events/attachment-delivery-store.ts.
+CREATE TABLE daemon_attachment_deliveries (
+  session_id               TEXT PRIMARY KEY,
+  delivered_node_id        TEXT NOT NULL,
+  delivered_attachment_id  TEXT NOT NULL,
+  delivered_at             TEXT NOT NULL
+);
+
 -- Owner: Plan-006 | Migration: 0NNN-pending-anchor-uploads.ts (Tier 4 Phase 3)
 -- Durable partition-tolerance queue for Merkle anchors awaiting control-plane upload. Unflushed
 -- anchors survive daemon restart without re-signing per Plan-006 §Merkle Anchor Emission (its
