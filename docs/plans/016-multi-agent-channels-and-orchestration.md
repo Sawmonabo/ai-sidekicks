@@ -136,7 +136,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 **Scope:** `packages/contracts/src/orchestration.ts` (NEW), `packages/contracts/src/event.ts` (EXTEND), `packages/runtime-daemon/src/migrations/` + `packages/runtime-daemon/src/session/migration-runner.ts` (EXTEND).
 
-**Precondition:** Plan-006 Phase 1 shipped (`EventCategory.channel_arbitration` present; event registration seam live).
+**Precondition:** Plan-006 Phase 1 shipped (`EventCategory.channel_arbitration` present; event registration seam live). Phase 1's declared set re-opened 2026-08-01 — the Plan-006 T4.10 delta minted T1.11/T1.12, unshipped; both surfaces named here shipped 2026-07-25 in PR #247, and under declared-⊆-shipped the phase reads fully shipped again only once the remainder lands.
 
 #### Tasks
 

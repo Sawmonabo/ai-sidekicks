@@ -79,7 +79,7 @@ MCP-sourced tools resolve to `manual_reconcile_only` unless an `mcp_tool_overrid
 
 The five `mcp.*` event literals and the `mcp_governance` category are Plan-006-owned registry surface, registered by [Plan-006 §Event Taxonomy Coverage](./006-session-event-taxonomy-and-audit-log.md#event-taxonomy-coverage)'s T1.10 census-closure task (authored with this plan in the 2026-07-22 B18 PR). Plan-028 authors the payload schemas (emitter-authors-payload precedent, the Plan-012 `ApprovalFlowEventPayloadSchema` shape) and MUST NOT add the literals to `packages/contracts/src/event.ts` itself.
 
-**Resolution.** Plan-006 Phase 1 (T1.1–T1.10) merges before Plan-028 Phase 1; the Phase 1 precondition below enforces it.
+**Resolution.** Plan-006 T1.10 — the census-closure task this obligation rides, shipped 2026-07-25 via PR #247 — merges before Plan-028 Phase 1; the phase-scoped precondition below enforces it (Plan-006 Phase 1's declared set grew to T1.1–T1.12 on 2026-08-01 via the T4.10 targeted readiness-audit delta, so under declared-⊆-shipped the gate additionally holds until the T1.11/T1.12 remainder ships).
 
 ### CP-028-2 — Plan-005 seam consumption (status producer + tool-metadata resolution)
 

@@ -135,7 +135,7 @@ Contracts: see [API Payload Contracts](../architecture/contracts/api-payload-con
 
 **Preconditions.**
 
-- [x] Plan-006 Phase 1 merged (`SessionEventSchema` union seam + `SESSION_EVENT_TYPES` / `SESSION_EVENT_CATEGORY_BY_TYPE` registry — Tier 4; the re-opened Phase 1's T1.9 `withEpochStamp` composition helper is additionally consumed by T1.5 — campaign B13) — merged 2026-07-25 via PR #247 (squash f7d49f3)
+- [x] Plan-006 Phase 1 merged (`SessionEventSchema` union seam + `SESSION_EVENT_TYPES` / `SESSION_EVENT_CATEGORY_BY_TYPE` registry — Tier 4; the re-opened Phase 1's T1.9 `withEpochStamp` composition helper is additionally consumed by T1.5 — campaign B13) — merged 2026-07-25 via PR #247 (squash f7d49f3). Re-opened 2026-08-01: the Plan-006 T4.10 targeted readiness-audit delta declared T1.11 + T1.12 (union-registration remainder, unshipped) — every surface this box names shipped in PR #247, and the paired `plan_phase` Gate-5 entry below holds dispatch until the Phase-1 remainder lands, per declared-⊆-shipped
 - [ ] Plan-005 Phase 4 merged (`packages/contracts/src/provider-driver.ts` — `RunIdSchema` import origin per CP-012-3; Tier 4)
 - [x] D-012-1 contracts filename ratified — `approval.ts` (Tier-6 audit)
 - [x] D-012-2 DDL ratified — local-sqlite-schema.md §Approval Tables (Tier-6 audit)
