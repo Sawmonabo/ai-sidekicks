@@ -293,12 +293,16 @@ The build-metadata rejection above is grounded in the SemVer specification itsel
 -- §Per-Event Daemon Signature. Sealed-key storage
 -- lives in local SQLite (NOT shared-Postgres sessions) per ADR-004 SQLite-
 -- local-state boundary — daemon-private secrets are per-machine.
+-- rotated_at is reserved and unwritten in V1: no daemon signing-key rotation
+-- ceremony is specified anywhere (a different-key registration is refused per
+-- security-architecture.md §Per-Event Daemon Signature); only a future
+-- rotation extension writes it.
 CREATE TABLE daemon_signing_keys (
   session_id          TEXT PRIMARY KEY,
   public_key          BLOB NOT NULL,         -- Ed25519 32-byte public key
   sealed_private_key  BLOB NOT NULL,         -- Ed25519 private key sealed via OS keystore master key
   created_at          TEXT NOT NULL,
-  rotated_at          TEXT                   -- non-NULL when key has been rotated per ADR-010
+  rotated_at          TEXT                   -- reserved; see rotation note above
 );
 
 -- Owner: Plan-006 | Migration: 0NNN-pending-anchor-uploads.ts (Tier 4 Phase 3)

@@ -367,7 +367,7 @@ export function normalizeOccurredAt(occurredAt: string): string {
  * DELIBERATELY NOT WIRED INTO {@link canonicalizeEvent} OR `verifyRow`. T4.1
  * owns the read path, and emitting a verdict from here would be T2 code
  * deciding a T4.1 question. The verdict itself now exists:
- * `Spec-006 §Audit Integrity (audit_integrity)`'s fifteen-value `failureMode`
+ * `Spec-006 §Audit Integrity (audit_integrity)`'s sixteen-value `failureMode`
  * enum carries `occurred_at_not_canonical`, paired `failurePath: 'signature'`
  * because that field names the guarantee that failed — the signature binds the
  * stored bytes — not the column the defect occupies. What this predicate
