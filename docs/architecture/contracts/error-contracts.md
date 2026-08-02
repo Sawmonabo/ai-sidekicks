@@ -427,6 +427,15 @@ Event-replay cursor errors (Plan-006). Like the §Run / §Queue namespaces these
 | --- | --- | --- |
 | `event.cursor_unresolvable` | An `EventCursor` submitted to `readAfterCursor` / `readWindow` cannot be decoded to a log position — `decodeEventCursor` rejects a non-integer or a value `< -1` (a legacy SDK-synthesized UUID, a corrupted cursor) under the Plan-006 T4.3 predecessor-position cursor model (typed: `CURSOR_UNRESOLVABLE`) | 400 |
 
+### Daemon
+
+Daemon-local write-path refusals (Plan-006). Like §Event these ride the daemon JSON-RPC wire with the dotted code as the canonical `data.type` identifier; the HTTP status is the control-plane-notional mapping. Registered by the Plan-006 T3.1-seam targeted readiness-audit delta (F-006-HALT-03, PR #282, 2026-08-02).
+
+| Code | Description | HTTP Status |
+| --- | --- | --- |
+| `daemon.ingest_halted` | `EventLogService.append` refuses a session whose ingest is administratively halted — the T4.2 key-reuse observer published `halt(sessionId)` through T3.1's `IngestHaltRegistry` and the collision persists in the key stores; carries the refused `sessionId`; re-admission only via `clear(sessionId)` when the collision leaves the observable set (Plan-006 T3.1 / I-006-4-03; typed: `DAEMON_INGEST_HALTED_CODE`; a state-dependent refusal, hence 409 per the corpus convention) | 409 |
+| `daemon.pii_split_bypass` | `EventLogService.append` refuses an envelope carrying PII-class payload outside the T2.4 `pii-indirection.ts` sole-write-path split — a structurally invalid write that is never admissible, unlike the state-dependent `daemon.ingest_halted` (Plan-006 T3.1; the write-path-refusal sibling the ingest-halt clause cites as precedent) | 400 |
+
 ---
 
 ## Rate Limiting

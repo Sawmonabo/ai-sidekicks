@@ -9,7 +9,7 @@
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-004: Queue Steer Pause Resume](../specs/004-queue-steer-pause-resume.md) |
 | **Required ADRs** | [ADR-003](../decisions/003-daemon-backed-queue-and-interventions.md), [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md), [ADR-011](../decisions/011-generic-intervention-dispatch.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md) |
-| **Dependencies** | [Plan-001](./001-shared-session-core.md) (session core + `session/` run-engine dir + Phase 5 renderer bootstrap), [Plan-005](./005-provider-driver-contract-and-capabilities.md) (driver capability checks + `DriverInterventionResult`), [Plan-007](./007-local-ipc-and-daemon-control.md) (`api-payload-contracts.md` method-name registry), [Plan-023 Tier 1 Partial](./023-desktop-shell-and-renderer.md#tier-1-partial-pr-sequence) (`window.sidekicks` preload bridge + renderer substrate — the Tier-1-shipped substrate slice, not the Tier-8 remainder; this plan's `run-controls/` renderer subtree consumes only the bridge, so the substrate is the sole dependency and no Tier-5 → Tier-8 back-edge is created) |
+| **Dependencies** | [Plan-001](./001-shared-session-core.md) (session core + `session/` run-engine dir + Phase 5 renderer bootstrap), [Plan-005](./005-provider-driver-contract-and-capabilities.md) (driver capability checks + `DriverInterventionResult`), [Plan-006](./006-session-event-taxonomy-and-audit-log.md) (T1.9's `sourceEpoch`/`sourcePosition` epoch-attribution carrier per CP-004-12, and T3.1's `session-append-lock.ts` dependency leaf whose `withSessionAppendLock` T3.7's terminal emitter wraps guard-swap-append in — Phase-3 gated per this plan's Phase-3 `plan_phase` entry; F-006-HALT-06, PR #282, 2026-08-02), [Plan-007](./007-local-ipc-and-daemon-control.md) (`api-payload-contracts.md` method-name registry), [Plan-023 Tier 1 Partial](./023-desktop-shell-and-renderer.md#tier-1-partial-pr-sequence) (`window.sidekicks` preload bridge + renderer substrate — the Tier-1-shipped substrate slice, not the Tier-8 remainder; this plan's `run-controls/` renderer subtree consumes only the bridge, so the substrate is the sole dependency and no Tier-5 → Tier-8 back-edge is created) |
 | **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
 | **References** | [Updated Spec-004](../specs/004-queue-steer-pause-resume.md) (6 intervention states, pause as orchestration-layer), [Run State Machine](../domain/run-state-machine.md) (9 states) |
 
@@ -280,6 +280,13 @@ preconditions:
   # where an already-shipped Phase 1 would satisfy the entry pre-amendment.
   - { type: precondition_box_checked, box: "Plan-006 epoch-attribution carrier registered" }
   - { type: plan_phase, plan: 006, phase: 1, status: merged }
+  # T3.7's terminal emitter imports `withSessionAppendLock` from Plan-006 T3.1's
+  # dependency-leaf `session-append-lock.ts` — a Phase-3 deliverable, so the
+  # Phase-1 entry above alone leaves the lock module absent at dispatch.
+  # Registered by the Plan-006 T3.1-seam targeted readiness-audit delta
+  # (F-006-HALT-06, PR #282, 2026-08-02) — the Plan-024 Phase-3B CP-024-5
+  # sibling shape.
+  - { type: plan_phase, plan: 006, phase: 3, status: merged }
   - { type: precondition_box_checked, box: "Driver input-ask park leg authored" }
   # Codex re-audit round 4: the files-partially-restored wire arm REQUIREs the
   # two restore-warning enumerations, but Plan-010 T5.2's partial_restore
