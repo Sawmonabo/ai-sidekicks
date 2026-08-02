@@ -63,7 +63,7 @@ The CLI completes initial token acquisition via [RFC 8628 OAuth 2.0 Device Autho
 
 ### DPoP key (per session)
 
-The DPoP key per [RFC 9449](https://datatracker.ietf.org/doc/html/rfc9449) is an ephemeral Ed25519 key pair generated at session start. Each API request includes a signed `DPoP` header proving possession of the private key; the control plane verifies the DPoP signature against the `cnf.jkt` thumbprint embedded in the access token, sender-constraining the token to the client that minted the proof ([security-architecture.md §Control-Plane Authentication](../architecture/security-architecture.md#control-plane-authentication-task-52)). The DPoP key never leaves the client process and is discarded at session end.
+The DPoP key per [RFC 9449](https://datatracker.ietf.org/doc/html/rfc9449) is an ephemeral Ed25519 key pair generated at session start. Each API request presents the access token as `Authorization: DPoP <token>` ([RFC 9449 §7.1](https://www.rfc-editor.org/rfc/rfc9449#section-7.1) — never `Bearer`, unlike the daemon session token below) and includes a signed `DPoP` header proving possession of the private key, whose claims carry the token's `ath` hash ([RFC 9449 §4.3](https://www.rfc-editor.org/rfc/rfc9449#section-4.3) requires `ath` when a proof accompanies an access-token presentation); the control plane verifies the DPoP signature against the `cnf.jkt` thumbprint embedded in the access token, sender-constraining the token to the client that minted the proof ([security-architecture.md §Control-Plane Authentication](../architecture/security-architecture.md#control-plane-authentication-task-52)). The DPoP key never leaves the client process and is discarded at session end.
 
 ### Self-host deployment secrets (per deployment)
 
