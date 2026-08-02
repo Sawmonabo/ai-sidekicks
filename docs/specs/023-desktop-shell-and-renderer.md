@@ -677,7 +677,7 @@ A dedicated current-state research pass (Electron version / cadence, security ha
 | electron/electron #15404 | Primary source | Long-standing open issue on native WebAuthn support | <https://github.com/electron/electron/issues/15404> |
 | electron/electron #24573 | Primary source | Long-standing open issue on WebAuthn bindings | <https://github.com/electron/electron/issues/24573> |
 | GitLab Advisory DB — CVE-2026-34769 | Primary source | Example high-severity entry from Q1 2026 batch | <https://advisories.gitlab.com/pkg/npm/electron/CVE-2026-34769/> |
-| RFC 9449 — OAuth 2.0 DPoP | Primary source | `Authorization: DPoP` presentation scheme (§7.1) + `ath` proof claim (§4.3) for DPoP-bound tokens | <https://datatracker.ietf.org/doc/html/rfc9449> |
+| RFC 9449 — OAuth 2.0 DPoP | Primary source | `Authorization: DPoP` presentation scheme (§7.1) + `ath` proof claim (§4.3) for DPoP-bound tokens (added 2026-08-02, PR #279 — post-dates the 2026-04-17 pass) | <https://datatracker.ietf.org/doc/html/rfc9449> |
 
 ### Related Specs
 
