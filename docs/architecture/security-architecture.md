@@ -148,7 +148,7 @@ Encrypted with: PASETO v4.local (XChaCha20 stream + BLAKE2b-MAC, encrypt-then-MA
 **DPoP sender-constraining:**
 
 - Client generates an ephemeral Ed25519 key pair at session start
-- Each API request includes a `DPoP` header containing a signed proof: `{jti, htm, htu, iat}` signed by the client's private key
+- Each API request includes a `DPoP` header containing a signed proof: `{jti, htm, htu, iat, ath}` signed by the client's private key — `ath` is the SHA-256 hash of the presented access token, required by [RFC 9449 §4.3](https://www.rfc-editor.org/rfc/rfc9449#section-4.3) when a proof accompanies an access-token presentation
 - The control plane verifies the DPoP proof's signature matches the `cnf.jkt` thumbprint in the access token
 - Prevents stolen access tokens from being used by a different client
 

@@ -530,6 +530,7 @@ Plan-023 splits across two tiers per [cross-plan-dependencies.md §5 Plan-023 Su
 - [`oauth4webapi` (panva)](https://github.com/panva/oauth4webapi) — v3.8.5 (2026-02-16) — PKCE S256 primitives
 - [RFC 8252 §7.3 — Loopback Interface Redirection](https://datatracker.ietf.org/doc/html/rfc8252#section-7.3) — "MUST allow any port to be specified at the time of the request"
 - [RFC 7636 §4 — PKCE code challenge methods](https://datatracker.ietf.org/doc/html/rfc7636#section-4)
+- [RFC 9449 — OAuth 2.0 Demonstrating Proof of Possession (DPoP)](https://datatracker.ietf.org/doc/html/rfc9449) — `Authorization: DPoP` presentation scheme (§7.1) for the DPoP-bound control-plane token, never `Bearer`
 - [CA/Browser Forum CSC-31](https://cabforum.org/working-groups/code-signing/requirements/) — 460-day cert validity cap (effective 2026-03-01)
 - [Microsoft Azure Artifact Signing GA announcement](https://techcommunity.microsoft.com/blog/microsoft-security-blog/simplifying-code-signing-for-windows-apps-artifact-signing-ga/4482789)
 - [Apple Developer forum thread 813441](https://developer.apple.com/forums/thread/813441) — notarization queue delays
