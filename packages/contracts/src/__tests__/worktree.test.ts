@@ -496,7 +496,7 @@ describe("SessionEventSchema registration of the five Plan-010 variants (CP-010-
 
   it("lists all five types in SESSION_EVENT_TYPES (the same-diff roster rule)", () => {
     // The roster is hand-written, so registration and roster must move in
-    // one diff; the full 14-member order pin lives in session-event.test.ts.
+    // one diff; the full roster order pin lives in session-event.test.ts.
     expect(SESSION_EVENT_TYPES).toEqual(
       expect.arrayContaining([
         "worktree.created",

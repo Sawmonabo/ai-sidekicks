@@ -18,16 +18,24 @@
 // `worktree.failed` and no ephemeral-clone variants — the Spec-006 registry
 // stays closed (Plan-010 D-010-11).
 //
+// Plan-006 T1.11 adds the six variants Plan-006 emits ITSELF — the three
+// `audit_integrity` types and the three `event_maintenance` types. Unlike the
+// eleven above they import no payload schema: emitter-authors-payload puts
+// them in the emitting plan's file, and Plan-006 owns this one, so their
+// payload schemas are declared and exported here.
+//
 // The discriminated-union `SessionEvent` discriminates on the wire `type`
 // string. Adding a new variant later is additive per ADR-018 §Decision #8
 // (new event types allowed under a MINOR version bump). The full taxonomy
 // from Spec-006 §Event Type Enumeration is registered below at the post-B18
 // census (Plan-006 T1.2, closed by T1.10): `SessionEventType` (156 literals),
 // the per-category `*_EVENT_TYPES` arrays, and `SESSION_EVENT_CATEGORY_BY_TYPE`
-// (20 categories). Payload variants remain intentionally a strict subset —
-// each is owned by its emitting plan and joins `SessionEventSchema` through
-// the union-registration seam (CP-009-4 / CP-010-5 / CP-012-2 / CP-016-3
-// class) — so census membership is type registration, not payload support.
+// (20 categories). Payload variants remain intentionally a strict subset, and
+// each is owned by its EMITTING plan: eleven reach `SessionEventSchema` from
+// another plan's file through the cross-plan union-registration seam (CP-009-4
+// / CP-010-5, the CP-012-2 / CP-016-3 class), six are authored in this file
+// because Plan-006 emits them and owns it (T1.11). Either way census
+// membership is type registration, not payload support.
 //
 // All three Plan-001 wire strings are registered in Spec-006 §Event Type
 // Enumeration: `session.created` and `channel.created` under
@@ -49,6 +57,10 @@
 // compatibility).
 import { z } from "zod";
 
+// DIRECT import from the `./node-id.js` leaf, never from `./runtime-node.js`
+// — the same eager-Zod-cycle discipline repo.ts's header records: the leaf is
+// dependency-free, so importing it can never close a module-scope cycle.
+import { NodeIdSchema, type NodeId } from "./node-id.js";
 import {
   DRIVER_CAPABILITY_FLAGS,
   DRIVER_TOOL_DESCRIPTION_MAX_LEN,
@@ -641,18 +653,27 @@ export const EventEnvelopeSchema: z.ZodType<EventEnvelope> = z
 // construction. `run_lifecycle` branches never admit it either — a
 // lifecycle straggler is ABSORBED, never late-appended.
 //
-// The wrap set is still EMPTY BY CONSTRUCTION: `SessionEventSchema` carries
-// the three Plan-001 variants (`session.created`, `membership.created`,
-// `channel.created`) plus the six Plan-009 `repo.*` / `workspace.*` variants
-// (CP-009-4) plus the five Plan-010 `worktree.*` variants (CP-010-5) — all
-// fourteen are lifecycle rows whose payloads carry no `runId`,
-// so none is run-scoped and no branch here composes the helper yet. Later
-// registrants of the five families arriving through the union-registration
-// seam (the
+// The wrap set is still EMPTY BY CONSTRUCTION — now on two grounds, not one.
+// `SessionEventSchema` carries the three Plan-001 variants
+// (`session.created`, `membership.created`, `channel.created`), the six
+// Plan-009 `repo.*` / `workspace.*` variants (CP-009-4), the five Plan-010
+// `worktree.*` variants (CP-010-5), and the six Plan-006 `audit_integrity` /
+// `event_maintenance` variants (T1.11). The first fourteen are LIFECYCLE
+// rows; the six T1.11 registrants are DAEMON-SCOPE infrastructure rows fired
+// at process scope across every hosted session
+// (`Spec-006 §Daemon-Scope Event Binding And Node-Scope Anchoring`). Neither
+// group is run-scoped — no payload among the twenty carries `runId` — so no
+// branch here composes the helper yet. Later registrants of the five families
+// arriving through the union-registration seam (the
 // CP-009-4 / CP-010-5 / CP-012-2 / CP-016-3 class) inherit the admission
 // requirement from `Spec-006 §Event Type Enumeration` — a strict payload
-// schema that skipped the wrap would REJECT a stamped row at subscription or
-// replay validation. __tests__/event-source-epoch.test.ts walks the live
+// schema that skipped the wrap would REJECT a stamped row at every site that
+// parses through the STRICT layer. Scoped honestly: the tolerant
+// `EventEnvelopeSchema` carrier accepts a stamped row either way (its
+// `payload` is an open record that preserves unknown keys verbatim), so what
+// an unwrapped branch costs is INTERPRETATION at the strict layer, not
+// transport, append, or the canonical bytes.
+// __tests__/event-source-epoch.test.ts walks the live
 // union and fails when a run-scoped branch of an admitting family lands
 // unwrapped, or when any other branch lands wrapped.
 //
@@ -1216,6 +1237,600 @@ export const WorktreeRetiredEventSchema: z.ZodType<WorktreeRetiredEvent> = z
   .strict();
 
 // --------------------------------------------------------------------------
+// audit_integrity + event_maintenance — the six Plan-006 variants (T1.11).
+// --------------------------------------------------------------------------
+//
+// Additive-MINOR registration (`ADR-018 §Decision` #8) of the six
+// Plan-006-emitted members of `Spec-006 §Audit Integrity (audit_integrity)`
+// and `Spec-006 §Event Maintenance (event_maintenance)`. All six type strings
+// were ALREADY in the census (`SessionEventType` +
+// `SESSION_EVENT_CATEGORY_BY_TYPE`, Plan-006 T1.2); what lands here is their
+// PAYLOAD VARIANTS. The census is untouched — still 156 types across 20
+// categories.
+//
+// SELF-AUTHORED, NOT IMPORTED. The eleven registrants above import their
+// payload schema from the EMITTING plan's module (CP-009-4 / CP-010-5). These
+// six are emitted by Plan-006 itself, which owns this file, so the same
+// emitter-authors-payload rule puts their schemas HERE — exported for the six
+// emission seams to `.parse()` through: T3.1's `registerShredCallback` handler
+// (`event.shredded`; Plan-022's Path 1 orchestrator invokes it after the
+// `participant_keys` DELETE commits, so Plan-022 is the TRIGGER and T3.1 the
+// parse site), T3.2 (`event.compacted`), T3.4 (`schema.migrated`), T4.1
+// (`audit_integrity_verified`, plus the fifteen-mode verifier arm of
+// `audit_integrity_failed` it derives via `.exclude()`), T4.2
+// (`key_reuse_detected`), and T4.10 (that same variant's
+// `signing_key_slot_conflict` registrar arm).
+//
+// FLAT UNDERSCORE NAMES. `audit_integrity_verified`, `audit_integrity_failed`,
+// and `key_reuse_detected` carry NO dot namespace — verbatim from
+// `Spec-006 §Audit Integrity (audit_integrity)`, and immutable wire
+// identifiers under I-006-1-02 however they read beside the
+// `<resource>.<verb>` majority.
+//
+// ENVELOPE-REDUNDANT MEMBERS ARE KEPT. The spec's payload cells re-spell
+// `sessionId` (`audit_integrity`) and `occurredAt` (`event_maintenance`)
+// alongside the envelope's own. They are transcribed verbatim rather than
+// deduplicated: the payload shapes are the spec's, and both members sit in the
+// RFC 8785 canonical bytes, so dropping either would change what the hash
+// chain commits to (`session.created`'s payload re-spells `sessionId` on the
+// same reasoning).
+//
+// DAEMON-SCOPE SESSION BINDING IS AN EMITTER OBLIGATION. Four of the six —
+// `key_reuse_detected` plus all three `event_maintenance` types — are
+// node-level observations bound to the reserved RFC 9562 §5.10 Max UUID
+// sentinel `session_id` per
+// `Spec-006 §Daemon-Scope Event Binding And Node-Scope Anchoring`. The
+// envelope's `sessionId` is `SessionIdSchema` (`z.uuid()`), which already
+// admits that sentinel, and no schema-level narrowing to it is taken here:
+// the spec grants real-id carve-outs the narrowing would reject (an
+// `event.compacted` scoped to ONE session MAY carry that session's id;
+// `audit_integrity_*` carry the verified range's real id, the sentinel only
+// when verifying the node-scope chain; the `signing_key_slot_conflict` arm
+// carries the refused registration's real id and NEVER the sentinel).
+//
+// NO EPOCH STAMP. None of the six is run-scoped — no payload carries `runId`
+// — so the WRAP ADMISSION note above excludes all six;
+// __tests__/event-source-epoch.test.ts walks the live union and fails any of
+// them that lands wrapped.
+
+/**
+ * A `session_events.sequence` value carried INSIDE a payload — a range
+ * endpoint or an implicated row pointer.
+ *
+ * Takes the same ceiling as the envelope's own `sequence` (see the
+ * {@link EVENT_ENVELOPE_SEQUENCE_MAX} note above): a payload endpoint that
+ * cannot be represented faithfully cannot name the row it points at, and the
+ * two would disagree about which rows a range covers.
+ */
+const payloadSequenceSchema = z
+  .number()
+  .int()
+  .nonnegative()
+  .max(EVENT_ENVELOPE_SEQUENCE_MAX, {
+    message: `A payload sequence value must be at most ${EVENT_ENVELOPE_SEQUENCE_MAX} (Number.MAX_SAFE_INTEGER), the same injectivity ceiling EventEnvelope.sequence takes.`,
+  });
+
+/**
+ * Length ceiling for the `audit_integrity_failed` payload's `detail` — the
+ * operator-facing failure description (the refused registration's
+ * `(session_id, node_id)` pair on the registrar arm, the verifier's finding on
+ * the fifteen verifier arms).
+ *
+ * 512 is the package's short human-reason class (`RuntimeNodeDetachReason`,
+ * `InviteRevokeReason`), not the 8192 error-detail class: `detail` is a
+ * one-line operator signal on a row that is never compacted and never
+ * shredded, so it is retained forever.
+ */
+export const AUDIT_INTEGRITY_DETAIL_MAX_LEN = 512;
+
+/**
+ * Length ceiling for the `schema.migrated` payload's `description` — the
+ * migration's human label, Flyway's `description` column by precedent
+ * (`Spec-006 §Event Maintenance (event_maintenance)`). Same short-reason class
+ * as {@link AUDIT_INTEGRITY_DETAIL_MAX_LEN}.
+ */
+export const SCHEMA_MIGRATION_DESCRIPTION_MAX_LEN = 512;
+
+/**
+ * The sixteen `audit_integrity_failed` failure modes of
+ * `Spec-006 §Audit Integrity (audit_integrity)` — fifteen read-side verifier
+ * verdicts plus the daemon-side registrar's `signing_key_slot_conflict`
+ * (2026-08-01 amendment).
+ *
+ * Named for the verifier because fifteen of sixteen are its verdicts and
+ * because the plan (T4.1) names the schema `VerifierFailureModeSchema`; the
+ * sixteenth is emitted by the registrar's conflict handler, which is exactly
+ * why the payload below is DISCRIMINATED on this field rather than flat.
+ */
+export type VerifierFailureMode =
+  | "hash_mismatch"
+  | "signature_mismatch"
+  | "anchor_mismatch"
+  | "inclusion_proof_failed"
+  | "consistency_proof_failed"
+  | "log_file_missing"
+  | "log_file_moved"
+  | "anchor_missing_for_compacted_range"
+  | "anchor_signature_invalid"
+  | "stub_signature_invalid"
+  | "stub_scalar_mismatch"
+  | "signature_placeholder"
+  | "occurred_at_not_canonical"
+  | "pii_ciphertext_digest_unbound"
+  | "pii_owner_stamp_unbound"
+  | "signing_key_slot_conflict";
+
+// The module-local twin. `.exclude()` lives on Zod's `ZodEnum` surface, which
+// the exported `z.ZodType<VerifierFailureMode>` annotation ERASES — the
+// `isolatedDeclarations` trade worktree.ts's `EphemeralCloneState` note
+// records, and the same module-local-twin shape
+// `capabilityDetailsObjectSchema` takes below. The verifier arm derives its
+// fifteen-mode discriminator from THIS value, so the sixteen-mode vocabulary
+// is single-sourced across both surfaces; the compile-time binding is the
+// `Exclude<VerifierFailureMode, "signing_key_slot_conflict">` on the payload
+// type alias, which is a real check rather than a comment.
+const verifierFailureModeEnum = z.enum([
+  "hash_mismatch",
+  "signature_mismatch",
+  "anchor_mismatch",
+  "inclusion_proof_failed",
+  "consistency_proof_failed",
+  "log_file_missing",
+  "log_file_moved",
+  "anchor_missing_for_compacted_range",
+  "anchor_signature_invalid",
+  "stub_signature_invalid",
+  "stub_scalar_mismatch",
+  "signature_placeholder",
+  "occurred_at_not_canonical",
+  "pii_ciphertext_digest_unbound",
+  "pii_owner_stamp_unbound",
+  "signing_key_slot_conflict",
+]);
+export const VerifierFailureModeSchema: z.ZodType<VerifierFailureMode> = verifierFailureModeEnum;
+
+/**
+ * The verification GUARANTEE that failed, per
+ * `Spec-006 §Audit Integrity (audit_integrity)` — not the column the defect
+ * occupies. `inclusion` is the chain path, `consistency` the anchor path, and
+ * `signature` the signature-binding path (which is why the three
+ * signature-survives-but-binding-broke modes —
+ * `occurred_at_not_canonical`, `pii_ciphertext_digest_unbound`,
+ * `pii_owner_stamp_unbound` — all pair with it). No fourth value is minted:
+ * each of the three routes to one tamper-response owner.
+ */
+export type VerifierFailurePath = "inclusion" | "consistency" | "signature";
+export const VerifierFailurePathSchema: z.ZodType<VerifierFailurePath> = z.enum([
+  "inclusion",
+  "consistency",
+  "signature",
+]);
+
+// The `audit_integrity` payload base — `{sessionId, anchorId?,
+// verifierNodeId}` verbatim from `Spec-006 §Audit Integrity
+// (audit_integrity)`. A builder, not a shared const, for the same reason
+// `buildCommonShape()` is one: each caller spreads a FRESH shape rather than
+// aliasing one Zod object across schemas.
+//
+// `key_reuse_detected` deliberately does NOT compose it — its spec cell is a
+// standalone shape with no `base +` prefix, and it names `detectorNodeId`
+// rather than `verifierNodeId` because the emitter is an observer/monitor,
+// not a verifier.
+const buildAuditIntegrityBaseShape = () => ({
+  sessionId: SessionIdSchema,
+  // Opaque on the wire, deliberately NOT a branded/UUID-narrowed id: the
+  // control-plane `event_log_anchors.id` is a UUID while the local
+  // `pending_anchor_uploads.id` is `TEXT`, and no `AnchorId` vocabulary is
+  // declared anywhere in the corpus. Minting one here would pre-commit every
+  // importer to a shape no authority has fixed. Bounded free-form is the
+  // conservative admission (length cap + whitespace-only + NUL guards); a
+  // later narrowing is the owning plan's to take.
+  anchorId: wireFreeFormString(EVENT_FIELD_MAX_LEN, "audit_integrity.anchorId").optional(),
+  verifierNodeId: NodeIdSchema,
+});
+
+/**
+ * `audit_integrity_verified` — a read-side verifier completed hash,
+ * signature, and anchor checks over a range successfully
+ * (`Spec-006 §Audit Integrity (audit_integrity)`).
+ *
+ * `rootHash` is bounded free-form, not a 64-hex pin: the house digest form is
+ * 64-char lowercase hex (`daemon_signing_public_keys`' fingerprint,
+ * `pii_ciphertext_digest`), but no authority pins THIS member's wire
+ * spelling, and a pin here would be a narrowing nothing could relax
+ * (`ADR-018 §Decision` #8 makes removals/narrowings MAJOR). The hex form is
+ * the emitter's obligation, not the parser's. Same for
+ * `signatureAlgorithm` — the spec enumerates no algorithm vocabulary, so no
+ * enum is invented for it.
+ */
+export type AuditIntegrityVerifiedPayload = {
+  sessionId: SessionId;
+  anchorId?: string | undefined;
+  verifierNodeId: NodeId;
+  treeSize: number;
+  rootHash: string;
+  fromSeq: number;
+  toSeq: number;
+  verifiedAt: string;
+  signatureAlgorithm: string;
+};
+export const AuditIntegrityVerifiedPayloadSchema: z.ZodType<AuditIntegrityVerifiedPayload> = z
+  .object({
+    ...buildAuditIntegrityBaseShape(),
+    // Leaf count of the verified Merkle tree (RFC 9162 `tree_size`).
+    treeSize: z.number().int().nonnegative(),
+    rootHash: wireFreeFormString(EVENT_FIELD_MAX_LEN, "audit_integrity_verified.rootHash"),
+    fromSeq: payloadSequenceSchema,
+    toSeq: payloadSequenceSchema,
+    verifiedAt: z.iso.datetime({ offset: true }),
+    signatureAlgorithm: wireFreeFormString(
+      EVENT_FIELD_MAX_LEN,
+      "audit_integrity_verified.signatureAlgorithm",
+    ),
+  })
+  .strict();
+
+// The two arms of the payload below. Module-local: a consumer that needs one
+// of them narrows through `Extract<AuditIntegrityFailedPayload, …>` on the
+// `failureMode` discriminator, so exporting them would add surface no caller
+// needs. The verifier arm's mode set is bound to the sixteen-mode vocabulary
+// by `Exclude<…>` rather than re-typed, so the two cannot drift.
+type AuditIntegrityFailedVerifierPayload = {
+  sessionId: SessionId;
+  anchorId?: string | undefined;
+  verifierNodeId: NodeId;
+  treeSize: number;
+  expectedRootHash: string;
+  observedRootHash: string;
+  failureMode: Exclude<VerifierFailureMode, "signing_key_slot_conflict">;
+  failurePath: VerifierFailurePath;
+  offendingSeq?: number | undefined;
+  detail: string;
+};
+type AuditIntegrityFailedRegistrarPayload = {
+  sessionId: SessionId;
+  anchorId?: string | undefined;
+  verifierNodeId: NodeId;
+  failureMode: "signing_key_slot_conflict";
+  failurePath: "signature";
+  detail: string;
+};
+/**
+ * `audit_integrity_failed` — DISCRIMINATED on `failureMode`, not flat
+ * (`Spec-006 §Audit Integrity (audit_integrity)`, 2026-08-01 amendment).
+ *
+ * The Merkle triple (`treeSize`, `expectedRootHash`, `observedRootHash`)
+ * describes a VERIFIED RANGE. The fifteen read-side verifier modes walked one
+ * and REQUIRE it; the registrar's `signing_key_slot_conflict` walked none, so
+ * a flat sixteen-mode object would force its emitter to fabricate roots for a
+ * tree it never touched. One event type, one wire schema, two arms: the
+ * verifier can never silently omit its roots and the registrar can never
+ * invent them.
+ */
+export type AuditIntegrityFailedPayload =
+  | AuditIntegrityFailedVerifierPayload
+  | AuditIntegrityFailedRegistrarPayload;
+
+const auditIntegrityFailedVerifierArmSchema = z
+  .object({
+    ...buildAuditIntegrityBaseShape(),
+    treeSize: z.number().int().nonnegative(),
+    expectedRootHash: wireFreeFormString(
+      EVENT_FIELD_MAX_LEN,
+      "audit_integrity_failed.expectedRootHash",
+    ),
+    observedRootHash: wireFreeFormString(
+      EVENT_FIELD_MAX_LEN,
+      "audit_integrity_failed.observedRootHash",
+    ),
+    // Derived from the sixteen-mode twin so the two arms cannot drift apart.
+    failureMode: verifierFailureModeEnum.exclude(["signing_key_slot_conflict"]),
+    failurePath: VerifierFailurePathSchema,
+    // OPTIONAL — several modes implicate no single row (`log_file_missing`,
+    // `anchor_missing_for_compacted_range`).
+    offendingSeq: payloadSequenceSchema.optional(),
+    detail: wireFreeFormString(AUDIT_INTEGRITY_DETAIL_MAX_LEN, "audit_integrity_failed.detail"),
+  })
+  .strict();
+
+const auditIntegrityFailedRegistrarArmSchema = z
+  .object({
+    ...buildAuditIntegrityBaseShape(),
+    failureMode: z.literal("signing_key_slot_conflict"),
+    // Pinned, not the three-value enum: the spec fixes this arm's path at
+    // `signature` — the guarantee broken is the roster's binding of this
+    // node's signing key.
+    failurePath: z.literal("signature"),
+    detail: wireFreeFormString(AUDIT_INTEGRITY_DETAIL_MAX_LEN, "audit_integrity_failed.detail"),
+  })
+  .strict();
+
+export const AuditIntegrityFailedPayloadSchema: z.ZodType<AuditIntegrityFailedPayload> =
+  z.discriminatedUnion("failureMode", [
+    auditIntegrityFailedVerifierArmSchema,
+    auditIntegrityFailedRegistrarArmSchema,
+  ]);
+
+/**
+ * `key_reuse_detected` — one Ed25519 public key observed under MORE THAN ONE
+ * identity (`Spec-006 §Audit Integrity (audit_integrity)`).
+ *
+ * NO `base +` PREFIX in the spec cell, and the omission is load-bearing: this
+ * is an observer's node-level finding, so it carries `detectorNodeId` and no
+ * `sessionId` / `anchorId` / `verifierNodeId` at payload level. The envelope's
+ * `sessionId` is the daemon-scope sentinel.
+ */
+export type KeyReuseDetectedPayload = {
+  offendingKeyFingerprint: string;
+  observedIdentities: Array<{ sessionId: SessionId; nodeId: NodeId }>;
+  firstSeenAt: string;
+  rotationInvariantViolated: "refuse_on_rotation";
+  detectorNodeId: NodeId;
+};
+export const KeyReuseDetectedPayloadSchema: z.ZodType<KeyReuseDetectedPayload> = z
+  .object({
+    // Bounded free-form: V1 pins no fingerprint grammar (see the `rootHash`
+    // note above).
+    offendingKeyFingerprint: wireFreeFormString(
+      EVENT_FIELD_MAX_LEN,
+      "key_reuse_detected.offendingKeyFingerprint",
+    ),
+    // AT LEAST TWO, AND PAIRWISE DISTINCT — both halves are the spec's own
+    // words rather than a local narrowing: the detected condition is a key
+    // "registered under MORE THAN ONE identity — the same key material under
+    // two distinct `(session_id, node_id)` pairs". A one-entry list describes a
+    // key held by the identity that minted it, and a two-entry list that names
+    // ONE identity twice describes that same compliant state redundantly —
+    // neither is a collision. `.min(2)` counts HOW MANY, the refinement counts
+    // HOW MANY DIFFERENT; cardinality alone would let a duplicated pair mint a
+    // false reuse alarm on a row that is never compacted and never shredded,
+    // so it is retained forever. The set key is built with `JSON.stringify`
+    // over a two-string array — that serialization is injective, so no
+    // separator character has to be assumed absent from either id.
+    observedIdentities: z
+      .array(z.object({ sessionId: SessionIdSchema, nodeId: NodeIdSchema }).strict())
+      .min(2, {
+        message:
+          "key_reuse_detected.observedIdentities must name at least two distinct (sessionId, nodeId) identities — one identity holding its own key is the register-once posture, not a collision.",
+      })
+      .refine(
+        (identities) =>
+          new Set(
+            identities.map((identity) => JSON.stringify([identity.sessionId, identity.nodeId])),
+          ).size === identities.length,
+        {
+          message:
+            "key_reuse_detected.observedIdentities must not name one (sessionId, nodeId) identity twice — a repeated pair is one identity holding its own key, which is the register-once posture, not a collision.",
+        },
+      ),
+    firstSeenAt: z.iso.datetime({ offset: true }),
+    // The single violated invariant name, pinned as a literal: V1 specifies
+    // exactly one rotation posture (`refuse_on_rotation`), so an open string
+    // would admit a vocabulary that does not exist.
+    rotationInvariantViolated: z.literal("refuse_on_rotation"),
+    detectorNodeId: NodeIdSchema,
+  })
+  .strict();
+
+// The `event_maintenance` payload base — `{nodeId, operationId, occurredAt}`
+// verbatim from `Spec-006 §Event Maintenance (event_maintenance)`. All three
+// members are shared by all three types; `occurredAt` re-spells the envelope's
+// own (see the envelope-redundant-members note above).
+const buildEventMaintenanceBaseShape = () => ({
+  nodeId: NodeIdSchema,
+  // The batch/pass correlation id — Liquibase's `DEPLOYMENT_ID` by precedent.
+  // Opaque and bounded free-form; the corpus fixes no format for it.
+  operationId: wireFreeFormString(EVENT_FIELD_MAX_LEN, "event_maintenance.operationId"),
+  occurredAt: z.iso.datetime({ offset: true }),
+});
+
+/**
+ * `schema.migrated` — one migration BATCH completed (Flyway's
+ * `AFTER_MIGRATE_OPERATION_FINISH` granularity, not per-statement) per
+ * `Spec-006 §Event Maintenance (event_maintenance)`.
+ *
+ * `success` stays a plain boolean: the spec's field set carries it, so a
+ * `z.literal(true)` narrowing would make the failed-migration row —
+ * the one worth auditing — unrepresentable.
+ */
+export type SchemaMigratedPayload = {
+  nodeId: NodeId;
+  operationId: string;
+  occurredAt: string;
+  fromVersion: string;
+  toVersion: string;
+  migrationId: string;
+  description: string;
+  checksum: string;
+  appliedBy: string;
+  executionMs: number;
+  success: boolean;
+};
+export const SchemaMigratedPayloadSchema: z.ZodType<SchemaMigratedPayload> = z
+  .object({
+    ...buildEventMaintenanceBaseShape(),
+    // Schema versions, NOT `EventEnvelopeVersion`: these name migration
+    // revisions of the local store (Flyway's `version` column), which take no
+    // "MAJOR.MINOR" protocol grammar. Coupling them to the envelope's version
+    // schema would be a false binding.
+    fromVersion: wireFreeFormString(EVENT_FIELD_MAX_LEN, "schema.migrated.fromVersion"),
+    toVersion: wireFreeFormString(EVENT_FIELD_MAX_LEN, "schema.migrated.toVersion"),
+    migrationId: wireFreeFormString(EVENT_FIELD_MAX_LEN, "schema.migrated.migrationId"),
+    description: wireFreeFormString(
+      SCHEMA_MIGRATION_DESCRIPTION_MAX_LEN,
+      "schema.migrated.description",
+    ),
+    // BLAKE3 over the concatenated migration file contents (Plan-006 T3.4) —
+    // bounded free-form on the same reasoning as `rootHash` above.
+    checksum: wireFreeFormString(EVENT_FIELD_MAX_LEN, "schema.migrated.checksum"),
+    appliedBy: wireFreeFormString(EVENT_FIELD_MAX_LEN, "schema.migrated.appliedBy"),
+    executionMs: z.number().int().nonnegative(),
+    success: z.boolean(),
+  })
+  .strict();
+
+/**
+ * `event.compacted` — a compaction pass replaced full payloads in a range with
+ * audit stubs (`Spec-006 §Event Maintenance (event_maintenance)`).
+ *
+ * `sessionId` is OPTIONAL here and required nowhere else in the family: the
+ * spec grants a single-session pass the option of carrying that session's real
+ * id while the daemon-scope row binds the sentinel at the ENVELOPE.
+ */
+export type EventCompactedPayload = {
+  nodeId: NodeId;
+  operationId: string;
+  occurredAt: string;
+  sessionId?: SessionId | undefined;
+  fromSeq: number;
+  toSeq: number;
+  eventsBefore: number;
+  eventsAfter: number;
+  bytesReclaimed: number;
+  tombstoneCount: number;
+  compactionReason: "age_threshold" | "count_threshold" | "storage_threshold";
+};
+export const EventCompactedPayloadSchema: z.ZodType<EventCompactedPayload> = z
+  .object({
+    ...buildEventMaintenanceBaseShape(),
+    sessionId: SessionIdSchema.optional(),
+    fromSeq: payloadSequenceSchema,
+    toSeq: payloadSequenceSchema,
+    eventsBefore: z.number().int().nonnegative(),
+    eventsAfter: z.number().int().nonnegative(),
+    bytesReclaimed: z.number().int().nonnegative(),
+    tombstoneCount: z.number().int().nonnegative(),
+    // Closed vocabulary — the three `Spec-006 §Event Compaction Policy`
+    // triggers.
+    compactionReason: z.enum(["age_threshold", "count_threshold", "storage_threshold"]),
+  })
+  .strict();
+
+/**
+ * `event.shredded` — a crypto-shred cleared a participant's PII across the
+ * affected sessions (`Spec-006 §Event Maintenance (event_maintenance)`;
+ * Spec-022 owns the fan-out mechanism).
+ *
+ * `affectedSessionIds` takes NO cardinality floor: an idempotent re-run, or a
+ * purge of a participant whose rows carried no PII, legitimately affects zero
+ * sessions, and the row is still the audit record of the operation. (Contrast
+ * `key_reuse_detected.observedIdentities` above, whose floor the spec's own
+ * "more than one identity" wording entails.)
+ */
+export type EventShreddedPayload = {
+  nodeId: NodeId;
+  operationId: string;
+  occurredAt: string;
+  participantId: ParticipantId;
+  affectedSessionIds: SessionId[];
+  piiPayloadsCleared: number;
+  shredReason: "gdpr_article_17" | "retention_policy" | "admin_action";
+};
+export const EventShreddedPayloadSchema: z.ZodType<EventShreddedPayload> = z
+  .object({
+    ...buildEventMaintenanceBaseShape(),
+    participantId: ParticipantIdSchema,
+    affectedSessionIds: z.array(SessionIdSchema),
+    piiPayloadsCleared: z.number().int().nonnegative(),
+    shredReason: z.enum(["gdpr_article_17", "retention_policy", "admin_action"]),
+  })
+  .strict();
+
+// Emitted when a read-side verifier completes hash, signature, and anchor
+// checks over a range successfully (Plan-006 T4.1).
+export interface AuditIntegrityVerifiedEvent extends EventEnvelope {
+  type: "audit_integrity_verified";
+  category: "audit_integrity";
+  payload: AuditIntegrityVerifiedPayload;
+}
+export const AuditIntegrityVerifiedEventSchema: z.ZodType<AuditIntegrityVerifiedEvent> = z
+  .object({
+    ...buildCommonShape(),
+    type: z.literal("audit_integrity_verified"),
+    category: z.literal("audit_integrity"),
+    payload: AuditIntegrityVerifiedPayloadSchema,
+  })
+  .strict();
+
+// Emitted when a verifier detects a chain break, signature failure, or anchor
+// mismatch (Plan-006 T4.1), and when the daemon-side registrar's conflict
+// handler observes a usurped signing-key slot (T4.10).
+export interface AuditIntegrityFailedEvent extends EventEnvelope {
+  type: "audit_integrity_failed";
+  category: "audit_integrity";
+  payload: AuditIntegrityFailedPayload;
+}
+export const AuditIntegrityFailedEventSchema: z.ZodType<AuditIntegrityFailedEvent> = z
+  .object({
+    ...buildCommonShape(),
+    type: z.literal("audit_integrity_failed"),
+    category: z.literal("audit_integrity"),
+    payload: AuditIntegrityFailedPayloadSchema,
+  })
+  .strict();
+
+// Emitted when the key-reuse monitor observes one public key under two
+// identities (Plan-006 T4.2).
+export interface KeyReuseDetectedEvent extends EventEnvelope {
+  type: "key_reuse_detected";
+  category: "audit_integrity";
+  payload: KeyReuseDetectedPayload;
+}
+export const KeyReuseDetectedEventSchema: z.ZodType<KeyReuseDetectedEvent> = z
+  .object({
+    ...buildCommonShape(),
+    type: z.literal("key_reuse_detected"),
+    category: z.literal("audit_integrity"),
+    payload: KeyReuseDetectedPayloadSchema,
+  })
+  .strict();
+
+// Emitted once per completed migration batch (Plan-006 T3.4).
+export interface SchemaMigratedEvent extends EventEnvelope {
+  type: "schema.migrated";
+  category: "event_maintenance";
+  payload: SchemaMigratedPayload;
+}
+export const SchemaMigratedEventSchema: z.ZodType<SchemaMigratedEvent> = z
+  .object({
+    ...buildCommonShape(),
+    type: z.literal("schema.migrated"),
+    category: z.literal("event_maintenance"),
+    payload: SchemaMigratedPayloadSchema,
+  })
+  .strict();
+
+// Emitted once per compaction pass (Plan-006 T3.2).
+export interface EventCompactedEvent extends EventEnvelope {
+  type: "event.compacted";
+  category: "event_maintenance";
+  payload: EventCompactedPayload;
+}
+export const EventCompactedEventSchema: z.ZodType<EventCompactedEvent> = z
+  .object({
+    ...buildCommonShape(),
+    type: z.literal("event.compacted"),
+    category: z.literal("event_maintenance"),
+    payload: EventCompactedPayloadSchema,
+  })
+  .strict();
+
+// Emitted once per crypto-shred fan-out (Spec-022 §Shred Fan-Out).
+export interface EventShreddedEvent extends EventEnvelope {
+  type: "event.shredded";
+  category: "event_maintenance";
+  payload: EventShreddedPayload;
+}
+export const EventShreddedEventSchema: z.ZodType<EventShreddedEvent> = z
+  .object({
+    ...buildCommonShape(),
+    type: z.literal("event.shredded"),
+    category: z.literal("event_maintenance"),
+    payload: EventShreddedPayloadSchema,
+  })
+  .strict();
+
+// --------------------------------------------------------------------------
 // SessionEvent — discriminated union over `type`.
 // --------------------------------------------------------------------------
 //
@@ -1246,7 +1861,13 @@ export type SessionEvent =
   | WorktreeReadyEvent
   | WorktreeDirtyEvent
   | WorktreeMergedEvent
-  | WorktreeRetiredEvent;
+  | WorktreeRetiredEvent
+  | AuditIntegrityVerifiedEvent
+  | AuditIntegrityFailedEvent
+  | KeyReuseDetectedEvent
+  | SchemaMigratedEvent
+  | EventCompactedEvent
+  | EventShreddedEvent;
 export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion("type", [
   z
     .object({
@@ -1371,6 +1992,63 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
       type: z.literal("worktree.retired"),
       category: z.literal("session_lifecycle"),
       payload: WorktreeLifecyclePayloadSchema,
+    })
+    .strict(),
+  // The six Plan-006 `audit_integrity` / `event_maintenance` arms (T1.11).
+  // Each shares the payload const declared above — authored in THIS file
+  // rather than imported, because Plan-006 both owns the file and emits the
+  // rows — so these branch schemas and the `*EventSchema` exports above
+  // cannot drift on payload shape. `audit_integrity_failed` carries the
+  // `failureMode`-discriminated payload union, a nested discriminator the
+  // outer `type` dispatch is indifferent to. None is wrapped with
+  // `withEpochStamp` (daemon-scope, not run-scoped; see the no-epoch-stamp
+  // note on their declarations above).
+  z
+    .object({
+      ...buildCommonShape(),
+      type: z.literal("audit_integrity_verified"),
+      category: z.literal("audit_integrity"),
+      payload: AuditIntegrityVerifiedPayloadSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...buildCommonShape(),
+      type: z.literal("audit_integrity_failed"),
+      category: z.literal("audit_integrity"),
+      payload: AuditIntegrityFailedPayloadSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...buildCommonShape(),
+      type: z.literal("key_reuse_detected"),
+      category: z.literal("audit_integrity"),
+      payload: KeyReuseDetectedPayloadSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...buildCommonShape(),
+      type: z.literal("schema.migrated"),
+      category: z.literal("event_maintenance"),
+      payload: SchemaMigratedPayloadSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...buildCommonShape(),
+      type: z.literal("event.compacted"),
+      category: z.literal("event_maintenance"),
+      payload: EventCompactedPayloadSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...buildCommonShape(),
+      type: z.literal("event.shredded"),
+      category: z.literal("event_maintenance"),
+      payload: EventShreddedPayloadSchema,
     })
     .strict(),
 ]);
@@ -1629,9 +2307,10 @@ export type SessionEventType =
 // union's branches, so a forgotten entry fails there rather than silently
 // under-reporting the registered surface.
 //
-// Membership today: the three Plan-001 variants plus the six Plan-009
-// repo/workspace variants (CP-009-4) plus the five Plan-010 worktree
-// variants (CP-010-5). Order mirrors the declaration order of the union arms
+// Membership today (20): the three Plan-001 variants, the six Plan-009
+// repo/workspace variants (CP-009-4), the five Plan-010 worktree variants
+// (CP-010-5), and the six Plan-006 audit-integrity / event-maintenance
+// variants (T1.11). Order mirrors the declaration order of the union arms
 // above.
 export const SESSION_EVENT_TYPES: readonly SessionEvent["type"][] = [
   "session.created",
@@ -1648,6 +2327,12 @@ export const SESSION_EVENT_TYPES: readonly SessionEvent["type"][] = [
   "worktree.dirty",
   "worktree.merged",
   "worktree.retired",
+  "audit_integrity_verified",
+  "audit_integrity_failed",
+  "key_reuse_detected",
+  "schema.migrated",
+  "event.compacted",
+  "event.shredded",
 ] as const;
 
 // --------------------------------------------------------------------------

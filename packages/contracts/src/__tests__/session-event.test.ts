@@ -48,14 +48,23 @@
 // carrier no carve-out). Plan-006 T1.4 appends the
 // `CapabilityDetailsSchema` suite last: the canonical capability snapshot
 // for the `runtime_node.capability_*` payload binding (exhaustive
-// enum-keyed flags; non-normalizing strict tools).
+// enum-keyed flags; non-normalizing strict tools). Plan-006 T1.11 closes the
+// file with the six-variant acceptance/rejection suite for the
+// `audit_integrity` + `event_maintenance` payload variants Plan-006 emits
+// itself — including the `failureMode`-discriminated `audit_integrity_failed`
+// arms and the daemon-scope sentinel binding — and closes with the
+// standalone-vs-union parity block for the six `*EventSchema` exports, on the
+// worktree.test.ts precedent (outer `.strict()` has no compile-time backstop).
 import { describe, expect, it } from "vitest";
 
 import {
   APPROVAL_FLOW_EVENT_TYPES,
   ARTIFACT_PUBLICATION_EVENT_TYPES,
   ASSISTANT_OUTPUT_EVENT_TYPES,
+  AUDIT_INTEGRITY_DETAIL_MAX_LEN,
   AUDIT_INTEGRITY_EVENT_TYPES,
+  AuditIntegrityFailedEventSchema,
+  AuditIntegrityVerifiedEventSchema,
   CAPABILITY_CONTRACT_VERSION_MAX_LEN,
   CapabilityDetailsSchema,
   CHANNEL_ARBITRATION_EVENT_TYPES,
@@ -67,9 +76,12 @@ import {
   EVENT_FIELD_MAX_LEN,
   EVENT_MAINTENANCE_EVENT_TYPES,
   EventCategorySchema,
+  EventCompactedEventSchema,
   EventEnvelopeSchema,
   EventEnvelopeVersionSchema,
+  EventShreddedEventSchema,
   INTERACTIVE_REQUEST_EVENT_TYPES,
+  KeyReuseDetectedEventSchema,
   MCP_GOVERNANCE_EVENT_TYPES,
   MEMBERSHIP_CHANGE_EVENT_TYPES,
   ONBOARDING_LIFECYCLE_EVENT_TYPES,
@@ -78,6 +90,8 @@ import {
   RECOVERY_EVENTS_EVENT_TYPES,
   RUN_LIFECYCLE_EVENT_TYPES,
   RUNTIME_NODE_LIFECYCLE_EVENT_TYPES,
+  SCHEMA_MIGRATION_DESCRIPTION_MAX_LEN,
+  SchemaMigratedEventSchema,
   SECURITY_EVENTS_EVENT_TYPES,
   SESSION_EVENT_CATEGORY_BY_TYPE,
   SESSION_EVENT_TYPES,
@@ -85,6 +99,8 @@ import {
   SessionEventSchema,
   TOOL_ACTIVITY_EVENT_TYPES,
   USAGE_TELEMETRY_EVENT_TYPES,
+  VerifierFailureModeSchema,
+  VerifierFailurePathSchema,
   type CapabilityDetails,
   type EventCategory,
   type EventEnvelope,
@@ -155,12 +171,14 @@ const buildChannelCreated = () => ({
 });
 
 describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
-  it("registers exactly the payload-variant roster (Plan-001 three + Plan-009 six + Plan-010 five)", () => {
-    // The SCHEMA-registered subset, not the 156-type census. It grew by the
-    // six Plan-009 repo/workspace variants (CP-009-4) and the five Plan-010
-    // worktree variants (CP-010-5); each group's round-trip and payload
+  it("registers exactly the payload-variant roster (Plan-001 three + Plan-009 six + Plan-010 five + Plan-006 six)", () => {
+    // The SCHEMA-registered subset (20), not the 156-type census. It grew by
+    // the six Plan-009 repo/workspace variants (CP-009-4), the five Plan-010
+    // worktree variants (CP-010-5), and the six Plan-006 audit-integrity /
+    // event-maintenance variants (T1.11); each group's round-trip and payload
     // coverage lives in the suite that owns its contract (repo.test.ts /
-    // worktree.test.ts).
+    // worktree.test.ts / the T1.11 suite at the end of this file, Plan-006
+    // owning this module).
     expect(SESSION_EVENT_TYPES).toEqual([
       "session.created",
       "membership.created",
@@ -176,6 +194,12 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
       "worktree.dirty",
       "worktree.merged",
       "worktree.retired",
+      "audit_integrity_verified",
+      "audit_integrity_failed",
+      "key_reuse_detected",
+      "schema.migrated",
+      "event.compacted",
+      "event.shredded",
     ]);
   });
 
@@ -634,10 +658,12 @@ describe("compareEventEnvelopeVersion", () => {
 //     per-category arrays partition the census.
 //   • I-006-1-02 — event-type-string immutability: the three Plan-001 wire
 //     literals are unrenamed with unchanged categories, and the SCHEMA-
-//     registered payload subset grows only additively through the
-//     union-registration seam (those three plus the six Plan-009
-//     repo/workspace variants of CP-009-4 and the five Plan-010 worktree
-//     variants of CP-010-5 — whose literals the census already carried, so
+//     registered payload subset grows only ADDITIVELY (those three; the six
+//     Plan-009 repo/workspace variants of CP-009-4 and the five Plan-010
+//     worktree variants of CP-010-5, which reach the union through the
+//     cross-plan registration seam; and the six Plan-006 `audit_integrity` /
+//     `event_maintenance` variants T1.11 authors in event.ts itself, Plan-006
+//     emitting them — whose literals the census already carried, so
 //     registering their payloads moved no census row).
 //     The B18 widening is likewise additive-only: it renamed nothing, and
 //     every pre-B18 census row keeps its literal and category (pinned by
@@ -767,11 +793,13 @@ describe("SessionEventType census + SESSION_EVENT_CATEGORY_BY_TYPE registry (T1.
     expect(SESSION_EVENT_CATEGORY_BY_TYPE.get("membership.created")).toBe("membership_change");
     expect(SESSION_EVENT_CATEGORY_BY_TYPE.get("channel.created")).toBe("session_lifecycle");
     // The census widening is additive-only, and the SCHEMA-registered
-    // payload subset grows ONLY through the emitting plans'
-    // union-registration seam — the three Plan-001 variants plus the six
-    // Plan-009 repo/workspace variants (CP-009-4) plus the five Plan-010
-    // worktree variants (CP-010-5), whose type strings were already
-    // census-registered by T1.2 before their payloads landed. The loop below
+    // payload subset grows ONLY through each emitting plan's
+    // union-registration seam — the three Plan-001 variants, the six
+    // Plan-009 repo/workspace variants (CP-009-4), the five Plan-010
+    // worktree variants (CP-010-5), and the six Plan-006 audit-integrity /
+    // event-maintenance variants (T1.11, emitted by the plan that owns
+    // event.ts) — whose type strings were all already census-registered by
+    // T1.2 before their payloads landed. The loop below
     // is the bind that matters: every registered variant must be a census
     // member, so a variant registered under an unregistered literal fails
     // here.
@@ -790,6 +818,12 @@ describe("SessionEventType census + SESSION_EVENT_CATEGORY_BY_TYPE registry (T1.
       "worktree.dirty",
       "worktree.merged",
       "worktree.retired",
+      "audit_integrity_verified",
+      "audit_integrity_failed",
+      "key_reuse_detected",
+      "schema.migrated",
+      "event.compacted",
+      "event.shredded",
     ]);
     for (const registered of SESSION_EVENT_TYPES) {
       expect(SESSION_EVENT_CATEGORY_BY_TYPE.has(registered)).toBe(true);
@@ -1387,6 +1421,708 @@ describe("CapabilityDetailsSchema (T1.4: canonical capability snapshot)", () => 
     (member) => {
       const { [member]: _omitted, ...withoutMember } = buildCapabilityDetails();
       expect(CapabilityDetailsSchema.safeParse(withoutMember).success).toBe(false);
+    },
+  );
+});
+
+// --------------------------------------------------------------------------
+// The six Plan-006 payload variants (T1.11).
+// --------------------------------------------------------------------------
+//
+// `audit_integrity` (3) + `event_maintenance` (3) — the only registered
+// variants Plan-006 emits itself, so their payload schemas are authored in
+// event.ts rather than imported from an emitting plan's module. Coverage is
+// deliberately variant-level (through `SessionEventSchema`) rather than
+// payload-level: registration into the union is half of what T1.11 ships, and
+// a payload-only suite would stay green if an arm were never registered.
+
+const NODE_ID = "node-7f3a2c";
+// RFC 9562 §5.10 Max UUID, LOWERCASE — the daemon-scope sentinel of Spec-006
+// §Daemon-Scope Event Binding And Node-Scope Anchoring. The case matters (see
+// the carrier-level sentinel pin above); no uppercase-rejection assertion is
+// added here, on the same reasoning that declines one there.
+const SENTINEL_SESSION_ID = "ffffffff-ffff-ffff-ffff-ffffffffffff";
+// A SECOND real session id. `observedIdentities[].sessionId` and
+// `affectedSessionIds[]` are session ids; the file's `CHANNEL_ID` fixture
+// would parse there (both are `SessionId`-shaped UUIDs) but would misdocument
+// which identity space the member lives in.
+const OTHER_SESSION_ID = "990e8400-e29b-41d4-a716-446655440004";
+// 64-char lowercase hex — the house digest spelling. The schema accepts any
+// bounded free-form string here (no authority pins the member's wire form),
+// so this fixture documents the emitter's convention, it does not pin it.
+const ROOT_HASH = "0f".repeat(32);
+// Built at runtime rather than spelled as a unicode escape, so the control
+// character never lands in these source bytes.
+const NUL_BEARING_ALGORITHM = `ed25519${String.fromCharCode(0)}x`;
+const OTHER_ROOT_HASH = "1a".repeat(32);
+
+const buildAuditIntegrityVerified = () => ({
+  id: "evt-0100",
+  sessionId: SESSION_ID,
+  sequence: 100,
+  occurredAt: "2026-01-22T19:14:35.000Z",
+  category: "audit_integrity" as const,
+  type: "audit_integrity_verified" as const,
+  actor: null,
+  version: VERSION,
+  payload: {
+    sessionId: SESSION_ID,
+    anchorId: "anchor-0007",
+    verifierNodeId: NODE_ID,
+    treeSize: 4096,
+    rootHash: ROOT_HASH,
+    fromSeq: 1,
+    toSeq: 4096,
+    verifiedAt: "2026-01-22T19:14:35.000Z",
+    signatureAlgorithm: "ed25519",
+  },
+});
+
+const buildAuditIntegrityFailedVerifierArm = () => ({
+  id: "evt-0101",
+  sessionId: SESSION_ID,
+  sequence: 101,
+  occurredAt: "2026-01-22T19:14:36.000Z",
+  category: "audit_integrity" as const,
+  type: "audit_integrity_failed" as const,
+  actor: null,
+  version: VERSION,
+  payload: {
+    sessionId: SESSION_ID,
+    verifierNodeId: NODE_ID,
+    treeSize: 4096,
+    expectedRootHash: ROOT_HASH,
+    observedRootHash: OTHER_ROOT_HASH,
+    failureMode: "hash_mismatch",
+    failurePath: "inclusion",
+    offendingSeq: 2048,
+    detail: "row 2048 hashes to a different row_hash than its successor's prev_hash",
+  },
+});
+
+const buildAuditIntegrityFailedRegistrarArm = () => ({
+  id: "evt-0102",
+  sessionId: SESSION_ID,
+  sequence: 102,
+  occurredAt: "2026-01-22T19:14:37.000Z",
+  category: "audit_integrity" as const,
+  type: "audit_integrity_failed" as const,
+  actor: null,
+  version: VERSION,
+  payload: {
+    // The refused registration's REAL session id, never the sentinel.
+    sessionId: SESSION_ID,
+    verifierNodeId: NODE_ID,
+    failureMode: "signing_key_slot_conflict",
+    failurePath: "signature",
+    detail: `slot (${SESSION_ID}, ${NODE_ID}) holds a key this daemon never minted`,
+  },
+});
+
+const buildKeyReuseDetected = () => ({
+  id: "evt-0103",
+  sessionId: SENTINEL_SESSION_ID,
+  sequence: 103,
+  occurredAt: "2026-01-22T19:14:38.000Z",
+  category: "audit_integrity" as const,
+  type: "key_reuse_detected" as const,
+  actor: null,
+  version: VERSION,
+  payload: {
+    offendingKeyFingerprint: ROOT_HASH,
+    observedIdentities: [
+      { sessionId: SESSION_ID, nodeId: NODE_ID },
+      { sessionId: OTHER_SESSION_ID, nodeId: "node-b41d" },
+    ],
+    firstSeenAt: "2026-01-22T18:00:00.000Z",
+    rotationInvariantViolated: "refuse_on_rotation",
+    detectorNodeId: NODE_ID,
+  },
+});
+
+const buildSchemaMigrated = () => ({
+  id: "evt-0104",
+  sessionId: SENTINEL_SESSION_ID,
+  sequence: 104,
+  occurredAt: "2026-01-22T19:14:39.000Z",
+  category: "event_maintenance" as const,
+  type: "schema.migrated" as const,
+  actor: null,
+  version: VERSION,
+  payload: {
+    nodeId: NODE_ID,
+    operationId: "migrate-2026-01-22-01",
+    occurredAt: "2026-01-22T19:14:39.000Z",
+    fromVersion: "0007",
+    toVersion: "0009",
+    migrationId: "0009-session-events-retention-class",
+    description: "add retention_class + audit stub projection columns",
+    checksum: ROOT_HASH,
+    appliedBy: "sidekicks db migrate",
+    executionMs: 412,
+    success: true,
+  },
+});
+
+const buildEventCompacted = () => ({
+  id: "evt-0105",
+  sessionId: SENTINEL_SESSION_ID,
+  sequence: 105,
+  occurredAt: "2026-01-22T19:14:40.000Z",
+  category: "event_maintenance" as const,
+  type: "event.compacted" as const,
+  actor: null,
+  version: VERSION,
+  payload: {
+    nodeId: NODE_ID,
+    operationId: "compact-2026-01-22-01",
+    occurredAt: "2026-01-22T19:14:40.000Z",
+    fromSeq: 1,
+    toSeq: 4096,
+    eventsBefore: 4096,
+    eventsAfter: 512,
+    bytesReclaimed: 8_388_608,
+    tombstoneCount: 3584,
+    compactionReason: "age_threshold",
+  },
+});
+
+const buildEventShredded = () => ({
+  id: "evt-0106",
+  sessionId: SENTINEL_SESSION_ID,
+  sequence: 106,
+  occurredAt: "2026-01-22T19:14:41.000Z",
+  category: "event_maintenance" as const,
+  type: "event.shredded" as const,
+  actor: null,
+  version: VERSION,
+  payload: {
+    nodeId: NODE_ID,
+    operationId: "shred-2026-01-22-01",
+    occurredAt: "2026-01-22T19:14:41.000Z",
+    participantId: PARTICIPANT_ID,
+    affectedSessionIds: [SESSION_ID, OTHER_SESSION_ID],
+    piiPayloadsCleared: 27,
+    shredReason: "gdpr_article_17",
+  },
+});
+
+const REGISTRAR_FAILURE_MODE = "signing_key_slot_conflict";
+
+// The registered modes READ OFF THE ENUM rather than re-spelled. The cast is
+// the file's established idiom for reaching a construct-specific property
+// through an erased `z.ZodType` annotation (the `EventCategorySchema` pin
+// above). Exact membership is pinned once, against a hand-transcribed list, in
+// the vocabulary test below — the tables here only DRIVE, so a seventeenth mode
+// joins the per-mode coverage automatically instead of being silently skipped.
+const VERIFIER_FAILURE_MODE_OPTIONS = (
+  VerifierFailureModeSchema as unknown as { options: readonly string[] }
+).options;
+
+// The read-side verifier modes — every registered mode except the registrar's,
+// which belongs to the other payload arm and is exercised separately. That
+// split is the whole point of the discrimination, so the table derives it
+// rather than restating it.
+const VERIFIER_FAILURE_MODES = VERIFIER_FAILURE_MODE_OPTIONS.filter(
+  (mode) => mode !== REGISTRAR_FAILURE_MODE,
+);
+
+const PLAN_006_VARIANTS = [
+  ["audit_integrity_verified", buildAuditIntegrityVerified],
+  ["audit_integrity_failed", buildAuditIntegrityFailedVerifierArm],
+  ["audit_integrity_failed (registrar arm)", buildAuditIntegrityFailedRegistrarArm],
+  ["key_reuse_detected", buildKeyReuseDetected],
+  ["schema.migrated", buildSchemaMigrated],
+  ["event.compacted", buildEventCompacted],
+  ["event.shredded", buildEventShredded],
+] as const;
+
+// The four daemon-scope variants of Spec-006 §Daemon-Scope Event Binding And
+// Node-Scope Anchoring. `audit_integrity_verified` / `audit_integrity_failed`
+// are deliberately ABSENT: they carry the verified range's real session id.
+const SENTINEL_BOUND_VARIANTS = [
+  ["key_reuse_detected", buildKeyReuseDetected],
+  ["schema.migrated", buildSchemaMigrated],
+  ["event.compacted", buildEventCompacted],
+  ["event.shredded", buildEventShredded],
+] as const;
+
+describe("audit_integrity + event_maintenance payload variants (T1.11)", () => {
+  it.each(PLAN_006_VARIANTS)("round-trips %s through JSON without loss", (_label, build) => {
+    const original = build();
+    const firstPass = SessionEventSchema.parse(original);
+    const offWire = JSON.parse(JSON.stringify(firstPass)) as unknown;
+    expect(SessionEventSchema.parse(offWire)).toStrictEqual(firstPass);
+    // No key added (no `.default()`), none dropped (`.strict()`, no stripping)
+    // — parse output ≡ wire bytes, the canonical-bytes precondition.
+    expect(firstPass).toStrictEqual(original);
+  });
+
+  it.each(PLAN_006_VARIANTS)(
+    "%s carries the census category and rejects a mismatched one",
+    (_label, build) => {
+      const event = build();
+      expect(SESSION_EVENT_CATEGORY_BY_TYPE.get(event.type)).toBe(event.category);
+      // `category` is in the BLAKE3-hashed canonical bytes, so a type/category
+      // mismatch must die at parse time, never be coerced.
+      expect(
+        SessionEventSchema.safeParse({ ...event, category: "session_lifecycle" }).success,
+      ).toBe(false);
+    },
+  );
+
+  it.each(PLAN_006_VARIANTS)("%s rejects an unknown payload key (.strict)", (_label, build) => {
+    const event = build();
+    expect(
+      SessionEventSchema.safeParse({
+        ...event,
+        payload: { ...event.payload, vendorExtension: "drift" },
+      }).success,
+    ).toBe(false);
+  });
+
+  it.each(PLAN_006_VARIANTS)(
+    "%s rejects a sourceEpoch/sourcePosition stamp (non-admitting family)",
+    (_label, build) => {
+      // None of the six is run-scoped, so none is `withEpochStamp`-wrapped and
+      // the strict payload refuses the stamp. The admission RULE is walked
+      // over the live union in event-source-epoch.test.ts; this is the
+      // wire-level consequence for these six branches.
+      const event = build();
+      expect(
+        SessionEventSchema.safeParse({
+          ...event,
+          payload: { ...event.payload, sourceEpoch: 1, sourcePosition: 5 },
+        }).success,
+      ).toBe(false);
+    },
+  );
+
+  it.each(SENTINEL_BOUND_VARIANTS)(
+    "%s accepts the lowercase Max-UUID daemon-scope sentinel as its sessionId",
+    (_label, build) => {
+      const event = build();
+      expect(event.sessionId).toBe(SENTINEL_SESSION_ID);
+      const parsed = SessionEventSchema.safeParse(event);
+      expect(parsed.success).toBe(true);
+      // The sentinel survives verbatim — never normalized, never nulled away.
+      expect(parsed.success && parsed.data.sessionId).toBe(SENTINEL_SESSION_ID);
+    },
+  );
+
+  it("registers EXACTLY the sixteen failure modes and the three failure paths", () => {
+    // The exported vocabulary T4.1 and T4.10 consume, transcribed from
+    // `Spec-006 §Audit Integrity (audit_integrity)` in the enum's own order.
+    // Sixteen, not fifteen: the registrar's `signing_key_slot_conflict` is a
+    // member of the enum even though it routes to the other payload arm.
+    //
+    // Set equality, not just acceptance — acceptance alone passes a
+    // seventeenth mode, a dropped one, and a renamed one alike, and every
+    // per-mode table below is DERIVED from `.options`, so this is the single
+    // place where enum drift can be caught rather than absorbed.
+    const expectedModes = [
+      "hash_mismatch",
+      "signature_mismatch",
+      "anchor_mismatch",
+      "inclusion_proof_failed",
+      "consistency_proof_failed",
+      "log_file_missing",
+      "log_file_moved",
+      "anchor_missing_for_compacted_range",
+      "anchor_signature_invalid",
+      "stub_signature_invalid",
+      "stub_scalar_mismatch",
+      "signature_placeholder",
+      "occurred_at_not_canonical",
+      "pii_ciphertext_digest_unbound",
+      "pii_owner_stamp_unbound",
+      REGISTRAR_FAILURE_MODE,
+    ];
+    expect(VERIFIER_FAILURE_MODE_OPTIONS).toHaveLength(16);
+    expect([...VERIFIER_FAILURE_MODE_OPTIONS].sort()).toEqual([...expectedModes].sort());
+    // The derivation the arm split rests on: fifteen read-side modes, the
+    // registrar's excluded.
+    expect(VERIFIER_FAILURE_MODES).toHaveLength(15);
+    expect(VERIFIER_FAILURE_MODES).not.toContain(REGISTRAR_FAILURE_MODE);
+    for (const mode of expectedModes) {
+      expect(VerifierFailureModeSchema.safeParse(mode).success).toBe(true);
+    }
+    expect(VerifierFailureModeSchema.safeParse("not_a_registered_mode").success).toBe(false);
+
+    const expectedPaths = ["inclusion", "consistency", "signature"];
+    const pathOptions = (VerifierFailurePathSchema as unknown as { options: readonly string[] })
+      .options;
+    expect(pathOptions).toHaveLength(3);
+    expect([...pathOptions].sort()).toEqual([...expectedPaths].sort());
+    for (const path of expectedPaths) {
+      expect(VerifierFailurePathSchema.safeParse(path).success).toBe(true);
+    }
+    expect(VerifierFailurePathSchema.safeParse("anchor").success).toBe(false);
+  });
+
+  it.each(VERIFIER_FAILURE_MODES)(
+    "the verifier arm accepts failureMode %s carrying the Merkle triple",
+    (failureMode) => {
+      const event = buildAuditIntegrityFailedVerifierArm();
+      expect(
+        SessionEventSchema.safeParse({ ...event, payload: { ...event.payload, failureMode } })
+          .success,
+      ).toBe(true);
+    },
+  );
+
+  it.each([["treeSize"], ["expectedRootHash"], ["observedRootHash"], ["detail"]] as const)(
+    "the verifier arm REQUIRES %s",
+    (member) => {
+      const event = buildAuditIntegrityFailedVerifierArm();
+      const { [member]: _omitted, ...payload } = event.payload;
+      expect(SessionEventSchema.safeParse({ ...event, payload }).success).toBe(false);
+    },
+  );
+
+  it("the verifier arm rejects failureMode signing_key_slot_conflict", () => {
+    // The fifteen-mode discriminator EXCLUDES it, so a payload carrying the
+    // triple under that mode dispatches to the registrar arm and dies there on
+    // the triple's unknown keys. Either way it must not parse: a registrar
+    // event can never claim roots.
+    const event = buildAuditIntegrityFailedVerifierArm();
+    expect(
+      SessionEventSchema.safeParse({
+        ...event,
+        payload: { ...event.payload, failureMode: "signing_key_slot_conflict" },
+      }).success,
+    ).toBe(false);
+  });
+
+  it.each([
+    ["treeSize", 4096],
+    ["expectedRootHash", ROOT_HASH],
+    ["offendingSeq", 12],
+  ] as const)("the registrar arm rejects the verifier-only member %s", (member, value) => {
+    // The arm split exists so the registrar — which walked no tree — cannot
+    // fabricate roots. `.strict()` on the arm is what enforces it.
+    const event = buildAuditIntegrityFailedRegistrarArm();
+    expect(
+      SessionEventSchema.safeParse({
+        ...event,
+        payload: { ...event.payload, [member]: value },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("the registrar arm pins failurePath to signature", () => {
+    const event = buildAuditIntegrityFailedRegistrarArm();
+    expect(
+      SessionEventSchema.safeParse({
+        ...event,
+        payload: { ...event.payload, failurePath: "inclusion" },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("audit_integrity payloads take anchorId both ways (optional)", () => {
+    const event = buildAuditIntegrityVerified();
+    expect(SessionEventSchema.safeParse(event).success).toBe(true);
+    const { anchorId: _absent, ...withoutAnchor } = event.payload;
+    expect(SessionEventSchema.safeParse({ ...event, payload: withoutAnchor }).success).toBe(true);
+  });
+
+  it("the verifier arm takes offendingSeq both ways (optional)", () => {
+    // Optional by design: a whole-range failure (`log_file_missing`,
+    // `anchor_missing_for_compacted_range`) implicates no single row, so
+    // requiring the member would force the verifier to invent a pointer. Every
+    // other verifier-arm fixture in this suite carries it, so without this
+    // assertion the `.optional()` is never exercised.
+    const event = buildAuditIntegrityFailedVerifierArm();
+    expect(SessionEventSchema.safeParse(event).success).toBe(true);
+    const { offendingSeq: _absent, ...withoutOffendingSeq } = event.payload;
+    expect(SessionEventSchema.safeParse({ ...event, payload: withoutOffendingSeq }).success).toBe(
+      true,
+    );
+  });
+
+  it("event.compacted takes its payload sessionId both ways (single-session pass)", () => {
+    const event = buildEventCompacted();
+    expect(SessionEventSchema.safeParse(event).success).toBe(true);
+    expect(
+      SessionEventSchema.safeParse({
+        ...event,
+        payload: { ...event.payload, sessionId: SESSION_ID },
+      }).success,
+    ).toBe(true);
+  });
+
+  it("key_reuse_detected requires at least two observed identities", () => {
+    // Spec-006: a key "registered under MORE THAN ONE identity". One identity
+    // holding its own key is the compliant register-once state, not an alarm.
+    const event = buildKeyReuseDetected();
+    const [firstIdentity] = event.payload.observedIdentities;
+    expect(
+      SessionEventSchema.safeParse({
+        ...event,
+        payload: { ...event.payload, observedIdentities: [firstIdentity] },
+      }).success,
+    ).toBe(false);
+    expect(SessionEventSchema.safeParse(event).success).toBe(true);
+  });
+
+  it("key_reuse_detected rejects ONE identity spelled twice (pairwise distinct)", () => {
+    // Cardinality is not the condition — DISTINCTNESS is. Spec-006 states the
+    // finding as the same key material under two DISTINCT `(session_id,
+    // node_id)` pairs, so a repeated pair is one identity holding its own key,
+    // listed twice: the compliant register-once posture. With `.min(2)` alone
+    // this row parses green and mints a false key-reuse alarm on a row that is
+    // never compacted and never shredded, so the false alarm is permanent.
+    //
+    // The duplicate is a fresh object, not the same reference — the check has
+    // to compare identity VALUES, not array slots.
+    const event = buildKeyReuseDetected();
+    const identity = { sessionId: SESSION_ID, nodeId: NODE_ID };
+    const duplicated = SessionEventSchema.safeParse({
+      ...event,
+      payload: { ...event.payload, observedIdentities: [identity, { ...identity }] },
+    });
+    expect(duplicated.success).toBe(false);
+    // `.min(2)` is satisfied by this input, so the refinement is the only check
+    // that can have fired — asserting on its message is what makes the test
+    // fail if the refinement is ever dropped.
+    const issueMessages = duplicated.error?.issues.map((issue) => issue.message) ?? [];
+    expect(
+      issueMessages.some((message) => /must not name one .* identity twice/.test(message)),
+    ).toBe(true);
+  });
+
+  it("key_reuse_detected pins rotationInvariantViolated to refuse_on_rotation", () => {
+    const event = buildKeyReuseDetected();
+    expect(
+      SessionEventSchema.safeParse({
+        ...event,
+        payload: { ...event.payload, rotationInvariantViolated: "rotate_on_conflict" },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("event.shredded accepts an empty affectedSessionIds (idempotent re-run)", () => {
+    // Deliberately NO `.min(1)`: a purge that touched no PII-bearing session
+    // is still an operation worth an audit row.
+    const event = buildEventShredded();
+    expect(
+      SessionEventSchema.safeParse({
+        ...event,
+        payload: { ...event.payload, affectedSessionIds: [] },
+      }).success,
+    ).toBe(true);
+  });
+
+  it.each([["age_threshold"], ["count_threshold"], ["storage_threshold"]] as const)(
+    "event.compacted accepts compactionReason %s",
+    (compactionReason) => {
+      const event = buildEventCompacted();
+      expect(
+        SessionEventSchema.safeParse({ ...event, payload: { ...event.payload, compactionReason } })
+          .success,
+      ).toBe(true);
+    },
+  );
+
+  it.each([["gdpr_article_17"], ["retention_policy"], ["admin_action"]] as const)(
+    "event.shredded accepts shredReason %s",
+    (shredReason) => {
+      const event = buildEventShredded();
+      expect(
+        SessionEventSchema.safeParse({ ...event, payload: { ...event.payload, shredReason } })
+          .success,
+      ).toBe(true);
+    },
+  );
+
+  it.each([
+    ["compactionReason", buildEventCompacted, "disk_pressure"],
+    ["shredReason", buildEventShredded, "because_i_said_so"],
+  ] as const)("rejects an out-of-vocabulary %s", (member, build, bad) => {
+    const event = build();
+    expect(
+      SessionEventSchema.safeParse({ ...event, payload: { ...event.payload, [member]: bad } })
+        .success,
+    ).toBe(false);
+  });
+
+  it("caps audit_integrity_failed.detail at its boundary", () => {
+    const event = buildAuditIntegrityFailedRegistrarArm();
+    const atCap = { ...event.payload, detail: "x".repeat(AUDIT_INTEGRITY_DETAIL_MAX_LEN) };
+    const overCap = { ...event.payload, detail: "x".repeat(AUDIT_INTEGRITY_DETAIL_MAX_LEN + 1) };
+    expect(SessionEventSchema.safeParse({ ...event, payload: atCap }).success).toBe(true);
+    expect(SessionEventSchema.safeParse({ ...event, payload: overCap }).success).toBe(false);
+  });
+
+  it("caps schema.migrated.description at its boundary", () => {
+    const event = buildSchemaMigrated();
+    const atCap = {
+      ...event.payload,
+      description: "x".repeat(SCHEMA_MIGRATION_DESCRIPTION_MAX_LEN),
+    };
+    const overCap = {
+      ...event.payload,
+      description: "x".repeat(SCHEMA_MIGRATION_DESCRIPTION_MAX_LEN + 1),
+    };
+    expect(SessionEventSchema.safeParse({ ...event, payload: atCap }).success).toBe(true);
+    expect(SessionEventSchema.safeParse({ ...event, payload: overCap }).success).toBe(false);
+  });
+
+  it.each([
+    ["whitespace-only", "   "],
+    ["NUL-byte", NUL_BEARING_ALGORITHM],
+    ["oversized", "x".repeat(EVENT_FIELD_MAX_LEN + 1)],
+  ] as const)(
+    "rejects a %s signatureAlgorithm (wireFreeFormString guards)",
+    (_label, badAlgorithm) => {
+      const event = buildAuditIntegrityVerified();
+      expect(
+        SessionEventSchema.safeParse({
+          ...event,
+          payload: { ...event.payload, signatureAlgorithm: badAlgorithm },
+        }).success,
+      ).toBe(false);
+    },
+  );
+
+  it("bounds payload sequence endpoints by the envelope's own ceiling", () => {
+    // A range endpoint above MAX_SAFE_INTEGER cannot name the row it points
+    // at — the same injectivity argument the envelope `sequence` makes. Pinned
+    // as a BOUNDARY PAIR with a message assertion, exactly as the envelope
+    // `sequence` ceiling is pinned above: `.int()` already refuses anything
+    // past the safe-integer range, so a lone `success === false` reads
+    // identically with `payloadSequenceSchema`'s `.max()` deleted. The at-cap
+    // accept plus the named message are the discriminating halves.
+    const event = buildEventCompacted();
+    const atCeiling = SessionEventSchema.safeParse({
+      ...event,
+      payload: { ...event.payload, toSeq: EVENT_ENVELOPE_SEQUENCE_MAX },
+    });
+    expect(atCeiling.success).toBe(true);
+
+    const overCeiling = SessionEventSchema.safeParse({
+      ...event,
+      payload: { ...event.payload, toSeq: EVENT_ENVELOPE_SEQUENCE_MAX + 1 },
+    });
+    expect(overCeiling.success).toBe(false);
+    // Issue COUNT is deliberately not asserted (the envelope pin's reasoning):
+    // both checks firing is correct, and pinning the count would couple this
+    // test to Zod's internals.
+    const issueMessages = overCeiling.error?.issues.map((issue) => issue.message) ?? [];
+    expect(
+      issueMessages.some((message) =>
+        /the same injectivity ceiling EventEnvelope\.sequence takes/.test(message),
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects a non-integer count", () => {
+    const event = buildEventCompacted();
+    expect(
+      SessionEventSchema.safeParse({
+        ...event,
+        payload: { ...event.payload, tombstoneCount: 3.5 },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("stays interpretable at the tolerant carrier as well as the strict layer", () => {
+    // The layering pin: every one of the six parses through
+    // `EventEnvelopeSchema` too, so a reader that has not yet learned the
+    // variant still persists the row rather than dropping it (ADR-018
+    // §Decision #5/#9 accept-and-stub).
+    for (const [, build] of PLAN_006_VARIANTS) {
+      expect(EventEnvelopeSchema.safeParse(build()).success).toBe(true);
+    }
+  });
+});
+
+// The standalone exports are the surface the six emission seams validate
+// against before append — T3.1's shred callback, T3.2, T3.4, T4.1, T4.2 and
+// T4.10 all `.parse()` a candidate row through one of them rather than through
+// the whole union. They must therefore agree with the independently-spelled
+// union arms (the repo.test.ts / worktree.test.ts standalone-vs-union stance).
+// The two spellings are NOT deduplicated: independent spelling is the design,
+// and this block is what makes it safe.
+//
+// Structural `safeParse` typing sidesteps `z.ZodType` variance; the fixture
+// view is the two members every row is probed on.
+type Plan006EventFixture = {
+  readonly category: string;
+  readonly payload: Record<string, unknown>;
+};
+
+const STANDALONE_PLAN_006_EVENT_SCHEMAS: ReadonlyArray<
+  readonly [
+    string,
+    () => Plan006EventFixture,
+    { safeParse: (candidate: unknown) => { success: boolean } },
+  ]
+> = [
+  ["audit_integrity_verified", buildAuditIntegrityVerified, AuditIntegrityVerifiedEventSchema],
+  [
+    "audit_integrity_failed (verifier arm)",
+    buildAuditIntegrityFailedVerifierArm,
+    AuditIntegrityFailedEventSchema,
+  ],
+  [
+    "audit_integrity_failed (registrar arm)",
+    buildAuditIntegrityFailedRegistrarArm,
+    AuditIntegrityFailedEventSchema,
+  ],
+  ["key_reuse_detected", buildKeyReuseDetected, KeyReuseDetectedEventSchema],
+  ["schema.migrated", buildSchemaMigrated, SchemaMigratedEventSchema],
+  ["event.compacted", buildEventCompacted, EventCompactedEventSchema],
+  ["event.shredded", buildEventShredded, EventShreddedEventSchema],
+];
+
+describe("standalone Plan-006 event schemas agree with the union arms (T1.11)", () => {
+  it.each(STANDALONE_PLAN_006_EVENT_SCHEMAS)(
+    "%s standalone accepts what the union accepts",
+    (_label, build, standaloneSchema) => {
+      const fixture = build();
+      expect(standaloneSchema.safeParse(fixture).success).toBe(true);
+      expect(SessionEventSchema.safeParse(fixture).success).toBe(true);
+    },
+  );
+
+  it.each(STANDALONE_PLAN_006_EVENT_SCHEMAS)(
+    "%s standalone rejects what the union rejects (unknown payload key)",
+    (_label, build, standaloneSchema) => {
+      const fixture = build();
+      const broken = { ...fixture, payload: { ...fixture.payload, vendorExtension: "drift" } };
+      expect(standaloneSchema.safeParse(broken).success).toBe(false);
+      expect(SessionEventSchema.safeParse(broken).success).toBe(false);
+    },
+  );
+
+  it.each(STANDALONE_PLAN_006_EVENT_SCHEMAS)(
+    "%s standalone refuses a spurious ENVELOPE key and a category mismatch",
+    (_label, build, standaloneSchema) => {
+      // Outer `.strict()` is the one axis of this parity with NO compile-time
+      // backstop. A widened `type` or `category` literal fails against the
+      // `z.ZodType<*Event>` annotation, and payload strictness cannot diverge
+      // because both surfaces reference the same payload schema object — but a
+      // schema's inferred output type does not reflect outer `.strict()`, so a
+      // copy-paste slip that dropped it from one of the six exports would
+      // typecheck green and STRIP the spurious key instead of rejecting. The
+      // emission seam validating through that surface would then append
+      // canonical bytes it never built, surfacing much later as a strict-union
+      // rejection at replay — and on these six rows, which are never compacted
+      // and never shredded, the divergence is permanent. The union control on
+      // each row is what makes the verdict a parity statement rather than a
+      // lone rejection.
+      const fixture = build();
+      const withSpuriousEnvelopeKey = { ...fixture, spuriousEnvelopeKey: "x" };
+      expect(standaloneSchema.safeParse(withSpuriousEnvelopeKey).success).toBe(false);
+      expect(SessionEventSchema.safeParse(withSpuriousEnvelopeKey).success).toBe(false);
+      // `category` sits in the RFC 8785 canonical bytes backing the hash
+      // chain — pinned on the union above, pinned here on the standalone
+      // surface.
+      const withMismatchedCategory = { ...fixture, category: "session_lifecycle" };
+      expect(standaloneSchema.safeParse(withMismatchedCategory).success).toBe(false);
+      expect(SessionEventSchema.safeParse(withMismatchedCategory).success).toBe(false);
     },
   );
 });
