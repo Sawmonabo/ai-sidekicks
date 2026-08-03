@@ -3480,7 +3480,10 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // amended plans (Plans 002/003/004/008/012/016 — new invariants I-002-5/6,
     // I-008-13/14, I-016-21/22 and their task-row references), plus one
     // legacy-channel reference from Plan-008's T-008r-4-10 growth.
-    bold: { resolved: 585, noneArm: 106, parentResolved: 0 },
+    // 585/59 -> 587/59 (2026-08-03, PR #284 round 2): the Codex round-2 fixes
+    // added I-004-19 to Plan-004's T3.4 and T3.5 `Verifies invariant:` rows —
+    // two more bold resolved references.
+    bold: { resolved: 587, noneArm: 106, parentResolved: 0 },
     legacy: { resolved: 59, noneArm: 3, parentResolved: 1 },
   });
 });

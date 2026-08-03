@@ -1181,8 +1181,8 @@ CREATE TABLE channels (
   direct_member_b TEXT,
   created_at      TEXT NOT NULL,
   updated_at      TEXT NOT NULL,
-  CHECK ((kind = 'direct') = (direct_member_a IS NOT NULL AND direct_member_b IS NOT NULL)), -- the pair exists exactly on the direct kind
-  CHECK (direct_member_a IS NULL OR direct_member_a < direct_member_b) -- canonical order: one representation per pair, so the events-canonical rebuild is deterministic
+  CHECK ((kind = 'direct' AND direct_member_a IS NOT NULL AND direct_member_b IS NOT NULL AND direct_member_a < direct_member_b) -- direct: the pair exists, in canonical order — one representation per pair, so the events-canonical rebuild is deterministic
+      OR (kind <> 'direct' AND direct_member_a IS NULL AND direct_member_b IS NULL)) -- non-direct: no pair — two closed arms, because SQLite passes a CHECK whose expression evaluates NULL, so any open form admits partial pairs (Codex PR #284 round 3)
 );
 
 CREATE INDEX idx_channels_session ON channels(session_id);
