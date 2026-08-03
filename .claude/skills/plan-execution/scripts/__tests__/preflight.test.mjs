@@ -12,6 +12,8 @@ import process from "node:process";
 import {
   parseFrontmatter,
   walkPhases,
+  walkSupplementPhases,
+  parsePhaseArgument,
   extractPhaseSection,
   findSectionBoundary,
   countCites,
@@ -27,6 +29,7 @@ import {
   classifyPhaseSize,
   extractSection5,
   shippedTaskIdsForPhase,
+  shippedTaskIdsAcrossManifest,
   gateProjectLocality,
   gateAuditCheckbox,
   gateStatusPromotion,
@@ -1561,12 +1564,25 @@ function buildTestRepo({ phases, manifestEntries = "shipped: []" }) {
   const planFile = join(repo, "docs", "plans", "001-test.md");
   const phaseSections = phases
     .map(
-      ({ n, title, tasks }) => `### Phase ${n} — ${title}
+      ({
+        n,
+        title,
+        tasks,
+        // Both optional fields default to the pre-supplement spelling, so every
+        // existing caller renders byte-identically.
+        //
+        // `invariant` exists because a supplement phase carries a LABEL in `n`
+        // (`1B`), and `I-001-1B` is not a resolvable invariant id — neither a
+        // declared id nor a facet of one — so Gate 4's invariant screen would
+        // halt supplement fixtures for a reason the test is not about.
+        invariant = n,
+        preconditionsYaml = "preconditions: []",
+      }) => `### Phase ${n} — ${title}
 
 **Precondition:** None.
 
 \`\`\`yaml
-preconditions: []
+${preconditionsYaml}
 \`\`\`
 
 #### Tasks
@@ -1574,7 +1590,7 @@ preconditions: []
 ${tasks
   .map(
     (t) => `##### ${t} — desc
-**Spec coverage:** none (test placeholder) **Verifies invariant:** I-001-${n}`,
+**Spec coverage:** none (test placeholder) **Verifies invariant:** I-001-${invariant}`,
   )
   .join("\n")}
 `,
@@ -3987,4 +4003,226 @@ test("CLI entry: review-status plan halts at Gate 7 by default; --allow-unpromot
     /Gate 7 \(status promotion \+ governance preconditions\) SKIPPED via --allow-unpromoted/,
   );
   assert.doesNotMatch(String(skipped.stdout), /plan not promoted/);
+});
+
+// ---------- explicit supplement-phase-label dispatch ----------
+// Supplement phases (`### Phase 3B — …`) are campaign supplements hanging off
+// the phase they extend. The no-argument walk is numeric-only BY DESIGN and
+// never selects one; before this feature `Number("3B")` was NaN, so the label
+// was also unreachable explicitly (exit 2, `bad phase argument`) and a
+// supplement could only be verified by direct read. These tests pin both
+// halves: the label now dispatches through every gate a numeric phase runs,
+// and the walker still refuses to auto-select it.
+
+test("parsePhaseArgument accepts phase numbers and supplement labels, rejects everything else", () => {
+  assert.equal(parsePhaseArgument(undefined), undefined);
+  assert.equal(parsePhaseArgument("4"), 4);
+  assert.equal(parsePhaseArgument("12"), 12);
+  assert.equal(parsePhaseArgument("3B"), "3B");
+  assert.equal(parsePhaseArgument("10Z"), "10Z");
+  // Case is load-bearing: the corpus writes uppercase supplement labels, and a
+  // lowercase spelling resolves no heading, so accepting it would dispatch
+  // nothing while looking valid.
+  assert.equal(parsePhaseArgument("3b"), null);
+  // Remainder labels are gate OPERANDS (external_plan_phase_merged), not
+  // execution targets — deliberately not dispatchable.
+  assert.equal(parsePhaseArgument("R2"), null);
+  assert.equal(parsePhaseArgument("3.5"), null);
+  assert.equal(parsePhaseArgument("3B4"), null);
+  assert.equal(parsePhaseArgument("abc"), null);
+  assert.equal(parsePhaseArgument(""), 0);
+});
+
+test("walkSupplementPhases finds supplement headings only, and requires the title separator", () => {
+  const src = `### Phase 1 — Numeric
+
+### Phase 1B — Supplement one
+
+### Phase R2 — Remainder
+
+### Phase 2B
+
+### Phase 3B: Colon separator
+`;
+  assert.deepEqual(walkSupplementPhases(src), [
+    { number: "1B", title: "Supplement one" },
+    { number: "3B", title: "Colon separator" },
+  ]);
+  // The numeric walker is untouched by any of it.
+  assert.deepEqual(
+    walkPhases(src).map((p) => p.number),
+    [1],
+  );
+});
+
+test("shippedTaskIdsAcrossManifest unions every entry's tasks regardless of phase key", () => {
+  const manifest = {
+    ok: true,
+    shipped: [
+      { phase: 1, task: "T1.1" },
+      { phase: 2, task: ["T2.1", "T-001-1B-1"] },
+    ],
+  };
+  assert.deepEqual([...shippedTaskIdsAcrossManifest(manifest)].sort(), [
+    "T-001-1B-1",
+    "T1.1",
+    "T2.1",
+  ]);
+  assert.deepEqual([...shippedTaskIdsAcrossManifest({ ok: false })], []);
+  assert.deepEqual([...shippedTaskIdsAcrossManifest(null)], []);
+});
+
+test("runPreflight dispatches an explicit supplement label through every gate and returns its size class", () => {
+  const { repo, skillMd, planFile } = buildTestRepo({
+    phases: [
+      { n: 1, title: "Bootstrap", tasks: ["T1.1"] },
+      { n: "1B", title: "Supplement", tasks: ["T-001-1B-1"], invariant: 6 },
+      { n: 2, title: "Renderer", tasks: ["T2.1"] },
+    ],
+  });
+  const r = runPreflight(planFile, "1B", { repoRoot: repo, skillMd });
+  assert.equal(r.exit, 0, `exit was ${r.exit}; stdout=${r.stdout}; stderr=${r.stderr}`);
+  assert.equal(r.stdout, "1B");
+  assert.equal(r.sizeClass, "S");
+});
+
+test("runPreflight halts on an explicit supplement whose Gate-5 preconditions are unmet", () => {
+  // The failure must be the GATE's, not the argument parser's: pre-feature this
+  // invocation died at `bad phase argument` and the phase's real precondition
+  // was never evaluated at all.
+  const { repo, skillMd, planFile } = buildTestRepo({
+    phases: [
+      { n: 1, title: "Bootstrap", tasks: ["T1.1"] },
+      {
+        n: "1B",
+        title: "Supplement",
+        tasks: ["T-001-1B-1"],
+        invariant: 6,
+        preconditionsYaml: `preconditions:
+  - { type: plan_phase, plan: 099, phase: 1, status: merged }`,
+      },
+    ],
+  });
+  const r = runPreflight(planFile, "1B", { repoRoot: repo, skillMd });
+  assert.equal(r.exit, 1, `exit was ${r.exit}; stdout=${r.stdout}; stderr=${r.stderr}`);
+  assert.match(r.stdout, /precondition unmet/i);
+  assert.match(r.stdout, /Phase 1B/);
+  assert.match(r.stdout, /Plan-099/);
+  assert.doesNotMatch(r.stdout, /bad phase argument/);
+});
+
+test("runPreflight fails closed on an explicit label naming no supplement heading", () => {
+  const { repo, skillMd, planFile } = buildTestRepo({
+    phases: [
+      { n: 1, title: "Bootstrap", tasks: ["T1.1"] },
+      { n: "1B", title: "Supplement", tasks: ["T-001-1B-1"], invariant: 6 },
+    ],
+  });
+  const r = runPreflight(planFile, "9C", { repoRoot: repo, skillMd });
+  assert.equal(r.exit, 1, `exit was ${r.exit}; stdout=${r.stdout}; stderr=${r.stderr}`);
+  assert.match(r.stdout, /supplement phase 9C not found/);
+  // Self-contained: names what the plan actually declares, and the separator
+  // trap that makes a heading invisible to the resolver.
+  assert.match(r.stdout, /Phase 1B/);
+  assert.match(r.stdout, /separator/);
+});
+
+test("runPreflight halts an explicit supplement whose tasks already shipped under an integer phase key", () => {
+  // The fail-open this closes: a supplement label can never BE a manifest phase
+  // key (validateEntry forces positive integers), so phase-key equality returns
+  // an EMPTY shipped set, classifies every supplement `partially_shipped`, and
+  // re-dispatches shipped work forever. The supplement's task ships here under
+  // integer phase 1 — the only place it can ship.
+  const { repo, skillMd, planFile } = buildTestRepo({
+    phases: [
+      { n: 1, title: "Bootstrap", tasks: ["T1.1"] },
+      { n: "1B", title: "Supplement", tasks: ["T-001-1B-1"], invariant: 6 },
+    ],
+    manifestEntries: `shipped:
+  - phase: 1
+    task: [T1.1, T-001-1B-1]
+    pr: 6
+    sha: ca22530
+    merged_at: 2026-04-27
+    files: []
+    verifies_invariant: []
+    spec_coverage: []`,
+  });
+  const r = runPreflight(planFile, "1B", { repoRoot: repo, skillMd });
+  assert.equal(r.exit, 1, `exit was ${r.exit}; stdout=${r.stdout}; stderr=${r.stderr}`);
+  assert.match(r.stdout, /phase already shipped/);
+  assert.match(r.stdout, /Phase 1B/);
+});
+
+test("the no-argument walk never selects a supplement, even an otherwise-eligible one", () => {
+  // The claim is "skipped BY DESIGN", so the supplement has to be provably
+  // dispatchable — otherwise this test cannot distinguish a walker that skips
+  // supplements from a fixture whose supplement merely failed a gate. Phase 1
+  // is fully shipped (silent skip), Phase 1B passes every gate, Phase 2 passes:
+  // the walk must resolve 2.
+  const { repo, skillMd, planFile } = buildTestRepo({
+    phases: [
+      { n: 1, title: "Bootstrap", tasks: ["T1.1"] },
+      { n: "1B", title: "Supplement", tasks: ["T-001-1B-1"], invariant: 6 },
+      { n: 2, title: "Renderer", tasks: ["T2.1"] },
+    ],
+    manifestEntries: `shipped:
+  - phase: 1
+    task: T1.1
+    pr: 6
+    sha: ca22530
+    merged_at: 2026-04-27
+    files: []
+    verifies_invariant: []
+    spec_coverage: []`,
+  });
+  const explicit = runPreflight(planFile, "1B", { repoRoot: repo, skillMd });
+  assert.equal(
+    explicit.exit,
+    0,
+    `supplement must be dispatchable for this test to mean anything; stdout=${explicit.stdout}`,
+  );
+
+  const walked = runPreflight(planFile, undefined, { repoRoot: repo, skillMd });
+  assert.equal(walked.exit, 0, `exit was ${walked.exit}; stdout=${walked.stdout}`);
+  assert.equal(walked.stdout, "2");
+  assert.notEqual(walked.stdout, "1B");
+});
+
+test("CLI entry: an explicit supplement label prints the label then its size class", () => {
+  // `invariant: 3`, not the 6 the programmatic tests use: the spawned CLI
+  // derives the REAL repoRoot from its own __dirname, so Gate 4's invariant
+  // screen resolves `I-001-N` against the real docs/plans/001-*.md (which
+  // declares I-001-1..3) rather than against this temp fixture.
+  const { planFile } = buildTestRepo({
+    phases: [
+      { n: 1, title: "Bootstrap", tasks: ["T1.1"] },
+      { n: "1B", title: "Supplement", tasks: ["T-001-1B-1"], invariant: 3 },
+    ],
+  });
+  const r = spawnSync(
+    process.execPath,
+    [PREFLIGHT_CLI, planFile, "1B", "--allow-stale-manifest", "--allow-unpromoted"],
+    { encoding: "utf8" },
+  );
+  assert.equal(r.status, 0, `status=${r.status} stdout=${r.stdout} stderr=${r.stderr}`);
+  // The two-line success contract, across the real argv → exit-code plumbing.
+  assert.equal(r.stdout, "1B\nsize-class: S\n");
+});
+
+test("CLI entry: a malformed phase argument exits 2 and names both accepted forms", () => {
+  const { planFile } = buildTestRepo({
+    phases: [{ n: 1, title: "Bootstrap", tasks: ["T1.1"] }],
+  });
+  for (const bad of ["3b", "R2", "abc"]) {
+    const r = spawnSync(
+      process.execPath,
+      [PREFLIGHT_CLI, planFile, bad, "--allow-stale-manifest", "--allow-unpromoted"],
+      { encoding: "utf8" },
+    );
+    assert.equal(r.status, 2, `${bad}: status=${r.status} stdout=${r.stdout} stderr=${r.stderr}`);
+    assert.match(r.stderr, new RegExp(`bad phase argument: ${bad}\\b`));
+    assert.match(r.stderr, /supplement label/);
+    assert.equal(r.stdout, "");
+  }
 });

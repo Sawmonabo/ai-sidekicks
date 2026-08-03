@@ -256,7 +256,7 @@ Expected: no output (hook silent on success). The `../superpowers/specs/...md` l
 
 **Files:**
 
-- Modify: `docs/architecture/cross-plan-dependencies.md` mermaid graph block (§6, lines 282-336 per spec §1.1.1 reference)
+- Modify: `docs/architecture/cross-plan-dependencies.md` mermaid graph block (the `mermaid` fence under §6's `### Graph` heading, per spec §1.1.1 reference)
 
 - [ ] **Step 1: Open the mermaid block; find the last NS-NN node line + the existing `classDef` block at the bottom**
 

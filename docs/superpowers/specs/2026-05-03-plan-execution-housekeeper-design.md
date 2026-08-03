@@ -111,7 +111,7 @@ NS-14's Upstream sub-field also exhibits a sixth grammar form — free-form pros
 - Upstream: Tier 1 audit committed (✓ PR #15 / commit `05125dc`)
 ```
 
-(`cross-plan-dependencies.md`:487; full NS-14 entry at lines 482-490.)
+(`cross-plan-dependencies.md` §6 — the `Upstream:` line of the `### NS-14: Tier 2 plan-readiness audit — Plan-002` entry.)
 
 #### 1.1.2 Derived schema rules
 
