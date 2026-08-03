@@ -1663,15 +1663,19 @@ const buildEventShredded = () => ({
 
 const REGISTRAR_FAILURE_MODE = "signing_key_slot_conflict";
 
-// The registered modes READ OFF THE ENUM rather than re-spelled. The cast is
-// the file's established idiom for reaching a construct-specific property
-// through an erased `z.ZodType` annotation (the `EventCategorySchema` pin
-// above). Exact membership is pinned once, against a hand-transcribed list, in
+// The registered modes READ OFF THE ENUM rather than re-spelled — and read
+// through the EXPORTED type surface with NO cast, which is itself the tripwire
+// for the Codex PR #285 round-2 regression: `VerifierFailureModeSchema` is
+// annotated `z.ZodEnum<...>` precisely so `.options` and `.exclude()` survive
+// the module boundary (`Plan-006 §Invariants` T4.1 derives its verifier
+// discriminator with the latter), and an annotation sliding back to the erasing
+// `z.ZodType` form turns this line red at compile time instead of leaving T4.1
+// to discover it at ITS boundary. Contrast the `EventCategorySchema` pin above,
+// which still needs the cast idiom because no consumer derives from its enum
+// surface. Exact membership is pinned once, against a hand-transcribed list, in
 // the vocabulary test below — the tables here only DRIVE, so a seventeenth mode
 // joins the per-mode coverage automatically instead of being silently skipped.
-const VERIFIER_FAILURE_MODE_OPTIONS = (
-  VerifierFailureModeSchema as unknown as { options: readonly string[] }
-).options;
+const VERIFIER_FAILURE_MODE_OPTIONS = VerifierFailureModeSchema.options;
 
 // The read-side verifier modes — every registered mode except the registrar's,
 // which belongs to the other payload arm and is exercised separately. That
@@ -1847,6 +1851,26 @@ describe("audit_integrity + event_maintenance payload variants (T1.11)", () => {
     expect(VerifierFailurePathSchema.safeParse("anchor").success).toBe(false);
   });
 
+  it("exports VerifierFailureModeSchema with its .exclude() surface intact", () => {
+    // T4.1's DOCUMENTED consumer derivation, written here exactly as that task
+    // will write it in `integrity-verifier.ts`. Writing it from a DIFFERENT
+    // module is the whole point: under the erasing
+    // `z.ZodType<VerifierFailureMode>` annotation the same expression compiled
+    // fine inside event.ts, off the unannotated module-local twin, and broke
+    // only where an importer wrote it — so the break was invisible to the file
+    // that shipped the symbol.
+    const verifierOnly = VerifierFailureModeSchema.exclude([REGISTRAR_FAILURE_MODE]);
+    expect(verifierOnly.options).toHaveLength(15);
+    expect([...verifierOnly.options].sort()).toEqual([...VERIFIER_FAILURE_MODES].sort());
+    for (const mode of VERIFIER_FAILURE_MODES) {
+      expect(verifierOnly.safeParse(mode).success).toBe(true);
+    }
+    // The sixteenth is refused by the derived schema and accepted by its
+    // parent — the derivation subtracts exactly one member.
+    expect(verifierOnly.safeParse(REGISTRAR_FAILURE_MODE).success).toBe(false);
+    expect(VerifierFailureModeSchema.safeParse(REGISTRAR_FAILURE_MODE).success).toBe(true);
+  });
+
   it.each(VERIFIER_MODE_PATH_PAIRS)(
     "the verifier arm accepts failureMode %s with failurePath %s, carrying the Merkle triple and the range",
     (failureMode, failurePath) => {
@@ -1979,7 +2003,44 @@ describe("audit_integrity + event_maintenance payload variants (T1.11)", () => {
     ).toBe(false);
   });
 
-  it("audit_integrity payloads take anchorId both ways (optional)", () => {
+  it("the registrar arm REJECTS anchorId — its reduced base, enforced", () => {
+    // The discriminating control for Codex PR #285 round 2: this assertion
+    // FAILS on the pre-fix schema, where the arm spread the full base and an
+    // offered `anchorId` parsed green. `Spec-006 §Audit Integrity
+    // (audit_integrity)` calls the member permanently absent on this row —
+    // never compacted, never shredded, never rewritten — so an
+    // optional-but-conventionally-unset member would leave an emitter free to
+    // persist a false anchor association nothing could later correct.
+    // `.strict()` is what turns the dropped key into a refusal.
+    const event = buildAuditIntegrityFailedRegistrarArm();
+    // Positive control: the fixture carries no `anchorId` and parses.
+    expect(SessionEventSchema.safeParse(event).success).toBe(true);
+    expect(
+      SessionEventSchema.safeParse({
+        ...event,
+        payload: { ...event.payload, anchorId: "anchor-0007" },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("the verifier arm still takes anchorId — the exclusion is arm-scoped", () => {
+    // The complement of the assertion above, and the reason it is a SPLIT
+    // rather than a removal: `anchorId` stays meaningful on the arm that
+    // walked a range an anchor can cover.
+    const event = buildAuditIntegrityFailedVerifierArm();
+    expect(SessionEventSchema.safeParse(event).success).toBe(true);
+    expect(
+      SessionEventSchema.safeParse({
+        ...event,
+        payload: { ...event.payload, anchorId: "anchor-0007" },
+      }).success,
+    ).toBe(true);
+  });
+
+  it("the audit_integrity_verified payload takes anchorId both ways (optional)", () => {
+    // Scoped to this event type as of 2026-08-03: the sibling
+    // `audit_integrity_failed` registrar arm refuses the member outright, so
+    // "audit_integrity payloads" would now over-quantify.
     const event = buildAuditIntegrityVerified();
     expect(SessionEventSchema.safeParse(event).success).toBe(true);
     const { anchorId: _absent, ...withoutAnchor } = event.payload;

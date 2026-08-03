@@ -1382,16 +1382,33 @@ export type VerifierFailureMode =
   | "pii_owner_stamp_unbound"
   | "signing_key_slot_conflict";
 
-// The module-local twin. `.exclude()` lives on Zod's `ZodEnum` surface, which
-// the exported `z.ZodType<VerifierFailureMode>` annotation ERASES — the
-// `isolatedDeclarations` trade worktree.ts's `EphemeralCloneState` note
-// records, and the same module-local-twin shape
-// `capabilityDetailsObjectSchema` takes (event-core.ts). The verifier arm
-// derives its fifteen-mode discriminator from THIS value, so the sixteen-mode
-// vocabulary is single-sourced across both surfaces; the compile-time binding
-// is the `Exclude<VerifierFailureMode, "signing_key_slot_conflict">` on the
-// payload type alias, which is a real check rather than a comment.
-const verifierFailureModeEnum = z.enum([
+// Exported ENUM-typed rather than as `z.ZodType<VerifierFailureMode>`, and the
+// difference is load-bearing: `.exclude()` lives on Zod's `ZodEnum` surface,
+// which the `z.ZodType` annotation ERASES. `Plan-006 §Invariants` T4.1
+// documents its consumer derivation as
+// `VerifierFailureModeSchema.exclude(['signing_key_slot_conflict'])`. Under the
+// erasing annotation that expression still compiled HERE — this file kept an
+// unannotated module-local twin to derive from — while failing at T4.1's own
+// module boundary: the worst shape of type error, invisible to the file that
+// ships the symbol. The twin is retired for exactly that reason.
+//
+// The annotation is spelled out because `isolatedDeclarations` is repo-wide.
+// `{ [K in VerifierFailureMode]: K }` is structurally what `z.enum([...])`
+// infers for a string-array input — `util.ToEnum<T> = Flatten<{[k in T]: k}>`
+// and `util.Flatten` is `Identity` (zod@4 `v4/core/util.d.ts`) — so this is an
+// annotation, never a widening and never a cast.
+//
+// `VerifierFailurePathSchema` below deliberately keeps the `z.ZodType`
+// annotation: no documented consumer derives from its enum surface, and the
+// narrower annotation is the conservative default. The asymmetry is the
+// consumer requirement, not a style drift.
+//
+// The verifier arm derives its fifteen-mode discriminator from THIS exported
+// symbol, so the sixteen-mode vocabulary is single-sourced AND this file
+// exercises exactly the surface T4.1 will. The compile-time binding to the
+// type union stays the `Exclude<VerifierFailureMode, "signing_key_slot_conflict">`
+// on the payload type alias, which is a real check rather than a comment.
+export const VerifierFailureModeSchema: z.ZodEnum<{ [K in VerifierFailureMode]: K }> = z.enum([
   "hash_mismatch",
   "signature_mismatch",
   "anchor_mismatch",
@@ -1409,7 +1426,6 @@ const verifierFailureModeEnum = z.enum([
   "pii_owner_stamp_unbound",
   "signing_key_slot_conflict",
 ]);
-export const VerifierFailureModeSchema: z.ZodType<VerifierFailureMode> = verifierFailureModeEnum;
 
 /**
  * The verification GUARANTEE that failed, per
@@ -1433,6 +1449,11 @@ export const VerifierFailurePathSchema: z.ZodType<VerifierFailurePath> = z.enum(
 // (audit_integrity)`. A builder, not a shared const, for the same reason
 // `buildCommonShape()` is one: each caller spreads a FRESH shape rather than
 // aliasing one Zod object across schemas.
+//
+// Not every consumer takes the full base. The `audit_integrity_failed`
+// REGISTRAR arm takes the REDUCED `{sessionId, verifierNodeId}` — it spreads
+// this builder and DROPS `anchorId` (see that arm below), so a later base-shape
+// change still propagates there instead of stopping at a hand-copied pair.
 //
 // `key_reuse_detected` deliberately does NOT compose it — its spec cell is a
 // standalone shape with no `base +` prefix, and it names `detectorNodeId`
@@ -1519,9 +1540,14 @@ type AuditIntegrityFailedVerifierPayload = {
   offendingSeq?: number | undefined;
   detail: string;
 };
+// REDUCED base — `{sessionId, verifierNodeId}`, no `anchorId`
+// (`Spec-006 §Audit Integrity (audit_integrity)`, 2026-08-03 amendment). The
+// member is not merely unset on this arm, it is refused: the row is never
+// compacted, never shredded, and never rewritten, so an anchor association
+// written here would be permanently false. The two `runtime_node.capability_*`
+// rows are the spec's reduced-base precedent.
 type AuditIntegrityFailedRegistrarPayload = {
   sessionId: SessionId;
-  anchorId?: string | undefined;
   verifierNodeId: NodeId;
   failureMode: "signing_key_slot_conflict";
   failurePath: "signature";
@@ -1541,7 +1567,11 @@ type AuditIntegrityFailedRegistrarPayload = {
  * — `fromSeq` / `toSeq` are required on the verifier arm (the dedupe key
  * `Plan-006 §Invariants` I-006-4-01 specifies) and absent from the registrar's,
  * which walked no range — and the verifier arm additionally enforces the nine
- * authority-fixed `failureMode` → `failurePath` pairings at parse.
+ * authority-fixed `failureMode` → `failurePath` pairings at parse. `anchorId`
+ * splits the same way once more (2026-08-03): optional on the verifier arm,
+ * whose range an anchor can cover, and EXCLUDED from the registrar's, which
+ * has no range to be covered — refused there rather than left unset, because
+ * the row is never rewritten and a false anchor association would be permanent.
  */
 export type AuditIntegrityFailedPayload =
   | AuditIntegrityFailedVerifierPayload
@@ -1626,8 +1656,10 @@ const auditIntegrityFailedVerifierArmSchema = z
     // would be a new invariant with no authority behind it.
     fromSeq: payloadSequenceSchema,
     toSeq: payloadSequenceSchema,
-    // Derived from the sixteen-mode twin so the two arms cannot drift apart.
-    failureMode: verifierFailureModeEnum.exclude(["signing_key_slot_conflict"]),
+    // Derived from the EXPORTED sixteen-mode schema so the two arms cannot
+    // drift apart — and so this file exercises the exact `.exclude()` call
+    // `Plan-006 §Invariants` T4.1 documents for its own consumer derivation.
+    failureMode: VerifierFailureModeSchema.exclude(["signing_key_slot_conflict"]),
     failurePath: VerifierFailurePathSchema,
     // OPTIONAL — several modes implicate no single row (`log_file_missing`,
     // `anchor_missing_for_compacted_range`).
@@ -1654,9 +1686,23 @@ const auditIntegrityFailedVerifierArmSchema = z
     }
   });
 
+// Destructure-and-drop rather than a hand-copied `{sessionId, verifierNodeId}`
+// pair: a later change to the shared base still reaches this arm, and only the
+// ONE excluded member is spelled out here. `_anchorIdExcluded` is unread by
+// construction and rides the `varsIgnorePattern: "^_"` the `_AssertExtends`
+// pins use — no suppression comment is needed.
+//
+// The exclusion is ENFORCED, not conventional: `.strict()` below turns an
+// unrecognized key into a parse failure, so a registrar payload offering
+// `anchorId` is REFUSED. Dropping the member without `.strict()` would only
+// have made it ignored — the value would still be accepted at the seam and
+// could still be persisted by a caller reading the raw input.
+const { anchorId: _anchorIdExcluded, ...auditIntegrityRegistrarBaseShape } =
+  buildAuditIntegrityBaseShape();
+
 const auditIntegrityFailedRegistrarArmSchema = z
   .object({
-    ...buildAuditIntegrityBaseShape(),
+    ...auditIntegrityRegistrarBaseShape,
     failureMode: z.literal("signing_key_slot_conflict"),
     // Pinned, not the three-value enum: the spec fixes this arm's path at
     // `signature` — the guarantee broken is the roster's binding of this

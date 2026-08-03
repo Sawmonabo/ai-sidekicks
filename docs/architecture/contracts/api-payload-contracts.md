@@ -1365,7 +1365,9 @@ type EventCategory =
 // not a branded/UUID id: the control-plane anchor id is UUID while the local
 // pending_anchor_uploads.id is TEXT, and no AnchorId vocabulary is declared.
 // key_reuse_detected does NOT carry this base (its spec cell has no "base +"
-// prefix) — it is an observer's node-level finding.
+// prefix) — it is an observer's node-level finding. The audit_integrity_failed
+// REGISTRAR arm takes a REDUCED base, {sessionId, verifierNodeId}, anchorId
+// excluded (Spec-006 2026-08-03) — see that arm below.
 
 interface AuditIntegrityVerifiedPayload {
   sessionId: SessionId;
@@ -1444,11 +1446,13 @@ type AuditIntegrityFailedPayload =
       // Registrar arm — no range was verified, so no Merkle triple and no
       // range endpoints.
       sessionId: SessionId; // the refused registration's real id, never the sentinel
-      // Absent at emission and PERMANENTLY absent on this row — the signed
-      // payload is never mutated; later coverage is represented by the
+      // No anchorId — REDUCED base, the member excluded rather than optional
+      // (Spec-006 2026-08-03). It is permanently absent on this row: the signed
+      // payload is never mutated, and later coverage is represented by the
       // subsequently appended anchor spanning this row's range, exactly as for
-      // any appended row.
-      anchorId?: string;
+      // any appended row. The schema is .strict(), so an offered anchorId is
+      // an unrecognized key and REJECTED — the permanence is enforced here,
+      // not left to emitter convention.
       verifierNodeId: NodeId; // the refused daemon naming itself
       failureMode: "signing_key_slot_conflict";
       failurePath: "signature";
