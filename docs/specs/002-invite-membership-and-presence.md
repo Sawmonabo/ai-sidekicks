@@ -173,7 +173,7 @@ The following delivery mechanisms are deferred to V2. All V2 mechanisms will use
 - Membership state belongs to shared control-plane storage, not client cache.
 - Invite acceptance should not imply approval or execution authority on any participant machine.
 - Consumers of the typing indicator must subscribe to the Awareness `change` event, not the raw `update` event: `update` fires on every local-state write including the protocol's own ~15s self-renewal, so an `update` subscriber re-renders on every keepalive tick for every participant.
-- The typing indicator is hand-rolled over `y-protocols` Awareness; no purpose-built library is adopted. Both candidate npm packages are abandoned (`y-presence` last published 2023-01, `@y-presence/react` 2022-07, and the latter peer-pins React 18 against this repo's React 19), and the funded ecosystem leader ships no typing primitive at all — its API reference lists typing indicators as unsupported and documents hand-rolling them. Do not relitigate without new evidence.
+- The typing indicator is hand-rolled over `y-protocols` Awareness; no purpose-built library is adopted, because both candidate npm packages are abandoned upstream: [`y-presence`](https://registry.npmjs.org/y-presence) last published 0.2.3 on 2023-01-15, and [`@y-presence/react`](https://registry.npmjs.org/@y-presence%2Freact) last published 2.0.1 on 2022-07-27 with a `react: ^18.0.0` peer pin against this repo's React 19 (npm registry metadata, both accessed 2026-08-03). Do not relitigate without new evidence.
 
 ## Pitfalls To Avoid
 
