@@ -29,10 +29,11 @@
 // THE RULE IS TRANSITIVE, and reads on the whole import CLOSURE: this module
 // must import nothing that itself reaches `./event.js`, however many hops out.
 // T1.2 found the gap — `NodeIdSchema` needed by the attach/read surfaces below
-// lived in `runtime-node.ts`, which imports values FROM `event.ts`, so the
-// direct import would have closed `repo.ts` → `runtime-node.ts` → `event.ts`
-// → `repo.ts`. Every edge in that cycle is an eager module-scope Zod
-// initializer, so it throws `ReferenceError` at import time from every entry
+// lived in `runtime-node.ts`, which at the time imported values FROM
+// `event.ts` (those now bind the `./event-core.js` leaf, Plan-006 T1.12), so
+// the direct import would have closed `repo.ts` → `runtime-node.ts` →
+// `event.ts` → `repo.ts`. Every edge in that cycle is an eager module-scope
+// Zod initializer, so it throws `ReferenceError` at import time from every entry
 // point, and `tsc` does not flag it. The resolution was to hoist the `NodeId`
 // declaration into the dependency-free leaf `./node-id.js` (Plan-003 still
 // owns the shape) and import from there — NOT to restate the parser here, and

@@ -56,9 +56,12 @@
 //     a branch is required to carry the stamp exactly when it is run-scoped
 //     (its payload carries `runId`) AND belongs to an admitting family; any
 //     other branch must not carry the keys at all. Today every registered
-//     branch is in the must-not class and passes non-vacuously; the ratchet
-//     turns red when a run-scoped branch of an admitting family lands
-//     unwrapped — a strict payload schema that skipped the wrap would reject
+//     branch is in the must-not class and passes non-vacuously — including
+//     the five `runtime_node.*` arms T1.12 registered, which are NODE-scoped
+//     (payload carries `nodeId`, no `runId`), so the guard below widened to
+//     them by set-equality with no assertion change; the ratchet turns red
+//     when a run-scoped branch of an admitting family lands unwrapped — a
+//     strict payload schema that skipped the wrap would reject
 //     a stamped row wherever the STRICT layer parses it (scoped honestly: the
 //     tolerant `EventEnvelopeSchema` carrier accepts a stamped row either
 //     way, its `payload` being an open record, so what is lost is

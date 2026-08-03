@@ -24,6 +24,15 @@
 // them in the emitting plan's file, and Plan-006 owns this one, so their
 // payload schemas are declared and exported here.
 //
+// Plan-006 T1.12 adds the five daemon-reachable `runtime_node.*` variants —
+// `registered`, `online`, `offline`, `capability_declared`,
+// `capability_updated` — discharging leg (a) of Plan-003 CP-003-1: Plan-003
+// authors the payload SHAPES (runtime-node.ts), Plan-006 owns the union
+// REGISTRATION. `degraded` / `revoked` stay unregistered — V1.1-gated on the
+// node-identity trust anchor (ADR-017 §Server-Derived Runtime-Node Lifecycle
+// Events), so the registered set is five of the seven `runtime_node.*` census
+// names.
+//
 // The discriminated-union `SessionEvent` discriminates on the wire `type`
 // string. Adding a new variant later is additive per ADR-018 §Decision #8
 // (new event types allowed under a MINOR version bump). The full taxonomy
@@ -31,10 +40,10 @@
 // census (Plan-006 T1.2, closed by T1.10): `SessionEventType` (156 literals),
 // the per-category `*_EVENT_TYPES` arrays, and `SESSION_EVENT_CATEGORY_BY_TYPE`
 // (20 categories). Payload variants remain intentionally a strict subset, and
-// each is owned by its EMITTING plan: eleven reach `SessionEventSchema` from
+// each is owned by its EMITTING plan: sixteen reach `SessionEventSchema` from
 // another plan's file through the cross-plan union-registration seam (CP-009-4
-// / CP-010-5, the CP-012-2 / CP-016-3 class), six are authored in this file
-// because Plan-006 emits them and owns it (T1.11). Either way census
+// / CP-010-5 / CP-003-1, the CP-012-2 / CP-016-3 class), six are authored in
+// this file because Plan-006 emits them and owns it (T1.11). Either way census
 // membership is type registration, not payload support.
 //
 // All three Plan-001 wire strings are registered in Spec-006 §Event Type
@@ -49,27 +58,47 @@
 // Versioning: `version` is an `EventEnvelopeVersion` — a semver
 // `"MAJOR.MINOR"` STRING per ADR-018 §Decision #1. It is NEVER numeric on
 // the wire (lexical compare on strings like "1.10" vs "1.9" is unsafe; the
-// reader parses MAJOR/MINOR as integers). The format check below enforces
-// the regex from `docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy`.
+// reader parses MAJOR/MINOR as integers). The format check lives on
+// `EventEnvelopeVersionSchema` — declared in `./event-core.js`, re-exported
+// through the hoist seam below — and enforces the regex from `docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy`.
 //
 // Refs: Spec-001 §Interfaces, Spec-006 §Event Type Enumeration + §Canonical
 // Serialization Rules, ADR-017 (event sourcing), ADR-018 (cross-version
 // compatibility).
 import { z } from "zod";
 
+// The three symbols this file still CONSUMES from its own hoisted leaf. The
+// leaf's other exports reach the public API through the re-export seam below,
+// which is a separate statement pair by design (`export … from` introduces no
+// local binding, so the two forms never collide — the same shape
+// `runtime-node.ts` uses over `./node-id.js`).
+import {
+  EVENT_FIELD_MAX_LEN,
+  EventEnvelopeVersionSchema,
+  type EventEnvelopeVersion,
+} from "./event-core.js";
 // DIRECT import from the `./node-id.js` leaf, never from `./runtime-node.js`
 // — the same eager-Zod-cycle discipline repo.ts's header records: the leaf is
 // dependency-free, so importing it can never close a module-scope cycle.
 import { NodeIdSchema, type NodeId } from "./node-id.js";
-import {
-  DRIVER_CAPABILITY_FLAGS,
-  DRIVER_TOOL_DESCRIPTION_MAX_LEN,
-  DRIVER_TOOL_NAME_MAX_LEN,
-  IdempotencyClassSchema,
-  type DriverCapabilityFlag,
-  type NormalizedProviderToolMetadata,
-} from "./provider-driver.js";
 import { RepoWorkspaceLifecyclePayloadSchema, type RepoWorkspaceLifecyclePayload } from "./repo.js";
+// One-way import (CP-003-1 leg (a), T1.12): the five `runtime_node.*` payload
+// schemas Plan-003 authors, registered as union arms below. runtime-node.ts
+// imports NOTHING from this file — its three former value imports now come from
+// `./event-core.js`, which is what keeps this edge acyclic (see that file's
+// header).
+import {
+  RuntimeNodeCapabilityDeclaredPayloadSchema,
+  RuntimeNodeCapabilityUpdatedPayloadSchema,
+  RuntimeNodeOfflinePayloadSchema,
+  RuntimeNodeOnlinePayloadSchema,
+  RuntimeNodeRegisteredPayloadSchema,
+  type RuntimeNodeCapabilityDeclaredPayload,
+  type RuntimeNodeCapabilityUpdatedPayload,
+  type RuntimeNodeOfflinePayload,
+  type RuntimeNodeOnlinePayload,
+  type RuntimeNodeRegisteredPayload,
+} from "./runtime-node.js";
 import {
   CHANNEL_NAME_MAX_LEN,
   ChannelIdSchema,
@@ -161,58 +190,42 @@ export const EventCategorySchema: z.ZodType<EventCategory> = z.enum([
 ]);
 
 // --------------------------------------------------------------------------
-// EventEnvelopeVersion — branded "MAJOR.MINOR" semver string.
+// HOISTED CLUSTER — RE-EXPORT SEAM (declarations moved to `./event-core.js`).
 // --------------------------------------------------------------------------
 //
-// Regex from api-payload-contracts.md § Plan-006:
-//   /^(0|[1-9]\d*)\.(0|[1-9]\d*)$/
-// Rejects leading zeros on either segment ("01.0", "1.01") and pure
-// numeric/single-segment forms ("1", "1.0.0").
-
-export const EVENT_ENVELOPE_VERSION_PATTERN: RegExp = /^(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
-
-// Length ceiling for an EventEnvelopeVersion string, enforced at the parse
-// boundary BEFORE the format regex. This is a bound on parse cost, not a
-// format rule: `compareEventEnvelopeVersion` parses each segment with `BigInt`
-// for exact ordering above `Number.MAX_SAFE_INTEGER`, and BigInt construction
-// from a decimal string is super-linear in digit count — so an unbounded but
-// regex-valid input (a single segment of arbitrarily many digits) would let a
-// caller drive parse work without limit. Real protocol versions are
-// single/low-double-digit segments per ADR-018 §Decision #1, so 64 characters
-// is generous headroom for any plausible MAJOR.MINOR while keeping the BigInt
-// parse trivially cheap. This is a strict MAJOR.MINOR protocol-version bound,
-// deliberately distinct from `VERSION_STRING_MAX_LEN` (error.ts), which caps
-// free-form version strings in error details — the two must not be coupled.
-export const EVENT_ENVELOPE_VERSION_MAX_LEN = 64;
-
-export type EventEnvelopeVersion = string & {
-  readonly __brand: "EventEnvelopeVersion";
-};
-/**
- * Runtime validator for the branded {@link EventEnvelopeVersion} — the
- * producer-set `"MAJOR.MINOR"` protocol version whose bump/stub/read rules
- * live in `Spec-006 §EventEnvelope Version Semantics` (format per
- * `ADR-018 §Decision` #1; see the section comment above). An out-of-range
- * version is rejected at the version-floor gate and reader-side version
- * negotiation (never by this format-and-length-only validator) as the
- * shipped typed error contracts `VersionFloorExceededErrorSchema` /
- * `VersionCeilingExceededErrorSchema` (error.ts): below-floor writes
- * return `VERSION_FLOOR_EXCEEDED` per `ADR-018 §Decision` #4; join-time
- * negotiation surfaces both `VERSION_FLOOR_EXCEEDED` and
- * `VERSION_CEILING_EXCEEDED` per §Decision #10, which also mandates their
- * registration ahead of the first Plan-001 emitter — both shipped by
- * Plan-001 T2.3 and cross-linked here, not re-authored.
- */
-export const EventEnvelopeVersionSchema: z.ZodType<EventEnvelopeVersion> = z
-  .string()
-  .max(EVENT_ENVELOPE_VERSION_MAX_LEN, {
-    message: `EventEnvelopeVersion must be at most ${EVENT_ENVELOPE_VERSION_MAX_LEN} characters.`,
-  })
-  .regex(EVENT_ENVELOPE_VERSION_PATTERN, {
-    message:
-      'EventEnvelopeVersion must be a "MAJOR.MINOR" semver string per ADR-018 §Decision #1 (e.g. "1.0", "2.5"; not numeric, not three-segment, no leading zeros).',
-  })
-  .brand<"EventEnvelopeVersion">() as unknown as z.ZodType<EventEnvelopeVersion>;
+// `EVENT_ENVELOPE_VERSION_PATTERN` / `EVENT_ENVELOPE_VERSION_MAX_LEN` /
+// `EventEnvelopeVersion` / `EventEnvelopeVersionSchema`, `EVENT_FIELD_MAX_LEN`,
+// `CAPABILITY_CONTRACT_VERSION_MAX_LEN`, and the `CapabilityDetails` pair
+// (interface + schema) are declared VERBATIM in `./event-core.js` — a module
+// that can reach `zod`, `./session.js` and `./provider-driver.js` and nothing
+// else — and re-exported here, so this file's public API is exactly what it was
+// before the hoist: the barrel's `export * from "./event.js"` carries all eight
+// onward (six values + two types — the two re-export statements below), and
+// every in-tree importer (runtime-node.ts's three value imports aside, which
+// now bind the leaf directly) keeps importing them from here unchanged.
+//
+// Plan-006 still OWNS every shape; only their physical home moved. The hoist
+// exists because T1.12 registers the five `runtime_node.*` payload variants
+// below, which adds a VALUE edge from this file to `runtime-node.ts` — and
+// `runtime-node.ts` already read three values back out of this one, closing the
+// eager cycle `event.ts` → `runtime-node.ts` → `event.ts` that throws
+// `ReferenceError` at import time from every entry point (full rationale, with
+// the per-edge evidence, in `./event-core.js`'s header). Amending any of these
+// eight is still a Plan-006 edit — make it in `./event-core.js`.
+//
+// Type-only re-exports MUST use `export type { ... }` (the `isolatedModules` +
+// `verbatimModuleSyntax` posture from tsconfig.base.json forbids erased
+// re-exports on the runtime form) — the same two-statement shape
+// `runtime-node.ts` uses for its `./node-id.js` re-exports.
+export type { CapabilityDetails, EventEnvelopeVersion } from "./event-core.js";
+export {
+  CAPABILITY_CONTRACT_VERSION_MAX_LEN,
+  CapabilityDetailsSchema,
+  EVENT_ENVELOPE_VERSION_MAX_LEN,
+  EVENT_ENVELOPE_VERSION_PATTERN,
+  EVENT_FIELD_MAX_LEN,
+  EventEnvelopeVersionSchema,
+} from "./event-core.js";
 
 // --------------------------------------------------------------------------
 // compareEventEnvelopeVersion — total ordering of EventEnvelopeVersion.
@@ -282,7 +295,9 @@ export function compareEventEnvelopeVersion(
 // Rationale per cap:
 //   • EVENT_FIELD_MAX_LEN (256)        — id / actor / correlationId /
 //     causationId. UUIDs are 36 chars; 256 leaves plenty of headroom for any
-//     composite identifier scheme without enabling DoS. Defined in this file.
+//     composite identifier scheme without enabling DoS. Declared in
+//     event-core.ts — `runtime-node.ts` reads it at module scope, so it rides
+//     the hoisted leaf; the seam above re-exports it from this file.
 //   • ERROR_MESSAGE_MAX_LEN (8192)     — top-level `message` field on error
 //     envelopes. 8 KiB is well above any human-readable error string but
 //     still bounded. Defined in error.ts (co-located with the error
@@ -307,8 +322,6 @@ export function compareEventEnvelopeVersion(
 // a weaker argument once a non-trusted process can synthesize a wire
 // envelope. NUL bytes also corrupt OpenTelemetry trace lines that the
 // observability layer emits from `correlationId` / `causationId`.
-
-export const EVENT_FIELD_MAX_LEN = 256;
 
 // --------------------------------------------------------------------------
 // EventEnvelope — the canonical event message (Plan-006 T1.3).
@@ -382,15 +395,16 @@ export const EVENT_FIELD_MAX_LEN = 256;
 // ever meeting this schema.
 //
 // NOT A TUNABLE — and this is the one thing a future reader must not get
-// wrong. Every other cap in this file (`EVENT_FIELD_MAX_LEN`,
-// `EVENT_ENVELOPE_VERSION_MAX_LEN`) is a policy knob chosen for headroom,
-// raisable as a MINOR widening. This one is not raisable at all: it is pinned
-// to a property of the number REPRESENTATION, `.int()` enforces the identical
-// ceiling independently so raising this const alone would change nothing, and
-// past it the canonical bytes stop being injective. A reader who finds the
-// limit inconvenient needs a WIDER WIRE TYPE — a string-encoded bigint, the
-// same remedy `pty-host-protocol.ts`'s `DataFrame.seq` note reserves against
-// the same hazard — never a larger number here.
+// wrong. Every other cap this file surfaces (`EVENT_FIELD_MAX_LEN`,
+// `EVENT_ENVELOPE_VERSION_MAX_LEN` — both declared on the `./event-core.js`
+// leaf and re-exported through the seam above) is a policy knob chosen for
+// headroom, raisable as a MINOR widening. This one is not raisable at all: it
+// is pinned to a property of the number REPRESENTATION, `.int()` enforces the
+// identical ceiling independently so raising this const alone would change
+// nothing, and past it the canonical bytes stop being injective. A reader who
+// finds the limit inconvenient needs a WIDER WIRE TYPE — a string-encoded
+// bigint, the same remedy `pty-host-protocol.ts`'s `DataFrame.seq` note
+// reserves against the same hazard — never a larger number here.
 //
 // Headroom is not the binding constraint regardless: at a sustained one
 // million events per second, one session needs ~285 years to reach this
@@ -657,12 +671,15 @@ export const EventEnvelopeSchema: z.ZodType<EventEnvelope> = z
 // `SessionEventSchema` carries the three Plan-001 variants
 // (`session.created`, `membership.created`, `channel.created`), the six
 // Plan-009 `repo.*` / `workspace.*` variants (CP-009-4), the five Plan-010
-// `worktree.*` variants (CP-010-5), and the six Plan-006 `audit_integrity` /
-// `event_maintenance` variants (T1.11). The first fourteen are LIFECYCLE
+// `worktree.*` variants (CP-010-5), the six Plan-006 `audit_integrity` /
+// `event_maintenance` variants (T1.11), and the five Plan-003 `runtime_node.*`
+// variants (T1.12 — CP-003-1 leg (a)). The first fourteen are LIFECYCLE
 // rows; the six T1.11 registrants are DAEMON-SCOPE infrastructure rows fired
 // at process scope across every hosted session
-// (`Spec-006 §Daemon-Scope Event Binding And Node-Scope Anchoring`). Neither
-// group is run-scoped — no payload among the twenty carries `runId` — so no
+// (`Spec-006 §Daemon-Scope Event Binding And Node-Scope Anchoring`); the five
+// T1.12 registrants are NODE-scoped attachment-lifecycle rows, keyed on
+// `nodeId` and bound to the session of the attachment they describe. No group
+// is run-scoped — no payload among the twenty-five carries `runId` — so no
 // branch here composes the helper yet. Later registrants of the five families
 // arriving through the union-registration seam (the
 // CP-009-4 / CP-010-5 / CP-012-2 / CP-016-3 class) inherit the admission
@@ -1364,11 +1381,11 @@ export type VerifierFailureMode =
 // the exported `z.ZodType<VerifierFailureMode>` annotation ERASES — the
 // `isolatedDeclarations` trade worktree.ts's `EphemeralCloneState` note
 // records, and the same module-local-twin shape
-// `capabilityDetailsObjectSchema` takes below. The verifier arm derives its
-// fifteen-mode discriminator from THIS value, so the sixteen-mode vocabulary
-// is single-sourced across both surfaces; the compile-time binding is the
-// `Exclude<VerifierFailureMode, "signing_key_slot_conflict">` on the payload
-// type alias, which is a real check rather than a comment.
+// `capabilityDetailsObjectSchema` takes (event-core.ts). The verifier arm
+// derives its fifteen-mode discriminator from THIS value, so the sixteen-mode
+// vocabulary is single-sourced across both surfaces; the compile-time binding
+// is the `Exclude<VerifierFailureMode, "signing_key_slot_conflict">` on the
+// payload type alias, which is a real check rather than a comment.
 const verifierFailureModeEnum = z.enum([
   "hash_mismatch",
   "signature_mismatch",
@@ -1831,6 +1848,136 @@ export const EventShreddedEventSchema: z.ZodType<EventShreddedEvent> = z
   .strict();
 
 // --------------------------------------------------------------------------
+// runtime_node.* — the five Plan-003 lifecycle variants (T1.12, CP-003-1).
+// --------------------------------------------------------------------------
+//
+// Additive-MINOR registration (`ADR-018 §Decision` #8) of the five
+// DAEMON-REACHABLE members of
+// `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`. All five type
+// strings were ALREADY in the census (`SessionEventType` +
+// `SESSION_EVENT_CATEGORY_BY_TYPE`, Plan-006 T1.2); what lands here is their
+// PAYLOAD VARIANTS. The census is untouched — still 156 types across 20
+// categories.
+//
+// CP-003-1 LEG (a), discharged. Plan-003 authors the payload SHAPES in
+// runtime-node.ts per emitter-authors-payload (its Phase-2 node-registry and
+// capability-service producers `.parse()` through the very same consts);
+// Plan-006 owns the discriminated-union REGISTRATION. So each arm below
+// IMPORTS its `*PayloadSchema` rather than restating it, and no Plan-003 shape
+// is edited here — the same split as the CP-009-4 / CP-010-5 blocks above.
+//
+// FIVE OF SEVEN, deliberately. `runtime_node.degraded` and
+// `runtime_node.revoked` stay census members with NO payload variant: both are
+// server-derived rows with no sound V1 author, V1.1-gated on the node-identity
+// trust anchor (ADR-017 §Server-Derived Runtime-Node Lifecycle Events), so
+// Plan-003 ships no payload shape for them and the strict layer keeps
+// REJECTING them until it does. The `session.clock_*` pair sits in the same
+// EventCategory but keeps its `session.` prefix by name preservation and is
+// likewise unregistered here.
+//
+// SESSION BINDING — a `runtime_node.*` row carries the REAL `sessionId` of the
+// attachment it describes (`Spec-006 §Runtime Node Lifecycle
+// (runtime_node_lifecycle)`), NOT the daemon-scope sentinel the T1.11
+// infrastructure rows anchor on. The PAYLOAD's `sessionId` is `.optional()`
+// because Spec-006's base spells it `sessionId?`; the ENVELOPE's `sessionId`
+// member stays required, as on every other arm.
+//
+// NO EPOCH STAMP. Node-scoped, not run-scoped — these payloads carry `nodeId`
+// and no `runId`, so the cross-cutting `sourceEpoch` / `sourcePosition` pair
+// would be unattributable and the WRAP ADMISSION note above excludes them.
+// __tests__/event-source-epoch.test.ts walks the live union and fails a
+// non-admitting branch that lands wrapped.
+
+// Emitted by the T2.1 node-registry when a node is accepted into the roster
+// (`Spec-003 §Required Behavior`, attach admission).
+export interface RuntimeNodeRegisteredEvent extends EventEnvelope {
+  type: "runtime_node.registered";
+  category: "runtime_node_lifecycle";
+  payload: RuntimeNodeRegisteredPayload;
+}
+export const RuntimeNodeRegisteredEventSchema: z.ZodType<RuntimeNodeRegisteredEvent> = z
+  .object({
+    ...buildCommonShape(),
+    type: z.literal("runtime_node.registered"),
+    category: z.literal("runtime_node_lifecycle"),
+    payload: RuntimeNodeRegisteredPayloadSchema,
+  })
+  .strict();
+
+// Emitted only AFTER `runtime_node.capability_declared` succeeds (Plan-003
+// I-003-2 ordering).
+export interface RuntimeNodeOnlineEvent extends EventEnvelope {
+  type: "runtime_node.online";
+  category: "runtime_node_lifecycle";
+  payload: RuntimeNodeOnlinePayload;
+}
+export const RuntimeNodeOnlineEventSchema: z.ZodType<RuntimeNodeOnlineEvent> = z
+  .object({
+    ...buildCommonShape(),
+    type: z.literal("runtime_node.online"),
+    category: z.literal("runtime_node_lifecycle"),
+    payload: RuntimeNodeOnlinePayloadSchema,
+  })
+  .strict();
+
+// Emitted on detach (`explicit_shutdown` in V1); the payload's `reason` enum
+// also carries the two V1.1 server-derived reasons, shape-stable ahead of
+// their producers.
+export interface RuntimeNodeOfflineEvent extends EventEnvelope {
+  type: "runtime_node.offline";
+  category: "runtime_node_lifecycle";
+  payload: RuntimeNodeOfflinePayload;
+}
+export const RuntimeNodeOfflineEventSchema: z.ZodType<RuntimeNodeOfflineEvent> = z
+  .object({
+    ...buildCommonShape(),
+    type: z.literal("runtime_node.offline"),
+    category: z.literal("runtime_node_lifecycle"),
+    payload: RuntimeNodeOfflinePayloadSchema,
+  })
+  .strict();
+
+// Emitted by the T2.2 capability-service when a node declares a capability
+// after registration. `capabilityDetails` is the canonical-first TOLERANT
+// UNION (`CapabilityDetailsSchema` first, an open record behind it) bound in
+// runtime-node.ts by Plan-006 T1.4 / CP-006-5 — registration composes it
+// EXACTLY as shipped: tightening the arm to canonical-only here would reject
+// previously-valid wire payloads, a MAJOR narrowing under
+// `ADR-018 §Decision` #8.
+export interface RuntimeNodeCapabilityDeclaredEvent extends EventEnvelope {
+  type: "runtime_node.capability_declared";
+  category: "runtime_node_lifecycle";
+  payload: RuntimeNodeCapabilityDeclaredPayload;
+}
+export const RuntimeNodeCapabilityDeclaredEventSchema: z.ZodType<RuntimeNodeCapabilityDeclaredEvent> =
+  z
+    .object({
+      ...buildCommonShape(),
+      type: z.literal("runtime_node.capability_declared"),
+      category: z.literal("runtime_node_lifecycle"),
+      payload: RuntimeNodeCapabilityDeclaredPayloadSchema,
+    })
+    .strict();
+
+// Emitted on a capability health/config change. `previousState` / `newState`
+// are CapabilityDetails SNAPSHOTS, not `NodeState` values, and carry the same
+// canonical-first tolerant union as `capability_declared` above (T1.4).
+export interface RuntimeNodeCapabilityUpdatedEvent extends EventEnvelope {
+  type: "runtime_node.capability_updated";
+  category: "runtime_node_lifecycle";
+  payload: RuntimeNodeCapabilityUpdatedPayload;
+}
+export const RuntimeNodeCapabilityUpdatedEventSchema: z.ZodType<RuntimeNodeCapabilityUpdatedEvent> =
+  z
+    .object({
+      ...buildCommonShape(),
+      type: z.literal("runtime_node.capability_updated"),
+      category: z.literal("runtime_node_lifecycle"),
+      payload: RuntimeNodeCapabilityUpdatedPayloadSchema,
+    })
+    .strict();
+
+// --------------------------------------------------------------------------
 // SessionEvent — discriminated union over `type`.
 // --------------------------------------------------------------------------
 //
@@ -1867,7 +2014,12 @@ export type SessionEvent =
   | KeyReuseDetectedEvent
   | SchemaMigratedEvent
   | EventCompactedEvent
-  | EventShreddedEvent;
+  | EventShreddedEvent
+  | RuntimeNodeRegisteredEvent
+  | RuntimeNodeOnlineEvent
+  | RuntimeNodeOfflineEvent
+  | RuntimeNodeCapabilityDeclaredEvent
+  | RuntimeNodeCapabilityUpdatedEvent;
 export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion("type", [
   z
     .object({
@@ -2049,6 +2201,54 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
       type: z.literal("event.shredded"),
       category: z.literal("event_maintenance"),
       payload: EventShreddedPayloadSchema,
+    })
+    .strict(),
+  // The five Plan-003 `runtime_node.*` arms (T1.12 — CP-003-1 leg (a)). Each
+  // shares the `*PayloadSchema` imported from runtime-node.ts, so these branch
+  // schemas and the `*EventSchema` exports above cannot drift on payload shape.
+  // No `runtime_node.degraded` / `runtime_node.revoked` arm exists (V1.1-gated,
+  // ADR-017 §Server-Derived Runtime-Node Lifecycle Events), the two capability
+  // arms carry T1.4's canonical-first tolerant unions exactly as shipped, and
+  // none is wrapped with `withEpochStamp` (node-scoped, not run-scoped; see the
+  // no-epoch-stamp note on their declarations above).
+  z
+    .object({
+      ...buildCommonShape(),
+      type: z.literal("runtime_node.registered"),
+      category: z.literal("runtime_node_lifecycle"),
+      payload: RuntimeNodeRegisteredPayloadSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...buildCommonShape(),
+      type: z.literal("runtime_node.online"),
+      category: z.literal("runtime_node_lifecycle"),
+      payload: RuntimeNodeOnlinePayloadSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...buildCommonShape(),
+      type: z.literal("runtime_node.offline"),
+      category: z.literal("runtime_node_lifecycle"),
+      payload: RuntimeNodeOfflinePayloadSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...buildCommonShape(),
+      type: z.literal("runtime_node.capability_declared"),
+      category: z.literal("runtime_node_lifecycle"),
+      payload: RuntimeNodeCapabilityDeclaredPayloadSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...buildCommonShape(),
+      type: z.literal("runtime_node.capability_updated"),
+      category: z.literal("runtime_node_lifecycle"),
+      payload: RuntimeNodeCapabilityUpdatedPayloadSchema,
     })
     .strict(),
 ]);
@@ -2307,11 +2507,11 @@ export type SessionEventType =
 // union's branches, so a forgotten entry fails there rather than silently
 // under-reporting the registered surface.
 //
-// Membership today (20): the three Plan-001 variants, the six Plan-009
+// Membership today (25): the three Plan-001 variants, the six Plan-009
 // repo/workspace variants (CP-009-4), the five Plan-010 worktree variants
-// (CP-010-5), and the six Plan-006 audit-integrity / event-maintenance
-// variants (T1.11). Order mirrors the declaration order of the union arms
-// above.
+// (CP-010-5), the six Plan-006 audit-integrity / event-maintenance variants
+// (T1.11), and the five Plan-003 runtime-node variants (T1.12 — CP-003-1
+// leg (a)). Order mirrors the declaration order of the union arms above.
 export const SESSION_EVENT_TYPES: readonly SessionEvent["type"][] = [
   "session.created",
   "membership.created",
@@ -2333,6 +2533,11 @@ export const SESSION_EVENT_TYPES: readonly SessionEvent["type"][] = [
   "schema.migrated",
   "event.compacted",
   "event.shredded",
+  "runtime_node.registered",
+  "runtime_node.online",
+  "runtime_node.offline",
+  "runtime_node.capability_declared",
+  "runtime_node.capability_updated",
 ] as const;
 
 // --------------------------------------------------------------------------
@@ -3218,162 +3423,19 @@ export const EVENT_DISPOSITION_BY_KIND: ReadonlyMap<NormalizedEventKind, EventKi
   );
 
 // --------------------------------------------------------------------------
-// CapabilityDetails — canonical capability snapshot (Plan-006 T1.4).
+// CapabilityDetails — HOISTED (Plan-006 T1.4; declarations in event-core.ts).
 // --------------------------------------------------------------------------
 //
-// The canonical typed shape of the capability snapshot carried on the
-// `runtime_node.capability_declared` / `runtime_node.capability_updated`
-// event payloads — the two capability rows of
-// `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`; wire authority
-// `docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy`.
-// Authoring it here closes Plan-005 CP-005-5 via CP-006-5: the Plan-003-
-// authored payload schemas in runtime-node.ts EXTEND their interim-opaque
-// `capabilityDetails` / `previousState` / `newState` fields with this schema
-// as the canonical-first arm of a tolerant union (see the binding notes
-// there) — this file owns only the canonical shape, not the payload wrappers.
-//
-// NON-NORMALIZING end to end — parse output is structurally identical to
-// accepted input: no `.default()`, no `.transform()`, no unknown-key
-// stripping (`.strict()` at both levels). Load-bearing because the daemon
-// emitter persists the PARSED output of the payload schemas
-// (node-event-emitter.ts): a default-filling or stripping arm here would
-// silently rewrite stored payloads relative to the wire bytes — the same
-// no-collapse stance as the envelope's I-006-1-03 notes above.
-
-// Per-field cap for the free-form `contractVersion` string — house
-// convention: each free-form wire field owns its own cap. 64 mirrors the
-// sibling version-string precedent `RUNTIME_NODE_VERSION_MAX_LEN`
-// (runtime-node.ts): generous headroom for any plausible driver-contract
-// version string while bounding pathological input at the wire/replay trust
-// boundary. Deliberately NOT `EVENT_ENVELOPE_VERSION_MAX_LEN` — that caps
-// the strict MAJOR.MINOR protocol version, whereas `contractVersion` is a
-// free-form provider-declared value (its semver bound lives at the Plan-005
-// Phase-2 write seam, not at this wire layer).
-export const CAPABILITY_CONTRACT_VERSION_MAX_LEN = 64;
-
-// Module-LOCAL strict tool schema — single consumer, so it fails the export
-// hoist bar (2+ surfaces). Mirrors `NormalizedProviderToolMetadata`
-// (provider-driver.ts) EXACTLY, including `description?: string | undefined`
-// optionality under `exactOptionalPropertyTypes`. Deliberately NOT
-// `ProviderToolMetadataSchema`: that schema is the INGRESS normalizer — it
-// default-fills `idempotency_class` and strips unknown keys, so routing
-// event payloads through it would make parse output diverge from accepted
-// input. Here `idempotency_class` is REQUIRED with no `.default()`: only the
-// NORMALIZED tool shape crosses the persistence / event boundary
-// (provider-driver.ts), and an un-normalized entry in an event snapshot is a
-// producer bug that must fail loud, never be silently repaired.
-const capabilityToolMetadataSchema = z
-  .object({
-    name: wireFreeFormString(DRIVER_TOOL_NAME_MAX_LEN, "CapabilityDetails.tools.name"),
-    idempotency_class: IdempotencyClassSchema,
-    description: wireFreeFormString(
-      DRIVER_TOOL_DESCRIPTION_MAX_LEN,
-      "CapabilityDetails.tools.description",
-    ).optional(),
-  })
-  .strict();
-
-// COMPILE-TIME PIN (tool element) — `CapabilityDetailsSchema` rides as the
-// canonical arm of the tolerant union in runtime-node.ts, and that union
-// never REJECTS a mismatch: a value the canonical arm stops matching silently
-// parses on the permissive record arm instead. So schema↔interface drift here
-// would de-canonicalize every capability parse without a single test failing
-// on shape. The three directions below pin the TOOL-ELEMENT schema (the outer
-// `CapabilityDetails` object has its own pin block after its schema, below):
-// (1) everything the element schema emits is a
-// `NormalizedProviderToolMetadata`; (2) every `NormalizedProviderToolMetadata`
-// is an acceptable schema INPUT (a schema that grows a required field breaks
-// this); (3) the schema repairs nothing — its input demands no less than the
-// normalized shape (a `.default()`/laxer-optionality regression breaks this,
-// per the no-silent-repair rule in the schema comment above). Honest residual:
-// assignability cannot see `.strict()`'s unknown-key REJECTION, so a dropped
-// schema field with `.strict()` retained is runtime-covered by the event.ts
-// test suite, not by these pins.
-type _AssertExtends<A extends B, B> = A;
-type _ToolSchemaOutputIsNormalized = _AssertExtends<
-  z.output<typeof capabilityToolMetadataSchema>,
-  NormalizedProviderToolMetadata
->;
-type _NormalizedIsToolSchemaInput = _AssertExtends<
-  NormalizedProviderToolMetadata,
-  z.input<typeof capabilityToolMetadataSchema>
->;
-type _ToolSchemaInputIsNormalized = _AssertExtends<
-  z.input<typeof capabilityToolMetadataSchema>,
-  NormalizedProviderToolMetadata
->;
-
-/**
- * Canonical capability snapshot for `runtime_node.capability_*` payloads
- * (`docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy`;
- * `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`; CP-006-5 —
- * closes Plan-005 CP-005-5). `tools` is `readonly` per the Plan-006 T1.4
- * task row (the governing spelling over the wire doc's mutable gloss — a
- * mutable schema output stays assignable under covariance) and carries the
- * NORMALIZED tool shape: `CapabilityDetails` crosses the persistence /
- * event boundary, which the ingress `ProviderToolMetadata` never does.
- */
-export interface CapabilityDetails {
-  flags: Record<DriverCapabilityFlag, boolean>;
-  contractVersion: string;
-  tools: readonly NormalizedProviderToolMetadata[];
-}
-// Unannotated module-local twin: the exported const below carries an explicit
-// `z.ZodType<CapabilityDetails>` annotation (isolatedDeclarations), and that
-// annotation REPLACES the inferred object type — `z.input`/`z.output` of the
-// export would just echo the annotation, telling the outer-object pins
-// nothing. The pins therefore bind this twin, and the export aliases it.
-const capabilityDetailsObjectSchema = z
-  .object({
-    // Enum-keyed record = EXHAUSTIVE keys in Zod 4: every member of the live
-    // `DRIVER_CAPABILITY_FLAGS` const must be present, and a missing member,
-    // an unknown key, or a non-boolean value all reject — matching the
-    // non-partial `Record<DriverCapabilityFlag, boolean>` type and the
-    // write-seam exactly-all-flags cardinality guard (I-005-2: capabilities
-    // are explicit, never inferred from absence). Keyed off the const — not
-    // a copied literal list — so Plan-005 T1.7's scheduled flag widening
-    // flows through with zero edits here.
-    flags: z.record(z.enum(DRIVER_CAPABILITY_FLAGS), z.boolean()),
-    contractVersion: wireFreeFormString(
-      CAPABILITY_CONTRACT_VERSION_MAX_LEN,
-      "CapabilityDetails.contractVersion",
-    ),
-    tools: z.array(capabilityToolMetadataSchema),
-  })
-  .strict();
-export const CapabilityDetailsSchema: z.ZodType<CapabilityDetails> = capabilityDetailsObjectSchema;
-
-// COMPILE-TIME PIN (outer object) — same de-canonicalization hazard as the
-// tool-element pins above, one level up: the `z.ZodType<CapabilityDetails>`
-// annotation does NOT catch a grown required schema field (extra properties
-// pass covariant assignability), so without these pins the outer object could
-// drift while every parse silently falls to the permissive union arm.
-// Directions: (1) everything the schema emits satisfies `CapabilityDetails`
-// (a loosened/dropped/mistyped output field breaks this); (2) every
-// `CapabilityDetails` is an acceptable schema INPUT (a grown or narrowed
-// required field breaks this) — compared with `tools` rebuilt from the
-// interface's own readonly array type, because Zod types array inputs as
-// mutable and `readonly T[]` never structurally extends `T[]`, while
-// PASSING a readonly array is semantically safe (parse copies; it never
-// mutates its input); (3) the `tools` key itself stays REQUIRED with the
-// pinned element type — this covers the optionality drift that direction
-// (2)'s `Omit`-and-rebuild deliberately masks. Honest residual: unchanged
-// from the element pins — `.strict()`'s unknown-key rejection is invisible
-// to assignability and stays runtime-covered.
-type _CapabilityDetailsOutputIsCanonical = _AssertExtends<
-  z.output<typeof capabilityDetailsObjectSchema>,
-  CapabilityDetails
->;
-type _CanonicalIsCapabilityDetailsInput = _AssertExtends<
-  CapabilityDetails,
-  Omit<z.input<typeof capabilityDetailsObjectSchema>, "tools"> & {
-    tools: CapabilityDetails["tools"];
-  }
->;
-type _CapabilityDetailsInputKeepsRequiredTools = _AssertExtends<
-  z.input<typeof capabilityDetailsObjectSchema>["tools"],
-  readonly NormalizedProviderToolMetadata[]
->;
+// `CAPABILITY_CONTRACT_VERSION_MAX_LEN`, the `CapabilityDetails` interface,
+// `CapabilityDetailsSchema`, their module-local tool-element schema, and all
+// six compile-time drift pins moved VERBATIM to `./event-core.js` (T1.12) and
+// are re-exported from the hoist seam near the top of this file — Plan-006
+// still owns the shape, and its full rationale (why it is non-normalizing, why
+// the pins exist, why `tools` is readonly) travelled with the declarations.
+// The move was forced by the cycle: `runtime-node.ts` reads
+// `CapabilityDetailsSchema` at module scope for T1.4's canonical-first
+// tolerant unions, and this file now reads runtime-node.ts's payload schemas
+// at module scope for the T1.12 arms above.
 
 // Note: cross-file ID types (`SessionId`, `MembershipId`, …) are not re-
 // exported here — they are surfaced from `session.ts` and reach the public

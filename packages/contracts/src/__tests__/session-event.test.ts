@@ -48,14 +48,27 @@
 // carrier no carve-out). Plan-006 T1.4 appends the
 // `CapabilityDetailsSchema` suite last: the canonical capability snapshot
 // for the `runtime_node.capability_*` payload binding (exhaustive
-// enum-keyed flags; non-normalizing strict tools). Plan-006 T1.11 closes the
-// file with the six-variant acceptance/rejection suite for the
+// enum-keyed flags; non-normalizing strict tools). Plan-006 T1.11 extends
+// coverage with the six-variant acceptance/rejection suite for the
 // `audit_integrity` + `event_maintenance` payload variants Plan-006 emits
 // itself — including the `failureMode`-discriminated `audit_integrity_failed`
-// arms and the daemon-scope sentinel binding — and closes with the
+// arms and the daemon-scope sentinel binding — and ends with the
 // standalone-vs-union parity block for the six `*EventSchema` exports, on the
 // worktree.test.ts precedent (outer `.strict()` has no compile-time backstop).
-import { describe, expect, it } from "vitest";
+//
+// Plan-006 T1.12 appends the LAST block: the five `runtime_node.*` variants
+// (CP-003-1 leg (a)) whose payload schemas Plan-003 authors in runtime-node.ts
+// — acceptance / rejection, the five-of-seven registration boundary
+// (`degraded` / `revoked` stay census-only), the T1.4 tolerant-union arms
+// registered exactly as shipped, real-`sessionId` binding (NOT the
+// daemon-scope sentinel), the payload-narrows-the-envelope compile pins, the
+// standalone-vs-union parity block for the five `RuntimeNode*EventSchema`
+// exports, and the module-cycle TRIPWIRE that pins clean init from BOTH entry
+// orders plus the `event-core.ts` leaf's import set.
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
+import { describe, expect, it, vi } from "vitest";
 
 import {
   APPROVAL_FLOW_EVENT_TYPES,
@@ -90,6 +103,11 @@ import {
   RECOVERY_EVENTS_EVENT_TYPES,
   RUN_LIFECYCLE_EVENT_TYPES,
   RUNTIME_NODE_LIFECYCLE_EVENT_TYPES,
+  RuntimeNodeCapabilityDeclaredEventSchema,
+  RuntimeNodeCapabilityUpdatedEventSchema,
+  RuntimeNodeOfflineEventSchema,
+  RuntimeNodeOnlineEventSchema,
+  RuntimeNodeRegisteredEventSchema,
   SCHEMA_MIGRATION_DESCRIPTION_MAX_LEN,
   SchemaMigratedEventSchema,
   SECURITY_EVENTS_EVENT_TYPES,
@@ -113,6 +131,22 @@ import {
   DRIVER_TOOL_NAME_MAX_LEN,
   type DriverCapabilityFlag,
 } from "../provider-driver.js";
+// The Plan-003-authored payload surface the T1.12 arms register. Imported here
+// (not restated) for the same single-sourcing reason event.ts imports it: a
+// fixture built against a local copy would keep passing after the real shape
+// moved.
+import {
+  RuntimeNodeCapabilityDeclaredPayloadSchema,
+  RuntimeNodeCapabilityUpdatedPayloadSchema,
+  RuntimeNodeOfflinePayloadSchema,
+  RuntimeNodeOnlinePayloadSchema,
+  RuntimeNodeRegisteredPayloadSchema,
+  type RuntimeNodeCapabilityDeclaredPayload,
+  type RuntimeNodeCapabilityUpdatedPayload,
+  type RuntimeNodeOfflinePayload,
+  type RuntimeNodeOnlinePayload,
+  type RuntimeNodeRegisteredPayload,
+} from "../runtime-node.js";
 import { CHANNEL_NAME_MAX_LEN } from "../session.js";
 
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
@@ -171,14 +205,16 @@ const buildChannelCreated = () => ({
 });
 
 describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
-  it("registers exactly the payload-variant roster (Plan-001 three + Plan-009 six + Plan-010 five + Plan-006 six)", () => {
-    // The SCHEMA-registered subset (20), not the 156-type census. It grew by
+  it("registers exactly the payload-variant roster (Plan-001 three + Plan-009 six + Plan-010 five + Plan-006 six + Plan-003 five)", () => {
+    // The SCHEMA-registered subset (25), not the 156-type census. It grew by
     // the six Plan-009 repo/workspace variants (CP-009-4), the five Plan-010
-    // worktree variants (CP-010-5), and the six Plan-006 audit-integrity /
-    // event-maintenance variants (T1.11); each group's round-trip and payload
-    // coverage lives in the suite that owns its contract (repo.test.ts /
-    // worktree.test.ts / the T1.11 suite at the end of this file, Plan-006
-    // owning this module).
+    // worktree variants (CP-010-5), the six Plan-006 audit-integrity /
+    // event-maintenance variants (T1.11), and the five Plan-003
+    // `runtime_node.*` variants (T1.12 — CP-003-1 leg (a)); each group's
+    // round-trip and payload coverage lives in the suite that owns its
+    // contract (repo.test.ts / worktree.test.ts / runtime-node.test.ts for the
+    // payload shapes, and the T1.11 + T1.12 suites at the end of this file,
+    // Plan-006 owning this module and the union registration).
     expect(SESSION_EVENT_TYPES).toEqual([
       "session.created",
       "membership.created",
@@ -200,6 +236,11 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
       "schema.migrated",
       "event.compacted",
       "event.shredded",
+      "runtime_node.registered",
+      "runtime_node.online",
+      "runtime_node.offline",
+      "runtime_node.capability_declared",
+      "runtime_node.capability_updated",
     ]);
   });
 
@@ -796,9 +837,11 @@ describe("SessionEventType census + SESSION_EVENT_CATEGORY_BY_TYPE registry (T1.
     // payload subset grows ONLY through each emitting plan's
     // union-registration seam — the three Plan-001 variants, the six
     // Plan-009 repo/workspace variants (CP-009-4), the five Plan-010
-    // worktree variants (CP-010-5), and the six Plan-006 audit-integrity /
+    // worktree variants (CP-010-5), the six Plan-006 audit-integrity /
     // event-maintenance variants (T1.11, emitted by the plan that owns
-    // event.ts) — whose type strings were all already census-registered by
+    // event.ts), and the five Plan-003 `runtime_node.*` variants (T1.12 —
+    // CP-003-1 leg (a), the payload shapes authored in runtime-node.ts) —
+    // whose type strings were all already census-registered by
     // T1.2 before their payloads landed. The loop below
     // is the bind that matters: every registered variant must be a census
     // member, so a variant registered under an unregistered literal fails
@@ -824,6 +867,11 @@ describe("SessionEventType census + SESSION_EVENT_CATEGORY_BY_TYPE registry (T1.
       "schema.migrated",
       "event.compacted",
       "event.shredded",
+      "runtime_node.registered",
+      "runtime_node.online",
+      "runtime_node.offline",
+      "runtime_node.capability_declared",
+      "runtime_node.capability_updated",
     ]);
     for (const registered of SESSION_EVENT_TYPES) {
       expect(SESSION_EVENT_CATEGORY_BY_TYPE.has(registered)).toBe(true);
@@ -2125,4 +2173,518 @@ describe("standalone Plan-006 event schemas agree with the union arms (T1.11)", 
       expect(SessionEventSchema.safeParse(withMismatchedCategory).success).toBe(false);
     },
   );
+});
+
+// --------------------------------------------------------------------------
+// Plan-006 T1.12 — the five `runtime_node.*` payload variants (CP-003-1 (a)).
+// --------------------------------------------------------------------------
+//
+// Backstops the five DAEMON-REACHABLE rows of Spec-006 §Runtime Node Lifecycle
+// (runtime_node_lifecycle). Division of labour: runtime-node.test.ts owns the
+// PAYLOAD shapes (Plan-003 authors them); this block owns what REGISTRATION
+// adds — that each payload reaches the strict layer inside a full envelope
+// under its census category, that the boundary of the registered set is five
+// of seven, that the T1.4 tolerant-union arms were composed and not tightened,
+// and that the hoist which made the registration acyclic actually holds.
+//
+// Fixtures carry the REAL attachment `sessionId`, never the daemon-scope
+// sentinel the T1.11 rows anchor on (Spec-006 §Runtime Node Lifecycle
+// (runtime_node_lifecycle) — these rows describe an attachment to a specific
+// session), so there is no `SENTINEL_BOUND_VARIANTS` counterpart here.
+
+const RUNTIME_NODE_ID = "node-7f3a91c2";
+
+const buildRuntimeNodeRegistered = () => ({
+  id: "evt-0301",
+  sessionId: SESSION_ID,
+  sequence: 30,
+  occurredAt: "2026-02-01T10:00:00.000Z",
+  category: "runtime_node_lifecycle" as const,
+  type: "runtime_node.registered" as const,
+  actor: null,
+  version: VERSION,
+  payload: {
+    sessionId: SESSION_ID,
+    nodeId: RUNTIME_NODE_ID,
+    newState: "registering",
+    actor: null,
+    capabilities: { "provider-driver": { contractVersion: "1.0" } },
+    nodeVersion: "1.4.2",
+    platform: "darwin-arm64",
+  },
+});
+
+const buildRuntimeNodeOnline = () => ({
+  id: "evt-0302",
+  sessionId: SESSION_ID,
+  sequence: 31,
+  occurredAt: "2026-02-01T10:00:01.000Z",
+  category: "runtime_node_lifecycle" as const,
+  type: "runtime_node.online" as const,
+  actor: null,
+  version: VERSION,
+  payload: {
+    sessionId: SESSION_ID,
+    nodeId: RUNTIME_NODE_ID,
+    previousState: "registering",
+    newState: "online",
+    actor: null,
+  },
+});
+
+const buildRuntimeNodeOffline = () => ({
+  id: "evt-0303",
+  sessionId: SESSION_ID,
+  sequence: 32,
+  occurredAt: "2026-02-01T10:05:00.000Z",
+  category: "runtime_node_lifecycle" as const,
+  type: "runtime_node.offline" as const,
+  actor: PARTICIPANT_ID,
+  version: VERSION,
+  payload: {
+    sessionId: SESSION_ID,
+    nodeId: RUNTIME_NODE_ID,
+    previousState: "online",
+    newState: "offline",
+    actor: PARTICIPANT_ID,
+    lastHeartbeatAt: "2026-02-01T10:04:59.000Z",
+    reason: "explicit_shutdown",
+  },
+});
+
+const buildRuntimeNodeCapabilityDeclared = () => ({
+  id: "evt-0304",
+  sessionId: SESSION_ID,
+  sequence: 33,
+  occurredAt: "2026-02-01T10:00:02.000Z",
+  category: "runtime_node_lifecycle" as const,
+  type: "runtime_node.capability_declared" as const,
+  actor: null,
+  version: VERSION,
+  payload: {
+    sessionId: SESSION_ID,
+    nodeId: RUNTIME_NODE_ID,
+    actor: null,
+    capability: "provider-driver",
+    capabilityDetails: buildCapabilityDetails(),
+  },
+});
+
+const buildRuntimeNodeCapabilityUpdated = () => ({
+  id: "evt-0305",
+  sessionId: SESSION_ID,
+  sequence: 34,
+  occurredAt: "2026-02-01T10:03:00.000Z",
+  category: "runtime_node_lifecycle" as const,
+  type: "runtime_node.capability_updated" as const,
+  actor: null,
+  version: VERSION,
+  payload: {
+    sessionId: SESSION_ID,
+    nodeId: RUNTIME_NODE_ID,
+    actor: null,
+    capability: "provider-driver",
+    previousState: buildCapabilityDetails(),
+    newState: { ...buildCapabilityDetails(), contractVersion: "1.1" },
+  },
+});
+
+const PLAN_003_VARIANTS = [
+  ["runtime_node.registered", buildRuntimeNodeRegistered],
+  ["runtime_node.online", buildRuntimeNodeOnline],
+  ["runtime_node.offline", buildRuntimeNodeOffline],
+  ["runtime_node.capability_declared", buildRuntimeNodeCapabilityDeclared],
+  ["runtime_node.capability_updated", buildRuntimeNodeCapabilityUpdated],
+] as const;
+
+// The two capability rows — the only ones carrying T1.4's canonical-first
+// tolerant unions, so the tolerance assertions are keyed to the exact fields.
+// Field before builder: `it.each`'s `%s` placeholders bind positionally, and a
+// function in a title prints as source text.
+const CAPABILITY_UNION_FIELDS = [
+  ["runtime_node.capability_declared", "capabilityDetails", buildRuntimeNodeCapabilityDeclared],
+  ["runtime_node.capability_updated", "previousState", buildRuntimeNodeCapabilityUpdated],
+  ["runtime_node.capability_updated", "newState", buildRuntimeNodeCapabilityUpdated],
+] as const;
+
+// Key-omission helper. The variant fixtures reach the `it.each` callbacks as a
+// UNION of five object types, and rest-destructuring a union is not expressible
+// — this takes the widened record view instead, which every fixture satisfies
+// (inferred object-literal types carry an implicit index signature).
+const withoutKey = (source: Record<string, unknown>, key: string): Record<string, unknown> => {
+  const clone = { ...source };
+  delete clone[key];
+  return clone;
+};
+
+// Widened view of the registered roster. `SESSION_EVENT_TYPES` is typed
+// `readonly SessionEvent["type"][]`, so asserting that a NON-member string is
+// absent needs the string view — the narrow element type would reject the
+// argument at compile time and the absence claim could never be written.
+const REGISTERED_TYPE_STRINGS: readonly string[] = SESSION_EVENT_TYPES;
+
+describe("runtime_node.* payload variants (T1.12)", () => {
+  it.each(PLAN_003_VARIANTS)("round-trips %s through JSON without loss", (_label, build) => {
+    const original = build();
+    const firstPass = SessionEventSchema.parse(original);
+    const offWire = JSON.parse(JSON.stringify(firstPass)) as unknown;
+    expect(SessionEventSchema.parse(offWire)).toStrictEqual(firstPass);
+    // No key added (no `.default()`), none dropped (`.strict()`, no stripping)
+    // — parse output ≡ wire bytes, the canonical-bytes precondition.
+    expect(firstPass).toStrictEqual(original);
+  });
+
+  it.each(PLAN_003_VARIANTS)(
+    "%s carries the census category and rejects a mismatched one",
+    (_label, build) => {
+      const event = build();
+      expect(SESSION_EVENT_CATEGORY_BY_TYPE.get(event.type)).toBe("runtime_node_lifecycle");
+      expect(event.category).toBe("runtime_node_lifecycle");
+      // `category` is in the BLAKE3-hashed canonical bytes, so a type/category
+      // mismatch must die at parse time, never be coerced.
+      expect(
+        SessionEventSchema.safeParse({ ...event, category: "session_lifecycle" }).success,
+      ).toBe(false);
+    },
+  );
+
+  it.each(PLAN_003_VARIANTS)("%s rejects an unknown payload key (.strict)", (_label, build) => {
+    const event = build();
+    expect(
+      SessionEventSchema.safeParse({
+        ...event,
+        payload: { ...event.payload, vendorExtension: "drift" },
+      }).success,
+    ).toBe(false);
+  });
+
+  it.each(PLAN_003_VARIANTS)(
+    "%s rejects a sourceEpoch/sourcePosition stamp (non-admitting family)",
+    (_label, build) => {
+      // None of the five is run-scoped — the payloads carry `nodeId` and no
+      // `runId` — so none is `withEpochStamp`-wrapped and the strict payload
+      // refuses the stamp. The admission RULE is walked over the live union in
+      // event-source-epoch.test.ts; this is the wire-level consequence.
+      const event = build();
+      expect(
+        SessionEventSchema.safeParse({
+          ...event,
+          payload: { ...event.payload, sourceEpoch: 1, sourcePosition: 5 },
+        }).success,
+      ).toBe(false);
+    },
+  );
+
+  it.each(PLAN_003_VARIANTS)(
+    "%s binds the REAL attachment sessionId, not the daemon-scope sentinel",
+    (_label, build) => {
+      const event = build();
+      expect(event.sessionId).toBe(SESSION_ID);
+      expect(event.sessionId).not.toBe(SENTINEL_SESSION_ID);
+      expect(event.payload.sessionId).toBe(SESSION_ID);
+      expect(SessionEventSchema.safeParse(event).success).toBe(true);
+    },
+  );
+
+  it.each(PLAN_003_VARIANTS)(
+    "%s keeps the payload's own sessionId OPTIONAL (Spec-006 base spells it sessionId?)",
+    (_label, build) => {
+      // The ENVELOPE member stays required; only the payload mirror is
+      // optional, and the daemon populates it in practice.
+      const event = build();
+      const withoutPayloadSessionId = {
+        ...event,
+        payload: withoutKey(event.payload, "sessionId"),
+      };
+      expect(SessionEventSchema.safeParse(withoutPayloadSessionId).success).toBe(true);
+      expect(SessionEventSchema.safeParse(withoutKey(event, "sessionId")).success).toBe(false);
+    },
+  );
+
+  it.each(PLAN_003_VARIANTS)("%s parses through the tolerant carrier too", (_label, build) => {
+    // Registration adds the STRICT reading; the version-tolerant carrier
+    // accepted these rows already and must keep doing so.
+    expect(EventEnvelopeSchema.safeParse(build()).success).toBe(true);
+  });
+
+  it("registers FIVE of the seven census names — degraded / revoked stay payload-less", () => {
+    // Both are census members with no V1 producer (server-derived; ADR-017
+    // §Server-Derived Runtime-Node Lifecycle Events), so Plan-003 authors no
+    // payload shape and the STRICT layer must keep rejecting them. The
+    // tolerant carrier still accepts them, which is the whole point of the
+    // two-layer split.
+    for (const unregistered of ["runtime_node.degraded", "runtime_node.revoked"] as const) {
+      expect(SESSION_EVENT_CATEGORY_BY_TYPE.get(unregistered)).toBe("runtime_node_lifecycle");
+      expect(RUNTIME_NODE_LIFECYCLE_EVENT_TYPES).toContain(unregistered);
+      expect(REGISTERED_TYPE_STRINGS).not.toContain(unregistered);
+      const event = { ...buildRuntimeNodeOnline(), type: unregistered };
+      expect(SessionEventSchema.safeParse(event).success).toBe(false);
+      expect(EventEnvelopeSchema.safeParse(event).success).toBe(true);
+    }
+    // The `session.clock_*` pair shares the category but keeps its `session.`
+    // prefix by name preservation and is likewise unregistered.
+    expect(REGISTERED_TYPE_STRINGS).not.toContain("session.clock_unsynced");
+    expect(REGISTERED_TYPE_STRINGS).not.toContain("session.clock_corrected");
+  });
+
+  it.each(CAPABILITY_UNION_FIELDS)(
+    "%s composes T1.4's canonical-first tolerant union on %s unchanged",
+    (_label, field, build) => {
+      const event = build();
+      const withField = (value: unknown) => ({
+        ...event,
+        payload: { ...event.payload, [field]: value },
+      });
+
+      // ARM 1 — a canonical snapshot parses (and `CapabilityDetailsSchema`
+      // independently agrees it is canonical).
+      expect(CapabilityDetailsSchema.safeParse(buildCapabilityDetails()).success).toBe(true);
+      expect(SessionEventSchema.safeParse(event).success).toBe(true);
+
+      // ARM 2 — an arbitrary record still parses. This is the assertion that
+      // registration did NOT tighten the field to canonical-only: doing so
+      // would reject previously-valid wire payloads, a MAJOR narrowing under
+      // ADR-018 §Decision #8. A flags-short snapshot is the concrete case —
+      // the canonical arm refuses it, the record arm carries it.
+      const { flags: _droppedFlags, ...flagsShortSnapshot } = buildCapabilityDetails();
+      expect(CapabilityDetailsSchema.safeParse(flagsShortSnapshot).success).toBe(false);
+      expect(SessionEventSchema.safeParse(withField(flagsShortSnapshot)).success).toBe(true);
+      expect(SessionEventSchema.safeParse(withField({ opaque: "vendor-record" })).success).toBe(
+        true,
+      );
+
+      // The union is over OBJECTS both ways — a scalar is refused by both arms.
+      expect(SessionEventSchema.safeParse(withField("provider-driver")).success).toBe(false);
+      expect(SessionEventSchema.safeParse(withField(null)).success).toBe(false);
+    },
+  );
+});
+
+// The payloads MUST stay assignable to `Record<string, unknown>` — that is what
+// lets the five variant interfaces in event.ts narrow `EventEnvelope.payload`.
+// It holds because each payload type is a TYPE ALIAS: TypeScript grants an
+// object type alias an implicit index signature but grants an interface none.
+// Re-declaring any of them as an interface would fail HERE with a clear
+// message, ahead of the more obscure failure at the `extends EventEnvelope`
+// site (the repo.test.ts / worktree.test.ts precedent).
+//
+// Each right-hand side is a PARSE RESULT, not an object literal: a literal
+// would carry its own implicit index signature and satisfy the annotation
+// whatever the alias is declared as, making the pin vacuous.
+const parsedRegisteredPayload: RuntimeNodeRegisteredPayload =
+  RuntimeNodeRegisteredPayloadSchema.parse(buildRuntimeNodeRegistered().payload);
+const parsedOnlinePayload: RuntimeNodeOnlinePayload = RuntimeNodeOnlinePayloadSchema.parse(
+  buildRuntimeNodeOnline().payload,
+);
+const parsedOfflinePayload: RuntimeNodeOfflinePayload = RuntimeNodeOfflinePayloadSchema.parse(
+  buildRuntimeNodeOffline().payload,
+);
+const parsedCapabilityDeclaredPayload: RuntimeNodeCapabilityDeclaredPayload =
+  RuntimeNodeCapabilityDeclaredPayloadSchema.parse(buildRuntimeNodeCapabilityDeclared().payload);
+const parsedCapabilityUpdatedPayload: RuntimeNodeCapabilityUpdatedPayload =
+  RuntimeNodeCapabilityUpdatedPayloadSchema.parse(buildRuntimeNodeCapabilityUpdated().payload);
+
+const runtimeNodePayloadsNarrowTheEnvelope: readonly Record<string, unknown>[] = [
+  parsedRegisteredPayload,
+  parsedOnlinePayload,
+  parsedOfflinePayload,
+  parsedCapabilityDeclaredPayload,
+  parsedCapabilityUpdatedPayload,
+];
+void runtimeNodePayloadsNarrowTheEnvelope;
+
+// Each of the five arms is spelled TWICE in event.ts — once as a standalone
+// `RuntimeNode*EventSchema` export, once inside the discriminated union — and
+// the two spellings are deliberately NOT deduplicated (the stance the T1.11
+// block above states, and the repo.test.ts / worktree.test.ts precedent). This
+// block is what makes that safe for T1.12's five.
+//
+// Structural `safeParse` typing sidesteps `z.ZodType` variance; the fixture
+// view is the two members every row is probed on. Declared locally rather than
+// shared with the T1.11 table, which is how repo.test.ts spells its own.
+type Plan003EventFixture = {
+  readonly category: string;
+  readonly payload: Record<string, unknown>;
+};
+
+const STANDALONE_PLAN_003_EVENT_SCHEMAS: ReadonlyArray<
+  readonly [
+    string,
+    () => Plan003EventFixture,
+    { safeParse: (candidate: unknown) => { success: boolean } },
+  ]
+> = [
+  ["runtime_node.registered", buildRuntimeNodeRegistered, RuntimeNodeRegisteredEventSchema],
+  ["runtime_node.online", buildRuntimeNodeOnline, RuntimeNodeOnlineEventSchema],
+  ["runtime_node.offline", buildRuntimeNodeOffline, RuntimeNodeOfflineEventSchema],
+  [
+    "runtime_node.capability_declared",
+    buildRuntimeNodeCapabilityDeclared,
+    RuntimeNodeCapabilityDeclaredEventSchema,
+  ],
+  [
+    "runtime_node.capability_updated",
+    buildRuntimeNodeCapabilityUpdated,
+    RuntimeNodeCapabilityUpdatedEventSchema,
+  ],
+];
+
+describe("standalone runtime_node.* event schemas agree with the union arms (T1.12)", () => {
+  it.each(STANDALONE_PLAN_003_EVENT_SCHEMAS)(
+    "%s standalone accepts what the union accepts",
+    (_label, build, standaloneSchema) => {
+      const fixture = build();
+      expect(standaloneSchema.safeParse(fixture).success).toBe(true);
+      expect(SessionEventSchema.safeParse(fixture).success).toBe(true);
+    },
+  );
+
+  it.each(STANDALONE_PLAN_003_EVENT_SCHEMAS)(
+    "%s standalone rejects what the union rejects (unknown payload key)",
+    (_label, build, standaloneSchema) => {
+      const fixture = build();
+      const broken = { ...fixture, payload: { ...fixture.payload, vendorExtension: "drift" } };
+      expect(standaloneSchema.safeParse(broken).success).toBe(false);
+      expect(SessionEventSchema.safeParse(broken).success).toBe(false);
+    },
+  );
+
+  it.each(STANDALONE_PLAN_003_EVENT_SCHEMAS)(
+    "%s standalone refuses a spurious ENVELOPE key and a category mismatch",
+    (_label, build, standaloneSchema) => {
+      // Outer `.strict()` is the one axis of this parity with NO compile-time
+      // backstop — the T1.11 block above carries the full argument and it
+      // applies unchanged: a schema's inferred output type does not reflect
+      // outer `.strict()`, so a copy-paste slip that dropped it from one of
+      // these five exports would typecheck green against the
+      // `z.ZodType<*Event>` annotation and STRIP the spurious key instead of
+      // rejecting it. What is different on these five is the OWNERSHIP SPLIT:
+      // the payload schemas are Plan-003's and the envelope wrapper is
+      // Plan-006's, so the two spellings can drift without either plan editing
+      // the other's file. The union control on each row is what makes the
+      // verdict a parity statement rather than a lone rejection.
+      const fixture = build();
+      const withSpuriousEnvelopeKey = { ...fixture, spuriousEnvelopeKey: "x" };
+      expect(standaloneSchema.safeParse(withSpuriousEnvelopeKey).success).toBe(false);
+      expect(SessionEventSchema.safeParse(withSpuriousEnvelopeKey).success).toBe(false);
+      // `category` sits in the RFC 8785 canonical bytes backing the hash
+      // chain — pinned on the union above, pinned here on the standalone
+      // surface.
+      const withMismatchedCategory = { ...fixture, category: "session_lifecycle" };
+      expect(standaloneSchema.safeParse(withMismatchedCategory).success).toBe(false);
+      expect(SessionEventSchema.safeParse(withMismatchedCategory).success).toBe(false);
+    },
+  );
+});
+
+// --------------------------------------------------------------------------
+// Module-cycle tripwire (T1.12) — the hoist that makes the registration safe.
+// --------------------------------------------------------------------------
+//
+// Registering the arms above made `event.ts` import `runtime-node.ts` at
+// module scope, and `runtime-node.ts` reads three Plan-006 values at module
+// scope of its own. Had those stayed in `event.ts`, the pair would form an
+// eager Zod cycle: whichever module the runtime enters FIRST, the other reads
+// a binding still in temporal dead zone and throws `ReferenceError: Cannot
+// access '<binding>' before initialization`. TypeScript compiles cycles
+// silently, so nothing else in this repo's toolchain catches it — and because
+// every test loads the barrel, the symptom is a total package failure. The fix
+// is `event-core.ts`, a leaf both files import.
+//
+// TWO LEGS, symptom and cause:
+//   • SYMPTOM — a from-scratch module graph is evaluated once per ENTRY ORDER
+//     (`../event.js` first, then `../runtime-node.js` first) and asserted to
+//     initialize cleanly. A cycle fails only from one direction, so pinning a
+//     single order would half-cover it.
+//   • CAUSE — `event-core.ts`'s own import set, read from source text. The
+//     symptom leg goes green again the moment someone re-adds a `./event.js`
+//     import ONLY IF the resulting cycle happens to be benign under the
+//     current evaluation order; the cause leg fails immediately and names the
+//     rule.
+//
+// ISOLATION MECHANISM — `vi.resetModules()` + dynamic `import()`, which clears
+// the module registry so the graph is re-evaluated from scratch, on top of
+// vitest's per-file worker isolation. A fresh-PROCESS leg would be the stronger
+// boundary; both spawn forms were examined and both are weaker TESTS here:
+//   • Against `packages/contracts/dist/` — those bytes are not what the suite
+//     loads, and nothing guarantees what they are. `dist/` is gitignored
+//     (.gitignore:56), so it is absent entirely on a clean clone; it is not
+//     rebuilt by `pnpm --filter contracts test` (contracts has no workspace
+//     dependencies, so turbo's `test` → `^build` edge is empty), so when
+//     present it is whatever the last unrelated `tsc -b` left — a tree that
+//     need not even correspond to the current source SET, since outputs of
+//     deleted modules survive until someone clears it (`runtimeNode.js` is one
+//     such leftover of the pre-rename file). And package.json resolves `.`
+//     through the `@ai-sidekicks/source` condition to `./src/index.ts` FIRST,
+//     so vitest reads TS source: a dist leg would test a build artifact this
+//     suite never touches.
+//   • Against `src/*.ts` under `node --experimental-strip-types` — Node's type
+//     stripping does not remap a `./foo.js` specifier onto `foo.ts`; it wants
+//     the real `.ts` extension (which is why the repo's one strip-types tree
+//     turns `allowImportingTsExtensions` ON and imports `"../foo.ts"` — see
+//     tools/docs-corpus/tsconfig.json). This package emits `dist/`, so its
+//     source is written in `.js` specifiers, and a spawned import of
+//     `src/event.ts` dies on the first `./session.js` with ERR_MODULE_NOT_FOUND
+//     BEFORE any module-scope initializer runs — no cycle is exercised either
+//     way.
+// So these legs read the SOURCE graph, which is what the hoist changed.
+//
+// HONEST RESIDUAL of staying in-process: vitest evaluates the graph through
+// Vite's SSR transform, whose circular-import semantics are not byte-identical
+// to native Node ESM — a module-scope read of an uninitialized binding can
+// surface as `undefined` rather than `ReferenceError`. That is why each leg
+// asserts a real PARSE and not merely the absence of a throw: an `undefined`
+// payload-schema binding cannot construct its union branch or accept the
+// fixture below, so the quiet `undefined` shape of the failure lands red too.
+describe("event-core.ts leaf keeps the contracts module graph acyclic (T1.12)", () => {
+  it("initializes cleanly when ../event.js is the entry point", async () => {
+    vi.resetModules();
+    const eventModule = await import("../event.js");
+    // A module-scope TDZ read would have thrown during evaluation above; this
+    // also proves the arms' payload schemas were initialized, not `undefined`.
+    expect(eventModule.SESSION_EVENT_TYPES).toContain("runtime_node.registered");
+    expect(eventModule.SessionEventSchema.safeParse(buildRuntimeNodeRegistered()).success).toBe(
+      true,
+    );
+  });
+
+  it("initializes cleanly when ../runtime-node.js is the entry point", async () => {
+    vi.resetModules();
+    const runtimeNodeModule = await import("../runtime-node.js");
+    expect(
+      runtimeNodeModule.RuntimeNodeRegisteredPayloadSchema.safeParse(
+        buildRuntimeNodeRegistered().payload,
+      ).success,
+    ).toBe(true);
+    // ...and event.ts loads clean on top of that already-evaluated graph.
+    const eventModule = await import("../event.js");
+    expect(eventModule.SessionEventSchema.safeParse(buildRuntimeNodeRegistered()).success).toBe(
+      true,
+    );
+  });
+
+  it("imports zod, ./session.js and ./provider-driver.js — and nothing else", () => {
+    // Comments are stripped first so a specifier NAMED in prose (that file's
+    // own header names `./event.js` repeatedly) cannot register as an edge.
+    // Line comments are cut from `//` to end-of-line, never whole lines: a
+    // trailing comment must not be able to carry its statement away with it.
+    const leafPath = fileURLToPath(new URL("../event-core.ts", import.meta.url));
+    const source = readFileSync(leafPath, "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\/\/[^\n]*/g, "");
+    // TWO scans, unioned. The `from` scan covers `import … from` AND
+    // `export … from`; the second covers the BARE side-effect form
+    // `import "./event.js"`, which carries no `from` and is precisely the
+    // shape that would re-close the cycle while leaving a `from`-only
+    // assertion green. Additive on purpose — replacing the first with an
+    // `import`-anchored pattern would silently drop the re-export class.
+    const specifiers = [
+      ...[...source.matchAll(/\bfrom\s+"([^"]+)"/g)].map((match) => match[1] ?? ""),
+      ...[...source.matchAll(/(?:^|\n)\s*import\s+"([^"]+)"/g)].map((match) => match[1] ?? ""),
+    ];
+    expect(specifiers.length).toBeGreaterThan(0);
+    expect(new Set(specifiers)).toEqual(new Set(["zod", "./provider-driver.js", "./session.js"]));
+    // Named explicitly: this is the edge whose absence the hoist exists for.
+    expect(specifiers).not.toContain("./event.js");
+  });
 });
