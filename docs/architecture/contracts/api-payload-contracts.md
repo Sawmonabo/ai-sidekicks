@@ -1384,7 +1384,9 @@ interface AuditIntegrityVerifiedPayload {
 // a range and REQUIRE the Merkle triple; the registrar's
 // signing_key_slot_conflict walked none, so requiring the triple there would
 // force it to fabricate roots for a tree it never touched. One event type, one
-// wire schema, two arms.
+// wire schema, two arms. The verified RANGE splits the same way (2026-08-03):
+// fromSeq/toSeq are REQUIRED on the verifier arm — I-006-4-01's consumer dedupe
+// key — and absent from the registrar's, which walked no range.
 type VerifierFailureMode =
   | "hash_mismatch"
   | "signature_mismatch"
@@ -1405,6 +1407,16 @@ type VerifierFailureMode =
 // failurePath names the verification GUARANTEE that failed, not the column the
 // defect occupies — which is why the three signature-survives-but-binding-broke
 // modes all pair with "signature".
+// NINE of the fifteen verifier modes have their path FIXED by Security
+// Architecture §Verification Rules and the schema enforces the pairing at parse:
+// hash_mismatch → "inclusion"; anchor_mismatch → "consistency"; and
+// signature_mismatch / signature_placeholder / occurred_at_not_canonical /
+// pii_ciphertext_digest_unbound / pii_owner_stamp_unbound /
+// stub_signature_invalid / stub_scalar_mismatch → "signature". The other SIX
+// (inclusion_proof_failed, consistency_proof_failed, log_file_missing,
+// log_file_moved, anchor_missing_for_compacted_range, anchor_signature_invalid)
+// have no corpus-fixed path and keep the full three-value latitude — pinning
+// one would mint an authority that does not exist.
 type VerifierFailurePath = "inclusion" | "consistency" | "signature";
 
 type AuditIntegrityFailedPayload =
@@ -1416,15 +1428,27 @@ type AuditIntegrityFailedPayload =
       treeSize: number;
       expectedRootHash: string;
       observedRootHash: string;
+      // The verified range's endpoints — REQUIRED on this arm. I-006-4-01's
+      // dedupe key is (verifierNodeId, fromSeq, toSeq, verifiedAt); verifiedAt
+      // stays an audit_integrity_verified member, so the fourth key member is
+      // read from the envelope's occurredAt and T4.1's IdempotencyClass keys
+      // these rows on the first three.
+      fromSeq: number;
+      toSeq: number;
       failureMode: Exclude<VerifierFailureMode, "signing_key_slot_conflict">;
       failurePath: VerifierFailurePath;
       offendingSeq?: number; // absent when no single row is implicated
       detail: string;
     }
   | {
-      // Registrar arm — no range was verified, so no Merkle triple.
+      // Registrar arm — no range was verified, so no Merkle triple and no
+      // range endpoints.
       sessionId: SessionId; // the refused registration's real id, never the sentinel
-      anchorId?: string; // absent at emission; gained when a later anchor covers the row
+      // Absent at emission and PERMANENTLY absent on this row — the signed
+      // payload is never mutated; later coverage is represented by the
+      // subsequently appended anchor spanning this row's range, exactly as for
+      // any appended row.
+      anchorId?: string;
       verifierNodeId: NodeId; // the refused daemon naming itself
       failureMode: "signing_key_slot_conflict";
       failurePath: "signature";

@@ -116,6 +116,10 @@ import {
   type ParticipantId,
   type SessionId,
 } from "./session.js";
+// Dependency-free leaf (imports nothing at all), so this edge can close no
+// cycle — the `./node-id.js` discipline above. Used for ONE set key; see the
+// `key_reuse_detected.observedIdentities` note.
+import { canonicalizeUuid } from "./uuid-canonical.js";
 // One-way import (CP-010-5): worktree.ts imports nothing from this file —
 // same eager-Zod-cycle discipline as the repo.js import above.
 import { WorktreeLifecyclePayloadSchema, type WorktreeLifecyclePayload } from "./worktree.js";
@@ -1500,6 +1504,16 @@ type AuditIntegrityFailedVerifierPayload = {
   treeSize: number;
   expectedRootHash: string;
   observedRootHash: string;
+  fromSeq: number;
+  toSeq: number;
+  // The `failureMode` × `failurePath` PRODUCT, deliberately — nine of the
+  // fifteen pairings are fixed by authority and enforced at parse (see the
+  // arm schema's mode/path check), but the TYPE stays the product the spec
+  // cell describes. A distributive-narrowed annotation (a fifteen-member
+  // union pairing each mode with its own path) cannot be satisfied by the
+  // object schema's inference without a cast, and buying compile-time
+  // narrowing with an `as unknown as` bridge on a signed-payload schema is a
+  // bad trade: the cast would assert exactly what the runtime check proves.
   failureMode: Exclude<VerifierFailureMode, "signing_key_slot_conflict">;
   failurePath: VerifierFailurePath;
   offendingSeq?: number | undefined;
@@ -1523,11 +1537,67 @@ type AuditIntegrityFailedRegistrarPayload = {
  * a flat sixteen-mode object would force its emitter to fabricate roots for a
  * tree it never touched. One event type, one wire schema, two arms: the
  * verifier can never silently omit its roots and the registrar can never
- * invent them.
+ * invent them. The verified RANGE splits the same way and for the same reason
+ * — `fromSeq` / `toSeq` are required on the verifier arm (the dedupe key
+ * `Plan-006 §Invariants` I-006-4-01 specifies) and absent from the registrar's,
+ * which walked no range — and the verifier arm additionally enforces the nine
+ * authority-fixed `failureMode` → `failurePath` pairings at parse.
  */
 export type AuditIntegrityFailedPayload =
   | AuditIntegrityFailedVerifierPayload
   | AuditIntegrityFailedRegistrarPayload;
+
+// Of the FIFTEEN verifier modes, the NINE `failureMode` → `failurePath`
+// pairings the corpus FIXES and the SIX it deliberately leaves free (`null`);
+// the registrar's sixteenth is carried at the end for totality only, its own
+// arm pinning it. Authority, rule by rule, from
+// `Security Architecture §Verification Rules`: rule 1 pins `hash_mismatch` →
+// `inclusion`; rule 2 pins `signature_mismatch`, `signature_placeholder`,
+// `occurred_at_not_canonical`, `pii_ciphertext_digest_unbound` and
+// `pii_owner_stamp_unbound` → `signature`; rule 3 pins `anchor_mismatch` →
+// `consistency`; rule 4 pins `stub_signature_invalid` and
+// `stub_scalar_mismatch` → `signature`.
+// `Spec-006 §Audit Integrity (audit_integrity)` independently ratifies the
+// placeholder / `occurred_at` / PII trio ("ratified 2026-07-26 so
+// implementations mirror this assignment rather than infer one") — a mandate
+// to ENFORCE the assignment, which a three-value enum alone does not.
+//
+// The six `null` modes have NO corpus-fixed path: rule 3 names
+// `anchor_missing_for_compacted_range` / `anchor_signature_invalid` and the
+// four substrate modes WITHOUT a `failurePath`, so pinning one here would mint
+// an authority that does not exist and be a narrowing nothing could relax
+// (`ADR-018 §Decision` #8 makes narrowings MAJOR) — the same restraint the
+// `rootHash` note above takes.
+//
+// The map is TOTAL over the wire enum (`null` is a value, not an omission), so
+// `satisfies` breaks loudly in both directions: a mode added to the vocabulary
+// leaves a missing key, a mode renamed or retired leaves an excess one.
+// Totality over all SIXTEEN rather than the verifier's fifteen is deliberate on
+// two counts: the lookup below is then index-safe however `.exclude()` infers
+// its narrowed key type, and the registrar's own pin is a fact worth recording
+// beside its siblings. Its arm pins the identical value with `z.literal`, so
+// the two agree by construction and the verifier arm never reads that row.
+const VERIFIER_FAILURE_PATH_BY_MODE = {
+  hash_mismatch: "inclusion",
+  signature_mismatch: "signature",
+  anchor_mismatch: "consistency",
+  inclusion_proof_failed: null,
+  consistency_proof_failed: null,
+  log_file_missing: null,
+  log_file_moved: null,
+  anchor_missing_for_compacted_range: null,
+  anchor_signature_invalid: null,
+  stub_signature_invalid: "signature",
+  stub_scalar_mismatch: "signature",
+  signature_placeholder: "signature",
+  occurred_at_not_canonical: "signature",
+  pii_ciphertext_digest_unbound: "signature",
+  pii_owner_stamp_unbound: "signature",
+  // The registrar's sixteenth mode — pinned by `Spec-006 §Audit Integrity
+  // (audit_integrity)` ("It pairs with `failurePath: 'signature'`") and by its
+  // own arm's `z.literal` below; present here only to keep the map total.
+  signing_key_slot_conflict: "signature",
+} satisfies Record<VerifierFailureMode, VerifierFailurePath | null>;
 
 const auditIntegrityFailedVerifierArmSchema = z
   .object({
@@ -1541,6 +1611,21 @@ const auditIntegrityFailedVerifierArmSchema = z
       EVENT_FIELD_MAX_LEN,
       "audit_integrity_failed.observedRootHash",
     ),
+    // REQUIRED, both — the verified range endpoints the dedupe key needs
+    // (`Plan-006 §Invariants` I-006-4-01: consumers dedupe on
+    // `(verifierNodeId, fromSeq, toSeq, verifiedAt)`; T4.1's IdempotencyClass
+    // on the first three). The FOURTH member is deliberately not added here:
+    // `verifiedAt` describes a COMPLETED verification and stays an
+    // `audit_integrity_verified` member, so on this arm three of the four key
+    // members are payload-resident and the fourth is the envelope's own
+    // `occurredAt`. Every verifier invocation HAS a request range, the
+    // whole-range modes included — which is exactly why they may omit
+    // `offendingSeq` and still name the range they were asked to walk. NO
+    // `fromSeq <= toSeq` cross-field refinement: the shipped
+    // `audit_integrity_verified` sibling carries none, and minting one here
+    // would be a new invariant with no authority behind it.
+    fromSeq: payloadSequenceSchema,
+    toSeq: payloadSequenceSchema,
     // Derived from the sixteen-mode twin so the two arms cannot drift apart.
     failureMode: verifierFailureModeEnum.exclude(["signing_key_slot_conflict"]),
     failurePath: VerifierFailurePathSchema,
@@ -1549,7 +1634,25 @@ const auditIntegrityFailedVerifierArmSchema = z
     offendingSeq: payloadSequenceSchema.optional(),
     detail: wireFreeFormString(AUDIT_INTEGRITY_DETAIL_MAX_LEN, "audit_integrity_failed.detail"),
   })
-  .strict();
+  .strict()
+  // The nine fixed pairings, enforced rather than narrated. The enum pair
+  // alone admits all 45 combinations, so a `signature_placeholder` row could
+  // claim `failurePath: 'inclusion'` and parse green — routing a never-signed
+  // row to the chain-tamper responder on a row that is never compacted and
+  // never shredded, so the misrouting is permanent. The six unfixed modes keep
+  // the full three-value latitude. `.superRefine()` returns `this`, so this
+  // stays a ZodObject and remains a valid `z.discriminatedUnion` option (the
+  // `withEpochStamp` note above records the same Zod-4 property).
+  .superRefine((payload, ctx) => {
+    const fixedPath = VERIFIER_FAILURE_PATH_BY_MODE[payload.failureMode];
+    if (fixedPath !== null && payload.failurePath !== fixedPath) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["failurePath"],
+        message: `audit_integrity_failed.failureMode '${payload.failureMode}' is fixed to failurePath '${fixedPath}' by Security Architecture §Verification Rules; this payload offers '${payload.failurePath}'.`,
+      });
+    }
+  });
 
 const auditIntegrityFailedRegistrarArmSchema = z
   .object({
@@ -1605,6 +1708,20 @@ export const KeyReuseDetectedPayloadSchema: z.ZodType<KeyReuseDetectedPayload> =
     // so it is retained forever. The set key is built with `JSON.stringify`
     // over a two-string array — that serialization is injective, so no
     // separator character has to be assumed absent from either id.
+    //
+    // `sessionId` is CANONICALIZED into the key, `nodeId` is not, and the
+    // asymmetry is the authority difference. UUID hex is case-INSENSITIVE
+    // (RFC 9562 §4), the branded schemas normalize nothing, and
+    // `uuid-canonical.ts` requires canonicalizing at every Map-key / hash-input
+    // boundary — this set key is one. Without it, one logical identity spelled
+    // two ways reads as two distinct identities and mints a permanent FALSE
+    // `key_reuse_detected` alarm on a row that is never compacted and never
+    // shredded. `NodeId` (node-id.ts) is a bounded free-form brand, NOT a UUID:
+    // no authority makes it case-insensitive, so lowercasing it would INVENT
+    // one and could collapse two genuinely distinct nodes into one key —
+    // failing open on the alarm this event exists to raise. Key construction
+    // only: the stored wire values pass through as emitted (no `.transform()`),
+    // so the canonical bytes are untouched.
     observedIdentities: z
       .array(z.object({ sessionId: SessionIdSchema, nodeId: NodeIdSchema }).strict())
       .min(2, {
@@ -1614,7 +1731,9 @@ export const KeyReuseDetectedPayloadSchema: z.ZodType<KeyReuseDetectedPayload> =
       .refine(
         (identities) =>
           new Set(
-            identities.map((identity) => JSON.stringify([identity.sessionId, identity.nodeId])),
+            identities.map((identity) =>
+              JSON.stringify([canonicalizeUuid(identity.sessionId), identity.nodeId]),
+            ),
           ).size === identities.length,
         {
           message:

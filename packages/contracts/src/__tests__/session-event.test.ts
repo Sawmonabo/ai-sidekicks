@@ -1541,6 +1541,12 @@ const buildAuditIntegrityFailedVerifierArm = () => ({
     treeSize: 4096,
     expectedRootHash: ROOT_HASH,
     observedRootHash: OTHER_ROOT_HASH,
+    // The verified range — REQUIRED on this arm since 2026-08-03, because
+    // I-006-4-01's consumer dedupe key is
+    // `(verifierNodeId, fromSeq, toSeq, verifiedAt)` and was unconstructible
+    // without them. Same endpoints as the `audit_integrity_verified` fixture.
+    fromSeq: 1,
+    toSeq: 4096,
     failureMode: "hash_mismatch",
     failurePath: "inclusion",
     offendingSeq: 2048,
@@ -1675,6 +1681,34 @@ const VERIFIER_FAILURE_MODES = VERIFIER_FAILURE_MODE_OPTIONS.filter(
   (mode) => mode !== REGISTRAR_FAILURE_MODE,
 );
 
+// Each verifier mode beside a `failurePath` the corpus ADMITS for it,
+// transcribed by hand from `Security Architecture §Verification Rules` rather
+// than imported from event.ts's own map — two independent spellings are what
+// make the pin worth anything. The first three and the last six rows are the
+// NINE authority-FIXED pairings (rule 1 → `inclusion`, rule 3 → `consistency`,
+// rules 2 + 4 → `signature`); the middle six modes have no corpus-fixed path,
+// so their entry here is one lawful choice among three and the latitude itself
+// is asserted separately below. Set membership is pinned against
+// `VERIFIER_FAILURE_MODES` so a vocabulary change breaks this table loudly
+// instead of leaving a mode silently unexercised.
+const VERIFIER_MODE_PATH_PAIRS = [
+  ["hash_mismatch", "inclusion"],
+  ["signature_mismatch", "signature"],
+  ["anchor_mismatch", "consistency"],
+  ["inclusion_proof_failed", "inclusion"],
+  ["consistency_proof_failed", "consistency"],
+  ["log_file_missing", "inclusion"],
+  ["log_file_moved", "inclusion"],
+  ["anchor_missing_for_compacted_range", "consistency"],
+  ["anchor_signature_invalid", "signature"],
+  ["stub_signature_invalid", "signature"],
+  ["stub_scalar_mismatch", "signature"],
+  ["signature_placeholder", "signature"],
+  ["occurred_at_not_canonical", "signature"],
+  ["pii_ciphertext_digest_unbound", "signature"],
+  ["pii_owner_stamp_unbound", "signature"],
+] as const;
+
 const PLAN_006_VARIANTS = [
   ["audit_integrity_verified", buildAuditIntegrityVerified],
   ["audit_integrity_failed", buildAuditIntegrityFailedVerifierArm],
@@ -1792,6 +1826,11 @@ describe("audit_integrity + event_maintenance payload variants (T1.11)", () => {
     // registrar's excluded.
     expect(VERIFIER_FAILURE_MODES).toHaveLength(15);
     expect(VERIFIER_FAILURE_MODES).not.toContain(REGISTRAR_FAILURE_MODE);
+    // The mode/path table below must cover exactly those fifteen — a mode
+    // added, renamed, or retired must not leave a row unexercised.
+    expect(VERIFIER_MODE_PATH_PAIRS.map(([mode]) => mode).sort()).toEqual(
+      [...VERIFIER_FAILURE_MODES].sort(),
+    );
     for (const mode of expectedModes) {
       expect(VerifierFailureModeSchema.safeParse(mode).success).toBe(true);
     }
@@ -1808,25 +1847,75 @@ describe("audit_integrity + event_maintenance payload variants (T1.11)", () => {
     expect(VerifierFailurePathSchema.safeParse("anchor").success).toBe(false);
   });
 
-  it.each(VERIFIER_FAILURE_MODES)(
-    "the verifier arm accepts failureMode %s carrying the Merkle triple",
-    (failureMode) => {
+  it.each(VERIFIER_MODE_PATH_PAIRS)(
+    "the verifier arm accepts failureMode %s with failurePath %s, carrying the Merkle triple and the range",
+    (failureMode, failurePath) => {
       const event = buildAuditIntegrityFailedVerifierArm();
       expect(
-        SessionEventSchema.safeParse({ ...event, payload: { ...event.payload, failureMode } })
-          .success,
+        SessionEventSchema.safeParse({
+          ...event,
+          payload: { ...event.payload, failureMode, failurePath },
+        }).success,
       ).toBe(true);
     },
   );
 
-  it.each([["treeSize"], ["expectedRootHash"], ["observedRootHash"], ["detail"]] as const)(
-    "the verifier arm REQUIRES %s",
-    (member) => {
+  it.each([
+    // Codex PR #285 round 1's own example first: a never-signed row claiming
+    // the CHAIN path would route to the tamper responder instead of the
+    // sequencing-bug owner, permanently — these rows are never compacted and
+    // never shredded.
+    ["signature_placeholder", "inclusion"],
+    ["hash_mismatch", "signature"],
+    ["anchor_mismatch", "inclusion"],
+  ] as const)(
+    "rejects the authority-fixed %s paired with the wrong failurePath %s",
+    (failureMode, failurePath) => {
       const event = buildAuditIntegrityFailedVerifierArm();
-      const { [member]: _omitted, ...payload } = event.payload;
-      expect(SessionEventSchema.safeParse({ ...event, payload }).success).toBe(false);
+      // Positive control on the same fixture: the row is lawful until the
+      // pairing is broken, so the rejection below is the pairing's doing.
+      expect(SessionEventSchema.safeParse(event).success).toBe(true);
+      expect(
+        SessionEventSchema.safeParse({
+          ...event,
+          payload: { ...event.payload, failureMode, failurePath },
+        }).success,
+      ).toBe(false);
     },
   );
+
+  it.each(["inclusion", "consistency", "signature"] as const)(
+    "an unfixed mode keeps the full three-value latitude — log_file_missing + %s",
+    (failurePath) => {
+      // The six modes `Security Architecture §Verification Rules` names with no
+      // `failurePath` must NOT be pinned locally: a narrowing nothing could
+      // relax is MAJOR under `ADR-018 §Decision` #8. This is the guard against
+      // over-tightening the check above.
+      const event = buildAuditIntegrityFailedVerifierArm();
+      expect(
+        SessionEventSchema.safeParse({
+          ...event,
+          payload: { ...event.payload, failureMode: "log_file_missing", failurePath },
+        }).success,
+      ).toBe(true);
+    },
+  );
+
+  it.each([
+    ["treeSize"],
+    ["expectedRootHash"],
+    ["observedRootHash"],
+    // The range endpoints are REQUIRED, not optional: I-006-4-01's dedupe key
+    // is unconstructible without them, and every verifier invocation has a
+    // request range even when no single row is implicated.
+    ["fromSeq"],
+    ["toSeq"],
+    ["detail"],
+  ] as const)("the verifier arm REQUIRES %s", (member) => {
+    const event = buildAuditIntegrityFailedVerifierArm();
+    const { [member]: _omitted, ...payload } = event.payload;
+    expect(SessionEventSchema.safeParse({ ...event, payload }).success).toBe(false);
+  });
 
   it("the verifier arm rejects failureMode signing_key_slot_conflict", () => {
     // The fifteen-mode discriminator EXCLUDES it, so a payload carrying the
@@ -1864,6 +1953,10 @@ describe("audit_integrity + event_maintenance payload variants (T1.11)", () => {
     ["treeSize", 4096],
     ["expectedRootHash", ROOT_HASH],
     ["offendingSeq", 12],
+    // The range endpoints split the same way as the triple: the registrar
+    // verified no range, so carrying one here would be fabrication too.
+    ["fromSeq", 1],
+    ["toSeq", 4096],
   ] as const)("the registrar arm rejects the verifier-only member %s", (member, value) => {
     // The arm split exists so the registrar — which walked no tree — cannot
     // fabricate roots. `.strict()` on the arm is what enforces it.
@@ -1955,6 +2048,68 @@ describe("audit_integrity + event_maintenance payload variants (T1.11)", () => {
     const issueMessages = duplicated.error?.issues.map((issue) => issue.message) ?? [];
     expect(
       issueMessages.some((message) => /must not name one .* identity twice/.test(message)),
+    ).toBe(true);
+  });
+
+  it("key_reuse_detected rejects ONE identity spelled in two UUID cases", () => {
+    // The distinctness check keys on a serialized `(sessionId, nodeId)` pair,
+    // which makes that key a Map-key boundary — and UUID hex is
+    // case-INSENSITIVE (RFC 9562 §4) while the branded schemas normalize
+    // nothing. Without canonicalization these two rows read as two identities
+    // and mint a permanent FALSE alarm on a never-compacted, never-shredded
+    // row: the same defect the test above catches, reached by spelling rather
+    // than by duplication. This is the discriminating control for the fix —
+    // it passes (wrongly) against a refinement that keys on the raw value.
+    const event = buildKeyReuseDetected();
+    const uppercased = {
+      sessionId: SESSION_ID.toUpperCase(),
+      nodeId: NODE_ID,
+    };
+    const caseVariants = SessionEventSchema.safeParse({
+      ...event,
+      payload: {
+        ...event.payload,
+        observedIdentities: [{ sessionId: SESSION_ID, nodeId: NODE_ID }, uppercased],
+      },
+    });
+    expect(caseVariants.success).toBe(false);
+    const issueMessages = caseVariants.error?.issues.map((issue) => issue.message) ?? [];
+    expect(
+      issueMessages.some((message) => /must not name one .* identity twice/.test(message)),
+    ).toBe(true);
+  });
+
+  it("key_reuse_detected still accepts two DISTINCT identities when one is uppercase", () => {
+    // The other half of the canonicalization: folding case must not collapse
+    // genuinely different identities. `nodeId` is deliberately NOT folded —
+    // it is a bounded free-form brand, not a UUID, so no authority makes it
+    // case-insensitive and folding it could merge two real nodes, failing
+    // OPEN on the alarm this event exists to raise.
+    const event = buildKeyReuseDetected();
+    expect(
+      SessionEventSchema.safeParse({
+        ...event,
+        payload: {
+          ...event.payload,
+          observedIdentities: [
+            { sessionId: SESSION_ID.toUpperCase(), nodeId: NODE_ID },
+            { sessionId: OTHER_SESSION_ID, nodeId: "node-b41d" },
+          ],
+        },
+      }).success,
+    ).toBe(true);
+    // Same sessionId, different nodeId — still two identities, uncollapsed.
+    expect(
+      SessionEventSchema.safeParse({
+        ...event,
+        payload: {
+          ...event.payload,
+          observedIdentities: [
+            { sessionId: SESSION_ID, nodeId: NODE_ID },
+            { sessionId: SESSION_ID, nodeId: "node-b41d" },
+          ],
+        },
+      }).success,
     ).toBe(true);
   });
 
