@@ -1108,7 +1108,7 @@ export function classifyInvariantReference(id) {
 // wrong mechanism; the same class as a comment describing a branch that turned
 // out to be dead. Corpus shape: 7 distinct facet spellings across 24 `.md`
 // occurrences (21 under docs/plans/), all bases declared, exactly one in field-
-// VALUE position (Plan-008:370, task `T-008r-1-4`).
+// VALUE position (Plan-008 task `T-008r-1-4`).
 
 // Test-tier ids from a plan's `## Test And Verification Plan` tables (`I5`)
 // share the `I` prefix with invariant ids and carry NO plan segment. They are
@@ -4848,7 +4848,7 @@ export function extractInlineCitePayloads(phaseSection) {
   // Detection only. The PAYLOAD BOUNDARY walk below stays on `scanned` and the
   // payload BYTES stay on the raw input, because a masked-view slice would blank
   // the live backticked payloads (`I-008-9, I-008-11, I-008-7c (substrate — the
-  // `relay_connections` rows …)` at Plan-008:370 and 31 siblings) before
+  // `relay_connections` rows …)` at Plan-008 task T-008r-1-4 and 31 siblings) before
   // parseCitePayload ever saw them, degrading failures[].raw for the facet
   // roll-up and the existence floor at once.
   const markerView = maskInlineCodeSpans(scanned);
@@ -5665,7 +5665,7 @@ export function verifyInvariantReferences(
   // parse failure in a Verifies-invariant field". Measured across the corpus, the
   // field carries exactly three parse-failure instances beyond the one live facet:
   // two `unparseable-cite` prose descriptors (`substrate boots` at Plan-023:275,
-  // `substrate - the audited primitive libraries …` at Plan-008:456), and the
+  // `substrate - the audited primitive libraries …` at Plan-008 task T-008r-4-1), and the
   // field also carries three Spec-§ references (Plan-023:271/:272/:274) that parse
   // cleanly as spec anchors. Whether the field may name a spec clause at all is a
   // FIELD-CONTENT question under separate adjudication; answering it here would

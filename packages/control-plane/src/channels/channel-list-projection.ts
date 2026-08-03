@@ -2,9 +2,20 @@
 //
 // Responsibilities (per `Spec-002 §Interfaces And Contracts` +
 // `Plan-002 §API And Transport Changes`, C5 + I3):
-//   * list — the `ChannelList` read-only projection. Given a
-//     `ChannelListRequest {sessionId}`, return the channels that currently
-//     exist for the session as a strict-shaped `ChannelListResponse`.
+//   * list — the `ChannelList` read-only, per-caller-filtered projection.
+//     Given a `ChannelListRequest {sessionId}`, return the channels that
+//     currently exist for the session as a strict-shaped `ChannelListResponse`.
+//     The 2026-08-03 Spec-002 amendment makes the projection per-caller: a
+//     `direct`-kind channel (Spec-016 D-016-21) is omitted entirely — never
+//     blanked — for any caller outside its immutable two-human member pair,
+//     keyed on the authenticated principal resolved from the control-plane
+//     auth context, never a request field. That filter is NOT implemented
+//     here yet — it lands at Plan-002 T3.6 (invariant I-002-6, regression-
+//     pinned by P11); until then this file is contract-incomplete against the
+//     amended section. Today's output is coincidentally filter-correct (the
+//     bootstrap "main" channel is `participants`-audience by construction and
+//     never filtered), but any future channel source added here must route
+//     through the T3.6 filter.
 //
 // What this projection synthesizes, and why it does NOT read a channels table:
 //
@@ -23,7 +34,10 @@
 //   not a control-plane concern.
 //
 //   `Plan-002 §API And Transport Changes` states the projection "projects whatever channels
-//   currently exist regardless of who created them"; because the bootstrap
+//   currently exist regardless of who created them, subject to the per-caller
+//   filter" added by the 2026-08-03 amendment (I-002-6, T3.6 — see the
+//   responsibilities note above; the bootstrap main channel is never
+//   filtered); because the bootstrap
 //   main channel always exists logically for any session that exists, this
 //   projection SYNTHESIZES exactly that one channel from the control plane's
 //   OWN data (the `sessions` row's existence plus the `session_memberships`
