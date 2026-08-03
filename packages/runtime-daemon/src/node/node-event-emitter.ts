@@ -196,6 +196,23 @@ type RuntimeNodeEventPayload =
   | RuntimeNodeCapabilityDeclaredPayload
   | RuntimeNodeCapabilityUpdatedPayload;
 
+// Enforcement for the widening at `#appendRuntimeNodeEvent` below, whose
+// rationale rests on every arm being an object TYPE ALIAS (contracts declares
+// all five that way): TypeScript grants such an alias an implicit index
+// signature and grants an `interface` none. A cast alone would NOT catch a
+// regression — `as` requires only comparability, so an arm flipped back to
+// `interface` keeps the cast compiling and silently falsifies the comment
+// there. Assignability is the discriminating check: a union is assignable to
+// `Record<string, unknown>` only if EVERY member is, so one interface arm
+// turns this line red in the file that makes the claim. Same `_AssertExtends`
+// idiom as contracts' `event-core.ts`; the `_` prefix is what the root eslint
+// config's `varsIgnorePattern` exempts from `no-unused-vars`.
+type _AssertExtends<A extends B, B> = A;
+type _RuntimeNodePayloadsCarryIndexSignature = _AssertExtends<
+  RuntimeNodeEventPayload,
+  Record<string, unknown>
+>;
+
 // --------------------------------------------------------------------------
 // Per-method inputs — bespoke typed shapes, NOT the contract payload objects.
 // --------------------------------------------------------------------------
@@ -416,7 +433,10 @@ export class RuntimeNodeEventEmitter {
       // declared as an object TYPE ALIAS in contracts, and TypeScript grants a
       // type alias of an object type an implicit index signature (it grants an
       // interface none) — so the direct `as Record<string, unknown>` holds and
-      // no `as unknown as` double-widening is needed. This is a SAFE
+      // no `as unknown as` double-widening is needed — and that is ENFORCED,
+      // not narrated: the `_RuntimeNodePayloadsCarryIndexSignature` pin beside
+      // the union declaration above fails the build if any arm regresses to an
+      // `interface`, so this comment cannot quietly go false. This is a SAFE
       // specific→general widening (every field is assignable to `unknown`), not
       // a reinterpretation; it asserts nothing false. Single site by design —
       // the union-typed parameter above keeps the cast off every call site.
