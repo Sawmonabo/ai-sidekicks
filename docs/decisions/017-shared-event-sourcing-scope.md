@@ -11,7 +11,7 @@
 
 ## Context
 
-AI Sidekicks is a collaborative operating system for AI coding sessions. Per [ADR-015](./015-v1-feature-scope-definition.md), V1 ships 23 features across two deployment options (OSS self-host plus hosted SaaS) on a single codebase. Session activity is modeled as events for replay, auditability, and determinism; [vision.md §Session Engine](../vision.md) names the product an "event-sourced engine where everything important is an event."
+AI Sidekicks is a collaborative operating system for AI coding sessions. Per [ADR-015](./015-v1-feature-scope-definition.md), V1 ships 23 features across two deployment options (OSS self-host plus hosted SaaS) on a single codebase. Session activity is modeled as events for replay, auditability, and determinism; [vision.md §5. Session Engine](../vision.md) names the product an "event-sourced engine where everything important is an event."
 
 The system already has a two-store split per [ADR-004: SQLite Local State and Postgres Control Plane](./004-sqlite-local-state-and-postgres-control-plane.md):
 
@@ -28,7 +28,7 @@ Should V1 ship with a shared server-side event log where all participants' daemo
 
 ### Trigger
 
-BL-046 (P0) from the pre-implementation architecture audit (session `2026-04-16-arch-audit-163537`). vision.md §Session Engine promises event-sourcing semantics without scoping the event log's location. The absence of a `session_events_shared` table in shared-postgres-schema.md is unexplained. Downstream schema ownership, replay spec (Spec-015), and audit-log spec (Spec-006) all depend on this scope being fixed before Plan-001 Shared Session Core begins implementation.
+BL-046 (P0) from the pre-implementation architecture audit (session `2026-04-16-arch-audit-163537`). vision.md §5. Session Engine promises event-sourcing semantics without scoping the event log's location. The absence of a `session_events_shared` table in shared-postgres-schema.md is unexplained. Downstream schema ownership, replay spec (Spec-015), and audit-log spec (Spec-006) all depend on this scope being fixed before Plan-001 Shared Session Core begins implementation.
 
 ## Decision
 
@@ -158,7 +158,7 @@ The Linear pattern is retained as the reference architecture for Option A's V1.1
 - [Spec-006 — Session Event Taxonomy and Audit Log](../specs/006-session-event-taxonomy-and-audit-log.md) — event taxonomy the per-daemon logs carry.
 - [Spec-015 — Persistence, Recovery, and Replay](../specs/015-persistence-recovery-and-replay.md) — replay semantics over per-daemon logs.
 - [Data Architecture §Event-Sourcing Scope](../architecture/data-architecture.md#event-sourcing-scope) — aligned with this ADR.
-- [vision.md §Session Engine](../vision.md) — aligned with this ADR.
+- [vision.md §5. Session Engine](../vision.md) — aligned with this ADR.
 
 ## Decision Log
 

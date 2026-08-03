@@ -9,7 +9,7 @@
   '--___--'
 ```
 
-AI Sidekicks is a desktop runtime where humans and AI agents share live sessions, co-edit code through proper git flow, and collaborate in real time. Think of it as a shared workspace where you can invite teammates, attach multiple AI agents from different providers, and steer their work as it happens — all inside one unified session.
+AI Sidekicks is a desktop runtime where humans and AI agents share live sessions, co-edit code through proper git flow, and collaborate in real time. Think of it as a group chat for agentic coding — a Discord-like shared session where you invite teammates mid-flight, everyone brings their own agents on their own subscription, and you steer agents as they work — within the session's roles and approvals. The shared object is the conversation, the activity, and the work product — never a mirrored screen or a forwarded keyboard.
 
 <p align="center">
   <img src="assets/hero/desktop-app-hero.png" alt="AI Sidekicks Desktop App" width="100%" />
@@ -76,7 +76,7 @@ A participant can join a live session, chat directly in it, and attach one or mo
 
 ### Multi-User, Multi-Agent Sessions
 
-Start a session, invite a teammate via shareable link, and both bring your own agents. Everyone sees the same live timeline. Agents from different participants run on their respective machines while sharing session state.
+Start a session, invite a teammate via shareable link, and both bring your own agents — each running on its owner's machine, billed to its owner's subscription, with credentials that never travel. Everyone follows the same live session timeline, and late joiners catch up on history backfilled by their peers. Steering, queueing, and orchestration are governed by the session's membership roles and approval policies — steering another owner's agent is a policy grant from that owner, never a default. Humans keep side channels and direct messages whose content agents are never given as context, and all cross-machine traffic is end-to-end encrypted per recipient — the relay never sees plaintext.
 
 ### Queue, Steer, Pause, Resume
 
