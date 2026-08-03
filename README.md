@@ -76,7 +76,7 @@ A participant can join a live session, chat directly in it, and attach one or mo
 
 ### Multi-User, Multi-Agent Sessions
 
-Start a session, invite a teammate via shareable link, and both bring your own agents — each running on its owner's machine, billed to its owner's subscription, with credentials that never travel. Everyone follows the same live session timeline, and late joiners catch up on history backfilled by their peers. Steering, queueing, and orchestration are governed by the session's membership roles and approval policies — steering another owner's agent is a policy grant from that owner, never a default. Humans keep side channels and direct messages whose content agents are never given as context, and all cross-machine traffic is end-to-end encrypted per recipient — the relay never sees plaintext.
+Start a session, invite a teammate via shareable link, and both bring your own agents — each running on its owner's machine, billed to its owner's subscription, with credentials that never travel. Everyone follows the same live session timeline, and late joiners catch up on history backfilled by their peers. Steering, queueing, and orchestration are governed by the session's membership roles and approval policies — steering another owner's agent is a policy grant from that owner, never a default. Humans keep side channels and direct messages whose content agents are never given as context, and session content — messages, events, artifacts — is end-to-end encrypted per recipient in transit: the relay never sees plaintext. (Presence signals — who is online, focused, or typing — ride the control-plane presence channel as non-content metadata, not the relay.)
 
 ### Queue, Steer, Pause, Resume
 

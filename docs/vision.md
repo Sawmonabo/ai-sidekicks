@@ -107,7 +107,7 @@ Three paths, none of which involve another person's keyboard:
 
 - provider-agnostic: agents keep full native capability — orchestration, autonomous subagent dispatch, tool use — regardless of provider; capabilities are normalized where providers match and honestly surfaced where they differ
 - credentials never travel: every agent runs on its owner's machine and bills its owner's subscription
-- message audience is structural: session traffic is end-to-end encrypted per recipient, so a machine outside the audience never receives readable content, and each daemon scopes which channels its agents are given as context — audience is a runtime-enforced contract, not etiquette
+- message audience is structural: session content — messages, events, artifacts — is end-to-end encrypted per recipient, so a machine outside the audience never receives readable content (presence signals ride the control plane as non-content metadata), and each daemon scopes which channels its agents are given as context — audience is a runtime-enforced contract, not etiquette
 - agent activation is by addressing: agents act when mentioned or dispatched — never by interjecting into human-to-human exchanges
 - no screen mirroring, no keyboard forwarding: shared surfaces are typed session events, and any future remote terminal control rides the same E2E channel and exclusive write-lease as local writes
 
