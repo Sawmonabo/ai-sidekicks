@@ -61,14 +61,14 @@
 //     (payload carries `nodeId`, no `runId`), so the guard below widened to
 //     them by set-equality with no assertion change; the ratchet turns red
 //     when a run-scoped branch of an admitting family lands unwrapped — a
-//     strict payload schema that skipped the wrap would reject
-//     a stamped row wherever the STRICT layer parses it (scoped honestly: the
-//     tolerant `EventEnvelopeSchema` carrier accepts a stamped row either
-//     way, its `payload` being an open record, so what is lost is
-//     interpretation, not transport or append). Because a
-//     zero-violation result is only trustworthy if the checker can fail, a
-//     known-bad synthetic union is fed through the same classifier and each
-//     violation class is asserted to fire, including the two negative
+//     strict payload schema that skipped the wrap would reject a stamped row
+//     wherever the STRICT layer parses it (scoped honestly: the tolerant
+//     `EventEnvelopeSchema` carrier accepts a stamped row either way, its
+//     `payload` being an open record, so what is lost is interpretation, not
+//     transport or append). Because a zero-violation result is only
+//     trustworthy if the checker can fail, a known-bad synthetic union is fed
+//     through the same classifier and each violation class is asserted to
+//     fire, including the two negative
 //     controls the plan names by hand: a `run_lifecycle` branch (stragglers
 //     are absorbed, never appended) and the account-plane
 //     `usage.rate_limit_update` (no `runId` — an epoch stamp there is

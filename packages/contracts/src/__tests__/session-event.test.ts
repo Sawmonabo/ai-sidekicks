@@ -700,12 +700,13 @@ describe("compareEventEnvelopeVersion", () => {
 //   • I-006-1-02 — event-type-string immutability: the three Plan-001 wire
 //     literals are unrenamed with unchanged categories, and the SCHEMA-
 //     registered payload subset grows only ADDITIVELY (those three; the six
-//     Plan-009 repo/workspace variants of CP-009-4 and the five Plan-010
-//     worktree variants of CP-010-5, which reach the union through the
-//     cross-plan registration seam; and the six Plan-006 `audit_integrity` /
-//     `event_maintenance` variants T1.11 authors in event.ts itself, Plan-006
-//     emitting them — whose literals the census already carried, so
-//     registering their payloads moved no census row).
+//     Plan-009 repo/workspace variants of CP-009-4, the five Plan-010
+//     worktree variants of CP-010-5, and the five Plan-003 `runtime_node.*`
+//     variants of CP-003-1 leg (a) that T1.12 registers, all of which reach
+//     the union through the cross-plan registration seam; and the six
+//     Plan-006 `audit_integrity` / `event_maintenance` variants T1.11 authors
+//     in event.ts itself, Plan-006 emitting them — whose literals the census
+//     already carried, so registering their payloads moved no census row).
 //     The B18 widening is likewise additive-only: it renamed nothing, and
 //     every pre-B18 census row keeps its literal and category (pinned by
 //     the per-category counts below, which move ONLY on the five B18 rows).
@@ -841,11 +842,10 @@ describe("SessionEventType census + SESSION_EVENT_CATEGORY_BY_TYPE registry (T1.
     // event-maintenance variants (T1.11, emitted by the plan that owns
     // event.ts), and the five Plan-003 `runtime_node.*` variants (T1.12 —
     // CP-003-1 leg (a), the payload shapes authored in runtime-node.ts) —
-    // whose type strings were all already census-registered by
-    // T1.2 before their payloads landed. The loop below
-    // is the bind that matters: every registered variant must be a census
-    // member, so a variant registered under an unregistered literal fails
-    // here.
+    // whose type strings were all already census-registered by T1.2 before
+    // their payloads landed. The loop below is the bind that matters: every
+    // registered variant must be a census member, so a variant registered
+    // under an unregistered literal fails here.
     expect(SESSION_EVENT_TYPES).toEqual([
       "session.created",
       "membership.created",
@@ -1842,6 +1842,24 @@ describe("audit_integrity + event_maintenance payload variants (T1.11)", () => {
     ).toBe(false);
   });
 
+  it("rejects a failureMode outside the registered vocabulary entirely", () => {
+    // Complement of the test above: that one refuses a REGISTERED mode
+    // arriving at the wrong arm; this one refuses a mode NO arm declares, so
+    // the payload matches neither discriminator and the union has nowhere to
+    // dispatch it. Without this control the discriminator could admit any
+    // string and every in-vocabulary assertion in this block would still pass.
+    // The unmodified-fixture parse is the positive control — it proves the
+    // rejection below comes from the mode, not from a fixture that drifted.
+    const event = buildAuditIntegrityFailedVerifierArm();
+    expect(SessionEventSchema.safeParse(event).success).toBe(true);
+    expect(
+      SessionEventSchema.safeParse({
+        ...event,
+        payload: { ...event.payload, failureMode: "not_a_registered_mode" },
+      }).success,
+    ).toBe(false);
+  });
+
   it.each([
     ["treeSize", 4096],
     ["expectedRootHash", ROOT_HASH],
@@ -1987,10 +2005,10 @@ describe("audit_integrity + event_maintenance payload variants (T1.11)", () => {
   it.each([
     ["compactionReason", buildEventCompacted, "disk_pressure"],
     ["shredReason", buildEventShredded, "because_i_said_so"],
-  ] as const)("rejects an out-of-vocabulary %s", (member, build, bad) => {
+  ] as const)("rejects an out-of-vocabulary %s", (member, build, badValue) => {
     const event = build();
     expect(
-      SessionEventSchema.safeParse({ ...event, payload: { ...event.payload, [member]: bad } })
+      SessionEventSchema.safeParse({ ...event, payload: { ...event.payload, [member]: badValue } })
         .success,
     ).toBe(false);
   });
@@ -2075,15 +2093,17 @@ describe("audit_integrity + event_maintenance payload variants (T1.11)", () => {
     ).toBe(false);
   });
 
-  it("stays interpretable at the tolerant carrier as well as the strict layer", () => {
-    // The layering pin: every one of the six parses through
-    // `EventEnvelopeSchema` too, so a reader that has not yet learned the
-    // variant still persists the row rather than dropping it (ADR-018
-    // §Decision #5/#9 accept-and-stub).
-    for (const [, build] of PLAN_006_VARIANTS) {
+  it.each(PLAN_006_VARIANTS)(
+    "%s stays interpretable at the tolerant carrier as well as the strict layer",
+    (_label, build) => {
+      // The layering pin: each registered Plan-006 variant parses through
+      // `EventEnvelopeSchema` too, so a reader that has not yet learned the
+      // variant still persists the row rather than dropping it (ADR-018
+      // §Decision #5/#9 accept-and-stub). Per-row so a regression names the
+      // variant that broke instead of failing one opaque loop.
       expect(EventEnvelopeSchema.safeParse(build()).success).toBe(true);
-    }
-  });
+    },
+  );
 });
 
 // The standalone exports are the surface the six emission seams validate
@@ -2094,8 +2114,9 @@ describe("audit_integrity + event_maintenance payload variants (T1.11)", () => {
 // The two spellings are NOT deduplicated: independent spelling is the design,
 // and this block is what makes it safe.
 //
-// Structural `safeParse` typing sidesteps `z.ZodType` variance; the fixture
-// view is the two members every row is probed on.
+// Structural `parse` / `safeParse` typing sidesteps `z.ZodType` variance (the
+// repo.test.ts standalone-schema precedent); the fixture view is the two
+// members every row is probed on.
 type Plan006EventFixture = {
   readonly category: string;
   readonly payload: Record<string, unknown>;
@@ -2105,7 +2126,10 @@ const STANDALONE_PLAN_006_EVENT_SCHEMAS: ReadonlyArray<
   readonly [
     string,
     () => Plan006EventFixture,
-    { safeParse: (candidate: unknown) => { success: boolean } },
+    {
+      parse: (candidate: unknown) => unknown;
+      safeParse: (candidate: unknown) => { success: boolean };
+    },
   ]
 > = [
   ["audit_integrity_verified", buildAuditIntegrityVerified, AuditIntegrityVerifiedEventSchema],
@@ -2127,11 +2151,16 @@ const STANDALONE_PLAN_006_EVENT_SCHEMAS: ReadonlyArray<
 
 describe("standalone Plan-006 event schemas agree with the union arms (T1.11)", () => {
   it.each(STANDALONE_PLAN_006_EVENT_SCHEMAS)(
-    "%s standalone accepts what the union accepts",
+    "%s standalone accepts what the union accepts, with an identical parse output",
     (_label, build, standaloneSchema) => {
       const fixture = build();
       expect(standaloneSchema.safeParse(fixture).success).toBe(true);
       expect(SessionEventSchema.safeParse(fixture).success).toBe(true);
+      // Success parity alone would miss a `.default()` or `.transform()` that
+      // landed on only one surface — same verdict, different bytes. Comparing
+      // the parse OUTPUTS is what makes the two spellings interchangeable at
+      // an emission seam (the repo.test.ts standalone-schema precedent).
+      expect(standaloneSchema.parse(fixture)).toStrictEqual(SessionEventSchema.parse(fixture));
     },
   );
 
@@ -2499,9 +2528,10 @@ void runtimeNodePayloadsNarrowTheEnvelope;
 // block above states, and the repo.test.ts / worktree.test.ts precedent). This
 // block is what makes that safe for T1.12's five.
 //
-// Structural `safeParse` typing sidesteps `z.ZodType` variance; the fixture
-// view is the two members every row is probed on. Declared locally rather than
-// shared with the T1.11 table, which is how repo.test.ts spells its own.
+// Structural `parse` / `safeParse` typing sidesteps `z.ZodType` variance; the
+// fixture view is the two members every row is probed on. Declared locally
+// rather than shared with the T1.11 table, which is how repo.test.ts spells
+// its own.
 type Plan003EventFixture = {
   readonly category: string;
   readonly payload: Record<string, unknown>;
@@ -2511,7 +2541,10 @@ const STANDALONE_PLAN_003_EVENT_SCHEMAS: ReadonlyArray<
   readonly [
     string,
     () => Plan003EventFixture,
-    { safeParse: (candidate: unknown) => { success: boolean } },
+    {
+      parse: (candidate: unknown) => unknown;
+      safeParse: (candidate: unknown) => { success: boolean };
+    },
   ]
 > = [
   ["runtime_node.registered", buildRuntimeNodeRegistered, RuntimeNodeRegisteredEventSchema],
@@ -2531,11 +2564,17 @@ const STANDALONE_PLAN_003_EVENT_SCHEMAS: ReadonlyArray<
 
 describe("standalone runtime_node.* event schemas agree with the union arms (T1.12)", () => {
   it.each(STANDALONE_PLAN_003_EVENT_SCHEMAS)(
-    "%s standalone accepts what the union accepts",
+    "%s standalone accepts what the union accepts, with an identical parse output",
     (_label, build, standaloneSchema) => {
       const fixture = build();
       expect(standaloneSchema.safeParse(fixture).success).toBe(true);
       expect(SessionEventSchema.safeParse(fixture).success).toBe(true);
+      // Success parity alone would miss a `.default()` or `.transform()` that
+      // landed on only one surface — same verdict, different bytes. On these
+      // five the risk is not hypothetical: the payload schemas are Plan-003's
+      // and the arms are composed here, so a normalization added upstream must
+      // show up identically through both spellings.
+      expect(standaloneSchema.parse(fixture)).toStrictEqual(SessionEventSchema.parse(fixture));
     },
   );
 

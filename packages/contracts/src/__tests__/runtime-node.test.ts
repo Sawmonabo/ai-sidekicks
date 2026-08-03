@@ -1494,10 +1494,10 @@ describe("capability payloads × canonical CapabilityDetails binding (T1.4)", ()
     },
   );
 
-  it("static leg: a CapabilityDetails-typed value assigns to both payload interfaces", () => {
+  it("static leg: a CapabilityDetails-typed value assigns to both payload types", () => {
     // Compile-time proof of the T1.4 acceptance criterion — the canonical
-    // interface composes into the payload interfaces (the typed-consumer leg
-    // of closing CP-005-5); the runtime parses below are the dynamic leg.
+    // interface composes into the payload types (the typed-consumer leg of
+    // closing CP-005-5); the runtime parses below are the dynamic leg.
     const canonical: CapabilityDetails = buildCanonicalCapabilityDetails();
     const declared: RuntimeNodeCapabilityDeclaredPayload = {
       nodeId: NodeIdSchema.parse(NODE_ID),

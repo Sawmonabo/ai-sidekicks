@@ -881,14 +881,16 @@ const buildRuntimeNodeCapabilityBaseShape = () => ({
 // runtime_node.registered — base + {capabilities, nodeVersion, platform}.
 // --------------------------------------------------------------------------
 //
-// `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` ("base + {capabilities[], nodeVersion, platform}"). Emitted by the
+// `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` ("base + {capabilities: Record<capabilityKey, details>, nodeVersion, platform}"). Emitted by the
 // T2.1 node-registry when a node is accepted into the roster (`Spec-003 §Required Behavior`,
 // attach admission). Field-type rationale (so reviewers verify, not re-derive):
 //   • `capabilities` = `z.record(z.string(), z.unknown())` — a lossless snapshot
 //     of the declared capability map, mirroring `RuntimeNodeAttachRequest.
-//     capabilities` (the schema above in this file) VERBATIM. Departs from Spec-006's
-//     informal `capabilities[]` table gloss (an array notation) in favor of that typed
-//     record shape, which governs per typed-source-over-table-gloss.
+//     capabilities` (the schema above in this file) VERBATIM. Spec-006's table
+//     row carried an informal `capabilities[]` array gloss until Plan-006 T1.12
+//     trued it up to this record shape (2026-08-03), so spec and schema now
+//     agree; the typed source governed in the interim per
+//     typed-source-over-table-gloss.
 //     Forward-compatible: Plan-006 Tier 4 can tighten `unknown` → the canonical
 //     `CapabilityDetails` with no SHAPE change.
 //   • `nodeVersion` = bounded free string, NOT `EventEnvelopeVersion` — it is the

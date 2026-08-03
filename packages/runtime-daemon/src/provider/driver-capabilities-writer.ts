@@ -409,7 +409,7 @@ export class DriverCapabilitiesWriter {
         // (4) EMIT — LAST, so a throwing emit rolls back the writes above. The
         // FLAT snapshot is the event payload (so the T1.4-landed canonical
         // `CapabilityDetails` binding validates). The emitter input seam
-        // carries the payload interface's canonical-first union (indexed
+        // carries the payload type's canonical-first union (indexed
         // access in node-event-emitter.ts), so the typed snapshot passes
         // uncast.
         if (priorSnapshot === undefined) {

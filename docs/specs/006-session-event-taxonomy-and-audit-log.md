@@ -417,13 +417,13 @@ Payloads must never contain secret material. SPKI pins live in `config.toml`; se
 
 Durable state-change events recording the lifecycle of runtime nodes per [Spec-003: Runtime Node Attach](./003-runtime-node-attach.md) and daemon clock observability promoted from [Spec-015 §Reserved Events](./015-persistence-recovery-and-replay.md#reserved-events). These events belong to a distinct category from `run_lifecycle` because they describe **the node** (the daemon process and its attachment to a session), not the work a session is doing. A node can be `online` while every session on it is idle, and runs can execute on a node without changing node state.
 
-Payload shape: `{sessionId?, nodeId, previousState?, newState, actor?}` (base). Per-event payload extensions called out inline.
+Payload shape: `{sessionId?, nodeId, previousState?, newState, actor?}` (base). Per-event payload extensions called out inline. The two `runtime_node.capability_*` rows take a REDUCED base — `{sessionId?, nodeId, actor?}` — because on those rows `previousState` / `newState` carry `CapabilityDetails` snapshots rather than `NodeState` values, so the base members of the same name would collide.
 
 **Session binding.** `runtime_node.*` events carry the `session_id` of the attachment they describe; the daemon-startup clock events `session.clock_unsynced` / `session.clock_corrected` carry no session context and bind to the reserved sentinel `session_id` per [§Daemon-Scope Event Binding And Node-Scope Anchoring](#daemon-scope-event-binding-and-node-scope-anchoring).
 
 | Type | Description | Payload Extension |
 | --- | --- | --- |
-| `runtime_node.registered` | A node has declared its identity to the session and been accepted into the roster per Spec-003 §Attach Protocol. | base + `{capabilities[], nodeVersion, platform}` |
+| `runtime_node.registered` | A node has declared its identity to the session and been accepted into the roster per Spec-003 §Attach Protocol. | base + `{capabilities: Record<capabilityKey, details>, nodeVersion, platform}` |
 | `runtime_node.online` | A node transitioned to `online` — reachable via the control plane and ready to accept work. | base |
 | `runtime_node.degraded` | A node is still reachable but reports one or more degraded capabilities (provider driver unhealthy, workspace storage failing, etc.). Runs may still dispatch to this node, but operators should investigate before assigning new work. | base + `{degradedCapabilities[], detail}` |
 | `runtime_node.offline` | A node has been unreachable for longer than the heartbeat grace window per Spec-003. Arbitration on round-robin channels halts per [Spec-016 §Partition And Reconnect Behavior](./016-multi-agent-channels-and-orchestration.md#partition-and-reconnect-behavior). | base + `{lastHeartbeatAt, reason ∈ ['heartbeat_lost','explicit_shutdown','network_partition']}` |

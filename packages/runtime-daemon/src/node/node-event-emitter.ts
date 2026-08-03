@@ -256,7 +256,7 @@ export interface EmitCapabilityDeclaredInput extends RuntimeNodeEmitBase {
 export interface EmitCapabilityUpdatedInput extends RuntimeNodeEmitBase {
   readonly capability: string;
   // `CapabilityDetails` snapshots (NOT NodeState). Indexed access into the
-  // contracts payload interface, whose canonical-first tolerant union
+  // contracts payload type, whose canonical-first tolerant union
   // (Plan-006 T1.4) admits both producers uncast: the typed
   // driver-capabilities-writer snapshot (`CapabilityDetails`) and
   // node-capability-service's JSON-round-tripped records.
@@ -412,15 +412,15 @@ export class RuntimeNodeEventEmitter {
       type,
       actor: base.actor ?? null,
       // `AppendableEvent.payload` is `Record<string, unknown>` (Plan-001-owned
-      // `types.ts`, read-only here). The validated payload IS a string-keyed
-      // object at runtime, but a named interface does not auto-carry an index
-      // signature, so a direct `as Record<string, unknown>` is rejected and the
-      // `as unknown as` widening is required — same documented language-gap
-      // bridge as `bootstrap/secure-defaults.ts:263-267`. This is a SAFE
+      // `types.ts`, read-only here). Every arm of `RuntimeNodeEventPayload` is
+      // declared as an object TYPE ALIAS in contracts, and TypeScript grants a
+      // type alias of an object type an implicit index signature (it grants an
+      // interface none) — so the direct `as Record<string, unknown>` holds and
+      // no `as unknown as` double-widening is needed. This is a SAFE
       // specific→general widening (every field is assignable to `unknown`), not
       // a reinterpretation; it asserts nothing false. Single site by design —
       // the union-typed parameter above keeps the cast off every call site.
-      payload: payload as unknown as Record<string, unknown>,
+      payload: payload as Record<string, unknown>,
       correlationId: base.correlationId ?? null,
       causationId: base.causationId ?? null,
       version: RUNTIME_NODE_EVENT_VERSION,

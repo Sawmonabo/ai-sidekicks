@@ -43,8 +43,10 @@
 // each is owned by its EMITTING plan: sixteen reach `SessionEventSchema` from
 // another plan's file through the cross-plan union-registration seam (CP-009-4
 // / CP-010-5 / CP-003-1, the CP-012-2 / CP-016-3 class), six are authored in
-// this file because Plan-006 emits them and owns it (T1.11). Either way census
-// membership is type registration, not payload support.
+// this file because Plan-006 emits them and owns it (T1.11), and the three
+// Plan-001 originals below (`session.created`, `membership.created`,
+// `channel.created`) have been authored here since PR #2. In all three cases
+// census membership is type registration, not payload support.
 //
 // All three Plan-001 wire strings are registered in Spec-006 §Event Type
 // Enumeration: `session.created` and `channel.created` under
@@ -681,18 +683,17 @@ export const EventEnvelopeSchema: z.ZodType<EventEnvelope> = z
 // `nodeId` and bound to the session of the attachment they describe. No group
 // is run-scoped — no payload among the twenty-five carries `runId` — so no
 // branch here composes the helper yet. Later registrants of the five families
-// arriving through the union-registration seam (the
-// CP-009-4 / CP-010-5 / CP-012-2 / CP-016-3 class) inherit the admission
-// requirement from `Spec-006 §Event Type Enumeration` — a strict payload
-// schema that skipped the wrap would REJECT a stamped row at every site that
-// parses through the STRICT layer. Scoped honestly: the tolerant
-// `EventEnvelopeSchema` carrier accepts a stamped row either way (its
-// `payload` is an open record that preserves unknown keys verbatim), so what
-// an unwrapped branch costs is INTERPRETATION at the strict layer, not
-// transport, append, or the canonical bytes.
-// __tests__/event-source-epoch.test.ts walks the live
-// union and fails when a run-scoped branch of an admitting family lands
-// unwrapped, or when any other branch lands wrapped.
+// arriving through the union-registration seam (the CP-009-4 / CP-010-5 /
+// CP-012-2 / CP-016-3 class) inherit the admission requirement from
+// `Spec-006 §Event Type Enumeration` — a strict payload schema that skipped
+// the wrap would REJECT a stamped row at every site that parses through the
+// STRICT layer. Scoped honestly: the tolerant `EventEnvelopeSchema` carrier
+// accepts a stamped row either way (its `payload` is an open record that
+// preserves unknown keys verbatim), so what an unwrapped branch costs is
+// INTERPRETATION at the strict layer, not transport, append, or the canonical
+// bytes. __tests__/event-source-epoch.test.ts walks the live union and fails
+// when a run-scoped branch of an admitting family lands unwrapped, or when
+// any other branch lands wrapped.
 //
 // OWNERSHIP BOUNDARY — this file owns the TYPED SHAPE only. Execution-epoch
 // semantics (`0` is the pre-any-rollback epoch; the epoch advances with each
@@ -1331,7 +1332,7 @@ const payloadSequenceSchema = z
  * Length ceiling for the `audit_integrity_failed` payload's `detail` — the
  * operator-facing failure description (the refused registration's
  * `(session_id, node_id)` pair on the registrar arm, the verifier's finding on
- * the fifteen verifier arms).
+ * the fifteen verifier failure modes).
  *
  * 512 is the package's short human-reason class (`RuntimeNodeDetachReason`,
  * `InviteRevokeReason`), not the 8192 error-detail class: `detail` is a
