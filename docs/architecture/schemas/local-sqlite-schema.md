@@ -1164,7 +1164,7 @@ CREATE INDEX idx_human_phase_form_state_phase ON human_phase_form_state(phase_ru
 
 ## Channel and Orchestration Tables (Plan-016)
 
-DDL hardened during the Tier-6 plan-readiness audit (D-016-15, A-016-5, A-016-2, D-016-5). Posture per table: `channels`, `run_links`, and `agents` are events-canonical projections ([ADR-017](../../decisions/017-shared-event-sourcing-scope.md) Option B — rebuilt from `session_events` on replay; never written except by the projector); `session_budgets` is row-canonical daemon configuration (the `queue_items` posture — mutated by wire method, not evented). `channels` holds **user-created channels only**: the bootstrap main channel is projected (`deriveMainChannelId(sessionId)` per CP-002-7) and never has a row or a `channel.created` event.
+DDL hardened during the Tier-6 plan-readiness audit (D-016-15, A-016-5, A-016-2, D-016-5). Posture per table: `channels`, `run_links`, and `agents` are events-canonical projections ([ADR-017](../../decisions/017-shared-event-sourcing-scope.md) Option B — rebuilt from `session_events` on replay; never written except by the projector); `session_budgets` is row-canonical daemon configuration (the `queue_items` posture — mutated by wire method, not evented). `channels` holds **user-created channels only**: the bootstrap main channel is projected (`deriveMainChannelId(sessionId)` per CP-002-7) and never has a row or a `channel.created` event — so it carries no `ChannelConfig`, and its audience is always `participants` and never restrictable (D-016-21). The 2026-08-03 channel-audience amendment is additive on `channels` and adds **no table**: `audience` rides the existing `config` JSON value, while the channel kind and the `direct` member pair are columns because they are identity rather than configuration.
 
 ```sql
 -- Owner: Plan-016 (events-canonical projection of channel.* events; user channels only — main is synthesized)
@@ -1174,9 +1174,15 @@ CREATE TABLE channels (
   name            TEXT,
   state           TEXT NOT NULL DEFAULT 'active'
                   CHECK(state IN ('active', 'muted', 'archived')),
-  config          TEXT NOT NULL DEFAULT '{}', -- JSON: ChannelConfig (packages/contracts/src/orchestration.ts) — {turnPolicy?, roundRobinOrder?, moderation?}
+  config          TEXT NOT NULL DEFAULT '{}', -- JSON: ChannelConfig (packages/contracts/src/orchestration.ts) — {turnPolicy?, roundRobinOrder?, moderation?, audience?}; `audience` needs no column (D-016-21)
+  kind            TEXT NOT NULL DEFAULT 'general'
+                  CHECK(kind IN ('general', 'direct')), -- D-016-21 (2026-08-03): 'direct' = two-human channel, audience forced 'humans-only' and immutable
+  direct_member_a TEXT,                                 -- D-016-21: participant ids of the immutable pair; fixed arity, so no membership table
+  direct_member_b TEXT,
   created_at      TEXT NOT NULL,
-  updated_at      TEXT NOT NULL
+  updated_at      TEXT NOT NULL,
+  CHECK ((kind = 'direct') = (direct_member_a IS NOT NULL AND direct_member_b IS NOT NULL)), -- the pair exists exactly on the direct kind
+  CHECK (direct_member_a IS NULL OR direct_member_a < direct_member_b) -- canonical order: one representation per pair, so the events-canonical rebuild is deterministic
 );
 
 CREATE INDEX idx_channels_session ON channels(session_id);
@@ -1225,11 +1231,11 @@ CREATE INDEX idx_agents_session ON agents(session_id);
 CREATE TABLE session_budgets (
   session_id                    TEXT PRIMARY KEY,
   cost_limit_cents              INTEGER NOT NULL DEFAULT 1000,  -- Spec-016: $10 per session
-  turn_limit_per_agent          INTEGER NOT NULL DEFAULT 50,    -- Spec-016:109: max consecutive turns per (channel, agent), reset on interleave (D-016-8) — not a per-session total
+  turn_limit_per_agent          INTEGER NOT NULL DEFAULT 50,    -- Spec-016 §Budget Policies (turn-limit row): max consecutive turns per (channel, agent), reset on interleave (D-016-8) — not a per-session total
   max_executing_channels        INTEGER NOT NULL DEFAULT 5,     -- Spec-016 §Scheduler Limits
   max_queue_depth_per_channel   INTEGER NOT NULL DEFAULT 25,
   max_pending_orchestration_runs INTEGER NOT NULL DEFAULT 10,
-  active_child_limit            INTEGER NOT NULL DEFAULT 5,     -- Spec-016:175 daemon default, configurable
+  active_child_limit            INTEGER NOT NULL DEFAULT 5,     -- Spec-016 §Scheduler Limits (active-children row): daemon default, configurable
   unpriced_family_caps          TEXT NOT NULL DEFAULT '[]',     -- JSON [{modelFamily, hardCapUsdCents}] — owner-supplied unpriced-family escapes, native-cap legs only (Spec-016 §Cost Derivation And Absent-Cost Semantics, campaign B6); wire mirror = OrchestrationBudgetUpdate.unpricedFamilyCaps
   updated_at                    TEXT NOT NULL,
   -- Non-negative-integer floors on every limit; wire mirror = orchestration.budgetUpdate Zod .int().nonnegative() (D-016-5)

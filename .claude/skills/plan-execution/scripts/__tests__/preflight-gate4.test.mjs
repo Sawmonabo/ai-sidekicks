@@ -3291,7 +3291,7 @@ test("CORPUS: Plan-008 is screened — the plan that had ZERO bold markers", () 
   );
   assert.deepEqual(r.findings, []);
   // Pins the facet roll-up to its ONLY live instance in the corpus: `I-008-7c`
-  // at Plan-008:370. Without this the roll-up rots SILENTLY, and measurably so:
+  // at Plan-008 task T-008r-1-4. Without this the roll-up rots SILENTLY, and measurably so:
   // degrade that one token to its base and `parentResolved` goes 1 → 0 while
   // `legacy.resolved` stays at 58 and `findings` stays empty — because the base
   // id still resolves, it is simply no longer a facet. Every other assertion in
@@ -3300,7 +3300,7 @@ test("CORPUS: Plan-008 is screened — the plan that had ZERO bold markers", () 
   //
   // Concretely load-bearing against content masking: `consumeFailure` reads
   // `failure.raw`, so the roll-up REQUIRES raw to carry unmasked payload bytes.
-  // :370's payload is backticked (`relay_connections`), one of 8 such among the
+  // T-008r-1-4's payload is backticked (`relay_connections`), one of 8 such among the
   // 48 legacy payloads. The ids there precede the first backtick, so masking
   // code spans should not reach them — this assertion is what proves that
   // holds rather than assuming it.
@@ -3475,8 +3475,13 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // 576/104 -> 577/106 (2026-08-01, PR #278): the Plan-006 T4.10 audit delta
     // minted T1.11 + T1.12 (each a bold none-arm) and added I-006-4-09 to the
     // T4.10 row (one more bold resolved reference).
-    bold: { resolved: 577, noneArm: 106, parentResolved: 0 },
-    legacy: { resolved: 58, noneArm: 3, parentResolved: 1 },
+    // 577/58 -> 585/59 (2026-08-03, PR #284): the V1 product-vision
+    // reconciliation amendments added bold resolved references across the six
+    // amended plans (Plans 002/003/004/008/012/016 — new invariants I-002-5/6,
+    // I-008-13/14, I-016-21/22 and their task-row references), plus one
+    // legacy-channel reference from Plan-008's T-008r-4-10 growth.
+    bold: { resolved: 585, noneArm: 106, parentResolved: 0 },
+    legacy: { resolved: 59, noneArm: 3, parentResolved: 1 },
   });
 });
 
@@ -3627,8 +3632,8 @@ test("NEGATIVE CONTROL: a real marker beside the example is still extracted", ()
 });
 
 test("PAYLOAD BYTES still come from raw — a backticked payload survives detection masking", () => {
-  // The reason detection and extraction read DIFFERENT views. Plan-008:370's
-  // payload is `I-008-9, I-008-11, I-008-7c (substrate — the `relay_connections`
+  // The reason detection and extraction read DIFFERENT views. Plan-008 task
+  // T-008r-1-4's payload is `I-008-9, I-008-11, I-008-7c (substrate — the `relay_connections`
   // rows …)`; slicing it out of the masked view would blank the backticked run,
   // and `consumeFailure` reads `failure.raw`. This is the assertion that the
   // split was preserved rather than collapsed to one view for tidiness.
@@ -3643,7 +3648,7 @@ test("PAYLOAD BYTES still come from raw — a backticked payload survives detect
   );
   assert.ok(
     backticked.some((p) => p.payload.includes("`relay_connections`")),
-    "Plan-008:370's payload lost its backticked bytes — extraction is reading the masked view",
+    "Plan-008 task T-008r-1-4's payload lost its backticked bytes — extraction is reading the masked view",
   );
 });
 

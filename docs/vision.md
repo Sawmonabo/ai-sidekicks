@@ -472,6 +472,8 @@ If mid-session human invites and multi-runtime agent collaboration are essential
 
 It is a collaborative distributed runtime with local execution nodes.
 
+Shared live agent sessions are not novel on their own: by mid-2026, several cloud-hosted agent platforms ship a form of "invite a colleague into my running session". What remains unoccupied is the conjunction this architecture is built around — local execution on each participant's own machine, real multiplayer with N agents from N owners in one session, a real policy engine governing steering and dispatch rather than all-or-nothing sharing, and one unified human-and-agent timeline. The products that ship multiplayer today host the session in their own cloud; the products that run genuinely locally ship no multiplayer. Holding both at once is the position, and every architectural choice in this document exists to hold it.
+
 If the architecture is built around that truth from the beginning, it will establish the correct foundation for a category-defining collaborative software runtime.
 
 If collaboration is treated as a later add-on, the design will collapse under its own inconsistencies.

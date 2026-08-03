@@ -101,7 +101,7 @@ Membership records use optimistic concurrency. Each membership record carries a 
 When a participant's membership is revoked while activity is in progress, the system applies role-specific cleanup:
 
 - **Runtime contributor revocation:** Active runs executing on the revoked participant's runtime node are interrupted. Their runtime node is detached from the session. Queued items targeting that node are returned to the session queue for reassignment.
-- **Collaborator revocation:** Pending interventions authored by the revoked participant are expired immediately. Write access (chat, approvals, steering) is revoked immediately. Read access is revoked after a 30-second grace period to allow UI refresh and prevent abrupt visual disruption.
+- **Collaborator revocation:** Pending interventions authored by the revoked participant are expired immediately — here authorship is the **cleanup selector** for the requests that participant filed, never an authorization scope: run-control interventions authorize on session write access, not run authorship ([Spec-012 §Required Behavior](../specs/012-approvals-permissions-and-trust-boundaries.md#required-behavior)), so pending interventions **targeting** runs the revoked participant authored are untouched, and any remaining write-access member may still intervene on them. Write access (chat, approvals, steering) is revoked immediately. Read access is revoked after a 30-second grace period to allow UI refresh and prevent abrupt visual disruption.
 
 ## Example Flows
 

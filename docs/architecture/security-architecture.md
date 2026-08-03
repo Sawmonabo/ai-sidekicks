@@ -306,7 +306,7 @@ Candidate implementations under evaluation include OpenMLS (Rust, MIT) and mls-r
 | **Runs and messaging** |  |  |  |  |
 | Send messages / create runs | Yes | Yes (with approval) | No | No |
 | Queue work items | Yes | Yes | No | No |
-| Steer/interrupt/cancel runs | Yes | Yes (own runs) | No | No |
+| Steer/interrupt/cancel runs (authorized by session write access, never by run authorship — any participant holding a write-access role may steer, interrupt, or cancel any run in the session, including runs authored by another participant and runs targeting another participant's agent; "own" never scopes this row. A run hosted on another participant's runtime node additionally routes through that node owner's authority per §Inter-Node Trust Boundaries, so cross-node steering is a request, never standing authority) | Yes | Yes | No | No |
 | Take terminal control (release is holder-gated, role-independent — a holder stripped of authorization mid-hold, by demotion, suspension, or revocation, can still relinquish during the signal-propagation window, and the membership transition itself force-clears an active lease on arrival at the lease authority, per `Spec-003 §Required Behavior`) | Yes | Yes | No | No |
 | Set/clear session goal | Yes | Yes | No | No |
 | **Approvals** |  |  |  |  |

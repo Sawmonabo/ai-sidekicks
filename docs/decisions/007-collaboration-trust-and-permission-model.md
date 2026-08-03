@@ -148,8 +148,9 @@ The simpler flat model is unacceptable because it collapses human collaboration 
 
 ## Decision Log
 
-| Date       | Event        | Notes                                                           |
-| ---------- | ------------ | --------------------------------------------------------------- |
-| 2026-04-14 | Proposed     | Initial draft                                                   |
+| Date | Event | Notes |
+| --- | --- | --- |
+| 2026-04-14 | Proposed | Initial draft |
 | 2026-04-14 | Re-baselined | Reviewer assignment and acceptance validation remain incomplete |
-| 2026-04-15 | Accepted     | ADR accepted                                                    |
+| 2026-04-15 | Accepted | ADR accepted |
+| 2026-08-03 | Reaffirmed | Cross-user run-control authorization amendment ([Spec-012](../specs/012-approvals-permissions-and-trust-boundaries.md) + [Spec-004](../specs/004-queue-steer-pause-resume.md), both flipped to `review` for their amendment window) evaluated against Spec-012 §ADR Triggers' "materially changes how collaboration trust and approval scopes work" trigger: **no decision change; Status stays `accepted`.** The amendment assigns run-control interventions (`steer` / `interrupt` / `cancel` / `rollback`) to this ADR's **membership-role layer**, unscoped by run authorship, and leaves the node-trust, run-level-approval, and tool/resource-grant layers untouched — it operates inside the chosen layering rather than flattening it, so Option B (Flat Session-Wide Trust) stays rejected: a `collaborator` gains no authority over another participant's machine. §Success Criteria's "Membership alone never authorizes cross-node local execution" holds unchanged — an intervention against a run hosted on another participant's node is still admitted only under that node owner's per-dispatch approval ([Spec-024](../specs/024-cross-node-dispatch-and-approval.md); `Security Architecture §Inter-Node Trust Boundaries`). No layer is added, removed, or re-scoped. |

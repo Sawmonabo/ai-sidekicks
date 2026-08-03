@@ -59,7 +59,7 @@ This spec defines V1 feature #18 ([ADR-015 §Decision](../decisions/015-v1-featu
 
 ## Preconditions
 
-- [x] All declared `Depends On` specs are at `approved` status — Spec-005, Spec-006, and Spec-012 are `approved` (Spec-006 restored 2026-07-22 by its named W3 follow-on re-promotion, PR #245)
+- [ ] All declared `Depends On` specs are at `approved` status — Spec-005 and Spec-006 are `approved` (Spec-006 restored 2026-07-22 by its named W3 follow-on re-promotion, PR #245); Spec-012 is `review` as of 2026-08-03 (cross-user run-control intervention amendment), pending its restoring targeted readiness-audit delta
 - [x] All declared `Depends On` ADRs are at `accepted` status
 - [x] Blocking open questions are resolved or explicitly deferred
 - [x] **Spec-status promotion gate cleared per [`docs/operations/plan-implementation-readiness-audit-runbook.md#spec-status-promotion-gate`](../operations/plan-implementation-readiness-audit-runbook.md#spec-status-promotion-gate)** (executed per criterion in the W3 promotion PR, 2026-07-22)
