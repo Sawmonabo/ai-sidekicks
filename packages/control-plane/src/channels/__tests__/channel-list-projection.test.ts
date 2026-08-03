@@ -12,7 +12,11 @@
 //       data (the `sessions` row + the `session_memberships` count), which is
 //       correct because every session that exists has the bootstrap main
 //       channel by that invariant (`Plan-002 §API And Transport Changes`: "projects whatever
-//       channels currently exist regardless of who created them"). See
+//       channels currently exist regardless of who created them, subject to
+//       the per-caller filter" — the 2026-08-03 amendment's direct-channel
+//       omission, I-002-6/T3.6; the bootstrap main channel is
+//       `participants`-audience by construction and never filtered, so this
+//       suite's assertions are unchanged by it). See
 //       channel-list-projection.ts header.
 //   AC1 (partial; Spec-002 AC1): the default-channel projection is LIVE (the
 //       projection is non-empty / the bootstrap channel is present) for a

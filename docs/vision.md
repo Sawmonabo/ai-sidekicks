@@ -4,6 +4,11 @@
 
 - [Thesis](#thesis)
 - [Product Goal](#product-goal)
+- [The Collaboration Model](#the-collaboration-model)
+- [What Every Participant Sees](#what-every-participant-sees)
+- [What Every Participant Can Do](#what-every-participant-can-do)
+- [How A Collaborator's Work Reaches The Repo](#how-a-collaborators-work-reaches-the-repo)
+- [Collaboration Invariants](#collaboration-invariants)
 - [Core Reframe](#core-reframe)
 - [Architectural Position](#architectural-position)
 - [Top-Level Architecture](#top-level-architecture)
@@ -35,6 +40,8 @@
 - [5. Visibility](#5-visibility)
 - [Suggested Greenfield Stack](#suggested-greenfield-stack)
 - [Build Order](#build-order)
+- [CLI Delivery Path](#cli-delivery-path)
+- [Architecture Cross-References](#architecture-cross-references)
 - [Strategic Conclusion](#strategic-conclusion)
 
 ## Thesis
@@ -63,6 +70,46 @@ This is the defining requirement:
 - a participant must be able to join a live session, chat directly in that session, and attach one or more agents from their own local machine into that same session
 
 That means the system cannot be designed as a single-user local daemon with collaboration added later. Collaboration must exist in the core domain model from day one.
+
+## The Collaboration Model
+
+The collaboration experience is a shared agentic workspace: closer to a group chat with channels, presence, and history than to screen sharing. Humans and agents are both members of the room. The shared object is the conversation, the activity, and the work product — never a mirrored screen or a forwarded keyboard.
+
+A session begins as one person working with their agents exactly as they would in a single-user CLI. Inviting a collaborator changes the audience, not the runtime model: the invitee joins from their own machine with their own account, catches up on the session history their peers backfill to them, and participates through the same typed contracts.
+
+### What Every Participant Sees
+
+- the full working conversation in every channel they are a member of — every prompt, agent reply, and human message
+- the actual work product — file changes, diffs, plans, and artifacts as they are produced, rendered in the timeline and reviewable inline
+- agent activity as it unfolds — runs starting, commands executing, outputs streaming, subagent fan-outs — with visibility symmetric for participants sharing the same role and channel membership
+- presence — who is online, who is active, and who is currently typing (a typing indicator, not keystroke mirroring)
+- history replay for late joiners, backfilled from their peers' local event logs (per-daemon logs are the V1 event-sourcing scope)
+
+### What Every Participant Can Do
+
+Capabilities scale with membership role — viewer, collaborator, runtime contributor (§1. Mid-Session Invites And Shared Runtime Contribution) — and with the session's approval policies:
+
+- type into the shared channels — feedback, discussion, direction
+- steer agents in the session through conversation — redirect mid-task, question plans, queue follow-ups; steering an agent owned by another participant is granted by that owner's approval policy, never by membership alone
+- queue prompts while an agent is mid-run
+- start runs and orchestrations in the session — including multi-agent workflows with autonomous subagent dispatch — using their own agents on their own machine and their own provider subscription
+- keep humans-only side channels and direct messages whose content agents are never given as context
+
+### How A Collaborator's Work Reaches The Repo
+
+Three paths, none of which involve another person's keyboard:
+
+1. **Steer the host's agents.** Where the machine owner's approval policy grants it, a collaborator's message directs an agent running on the repo-owner's machine, which edits that owner's checkout — the machine owner stays in control of what executes, and membership alone never authorizes execution on someone else's machine.
+2. **Run their own agents on their own clone.** Changes converge through git — branches, worktrees, and PRs — never through two writers mutating the same working copy blind.
+3. **Approval-gated dispatch onto another participant's machine.** A task is aimed at the machine where the work needs to happen, and that machine's owner approves before anything runs.
+
+### Collaboration Invariants
+
+- provider-agnostic: agents keep full native capability — orchestration, autonomous subagent dispatch, tool use — regardless of provider; capabilities are normalized where providers match and honestly surfaced where they differ
+- credentials never travel: every agent runs on its owner's machine and bills its owner's subscription
+- message audience is structural: session content — messages, events, artifacts — is end-to-end encrypted per recipient, so a machine outside the audience never receives readable content (presence signals ride the control plane as non-content metadata), and each daemon scopes which channels its agents are given as context — audience is a runtime-enforced contract, not etiquette
+- agent activation is by addressing: agents act when mentioned or dispatched — never by interjecting into human-to-human exchanges
+- no screen mirroring, no keyboard forwarding: shared surfaces are typed session events, and any future remote terminal control rides the same E2E channel and exclusive write-lease as local writes
 
 ## Core Reframe
 
@@ -281,7 +328,7 @@ Column rules: the `V1/V1.1/V2` column annotates each technology against the rele
 | Technology | Package | V1/V1.1/V2 | Purpose |
 | --- | --- | --- | --- |
 | PASETO v4 | In-house `packages/crypto-paseto/` ([Plan-025](./plans/025-self-hostable-node-relay.md)) on `@noble/curves` + `@noble/ciphers` | V1 | Internal auth tokens (replaces JWT); third-party TypeScript PASETO libraries rejected — see [ADR-010 §PASETO v4 Implementation Library](./decisions/010-paseto-webauthn-mls-auth.md#paseto-v4-implementation-library) |
-| WebAuthn | `@simplewebauthn/server`, `@simplewebauthn/browser` | V1 (desktop) | Primary authentication at desktop launch. CLI ships without WebAuthn via Device Authorization Grant (RFC 8628) per [ADR-010](./decisions/010-paseto-webauthn-mls-auth.md) Consequences §91; desktop client adds passkey/WebAuthn PRF ceremony for Ed25519 identity key derivation per ADR-010 §144. Desktop is V1 Feature 15 per ADR-015. |
+| WebAuthn | `@simplewebauthn/server`, `@simplewebauthn/browser` | V1 (desktop) | Primary authentication at desktop launch. CLI ships without WebAuthn via Device Authorization Grant (RFC 8628) per [ADR-010 §Positive](./decisions/010-paseto-webauthn-mls-auth.md#positive); desktop client adds passkey/WebAuthn PRF ceremony for Ed25519 identity key derivation per [ADR-010 §CLI Identity Key Storage](./decisions/010-paseto-webauthn-mls-auth.md#cli-identity-key-storage). Desktop is V1 Feature 15 per ADR-015. |
 | Relay E2EE (V1 primary) | `@noble/curves`, `@noble/ciphers`, `@noble/hashes` | V1 | Pairwise X25519 ECDH + XChaCha20-Poly1305 AEAD + HKDF-SHA256 for relay-mediated session encryption per [ADR-010](./decisions/010-paseto-webauthn-mls-auth.md). `@noble/curves` audited by Cure53, Kudelski Security, and Trail of Bits; `@noble/ciphers` audited by Cure53. |
 | Relay E2EE (V1.1+ upgrade) | MLS (RFC 9420) via an audited implementation (OpenMLS, mls-rs, or post-audit TypeScript implementation) | V1.1 | Post-compromise security and O(log N) group rekeying, gated on audit / interop / soak criteria in [ADR-010](./decisions/010-paseto-webauthn-mls-auth.md). ADR-015 V1.1 Feature #1. |
 | Crypto-shredding cipher | Node.js `crypto` (built-in) | V1 | AES-256-GCM for per-participant PII column encryption |
@@ -424,6 +471,8 @@ For details beyond this vision document, see:
 If mid-session human invites and multi-runtime agent collaboration are essential, then this system is not just an agent runner.
 
 It is a collaborative distributed runtime with local execution nodes.
+
+Shared live agent sessions are not novel on their own: by mid-2026, several cloud-hosted agent platforms ship a form of "invite a colleague into my running session". What remains unoccupied is the conjunction this architecture is built around — local execution on each participant's own machine, real multiplayer with N agents from N owners in one session, a real policy engine governing steering and dispatch rather than all-or-nothing sharing, and one unified human-and-agent timeline. The products that ship multiplayer today host the session in their own cloud; the products that run genuinely locally ship no multiplayer. Holding both at once is the position, and every architectural choice in this document exists to hold it.
 
 If the architecture is built around that truth from the beginning, it will establish the correct foundation for a category-defining collaborative software runtime.
 

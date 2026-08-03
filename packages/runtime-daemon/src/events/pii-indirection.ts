@@ -1192,6 +1192,19 @@ function embedCiphertextDigest(
  * Format` NULLs `pii_payload` and replaces `payload` with a stub projection that
  * carries no digest, so it lands in row two.
  *
+ * ONE BOUNDARY ON THAT READING IS PINNED RATHER THAN SILENT: it holds for rows
+ * this daemon ORIGINATED. `Spec-008 §Peer History Backfill On Join (V1)` names
+ * the verifier conflict (2026-08-03): a row received from a peer — live-relayed
+ * or backfilled — lands in row four BY DESIGN, because `pii_payload` never
+ * crosses the machine boundary while the signed digest inside the canonical
+ * payload does, so nothing was destroyed anywhere. The resolution — a durable
+ * received-row provenance marker that origin-scopes row four — amends
+ * `Spec-006 §Integrity Protocol` and rides Plan-008's backfill task; until that
+ * lands, no cross-daemon receive path is wired and every row this predicate can
+ * see is origin-authored, so the table above is total as written. A future
+ * caller wiring a receive path must land the provenance marker first, not
+ * soften this row.
+ *
  * A crypto-shredded row lands in row ONE and passes. `Spec-022 §Shred Fan-Out`
  * Path 1 destroys the per-participant key and overwrites no column, so the
  * ciphertext bytes are still there and still hash to the signed digest — which
