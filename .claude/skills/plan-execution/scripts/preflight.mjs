@@ -3,7 +3,8 @@
 // Authoritative contract: ../references/preflight-contract.md.
 //
 // Exit codes:
-//   0 — all gates pass; stdout = selected phase number on a single line.
+//   0 — all gates pass; stdout = the selected phase on a single line — a phase
+//       number (`4`), or a supplement label (`3B`) under explicit dispatch.
 //   1 — gate failed; stdout = self-contained halt message (orchestrator
 //       surfaces verbatim).
 //   2 — internal error (malformed input); stderr describes; stdout empty.
@@ -62,6 +63,94 @@ export function walkPhases(planSource) {
     phases.push({ number: Number(m[1]), title: m[2].trim() });
   }
   return phases;
+}
+
+// Phase-label grammar for the two NON-numeric `### Phase` heading shapes:
+//
+//   - remainder  (`R2`) — Plan-007-style `### Phase R2 — …` remainder sections.
+//   - supplement (`3B`) — campaign supplements hanging off the phase they
+//                         extend (`### Phase 3B — …`).
+//
+// ONE definition each, composed by every consumer: the
+// external_plan_phase_merged precondition resolver, the --survey label scan,
+// and the explicit phase-argument parser. Forked spellings drift — the failure
+// class this file guards against throughout — and here the drift is silent: a
+// consumer that quietly accepted lowercase `3b` would name a section no other
+// consumer can resolve.
+//
+// Neither shape is a phase NUMBER. walkPhases and the no-argument walk stay
+// numeric-only, and findSectionBoundary independently treats both heading
+// shapes as section boundaries, so a supplement is never auto-selected —
+// supplement phases are dispatch-by-name, reachable only by passing the label
+// explicitly (../references/preflight-contract.md § Invocation).
+// These are BARE pattern fragments, and `NON_NUMERIC_PHASE_LABEL_SHAPE` is a
+// top-level alternation — so every interpolation site must supply its own
+// grouping (`(?:…)` or a capture). Today only the union carries a `|`, which
+// makes an unwrapped single-shape interpolation accidentally correct; adding a
+// second alternative to either shape would silently mis-bind whatever follows
+// it at such a site. Wrapping at every site removes that latency.
+const REMAINDER_PHASE_LABEL_SHAPE = String.raw`R\d+`;
+const SUPPLEMENT_PHASE_LABEL_SHAPE = String.raw`\d+[A-Z]`;
+const NON_NUMERIC_PHASE_LABEL_SHAPE = `${REMAINDER_PHASE_LABEL_SHAPE}|${SUPPLEMENT_PHASE_LABEL_SHAPE}`;
+const NON_NUMERIC_PHASE_LABEL_RE = new RegExp(`^(?:${NON_NUMERIC_PHASE_LABEL_SHAPE})$`);
+const SUPPLEMENT_PHASE_LABEL_RE = new RegExp(`^(?:${SUPPLEMENT_PHASE_LABEL_SHAPE})$`);
+// Fresh `g` regex per call — the fencedInvariantYamlIdPattern idiom; a shared
+// global literal carries lastIndex between callers.
+const nonNumericPhaseHeadingPattern = () =>
+  new RegExp(String.raw`^### Phase (${NON_NUMERIC_PHASE_LABEL_SHAPE})\b`, "gm");
+
+// Supplement phases in document order, same `{ number, title }` shape
+// walkPhases returns (with a LABEL in `number`). Deliberately not folded into
+// walkPhases: auto-walk selection must stay numeric-only.
+//
+// The ` — <title>` separator is REQUIRED here, matching extractPhaseSection's
+// start pattern, so "resolvable by name" and "extractable" are the same shape.
+// A looser scan would let a separator-less `### Phase 3B` resolve as a dispatch
+// target and then die inside _checkPhase with the internal `cannot extract
+// phase 3B section` message instead of the caller's self-contained halt — the
+// same loose-scan-vs-extract split already documented on the --survey label
+// scan (Codex P1, PR #260 round 1).
+//
+// Callers match a label from this scan by STRING EQUALITY and only then hand it
+// to extractPhaseSection, which interpolates its argument into a pattern. That
+// ordering is load-bearing: runPreflight is exported and its phase argument is
+// caller-supplied, so a target taken straight from the argument (`3.*`) would
+// become a live regex. A label that survives equality-matching against this
+// scan is `\d+[A-Z]` by construction and carries no pattern metacharacters.
+export function walkSupplementPhases(planSource) {
+  const re = new RegExp(
+    String.raw`^### Phase ((?:${SUPPLEMENT_PHASE_LABEL_SHAPE}))\s*(?:—|:|-)\s*(.+?)\s*$`,
+    "gm",
+  );
+  const phases = [];
+  let m;
+  while ((m = re.exec(planSource)) !== null) {
+    phases.push({ number: m[1], title: m[2].trim() });
+  }
+  return phases;
+}
+
+// Parse the optional positional phase argument into a dispatch target:
+//   undefined — argument absent (auto-walk).
+//   number    — numeric phase (`4`).
+//   string    — supplement label (`3B`).
+//   null      — unparseable; the caller halts with `bad phase argument`.
+//
+// The numeric arm runs FIRST and is byte-identical to the pre-supplement
+// spelling (`Number()` + `Number.isInteger`), so every numeric invocation —
+// including its odd corners, `1e3` and `""` — resolves exactly as before; the
+// supplement arm is reached only after the numeric arm has already declined.
+//
+// Remainder labels (`R2`) are deliberately NOT dispatchable. They are operands
+// of the cross-plan external_plan_phase_merged gate, not execution targets, so
+// they keep falling through to the bad-argument halt.
+export function parsePhaseArgument(raw) {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== "string") return null;
+  const asNumber = Number(raw);
+  if (!Number.isNaN(asNumber) && Number.isInteger(asNumber)) return asNumber;
+  if (SUPPLEMENT_PHASE_LABEL_RE.test(raw)) return raw;
+  return null;
 }
 
 export function extractPhaseSection(planSource, phaseNumber) {
@@ -1365,6 +1454,28 @@ export function shippedTaskIdsForPhase(manifest, phaseNumber) {
   return out;
 }
 
+// Every shipped task id in the manifest, ignoring phase keys entirely.
+//
+// This is the shipment truth for a phase whose label is NOT a manifest phase
+// key and never can be: validateEntry forces `phase` to a positive integer, so
+// remainder (`R2`) and supplement (`3B`) sections are structurally unanswerable
+// by phase-key equality. Their declared task ids still ship — under WHATEVER
+// integer phase the work lands as — so TASK-SET membership is the only
+// checkable truth. That reasoning is the external_plan_phase_merged string
+// branch's (Codex P2, PR #193 round 4); this is that branch's set computation,
+// hoisted so the Gate-3 label path and the cross-plan resolver cannot drift
+// into disagreeing about whether the same section has shipped.
+export function shippedTaskIdsAcrossManifest(manifest) {
+  const out = new Set();
+  if (!manifest || !manifest.ok) return out;
+  for (const e of manifest.shipped) {
+    for (const t of [].concat(e.task ?? [])) {
+      if (typeof t === "string" && t.trim() !== "") out.add(t);
+    }
+  }
+  return out;
+}
+
 // ---------- IO layer (stubbable) ----------
 
 let _ghImpl = (cmd) => execSync(cmd, { encoding: "utf8", cwd: REPO_ROOT });
@@ -1703,7 +1814,20 @@ export function gatePhaseAuditCheckbox(planSource, phaseSection, planFile, phase
 //   - partially_shipped: at least one declared task isn't in the shipped
 //     set. Carries `missing` so callers can render diagnostics.
 //   - fully_shipped: every declared task appears in the shipped set.
-export function classifyPhaseShipment(planSource, phaseNumber) {
+//
+// `shippedAcrossEveryPhaseKey` switches the shipped-set source from phase-key
+// equality to the whole-manifest union (see shippedTaskIdsAcrossManifest). It
+// is an EXPLICIT opt passed by the supplement-dispatch path, deliberately not
+// inferred from `typeof phaseNumber`: shape-keying would also reroute the
+// `plan_phase` resolver, where a malformed `phase: "3B"` entry halts today and
+// would silently start passing — fail-open on malformed input, the wrong
+// direction for this file. With the opt, the numeric path is provably
+// untouched and there is still exactly one classifier.
+export function classifyPhaseShipment(
+  planSource,
+  phaseNumber,
+  { shippedAcrossEveryPhaseKey = false } = {},
+) {
   const manifest = parseManifestBlock(planSource);
   if (!manifest.ok) return { kind: "manifest_unparseable", reason: manifest.reason };
   if (manifest.version > MANIFEST_SCHEMA_VERSION) {
@@ -1725,11 +1849,17 @@ export function classifyPhaseShipment(planSource, phaseNumber) {
   const sec = extractPhaseSection(planSource, phaseNumber);
   if (!sec) return { kind: "no_phase_section", manifest };
   const declared = extractDeclaredTaskIds(sec);
+  // Phase-key equality, so this is always false under
+  // `shippedAcrossEveryPhaseKey` — correct, because a label can never BE a
+  // manifest phase key. Its only consumer is the `plan_phase` resolver's
+  // no_declared_tasks branch, which passes integers exclusively.
   const phaseHasManifestEntry = manifest.shipped.some((e) => e.phase === phaseNumber);
   if (declared.length === 0) {
     return { kind: "no_declared_tasks", manifest, phaseHasManifestEntry };
   }
-  const shipped = shippedTaskIdsForPhase(manifest, phaseNumber);
+  const shipped = shippedAcrossEveryPhaseKey
+    ? shippedTaskIdsAcrossManifest(manifest)
+    : shippedTaskIdsForPhase(manifest, phaseNumber);
   const missing = declared.filter((t) => !shipped.has(t));
   if (missing.length === 0) {
     return { kind: "fully_shipped", declared, shipped: [...shipped], manifest };
@@ -1744,7 +1874,14 @@ export function classifyPhaseShipment(planSource, phaseNumber) {
 // manifest formatting error). Schema-version forward-compat (unknown future
 // versions) remains the only intentional fail-open.
 export function gatePhaseUnshipped(planSource, planNumber, phase) {
-  const result = classifyPhaseShipment(planSource, phase.number);
+  // A supplement target carries a LABEL in `phase.number`, which is never a
+  // manifest phase key — phase-key equality would return an empty shipped set,
+  // classify every supplement `partially_shipped`, and let an already-shipped
+  // supplement be re-dispatched forever. Route it to the whole-manifest union
+  // instead, which is answerable.
+  const result = classifyPhaseShipment(planSource, phase.number, {
+    shippedAcrossEveryPhaseKey: typeof phase.number === "string",
+  });
   if (result.kind === "manifest_unparseable") {
     return {
       ok: false,
@@ -4079,7 +4216,7 @@ export function resolvePrecondition(
           { repoRoot },
         );
       }
-      if (typeof entry.phase !== "string" || !/^(?:R\d+|\d+[A-Z])$/.test(entry.phase)) {
+      if (typeof entry.phase !== "string" || !NON_NUMERIC_PHASE_LABEL_RE.test(entry.phase)) {
         return {
           ok: false,
           halt: `external_plan_phase_merged: unsupported phase value ${JSON.stringify(entry.phase)} (expected an integer, "R<n>", or a supplement label like "3B")`,
@@ -4137,12 +4274,7 @@ export function resolvePrecondition(
           halt: `${planLabel(entry.plan)} shipment manifest has invalid entries (index ${invalidEntryIndexes.join(", ")}) — fix the manifest before Phase ${entry.phase} can gate on it`,
         };
       }
-      const shippedTaskIds = new Set();
-      for (const shippedEntry of manifest.shipped) {
-        for (const taskId of [].concat(shippedEntry.task ?? [])) {
-          if (taskId) shippedTaskIds.add(taskId);
-        }
-      }
+      const shippedTaskIds = shippedTaskIdsAcrossManifest(manifest);
       const missing = declared.filter((taskId) => !shippedTaskIds.has(taskId));
       if (missing.length === 0) return { ok: true };
       return {
@@ -5907,7 +6039,7 @@ export function surveyCorpus({
       // must not merge behind a green survey and only surface at downstream
       // gate-eval time (Codex P2, PR #192 round 6). Survey them alongside the
       // numeric walk.
-      const remainderLabels = [...source.matchAll(/^### Phase (R\d+|\d+[A-Z])\b/gm)].map(
+      const remainderLabels = [...source.matchAll(nonNumericPhaseHeadingPattern())].map(
         (m) => m[1],
       );
       const allPhaseLabels = [...phases.map(({ number }) => number), ...remainderLabels];
@@ -6864,9 +6996,34 @@ export function runPreflight(
   // — the same one-cache-per-run shape surveyCorpus uses.
   const opts = { repoRoot, invariantCache: new Map() };
   if (phaseArg !== undefined && phaseArg !== null) {
-    const target = phases.find((p) => p.number === phaseArg);
-    if (!target)
-      return { exit: 1, stdout: `## Preflight halt: phase ${phaseArg} not found in ${planFile}` };
+    // A STRING phaseArg is a supplement label (`3B`) — see parsePhaseArgument.
+    // Supplements are invisible to walkPhases by design, so they are resolved
+    // against their own heading scan and matched by string equality; once
+    // resolved, they run every gate a numeric phase runs, through the same
+    // _checkPhase.
+    const isSupplementTarget = typeof phaseArg === "string";
+    const candidates = isSupplementTarget ? walkSupplementPhases(planSource) : phases;
+    const target = candidates.find((p) => p.number === phaseArg);
+    if (!target) {
+      if (!isSupplementTarget)
+        return { exit: 1, stdout: `## Preflight halt: phase ${phaseArg} not found in ${planFile}` };
+      return {
+        exit: 1,
+        stdout: [
+          `## Preflight halt: supplement phase ${phaseArg} not found in ${planFile}`,
+          "",
+          `Explicit supplement dispatch resolves a \`### Phase ${phaseArg} — <title>\` heading by`,
+          "name — the no-argument walk never selects a supplement.",
+          candidates.length > 0
+            ? `Supplement headings in this plan: ${candidates.map((p) => `Phase ${p.number}`).join(", ")}.`
+            : "This plan declares no supplement phase headings.",
+          "",
+          "A supplement heading carrying no ` — <title>` separator is invisible to this",
+          "resolver (accepted separators: `—`, `:`, `-`). Give the heading a title, or",
+          "dispatch the numeric phase that owns the work.",
+        ].join("\n"),
+      };
+    }
     const r = _checkPhase(planSource, planNumber, target, planFile, opts);
     // Halt paths carry demoted warnings too — explicit-phase overrides are a
     // normal recovery path, and the never-silent contract must survive them
@@ -7007,15 +7164,20 @@ async function main() {
   const positional = args.filter((a) => !a.startsWith("-"));
   if (positional.length === 0 || args.includes("--help") || args.includes("-h")) {
     process.stderr.write(
-      "Usage: node preflight.mjs <plan-file> [phase-number] [--allow-stale-manifest] [--allow-unpromoted] | --survey [--enforce-cites]\n" +
+      "Usage: node preflight.mjs <plan-file> [phase] [--allow-stale-manifest] [--allow-unpromoted] | --survey [--enforce-cites]\n" +
+        "  [phase] — a phase number (`4`) or a supplement label (`3B`). Omit it to auto-walk\n" +
+        "  the numeric phases; supplements are dispatch-by-name and are never auto-selected.\n" +
         "See ../references/preflight-contract.md.\n",
     );
     process.exit(2);
   }
   const planFile = positional[0];
-  const phaseArg = positional[1] !== undefined ? Number(positional[1]) : undefined;
-  if (positional[1] !== undefined && (Number.isNaN(phaseArg) || !Number.isInteger(phaseArg))) {
-    process.stderr.write(`bad phase argument: ${positional[1]}\n`);
+  const phaseArg = parsePhaseArgument(positional[1]);
+  if (phaseArg === null) {
+    process.stderr.write(
+      `bad phase argument: ${positional[1]} (expected a phase number like \`4\`, ` +
+        "or a supplement label like `3B`)\n",
+    );
     process.exit(2);
   }
   if (allowStaleManifest) {
