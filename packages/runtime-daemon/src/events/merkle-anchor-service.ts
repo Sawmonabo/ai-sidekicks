@@ -235,10 +235,21 @@ export const UPLOAD_RETRY_MAX_SECONDS: number = 3600;
  * the constants above.
  *
  * `attemptCount` is the count of attempts ALREADY made, so 0 (never attempted)
- * yields no delay at all. Growth is `base * 2^(attempts - 1)`, clamped at
- * {@link UPLOAD_RETRY_MAX_SECONDS}; the shift is bounded before it is taken so
- * a corrupt `attempt_count` cannot overflow it into a negative delay, which
- * would turn the gate into a hot loop — the exact failure this exists to stop.
+ * yields no delay at all. The same guard absorbs a corrupt `attempt_count` that
+ * is negative or non-finite: those return 0 rather than `NaN`, because a `NaN`
+ * delay makes the `waited >= delay` eligibility comparison false forever and
+ * strands the row.
+ *
+ * Growth is `base * 2^(attempts - 1)`, capped at {@link UPLOAD_RETRY_MAX_SECONDS}.
+ * The exponent is bounded at 32 to keep `2 ** doublings` a finite double for an
+ * absurd `attempt_count` — there is no shift anywhere here (`**`, not `<<`), so
+ * nothing can wrap into a negative delay. That bound is DEFENSIVE ONLY and is
+ * not observable in the returned value: unbounded, a huge exponent yields
+ * `Infinity`, and `Math.min(Infinity, UPLOAD_RETRY_MAX_SECONDS)` is the cap —
+ * the same second the bounded path returns. It is kept so this expression stays
+ * in finite arithmetic instead of depending on `Infinity` surviving a future
+ * edit to it, and the tests below pin the two things that ARE observable: the
+ * guard's zero and the cap boundary.
  */
 export function uploadRetryDelaySeconds(attemptCount: number): number {
   if (!Number.isFinite(attemptCount) || attemptCount <= 0) return 0;
@@ -519,6 +530,20 @@ export interface AnchorRangeRequest {
   readonly sessionId: SessionId;
   readonly fromSeq: number;
   readonly toSeq: number;
+}
+
+/** What one {@link MerkleAnchorService.uploadPendingAnchors} drain did. */
+export interface AnchorDrainResult {
+  /** Anchors the control plane accepted or already held on THIS call. */
+  readonly flushed: number;
+  /**
+   * Queued rows skipped whole because their own identity columns would not
+   * bind, so not even their failure could be recorded. A counted bucket rather
+   * than a silent `continue` — the compactor reports its equivalent as
+   * `sessionsUnreadable`, and for the same reason: these rows leave no trace in
+   * `last_error`, so this count is the ONLY signal they exist.
+   */
+  readonly anchorsUnreadable: number;
 }
 
 /** Construction deps for {@link MerkleAnchorService}. */
@@ -901,21 +926,23 @@ export class MerkleAnchorService {
    * a 404 for a session the control plane never learned — re-attempted at the
    * caller's full drain frequency forever.
    *
-   * @returns the number of anchors the control plane accepted or already held
-   * on THIS call. A ZERO RETURN DOES NOT MEAN THE QUEUE IS EMPTY: it is equally
-   * the answer when every pending row is still inside its backoff window, and a
-   * scheduler that reads it as "nothing left to flush" will be wrong for as long
-   * as an hour at a time. Callers wanting queue depth must query the table; this
-   * number reports work DONE, not work REMAINING.
+   * @returns an {@link AnchorDrainResult}. A ZERO `flushed` DOES NOT MEAN THE
+   * QUEUE IS EMPTY: it is equally the answer when every pending row is still
+   * inside its backoff window, and a scheduler that reads it as "nothing left to
+   * flush" will be wrong for as long as an hour at a time. Callers wanting queue
+   * depth must query the table; these numbers report work DONE, not work
+   * REMAINING. A non-zero `anchorsUnreadable` is an operator signal, not a
+   * transient: those rows stay pending and will be re-skipped every drain.
    */
-  async uploadPendingAnchors(): Promise<number> {
-    if (this.#uploadTransport === undefined) return 0;
+  async uploadPendingAnchors(): Promise<AnchorDrainResult> {
+    if (this.#uploadTransport === undefined) return { flushed: 0, anchorsUnreadable: 0 };
 
     const pending = this.#selectPendingUploads.all(
       DAEMON_SCOPE_SENTINEL_SESSION_ID,
     ) as ReadonlyArray<PendingUploadRow>;
 
     let flushed = 0;
+    let anchorsUnreadable = 0;
     for (const row of pending) {
       const now = this.#now();
       if (!isUploadRetryDue(row, now)) continue;
@@ -946,8 +973,13 @@ export class MerkleAnchorService {
         // A row whose own identity columns will not bind is the one case that
         // cannot be recorded at all — writing the failure would need the same
         // values that are corrupt. It is left pending and the drain moves on,
-        // rather than throwing and stalling every later row.
-        if (identity === undefined) continue;
+        // rather than throwing and stalling every later row. COUNTED rather
+        // than silently skipped: `last_error` is exactly the channel this arm
+        // cannot reach, so without the count the row is invisible to everyone.
+        if (identity === undefined) {
+          anchorsUnreadable += 1;
+          continue;
+        }
         this.#recordUploadFailure.run(
           attemptedAt,
           uploadError instanceof Error ? uploadError.message : String(uploadError),
@@ -958,7 +990,7 @@ export class MerkleAnchorService {
         );
       }
     }
-    return flushed;
+    return { flushed, anchorsUnreadable };
   }
 
   // ------------------------------------------------------------------------

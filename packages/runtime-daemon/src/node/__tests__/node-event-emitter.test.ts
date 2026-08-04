@@ -7,8 +7,10 @@
 // factory → per-test tmp file → `afterEach` close + unlink). The
 // structural-seam block at the bottom proves the emitter also accepts a
 // plain-object log implementation: the seam is ASYNC-TRANSACTIONAL post the
-// T3.1 re-point, and that block pins the contract at BOTH enforcement
-// layers (a synchronous `append` fails to compile AND is refused at runtime).
+// T3.1 re-point, and that block pins the contract at ALL THREE enforcement
+// layers (a synchronous `append` fails to compile, a non-thenable return is
+// refused at runtime, and the value the seam RESOLVES to is checked after the
+// await).
 //
 // Coverage map (cites are the authoritative contract, not just the ACs):
 //   * D5 (Plan-003 T2.3 required assertion / I-003-4): a persisted
@@ -33,6 +35,10 @@
 //     its `runtime_node.*` type + `runtime_node_lifecycle` category.
 //   * sessionId/actor reconciliation: one input value populates BOTH the
 //     envelope and the payload (a caller cannot make them diverge).
+//   * Receipt shape at the async boundary: the value the seam RESOLVES to is
+//     checked structurally, so no log implementation can hand the anchor
+//     cadence a malformed `sequence`/`rowHash` pair — with `sequence: 0`, a
+//     session's first row, deliberately admitted.
 //
 // Spec coverage: `Spec-003 §State And Data Implications` (capability/trust changes emitted as
 // session events); `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` (per-event payload shapes);
@@ -852,6 +858,109 @@ describe("RuntimeNodeEventEmitter — SessionEventLog seam (structural, no Event
           newState: "online",
         }),
       ).rejects.toThrow("mutex lost");
+    });
+  });
+
+  // Layer 3, and the one the two layers above structurally cannot reach: they
+  // constrain the SHAPE OF THE CALL (a promise came back), never the value it
+  // settles to. `sequence` and `rowHash` are the anchor cadence's inputs, so a
+  // malformed pair admitted here does not fail here — it fails later, inside a
+  // Merkle root computed over a leaf that is not a chain hash, with nothing in
+  // the diagnostic naming this seam. The fakes below all return a genuine
+  // promise, which is what makes them invisible to the tripwire above.
+  describe("resolved-receipt shape — checked after the await", () => {
+    function emitThrough(log: SessionEventLog): Promise<EventLogAppendReceipt> {
+      return new RuntimeNodeEventEmitter({ sessionEvents: log }).emitOnline({
+        sessionId: SESSION_ID,
+        nodeId: NODE_ID,
+        newState: "online",
+      });
+    }
+
+    it("refuses a promise that RESOLVES to undefined", async () => {
+      // The exact hole layer 2 leaves open: `Promise.resolve(undefined)` is a
+      // perfectly good thenable, so the tripwire admits it and every consumer
+      // then reads `receipt.sequence` off `undefined`.
+      const resolvingToUndefinedEventLog: SessionEventLog = {
+        append: (): Promise<EventLogAppendReceipt> =>
+          Promise.resolve(undefined as unknown as EventLogAppendReceipt),
+      };
+
+      await expect(emitThrough(resolvingToUndefinedEventLog)).rejects.toThrow(
+        /resolved to a value of type undefined instead of an EventLogAppendReceipt/,
+      );
+    });
+
+    it("refuses a receipt carrying no sequence at all", async () => {
+      const sequencelessEventLog: SessionEventLog = {
+        append: (envelope): Promise<EventLogAppendReceipt> =>
+          Promise.resolve({
+            id: envelope.id,
+            rowHash: new Uint8Array(32),
+          } as unknown as EventLogAppendReceipt),
+      };
+
+      await expect(emitThrough(sequencelessEventLog)).rejects.toThrow(
+        /sequence is not a non-negative integer \(received undefined\)/,
+      );
+    });
+
+    it("refuses a NEGATIVE sequence — the sentinel an empty-log allocator would return", async () => {
+      // `-1` is the shape this bug actually takes: a log that reports "no rows
+      // yet" as a sequence rather than as an absent head. It is arithmetically
+      // fine and silently breaks every range the cadence keys off it.
+      const negativeSequenceEventLog: SessionEventLog = {
+        append: (envelope): Promise<EventLogAppendReceipt> =>
+          Promise.resolve({ id: envelope.id, sequence: -1, rowHash: new Uint8Array(32) }),
+      };
+
+      await expect(emitThrough(negativeSequenceEventLog)).rejects.toThrow(
+        /sequence is not a non-negative integer \(received -1\)/,
+      );
+    });
+
+    it("refuses a rowHash that is a hex STRING rather than 32 bytes", async () => {
+      // The likeliest hand-rolled spelling — a fake that renders the hash for
+      // readability. It reaches the Merkle leaf as a string and hashes to
+      // something that no verifier can reproduce from the stored BLOB.
+      const stringRowHashEventLog: SessionEventLog = {
+        append: (envelope): Promise<EventLogAppendReceipt> =>
+          Promise.resolve({
+            id: envelope.id,
+            sequence: 0,
+            rowHash: "00".repeat(32),
+          } as unknown as EventLogAppendReceipt),
+      };
+
+      await expect(emitThrough(stringRowHashEventLog)).rejects.toThrow(
+        /rowHash is not a 32-byte Uint8Array \(got a value of type string\)/,
+      );
+    });
+
+    it("ADMITS sequence 0 and returns a receipt built from the checked members only", async () => {
+      // THE BOUNDARY THE GUARD MUST NOT CLOSE: 0 is a session's FIRST row, so a
+      // `sequence < 1` reading of "non-negative" would refuse every genesis
+      // append — the fail-closed direction being wrong is as bad as being
+      // absent, and this arm is what fails if it flips.
+      //
+      // The fake also returns a member the receipt does not declare. The guard
+      // rebuilds rather than passing through, so the emitter's caller sees the
+      // three checked members and nothing else — `toEqual` fails on the leak.
+      const rowHash = new Uint8Array(32).fill(3);
+      const genesisEventLog: SessionEventLog = {
+        append: (envelope): Promise<EventLogAppendReceipt> =>
+          Promise.resolve({
+            id: envelope.id,
+            sequence: 0,
+            rowHash,
+            internalCursor: "not part of the receipt contract",
+          } as unknown as EventLogAppendReceipt),
+      };
+
+      const receipt: EventLogAppendReceipt = await emitThrough(genesisEventLog);
+
+      expect(receipt).toEqual({ id: receipt.id, sequence: 0, rowHash });
+      expect(Object.hasOwn(receipt, "internalCursor")).toBe(false);
     });
   });
 });

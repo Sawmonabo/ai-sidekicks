@@ -265,10 +265,22 @@ export interface EventLogServiceDeps {
   readonly monotonicNow?: () => bigint;
 }
 
-/** The chain head as read under the lock — absent for a session's first row. */
+/**
+ * The chain head as read under the lock — absent for a session's first row.
+ *
+ * BOTH members are `unknown` rather than `bigint` / `Uint8Array` deliberately:
+ * the columns are declared `INTEGER NOT NULL` / `BLOB NOT NULL`, but that
+ * declaration is a claim TypeScript never checked, and the read below is where
+ * both checks happen — the read-side stance `signing-key-source.ts` takes
+ * toward `daemon_signing_keys`. Declaring the narrow types here would have made
+ * every use downstream of the cast unchecked: SQLite's declared types give
+ * AFFINITY, not enforcement, so a TEXT `row_hash` written by anything with
+ * access to the file arrives as a JS `string` and would be chained into
+ * `prev_hash` — signed, stored, and verifiable nowhere.
+ */
 interface ChainHeadRow {
-  readonly sequence: bigint;
-  readonly row_hash: Uint8Array;
+  readonly sequence: unknown;
+  readonly row_hash: unknown;
 }
 
 export class EventLogService {
@@ -443,8 +455,10 @@ export class EventLogService {
       const head: ChainHeadRow | undefined = this.#chainHeadStmt.get(sessionId) as
         | ChainHeadRow
         | undefined;
-      const sequence: number = head === undefined ? 0 : Number(head.sequence) + 1;
-      const prevHash: Uint8Array = head === undefined ? GENESIS_PREV_HASH : head.row_hash;
+      const sequence: number =
+        head === undefined ? 0 : Number(narrowHeadSequence(head.sequence, sessionId)) + 1;
+      const prevHash: Uint8Array =
+        head === undefined ? GENESIS_PREV_HASH : narrowHeadRowHash(head.row_hash, sessionId);
 
       // (5) THE TWO T2.1-INHERITED NORMALIZATION OBLIGATIONS, both discharged
       // BEFORE canonicalization, both because the SIGNED bytes and the STORED
@@ -673,6 +687,56 @@ export class EventLogService {
 // disable the shred seam — the parse would simply never run, and no test of a
 // non-shred append would notice.
 const EVENT_SHREDDED_EVENT_TYPE: EventShreddedEvent["type"] = "event.shredded";
+
+/**
+ * The `row_hash` width `signer.ts` enforces, re-spelled here for the chain-head
+ * read guard rather than imported — `signer.ts` keeps its own
+ * `CHAIN_HASH_LENGTH` module-private, and `pii-indirection.ts` re-spells it for
+ * the same reason rather than widening that export surface for one integer.
+ *
+ * DRIFT HERE IS ONE-DIRECTIONAL AND LOUD: this value only ever refuses a stored
+ * head, and `signRow` re-checks the `prev_hash` it produces, so a stale value
+ * can cause a false refusal — never a signature over a wrong-width chain link.
+ */
+const CHAIN_HASH_LENGTH = 32;
+
+/**
+ * The stored chain-head `sequence`, checked rather than asserted.
+ *
+ * `#chainHeadStmt` is prepared `.safeIntegers(true)`, so an INTEGER column
+ * arrives as a `bigint` and anything else means the column does not hold an
+ * integer at all: INTEGER affinity coerces only text that LOOKS numeric, so a
+ * non-numeric TEXT value stays TEXT and a REAL one stays REAL. Either would
+ * survive `Number(...) + 1` — as `NaN` and as a fractional sequence — and be
+ * INSERTed as this row's `sequence` and signed into its canonical bytes.
+ */
+function narrowHeadSequence(value: unknown, sessionId: SessionId): bigint {
+  if (typeof value !== "bigint") {
+    throw new Error(
+      `session_events.sequence for session ${sessionId} is not an INTEGER: got a value of type ${typeof value}. The column is declared INTEGER NOT NULL and this statement reads it with safeIntegers, so a non-bigint value means the row was written or altered outside this module. Refusing here rather than allocating the next sequence from it.`,
+    );
+  }
+  return value;
+}
+
+/**
+ * The stored chain-head `row_hash`, checked rather than asserted — this value
+ * becomes the next row's `prev_hash`, so a wrong-shaped one is chained into the
+ * canonical bytes and signed. Refused here, where the diagnostic can still name
+ * the column, rather than at `signRow`, whose message names an argument.
+ */
+function narrowHeadRowHash(value: unknown, sessionId: SessionId): Uint8Array {
+  if (!(value instanceof Uint8Array) || value.length !== CHAIN_HASH_LENGTH) {
+    throw new Error(
+      `session_events.row_hash for session ${sessionId} is not a ${CHAIN_HASH_LENGTH}-byte BLOB: got ${
+        value instanceof Uint8Array
+          ? `${value.length} bytes`
+          : `a non-Uint8Array value of type ${typeof value}`
+      }. The column is declared BLOB NOT NULL and this module writes a 32-byte BLAKE3 chain hash, so a wrong-shaped value means the row was written or altered outside this module.`,
+    );
+  }
+  return value;
+}
 
 /** The bound row, snake_case to match the column names one-for-one. */
 interface InsertBindings {

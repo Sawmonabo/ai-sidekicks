@@ -129,6 +129,39 @@ class CapabilityRowDivergedError extends Error {
 /** Bounded attempts for the read-decide-emit optimistic-concurrency loop. */
 const CAPABILITY_DECLARE_MAX_ATTEMPTS: number = 3;
 
+/** The stored snapshot, parsed — `undefined` when the row does not exist. */
+function parseStoredDetails(
+  row: CapabilityValueRow | undefined,
+): Record<string, unknown> | undefined {
+  return row === undefined
+    ? undefined
+    : (JSON.parse(row.capability_value) as Record<string, unknown>);
+}
+
+/**
+ * Structural equality for two possibly-absent capability snapshots — the ONE
+ * comparison BOTH change-detection and the in-prelude re-check use, so the two
+ * cannot disagree about what counts as "the row moved" (the sibling
+ * `driver-capabilities-writer.ts` pins the same single-comparison rule with
+ * `snapshotsEqual`). Comparing the re-check on RAW `capability_value` text
+ * instead would call a key-reordered but semantically identical racer write a
+ * divergence, and three such races exhaust the retry budget and surface
+ * {@link CapabilityRowDivergedError} out of a legitimately unchanged re-declare.
+ *
+ * Absent-vs-present IS a divergence: it flips the declared/updated branch
+ * itself. Both sides arrive already JSON-round-tripped, so key order is not a
+ * difference here.
+ */
+function capabilityDetailsEqual(
+  left: Record<string, unknown> | undefined,
+  right: Record<string, unknown> | undefined,
+): boolean {
+  if (left === undefined || right === undefined) {
+    return left === right;
+  }
+  return isDeepStrictEqual(left, right);
+}
+
 // --------------------------------------------------------------------------
 // NodeCapabilityService
 // --------------------------------------------------------------------------
@@ -290,6 +323,11 @@ export class NodeCapabilityService {
       ) as Record<string, unknown>;
       const capabilityValue: string = JSON.stringify(input.capabilityDetails);
 
+      // Parsed ONCE here, above the prelude, and used by both the decision
+      // below and the re-check inside it — the branch and the abort must be
+      // deciding on the same normalized value.
+      const priorDetails: Record<string, unknown> | undefined = parseStoredDetails(existingRow);
+
       // The durable half of the dual-write, shared by both mutating branches.
       // Runs inside the append's transaction immediately BEFORE the event-row
       // INSERT. `this.#now()` is read HERE, in the transaction, exactly where it
@@ -298,18 +336,24 @@ export class NodeCapabilityService {
         // THE RE-CHECK, first statement — see the `declare` doc comment for why
         // the session-keyed append lock cannot cover a node-keyed row.
         //
-        // `existingRow` was read outside any write transaction and this attempt
-        // then parked on an `await` before reaching here. Re-reading inside
-        // `BEGIN IMMEDIATE` closes the window in both directions: a racer that
-        // committed before our BEGIN is visible here, and a racer that BEGINs
-        // after ours blocks until we COMMIT or ROLL BACK. `.get()` is called
-        // directly — better-sqlite3 throws on a nested transaction and we are
-        // already inside the append's, which supplies the read consistency.
+        // The decision above was made outside any write transaction and this
+        // attempt then parked on an `await` before reaching here. Re-reading
+        // inside `BEGIN IMMEDIATE` closes the window in both directions: a
+        // racer that committed before our BEGIN is visible here, and a racer
+        // that BEGINs after ours blocks until we COMMIT or ROLL BACK. `.get()`
+        // is called directly — better-sqlite3 throws on a nested transaction
+        // and we are already inside the append's, which supplies the read
+        // consistency.
+        //
+        // Compared through `capabilityDetailsEqual`, the SAME comparison the
+        // decision used: a racer that rewrote the row to a semantically
+        // identical value did not invalidate our branch, and calling that a
+        // divergence would burn the retry budget on a no-op.
         const currentRow: CapabilityValueRow | undefined = this.#selectCapabilityStmt.get({
           node_id: input.nodeId,
           capability_key: input.capability,
         }) as CapabilityValueRow | undefined;
-        if (currentRow?.capability_value !== existingRow?.capability_value) {
+        if (!capabilityDetailsEqual(parseStoredDetails(currentRow), priorDetails)) {
           throw new CapabilityRowDivergedError(input.nodeId, input.capability);
         }
 
@@ -321,8 +365,10 @@ export class NodeCapabilityService {
         });
       };
 
-      if (existingRow === undefined) {
-        // First declaration of this capability.
+      if (priorDetails === undefined) {
+        // First declaration of this capability. Branching on the PARSED value
+        // rather than on `existingRow` keeps this decision and the prelude's
+        // re-check reading the same variable — absent here is absent there.
         await this.#emitter.emitCapabilityDeclared({
           sessionId,
           nodeId: input.nodeId,
@@ -333,10 +379,6 @@ export class NodeCapabilityService {
         });
         return;
       }
-
-      const priorDetails: Record<string, unknown> = JSON.parse(
-        existingRow.capability_value,
-      ) as Record<string, unknown>;
 
       if (isDeepStrictEqual(priorDetails, normalizedIncoming)) {
         // Identical re-declare — idempotent: no write, no event. `updated_at`

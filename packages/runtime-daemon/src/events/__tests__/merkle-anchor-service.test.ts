@@ -15,14 +15,18 @@
 //     `start_sequence` does not collapse into it;
 //   * cadence-window gap-healing, i.e. that a non-contiguous force-fire does not
 //     permanently orphan the band it skipped;
-//   * the drain's two filters — the daemon-scope sentinel exclusion and the
-//     backoff gate.
+//   * the drain's row dispositions — the daemon-scope sentinel exclusion, the
+//     backoff gate, and the identity columns that will not bind;
+//   * the backoff schedule `uploadRetryDelaySeconds` computes for that gate.
 //
 // ONE READING TO GET RIGHT BEFORE ADDING AN ARM: `uploadPendingAnchors()`
-// returns work DONE on this call, never work REMAINING. Zero is equally the
-// answer when every pending row is still inside its backoff window, so a
-// drain-until-zero-means-empty assertion would be asserting something the method
-// does not promise.
+// returns an `AnchorDrainResult` describing work DONE on this call, never work
+// REMAINING. A zero `flushed` is equally the answer when every pending row is
+// still inside its backoff window, so a drain-until-zero-means-empty assertion
+// would be asserting something the method does not promise. The arms below
+// assert the WHOLE record rather than `flushed` alone, so every healthy path
+// also pins `anchorsUnreadable: 0` — a bucket that only ever increments on the
+// one row class the drain cannot record durably.
 //
 // Spec coverage: `Spec-006 §Anchoring Cadence` (the earlier-of rule and the
 // seven-member anchor), `Spec-006 §Post-Compaction Integrity` (the coverage
@@ -184,7 +188,7 @@ describe("MerkleAnchorService — the anchor carries no event content", () => {
     const service = buildService(transport);
     await service.anchorRange({ sessionId: SESSION, fromSeq: 0, toSeq: 2 });
 
-    expect(await service.uploadPendingAnchors()).toBe(1);
+    expect(await service.uploadPendingAnchors()).toEqual({ flushed: 1, anchorsUnreadable: 0 });
 
     const [uploaded] = transport.uploaded;
     expect(uploaded).toBeDefined();
@@ -390,7 +394,7 @@ describe("MerkleAnchorService — anchorRange coverage pre-check", () => {
 });
 
 // ----------------------------------------------------------------------------
-// `uploadPendingAnchors` — the drain's two filters
+// `uploadPendingAnchors` — how the drain dispositions a pending row
 // ----------------------------------------------------------------------------
 
 describe("MerkleAnchorService — the upload drain", () => {
@@ -409,7 +413,7 @@ describe("MerkleAnchorService — the upload drain", () => {
       toSeq: 2,
     });
 
-    expect(await service.uploadPendingAnchors()).toBe(1);
+    expect(await service.uploadPendingAnchors()).toEqual({ flushed: 1, anchorsUnreadable: 0 });
 
     const rows = anchorRows();
     expect(rows).toHaveLength(2);
@@ -427,7 +431,7 @@ describe("MerkleAnchorService — the upload drain", () => {
     const service = buildService(transport);
     await service.anchorRange({ sessionId: SESSION, fromSeq: 0, toSeq: 2 });
 
-    expect(await service.uploadPendingAnchors()).toBe(0);
+    expect(await service.uploadPendingAnchors()).toEqual({ flushed: 0, anchorsUnreadable: 0 });
 
     const [row] = anchorRows();
     expect(row?.uploaded_at).toBeNull();
@@ -450,13 +454,13 @@ describe("MerkleAnchorService — the upload drain", () => {
     // Inside the window after one failed attempt — not re-selected at all, so
     // the attempt counter does not move.
     advanceSeconds(UPLOAD_RETRY_BASE_SECONDS - 1);
-    expect(await service.uploadPendingAnchors()).toBe(0);
+    expect(await service.uploadPendingAnchors()).toEqual({ flushed: 0, anchorsUnreadable: 0 });
     expect(anchorRows()[0]?.attempt_count).toBe(1);
 
     // Past the window, and now succeeding.
     advanceSeconds(2);
     transport.failWith = undefined;
-    expect(await service.uploadPendingAnchors()).toBe(1);
+    expect(await service.uploadPendingAnchors()).toEqual({ flushed: 1, anchorsUnreadable: 0 });
     const [row] = anchorRows();
     expect(row?.uploaded_at).not.toBeNull();
     expect(row?.attempt_count).toBe(2);
@@ -469,7 +473,7 @@ describe("MerkleAnchorService — the upload drain", () => {
     const service = buildService(transport);
     await service.anchorRange({ sessionId: SESSION, fromSeq: 0, toSeq: 2 });
 
-    expect(await service.uploadPendingAnchors()).toBe(1);
+    expect(await service.uploadPendingAnchors()).toEqual({ flushed: 1, anchorsUnreadable: 0 });
   });
 
   it("is a no-op when no transport is wired", async () => {
@@ -477,7 +481,7 @@ describe("MerkleAnchorService — the upload drain", () => {
     const service = buildService();
     await service.anchorRange({ sessionId: SESSION, fromSeq: 0, toSeq: 2 });
 
-    expect(await service.uploadPendingAnchors()).toBe(0);
+    expect(await service.uploadPendingAnchors()).toEqual({ flushed: 0, anchorsUnreadable: 0 });
     expect(anchorRows()[0]?.attempt_count).toBe(0);
   });
 
@@ -487,11 +491,48 @@ describe("MerkleAnchorService — the upload drain", () => {
     const service = buildService(transport);
     await service.anchorRange({ sessionId: SESSION, fromSeq: 0, toSeq: 2 });
 
-    expect(await service.uploadPendingAnchors()).toBe(1);
+    expect(await service.uploadPendingAnchors()).toEqual({ flushed: 1, anchorsUnreadable: 0 });
     // `uploaded_at` is stamped and never cleared, so the row leaves the pending
     // set permanently.
-    expect(await service.uploadPendingAnchors()).toBe(0);
+    expect(await service.uploadPendingAnchors()).toEqual({ flushed: 0, anchorsUnreadable: 0 });
     expect(transport.uploaded).toHaveLength(1);
+  });
+
+  it("counts a row whose identity will not bind, and drains the healthy ones anyway", async () => {
+    // The one row class the drain cannot record durably: writing its failure to
+    // `last_error` needs the same identity columns that are corrupt. It is
+    // skipped — but COUNTED, because `last_error` is exactly the channel this
+    // arm cannot reach, so a silent `continue` would leave the row invisible to
+    // every operator surface at once.
+    //
+    // `start_sequence` is corrupted to a non-numeric TEXT value: SQLite's
+    // INTEGER affinity converts only text that is losslessly numeric, so 'x'
+    // stays TEXT and comes back from better-sqlite3 as a JS string. That is
+    // what `readAnchorIdentity` refuses (`typeof !== "number"`), and it is
+    // reachable at rest — the column is INTEGER NOT NULL, which constrains
+    // NULL and nothing else.
+    seedEvents(6);
+    const transport = new RecordingUploadTransport();
+    const service = buildService(transport);
+    await service.anchorRange({ sessionId: SESSION, fromSeq: 0, toSeq: 2 });
+    await service.anchorRange({ sessionId: SESSION, fromSeq: 3, toSeq: 5 });
+    database
+      .prepare("UPDATE pending_anchor_uploads SET start_sequence = 'x' WHERE start_sequence = 3")
+      .run();
+
+    expect(await service.uploadPendingAnchors()).toEqual({ flushed: 1, anchorsUnreadable: 1 });
+
+    // The healthy row flushed — one corrupt row must not stall the queue.
+    expect(transport.uploaded.map((anchor) => anchor.startSequence)).toEqual([0]);
+    const healthy = anchorRows().find((row) => row.start_sequence === 0);
+    expect(healthy?.uploaded_at).not.toBeNull();
+
+    // And the corrupt row is untouched: still pending, no attempt recorded, no
+    // `last_error` — which is precisely why the COUNT is the only signal.
+    const corrupt = anchorRows().find((row) => String(row.start_sequence) === "x");
+    expect(corrupt?.uploaded_at).toBeNull();
+    expect(corrupt?.attempt_count).toBe(0);
+    expect(corrupt?.last_error).toBeNull();
   });
 });
 
@@ -514,5 +555,39 @@ describe("uploadRetryDelaySeconds", () => {
       expect(delay).toBeLessThanOrEqual(UPLOAD_RETRY_MAX_SECONDS);
       previous = delay;
     }
+  });
+
+  it("pins the LAST uncapped attempt and the FIRST capped one", () => {
+    // The arm above cannot tell a working cap from a missing one: every
+    // expectation in it is satisfied by the uncapped formula too, and
+    // `uploadRetryDelaySeconds(100)` reaching the cap is equally what an
+    // absent cap would produce via `Infinity`. THESE two values discriminate.
+    // Both are literals on purpose — deriving them from the constants would
+    // restate the formula under test. For the shipped 30 s base and 3600 s cap:
+    //   attempt 7 → 30 * 2^6 = 1920, the last value under the cap;
+    //   attempt 8 → 30 * 2^7 = 3840 uncapped, so 3600 is the cap doing work.
+    // Re-derive both if either constant moves.
+    expect(uploadRetryDelaySeconds(7)).toBe(1920);
+    expect(uploadRetryDelaySeconds(7)).toBeLessThan(UPLOAD_RETRY_MAX_SECONDS);
+    expect(uploadRetryDelaySeconds(8)).toBe(UPLOAD_RETRY_MAX_SECONDS);
+    expect(uploadRetryDelaySeconds(8)).toBe(3600);
+  });
+
+  it("returns 0 for every attempt count that is not a positive number", () => {
+    // The guard clause, which the arms above never reach. A corrupt
+    // `attempt_count` must not yield NaN: `isUploadRetryDue` compares
+    // `waited >= delay`, and every comparison against NaN is false, so a NaN
+    // delay strands the row permanently instead of retrying it.
+    expect(uploadRetryDelaySeconds(0)).toBe(0);
+    expect(uploadRetryDelaySeconds(-1)).toBe(0);
+    expect(uploadRetryDelaySeconds(Number.NaN)).toBe(0);
+    expect(uploadRetryDelaySeconds(Number.POSITIVE_INFINITY)).toBe(0);
+    expect(uploadRetryDelaySeconds(Number.NEGATIVE_INFINITY)).toBe(0);
+  });
+
+  it("floors a fractional attempt count rather than interpolating", () => {
+    // `attempt_count` is an INTEGER column, so a fractional value is corruption
+    // — but it must land on a defined rung rather than a fractional power.
+    expect(uploadRetryDelaySeconds(2.9)).toBe(uploadRetryDelaySeconds(2));
   });
 });

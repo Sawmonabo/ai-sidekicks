@@ -6,7 +6,7 @@
 // and are deliberately not repeated: this file exercises the gate through
 // `append()`, that one exercises the registry through its own surface.
 //
-// FOUR PROPERTIES THIS FILE IS RESPONSIBLE FOR, each of which fails silently if
+// FIVE PROPERTIES THIS FILE IS RESPONSIBLE FOR, each of which fails silently if
 // nobody asserts it:
 //
 //   1. HASH-CHAIN INTEGRITY, in BOTH halves. `verifyRow` is intra-row by
@@ -27,6 +27,11 @@
 //   4. SERIALIZATION. Concurrent appends on one session must not derive the same
 //      chain link, reentrant appends must not deadlock, and a throwing
 //      `transactionalPrelude` must consume no sequence.
+//   5. THE CHAIN-HEAD READ BOUNDARY. A declared SQLite column type is AFFINITY
+//      and not enforcement, so both head columns are read back as `unknown` and
+//      narrowed. The next row's `sequence` and its `prev_hash` are BOTH derived
+//      from that one read, which is what makes a wrong-typed head a value that
+//      gets signed rather than refused.
 //
 // FIXTURE NOTE — the signing key source answers for EVERY session id, the
 // daemon-scope sentinel included. A per-session map keyed only on the fixture's
@@ -440,6 +445,67 @@ describe("EventLogService — hash chain (I-006-2-04)", () => {
 
     expect(verifyEveryRow(SESSION)).toEqual([{ valid: true }, { valid: true }, { valid: true }]);
     expect(walkChainLinkage(SESSION)).toBe("sequence gap: expected 1, stored 2");
+  });
+});
+
+// ----------------------------------------------------------------------------
+// The chain-head read boundary — both columns read as `unknown`, then narrowed
+// ----------------------------------------------------------------------------
+//
+// The HEALTHY direction is already pinned and is deliberately not repeated: the
+// linkage walk above IS the narrowed head round-tripping, since every
+// `prev_hash` it checks is the previous row's `row_hash` as this read returned
+// it. What is left is the refusal direction, and only one of the two `row_hash`
+// disjuncts is reachable from SQL — `CHECK(length(row_hash) = 32)` closes the
+// wrong-WIDTH case for any value SQLite stores as a BLOB, so the width half is
+// defense-in-depth and the TYPE half is what actually fires.
+
+describe("EventLogService — chain-head read boundary", () => {
+  // 32 CHARACTERS. `length()` counts characters on a TEXT value and bytes only
+  // on a BLOB, so this passes `CHECK(length(row_hash) = 32)` while storing
+  // something that is not a hash at all.
+  const THIRTY_TWO_CHARACTER_TEXT = "0".repeat(32);
+
+  it("refuses a head whose sequence is not an INTEGER rather than allocating from it", async () => {
+    // INTEGER affinity coerces only text that LOOKS numeric, so `'x'` stays
+    // TEXT — and SQLite orders TEXT above every INTEGER, which is what makes the
+    // corrupted row the head that `ORDER BY sequence DESC` selects.
+    //
+    // TWO rows seeded and the LOWER one corrupted, deliberately: with a single
+    // row the corrupt value is the head whatever the query orders by, so the arm
+    // would stay green through a head read that lost its `ORDER BY` entirely.
+    const { service } = buildService();
+    await service.append(makeEnvelope());
+    await service.append(makeEnvelope());
+
+    database
+      .prepare("UPDATE session_events SET sequence = 'x' WHERE session_id = ? AND sequence = 0")
+      .run(SESSION);
+
+    await expect(service.append(makeEnvelope())).rejects.toThrow(
+      /session_events\.sequence for session .+ is not an INTEGER: got a value of type string/,
+    );
+    // Unnarrowed, `Number('x') + 1` is `NaN` — bound as this row's `sequence`,
+    // signed into its canonical bytes, and stored.
+    expect(readRawRows(SESSION)).toHaveLength(2);
+  });
+
+  it("refuses a head whose row_hash arrives as TEXT rather than chaining it into prev_hash", async () => {
+    // `row_hash` is declared BLOB, which gives the column affinity NONE — a
+    // bound string is stored AS TEXT and read back as a JS `string`. Nothing in
+    // the DDL objects, so this read is the only thing standing between a value
+    // that is not a hash and the next row's signed `prev_hash`.
+    const { service } = buildService();
+    await service.append(makeEnvelope());
+
+    database
+      .prepare("UPDATE session_events SET row_hash = ? WHERE session_id = ?")
+      .run(THIRTY_TWO_CHARACTER_TEXT, SESSION);
+
+    await expect(service.append(makeEnvelope())).rejects.toThrow(
+      /session_events\.row_hash for session .+ is not a 32-byte BLOB: got a non-Uint8Array value of type string/,
+    );
+    expect(readRawRows(SESSION)).toHaveLength(1);
   });
 });
 

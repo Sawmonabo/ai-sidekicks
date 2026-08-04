@@ -113,21 +113,29 @@ export function applyPragmas(db: DatabaseType): void {
  * `.immediate()`.
  */
 export function applyMigrations(db: DatabaseType): void {
+  // EVERY VERSION BLOCK BELOW HAS THE SAME SHAPE, argued once here rather than
+  // once per version:
+  //
+  //   outer guard → db.transaction(...).immediate() → inner re-check → .exec()
+  //
+  //   * Each migration's SQL carries its OWN `INSERT INTO schema_version`, so
+  //     one `.exec()` is the entire unit of work and the DDL commits atomically
+  //     with its anchor row. A torn apply (process crash mid-migration) leaves
+  //     the database at the previous version, never half-migrated.
+  //   * `.immediate()` rather than better-sqlite3's `db.transaction(...)()`
+  //     default — the doc comment above argues why, and names the
+  //     `concurrent applyMigrations across worker_threads` negative control
+  //     that pins it. Do not re-derive it here.
+  //   * The INNER re-check closes the `hasMigrationApplied → exec` window: a
+  //     racer that wins the BEGIN-IMMEDIATE race and commits first is observed
+  //     here, so this transaction commits as a no-op instead of re-applying
+  //     the DDL.
+  //
+  // Each block's own comment carries ONLY what is specific to that version.
+
   if (!hasMigrationApplied(db, 1)) {
-    // The migration SQL itself contains the INSERT into schema_version
-    // (the version=1 anchor row), so a single .exec() call is the unit
-    // of work. Wrapping in db.transaction(...).immediate() ensures the
-    // schema_version row commits atomically with the table CREATEs — a
-    // torn write (e.g. process crash mid-migration) leaves the database
-    // fully unmigrated, never half-migrated — AND that the BEGIN takes
-    // the RESERVED writer-intent lock immediately so concurrent racers
-    // serialize at BEGIN rather than colliding at write-upgrade time.
+    // Version 1 — the initial session/event schema.
     db.transaction(() => {
-      // Re-check inside the transaction to close the
-      // `hasMigrationApplied → exec` window: when a concurrent writer
-      // wins the BEGIN-IMMEDIATE race and commits before we acquire the
-      // lock, the inner check returns true and we skip the exec rather
-      // than re-applying the CREATE TABLEs.
       if (!hasMigrationApplied(db, 1)) {
         db.exec(INITIAL_MIGRATION_SQL);
       }
@@ -135,18 +143,8 @@ export function applyMigrations(db: DatabaseType): void {
   }
 
   if (!hasMigrationApplied(db, 2)) {
-    // Plan-003 version-2 migration (node_capabilities + node_trust_state).
-    // Same primitive as the version-1 block above: the migration SQL
-    // carries its own version=2 INSERT into schema_version, so the single
-    // .exec() commits the table CREATEs atomically with the anchor row,
-    // and db.transaction(...).immediate() takes the RESERVED writer-intent
-    // lock at BEGIN so concurrent racers serialize at BEGIN rather than
-    // colliding at write-upgrade time.
+    // Version 2 (Plan-003) — node_capabilities + node_trust_state.
     db.transaction(() => {
-      // Re-check inside the transaction to close the
-      // `hasMigrationApplied → exec` window (a concurrent writer that wins
-      // the BEGIN-IMMEDIATE race and commits first is observed here and we
-      // skip the exec rather than re-applying the CREATE TABLEs).
       if (!hasMigrationApplied(db, 2)) {
         db.exec(RUNTIME_NODE_MIGRATION_SQL);
       }
@@ -154,18 +152,9 @@ export function applyMigrations(db: DatabaseType): void {
   }
 
   if (!hasMigrationApplied(db, 3)) {
-    // Plan-005 version-3 migration (runtime_bindings + driver_capabilities +
-    // driver_tools + driver_contract_meta). Same primitive as the version-1/2
-    // blocks above: the migration SQL carries its own version=3 INSERT into
-    // schema_version, so the single .exec() commits the table CREATEs
-    // atomically with the anchor row, and db.transaction(...).immediate()
-    // takes the RESERVED writer-intent lock at BEGIN so concurrent racers
-    // serialize at BEGIN rather than colliding at write-upgrade time.
+    // Version 3 (Plan-005) — runtime_bindings + driver_capabilities +
+    // driver_tools + driver_contract_meta.
     db.transaction(() => {
-      // Re-check inside the transaction to close the
-      // `hasMigrationApplied → exec` window (a concurrent writer that wins
-      // the BEGIN-IMMEDIATE race and commits first is observed here and we
-      // skip the exec rather than re-applying the CREATE TABLEs).
       if (!hasMigrationApplied(db, 3)) {
         db.exec(RUNTIME_BINDINGS_MIGRATION_SQL);
       }
@@ -173,22 +162,12 @@ export function applyMigrations(db: DatabaseType): void {
   }
 
   if (!hasMigrationApplied(db, 4)) {
-    // Plan-010 version-4 migration (worktrees + ephemeral_clones +
-    // branch_contexts + run_execution_contexts). Same primitive as the
-    // version-1/2/3 blocks above: the migration SQL carries its own
-    // version=4 INSERT into schema_version, so the single .exec() commits
-    // the table CREATEs atomically with the anchor row, and
-    // db.transaction(...).immediate() takes the RESERVED writer-intent lock
-    // at BEGIN so concurrent racers serialize at BEGIN rather than
-    // colliding at write-upgrade time. The migration's REFERENCES clauses
-    // target Plan-009 Phase 2 tables that may not exist yet — SQLite
-    // resolves FK targets lazily at DML time, so the CREATEs apply cleanly
-    // regardless (B23 ordering; see the 0004 file header).
+    // Version 4 (Plan-010) — worktrees + ephemeral_clones + branch_contexts +
+    // run_execution_contexts. This migration's REFERENCES clauses target
+    // Plan-009 Phase 2 tables that may not exist yet; SQLite resolves FK
+    // targets lazily at DML time, so the CREATEs apply cleanly regardless
+    // (B23 ordering; see the 0004 file header).
     db.transaction(() => {
-      // Re-check inside the transaction to close the
-      // `hasMigrationApplied → exec` window (a concurrent writer that wins
-      // the BEGIN-IMMEDIATE race and commits first is observed here and we
-      // skip the exec rather than re-applying the CREATE TABLEs).
       if (!hasMigrationApplied(db, 4)) {
         db.exec(WORKTREE_LIFECYCLE_MIGRATION_SQL);
       }
@@ -196,18 +175,8 @@ export function applyMigrations(db: DatabaseType): void {
   }
 
   if (!hasMigrationApplied(db, 5)) {
-    // Plan-006 version-5 migration (daemon_signing_keys). Same primitive as
-    // the version-1/2/3/4 blocks above: the migration SQL carries its own
-    // version=5 INSERT into schema_version, so the single .exec() commits the
-    // table CREATE atomically with the anchor row, and
-    // db.transaction(...).immediate() takes the RESERVED writer-intent lock
-    // at BEGIN so concurrent racers serialize at BEGIN rather than colliding
-    // at write-upgrade time.
+    // Version 5 (Plan-006) — daemon_signing_keys.
     db.transaction(() => {
-      // Re-check inside the transaction to close the
-      // `hasMigrationApplied → exec` window (a concurrent writer that wins
-      // the BEGIN-IMMEDIATE race and commits first is observed here and we
-      // skip the exec rather than re-applying the CREATE TABLE).
       if (!hasMigrationApplied(db, 5)) {
         db.exec(DAEMON_SIGNING_KEYS_MIGRATION_SQL);
       }
@@ -215,22 +184,13 @@ export function applyMigrations(db: DatabaseType): void {
   }
 
   if (!hasMigrationApplied(db, 6)) {
-    // Plan-006 version-6 migration (run_lifecycle terminal-key backstop: the
-    // partial unique index + the insert/update/promote trigger trio). Same
-    // primitive as the version-1..5 blocks above: the migration SQL carries its
-    // own version=6 INSERT into schema_version, so the single .exec() commits
-    // the index + triggers atomically with the anchor row, and
-    // db.transaction(...).immediate() takes the RESERVED writer-intent lock at
-    // BEGIN so concurrent racers serialize at BEGIN rather than colliding at
-    // write-upgrade time. Atomicity matters more than usual here: a torn apply
-    // that landed the UNIQUE index without its trigger trio would leave the
-    // NULL-distinctness hole the triggers exist to close, silently admitting
-    // duplicate terminal rows (see the 0006 file header).
+    // Version 6 (Plan-006) — run_lifecycle terminal-key backstop: the partial
+    // unique index plus the insert/update/promote trigger trio. Atomicity
+    // matters more than usual here: a torn apply that landed the UNIQUE index
+    // without its trigger trio would leave the NULL-distinctness hole the
+    // triggers exist to close, silently admitting duplicate terminal rows (see
+    // the 0006 file header).
     db.transaction(() => {
-      // Re-check inside the transaction to close the
-      // `hasMigrationApplied → exec` window (a concurrent writer that wins the
-      // BEGIN-IMMEDIATE race and commits first is observed here and we skip the
-      // exec rather than re-applying the CREATE INDEX / CREATE TRIGGERs).
       if (!hasMigrationApplied(db, 6)) {
         db.exec(RUN_LIFECYCLE_TERMINAL_BACKSTOP_MIGRATION_SQL);
       }
@@ -238,20 +198,11 @@ export function applyMigrations(db: DatabaseType): void {
   }
 
   if (!hasMigrationApplied(db, 7)) {
-    // Plan-006 version-7 migration (session_events.pii_participant_id — the
-    // durable PII owner-stamp column). Same primitive as the version-1..6
-    // blocks above: the migration SQL carries its own version=7 INSERT into
-    // schema_version, so the single .exec() commits the ALTER TABLE atomically
-    // with the anchor row, and db.transaction(...).immediate() takes the
-    // RESERVED writer-intent lock at BEGIN so concurrent racers serialize at
-    // BEGIN rather than colliding at write-upgrade time. The guard is what
-    // makes re-application a no-op: SQLite has no `ADD COLUMN IF NOT EXISTS`,
-    // so a second exec would throw "duplicate column name".
+    // Version 7 (Plan-006) — session_events.pii_participant_id, the durable
+    // PII owner-stamp column. The guards are what make re-application a no-op:
+    // SQLite has no `ADD COLUMN IF NOT EXISTS`, so a second exec would throw
+    // "duplicate column name".
     db.transaction(() => {
-      // Re-check inside the transaction to close the
-      // `hasMigrationApplied → exec` window (a concurrent writer that wins the
-      // BEGIN-IMMEDIATE race and commits first is observed here and we skip the
-      // exec rather than re-applying the ALTER TABLE).
       if (!hasMigrationApplied(db, 7)) {
         db.exec(PII_PARTICIPANT_ID_MIGRATION_SQL);
       }
@@ -259,22 +210,12 @@ export function applyMigrations(db: DatabaseType): void {
   }
 
   if (!hasMigrationApplied(db, 8)) {
-    // Plan-006 version-8 migration (pending_anchor_uploads — the durable
-    // Merkle-anchor upload queue). Same primitive as the version-1..7 blocks
-    // above: the migration SQL carries its own version=8 INSERT into
-    // schema_version, so the single .exec() commits the CREATE TABLE + its
-    // partial index atomically with the anchor row, and
-    // db.transaction(...).immediate() takes the RESERVED writer-intent lock at
-    // BEGIN so concurrent racers serialize at BEGIN rather than colliding at
-    // write-upgrade time. Atomicity is load-bearing here for the same reason it
-    // is at version 6: a torn apply that landed the table without its partial
-    // index would leave the upload worker's pending scan doing a full table
-    // scan of a queue that grows without bound during a long partition.
+    // Version 8 (Plan-006) — pending_anchor_uploads, the durable Merkle-anchor
+    // upload queue. Atomicity is load-bearing here for the same reason it is at
+    // version 6: a torn apply that landed the table without its partial index
+    // would leave the upload worker's pending scan doing a full table scan of a
+    // queue that grows without bound during a long partition.
     db.transaction(() => {
-      // Re-check inside the transaction to close the
-      // `hasMigrationApplied → exec` window (a concurrent writer that wins the
-      // BEGIN-IMMEDIATE race and commits first is observed here and we skip the
-      // exec rather than re-applying the CREATE TABLE / CREATE INDEX).
       if (!hasMigrationApplied(db, 8)) {
         db.exec(PENDING_ANCHOR_UPLOADS_MIGRATION_SQL);
       }
@@ -282,25 +223,16 @@ export function applyMigrations(db: DatabaseType): void {
   }
 
   if (!hasMigrationApplied(db, 9)) {
-    // Plan-006 version-9 migration (session_events.retention_class +
-    // session_events.stub_signature + the idx_session_events_live partial index
-    // — the compaction retention discriminator and post-compaction stub
-    // commitment). Same primitive as the version-1..8 blocks above: the
-    // migration SQL carries its own version=9 INSERT into schema_version, so the
-    // single .exec() commits both ALTER TABLEs and the CREATE INDEX atomically
-    // with the anchor row, and db.transaction(...).immediate() takes the
-    // RESERVED writer-intent lock at BEGIN so concurrent racers serialize at
-    // BEGIN rather than colliding at write-upgrade time. The guard is what makes
-    // re-application a no-op: SQLite has no `ADD COLUMN IF NOT EXISTS`, so a
-    // second exec would throw "duplicate column name". Atomicity is load-bearing
-    // for the same reason it is at versions 6 and 8: a torn apply that landed
-    // the columns without the partial index would leave every live-row scan
-    // reading the indefinitely-retained compacted suffix, silently.
+    // Version 9 (Plan-006) — session_events.retention_class +
+    // session_events.stub_signature + the idx_session_events_live partial
+    // index: the compaction retention discriminator and the post-compaction
+    // stub commitment. Two version-specific facts: the ALTER TABLEs cannot be
+    // re-applied (no `ADD COLUMN IF NOT EXISTS`, so a second exec throws
+    // "duplicate column name"), and a torn apply that landed the columns
+    // without the partial index would leave every live-row scan reading the
+    // indefinitely-retained compacted suffix, silently — atomicity for the same
+    // reason as versions 6 and 8.
     db.transaction(() => {
-      // Re-check inside the transaction to close the
-      // `hasMigrationApplied → exec` window (a concurrent writer that wins the
-      // BEGIN-IMMEDIATE race and commits first is observed here and we skip the
-      // exec rather than re-applying the ALTER TABLEs / CREATE INDEX).
       if (!hasMigrationApplied(db, 9)) {
         db.exec(RETENTION_CLASS_AND_STUB_SIGNATURE_MIGRATION_SQL);
       }

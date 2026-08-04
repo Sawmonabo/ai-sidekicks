@@ -68,53 +68,88 @@ class FixedDaemonSigningKeySource implements DaemonSigningKeySource {
   }
 }
 
+/** One park: the test waits on `reached`, the read waits on `parked`. */
+interface ParkGate {
+  /** Resolves once a `read` has actually reached this park. */
+  readonly reached: Promise<void>;
+  /** Resolves once the test has released this park. */
+  readonly parked: Promise<void>;
+  arrive(): void;
+  release(): void;
+}
+
+function makeParkGate(): ParkGate {
+  let arrive!: () => void;
+  let release!: () => void;
+  const reached: Promise<void> = new Promise<void>((resolve) => {
+    arrive = resolve;
+  });
+  const parked: Promise<void> = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return { reached, parked, arrive, release };
+}
+
 /**
- * A key source that parks its FIRST `read` until released, then behaves like the
- * fixed one.
+ * A key source that parks its first `parkCount` reads until each is released,
+ * then behaves like the fixed one.
  *
  * This is the seam the cross-session race arms below need, and it is the real
  * production shape rather than an artificial hook: the key unseal is the async
  * step that opens the window between a declare's read-decide and its write, so
  * parking here reproduces exactly the interleaving `declare`'s prelude re-check
- * exists to catch. Park-ONCE matters — the retry attempt must run to completion
- * rather than parking again.
+ * exists to catch.
+ *
+ * ONE PARK PER ATTEMPT, which is what makes the park COUNT the attempt count:
+ * `declare` re-runs read-decide-emit from the top on the divergence sentinel and
+ * each attempt reads the signing key once. A single park lets every retry run to
+ * completion — enough for the arms that lose ONE race, and structurally unable
+ * to reach the retry budget's exhaustion branch.
  */
-class ParkOnceDaemonSigningKeySource implements DaemonSigningKeySource {
-  readonly parked: Promise<void>;
+class ParkingDaemonSigningKeySource implements DaemonSigningKeySource {
   readonly #privateKey: Ed25519PrivateKey = new Uint8Array(32).fill(7) as Ed25519PrivateKey;
-  #release!: () => void;
-  #reachedPark!: () => void;
-  #hasParked = false;
+  readonly #gates: ReadonlyArray<ParkGate>;
+  #readCount = 0;
 
-  /** Resolves once the first `read` has actually reached the park. */
-  readonly parkReached: Promise<void>;
-
-  constructor() {
-    this.parked = new Promise<void>((resolve) => {
-      this.#release = resolve;
-    });
-    this.parkReached = new Promise<void>((resolve) => {
-      this.#reachedPark = resolve;
-    });
+  constructor(parkCount: number = 1) {
+    this.#gates = Array.from({ length: parkCount }, () => makeParkGate());
   }
 
-  release(): void {
-    this.#release();
+  /** Resolves once read #`index` (0-based) has reached its park. */
+  parkReachedAt(index: number): Promise<void> {
+    return this.#gateAt(index).reached;
+  }
+
+  /** Lets read #`index` (0-based) leave its park. */
+  releaseAt(index: number): void {
+    this.#gateAt(index).release();
   }
 
   async read(_sessionId: SessionId): Promise<Ed25519PrivateKey> {
-    if (!this.#hasParked) {
-      this.#hasParked = true;
-      this.#reachedPark();
-      await this.parked;
+    const index: number = this.#readCount;
+    this.#readCount += 1;
+    if (index < this.#gates.length) {
+      const gate: ParkGate = this.#gateAt(index);
+      gate.arrive();
+      await gate.parked;
     }
     return this.#privateKey;
   }
 
   create(_sessionId: SessionId): Promise<{ readonly publicKey: Ed25519PublicKey }> {
     return Promise.reject(
-      new Error("ParkOnceDaemonSigningKeySource.create is not used by this suite"),
+      new Error("ParkingDaemonSigningKeySource.create is not used by this suite"),
     );
+  }
+
+  #gateAt(index: number): ParkGate {
+    const gate: ParkGate | undefined = this.#gates[index];
+    if (gate === undefined) {
+      throw new Error(
+        `ParkingDaemonSigningKeySource: no park #${String(index)}; ${String(this.#gates.length)} were requested. A park index past the end means the arm and the retry budget disagree about how many attempts there are.`,
+      );
+    }
+    return gate;
   }
 }
 
@@ -254,6 +289,13 @@ function countContractMetaRows(driverName: string): number {
     .prepare(`SELECT COUNT(*) AS n FROM driver_contract_meta WHERE driver_name = ?`)
     .get(driverName) as { readonly n: number };
   return row.n;
+}
+
+function readContractVersion(driverName: string): string | undefined {
+  const row = db
+    .prepare(`SELECT contract_version FROM driver_contract_meta WHERE driver_name = ?`)
+    .get(driverName) as { readonly contract_version: string } | undefined;
+  return row?.contract_version;
 }
 
 // ----------------------------------------------------------------------------
@@ -1343,6 +1385,15 @@ describe("DriverCapabilitiesWriter — atomic dual-write (a failed event write r
 // window `declare`'s in-prelude re-check plus bounded retry exists to close.
 const SECOND_SESSION_ID: string = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f01";
 
+// `DRIVER_DECLARE_MAX_ATTEMPTS` from `driver-capabilities-writer.ts`, re-spelled
+// here rather than exported: the constant is module-private BY DESIGN (nothing
+// outside the retry loop may branch on the budget), and exporting a symbol for a
+// test's convenience widens the module's surface for no production reason. The
+// exhaustion arm below fails loudly if the two disagree — a budget larger than
+// this leaves the parked declare waiting on a park that was never requested, and
+// a smaller one rejects before the loop finishes.
+const DECLARE_ATTEMPT_BUDGET: number = 3;
+
 /** Every `runtime_node.capability_*` row across BOTH sessions, in commit order. */
 function readCapabilityEventsAcrossSessions(): ReadonlyArray<EventRow> {
   return db
@@ -1373,7 +1424,7 @@ function payloadOf(row: EventRow): CapabilityEventPayload {
 
 describe("DriverCapabilitiesWriter — concurrent declares under DIFFERENT sessions", () => {
   it("emits exactly ONE capability_declared when both racers declare the SAME snapshot", async () => {
-    const parkedKeySource = new ParkOnceDaemonSigningKeySource();
+    const parkedKeySource = new ParkingDaemonSigningKeySource();
     const { writer: parkedWriter } = makeWriter(makeAdvancingClock(), parkedKeySource, "parked");
     const { writer: racingWriter } = makeWriter(makeAdvancingClock(), undefined, "racer");
     const snapshot: GetCapabilitiesResult = makeResult({
@@ -1388,7 +1439,7 @@ describe("DriverCapabilitiesWriter — concurrent declares under DIFFERENT sessi
       driverName: DRIVER_NAME,
       result: snapshot,
     });
-    await parkedKeySource.parkReached;
+    await parkedKeySource.parkReachedAt(0);
 
     // The racer runs to completion on session 2's uncontended lock.
     const racerOutcome = await racingWriter.declare({
@@ -1399,7 +1450,7 @@ describe("DriverCapabilitiesWriter — concurrent declares under DIFFERENT sessi
     });
     expect(racerOutcome.emitted).toBe("declared");
 
-    parkedKeySource.release();
+    parkedKeySource.releaseAt(0);
     const parkedOutcome = await parkedDeclare;
 
     // The loser's prelude re-check saw the racer's committed snapshot, aborted
@@ -1420,7 +1471,7 @@ describe("DriverCapabilitiesWriter — concurrent declares under DIFFERENT sessi
   });
 
   it("reclassifies the loser to capability_updated whose previousState is the RACER'S committed snapshot", async () => {
-    const parkedKeySource = new ParkOnceDaemonSigningKeySource();
+    const parkedKeySource = new ParkingDaemonSigningKeySource();
     const { writer: parkedWriter } = makeWriter(makeAdvancingClock(), parkedKeySource, "parked");
     const { writer: racingWriter } = makeWriter(makeAdvancingClock(), undefined, "racer");
 
@@ -1430,7 +1481,7 @@ describe("DriverCapabilitiesWriter — concurrent declares under DIFFERENT sessi
       driverName: DRIVER_NAME,
       result: makeResult({ tools: [{ name: "loser_tool", idempotency_class: "idempotent" }] }),
     });
-    await parkedKeySource.parkReached;
+    await parkedKeySource.parkReachedAt(0);
 
     await racingWriter.declare({
       sessionId: SECOND_SESSION_ID,
@@ -1442,7 +1493,7 @@ describe("DriverCapabilitiesWriter — concurrent declares under DIFFERENT sessi
       }),
     });
 
-    parkedKeySource.release();
+    parkedKeySource.releaseAt(0);
     const parkedOutcome = await parkedDeclare;
 
     // NOT `declared` — the loser's stale decision was first-declare, and shipping
@@ -1466,5 +1517,70 @@ describe("DriverCapabilitiesWriter — concurrent declares under DIFFERENT sessi
     // And `newState` is the loser's own snapshot, now correctly framed as a change.
     expect(updated.newState?.contractVersion).toBe(CONTRACT_VERSION);
     expect(updated.newState?.tools?.map((tool) => tool.name)).toEqual(["loser_tool"]);
+  });
+
+  it("exhausts the retry budget loudly, writing nothing, when EVERY attempt loses", async () => {
+    // THE EXHAUSTION BRANCH. Both arms above lose exactly ONE race and succeed
+    // on the retry, so neither reaches `attempt >= DRIVER_DECLARE_MAX_ATTEMPTS`
+    // — they cannot tell a bounded retry from an unbounded one, nor prove that
+    // exhaustion refuses rather than committing a stale decision. Here the key
+    // source parks once per attempt and the racer commits a fresh snapshot
+    // while each attempt is parked.
+    //
+    // EACH RACER SNAPSHOT MUST DIFFER STRUCTURALLY FROM THE LAST. `declare`
+    // compares through `snapshotsEqual`, so a racer that rewrote an equivalent
+    // snapshot would not be a divergence at all and the parked attempt would
+    // commit — the arm would pass while testing nothing.
+    const parkedKeySource = new ParkingDaemonSigningKeySource(DECLARE_ATTEMPT_BUDGET);
+    const { writer: parkedWriter } = makeWriter(makeAdvancingClock(), parkedKeySource, "parked");
+    const { writer: racingWriter } = makeWriter(makeAdvancingClock(), undefined, "racer");
+
+    const parkedDeclare = parkedWriter.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult({ tools: [{ name: "loser_tool", idempotency_class: "idempotent" }] }),
+    });
+
+    for (let round = 0; round < DECLARE_ATTEMPT_BUDGET; round += 1) {
+      await parkedKeySource.parkReachedAt(round);
+      await racingWriter.declare({
+        sessionId: SECOND_SESSION_ID,
+        nodeId: NODE_ID,
+        driverName: DRIVER_NAME,
+        result: makeResult({
+          capabilities: { flags: makeFlags({ resume: false }), contractVersion: `9.9.${round}` },
+          tools: [{ name: `racer_tool_${String(round)}`, idempotency_class: "compensable" }],
+        }),
+      });
+      parkedKeySource.releaseAt(round);
+    }
+
+    await expect(parkedDeclare).rejects.toThrow(
+      /changed between the read-decide step and the write transaction/,
+    );
+    await expect(parkedDeclare).rejects.toMatchObject({
+      name: "DriverCapabilitySnapshotDivergedError",
+    });
+
+    // ALL-OR-NOTHING ACROSS ALL THREE DRIVER TABLES. Every one holds the
+    // racer's LAST snapshot and nothing of the loser's: a partial apply here
+    // would be flags from one declare, tools from another, and a contract
+    // version from a third — a snapshot no `getCapabilities` ever returned.
+    expect(countCapabilityRows(DRIVER_NAME)).toBe(7);
+    expect(readToolNames(DRIVER_NAME)).toEqual([
+      `racer_tool_${String(DECLARE_ATTEMPT_BUDGET - 1)}`,
+    ]);
+    expect(countContractMetaRows(DRIVER_NAME)).toBe(1);
+    expect(readContractVersion(DRIVER_NAME)).toBe(`9.9.${String(DECLARE_ATTEMPT_BUDGET - 1)}`);
+
+    // And the loser's session holds no event row at all — no sequence consumed,
+    // no `capability_updated` describing a transition that never committed.
+    expect(readEventRows(SESSION_ID)).toHaveLength(0);
+    expect(readCapabilityEventsAcrossSessions().map((row) => row.type)).toEqual([
+      "runtime_node.capability_declared",
+      "runtime_node.capability_updated",
+      "runtime_node.capability_updated",
+    ]);
   });
 });

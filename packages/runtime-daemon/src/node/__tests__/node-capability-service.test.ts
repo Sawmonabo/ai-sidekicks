@@ -103,52 +103,97 @@ class FixedDaemonSigningKeySource implements DaemonSigningKeySource {
   }
 }
 
+/** One park: the test waits on `reached`, the read waits on `parked`. */
+interface ParkGate {
+  /** Resolves once a `read` has actually reached this park. */
+  readonly reached: Promise<void>;
+  /** Resolves once the test has released this park. */
+  readonly parked: Promise<void>;
+  arrive(): void;
+  release(): void;
+}
+
+function makeParkGate(): ParkGate {
+  let arrive!: () => void;
+  let release!: () => void;
+  const reached: Promise<void> = new Promise<void>((resolve) => {
+    arrive = resolve;
+  });
+  const parked: Promise<void> = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return { reached, parked, arrive, release };
+}
+
 /**
- * A key source that parks its FIRST `read` until released, then behaves like the
- * fixed one.
+ * A key source that parks its first `parkCount` reads until each is released,
+ * then behaves like the fixed one.
  *
  * The seam the cross-session race arms need, and the production shape rather
  * than an artificial hook: the key unseal is the async step between a declare's
  * read-decide and its write, so parking here reproduces exactly the interleaving
- * the in-prelude re-check exists to catch. Park-ONCE, so the retry attempt runs
- * to completion instead of parking again.
+ * the in-prelude re-check exists to catch.
+ *
+ * ONE PARK PER ATTEMPT, and that is what makes the park COUNT the attempt
+ * count: `declare` re-runs read-decide-emit from the top on the divergence
+ * sentinel, and each attempt reads the signing key exactly once. A source that
+ * parked once lets every retry run to completion — enough for the arms that
+ * exercise a single lost race, and structurally unable to reach the retry
+ * budget's exhaustion branch.
  */
-class ParkOnceDaemonSigningKeySource implements DaemonSigningKeySource {
+class ParkingDaemonSigningKeySource implements DaemonSigningKeySource {
   readonly #privateKey: Ed25519PrivateKey = new Uint8Array(32).fill(7) as Ed25519PrivateKey;
-  readonly #parked: Promise<void>;
-  #release!: () => void;
-  #reachedPark!: () => void;
-  #hasParked = false;
+  readonly #gates: ReadonlyArray<ParkGate>;
+  #readCount = 0;
 
-  /** Resolves once the first `read` has actually reached the park. */
-  readonly parkReached: Promise<void>;
-
-  constructor() {
-    this.#parked = new Promise<void>((resolve) => {
-      this.#release = resolve;
-    });
-    this.parkReached = new Promise<void>((resolve) => {
-      this.#reachedPark = resolve;
-    });
+  constructor(parkCount: number = 1) {
+    this.#gates = Array.from({ length: parkCount }, () => makeParkGate());
   }
 
-  release(): void {
-    this.#release();
+  /**
+   * How many reads have been served. One read per `declare` attempt, so this is
+   * the ATTEMPT count — the only observable that separates "committed on the
+   * first attempt" from "diverged and retried into the same outcome".
+   */
+  get readCount(): number {
+    return this.#readCount;
+  }
+
+  /** Resolves once read #`index` (0-based) has reached its park. */
+  parkReachedAt(index: number): Promise<void> {
+    return this.#gateAt(index).reached;
+  }
+
+  /** Lets read #`index` (0-based) leave its park. */
+  releaseAt(index: number): void {
+    this.#gateAt(index).release();
   }
 
   async read(_sessionId: SessionId): Promise<Ed25519PrivateKey> {
-    if (!this.#hasParked) {
-      this.#hasParked = true;
-      this.#reachedPark();
-      await this.#parked;
+    const index: number = this.#readCount;
+    this.#readCount += 1;
+    if (index < this.#gates.length) {
+      const gate: ParkGate = this.#gateAt(index);
+      gate.arrive();
+      await gate.parked;
     }
     return this.#privateKey;
   }
 
   create(_sessionId: SessionId): Promise<{ readonly publicKey: Ed25519PublicKey }> {
     return Promise.reject(
-      new Error("ParkOnceDaemonSigningKeySource.create is not used by this suite"),
+      new Error("ParkingDaemonSigningKeySource.create is not used by this suite"),
     );
+  }
+
+  #gateAt(index: number): ParkGate {
+    const gate: ParkGate | undefined = this.#gates[index];
+    if (gate === undefined) {
+      throw new Error(
+        `ParkingDaemonSigningKeySource: no park #${String(index)}; ${String(this.#gates.length)} were requested. A park index past the end means the arm and the retry budget disagree about how many attempts there are.`,
+      );
+    }
+    return gate;
   }
 }
 
@@ -775,6 +820,15 @@ describe("NodeCapabilityService — T2.4 gate reads the durable ROW, not the eve
 // same-session arm.
 const SECOND_SESSION_ID: string = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f01";
 
+// `CAPABILITY_DECLARE_MAX_ATTEMPTS` from `node-capability-service.ts`, re-spelled
+// here rather than exported: the constant is module-private BY DESIGN (nothing
+// outside the retry loop may branch on the budget), and exporting a symbol for a
+// test's convenience widens the module's surface for no production reason. The
+// exhaustion arm below fails loudly if the two ever disagree — a budget larger
+// than this value leaves the parked declare waiting on a park that was never
+// requested, and a smaller one rejects before the loop finishes.
+const DECLARE_ATTEMPT_BUDGET: number = 3;
+
 /** Every `runtime_node.capability_*` row across BOTH sessions, in commit order. */
 function readCapabilityEventsAcrossSessions(db: DatabaseType): ReadonlyArray<EventRow> {
   return db
@@ -796,7 +850,7 @@ interface CapabilityEventPayload {
 
 describe("NodeCapabilityService — concurrent declares under DIFFERENT sessions", () => {
   it("emits exactly ONE capability_declared when both racers declare the SAME details", async () => {
-    const parkedKeySource = new ParkOnceDaemonSigningKeySource();
+    const parkedKeySource = new ParkingDaemonSigningKeySource();
     const parkedService = makeCapabilityService(makeAdvancingClock(), parkedKeySource, "parked");
     const racingService = makeCapabilityService(makeAdvancingClock(), undefined, "racer");
     const details = { contractVersion: "1.0", flags: { streaming: true } };
@@ -809,7 +863,7 @@ describe("NodeCapabilityService — concurrent declares under DIFFERENT sessions
       capability: CAPABILITY,
       capabilityDetails: details,
     });
-    await parkedKeySource.parkReached;
+    await parkedKeySource.parkReachedAt(0);
 
     // The racer runs to completion on session 2's uncontended lock.
     await racingService.declare({
@@ -819,7 +873,7 @@ describe("NodeCapabilityService — concurrent declares under DIFFERENT sessions
       capabilityDetails: details,
     });
 
-    parkedKeySource.release();
+    parkedKeySource.releaseAt(0);
     await parkedDeclare;
 
     // Asserted on the UNION of both sessions — a per-session count would find
@@ -835,7 +889,7 @@ describe("NodeCapabilityService — concurrent declares under DIFFERENT sessions
   });
 
   it("reclassifies the loser to capability_updated whose previousState is the RACER'S committed value", async () => {
-    const parkedKeySource = new ParkOnceDaemonSigningKeySource();
+    const parkedKeySource = new ParkingDaemonSigningKeySource();
     const parkedService = makeCapabilityService(makeAdvancingClock(), parkedKeySource, "parked");
     const racingService = makeCapabilityService(makeAdvancingClock(), undefined, "racer");
     const loserDetails = { contractVersion: "1.0", flags: { streaming: true } };
@@ -847,7 +901,7 @@ describe("NodeCapabilityService — concurrent declares under DIFFERENT sessions
       capability: CAPABILITY,
       capabilityDetails: loserDetails,
     });
-    await parkedKeySource.parkReached;
+    await parkedKeySource.parkReachedAt(0);
 
     await racingService.declare({
       nodeId: NODE_ID,
@@ -856,7 +910,7 @@ describe("NodeCapabilityService — concurrent declares under DIFFERENT sessions
       capabilityDetails: racerDetails,
     });
 
-    parkedKeySource.release();
+    parkedKeySource.releaseAt(0);
     await parkedDeclare;
 
     const events = readCapabilityEventsAcrossSessions(ctx.db);
@@ -875,5 +929,127 @@ describe("NodeCapabilityService — concurrent declares under DIFFERENT sessions
     expect(readCapabilityRow(ctx.db, NODE_ID, CAPABILITY)?.capability_value).toBe(
       JSON.stringify(loserDetails),
     );
+  });
+
+  it("does not call a key-REORDERED racer write a divergence", async () => {
+    // The re-check must compare on the same NORMALIZED terms the decision used.
+    // Comparing raw `capability_value` TEXT instead makes a racer that rewrote
+    // the row with its keys in another order look like a change, which costs a
+    // retry — and three of them exhaust the budget and surface the sentinel out
+    // of a declare that nothing actually invalidated.
+    //
+    // The rewrite goes through SQL rather than a second `declare`, because
+    // `declare`'s own idempotent branch would refuse to write an equal value at
+    // all: the point here is a row that MOVED in storage without moving in
+    // meaning, which is what any other writer of this column can produce.
+    const seeded = { contractVersion: "1.0", flags: { streaming: true } };
+    await makeCapabilityService(makeAdvancingClock(), undefined, "seed").declare({
+      nodeId: NODE_ID,
+      sessionId: SECOND_SESSION_ID,
+      capability: CAPABILITY,
+      capabilityDetails: seeded,
+    });
+
+    const parkedKeySource = new ParkingDaemonSigningKeySource();
+    const parkedService = makeCapabilityService(makeAdvancingClock(), parkedKeySource, "parked");
+    const newDetails = { contractVersion: "2.0", flags: { streaming: false } };
+    const parkedDeclare = parkedService.declare({
+      nodeId: NODE_ID,
+      sessionId: SESSION_ID,
+      capability: CAPABILITY,
+      capabilityDetails: newDetails,
+    });
+    await parkedKeySource.parkReachedAt(0);
+
+    ctx.db
+      .prepare(
+        `UPDATE node_capabilities SET capability_value = ?
+          WHERE node_id = ? AND capability_key = ?`,
+      )
+      .run(
+        JSON.stringify({ flags: { streaming: true }, contractVersion: "1.0" }),
+        NODE_ID,
+        CAPABILITY,
+      );
+    parkedKeySource.releaseAt(0);
+    await parkedDeclare;
+
+    // ONE attempt — the discriminating assertion. Every other observable here
+    // is identical whether the declare committed straight away or diverged and
+    // retried into the same outcome, because the retry would re-read a value
+    // that means what the first read meant.
+    expect(parkedKeySource.readCount).toBe(1);
+    expect(readCapabilityRow(ctx.db, NODE_ID, CAPABILITY)?.capability_value).toBe(
+      JSON.stringify(newDetails),
+    );
+    const events = readCapabilityEventsAcrossSessions(ctx.db);
+    expect(events.map((event) => event.type)).toEqual([
+      "runtime_node.capability_declared",
+      "runtime_node.capability_updated",
+    ]);
+    // `previousState` is the SEEDED snapshot, structurally — the reordering the
+    // racer introduced is not a difference the timeline should report either.
+    const updated = JSON.parse(String(events[1]?.payload)) as CapabilityEventPayload;
+    expect(updated.previousState).toEqual(seeded);
+  });
+
+  it("exhausts the retry budget loudly, writing nothing, when EVERY attempt loses", async () => {
+    // THE EXHAUSTION BRANCH. The arms above lose ONE race and succeed on the
+    // retry, so they never reach `attempt >= CAPABILITY_DECLARE_MAX_ATTEMPTS`
+    // and cannot tell a bounded retry from an unbounded one. This arm loses
+    // every attempt: the key source parks once per attempt, and the racer
+    // commits a fresh value while each attempt is parked.
+    //
+    // THE RACER'S VALUES MUST BE STRUCTURALLY DISTINCT FROM ROUND TO ROUND. The
+    // re-check compares normalized snapshots, so a racer that rewrote the same
+    // value (or the same keys in another order) would NOT be a divergence and
+    // the parked attempt would commit — the arm would pass while testing
+    // nothing about exhaustion.
+    const parkedKeySource = new ParkingDaemonSigningKeySource(DECLARE_ATTEMPT_BUDGET);
+    const parkedService = makeCapabilityService(makeAdvancingClock(), parkedKeySource, "parked");
+    const racingService = makeCapabilityService(makeAdvancingClock(), undefined, "racer");
+    const loserDetails = { contractVersion: "1.0", flags: { streaming: true } };
+
+    const parkedDeclare = parkedService.declare({
+      nodeId: NODE_ID,
+      sessionId: SESSION_ID,
+      capability: CAPABILITY,
+      capabilityDetails: loserDetails,
+    });
+
+    for (let round = 0; round < DECLARE_ATTEMPT_BUDGET; round += 1) {
+      await parkedKeySource.parkReachedAt(round);
+      await racingService.declare({
+        nodeId: NODE_ID,
+        sessionId: SECOND_SESSION_ID,
+        capability: CAPABILITY,
+        capabilityDetails: { contractVersion: `2.${String(round)}`, flags: { streaming: false } },
+      });
+      parkedKeySource.releaseAt(round);
+    }
+
+    // LOUD, not silent: the last attempt rethrows the sentinel rather than
+    // writing on a decision three racers old.
+    await expect(parkedDeclare).rejects.toThrow(
+      /changed between the read-decide step and the write transaction/,
+    );
+    await expect(parkedDeclare).rejects.toMatchObject({ name: "CapabilityRowDivergedError" });
+
+    // ALL-OR-NOTHING across both halves of the dual-write. The durable row is
+    // the racer's LAST value, untouched by the loser, and the loser's session
+    // holds no event row at all — no sequence consumed, no orphaned
+    // capability_updated describing a transition that never committed.
+    expect(readCapabilityRow(ctx.db, NODE_ID, CAPABILITY)?.capability_value).toBe(
+      JSON.stringify({
+        contractVersion: `2.${String(DECLARE_ATTEMPT_BUDGET - 1)}`,
+        flags: { streaming: false },
+      }),
+    );
+    expect(readEventRows(ctx.db, SESSION_ID)).toHaveLength(0);
+    expect(readCapabilityEventsAcrossSessions(ctx.db).map((event) => event.type)).toEqual([
+      "runtime_node.capability_declared",
+      "runtime_node.capability_updated",
+      "runtime_node.capability_updated",
+    ]);
   });
 });

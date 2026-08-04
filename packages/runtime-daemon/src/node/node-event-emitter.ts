@@ -153,17 +153,22 @@ const RUNTIME_NODE_EVENT_VERSION: EventEnvelopeVersion = EventEnvelopeVersionSch
 // read-decide-write in `withSessionAppendLock`, and the nested `append`
 // reuses that hold through owner-scoped reentrancy.
 //
-// Both enforcement layers survive the inversion, negated:
+// Both enforcement layers survive the inversion, negated, and a third
+// covers what neither reaches:
 //   1. COMPILE TIME: `append` returns `Promise<EventLogAppendReceipt>`.
 //      A synchronous implementation returning `undefined` is NOT
 //      assignable to a Promise, so it fails at the wiring site instead of
 //      silently skipping the await.
-//   2. RUNTIME: `#appendRuntimeNodeEvent` refuses a NON-thenable `append`
-//      result fail-closed — the mirror of the old thenable tripwire, for
-//      wiring that reaches this seam past the compiler (plain JS,
-//      `as unknown as` casts). A synchronous implementation slipping
+//   2. RUNTIME, PRE-AWAIT: `#appendRuntimeNodeEvent` refuses a NON-thenable
+//      `append` result fail-closed — the mirror of the old thenable
+//      tripwire, for wiring that reaches this seam past the compiler (plain
+//      JS, `as unknown as` casts). A synchronous implementation slipping
 //      through would report success before anything was durable AND would
 //      never run the caller's prelude inside a transaction.
+//   3. RUNTIME, POST-AWAIT: `narrowAppendReceipt` checks the RESOLVED
+//      value's shape. Layer 2 proves only that something awaitable came
+//      back; what it settles to is unconstrained for exactly the wiring
+//      layer 1 never saw, and the members are the anchor cadence's inputs.
 //
 // The seam names no concrete class — it is the exact surface consumed,
 // typed against T3.1's own parameter and return types so a signature
@@ -322,6 +327,65 @@ function isThenable(value: unknown): value is PromiseLike<unknown> {
   if (value === null) return false;
   if (typeof value !== "object" && typeof value !== "function") return false;
   return typeof (value as { then?: unknown }).then === "function";
+}
+
+/**
+ * The `row_hash` width `signer.ts` enforces, re-spelled here for the receipt
+ * guard rather than imported — `signer.ts` keeps its own `CHAIN_HASH_LENGTH`
+ * module-private and `pii-indirection.ts` re-spells it for the same reason.
+ * Drift is one-directional and loud: this value can only cause a false refusal
+ * of a receipt, never admit a wrong-width hash into a chain (the append path
+ * checks the value it writes).
+ */
+const RECEIPT_ROW_HASH_LENGTH = 32;
+
+/**
+ * The RESOLVED value of a `SessionEventLog.append`, checked rather than
+ * asserted — layer 3 of the seam contract, and the one the thenable tripwire
+ * above cannot supply. That guard proves only that the seam returned SOMETHING
+ * awaitable; the value it settles to is whatever the implementation chose, and
+ * a bare `as EventLogAppendReceipt` on it would let `undefined` — or an object
+ * with a string `rowHash` — reach the callers that consume this receipt.
+ *
+ * WHAT THAT COSTS, and why it is worth a runtime check at an async boundary:
+ * `sequence` and `rowHash` are the anchor cadence's inputs
+ * (`AnchorCadenceTrigger`), so a malformed pair does not fail here — it fails
+ * later, inside a Merkle root computed over a leaf that is not a chain hash,
+ * with nothing in the diagnostic pointing back at this seam.
+ *
+ * SEQUENCE ZERO IS VALID and the guard must admit it: it is the sequence of a
+ * session's FIRST row. Only a negative or non-integer value is refused.
+ *
+ * Returns a freshly built receipt rather than the input, so what callers get is
+ * exactly what was validated.
+ */
+function narrowAppendReceipt(value: unknown): EventLogAppendReceipt {
+  if (typeof value !== "object" || value === null) {
+    throw new Error(
+      `SessionEventLog.append resolved to ${value === null ? "null" : `a value of type ${typeof value}`} instead of an EventLogAppendReceipt: this seam is Plan-006 T3.1's EventLogService.append, whose receipt carries the id, sequence and 32-byte row hash the append committed.`,
+    );
+  }
+  const { id, sequence, rowHash } = value as {
+    id?: unknown;
+    sequence?: unknown;
+    rowHash?: unknown;
+  };
+  if (typeof id !== "string" || id.length === 0) {
+    throw new Error(
+      `SessionEventLog.append resolved to a receipt whose id is not a non-empty string (type ${typeof id}); the id is the session_events PRIMARY KEY the append committed.`,
+    );
+  }
+  if (typeof sequence !== "number" || !Number.isInteger(sequence) || sequence < 0) {
+    throw new Error(
+      `SessionEventLog.append resolved to a receipt whose sequence is not a non-negative integer (received ${String(sequence)}); the anchor cadence keys ranges off this value, and 0 — a session's first row — is the only boundary case it may take.`,
+    );
+  }
+  if (!(rowHash instanceof Uint8Array) || rowHash.length !== RECEIPT_ROW_HASH_LENGTH) {
+    throw new Error(
+      `SessionEventLog.append resolved to a receipt whose rowHash is not a ${RECEIPT_ROW_HASH_LENGTH}-byte Uint8Array (got ${rowHash instanceof Uint8Array ? `${rowHash.length} bytes` : `a value of type ${typeof rowHash}`}); this hash is the committed chain head and becomes a Merkle leaf.`,
+    );
+  }
+  return { id, sequence, rowHash };
 }
 
 // --------------------------------------------------------------------------
@@ -521,6 +585,6 @@ export class RuntimeNodeEventEmitter {
           "commits the prelude atomically with the row.",
       );
     }
-    return (await appendResult) as EventLogAppendReceipt;
+    return narrowAppendReceipt(await appendResult);
   }
 }
