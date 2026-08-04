@@ -328,7 +328,7 @@ CREATE TABLE daemon_attachment_deliveries (
   delivered_at             TEXT NOT NULL
 );
 
--- Owner: Plan-006 | Migration: 0NNN-pending-anchor-uploads.ts (Tier 4 Phase 3)
+-- Owner: Plan-006 | Migration: 0008-pending-anchor-uploads.ts (Tier 4 Phase 3)
 -- Durable partition-tolerance queue for Merkle anchors awaiting control-plane upload. Unflushed
 -- anchors survive daemon restart without re-signing per Plan-006 §Merkle Anchor Emission (its
 -- partition-tolerance bullet: anchors queue locally on upload failure and flush on reconnect). The
