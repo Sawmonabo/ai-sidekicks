@@ -72,8 +72,10 @@
 
 import { isDeepStrictEqual } from "node:util";
 
+import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts";
 import type { Database, Statement } from "better-sqlite3";
 
+import { withSessionAppendLock } from "../events/session-append-lock.js";
 import type { RuntimeNodeEventEmitter } from "./node-event-emitter.js";
 
 // --------------------------------------------------------------------------
@@ -99,6 +101,67 @@ interface CapabilityValueRow {
   readonly capability_value: string;
 }
 
+/**
+ * Module-private abort signal for the in-prelude decision re-check.
+ *
+ * Thrown from inside the `transactionalPrelude`, which runs inside the append's
+ * `IMMEDIATE` transaction — so throwing it rolls that transaction back whole:
+ * the upsert is undone, the event-row INSERT never runs, and no sequence is
+ * consumed (the append re-derives the sequence from the durable chain head on
+ * each attempt).
+ *
+ * NOT exported and NOT a `DaemonDomainError`: in the normal case it never
+ * escapes this module (the retry loop catches exactly it), and it names an
+ * internal concurrency event rather than anything a caller did wrong.
+ */
+class CapabilityRowDivergedError extends Error {
+  constructor(nodeId: string, capability: string) {
+    super(
+      `NodeCapabilityService.declare: the node_capabilities row for ` +
+        `(${nodeId}, ${capability}) changed between the read-decide step and the ` +
+        `write transaction; aborting to avoid emitting an event whose payload no ` +
+        `longer describes the committed state.`,
+    );
+    this.name = "CapabilityRowDivergedError";
+  }
+}
+
+/** Bounded attempts for the read-decide-emit optimistic-concurrency loop. */
+const CAPABILITY_DECLARE_MAX_ATTEMPTS: number = 3;
+
+/** The stored snapshot, parsed — `undefined` when the row does not exist. */
+function parseStoredDetails(
+  row: CapabilityValueRow | undefined,
+): Record<string, unknown> | undefined {
+  return row === undefined
+    ? undefined
+    : (JSON.parse(row.capability_value) as Record<string, unknown>);
+}
+
+/**
+ * Structural equality for two possibly-absent capability snapshots — the ONE
+ * comparison BOTH change-detection and the in-prelude re-check use, so the two
+ * cannot disagree about what counts as "the row moved" (the sibling
+ * `driver-capabilities-writer.ts` pins the same single-comparison rule with
+ * `snapshotsEqual`). Comparing the re-check on RAW `capability_value` text
+ * instead would call a key-reordered but semantically identical racer write a
+ * divergence, and three such races exhaust the retry budget and surface
+ * {@link CapabilityRowDivergedError} out of a legitimately unchanged re-declare.
+ *
+ * Absent-vs-present IS a divergence: it flips the declared/updated branch
+ * itself. Both sides arrive already JSON-round-tripped, so key order is not a
+ * difference here.
+ */
+function capabilityDetailsEqual(
+  left: Record<string, unknown> | undefined,
+  right: Record<string, unknown> | undefined,
+): boolean {
+  if (left === undefined || right === undefined) {
+    return left === right;
+  }
+  return isDeepStrictEqual(left, right);
+}
+
 // --------------------------------------------------------------------------
 // NodeCapabilityService
 // --------------------------------------------------------------------------
@@ -111,13 +174,14 @@ export class NodeCapabilityService {
   readonly #selectCapabilityStmt: Statement;
   readonly #upsertCapabilityStmt: Statement;
   readonly #nodeHasAnyCapabilityStmt: Statement;
-  readonly #declareTxn: (input: DeclareCapabilityInput) => void;
-  // The same single emission seam the `declare` paths route through, retained so
-  // `bringOnline` (T2.4) can emit `runtime_node.online` without re-deriving the
-  // event-construction path. `declare`'s transaction captures `emitter` in its
-  // closure; `bringOnline` is a non-transactional SELECT + conditional emit, so
-  // it needs the reference on the instance.
+  // The single emission seam both paths route through. `declare` hands it a
+  // `transactionalPrelude` on its mutating branches; `bringOnline` emits with
+  // none (no durable write).
   readonly #emitter: RuntimeNodeEventEmitter;
+  // Wall clock for `node_capabilities.updated_at`. Held on the instance now
+  // that the upsert runs from a prelude closure rather than from a transaction
+  // body that captured the constructor parameter.
+  readonly #now: () => string;
 
   constructor(
     db: Database,
@@ -125,6 +189,7 @@ export class NodeCapabilityService {
     now: () => string = () => new Date().toISOString(),
   ) {
     this.#emitter = emitter;
+    this.#now = now;
     // Change-detection is NODE-scoped BY THE SCHEMA: `node_capabilities` is PK
     // (node_id, capability_key) with NO session_id column (0002-runtime-node.ts),
     // and the plan forbids adding one — so session-scoping the dedup is not even
@@ -168,11 +233,82 @@ export class NodeCapabilityService {
     this.#nodeHasAnyCapabilityStmt = db.prepare(
       `SELECT 1 FROM node_capabilities WHERE node_id = @node_id LIMIT 1`,
     );
+  }
 
-    // Prepare the declare transaction once. Body order is load-bearing: when a
-    // write happens, upsert FIRST then emit, so a throwing emit rolls back the
-    // upsert. The identical-re-declare path returns WITHOUT writing or emitting.
-    this.#declareTxn = db.transaction((input: DeclareCapabilityInput): void => {
+  /**
+   * Declare (or re-declare) a node capability. Atomic dual-write on the paths
+   * that mutate state (first declaration and change); an identical re-declare
+   * is an idempotent no-op (no write, no event).
+   *
+   * SHAPE, post Plan-006 T3.1 re-point — read-decide under the append lock,
+   * re-check inside the write transaction, retry on divergence:
+   *
+   *   1. Acquire `withSessionAppendLock` for the session. This is what keeps two
+   *      concurrent same-session declares of the same capability from BOTH
+   *      reading "no row", both taking the first-declare branch, and both
+   *      emitting `capability_declared` for one logical declaration.
+   *   2. Read + decide (first-declare / changed / identical no-op). A no-op
+   *      returns here having written nothing and emitted nothing.
+   *   3. `await` the emit with the upsert as `transactionalPrelude`, so the
+   *      `node_capabilities` row and the event row commit in ONE transaction,
+   *      upsert FIRST — the same body order this class shipped, and a throwing
+   *      INSERT still rolls the upsert back.
+   *
+   * The nested `append` REUSES the hold taken at (1) through owner-scoped
+   * reentrancy rather than deadlocking on it.
+   *
+   * WHY THE LOCK IS NOT ENOUGH, and what closes the rest. The read at (2) used
+   * to run INSIDE the write transaction. It cannot stay there — the event
+   * PAYLOAD depends on it (`declared` and `updated` are different events),
+   * signing depends on the payload, and signing is async. Moving it out opens a
+   * window that the append lock does NOT cover, because `node_capabilities` is
+   * NODE-keyed (no `session_id` column) while the lock is SESSION-keyed: two
+   * declares for the same `(nodeId, capability)` under DIFFERENT sessions hold
+   * different locks, both read, both park on the signing-key unseal, and both
+   * commit — one connection or two, it makes no difference. That would break
+   * this class's own Model-B property that an identical re-declare in a
+   * DIFFERENT session is a no-op.
+   *
+   * So the prelude RE-CHECKS: as its first statement, inside the append's
+   * `BEGIN IMMEDIATE`, it re-reads the row and aborts the whole transaction on
+   * divergence (upsert undone, event INSERT never reached, no sequence
+   * consumed). `declare` retries the read-decide-emit up to
+   * {@link CAPABILITY_DECLARE_MAX_ATTEMPTS} times on that sentinel and only that sentinel;
+   * exhaustion rethrows it loudly rather than writing on a stale decision.
+   */
+  async declare(input: DeclareCapabilityInput): Promise<void> {
+    // Branded once here and reused for BOTH the lock key and the emit, so the
+    // lock partition and the event's partition cannot drift apart.
+    const sessionId: SessionId = SessionIdSchema.parse(input.sessionId);
+
+    for (let attempt: number = 1; ; attempt += 1) {
+      try {
+        await this.#declareOnce(input, sessionId);
+        return;
+      } catch (error: unknown) {
+        // ONLY the divergence sentinel is retryable; every other failure
+        // propagates on its first occurrence.
+        if (!(error instanceof CapabilityRowDivergedError)) {
+          throw error;
+        }
+        if (attempt >= CAPABILITY_DECLARE_MAX_ATTEMPTS) {
+          throw error;
+        }
+      }
+    }
+  }
+
+  /**
+   * ONE attempt of the read-decide-emit sequence, under the session's append
+   * lock. Throws {@link CapabilityRowDivergedError} when the durable row moved
+   * between the decision and the write.
+   *
+   * Factored out so each retry re-reads a genuinely FRESH row: a loop around
+   * the lock body alone would keep closing over the first attempt's
+   * `existingRow` and diverge forever.
+   */
+  async #declareOnce(input: DeclareCapabilityInput, sessionId: SessionId): Promise<void> {
+    await withSessionAppendLock(sessionId, async () => {
       const existingRow: CapabilityValueRow | undefined = this.#selectCapabilityStmt.get({
         node_id: input.nodeId,
         capability_key: input.capability,
@@ -187,27 +323,62 @@ export class NodeCapabilityService {
       ) as Record<string, unknown>;
       const capabilityValue: string = JSON.stringify(input.capabilityDetails);
 
-      if (existingRow === undefined) {
-        // First declaration of this capability.
+      // Parsed ONCE here, above the prelude, and used by both the decision
+      // below and the re-check inside it — the branch and the abort must be
+      // deciding on the same normalized value.
+      const priorDetails: Record<string, unknown> | undefined = parseStoredDetails(existingRow);
+
+      // The durable half of the dual-write, shared by both mutating branches.
+      // Runs inside the append's transaction immediately BEFORE the event-row
+      // INSERT. `this.#now()` is read HERE, in the transaction, exactly where it
+      // was read when this class owned the transaction.
+      const upsertCapability = (): void => {
+        // THE RE-CHECK, first statement — see the `declare` doc comment for why
+        // the session-keyed append lock cannot cover a node-keyed row.
+        //
+        // The decision above was made outside any write transaction and this
+        // attempt then parked on an `await` before reaching here. Re-reading
+        // inside `BEGIN IMMEDIATE` closes the window in both directions: a
+        // racer that committed before our BEGIN is visible here, and a racer
+        // that BEGINs after ours blocks until we COMMIT or ROLL BACK. `.get()`
+        // is called directly — better-sqlite3 throws on a nested transaction
+        // and we are already inside the append's, which supplies the read
+        // consistency.
+        //
+        // Compared through `capabilityDetailsEqual`, the SAME comparison the
+        // decision used: a racer that rewrote the row to a semantically
+        // identical value did not invalidate our branch, and calling that a
+        // divergence would burn the retry budget on a no-op.
+        const currentRow: CapabilityValueRow | undefined = this.#selectCapabilityStmt.get({
+          node_id: input.nodeId,
+          capability_key: input.capability,
+        }) as CapabilityValueRow | undefined;
+        if (!capabilityDetailsEqual(parseStoredDetails(currentRow), priorDetails)) {
+          throw new CapabilityRowDivergedError(input.nodeId, input.capability);
+        }
+
         this.#upsertCapabilityStmt.run({
           node_id: input.nodeId,
           capability_key: input.capability,
           capability_value: capabilityValue,
-          now: now(),
+          now: this.#now(),
         });
-        emitter.emitCapabilityDeclared({
-          sessionId: input.sessionId,
+      };
+
+      if (priorDetails === undefined) {
+        // First declaration of this capability. Branching on the PARSED value
+        // rather than on `existingRow` keeps this decision and the prelude's
+        // re-check reading the same variable — absent here is absent there.
+        await this.#emitter.emitCapabilityDeclared({
+          sessionId,
           nodeId: input.nodeId,
           capability: input.capability,
           capabilityDetails: normalizedIncoming,
           actor: input.actor ?? null,
+          transactionalPrelude: upsertCapability,
         });
         return;
       }
-
-      const priorDetails: Record<string, unknown> = JSON.parse(
-        existingRow.capability_value,
-      ) as Record<string, unknown>;
 
       if (isDeepStrictEqual(priorDetails, normalizedIncoming)) {
         // Identical re-declare — idempotent: no write, no event. `updated_at`
@@ -217,31 +388,16 @@ export class NodeCapabilityService {
       }
 
       // Changed: persist the new snapshot and emit the prior + new snapshots.
-      this.#upsertCapabilityStmt.run({
-        node_id: input.nodeId,
-        capability_key: input.capability,
-        capability_value: capabilityValue,
-        now: now(),
-      });
-      emitter.emitCapabilityUpdated({
-        sessionId: input.sessionId,
+      await this.#emitter.emitCapabilityUpdated({
+        sessionId,
         nodeId: input.nodeId,
         capability: input.capability,
         previousState: priorDetails,
         newState: normalizedIncoming,
         actor: input.actor ?? null,
+        transactionalPrelude: upsertCapability,
       });
     });
-  }
-
-  /**
-   * Declare (or re-declare) a node capability. Atomic dual-write on the paths
-   * that mutate state (first declaration and change); an identical re-declare
-   * is an idempotent no-op (no write, no event). Synchronous —
-   * better-sqlite3 is synchronous by design.
-   */
-  declare(input: DeclareCapabilityInput): void {
-    this.#declareTxn(input);
   }
 
   /**
@@ -272,12 +428,15 @@ export class NodeCapabilityService {
    * thus satisfies the gate on a re-attach to a DIFFERENT session and onlines onto
    * that session's timeline without re-declaring.
    *
-   * NO DURABLE WRITE, NO TRANSACTION: `online` is NOT a daemon-durable state in
+   * NO DURABLE WRITE, NO PRELUDE: `online` is NOT a daemon-durable state in
    * Phase 2 — there is no node-table column for liveness; it is event-sourced via
    * the online event. So `bringOnline` is a SELECT + a single conditional emit,
-   * deliberately NOT wrapped in `db.transaction(...)` (unlike `declare`, whose
-   * dual-write of the durable row + event needs single-transaction atomicity). The
-   * emit is the only side effect on the satisfied path.
+   * and it passes no `transactionalPrelude` (unlike `declare`, whose dual-write
+   * of the durable row + event needs to commit in one transaction). The emit is
+   * the only side effect on the satisfied path. It takes no outer
+   * `withSessionAppendLock` either: there is no read-decide to protect — the
+   * gate reads a node-keyed row that this method never writes, so re-reading it
+   * under a lock would order nothing that is not already ordered by `append`.
    *
    * NO "ALREADY ONLINE" SUPPRESSION (intentional, not an oversight): there is no
    * durable online state to check against, so this primitive does not de-duplicate
@@ -286,11 +445,11 @@ export class NodeCapabilityService {
    * not sequence register→declare→online (that orchestration, and any
    * online-on-reconnect logic, is Phase 3 / T3.x).
    */
-  bringOnline(input: {
+  async bringOnline(input: {
     readonly nodeId: string;
     readonly sessionId: string;
     readonly actor?: string | null;
-  }): boolean {
+  }): Promise<boolean> {
     // Existence probe (presence, never the value): `.get()` returns the `SELECT 1`
     // row when ≥1 declaration exists and `undefined` when none — and THROWS on a
     // real DB error, so a `false` return is only ever the legitimate "not declared"
@@ -307,7 +466,7 @@ export class NodeCapabilityService {
     // session-scoped (Model B). `actor` forwards as `?? null` so an omitted actor
     // becomes the system-null actor (the emitter input rejects explicit-`undefined`
     // under `exactOptionalPropertyTypes`).
-    this.#emitter.emitOnline({
+    await this.#emitter.emitOnline({
       sessionId: input.sessionId,
       nodeId: input.nodeId,
       previousState: "registering",

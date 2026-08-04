@@ -56,11 +56,16 @@ import {
   type GetCapabilitiesResult,
   type ProviderDriver,
   type RunId,
+  type SessionId,
 } from "@ai-sidekicks/contracts";
 
+import { EventLogService } from "../../events/event-log-service.js";
+import { __resetSessionAppendLocksForTest } from "../../events/session-append-lock.js";
+import type { Ed25519PrivateKey, Ed25519PublicKey } from "../../events/signer.js";
+import type { DaemonSigningKeySource } from "../../events/signing-key-source.js";
 import { RuntimeNodeEventEmitter } from "../../node/node-event-emitter.js";
 import { openDatabase } from "../../session/migration-runner.js";
-import { SessionService, UnsignedPlaceholderAppendToken } from "../../session/session-service.js";
+import { SessionService } from "../../session/session-service.js";
 import { DriverCapabilitiesWriter } from "../driver-capabilities-writer.js";
 import {
   DriverCapabilityUnsupportedError,
@@ -68,6 +73,24 @@ import {
   ProviderRegistry,
 } from "../provider-registry.js";
 import { RuntimeBindingStore } from "../runtime-binding-store.js";
+
+/**
+ * Fixed-key {@link DaemonSigningKeySource} — this suite is about the producer's
+ * dual-write, not key custody (`signing-key-source.test.ts` owns that).
+ */
+class FixedDaemonSigningKeySource implements DaemonSigningKeySource {
+  readonly #privateKey: Ed25519PrivateKey = new Uint8Array(32).fill(7) as Ed25519PrivateKey;
+
+  read(_sessionId: SessionId): Promise<Ed25519PrivateKey> {
+    return Promise.resolve(this.#privateKey);
+  }
+
+  create(_sessionId: SessionId): Promise<{ readonly publicKey: Ed25519PublicKey }> {
+    return Promise.reject(
+      new Error("FixedDaemonSigningKeySource.create is not used by this suite"),
+    );
+  }
+}
 
 // ----------------------------------------------------------------------------
 // Constants
@@ -208,16 +231,19 @@ let db: DatabaseType;
 // Wire the Phase-2 object graph over the current `db`. A collision-free
 // deterministic event-id source so `session_events.id` (TEXT PRIMARY KEY) never
 // collides across the multiple emits a declared→updated sequence produces. The
-// append opt-in is test-only: production wiring is Plan-006 T3.1's own leg,
-// which re-points this seam onto the durable append path (the async
-// `EventLogService.append` does not satisfy the synchronous seam directly).
+// seam is ASYNC-TRANSACTIONAL post the Plan-006 T3.1 re-point
+// (node-event-emitter.ts's header owns the contract): `EventLogService.append`
+// over the SAME connection backs it, which is what lets every producer's
+// prelude join the append's transaction.
 function makeStack(): Stack {
-  const sessionService: SessionService = new SessionService(db, {
-    allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly(),
-  });
   let eventIdCounter: number = 0;
   const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
-    sessionEvents: sessionService,
+    // The production append path over the SAME connection every producer in this
+    // graph uses — the preludes must join its transaction.
+    sessionEvents: new EventLogService({
+      db,
+      signingKeySource: new FixedDaemonSigningKeySource(),
+    }),
     newEventId: () => `evt-${(eventIdCounter++).toString()}`,
   });
   const clock: () => string = makeAdvancingClock();
@@ -230,6 +256,11 @@ function makeStack(): Stack {
     })(),
   });
   const registry: ProviderRegistry = new ProviderRegistry();
+  // READ-ONLY SessionService: `readEvents` needs no append opt-in, and the
+  // writes in this stack now go through EventLogService. Constructing it
+  // WITHOUT the capability token is the point — nothing in this graph may reach
+  // the guarded placeholder append any more.
+  const sessionService: SessionService = new SessionService(db);
   return { sessionService, writer, bindingStore, registry };
 }
 
@@ -238,6 +269,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // The per-session append lock is a module singleton — reset between cases so
+  // a leftover queue entry cannot stall the next case as an unrelated timeout.
+  __resetSessionAppendLocksForTest();
   if (db.open) {
     db.close();
   }
@@ -277,7 +311,7 @@ describe("Phase 2 integration — AC2 capability round-trip + cold-start re-seed
 
     // --- declare: persist the snapshot to the durable cache + emit the event ---
     expect(
-      writer.declare({
+      await writer.declare({
         sessionId: SESSION_ID,
         nodeId: NODE_ID,
         driverName: DRIVER_NAME,
@@ -423,7 +457,7 @@ describe("Phase 2 integration — I-005-1 daemon-local authority (binding linkag
     //   registry (live), capability cache (declare/hydrate), binding (create).
     const advertised: GetCapabilitiesResult = makeResult();
     await registry.register(DRIVER_NAME, makeMockDriver(advertised));
-    writer.declare({
+    await writer.declare({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       driverName: DRIVER_NAME,
@@ -478,7 +512,7 @@ describe("Phase 2 integration — refresh seam coherence (updated → re-hydrate
 
     // Initial declare: steer:false.
     expect(
-      writer.declare({
+      await writer.declare({
         sessionId: SESSION_ID,
         nodeId: NODE_ID,
         driverName: DRIVER_NAME,
@@ -490,7 +524,7 @@ describe("Phase 2 integration — refresh seam coherence (updated → re-hydrate
 
     // Refreshed declare: steer:true — a real change → updated.
     expect(
-      writer.declare({
+      await writer.declare({
         sessionId: SESSION_ID,
         nodeId: NODE_ID,
         driverName: DRIVER_NAME,

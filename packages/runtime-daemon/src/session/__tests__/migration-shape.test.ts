@@ -51,12 +51,13 @@ const PLAN_001_TABLES: ReadonlyArray<string> = [
 
 // The full set of tables present after ALL migrations have applied
 // (Plan-001 version-1 tables + Plan-003 version-2 tables + Plan-005
-// version-3 tables + Plan-010 version-4 tables + the Plan-006 version-5
-// table). Alphabetical by SQLite's `ORDER BY name` — BINARY collation, so
+// version-3 tables + Plan-010 version-4 tables + the two Plan-006 tables:
+// version-5 `daemon_signing_keys` and version-8 `pending_anchor_uploads`).
+// Alphabetical by SQLite's `ORDER BY name` — BINARY collation, so
 // `_` (0x5F) sorts before every lowercase letter and
 // `run_execution_contexts` precedes `runtime_bindings`. Kept separate from
 // `PLAN_001_TABLES` so the snapshot loop's 0001-immutability guard is
-// unaffected by the 0002 / 0003 / 0004 / 0005 additions.
+// unaffected by the 0002 / 0003 / 0004 / 0005 / 0008 additions.
 const ALL_EXPECTED_TABLES: ReadonlyArray<string> = [
   "branch_contexts",
   "daemon_signing_keys",
@@ -67,6 +68,7 @@ const ALL_EXPECTED_TABLES: ReadonlyArray<string> = [
   "node_capabilities",
   "node_trust_state",
   "participant_keys",
+  "pending_anchor_uploads",
   "run_execution_contexts",
   "runtime_bindings",
   "schema_version",
@@ -112,13 +114,13 @@ describe("0001-initial migration shape", () => {
     const rows = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
       .all() as ReadonlyArray<{ name: string }>;
-    // After version-5 (Plan-006) the DB holds the full fifteen-table set:
+    // After version-8 (Plan-006) the DB holds the full sixteen-table set:
     // the four Plan-001 tables, the two Plan-003 tables (node_capabilities,
     // node_trust_state), the four Plan-005 tables (runtime_bindings,
     // driver_capabilities, driver_tools, driver_contract_meta), the four
     // Plan-010 tables (worktrees, ephemeral_clones, branch_contexts,
-    // run_execution_contexts), and the one Plan-006 table
-    // (daemon_signing_keys).
+    // run_execution_contexts), and the two Plan-006 tables
+    // (daemon_signing_keys at v5, pending_anchor_uploads at v8).
     expect(rows.map((r) => r.name)).toEqual(ALL_EXPECTED_TABLES);
   });
 
@@ -165,28 +167,36 @@ describe("0001-initial migration shape", () => {
     expect(byName.get("monotonic_ns")?.notnull).toBe(1);
   });
 
-  it("anchors schema_version rows at versions [1, 2, 3, 4, 5]", () => {
+  it("anchors schema_version rows at versions [1, 2, 3, 4, 5, 6, 7, 8, 9]", () => {
     // The `ORDER BY version` is load-bearing: without it the row order is
     // insertion-order luck and the assertion would silently stop pinning
     // which versions landed.
     const versionRows = db
       .prepare("SELECT version FROM schema_version ORDER BY version")
       .all() as ReadonlyArray<{ version: number }>;
-    expect(versionRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5]);
+    expect(versionRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
   });
 
   it("is idempotent when applyMigrations runs twice", () => {
     // Second invocation must be a no-op (the migration runner short-
     // circuits via hasMigrationApplied per version). Re-running must not
     // throw, must not double-insert any schema_version anchor row, must
-    // not duplicate tables. Five DISTINCT versions [1, 2, 3, 4, 5] is not
+    // not duplicate tables. Nine DISTINCT versions [1..9] is not
     // duplication.
+    //
+    // Version 7 makes this arm strictly load-bearing rather than a
+    // formality: it is an `ALTER TABLE ... ADD COLUMN`, and SQLite has no
+    // `ADD COLUMN IF NOT EXISTS`, so a runner guard regression turns a
+    // re-apply into a hard "duplicate column name" throw here. Version 6
+    // is the same story for `CREATE INDEX` / `CREATE TRIGGER`, version 8
+    // for `CREATE TABLE` (no `IF NOT EXISTS` in the transcribed DDL either),
+    // and version 9 for BOTH at once (two ADD COLUMNs plus a CREATE INDEX).
     applyMigrations(db);
     const versionRows = db
       .prepare("SELECT version FROM schema_version ORDER BY version")
       .all() as ReadonlyArray<{ version: number }>;
-    expect(versionRows).toHaveLength(5);
-    expect(versionRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5]);
+    expect(versionRows).toHaveLength(9);
+    expect(versionRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
   });
 });
 
@@ -1851,5 +1861,583 @@ describe("0005-daemon-signing-keys migration shape", () => {
       .get("session-text-blob") as { storage_class: string; sealed_private_key: unknown };
     expect(row.storage_class).toBe("text");
     expect(typeof row.sealed_private_key).toBe("string");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Plan-006 T3.1 — run-lifecycle terminal backstop (migration version 6).
+// ---------------------------------------------------------------------------
+//
+// Version 6 adds no TABLE, so `ALL_EXPECTED_TABLES` pins nothing about it: the
+// index and all three triggers could vanish and every other block in this file
+// would stay green. This block is the shape floor the suite's own convention
+// requires — the index exists with the right predicate and key expressions, and
+// each of the three triggers exists on the right event — plus ONE behavioral arm
+// on the promote leg, which is the leg no shape assertion can certify.
+//
+// The deeper behavioral matrix (insert-leg NULL + storage-class drift, the
+// update leg's value-rewrite and de-scope arms, and the index's own
+// duplicate-terminal rejection) is T3.5's per the plan; this block deliberately
+// does not duplicate it.
+describe("0006-run-lifecycle-terminal-backstop-index migration shape", () => {
+  let db: DatabaseType;
+
+  beforeEach(() => {
+    db = openDatabase(":memory:");
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  it("creates the partial UNIQUE terminal-backstop index scoped to the three terminal run_lifecycle types", () => {
+    // `sqlite_master.sql` is the authority for a PARTIAL index: `PRAGMA
+    // index_list` reports `partial: 1` but never the predicate, so an index
+    // whose WHERE clause silently widened to every `run_lifecycle` row — which
+    // would reject legitimate non-terminal duplicates — passes index_list
+    // unchanged. The DDL text is the only surface that discriminates it.
+    const indexDdl = db
+      .prepare(`SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?`)
+      .get("idx_session_events_run_terminal_once") as { sql: string } | undefined;
+    expect(indexDdl).toBeDefined();
+    if (indexDdl === undefined) return;
+
+    expect(indexDdl.sql).toContain("UNIQUE");
+    // Keyed on the JSON-extracted run identity, not on stored columns — run
+    // identity lives inside `payload`.
+    expect(indexDdl.sql).toContain("json_extract(payload, '$.runId')");
+    expect(indexDdl.sql).toContain("json_extract(payload, '$.runVersion')");
+    // The partial predicate: the three terminal types and nothing else.
+    expect(indexDdl.sql).toContain("WHERE category = 'run_lifecycle'");
+    expect(indexDdl.sql).toContain("'run.completed'");
+    expect(indexDdl.sql).toContain("'run.failed'");
+    expect(indexDdl.sql).toContain("'run.interrupted'");
+
+    // And it is registered against the right table.
+    const indexes = db.prepare("PRAGMA index_list(session_events)").all() as ReadonlyArray<{
+      name: string;
+      unique: number;
+      partial: number;
+    }>;
+    const backstop = indexes.find((index) => index.name === "idx_session_events_run_terminal_once");
+    expect(backstop).toBeDefined();
+    expect(backstop?.unique).toBe(1);
+    expect(backstop?.partial).toBe(1);
+  });
+
+  it("creates the terminal-key CHECK trigger trio SQLite cannot express as an ALTER TABLE ADD CHECK", () => {
+    const triggers = db
+      .prepare(
+        `SELECT name, tbl_name FROM sqlite_master
+          WHERE type = 'trigger' AND name LIKE 'trg_run_terminal_key_%'
+          ORDER BY name`,
+      )
+      .all() as ReadonlyArray<{ name: string; tbl_name: string }>;
+
+    // All three legs, and no fourth: the insert leg, the OLD-keyed update leg,
+    // and the promote leg. A trio reduced to two is the failure this pins.
+    expect(triggers.map((trigger) => trigger.name)).toEqual([
+      "trg_run_terminal_key_insert",
+      "trg_run_terminal_key_promote",
+      "trg_run_terminal_key_update",
+    ]);
+    for (const trigger of triggers) {
+      expect(trigger.tbl_name).toBe("session_events");
+    }
+  });
+
+  it("aborts on the promote leg when an UPDATE re-types a non-terminal row INTO the terminal set with NULL keys", () => {
+    // THE HOLE THIS CLOSES, and why it needs a behavioral arm rather than a
+    // shape one. The UNIQUE index treats NULLs as DISTINCT, so a terminal row
+    // with a NULL `runId`/`runVersion` never occupies an index slot and any
+    // number of them coexist. The INSERT leg catches that on the way in. But an
+    // UPDATE that re-types an ALREADY-STORED non-terminal row into the terminal
+    // set is keyed on OLD in the update leg — OLD was not terminal, so that leg
+    // does not fire — and would otherwise slip past both. The promote leg
+    // refuses it outright: terminal rows are INSERT-only.
+    db.prepare(
+      `INSERT INTO session_events
+         (id, session_id, sequence, occurred_at, monotonic_ns, category, type,
+          actor, payload, correlation_id, causation_id, version,
+          prev_hash, row_hash, daemon_signature)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      "evt-promote-probe",
+      "session-promote",
+      0,
+      "2026-06-02T12:00:00.000Z",
+      1_000_000_000,
+      "run_lifecycle",
+      // NON-terminal, and with NO runId/runVersion in the payload — the exact
+      // row the promote leg exists to stop from being re-typed.
+      "run.started",
+      null,
+      JSON.stringify({ note: "no run identity here" }),
+      null,
+      null,
+      "1.0",
+      Buffer.alloc(32),
+      Buffer.alloc(32, 0x01),
+      Buffer.alloc(64, 0x02),
+    );
+
+    expect(() =>
+      db
+        .prepare(`UPDATE session_events SET category = ?, type = ? WHERE id = ?`)
+        .run("run_lifecycle", "run.completed", "evt-promote-probe"),
+    ).toThrow(/terminal run_lifecycle by UPDATE|INSERT-only/i);
+
+    // And the row is untouched — RAISE(ABORT) rolls back the statement.
+    const row = db
+      .prepare(`SELECT type FROM session_events WHERE id = ?`)
+      .get("evt-promote-probe") as { type: string };
+    expect(row.type).toBe("run.started");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Plan-006 T3.3 — `pending_anchor_uploads` (migration version 8).
+// ---------------------------------------------------------------------------
+//
+// The durable Merkle-anchor upload queue. `ALL_EXPECTED_TABLES` pins that the
+// table EXISTS and nothing about its shape, so this block is the shape floor
+// the suite's convention requires — the same division the 0005 block states.
+//
+// Every value asserted below was read out of SQLite's own introspection
+// (`PRAGMA table_info` / `index_list` / `index_info`) against the pinned
+// toolchain (better-sqlite3 12.9.0 / SQLite 3.53.0) rather than reasoned from
+// the DDL — column ORDER and the two autoindex NAMES especially, which no
+// reading of the CREATE TABLE can certify.
+//
+// Spec coverage: `Spec-006 §Post-Compaction Integrity` — the covering-anchor
+// precondition is a COVERAGE test, not an exact-start match, which is exactly
+// why `end_sequence` sits in the UNIQUE key. The final arm below is that
+// property asserted behaviorally: two anchors sharing a `start_sequence`
+// coexist, and only an identical range is deduped.
+//
+// The service-level behavior on top of this shape (cadence firing, force-fire
+// re-entry returning the queued row without re-signing) is Plan-006 T3.5's
+// file set; this block covers the storage contract only.
+describe("0008-pending-anchor-uploads migration shape", () => {
+  let db: DatabaseType;
+
+  const FIXTURE_MERKLE_ROOT: Buffer = Buffer.alloc(32, 0x11);
+  const FIXTURE_ROOT_SIGNATURE: Buffer = Buffer.alloc(64, 0x22);
+
+  beforeEach(() => {
+    db = openDatabase(":memory:");
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  function enqueueAnchor(anchor: {
+    id: string;
+    sessionId?: string;
+    nodeId?: string;
+    startSequence: number;
+    endSequence: number;
+  }): void {
+    db.prepare(
+      `INSERT INTO pending_anchor_uploads
+         (id, session_id, node_id, start_sequence, end_sequence,
+          merkle_root, root_signature, anchored_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      anchor.id,
+      anchor.sessionId ?? "session-anchor",
+      anchor.nodeId ?? "node-alpha",
+      anchor.startSequence,
+      anchor.endSequence,
+      FIXTURE_MERKLE_ROOT,
+      FIXTURE_ROOT_SIGNATURE,
+      "2026-08-04T00:00:00.000Z",
+    );
+  }
+
+  it("pins the column shape, NOT NULL discipline, and the one DEFAULT of `pending_anchor_uploads`", () => {
+    const columns = db
+      .prepare("PRAGMA table_info(pending_anchor_uploads)")
+      .all() as ReadonlyArray<PragmaColumn>;
+
+    // Columns in CID (creation) order — fixed by the CREATE TABLE DDL.
+    expect(columns.map((c) => c.name)).toEqual([
+      "id",
+      "session_id",
+      "node_id",
+      "start_sequence",
+      "end_sequence",
+      "merkle_root",
+      "root_signature",
+      "anchored_at",
+      "uploaded_at",
+      "attempt_count",
+      "last_attempt_at",
+      "last_error",
+    ]);
+
+    const byName = new Map(columns.map((c) => [c.name, c]));
+
+    // Declared types. The two commitment columns are BLOB and that is
+    // load-bearing rather than cosmetic: they hold a 32-byte Merkle root and a
+    // 64-byte Ed25519 signature, and SQLite's BLOB affinity does not coerce a
+    // stored TEXT value — a base64 string written here would read back as text
+    // and fail signature verification at audit time.
+    expect(byName.get("id")?.type).toBe("TEXT");
+    expect(byName.get("session_id")?.type).toBe("TEXT");
+    expect(byName.get("node_id")?.type).toBe("TEXT");
+    expect(byName.get("start_sequence")?.type).toBe("INTEGER");
+    expect(byName.get("end_sequence")?.type).toBe("INTEGER");
+    expect(byName.get("merkle_root")?.type).toBe("BLOB");
+    expect(byName.get("root_signature")?.type).toBe("BLOB");
+    expect(byName.get("anchored_at")?.type).toBe("TEXT");
+    expect(byName.get("uploaded_at")?.type).toBe("TEXT");
+    expect(byName.get("attempt_count")?.type).toBe("INTEGER");
+    expect(byName.get("last_attempt_at")?.type).toBe("TEXT");
+    expect(byName.get("last_error")?.type).toBe("TEXT");
+
+    // Single-column PK on `id`; every other column pk === 0.
+    expect(byName.get("id")?.pk).toBe(1);
+    for (const other of columns.filter((c) => c.name !== "id")) {
+      expect(other.pk).toBe(0);
+    }
+
+    // NOT NULL columns per the DDL. `id` is EXCLUDED: the canonical block
+    // declares it `id TEXT PRIMARY KEY` with no explicit `NOT NULL`, and SQLite
+    // does not imply NOT NULL on a non-INTEGER PRIMARY KEY column — the same
+    // documented quirk the 0003 / 0004 / 0005 blocks above call out.
+    expect(byName.get("id")?.notnull).toBe(0);
+    for (const required of [
+      "session_id",
+      "node_id",
+      "start_sequence",
+      "end_sequence",
+      "merkle_root",
+      "root_signature",
+      "anchored_at",
+      "attempt_count",
+    ]) {
+      expect(byName.get(required)?.notnull).toBe(1);
+    }
+    // The four nullable columns are the LIFECYCLE ones: a freshly-enqueued
+    // anchor has not been uploaded and has not been attempted.
+    for (const nullable of ["uploaded_at", "last_attempt_at", "last_error"]) {
+      expect(byName.get(nullable)?.notnull).toBe(0);
+    }
+
+    // `attempt_count` is the table's ONLY default — the enqueue path writes
+    // eight columns and lets the retry counter start itself. SQLite reports the
+    // default as the literal DDL text, hence the string "0".
+    expect(byName.get("attempt_count")?.dflt_value).toBe("0");
+    for (const column of columns.filter((c) => c.name !== "attempt_count")) {
+      expect(column.dflt_value).toBeNull();
+    }
+  });
+
+  it("creates the four-column UNIQUE key plus the partial pending-scan index", () => {
+    const indexes = db.prepare("PRAGMA index_list(pending_anchor_uploads)").all() as ReadonlyArray<{
+      name: string;
+      unique: 0 | 1;
+      origin: string;
+      partial: 0 | 1;
+    }>;
+    const byName = new Map(indexes.map((index) => [index.name, index]));
+
+    // Three indexes: the PK autoindex, the UNIQUE-constraint autoindex, and the
+    // one explicit CREATE INDEX. `origin` discriminates them — "pk" / "u" /
+    // "c" — which is what distinguishes a constraint SQLite derived from an
+    // index the migration issued.
+    expect([...byName.keys()].sort()).toEqual([
+      "idx_pending_anchor_uploads_pending",
+      "sqlite_autoindex_pending_anchor_uploads_1",
+      "sqlite_autoindex_pending_anchor_uploads_2",
+    ]);
+    expect(byName.get("sqlite_autoindex_pending_anchor_uploads_1")?.origin).toBe("pk");
+    expect(byName.get("sqlite_autoindex_pending_anchor_uploads_2")?.origin).toBe("u");
+    expect(byName.get("idx_pending_anchor_uploads_pending")?.origin).toBe("c");
+
+    // THE KEY. All four columns, in order. A key that lost `end_sequence`
+    // would collapse a cadence anchor and a wider compaction-covering anchor
+    // that share a `start_sequence` — the failure the last arm below drives.
+    const uniqueKeyColumns = db
+      .prepare("PRAGMA index_info(sqlite_autoindex_pending_anchor_uploads_2)")
+      .all() as ReadonlyArray<{ name: string }>;
+    expect(uniqueKeyColumns.map((c) => c.name)).toEqual([
+      "session_id",
+      "node_id",
+      "start_sequence",
+      "end_sequence",
+    ]);
+    expect(byName.get("sqlite_autoindex_pending_anchor_uploads_2")?.unique).toBe(1);
+
+    // The pending-scan index: non-unique, PARTIAL, over (session_id,
+    // anchored_at). `sqlite_master.sql` is the authority for the predicate —
+    // `index_list` reports `partial: 1` but never the WHERE clause, so an index
+    // whose predicate silently widened to every row (turning the upload
+    // worker's scan into a full-table scan of the flushed history) passes
+    // `index_list` unchanged.
+    expect(byName.get("idx_pending_anchor_uploads_pending")?.unique).toBe(0);
+    expect(byName.get("idx_pending_anchor_uploads_pending")?.partial).toBe(1);
+    const pendingIndexColumns = db
+      .prepare("PRAGMA index_info(idx_pending_anchor_uploads_pending)")
+      .all() as ReadonlyArray<{ name: string }>;
+    expect(pendingIndexColumns.map((c) => c.name)).toEqual(["session_id", "anchored_at"]);
+
+    const indexDdl = db
+      .prepare(`SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?`)
+      .get("idx_pending_anchor_uploads_pending") as { sql: string } | undefined;
+    expect(indexDdl?.sql).toContain("WHERE uploaded_at IS NULL");
+  });
+
+  it("anchors the version-8 schema_version row with its Plan-006 description", () => {
+    const anchorRows = db
+      .prepare("SELECT description FROM schema_version WHERE version = 8")
+      .all() as ReadonlyArray<{ description: string }>;
+    expect(anchorRows).toHaveLength(1);
+    expect(anchorRows[0]?.description).toBe(
+      "Durable Merkle-anchor upload queue (pending_anchor_uploads)",
+    );
+  });
+
+  it("has NO foreign key into session_events — a crypto-shred must not erase the witness", () => {
+    // Deliberate absence, asserted so a later migration cannot add one
+    // casually. The premise is ROW LIFETIME, not the shred mechanism: Spec-022
+    // Path 1 destroys the per-participant key and deletes no row at all (the
+    // hard DELETE is Path 2, and Postgres-only). What does remove local rows is
+    // compaction, which rewrites them into `audit_stub` form, and any later
+    // retention pass. An FK would either block those or cascade into the
+    // anchors, destroying the very commitment that proves the range once
+    // existed. Anchors OUTLIVE the rows they witness.
+    const foreignKeys = db.prepare("PRAGMA foreign_key_list(pending_anchor_uploads)").all();
+    expect(foreignKeys).toEqual([]);
+  });
+
+  it("dedups an identical range but lets a wider covering anchor sharing start_sequence coexist", () => {
+    // The Spec-006 §Post-Compaction Integrity property, asserted at the storage
+    // layer. Three inserts, three distinct outcomes:
+
+    // 1. The routine cadence anchor over [1, 1000].
+    enqueueAnchor({ id: "anchor-cadence", startSequence: 1, endSequence: 1000 });
+
+    // 2. A wider compaction-covering anchor over [1, 5000]. SAME start_sequence
+    //    — and it MUST land, because a compactor about to discard [1, 5000]
+    //    needs a covering witness and the [1, 1000] anchor does not cover it.
+    //    A three-column key would reject this insert, silently leaving the
+    //    compaction range unwitnessed.
+    expect(() =>
+      enqueueAnchor({ id: "anchor-covering", startSequence: 1, endSequence: 5000 }),
+    ).not.toThrow();
+
+    // 3. A genuine re-fire of the IDENTICAL range under a different row id.
+    //    This is the one the key exists to dedup — a retried force-fire must
+    //    not enqueue a second copy of a commitment already queued.
+    expect(() =>
+      enqueueAnchor({ id: "anchor-refire", startSequence: 1, endSequence: 1000 }),
+    ).toThrow(/UNIQUE constraint failed/);
+
+    const stored = db
+      .prepare(
+        `SELECT id, start_sequence, end_sequence FROM pending_anchor_uploads ORDER BY end_sequence`,
+      )
+      .all() as ReadonlyArray<{ id: string; start_sequence: number; end_sequence: number }>;
+    expect(stored).toEqual([
+      { id: "anchor-cadence", start_sequence: 1, end_sequence: 1000 },
+      { id: "anchor-covering", start_sequence: 1, end_sequence: 5000 },
+    ]);
+
+    // And the key is per-(session, node): the same range on a different node's
+    // chain is a different commitment, not a duplicate.
+    expect(() =>
+      enqueueAnchor({
+        id: "anchor-other-node",
+        nodeId: "node-beta",
+        startSequence: 1,
+        endSequence: 1000,
+      }),
+    ).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Plan-006 T3.2 — compaction retention discriminator (migration version 9).
+// ---------------------------------------------------------------------------
+//
+// Version 9 adds no TABLE, so `ALL_EXPECTED_TABLES` pins nothing about it: the
+// CHECK, both columns, and the partial index could all vanish and every other
+// block in this file would stay green. Same gap the 0006 block opens with, same
+// remedy — this is the shape floor the suite's convention requires.
+//
+// TWO things here are load-bearing beyond ordinary column shape:
+//
+//   * The CHECK is the ONLY guard that keeps `retention_class` a two-valued
+//     discriminator. Every compaction-facing statement in `compactor.ts` selects
+//     on `retention_class IS NULL`, so a third value stored by any writer would
+//     produce rows that are neither live nor stubbed — invisible to the
+//     compactor, invisible to the verifier's `audit_stub` sweep, and carrying
+//     destroyed payloads either way. A shape assertion cannot certify a CHECK;
+//     only a REJECTION arm can, and it is paired with acceptance arms below so a
+//     throw for some unrelated reason cannot pass for the constraint working.
+//   * The index's PARTIALITY is the point of the index. `WHERE retention_class
+//     IS NULL` is what keeps it sized to the LIVE prefix rather than to the whole
+//     retained history, and `sqlite_master.sql` is the only authority for that
+//     predicate — the 0006 block above explains why `index_list` cannot
+//     discriminate it.
+describe("0009-retention-class-and-stub-signature migration shape", () => {
+  let db: DatabaseType;
+  // Every probe row lands on one session, so sequences must not collide with
+  // `UNIQUE(session_id, sequence)` — including on the arms that expect a throw,
+  // where a duplicate sequence would raise the WRONG constraint.
+  let nextSequence: number;
+
+  beforeEach(() => {
+    db = openDatabase(":memory:");
+    nextSequence = 0;
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  /**
+   * A minimal `session_events` row. NON-terminal `session_lifecycle`, so the
+   * version-6 terminal-key trigger trio stays out of these arms — a row those
+   * triggers reject would look exactly like a CHECK rejection.
+   */
+  function insertEvent(id: string, retentionClass: string | null): void {
+    db.prepare(
+      `INSERT INTO session_events
+         (id, session_id, sequence, occurred_at, monotonic_ns, category, type,
+          actor, payload, correlation_id, causation_id, version,
+          prev_hash, row_hash, daemon_signature, retention_class)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      id,
+      "session-retention",
+      nextSequence++,
+      "2026-08-04T12:00:00.000Z",
+      1_000_000_000,
+      "session_lifecycle",
+      "session.updated",
+      null,
+      JSON.stringify({ note: "retention-class probe" }),
+      null,
+      null,
+      "1.0",
+      Buffer.alloc(32),
+      Buffer.alloc(32, 0x01),
+      Buffer.alloc(64, 0x02),
+      retentionClass,
+    );
+  }
+
+  it("adds retention_class and stub_signature as nullable, default-less columns", () => {
+    const columns = db
+      .prepare("PRAGMA table_info(session_events)")
+      .all() as ReadonlyArray<PragmaColumn>;
+    const byName = new Map(columns.map((column) => [column.name, column]));
+
+    // TEXT and BLOB, and the BLOB is load-bearing rather than cosmetic — the
+    // same argument the 0008 block makes for its two commitment columns. A
+    // `stub_signature` stored as base64 TEXT would read back as text and fail
+    // verification against the bytes the compactor actually signed.
+    expect(byName.get("retention_class")?.type).toBe("TEXT");
+    expect(byName.get("stub_signature")?.type).toBe("BLOB");
+
+    // NULLABLE with no default, both of them, and that is the schema's way of
+    // saying LIVE. Every row written before compaction and every row written by
+    // the append path leaves them unset, which is what makes `retention_class IS
+    // NULL` a complete description of the live set. A NOT NULL column or a
+    // DEFAULT would have required backfilling the whole table at migration time.
+    expect(byName.get("retention_class")?.notnull).toBe(0);
+    expect(byName.get("stub_signature")?.notnull).toBe(0);
+    expect(byName.get("retention_class")?.dflt_value).toBeNull();
+    expect(byName.get("stub_signature")?.dflt_value).toBeNull();
+
+    // Appended by ALTER TABLE, so they are the LAST two columns in CID order.
+    expect(columns.slice(-2).map((column) => column.name)).toEqual([
+      "retention_class",
+      "stub_signature",
+    ]);
+  });
+
+  it("accepts NULL and 'audit_stub' for retention_class but REJECTS any third value", () => {
+    // The two ACCEPTANCE baselines first. Without them the rejection below is
+    // unfalsifiable: an insert that throws because a NOT NULL column was missed,
+    // or because a version-6 trigger fired, is indistinguishable from the CHECK
+    // doing its job.
+    expect(() => {
+      insertEvent("evt-retention-live", null);
+    }).not.toThrow();
+    expect(() => {
+      insertEvent("evt-retention-stub", "audit_stub");
+    }).not.toThrow();
+
+    // THE REJECTION ARM. `retention_class` is a two-valued discriminator, and
+    // the CHECK is the only thing that keeps it one.
+    expect(() => {
+      insertEvent("evt-retention-bogus", "archived");
+    }).toThrow(/CHECK constraint failed/);
+
+    // Casing counts too: the compactor writes the literal `'audit_stub'`, and a
+    // near-miss would be a live row the compactor never revisits.
+    expect(() => {
+      insertEvent("evt-retention-case", "AUDIT_STUB");
+    }).toThrow(/CHECK constraint failed/);
+
+    // And an UPDATE cannot smuggle a third value past a row that entered clean.
+    expect(() =>
+      db
+        .prepare("UPDATE session_events SET retention_class = ? WHERE id = ?")
+        .run("archived", "evt-retention-live"),
+    ).toThrow(/CHECK constraint failed/);
+
+    const stored = db
+      .prepare("SELECT id, retention_class FROM session_events ORDER BY id")
+      .all() as ReadonlyArray<{ id: string; retention_class: string | null }>;
+    expect(stored).toEqual([
+      { id: "evt-retention-live", retention_class: null },
+      { id: "evt-retention-stub", retention_class: "audit_stub" },
+    ]);
+  });
+
+  it("creates idx_session_events_live PARTIAL on the live rows, keyed (session_id, sequence)", () => {
+    const indexes = db.prepare("PRAGMA index_list(session_events)").all() as ReadonlyArray<{
+      name: string;
+      unique: 0 | 1;
+      origin: string;
+      partial: 0 | 1;
+    }>;
+    const live = indexes.find((index) => index.name === "idx_session_events_live");
+    expect(live).toBeDefined();
+    expect(live?.unique).toBe(0);
+    expect(live?.partial).toBe(1);
+    expect(live?.origin).toBe("c");
+
+    // The key mirrors the compactor's own scan order: partition, then sequence.
+    const keyColumns = db
+      .prepare("PRAGMA index_info(idx_session_events_live)")
+      .all() as ReadonlyArray<{ name: string }>;
+    expect(keyColumns.map((column) => column.name)).toEqual(["session_id", "sequence"]);
+
+    // THE PREDICATE, off `sqlite_master.sql` because nothing else reports it. An
+    // index whose WHERE clause silently widened to every row would still report
+    // `partial: 1` here while indexing the entire retained history — the exact
+    // cost this index exists to avoid.
+    const indexDdl = db
+      .prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?")
+      .get("idx_session_events_live") as { sql: string } | undefined;
+    expect(indexDdl?.sql).toContain("WHERE retention_class IS NULL");
+  });
+
+  it("anchors the version-9 schema_version row with its Plan-006 description", () => {
+    const versionRows = db
+      .prepare("SELECT description FROM schema_version WHERE version = 9")
+      .all() as ReadonlyArray<{ description: string }>;
+    expect(versionRows).toHaveLength(1);
+    expect(versionRows[0]?.description).toBe(
+      "Compaction retention discriminator + post-compaction stub commitment " +
+        "(session_events.retention_class, session_events.stub_signature, idx_session_events_live)",
+    );
   });
 });

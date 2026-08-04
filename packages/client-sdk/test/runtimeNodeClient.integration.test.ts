@@ -74,6 +74,7 @@ import {
   AttachService,
   type ControlPlaneDeps,
   type ControlPlaneEnv,
+  EventLogAnchorStore,
   HeartbeatService,
   type Querier,
   SessionDirectoryService,
@@ -395,6 +396,10 @@ function buildRuntimeNodeDeps(
     // through this same connection.
     attachService: new AttachService(querier),
     heartbeatService: new HeartbeatService(querier),
+    // Plan-006 CP-006-2 — `ControlPlaneDeps` now spans the event-anchor router
+    // too. Real store over the same PGlite querier, parallel to the services
+    // above; no test here drives `eventanchor.upload`.
+    anchorStore: new EventLogAnchorStore(querier),
     // REAL — the attach self-check compares this against `request.participantId`
     // and throws UNAUTHORIZED on mismatch, so it MUST equal the seeded participant.
     resolveCurrentParticipantId: (): ParticipantId => currentParticipantId,

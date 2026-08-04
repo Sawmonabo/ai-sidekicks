@@ -418,6 +418,44 @@ export function compareEventEnvelopeVersion(
 export const EVENT_ENVELOPE_SEQUENCE_MAX: number = Number.MAX_SAFE_INTEGER;
 
 /**
+ * The daemon-scope sentinel `sessionId` — RFC 9562 §5.10 Max UUID, per
+ * `Spec-006 §Daemon-Scope Event Binding And Node-Scope Anchoring`.
+ *
+ * NODE-scope events (the four `mcp_governance` types, and every daemon-scope
+ * row that describes the machine rather than a conversation) have no owning
+ * session, but `session_events` partitions the hash chain BY `session_id` and
+ * `EventEnvelope.sessionId` is non-nullable. This sentinel is the anchor those
+ * rows bind to: it gives node-scope events a chain of their own, disjoint from
+ * every real session's, with the session-scoped INITIATOR living in the payload
+ * (`initiatingSessionId`) rather than in the row's own `sessionId`.
+ *
+ * Disjointness is structural, not conventional: real session ids are drawn
+ * from the v4 space (`gen_random_uuid()`), and the all-ones Max UUID has no
+ * valid version nibble, so no real session can ever collide with the sentinel
+ * chain.
+ *
+ * LOWERCASE IS LOAD-BEARING. Zod's unversioned uuid check reaches the Max UUID
+ * only through a lowercase string-literal alternative carrying no `i` flag —
+ * its general alternative demands a `[1-8]` version nibble that `f` fails — so
+ * `FFFFFFFF-…` is REJECTED even though RFC 9562 §4 makes UUID text
+ * case-insensitive. Producers owe "emit the sentinel LOWERCASE", not merely
+ * "emit the sentinel". Minting this constant THROUGH `SessionIdSchema` rather
+ * than casting the literal is what keeps that obligation honest: if the check
+ * ever stops admitting the Max UUID, this module throws at import — in every
+ * consumer, in every test run — instead of the daemon silently emitting a
+ * sentinel that no longer parses. The literal is handed to `parse` UNCAST:
+ * `parse` takes `unknown`, so a cast here would suppress the very type error
+ * that catches a wrong-typed input rather than enable anything.
+ *
+ * Callers that must REFUSE the sentinel — `IngestHaltRegistry`'s write path is
+ * the shipped one, since halting "the node" is not a coherent operation —
+ * compare against this constant rather than respelling the literal.
+ */
+export const DAEMON_SCOPE_SENTINEL_SESSION_ID: SessionId = SessionIdSchema.parse(
+  "ffffffff-ffff-ffff-ffff-ffffffffffff",
+);
+
+/**
  * The canonical event message — every session event travels in this
  * envelope ({@link EventEnvelopeSchema} is the runtime validator).
  *

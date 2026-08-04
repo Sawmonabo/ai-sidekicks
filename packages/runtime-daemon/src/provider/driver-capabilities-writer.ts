@@ -58,37 +58,34 @@
 // ILLUSTRATIVE example of the `capability` field, not the canonical value;
 // CP-005-5 is the authority.)
 //
-// Atomic dual-write with BEGIN IMMEDIATE
+// Atomic dual-write, and who owns the transaction
 // --------------------------------------------------------------------------
 // Each declare that actually changes state is a DUAL-WRITE (upsert the three
-// tables AND emit the event) wrapped in ONE `better-sqlite3` `db.transaction`,
-// so the rows and the event commit atomically — a non-atomic dual-write would
-// ship a partial-state corruption bug (the same discipline as
-// `node/node-capability-service.ts`). The transaction BODY ORDER is load-bearing:
-// the three writes come FIRST, the emit LAST, so a THROWING emit rolls back the
-// cache write.
+// tables AND emit the event) committing in ONE transaction, so the rows and the
+// event land together — a non-atomic dual-write would ship a partial-state
+// corruption bug (the same discipline as `node/node-capability-service.ts`).
+// BODY ORDER is load-bearing: the three writes come FIRST, the event row LAST,
+// so a THROWING event write rolls back the cache write.
 //
-// The transaction is dispatched IMMEDIATE (`#writeTxn.immediate(...)` →
-// `BEGIN IMMEDIATE`), NOT the `db.transaction` default DEFERRED, and NOT
-// inheriting NodeCapabilityService's DEFERRED. The body is READ-FIRST: it
-// `SELECT`s the prior snapshot (establishing a WAL read snapshot) and only THEN
-// upgrades to a write. This is exactly the read-first hazard
-// `RuntimeBindingStore.#updateTxn` documents — two read-then-upgrade
-// transactions under WAL on the same file both hold a read snapshot and both try
-// to upgrade, colliding as `SQLITE_BUSY_SNAPSHOT` (which `busy_timeout` cannot
-// absorb). `BEGIN IMMEDIATE` takes the RESERVED writer-intent lock at BEGIN, so
-// racers serialize at BEGIN instead of colliding at write-upgrade time. (Where
-// NodeCapabilityService's `#declareTxn` is WRITE-FIRST and correctly left
-// DEFERRED, THIS writer is read-first and must be IMMEDIATE — see the
-// `RuntimeBindingStore` `#updateTxn` field comment for the full rationale.)
+// THIS WRITER NO LONGER OPENS THAT TRANSACTION. Plan-006 T3.1 re-pointed the
+// emitter onto the async `EventLogService.append` (it awaits a signing-key
+// unseal), and a better-sqlite3 transaction cannot span an `await`. So the three
+// table writes are handed DOWN as `transactionalPrelude`, which the append runs
+// inside the same transaction as the event-row INSERT, immediately before it —
+// preserving the body order verbatim. The append dispatches that transaction
+// IMMEDIATE, so the `BEGIN IMMEDIATE` writer-intent property this writer relied
+// on is retained; and because the prelude is write-only (the SELECTs now happen
+// before it), the transaction is no longer read-first at all, which removes the
+// `SQLITE_BUSY_SNAPSHOT` read-then-upgrade hazard rather than merely mitigating
+// it. (The `RuntimeBindingStore.#updateTxn` field comment carries the full
+// rationale for why a read-first transaction needed IMMEDIATE.)
 //
-// Validation + normalization + canonical SORT OUTSIDE the txn; change-detection
-// INSIDE the txn
+// Validation + normalization + canonical SORT, then read-decide, then the write
 // --------------------------------------------------------------------------
 // A rejected/invalid input must NEVER open a transaction (the RuntimeBindingStore
 // discipline: this is what makes "a rejected declare leaves the tables
-// untouched" hold WITHOUT relying on rollback). So at the write seam, BEFORE the
-// txn opens, `declare`:
+// untouched" hold WITHOUT relying on rollback). So at the write seam, BEFORE
+// anything else, `declare`:
 //   1. validates `contractVersion` via `assertValidContractVersion`,
 //   2. validates the `flags` key-set cardinality via `assertValidCapabilityFlags`
 //      (exactly the 7 canonical flags — no extra, no missing key),
@@ -98,16 +95,52 @@
 //      ZodError, on a malformed tool),
 //   4. SORTS the normalized tools by `name` ascending (canonical order).
 //
-// CHANGE-DETECTION (declared vs updated vs noop), by contrast, happens INSIDE the
-// `#writeTxn` under the SINGLE consistent in-txn snapshot read. It is NOT done
-// outside the txn: under the multi-connection model `.immediate()` exists for,
-// an outside-txn equality check could pass "changed", then a racer commits the
-// SAME change ahead of us, and we would re-read prior === new inside the txn yet
-// still emit a SPURIOUS `capability_updated` (previousState === newState). Doing
-// the equality check on the in-txn snapshot — the same snapshot that picks the
-// declare/update branch — closes that race. The noop path therefore opens a
-// read-only, immediately-committed BEGIN IMMEDIATE txn (the cost of correctness
-// under the race); a REJECTED input still never opens a txn at all.
+// Read-decide, re-check, retry (optimistic concurrency)
+// --------------------------------------------------------------------------
+// CHANGE-DETECTION (declared vs updated vs noop) runs on a DEFERRED
+// read-transaction snapshot, under `withSessionAppendLock`, before the write is
+// handed down. A noop returns there having opened no write transaction at all;
+// a REJECTED input never even reaches the read.
+//
+// The equality check used to run INSIDE the write transaction, on the same
+// snapshot that picked the declare/update branch. It CANNOT stay there, and the
+// reason is structural rather than a matter of effort — the event PAYLOAD
+// depends on it (`declared` and `updated` are different events carrying
+// different payloads), signing depends on the payload, and signing is async. No
+// ordering exists in which that read sits inside the transaction that ends with
+// the INSERT.
+//
+// Moving the read out opens a real window, and NOT only across connections: the
+// append lock is keyed on `sessionId` while this hazard is keyed on
+// `driverName`, so two `declare()` calls for the SAME driver under DIFFERENT
+// sessions hold DIFFERENT locks and are ordered against each other by nothing —
+// on ONE connection exactly as much as on two. Both read prior state, both park
+// on the signing-key unseal, both commit: two `capability_declared` events for
+// one driver, or an `updated` whose `previousState` was stale before it landed.
+//
+// That window is CLOSED, by an in-prelude re-check plus a bounded retry rather
+// than by the lock. The `transactionalPrelude` re-reads the snapshot as its
+// FIRST statement — inside the append's `BEGIN IMMEDIATE`, where a racer that
+// committed earlier is visible and a racer that BEGINs later blocks — and
+// throws a module-private divergence sentinel if it no longer matches the
+// snapshot the decision was made on. That throw aborts the whole transaction:
+// three table writes undone, event INSERT never reached, no sequence consumed.
+// `declare` catches ONLY that sentinel, up to `DRIVER_DECLARE_MAX_ATTEMPTS` times,
+// re-reading a fresh snapshot each attempt; anything else propagates on its
+// first occurrence, and exhausting the attempts rethrows the sentinel loudly
+// rather than writing on a stale decision.
+//
+// The COST is honest to state, and the re-check is the cheap half of it: one
+// extra three-SELECT read per changed declare, paid inside the write
+// transaction. The RETRY is the dominant term — a diverged attempt discards
+// everything after the read and redoes it, including the signing-key `read()`
+// (a fresh unseal, which can block on a human: `Spec-022 §Daemon Master Key`
+// wipes the in-memory master on an idle timer, so the first unseal after a wipe
+// may await a WebAuthn ceremony or a passphrase prompt — see
+// `signing-key-source.ts`'s `DaemonSigningKeySealer` doc) and the row
+// signature. That is bounded at `DRIVER_DECLARE_MAX_ATTEMPTS`, and it is only
+// ever paid under genuine contention. Identical re-declares (the common case)
+// return at the noop branch and reach neither the re-check nor the retry.
 //
 // Tools canonical-ordering rationale (load-bearing)
 // --------------------------------------------------------------------------
@@ -122,18 +155,17 @@
 //
 // WIRING CONTRACT (T2.5 / daemon bootstrap)
 // --------------------------------------------------------------------------
-// The injected `RuntimeNodeEventEmitter`'s `SessionEventLog` (today the guarded
-// test-only `SessionService`; the seam is synchronous-transactional by contract,
-// so Plan-006 T3.1's async `EventLogService.append` does NOT satisfy it — T3.1's
-// own leg re-points the emitter and restructures this writer's dual-write
-// atomicity around `withSessionAppendLock`) MUST share the SAME
-// `better-sqlite3` connection (`db`) as this writer. The emitter's append runs
-// an INSERT on that connection, so it JOINS this writer's transaction and the
-// cache write + the event commit atomically. Wiring the emitter over a DIFFERENT
-// connection would break the atomic dual-write (the event would commit on its
-// own connection independently of this transaction's rollback). T2.5 / the
-// daemon root composition is responsible for honoring this same-connection
-// obligation until T3.1's restructuring supersedes it.
+// The injected `RuntimeNodeEventEmitter`'s `SessionEventLog` — Plan-006 T3.1's
+// `EventLogService` — MUST be constructed over the SAME `better-sqlite3`
+// connection (`db`) as this writer. The direction of the obligation is now
+// REVERSED (this writer's statements join the append's transaction, rather than
+// the append's INSERT joining this writer's), but the requirement is identical
+// and for the identical reason: better-sqlite3 transactions are
+// connection-level, so statements prepared on a DIFFERENT connection do not
+// participate. Wiring the two over separate connections would leave the three
+// cache writes committing independently of the event row's rollback — the
+// non-atomic dual-write this whole section exists to prevent. The daemon root
+// composition is responsible for honoring it.
 //
 // Spec coverage: `Spec-005 §Required Behavior` (runtime treats undeclared capabilities as
 // unsupported — the cache the gate reads), `Spec-005 §Default Behavior` (driver capability
@@ -148,13 +180,16 @@ import { isDeepStrictEqual } from "node:util";
 import {
   DRIVER_CAPABILITY_FLAGS,
   ProviderToolMetadataSchema,
+  SessionIdSchema,
   type CapabilityDetails,
   type DriverCapabilityFlag,
   type GetCapabilitiesResult,
   type NormalizedProviderToolMetadata,
+  type SessionId,
 } from "@ai-sidekicks/contracts";
 import type { Database, Statement, Transaction } from "better-sqlite3";
 
+import { withSessionAppendLock } from "../events/session-append-lock.js";
 import type { RuntimeNodeEventEmitter } from "../node/node-event-emitter.js";
 import {
   assertValidCapabilityFlags,
@@ -178,6 +213,61 @@ import {
  * (e.g. `provider-driver-claude`). Per CP-005-5 (`Plan-005 §CP-005-5 — Driver capability event surface owed to [Plan-006](./006-session-event-taxonomy-and-audit-log.md) / [Spec-006](../specs/006-session-event-taxonomy-and-audit-log.md)`), the
  * suffix disambiguates multiple drivers on one runtime node IN-PLAN.
  */
+/**
+ * Module-private abort signal for the in-prelude decision re-check.
+ *
+ * Thrown from inside the `transactionalPrelude`, which runs inside the append's
+ * `IMMEDIATE` transaction — so throwing it rolls that transaction back whole:
+ * the three table writes are undone, the event-row INSERT never runs, and no
+ * sequence is consumed (the append re-derives the sequence from the durable
+ * chain head on each attempt, so a retry allocates correctly rather than
+ * reusing a burned number).
+ *
+ * NOT exported and NOT a `DaemonDomainError`: it never escapes this module in
+ * the normal case (the retry loop catches exactly it), and it names an internal
+ * concurrency event rather than anything a caller did wrong. If it DOES escape,
+ * it escapes as a loud unrecognized error, which is the intended outcome — see
+ * the retry-exhaustion clause in `declare`.
+ */
+class DriverCapabilitySnapshotDivergedError extends Error {
+  constructor(driverName: string) {
+    super(
+      `DriverCapabilitiesWriter.declare: the driver_capabilities snapshot for ` +
+        `${driverName} changed between the read-decide step and the write ` +
+        `transaction; aborting to avoid emitting an event whose payload no longer ` +
+        `describes the committed state.`,
+    );
+    this.name = "DriverCapabilitySnapshotDivergedError";
+  }
+}
+
+/**
+ * Structural equality for two possibly-absent capability snapshots — the ONE
+ * comparison both change-detection and the in-prelude re-check use, so the two
+ * can never disagree about what "unchanged" means.
+ *
+ * JSON-round-trips both sides so an `undefined`-valued key (an omitted tool
+ * `description`) compares cleanly. `isDeepStrictEqual` is key-order-insensitive
+ * but array-order-SENSITIVE, which the canonical tool sort accounts for.
+ */
+function snapshotsEqual(
+  left: CapabilityDetails | undefined,
+  right: CapabilityDetails | undefined,
+): boolean {
+  if (left === undefined || right === undefined) {
+    // Absent-vs-present is the sharpest divergence there is: it flips the
+    // declared/updated branch itself.
+    return left === right;
+  }
+  return isDeepStrictEqual(
+    JSON.parse(JSON.stringify(left)) as unknown,
+    JSON.parse(JSON.stringify(right)) as unknown,
+  );
+}
+
+/** Bounded attempts for the read-decide-emit optimistic-concurrency loop. */
+const DRIVER_DECLARE_MAX_ATTEMPTS: number = 3;
+
 function providerDriverCapabilityKey(driverName: string): string {
   return `provider-driver-${driverName}`;
 }
@@ -241,11 +331,14 @@ interface DriverContractMetaRow {
 // --------------------------------------------------------------------------
 
 export class DriverCapabilitiesWriter {
-  // Only prepared statements + the prepared transaction wrapper + the emitter
-  // are retained (mirrors RuntimeBindingStore / NodeCapabilityService — the raw
-  // `db` handle is NOT stored; a prepared statement keeps its parent connection
-  // alive). The `#writeTxn` is dispatched IMMEDIATE (read-first write — see the
-  // file header for the WAL `SQLITE_BUSY_SNAPSHOT` rationale).
+  // Only prepared statements + the prepared read-transaction wrapper + the
+  // emitter are retained (mirrors RuntimeBindingStore / NodeCapabilityService —
+  // the raw `db` handle is NOT stored; a prepared statement keeps its parent
+  // connection alive). This class no longer owns a WRITE transaction at all:
+  // since the T3.1 re-point its table writes travel as a `transactionalPrelude`
+  // inside `EventLogService.append`'s transaction, and it is THAT transaction
+  // which is dispatched IMMEDIATE (read-first write — see the file header for
+  // the WAL `SQLITE_BUSY_SNAPSHOT` rationale).
   readonly #selectCapabilityFlagsStmt: Statement;
   readonly #selectToolsStmt: Statement;
   readonly #selectContractMetaStmt: Statement;
@@ -253,25 +346,21 @@ export class DriverCapabilitiesWriter {
   readonly #deleteToolsStmt: Statement;
   readonly #insertToolStmt: Statement;
   readonly #upsertContractMetaStmt: Statement;
-  readonly #writeTxn: Transaction<
-    (
-      input: DeclareDriverCapabilitiesInput,
-      newSnapshot: CapabilityDetails,
-    ) => "declared" | "updated" | "noop"
-  >;
-  // DEFERRED read-transaction wrapper for `hydrate`'s snapshot read. `#snapshot`
+  // DEFERRED read-transaction wrapper for the snapshot read. `#snapshot`
   // runs THREE separate SELECTs; outside a transaction (autocommit) each takes its
   // own read snapshot, so under the multi-connection model this writer designs for
   // (see file header), a concurrent refresh committing BETWEEN the SELECTs yields a
   // TORN read (e.g. `contractVersion` from the old row + flags/tools from the new).
   // Dispatched DEFERRED (`.deferred(...)`) so all three SELECTs share ONE
-  // consistent read snapshot — the write path's `#snapshot` is already consistent
-  // because it runs INSIDE `#writeTxn`. (DEFERRED, not IMMEDIATE: this is a pure
-  // read that never upgrades to a write, so it must NOT take a writer-intent lock.)
+  // consistent read snapshot. (DEFERRED, not IMMEDIATE: this is a pure read that
+  // never upgrades to a write, so it must NOT take a writer-intent lock.) BOTH
+  // paths use it now — `hydrate` and `declare`'s change-detection alike — since
+  // the write transaction no longer contains a read for `declare` to piggyback
+  // on (see the file header).
   readonly #readTxn: Transaction<(driverName: string) => CapabilityDetails | undefined>;
   // The emission seam. REQUIRED (not optional): capability declarations always
-  // occur at attach time with a live session/node (`Spec-005 §Default Behavior`). The `#writeTxn`
-  // closure captures it for the write paths.
+  // occur at attach time with a live session/node (`Spec-005 §Default Behavior`). The
+  // `writeDriverTables` prelude closure is built around it on each declare attempt.
   readonly #emitter: RuntimeNodeEventEmitter;
   // Injected wall-clock for `refreshed_at` (deterministic tests).
   readonly #now: () => string;
@@ -338,107 +427,11 @@ export class DriverCapabilitiesWriter {
                        refreshed_at     = excluded.refreshed_at`,
     );
 
-    // Prepare the write transaction ONCE. CHANGE-DETECTION lives INSIDE this txn,
-    // driven by the SINGLE consistent in-txn snapshot read (the same read that
-    // picks declare/update) — so a racer that commits the SAME change just ahead
-    // of us cannot make us emit a spurious `capability_updated` with
-    // previousState === newState (see the file-header race rationale). The noop
-    // path therefore opens a read-only, immediately-committed txn and returns
-    // without writing or emitting. Body order on the MUTATING paths is
-    // load-bearing: the THREE table writes come FIRST, the emit LAST, so a
-    // throwing emit rolls back the cache write. VALIDATION/normalization/sort all
-    // happen in `declare` OUTSIDE this txn, so a rejected input never reaches here
-    // (it never opens a txn at all). Dispatched via `.immediate(...)` in `declare`
-    // (BEGIN IMMEDIATE — read-first write).
-    this.#writeTxn = db.transaction(
-      (
-        input: DeclareDriverCapabilitiesInput,
-        newSnapshot: CapabilityDetails,
-      ): "declared" | "updated" | "noop" => {
-        const priorSnapshot: CapabilityDetails | undefined = this.#snapshot(input.driverName);
-
-        // (0) CHANGE-DETECTION on the in-txn snapshot, BEFORE any write. An
-        // identical re-declare is an idempotent no-op — no write, no event — and
-        // because this equality check runs on the SAME snapshot used below, a
-        // concurrent identical commit cannot slip past it into a spurious
-        // `capability_updated`. JSON-round-trip BOTH sides so an `undefined`-valued
-        // key (e.g. an omitted tool `description`) compares cleanly (the same
-        // both-sides normalization NodeCapabilityService applies); `isDeepStrictEqual`
-        // is structural + key-order-insensitive but array-order-SENSITIVE, which
-        // the canonical tool sort in `declare` accounts for.
-        if (priorSnapshot !== undefined) {
-          const normalizedPrior: unknown = JSON.parse(JSON.stringify(priorSnapshot));
-          const normalizedNew: unknown = JSON.parse(JSON.stringify(newSnapshot));
-          if (isDeepStrictEqual(normalizedPrior, normalizedNew)) {
-            return "noop";
-          }
-        }
-
-        const refreshedAt: string = this.#now();
-
-        // (1) WRITE driver_capabilities — upsert exactly 7 rows. Each key of the
-        // `flags` Record is a `DriverCapabilityFlag`; `supported = 1` iff `true`.
-        for (const capabilityFlag of Object.keys(newSnapshot.flags) as DriverCapabilityFlag[]) {
-          this.#upsertCapabilityFlagStmt.run({
-            driver_name: input.driverName,
-            capability_flag: capabilityFlag,
-            supported: newSnapshot.flags[capabilityFlag] ? 1 : 0,
-            refreshed_at: refreshedAt,
-          });
-        }
-
-        // (2) WRITE driver_tools — DELETE-then-reinsert (drops removed tools).
-        this.#deleteToolsStmt.run(input.driverName);
-        for (const tool of newSnapshot.tools) {
-          this.#insertToolStmt.run({
-            driver_name: input.driverName,
-            tool_name: tool.name,
-            idempotency_class: tool.idempotency_class,
-            description: tool.description ?? null,
-            refreshed_at: refreshedAt,
-          });
-        }
-
-        // (3) WRITE driver_contract_meta — the single PK row.
-        this.#upsertContractMetaStmt.run({
-          driver_name: input.driverName,
-          contract_version: newSnapshot.contractVersion,
-          refreshed_at: refreshedAt,
-        });
-
-        // (4) EMIT — LAST, so a throwing emit rolls back the writes above. The
-        // FLAT snapshot is the event payload (so the T1.4-landed canonical
-        // `CapabilityDetails` binding validates). The emitter input seam
-        // carries the payload type's canonical-first union (indexed
-        // access in node-event-emitter.ts), so the typed snapshot passes
-        // uncast.
-        if (priorSnapshot === undefined) {
-          this.#emitter.emitCapabilityDeclared({
-            sessionId: input.sessionId,
-            nodeId: input.nodeId,
-            actor: input.actor ?? null,
-            capability: providerDriverCapabilityKey(input.driverName),
-            capabilityDetails: newSnapshot,
-          });
-          return "declared";
-        }
-        this.#emitter.emitCapabilityUpdated({
-          sessionId: input.sessionId,
-          nodeId: input.nodeId,
-          actor: input.actor ?? null,
-          capability: providerDriverCapabilityKey(input.driverName),
-          previousState: priorSnapshot,
-          newState: newSnapshot,
-        });
-        return "updated";
-      },
-    );
-
-    // Prepare the DEFERRED read transaction once. `hydrate` routes its three-SELECT
-    // `#snapshot` read through here so the SELECTs share ONE consistent read
-    // snapshot — closing the torn-read hazard a concurrent refresh would otherwise
-    // open between the autocommit SELECTs (see the `#readTxn` field comment). The
-    // write-path `#snapshot` call stays inside `#writeTxn` (already consistent).
+    // Prepare the DEFERRED read transaction once. BOTH `hydrate` and `declare`'s
+    // change-detection route their three-SELECT `#snapshot` read through here so
+    // the SELECTs share ONE consistent read snapshot — closing the torn-read
+    // hazard a concurrent refresh would otherwise open between the autocommit
+    // SELECTs (see the `#readTxn` field comment).
     this.#readTxn = db.transaction((driverName: string): CapabilityDetails | undefined =>
       this.#snapshot(driverName),
     );
@@ -446,22 +439,24 @@ export class DriverCapabilitiesWriter {
 
   /**
    * Declare (or refresh) a driver's advertised capabilities. Validates +
-   * normalizes + canonically sorts OUTSIDE the transaction, then opens a single
-   * BEGIN IMMEDIATE transaction that change-detects on a consistent in-txn
-   * snapshot and, on a mutating path, atomically writes the three driver-keyed
-   * tables AND emits the matching `runtime_node.capability_*` event. An identical
-   * re-declare is an idempotent no-op (no write, no event). Synchronous —
-   * better-sqlite3 is synchronous by design.
+   * normalizes + canonically sorts, then — under the session's append lock —
+   * change-detects on a consistent DEFERRED read snapshot and, on a mutating
+   * path, atomically writes the three driver-keyed tables AND the matching
+   * `runtime_node.capability_*` event row. An identical re-declare is an
+   * idempotent no-op (no write, no event).
    *
-   * Validation/normalization/sort run BEFORE the txn opens, so a REJECTED input
-   * (invalid `contractVersion`, bad `flags` key-set, malformed tool) never opens
-   * a transaction and the tables stay untouched WITHOUT relying on rollback.
-   * Change-detection, by contrast, runs INSIDE the txn (see the `#writeTxn`
-   * comment) so a concurrent identical commit cannot produce a spurious
-   * `capability_updated`; the noop path opens a read-only, immediately-committed
-   * txn.
+   * ASYNC because the durable append path is (its per-session mutex and its
+   * signing-key unseal). The three table writes travel as
+   * `transactionalPrelude` — see the file header for why that is where the
+   * atomicity now lives, and for what the move narrows.
+   *
+   * Validation/normalization/sort run FIRST, so a REJECTED input (invalid
+   * `contractVersion`, bad `flags` key-set, malformed tool) never opens a
+   * transaction, never takes the lock, and leaves the tables untouched WITHOUT
+   * relying on rollback. The noop path opens no write transaction either — it
+   * returns from the read snapshot.
    */
-  declare(input: DeclareDriverCapabilitiesInput): DeclareDriverCapabilitiesResult {
+  async declare(input: DeclareDriverCapabilitiesInput): Promise<DeclareDriverCapabilitiesResult> {
     // (0) STRUCTURAL shape guard BEFORE any property dereference. The static
     // `DeclareDriverCapabilitiesInput` type is erased at runtime, so a malformed
     // driver can ship `result`, `result.capabilities`, or `result.tools` as
@@ -540,7 +535,8 @@ export class DriverCapabilitiesWriter {
 
     // (4b) REJECT duplicate NORMALIZED tool names BEFORE the txn opens. Two tools
     // sharing a normalized `name` would have the second `#insertToolStmt.run`
-    // violate the `(driver_name, tool_name)` PRIMARY KEY INSIDE `#writeTxn`,
+    // violate the `(driver_name, tool_name)` PRIMARY KEY INSIDE the
+    // `writeDriverTables` prelude — i.e. inside the append's transaction —
     // throwing a raw `SQLITE_CONSTRAINT` from an already-opened transaction. That
     // breaks this module's two doctrines: "a REJECTED input never opens a
     // transaction" and "leak-safe `ProviderOutputValidationError`, never a raw
@@ -560,7 +556,7 @@ export class DriverCapabilitiesWriter {
     // Build `flags` as a FRESH plain record keyed by the canonical
     // `DRIVER_CAPABILITY_FLAGS`, reading each validated flag ONCE — never store the
     // provider's raw `flags` object by reference. Three consumers read this
-    // snapshot's flags: the change-detection JSON round-trip (step 0 in `#writeTxn`),
+    // snapshot's flags: the change-detection JSON round-trip (`snapshotsEqual`),
     // the `driver_capabilities` write loop (raw `flags[flag]` reads), and the
     // emitted event payload (serialized downstream). A raw provider object can carry
     // a custom/inherited `toJSON` that passes `assertValidCapabilityFlags` (own
@@ -581,14 +577,155 @@ export class DriverCapabilitiesWriter {
       tools: normalizedTools,
     };
 
-    // (6) Open the single BEGIN IMMEDIATE transaction. `.immediate(...)` →
-    // BEGIN IMMEDIATE (read-first write; see the file header / `#writeTxn` field
-    // for the WAL `SQLITE_BUSY_SNAPSHOT` rationale). The txn reads the prior
-    // snapshot ONCE and uses it to change-detect (noop) AND to pick the
-    // declare-vs-update branch — all on a single consistent snapshot, so the
-    // noop / declared / updated decision cannot race a concurrent writer.
-    const emitted: "declared" | "updated" | "noop" = this.#writeTxn.immediate(input, newSnapshot);
-    return { emitted };
+    // (6) Read-decide under the append lock, re-check inside the write
+    // transaction, retry on divergence.
+    //
+    // Branded once here and reused for BOTH the lock key and the emit, so the
+    // lock partition and the event's partition cannot drift apart. The parse
+    // runs AFTER the input validation above, preserving "a rejected input never
+    // opens a transaction".
+    const sessionId: SessionId = SessionIdSchema.parse(input.sessionId);
+
+    for (let attempt: number = 1; ; attempt += 1) {
+      try {
+        return { emitted: await this.#declareOnce(input, sessionId, newSnapshot) };
+      } catch (error: unknown) {
+        // ONLY the divergence sentinel is retryable. Every other failure — a
+        // constraint violation, a signing-key refusal, a halted session —
+        // propagates unchanged on its first occurrence; retrying those would
+        // turn one honest failure into three.
+        if (!(error instanceof DriverCapabilitySnapshotDivergedError)) {
+          throw error;
+        }
+        if (attempt >= DRIVER_DECLARE_MAX_ATTEMPTS) {
+          // Exhaustion is LOUD, never a silent fall-through to a write on a
+          // stale decision. Three consecutive divergences on one driver is not
+          // ordinary contention; it is a signal the caller has to see.
+          throw error;
+        }
+      }
+    }
+  }
+
+  /**
+   * ONE attempt of the read-decide-emit sequence, under the session's append
+   * lock. Returns the emitted-event classification, or throws
+   * {@link DriverCapabilitySnapshotDivergedError} when the durable snapshot
+   * moved between the decision and the write.
+   *
+   * Factored out of `declare` so each retry re-reads a genuinely FRESH
+   * snapshot: a loop wrapped around the lock body alone would keep closing over
+   * the first attempt's `priorSnapshot` and diverge forever.
+   */
+  async #declareOnce(
+    input: DeclareDriverCapabilitiesInput,
+    sessionId: SessionId,
+    newSnapshot: CapabilityDetails,
+  ): Promise<"declared" | "updated" | "noop"> {
+    return withSessionAppendLock(sessionId, async () => {
+      // ONE consistent DEFERRED read snapshot feeds BOTH the change-detect
+      // (noop) and the declare-vs-update branch pick, so those two decisions
+      // can never disagree with each other about what the prior state was.
+      const priorSnapshot: CapabilityDetails | undefined = this.#readTxn.deferred(input.driverName);
+
+      // (6a) CHANGE-DETECTION. An identical re-declare is an idempotent no-op
+      // — no write, no event.
+      if (snapshotsEqual(priorSnapshot, newSnapshot)) {
+        return "noop";
+      }
+
+      // (6b) The durable half of the dual-write. Runs inside the append's
+      // transaction immediately BEFORE the event-row INSERT, so a throwing
+      // INSERT rolls all three table writes back. `this.#now()` is read HERE,
+      // in the transaction, exactly where it was read when this writer owned
+      // the transaction.
+      const writeDriverTables = (): void => {
+        // (6b-i) THE RE-CHECK — the reason this prelude runs INSIDE the
+        // append's transaction rather than beside it.
+        //
+        // `priorSnapshot` was read outside any write transaction, and this
+        // attempt then parked on an `await` (the signing-key unseal) before
+        // reaching here. Two `declare()` calls for the same driverName under
+        // DIFFERENT sessionIds hold DIFFERENT per-session locks, so the append
+        // lock orders neither against the other — on ONE connection as much as
+        // on two. Both read prior state, both park, both commit: two
+        // `capability_declared` events for one driver, or an `updated` whose
+        // `previousState` was already stale at commit time.
+        //
+        // Re-reading HERE, inside `BEGIN IMMEDIATE`, closes the window in BOTH
+        // directions: a racer that committed before our BEGIN is visible to
+        // this read, and a racer that BEGINs after ours blocks until we COMMIT
+        // or ROLL BACK. Divergence aborts the transaction whole — three table
+        // writes undone, event INSERT never reached, no sequence consumed — and
+        // `declare`'s loop re-reads and re-decides.
+        //
+        // `#snapshot` is called DIRECTLY, not through `#readTxn`: better-sqlite3
+        // throws on a nested transaction and we are already inside the append's.
+        // That enclosing transaction supplies exactly the read consistency
+        // `#readTxn.deferred` provides elsewhere.
+        if (!snapshotsEqual(this.#snapshot(input.driverName), priorSnapshot)) {
+          throw new DriverCapabilitySnapshotDivergedError(input.driverName);
+        }
+
+        const refreshedAt: string = this.#now();
+
+        // WRITE driver_capabilities — upsert exactly 7 rows. Each key of the
+        // `flags` Record is a `DriverCapabilityFlag`; `supported = 1` iff `true`.
+        for (const capabilityFlag of Object.keys(newSnapshot.flags) as DriverCapabilityFlag[]) {
+          this.#upsertCapabilityFlagStmt.run({
+            driver_name: input.driverName,
+            capability_flag: capabilityFlag,
+            supported: newSnapshot.flags[capabilityFlag] ? 1 : 0,
+            refreshed_at: refreshedAt,
+          });
+        }
+
+        // WRITE driver_tools — DELETE-then-reinsert (drops removed tools).
+        this.#deleteToolsStmt.run(input.driverName);
+        for (const tool of newSnapshot.tools) {
+          this.#insertToolStmt.run({
+            driver_name: input.driverName,
+            tool_name: tool.name,
+            idempotency_class: tool.idempotency_class,
+            description: tool.description ?? null,
+            refreshed_at: refreshedAt,
+          });
+        }
+
+        // WRITE driver_contract_meta — the single PK row.
+        this.#upsertContractMetaStmt.run({
+          driver_name: input.driverName,
+          contract_version: newSnapshot.contractVersion,
+          refreshed_at: refreshedAt,
+        });
+      };
+
+      // (6c) EMIT — the FLAT snapshot is the event payload (so the T1.4-landed
+      // canonical `CapabilityDetails` binding validates). The emitter input
+      // seam carries the payload type's canonical-first union, so the typed
+      // snapshot passes uncast.
+      if (priorSnapshot === undefined) {
+        await this.#emitter.emitCapabilityDeclared({
+          sessionId,
+          nodeId: input.nodeId,
+          actor: input.actor ?? null,
+          capability: providerDriverCapabilityKey(input.driverName),
+          capabilityDetails: newSnapshot,
+          transactionalPrelude: writeDriverTables,
+        });
+        return "declared";
+      }
+      await this.#emitter.emitCapabilityUpdated({
+        sessionId,
+        nodeId: input.nodeId,
+        actor: input.actor ?? null,
+        capability: providerDriverCapabilityKey(input.driverName),
+        previousState: priorSnapshot,
+        newState: newSnapshot,
+        transactionalPrelude: writeDriverTables,
+      });
+      return "updated";
+    });
   }
 
   /**
@@ -608,8 +745,12 @@ export class DriverCapabilitiesWriter {
     // Route the three-SELECT `#snapshot` read through a DEFERRED read transaction
     // so the SELECTs share ONE consistent snapshot — a concurrent refresh
     // committing between them cannot yield a torn read (`.deferred(...)`; see the
-    // `#readTxn` field comment). The write path's `#snapshot` is already consistent
-    // inside `#writeTxn`, so only the read path needs this wrapper.
+    // `#readTxn` field comment). The write path reaches `#snapshot` twice and
+    // needs this wrapper for NEITHER call, for two different reasons: the
+    // decision-time read in `#declareOnce` routes through this same `#readTxn`
+    // already, and the in-prelude re-check calls `#snapshot` DIRECTLY because it
+    // runs inside the append's own transaction — which supplies the consistency
+    // and would reject a nested one. So only `hydrate` has to open its own.
     const snapshot: CapabilityDetails | undefined = this.#readTxn.deferred(driverName);
     if (snapshot === undefined) {
       return undefined;

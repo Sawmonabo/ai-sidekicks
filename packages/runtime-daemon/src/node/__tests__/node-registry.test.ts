@@ -22,9 +22,15 @@
 //     STRUCTURALLY incapable of mutating it: the table is absent here, asserted
 //     below. The end-to-end no-membership-mutation proof is a Phase-3
 //     control-plane concern; P7/P8.)
-//   * Atomicity: the REAL emitter with an injected throwing `nextSequence`
-//     makes the emit throw AFTER the upsert ran inside the transaction, so the
-//     `node_trust_state` upsert rolls back (no row).
+//   * Atomicity, two arms — the `nextSequence` injection seam they used to ride
+//     is gone with the T3.1 re-point, so each drives a REAL failure of the real
+//     append path instead. (a) ROLLBACK: the emitter is pinned to an event id
+//     that already exists, so the event INSERT violates `session_events`' PRIMARY
+//     KEY AFTER the upsert prelude ran inside the transaction — the
+//     `node_trust_state` upsert rolls back (no row). (b) The stronger property
+//     the re-point bought: a signing-key source that REJECTS makes the append
+//     refuse before opening its transaction, so the prelude never runs at all
+//     and there is no partial state to roll back.
 //   * Happy-path emit shape: exactly one `runtime_node.registered` row lands in
 //     `session_events` with the `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` payload shape.
 //   * `Spec-003 §Pitfalls To Avoid` (no implicit capability exposure on attach): registering a node
@@ -53,9 +59,14 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { SessionId } from "@ai-sidekicks/contracts";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { EventLogService } from "../../events/event-log-service.js";
+import { __resetSessionAppendLocksForTest } from "../../events/session-append-lock.js";
+import type { Ed25519PrivateKey, Ed25519PublicKey } from "../../events/signer.js";
+import type { DaemonSigningKeySource } from "../../events/signing-key-source.js";
 import { openDatabase } from "../../session/migration-runner.js";
 import { SessionService, UnsignedPlaceholderAppendToken } from "../../session/session-service.js";
 import type { NodeTrustStateRow } from "../node-registry.js";
@@ -156,6 +167,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // The per-session append lock is a module singleton — reset between cases so
+  // a leftover queue entry cannot stall the next case as an unrelated timeout.
+  __resetSessionAppendLocksForTest();
   if (ctx.db.open) {
     ctx.db.close();
   }
@@ -166,19 +180,43 @@ afterEach(() => {
 // shared by SessionService, the emitter, and the registry. `now` is injectable
 // for deterministic timestamp assertions; the emitter id source is a collision-
 // free counter so multiple emits never violate the `TEXT PRIMARY KEY`. The
-// append opt-in is test-only: production wiring is Plan-006 T3.1's own leg,
-// which re-points this seam onto the durable append path (the async
-// `EventLogService.append` does not satisfy the synchronous seam directly).
+// seam is ASYNC-TRANSACTIONAL post the Plan-006 T3.1 re-point
+// (node-event-emitter.ts's header owns the contract): `EventLogService.append`
+// over the SAME connection backs it, which is what lets the registry's
+// trust-state write travel as a `transactionalPrelude`.
 function makeRegistry(now: () => string = () => "2026-06-02T12:00:00.000Z"): NodeRegistry {
-  const sessionService: SessionService = new SessionService(ctx.db, {
-    allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly(),
-  });
   let idCounter: number = 0;
   const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
-    sessionEvents: sessionService,
+    sessionEvents: makeEventLog(),
     newEventId: () => `evt-${(idCounter++).toString()}`,
   });
   return new NodeRegistry(ctx.db, emitter, now);
+}
+
+/**
+ * The production append path over `ctx.db` — Plan-006 T3.1's `EventLogService`,
+ * which the T3.1 re-point made this emitter's seam. SAME connection as the
+ * registry, which is the wiring contract: the registry's upsert travels as a
+ * `transactionalPrelude` and must join the append's transaction, and
+ * better-sqlite3 transactions are connection-level.
+ */
+function makeEventLog(): EventLogService {
+  return new EventLogService({ db: ctx.db, signingKeySource: new FixedDaemonSigningKeySource() });
+}
+
+/** Fixed-key signing source — this suite is about the dual-write, not custody. */
+class FixedDaemonSigningKeySource implements DaemonSigningKeySource {
+  readonly #privateKey: Ed25519PrivateKey = new Uint8Array(32).fill(7) as Ed25519PrivateKey;
+
+  read(_sessionId: SessionId): Promise<Ed25519PrivateKey> {
+    return Promise.resolve(this.#privateKey);
+  }
+
+  create(_sessionId: SessionId): Promise<{ readonly publicKey: Ed25519PublicKey }> {
+    return Promise.reject(
+      new Error("FixedDaemonSigningKeySource.create is not used by this suite"),
+    );
+  }
 }
 
 // ----------------------------------------------------------------------------
@@ -186,9 +224,9 @@ function makeRegistry(now: () => string = () => "2026-06-02T12:00:00.000Z"): Nod
 // ----------------------------------------------------------------------------
 
 describe("NodeRegistry — D1 (durable identity across DB reopen)", () => {
-  it("recovers the registered node identity from SQLite after close + reopen", () => {
+  it("recovers the registered node identity from SQLite after close + reopen", async () => {
     const registry: NodeRegistry = makeRegistry();
-    registry.register({
+    await registry.register({
       nodeId: NODE_ID,
       sessionId: SESSION_ID,
       capabilities: { "provider-driver": { contractVersion: "1.0" } },
@@ -224,7 +262,7 @@ describe("NodeRegistry — D1 (durable identity across DB reopen)", () => {
 // ----------------------------------------------------------------------------
 
 describe("NodeRegistry — I-003-3 (registration does not mutate session_memberships)", () => {
-  it("writes only node_trust_state + a distinct runtime_node.registered event; membership is structurally untouchable here", () => {
+  it("writes only node_trust_state + a distinct runtime_node.registered event; membership is structurally untouchable here", async () => {
     const registry: NodeRegistry = makeRegistry();
 
     // Structural proof: the daemon Local SQLite schema has NO session_memberships
@@ -237,7 +275,7 @@ describe("NodeRegistry — I-003-3 (registration does not mutate session_members
     const beforeSnapshots: number = tableRowCount(ctx.db, "session_snapshots");
     const beforeParticipantKeys: number = tableRowCount(ctx.db, "participant_keys");
 
-    registry.register({
+    await registry.register({
       nodeId: NODE_ID,
       sessionId: SESSION_ID,
       capabilities: {},
@@ -266,9 +304,9 @@ describe("NodeRegistry — I-003-3 (registration does not mutate session_members
 // ----------------------------------------------------------------------------
 
 describe("NodeRegistry — emits runtime_node.registered (Spec-006 §Runtime Node Lifecycle (`runtime_node_lifecycle`))", () => {
-  it("lands exactly one runtime_node.registered event with the Spec-006 §Runtime Node Lifecycle (`runtime_node_lifecycle`) payload shape and exposes NO capability (`Spec-003 §Pitfalls To Avoid`)", () => {
+  it("lands exactly one runtime_node.registered event with the Spec-006 §Runtime Node Lifecycle (`runtime_node_lifecycle`) payload shape and exposes NO capability (`Spec-003 §Pitfalls To Avoid`)", async () => {
     const registry: NodeRegistry = makeRegistry();
-    registry.register({
+    await registry.register({
       nodeId: NODE_ID,
       sessionId: SESSION_ID,
       actor: PARTICIPANT_ID,
@@ -311,9 +349,9 @@ describe("NodeRegistry — emits runtime_node.registered (Spec-006 §Runtime Nod
     expect(capabilityRowCount(ctx.db, NODE_ID)).toBe(0);
   });
 
-  it("defaults the actor to null when omitted (system actor) and keeps trust at 'untrusted'", () => {
+  it("defaults the actor to null when omitted (system actor) and keeps trust at 'untrusted'", async () => {
     const registry: NodeRegistry = makeRegistry();
-    registry.register({
+    await registry.register({
       nodeId: NODE_ID,
       sessionId: SESSION_ID,
       capabilities: {},
@@ -338,7 +376,7 @@ describe("NodeRegistry — emits runtime_node.registered (Spec-006 §Runtime Nod
 // ----------------------------------------------------------------------------
 
 describe("NodeRegistry — re-registration preserves established_at + trust_level", () => {
-  it("on re-register, updates only updated_at and preserves established_at + trust_level", () => {
+  it("on re-register, updates only updated_at and preserves established_at + trust_level", async () => {
     // An advancing clock so the two registrations carry distinct timestamps —
     // this is what proves established_at is PRESERVED (not reset) while
     // updated_at is REFRESHED on the conflict path.
@@ -350,7 +388,7 @@ describe("NodeRegistry — re-registration preserves established_at + trust_leve
       return value ?? "2026-06-02T23:59:59.000Z";
     });
 
-    registry.register({
+    await registry.register({
       nodeId: NODE_ID,
       sessionId: SESSION_ID,
       capabilities: {},
@@ -361,7 +399,7 @@ describe("NodeRegistry — re-registration preserves established_at + trust_leve
     expect(afterFirst?.established_at).toBe("2026-06-02T12:00:00.000Z");
     expect(afterFirst?.updated_at).toBe("2026-06-02T12:00:00.000Z");
 
-    registry.register({
+    await registry.register({
       nodeId: NODE_ID,
       sessionId: SESSION_ID,
       capabilities: { "provider-driver": { contractVersion: "2.0" } },
@@ -385,23 +423,40 @@ describe("NodeRegistry — re-registration preserves established_at + trust_leve
 // Atomicity — a throwing emit rolls back the node_trust_state upsert
 // ----------------------------------------------------------------------------
 
-describe("NodeRegistry — atomicity (throwing emit rolls back the trust-state upsert)", () => {
-  it("rolls back the node_trust_state upsert when the emit throws inside the transaction", () => {
-    // The REAL emitter with an injected throwing `nextSequence` — the throw
-    // lands INSIDE the emit, AFTER the upsert ran in the transaction, so the
-    // rollback of the already-applied upsert is what is under test.
-    const sessionService: SessionService = new SessionService(ctx.db, {
+describe("NodeRegistry — atomicity (a failed event write leaves no trust-state upsert)", () => {
+  it("rolls back the node_trust_state upsert when the event INSERT throws inside the transaction", async () => {
+    // The registry's upsert is now a `transactionalPrelude` that runs INSIDE the
+    // append's transaction, immediately BEFORE the event-row INSERT. To exercise
+    // ROLLBACK specifically, the failure must land AFTER the prelude has already
+    // applied — so the emitter is pinned to an event id that ALREADY EXISTS,
+    // making the INSERT violate `session_events`' TEXT PRIMARY KEY. A
+    // pre-transaction refusal would not test rollback at all (the next case
+    // covers that stronger property separately).
+    const seedingService: SessionService = new SessionService(ctx.db, {
       allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly(),
     });
+    seedingService.append({
+      id: "evt-collide",
+      sessionId: SESSION_ID,
+      sequence: 0,
+      occurredAt: "2026-06-02T12:00:00.000Z",
+      monotonicNs: 1_000_000_000n,
+      category: "session_lifecycle",
+      type: "session.created",
+      actor: null,
+      payload: { sessionId: SESSION_ID },
+      correlationId: null,
+      causationId: null,
+      version: "1.0",
+    });
+
     const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
-      sessionEvents: sessionService,
-      nextSequence: () => {
-        throw new Error("forced");
-      },
+      sessionEvents: makeEventLog(),
+      newEventId: () => "evt-collide",
     });
     const registry: NodeRegistry = new NodeRegistry(ctx.db, emitter);
 
-    expect(() =>
+    await expect(
       registry.register({
         nodeId: NODE_ID,
         sessionId: SESSION_ID,
@@ -409,11 +464,50 @@ describe("NodeRegistry — atomicity (throwing emit rolls back the trust-state u
         nodeVersion: "1.0.0",
         platform: "linux-x64",
       }),
-    ).toThrow("forced");
+    ).rejects.toThrow(/UNIQUE|PRIMARY KEY|constraint/i);
 
-    // The upsert rolled back with the failed emit: no trust row, no event.
+    // The upsert rolled back with the failed INSERT: no trust row, and the only
+    // event on the session is the seed (the registered event never landed).
     expect(readTrustRows(ctx.db, NODE_ID)).toHaveLength(0);
     expect(registry.lookup(NODE_ID)).toBeUndefined();
+    expect(readEventRows(ctx.db, SESSION_ID)).toHaveLength(1);
+  });
+
+  it("never RUNS the upsert when the append refuses before opening its transaction", async () => {
+    // The property the re-point made STRONGER than rollback. A refusal raised
+    // before the transaction opens — here a signing-key failure, in production
+    // also the ingest-halt gate — means the prelude never executes at all, so
+    // there is no partial state to roll back in the first place. Distinct from
+    // the case above, and worth its own control: a regression that moved the
+    // prelude ahead of the append's pre-transaction checks would still pass the
+    // rollback test while breaking this one.
+    class FailingSigningKeySource implements DaemonSigningKeySource {
+      read(_sessionId: SessionId): Promise<Ed25519PrivateKey> {
+        return Promise.reject(new Error("key unseal refused"));
+      }
+      create(_sessionId: SessionId): Promise<{ readonly publicKey: Ed25519PublicKey }> {
+        return Promise.reject(new Error("unused"));
+      }
+    }
+    const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
+      sessionEvents: new EventLogService({
+        db: ctx.db,
+        signingKeySource: new FailingSigningKeySource(),
+      }),
+    });
+    const registry: NodeRegistry = new NodeRegistry(ctx.db, emitter);
+
+    await expect(
+      registry.register({
+        nodeId: NODE_ID,
+        sessionId: SESSION_ID,
+        capabilities: {},
+        nodeVersion: "1.0.0",
+        platform: "linux-x64",
+      }),
+    ).rejects.toThrow("key unseal refused");
+
+    expect(readTrustRows(ctx.db, NODE_ID)).toHaveLength(0);
     expect(readEventRows(ctx.db, SESSION_ID)).toHaveLength(0);
   });
 });
@@ -424,7 +518,7 @@ describe("NodeRegistry — atomicity (throwing emit rolls back the trust-state u
 // ----------------------------------------------------------------------------
 
 describe("NodeRegistry — T2.5/D4 (detach + reconnect under stable node identity, I-003-3)", () => {
-  it("emits exactly one explicit_shutdown offline event, leaves the trust row intact, and reconnects to the same identity", () => {
+  it("emits exactly one explicit_shutdown offline event, leaves the trust row intact, and reconnects to the same identity", async () => {
     // An advancing clock so the first registration, the detach's default
     // lastHeartbeatAt, and the reconnect registration carry DISTINCT timestamps —
     // this is what makes the established_at-PRESERVED assertion non-vacuous (a
@@ -442,7 +536,7 @@ describe("NodeRegistry — T2.5/D4 (detach + reconnect under stable node identit
       return value ?? "2026-06-02T23:59:59.000Z";
     });
 
-    registry.register({
+    await registry.register({
       nodeId: NODE_ID,
       sessionId: SESSION_ID,
       capabilities: {},
@@ -454,7 +548,7 @@ describe("NodeRegistry — T2.5/D4 (detach + reconnect under stable node identit
 
     // Detach with the explicit-shutdown call-site supplying previousState "online"
     // (the method invents no default; the explicit-shutdown producer supplies it).
-    registry.detach({ nodeId: NODE_ID, sessionId: SESSION_ID, previousState: "online" });
+    await registry.detach({ nodeId: NODE_ID, sessionId: SESSION_ID, previousState: "online" });
 
     // Exactly one offline event: register (1) + offline (1) = 2 total events; the
     // second is the offline.
@@ -486,7 +580,7 @@ describe("NodeRegistry — T2.5/D4 (detach + reconnect under stable node identit
     // Reconnect under the SAME node id (a fresh register) → lookup resolves the SAME
     // identity: same node_id, and established_at PRESERVED from the first
     // registration (`Spec-003 §Implementation Notes` — node identity stable across reconnect).
-    registry.register({
+    await registry.register({
       nodeId: NODE_ID,
       sessionId: SESSION_ID,
       capabilities: {},

@@ -17,6 +17,7 @@ export { deriveMainChannelId, MAIN_CHANNEL_NAME } from "./channel-id.js";
 export * from "./channels.js";
 export * from "./desktop-bridge.js";
 export * from "./error.js";
+export * from "./event-anchor.js";
 export * from "./event.js";
 export * from "./invites.js";
 export * from "./jsonrpc.js";

@@ -201,22 +201,27 @@ describe("migrations shape regression (P10 — v2 adds EXACTLY session_invites; 
     expect(probe.rows).toEqual([]);
   });
 
-  it("the canonical applyMigrations runner materializes the full registered-migration schema (v2 session_invites + v3 runtime-node tables)", async () => {
+  it("the canonical applyMigrations runner materializes the full registered-migration schema (v2 session_invites + v3 runtime-node tables + v4 event_log_anchors)", async () => {
     // Cross-plan amendment — Plan-003 Phase 3 (PR #145): the runner is THIS
     // test's subject, so it KEEPS `applyMigrations` (tests 1 and 2 above stay
     // direct-exec-v2 and are untouched). `beforeEach` direct-execs v1, so the
-    // runner now applies v2 AND Plan-003's v3 — the v1→full-set delta is the
-    // three registered tables, not one. This preserves the test's original
+    // runner now applies v2, Plan-003's v3, AND Plan-006 T3.3's v4 — the v1→full-set delta is the
+    // four registered tables, not one. This preserves the test's original
     // cross-path charter: the runner output MUST equal the union of the stepwise
     // migration SQLs (no table the per-version SQL omits, and vice versa). It
-    // now spans v2+v3; partly redundant with `migration-runner.test.ts` R1 and
-    // the co-located `0003-runtime-nodes.test.ts`, retained for the cross-path
+    // now spans v2+v3+v4; partly redundant with `migration-runner.test.ts` R1
+    // and the co-located per-migration tests, retained for the cross-path
     // (runner-vs-stepwise) angle the narrow %presence% probe alone cannot detect.
     const s1: Set<string> = await snapshotPublicTables(ctx.querier);
     await applyMigrations(ctx.querier);
     const s2: Set<string> = await snapshotPublicTables(ctx.querier);
 
     const delta: string[] = [...s2].filter((tableName) => !s1.has(tableName)).sort();
-    expect(delta).toEqual(["runtime_node_attachments", "runtime_node_presence", "session_invites"]);
+    expect(delta).toEqual([
+      "event_log_anchors",
+      "runtime_node_attachments",
+      "runtime_node_presence",
+      "session_invites",
+    ]);
   });
 });

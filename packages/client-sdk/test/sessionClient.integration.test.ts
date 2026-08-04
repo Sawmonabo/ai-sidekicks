@@ -56,6 +56,7 @@ import {
   type ControlPlaneDeps,
   type ControlPlaneEnv,
   type CreateSessionInput,
+  EventLogAnchorStore,
   HeartbeatService,
   type JoinSessionInput,
   type Querier,
@@ -229,6 +230,9 @@ function buildSubscribeOnlyDeps(provider: SessionEventStreamProvider): ControlPl
     // preserving the never-reached posture (same as the throwing callbacks).
     attachService: new AttachService(throwingQuerier),
     heartbeatService: new HeartbeatService(throwingQuerier),
+    // Plan-006 CP-006-2 — same never-reached posture as the runtime-node
+    // services above: holds the throwing querier, throws only on use.
+    anchorStore: new EventLogAnchorStore(throwingQuerier),
     resolveCurrentParticipantId: (): ParticipantId => {
       throw NEVER_REACHED("resolveCurrentParticipantId");
     },
@@ -291,6 +295,9 @@ function buildCrudOnlyDeps(directoryService: FixtureDirectoryService): ControlPl
     // never reach `runtimenode.*`, so the services throw on use.
     attachService: new AttachService(throwingQuerier),
     heartbeatService: new HeartbeatService(throwingQuerier),
+    // Plan-006 CP-006-2 — same never-reached posture as the runtime-node
+    // services above: holds the throwing querier, throws only on use.
+    anchorStore: new EventLogAnchorStore(throwingQuerier),
     // Both stubs return the same ParticipantId so the join procedure's
     // `resolved !== current` UNAUTHORIZED guard at session-router.factory.ts:128
     // is satisfied for the happy-path smoke tests.

@@ -23,6 +23,11 @@
 //       §I-008-3 #1, §T-008b-1-1, ADR-014, BL-104.
 
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
+import { EventLogAnchorStore } from "../event-anchors/anchor-store.js";
+import {
+  createEventAnchorRouter,
+  type EventAnchorRouterDeps,
+} from "../event-anchors/anchor-router.js";
 import { AttachService } from "../runtime-nodes/attach-service.js";
 import { HeartbeatService } from "../runtime-nodes/heartbeat-service.js";
 import {
@@ -41,13 +46,14 @@ import { prefixSseRetry } from "./sse-retry-prefix.js";
 export type ControlPlaneEnv = FeatureFlagEnv & DevEnvironmentEnv;
 
 /**
- * Tier 1 host deps — the union of the session router's `SessionRouterDeps` and
- * the runtime-node router's `RuntimeNodeRouterDeps` (the host forwards to BOTH
- * sibling routers). Tests inject a pglite-backed directoryService + the two
- * runtime-node services (attach + heartbeat) + deterministic stubs for the
+ * Tier 1 host deps — the union of the session router's `SessionRouterDeps`, the
+ * runtime-node router's `RuntimeNodeRouterDeps`, and the event-anchor router's
+ * `EventAnchorRouterDeps` (the host forwards to ALL THREE sibling routers).
+ * Tests inject a pglite-backed directoryService + the two runtime-node services
+ * (attach + heartbeat) + the anchor store + deterministic stubs for the
  * principal/ID/identity callbacks.
  */
-export type ControlPlaneDeps = SessionRouterDeps & RuntimeNodeRouterDeps;
+export type ControlPlaneDeps = SessionRouterDeps & RuntimeNodeRouterDeps & EventAnchorRouterDeps;
 
 export interface ControlPlaneHandlerOptions {
   /** tRPC endpoint base path. Defaults to `/trpc`. */
@@ -84,13 +90,20 @@ export function buildControlPlaneFetchHandler(
 
   // Build the router once at handler-construction time. Each procedure closes
   // over its constructor-injected service per I-008-3 #1 — the directory
-  // dependency (session procedures) and the attach/heartbeat services
-  // (runtime-node procedures). The session router and the runtime-node router
-  // are MERGED as siblings: both factories return already-namespaced routers
-  // (`session:` / `runtimenode:`), so `t.mergeRouters` composes them flat
-  // (no re-nesting) and the merged router inherits the shared `trpc.ts`
-  // context + errorFormatter.
-  const router = t.mergeRouters(createSessionRouter(deps), createRuntimeNodeRouter(deps));
+  // dependency (session procedures), the attach/heartbeat services
+  // (runtime-node procedures), and the anchor store (the event-anchor
+  // procedure). The three routers are MERGED as siblings: every factory returns
+  // an already-namespaced router (`session:` / `runtimenode:` / `eventanchor:`),
+  // so `t.mergeRouters` composes them flat (no re-nesting) and the merged
+  // router inherits the shared `trpc.ts` context + errorFormatter.
+  //
+  // The `eventanchor` mount is Plan-006 CP-006-2: Plan-008 owns this file, and
+  // Plan-006 registers its router here rather than standing up a second host.
+  const router = t.mergeRouters(
+    createSessionRouter(deps),
+    createRuntimeNodeRouter(deps),
+    createEventAnchorRouter(deps),
+  );
 
   return async function handle(request, env) {
     const flagResult = checkFeatureFlag(env);
@@ -169,10 +182,18 @@ const productionPlaceholderDirectoryService = new SessionDirectoryService(
 const productionPlaceholderAttachService = new AttachService(productionPlaceholderQuerier);
 const productionPlaceholderHeartbeatService = new HeartbeatService(productionPlaceholderQuerier);
 
+// `EventLogAnchorStore` carries a private `#querier` field too, so the same
+// nominal-type reasoning applies: construct the real class with the throwing
+// querier rather than casting a structural stub. A gate-pass request reaching
+// `eventanchor.upload` throws on Querier use (→ 500), matching every sibling
+// procedure until Tier 5 wires the real Querier.
+const productionPlaceholderAnchorStore = new EventLogAnchorStore(productionPlaceholderQuerier);
+
 const productionFetchHandler = buildControlPlaneFetchHandler({
   directoryService: productionPlaceholderDirectoryService,
   attachService: productionPlaceholderAttachService,
   heartbeatService: productionPlaceholderHeartbeatService,
+  anchorStore: productionPlaceholderAnchorStore,
   resolveCurrentParticipantId: () => {
     throw tier5DeferralError("resolveCurrentParticipantId (PASETO auth)");
   },

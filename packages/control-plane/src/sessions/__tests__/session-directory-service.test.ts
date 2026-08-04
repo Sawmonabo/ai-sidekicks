@@ -1499,7 +1499,7 @@ describe("applyMigrations — idempotency", () => {
     const probe = await ctx.querier.query<{ version: number }>(
       "SELECT version FROM schema_migrations ORDER BY version",
     );
-    expect(probe.rows).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }]);
+    expect(probe.rows).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }]);
   });
 
   it("applyMigrations is concurrency-safe — concurrent calls on the same fresh database serialize via advisory lock (Codex R8)", async () => {
@@ -1582,15 +1582,20 @@ describe("applyMigrations — idempotency", () => {
       ).resolves.toEqual([undefined, undefined]);
 
       // (a) End-state correctness: each migration landed exactly once.
-      // Post Amendment 2 the runner iterated `[v1, v2]`; cross-plan amendment —
-      // Plan-003 Phase 3 (PR #145) appends v3, so ALL THREE anchor rows must be
-      // present (a regression that drops v2 or v3 would surface here as a
-      // shorter array). The advisory-lock serialization this test exercises is
+      // Post Amendment 2 the runner iterated `[v1, v2]`; cross-plan amendments
+      // append v3 (Plan-003 Phase 3, PR #145) and v4 (Plan-006 T3.3), so ALL
+      // FOUR anchor rows must be present (a regression that drops v2, v3, or v4
+      // would surface here as a shorter array). The advisory-lock serialization this test exercises is
       // unchanged — concurrent racers still land each version exactly once.
       const migrationsProbe = await pg.query<{ version: number }>(
         "SELECT version FROM schema_migrations ORDER BY version",
       );
-      expect(migrationsProbe.rows).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }]);
+      expect(migrationsProbe.rows).toEqual([
+        { version: 1 },
+        { version: 2 },
+        { version: 3 },
+        { version: 4 },
+      ]);
 
       const participantsProbe = await pg.query<{ exists: boolean }>(
         `SELECT EXISTS (

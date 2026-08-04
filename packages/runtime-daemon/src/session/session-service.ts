@@ -222,10 +222,18 @@ export class SessionService {
    * `UnsignedPlaceholderAppendToken` — see the file header, the token's
    * class doc, and `SessionServiceOptions`.
    *
-   * Returns `undefined` (not `void`) to satisfy the synchronous-
-   * transactional `SessionEventLog` seam in `node-event-emitter.ts`,
-   * whose `undefined` return type rejects Promise-returning
-   * implementations at compile time.
+   * Returns `undefined` (not `void`) as a deliberate residue of the
+   * SYNCHRONOUS-transactional `SessionEventLog` seam this method was
+   * once shaped to satisfy: that seam's `undefined` return type
+   * rejected Promise-returning implementations at compile time.
+   *
+   * The T3.1 re-point INVERTED that seam — it is async-transactional
+   * now, backed by `EventLogService.append`, and this method no longer
+   * satisfies it (nor should it: the seam's whole point is that a
+   * production append is signed and chained, which this one is not).
+   * The signature is kept as-is anyway, because the tests that seed
+   * placeholder rows call it directly and a `void` return would be a
+   * gratuitous churn on that surface.
    */
   append(event: AppendableEvent): undefined {
     if (!this.#allowUnsignedPlaceholderAppend) {

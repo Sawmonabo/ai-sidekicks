@@ -83,6 +83,7 @@ import {
   CHANNEL_ARBITRATION_EVENT_TYPES,
   compareEventEnvelopeVersion,
   CROSS_NODE_DISPATCH_EVENT_TYPES,
+  DAEMON_SCOPE_SENTINEL_SESSION_ID,
   EVENT_ENVELOPE_SEQUENCE_MAX,
   EVENT_ENVELOPE_VERSION_MAX_LEN,
   EVENT_ENVELOPE_VERSION_PATTERN,
@@ -1135,6 +1136,10 @@ describe("EventEnvelopeSchema — canonical carrier (T1.3)", () => {
     // uppercase-rejection assertion is pinned here on purpose: that would
     // freeze a Zod regex quirk, and a future Zod case-handling fix would
     // turn the pin red for a fix rather than a regression.
+    // The sentinel is the PRODUCTION constant, not a local respelling: a test
+    // that carries its own literal passes even if the shipped constant drifts
+    // to a different (or uppercase) value, which is exactly the regression
+    // this arm exists to catch (F-006-HALT-08).
     // Pinning the Max-UUID acceptance means a future tightening of that
     // check (a v4-only constraint, say) fails HERE rather than silently
     // making every node-scope governance event unrepresentable on the wire.
@@ -1143,10 +1148,9 @@ describe("EventEnvelopeSchema — canonical carrier (T1.3)", () => {
     // collide with a real session's. The payload carries only
     // `initiatingSessionId` — Spec-028 owns the rest of the governance
     // payload shape, and the carrier treats `payload` as opaque anyway.
-    const DAEMON_SCOPE_SENTINEL = "ffffffff-ffff-ffff-ffff-ffffffffffff";
     const nodeScopeGovernanceEvent = {
       ...buildBareEnvelope(),
-      sessionId: DAEMON_SCOPE_SENTINEL,
+      sessionId: DAEMON_SCOPE_SENTINEL_SESSION_ID,
       category: "mcp_governance" as const,
       type: "mcp.server_config_changed",
       payload: { initiatingSessionId: SESSION_ID },
@@ -1155,7 +1159,7 @@ describe("EventEnvelopeSchema — canonical carrier (T1.3)", () => {
     expect(parsed.success).toBe(true);
     // The sentinel survives the parse verbatim: it lands in the canonical
     // bytes like any other `sessionId`, never normalized or nulled away.
-    expect(parsed.success && parsed.data.sessionId).toBe(DAEMON_SCOPE_SENTINEL);
+    expect(parsed.success && parsed.data.sessionId).toBe(DAEMON_SCOPE_SENTINEL_SESSION_ID);
   });
 
   it.each([
@@ -1485,11 +1489,13 @@ describe("CapabilityDetailsSchema (T1.4: canonical capability snapshot)", () => 
 // a payload-only suite would stay green if an arm were never registered.
 
 const NODE_ID = "node-7f3a2c";
-// RFC 9562 §5.10 Max UUID, LOWERCASE — the daemon-scope sentinel of Spec-006
-// §Daemon-Scope Event Binding And Node-Scope Anchoring. The case matters (see
-// the carrier-level sentinel pin above); no uppercase-rejection assertion is
-// added here, on the same reasoning that declines one there.
-const SENTINEL_SESSION_ID = "ffffffff-ffff-ffff-ffff-ffffffffffff";
+// The daemon-scope sentinel (RFC 9562 §5.10 Max UUID, lowercase — the case
+// matters, see the carrier-level pin above) is referenced BY ITS PRODUCTION
+// NAME below, `DAEMON_SCOPE_SENTINEL_SESSION_ID`, with no local literal and no
+// local alias. F-006-HALT-08 asks for single-SOURCE, not merely single-VALUE: a
+// local alias binding would still declare a name in this module that a later
+// edit could silently re-point at a respelled literal, which is the exact drift
+// the export exists to foreclose.
 // A SECOND real session id. `observedIdentities[].sessionId` and
 // `affectedSessionIds[]` are session ids; the file's `CHANNEL_ID` fixture
 // would parse there (both are `SessionId`-shaped UUIDs) but would misdocument
@@ -1575,7 +1581,7 @@ const buildAuditIntegrityFailedRegistrarArm = () => ({
 
 const buildKeyReuseDetected = () => ({
   id: "evt-0103",
-  sessionId: SENTINEL_SESSION_ID,
+  sessionId: DAEMON_SCOPE_SENTINEL_SESSION_ID,
   sequence: 103,
   occurredAt: "2026-01-22T19:14:38.000Z",
   category: "audit_integrity" as const,
@@ -1596,7 +1602,7 @@ const buildKeyReuseDetected = () => ({
 
 const buildSchemaMigrated = () => ({
   id: "evt-0104",
-  sessionId: SENTINEL_SESSION_ID,
+  sessionId: DAEMON_SCOPE_SENTINEL_SESSION_ID,
   sequence: 104,
   occurredAt: "2026-01-22T19:14:39.000Z",
   category: "event_maintenance" as const,
@@ -1620,7 +1626,7 @@ const buildSchemaMigrated = () => ({
 
 const buildEventCompacted = () => ({
   id: "evt-0105",
-  sessionId: SENTINEL_SESSION_ID,
+  sessionId: DAEMON_SCOPE_SENTINEL_SESSION_ID,
   sequence: 105,
   occurredAt: "2026-01-22T19:14:40.000Z",
   category: "event_maintenance" as const,
@@ -1643,7 +1649,7 @@ const buildEventCompacted = () => ({
 
 const buildEventShredded = () => ({
   id: "evt-0106",
-  sessionId: SENTINEL_SESSION_ID,
+  sessionId: DAEMON_SCOPE_SENTINEL_SESSION_ID,
   sequence: 106,
   occurredAt: "2026-01-22T19:14:41.000Z",
   category: "event_maintenance" as const,
@@ -1788,11 +1794,11 @@ describe("audit_integrity + event_maintenance payload variants (T1.11)", () => {
     "%s accepts the lowercase Max-UUID daemon-scope sentinel as its sessionId",
     (_label, build) => {
       const event = build();
-      expect(event.sessionId).toBe(SENTINEL_SESSION_ID);
+      expect(event.sessionId).toBe(DAEMON_SCOPE_SENTINEL_SESSION_ID);
       const parsed = SessionEventSchema.safeParse(event);
       expect(parsed.success).toBe(true);
       // The sentinel survives verbatim — never normalized, never nulled away.
-      expect(parsed.success && parsed.data.sessionId).toBe(SENTINEL_SESSION_ID);
+      expect(parsed.success && parsed.data.sessionId).toBe(DAEMON_SCOPE_SENTINEL_SESSION_ID);
     },
   );
 
@@ -2625,7 +2631,7 @@ describe("runtime_node.* payload variants (T1.12)", () => {
     (_label, build) => {
       const event = build();
       expect(event.sessionId).toBe(SESSION_ID);
-      expect(event.sessionId).not.toBe(SENTINEL_SESSION_ID);
+      expect(event.sessionId).not.toBe(DAEMON_SCOPE_SENTINEL_SESSION_ID);
       expect(event.payload.sessionId).toBe(SESSION_ID);
       expect(SessionEventSchema.safeParse(event).success).toBe(true);
     },
