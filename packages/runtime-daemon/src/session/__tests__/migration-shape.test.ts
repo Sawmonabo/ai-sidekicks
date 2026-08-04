@@ -167,35 +167,36 @@ describe("0001-initial migration shape", () => {
     expect(byName.get("monotonic_ns")?.notnull).toBe(1);
   });
 
-  it("anchors schema_version rows at versions [1, 2, 3, 4, 5, 6, 7, 8]", () => {
+  it("anchors schema_version rows at versions [1, 2, 3, 4, 5, 6, 7, 8, 9]", () => {
     // The `ORDER BY version` is load-bearing: without it the row order is
     // insertion-order luck and the assertion would silently stop pinning
     // which versions landed.
     const versionRows = db
       .prepare("SELECT version FROM schema_version ORDER BY version")
       .all() as ReadonlyArray<{ version: number }>;
-    expect(versionRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(versionRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
   });
 
   it("is idempotent when applyMigrations runs twice", () => {
     // Second invocation must be a no-op (the migration runner short-
     // circuits via hasMigrationApplied per version). Re-running must not
     // throw, must not double-insert any schema_version anchor row, must
-    // not duplicate tables. Eight DISTINCT versions [1..8] is not
+    // not duplicate tables. Nine DISTINCT versions [1..9] is not
     // duplication.
     //
     // Version 7 makes this arm strictly load-bearing rather than a
     // formality: it is an `ALTER TABLE ... ADD COLUMN`, and SQLite has no
     // `ADD COLUMN IF NOT EXISTS`, so a runner guard regression turns a
     // re-apply into a hard "duplicate column name" throw here. Version 6
-    // is the same story for `CREATE INDEX` / `CREATE TRIGGER`, and version 8
-    // for `CREATE TABLE` (no `IF NOT EXISTS` in the transcribed DDL either).
+    // is the same story for `CREATE INDEX` / `CREATE TRIGGER`, version 8
+    // for `CREATE TABLE` (no `IF NOT EXISTS` in the transcribed DDL either),
+    // and version 9 for BOTH at once (two ADD COLUMNs plus a CREATE INDEX).
     applyMigrations(db);
     const versionRows = db
       .prepare("SELECT version FROM schema_version ORDER BY version")
       .all() as ReadonlyArray<{ version: number }>;
-    expect(versionRows).toHaveLength(8);
-    expect(versionRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(versionRows).toHaveLength(9);
+    expect(versionRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
   });
 });
 

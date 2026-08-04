@@ -12,13 +12,15 @@
 // Version 1 is owned by Plan-001 (`migrations/0001-initial.ts`); version 2
 // by Plan-003 (`migrations/0002-runtime-node.ts`); version 3 by Plan-005
 // (`migrations/0003-runtime-bindings.ts`); version 4 by Plan-010
-// (`migrations/0004-worktree-lifecycle.ts`); versions 5 through 8 by Plan-006
+// (`migrations/0004-worktree-lifecycle.ts`); versions 5 through 9 by Plan-006
 // (`migrations/0005-daemon-signing-keys.ts`,
 // `migrations/0006-run-lifecycle-terminal-backstop-index.ts`,
 // `migrations/0007-pii-participant-id.ts`,
-// `migrations/0008-pending-anchor-uploads.ts`). Subsequent plans (015, 022...)
-// — and Plan-006's own remaining Phase-3 migrations — register their version as
-// a further guarded block of the same shape and bump `schema_version`.
+// `migrations/0008-pending-anchor-uploads.ts`,
+// `migrations/0009-retention-class-and-stub-signature.ts`). Subsequent plans
+// (015, 022...) — and Plan-006's own remaining migrations — register their
+// version as a further guarded block of the same shape and bump
+// `schema_version`.
 //
 // Version ORDER is load-bearing between 6 and 7 only in the trivial sense that
 // both touch `session_events`; they are independent otherwise (6 adds an index
@@ -29,7 +31,11 @@
 // order-independent of all of them: it CREATEs a standalone table
 // (`pending_anchor_uploads`) with no FK into `session_events` — deliberately,
 // since a crypto-shred that deletes event rows must never cascade into the
-// anchors that witness those rows ever existed.
+// anchors that witness those rows ever existed. Version 9 must follow 6 and 7
+// in the trivial `session_events`-touching sense and nothing stronger, but its
+// own three statements ARE internally ordered: the partial index it creates has
+// a `WHERE retention_class IS NULL` predicate over the column the same script
+// adds two statements earlier.
 //
 // SQL is sourced as a TypeScript string constant (not a sibling .sql file)
 // because `tsc -b` does not copy non-TS assets into `dist/` and `package.json`
@@ -55,6 +61,7 @@ import { DAEMON_SIGNING_KEYS_MIGRATION_SQL } from "../migrations/0005-daemon-sig
 import { RUN_LIFECYCLE_TERMINAL_BACKSTOP_MIGRATION_SQL } from "../migrations/0006-run-lifecycle-terminal-backstop-index.js";
 import { PII_PARTICIPANT_ID_MIGRATION_SQL } from "../migrations/0007-pii-participant-id.js";
 import { PENDING_ANCHOR_UPLOADS_MIGRATION_SQL } from "../migrations/0008-pending-anchor-uploads.js";
+import { RETENTION_CLASS_AND_STUB_SIGNATURE_MIGRATION_SQL } from "../migrations/0009-retention-class-and-stub-signature.js";
 
 /**
  * Apply pragmas to an open Database handle. MUST be called on every
@@ -270,6 +277,32 @@ export function applyMigrations(db: DatabaseType): void {
       // exec rather than re-applying the CREATE TABLE / CREATE INDEX).
       if (!hasMigrationApplied(db, 8)) {
         db.exec(PENDING_ANCHOR_UPLOADS_MIGRATION_SQL);
+      }
+    }).immediate();
+  }
+
+  if (!hasMigrationApplied(db, 9)) {
+    // Plan-006 version-9 migration (session_events.retention_class +
+    // session_events.stub_signature + the idx_session_events_live partial index
+    // — the compaction retention discriminator and post-compaction stub
+    // commitment). Same primitive as the version-1..8 blocks above: the
+    // migration SQL carries its own version=9 INSERT into schema_version, so the
+    // single .exec() commits both ALTER TABLEs and the CREATE INDEX atomically
+    // with the anchor row, and db.transaction(...).immediate() takes the
+    // RESERVED writer-intent lock at BEGIN so concurrent racers serialize at
+    // BEGIN rather than colliding at write-upgrade time. The guard is what makes
+    // re-application a no-op: SQLite has no `ADD COLUMN IF NOT EXISTS`, so a
+    // second exec would throw "duplicate column name". Atomicity is load-bearing
+    // for the same reason it is at versions 6 and 8: a torn apply that landed
+    // the columns without the partial index would leave every live-row scan
+    // reading the indefinitely-retained compacted suffix, silently.
+    db.transaction(() => {
+      // Re-check inside the transaction to close the
+      // `hasMigrationApplied → exec` window (a concurrent writer that wins the
+      // BEGIN-IMMEDIATE race and commits first is observed here and we skip the
+      // exec rather than re-applying the ALTER TABLEs / CREATE INDEX).
+      if (!hasMigrationApplied(db, 9)) {
+        db.exec(RETENTION_CLASS_AND_STUB_SIGNATURE_MIGRATION_SQL);
       }
     }).immediate();
   }
