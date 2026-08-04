@@ -218,7 +218,7 @@ Phases map 1:1 onto the four Implementation Steps. Phase 1 has no unsatisfied up
 **Preconditions.**
 
 - [x] Plan-009 Phase 1 merged (contracts in `packages/contracts/src/repo.ts` — branded IDs, unions, request/response Zod schemas, `RepoWorkspaceLifecyclePayloadSchema` + its state-parameterized factory, canonical-root resolver + trust-envelope validator) — merged 2026-07-26 via PR #250 (squash 0ed3c7f)
-- [ ] Plan-006 Phase 3 merged (Tier 4 — `EventLogService.append` sole append path; Plan-006 Phase 1 T1.2 registry already carries the 6 Plan-009 event names). Plan-006 manifest is `shipped: []` as of this audit — build-order precondition, not a satisfied dependency.
+- [x] Plan-006 Phase 3 merged (Tier 4 — `EventLogService.append` sole append path; Plan-006 Phase 1 T1.2 registry already carries the 6 Plan-009 event names). Plan-006 manifest is `shipped: []` as of this audit — build-order precondition, not a satisfied dependency. Satisfied 2026-08-04: Plan-006 Phase 3 shipped T3.1–T3.5 via PR #287 (squash `1ed7e1b`), with the Shipment Manifest phase-3 entry landing in the PR #289 housekeeping true-up.
 - [x] Schema amendments ratified — local-sqlite-schema.md §Workspace and Git Tables (D-009-7, this audit)
 - [x] Detach cascade semantics ratified — `Spec-009 §Detach Semantics (V1 Definition)` (D-009-6) — gates T2.3's detach surface only
 
