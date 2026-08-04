@@ -845,6 +845,39 @@ shipped:
       The rounds closed one recurring class in exactly THREE instances — a value the audit trail depends on that nothing in the signed form commits to — each answered by a pure, total, never-throwing read-side predicate that emits no verdict, plus one new `failureMode` arm: the stored spelling of `occurred_at` (`isCanonicalOccurredAt` / `occurred_at_not_canonical`, I-006-2-10), the PII ciphertext bytes (`isCiphertextDigestBound` / `pii_ciphertext_digest_unbound`, I-006-2-11), and the PII owner stamp (`isPiiOwnerStampBound` / `pii_owner_stamp_unbound`, I-006-2-12). All three are deliberately unwired here on the provider/consumer split — Phase 2 decides, T4.1 reports. The owner stamp was the P1: an at-rest edit left hash, signature, and the digest check green while corrupting the `Spec-022 §Shred Fan-Out` Path-1 scope selector, and because Path 1 destroys the participant key, no later decrypt can re-attribute the ciphertext — the stamp is the sole surviving evidence of whose data a row held.
       Also closed: the canonicalizer now REFUSES a callable `toJSON` at any depth including the prototype chain (a stateful `toJSON` makes canonicalization non-deterministic, which no output-side check can repair); `canonicalizeEvent` refuses an unsafe-integer `sequence`; the injected sealer is shape-guarded against an empty blob and against echoing the private key back in cleartext. With `signature_placeholder`, these take the `failureMode` enum from 11 values to 15.
       Governance corpus moved in the same PR: I-006-2-09 through I-006-2-12 minted; CP-006-11 registered for the previously unowned `DaemonSigningKeySealer` seam; CP-006-12 widened to both PII columns across four surfaces; `session_events.pii_participant_id` registered as a §1 Contested Table row owned by T3.1 with Plan-022 as a read-only Path-1 consumer bound to preserve it. A late follow-up commit corrected five PII-commitment claim sites the owner stamp had falsified across Plan-022 and Spec-022 — one of them an invariant that shipped false and was caught post-push. NS-41 auto-created in the housekeeping PR.
+  - phase: 1
+    task: [T1.11, T1.12]
+    pr: 285
+    sha: 380ac23
+    merged_at: 2026-08-03
+    files:
+      - docs/architecture/contracts/api-payload-contracts.md
+      - docs/architecture/cross-plan-dependencies.md
+      - docs/plans/003-runtime-node-attach.md
+      - docs/plans/006-session-event-taxonomy-and-audit-log.md
+      - docs/specs/006-session-event-taxonomy-and-audit-log.md
+      - packages/contracts/src/__tests__/event-source-epoch.test.ts
+      - packages/contracts/src/__tests__/runtime-node.test.ts
+      - packages/contracts/src/__tests__/session-event.test.ts
+      - packages/contracts/src/__tests__/worktree.test.ts
+      - packages/contracts/src/event-core.ts
+      - packages/contracts/src/event.ts
+      - packages/contracts/src/index.ts
+      - packages/contracts/src/node-id.ts
+      - packages/contracts/src/repo.ts
+      - packages/contracts/src/runtime-node.ts
+      - packages/runtime-daemon/src/node/node-event-emitter.ts
+      - packages/runtime-daemon/src/provider/driver-capabilities-writer.ts
+    verifies_invariant: []
+    spec_coverage:
+      [
+        "Spec-006 §Audit Integrity (audit_integrity) (base + verifier/registrar payload arms)",
+        "Spec-006 §Event Maintenance (event_maintenance) (base + per-type extensions)",
+        "Spec-006 §Daemon-Scope Event Binding And Node-Scope Anchoring (sentinel admissibility on the four daemon-scope types)",
+        "Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle) (the five daemon-authored V1 payload rows)",
+      ]
+    notes: |
+      Phase-1 REMAINDER ship (T1.11 + T1.12, the union-registration tasks the 2026-08-01 T4.10 targeted readiness-audit delta minted) — closes the phase's declared set at T1.1-T1.12, so preflight resolves Phase 1 merged again under declared-⊆-shipped. T1.11: the six Plan-006-emitted payload variants registered into `SessionEventSchema`; `AuditIntegrityFailedPayloadSchema` ships discriminated on `failureMode` — the verifier arm carrying the required Merkle triple plus required `fromSeq`/`toSeq` range endpoints (Codex round 1, spec-first dated amendment) with the nine authority-fixed `failureMode` → `failurePath` pairings enforced at parse, the registrar arm on a reduced base REFUSING `anchorId` under `.strict()` (Codex round 2, spec-first) — and `VerifierFailureModeSchema` exported enum-typed so T4.1's documented `.exclude()` derivation survives the module boundary. T1.12: the five live `runtime_node.*` variants registered (CP-003-1 leg (a) discharge) behind the `event-core.ts` dependency-leaf hoist that breaks the eager `event.ts` ↔ `runtime-node.ts` ESM cycle (`node-id.ts` precedent), with five `interface` → object-type-alias conversions on Plan-003's `runtime-node.ts` recorded under the §Cross-Plan Amendments Housekeeping Exception. `SESSION_EVENT_TYPES` moves 14 → 25; the taxonomy census is untouched at 156 types / 20 categories. Phase D closed in one consolidated round; Codex rounds 1-2 (4 + 3 findings, all adjudicated real) were fixed in-PR with reply-before-resolve; round 3 terminated non-ack on Codex usage limits with zero unresolved threads, CI green, and merge state CLEAN. NS-45 auto-created in the housekeeping PR.
 ```
 
 ### Notes
