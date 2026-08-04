@@ -3,8 +3,10 @@
 // Plan-001 PR #2 ships the V1 vertical slice for the shared session core:
 //   • session.ts — branded ID schemas, shared enums + projection types,
 //     SessionCreate / SessionRead / SessionJoin / SessionSubscribe payloads
-//   • event.ts   — V1 SessionEvent discriminated union
-//                 (session.created, membership.created, channel.created)
+//   • event.ts   — V1 SessionEvent discriminated union, seeded here with the
+//                 session / membership / channel creation events; the live
+//                 roster is whatever `SESSION_EVENT_TYPES` enumerates, grown
+//                 additively by later plans (no count is pinned in this header)
 //   • error.ts   — resource.limit_exceeded error envelope
 //
 // Subsequent PRs (Plan-002+) will extend each module additively. Anything

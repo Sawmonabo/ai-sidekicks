@@ -56,17 +56,26 @@
 //     a branch is required to carry the stamp exactly when it is run-scoped
 //     (its payload carries `runId`) AND belongs to an admitting family; any
 //     other branch must not carry the keys at all. Today every registered
-//     branch is in the must-not class and passes non-vacuously; the ratchet
-//     turns red when a run-scoped branch of an admitting family lands
-//     unwrapped — a strict payload schema that skipped the wrap would reject
-//     a stamped row at subscription or replay validation. Because a
-//     zero-violation result is only trustworthy if the checker can fail, a
-//     known-bad synthetic union is fed through the same classifier and each
-//     violation class is asserted to fire, including the two negative
+//     branch is in the must-not class and passes non-vacuously — including
+//     the five `runtime_node.*` arms T1.12 registered, which are NODE-scoped
+//     (payload carries `nodeId`, no `runId`), so the guard below widened to
+//     them by set-equality with no assertion change; the ratchet turns red
+//     when a run-scoped branch of an admitting family lands unwrapped — a
+//     strict payload schema that skipped the wrap would reject a stamped row
+//     wherever the STRICT layer parses it (scoped honestly: the tolerant
+//     `EventEnvelopeSchema` carrier accepts a stamped row either way, its
+//     `payload` being an open record, so what is lost is interpretation, not
+//     transport or append). Because a zero-violation result is only
+//     trustworthy if the checker can fail, a known-bad synthetic union is fed
+//     through the same classifier and each violation class is asserted to
+//     fire, including the two negative
 //     controls the plan names by hand: a `run_lifecycle` branch (stragglers
 //     are absorbed, never appended) and the account-plane
 //     `usage.rate_limit_update` (no `runId` — an epoch stamp there is
-//     unattributable).
+//     unattributable). A branch payload may itself be a DISCRIMINATED UNION
+//     (`audit_integrity_failed`, Plan-006 T1.11), so the walk resolves a
+//     payload to its arms and applies each rule arm-exactly; a known-bad
+//     union-payload arm is in the FIRES table so that path cannot rot green.
 //   • The envelope canonical set is UNTOUCHED (I-006-1-03): the pair rides
 //     inside `payload`, and a top-level `sourceEpoch` member is still
 //     rejected by EventEnvelopeSchema's closed membership.
@@ -656,13 +665,15 @@ type BranchFacts = {
 // surface, so branch introspection has to re-widen it. Reading structure (not
 // re-declaring it) is the point — the walk must see the SHIPPED union.
 type LiteralView = { readonly def: { readonly values: readonly string[] } };
-type PayloadView = {
+type PayloadObjectView = {
   readonly shape: Readonly<Record<string, unknown>>;
   readonly def: {
     readonly checks?: readonly unknown[];
     readonly catchall?: { readonly def: { readonly type: string } } | undefined;
   };
 };
+type PayloadUnionView = { readonly options: readonly PayloadObjectView[] };
+type PayloadView = PayloadObjectView | PayloadUnionView;
 type BranchView = {
   readonly shape: {
     readonly type: LiteralView;
@@ -672,16 +683,45 @@ type BranchView = {
 };
 type UnionView = { readonly options: readonly BranchView[] };
 
+// A branch's payload is either ONE object schema or a DISCRIMINATED UNION of
+// them — `audit_integrity_failed` is the first of the latter (Plan-006 T1.11:
+// the fifteen verifier modes carry the Merkle triple, the registrar mode
+// carries none). Resolving to the arm list keeps every rule below arm-exact.
+// The throw is deliberate and is the same anti-vacuity stance as the
+// non-vacuity guard one level up: a payload shape this walk cannot read must
+// fail LOUD, because reading zero facts off it would silently satisfy every
+// rule.
+const payloadArms = (payload: PayloadView): readonly PayloadObjectView[] => {
+  if (Array.isArray((payload as PayloadUnionView).options)) {
+    return (payload as PayloadUnionView).options;
+  }
+  if ((payload as PayloadObjectView).shape !== undefined) {
+    return [payload as PayloadObjectView];
+  }
+  throw new Error(
+    "readBranchFacts: a branch payload is neither a ZodObject (`.shape`) nor a union of them (`.options`) — the walk cannot read its facts, and reading none would make every admission rule vacuous.",
+  );
+};
+
 const readBranchFacts = (union: unknown): BranchFacts[] =>
   (union as UnionView).options.map((branch) => {
-    const payloadKeys = Object.keys(branch.shape.payload.shape);
+    const arms = payloadArms(branch.shape.payload);
+    // Stamp keys aggregate over ALL arms (any arm carrying one makes the
+    // branch stamped, which is the conservative direction for the
+    // must-not-admit rule); run-scopedness, refinement, and strictness require
+    // EVERY arm to qualify, so one unrefined or non-strict arm cannot hide
+    // behind a compliant sibling. The `some` direction is PINNED by the
+    // second-arm known-bad row below — a stamp on a union's trailing arm,
+    // which an `every` (or a first-arm-only) read would classify as unstamped
+    // and wave through. The `every` directions are the conservative reading of
+    // a branch whose arms disagree, and are asserted only as this comment.
     const stampKeys = [SOURCE_EPOCH_PAYLOAD_KEY, SOURCE_POSITION_PAYLOAD_KEY].filter((key) =>
-      payloadKeys.includes(key),
+      arms.some((arm) => Object.hasOwn(arm.shape, key)),
     );
     return {
       type: branch.shape.type.def.values[0] ?? "(no discriminator literal)",
       category: branch.shape.category.def.values[0] ?? "(no category literal)",
-      runScoped: payloadKeys.includes(RUN_ID_PAYLOAD_KEY),
+      runScoped: arms.every((arm) => Object.hasOwn(arm.shape, RUN_ID_PAYLOAD_KEY)),
       stampKeyCount: stampKeys.length,
       // A hand-rolled pair of keys without the pairing refinement is NOT a
       // wrap: it would admit exactly the half-stamped rows the helper exists
@@ -690,13 +730,13 @@ const readBranchFacts = (union: unknown): BranchFacts[] =>
       // hand-rolls both stamp keys AND carries some unrelated `.refine()`
       // still reads as wrapped here — presence of a check is the signal, not
       // its identity, because Zod does not label refinement provenance.
-      refined: (branch.shape.payload.def.checks ?? []).length > 0,
+      refined: arms.every((arm) => (arm.def.checks ?? []).length > 0),
       // A strict object carries a `never` catchall; a loose or stripping one
       // carries `unknown` or none. Composition INHERITS strictness (see the
       // helper's honest-limit pin above), so a branch that wrapped a
       // non-strict payload would strip unknown keys — parse output diverging
       // from the hashed canonical bytes.
-      payloadStrict: branch.shape.payload.def.catchall?.def.type === "never",
+      payloadStrict: arms.every((arm) => arm.def.catchall?.def.type === "never"),
     };
   });
 
@@ -709,7 +749,7 @@ const admissionViolations = (branches: readonly BranchFacts[]): string[] => {
     const mustAdmit = inAdmittingFamily && branch.runScoped;
     if (mustAdmit && !(branch.stampKeyCount === 2 && branch.refined)) {
       violations.push(
-        `${branch.type}: run-scoped ${branch.category} branch MUST be wrapped with withEpochStamp (found ${branch.stampKeyCount}/2 stamp keys, refinement ${branch.refined ? "present" : "absent"}) — a strict payload would reject a stamped row at replay validation`,
+        `${branch.type}: run-scoped ${branch.category} branch MUST be wrapped with withEpochStamp (found ${branch.stampKeyCount}/2 stamp keys, refinement ${branch.refined ? "present" : "absent"}) — a strict payload would reject a stamped row wherever SessionEventSchema parses it, while the tolerant EventEnvelopeSchema carrier accepts it either way`,
       );
     }
     if (!mustAdmit && branch.stampKeyCount > 0) {
@@ -818,6 +858,65 @@ describe("wrap-admission ratchet over the live SessionEventSchema union", () => 
             type: z.literal("usage.rate_limit_update"),
             category: z.literal("usage_telemetry"),
             payload: withEpochStamp(accountPlanePayloadSchema),
+          })
+          .strict(),
+      ]),
+      "MUST NOT admit",
+    ],
+    [
+      "run-scoped tool_activity branch whose payload UNION has one stamped arm",
+      z.discriminatedUnion("type", [
+        z
+          .object({
+            type: z.literal("tool.invoked"),
+            category: z.literal("tool_activity"),
+            // A discriminated-union payload, the shape `audit_integrity_failed`
+            // introduced. Without the arm-resolving read this arm would throw
+            // (no `.shape` on a union) instead of classifying — which is the
+            // point: the union path must be exercised by a KNOWN-BAD case, or
+            // a broken walk stays green on the passing ones.
+            payload: z.discriminatedUnion("kind", [
+              z.object({ kind: z.literal("plain"), runId: z.string().min(1) }).strict(),
+              z
+                .object({
+                  kind: z.literal("stamped"),
+                  runId: z.string().min(1),
+                  sourceEpoch: SourceEpochSchema.optional(),
+                  sourcePosition: SourcePositionSchema.optional(),
+                })
+                .strict(),
+            ]),
+          })
+          .strict(),
+      ]),
+      "MUST be wrapped",
+    ],
+    [
+      "account-plane usage_telemetry branch whose payload UNION stamps only its SECOND arm",
+      z.discriminatedUnion("type", [
+        z
+          .object({
+            type: z.literal("usage.rate_limit_update"),
+            category: z.literal("usage_telemetry"),
+            // The AGGREGATION-DIRECTION control. The branch is not run-scoped
+            // and the stamp sits on the TRAILING arm, so this row fires only
+            // because stamp keys aggregate with `some`: a first-arm-only read
+            // or an `every` would see zero stamp keys, report nothing, and be
+            // indistinguishable from the compliant case. The union row above
+            // cannot separate those readings — its verdict is "MUST be
+            // wrapped" whether the stamp is seen or not — so without this row
+            // the aggregation direction is asserted by nothing.
+            payload: z.discriminatedUnion("kind", [
+              z.object({ kind: z.literal("plain"), limitName: z.string() }).strict(),
+              z
+                .object({
+                  kind: z.literal("stamped"),
+                  limitName: z.string(),
+                  sourceEpoch: SourceEpochSchema.optional(),
+                  sourcePosition: SourcePositionSchema.optional(),
+                })
+                .strict(),
+            ]),
           })
           .strict(),
       ]),

@@ -23,13 +23,19 @@
 // ADR-022 (toolchain — Zod 4.x).
 import { z } from "zod";
 
+// DIRECT import from the `./event-core.js` leaf, never from `./event.js` —
+// Plan-006 owns all five symbols and `event.ts` re-exports every one of them
+// unchanged, but `event.ts` now imports this file's payload schemas at module
+// scope (T1.12's `runtime_node.*` union arms), so importing them from there
+// would close an eager Zod cycle. The leaf exists to keep this edge one-way;
+// its header carries the per-edge evidence.
 import {
   CapabilityDetailsSchema,
   EVENT_FIELD_MAX_LEN,
   EventEnvelopeVersionSchema,
   type CapabilityDetails,
   type EventEnvelopeVersion,
-} from "./event.js";
+} from "./event-core.js";
 import { NodeIdSchema, type NodeId } from "./node-id.js";
 import {
   ParticipantIdSchema,
@@ -49,13 +55,21 @@ import {
 // `export * from "./runtime-node.js"` carries all three onward, and
 // `__tests__/runtime-node.test.ts` keeps importing them from here unchanged.
 //
-// Plan-003 still OWNS the shape; only its physical home moved. The hoist exists
-// because Plan-009's `repo.ts` composes `NodeIdSchema`, and importing it from
-// THIS file would close the eager three-hop module cycle
-// `repo.ts` → `runtime-node.ts` → `event.ts` → `repo.ts`, which throws
-// `ReferenceError` at import time from every entry point (full rationale, with
-// the per-edge evidence, in `./node-id.js`'s header). Amending `NodeId` is
-// still a Plan-003 edit — make it in `./node-id.js`.
+// Plan-003 still OWNS the shape; only its physical home moved. The hoist was
+// made for Plan-009's `repo.ts`, which composes `NodeIdSchema`: importing it
+// from THIS file used to close the eager three-hop module cycle
+// `repo.ts` → `runtime-node.ts` → `event.ts` → `repo.ts` (per-edge evidence in
+// `./node-id.js`'s header). That MIDDLE EDGE is gone as of Plan-006 T1.12 —
+// this file's Plan-006 value imports now bind the `./event-core.js` leaf — so
+// these modules are acyclic today and `repo.ts` → `runtime-node.ts` would
+// close nothing on its own. What the leaf still buys is that the hazard
+// cannot come back through `repo.ts` — and the hazard is now NEARER, not
+// further off: `event.ts` → `runtime-node.ts` went live with T1.12, so
+// re-adding an `./event.js` import HERE closes a two-hop cycle immediately,
+// with no `repo.ts` change at all, and reopens the original three-hop path
+// the moment `repo.ts` reaches through this file instead of through
+// `./node-id.js`. Amending `NodeId` is still a Plan-003 edit — make that
+// edit in `./node-id.js`.
 //
 // Type-only re-exports MUST use `export type { ... }` (the `isolatedModules` +
 // `verbatimModuleSyntax` posture from tsconfig.base.json forbids erased
@@ -136,7 +150,7 @@ export interface RuntimeNodeAttachRequest {
 //
 // The outer `as unknown as z.ZodType<T, T>` cast bridges the composed object's
 // output type to the double-T shape — load-bearing HERE specifically because
-// the upstream `EventEnvelopeVersionSchema` (event.ts) is declared single-T
+// the upstream `EventEnvelopeVersionSchema` (event-core.ts) is declared single-T
 // (`z.ZodType<EventEnvelopeVersion>`): its `Input` slot is `unknown`, so without
 // the cast the composed request's `clientVersion` input resolves to `unknown`
 // (TS2375 under `exactOptionalPropertyTypes`). This is the FIRST consumer to
@@ -146,8 +160,8 @@ export interface RuntimeNodeAttachRequest {
 // bridge pattern as `MembershipUpdateSchema`
 // (memberships.ts:230) and `brandedUuidIdSchema` (./internal/branded.ts); see
 // ADR-014. We bridge at the consumption site rather than re-annotating the
-// shared event.ts symbol (out of this task's scope, and its envelope consumer
-// is correct as single-T).
+// shared event-core.ts symbol (out of this task's scope, and its envelope
+// consumer is correct as single-T).
 export const RuntimeNodeAttachRequestSchema: z.ZodType<
   RuntimeNodeAttachRequest,
   RuntimeNodeAttachRequest
@@ -654,14 +668,16 @@ export const RuntimeNodeRosterResponseSchema: z.ZodType<RuntimeNodeRosterRespons
 // `capability_declared`, `capability_updated`) are now authored in Plan-003 Phase 2
 // in the `Runtime-node event PAYLOAD-shape schemas` section BELOW (CP-003-1
 // amendment 2026-06-02; `degraded` / `revoked` are V1.1-gated — no V1
-// producer). What stays the additive Plan-006 Tier 4 follow-up is (a) the
-// REGISTRATION of these names + payloads into the discriminated `SessionEventSchema`
-// / `EventType` union in event.ts and (b) the `EventEnvelope` integrity wrapper
-// (BLAKE3 hash chain + dual signature + RFC 8785 JCS); (c), binding the
-// canonical `CapabilityDetails` over the interim-opaque capability fields,
-// landed with Plan-006 T1.4 (the canonical-first tolerant unions below). So the
-// names now sit in event.ts's `SessionEventType` census (Plan-006 T1.2) but are
-// still deliberately NOT registered as `SessionEventSchema` payload variants here.
+// producer). The additive Plan-006 Tier 4 follow-ups were (a) the REGISTRATION
+// of these names + payloads into the discriminated `SessionEventSchema` /
+// `EventType` union in event.ts — landed with Plan-006 T1.12, which registered
+// the FIVE daemon-reachable variants and left `degraded` / `revoked`
+// census-only; (b) the `EventEnvelope` integrity wrapper (BLAKE3 hash chain +
+// dual signature + RFC 8785 JCS); and (c) binding the canonical
+// `CapabilityDetails` over the interim-opaque capability fields, landed with
+// Plan-006 T1.4 (the canonical-first tolerant unions below). The registration
+// still happens THERE, not here: this file exports the names and the payload
+// shapes; event.ts composes them into union arms.
 //
 // Shape mirrors `SESSION_EVENT_TYPES` / `SessionEventType`: a
 // union type alias plus an explicitly-annotated `readonly [...]  as const` tuple.
@@ -733,14 +749,16 @@ export const RUNTIME_NODE_EVENT_NAMES: readonly RuntimeNodeEventName[] = [
 // signature, RFC 8785 JCS serialization) and the registration of these payloads
 // into the discriminated `SessionEventSchema` / `EventType` union in `event.ts`
 // are owned by Plan-006 Tier 4 (CP-003-1; see the `RUNTIME_NODE_EVENT_NAMES`
-// block above). The names are therefore still NOT added to `event.ts`'s union
-// here — only the per-event payload SHAPES land in this phase.
+// block above) — the registration landed there with Plan-006 T1.12, importing
+// the five schemas below. Only the per-event payload SHAPES live here: this
+// file never registers into `event.ts`'s union; `event.ts` composes these
+// shapes into arms.
 //
-// EXPORTED (const + interface), unlike `event.ts`'s module-LOCAL
-// `sessionCreatedPayloadSchema` et al.: these have 2+
-// cross-file consumers, so they clear the export bar — (a) Plan-006 Tier 4
-// imports each `*PayloadSchema` to register it into `SessionEventSchema`, and
-// (b) the Phase-2 T2.1-T2.5 daemon producers (`node-registry.ts`,
+// EXPORTED (const + type alias), unlike `event.ts`'s module-LOCAL
+// `sessionCreatedPayloadSchema` et al.: these have 2+ cross-file consumers, so
+// they clear the export bar — (a) Plan-006 Tier 4 imports each
+// `*PayloadSchema` to register it into `SessionEventSchema` (landed: T1.12),
+// and (b) the Phase-2 T2.1-T2.5 daemon producers (`node-registry.ts`,
 // `node-capability-service.ts`) import them to `.parse()`-validate the payload
 // at the emission boundary (the `.parse()` validation seam CP-003-1 mandates,
 // in place of ad-hoc objects). Plan-001's local payload consts were single-file
@@ -763,10 +781,22 @@ export const RUNTIME_NODE_EVENT_NAMES: readonly RuntimeNodeEventName[] = [
 // contrast note above), which a single-T payload does not
 // carry — so single-T payloads composing branded ids compose cleanly.
 //
-// Optional interface fields are typed `key?: T | undefined` (not bare `key?:`):
+// DECLARATION FORM — each payload type below is an object TYPE ALIAS, never an
+// `interface`. Plan-006 T1.12 registers all five as `SessionEventSchema` union
+// arms whose variant interfaces narrow `EventEnvelope.payload`
+// (`Record<string, unknown>`), and only an object type ALIAS carries the
+// implicit index signature that narrowing needs — an `interface` payload fails
+// the `extends EventEnvelope` check outright. Same rule, same reason, as the
+// sibling registered families: `RepoWorkspaceLifecyclePayload` (repo.ts) and
+// `WorktreeLifecyclePayload` (worktree.ts) are both aliases and say so. The
+// change is declaration FORM only — same exported name, same structural type,
+// same schema, no consumer-visible difference (nothing `implements` or
+// declaration-merges these).
+//
+// Optional payload fields are typed `key?: T | undefined` (not bare `key?:`):
 // Zod's `.optional()` infers `T | undefined`, and with no `as unknown as` cast
-// TypeScript checks interface ↔ inferred-output equality exactly, so the
-// interface must match (same `exactOptionalPropertyTypes` stance as
+// TypeScript checks payload-type ↔ inferred-output equality exactly, so the
+// alias must match (same `exactOptionalPropertyTypes` stance as
 // `ChannelSummary.name` at session.ts:267 and the `RuntimeNodeCapabilityUpdate`
 // optionality note above). `actor` is
 // `.nullable().optional()` → its inferred output is `string | null | undefined`,
@@ -851,26 +881,28 @@ const buildRuntimeNodeCapabilityBaseShape = () => ({
 // runtime_node.registered — base + {capabilities, nodeVersion, platform}.
 // --------------------------------------------------------------------------
 //
-// `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` ("base + {capabilities[], nodeVersion, platform}"). Emitted by the
+// `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` ("base + {capabilities: Record<capabilityKey, details>, nodeVersion, platform}"). Emitted by the
 // T2.1 node-registry when a node is accepted into the roster (`Spec-003 §Required Behavior`,
 // attach admission). Field-type rationale (so reviewers verify, not re-derive):
 //   • `capabilities` = `z.record(z.string(), z.unknown())` — a lossless snapshot
 //     of the declared capability map, mirroring `RuntimeNodeAttachRequest.
-//     capabilities` (the schema above in this file) VERBATIM. Departs from Spec-006's
-//     informal `capabilities[]` table gloss (an array notation) in favor of that typed
-//     record shape, which governs per typed-source-over-table-gloss.
+//     capabilities` (the schema above in this file) VERBATIM. Spec-006's table
+//     row carried an informal `capabilities[]` array gloss until Plan-006 T1.12
+//     trued it up to this record shape (2026-08-03), so spec and schema now
+//     agree; the typed source governed in the interim per
+//     typed-source-over-table-gloss.
 //     Forward-compatible: Plan-006 Tier 4 can tighten `unknown` → the canonical
 //     `CapabilityDetails` with no SHAPE change.
 //   • `nodeVersion` = bounded free string, NOT `EventEnvelopeVersion` — it is the
 //     node's software RELEASE version (conventionally full semver, e.g. "1.4.2"),
 //     which the MAJOR.MINOR-only `EventEnvelopeVersion` regex
-//     (`EVENT_ENVELOPE_VERSION_PATTERN` in event.ts,
+//     (`EVENT_ENVELOPE_VERSION_PATTERN` in event-core.ts,
 //     /^(0|[1-9]\d*)\.(0|[1-9]\d*)$/) would REJECT. No source pins its format, so
 //     bounded-but-format-unconstrained is the non-lossy call.
 //   • `platform` = bounded free string, NOT an enum — no source enumerates the
 //     platform set, and composite `platform+arch` values (e.g. "darwin-arm64")
 //     must not be rejected.
-export interface RuntimeNodeRegisteredPayload {
+export type RuntimeNodeRegisteredPayload = {
   sessionId?: SessionId | undefined;
   nodeId: NodeId;
   previousState?: NodeState | undefined;
@@ -879,7 +911,7 @@ export interface RuntimeNodeRegisteredPayload {
   capabilities: Record<string, unknown>;
   nodeVersion: string;
   platform: string;
-}
+};
 export const RuntimeNodeRegisteredPayloadSchema: z.ZodType<RuntimeNodeRegisteredPayload> = z
   .object({
     ...buildRuntimeNodeLifecycleBaseShape(),
@@ -905,13 +937,13 @@ export const RuntimeNodeRegisteredPayloadSchema: z.ZodType<RuntimeNodeRegistered
 // `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` ("base"). Emitted by the T2.1/T2.2 path only AFTER
 // `runtime_node.capability_declared` succeeds (I-003-2 ordering, Plan-003 §Phase
 // 2). No payload extension — the full lifecycle base is the whole payload.
-export interface RuntimeNodeOnlinePayload {
+export type RuntimeNodeOnlinePayload = {
   sessionId?: SessionId | undefined;
   nodeId: NodeId;
   previousState?: NodeState | undefined;
   newState: NodeState;
   actor?: string | null | undefined;
-}
+};
 export const RuntimeNodeOnlinePayloadSchema: z.ZodType<RuntimeNodeOnlinePayload> = z
   .object({
     ...buildRuntimeNodeLifecycleBaseShape(),
@@ -933,7 +965,7 @@ export const RuntimeNodeOnlinePayloadSchema: z.ZodType<RuntimeNodeOnlinePayload>
 // with `{ offset: true }` (RFC
 // 3339 §5.6 numeric offsets), the same datetime convention as `attachedAt` (the
 // attach response above) / `occurredAt` (event.ts's `buildCommonShape()`).
-export interface RuntimeNodeOfflinePayload {
+export type RuntimeNodeOfflinePayload = {
   sessionId?: SessionId | undefined;
   nodeId: NodeId;
   previousState?: NodeState | undefined;
@@ -941,7 +973,7 @@ export interface RuntimeNodeOfflinePayload {
   actor?: string | null | undefined;
   lastHeartbeatAt: string;
   reason: "heartbeat_lost" | "explicit_shutdown" | "network_partition";
-}
+};
 export const RuntimeNodeOfflinePayloadSchema: z.ZodType<RuntimeNodeOfflinePayload> = z
   .object({
     ...buildRuntimeNodeLifecycleBaseShape(),
@@ -970,7 +1002,7 @@ export const RuntimeNodeOfflinePayloadSchema: z.ZodType<RuntimeNodeOfflinePayloa
 // (CP-006-5; closes Plan-005 CP-005-5). The interim-opaque
 // `z.record(z.string(), z.unknown())` this field shipped with (CP-003-1 honest
 // forward-dependency) is now the SECOND arm behind the canonical
-// `CapabilityDetailsSchema` (event.ts — `{flags; contractVersion; tools}`,
+// `CapabilityDetailsSchema` (event-core.ts — `{flags; contractVersion; tools}`,
 // `docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy`).
 // The tolerant arm is deliberate, not a hedge:
 //   (a) CP-006-5 classifies the binding "additive-only MINOR" (ADR-018
@@ -1006,13 +1038,13 @@ export const RuntimeNodeOfflinePayloadSchema: z.ZodType<RuntimeNodeOfflinePayloa
 // which is insertion-order-independent — but do NOT build a byte-diff or
 // pre-JCS-hash assumption over stored payload text. Conforming snapshots
 // simply narrow to the typed `CapabilityDetails`.
-export interface RuntimeNodeCapabilityDeclaredPayload {
+export type RuntimeNodeCapabilityDeclaredPayload = {
   sessionId?: SessionId | undefined;
   nodeId: NodeId;
   actor?: string | null | undefined;
   capability: string;
   capabilityDetails: CapabilityDetails | Record<string, unknown>;
-}
+};
 export const RuntimeNodeCapabilityDeclaredPayloadSchema: z.ZodType<RuntimeNodeCapabilityDeclaredPayload> =
   z
     .object({
@@ -1041,14 +1073,14 @@ export const RuntimeNodeCapabilityDeclaredPayloadSchema: z.ZodType<RuntimeNodeCa
 // above (bound by Plan-006 T1.4, CP-006-5 / closes Plan-005 CP-005-5) — see
 // that field's binding note for the accept-set / parse-output-stability /
 // two-producer / flag-widening rationale.
-export interface RuntimeNodeCapabilityUpdatedPayload {
+export type RuntimeNodeCapabilityUpdatedPayload = {
   sessionId?: SessionId | undefined;
   nodeId: NodeId;
   actor?: string | null | undefined;
   capability: string;
   previousState: CapabilityDetails | Record<string, unknown>;
   newState: CapabilityDetails | Record<string, unknown>;
-}
+};
 export const RuntimeNodeCapabilityUpdatedPayloadSchema: z.ZodType<RuntimeNodeCapabilityUpdatedPayload> =
   z
     .object({

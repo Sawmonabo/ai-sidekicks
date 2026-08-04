@@ -22,7 +22,12 @@
 //   * `runtime-node.ts` → `event.ts` — VALUE imports (`EVENT_FIELD_MAX_LEN`,
 //     `EventEnvelopeVersionSchema`, `CapabilityDetailsSchema`), each read at
 //     module scope by one or more schema initializers: the attach request, the
-//     roster projection, and the lifecycle / capability payload shapes.
+//     roster projection, and the lifecycle / capability payload shapes. THIS
+//     EDGE IS GONE as of Plan-006 T1.12 — the three declarations hoisted to
+//     `./event-core.js` and `runtime-node.ts` binds the leaf — so the
+//     three-hop cycle is not live today. What survives is the RULE: this
+//     module stays import-free so it can never participate in one, and the
+//     edge returns the moment anything re-adds an import of `./event.js`.
 //   * `event.ts` → `repo.ts` — a VALUE import of
 //     `RepoWorkspaceLifecyclePayloadSchema`, read at module scope by all six
 //     Plan-009 `SessionEventSchema` arms (CP-009-4).

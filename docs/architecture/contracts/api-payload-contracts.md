@@ -1194,7 +1194,7 @@ interface GetCapabilitiesResult {
 
 ### Plan-006 — Session Event Taxonomy
 
-> **Cross-plan note (amendment 2026-06-02, PR #137 — Plan-003 Phase 2).** The per-event payload-shape Zod schemas for the `runtime_node.*` payloads below are **authored by Plan-003** in `packages/contracts/src/runtime-node.ts` (the file Plan-003 owns; CREATE), not by Plan-006. Plan-003 ships `capabilityDetails` (on `capability_declared`) and `previousState`/`newState` (on `capability_updated`) as an **interim opaque** `z.record(z.string(), z.unknown())` because the canonical `CapabilityDetails` consumes Plan-005's `provider-driver.ts` types, which do not yet exist. The `CapabilityDetails` interface defined here is the shape **Plan-006 Tier 4 binds** over those interim-opaque fields (EXTEND — closes Plan-005 CP-005-5 / Plan-006 CP-006-5): the bind lands first — Plan-006 Phase 1 T1.4, the canonical-first arm of a tolerant union — while registration of the schemas into the discriminated `SessionEventSchema` union (`event.ts`) and their `EventEnvelope` wrapping ride the later Tier-4 legs. See [cross-plan-dependencies.md §3 Plan-003 row](../cross-plan-dependencies.md#3-inter-plan-dependency-graph) and Plan-003 §CP-003-1 (Payload-shape ownership).
+> **Cross-plan note (amendment 2026-06-02, PR #137 — Plan-003 Phase 2).** The per-event payload-shape Zod schemas for the `runtime_node.*` payloads below are **authored by Plan-003** in `packages/contracts/src/runtime-node.ts` (the file Plan-003 owns; CREATE), not by Plan-006. Plan-003 ships `capabilityDetails` (on `capability_declared`) and `previousState`/`newState` (on `capability_updated`) as an **interim opaque** `z.record(z.string(), z.unknown())` because the canonical `CapabilityDetails` consumes Plan-005's `provider-driver.ts` types, which do not yet exist. The `CapabilityDetails` interface defined here is the shape **Plan-006 Tier 4 binds** over those interim-opaque fields (EXTEND — closes Plan-005 CP-005-5 / Plan-006 CP-006-5): the bind lands first — Plan-006 Phase 1 T1.4, the canonical-first arm of a tolerant union. Registration of the schemas into the discriminated `SessionEventSchema` union (`event.ts`) followed in Plan-006 Phase 1 T1.12, which registered the five daemon-reachable variants and left `degraded` / `revoked` census-only; only their `EventEnvelope` integrity wrapping still rides a later Tier-4 leg. See [cross-plan-dependencies.md §3 Plan-003 row](../cross-plan-dependencies.md#3-inter-plan-dependency-graph) and Plan-003 §CP-003-1 (Payload-shape ownership).
 
 ```ts
 // CapabilityDetails — wrapper shape carried by `runtime_node.capability_declared` and
@@ -1339,6 +1339,175 @@ type EventCategory =
   | "cross_node_dispatch"
   | "mcp_governance";
 // Individual event types within each category are enumerated in Spec-006 §Event Type Enumeration.
+
+// ---------------------------------------------------------------------------
+// The six Plan-006-emitted payload variants (Plan-006 T1.11) — authored in
+// packages/contracts/src/event.ts, which Plan-006 owns, rather than imported
+// from an emitting plan's module (contrast the repo/workspace/worktree family,
+// authored in repo.ts / worktree.ts under emitter-authors-payload). Registering
+// a payload variant is additive-MINOR per ADR-018 §Decision #8; all six type
+// strings were already census members, so the 156/20 census is unchanged.
+//
+// Session binding (Spec-006 §Daemon-Scope Event Binding And Node-Scope
+// Anchoring): key_reuse_detected and the three event_maintenance types bind the
+// reserved RFC 9562 §5.10 Max UUID sentinel session_id (lowercase);
+// audit_integrity_verified / audit_integrity_failed carry the verified range's
+// real session_id — the sentinel only when verifying the node-scope chain, and
+// the signing_key_slot_conflict arm always the refused registration's real id.
+// Binding is an emitter obligation: the envelope's SessionId already admits the
+// sentinel, so no schema carve-out exists.
+//
+// None of the six is run-scoped (no payload carries runId), so none composes
+// the sourceEpoch + sourcePosition pair documented above.
+
+// audit_integrity payload base — {sessionId, anchorId?, verifierNodeId}, per
+// Spec-006 §Audit Integrity. anchorId is an opaque bounded string, deliberately
+// not a branded/UUID id: the control-plane anchor id is UUID while the local
+// pending_anchor_uploads.id is TEXT, and no AnchorId vocabulary is declared.
+// key_reuse_detected does NOT carry this base (its spec cell has no "base +"
+// prefix) — it is an observer's node-level finding. The audit_integrity_failed
+// REGISTRAR arm takes a REDUCED base, {sessionId, verifierNodeId}, anchorId
+// excluded (Spec-006 2026-08-03) — see that arm below.
+
+interface AuditIntegrityVerifiedPayload {
+  sessionId: SessionId;
+  anchorId?: string;
+  verifierNodeId: NodeId;
+  treeSize: number; // int >= 0; RFC 9162 tree_size (leaf count of the verified tree)
+  rootHash: string; // house form is 64-char lowercase hex; the wire contract is a bounded string
+  fromSeq: number; // int >= 0, bounded by the EventEnvelope.sequence ceiling
+  toSeq: number;
+  verifiedAt: string; // ISO 8601
+  signatureAlgorithm: string; // no algorithm vocabulary is specified; bounded free-form
+}
+
+// audit_integrity_failed is DISCRIMINATED on failureMode (Spec-006 §Audit
+// Integrity, 2026-08-01 amendment): the fifteen read-side verifier modes walked
+// a range and REQUIRE the Merkle triple; the registrar's
+// signing_key_slot_conflict walked none, so requiring the triple there would
+// force it to fabricate roots for a tree it never touched. One event type, one
+// wire schema, two arms. The verified RANGE splits the same way (2026-08-03):
+// fromSeq/toSeq are REQUIRED on the verifier arm — I-006-4-01's consumer dedupe
+// key — and absent from the registrar's, which walked no range.
+type VerifierFailureMode =
+  | "hash_mismatch"
+  | "signature_mismatch"
+  | "anchor_mismatch"
+  | "inclusion_proof_failed"
+  | "consistency_proof_failed"
+  | "log_file_missing"
+  | "log_file_moved"
+  | "anchor_missing_for_compacted_range"
+  | "anchor_signature_invalid"
+  | "stub_signature_invalid"
+  | "stub_scalar_mismatch"
+  | "signature_placeholder"
+  | "occurred_at_not_canonical"
+  | "pii_ciphertext_digest_unbound"
+  | "pii_owner_stamp_unbound"
+  | "signing_key_slot_conflict"; // registrar-emitted; the sixteenth mode
+// failurePath names the verification GUARANTEE that failed, not the column the
+// defect occupies — which is why the three signature-survives-but-binding-broke
+// modes all pair with "signature".
+// NINE of the fifteen verifier modes have their path FIXED by Security
+// Architecture §Verification Rules and the schema enforces the pairing at parse:
+// hash_mismatch → "inclusion"; anchor_mismatch → "consistency"; and
+// signature_mismatch / signature_placeholder / occurred_at_not_canonical /
+// pii_ciphertext_digest_unbound / pii_owner_stamp_unbound /
+// stub_signature_invalid / stub_scalar_mismatch → "signature". The other SIX
+// (inclusion_proof_failed, consistency_proof_failed, log_file_missing,
+// log_file_moved, anchor_missing_for_compacted_range, anchor_signature_invalid)
+// have no corpus-fixed path and keep the full three-value latitude — pinning
+// one would mint an authority that does not exist.
+type VerifierFailurePath = "inclusion" | "consistency" | "signature";
+
+type AuditIntegrityFailedPayload =
+  | {
+      // Verifier arm — the fifteen read-side modes.
+      sessionId: SessionId;
+      anchorId?: string;
+      verifierNodeId: NodeId;
+      treeSize: number;
+      expectedRootHash: string;
+      observedRootHash: string;
+      // The verified range's endpoints — REQUIRED on this arm. I-006-4-01's
+      // dedupe key is (verifierNodeId, fromSeq, toSeq, verifiedAt); verifiedAt
+      // stays an audit_integrity_verified member, so the fourth key member is
+      // read from the envelope's occurredAt and T4.1's IdempotencyClass keys
+      // these rows on the first three.
+      fromSeq: number;
+      toSeq: number;
+      failureMode: Exclude<VerifierFailureMode, "signing_key_slot_conflict">;
+      failurePath: VerifierFailurePath;
+      offendingSeq?: number; // absent when no single row is implicated
+      detail: string;
+    }
+  | {
+      // Registrar arm — no range was verified, so no Merkle triple and no
+      // range endpoints.
+      sessionId: SessionId; // the refused registration's real id, never the sentinel
+      // No anchorId — REDUCED base, the member excluded rather than optional
+      // (Spec-006 2026-08-03). It is permanently absent on this row: the signed
+      // payload is never mutated, and later coverage is represented by the
+      // subsequently appended anchor spanning this row's range, exactly as for
+      // any appended row. The schema is .strict(), so an offered anchorId is
+      // an unrecognized key and REJECTED — the permanence is enforced here,
+      // not left to emitter convention.
+      verifierNodeId: NodeId; // the refused daemon naming itself
+      failureMode: "signing_key_slot_conflict";
+      failurePath: "signature";
+      detail: string; // names the refused (session_id, node_id) pair
+    };
+
+interface KeyReuseDetectedPayload {
+  offendingKeyFingerprint: string;
+  observedIdentities: Array<{ sessionId: SessionId; nodeId: NodeId }>; // >= 2, PAIRWISE DISTINCT — a repeated pair is one identity holding its own key
+  firstSeenAt: string; // ISO 8601
+  rotationInvariantViolated: "refuse_on_rotation"; // V1's only rotation posture
+  detectorNodeId: NodeId;
+}
+
+// event_maintenance payload base — {nodeId, operationId, occurredAt}, per
+// Spec-006 §Event Maintenance. occurredAt re-spells the envelope member (the
+// spec's shape; both sit in the RFC 8785 canonical bytes).
+
+interface SchemaMigratedPayload {
+  nodeId: NodeId;
+  operationId: string; // batch correlation id (Liquibase DEPLOYMENT_ID by precedent)
+  occurredAt: string; // ISO 8601
+  fromVersion: string; // migration revisions, NOT EventEnvelopeVersion
+  toVersion: string;
+  migrationId: string;
+  description: string;
+  checksum: string; // BLAKE3 over the concatenated migration file contents
+  appliedBy: string;
+  executionMs: number; // int >= 0
+  success: boolean; // false is representable — a failed batch is the row worth auditing
+}
+
+interface EventCompactedPayload {
+  nodeId: NodeId;
+  operationId: string;
+  occurredAt: string; // ISO 8601
+  sessionId?: SessionId; // present when the pass is scoped to one session
+  fromSeq: number;
+  toSeq: number;
+  eventsBefore: number;
+  eventsAfter: number;
+  bytesReclaimed: number;
+  tombstoneCount: number;
+  compactionReason: "age_threshold" | "count_threshold" | "storage_threshold";
+}
+
+interface EventShreddedPayload {
+  nodeId: NodeId;
+  operationId: string;
+  occurredAt: string; // ISO 8601
+  participantId: ParticipantId;
+  affectedSessionIds: SessionId[]; // may be empty — an idempotent re-run is still auditable
+  piiPayloadsCleared: number;
+  shredReason: "gdpr_article_17" | "retention_policy" | "admin_action";
+}
 
 // EventReadAfterCursor
 interface EventReadAfterCursorRequest {
