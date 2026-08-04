@@ -68,6 +68,56 @@ class FixedDaemonSigningKeySource implements DaemonSigningKeySource {
   }
 }
 
+/**
+ * A key source that parks its FIRST `read` until released, then behaves like the
+ * fixed one.
+ *
+ * This is the seam the cross-session race arms below need, and it is the real
+ * production shape rather than an artificial hook: the key unseal is the async
+ * step that opens the window between a declare's read-decide and its write, so
+ * parking here reproduces exactly the interleaving `declare`'s prelude re-check
+ * exists to catch. Park-ONCE matters — the retry attempt must run to completion
+ * rather than parking again.
+ */
+class ParkOnceDaemonSigningKeySource implements DaemonSigningKeySource {
+  readonly parked: Promise<void>;
+  readonly #privateKey: Ed25519PrivateKey = new Uint8Array(32).fill(7) as Ed25519PrivateKey;
+  #release!: () => void;
+  #reachedPark!: () => void;
+  #hasParked = false;
+
+  /** Resolves once the first `read` has actually reached the park. */
+  readonly parkReached: Promise<void>;
+
+  constructor() {
+    this.parked = new Promise<void>((resolve) => {
+      this.#release = resolve;
+    });
+    this.parkReached = new Promise<void>((resolve) => {
+      this.#reachedPark = resolve;
+    });
+  }
+
+  release(): void {
+    this.#release();
+  }
+
+  async read(_sessionId: SessionId): Promise<Ed25519PrivateKey> {
+    if (!this.#hasParked) {
+      this.#hasParked = true;
+      this.#reachedPark();
+      await this.parked;
+    }
+    return this.#privateKey;
+  }
+
+  create(_sessionId: SessionId): Promise<{ readonly publicKey: Ed25519PublicKey }> {
+    return Promise.reject(
+      new Error("ParkOnceDaemonSigningKeySource.create is not used by this suite"),
+    );
+  }
+}
+
 // ----------------------------------------------------------------------------
 // Fixtures + per-test lifecycle
 // ----------------------------------------------------------------------------
@@ -135,7 +185,11 @@ function makeAdvancingClock(): () => string {
 // ASYNC-TRANSACTIONAL post the Plan-006 T3.1 re-point (node-event-emitter.ts's
 // header owns the contract): `EventLogService.append` over the SAME connection
 // backs it, which is what lets a `transactionalPrelude` join its transaction.
-function makeWriter(now: () => string = makeAdvancingClock()): {
+function makeWriter(
+  now: () => string = makeAdvancingClock(),
+  signingKeySource: DaemonSigningKeySource = new FixedDaemonSigningKeySource(),
+  eventIdPrefix: string = "evt",
+): {
   writer: DriverCapabilitiesWriter;
 } {
   let idCounter: number = 0;
@@ -145,9 +199,11 @@ function makeWriter(now: () => string = makeAdvancingClock()): {
     // as a `transactionalPrelude` and must join the append's transaction.
     sessionEvents: new EventLogService({
       db,
-      signingKeySource: new FixedDaemonSigningKeySource(),
+      signingKeySource,
     }),
-    newEventId: () => `evt-${(idCounter++).toString()}`,
+    // Prefixed so two writers racing on ONE database cannot collide on
+    // `session_events.id`, which is a TEXT PRIMARY KEY across all sessions.
+    newEventId: () => `${eventIdPrefix}-${(idCounter++).toString()}`,
   });
   const writer: DriverCapabilitiesWriter = new DriverCapabilitiesWriter(db, emitter, now);
   return { writer };
@@ -1274,5 +1330,141 @@ describe("DriverCapabilitiesWriter — atomic dual-write (a failed event write r
     expect(readToolNames(DRIVER_NAME)).toEqual([]);
     expect(countContractMetaRows(DRIVER_NAME)).toBe(0);
     expect(readEventRows(SESSION_ID)).toHaveLength(0);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Cross-session concurrency — the window the SESSION-keyed lock cannot close
+// ----------------------------------------------------------------------------
+
+// The second session in the race arms. The driver-keyed tables have no
+// `session_id` column, so two declares for ONE driver under DIFFERENT sessions
+// hold DIFFERENT append locks and both reach their read-decide — the exact
+// window `declare`'s in-prelude re-check plus bounded retry exists to close.
+const SECOND_SESSION_ID: string = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f01";
+
+/** Every `runtime_node.capability_*` row across BOTH sessions, in commit order. */
+function readCapabilityEventsAcrossSessions(): ReadonlyArray<EventRow> {
+  return db
+    .prepare(
+      `SELECT type, category, payload
+         FROM session_events
+        WHERE session_id IN (?, ?) AND type LIKE 'runtime_node.capability_%'
+        ORDER BY rowid ASC`,
+    )
+    .all(SESSION_ID, SECOND_SESSION_ID) as ReadonlyArray<EventRow>;
+}
+
+interface CapabilityEventPayload {
+  readonly capabilityDetails?: FlatCapabilitySnapshot;
+  readonly previousState?: FlatCapabilitySnapshot;
+  readonly newState?: FlatCapabilitySnapshot;
+}
+
+interface FlatCapabilitySnapshot {
+  readonly contractVersion?: string;
+  readonly flags?: Record<string, boolean>;
+  readonly tools?: ReadonlyArray<{ readonly name?: string }>;
+}
+
+function payloadOf(row: EventRow): CapabilityEventPayload {
+  return JSON.parse(row.payload) as CapabilityEventPayload;
+}
+
+describe("DriverCapabilitiesWriter — concurrent declares under DIFFERENT sessions", () => {
+  it("emits exactly ONE capability_declared when both racers declare the SAME snapshot", async () => {
+    const parkedKeySource = new ParkOnceDaemonSigningKeySource();
+    const { writer: parkedWriter } = makeWriter(makeAdvancingClock(), parkedKeySource, "parked");
+    const { writer: racingWriter } = makeWriter(makeAdvancingClock(), undefined, "racer");
+    const snapshot: GetCapabilitiesResult = makeResult({
+      tools: [{ name: "search", idempotency_class: "idempotent" }],
+    });
+
+    // The parked writer reads "no row", decides FIRST-DECLARE, and stalls in the
+    // key unseal holding only session 1's lock.
+    const parkedDeclare = parkedWriter.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: snapshot,
+    });
+    await parkedKeySource.parkReached;
+
+    // The racer runs to completion on session 2's uncontended lock.
+    const racerOutcome = await racingWriter.declare({
+      sessionId: SECOND_SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: snapshot,
+    });
+    expect(racerOutcome.emitted).toBe("declared");
+
+    parkedKeySource.release();
+    const parkedOutcome = await parkedDeclare;
+
+    // The loser's prelude re-check saw the racer's committed snapshot, aborted
+    // its stale first-declare, retried, and found the snapshot IDENTICAL — so it
+    // took the idempotent no-op branch rather than emitting a second
+    // `capability_declared` for one logical declaration.
+    expect(parkedOutcome.emitted).toBe("noop");
+
+    // Asserted on the UNION of both sessions: a per-session count would show one
+    // event in each and call that correct.
+    const events = readCapabilityEventsAcrossSessions();
+    expect(events).toHaveLength(1);
+    expect(events[0]?.type).toBe("runtime_node.capability_declared");
+    // And the durable side stayed single-declaration.
+    expect(countCapabilityRows(DRIVER_NAME)).toBe(7);
+    expect(readToolNames(DRIVER_NAME)).toEqual(["search"]);
+    expect(countContractMetaRows(DRIVER_NAME)).toBe(1);
+  });
+
+  it("reclassifies the loser to capability_updated whose previousState is the RACER'S committed snapshot", async () => {
+    const parkedKeySource = new ParkOnceDaemonSigningKeySource();
+    const { writer: parkedWriter } = makeWriter(makeAdvancingClock(), parkedKeySource, "parked");
+    const { writer: racingWriter } = makeWriter(makeAdvancingClock(), undefined, "racer");
+
+    const parkedDeclare = parkedWriter.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult({ tools: [{ name: "loser_tool", idempotency_class: "idempotent" }] }),
+    });
+    await parkedKeySource.parkReached;
+
+    await racingWriter.declare({
+      sessionId: SECOND_SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult({
+        capabilities: { flags: makeFlags({ resume: false }), contractVersion: "9.9.9" },
+        tools: [{ name: "racer_tool", idempotency_class: "compensable" }],
+      }),
+    });
+
+    parkedKeySource.release();
+    const parkedOutcome = await parkedDeclare;
+
+    // NOT `declared` — the loser's stale decision was first-declare, and shipping
+    // it would have emitted a second `capability_declared` for a driver that
+    // already had one.
+    expect(parkedOutcome.emitted).toBe("updated");
+
+    const events = readCapabilityEventsAcrossSessions();
+    expect(events.map((row) => row.type)).toEqual([
+      "runtime_node.capability_declared",
+      "runtime_node.capability_updated",
+    ]);
+
+    // THE LOAD-BEARING HALF. `previousState` must be what the racer COMMITTED,
+    // not the absent-snapshot the loser read before the race. A retry that
+    // reused its stale read would describe a transition that never happened.
+    const updated = payloadOf(events[1] as EventRow);
+    expect(updated.previousState?.contractVersion).toBe("9.9.9");
+    expect(updated.previousState?.flags?.["resume"]).toBe(false);
+    expect(updated.previousState?.tools?.map((tool) => tool.name)).toEqual(["racer_tool"]);
+    // And `newState` is the loser's own snapshot, now correctly framed as a change.
+    expect(updated.newState?.contractVersion).toBe(CONTRACT_VERSION);
+    expect(updated.newState?.tools?.map((tool) => tool.name)).toEqual(["loser_tool"]);
   });
 });

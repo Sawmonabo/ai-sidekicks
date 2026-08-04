@@ -103,6 +103,55 @@ class FixedDaemonSigningKeySource implements DaemonSigningKeySource {
   }
 }
 
+/**
+ * A key source that parks its FIRST `read` until released, then behaves like the
+ * fixed one.
+ *
+ * The seam the cross-session race arms need, and the production shape rather
+ * than an artificial hook: the key unseal is the async step between a declare's
+ * read-decide and its write, so parking here reproduces exactly the interleaving
+ * the in-prelude re-check exists to catch. Park-ONCE, so the retry attempt runs
+ * to completion instead of parking again.
+ */
+class ParkOnceDaemonSigningKeySource implements DaemonSigningKeySource {
+  readonly #privateKey: Ed25519PrivateKey = new Uint8Array(32).fill(7) as Ed25519PrivateKey;
+  readonly #parked: Promise<void>;
+  #release!: () => void;
+  #reachedPark!: () => void;
+  #hasParked = false;
+
+  /** Resolves once the first `read` has actually reached the park. */
+  readonly parkReached: Promise<void>;
+
+  constructor() {
+    this.#parked = new Promise<void>((resolve) => {
+      this.#release = resolve;
+    });
+    this.parkReached = new Promise<void>((resolve) => {
+      this.#reachedPark = resolve;
+    });
+  }
+
+  release(): void {
+    this.#release();
+  }
+
+  async read(_sessionId: SessionId): Promise<Ed25519PrivateKey> {
+    if (!this.#hasParked) {
+      this.#hasParked = true;
+      this.#reachedPark();
+      await this.#parked;
+    }
+    return this.#privateKey;
+  }
+
+  create(_sessionId: SessionId): Promise<{ readonly publicKey: Ed25519PublicKey }> {
+    return Promise.reject(
+      new Error("ParkOnceDaemonSigningKeySource.create is not used by this suite"),
+    );
+  }
+}
+
 // ----------------------------------------------------------------------------
 // Fixtures
 // ----------------------------------------------------------------------------
@@ -198,7 +247,11 @@ function makeAdvancingClock(): () => string {
 // (node-event-emitter.ts's header owns the contract): `EventLogService.append`
 // over the SAME connection backs it, which is what lets the service's upsert
 // travel as a `transactionalPrelude` and join the append's transaction.
-function makeCapabilityService(now: () => string = makeAdvancingClock()): NodeCapabilityService {
+function makeCapabilityService(
+  now: () => string = makeAdvancingClock(),
+  signingKeySource: DaemonSigningKeySource = new FixedDaemonSigningKeySource(),
+  eventIdPrefix: string = "evt",
+): NodeCapabilityService {
   let idCounter: number = 0;
   const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
     // The production append path over `ctx.db` — SAME connection as the service,
@@ -206,9 +259,11 @@ function makeCapabilityService(now: () => string = makeAdvancingClock()): NodeCa
     // `transactionalPrelude` and must join the append's transaction.
     sessionEvents: new EventLogService({
       db: ctx.db,
-      signingKeySource: new FixedDaemonSigningKeySource(),
+      signingKeySource,
     }),
-    newEventId: () => `evt-${(idCounter++).toString()}`,
+    // Prefixed so two services racing on ONE database cannot collide on
+    // `session_events.id`, which is a TEXT PRIMARY KEY across all sessions.
+    newEventId: () => `${eventIdPrefix}-${(idCounter++).toString()}`,
   });
   return new NodeCapabilityService(ctx.db, emitter, now);
 }
@@ -706,5 +761,119 @@ describe("NodeCapabilityService — T2.4 gate reads the durable ROW, not the eve
       "runtime_node.capability_declared",
       "runtime_node.online",
     ]);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Cross-session concurrency — the window the SESSION-keyed lock cannot close
+// ----------------------------------------------------------------------------
+
+// `node_capabilities` is PK (node_id, capability_key) with NO session_id column,
+// so two declares of ONE capability under DIFFERENT sessions hold DIFFERENT
+// append locks and both reach their read-decide. That is the window the
+// in-prelude re-check plus bounded retry closes, and it is invisible to any
+// same-session arm.
+const SECOND_SESSION_ID: string = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f01";
+
+/** Every `runtime_node.capability_*` row across BOTH sessions, in commit order. */
+function readCapabilityEventsAcrossSessions(db: DatabaseType): ReadonlyArray<EventRow> {
+  return db
+    .prepare(
+      `SELECT sequence, type, category, payload
+         FROM session_events
+        WHERE session_id IN (?, ?) AND type LIKE 'runtime_node.capability_%'
+        ORDER BY rowid ASC`,
+    )
+    .safeIntegers(true)
+    .all(SESSION_ID, SECOND_SESSION_ID) as ReadonlyArray<EventRow>;
+}
+
+interface CapabilityEventPayload {
+  readonly capabilityDetails?: Record<string, unknown>;
+  readonly previousState?: Record<string, unknown>;
+  readonly newState?: Record<string, unknown>;
+}
+
+describe("NodeCapabilityService — concurrent declares under DIFFERENT sessions", () => {
+  it("emits exactly ONE capability_declared when both racers declare the SAME details", async () => {
+    const parkedKeySource = new ParkOnceDaemonSigningKeySource();
+    const parkedService = makeCapabilityService(makeAdvancingClock(), parkedKeySource, "parked");
+    const racingService = makeCapabilityService(makeAdvancingClock(), undefined, "racer");
+    const details = { contractVersion: "1.0", flags: { streaming: true } };
+
+    // Reads "no row", decides FIRST-DECLARE, then stalls in the key unseal
+    // holding only session 1's lock.
+    const parkedDeclare = parkedService.declare({
+      nodeId: NODE_ID,
+      sessionId: SESSION_ID,
+      capability: CAPABILITY,
+      capabilityDetails: details,
+    });
+    await parkedKeySource.parkReached;
+
+    // The racer runs to completion on session 2's uncontended lock.
+    await racingService.declare({
+      nodeId: NODE_ID,
+      sessionId: SECOND_SESSION_ID,
+      capability: CAPABILITY,
+      capabilityDetails: details,
+    });
+
+    parkedKeySource.release();
+    await parkedDeclare;
+
+    // Asserted on the UNION of both sessions — a per-session count would find
+    // one event in each and call that correct. The loser's re-check aborted its
+    // stale first-declare; its retry found the stored value structurally equal
+    // and took the idempotent no-op branch.
+    const events = readCapabilityEventsAcrossSessions(ctx.db);
+    expect(events).toHaveLength(1);
+    expect(events[0]?.type).toBe("runtime_node.capability_declared");
+
+    const row = readCapabilityRow(ctx.db, NODE_ID, CAPABILITY);
+    expect(row?.capability_value).toBe(JSON.stringify(details));
+  });
+
+  it("reclassifies the loser to capability_updated whose previousState is the RACER'S committed value", async () => {
+    const parkedKeySource = new ParkOnceDaemonSigningKeySource();
+    const parkedService = makeCapabilityService(makeAdvancingClock(), parkedKeySource, "parked");
+    const racingService = makeCapabilityService(makeAdvancingClock(), undefined, "racer");
+    const loserDetails = { contractVersion: "1.0", flags: { streaming: true } };
+    const racerDetails = { contractVersion: "2.0", flags: { streaming: false } };
+
+    const parkedDeclare = parkedService.declare({
+      nodeId: NODE_ID,
+      sessionId: SESSION_ID,
+      capability: CAPABILITY,
+      capabilityDetails: loserDetails,
+    });
+    await parkedKeySource.parkReached;
+
+    await racingService.declare({
+      nodeId: NODE_ID,
+      sessionId: SECOND_SESSION_ID,
+      capability: CAPABILITY,
+      capabilityDetails: racerDetails,
+    });
+
+    parkedKeySource.release();
+    await parkedDeclare;
+
+    const events = readCapabilityEventsAcrossSessions(ctx.db);
+    expect(events.map((event) => event.type)).toEqual([
+      "runtime_node.capability_declared",
+      "runtime_node.capability_updated",
+    ]);
+
+    // THE LOAD-BEARING HALF. `previousState` must be what the racer COMMITTED,
+    // never the absent row the loser read before the race — a retry that reused
+    // its stale read would describe a transition that never happened.
+    const updated = JSON.parse(String(events[1]?.payload)) as CapabilityEventPayload;
+    expect(updated.previousState).toEqual(racerDetails);
+    expect(updated.newState).toEqual(loserDetails);
+    // The durable row holds the LAST writer's value, matching `newState`.
+    expect(readCapabilityRow(ctx.db, NODE_ID, CAPABILITY)?.capability_value).toBe(
+      JSON.stringify(loserDetails),
+    );
   });
 });
