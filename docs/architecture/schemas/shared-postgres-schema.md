@@ -470,10 +470,10 @@ CREATE INDEX idx_health_snapshots_recorded ON health_snapshots(recorded_at);
 
 ## Event Log Anchors (Plan-006 — Integrity Witness)
 
-The control plane stores Merkle-root **anchors** (metadata only) for per-daemon event logs; it does **not** store event payloads. This is consistent with [ADR-017 Shared Event-Sourcing Scope](../../decisions/017-shared-event-sourcing-scope.md), which rejected a shared event log for V1, and with [Security Architecture § Audit Log Integrity](../security-architecture.md#audit-log-integrity), which defines the tamper-evidence protocol.
+The control plane stores Merkle-root **anchors** (metadata only) for per-daemon event logs; it does **not** store event payloads. This is consistent with [ADR-017 Shared Event-Sourcing Scope](../../decisions/017-shared-event-sourcing-scope.md), which rejected a shared event log for V1, and with [Security Architecture § Audit Log Integrity](../security-architecture.md#audit-log-integrity), which defines the tamper-evidence protocol. **Forward-declared:** the additive migration ships with Plan-006 T3.3 (Tier 4 Phase 3) as `packages/control-plane/src/migrations/0NNN-event-log-anchors.ts`, with its same-commit `MIGRATIONS`-array registration in `packages/control-plane/src/sessions/migration-runner.ts`; the DDL is pinned here so the anchor-upload write path, the verification read below, and the migration share one canonical shape.
 
 ```sql
--- Owner: Plan-006 (BL-050)
+-- Owner: Plan-006 (BL-050; T3.3 additive control-plane migration)
 -- Witness-only storage: Merkle roots + signatures for per-daemon local event logs.
 -- Event payloads remain on the emitting daemon's local SQLite; never uploaded here.
 -- V1 scope: SESSION-scoped anchors only. Node-scope (sentinel-partitioned, daemon-scope) chains
