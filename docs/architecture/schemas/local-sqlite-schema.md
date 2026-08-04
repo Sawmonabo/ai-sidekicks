@@ -347,7 +347,7 @@ CREATE TABLE pending_anchor_uploads (
   node_id             TEXT NOT NULL,
   start_sequence      INTEGER NOT NULL,
   end_sequence        INTEGER NOT NULL,
-  merkle_root         BLOB NOT NULL,         -- BLAKE3 binary Merkle tree root (RFC 9162 §2.1 odd-leaf duplication)
+  merkle_root         BLOB NOT NULL,         -- BLAKE3 Merkle root over row_hash leaves (RFC 9162 §2.1.1 MTH: split at largest power of two, 0x00/0x01 domain separation)
   root_signature      BLOB NOT NULL,         -- Ed25519 signature over merkle_root by daemon_signing_keys.sealed_private_key
   anchored_at         TEXT NOT NULL,         -- daemon-local timestamp at anchor computation
   uploaded_at         TEXT,                  -- non-NULL once control-plane confirms upload to event_log_anchors

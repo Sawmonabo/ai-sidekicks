@@ -51,6 +51,7 @@
 import { INITIAL_MIGRATION_SQL } from "../migrations/0001-initial.js";
 import { SESSION_INVITES_MIGRATION_SQL } from "../migrations/0002-session-invites.js";
 import { RUNTIME_NODES_MIGRATION_SQL } from "../migrations/0003-runtime-nodes.js";
+import { EVENT_LOG_ANCHORS_MIGRATION_SQL } from "../migrations/0004-event-log-anchors.js";
 
 // Ordered registry of every migration the control-plane is responsible for
 // applying. Iteration order is the apply order — the runner walks this array
@@ -73,6 +74,12 @@ import { RUNTIME_NODES_MIGRATION_SQL } from "../migrations/0003-runtime-nodes.js
 // Phase 2's service-layer wiring landed. Wiring v2 into the runner at the
 // same commit as the SQL file removes that gap.
 //
+// Plan-006 T3.3 added v4 (`EVENT_LOG_ANCHORS_MIGRATION_SQL`) under that same
+// same-commit rule, which is why its registration is in the change set that
+// introduced the SQL file rather than a follow-up: an `event_log_anchors` table
+// that exists on disk but not in this array is a table the anchor-upload
+// procedure writes to and no deployer has.
+//
 // Version values are plain `number` (not `bigint`): the `schema_migrations.version`
 // column is `integer` (see `migrations/0001-initial.ts`), version values are
 // small monotone integers (1, 2, 3, ...), and `hasMigrationApplied` takes
@@ -83,6 +90,7 @@ const MIGRATIONS: ReadonlyArray<{ readonly version: number; readonly sql: string
   { version: 1, sql: INITIAL_MIGRATION_SQL },
   { version: 2, sql: SESSION_INVITES_MIGRATION_SQL },
   { version: 3, sql: RUNTIME_NODES_MIGRATION_SQL },
+  { version: 4, sql: EVENT_LOG_ANCHORS_MIGRATION_SQL },
 ];
 
 // Stable advisory-lock ID for ai-sidekicks control-plane migrations.

@@ -372,6 +372,7 @@ describe("SessionService — D4 (snapshot survives daemon restart)", () => {
       { version: 5 },
       { version: 6 },
       { version: 7 },
+      { version: 8 },
     ]);
   });
 
@@ -391,6 +392,7 @@ describe("SessionService — D4 (snapshot survives daemon restart)", () => {
       { version: 5 },
       { version: 6 },
       { version: 7 },
+      { version: 8 },
     ]);
   });
 
@@ -425,6 +427,7 @@ describe("SessionService — D4 (snapshot survives daemon restart)", () => {
         { version: 5 },
         { version: 6 },
         { version: 7 },
+        { version: 8 },
       ]);
     } finally {
       secondHandle.close();
@@ -710,29 +713,29 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
     ).toBeLessThanOrEqual(FAILURE_THRESHOLD);
 
     // Belt-and-braces verification: every trial's database file must
-    // contain exactly the seven expected schema_version rows [1..7]
+    // contain exactly the eight expected schema_version rows [1..8]
     // regardless of how many workers succeeded vs blocked. The
     // useDeferred:false worker calls PRODUCTION applyMigrations, so each
-    // trial exercises all seven migration blocks.
+    // trial exercises all eight migration blocks.
     //
     // What this row-count assertion actually guarantees (claim no more):
     //   * it catches a broken or missing anchor INSERT for the newest
-    //     migration (a v7 migration that failed to write its
+    //     migration (a v8 migration that failed to write its
     //     schema_version row, or wrote the wrong version) — and likewise
-    //     for the v2..v6 anchors, and
+    //     for the v2..v7 anchors, and
     //   * it catches a within-handle double-apply that duplicated any
     //     anchor row, and
     //   * it is a strict strengthening over the old `[1]` assertion (the
-    //     assertion evolved [1] → [1, 2] → … → [1..5] → [1..7] as each
+    //     assertion evolved [1] → [1, 2] → … → [1..5] → [1..8] as each
     //     migration landed) — it cannot pass anything `[1]` would have
     //     failed.
     //
     // What it does NOT deterministically catch: a newest-migration-ONLY
-    // `.immediate()` drop (today, v7). Tracing the race, a DEFERRED loser
+    // `.immediate()` drop (today, v8). Tracing the race, a DEFERRED loser
     // hits SQLITE_BUSY on the write-UPGRADE and bails BEFORE committing
     // its INSERT (so no duplicate row lands), and some worker always wins
-    // each BEGIN (so the row is never missing) — the [1..7] count is
-    // therefore essentially immune to a v7-only `.immediate()` regression.
+    // each BEGIN (so the row is never missing) — the [1..8] count is
+    // therefore essentially immune to a v8-only `.immediate()` regression.
     // Deterministic detection of that class rides on the FAILURE_THRESHOLD
     // above (calibrated to v1's ~95% DEFERRED saturation) and is owned by
     // the `TODO(Plan-006)` threshold-calibration item; a racing CREATE
@@ -740,8 +743,8 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
     // above. Loop over EVERY trial path so a partial regression that only
     // corrupts one trial still surfaces.
     //
-    // The immunity argument was RE-DERIVED (not incremented) for v6 + v7,
-    // because it rests on a property each migration must be checked for
+    // The immunity argument was RE-DERIVED (not incremented) for v6, v7, and
+    // v8, because it rests on a property each migration must be checked for
     // individually: the anchor INSERT must ride the SAME single `.exec()`
     // as the DDL, so a loser that bails mid-migration can leave neither a
     // duplicate anchor nor an anchor without its schema.
@@ -754,6 +757,14 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
     //     SQLite has no `ADD COLUMN IF NOT EXISTS`, so a lost guard turns a
     //     re-apply into a hard "duplicate column name" throw, which lands
     //     in the worker-failure count above rather than here.
+    //   * v8 (`PENDING_ANCHOR_UPLOADS_MIGRATION_SQL`) — the CREATE TABLE, its
+    //     partial CREATE INDEX, and the version-8 INSERT are one script, one
+    //     `.exec()`. Holds. Re-derived rather than incremented: v8 is the first
+    //     Plan-006 migration to create a TABLE, so the failure mode it would
+    //     add is a loser that landed the anchor row without the table. It
+    //     cannot, for the same single-`.exec()` reason — and a lost guard turns
+    //     a re-apply into a hard "table already exists" throw, which lands in
+    //     the worker-failure count above rather than here.
     // A future migration that committed its anchor row separately from its
     // DDL would invalidate this paragraph rather than merely extend it —
     // re-derive it, do not increment it.
@@ -767,7 +778,7 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
           .all() as ReadonlyArray<{ version: number }>;
         expect(
           rows,
-          `trial ${trial.toString()} expected exactly the seven migration anchor rows [1..7] (a broken/missing v7 INSERT — the newest migration — or a duplicated anchor row would fail here); got ${JSON.stringify(rows)}`,
+          `trial ${trial.toString()} expected exactly the eight migration anchor rows [1..8] (a broken/missing v8 INSERT — the newest migration — or a duplicated anchor row would fail here); got ${JSON.stringify(rows)}`,
         ).toEqual([
           { version: 1 },
           { version: 2 },
@@ -776,6 +787,7 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
           { version: 5 },
           { version: 6 },
           { version: 7 },
+          { version: 8 },
         ]);
       } finally {
         verifier.close();

@@ -106,6 +106,7 @@ import {
   buildControlPlaneFetchHandler,
   type ControlPlaneDeps,
   type ControlPlaneEnv,
+  EventLogAnchorStore,
   HeartbeatService,
   type Querier,
   SessionDirectoryService,
@@ -195,6 +196,9 @@ function makeIntegrationDeps(provider: SessionEventStreamProvider): ControlPlane
     // harness never reaches `runtimenode.*`, so the services throw on use.
     attachService: new AttachService(throwingQuerier),
     heartbeatService: new HeartbeatService(throwingQuerier),
+    // Plan-006 CP-006-2 — same never-reached posture as the runtime-node
+    // services above: holds the throwing querier, throws only on use.
+    anchorStore: new EventLogAnchorStore(throwingQuerier),
     resolveCurrentParticipantId: () => {
       throw NEVER_REACHED("resolveCurrentParticipantId");
     },

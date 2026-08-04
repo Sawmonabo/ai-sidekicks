@@ -475,15 +475,16 @@ describe("0002-session-invites migration (T7 — applyMigrations cross-path catc
     // Second call — the idempotency assertion: now a true no-op.
     await expect(applyMigrations(ctx.querier)).resolves.toBeUndefined();
 
-    // Row counts: exactly three rows — (1, ...), (2, 'Session invites table'),
-    // and (3, 'Runtime node attachments and presence') — with no duplicates.
+    // Row counts: exactly four rows — (1, ...), (2, 'Session invites table'),
+    // (3, 'Runtime node attachments and presence'), and (4, 'Event log anchors
+    // (integrity witness)') — with no duplicates.
     const counts = await ctx.querier.query<{ count: string }>(
       "SELECT COUNT(*)::text AS count FROM schema_migrations",
     );
     const countsRow = counts.rows[0];
     expect(countsRow).toBeDefined();
     if (countsRow === undefined) return;
-    expect(Number.parseInt(countsRow.count, 10)).toBe(3);
+    expect(Number.parseInt(countsRow.count, 10)).toBe(4);
 
     const v2Probe = await ctx.querier.query<{ description: string }>(
       "SELECT description FROM schema_migrations WHERE version = $1",

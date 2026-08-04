@@ -16,6 +16,7 @@
 //     by the router happy-path tests T-008b-1-T4..T6.
 
 import type { ParticipantId, SessionId } from "@ai-sidekicks/contracts";
+import { EventLogAnchorStore } from "../../event-anchors/anchor-store.js";
 import { AttachService } from "../../runtime-nodes/attach-service.js";
 import { HeartbeatService } from "../../runtime-nodes/heartbeat-service.js";
 import type { Querier } from "../../sessions/migration-runner.js";
@@ -49,6 +50,10 @@ export function makeRefusalAssertingDeps(): ControlPlaneDeps {
     // contract as the throwing callbacks above.
     attachService: new AttachService(throwingQuerier),
     heartbeatService: new HeartbeatService(throwingQuerier),
+    // Plan-006 CP-006-2: same posture as the runtime-node services above — the
+    // anchor store holds the throwing querier and throws only on use, so a
+    // refusal test that (incorrectly) reaches `eventanchor.upload` fails loudly.
+    anchorStore: new EventLogAnchorStore(throwingQuerier),
     resolveCurrentParticipantId: () => {
       throw REFUSAL_VIOLATION("resolveCurrentParticipantId");
     },
@@ -79,6 +84,9 @@ export function makePassThroughDeps(config: PassThroughDepsConfig): ControlPlane
     // Querier, parallel to `directoryService` above.
     attachService: new AttachService(config.querier),
     heartbeatService: new HeartbeatService(config.querier),
+    // Real anchor store over the caller-supplied (pglite-backed) Querier,
+    // parallel to `directoryService` above (Plan-006 CP-006-2).
+    anchorStore: new EventLogAnchorStore(config.querier),
     resolveCurrentParticipantId: () => config.currentParticipantId,
     generateSessionId: () => config.nextSessionId,
     // Default Tier-1 self-resolver: identityHandle is the wire-encoded

@@ -26,6 +26,13 @@ export {
 // posture) and by future Tier-5 production wiring of the runtime-node host.
 export { AttachService } from "./runtime-nodes/attach-service.js";
 export { HeartbeatService } from "./runtime-nodes/heartbeat-service.js";
+// Plan-006 T3.3 (CP-006-2) — the anchor store the `eventanchor.upload`
+// procedure closes over, exported for the same reason the two runtime-node
+// services above are: `ControlPlaneDeps` requires it, so every out-of-package
+// constructor of `buildControlPlaneFetchHandler` (the client-sdk integration
+// fixtures, future Tier-5 production wiring) must be able to construct one, and
+// the class is nominal — a structural stub cannot stand in for it.
+export { EventLogAnchorStore } from "./event-anchors/anchor-store.js";
 export { applyMigrations, type Querier } from "./sessions/migration-runner.js";
 export { INITIAL_MIGRATION_SQL } from "./migrations/0001-initial.js";
 export { SESSION_INVITES_MIGRATION_SQL } from "./migrations/0002-session-invites.js";

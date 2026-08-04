@@ -12,19 +12,24 @@
 // Version 1 is owned by Plan-001 (`migrations/0001-initial.ts`); version 2
 // by Plan-003 (`migrations/0002-runtime-node.ts`); version 3 by Plan-005
 // (`migrations/0003-runtime-bindings.ts`); version 4 by Plan-010
-// (`migrations/0004-worktree-lifecycle.ts`); versions 5, 6 and 7 by Plan-006
+// (`migrations/0004-worktree-lifecycle.ts`); versions 5 through 8 by Plan-006
 // (`migrations/0005-daemon-signing-keys.ts`,
 // `migrations/0006-run-lifecycle-terminal-backstop-index.ts`,
-// `migrations/0007-pii-participant-id.ts`). Subsequent plans (015, 022...) —
-// and Plan-006's own remaining Phase-3 migrations — register their version as a
-// further guarded block of the same shape and bump `schema_version`.
+// `migrations/0007-pii-participant-id.ts`,
+// `migrations/0008-pending-anchor-uploads.ts`). Subsequent plans (015, 022...)
+// — and Plan-006's own remaining Phase-3 migrations — register their version as
+// a further guarded block of the same shape and bump `schema_version`.
 //
 // Version ORDER is load-bearing between 6 and 7 only in the trivial sense that
 // both touch `session_events`; they are independent otherwise (6 adds an index
 // + triggers over existing columns, 7 adds a column neither references). They
 // are separate versions rather than one because they enforce unrelated
 // invariants with unrelated rollback stories — a failure in the trigger DDL
-// must not strand the owner-stamp column, and vice versa.
+// must not strand the owner-stamp column, and vice versa. Version 8 is
+// order-independent of all of them: it CREATEs a standalone table
+// (`pending_anchor_uploads`) with no FK into `session_events` — deliberately,
+// since a crypto-shred that deletes event rows must never cascade into the
+// anchors that witness those rows ever existed.
 //
 // SQL is sourced as a TypeScript string constant (not a sibling .sql file)
 // because `tsc -b` does not copy non-TS assets into `dist/` and `package.json`
@@ -49,6 +54,7 @@ import { WORKTREE_LIFECYCLE_MIGRATION_SQL } from "../migrations/0004-worktree-li
 import { DAEMON_SIGNING_KEYS_MIGRATION_SQL } from "../migrations/0005-daemon-signing-keys.js";
 import { RUN_LIFECYCLE_TERMINAL_BACKSTOP_MIGRATION_SQL } from "../migrations/0006-run-lifecycle-terminal-backstop-index.js";
 import { PII_PARTICIPANT_ID_MIGRATION_SQL } from "../migrations/0007-pii-participant-id.js";
+import { PENDING_ANCHOR_UPLOADS_MIGRATION_SQL } from "../migrations/0008-pending-anchor-uploads.js";
 
 /**
  * Apply pragmas to an open Database handle. MUST be called on every
@@ -241,6 +247,29 @@ export function applyMigrations(db: DatabaseType): void {
       // exec rather than re-applying the ALTER TABLE).
       if (!hasMigrationApplied(db, 7)) {
         db.exec(PII_PARTICIPANT_ID_MIGRATION_SQL);
+      }
+    }).immediate();
+  }
+
+  if (!hasMigrationApplied(db, 8)) {
+    // Plan-006 version-8 migration (pending_anchor_uploads — the durable
+    // Merkle-anchor upload queue). Same primitive as the version-1..7 blocks
+    // above: the migration SQL carries its own version=8 INSERT into
+    // schema_version, so the single .exec() commits the CREATE TABLE + its
+    // partial index atomically with the anchor row, and
+    // db.transaction(...).immediate() takes the RESERVED writer-intent lock at
+    // BEGIN so concurrent racers serialize at BEGIN rather than colliding at
+    // write-upgrade time. Atomicity is load-bearing here for the same reason it
+    // is at version 6: a torn apply that landed the table without its partial
+    // index would leave the upload worker's pending scan doing a full table
+    // scan of a queue that grows without bound during a long partition.
+    db.transaction(() => {
+      // Re-check inside the transaction to close the
+      // `hasMigrationApplied → exec` window (a concurrent writer that wins the
+      // BEGIN-IMMEDIATE race and commits first is observed here and we skip the
+      // exec rather than re-applying the CREATE TABLE / CREATE INDEX).
+      if (!hasMigrationApplied(db, 8)) {
+        db.exec(PENDING_ANCHOR_UPLOADS_MIGRATION_SQL);
       }
     }).immediate();
   }

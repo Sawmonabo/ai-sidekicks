@@ -1539,6 +1539,42 @@ interface EventSubscriptionRequest {
 // Response: SSE stream of EventEnvelope
 ```
 
+### Event-Anchor Upload Method Registry (Tier 4, Plan-006 T3.3)
+
+The Merkle-anchor integrity witness ([Security Architecture §Merkle Anchors (Control-Plane Witness)](../security-architecture.md#merkle-anchors-control-plane-witness)) is uploaded by the emitting daemon through a single control-plane procedure, `eventanchor.upload`, persisting into the Plan-006-owned [`event_log_anchors` table](../schemas/shared-postgres-schema.md#event-log-anchors-plan-006--integrity-witness). The method is **control-plane tRPC ONLY** and **daemon-called** — the `runtimenode.signingkeyregister` shape — because the store is control-plane-owned cross-node state and the daemon is the sole producer; it rides no daemon JSON-RPC transport. The request body is `AnchorPayload`, the exact seven-member metadata set bound to that table's columns, and it is **metadata only**: the canonical `AnchorPayloadSchema` in `packages/contracts/src/event-anchor.ts` is `.strict()` and carries no `payload`, `events`, or `pii_payload` member, so an upload smuggling event content is REFUSED at parse with `BAD_REQUEST` (400) rather than silently stripped — the structural enforcement of Plan-006 I-006-3-02 and of [ADR-017](../../decisions/017-shared-event-sourcing-scope.md)'s rejection of a shared event log. Event payloads never leave the emitting daemon.
+
+The upsert is **idempotent by range identity**: `INSERT ... ON CONFLICT (session_id, node_id, start_sequence, end_sequence) DO NOTHING RETURNING id`, whose zero-row arm is classified from the statement's own `RETURNING` rows into `{ stored: false }`. A re-upload of an identical range is therefore an acknowledged HTTP 200 success and deliberately **never a 409** — the daemon retries whenever an attempt's outcome is unknown to it, which is the normal case rather than the exceptional one, and an error status would strand the anchor in the local `pending_anchor_uploads` queue permanently. `end_sequence` is part of the key on purpose: a cadence anchor over `[1,1000]` and a wider compaction-covering anchor over `[1,5000]` share a `start_sequence` and MUST coexist, so the key dedups genuine re-uploads of the identical range and nothing else ("covering anchor" at verify time is a coverage test, `start_sequence <= range_start AND end_sequence >= range_end`, per [Spec-006 §Post-Compaction Integrity](../../specs/006-session-event-taxonomy-and-audit-log.md#post-compaction-integrity), never an exact-start match). Because Ed25519 is deterministic ([RFC 8032 §5.1.6](https://www.rfc-editor.org/rfc/rfc8032#section-5.1.6)), a re-signed anchor over the same root is byte-identical, so the conflicting row has nothing to reconcile and the server compares no commitment bytes. An anchor naming a session with no `sessions` row is refused tRPC `NOT_FOUND` (404) rather than surfacing the raw FK violation as a retryable 500 — a terminal answer the daemon needs, since re-sending the same body can never satisfy the constraint. That refusal is also the backstop for V1 scope: node-scope (sentinel-partitioned) chains anchor LOCALLY only, the daemon's upload worker filtering them out by the `DAEMON_SCOPE_SENTINEL_SESSION_ID` sentinel, and control-plane witnessing for them is a V1.1 extension per [ADR-017 §Node-Scope Anchor Witnessing](../../decisions/017-shared-event-sourcing-scope.md#node-scope-anchor-witnessing-v1-local-only-v11-control-plane-upload).
+
+The daemon authenticates as the **node-owner participant** through the constructor-injected `DaemonCredentialProvider` interface (Plan-006 T3.3, the CP-006-13 shape), minted **per attempt** — a DPoP proof binds to one request, so reuse across attempts is replay ([RFC 9449 §11.1](https://www.rfc-editor.org/rfc/rfc9449#section-11.1)) — and presented as `Authorization: DPoP <token>` per [RFC 9449 §7.1](https://www.rfc-editor.org/rfc/rfc9449#section-7.1), never the `Bearer` form, alongside the proof bound to the attempt's `htm`/`htu` and carrying the token's `ath` hash ([RFC 9449 §4.3](https://www.rfc-editor.org/rfc/rfc9449#section-4.3)). Like the sibling §Signing-Key Registration Method Registry, the provider is Tier-5-dormant until Plan-018's PASETO wiring lands, so an auth failure is a RETRYABLE TRANSPORT failure on a bounded backoff and blocks no Tier-4 code: through Tier 4 the daemon still ANCHORS correctly and `event_log_anchors` is expected-empty, unflushed anchors accumulating durably in `pending_anchor_uploads` and flushing on reconnect. A new daemon calling an old control plane receives tRPC `NOT_FOUND` for the procedure itself and degrades honestly — its anchors stay emitter-only-verifiable until the control plane upgrades, the procedure's absence being the discovery signal, the same skew posture the signing-key registry documents.
+
+| Method | Procedure type | Request schema | Response schema |
+| --- | --- | --- | --- |
+| `eventanchor.upload` | `mutation` | `EventAnchorUploadRequest` (identical to `AnchorPayload`) | `EventAnchorUploadResponse` — HTTP 200 `{ result: { data: { stored } } }`; control-plane tRPC ONLY, **daemon-called** from the anchor-upload worker (idempotent per the contract paragraph above; no daemon JSON-RPC registration; Plan-006 T3.3) |
+
+```ts
+// EventAnchorUpload — control-plane tRPC ONLY, daemon-called from the anchor-upload worker
+// (Plan-006 T3.3 per CP-006-2; metadata-only per I-006-3-02 / ADR-017).
+// EventAnchorUploadRequest is an alias of AnchorPayload rather than a distinct shape: the wire
+// body IS the anchor, and a second near-identical interface would drift from it.
+interface AnchorPayload {
+  sessionId: SessionId;
+  nodeId: NodeId;
+  startSequence: number; // first session_events.sequence in the anchored range (inclusive)
+  endSequence: number; // last session_events.sequence in the anchored range (inclusive); >= startSequence, mirroring the table CHECK
+  merkleRoot: string; // base64 of exactly 32 bytes — the RFC 9162 §2.1.1 MTH over the range's row_hash entries, BLAKE3 as HASH
+  rootSignature: string; // base64 of exactly 64 bytes — Ed25519 over merkleRoot by the emitting daemon's session-scoped key
+  anchoredAt: string; // ISO 8601 with offset — the DAEMON's timestamp at anchor computation, not the server's now() default
+}
+type EventAnchorUploadRequest = AnchorPayload;
+// NO payload, events, or pii_payload member — AnchorPayloadSchema is .strict(), so a body carrying
+// one is refused BAD_REQUEST (400) at the procedure boundary rather than accepted and stripped.
+interface EventAnchorUploadResponse {
+  stored: boolean; // true = this upload inserted the row; false = an identical range was already stored (idempotent success, NOT 409)
+}
+```
+
+---
+
 ### Plan-007 — Local IPC And Daemon Control
 
 ```ts

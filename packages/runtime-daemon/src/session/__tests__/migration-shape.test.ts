@@ -51,12 +51,13 @@ const PLAN_001_TABLES: ReadonlyArray<string> = [
 
 // The full set of tables present after ALL migrations have applied
 // (Plan-001 version-1 tables + Plan-003 version-2 tables + Plan-005
-// version-3 tables + Plan-010 version-4 tables + the Plan-006 version-5
-// table). Alphabetical by SQLite's `ORDER BY name` — BINARY collation, so
+// version-3 tables + Plan-010 version-4 tables + the two Plan-006 tables:
+// version-5 `daemon_signing_keys` and version-8 `pending_anchor_uploads`).
+// Alphabetical by SQLite's `ORDER BY name` — BINARY collation, so
 // `_` (0x5F) sorts before every lowercase letter and
 // `run_execution_contexts` precedes `runtime_bindings`. Kept separate from
 // `PLAN_001_TABLES` so the snapshot loop's 0001-immutability guard is
-// unaffected by the 0002 / 0003 / 0004 / 0005 additions.
+// unaffected by the 0002 / 0003 / 0004 / 0005 / 0008 additions.
 const ALL_EXPECTED_TABLES: ReadonlyArray<string> = [
   "branch_contexts",
   "daemon_signing_keys",
@@ -67,6 +68,7 @@ const ALL_EXPECTED_TABLES: ReadonlyArray<string> = [
   "node_capabilities",
   "node_trust_state",
   "participant_keys",
+  "pending_anchor_uploads",
   "run_execution_contexts",
   "runtime_bindings",
   "schema_version",
@@ -112,13 +114,13 @@ describe("0001-initial migration shape", () => {
     const rows = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
       .all() as ReadonlyArray<{ name: string }>;
-    // After version-5 (Plan-006) the DB holds the full fifteen-table set:
+    // After version-8 (Plan-006) the DB holds the full sixteen-table set:
     // the four Plan-001 tables, the two Plan-003 tables (node_capabilities,
     // node_trust_state), the four Plan-005 tables (runtime_bindings,
     // driver_capabilities, driver_tools, driver_contract_meta), the four
     // Plan-010 tables (worktrees, ephemeral_clones, branch_contexts,
-    // run_execution_contexts), and the one Plan-006 table
-    // (daemon_signing_keys).
+    // run_execution_contexts), and the two Plan-006 tables
+    // (daemon_signing_keys at v5, pending_anchor_uploads at v8).
     expect(rows.map((r) => r.name)).toEqual(ALL_EXPECTED_TABLES);
   });
 
@@ -165,34 +167,35 @@ describe("0001-initial migration shape", () => {
     expect(byName.get("monotonic_ns")?.notnull).toBe(1);
   });
 
-  it("anchors schema_version rows at versions [1, 2, 3, 4, 5, 6, 7]", () => {
+  it("anchors schema_version rows at versions [1, 2, 3, 4, 5, 6, 7, 8]", () => {
     // The `ORDER BY version` is load-bearing: without it the row order is
     // insertion-order luck and the assertion would silently stop pinning
     // which versions landed.
     const versionRows = db
       .prepare("SELECT version FROM schema_version ORDER BY version")
       .all() as ReadonlyArray<{ version: number }>;
-    expect(versionRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(versionRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
   });
 
   it("is idempotent when applyMigrations runs twice", () => {
     // Second invocation must be a no-op (the migration runner short-
     // circuits via hasMigrationApplied per version). Re-running must not
     // throw, must not double-insert any schema_version anchor row, must
-    // not duplicate tables. Seven DISTINCT versions [1..7] is not
+    // not duplicate tables. Eight DISTINCT versions [1..8] is not
     // duplication.
     //
     // Version 7 makes this arm strictly load-bearing rather than a
     // formality: it is an `ALTER TABLE ... ADD COLUMN`, and SQLite has no
     // `ADD COLUMN IF NOT EXISTS`, so a runner guard regression turns a
     // re-apply into a hard "duplicate column name" throw here. Version 6
-    // is the same story for `CREATE INDEX` / `CREATE TRIGGER`.
+    // is the same story for `CREATE INDEX` / `CREATE TRIGGER`, and version 8
+    // for `CREATE TABLE` (no `IF NOT EXISTS` in the transcribed DDL either).
     applyMigrations(db);
     const versionRows = db
       .prepare("SELECT version FROM schema_version ORDER BY version")
       .all() as ReadonlyArray<{ version: number }>;
-    expect(versionRows).toHaveLength(7);
-    expect(versionRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(versionRows).toHaveLength(8);
+    expect(versionRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
   });
 });
 
@@ -1988,5 +1991,269 @@ describe("0006-run-lifecycle-terminal-backstop-index migration shape", () => {
       .prepare(`SELECT type FROM session_events WHERE id = ?`)
       .get("evt-promote-probe") as { type: string };
     expect(row.type).toBe("run.started");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Plan-006 T3.3 — `pending_anchor_uploads` (migration version 8).
+// ---------------------------------------------------------------------------
+//
+// The durable Merkle-anchor upload queue. `ALL_EXPECTED_TABLES` pins that the
+// table EXISTS and nothing about its shape, so this block is the shape floor
+// the suite's convention requires — the same division the 0005 block states.
+//
+// Every value asserted below was read out of SQLite's own introspection
+// (`PRAGMA table_info` / `index_list` / `index_info`) against the pinned
+// toolchain (better-sqlite3 12.9.0 / SQLite 3.53.0) rather than reasoned from
+// the DDL — column ORDER and the two autoindex NAMES especially, which no
+// reading of the CREATE TABLE can certify.
+//
+// Spec coverage: `Spec-006 §Post-Compaction Integrity` — the covering-anchor
+// precondition is a COVERAGE test, not an exact-start match, which is exactly
+// why `end_sequence` sits in the UNIQUE key. The final arm below is that
+// property asserted behaviorally: two anchors sharing a `start_sequence`
+// coexist, and only an identical range is deduped.
+//
+// The service-level behavior on top of this shape (cadence firing, force-fire
+// re-entry returning the queued row without re-signing) is Plan-006 T3.5's
+// file set; this block covers the storage contract only.
+describe("0008-pending-anchor-uploads migration shape", () => {
+  let db: DatabaseType;
+
+  const FIXTURE_MERKLE_ROOT: Buffer = Buffer.alloc(32, 0x11);
+  const FIXTURE_ROOT_SIGNATURE: Buffer = Buffer.alloc(64, 0x22);
+
+  beforeEach(() => {
+    db = openDatabase(":memory:");
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  function enqueueAnchor(anchor: {
+    id: string;
+    sessionId?: string;
+    nodeId?: string;
+    startSequence: number;
+    endSequence: number;
+  }): void {
+    db.prepare(
+      `INSERT INTO pending_anchor_uploads
+         (id, session_id, node_id, start_sequence, end_sequence,
+          merkle_root, root_signature, anchored_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      anchor.id,
+      anchor.sessionId ?? "session-anchor",
+      anchor.nodeId ?? "node-alpha",
+      anchor.startSequence,
+      anchor.endSequence,
+      FIXTURE_MERKLE_ROOT,
+      FIXTURE_ROOT_SIGNATURE,
+      "2026-08-04T00:00:00.000Z",
+    );
+  }
+
+  it("pins the column shape, NOT NULL discipline, and the one DEFAULT of `pending_anchor_uploads`", () => {
+    const columns = db
+      .prepare("PRAGMA table_info(pending_anchor_uploads)")
+      .all() as ReadonlyArray<PragmaColumn>;
+
+    // Columns in CID (creation) order — fixed by the CREATE TABLE DDL.
+    expect(columns.map((c) => c.name)).toEqual([
+      "id",
+      "session_id",
+      "node_id",
+      "start_sequence",
+      "end_sequence",
+      "merkle_root",
+      "root_signature",
+      "anchored_at",
+      "uploaded_at",
+      "attempt_count",
+      "last_attempt_at",
+      "last_error",
+    ]);
+
+    const byName = new Map(columns.map((c) => [c.name, c]));
+
+    // Declared types. The two commitment columns are BLOB and that is
+    // load-bearing rather than cosmetic: they hold a 32-byte Merkle root and a
+    // 64-byte Ed25519 signature, and SQLite's BLOB affinity does not coerce a
+    // stored TEXT value — a base64 string written here would read back as text
+    // and fail signature verification at audit time.
+    expect(byName.get("id")?.type).toBe("TEXT");
+    expect(byName.get("session_id")?.type).toBe("TEXT");
+    expect(byName.get("node_id")?.type).toBe("TEXT");
+    expect(byName.get("start_sequence")?.type).toBe("INTEGER");
+    expect(byName.get("end_sequence")?.type).toBe("INTEGER");
+    expect(byName.get("merkle_root")?.type).toBe("BLOB");
+    expect(byName.get("root_signature")?.type).toBe("BLOB");
+    expect(byName.get("anchored_at")?.type).toBe("TEXT");
+    expect(byName.get("uploaded_at")?.type).toBe("TEXT");
+    expect(byName.get("attempt_count")?.type).toBe("INTEGER");
+    expect(byName.get("last_attempt_at")?.type).toBe("TEXT");
+    expect(byName.get("last_error")?.type).toBe("TEXT");
+
+    // Single-column PK on `id`; every other column pk === 0.
+    expect(byName.get("id")?.pk).toBe(1);
+    for (const other of columns.filter((c) => c.name !== "id")) {
+      expect(other.pk).toBe(0);
+    }
+
+    // NOT NULL columns per the DDL. `id` is EXCLUDED: the canonical block
+    // declares it `id TEXT PRIMARY KEY` with no explicit `NOT NULL`, and SQLite
+    // does not imply NOT NULL on a non-INTEGER PRIMARY KEY column — the same
+    // documented quirk the 0003 / 0004 / 0005 blocks above call out.
+    expect(byName.get("id")?.notnull).toBe(0);
+    for (const required of [
+      "session_id",
+      "node_id",
+      "start_sequence",
+      "end_sequence",
+      "merkle_root",
+      "root_signature",
+      "anchored_at",
+      "attempt_count",
+    ]) {
+      expect(byName.get(required)?.notnull).toBe(1);
+    }
+    // The four nullable columns are the LIFECYCLE ones: a freshly-enqueued
+    // anchor has not been uploaded and has not been attempted.
+    for (const nullable of ["uploaded_at", "last_attempt_at", "last_error"]) {
+      expect(byName.get(nullable)?.notnull).toBe(0);
+    }
+
+    // `attempt_count` is the table's ONLY default — the enqueue path writes
+    // eight columns and lets the retry counter start itself. SQLite reports the
+    // default as the literal DDL text, hence the string "0".
+    expect(byName.get("attempt_count")?.dflt_value).toBe("0");
+    for (const column of columns.filter((c) => c.name !== "attempt_count")) {
+      expect(column.dflt_value).toBeNull();
+    }
+  });
+
+  it("creates the four-column UNIQUE key plus the partial pending-scan index", () => {
+    const indexes = db.prepare("PRAGMA index_list(pending_anchor_uploads)").all() as ReadonlyArray<{
+      name: string;
+      unique: 0 | 1;
+      origin: string;
+      partial: 0 | 1;
+    }>;
+    const byName = new Map(indexes.map((index) => [index.name, index]));
+
+    // Three indexes: the PK autoindex, the UNIQUE-constraint autoindex, and the
+    // one explicit CREATE INDEX. `origin` discriminates them — "pk" / "u" /
+    // "c" — which is what distinguishes a constraint SQLite derived from an
+    // index the migration issued.
+    expect([...byName.keys()].sort()).toEqual([
+      "idx_pending_anchor_uploads_pending",
+      "sqlite_autoindex_pending_anchor_uploads_1",
+      "sqlite_autoindex_pending_anchor_uploads_2",
+    ]);
+    expect(byName.get("sqlite_autoindex_pending_anchor_uploads_1")?.origin).toBe("pk");
+    expect(byName.get("sqlite_autoindex_pending_anchor_uploads_2")?.origin).toBe("u");
+    expect(byName.get("idx_pending_anchor_uploads_pending")?.origin).toBe("c");
+
+    // THE KEY. All four columns, in order. A key that lost `end_sequence`
+    // would collapse a cadence anchor and a wider compaction-covering anchor
+    // that share a `start_sequence` — the failure the last arm below drives.
+    const uniqueKeyColumns = db
+      .prepare("PRAGMA index_info(sqlite_autoindex_pending_anchor_uploads_2)")
+      .all() as ReadonlyArray<{ name: string }>;
+    expect(uniqueKeyColumns.map((c) => c.name)).toEqual([
+      "session_id",
+      "node_id",
+      "start_sequence",
+      "end_sequence",
+    ]);
+    expect(byName.get("sqlite_autoindex_pending_anchor_uploads_2")?.unique).toBe(1);
+
+    // The pending-scan index: non-unique, PARTIAL, over (session_id,
+    // anchored_at). `sqlite_master.sql` is the authority for the predicate —
+    // `index_list` reports `partial: 1` but never the WHERE clause, so an index
+    // whose predicate silently widened to every row (turning the upload
+    // worker's scan into a full-table scan of the flushed history) passes
+    // `index_list` unchanged.
+    expect(byName.get("idx_pending_anchor_uploads_pending")?.unique).toBe(0);
+    expect(byName.get("idx_pending_anchor_uploads_pending")?.partial).toBe(1);
+    const pendingIndexColumns = db
+      .prepare("PRAGMA index_info(idx_pending_anchor_uploads_pending)")
+      .all() as ReadonlyArray<{ name: string }>;
+    expect(pendingIndexColumns.map((c) => c.name)).toEqual(["session_id", "anchored_at"]);
+
+    const indexDdl = db
+      .prepare(`SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?`)
+      .get("idx_pending_anchor_uploads_pending") as { sql: string } | undefined;
+    expect(indexDdl?.sql).toContain("WHERE uploaded_at IS NULL");
+  });
+
+  it("anchors the version-8 schema_version row with its Plan-006 description", () => {
+    const anchorRows = db
+      .prepare("SELECT description FROM schema_version WHERE version = 8")
+      .all() as ReadonlyArray<{ description: string }>;
+    expect(anchorRows).toHaveLength(1);
+    expect(anchorRows[0]?.description).toBe(
+      "Durable Merkle-anchor upload queue (pending_anchor_uploads)",
+    );
+  });
+
+  it("has NO foreign key into session_events — a crypto-shred must not erase the witness", () => {
+    // Deliberate absence, asserted so a later migration cannot add one
+    // casually. The premise is ROW LIFETIME, not the shred mechanism: Spec-022
+    // Path 1 destroys the per-participant key and deletes no row at all (the
+    // hard DELETE is Path 2, and Postgres-only). What does remove local rows is
+    // compaction, which rewrites them into `audit_stub` form, and any later
+    // retention pass. An FK would either block those or cascade into the
+    // anchors, destroying the very commitment that proves the range once
+    // existed. Anchors OUTLIVE the rows they witness.
+    const foreignKeys = db.prepare("PRAGMA foreign_key_list(pending_anchor_uploads)").all();
+    expect(foreignKeys).toEqual([]);
+  });
+
+  it("dedups an identical range but lets a wider covering anchor sharing start_sequence coexist", () => {
+    // The Spec-006 §Post-Compaction Integrity property, asserted at the storage
+    // layer. Three inserts, three distinct outcomes:
+
+    // 1. The routine cadence anchor over [1, 1000].
+    enqueueAnchor({ id: "anchor-cadence", startSequence: 1, endSequence: 1000 });
+
+    // 2. A wider compaction-covering anchor over [1, 5000]. SAME start_sequence
+    //    — and it MUST land, because a compactor about to discard [1, 5000]
+    //    needs a covering witness and the [1, 1000] anchor does not cover it.
+    //    A three-column key would reject this insert, silently leaving the
+    //    compaction range unwitnessed.
+    expect(() =>
+      enqueueAnchor({ id: "anchor-covering", startSequence: 1, endSequence: 5000 }),
+    ).not.toThrow();
+
+    // 3. A genuine re-fire of the IDENTICAL range under a different row id.
+    //    This is the one the key exists to dedup — a retried force-fire must
+    //    not enqueue a second copy of a commitment already queued.
+    expect(() =>
+      enqueueAnchor({ id: "anchor-refire", startSequence: 1, endSequence: 1000 }),
+    ).toThrow(/UNIQUE constraint failed/);
+
+    const stored = db
+      .prepare(
+        `SELECT id, start_sequence, end_sequence FROM pending_anchor_uploads ORDER BY end_sequence`,
+      )
+      .all() as ReadonlyArray<{ id: string; start_sequence: number; end_sequence: number }>;
+    expect(stored).toEqual([
+      { id: "anchor-cadence", start_sequence: 1, end_sequence: 1000 },
+      { id: "anchor-covering", start_sequence: 1, end_sequence: 5000 },
+    ]);
+
+    // And the key is per-(session, node): the same range on a different node's
+    // chain is a different commitment, not a duplicate.
+    expect(() =>
+      enqueueAnchor({
+        id: "anchor-other-node",
+        nodeId: "node-beta",
+        startSequence: 1,
+        endSequence: 1000,
+      }),
+    ).not.toThrow();
   });
 });

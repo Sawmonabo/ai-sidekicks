@@ -630,14 +630,14 @@ describe("0003-runtime-nodes migration (P10 — applyMigrations idempotency post
     // Second call — must be a no-op.
     await expect(applyMigrations(ctx.querier)).resolves.toBeUndefined();
 
-    // Row counts unchanged: exactly three rows total, exactly one (3, ...) row.
+    // Row counts unchanged: exactly four rows total, exactly one (3, ...) row.
     const counts = await ctx.querier.query<{ count: string }>(
       "SELECT COUNT(*)::text AS count FROM schema_migrations",
     );
     const countsRow = counts.rows[0];
     expect(countsRow).toBeDefined();
     if (countsRow === undefined) return;
-    expect(Number.parseInt(countsRow.count, 10)).toBe(3);
+    expect(Number.parseInt(countsRow.count, 10)).toBe(4);
 
     const v3Probe = await ctx.querier.query<{ description: string }>(
       "SELECT description FROM schema_migrations WHERE version = $1",
