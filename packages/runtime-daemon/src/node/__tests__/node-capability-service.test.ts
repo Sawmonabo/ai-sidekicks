@@ -25,9 +25,15 @@
 //     keys + an extra `undefined`-valued key is "unchanged" — no event, no
 //     write. This FAILS a naive raw-stringify / raw-incoming compare and PASSES
 //     the both-sides-normalized `isDeepStrictEqual`.
-//   * Atomicity: the REAL emitter with an injected throwing `nextSequence` makes
-//     a NEW declaration's emit throw AFTER the upsert ran in the transaction, so
-//     the `node_capabilities` upsert rolls back (no row).
+//   * Atomicity, two arms — the `nextSequence` injection seam they used to ride
+//     is gone with the T3.1 re-point, so each drives a REAL failure of the real
+//     append path instead. (a) ROLLBACK: the emitter is pinned to an event id
+//     that already exists, so the event INSERT violates `session_events`' PRIMARY
+//     KEY AFTER the upsert prelude ran inside the transaction — the
+//     `node_capabilities` upsert rolls back (no row). (b) The stronger property
+//     the re-point bought: a signing-key source that REJECTS makes the append
+//     refuse before opening its transaction, so the prelude never runs at all
+//     and there is no partial state to roll back.
 //   * I-003-2 (the declaration is the precondition that gates `online`): a
 //     `runtime_node.capability_declared` event lands for the node id — the event
 //     a Phase-3/T2.4 `online` gate waits for.
@@ -66,13 +72,36 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { SessionId } from "@ai-sidekicks/contracts";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { EventLogService } from "../../events/event-log-service.js";
+import { __resetSessionAppendLocksForTest } from "../../events/session-append-lock.js";
+import type { Ed25519PrivateKey, Ed25519PublicKey } from "../../events/signer.js";
+import type { DaemonSigningKeySource } from "../../events/signing-key-source.js";
 import { openDatabase } from "../../session/migration-runner.js";
 import { SessionService, UnsignedPlaceholderAppendToken } from "../../session/session-service.js";
 import { NodeCapabilityService } from "../node-capability-service.js";
 import { RuntimeNodeEventEmitter } from "../node-event-emitter.js";
+
+/**
+ * Fixed-key {@link DaemonSigningKeySource} — this suite is about the producer's
+ * dual-write, not key custody (`signing-key-source.test.ts` owns that).
+ */
+class FixedDaemonSigningKeySource implements DaemonSigningKeySource {
+  readonly #privateKey: Ed25519PrivateKey = new Uint8Array(32).fill(7) as Ed25519PrivateKey;
+
+  read(_sessionId: SessionId): Promise<Ed25519PrivateKey> {
+    return Promise.resolve(this.#privateKey);
+  }
+
+  create(_sessionId: SessionId): Promise<{ readonly publicKey: Ed25519PublicKey }> {
+    return Promise.reject(
+      new Error("FixedDaemonSigningKeySource.create is not used by this suite"),
+    );
+  }
+}
 
 // ----------------------------------------------------------------------------
 // Fixtures
@@ -141,6 +170,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // The per-session append lock is a module singleton — reset between cases so
+  // a leftover queue entry cannot stall the next case as an unrelated timeout.
+  __resetSessionAppendLocksForTest();
   if (ctx.db.open) {
     ctx.db.close();
   }
@@ -162,16 +194,20 @@ function makeAdvancingClock(): () => string {
 
 // Wire the Phase-2 object graph over the current `ctx.db`. `now` defaults
 // to an advancing clock; the emitter id source is a collision-free counter.
-// The append opt-in is test-only: production wiring is Plan-006 T3.1's own
-// leg, which re-points this seam onto the durable append path (the async
-// `EventLogService.append` does not satisfy the synchronous seam directly).
+// The seam is ASYNC-TRANSACTIONAL post the Plan-006 T3.1 re-point
+// (node-event-emitter.ts's header owns the contract): `EventLogService.append`
+// over the SAME connection backs it, which is what lets the service's upsert
+// travel as a `transactionalPrelude` and join the append's transaction.
 function makeCapabilityService(now: () => string = makeAdvancingClock()): NodeCapabilityService {
-  const sessionService: SessionService = new SessionService(ctx.db, {
-    allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly(),
-  });
   let idCounter: number = 0;
   const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
-    sessionEvents: sessionService,
+    // The production append path over `ctx.db` — SAME connection as the service,
+    // which is the wiring contract: the service's upsert travels as a
+    // `transactionalPrelude` and must join the append's transaction.
+    sessionEvents: new EventLogService({
+      db: ctx.db,
+      signingKeySource: new FixedDaemonSigningKeySource(),
+    }),
     newEventId: () => `evt-${(idCounter++).toString()}`,
   });
   return new NodeCapabilityService(ctx.db, emitter, now);
@@ -182,9 +218,9 @@ function makeCapabilityService(now: () => string = makeAdvancingClock()): NodeCa
 // ----------------------------------------------------------------------------
 
 describe("NodeCapabilityService — D2 path 1 (first declaration → capability_declared)", () => {
-  it("emits exactly one runtime_node.capability_declared event + writes a node_capabilities row", () => {
+  it("emits exactly one runtime_node.capability_declared event + writes a node_capabilities row", async () => {
     const service: NodeCapabilityService = makeCapabilityService();
-    service.declare({
+    await service.declare({
       nodeId: NODE_ID,
       sessionId: SESSION_ID,
       capability: CAPABILITY,
@@ -226,9 +262,9 @@ describe("NodeCapabilityService — D2 path 1 (first declaration → capability_
 // ----------------------------------------------------------------------------
 
 describe("NodeCapabilityService — D2 path 2 (changed re-declare → capability_updated)", () => {
-  it("emits exactly one runtime_node.capability_updated with prior + new snapshots and updates the row", () => {
+  it("emits exactly one runtime_node.capability_updated with prior + new snapshots and updates the row", async () => {
     const service: NodeCapabilityService = makeCapabilityService();
-    service.declare({
+    await service.declare({
       nodeId: NODE_ID,
       sessionId: SESSION_ID,
       capability: CAPABILITY,
@@ -238,7 +274,7 @@ describe("NodeCapabilityService — D2 path 2 (changed re-declare → capability
     const afterDeclare: CapabilityRow | undefined = readCapabilityRow(ctx.db, NODE_ID, CAPABILITY);
     expect(afterDeclare?.updated_at).toBe("2026-06-02T12:00:00.000Z");
 
-    service.declare({
+    await service.declare({
       nodeId: NODE_ID,
       sessionId: SESSION_ID,
       capability: CAPABILITY,
@@ -279,11 +315,11 @@ describe("NodeCapabilityService — D2 path 2 (changed re-declare → capability
 // ----------------------------------------------------------------------------
 
 describe("NodeCapabilityService — D2 path 3 (identical re-declare → idempotent no-op)", () => {
-  it("emits no further event AND does not write (updated_at unchanged) on an identical re-declare", () => {
+  it("emits no further event AND does not write (updated_at unchanged) on an identical re-declare", async () => {
     const service: NodeCapabilityService = makeCapabilityService();
     const details: Record<string, unknown> = { contractVersion: "1.0", flags: { streaming: true } };
 
-    service.declare({
+    await service.declare({
       nodeId: NODE_ID,
       sessionId: SESSION_ID,
       capability: CAPABILITY,
@@ -296,7 +332,7 @@ describe("NodeCapabilityService — D2 path 3 (identical re-declare → idempote
 
     // Re-declare with structurally-identical (here, a fresh object with the same
     // content) details.
-    service.declare({
+    await service.declare({
       nodeId: NODE_ID,
       sessionId: SESSION_ID,
       capability: CAPABILITY,
@@ -316,14 +352,14 @@ describe("NodeCapabilityService — D2 path 3 (identical re-declare → idempote
     );
   });
 
-  it("treats reordered keys + an extra undefined-valued key as IDENTICAL — no event, no write", () => {
+  it("treats reordered keys + an extra undefined-valued key as IDENTICAL — no event, no write", async () => {
     // This is the bug-catching case: it FAILS against a naive raw-`JSON.stringify`
     // byte-compare (key order differs) AND against a raw-incoming-vs-round-tripped
     // compare (the `undefined`-valued key makes the raw side mis-compare), and
     // PASSES only with the both-sides-normalized `isDeepStrictEqual`.
     const service: NodeCapabilityService = makeCapabilityService();
 
-    service.declare({
+    await service.declare({
       nodeId: NODE_ID,
       sessionId: SESSION_ID,
       capability: CAPABILITY,
@@ -335,7 +371,7 @@ describe("NodeCapabilityService — D2 path 3 (identical re-declare → idempote
 
     // Structurally identical: keys reordered at BOTH levels, plus an extra
     // `undefined`-valued key that `JSON.stringify` strips.
-    service.declare({
+    await service.declare({
       nodeId: NODE_ID,
       sessionId: SESSION_ID,
       capability: CAPABILITY,
@@ -364,9 +400,9 @@ describe("NodeCapabilityService — D2 path 3 (identical re-declare → idempote
 // ----------------------------------------------------------------------------
 
 describe("NodeCapabilityService — I-003-2 (declaration is the precondition that gates online)", () => {
-  it("lands a runtime_node.capability_declared event for the node — the event a later online gate waits for", () => {
+  it("lands a runtime_node.capability_declared event for the node — the event a later online gate waits for", async () => {
     const service: NodeCapabilityService = makeCapabilityService();
-    service.declare({
+    await service.declare({
       nodeId: NODE_ID,
       sessionId: SESSION_ID,
       capability: CAPABILITY,
@@ -391,32 +427,88 @@ describe("NodeCapabilityService — I-003-2 (declaration is the precondition tha
 // Atomicity — a throwing emit rolls back the node_capabilities upsert
 // ----------------------------------------------------------------------------
 
-describe("NodeCapabilityService — atomicity (throwing emit rolls back the capability upsert)", () => {
-  it("rolls back the node_capabilities upsert when the emit throws inside the transaction", () => {
-    // REAL emitter with an injected throwing `nextSequence` — the throw lands
-    // INSIDE the emit, AFTER the upsert ran in the transaction, so the rollback
-    // of the already-applied upsert is what is under test.
-    const sessionService: SessionService = new SessionService(ctx.db, {
+describe("NodeCapabilityService — atomicity (a failed event write rolls back the capability upsert)", () => {
+  it("rolls back the node_capabilities upsert when the event INSERT throws inside the transaction", async () => {
+    // The upsert is now a `transactionalPrelude` running INSIDE the append's
+    // transaction, immediately BEFORE the event-row INSERT. To exercise ROLLBACK
+    // specifically, the failure must land AFTER the prelude has already applied
+    // — so the emitter is pinned to an event id that ALREADY EXISTS, making the
+    // INSERT violate `session_events`' TEXT PRIMARY KEY. A pre-transaction
+    // refusal would not test rollback at all (the next case covers that
+    // stronger property separately).
+    const seedingService: SessionService = new SessionService(ctx.db, {
       allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly(),
     });
+    seedingService.append({
+      id: "evt-collide",
+      sessionId: SESSION_ID,
+      sequence: 0,
+      occurredAt: "2026-06-02T12:00:00.000Z",
+      monotonicNs: 1_000_000_000n,
+      category: "session_lifecycle",
+      type: "session.created",
+      actor: null,
+      payload: { sessionId: SESSION_ID },
+      correlationId: null,
+      causationId: null,
+      version: "1.0",
+    });
+
     const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
-      sessionEvents: sessionService,
-      nextSequence: () => {
-        throw new Error("forced");
-      },
+      sessionEvents: new EventLogService({
+        db: ctx.db,
+        signingKeySource: new FixedDaemonSigningKeySource(),
+      }),
+      newEventId: () => "evt-collide",
     });
     const service: NodeCapabilityService = new NodeCapabilityService(ctx.db, emitter);
 
-    expect(() =>
+    await expect(
       service.declare({
         nodeId: NODE_ID,
         sessionId: SESSION_ID,
         capability: CAPABILITY,
         capabilityDetails: { contractVersion: "1.0" },
       }),
-    ).toThrow("forced");
+    ).rejects.toThrow(/UNIQUE|PRIMARY KEY|constraint/i);
 
-    // The upsert rolled back with the failed emit: no capability row, no event.
+    // The upsert rolled back with the failed INSERT: no capability row, and the
+    // only event on the session is the seed.
+    expect(readCapabilityRow(ctx.db, NODE_ID, CAPABILITY)).toBeUndefined();
+    expect(readEventRows(ctx.db, SESSION_ID)).toHaveLength(1);
+  });
+
+  it("never RUNS the upsert when the append refuses before opening its transaction", async () => {
+    // The property the re-point made STRONGER than rollback: a refusal raised
+    // before the transaction opens means the prelude never executes at all, so
+    // there is no partial state to roll back. A regression that moved the
+    // prelude ahead of the append's pre-transaction checks would still pass the
+    // rollback arm above while breaking this one.
+    class FailingSigningKeySource implements DaemonSigningKeySource {
+      read(_sessionId: SessionId): Promise<Ed25519PrivateKey> {
+        return Promise.reject(new Error("key unseal refused"));
+      }
+      create(_sessionId: SessionId): Promise<{ readonly publicKey: Ed25519PublicKey }> {
+        return Promise.reject(new Error("unused"));
+      }
+    }
+    const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
+      sessionEvents: new EventLogService({
+        db: ctx.db,
+        signingKeySource: new FailingSigningKeySource(),
+      }),
+    });
+    const service: NodeCapabilityService = new NodeCapabilityService(ctx.db, emitter);
+
+    await expect(
+      service.declare({
+        nodeId: NODE_ID,
+        sessionId: SESSION_ID,
+        capability: CAPABILITY,
+        capabilityDetails: { contractVersion: "1.0" },
+      }),
+    ).rejects.toThrow("key unseal refused");
+
     expect(readCapabilityRow(ctx.db, NODE_ID, CAPABILITY)).toBeUndefined();
     expect(readEventRows(ctx.db, SESSION_ID)).toHaveLength(0);
   });
@@ -427,15 +519,15 @@ describe("NodeCapabilityService — atomicity (throwing emit rolls back the capa
 // ----------------------------------------------------------------------------
 
 describe("NodeCapabilityService — distinct capability keys are independent (composite PK)", () => {
-  it("declares two distinct capabilities on one node as independent rows, each emitting capability_declared (not _updated)", () => {
+  it("declares two distinct capabilities on one node as independent rows, each emitting capability_declared (not _updated)", async () => {
     const service: NodeCapabilityService = makeCapabilityService();
-    service.declare({
+    await service.declare({
       nodeId: NODE_ID,
       sessionId: SESSION_ID,
       capability: "provider-driver",
       capabilityDetails: { contractVersion: "1.0" },
     });
-    service.declare({
+    await service.declare({
       nodeId: NODE_ID,
       sessionId: SESSION_ID,
       capability: "git-worktree",
@@ -480,14 +572,14 @@ describe("NodeCapabilityService — distinct capability keys are independent (co
 // ----------------------------------------------------------------------------
 
 describe("NodeCapabilityService — change-detection is node-scoped, not session-scoped (Model B)", () => {
-  it("treats an identical re-declare in a DIFFERENT session as a no-op — no capability_declared in the second session", () => {
+  it("treats an identical re-declare in a DIFFERENT session as a no-op — no capability_declared in the second session", async () => {
     // A distinct UUIDv7 session id (same shape as SESSION_ID, final group bumped).
     const SESSION_TWO: string = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f01";
     const service: NodeCapabilityService = makeCapabilityService();
     const details: Record<string, unknown> = { contractVersion: "1.0", flags: { streaming: true } };
 
     // First declaration in session one → capability_declared lands in S1.
-    service.declare({
+    await service.declare({
       nodeId: NODE_ID,
       sessionId: SESSION_ID,
       capability: CAPABILITY,
@@ -499,7 +591,7 @@ describe("NodeCapabilityService — change-detection is node-scoped, not session
     // capability_declared lands in session two. (The daemon `online` gate reads the
     // node-keyed row, not a per-session event, so S2-online does not depend on a
     // fresh declaration event here — see node-capability-service.ts SELECT comment.)
-    service.declare({
+    await service.declare({
       nodeId: NODE_ID,
       sessionId: SESSION_TWO,
       capability: CAPABILITY,
@@ -526,7 +618,7 @@ describe("NodeCapabilityService — change-detection is node-scoped, not session
 // ----------------------------------------------------------------------------
 
 describe("NodeCapabilityService — T2.4/D3 (online only after capability_declared, I-003-2)", () => {
-  it("gates online on a prior declaration: no online before declare; online follows capability_declared for the same node", () => {
+  it("gates online on a prior declaration: no online before declare; online follows capability_declared for the same node", async () => {
     const service: NodeCapabilityService = makeCapabilityService();
 
     // Before any declaration the I-003-2 precondition is unmet: bringOnline reads
@@ -535,11 +627,11 @@ describe("NodeCapabilityService — T2.4/D3 (online only after capability_declar
     // deliberately NOT performed — the gate reads `node_capabilities`, not
     // `node_trust_state`, so this test stays focused on the declaration→online
     // gate without coupling to NodeRegistry.
-    expect(service.bringOnline({ nodeId: NODE_ID, sessionId: SESSION_ID })).toBe(false);
+    expect(await service.bringOnline({ nodeId: NODE_ID, sessionId: SESSION_ID })).toBe(false);
     expect(readEventRows(ctx.db, SESSION_ID)).toHaveLength(0);
 
     // Declare a capability → exactly one capability_declared lands.
-    service.declare({
+    await service.declare({
       nodeId: NODE_ID,
       sessionId: SESSION_ID,
       capability: CAPABILITY,
@@ -548,7 +640,7 @@ describe("NodeCapabilityService — T2.4/D3 (online only after capability_declar
 
     // Now the gate is satisfied: bringOnline returns true and appends online AFTER
     // the declared event.
-    expect(service.bringOnline({ nodeId: NODE_ID, sessionId: SESSION_ID })).toBe(true);
+    expect(await service.bringOnline({ nodeId: NODE_ID, sessionId: SESSION_ID })).toBe(true);
 
     const events: ReadonlyArray<EventRow> = readEventRows(ctx.db, SESSION_ID);
     // The exact ordered sequence: capability_declared THEN online (I-003-2 — online
@@ -575,7 +667,7 @@ describe("NodeCapabilityService — T2.4/D3 (online only after capability_declar
 // ----------------------------------------------------------------------------
 
 describe("NodeCapabilityService — T2.4 gate reads the durable ROW, not the event (§357)", () => {
-  it("onlines after an identical no-op re-declare emitted no second event — proving the gate read the row, not the event", () => {
+  it("onlines after an identical no-op re-declare emitted no second event — proving the gate read the row, not the event", async () => {
     // This is the regression guard for the WHY of the gate-on-row design: if the
     // gate keyed on a `capability_declared` EVENT, a node that already declared
     // (row present) but re-declares as an identical no-op (which emits NO event,
@@ -586,7 +678,7 @@ describe("NodeCapabilityService — T2.4 gate reads the durable ROW, not the eve
     const details: Record<string, unknown> = { contractVersion: "1.0", flags: { streaming: true } };
 
     // First declaration → one capability_declared, one durable row.
-    service.declare({
+    await service.declare({
       nodeId: NODE_ID,
       sessionId: SESSION_ID,
       capability: CAPABILITY,
@@ -594,7 +686,7 @@ describe("NodeCapabilityService — T2.4 gate reads the durable ROW, not the eve
     });
 
     // Identical re-declare → the committed no-op: NO second event (T2.2 / Model B).
-    service.declare({
+    await service.declare({
       nodeId: NODE_ID,
       sessionId: SESSION_ID,
       capability: CAPABILITY,
@@ -607,7 +699,7 @@ describe("NodeCapabilityService — T2.4 gate reads the durable ROW, not the eve
     // declare emitted NO event. The ONLY way online can fire here is if the gate
     // read the durable ROW (which the no-op re-declare left present), NOT the event
     // stream. This is the assertion that pins the gate-on-row design.
-    expect(service.bringOnline({ nodeId: NODE_ID, sessionId: SESSION_ID })).toBe(true);
+    expect(await service.bringOnline({ nodeId: NODE_ID, sessionId: SESSION_ID })).toBe(true);
 
     const events: ReadonlyArray<EventRow> = readEventRows(ctx.db, SESSION_ID);
     expect(events.map((e) => e.type)).toEqual([

@@ -370,6 +370,8 @@ describe("SessionService — D4 (snapshot survives daemon restart)", () => {
       { version: 3 },
       { version: 4 },
       { version: 5 },
+      { version: 6 },
+      { version: 7 },
     ]);
   });
 
@@ -387,6 +389,8 @@ describe("SessionService — D4 (snapshot survives daemon restart)", () => {
       { version: 3 },
       { version: 4 },
       { version: 5 },
+      { version: 6 },
+      { version: 7 },
     ]);
   });
 
@@ -419,6 +423,8 @@ describe("SessionService — D4 (snapshot survives daemon restart)", () => {
         { version: 3 },
         { version: 4 },
         { version: 5 },
+        { version: 6 },
+        { version: 7 },
       ]);
     } finally {
       secondHandle.close();
@@ -704,31 +710,29 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
     ).toBeLessThanOrEqual(FAILURE_THRESHOLD);
 
     // Belt-and-braces verification: every trial's database file must
-    // contain exactly the five expected schema_version rows [1, 2, 3, 4, 5]
+    // contain exactly the seven expected schema_version rows [1..7]
     // regardless of how many workers succeeded vs blocked. The
     // useDeferred:false worker calls PRODUCTION applyMigrations, so each
-    // trial exercises the version-1, version-2, version-3, version-4, and
-    // version-5 migration blocks.
+    // trial exercises all seven migration blocks.
     //
     // What this row-count assertion actually guarantees (claim no more):
     //   * it catches a broken or missing anchor INSERT for the newest
-    //     migration (a v5 migration that failed to write its
+    //     migration (a v7 migration that failed to write its
     //     schema_version row, or wrote the wrong version) — and likewise
-    //     for the v2, v3, and v4 anchors, and
+    //     for the v2..v6 anchors, and
     //   * it catches a within-handle double-apply that duplicated any
     //     anchor row, and
     //   * it is a strict strengthening over the old `[1]` assertion (the
-    //     assertion evolved [1] → [1, 2] → [1, 2, 3] → [1, 2, 3, 4] →
-    //     [1, 2, 3, 4, 5] as each migration landed) — it cannot pass
-    //     anything `[1]` would have failed.
+    //     assertion evolved [1] → [1, 2] → … → [1..5] → [1..7] as each
+    //     migration landed) — it cannot pass anything `[1]` would have
+    //     failed.
     //
     // What it does NOT deterministically catch: a newest-migration-ONLY
-    // `.immediate()` drop (today, v5). Tracing the race, a DEFERRED loser
+    // `.immediate()` drop (today, v7). Tracing the race, a DEFERRED loser
     // hits SQLITE_BUSY on the write-UPGRADE and bails BEFORE committing
     // its INSERT (so no duplicate row lands), and some worker always wins
-    // each BEGIN (so the row is never missing) — the [1, 2, 3, 4, 5] count
-    // is therefore essentially immune to a v5-only `.immediate()`
-    // regression.
+    // each BEGIN (so the row is never missing) — the [1..7] count is
+    // therefore essentially immune to a v7-only `.immediate()` regression.
     // Deterministic detection of that class rides on the FAILURE_THRESHOLD
     // above (calibrated to v1's ~95% DEFERRED saturation) and is owned by
     // the `TODO(Plan-006)` threshold-calibration item; a racing CREATE
@@ -736,12 +740,23 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
     // above. Loop over EVERY trial path so a partial regression that only
     // corrupts one trial still surfaces.
     //
-    // That immunity argument carried from v4 to v5 only because
-    // `DAEMON_SIGNING_KEYS_MIGRATION_SQL` embeds its own version-5 anchor
-    // INSERT in the SAME single `.exec()` as its CREATE TABLE, exactly as
-    // v1-v4 do. A migration that committed its anchor row separately from
-    // its DDL would invalidate this paragraph rather than merely extend
-    // it — re-derive it, do not increment it.
+    // The immunity argument was RE-DERIVED (not incremented) for v6 + v7,
+    // because it rests on a property each migration must be checked for
+    // individually: the anchor INSERT must ride the SAME single `.exec()`
+    // as the DDL, so a loser that bails mid-migration can leave neither a
+    // duplicate anchor nor an anchor without its schema.
+    //   * v6 (`RUN_LIFECYCLE_TERMINAL_BACKSTOP_MIGRATION_SQL`) — the
+    //     CREATE INDEX, the three CREATE TRIGGERs, and the version-6 INSERT
+    //     are one script, one `.exec()`. Holds.
+    //   * v7 (`PII_PARTICIPANT_ID_MIGRATION_SQL`) — the ALTER TABLE ADD
+    //     COLUMN and the version-7 INSERT are one script, one `.exec()`.
+    //     Holds, and v7 is the arm where a REGRESSION would bite hardest:
+    //     SQLite has no `ADD COLUMN IF NOT EXISTS`, so a lost guard turns a
+    //     re-apply into a hard "duplicate column name" throw, which lands
+    //     in the worker-failure count above rather than here.
+    // A future migration that committed its anchor row separately from its
+    // DDL would invalidate this paragraph rather than merely extend it —
+    // re-derive it, do not increment it.
     for (let trial = 0; trial < TRIAL_COUNT; trial++) {
       const trialPath: string = join(raceTmpDir, `imm-trial-${trial.toString()}.db`);
       const verifier: DatabaseType = new Database(trialPath);
@@ -752,8 +767,16 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
           .all() as ReadonlyArray<{ version: number }>;
         expect(
           rows,
-          `trial ${trial.toString()} expected exactly the five migration anchor rows [1, 2, 3, 4, 5] (a broken/missing v5 INSERT — the newest migration — or a duplicated anchor row would fail here); got ${JSON.stringify(rows)}`,
-        ).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }]);
+          `trial ${trial.toString()} expected exactly the seven migration anchor rows [1..7] (a broken/missing v7 INSERT — the newest migration — or a duplicated anchor row would fail here); got ${JSON.stringify(rows)}`,
+        ).toEqual([
+          { version: 1 },
+          { version: 2 },
+          { version: 3 },
+          { version: 4 },
+          { version: 5 },
+          { version: 6 },
+          { version: 7 },
+        ]);
       } finally {
         verifier.close();
       }

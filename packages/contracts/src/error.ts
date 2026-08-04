@@ -62,7 +62,7 @@ import {
   NEGOTIATION_REASON_CEILING_EXCEEDED,
   NEGOTIATION_REASON_FLOOR_EXCEEDED,
 } from "./jsonrpc-negotiation.js";
-import { wireFreeFormString } from "./session.js";
+import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
 
 // --------------------------------------------------------------------------
 // Error code constants
@@ -126,6 +126,39 @@ export type RuntimeNodeCapabilityUpdateConflictCode = "runtimenode.capabilityupd
 export const RUNTIME_NODE_CAPABILITY_UPDATE_CONFLICT_CODE: RuntimeNodeCapabilityUpdateConflictCode =
   "runtimenode.capabilityupdate_conflict";
 
+// Daemon append-path refusal codes (Plan-006 T3.1). Both are raised by
+// `EventLogService.append` and both carry TYPED details, unlike the
+// code+message-only runtime-node 409s above: each detail member is a
+// non-secret identifier the caller supplied, so structured details add
+// no info-leak surface. Domain token `daemon` matches the local runtime
+// daemon's own authority — these refusals originate in the machine-local
+// append path, never in a control-plane method. See error-contracts.md
+// §Daemon.
+//
+// The two differ in KIND, which is why they carry different statuses:
+//
+//   * `daemon.ingest_halted` (409) — a STATE-dependent refusal of an
+//     otherwise-valid write. The write is well-formed; the session's
+//     ingest is administratively halted (the T4.2 key-reuse observer
+//     published `halt(sessionId)` through T3.1's `IngestHaltRegistry`).
+//     Re-admission is possible without changing the write, via
+//     `clear(sessionId)` — hence the 409 shape shared with
+//     `run.invalid_transition` / `channel.inactive` / `agent.not_ready`.
+//   * `daemon.pii_split_bypass` (400) — a STRUCTURAL refusal. The write
+//     is malformed regardless of session state: its `payload` carries a
+//     PII-tagged field with no `pii_ciphertext_digest`, meaning it
+//     bypassed the T2.4 `pii-indirection.ts` sole-write-path split. No
+//     session state change makes it admissible; the producer must fix
+//     the write.
+//
+// Neither is the `daemon.pii_split_ambiguous` TAXONOMY EVENT — that event
+// signals a SUCCESSFUL containment fallback (an ambiguous record routed
+// wholesale into `pii_payload`), never a failed write.
+export type DaemonIngestHaltedCode = "daemon.ingest_halted";
+export const DAEMON_INGEST_HALTED_CODE: DaemonIngestHaltedCode = "daemon.ingest_halted";
+export type DaemonPiiSplitBypassCode = "daemon.pii_split_bypass";
+export const DAEMON_PII_SPLIT_BYPASS_CODE: DaemonPiiSplitBypassCode = "daemon.pii_split_bypass";
+
 // --------------------------------------------------------------------------
 // Per-field length caps — defense-in-depth bounds (see also event.ts header).
 // --------------------------------------------------------------------------
@@ -151,6 +184,14 @@ export const ERROR_MESSAGE_MAX_LEN = 8192;
 // imperative phrase without truncating canonical CDN links.
 export const VERSION_STRING_MAX_LEN = 64;
 export const VERSION_UPGRADE_PATH_MAX_LEN = 512;
+
+// `daemon.pii_split_bypass` `details.fieldPath` cap. The value is a payload
+// KEY PATH (e.g. `payload.pii_participant_id`), never a payload VALUE — the
+// whole point of naming the path is to identify the offending field without
+// echoing PII back onto the wire. Real key paths are short; 256 leaves room
+// for a nested path while denying a malicious producer unbounded space in a
+// field that lands in operator logs.
+export const PII_FIELD_PATH_MAX_LEN = 256;
 
 // --------------------------------------------------------------------------
 // resource.limit_exceeded shape
@@ -361,5 +402,79 @@ export const VersionCeilingExceededErrorSchema: z.ZodType<VersionCeilingExceeded
     code: z.literal(VERSION_CEILING_EXCEEDED_CODE),
     message: wireFreeFormString(ERROR_MESSAGE_MAX_LEN, "VersionCeilingExceededError.message"),
     details: VersionBoundExceededDetailsSchema,
+  })
+  .strict();
+
+// --------------------------------------------------------------------------
+// daemon.ingest_halted shape (Plan-006 T3.1)
+// --------------------------------------------------------------------------
+//
+// The DETAIL CARRIER for the append path's ingest-halt refusal. `EventLogService`
+// throws a `DaemonDomainError` whose `detail` is a value PARSED through this
+// schema, which the daemon's `mapJsonRpcError` then projects as
+// `data.fields.sessionId` beside `data.type`. Parsing (rather than casting) at
+// the throw site is what makes the detail load-bearing: a detail-LESS throw
+// yields `data.fields === undefined` and fails the T3.5 arm that pins the
+// rendered shape.
+//
+// Only `sessionId`, and `.strict()`. The refused session id is information the
+// caller ALREADY supplied — echoing it leaks nothing — whereas any additional
+// member (the colliding key id, the observer's evidence, a halt reason) would
+// describe daemon-internal audit state to a caller that failed a write. Strict
+// mode is the enforcement: a future well-meaning `reason` addition fails the
+// parse here instead of silently reaching the wire.
+
+// Declared as an object TYPE ALIAS, not an `interface`, and the difference is
+// load-bearing rather than stylistic. TypeScript grants a type alias of an
+// object type an implicit index signature and grants an interface none, so only
+// the alias form is assignable to `Record<string, unknown>` — which is exactly
+// what the daemon's `DaemonDomainError.detail` field requires. Flipping either
+// of these two to `interface` stops the throw sites compiling, which is the
+// enforcement that keeps this comment true. (The older `*Details` shapes in this
+// file are interfaces because nothing passes them as a `detail`; these two do.)
+export type DaemonIngestHaltedDetails = {
+  sessionId: SessionId;
+};
+export const DaemonIngestHaltedDetailsSchema: z.ZodType<DaemonIngestHaltedDetails> = z
+  .object({
+    // `SessionIdSchema`-typed, NOT a free-form string: the refusal names a real
+    // session, so the wire value carries the same UUID guarantee every other
+    // session-scoped field does. This also admits the RFC 9562 Max UUID
+    // daemon-scope sentinel (`DAEMON_SCOPE_SENTINEL_SESSION_ID` in event.ts) with
+    // no carve-out, so a halt refusal on the node-scope chain renders identically.
+    sessionId: SessionIdSchema,
+  })
+  .strict();
+
+// --------------------------------------------------------------------------
+// daemon.pii_split_bypass shape (Plan-006 T3.1)
+// --------------------------------------------------------------------------
+//
+// The DETAIL CARRIER for the append path's PII-split-bypass refusal. Same
+// parse-at-throw-site discipline as the halt detail above.
+//
+// `fieldPath` is a payload KEY PATH — `payload.pii_participant_id`, say — and
+// NEVER the offending field's VALUE. That distinction is the entire security
+// property of this error: the write was refused precisely BECAUSE it carried
+// unencrypted PII outside the `pii-indirection.ts` split, so echoing the value
+// into an error envelope (which lands in operator logs and client consoles)
+// would complete the leak the refusal exists to prevent. Nothing in the type
+// system can enforce "path, not value" — the guarantee lives at the throw
+// sites, which construct the path from a reserved key CONSTANT rather than from
+// payload contents.
+
+// Object TYPE ALIAS for the same reason as its sibling above — it is passed as
+// a `DaemonDomainError.detail`, which demands `Record<string, unknown>`
+// assignability that an `interface` does not provide.
+export type DaemonPiiSplitBypassDetails = {
+  fieldPath: string;
+};
+export const DaemonPiiSplitBypassDetailsSchema: z.ZodType<DaemonPiiSplitBypassDetails> = z
+  .object({
+    // `wireFreeFormString` applies the 256-char cap AND the whitespace-only /
+    // NUL-byte rejection — the same trust-boundary hardening
+    // `details.resource` gets, for the same reason (this string is rendered
+    // into logs and client-side error surfaces).
+    fieldPath: wireFreeFormString(PII_FIELD_PATH_MAX_LEN, "details.fieldPath"),
   })
   .strict();

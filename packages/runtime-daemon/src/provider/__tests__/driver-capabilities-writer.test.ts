@@ -37,13 +37,36 @@ import {
   type DriverCapabilityFlag,
   type GetCapabilitiesResult,
   type ProviderToolMetadata,
+  type SessionId,
 } from "@ai-sidekicks/contracts";
 
+import { EventLogService } from "../../events/event-log-service.js";
+import { __resetSessionAppendLocksForTest } from "../../events/session-append-lock.js";
+import type { Ed25519PrivateKey, Ed25519PublicKey } from "../../events/signer.js";
+import type { DaemonSigningKeySource } from "../../events/signing-key-source.js";
 import { RuntimeNodeEventEmitter } from "../../node/node-event-emitter.js";
 import { openDatabase } from "../../session/migration-runner.js";
 import { SessionService, UnsignedPlaceholderAppendToken } from "../../session/session-service.js";
 import { DriverCapabilitiesWriter } from "../driver-capabilities-writer.js";
 import { ProviderOutputValidationError } from "../provider-output-validation.js";
+
+/**
+ * Fixed-key {@link DaemonSigningKeySource} — this suite is about the producer's
+ * dual-write, not key custody (`signing-key-source.test.ts` owns that).
+ */
+class FixedDaemonSigningKeySource implements DaemonSigningKeySource {
+  readonly #privateKey: Ed25519PrivateKey = new Uint8Array(32).fill(7) as Ed25519PrivateKey;
+
+  read(_sessionId: SessionId): Promise<Ed25519PrivateKey> {
+    return Promise.resolve(this.#privateKey);
+  }
+
+  create(_sessionId: SessionId): Promise<{ readonly publicKey: Ed25519PublicKey }> {
+    return Promise.reject(
+      new Error("FixedDaemonSigningKeySource.create is not used by this suite"),
+    );
+  }
+}
 
 // ----------------------------------------------------------------------------
 // Fixtures + per-test lifecycle
@@ -86,6 +109,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // The per-session append lock is a module singleton — reset between cases so
+  // a leftover queue entry cannot stall the next case as an unrelated timeout.
+  __resetSessionAppendLocksForTest();
   if (db.open) {
     db.close();
   }
@@ -105,24 +131,26 @@ function makeAdvancingClock(): () => string {
 // Wire the Phase-2 object graph over the current `db`, with a collision-
 // free deterministic event-id source so `session_events.id` (TEXT PRIMARY KEY)
 // never collides across emits. Returns the writer + the SessionService (so tests
-// can read the emitted events off the same connection). The append opt-in is
-// test-only: production wiring is Plan-006 T3.1's own leg, which re-points
-// this seam onto the durable append path (the async `EventLogService.append`
-// does not satisfy the synchronous seam directly).
+// can read the emitted events off the same connection). The seam is
+// ASYNC-TRANSACTIONAL post the Plan-006 T3.1 re-point (node-event-emitter.ts's
+// header owns the contract): `EventLogService.append` over the SAME connection
+// backs it, which is what lets a `transactionalPrelude` join its transaction.
 function makeWriter(now: () => string = makeAdvancingClock()): {
   writer: DriverCapabilitiesWriter;
-  sessionService: SessionService;
 } {
-  const sessionService: SessionService = new SessionService(db, {
-    allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly(),
-  });
   let idCounter: number = 0;
   const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
-    sessionEvents: sessionService,
+    // The production append path over the SAME connection as the writer — the
+    // wiring contract this writer's header states: the three table writes travel
+    // as a `transactionalPrelude` and must join the append's transaction.
+    sessionEvents: new EventLogService({
+      db,
+      signingKeySource: new FixedDaemonSigningKeySource(),
+    }),
     newEventId: () => `evt-${(idCounter++).toString()}`,
   });
   const writer: DriverCapabilitiesWriter = new DriverCapabilitiesWriter(db, emitter, now);
-  return { writer, sessionService };
+  return { writer };
 }
 
 // ---- Direct table readers (raw rows, the durable side of the dual-write) ----
@@ -177,7 +205,7 @@ function countContractMetaRows(driverName: string): number {
 // ----------------------------------------------------------------------------
 
 describe("DriverCapabilitiesWriter — first declare", () => {
-  it("returns {emitted:'declared'}, writes 7 capability rows + N tool rows + 1 meta row, emits capability_declared with the FLAT snapshot", () => {
+  it("returns {emitted:'declared'}, writes 7 capability rows + N tool rows + 1 meta row, emits capability_declared with the FLAT snapshot", async () => {
     const { writer } = makeWriter();
     const result: GetCapabilitiesResult = makeResult({
       tools: [
@@ -186,7 +214,7 @@ describe("DriverCapabilitiesWriter — first declare", () => {
       ],
     });
 
-    const outcome = writer.declare({
+    const outcome = await writer.declare({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       driverName: DRIVER_NAME,
@@ -233,18 +261,23 @@ describe("DriverCapabilitiesWriter — first declare", () => {
 // ----------------------------------------------------------------------------
 
 describe("DriverCapabilitiesWriter — identical re-declare", () => {
-  it("returns {emitted:'noop'}, emits NO second event, leaves the rows unchanged", () => {
+  it("returns {emitted:'noop'}, emits NO second event, leaves the rows unchanged", async () => {
     const { writer } = makeWriter();
     const result: GetCapabilitiesResult = makeResult({
       tools: [{ name: "search", idempotency_class: "idempotent" }],
     });
 
     expect(
-      writer.declare({ sessionId: SESSION_ID, nodeId: NODE_ID, driverName: DRIVER_NAME, result }),
+      await writer.declare({
+        sessionId: SESSION_ID,
+        nodeId: NODE_ID,
+        driverName: DRIVER_NAME,
+        result,
+      }),
     ).toEqual({ emitted: "declared" });
 
     // Re-declare the SAME snapshot — idempotent no-op.
-    const outcome = writer.declare({
+    const outcome = await writer.declare({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       driverName: DRIVER_NAME,
@@ -265,9 +298,9 @@ describe("DriverCapabilitiesWriter — identical re-declare", () => {
 // ----------------------------------------------------------------------------
 
 describe("DriverCapabilitiesWriter — changed declare (flag flip)", () => {
-  it("returns {emitted:'updated'} and emits capability_updated carrying prior + new FLAT snapshots", () => {
+  it("returns {emitted:'updated'} and emits capability_updated carrying prior + new FLAT snapshots", async () => {
     const { writer } = makeWriter();
-    writer.declare({
+    await writer.declare({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       driverName: DRIVER_NAME,
@@ -275,7 +308,7 @@ describe("DriverCapabilitiesWriter — changed declare (flag flip)", () => {
     });
 
     // Flip the `steer` flag false → true.
-    const outcome = writer.declare({
+    const outcome = await writer.declare({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       driverName: DRIVER_NAME,
@@ -309,16 +342,16 @@ describe("DriverCapabilitiesWriter — changed declare (flag flip)", () => {
 // ----------------------------------------------------------------------------
 
 describe("DriverCapabilitiesWriter — contractVersion-only bump", () => {
-  it("returns {emitted:'updated'} when only the contractVersion changes", () => {
+  it("returns {emitted:'updated'} when only the contractVersion changes", async () => {
     const { writer } = makeWriter();
-    writer.declare({
+    await writer.declare({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       driverName: DRIVER_NAME,
       result: makeResult(),
     });
 
-    const outcome = writer.declare({
+    const outcome = await writer.declare({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       driverName: DRIVER_NAME,
@@ -344,9 +377,9 @@ describe("DriverCapabilitiesWriter — contractVersion-only bump", () => {
 // ----------------------------------------------------------------------------
 
 describe("DriverCapabilitiesWriter — tool removed on refresh", () => {
-  it("drops a removed tool's row (delete-then-reinsert) and returns {emitted:'updated'}", () => {
+  it("drops a removed tool's row (delete-then-reinsert) and returns {emitted:'updated'}", async () => {
     const { writer } = makeWriter();
-    writer.declare({
+    await writer.declare({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       driverName: DRIVER_NAME,
@@ -360,7 +393,7 @@ describe("DriverCapabilitiesWriter — tool removed on refresh", () => {
     expect(readToolNames(DRIVER_NAME)).toEqual(["search", "write_file"]);
 
     // Refresh WITHOUT `write_file` — it must be deleted, not orphaned.
-    const outcome = writer.declare({
+    const outcome = await writer.declare({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       driverName: DRIVER_NAME,
@@ -376,9 +409,9 @@ describe("DriverCapabilitiesWriter — tool removed on refresh", () => {
 // ----------------------------------------------------------------------------
 
 describe("DriverCapabilitiesWriter — tool idempotency_class default (I-005-3)", () => {
-  it("persists an omitted idempotency_class as 'manual_reconcile_only'", () => {
+  it("persists an omitted idempotency_class as 'manual_reconcile_only'", async () => {
     const { writer } = makeWriter();
-    writer.declare({
+    await writer.declare({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       driverName: DRIVER_NAME,
@@ -395,9 +428,9 @@ describe("DriverCapabilitiesWriter — tool idempotency_class default (I-005-3)"
 // ----------------------------------------------------------------------------
 
 describe("DriverCapabilitiesWriter — canonical tool ordering", () => {
-  it("treats the same tool set in a DIFFERENT array order as a no-op (spurious-update guard)", () => {
+  it("treats the same tool set in a DIFFERENT array order as a no-op (spurious-update guard)", async () => {
     const { writer } = makeWriter();
-    writer.declare({
+    await writer.declare({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       driverName: DRIVER_NAME,
@@ -410,7 +443,7 @@ describe("DriverCapabilitiesWriter — canonical tool ordering", () => {
     });
 
     // SAME tools, REVERSED order — must canonicalize to the same snapshot → noop.
-    const outcome = writer.declare({
+    const outcome = await writer.declare({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       driverName: DRIVER_NAME,
@@ -426,7 +459,7 @@ describe("DriverCapabilitiesWriter — canonical tool ordering", () => {
     expect(readEventRows(SESSION_ID)).toHaveLength(1);
   });
 
-  it("uses BINARY (code-point) collation matching the reader — names that diverge under locale collation still no-op + hydrate in reader order", () => {
+  it("uses BINARY (code-point) collation matching the reader — names that diverge under locale collation still no-op + hydrate in reader order", async () => {
     // `"Search"` (uppercase 'S' = 0x53) sorts BEFORE `"add"` (lowercase 'a' =
     // 0x61) under SQLite BINARY collation, but a locale-aware `localeCompare`
     // would order `"add"` first — so these two names are the discriminating case
@@ -434,7 +467,7 @@ describe("DriverCapabilitiesWriter — canonical tool ordering", () => {
     // make the write order disagree with the `ORDER BY tool_name` reader,
     // producing a spurious capability_updated AND a hydrate-order mismatch).
     const { writer } = makeWriter();
-    writer.declare({
+    await writer.declare({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       driverName: DRIVER_NAME,
@@ -449,7 +482,7 @@ describe("DriverCapabilitiesWriter — canonical tool ordering", () => {
     // Re-declare the SAME pair in a DIFFERENT array order — must canonicalize to
     // the reader's BINARY order on BOTH sides → no-op (the spurious-update guard
     // for collation-divergent names).
-    const outcome = writer.declare({
+    const outcome = await writer.declare({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       driverName: DRIVER_NAME,
@@ -469,7 +502,7 @@ describe("DriverCapabilitiesWriter — canonical tool ordering", () => {
     expect(hydrated?.tools.map((tool) => tool.name)).toEqual(["Search", "add"]);
   });
 
-  it("sorts by UTF-8 BYTES (not JS UTF-16 code units): a supplementary-plane name re-declares as a no-op + hydrates in reader order (FINDING A)", () => {
+  it("sorts by UTF-8 BYTES (not JS UTF-16 code units): a supplementary-plane name re-declares as a no-op + hydrates in reader order (FINDING A)", async () => {
     // The discriminating case the ASCII "Search"/"add" test CANNOT catch: JS
     // string `<`/`>` compares UTF-16 CODE UNITS, while SQLite `ORDER BY
     // tool_name` (no COLLATE → default BINARY) compares UTF-8 BYTES.
@@ -490,7 +523,7 @@ describe("DriverCapabilitiesWriter — canonical tool ordering", () => {
 
     // First declare establishes the snapshot (priorSnapshot === undefined, so the
     // spurious-update bug only manifests on the IDENTICAL re-declare below).
-    writer.declare({
+    await writer.declare({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       driverName: DRIVER_NAME,
@@ -504,7 +537,7 @@ describe("DriverCapabilitiesWriter — canonical tool ordering", () => {
 
     // Re-declare the IDENTICAL set in a DIFFERENT array order. The UTF-8-byte
     // sort canonicalizes BOTH sides to the reader's BINARY order → no-op.
-    const outcome = writer.declare({
+    const outcome = await writer.declare({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       driverName: DRIVER_NAME,
@@ -532,9 +565,9 @@ describe("DriverCapabilitiesWriter — canonical tool ordering", () => {
 // ----------------------------------------------------------------------------
 
 describe("DriverCapabilitiesWriter — invalid contract_version", () => {
-  it("throws ProviderOutputValidationError and writes NO rows + NO event (txn never opened)", () => {
+  it("throws ProviderOutputValidationError and writes NO rows + NO event (txn never opened)", async () => {
     const { writer } = makeWriter();
-    expect(() =>
+    await expect(
       writer.declare({
         sessionId: SESSION_ID,
         nodeId: NODE_ID,
@@ -547,7 +580,7 @@ describe("DriverCapabilitiesWriter — invalid contract_version", () => {
           },
         }),
       }),
-    ).toThrow(ProviderOutputValidationError);
+    ).rejects.toThrow(ProviderOutputValidationError);
 
     // The tables must be completely untouched (the txn never opened).
     expect(countCapabilityRows(DRIVER_NAME)).toBe(0);
@@ -562,7 +595,7 @@ describe("DriverCapabilitiesWriter — invalid contract_version", () => {
 // ----------------------------------------------------------------------------
 
 describe("DriverCapabilitiesWriter — invalid flags key-set", () => {
-  it("throws ProviderOutputValidationError on an EXTRA (8th bogus) flag + writes NO rows + NO event", () => {
+  it("throws ProviderOutputValidationError on an EXTRA (8th bogus) flag + writes NO rows + NO event", async () => {
     const { writer } = makeWriter();
     // The nominal `Record<DriverCapabilityFlag, boolean>` forbids an unknown key,
     // so build an 8-key flags object and widen through `unknown` to reach the
@@ -571,7 +604,7 @@ describe("DriverCapabilitiesWriter — invalid flags key-set", () => {
       DriverCapabilityFlag,
       boolean
     >;
-    expect(() =>
+    await expect(
       writer.declare({
         sessionId: SESSION_ID,
         nodeId: NODE_ID,
@@ -580,21 +613,21 @@ describe("DriverCapabilitiesWriter — invalid flags key-set", () => {
           capabilities: { flags: extraFlags, contractVersion: CONTRACT_VERSION },
         }),
       }),
-    ).toThrow(ProviderOutputValidationError);
+    ).rejects.toThrow(ProviderOutputValidationError);
 
     expect(countCapabilityRows(DRIVER_NAME)).toBe(0);
     expect(countContractMetaRows(DRIVER_NAME)).toBe(0);
     expect(readEventRows(SESSION_ID)).toHaveLength(0);
   });
 
-  it("throws ProviderOutputValidationError on a MISSING flag + writes NO rows + NO event", () => {
+  it("throws ProviderOutputValidationError on a MISSING flag + writes NO rows + NO event", async () => {
     const { writer } = makeWriter();
     const missingFlags = makeFlags();
     // Drop a canonical flag — the guard catches the <7 cardinality. Bracket
     // access because the `Record<string, boolean>` widening goes through an index
     // signature (`noPropertyAccessFromIndexSignature`).
     delete (missingFlags as Record<string, boolean>)["mcp"];
-    expect(() =>
+    await expect(
       writer.declare({
         sessionId: SESSION_ID,
         nodeId: NODE_ID,
@@ -603,14 +636,14 @@ describe("DriverCapabilitiesWriter — invalid flags key-set", () => {
           capabilities: { flags: missingFlags, contractVersion: CONTRACT_VERSION },
         }),
       }),
-    ).toThrow(ProviderOutputValidationError);
+    ).rejects.toThrow(ProviderOutputValidationError);
 
     expect(countCapabilityRows(DRIVER_NAME)).toBe(0);
     expect(countContractMetaRows(DRIVER_NAME)).toBe(0);
     expect(readEventRows(SESSION_ID)).toHaveLength(0);
   });
 
-  it("throws ProviderOutputValidationError on a SAME-cardinality wrong-key set (7 keys, one non-canonical) + writes NO rows + NO event", () => {
+  it("throws ProviderOutputValidationError on a SAME-cardinality wrong-key set (7 keys, one non-canonical) + writes NO rows + NO event", async () => {
     const { writer } = makeWriter();
     // 7 keys but `mcp` swapped for a bogus name — cardinality (===7) passes, so
     // the per-flag own-key loop is the guard that must reject (canonical `mcp`
@@ -619,7 +652,7 @@ describe("DriverCapabilitiesWriter — invalid flags key-set", () => {
     const wrongKeyFlags = makeFlags();
     delete (wrongKeyFlags as Record<string, boolean>)["mcp"];
     (wrongKeyFlags as Record<string, boolean>)["bogus_flag"] = true;
-    expect(() =>
+    await expect(
       writer.declare({
         sessionId: SESSION_ID,
         nodeId: NODE_ID,
@@ -631,7 +664,7 @@ describe("DriverCapabilitiesWriter — invalid flags key-set", () => {
           },
         }),
       }),
-    ).toThrow(ProviderOutputValidationError);
+    ).rejects.toThrow(ProviderOutputValidationError);
     expect(countCapabilityRows(DRIVER_NAME)).toBe(0);
     expect(countContractMetaRows(DRIVER_NAME)).toBe(0);
     expect(readEventRows(SESSION_ID)).toHaveLength(0);
@@ -643,9 +676,9 @@ describe("DriverCapabilitiesWriter — invalid flags key-set", () => {
 // ----------------------------------------------------------------------------
 
 describe("DriverCapabilitiesWriter — malformed tool metadata", () => {
-  it("throws ProviderOutputValidationError (leak-safe, NOT ZodError) on a whitespace-only tool name + writes NO rows + NO event", () => {
+  it("throws ProviderOutputValidationError (leak-safe, NOT ZodError) on a whitespace-only tool name + writes NO rows + NO event", async () => {
     const { writer } = makeWriter();
-    expect(() =>
+    await expect(
       writer.declare({
         sessionId: SESSION_ID,
         nodeId: NODE_ID,
@@ -654,7 +687,7 @@ describe("DriverCapabilitiesWriter — malformed tool metadata", () => {
         // surfaced as the leak-safe typed error (symmetric with contract_version).
         result: makeResult({ tools: [{ name: "   " }] }),
       }),
-    ).toThrow(ProviderOutputValidationError);
+    ).rejects.toThrow(ProviderOutputValidationError);
 
     expect(countCapabilityRows(DRIVER_NAME)).toBe(0);
     expect(readToolNames(DRIVER_NAME)).toEqual([]);
@@ -676,11 +709,11 @@ describe("DriverCapabilitiesWriter — structurally-malformed result (leak-safe)
   // post-fix the leak-safe `ProviderOutputValidationError` is thrown BEFORE any txn
   // opens, so the tables stay untouched and no event is emitted.
 
-  function expectLeakSafeReject(malformedResult: unknown): void {
+  async function expectLeakSafeReject(malformedResult: unknown): Promise<void> {
     const { writer } = makeWriter();
     let thrown: unknown;
     try {
-      writer.declare({
+      await writer.declare({
         sessionId: SESSION_ID,
         nodeId: NODE_ID,
         driverName: DRIVER_NAME,
@@ -700,19 +733,19 @@ describe("DriverCapabilitiesWriter — structurally-malformed result (leak-safe)
     expect(readEventRows(SESSION_ID)).toHaveLength(0);
   }
 
-  it("rejects a null `capabilities` as ProviderOutputValidationError (not a raw TypeError)", () => {
-    expectLeakSafeReject({ capabilities: null, tools: [] });
+  it("rejects a null `capabilities` as ProviderOutputValidationError (not a raw TypeError)", async () => {
+    await expectLeakSafeReject({ capabilities: null, tools: [] });
   });
 
-  it("rejects a null `flags` as ProviderOutputValidationError (not a raw TypeError)", () => {
-    expectLeakSafeReject({
+  it("rejects a null `flags` as ProviderOutputValidationError (not a raw TypeError)", async () => {
+    await expectLeakSafeReject({
       capabilities: { flags: null, contractVersion: CONTRACT_VERSION },
       tools: [],
     });
   });
 
-  it("rejects a null `tools` as ProviderOutputValidationError (not a raw TypeError)", () => {
-    expectLeakSafeReject({
+  it("rejects a null `tools` as ProviderOutputValidationError (not a raw TypeError)", async () => {
+    await expectLeakSafeReject({
       capabilities: { flags: makeFlags(), contractVersion: CONTRACT_VERSION },
       tools: null,
     });
@@ -724,7 +757,7 @@ describe("DriverCapabilitiesWriter — structurally-malformed result (leak-safe)
 // ----------------------------------------------------------------------------
 
 describe("DriverCapabilitiesWriter — sparse tools array (leak-safe, shape guard)", () => {
-  it("rejects a SPARSE tools array (a hole) as ProviderOutputValidationError BEFORE any txn opens — closes the undefined-hole-deref class", () => {
+  it("rejects a SPARSE tools array (a hole) as ProviderOutputValidationError BEFORE any txn opens — closes the undefined-hole-deref class", async () => {
     const { writer } = makeWriter();
 
     // Build a SPARSE array PROGRAMMATICALLY (not a literal `[a, , b]`, which the
@@ -743,7 +776,7 @@ describe("DriverCapabilitiesWriter — sparse tools array (leak-safe, shape guar
 
     let thrown: unknown;
     try {
-      writer.declare({
+      await writer.declare({
         sessionId: SESSION_ID,
         nodeId: NODE_ID,
         driverName: DRIVER_NAME,
@@ -775,7 +808,7 @@ describe("DriverCapabilitiesWriter — sparse tools array (leak-safe, shape guar
 // ----------------------------------------------------------------------------
 
 describe("DriverCapabilitiesWriter — toJSON-tainted flags (defensive snapshot clone)", () => {
-  it("clones flags into a fresh plain record so serialized consumers see real booleans (not toJSON output) and an identical re-declare no-ops", () => {
+  it("clones flags into a fresh plain record so serialized consumers see real booleans (not toJSON output) and an identical re-declare no-ops", async () => {
     const { writer } = makeWriter();
 
     // All 7 canonical boolean flags, PLUS a NON-ENUMERABLE `toJSON` — so the
@@ -795,7 +828,7 @@ describe("DriverCapabilitiesWriter — toJSON-tainted flags (defensive snapshot 
     // (the non-enumerable toJSON does not inflate cardinality).
     expect(Object.keys(taintedFlags).sort()).toEqual([...DRIVER_CAPABILITY_FLAGS].sort());
 
-    const outcome = writer.declare({
+    const outcome = await writer.declare({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       driverName: DRIVER_NAME,
@@ -862,7 +895,7 @@ describe("DriverCapabilitiesWriter — toJSON-tainted flags (defensive snapshot 
     // Pre-fix, the prior snapshot's `toJSON` would serialize `{poisoned:true}` on
     // one side and (depending on which side stored the raw object) diverge, firing a
     // spurious `capability_updated`.
-    const secondOutcome = writer.declare({
+    const secondOutcome = await writer.declare({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       driverName: DRIVER_NAME,
@@ -885,11 +918,11 @@ describe("DriverCapabilitiesWriter — toJSON-tainted flags (defensive snapshot 
 // ----------------------------------------------------------------------------
 
 describe("DriverCapabilitiesWriter — contract_version build metadata rejected", () => {
-  it("rejects `1.2.3+build.5` (SemVer §10 build metadata) with a reason that names build metadata + writes NO rows", () => {
+  it("rejects `1.2.3+build.5` (SemVer §10 build metadata) with a reason that names build metadata + writes NO rows", async () => {
     const { writer } = makeWriter();
     let thrown: unknown;
     try {
-      writer.declare({
+      await writer.declare({
         sessionId: SESSION_ID,
         nodeId: NODE_ID,
         driverName: DRIVER_NAME,
@@ -921,11 +954,11 @@ describe("DriverCapabilitiesWriter — contract_version build metadata rejected"
 // ----------------------------------------------------------------------------
 
 describe("DriverCapabilitiesWriter — duplicate tool names", () => {
-  it("throws ProviderOutputValidationError (field 'tools') on two tools sharing a name + opens NO txn (tables untouched, no event)", () => {
+  it("throws ProviderOutputValidationError (field 'tools') on two tools sharing a name + opens NO txn (tables untouched, no event)", async () => {
     const { writer } = makeWriter();
     let thrown: unknown;
     try {
-      writer.declare({
+      await writer.declare({
         sessionId: SESSION_ID,
         nodeId: NODE_ID,
         driverName: DRIVER_NAME,
@@ -960,9 +993,9 @@ describe("DriverCapabilitiesWriter — duplicate tool names", () => {
 // ----------------------------------------------------------------------------
 
 describe("DriverCapabilitiesWriter — no-description tool round-trip", () => {
-  it("treats a re-declare of a description-less tool as a noop (NULL→omitted round-trip is equal)", () => {
+  it("treats a re-declare of a description-less tool as a noop (NULL→omitted round-trip is equal)", async () => {
     const { writer } = makeWriter();
-    writer.declare({
+    await writer.declare({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       driverName: DRIVER_NAME,
@@ -972,7 +1005,7 @@ describe("DriverCapabilitiesWriter — no-description tool round-trip", () => {
     // Re-declare the identical description-less tool. The DB stores NULL; the
     // `#snapshot` reader omits `description` entirely, so the prior snapshot
     // compares deep-equal to the new one → noop.
-    const outcome = writer.declare({
+    const outcome = await writer.declare({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       driverName: DRIVER_NAME,
@@ -988,7 +1021,7 @@ describe("DriverCapabilitiesWriter — no-description tool round-trip", () => {
 // ----------------------------------------------------------------------------
 
 describe("DriverCapabilitiesWriter — multi-driver isolation", () => {
-  it("emits driver-name-suffixed capability keys and keeps each driver's rows + snapshot isolated", () => {
+  it("emits driver-name-suffixed capability keys and keeps each driver's rows + snapshot isolated", async () => {
     const { writer } = makeWriter();
 
     const codexResult: GetCapabilitiesResult = makeResult({
@@ -1000,13 +1033,13 @@ describe("DriverCapabilitiesWriter — multi-driver isolation", () => {
       tools: [{ name: "claude_tool", idempotency_class: "compensable" }],
     });
 
-    writer.declare({
+    await writer.declare({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       driverName: "codex",
       result: codexResult,
     });
-    writer.declare({
+    await writer.declare({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       driverName: "claude",
@@ -1044,9 +1077,9 @@ describe("DriverCapabilitiesWriter — multi-driver isolation", () => {
 // ----------------------------------------------------------------------------
 
 describe("DriverCapabilitiesWriter — #snapshot cardinality invariant", () => {
-  it("throws on a corrupt cache (a flag row deleted out-of-band)", () => {
+  it("throws on a corrupt cache (a flag row deleted out-of-band)", async () => {
     const { writer } = makeWriter();
-    writer.declare({
+    await writer.declare({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       driverName: DRIVER_NAME,
@@ -1068,7 +1101,7 @@ describe("DriverCapabilitiesWriter — #snapshot cardinality invariant", () => {
 // ----------------------------------------------------------------------------
 
 describe("DriverCapabilitiesWriter — hydrate (cold-start cache read)", () => {
-  it("round-trips a declared driver into the nested GetCapabilitiesResult (canonical tool order)", () => {
+  it("round-trips a declared driver into the nested GetCapabilitiesResult (canonical tool order)", async () => {
     const { writer } = makeWriter();
     const result: GetCapabilitiesResult = makeResult({
       tools: [
@@ -1076,7 +1109,12 @@ describe("DriverCapabilitiesWriter — hydrate (cold-start cache read)", () => {
         { name: "search", idempotency_class: "idempotent" },
       ],
     });
-    writer.declare({ sessionId: SESSION_ID, nodeId: NODE_ID, driverName: DRIVER_NAME, result });
+    await writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result,
+    });
 
     const hydrated = writer.hydrate(DRIVER_NAME);
     expect(hydrated).toEqual({
@@ -1105,7 +1143,7 @@ describe("DriverCapabilitiesWriter — hydrate (cold-start cache read)", () => {
   // synchronous better-sqlite3 (no interleaving point between the SELECTs), so
   // this is a PATH-EXERCISING regression guard: it proves the read-transaction
   // path round-trips a multi-tool, multi-table snapshot coherently end-to-end.
-  it("round-trips a multi-table snapshot THROUGH the deferred read-transaction path (torn-read guard)", () => {
+  it("round-trips a multi-table snapshot THROUGH the deferred read-transaction path (torn-read guard)", async () => {
     const { writer } = makeWriter();
     const result: GetCapabilitiesResult = makeResult({
       capabilities: { flags: makeFlags({ steer: true, mcp: true }), contractVersion: "3.1.4" },
@@ -1115,7 +1153,12 @@ describe("DriverCapabilitiesWriter — hydrate (cold-start cache read)", () => {
         { name: "search", idempotency_class: "manual_reconcile_only" },
       ],
     });
-    writer.declare({ sessionId: SESSION_ID, nodeId: NODE_ID, driverName: DRIVER_NAME, result });
+    await writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result,
+    });
 
     // The nested GetCapabilitiesResult reconstructed via the deferred read txn:
     // contractVersion (contract_meta), flags (driver_capabilities), and tools
@@ -1137,40 +1180,96 @@ describe("DriverCapabilitiesWriter — hydrate (cold-start cache read)", () => {
 // Throwing emit rolls back the cache write — write-then-emit ordering + atomicity
 // ----------------------------------------------------------------------------
 
-describe("DriverCapabilitiesWriter — atomic dual-write (throwing emit rolls back)", () => {
-  it("rolls back all three table writes when the emit throws (no rows for that driver)", () => {
-    const sessionService: SessionService = new SessionService(db, {
+describe("DriverCapabilitiesWriter — atomic dual-write (a failed event write rolls back)", () => {
+  it("rolls back all three table writes when the event INSERT throws (no rows for that driver)", async () => {
+    // The three table writes are now a `transactionalPrelude` that runs INSIDE
+    // the append's transaction, immediately BEFORE the event-row INSERT. To
+    // exercise ROLLBACK specifically, the failure must land AFTER the prelude
+    // has already applied — so the emitter is pinned to an event id that ALREADY
+    // EXISTS, making the INSERT violate `session_events`' TEXT PRIMARY KEY. A
+    // pre-transaction refusal would not test rollback at all (the next case
+    // covers that stronger property separately).
+    const seedingService: SessionService = new SessionService(db, {
       allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly(),
     });
-    // A REAL emitter whose append runs on the SAME connection, but whose emit is
-    // forced to throw AFTER the writes ran inside the txn — an injected
-    // `nextSequence` that throws makes `emitCapabilityDeclared` throw at append
-    // time (the same atomicity probe NodeCapabilityService's test uses), proving
-    // the write-then-emit ordering + transaction rollback.
-    const throwingEmitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
-      sessionEvents: sessionService,
-      nextSequence: () => {
-        throw new Error("forced emit failure");
-      },
-      newEventId: () => "evt-0",
+    seedingService.append({
+      id: "evt-collide",
+      sessionId: SESSION_ID,
+      sequence: 0,
+      occurredAt: "2026-06-02T12:00:00.000Z",
+      monotonicNs: 1_000_000_000n,
+      category: "session_lifecycle",
+      type: "session.created",
+      actor: null,
+      payload: { sessionId: SESSION_ID },
+      correlationId: null,
+      causationId: null,
+      version: "1.0",
+    });
+
+    const collidingEmitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
+      sessionEvents: new EventLogService({
+        db,
+        signingKeySource: new FixedDaemonSigningKeySource(),
+      }),
+      newEventId: () => "evt-collide",
     });
     const writer: DriverCapabilitiesWriter = new DriverCapabilitiesWriter(
       db,
-      throwingEmitter,
+      collidingEmitter,
       makeAdvancingClock(),
     );
 
-    expect(() =>
+    await expect(
       writer.declare({
         sessionId: SESSION_ID,
         nodeId: NODE_ID,
         driverName: DRIVER_NAME,
         result: makeResult({ tools: [{ name: "search", idempotency_class: "idempotent" }] }),
       }),
-    ).toThrow("forced emit failure");
+    ).rejects.toThrow(/UNIQUE|PRIMARY KEY|constraint/i);
 
-    // The three table writes ran FIRST then rolled back when the emit threw — so
-    // there are NO rows for the driver after the failed declare.
+    // The three table writes ran FIRST then rolled back when the INSERT threw —
+    // so there are NO rows for the driver after the failed declare, and the only
+    // event on the session is the seed.
+    expect(countCapabilityRows(DRIVER_NAME)).toBe(0);
+    expect(readToolNames(DRIVER_NAME)).toEqual([]);
+    expect(countContractMetaRows(DRIVER_NAME)).toBe(0);
+    expect(readEventRows(SESSION_ID)).toHaveLength(1);
+  });
+
+  it("never RUNS the table writes when the append refuses before opening its transaction", async () => {
+    // The property the re-point made STRONGER than rollback: a refusal raised
+    // before the transaction opens means the prelude never executes at all, so
+    // there is no partial state to roll back. A regression that moved the
+    // prelude ahead of the append's pre-transaction checks would still pass the
+    // rollback arm above while breaking this one.
+    class FailingSigningKeySource implements DaemonSigningKeySource {
+      read(_sessionId: SessionId): Promise<Ed25519PrivateKey> {
+        return Promise.reject(new Error("key unseal refused"));
+      }
+      create(_sessionId: SessionId): Promise<{ readonly publicKey: Ed25519PublicKey }> {
+        return Promise.reject(new Error("unused"));
+      }
+    }
+    const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
+      sessionEvents: new EventLogService({ db, signingKeySource: new FailingSigningKeySource() }),
+    });
+    const writer: DriverCapabilitiesWriter = new DriverCapabilitiesWriter(
+      db,
+      emitter,
+      makeAdvancingClock(),
+    );
+
+    await expect(
+      writer.declare({
+        sessionId: SESSION_ID,
+        nodeId: NODE_ID,
+        driverName: DRIVER_NAME,
+        result: makeResult({ tools: [{ name: "search", idempotency_class: "idempotent" }] }),
+      }),
+    ).rejects.toThrow("key unseal refused");
+
     expect(countCapabilityRows(DRIVER_NAME)).toBe(0);
     expect(readToolNames(DRIVER_NAME)).toEqual([]);
     expect(countContractMetaRows(DRIVER_NAME)).toBe(0);

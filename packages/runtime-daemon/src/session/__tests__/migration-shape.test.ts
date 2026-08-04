@@ -165,28 +165,34 @@ describe("0001-initial migration shape", () => {
     expect(byName.get("monotonic_ns")?.notnull).toBe(1);
   });
 
-  it("anchors schema_version rows at versions [1, 2, 3, 4, 5]", () => {
+  it("anchors schema_version rows at versions [1, 2, 3, 4, 5, 6, 7]", () => {
     // The `ORDER BY version` is load-bearing: without it the row order is
     // insertion-order luck and the assertion would silently stop pinning
     // which versions landed.
     const versionRows = db
       .prepare("SELECT version FROM schema_version ORDER BY version")
       .all() as ReadonlyArray<{ version: number }>;
-    expect(versionRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5]);
+    expect(versionRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7]);
   });
 
   it("is idempotent when applyMigrations runs twice", () => {
     // Second invocation must be a no-op (the migration runner short-
     // circuits via hasMigrationApplied per version). Re-running must not
     // throw, must not double-insert any schema_version anchor row, must
-    // not duplicate tables. Five DISTINCT versions [1, 2, 3, 4, 5] is not
+    // not duplicate tables. Seven DISTINCT versions [1..7] is not
     // duplication.
+    //
+    // Version 7 makes this arm strictly load-bearing rather than a
+    // formality: it is an `ALTER TABLE ... ADD COLUMN`, and SQLite has no
+    // `ADD COLUMN IF NOT EXISTS`, so a runner guard regression turns a
+    // re-apply into a hard "duplicate column name" throw here. Version 6
+    // is the same story for `CREATE INDEX` / `CREATE TRIGGER`.
     applyMigrations(db);
     const versionRows = db
       .prepare("SELECT version FROM schema_version ORDER BY version")
       .all() as ReadonlyArray<{ version: number }>;
-    expect(versionRows).toHaveLength(5);
-    expect(versionRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5]);
+    expect(versionRows).toHaveLength(7);
+    expect(versionRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7]);
   });
 });
 
@@ -1851,5 +1857,136 @@ describe("0005-daemon-signing-keys migration shape", () => {
       .get("session-text-blob") as { storage_class: string; sealed_private_key: unknown };
     expect(row.storage_class).toBe("text");
     expect(typeof row.sealed_private_key).toBe("string");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Plan-006 T3.1 — run-lifecycle terminal backstop (migration version 6).
+// ---------------------------------------------------------------------------
+//
+// Version 6 adds no TABLE, so `ALL_EXPECTED_TABLES` pins nothing about it: the
+// index and all three triggers could vanish and every other block in this file
+// would stay green. This block is the shape floor the suite's own convention
+// requires — the index exists with the right predicate and key expressions, and
+// each of the three triggers exists on the right event — plus ONE behavioral arm
+// on the promote leg, which is the leg no shape assertion can certify.
+//
+// The deeper behavioral matrix (insert-leg NULL + storage-class drift, the
+// update leg's value-rewrite and de-scope arms, and the index's own
+// duplicate-terminal rejection) is T3.5's per the plan; this block deliberately
+// does not duplicate it.
+describe("0006-run-lifecycle-terminal-backstop-index migration shape", () => {
+  let db: DatabaseType;
+
+  beforeEach(() => {
+    db = openDatabase(":memory:");
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  it("creates the partial UNIQUE terminal-backstop index scoped to the three terminal run_lifecycle types", () => {
+    // `sqlite_master.sql` is the authority for a PARTIAL index: `PRAGMA
+    // index_list` reports `partial: 1` but never the predicate, so an index
+    // whose WHERE clause silently widened to every `run_lifecycle` row — which
+    // would reject legitimate non-terminal duplicates — passes index_list
+    // unchanged. The DDL text is the only surface that discriminates it.
+    const indexDdl = db
+      .prepare(`SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?`)
+      .get("idx_session_events_run_terminal_once") as { sql: string } | undefined;
+    expect(indexDdl).toBeDefined();
+    if (indexDdl === undefined) return;
+
+    expect(indexDdl.sql).toContain("UNIQUE");
+    // Keyed on the JSON-extracted run identity, not on stored columns — run
+    // identity lives inside `payload`.
+    expect(indexDdl.sql).toContain("json_extract(payload, '$.runId')");
+    expect(indexDdl.sql).toContain("json_extract(payload, '$.runVersion')");
+    // The partial predicate: the three terminal types and nothing else.
+    expect(indexDdl.sql).toContain("WHERE category = 'run_lifecycle'");
+    expect(indexDdl.sql).toContain("'run.completed'");
+    expect(indexDdl.sql).toContain("'run.failed'");
+    expect(indexDdl.sql).toContain("'run.interrupted'");
+
+    // And it is registered against the right table.
+    const indexes = db.prepare("PRAGMA index_list(session_events)").all() as ReadonlyArray<{
+      name: string;
+      unique: number;
+      partial: number;
+    }>;
+    const backstop = indexes.find((index) => index.name === "idx_session_events_run_terminal_once");
+    expect(backstop).toBeDefined();
+    expect(backstop?.unique).toBe(1);
+    expect(backstop?.partial).toBe(1);
+  });
+
+  it("creates the terminal-key CHECK trigger trio SQLite cannot express as an ALTER TABLE ADD CHECK", () => {
+    const triggers = db
+      .prepare(
+        `SELECT name, tbl_name FROM sqlite_master
+          WHERE type = 'trigger' AND name LIKE 'trg_run_terminal_key_%'
+          ORDER BY name`,
+      )
+      .all() as ReadonlyArray<{ name: string; tbl_name: string }>;
+
+    // All three legs, and no fourth: the insert leg, the OLD-keyed update leg,
+    // and the promote leg. A trio reduced to two is the failure this pins.
+    expect(triggers.map((trigger) => trigger.name)).toEqual([
+      "trg_run_terminal_key_insert",
+      "trg_run_terminal_key_promote",
+      "trg_run_terminal_key_update",
+    ]);
+    for (const trigger of triggers) {
+      expect(trigger.tbl_name).toBe("session_events");
+    }
+  });
+
+  it("aborts on the promote leg when an UPDATE re-types a non-terminal row INTO the terminal set with NULL keys", () => {
+    // THE HOLE THIS CLOSES, and why it needs a behavioral arm rather than a
+    // shape one. The UNIQUE index treats NULLs as DISTINCT, so a terminal row
+    // with a NULL `runId`/`runVersion` never occupies an index slot and any
+    // number of them coexist. The INSERT leg catches that on the way in. But an
+    // UPDATE that re-types an ALREADY-STORED non-terminal row into the terminal
+    // set is keyed on OLD in the update leg — OLD was not terminal, so that leg
+    // does not fire — and would otherwise slip past both. The promote leg
+    // refuses it outright: terminal rows are INSERT-only.
+    db.prepare(
+      `INSERT INTO session_events
+         (id, session_id, sequence, occurred_at, monotonic_ns, category, type,
+          actor, payload, correlation_id, causation_id, version,
+          prev_hash, row_hash, daemon_signature)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      "evt-promote-probe",
+      "session-promote",
+      0,
+      "2026-06-02T12:00:00.000Z",
+      1_000_000_000,
+      "run_lifecycle",
+      // NON-terminal, and with NO runId/runVersion in the payload — the exact
+      // row the promote leg exists to stop from being re-typed.
+      "run.started",
+      null,
+      JSON.stringify({ note: "no run identity here" }),
+      null,
+      null,
+      "1.0",
+      Buffer.alloc(32),
+      Buffer.alloc(32, 0x01),
+      Buffer.alloc(64, 0x02),
+    );
+
+    expect(() =>
+      db
+        .prepare(`UPDATE session_events SET category = ?, type = ? WHERE id = ?`)
+        .run("run_lifecycle", "run.completed", "evt-promote-probe"),
+    ).toThrow(/terminal run_lifecycle by UPDATE|INSERT-only/i);
+
+    // And the row is untouched — RAISE(ABORT) rolls back the statement.
+    const row = db
+      .prepare(`SELECT type FROM session_events WHERE id = ?`)
+      .get("evt-promote-probe") as { type: string };
+    expect(row.type).toBe("run.started");
   });
 });

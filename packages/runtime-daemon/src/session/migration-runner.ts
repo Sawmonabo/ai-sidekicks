@@ -12,10 +12,19 @@
 // Version 1 is owned by Plan-001 (`migrations/0001-initial.ts`); version 2
 // by Plan-003 (`migrations/0002-runtime-node.ts`); version 3 by Plan-005
 // (`migrations/0003-runtime-bindings.ts`); version 4 by Plan-010
-// (`migrations/0004-worktree-lifecycle.ts`); version 5 by Plan-006
-// (`migrations/0005-daemon-signing-keys.ts`). Subsequent plans (015, 022...)
-// — and Plan-006's own remaining Phase-3 tables — register their version as a
+// (`migrations/0004-worktree-lifecycle.ts`); versions 5, 6 and 7 by Plan-006
+// (`migrations/0005-daemon-signing-keys.ts`,
+// `migrations/0006-run-lifecycle-terminal-backstop-index.ts`,
+// `migrations/0007-pii-participant-id.ts`). Subsequent plans (015, 022...) —
+// and Plan-006's own remaining Phase-3 migrations — register their version as a
 // further guarded block of the same shape and bump `schema_version`.
+//
+// Version ORDER is load-bearing between 6 and 7 only in the trivial sense that
+// both touch `session_events`; they are independent otherwise (6 adds an index
+// + triggers over existing columns, 7 adds a column neither references). They
+// are separate versions rather than one because they enforce unrelated
+// invariants with unrelated rollback stories — a failure in the trigger DDL
+// must not strand the owner-stamp column, and vice versa.
 //
 // SQL is sourced as a TypeScript string constant (not a sibling .sql file)
 // because `tsc -b` does not copy non-TS assets into `dist/` and `package.json`
@@ -38,6 +47,8 @@ import { RUNTIME_NODE_MIGRATION_SQL } from "../migrations/0002-runtime-node.js";
 import { RUNTIME_BINDINGS_MIGRATION_SQL } from "../migrations/0003-runtime-bindings.js";
 import { WORKTREE_LIFECYCLE_MIGRATION_SQL } from "../migrations/0004-worktree-lifecycle.js";
 import { DAEMON_SIGNING_KEYS_MIGRATION_SQL } from "../migrations/0005-daemon-signing-keys.js";
+import { RUN_LIFECYCLE_TERMINAL_BACKSTOP_MIGRATION_SQL } from "../migrations/0006-run-lifecycle-terminal-backstop-index.js";
+import { PII_PARTICIPANT_ID_MIGRATION_SQL } from "../migrations/0007-pii-participant-id.js";
 
 /**
  * Apply pragmas to an open Database handle. MUST be called on every
@@ -186,6 +197,50 @@ export function applyMigrations(db: DatabaseType): void {
       // skip the exec rather than re-applying the CREATE TABLE).
       if (!hasMigrationApplied(db, 5)) {
         db.exec(DAEMON_SIGNING_KEYS_MIGRATION_SQL);
+      }
+    }).immediate();
+  }
+
+  if (!hasMigrationApplied(db, 6)) {
+    // Plan-006 version-6 migration (run_lifecycle terminal-key backstop: the
+    // partial unique index + the insert/update/promote trigger trio). Same
+    // primitive as the version-1..5 blocks above: the migration SQL carries its
+    // own version=6 INSERT into schema_version, so the single .exec() commits
+    // the index + triggers atomically with the anchor row, and
+    // db.transaction(...).immediate() takes the RESERVED writer-intent lock at
+    // BEGIN so concurrent racers serialize at BEGIN rather than colliding at
+    // write-upgrade time. Atomicity matters more than usual here: a torn apply
+    // that landed the UNIQUE index without its trigger trio would leave the
+    // NULL-distinctness hole the triggers exist to close, silently admitting
+    // duplicate terminal rows (see the 0006 file header).
+    db.transaction(() => {
+      // Re-check inside the transaction to close the
+      // `hasMigrationApplied → exec` window (a concurrent writer that wins the
+      // BEGIN-IMMEDIATE race and commits first is observed here and we skip the
+      // exec rather than re-applying the CREATE INDEX / CREATE TRIGGERs).
+      if (!hasMigrationApplied(db, 6)) {
+        db.exec(RUN_LIFECYCLE_TERMINAL_BACKSTOP_MIGRATION_SQL);
+      }
+    }).immediate();
+  }
+
+  if (!hasMigrationApplied(db, 7)) {
+    // Plan-006 version-7 migration (session_events.pii_participant_id — the
+    // durable PII owner-stamp column). Same primitive as the version-1..6
+    // blocks above: the migration SQL carries its own version=7 INSERT into
+    // schema_version, so the single .exec() commits the ALTER TABLE atomically
+    // with the anchor row, and db.transaction(...).immediate() takes the
+    // RESERVED writer-intent lock at BEGIN so concurrent racers serialize at
+    // BEGIN rather than colliding at write-upgrade time. The guard is what
+    // makes re-application a no-op: SQLite has no `ADD COLUMN IF NOT EXISTS`,
+    // so a second exec would throw "duplicate column name".
+    db.transaction(() => {
+      // Re-check inside the transaction to close the
+      // `hasMigrationApplied → exec` window (a concurrent writer that wins the
+      // BEGIN-IMMEDIATE race and commits first is observed here and we skip the
+      // exec rather than re-applying the ALTER TABLE).
+      if (!hasMigrationApplied(db, 7)) {
+        db.exec(PII_PARTICIPANT_ID_MIGRATION_SQL);
       }
     }).immediate();
   }

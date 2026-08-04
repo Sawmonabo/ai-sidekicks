@@ -19,18 +19,23 @@
 // `runtime_node.registered` row in `session_events` is the collaboration
 // TIMELINE. Every `register` is therefore a DUAL-WRITE: upsert the node-keyed
 // table AND emit the session-scoped event. Both writes target the same local
-// SQLite handle, so they are wrapped in ONE `better-sqlite3` `db.transaction(...)`
-// and commit atomically. A non-atomic dual-write would ship a latent
-// partial-state corruption bug (a trust row with no event, or an event with no
-// row); the transaction is what forecloses it.
+// SQLite handle and commit in ONE transaction. A non-atomic dual-write would
+// ship a latent partial-state corruption bug (a trust row with no event, or an
+// event with no row); the transaction is what forecloses it.
 //
-// The transaction is prepared ONCE in the constructor (better-sqlite3's
-// prepare-the-transaction-once idiom) capturing the prepared statements + the
-// emitter. The BODY ORDER is load-bearing: the table upsert runs FIRST, then
-// the emit — so a throwing emit (e.g. a sequence-allocation failure) rolls back
-// the upsert that already ran inside the transaction. The emitter's `append`
-// executes on this same connection, so its INSERT participates in this
-// transaction (better-sqlite3 transactions are connection-level).
+// WHO OWNS THAT TRANSACTION CHANGED with Plan-006 T3.1's re-point, and the
+// atomicity was re-established rather than dropped. This class used to open the
+// transaction itself and emit inside it; the durable append path is async now
+// (it awaits a signing-key unseal) and a better-sqlite3 transaction cannot span
+// an `await`. So the upsert is handed DOWN as `transactionalPrelude`, which
+// `EventLogService.append` runs inside the same transaction as the event-row
+// INSERT, immediately BEFORE it.
+//
+// The BODY ORDER is preserved exactly — upsert FIRST, event row LAST — so a
+// throwing INSERT still rolls back the upsert. What IMPROVED: a refusal raised
+// before the transaction opens (the ingest-halt gate, a signing failure) means
+// the prelude never runs at all, which is stronger than rolling it back. No
+// `register` path can now leave a trust row without its event.
 //
 // What is threaded vs. stored
 // --------------------------------------------------------------------------
@@ -120,12 +125,8 @@ export class NodeRegistry {
   // prepared statement internally keeps its parent connection alive).
   readonly #upsertTrustStateStmt: Statement;
   readonly #selectTrustStateStmt: Statement;
-  readonly #registerTxn: (input: RegisterNodeInput) => void;
-  // The same single emission seam `register` routes through, retained so
-  // `detach` (T2.5) can emit `runtime_node.offline` without re-deriving the
-  // event-construction path. `register`'s transaction captures `emitter` in its
-  // closure; `detach` is a non-transactional emit (no durable write), so it
-  // needs the reference on the instance.
+  // The single emission seam BOTH paths route through. `register` hands it a
+  // `transactionalPrelude`; `detach` emits with none (no durable write).
   readonly #emitter: RuntimeNodeEventEmitter;
   // Wall-clock source reused for `detach`'s default `lastHeartbeatAt` — the same
   // injected `now` the registration upsert uses, so a test's deterministic clock
@@ -156,44 +157,46 @@ export class NodeRegistry {
          FROM node_trust_state
         WHERE node_id = ?`,
     );
-
-    // Prepare the dual-write transaction once. Body order is load-bearing:
-    // upsert the durable table FIRST, then emit — so a throwing emit rolls back
-    // the upsert that already ran in this transaction. The emitter's append runs
-    // on the SAME connection, so its INSERT joins this transaction.
-    this.#registerTxn = db.transaction((input: RegisterNodeInput): void => {
-      this.#upsertTrustStateStmt.run({ node_id: input.nodeId, now: now() });
-      emitter.emitRegistered({
-        sessionId: input.sessionId,
-        nodeId: input.nodeId,
-        // `registering` is the initial lifecycle state (the node has joined and
-        // is completing capability declaration — `docs/domain/runtime-node-model.md §State Model` /
-        // NodeStateSchema). `previousState` is intentionally OMITTED: registration
-        // is the FIRST lifecycle event, so there is no prior state to report.
-        // Omitting the key keeps it absent from the parsed payload (the happy-path
-        // test asserts `not.toHaveProperty("previousState")`). The emitter input
-        // types it `previousState?: NodeState | undefined`, so an explicit
-        // `undefined` would type-check too — omission is simply the cleaner intent.
-        newState: "registering",
-        capabilities: input.capabilities,
-        nodeVersion: input.nodeVersion,
-        platform: input.platform,
-        // Forward `actor` as `?? null` so an omitted (`undefined`) actor becomes
-        // the system-null actor (the emitter input rejects explicit-`undefined`
-        // under `exactOptionalPropertyTypes`).
-        actor: input.actor ?? null,
-      });
-    });
   }
 
   /**
    * Register a node (or refresh an already-registered node) and emit
    * `runtime_node.registered`. Atomic: the `node_trust_state` upsert and the
-   * event emit either both commit or both roll back. Synchronous —
-   * better-sqlite3 is synchronous by design.
+   * event row either both commit or neither does.
+   *
+   * ASYNC because the durable append path is (its per-session mutex and its
+   * signing-key unseal). The upsert travels as `transactionalPrelude` — see the
+   * file header for why that is where the atomicity now lives.
    */
-  register(input: RegisterNodeInput): void {
-    this.#registerTxn(input);
+  async register(input: RegisterNodeInput): Promise<void> {
+    await this.#emitter.emitRegistered({
+      sessionId: input.sessionId,
+      nodeId: input.nodeId,
+      // `registering` is the initial lifecycle state (the node has joined and
+      // is completing capability declaration — `docs/domain/runtime-node-model.md §State Model` /
+      // NodeStateSchema). `previousState` is intentionally OMITTED: registration
+      // is the FIRST lifecycle event, so there is no prior state to report.
+      // Omitting the key keeps it absent from the parsed payload (the happy-path
+      // test asserts `not.toHaveProperty("previousState")`). The emitter input
+      // types it `previousState?: NodeState | undefined`, so an explicit
+      // `undefined` would type-check too — omission is simply the cleaner intent.
+      newState: "registering",
+      capabilities: input.capabilities,
+      nodeVersion: input.nodeVersion,
+      platform: input.platform,
+      // Forward `actor` as `?? null` so an omitted (`undefined`) actor becomes
+      // the system-null actor (the emitter input rejects explicit-`undefined`
+      // under `exactOptionalPropertyTypes`).
+      actor: input.actor ?? null,
+      // The durable half of the dual-write, run inside the append's transaction
+      // immediately BEFORE the event-row INSERT. `this.#now()` is read HERE, in
+      // the transaction, exactly where it was read when this class owned the
+      // transaction — so an injected clock still governs the persisted
+      // timestamps and nothing observes a `now` from before a queued append.
+      transactionalPrelude: () => {
+        this.#upsertTrustStateStmt.run({ node_id: input.nodeId, now: this.#now() });
+      },
+    });
   }
 
   /**
@@ -222,11 +225,12 @@ export class NodeRegistry {
    * default; an omitted value is left off the parsed payload — the explicit-shutdown
    * call site supplies `"online"`). `actor` forwards as `?? null` so an omitted actor
    * becomes the system-null actor (the emitter input rejects explicit-`undefined`
-   * under `exactOptionalPropertyTypes`). Synchronous — better-sqlite3 is synchronous
-   * by design.
+   * under `exactOptionalPropertyTypes`). ASYNC because the durable append path
+   * is — there is still no durable write here and so no prelude, but the emit
+   * must be awaited for its failure to reach the caller.
    */
-  detach(input: DetachNodeInput): void {
-    this.#emitter.emitOffline({
+  async detach(input: DetachNodeInput): Promise<void> {
+    await this.#emitter.emitOffline({
       sessionId: input.sessionId,
       nodeId: input.nodeId,
       // Forwarded as-supplied; omission keeps the key absent from the parsed

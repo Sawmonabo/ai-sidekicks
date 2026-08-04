@@ -212,6 +212,14 @@ exports[`0001-initial migration shape > pins the column shape of \`session_event
     "pk": 0,
     "type": "BLOB",
   },
+  {
+    "cid": 17,
+    "dflt_value": null,
+    "name": "pii_participant_id",
+    "notnull": 0,
+    "pk": 0,
+    "type": "TEXT",
+  },
 ]
 `;
 

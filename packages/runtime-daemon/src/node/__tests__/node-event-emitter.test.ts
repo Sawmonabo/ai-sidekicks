@@ -1,29 +1,30 @@
 // RuntimeNodeEventEmitter — Plan-003 Phase 2 (T2.3).
 //
 // Exercises the emission seam that routes `runtime_node.*` events through
-// the injected `SessionEventLog` — implemented here by Plan-001's
-// `SessionService` with the test-only append opt-in
-// (`allowUnsignedPlaceholderAppend`) — over a real test SQLite DB
-// (mirrors `session-service.test.ts` lifecycle: `openDatabase`
+// the injected `SessionEventLog` — implemented here by Plan-006 T3.1's
+// `EventLogService`, the sole durable production writer — over a real test
+// SQLite DB (mirrors `session-service.test.ts` lifecycle: `openDatabase`
 // factory → per-test tmp file → `afterEach` close + unlink). The
 // structural-seam block at the bottom proves the emitter also accepts a
-// plain-object log implementation — structural decoupling only: T3.1's
-// async `EventLogService.append` does NOT satisfy this synchronous seam;
-// T3.1's own leg re-points it onto the durable append path.
+// plain-object log implementation: the seam is ASYNC-TRANSACTIONAL post the
+// T3.1 re-point, and that block pins the contract at BOTH enforcement
+// layers (a synchronous `append` fails to compile AND is refused at runtime).
 //
 // Coverage map (cites are the authoritative contract, not just the ACs):
 //   * D5 (Plan-003 T2.3 required assertion / I-003-4): a persisted
-//     `runtime_node.*` row carries a non-null `monotonic_ns` in the Plan-001
-//     column shape with ZERO-FILLED integrity columns (asserted via a raw
-//     `session_events` query, since `readEvents`/`StoredEvent` do not surface
-//     the integrity blobs). Proves `monotonic_ns` is debug data the append
-//     path materializes, distinct from the `sequence` replay key.
+//     `runtime_node.*` row carries a non-null `monotonic_ns` and REAL
+//     integrity columns — a genuine BLAKE3 `row_hash` and Ed25519
+//     `daemon_signature`, not the Plan-001 zero-fill placeholders (asserted
+//     via a raw `session_events` query, since `readEvents`/`StoredEvent` do
+//     not surface the integrity blobs). Proves `monotonic_ns` is debug data
+//     the append path materializes, distinct from the `sequence` replay key.
 //   * Emission boundary (CP-003-1): an out-of-bounds payload field makes the
 //     emit throw via the T2.0 schema's `.parse()` — the validation seam
 //     actually rejects, it is not an ad-hoc object.
-//   * Sequence allocation: two successive emits land at consecutive
-//     sequences via the log-derive default (covers BOTH branches: empty-log
-//     → 0, then last+1); injecting a custom `nextSequence` overrides it.
+//   * Sequence allocation: the append path derives every sequence from the
+//     durable chain head (empty-log → 0, then head + 1, and the MAXIMUM
+//     rather than the last-inserted row), including for CONCURRENT
+//     same-session emits — the race the re-point closed.
 //   * Determinism: injected `monotonicNow` / `now` / `newEventId` flow
 //     through to the persisted row (what T2.6's D6 relies on to drive
 //     non-monotonic `monotonic_ns` through the emitter).
@@ -34,7 +35,10 @@
 //     envelope and the payload (a caller cannot make them diverge).
 //
 // Spec coverage: `Spec-003 §State And Data Implications` (capability/trust changes emitted as
-// session events); `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` (per-event payload shapes).
+// session events); `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)` (per-event payload shapes);
+// `Spec-006 §Canonical Serialization Rules` (the two T2.1-inherited normalization obligations the
+// Plan-006 T3.1 append path discharges — normalized `occurredAt` persisted, absent `actor` narrowed
+// to null before canonicalization).
 // Verifies invariant: I-003-4 (`monotonic_ns` is within-daemon debug data,
 // not the replay key — the replay key is `sequence`).
 
@@ -43,11 +47,29 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { Database as DatabaseType } from "better-sqlite3";
+import { ed25519 } from "@noble/curves/ed25519.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import {
+  EventEnvelopeSchema,
+  EventEnvelopeVersionSchema,
+  SessionIdSchema,
+} from "@ai-sidekicks/contracts";
+import type { EventEnvelope, SessionId } from "@ai-sidekicks/contracts";
+
+import { canonicalizeEvent, isCanonicalOccurredAt } from "../../events/canonicalizer.js";
+import { EventLogService } from "../../events/event-log-service.js";
+import type {
+  EventLogAppendReceipt,
+  UnsequencedEventEnvelope,
+} from "../../events/event-log-service.js";
+import { __resetSessionAppendLocksForTest } from "../../events/session-append-lock.js";
+import { verifyRow } from "../../events/signer.js";
+import type { Ed25519PrivateKey, Ed25519PublicKey } from "../../events/signer.js";
+import type { DaemonSigningKeySource } from "../../events/signing-key-source.js";
 import { openDatabase } from "../../session/migration-runner.js";
 import { SessionService, UnsignedPlaceholderAppendToken } from "../../session/session-service.js";
-import type { AppendableEvent, StoredEvent } from "../../session/types.js";
+import type { StoredEvent } from "../../session/types.js";
 import { RuntimeNodeEventEmitter } from "../node-event-emitter.js";
 import type { RuntimeNodeEventEmitterDeps, SessionEventLog } from "../node-event-emitter.js";
 
@@ -68,11 +90,12 @@ const NODE_ID: string = "node-01J0ND0000NN5J5J5J5J5J5J";
 // NOT a branded ParticipantId — any bounded string (here a ULID) is valid.
 const PARTICIPANT_ID: string = "01J0PA0000NN5J5J5J5J5J5J5J";
 
-// The integrity-column placeholder bytes the Plan-001 append path zero-fills
-// (32/32/64 per 0001-initial.ts CHECK constraints). The emitter never touches
-// these; D5 asserts the append path materialized them.
-const ZERO_HASH_LEN: number = 32;
-const ZERO_SIGNATURE_LEN: number = 64;
+// The integrity-column widths (32/32/64 per 0001-initial.ts CHECK constraints).
+// The emitter never touches these; D5 asserts the append path materialized REAL
+// ones — Plan-006 T3.1's re-point replaced the Plan-001 zero-fill placeholders
+// with a genuine BLAKE3 chain + Ed25519 signature.
+const CHAIN_HASH_LEN: number = 32;
+const DAEMON_SIGNATURE_LEN: number = 64;
 
 // The compile-time async-append-rejection control's title, bound to an
 // exported identifier so governance docs can cite the control durably (the
@@ -80,7 +103,40 @@ const ZERO_SIGNATURE_LEN: number = 64;
 // deleting the test breaks the inbound cite instead of leaving it validating
 // against nothing (same pattern as migration-shape.test.ts's exported titles).
 export const COMPILE_TIME_ASYNC_APPEND_REJECTION_TEST: string =
-  "rejects a Promise-returning append at COMPILE time (undefined return, not void)";
+  "rejects a synchronous append at COMPILE time (Promise return, not undefined)";
+
+/**
+ * A fixed-key {@link DaemonSigningKeySource} — enough for the emitter suite,
+ * which is about EMISSION, not key custody (`signing-key-source.test.ts` owns
+ * that). A 32-byte Ed25519 seed; `create` is unreachable here because these
+ * tests only ever sign.
+ */
+const FIXED_DAEMON_PRIVATE_KEY: Ed25519PrivateKey = new Uint8Array(32).fill(7) as Ed25519PrivateKey;
+
+// Derived, never hard-coded: the round-trip arm below verifies against the key
+// the suite actually SIGNS with, so a fixture drift cannot make verification
+// pass against the wrong key (the `signer.golden.test.ts` / `post-shred-verify`
+// idiom).
+const FIXED_DAEMON_PUBLIC_KEY: Ed25519PublicKey = ed25519.getPublicKey(
+  FIXED_DAEMON_PRIVATE_KEY,
+) as Ed25519PublicKey;
+
+class FixedDaemonSigningKeySource implements DaemonSigningKeySource {
+  readonly #privateKey: Ed25519PrivateKey = FIXED_DAEMON_PRIVATE_KEY;
+
+  read(_sessionId: SessionId): Promise<Ed25519PrivateKey> {
+    return Promise.resolve(this.#privateKey);
+  }
+
+  create(_sessionId: SessionId): Promise<{ readonly publicKey: Ed25519PublicKey }> {
+    // Never called: this suite signs against a pre-existing key. Throwing keeps
+    // an accidental provisioning call loud instead of returning a fake public
+    // key that would silently pass a roster assertion.
+    return Promise.reject(
+      new Error("FixedDaemonSigningKeySource.create is not used by this suite"),
+    );
+  }
+}
 
 // Raw read shape for the integrity columns that `StoredEvent` does not expose.
 interface IntegrityRow {
@@ -125,6 +181,10 @@ function makeCounterIdSource(prefix: string): () => string {
 
 interface TestContext {
   db: DatabaseType;
+  // The production append path the emitter is re-pointed onto (Plan-006 T3.1).
+  eventLog: EventLogService;
+  // Retained for its READ side only (`readEvents`, which needs no opt-in) plus
+  // the D6 seeding path. It is NOT the emitter's append seam any more.
   service: SessionService;
   tmpDir: string;
 }
@@ -144,6 +204,10 @@ beforeEach(() => {
   // through this service (session-service.test.ts pins the guard itself).
   ctx = {
     db,
+    eventLog: new EventLogService({
+      db,
+      signingKeySource: new FixedDaemonSigningKeySource(),
+    }),
     service: new SessionService(db, {
       allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly(),
     }),
@@ -152,6 +216,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // The per-session append lock is a MODULE SINGLETON, so a case that left a
+  // queue entry behind would stall the next case touching the same session id
+  // — and the failure would present as an unrelated timeout. Reset between
+  // cases, never during one.
+  __resetSessionAppendLocksForTest();
   if (ctx.db.open) {
     ctx.db.close();
   }
@@ -162,7 +231,7 @@ function makeEmitter(
   overrides: Partial<RuntimeNodeEventEmitterDeps> = {},
 ): RuntimeNodeEventEmitter {
   return new RuntimeNodeEventEmitter({
-    sessionEvents: ctx.service,
+    sessionEvents: ctx.eventLog,
     newEventId: makeCounterIdSource("evt"),
     ...overrides,
   });
@@ -172,13 +241,13 @@ function makeEmitter(
 // D5 — monotonic_ns persisted, integrity columns zero-filled (I-003-4)
 // ----------------------------------------------------------------------------
 
-describe("RuntimeNodeEventEmitter — D5 (monotonic_ns + zero-filled integrity columns)", () => {
-  it("persists a runtime_node.* row with non-null monotonic_ns and zero-filled integrity columns", () => {
+describe("RuntimeNodeEventEmitter — D5 (monotonic_ns + materialized integrity columns)", () => {
+  it("persists a runtime_node.* row with non-null monotonic_ns and REAL integrity columns", async () => {
     const emitter: RuntimeNodeEventEmitter = makeEmitter({
       monotonicNow: () => 7_000_000_000n,
     });
 
-    emitter.emitRegistered({
+    await emitter.emitRegistered({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       newState: "online",
@@ -196,15 +265,24 @@ describe("RuntimeNodeEventEmitter — D5 (monotonic_ns + zero-filled integrity c
     // monotonic_ns is present and non-null in the Plan-001 column shape.
     expect(row.monotonic_ns).toBe(7_000_000_000n);
 
-    // Integrity columns are zero-filled by the append path (the emitter never
-    // computes them). Buffers of the exact CHECK-constraint widths, all bytes
-    // zero. participant_signature stays NULL.
-    expect(row.prev_hash.length).toBe(ZERO_HASH_LEN);
-    expect(row.row_hash.length).toBe(ZERO_HASH_LEN);
-    expect(row.daemon_signature.length).toBe(ZERO_SIGNATURE_LEN);
-    expect(row.prev_hash.equals(Buffer.alloc(ZERO_HASH_LEN))).toBe(true);
-    expect(row.row_hash.equals(Buffer.alloc(ZERO_HASH_LEN))).toBe(true);
-    expect(row.daemon_signature.equals(Buffer.alloc(ZERO_SIGNATURE_LEN))).toBe(true);
+    // Integrity columns are materialized by the append path (the emitter never
+    // computes them). Buffers of the exact CHECK-constraint widths.
+    expect(row.prev_hash.length).toBe(CHAIN_HASH_LEN);
+    expect(row.row_hash.length).toBe(CHAIN_HASH_LEN);
+    expect(row.daemon_signature.length).toBe(DAEMON_SIGNATURE_LEN);
+
+    // `prev_hash` IS all-zero here, and for a reason that is the opposite of a
+    // placeholder: this is the session's FIRST row, so its chain link is
+    // GENESIS_PREV_HASH (`Spec-006 §Integrity Protocol` — zero-filled at
+    // sequence 0). The two columns that would ALSO have been zero under the
+    // Plan-001 placeholder append are the discriminating ones, and both are
+    // asserted NON-zero — which is exactly what the T3.1 re-point changed, and
+    // what a regression back to the guarded placeholder writer would break.
+    expect(row.prev_hash.equals(Buffer.alloc(CHAIN_HASH_LEN))).toBe(true);
+    expect(row.row_hash.equals(Buffer.alloc(CHAIN_HASH_LEN))).toBe(false);
+    expect(row.daemon_signature.equals(Buffer.alloc(DAEMON_SIGNATURE_LEN))).toBe(false);
+    // Still NULL: T3.1 mints no participant signature (the column is nullable
+    // and no V1 producer supplies one).
     expect(row.participant_signature).toBeNull();
 
     // The row carries the runtime-node type + the Plan-001-owned category.
@@ -213,7 +291,7 @@ describe("RuntimeNodeEventEmitter — D5 (monotonic_ns + zero-filled integrity c
     expect(row.version).toBe("1.0");
   });
 
-  it("allocates a monotonic sequence even when monotonic_ns runs backwards — emission half of I-003-4 (D6 owns the replay-read proof)", () => {
+  it("allocates a monotonic sequence even when monotonic_ns runs backwards — emission half of I-003-4 (D6 owns the replay-read proof)", async () => {
     // Drive monotonic_ns BACKWARDS relative to sequence through the emitter
     // (exactly the seam T2.6's D6 will use). Sequence must still advance.
     let monotonicValue: bigint = 9_000_000_000n;
@@ -225,7 +303,7 @@ describe("RuntimeNodeEventEmitter — D5 (monotonic_ns + zero-filled integrity c
       },
     });
 
-    emitter.emitRegistered({
+    await emitter.emitRegistered({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       newState: "registering",
@@ -233,7 +311,7 @@ describe("RuntimeNodeEventEmitter — D5 (monotonic_ns + zero-filled integrity c
       nodeVersion: "1.0.0",
       platform: "linux-x64",
     });
-    emitter.emitCapabilityDeclared({
+    await emitter.emitCapabilityDeclared({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       capability: "provider-driver",
@@ -267,18 +345,20 @@ describe("RuntimeNodeEventEmitter — D5 (monotonic_ns + zero-filled integrity c
 // Two deliberate fixture choices make the guard fire cleanly and in BOTH
 // directions (vs a merely-descending clock that would only catch a mono-ASC
 // regression and would corrupt allocation before the assertion ran):
-//   * `nextSequence` is INJECTED, so the fixture does not derive `sequence`
-//     through the very `readEvents` under test. Otherwise a regression that
-//     reordered the read would feed `#deriveNextSequence` a stale tail and
-//     collide on `UNIQUE(session_id, sequence)` during emit — masking the
-//     replay-read assertion behind a write-time throw.
+//   * `sequence` is allocated by `EventLogService.append` from the durable
+//     CHAIN HEAD (`MAX(sequence)` under the append lock), NOT through the very
+//     `readEvents` under test. That independence used to be bought with an
+//     injected `nextSequence`; since the T3.1 re-point it is structural — the
+//     allocator no longer goes anywhere near the read path this guard targets,
+//     so a regression that reordered the read cannot mask itself behind a
+//     write-time `UNIQUE(session_id, sequence)` collision.
 //   * `monotonic_ns` is NON-monotonic (mirrors legacy D3's [5e9,1e9,3e9]): it
 //     sorts to an order matching NEITHER the ascending nor descending sequence
 //     direction, so a read keyed on monotonic_ns in either direction reorders
 //     the events and trips the `sequence` assertion.
 
 describe("RuntimeNodeEventEmitter — D6 (replay reads emitter-produced events by sequence, not monotonic_ns)", () => {
-  it("readEvents returns runtime_node.* events in sequence order even when monotonic_ns sorts to neither direction", () => {
+  it("readEvents returns runtime_node.* events in sequence order even when monotonic_ns sorts to neither direction", async () => {
     // monotonic_ns per emit, in emission order. Non-monotonic by construction:
     // ascending sort → sequence [1,3,0,2]; descending → [2,0,3,1]; neither is
     // the emission order [0,1,2,3]. So a read keyed on monotonic_ns (either
@@ -290,22 +370,17 @@ describe("RuntimeNodeEventEmitter — D6 (replay reads emitter-produced events b
       3_000_000_000n, // offline             → seq 3
     ];
     let monotonicIndex: number = 0;
-    let nextSequenceValue: number = 0;
     const emitter: RuntimeNodeEventEmitter = makeEmitter({
       monotonicNow: () => {
         const value: bigint | undefined = monotonicByEmit[monotonicIndex];
         monotonicIndex += 1;
         return value ?? 0n;
       },
-      // Pin sequence to [0,1,2,3] independent of `readEvents` (the SUT) — see
-      // the block comment above for why the default log-derive allocator would
-      // mask the regression this guard targets.
-      nextSequence: () => nextSequenceValue++,
     });
 
     // A canonical node lifecycle, emitted in order through the T2.3 seam:
     // registered → capability_declared → online → offline.
-    emitter.emitRegistered({
+    await emitter.emitRegistered({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       newState: "registering",
@@ -313,14 +388,14 @@ describe("RuntimeNodeEventEmitter — D6 (replay reads emitter-produced events b
       nodeVersion: "1.0.0",
       platform: "linux-x64",
     });
-    emitter.emitCapabilityDeclared({
+    await emitter.emitCapabilityDeclared({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       capability: "provider-driver",
       capabilityDetails: { contractVersion: "1.0" },
     });
-    emitter.emitOnline({ sessionId: SESSION_ID, nodeId: NODE_ID, newState: "online" });
-    emitter.emitOffline({
+    await emitter.emitOnline({ sessionId: SESSION_ID, nodeId: NODE_ID, newState: "online" });
+    await emitter.emitOffline({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       previousState: "online",
@@ -370,14 +445,14 @@ describe("RuntimeNodeEventEmitter — D6 (replay reads emitter-produced events b
 // ----------------------------------------------------------------------------
 
 describe("RuntimeNodeEventEmitter — emission boundary (.parse rejects invalid payloads)", () => {
-  it("throws and persists nothing when a payload field violates its schema (over-length nodeVersion)", () => {
+  it("throws and persists nothing when a payload field violates its schema (over-length nodeVersion)", async () => {
     const emitter: RuntimeNodeEventEmitter = makeEmitter();
     // `nodeVersion` cap is RUNTIME_NODE_VERSION_MAX_LEN = 64; 65 chars trips
     // the schema's length bound. Type-`string`-valid, so this exercises the
     // RUNTIME `.parse()` validation seam (not a TypeScript error).
     const overLengthVersion: string = "9".repeat(65);
 
-    expect(() =>
+    await expect(
       emitter.emitRegistered({
         sessionId: SESSION_ID,
         nodeId: NODE_ID,
@@ -386,16 +461,16 @@ describe("RuntimeNodeEventEmitter — emission boundary (.parse rejects invalid 
         nodeVersion: overLengthVersion,
         platform: "darwin-arm64",
       }),
-    ).toThrow();
+    ).rejects.toThrow();
 
     // The throw happens at the emission boundary BEFORE the append, so no row
     // was persisted — the validation seam is a true gate, not post-hoc.
     expect(readRawRows(ctx.db, SESSION_ID)).toHaveLength(0);
   });
 
-  it("rejects an invalid offline `reason` (not in the Spec-006 enum) at the emission boundary", () => {
+  it("rejects an invalid offline `reason` (not in the Spec-006 enum) at the emission boundary", async () => {
     const emitter: RuntimeNodeEventEmitter = makeEmitter();
-    expect(() =>
+    await expect(
       emitter.emitOffline({
         sessionId: SESSION_ID,
         nodeId: NODE_ID,
@@ -405,13 +480,13 @@ describe("RuntimeNodeEventEmitter — emission boundary (.parse rejects invalid 
         // the schema enum is the runtime gate, and it must reject.
         reason: "bogus_reason" as "explicit_shutdown",
       }),
-    ).toThrow();
+    ).rejects.toThrow();
     expect(readRawRows(ctx.db, SESSION_ID)).toHaveLength(0);
   });
 
-  it("rejects a non-ISO `lastHeartbeatAt` (the offline path's second validated field) at the emission boundary", () => {
+  it("rejects a non-ISO `lastHeartbeatAt` (the offline path's second validated field) at the emission boundary", async () => {
     const emitter: RuntimeNodeEventEmitter = makeEmitter();
-    expect(() =>
+    await expect(
       emitter.emitOffline({
         sessionId: SESSION_ID,
         nodeId: NODE_ID,
@@ -421,20 +496,31 @@ describe("RuntimeNodeEventEmitter — emission boundary (.parse rejects invalid 
         lastHeartbeatAt: "2026-06-02",
         reason: "explicit_shutdown",
       }),
-    ).toThrow();
+    ).rejects.toThrow();
     expect(readRawRows(ctx.db, SESSION_ID)).toHaveLength(0);
   });
 });
 
 // ----------------------------------------------------------------------------
-// Sequence allocation — log-derive default + custom override
+// Sequence allocation — owned by EventLogService.append, off the chain head
 // ----------------------------------------------------------------------------
+//
+// Plan-006 T3.1 MOVED allocation out of this emitter. The `nextSequence`
+// injection seam and the `readEvents` log-derive default are both gone, so the
+// tests that pinned them are re-pointed at the property that replaced them:
+// `append` reads `MAX(sequence)` for the session under its own lock and returns
+// the number it assigned. The old "injected allocator wins" and "a duplicate
+// allocator collides on UNIQUE" arms are not merely deleted — the first pinned a
+// seam that no longer exists, and the second's premise (a caller can hand out a
+// colliding sequence) is now UNREACHABLE, which is exactly the improvement. The
+// concurrency arm below is what stands in its place, and it is a stronger claim:
+// two overlapping emits cannot collide in the first place.
 
-describe("RuntimeNodeEventEmitter — sequence allocation", () => {
-  it("allocates consecutive sequences via the log-derive default (empty-log → 0, then last + 1)", () => {
+describe("RuntimeNodeEventEmitter — sequence allocation (delegated to the append path)", () => {
+  it("allocates consecutive sequences from the durable chain head (empty log → 0, then head + 1)", async () => {
     const emitter: RuntimeNodeEventEmitter = makeEmitter();
 
-    const first: AppendableEvent = emitter.emitRegistered({
+    const first: EventLogAppendReceipt = await emitter.emitRegistered({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       newState: "registering",
@@ -442,14 +528,14 @@ describe("RuntimeNodeEventEmitter — sequence allocation", () => {
       nodeVersion: "1.0.0",
       platform: "linux-x64",
     });
-    const second: AppendableEvent = emitter.emitCapabilityDeclared({
+    const second: EventLogAppendReceipt = await emitter.emitCapabilityDeclared({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       capability: "provider-driver",
       capabilityDetails: { contractVersion: "1.0" },
     });
 
-    // Both branches of the default allocator: empty log → 0, then last + 1.
+    // Both branches of the allocator: empty log → 0, then head + 1.
     expect(first.sequence).toBe(0);
     expect(second.sequence).toBe(1);
 
@@ -457,9 +543,9 @@ describe("RuntimeNodeEventEmitter — sequence allocation", () => {
     expect(rows.map((r) => r.sequence)).toEqual([0n, 1n]);
   });
 
-  it("continues the sequence from pre-existing durable events on the same session", () => {
-    // Seed two non-runtime-node events directly, so the log-derive default
-    // must start AFTER them — proving it reads the durable log, not a counter.
+  it("continues the sequence from pre-existing durable events on the same session", async () => {
+    // Seed two non-runtime-node events directly, so the allocator must start
+    // AFTER them — proving it reads the durable log, not a counter.
     const seedEvent = (sequence: number): void => {
       ctx.service.append({
         id: `seed-${sequence.toString()}`,
@@ -480,7 +566,7 @@ describe("RuntimeNodeEventEmitter — sequence allocation", () => {
     seedEvent(1);
 
     const emitter: RuntimeNodeEventEmitter = makeEmitter();
-    const emitted: AppendableEvent = emitter.emitOnline({
+    const emitted: EventLogAppendReceipt = await emitter.emitOnline({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       newState: "online",
@@ -489,52 +575,62 @@ describe("RuntimeNodeEventEmitter — sequence allocation", () => {
     expect(emitted.sequence).toBe(2);
   });
 
-  it("uses an injected custom nextSequence allocator over the log-derive default", () => {
-    const customAllocations: number[] = [100, 101];
-    let allocationIndex: number = 0;
-    const emitter: RuntimeNodeEventEmitter = makeEmitter({
-      nextSequence: () => {
-        const next: number | undefined = customAllocations[allocationIndex];
-        allocationIndex += 1;
-        return next ?? 999;
-      },
-    });
+  it("allocates from the MAXIMUM sequence, not the most recently inserted row", async () => {
+    // Adversarial seeding: the HIGHEST sequence is inserted FIRST, so a reader
+    // that took "the last row I can find" (or trusted physical/rowid order)
+    // would allocate 8 and collide with the existing row 41. The allocator's
+    // `ORDER BY sequence DESC LIMIT 1` is what makes 42 the answer.
+    const seedEvent = (sequence: number): void => {
+      ctx.service.append({
+        id: `seed-${sequence.toString()}`,
+        sessionId: SESSION_ID,
+        sequence,
+        occurredAt: "2026-06-02T12:00:00.000Z",
+        monotonicNs: 1_000_000_000n,
+        category: "session_lifecycle",
+        type: "session.created",
+        actor: null,
+        payload: { sessionId: SESSION_ID },
+        correlationId: null,
+        causationId: null,
+        version: "1.0",
+      });
+    };
+    seedEvent(41);
+    seedEvent(7);
+    seedEvent(0);
 
-    const first: AppendableEvent = emitter.emitRegistered({
-      sessionId: SESSION_ID,
-      nodeId: NODE_ID,
-      newState: "registering",
-      capabilities: {},
-      nodeVersion: "1.0.0",
-      platform: "linux-x64",
-    });
-    const second: AppendableEvent = emitter.emitOnline({
+    const emitter: RuntimeNodeEventEmitter = makeEmitter();
+    const emitted: EventLogAppendReceipt = await emitter.emitOnline({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       newState: "online",
     });
-
-    expect(first.sequence).toBe(100);
-    expect(second.sequence).toBe(101);
-    expect(readRawRows(ctx.db, SESSION_ID).map((r) => r.sequence)).toEqual([100n, 101n]);
+    expect(emitted.sequence).toBe(42);
   });
 
-  it("surfaces the append UNIQUE(session_id, sequence) throw when an allocator yields a duplicate sequence", () => {
-    // Backstop proof: if a (buggy) allocator hands out a colliding sequence,
-    // the Plan-001 append path's UNIQUE constraint is the safety net.
-    const emitter: RuntimeNodeEventEmitter = makeEmitter({
-      nextSequence: () => 5, // always the same — second emit must collide
-    });
-
-    emitter.emitOnline({ sessionId: SESSION_ID, nodeId: NODE_ID, newState: "online" });
-    expect(() =>
+  it("assigns distinct consecutive sequences to CONCURRENT same-session emits (the race the re-point closed)", async () => {
+    // THE regression this whole allocation move exists to prevent. Plan-003's
+    // log-derive allocator read the log and appended with no `await` between,
+    // which was atomic only while the append path was synchronous. Now that it
+    // is async, two overlapping emits would both read head = -1 and both
+    // allocate 0 — one losing to `UNIQUE(session_id, sequence)` on a perfectly
+    // legitimate write. `withSessionAppendLock` serializes them instead.
+    //
+    // Launched WITHOUT awaiting in between, so both are genuinely in flight
+    // before either completes; `Promise.all` then settles them together.
+    const emitter: RuntimeNodeEventEmitter = makeEmitter();
+    const receipts: ReadonlyArray<EventLogAppendReceipt> = await Promise.all([
       emitter.emitOnline({ sessionId: SESSION_ID, nodeId: NODE_ID, newState: "online" }),
-    ).toThrow();
+      emitter.emitOnline({ sessionId: SESSION_ID, nodeId: NODE_ID, newState: "online" }),
+      emitter.emitOnline({ sessionId: SESSION_ID, nodeId: NODE_ID, newState: "online" }),
+    ]);
 
-    // The UNIQUE throw is the ONLY effect: the first emit's row survives and the
-    // colliding second emit left no partial state (a single-statement INSERT, so
-    // the constraint violation persists nothing of the second event).
-    expect(readRawRows(ctx.db, SESSION_ID)).toHaveLength(1);
+    // Sorted, because the lock guarantees DISTINCT consecutive numbers, not
+    // which caller wins which — asserting an arrival order would pin scheduling
+    // rather than the invariant.
+    expect([...receipts.map((r) => r.sequence)].sort((a, b) => a - b)).toEqual([0, 1, 2]);
+    expect(readRawRows(ctx.db, SESSION_ID).map((r) => r.sequence)).toEqual([0n, 1n, 2n]);
   });
 });
 
@@ -543,168 +639,219 @@ describe("RuntimeNodeEventEmitter — sequence allocation", () => {
 // precondition: the emitter names no concrete storage class)
 // ----------------------------------------------------------------------------
 
-describe("RuntimeNodeEventEmitter — SessionEventLog seam (structural, no SessionService dependency)", () => {
-  it("emits through a plain-object SessionEventLog implementation (no SessionService, no database)", () => {
-    const appended: AppendableEvent[] = [];
+describe("RuntimeNodeEventEmitter — SessionEventLog seam (structural, no EventLogService dependency)", () => {
+  it("emits through a plain-object SessionEventLog implementation (no EventLogService, no database)", async () => {
+    const appended: UnsequencedEventEnvelope[] = [];
     const inMemoryEventLog: SessionEventLog = {
-      append: (event) => {
-        appended.push(event);
+      append: (envelope) => {
+        appended.push(envelope);
+        return Promise.resolve({
+          id: envelope.id,
+          sequence: appended.length - 1,
+          rowHash: new Uint8Array(32),
+        });
       },
-      readEvents: () => appended.map((event) => ({ sequence: event.sequence })),
     };
     const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
       sessionEvents: inMemoryEventLog,
       newEventId: makeCounterIdSource("structural"),
     });
 
-    const first: AppendableEvent = emitter.emitOnline({
+    const first: EventLogAppendReceipt = await emitter.emitOnline({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       newState: "online",
     });
-    const second: AppendableEvent = emitter.emitCapabilityDeclared({
+    const second: EventLogAppendReceipt = await emitter.emitCapabilityDeclared({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       capability: "provider-driver",
       capabilityDetails: { contractVersion: "1.0" },
     });
 
-    // Both events landed in the fake, and the log-derive default allocator
-    // worked against the fake's narrowed readEvents — no SessionService (and
-    // no database) anywhere in this path.
+    // Both events landed in the fake, and the emitter surfaced the fake's
+    // assigned sequences verbatim — no EventLogService (and no database)
+    // anywhere in this path, and no sequence invented by the emitter.
     expect(appended).toHaveLength(2);
     expect(first.sequence).toBe(0);
     expect(second.sequence).toBe(1);
-    expect(appended.map((event) => event.type)).toEqual([
+    expect(appended.map((envelope) => envelope.type)).toEqual([
       "runtime_node.online",
       "runtime_node.capability_declared",
     ]);
   });
 
-  it("allocates from the MAXIMUM sequence, not the final array element (the seam promises no row order)", () => {
-    // The `SessionEventLog` seam requires only an array of sequence-bearing
-    // rows — a structural implementation backed by a different SQL ORDER BY
-    // (or none) is contract-conforming. Descending order is the adversarial
-    // case: a last-element allocator would read sequence 0 and re-allocate 1,
-    // colliding with the existing row (PR #272 Codex round 2).
-    const descendingEventLog: SessionEventLog = {
-      append: () => {},
-      readEvents: () => [{ sequence: 41 }, { sequence: 7 }, { sequence: 0 }],
+  it("forwards a caller-supplied transactionalPrelude to the append verbatim", async () => {
+    // The prelude is the producers' dual-write atomicity seam. The emitter's job
+    // is to FORWARD it — not to wrap, re-order, or invoke it — so the identity
+    // check is the assertion: anything the emitter did to the closure would
+    // break the atomicity guarantee `EventLogService` provides around it.
+    const forwardedOptions: Array<{ transactionalPrelude?: () => void }> = [];
+    const capturingEventLog: SessionEventLog = {
+      append: (envelope, options) => {
+        forwardedOptions.push(options ?? {});
+        return Promise.resolve({ id: envelope.id, sequence: 0, rowHash: new Uint8Array(32) });
+      },
     };
-    const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
-      sessionEvents: descendingEventLog,
+    const prelude = (): void => {};
+    await new RuntimeNodeEventEmitter({ sessionEvents: capturingEventLog }).emitOnline({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      newState: "online",
+      transactionalPrelude: prelude,
     });
 
-    const emitted: AppendableEvent = emitter.emitOnline({
+    expect(forwardedOptions).toHaveLength(1);
+    expect(forwardedOptions[0]?.transactionalPrelude).toBe(prelude);
+  });
+
+  it("omits transactionalPrelude entirely when the caller supplies none", async () => {
+    // Negative control for the arm above. `EventLogAppendOptions` declares the
+    // member optional under `exactOptionalPropertyTypes`, so forwarding an
+    // explicit `undefined` would be a type error at the emitter — this pins the
+    // runtime half: the KEY is absent, not present-and-undefined.
+    const forwardedOptions: Array<Record<string, unknown>> = [];
+    const capturingEventLog: SessionEventLog = {
+      append: (envelope, options) => {
+        forwardedOptions.push((options ?? {}) as Record<string, unknown>);
+        return Promise.resolve({ id: envelope.id, sequence: 0, rowHash: new Uint8Array(32) });
+      },
+    };
+    await new RuntimeNodeEventEmitter({ sessionEvents: capturingEventLog }).emitOnline({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       newState: "online",
     });
-    expect(emitted.sequence).toBe(42);
+
+    expect(forwardedOptions[0]).toBeDefined();
+    expect(Object.hasOwn(forwardedOptions[0] ?? {}, "transactionalPrelude")).toBe(false);
   });
 
-  // The seam is synchronous-transactional BY CONTRACT (the L2 producers emit
-  // inside better-sqlite3 connection-level transactions whose rollback
-  // semantics need append's failure to throw synchronously), enforced at two
-  // layers (PR #272 Codex rounds 1-2): `append` returns `undefined` — not
-  // `void` — so a Promise-returning implementation fails the ASSIGNMENT at
-  // compile time (the compile-time control below), and the runtime thenable
-  // refusal backstops wiring the compiler never saw (plain JS,
-  // `as unknown as` casts — which is why these fakes need exactly such a
-  // cast to reach the runtime guard at all). These tests are the guard's
+  // The seam is ASYNC-transactional BY CONTRACT since the Plan-006 T3.1
+  // re-point — the INVERSE of the synchronous-transactional contract it shipped
+  // with (PR #272 Codex rounds 1-2). The producers no longer own the
+  // transaction; they hand their durable write down as `transactionalPrelude`
+  // and `EventLogService.append` runs it inside the same transaction as the
+  // event row. Both enforcement layers survive the inversion, negated: `append`
+  // returns `Promise<EventLogAppendReceipt>` so a SYNCHRONOUS implementation
+  // fails the ASSIGNMENT at compile time (the compile-time control below), and
+  // the runtime non-thenable refusal backstops wiring the compiler never saw
+  // (plain JS, `as unknown as` casts — which is why these fakes need exactly
+  // such a cast to reach the runtime guard at all). These tests are the guard's
   // negative controls.
-  describe("synchronous-transactional contract — thenable append refused fail-closed", () => {
-    it(COMPILE_TIME_ASYNC_APPEND_REJECTION_TEST, () => {
-      // Layer 1: `Promise` is not assignable to `undefined`, so the exact
-      // fire-and-forget shape round 1 guarded against no longer typechecks.
-      // Deleting the directive below must yield the underlying assignment
-      // error — an unused-directive TS2578 here would mean the compile-time
-      // layer silently regressed to accepting async appenders.
+  describe("async-transactional contract — synchronous append refused fail-closed", () => {
+    it(COMPILE_TIME_ASYNC_APPEND_REJECTION_TEST, async () => {
+      // Layer 1: `undefined` is not assignable to `Promise<...>`, so the exact
+      // synchronous shape the re-point outlawed no longer typechecks. Deleting
+      // the directive below must yield the underlying assignment error — an
+      // unused-directive TS2578 here would mean the compile-time layer silently
+      // regressed to accepting synchronous appenders.
       const compileRejectedEventLog: SessionEventLog = {
-        // @ts-expect-error — an async `append` (returns `Promise<void>`) does
-        // not satisfy `append(event): undefined`; TS's void-return exception
-        // no longer applies.
-        append: async (): Promise<void> => {},
-        readEvents: () => [],
+        // @ts-expect-error — a synchronous `append` (returns `undefined`) does
+        // not satisfy `append(envelope, options): Promise<EventLogAppendReceipt>`.
+        append: (): undefined => undefined,
       };
       // The object still exists at runtime; the runtime tripwire covers it.
-      expect(() =>
+      await expect(
         new RuntimeNodeEventEmitter({ sessionEvents: compileRejectedEventLog }).emitOnline({
           sessionId: SESSION_ID,
           nodeId: NODE_ID,
           newState: "online",
         }),
-      ).toThrow(/synchronous-transactional/);
+      ).rejects.toThrow(/did not return a promise/);
     });
 
-    it("refuses a Promise-returning append with a pointed error naming the T3.1 re-point", () => {
-      const appendCalls: AppendableEvent[] = [];
-      // Deliberately async: this is exactly the shape Plan-006 T3.1's
-      // `EventLogService.append` will have, and exactly what must NOT be
-      // silently absorbed here.
-      const asyncEventLog: SessionEventLog = {
-        append: (event): undefined => {
-          appendCalls.push(event);
-          // A Promise-returning implementation smuggled past the compile-time
-          // layer — the cast models plain-JS / cast-through wiring.
-          return Promise.resolve() as unknown as undefined;
+    it("refuses a synchronous append with a pointed error naming the T3.1 contract", async () => {
+      const appendCalls: UnsequencedEventEnvelope[] = [];
+      // Deliberately synchronous: this is exactly the shape the seam used to
+      // REQUIRE, and exactly what must NOT be silently absorbed now.
+      const syncEventLog: SessionEventLog = {
+        append: (envelope): Promise<EventLogAppendReceipt> => {
+          appendCalls.push(envelope);
+          // A synchronous implementation smuggled past the compile-time layer —
+          // the cast models plain-JS / cast-through wiring.
+          return undefined as unknown as Promise<EventLogAppendReceipt>;
         },
-        readEvents: () => [],
       };
       const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
-        sessionEvents: asyncEventLog,
+        sessionEvents: syncEventLog,
       });
 
-      expect(() =>
+      await expect(
         emitter.emitOnline({ sessionId: SESSION_ID, nodeId: NODE_ID, newState: "online" }),
-      ).toThrow(
-        /synchronous-transactional[\s\S]*EventLogService\.append[\s\S]*Plan-006 T3\.1[\s\S]*withSessionAppendLock/,
+      ).rejects.toThrow(
+        /async-transactional[\s\S]*EventLogService\.append[\s\S]*withSessionAppendLock[\s\S]*transactionalPrelude/,
       );
 
-      // Tripwire, not prevention: the implementation's synchronous prefix has
-      // already run by the time the thenable comes back — the guard's job is
-      // to be LOUD on the first emit, not to undo that work.
+      // Tripwire, not prevention: the implementation has already run by the time
+      // the non-promise comes back — the guard's job is to be LOUD on the first
+      // emit, not to undo that work.
       expect(appendCalls).toHaveLength(1);
     });
 
-    it("refuses a REJECTING thenable without leaking an unhandled rejection", async () => {
-      // The orphaned promise settles on its own after the guard throws; the
-      // guard observes its rejection channel so the tripwire error is the
-      // only failure surfaced. An unswallowed rejection would fail this test
-      // file at the runner level once the microtask queue drains.
-      const rejectingEventLog: SessionEventLog = {
-        append: (): undefined => Promise.reject(new Error("mutex lost")) as unknown as undefined,
-        readEvents: () => [],
+    it("refuses a non-thenable OBJECT return (not merely undefined)", async () => {
+      // A synchronous implementation that returns a plain receipt-shaped object
+      // is the likeliest real-world spelling of this bug — a fake written
+      // against the old seam, or a hand-rolled double. The guard is a THENABLE
+      // test, not an `undefined` test, so it must catch this too.
+      const objectReturningEventLog: SessionEventLog = {
+        append: (envelope): Promise<EventLogAppendReceipt> =>
+          ({
+            id: envelope.id,
+            sequence: 0,
+            rowHash: new Uint8Array(32),
+          }) as unknown as Promise<EventLogAppendReceipt>,
       };
-      const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
-        sessionEvents: rejectingEventLog,
-      });
 
-      expect(() =>
-        emitter.emitOnline({ sessionId: SESSION_ID, nodeId: NODE_ID, newState: "online" }),
-      ).toThrow(/synchronous-transactional/);
-
-      // Drain the microtask queue so the swallowed rejection would have
-      // surfaced by now if the guard failed to observe it.
-      await Promise.resolve();
+      await expect(
+        new RuntimeNodeEventEmitter({ sessionEvents: objectReturningEventLog }).emitOnline({
+          sessionId: SESSION_ID,
+          nodeId: NODE_ID,
+          newState: "online",
+        }),
+      ).rejects.toThrow(/did not return a promise/);
     });
 
-    it("refuses a custom thenable (duck-typed, not instanceof Promise)", () => {
-      // `await` latches onto ANY `then` function, so the guard must too — a
-      // Promise-instanceof check would wave custom thenables through into
-      // the same fire-and-forget.
-      const customThenable = { then: (resolve?: (value?: unknown) => void) => resolve?.() };
-      const thenableEventLog: SessionEventLog = {
-        append: (): undefined => customThenable as unknown as undefined,
-        readEvents: () => [],
+    it("ADMITS a custom thenable (duck-typed, not instanceof Promise)", async () => {
+      // The positive control, and the mirror of the pre-re-point suite's
+      // custom-thenable REFUSAL: `await` latches onto ANY `then` function, so
+      // the guard must too. A `instanceof Promise` check would reject a
+      // perfectly valid async implementation built on a userland promise or a
+      // wrapper — a false positive on the fail-closed side, which is why the
+      // duck test is the right one in BOTH directions.
+      const receipt: EventLogAppendReceipt = { id: "x", sequence: 3, rowHash: new Uint8Array(32) };
+      const customThenableEventLog: SessionEventLog = {
+        append: (): Promise<EventLogAppendReceipt> =>
+          ({
+            then: (resolve?: (value: EventLogAppendReceipt) => void) => resolve?.(receipt),
+          }) as unknown as Promise<EventLogAppendReceipt>,
       };
-      const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
-        sessionEvents: thenableEventLog,
-      });
 
-      expect(() =>
-        emitter.emitOnline({ sessionId: SESSION_ID, nodeId: NODE_ID, newState: "online" }),
-      ).toThrow(/synchronous-transactional/);
+      await expect(
+        new RuntimeNodeEventEmitter({ sessionEvents: customThenableEventLog }).emitOnline({
+          sessionId: SESSION_ID,
+          nodeId: NODE_ID,
+          newState: "online",
+        }),
+      ).resolves.toEqual(receipt);
+    });
+
+    it("propagates a REJECTING append unchanged", async () => {
+      // The failure channel the whole inversion exists to preserve: a producer
+      // must learn that its durable write did not commit. The emitter awaits, so
+      // the rejection reaches the caller verbatim rather than becoming a
+      // fire-and-forget that reported success.
+      const rejectingEventLog: SessionEventLog = {
+        append: (): Promise<EventLogAppendReceipt> => Promise.reject(new Error("mutex lost")),
+      };
+
+      await expect(
+        new RuntimeNodeEventEmitter({ sessionEvents: rejectingEventLog }).emitOnline({
+          sessionId: SESSION_ID,
+          nodeId: NODE_ID,
+          newState: "online",
+        }),
+      ).rejects.toThrow("mutex lost");
     });
   });
 });
@@ -714,31 +861,31 @@ describe("RuntimeNodeEventEmitter — SessionEventLog seam (structural, no Sessi
 // ----------------------------------------------------------------------------
 
 describe("RuntimeNodeEventEmitter — determinism (injected monotonicNow/now/newEventId)", () => {
-  it("flows injected monotonicNow, now, and newEventId through to the persisted row", () => {
+  it("flows injected monotonicNow, now, and newEventId through to the persisted row", async () => {
     const FIXED_MONOTONIC: bigint = 4_242_000_000n;
     const FIXED_OCCURRED_AT: string = "2026-06-02T08:30:00.000Z";
     const FIXED_EVENT_ID: string = "evt-deterministic-0";
 
     const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
-      sessionEvents: ctx.service,
+      sessionEvents: ctx.eventLog,
       monotonicNow: () => FIXED_MONOTONIC,
       now: () => FIXED_OCCURRED_AT,
       newEventId: () => FIXED_EVENT_ID,
     });
 
-    const returned: AppendableEvent = emitter.emitOnline({
+    const returned: EventLogAppendReceipt = await emitter.emitOnline({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       newState: "online",
     });
 
-    // The returned event reflects the injected sources...
+    // The receipt echoes the injected id source. `occurredAt` / `monotonicNs`
+    // are no longer on the return value (the receipt carries identifiers, not
+    // the envelope), so they are asserted where they actually matter — on the
+    // persisted row below, which is the surface a verifier reads.
     expect(returned.id).toBe(FIXED_EVENT_ID);
-    expect(returned.monotonicNs).toBe(FIXED_MONOTONIC);
-    expect(returned.occurredAt).toBe(FIXED_OCCURRED_AT);
 
-    // ...and so does the persisted row (a single emit with a constant id does
-    // not collide).
+    // A single emit with a constant id does not collide.
     const rows: ReadonlyArray<IntegrityRow> = readRawRows(ctx.db, SESSION_ID);
     expect(rows).toHaveLength(1);
     const row = rows[0];
@@ -748,20 +895,20 @@ describe("RuntimeNodeEventEmitter — determinism (injected monotonicNow/now/new
     expect(row.occurred_at).toBe(FIXED_OCCURRED_AT);
   });
 
-  it("defaults newEventId to a unique-per-emit source so successive emits do not collide on the PRIMARY KEY", () => {
+  it("defaults newEventId to a unique-per-emit source so successive emits do not collide on the PRIMARY KEY", async () => {
     // No `newEventId` override → the production `crypto.randomUUID()` default.
     // Two emits must produce two DISTINCT ids (a constant default would throw
     // on the second INSERT against the TEXT PRIMARY KEY).
     const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
-      sessionEvents: ctx.service,
+      sessionEvents: ctx.eventLog,
     });
 
-    const first: AppendableEvent = emitter.emitOnline({
+    const first: EventLogAppendReceipt = await emitter.emitOnline({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       newState: "online",
     });
-    const second: AppendableEvent = emitter.emitCapabilityDeclared({
+    const second: EventLogAppendReceipt = await emitter.emitCapabilityDeclared({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       capability: "provider-driver",
@@ -774,21 +921,123 @@ describe("RuntimeNodeEventEmitter — determinism (injected monotonicNow/now/new
 });
 
 // ----------------------------------------------------------------------------
+// The two T2.1-inherited normalization obligations the append path discharges
+// (`Spec-006 §Canonical Serialization Rules`).
+//
+// Asserted against `EventLogService.append` DIRECTLY rather than through the
+// emitter, and that is load-bearing: `RuntimeNodeEventEmitter` already narrows
+// `actor` at its own boundary (`base.actor ?? null`), so an absent `actor` can
+// never reach `append` through this emitter and an emitter-mediated arm would
+// verify green against an append path with the narrowing DELETED. The
+// obligations are `append()`'s per Plan-006 T3.1, so `append()` is what has to
+// be driven. (T3.5 owns `src/events/__tests__/`; these arms live here so the
+// obligations are not untested until that task lands, and they are the only two
+// in this file that bypass the emitter.)
+// ----------------------------------------------------------------------------
+
+describe("EventLogService.append — T2.1-inherited normalization (Spec-006 §Canonical Serialization Rules)", () => {
+  // Wire-legal but NON-canonical: a `+05:00` offset with no fractional seconds.
+  // `EventEnvelope.occurredAt` is documented "ISO 8601" and admits it, while
+  // `session_events.occurred_at` is declared RFC 3339 UTC at millisecond
+  // precision. That gap is what the append path's `normalizeOccurredAt` call
+  // closes, and this is the input that opens it.
+  const OFFSET_OCCURRED_AT: string = "2026-06-02T13:30:00+05:00";
+  const NORMALIZED_OCCURRED_AT: string = "2026-06-02T08:30:00.000Z";
+
+  // `actor` is deliberately ABSENT — the third state (absent / null / string)
+  // that the narrowing collapses. The return type is an ANNOTATION, never an
+  // `as` cast on the literal: a cast would silently accept a typo'd or missing
+  // member and this arm would then assert normalization over a shape the
+  // append path never really sees.
+  function makeUnnarrowedEnvelope(): UnsequencedEventEnvelope {
+    const envelope: UnsequencedEventEnvelope = {
+      id: "evt-normalize-0",
+      sessionId: SessionIdSchema.parse(SESSION_ID),
+      occurredAt: OFFSET_OCCURRED_AT,
+      category: "runtime_node_lifecycle",
+      type: "runtime_node.online",
+      payload: { sessionId: SESSION_ID, nodeId: NODE_ID, newState: "online" },
+      version: EventEnvelopeVersionSchema.parse("1.0"),
+    };
+    return envelope;
+  }
+
+  it("persists the NORMALIZED occurredAt and narrows an absent actor to null, so a verifier rehydrating the row reproduces the signed bytes", async () => {
+    const receipt: EventLogAppendReceipt = await ctx.eventLog.append(makeUnnarrowedEnvelope());
+
+    const rows: ReadonlyArray<IntegrityRow> = readRawRows(ctx.db, SESSION_ID);
+    expect(rows).toHaveLength(1);
+    const row = rows[0];
+    expect(row).toBeDefined();
+    if (row === undefined) return;
+
+    // (1) The STORED instant is the normalized one and the producer's raw
+    // spelling appears nowhere. This exact-value assertion is the ONLY thing
+    // that discriminates the obligation, and deliberately so: `canonicalizeEvent`
+    // normalizes internally, so a row persisting the raw `+05:00` spelling still
+    // VERIFIES below. The damage is to the column contract and to every lexical
+    // date-range scan over `occurred_at` — invisible to signature checking.
+    expect(row.occurred_at).toBe(NORMALIZED_OCCURRED_AT);
+    expect(row.occurred_at).not.toBe(OFFSET_OCCURRED_AT);
+    expect(isCanonicalOccurredAt(row.occurred_at)).toBe(true);
+
+    // (2) An absent `actor` reaches storage as SQL NULL.
+    expect(row.actor).toBeNull();
+
+    // (3) The verifier's round trip — where the `actor` obligation bites.
+    // Rehydrate the envelope FROM THE PERSISTED ROW through the wire schema, so
+    // the row's NULL `actor` comes back as present-`null` exactly as T4.1's
+    // read side will see it, then verify against that row's own integrity
+    // columns. `canonicalizeEvent` emits DIFFERENT bytes for absent vs
+    // present-null, so an append that signed the ABSENT shape would leave this
+    // untampered row failing verification — the precise failure the narrowing
+    // exists to prevent, and one no column assertion can see.
+    const rehydrated: EventEnvelope = EventEnvelopeSchema.parse({
+      id: receipt.id,
+      sessionId: SESSION_ID,
+      sequence: receipt.sequence,
+      occurredAt: row.occurred_at,
+      category: row.category,
+      type: row.type,
+      actor: row.actor,
+      payload: JSON.parse(row.payload) as Record<string, unknown>,
+      version: row.version,
+    });
+
+    expect(
+      verifyRow(
+        canonicalizeEvent(rehydrated),
+        {
+          prevHash: row.prev_hash,
+          rowHash: row.row_hash,
+          daemonSignature: row.daemon_signature,
+        },
+        FIXED_DAEMON_PUBLIC_KEY,
+      ),
+    ).toStrictEqual({ valid: true });
+  });
+});
+
+// ----------------------------------------------------------------------------
 // Per-event payload shapes (`Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`) + sessionId/actor reconciliation
 // ----------------------------------------------------------------------------
 
 describe("RuntimeNodeEventEmitter — per-event payload shapes (Spec-006 §Runtime Node Lifecycle (`runtime_node_lifecycle`))", () => {
-  function persistedPayload(db: DatabaseType, sequence: bigint): Record<string, unknown> {
+  function persistedRow(db: DatabaseType, sequence: bigint): IntegrityRow {
     const rows: ReadonlyArray<IntegrityRow> = readRawRows(db, SESSION_ID);
     const match = rows.find((r) => r.sequence === sequence);
     expect(match).toBeDefined();
     if (match === undefined) throw new Error("no row at sequence");
-    return JSON.parse(match.payload) as Record<string, unknown>;
+    return match;
   }
 
-  it("registered → base + {capabilities, nodeVersion, platform} (Spec-006 §Runtime Node Lifecycle (`runtime_node_lifecycle`))", () => {
+  function persistedPayload(db: DatabaseType, sequence: bigint): Record<string, unknown> {
+    return JSON.parse(persistedRow(db, sequence).payload) as Record<string, unknown>;
+  }
+
+  it("registered → base + {capabilities, nodeVersion, platform} (Spec-006 §Runtime Node Lifecycle (`runtime_node_lifecycle`))", async () => {
     const emitter: RuntimeNodeEventEmitter = makeEmitter();
-    const event: AppendableEvent = emitter.emitRegistered({
+    const event: EventLogAppendReceipt = await emitter.emitRegistered({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       actor: PARTICIPANT_ID,
@@ -798,9 +1047,8 @@ describe("RuntimeNodeEventEmitter — per-event payload shapes (Spec-006 §Runti
       nodeVersion: "1.4.2",
       platform: "darwin-arm64",
     });
-    expect(event.type).toBe("runtime_node.registered");
-
     const payload = persistedPayload(ctx.db, BigInt(event.sequence));
+    expect(persistedRow(ctx.db, BigInt(event.sequence)).type).toBe("runtime_node.registered");
     expect(payload).toEqual({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
@@ -811,20 +1059,21 @@ describe("RuntimeNodeEventEmitter — per-event payload shapes (Spec-006 §Runti
       nodeVersion: "1.4.2",
       platform: "darwin-arm64",
     });
-    // Envelope actor mirrors payload actor — single reconciliation point.
-    expect(event.actor).toBe(PARTICIPANT_ID);
+    // Envelope actor mirrors payload actor — single reconciliation point. Read
+    // off the PERSISTED row (the receipt carries identifiers only), which is a
+    // strictly stronger read: it proves the reconciliation survived the write.
+    expect(persistedRow(ctx.db, BigInt(event.sequence)).actor).toBe(PARTICIPANT_ID);
   });
 
-  it("online → base (no extension), defaulting actor to null when omitted (Spec-006 §Runtime Node Lifecycle (`runtime_node_lifecycle`))", () => {
+  it("online → base (no extension), defaulting actor to null when omitted (Spec-006 §Runtime Node Lifecycle (`runtime_node_lifecycle`))", async () => {
     const emitter: RuntimeNodeEventEmitter = makeEmitter();
-    const event: AppendableEvent = emitter.emitOnline({
+    const event: EventLogAppendReceipt = await emitter.emitOnline({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       newState: "online",
     });
-    expect(event.type).toBe("runtime_node.online");
-
     const payload = persistedPayload(ctx.db, BigInt(event.sequence));
+    expect(persistedRow(ctx.db, BigInt(event.sequence)).type).toBe("runtime_node.online");
     expect(payload).toEqual({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
@@ -832,12 +1081,12 @@ describe("RuntimeNodeEventEmitter — per-event payload shapes (Spec-006 §Runti
       actor: null,
     });
     // Omitted actor → null on BOTH the envelope and the payload.
-    expect(event.actor).toBeNull();
+    expect(persistedRow(ctx.db, BigInt(event.sequence)).actor).toBeNull();
   });
 
-  it("offline → base + {lastHeartbeatAt, reason: explicit_shutdown} (Spec-006 §Runtime Node Lifecycle (`runtime_node_lifecycle`))", () => {
+  it("offline → base + {lastHeartbeatAt, reason: explicit_shutdown} (Spec-006 §Runtime Node Lifecycle (`runtime_node_lifecycle`))", async () => {
     const emitter: RuntimeNodeEventEmitter = makeEmitter();
-    const event: AppendableEvent = emitter.emitOffline({
+    const event: EventLogAppendReceipt = await emitter.emitOffline({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       previousState: "online",
@@ -845,9 +1094,8 @@ describe("RuntimeNodeEventEmitter — per-event payload shapes (Spec-006 §Runti
       lastHeartbeatAt: "2026-06-02T11:59:00.000Z",
       reason: "explicit_shutdown",
     });
-    expect(event.type).toBe("runtime_node.offline");
-
     const payload = persistedPayload(ctx.db, BigInt(event.sequence));
+    expect(persistedRow(ctx.db, BigInt(event.sequence)).type).toBe("runtime_node.offline");
     expect(payload).toEqual({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
@@ -859,18 +1107,19 @@ describe("RuntimeNodeEventEmitter — per-event payload shapes (Spec-006 §Runti
     });
   });
 
-  it("capability_declared → reduced base + {capability, capabilityDetails} (Spec-006 §Runtime Node Lifecycle (`runtime_node_lifecycle`))", () => {
+  it("capability_declared → reduced base + {capability, capabilityDetails} (Spec-006 §Runtime Node Lifecycle (`runtime_node_lifecycle`))", async () => {
     const emitter: RuntimeNodeEventEmitter = makeEmitter();
-    const event: AppendableEvent = emitter.emitCapabilityDeclared({
+    const event: EventLogAppendReceipt = await emitter.emitCapabilityDeclared({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       actor: PARTICIPANT_ID,
       capability: "provider-driver",
       capabilityDetails: { contractVersion: "1.0", flags: { streaming: true } },
     });
-    expect(event.type).toBe("runtime_node.capability_declared");
-
     const payload = persistedPayload(ctx.db, BigInt(event.sequence));
+    expect(persistedRow(ctx.db, BigInt(event.sequence)).type).toBe(
+      "runtime_node.capability_declared",
+    );
     // Reduced base: NO previousState/newState NodeState fields.
     expect(payload).toEqual({
       sessionId: SESSION_ID,
@@ -882,9 +1131,9 @@ describe("RuntimeNodeEventEmitter — per-event payload shapes (Spec-006 §Runti
     expect(payload).not.toHaveProperty("newState");
   });
 
-  it("capability_updated → reduced base + {capability, previousState, newState} as snapshots (Spec-006 §Runtime Node Lifecycle (`runtime_node_lifecycle`))", () => {
+  it("capability_updated → reduced base + {capability, previousState, newState} as snapshots (Spec-006 §Runtime Node Lifecycle (`runtime_node_lifecycle`))", async () => {
     const emitter: RuntimeNodeEventEmitter = makeEmitter();
-    const event: AppendableEvent = emitter.emitCapabilityUpdated({
+    const event: EventLogAppendReceipt = await emitter.emitCapabilityUpdated({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,
       capability: "provider-driver",
@@ -892,9 +1141,10 @@ describe("RuntimeNodeEventEmitter — per-event payload shapes (Spec-006 §Runti
       previousState: { contractVersion: "1.0" },
       newState: { contractVersion: "1.1" },
     });
-    expect(event.type).toBe("runtime_node.capability_updated");
-
     const payload = persistedPayload(ctx.db, BigInt(event.sequence));
+    expect(persistedRow(ctx.db, BigInt(event.sequence)).type).toBe(
+      "runtime_node.capability_updated",
+    );
     expect(payload).toEqual({
       sessionId: SESSION_ID,
       nodeId: NODE_ID,

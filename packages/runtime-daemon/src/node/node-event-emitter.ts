@@ -5,19 +5,17 @@
 // (the `SessionEventLog` seam below). As shipped (PR #137) the seam was
 // typed against Plan-001's `SessionService.append`; decoupled 2026-07-28
 // per the `Plan-006 §T3.1 — Append-path service writing integrity columns + Plan-022 Path 1 shred callback` precondition, so the emitter names no
-// concrete storage class. The seam is SYNCHRONOUS-TRANSACTIONAL by
-// contract (see `SessionEventLog` below): Plan-006 T3.1's async
-// `EventLogService.append` does NOT satisfy it directly — T3.1's own
-// wiring leg re-points this emitter and restructures the producers'
-// transactional atomicity around `withSessionAppendLock`. Until then the
-// only implementation is Plan-001's `SessionService`, whose `append` is
-// now guarded test-only (`allowUnsignedPlaceholderAppend`). T2.1's
-// node-registry and T2.2's node-capability-service both import this
-// standalone module rather than re-implementing event construction, so
-// the two L2 producers cannot drift in how they shape, validate, or
-// sequence runtime-node events (corrected 2026-06-02, PR #137: a
-// standalone L1 module keeps this task's file disjoint from the L2
-// consumers that import it and the L3 tasks that extend them).
+// concrete storage class. RE-POINTED by that same T3.1 leg onto
+// `EventLogService.append`, the sole durable production writer — so the
+// seam is now ASYNC-TRANSACTIONAL rather than synchronous-transactional
+// (see `SessionEventLog` below for the full contract and both of its
+// enforcement layers). T2.1's node-registry and T2.2's
+// node-capability-service both import this standalone module rather than
+// re-implementing event construction, so the two L2 producers cannot
+// drift in how they shape, validate, or sequence runtime-node events
+// (corrected 2026-06-02, PR #137: a standalone L1 module keeps this
+// task's file disjoint from the L2 consumers that import it and the L3
+// tasks that extend them).
 //
 // What this module DOES:
 //   * Builds each `runtime_node.*` event as an `AppendableEvent` and routes
@@ -34,26 +32,29 @@
 //     the session_id of the attachment a `runtime_node.*` event describes),
 //     even though the payload schemas type it `.optional()` to mirror the
 //     Spec-006 base.
-//   * Allocates the per-session `sequence` via a deps-injected
-//     `nextSequence(sessionId)` allocator (no parallel counter). The
-//     Phase-2 default derives the next value from the durable log
-//     (`readEvents`, last `sequence` + 1) — synchronous between the read and
-//     the append, hence atomic in the single-threaded daemon, with
-//     `append`'s `UNIQUE(session_id, sequence)` throw as the backstop. The
-//     coordinated production allocator is a forward-dep on Plan-001 Phase 5;
-//     Plan-003 deps-injects the seam rather than authoring an allocator onto
-//     Plan-001-owned `SessionService` (ownership-respecting forward-dep,
-//     parallel to CP-003-1's interim-opaque payload fields).
+//   * Threads the caller's `transactionalPrelude` through to the append,
+//     so a producer's durable table write commits ATOMICALLY with the
+//     event row (see `SessionEventLog` below).
+//
+// What this module NO LONGER does (moved by T3.1's re-point — do not
+// reinstate here):
+//   * Allocates the per-session `sequence`. Plan-003's log-derive
+//     allocator (`readEvents`, last + 1) and the `nextSequence` injection
+//     seam are BOTH gone, and their removal is the point rather than a
+//     simplification. That allocator was atomic only because its read and
+//     its append were separated by no `await`; the append path is async
+//     now, so the same code would let two concurrent emits on one session
+//     derive the same number and collide on `UNIQUE(session_id, sequence)`.
+//     `EventLogService.append` reads the chain head and writes its
+//     successor inside one lock hold, and RETURNS the number it assigned —
+//     which is why the emit methods now resolve to a receipt.
 //
 // What this module does NOT do (deferred — do not add here):
-//   * Integrity columns. The injected append path owns them: the guarded
-//     test-only `SessionService.append` zero-fills `prev_hash` /
-//     `row_hash` / `daemon_signature` and writes the caller-supplied
-//     `monotonic_ns` (CP-003-1); Plan-006 Tier 4's `EventLogService`
-//     computes the real BLAKE3 hash-chain + dual signatures + RFC 8785
-//     JCS. This emitter never computes or passes integrity bytes — it
-//     passes only the `AppendableEvent` fields and the append path owns
-//     the rest.
+//   * Integrity columns. The injected append path owns them:
+//     `EventLogService` computes the real BLAKE3 hash-chain + Ed25519
+//     signature over RFC 8785 JCS canonical bytes. This emitter never
+//     computes or passes integrity bytes — it passes the envelope fields
+//     and the append path owns the rest.
 //   * `degraded` / `revoked` constructors. Their producers are server-derived
 //     (heartbeat-loss, authority revocation): no V1 party can author them as
 //     durable events, so their schemas are V1.1-gated on the node-identity
@@ -69,12 +70,15 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  EventEnvelopeVersionSchema,
   RuntimeNodeCapabilityDeclaredPayloadSchema,
   RuntimeNodeCapabilityUpdatedPayloadSchema,
   RuntimeNodeOfflinePayloadSchema,
   RuntimeNodeOnlinePayloadSchema,
   RuntimeNodeRegisteredPayloadSchema,
+  SessionIdSchema,
   type EventCategory,
+  type EventEnvelopeVersion,
   type RuntimeNodeCapabilityDeclaredPayload,
   type RuntimeNodeCapabilityUpdatedPayload,
   type RuntimeNodeEventName,
@@ -83,7 +87,11 @@ import {
   type RuntimeNodeRegisteredPayload,
 } from "@ai-sidekicks/contracts";
 
-import type { AppendableEvent } from "../session/types.js";
+import type {
+  EventLogAppendOptions,
+  EventLogAppendReceipt,
+  UnsequencedEventEnvelope,
+} from "../events/event-log-service.js";
 
 // --------------------------------------------------------------------------
 // Constants — type-bound to the contracts vocabulary so a future rename or
@@ -100,7 +108,15 @@ const RUNTIME_NODE_EVENT_CATEGORY: EventCategory = "runtime_node_lifecycle";
 // The EventEnvelope `version` for runtime-node events — semver MAJOR.MINOR
 // per ADR-018 §Decision #1, matching Plan-001's existing event convention
 // (session-service.test.ts fixtures all carry "1.0").
-const RUNTIME_NODE_EVENT_VERSION: string = "1.0";
+//
+// Minted THROUGH the schema rather than cast, because `EventEnvelope.version`
+// is the branded `EventEnvelopeVersion` and the brand is what the canonical
+// bytes carry. Parsing at module load means a literal that stopped satisfying
+// `EVENT_ENVELOPE_VERSION_PATTERN` throws at import — in every consumer, in
+// every test run — rather than at the first emit against a real chain. The
+// literal is handed to `parse` UNCAST: `parse` takes `unknown`, so a cast would
+// suppress the type error that catches a wrong-typed input, not enable one.
+const RUNTIME_NODE_EVENT_VERSION: EventEnvelopeVersion = EventEnvelopeVersionSchema.parse("1.0");
 
 // --------------------------------------------------------------------------
 // Injected dependencies
@@ -113,56 +129,60 @@ const RUNTIME_NODE_EVENT_VERSION: string = "1.0";
 // the emitter consumes, so any implementation satisfies it without a
 // nominal dependency.
 //
-// SYNCHRONOUS-TRANSACTIONAL BY CONTRACT. The three L2 producers
-// (NodeRegistry.register's dual-write, node-capability-service's and
-// driver-capabilities-writer's guarded writes) invoke emits inside
-// better-sqlite3 connection-level transactions: `append`'s INSERT must
-// execute — and its failure must THROW — synchronously inside the
-// caller's transaction, or the rollback semantics those producers ship
-// (a throwing emit rolls back the durable write that preceded it) are
-// silently lost. Two enforcement layers:
-//   1. COMPILE TIME: `append` returns `undefined`, not `void`.
-//      TypeScript's void-return exception would silently absorb a
-//      Promise-returning implementation; `Promise` is NOT assignable to
-//      `undefined`, so an async `append` fails the assignment at the
-//      wiring site instead of becoming a fire-and-forget (an
-//      implementation with no return statement still satisfies
-//      `undefined` under contextual typing / an explicit annotation).
-//   2. RUNTIME: `#appendRuntimeNodeEvent` refuses a thenable `append`
-//      result fail-closed — the tripwire for wiring that reaches this
-//      seam past the compiler (plain JS, `as unknown as` casts).
+// ASYNC-TRANSACTIONAL BY CONTRACT — the T3.1 re-point INVERTED this seam,
+// and the inversion is worth reading carefully because the old contract
+// said the exact opposite.
 //
-// Implementations: Plan-001's `SessionService` (append guarded test-only
-// via `allowUnsignedPlaceholderAppend`) today. Plan-006 T3.1's
-// `EventLogService.append(envelope, options): Promise<...>` — the sole
-// durable production writer — is async (its per-session mutex; the
-// better-sqlite3 storage underneath is synchronous) and therefore does
-// NOT satisfy this seam: T3.1's wiring leg re-points the emitter and
-// restructures the producers' transactional atomicity around its
-// `withSessionAppendLock`, rather than injecting an async append into a
-// sync seam. `readEvents` is deliberately narrowed to the
-// `sequence`-only row shape the log-derive allocator needs (synchronous
-// reads stay honest for any better-sqlite3-backed writer) and promises
-// NO row ordering — the allocator computes the maximum explicitly — so
-// a writer that stores or orders events differently can still satisfy
-// the seam.
+// As shipped, the three L2 producers (NodeRegistry.register's dual-write,
+// node-capability-service's and driver-capabilities-writer's guarded
+// writes) invoked emits INSIDE their own better-sqlite3 transactions, and
+// the seam had to be synchronous so a throwing append would roll the
+// producer's table write back. That is no longer possible: the durable
+// append path awaits a signing-key unseal and, on PII rows, an encrypt —
+// and a better-sqlite3 transaction cannot span an `await`.
+//
+// The atomicity is RE-ESTABLISHED, not dropped, and it moved one level
+// down. The producer no longer opens the transaction; it hands its
+// durable write to `append` as `options.transactionalPrelude`, which
+// `EventLogService` runs inside the SAME transaction as the event-row
+// INSERT, immediately BEFORE it. Body order is preserved exactly (durable
+// write FIRST, event row LAST), so a throwing INSERT still rolls the
+// producer's write back — and a refusal BEFORE the transaction opens (the
+// ingest-halt gate, a signing failure) means the prelude never runs at
+// all, which is strictly stronger than rollback. The producer wraps its
+// read-decide-write in `withSessionAppendLock`, and the nested `append`
+// reuses that hold through owner-scoped reentrancy.
+//
+// Both enforcement layers survive the inversion, negated:
+//   1. COMPILE TIME: `append` returns `Promise<EventLogAppendReceipt>`.
+//      A synchronous implementation returning `undefined` is NOT
+//      assignable to a Promise, so it fails at the wiring site instead of
+//      silently skipping the await.
+//   2. RUNTIME: `#appendRuntimeNodeEvent` refuses a NON-thenable `append`
+//      result fail-closed — the mirror of the old thenable tripwire, for
+//      wiring that reaches this seam past the compiler (plain JS,
+//      `as unknown as` casts). A synchronous implementation slipping
+//      through would report success before anything was durable AND would
+//      never run the caller's prelude inside a transaction.
+//
+// The seam names no concrete class — it is the exact surface consumed,
+// typed against T3.1's own parameter and return types so a signature
+// change there fails THIS compile rather than drifting. `readEvents` is
+// GONE: it existed only to feed the log-derive sequence allocator, which
+// the append path now owns (see the header). Keeping a dead read on the
+// seam would oblige every test fake to implement a method nothing calls.
 export interface SessionEventLog {
-  append(event: AppendableEvent): undefined;
-  readEvents(sessionId: string): ReadonlyArray<{ readonly sequence: number }>;
+  append(
+    envelope: UnsequencedEventEnvelope,
+    options?: EventLogAppendOptions,
+  ): Promise<EventLogAppendReceipt>;
 }
 
 export interface RuntimeNodeEventEmitterDeps {
-  // The durable append seam — see `SessionEventLog` above for the
-  // implementation landscape (`append` to persist, `readEvents` for the
-  // log-derive sequence default). The narrow structural type documents
-  // the exact surface consumed and lets tests pass a plain fake.
+  // The durable append seam — see `SessionEventLog` above. The narrow
+  // structural type documents the exact surface consumed and lets tests
+  // pass a plain fake.
   readonly sessionEvents: SessionEventLog;
-
-  // Per-session sequence allocator (forward-dep on Plan-001 Phase 5). When
-  // omitted, defaults to a log-derive over `readEvents` (last `sequence` + 1,
-  // or 0 for an empty log). Plan-001 Phase 5 later injects the coordinated
-  // production allocator here without this module changing.
-  readonly nextSequence?: (sessionId: string) => number;
 
   // Monotonic clock for `monotonic_ns` (within-daemon ordering only, I-003-4).
   // Injectable so T2.6's D6 can drive non-monotonic values THROUGH this
@@ -241,6 +261,15 @@ interface RuntimeNodeEmitBase {
   // Correlation/causation are optional envelope linkage fields (default null).
   readonly correlationId?: string | null;
   readonly causationId?: string | null;
+  // A SYNCHRONOUS durable write to commit ATOMICALLY with this event row,
+  // threaded straight through to `EventLogService.append` — which runs it
+  // inside the same transaction as the INSERT, immediately before it. This is
+  // how the L2 producers keep their dual-write atomic now that they no longer
+  // own the transaction (see the `SessionEventLog` seam contract above). The
+  // constraints on what may go in one — synchronous, same connection, writes
+  // only — are documented on `EventLogAppendOptions.transactionalPrelude`;
+  // this seam only forwards it.
+  readonly transactionalPrelude?: () => void;
 }
 
 export interface EmitRegisteredInput extends RuntimeNodeEmitBase {
@@ -284,8 +313,10 @@ export interface EmitCapabilityUpdatedInput extends RuntimeNodeEmitBase {
 /**
  * A thenable by the Promises/A+ duck test (`typeof then === "function"` on an
  * object or function) — the same shape `await` would latch onto. Used by the
- * `#appendRuntimeNodeEvent` guard to refuse async `SessionEventLog.append`
- * implementations fail-closed; see the seam contract above.
+ * `#appendRuntimeNodeEvent` guard to refuse SYNCHRONOUS `SessionEventLog.append`
+ * implementations fail-closed. The predicate is unchanged from the pre-re-point
+ * seam; what inverted is the SENSE of the guard that consumes it (see the seam
+ * contract above): the old contract refused a thenable, this one requires it.
  */
 function isThenable(value: unknown): value is PromiseLike<unknown> {
   if (value === null) return false;
@@ -299,14 +330,12 @@ function isThenable(value: unknown): value is PromiseLike<unknown> {
 
 export class RuntimeNodeEventEmitter {
   readonly #sessionEvents: SessionEventLog;
-  readonly #nextSequence: (sessionId: string) => number;
   readonly #monotonicNow: () => bigint;
   readonly #now: () => string;
   readonly #newEventId: () => string;
 
   constructor(deps: RuntimeNodeEventEmitterDeps) {
     this.#sessionEvents = deps.sessionEvents;
-    this.#nextSequence = deps.nextSequence ?? ((sessionId) => this.#deriveNextSequence(sessionId));
     this.#monotonicNow = deps.monotonicNow ?? (() => process.hrtime.bigint());
     this.#now = deps.now ?? (() => new Date().toISOString());
     this.#newEventId = deps.newEventId ?? (() => randomUUID());
@@ -317,7 +346,7 @@ export class RuntimeNodeEventEmitter {
    * `AppendableEvent` so the caller (T2.1 registry) can read the assigned
    * `sequence` / `id`.
    */
-  emitRegistered(input: EmitRegisteredInput): AppendableEvent {
+  async emitRegistered(input: EmitRegisteredInput): Promise<EventLogAppendReceipt> {
     const payload: RuntimeNodeRegisteredPayload = RuntimeNodeRegisteredPayloadSchema.parse({
       sessionId: input.sessionId,
       nodeId: input.nodeId,
@@ -336,7 +365,7 @@ export class RuntimeNodeEventEmitter {
    * calls this AFTER a successful `runtime_node.capability_declared`
    * (I-003-2) — the gate lives in the producer, not here.
    */
-  emitOnline(input: EmitOnlineInput): AppendableEvent {
+  async emitOnline(input: EmitOnlineInput): Promise<EventLogAppendReceipt> {
     const payload: RuntimeNodeOnlinePayload = RuntimeNodeOnlinePayloadSchema.parse({
       sessionId: input.sessionId,
       nodeId: input.nodeId,
@@ -352,7 +381,7 @@ export class RuntimeNodeEventEmitter {
    * producer passes `reason: "explicit_shutdown"`; the heartbeat-driven
    * reasons are Phase 3.
    */
-  emitOffline(input: EmitOfflineInput): AppendableEvent {
+  async emitOffline(input: EmitOfflineInput): Promise<EventLogAppendReceipt> {
     const payload: RuntimeNodeOfflinePayload = RuntimeNodeOfflinePayloadSchema.parse({
       sessionId: input.sessionId,
       nodeId: input.nodeId,
@@ -370,7 +399,7 @@ export class RuntimeNodeEventEmitter {
    * `{capability, capabilityDetails}` — capability events are NOT NodeState
    * transitions, so they carry no `previousState`/`newState: NodeState`.
    */
-  emitCapabilityDeclared(input: EmitCapabilityDeclaredInput): AppendableEvent {
+  async emitCapabilityDeclared(input: EmitCapabilityDeclaredInput): Promise<EventLogAppendReceipt> {
     const payload: RuntimeNodeCapabilityDeclaredPayload =
       RuntimeNodeCapabilityDeclaredPayloadSchema.parse({
         sessionId: input.sessionId,
@@ -390,7 +419,7 @@ export class RuntimeNodeEventEmitter {
    * (Plan-006 T1.4), and the input seam carries that same union via
    * indexed access, so typed snapshots arrive uncast.
    */
-  emitCapabilityUpdated(input: EmitCapabilityUpdatedInput): AppendableEvent {
+  async emitCapabilityUpdated(input: EmitCapabilityUpdatedInput): Promise<EventLogAppendReceipt> {
     const payload: RuntimeNodeCapabilityUpdatedPayload =
       RuntimeNodeCapabilityUpdatedPayloadSchema.parse({
         sessionId: input.sessionId,
@@ -408,28 +437,37 @@ export class RuntimeNodeEventEmitter {
   // ------------------------------------------------------------------------
 
   /**
-   * Construct the `AppendableEvent` from the validated payload + the shared
-   * envelope inputs, allocate the sequence, and route through the injected
-   * `SessionEventLog.append`. The PARSED payload is persisted (not the
-   * caller's input object), so storage reflects the schema's normalized
-   * shape. Returns the constructed event so callers can read `sequence`/`id`.
+   * Construct the envelope from the validated payload + the shared envelope
+   * inputs and route it through the injected `SessionEventLog.append`. The
+   * PARSED payload is persisted (not the caller's input object), so storage
+   * reflects the schema's normalized shape. Resolves to the append receipt, so
+   * callers read the `sequence` the append path ASSIGNED rather than one this
+   * emitter guessed.
    */
-  #appendRuntimeNodeEvent(
+  async #appendRuntimeNodeEvent(
     type: RuntimeNodeEventName,
     base: RuntimeNodeEmitBase,
     payload: RuntimeNodeEventPayload,
-  ): AppendableEvent {
-    const event: AppendableEvent = {
+  ): Promise<EventLogAppendReceipt> {
+    const envelope: UnsequencedEventEnvelope = {
       id: this.#newEventId(),
-      sessionId: base.sessionId,
-      sequence: this.#nextSequence(base.sessionId),
+      // BRANDED HERE, at the emission boundary. `EventEnvelope.sessionId` is
+      // the branded `SessionId` while this emitter's inputs (and the L2
+      // producers behind them) carry plain strings. The parse is the honest
+      // conversion — this seam already `.parse()`s every payload, so it is the
+      // natural validation boundary, and branding here rather than tightening
+      // the producers' input types keeps the change off ~74 call sites that
+      // gain nothing from it. The payload schema above validated the SAME value
+      // through `SessionIdSchema`, so this cannot reject anything that reached
+      // it. Handed to `parse` UNCAST — `parse` takes `unknown`, and a cast
+      // would only suppress the type error that catches a wrong-typed input.
+      sessionId: SessionIdSchema.parse(base.sessionId),
       occurredAt: this.#now(),
-      monotonicNs: this.#monotonicNow(),
       category: RUNTIME_NODE_EVENT_CATEGORY,
       type,
       actor: base.actor ?? null,
-      // `AppendableEvent.payload` is `Record<string, unknown>` (Plan-001-owned
-      // `types.ts`, read-only here). Every arm of `RuntimeNodeEventPayload` is
+      // `EventEnvelope.payload` is `Record<string, unknown>`. Every arm of
+      // `RuntimeNodeEventPayload` is
       // declared as an object TYPE ALIAS in contracts, and TypeScript grants a
       // type alias of an object type an implicit index signature (it grants an
       // interface none) — so the direct `as Record<string, unknown>` holds and
@@ -441,57 +479,48 @@ export class RuntimeNodeEventEmitter {
       // a reinterpretation; it asserts nothing false. Single site by design —
       // the union-typed parameter above keeps the cast off every call site.
       payload: payload as Record<string, unknown>,
-      correlationId: base.correlationId ?? null,
-      causationId: base.causationId ?? null,
+      // Absent, not null: `EventEnvelope` types the correlation pair
+      // `?: string | undefined` — optional and NOT nullable — because absent is
+      // that pair's only no-value wire state (`actor` alone carries the
+      // null-for-system convention). Under `exactOptionalPropertyTypes` an
+      // explicit `undefined` is not assignable either, so the key is omitted
+      // outright when the caller supplies none.
+      ...(base.correlationId != null ? { correlationId: base.correlationId } : {}),
+      ...(base.causationId != null ? { causationId: base.causationId } : {}),
       version: RUNTIME_NODE_EVENT_VERSION,
     };
-    const appendResult: unknown = this.#sessionEvents.append(event);
-    // Fail-closed thenable guard — layer 2 of the `SessionEventLog` seam
-    // contract above, backstopping the `undefined`-return compile-time layer
+    const appendResult: unknown = this.#sessionEvents.append(envelope, {
+      monotonicNs: this.#monotonicNow(),
+      // Forwarded only when supplied. `EventLogAppendOptions` declares it
+      // optional under `exactOptionalPropertyTypes`, so an explicit
+      // `transactionalPrelude: undefined` would not type-check.
+      ...(base.transactionalPrelude !== undefined
+        ? { transactionalPrelude: base.transactionalPrelude }
+        : {}),
+    });
+    // Fail-closed SYNCHRONOUS-append guard — layer 2 of the `SessionEventLog`
+    // seam contract above, backstopping the Promise-return compile-time layer
     // for wiring the compiler never saw (plain JS, `as unknown as` casts).
-    // A tripwire, not a recovery path: by the time a thenable comes back the
-    // implementation's synchronous prefix has already run, so this guard
-    // cannot undo that work — it exists to make wiring an async append LOUD
-    // on the first emit any test exercises, instead of a silent
-    // fire-and-forget that reports success before the durable write settles.
-    if (isThenable(appendResult)) {
-      // The orphaned promise still settles on its own; observe its rejection
-      // channel so the tripwire throw below is the ONLY failure surfaced
-      // (never a duplicate unhandled-rejection crash).
-      appendResult.then(undefined, () => {});
+    //
+    // This is the MIRROR of the pre-re-point tripwire, which refused a thenable
+    // because the seam was then synchronous by contract. The direction flipped
+    // with the seam: a synchronous `append` reaching here means the durable
+    // write did not run under the per-session lock, its failure cannot be
+    // awaited, and — the part no compile-time check would catch — the caller's
+    // `transactionalPrelude` never ran inside a transaction with the event row,
+    // silently un-doing the producers' dual-write atomicity. A tripwire, not a
+    // recovery path: the implementation's work has already happened by the time
+    // we look. It exists to make such wiring LOUD on the first emit any test
+    // exercises, instead of reporting success over a half-written pair.
+    if (!isThenable(appendResult)) {
       throw new Error(
-        "SessionEventLog.append returned a thenable: this seam is synchronous-transactional " +
-          "(the Plan-003 producers emit inside better-sqlite3 connection-level transactions " +
-          "whose rollback semantics need append's failure to throw synchronously). Wiring the " +
-          "async EventLogService.append is Plan-006 T3.1's own leg: it re-points this emitter " +
-          "and restructures the producers' atomicity around withSessionAppendLock.",
+        "SessionEventLog.append did not return a promise: this seam is async-transactional " +
+          "(Plan-006 T3.1's EventLogService.append serializes on withSessionAppendLock and " +
+          "runs the caller's transactionalPrelude inside the same transaction as the event " +
+          "row). A synchronous append reports success before the write is durable and never " +
+          "commits the prelude atomically with the row.",
       );
     }
-    return event;
-  }
-
-  /**
-   * Phase-2 default sequence allocator: the next per-session `sequence` is
-   * the highest durable `sequence` + 1, or 0 for an empty log. The maximum
-   * is computed explicitly rather than read off the final element because
-   * the `SessionEventLog` seam promises NO row ordering — a structural
-   * implementation returning rows in descending or unspecified SQL order
-   * must still allocate correctly. Reading and appending happen
-   * synchronously with no `await` between them, so the read-then-append is
-   * atomic in the single-threaded daemon; `append`'s
-   * `UNIQUE(session_id, sequence)` throw is the backstop if that assumption
-   * is ever violated. Replaced by Plan-001 Phase 5's coordinated allocator
-   * via the `nextSequence` dep.
-   */
-  #deriveNextSequence(sessionId: string): number {
-    const events: ReadonlyArray<{ readonly sequence: number }> =
-      this.#sessionEvents.readEvents(sessionId);
-    let highestSequence = -1;
-    for (const event of events) {
-      if (event.sequence > highestSequence) {
-        highestSequence = event.sequence;
-      }
-    }
-    return highestSequence + 1;
+    return (await appendResult) as EventLogAppendReceipt;
   }
 }
