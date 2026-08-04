@@ -194,6 +194,47 @@ export async function withSessionAppendLock<T>(
 }
 
 /**
+ * Whether the calling async context is running inside a LIVE hold on ANY
+ * session's append lock.
+ *
+ * This is the same predicate `withSessionAppendLock` consults to grant
+ * reentrancy, quantified over every session in the store instead of one. It
+ * exists for the callers that must REFUSE to run inside a hold rather than be
+ * granted one. Owner-scoped reentrancy is the right default for an APPENDER —
+ * without it every nested `append()` self-deadlocks (see the header) — but it is
+ * the wrong default for a batch pass that acquires the lock itself, per row,
+ * across many sessions: such a pass entered from inside a hold would acquire
+ * NOTHING for that session's rows and mutate them outside the serialization the
+ * outer hold exists to provide, with no error anywhere. The compactor's `tick()`
+ * is the first such caller.
+ *
+ * ANY-session rather than per-session, deliberately. A pass-scoped caller has no
+ * single session in hand when it is entered, and the shape it must reject — a
+ * frame holding SOME session's lock invoking something that will acquire locks
+ * on its own account — is a property of the async context, not of one partition.
+ * A per-session variant would also be the weaker guard here: it would clear a
+ * tick entered under a hold on session A even though that tick is about to
+ * acquire A among the rest.
+ *
+ * Released holds report `false`, for the reason the header gives: a straggler
+ * task that inherited this context after release holds nothing and would acquire
+ * normally, so treating it as a holder would refuse work that is in fact safe.
+ */
+export function isWithinSessionAppendLockHold(): boolean {
+  const currentHolds: ReadonlyMap<SessionId, SessionAppendLockHold> | undefined =
+    heldSessionAppendLocks.getStore();
+  if (currentHolds === undefined) {
+    return false;
+  }
+  for (const hold of currentHolds.values()) {
+    if (!hold.released) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * TEST-ONLY. Drop all queued per-session lock state.
  *
  * Not part of the append contract and never called by production code — the

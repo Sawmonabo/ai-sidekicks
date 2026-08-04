@@ -374,9 +374,27 @@ const EXPECTED_COMPACTED_ROWS = COMPACTABLE_EVENT_COUNT - COMPACTION_COUNT_THRES
 /** The stubbed prefix opens with the session-opener row, so one fewer PII row is stubbed. */
 const COMPACTED_PII_ROW_COUNT = EXPECTED_COMPACTED_ROWS - SESSION_OPENER_EVENT_COUNT;
 const LIVE_SHREDDED_ROW_COUNT = SHREDDED_PARTICIPANT_EVENT_COUNT - COMPACTED_PII_ROW_COUNT;
-/** The opener, every PII row, and the `event.shredded` record. */
-const TOTAL_SESSION_ROW_COUNT = COMPACTABLE_EVENT_COUNT + 1;
+/**
+ * The opener and every PII row — and NOTHING else. `event.shredded` is
+ * daemon-scope bound and lands on the sentinel partition, not here.
+ */
+const TOTAL_SESSION_ROW_COUNT = COMPACTABLE_EVENT_COUNT;
 const LIVE_ROW_COUNT = TOTAL_SESSION_ROW_COUNT - EXPECTED_COMPACTED_ROWS;
+
+/**
+ * The sentinel partition after one lifecycle: the pass's `event.compacted` at
+ * sequence 0, then `event.shredded` at sequence 1.
+ *
+ * `Spec-006 §Daemon-Scope Event Binding And Node-Scope Anchoring` binds EVERY
+ * `event_maintenance` type to the daemon-scope sentinel, and grants exactly one
+ * carve-out back to a real session: an `event.compacted` scoped to a single
+ * session's compaction MAY carry that session's id. `event.shredded` has no such
+ * grant — it is a fan-out record naming its affected sessions in the payload,
+ * and a shred spanning several sessions has no one session to belong to.
+ */
+const SENTINEL_COMPACTED_RECORD_COUNT = 1;
+const SHRED_SENTINEL_SEQUENCE = SENTINEL_COMPACTED_RECORD_COUNT;
+const SENTINEL_ROW_COUNT = SENTINEL_COMPACTED_RECORD_COUNT + 1;
 
 interface LifecycleResult {
   readonly compaction: CompactionPassResult;
@@ -462,9 +480,14 @@ async function runLifecycle(): Promise<LifecycleResult> {
     eventCountThreshold: COMPACTION_COUNT_THRESHOLD,
   }).tick();
 
-  // Plan-022 Path 1: the callback destroys the KEY. It runs post-commit and
-  // still under the session's append lock, so no row can be appended between
-  // the shred record landing and the key going away.
+  // Plan-022 Path 1: the callback destroys the KEY. It runs post-commit, while
+  // the append still holds the lock of the session the RECORD was written on —
+  // the sentinel's, here. That is a narrower guarantee than it looks: the append
+  // lock is per-session and there is no cross-session exclusion, so an append on
+  // an affected session can legitimately interleave with the key deletion. What
+  // the hold actually buys is serialization of the sentinel chain across the
+  // callback, which is what keeps a second maintenance record from landing
+  // mid-shred.
   let shredCallbackInvocations = 0;
   eventLog.registerShredCallback((shredded) => {
     shredCallbackInvocations += 1;
@@ -476,7 +499,11 @@ async function runLifecycle(): Promise<LifecycleResult> {
 
   const receipt = await eventLog.append({
     id: "evt-shredded",
-    sessionId: SESSION,
+    // DAEMON-SCOPE BOUND, like every other `event_maintenance` type. Writing it
+    // on `SESSION` would put a fan-out record on one of the several sessions it
+    // reports about, and would additionally make this fixture disagree with the
+    // production binding the compaction record above already follows.
+    sessionId: DAEMON_SCOPE_SENTINEL_SESSION_ID,
     occurredAt: PASS_INSTANT,
     category: "event_maintenance",
     type: "event.shredded",
@@ -507,13 +534,13 @@ describe("Shred safety E2E — PII lifecycle through compaction and crypto-shred
     expect(compaction.rowsStubbed).toBe(EXPECTED_COMPACTED_ROWS);
 
     const rows = storedRows();
-    // The opener, 64 PII rows, and the `event.shredded` record.
+    // The opener and 64 PII rows. The maintenance records this lifecycle writes
+    // — `event.compacted` and `event.shredded` alike — are on the sentinel.
     expect(rows).toHaveLength(TOTAL_SESSION_ROW_COUNT);
     const compacted = rows.filter((row) => row.retention_class === AUDIT_STUB_RETENTION_CLASS);
     const live = rows.filter((row) => row.retention_class === null);
     expect(compacted).toHaveLength(EXPECTED_COMPACTED_ROWS);
-    // Forty of the shredded participant's rows, four of the retained one's, and
-    // the shred record itself.
+    // Forty of the shredded participant's rows and four of the retained one's.
     expect(live).toHaveLength(LIVE_ROW_COUNT);
     expect(live.filter((row) => row.pii_participant_id === SHREDDED_PARTICIPANT)).toHaveLength(
       LIVE_SHREDDED_ROW_COUNT,
@@ -536,7 +563,11 @@ describe("Shred safety E2E — PII lifecycle through compaction and crypto-shred
     const { shredCallbackInvocations, shredSequence } = await runLifecycle();
 
     expect(shredCallbackInvocations).toBe(1);
-    expect(shredSequence).toBe(COMPACTABLE_EVENT_COUNT);
+    // WHICH CHAIN the record landed on, expressed as a sequence. The sentinel
+    // partition already held the pass's `event.compacted` at 0, so a shred bound
+    // to the sentinel gets 1 — whereas a shred that had (wrongly) landed on the
+    // real session would have taken the next sequence there, far above this.
+    expect(shredSequence).toBe(SHRED_SENTINEL_SEQUENCE);
     expect(
       database.prepare("SELECT participant_id FROM participant_keys ORDER BY participant_id").all(),
     ).toEqual([{ participant_id: RETAINED_PARTICIPANT }]);
@@ -578,12 +609,13 @@ describe("Shred safety E2E — PII lifecycle through compaction and crypto-shred
     expect(perRow.filter((verdict) => !verdict.valid)).toEqual([]);
     expect(linkageDefect).toBeUndefined();
 
-    // And the sentinel partition the compaction pass wrote to verifies too —
-    // this is the ONLY place in the tree that checks the node-scope chain's
-    // SIGNATURES rather than merely its linkage, so the row count is pinned:
-    // one `event.compacted` for the single session this pass compacted.
+    // And the sentinel partition both maintenance records landed on verifies too
+    // — this is the ONLY place in the tree that checks the node-scope chain's
+    // SIGNATURES rather than merely its linkage, so the row count is pinned: one
+    // `event.compacted` for the single session this pass compacted, plus the
+    // `event.shredded` record.
     const sentinel = verifyWholeChain(DAEMON_SCOPE_SENTINEL_SESSION_ID);
-    expect(sentinel.perRow).toHaveLength(1);
+    expect(sentinel.perRow).toHaveLength(SENTINEL_ROW_COUNT);
     expect(sentinel.perRow.filter((verdict) => !verdict.valid)).toEqual([]);
     expect(sentinel.linkageDefect).toBeUndefined();
   });
@@ -645,7 +677,9 @@ describe("Shred safety E2E — PII lifecycle through compaction and crypto-shred
 
   it("returns a PII-free row verbatim (read-path state 1)", async () => {
     await runLifecycle();
-    const shredRecord = storedRows().find((row) => row.type === "event.shredded");
+    const shredRecord = storedRows(DAEMON_SCOPE_SENTINEL_SESSION_ID).find(
+      (row) => row.type === "event.shredded",
+    );
 
     expect(shredRecord).toBeDefined();
     if (shredRecord === undefined) return;
@@ -682,10 +716,10 @@ describe("Shred safety E2E — PII lifecycle through compaction and crypto-shred
 
   it("spares the never-compacted categories through a SECOND pass (I-006-3-01 layer 1)", async () => {
     await runLifecycle();
-    const shredRecordBefore = storedRows().find((row) => row.type === "event.shredded");
     const sentinelBefore = storedRows(DAEMON_SCOPE_SENTINEL_SESSION_ID);
+    const shredRecordBefore = sentinelBefore.find((row) => row.type === "event.shredded");
     expect(shredRecordBefore).toBeDefined();
-    expect(sentinelBefore).toHaveLength(1);
+    expect(sentinelBefore).toHaveLength(SENTINEL_ROW_COUNT);
 
     // A STORAGE pass with a zero byte budget, NOT a second count pass. The count
     // trigger's candidate set is the oldest rows beyond the newest
@@ -702,10 +736,14 @@ describe("Shred safety E2E — PII lifecycle through compaction and crypto-shred
     }).tick();
     expect(second.rowsStubbed).toBeGreaterThan(0);
 
-    // The `event_maintenance` row the shred wrote, and the sentinel partition's
-    // `audit_integrity`-adjacent maintenance rows, are excluded by the SQL
-    // selector itself — layer 1 of the three-layer enforcement.
-    const shredRecordAfter = storedRows().find((row) => row.type === "event.shredded");
+    // The `event_maintenance` rows on the sentinel partition — the shred record
+    // and the first pass's own `event.compacted` — are excluded by the SQL
+    // selector itself, layer 1 of the three-layer enforcement. That the storage
+    // pass still stubbed rows (asserted above) is what proves the exclusion is
+    // doing the work rather than the trigger having gone quiet.
+    const shredRecordAfter = storedRows(DAEMON_SCOPE_SENTINEL_SESSION_ID).find(
+      (row) => row.type === "event.shredded",
+    );
     expect(shredRecordAfter?.retention_class).toBeNull();
     expect(shredRecordAfter?.stub_signature).toBeNull();
     expect(shredRecordAfter?.payload).toBe(shredRecordBefore?.payload);

@@ -56,6 +56,51 @@
 // the exact shape the "never across I/O" rule exists to forbid.
 //
 // ----------------------------------------------------------------------------
+// What is checked BEFORE anything is destroyed
+// ----------------------------------------------------------------------------
+//
+// Compaction destroys payloads irreversibly, so every condition that can make a
+// pass unable to FINISH is checked before the pass mutates its first row, and in
+// increasing cost order:
+//
+//   1. INGEST HALT (`ingest-halt-source.ts`). A session halted for signing-key
+//      reuse is SKIPPED, not refused — a skip leaves the age trigger live, so
+//      the session compacts normally once the halt clears. Stub-signing is
+//      attestation under the same key the halt declared repudiable, so a halted
+//      session that compacted would destroy the pre-halt evidence and re-attest
+//      what is left under the discredited key. Synchronous, no I/O, no lock.
+//   2. SENTINEL SIGNING KEY. `event.compacted` is appended on the DAEMON-SCOPE
+//      SENTINEL session, whose signing key is a different row of
+//      `daemon_signing_keys` from the one the stubs are signed with. That key is
+//      resolved by the append at the END of the pass, so an unresolvable one
+//      would surface only AFTER every payload in the range was gone — leaving
+//      irreversible destruction with no durable record of it, which the emission
+//      note below calls the one outcome this module must never produce. The pass
+//      therefore PROBES it up front and refuses with zero rows mutated.
+//
+// Both checks precede the `anchorRange` force-fire, not just the row loop: an
+// anchor forced for a range that will never be compacted queues an upload the
+// pass has no use for.
+//
+// BEHAVIORAL CONSEQUENCE of check 2, stated plainly: until CP-006-7 provisions
+// the sentinel session's signing key, compaction is INERT — every triggered pass
+// refuses, nothing is reclaimed, and the triggers keep firing. That is the
+// deliberate trade. An inert compactor is a storage problem; a compactor that
+// destroys payloads it cannot record is an audit-integrity problem, and only one
+// of the two is recoverable.
+//
+// The probe reads the key and discards it. It is NOT carried across the row loop
+// — `#emitCompacted` resolves the sentinel key again at emission time — because
+// holding private key material alive across an unbounded loop extends its
+// in-memory lifetime for no benefit. Nothing about either key is ever
+// interpolated into a refusal message or any other rendered string.
+//
+// SCOPE, deliberate: the anchor drain is NOT wired to the halt seam. An anchor
+// commits to PRE-halt bytes that already exist and destroys nothing, so
+// withholding it would only deny the operator the integrity proof over exactly
+// the range whose key came into question.
+//
+// ----------------------------------------------------------------------------
 // Scheduling: "never runs during active runs" is the CALLER's precondition
 // ----------------------------------------------------------------------------
 //
@@ -104,8 +149,10 @@ import type {
   EventLogAppendReceipt,
   UnsequencedEventEnvelope,
 } from "./event-log-service.js";
+import { NeverHaltedIngestHaltSource } from "./ingest-halt-source.js";
+import type { IngestHaltSource } from "./ingest-halt-source.js";
 import type { AnchorRangeRequest } from "./merkle-anchor-service.js";
-import { withSessionAppendLock } from "./session-append-lock.js";
+import { isWithinSessionAppendLockHold, withSessionAppendLock } from "./session-append-lock.js";
 import type { Ed25519PrivateKey } from "./signer.js";
 import type { DaemonSigningKeySource } from "./signing-key-source.js";
 
@@ -387,11 +434,12 @@ export interface CompactionSessionOutcome {
    * Present iff this session's pass refused. A refusal is scoped to one session;
    * other sessions in the same tick proceed.
    *
-   * It does NOT imply zero mutation. Only the anchor-step refusal is guaranteed
-   * unmutated — it precedes the row loop. A refusal raised mid-loop leaves the
-   * rows already stubbed before it stubbed, and those rows are reported in
-   * `rowsStubbed` and recorded by an `event.compacted` emitted over exactly
-   * them (see {@link Compactor}).
+   * It does NOT imply zero mutation. The refusals guaranteed unmutated are
+   * exactly the ones raised before the row loop: the sentinel signing-key probe,
+   * the anchor step, and a throwing halt source. A refusal raised mid-loop
+   * leaves the rows already stubbed before it stubbed, and those rows are
+   * reported in `rowsStubbed` and recorded by an `event.compacted` emitted over
+   * exactly them (see {@link Compactor}).
    */
   readonly refusedReason?: string | undefined;
 }
@@ -406,7 +454,13 @@ export interface CompactionPassResult {
    * fails its probe is skipped unexamined and counted in
    * {@link sessionsUnreadable} instead — it is neither examined, compacted, nor
    * refused. The narrower wording is deliberate: this count is what the pass
-   * acted on, not what the table contained, so it can never overstate coverage.
+   * LOOKED AT, not what the table contained.
+   *
+   * It is an upper bound on what the pass acted on, not a statement of it. Two
+   * examined sessions produce no outcome entry at all: one whose triggers all
+   * declined to fire (the common case) and one skipped because its ingest is
+   * halted. Read coverage off {@link outcomes}, which enumerates exactly the
+   * sessions this pass acted on.
    */
   readonly sessionsExamined: number;
   /**
@@ -424,10 +478,13 @@ export interface CompactionPassResult {
    * Partitions whose census row failed its probe and were skipped unexamined.
    *
    * A THIRD disjoint bucket beside {@link sessionsCompacted} and
-   * {@link sessionsRefused}, and deliberately not a refusal: a refusal reports a
-   * session whose triggers were evaluated and whose pass then declined to
-   * destroy anything, whereas these partitions never reached trigger evaluation
-   * at all. Reporting them as refusals would claim an evaluation that never ran.
+   * {@link sessionsRefused}, and deliberately not a refusal. The distinguishing
+   * property is not "never reached trigger evaluation" — a halt-skipped session
+   * does not reach it either, and it is counted as examined — but that no
+   * readable census row was ever obtained: the pass never held a session to act
+   * on, so there was nothing for it to decline to destroy. Every refusal, at
+   * whatever step it is raised, is raised against a partition the pass could
+   * read; reporting these as refusals would claim a pass that never began.
    *
    * Operationally a nonzero value is a STANDING alarm, not a transient one. The
    * probe is a pure function of the stored rows, so the same partition fails on
@@ -493,6 +550,18 @@ export interface CompactorDeps {
   readonly eventLog: CompactionEventLog;
   /** The anchor-before-compaction force-fire seam. */
   readonly anchorSource: CompactionAnchorSource;
+  /**
+   * The ingest-halt read seam. A halted session is skipped by the pass — see the
+   * file header on why stub-signing counts as attestation.
+   *
+   * Optional, defaulting to `NeverHaltedIngestHaltSource`, which is the same
+   * fail-OPEN stance `EventLogService` takes for the same dependency and for the
+   * same reason: a composition root that has not yet wired the registry gets a
+   * daemon that appends and compacts, not one that silently withholds retention
+   * on every session. The wiring, not this default, is what makes the halt
+   * observable.
+   */
+  readonly haltSource?: IngestHaltSource;
   /**
    * Rollback attribution. Defaults to
    * {@link VACUOUS_CURRENT_ROLLBACK_ATTRIBUTION_SOURCE}; Plan-004 T3.14's
@@ -645,6 +714,7 @@ export class Compactor {
   readonly #signingKeySource: DaemonSigningKeySource;
   readonly #eventLog: CompactionEventLog;
   readonly #anchorSource: CompactionAnchorSource;
+  readonly #haltSource: IngestHaltSource;
   readonly #rollbackAttributionSource: RollbackAttributionSource;
   readonly #now: () => Date;
   readonly #eventCountThreshold: number;
@@ -672,6 +742,7 @@ export class Compactor {
     this.#signingKeySource = deps.signingKeySource;
     this.#eventLog = deps.eventLog;
     this.#anchorSource = deps.anchorSource;
+    this.#haltSource = deps.haltSource ?? new NeverHaltedIngestHaltSource();
     this.#rollbackAttributionSource =
       deps.rollbackAttributionSource ?? VACUOUS_CURRENT_ROLLBACK_ATTRIBUTION_SOURCE;
     this.#now = deps.now ?? ((): Date => new Date());
@@ -888,18 +959,31 @@ export class Compactor {
    * concurrently would multiply the number of held session locks for no
    * throughput gain on a background task.
    *
-   * NOT re-entrant, and it says so rather than assuming it. A second `tick()`
-   * entered while one is in flight returns an empty result immediately. Today
-   * that is only a scheduler-hygiene guarantee — no call site sits inside a
-   * session hold — but `withSessionAppendLock` is owner-scoped reentrant, so a
-   * `tick()` nested inside a hold would acquire NOTHING for the rows of that
-   * session and stub them outside the serialization the hold exists to provide.
-   * The guard makes that shape impossible instead of merely unlikely.
+   * TWO guards, and they cover different shapes — an earlier draft conflated
+   * them and claimed more than one guard can support:
+   *
+   *   * SINGLE-FLIGHT (`#running`). A second `tick()` entered while one is in
+   *     flight returns an empty result immediately. This is scheduler hygiene:
+   *     two concurrent passes would race each other's candidate reads, and the
+   *     loser would spend a pass discovering rows the winner had already
+   *     stubbed. It says nothing about the FIRST tick's calling context.
+   *   * NOT-INSIDE-A-HOLD (`isWithinSessionAppendLockHold`). A `tick()` invoked
+   *     from inside a live `withSessionAppendLock` hold likewise returns an
+   *     empty result. `#running` cannot cover this: the nested tick IS the first
+   *     one, so the single-flight flag is clear and it would proceed. The hazard
+   *     is that the lock is owner-scoped REENTRANT — a tick running inside a
+   *     hold on session S acquires NOTHING for S's rows and stubs them outside
+   *     the serialization the hold exists to provide, silently.
+   *
+   * No call site sits inside a hold today, so the second guard is prophylactic;
+   * it is here because the failure it prevents is silent, irreversible, and
+   * would be introduced by an ordinary-looking refactor (wrapping a maintenance
+   * routine in a hold "for consistency").
    */
   async tick(): Promise<CompactionPassResult> {
     const operationId: string = this.#operationIdFactory();
-    if (this.#running) {
-      return EMPTY_PASS_RESULT(operationId);
+    if (this.#running || isWithinSessionAppendLockHold()) {
+      return emptyPassResult(operationId);
     }
     this.#running = true;
     try {
@@ -951,16 +1035,29 @@ export class Compactor {
   // ------------------------------------------------------------------------
 
   /**
-   * Returns `undefined` when no trigger fired for this session (the common
-   * case, and not worth an outcome entry).
+   * Returns `undefined` in the two cases that produce no outcome entry: no
+   * trigger fired (the common case, and not worth reporting), or the session's
+   * ingest is HALTED and the pass skipped it before evaluating anything.
    *
-   * NEVER THROWS. The guarded region brackets the entire pass — trigger
-   * evaluation, anchoring, the row loop, and the emission — so one session's
-   * failure can neither discard the outcomes already collected by the tick nor
-   * skip the sessions after it. That bracketing is the whole point: an earlier
-   * draft guarded only the middle, which left a trigger-evaluation throw able
-   * to abort the tick with zero stubs, and an append rejection at the emission
-   * able to abort it AFTER destroying payloads.
+   * The halt case is a SKIP rather than a refusal, and the distinction is
+   * behavioral rather than cosmetic. A refusal is a session whose triggers were
+   * evaluated and whose pass then declined to destroy anything; reporting a halt
+   * that way would claim an evaluation that never ran, and would mint one
+   * refusal entry per halted session per tick for as long as the halt lasts. The
+   * skip also leaves the trigger state untouched, so the session compacts on the
+   * first tick after the halt clears with nothing to re-arm.
+   *
+   * NEVER THROWS. The guarded region brackets the entire pass — the halt check,
+   * trigger evaluation, the sentinel-key probe, anchoring, the row loop, and the
+   * emission — so one session's failure can neither discard the outcomes already
+   * collected by the tick nor skip the sessions after it. That bracketing is the
+   * whole point: an earlier draft guarded only the middle, which left a
+   * trigger-evaluation throw able to abort the tick with zero stubs, and an
+   * append rejection at the emission able to abort it AFTER destroying payloads.
+   * The two injected seams consulted before the row loop — the halt source and
+   * the signing-key source — are inside it for the same reason: neither can be
+   * assumed total, and a throwing implementation of either must cost one
+   * session's pass, not the tick.
    */
   async #compactSession(
     summary: SessionSummary,
@@ -977,11 +1074,38 @@ export class Compactor {
     let refusedReason: string | undefined;
 
     try {
+      // HALT SKIP — first inside the guarded region, because it is the cheapest
+      // thing that can stop this pass (a synchronous set membership, no I/O and
+      // no lock) and everything after it either costs a round trip or queues
+      // work. INSIDE the try rather than above it: `isHalted` is an injected
+      // seam, and a seam that throws must degrade to this session's refusal like
+      // every other failure here, never escape and abort the whole tick.
+      //
+      // `ingest-halt-source.ts`: a halted session's signing key "can no longer
+      // attest anything", and the response is to stop appending on every locally
+      // hosted identity. Stub-signing is attestation — every stubbed row is a
+      // fresh Ed25519 signature over bytes this daemon just minted — so
+      // compacting a halted session would destroy the pre-halt evidence of the
+      // very key event under investigation and re-attest the remains under the
+      // discredited key.
+      //
+      // The predicate is asked about THIS session, never about the sentinel: the
+      // halt registry forbids halting the daemon-scope sentinel outright.
+      if (this.#haltSource.isHalted(summary.sessionId)) {
+        return undefined;
+      }
+
       trigger = this.#evaluateTriggers(summary, passInstant);
       if (trigger === undefined) {
         return undefined;
       }
       const toSequence: number = trigger.cutoffSequence;
+
+      // SENTINEL SIGNING-KEY PROBE — the second pre-destruction check (see the
+      // file header). After the trigger guard, so an idle partition never pays
+      // for it; before `anchorRange`, so a range that will never be compacted
+      // never force-fires an anchor upload on its behalf.
+      await this.#probeSentinelSigningKey();
 
       // STEPS 1-3 of `Spec-006 §Post-Compaction Integrity`, delegated whole to
       // `anchorRange` — its coverage pre-check IS step 1, its force-fire is
@@ -1101,6 +1225,45 @@ export class Compactor {
       bytesReclaimed,
       refusedReason,
     };
+  }
+
+  /**
+   * Resolve the DAEMON-SCOPE SENTINEL's signing key and immediately discard it,
+   * refusing the session's pass when it cannot be resolved.
+   *
+   * WHY A SEPARATE KEY AT ALL. The stubs are signed with the SESSION's key,
+   * resolved further down; `event.compacted` is appended on the sentinel session
+   * (`Spec-006 §Daemon-Scope Event Binding And Node-Scope Anchoring`) and is
+   * signed with the SENTINEL's. They are different rows of `daemon_signing_keys`
+   * and either can be resolvable while the other is not — so a session key that
+   * resolved says nothing about whether this pass will be able to record itself.
+   *
+   * WHY UP FRONT. The emission runs after the row loop, so without this probe
+   * the first evidence of an unresolvable sentinel key arrives once every
+   * payload in the range is already gone. That is the unrecorded-destruction
+   * outcome the emission note calls the one this module must never produce, and
+   * it recurs on every tick because the trigger that fired is still firing.
+   *
+   * PROBE, NOT HOLD. The resolved key is not returned and not stored: extending
+   * private key material's in-memory lifetime across an unbounded row loop buys
+   * nothing, since `#emitCompacted`'s append resolves it again at emission time.
+   * A key that becomes unresolvable in the gap still fails there — this probe
+   * narrows the window, it does not close it, and it is not claimed to.
+   *
+   * NO KEY MATERIAL IN THE MESSAGE. Only the REJECTION is ever rendered, and a
+   * rejection is by construction the absence of a key; the resolved value is
+   * discarded without being read, stringified, or logged.
+   */
+  async #probeSentinelSigningKey(): Promise<void> {
+    try {
+      await this.#signingKeySource.read(DAEMON_SCOPE_SENTINEL_SESSION_ID);
+    } catch (error) {
+      throw new CompactionRefusal(
+        "the daemon-scope sentinel's signing key could not be resolved, so this pass could not " +
+          "append the event.compacted record of its own work; refusing to mutate any row " +
+          `(${describeError(error)}).`,
+      );
+    }
   }
 
   // ------------------------------------------------------------------------
@@ -1579,8 +1742,8 @@ export class Compactor {
 // Module-local helpers
 // --------------------------------------------------------------------------
 
-/** The result a re-entrant {@link Compactor.tick} returns without doing work. */
-function EMPTY_PASS_RESULT(operationId: string): CompactionPassResult {
+/** The result a guard-rejected {@link Compactor.tick} returns without doing work. */
+function emptyPassResult(operationId: string): CompactionPassResult {
   return {
     operationId,
     sessionsExamined: 0,
@@ -1720,9 +1883,29 @@ function readNullableString(value: unknown, column: string): string | null {
   return readString(value, column);
 }
 
+/**
+ * The refusing counterpart to {@link optionalFiniteNumber}, and it applies the
+ * SAME bigint rule: a `bigint` is accepted only when it round-trips through
+ * `Number` as a safe integer.
+ *
+ * The two must not disagree. The values that reach here are sequences and byte
+ * counts read out of the same rows the probing reader measures, and they flow
+ * into arithmetic (`sequence + 1`, byte subtraction) and into signed stub
+ * payloads. A bare `Number(value)` past 2^53 silently yields a NEIGHBOURING
+ * integer — which as a sequence names a DIFFERENT row than the one the database
+ * returned, and as a byte count gets signed into a stub retained indefinitely.
+ * Refusing is the only honest answer at that magnitude.
+ */
 function readNumber(value: unknown, column: string): number {
   if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "bigint") return Number(value);
+  if (typeof value === "bigint") {
+    const narrowed: number = Number(value);
+    if (Number.isSafeInteger(narrowed)) return narrowed;
+    throw new CompactionRefusal(
+      `${column} is a bigint past the safe-integer range (${String(value)}); refusing to narrow ` +
+        "it, because the nearest double names a different row than the one stored.",
+    );
+  }
   throw new CompactionRefusal(
     `${column} is not a finite INTEGER (got ${typeof value}); the stored row is corrupt.`,
   );

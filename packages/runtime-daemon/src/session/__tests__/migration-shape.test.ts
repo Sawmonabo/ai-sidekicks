@@ -2258,3 +2258,186 @@ describe("0008-pending-anchor-uploads migration shape", () => {
     ).not.toThrow();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Plan-006 T3.2 — compaction retention discriminator (migration version 9).
+// ---------------------------------------------------------------------------
+//
+// Version 9 adds no TABLE, so `ALL_EXPECTED_TABLES` pins nothing about it: the
+// CHECK, both columns, and the partial index could all vanish and every other
+// block in this file would stay green. Same gap the 0006 block opens with, same
+// remedy — this is the shape floor the suite's convention requires.
+//
+// TWO things here are load-bearing beyond ordinary column shape:
+//
+//   * The CHECK is the ONLY guard that keeps `retention_class` a two-valued
+//     discriminator. Every compaction-facing statement in `compactor.ts` selects
+//     on `retention_class IS NULL`, so a third value stored by any writer would
+//     produce rows that are neither live nor stubbed — invisible to the
+//     compactor, invisible to the verifier's `audit_stub` sweep, and carrying
+//     destroyed payloads either way. A shape assertion cannot certify a CHECK;
+//     only a REJECTION arm can, and it is paired with acceptance arms below so a
+//     throw for some unrelated reason cannot pass for the constraint working.
+//   * The index's PARTIALITY is the point of the index. `WHERE retention_class
+//     IS NULL` is what keeps it sized to the LIVE prefix rather than to the whole
+//     retained history, and `sqlite_master.sql` is the only authority for that
+//     predicate — the 0006 block above explains why `index_list` cannot
+//     discriminate it.
+describe("0009-retention-class-and-stub-signature migration shape", () => {
+  let db: DatabaseType;
+  // Every probe row lands on one session, so sequences must not collide with
+  // `UNIQUE(session_id, sequence)` — including on the arms that expect a throw,
+  // where a duplicate sequence would raise the WRONG constraint.
+  let nextSequence: number;
+
+  beforeEach(() => {
+    db = openDatabase(":memory:");
+    nextSequence = 0;
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  /**
+   * A minimal `session_events` row. NON-terminal `session_lifecycle`, so the
+   * version-6 terminal-key trigger trio stays out of these arms — a row those
+   * triggers reject would look exactly like a CHECK rejection.
+   */
+  function insertEvent(id: string, retentionClass: string | null): void {
+    db.prepare(
+      `INSERT INTO session_events
+         (id, session_id, sequence, occurred_at, monotonic_ns, category, type,
+          actor, payload, correlation_id, causation_id, version,
+          prev_hash, row_hash, daemon_signature, retention_class)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      id,
+      "session-retention",
+      nextSequence++,
+      "2026-08-04T12:00:00.000Z",
+      1_000_000_000,
+      "session_lifecycle",
+      "session.updated",
+      null,
+      JSON.stringify({ note: "retention-class probe" }),
+      null,
+      null,
+      "1.0",
+      Buffer.alloc(32),
+      Buffer.alloc(32, 0x01),
+      Buffer.alloc(64, 0x02),
+      retentionClass,
+    );
+  }
+
+  it("adds retention_class and stub_signature as nullable, default-less columns", () => {
+    const columns = db
+      .prepare("PRAGMA table_info(session_events)")
+      .all() as ReadonlyArray<PragmaColumn>;
+    const byName = new Map(columns.map((column) => [column.name, column]));
+
+    // TEXT and BLOB, and the BLOB is load-bearing rather than cosmetic — the
+    // same argument the 0008 block makes for its two commitment columns. A
+    // `stub_signature` stored as base64 TEXT would read back as text and fail
+    // verification against the bytes the compactor actually signed.
+    expect(byName.get("retention_class")?.type).toBe("TEXT");
+    expect(byName.get("stub_signature")?.type).toBe("BLOB");
+
+    // NULLABLE with no default, both of them, and that is the schema's way of
+    // saying LIVE. Every row written before compaction and every row written by
+    // the append path leaves them unset, which is what makes `retention_class IS
+    // NULL` a complete description of the live set. A NOT NULL column or a
+    // DEFAULT would have required backfilling the whole table at migration time.
+    expect(byName.get("retention_class")?.notnull).toBe(0);
+    expect(byName.get("stub_signature")?.notnull).toBe(0);
+    expect(byName.get("retention_class")?.dflt_value).toBeNull();
+    expect(byName.get("stub_signature")?.dflt_value).toBeNull();
+
+    // Appended by ALTER TABLE, so they are the LAST two columns in CID order.
+    expect(columns.slice(-2).map((column) => column.name)).toEqual([
+      "retention_class",
+      "stub_signature",
+    ]);
+  });
+
+  it("accepts NULL and 'audit_stub' for retention_class but REJECTS any third value", () => {
+    // The two ACCEPTANCE baselines first. Without them the rejection below is
+    // unfalsifiable: an insert that throws because a NOT NULL column was missed,
+    // or because a version-6 trigger fired, is indistinguishable from the CHECK
+    // doing its job.
+    expect(() => {
+      insertEvent("evt-retention-live", null);
+    }).not.toThrow();
+    expect(() => {
+      insertEvent("evt-retention-stub", "audit_stub");
+    }).not.toThrow();
+
+    // THE REJECTION ARM. `retention_class` is a two-valued discriminator, and
+    // the CHECK is the only thing that keeps it one.
+    expect(() => {
+      insertEvent("evt-retention-bogus", "archived");
+    }).toThrow(/CHECK constraint failed/);
+
+    // Casing counts too: the compactor writes the literal `'audit_stub'`, and a
+    // near-miss would be a live row the compactor never revisits.
+    expect(() => {
+      insertEvent("evt-retention-case", "AUDIT_STUB");
+    }).toThrow(/CHECK constraint failed/);
+
+    // And an UPDATE cannot smuggle a third value past a row that entered clean.
+    expect(() =>
+      db
+        .prepare("UPDATE session_events SET retention_class = ? WHERE id = ?")
+        .run("archived", "evt-retention-live"),
+    ).toThrow(/CHECK constraint failed/);
+
+    const stored = db
+      .prepare("SELECT id, retention_class FROM session_events ORDER BY id")
+      .all() as ReadonlyArray<{ id: string; retention_class: string | null }>;
+    expect(stored).toEqual([
+      { id: "evt-retention-live", retention_class: null },
+      { id: "evt-retention-stub", retention_class: "audit_stub" },
+    ]);
+  });
+
+  it("creates idx_session_events_live PARTIAL on the live rows, keyed (session_id, sequence)", () => {
+    const indexes = db.prepare("PRAGMA index_list(session_events)").all() as ReadonlyArray<{
+      name: string;
+      unique: 0 | 1;
+      origin: string;
+      partial: 0 | 1;
+    }>;
+    const live = indexes.find((index) => index.name === "idx_session_events_live");
+    expect(live).toBeDefined();
+    expect(live?.unique).toBe(0);
+    expect(live?.partial).toBe(1);
+    expect(live?.origin).toBe("c");
+
+    // The key mirrors the compactor's own scan order: partition, then sequence.
+    const keyColumns = db
+      .prepare("PRAGMA index_info(idx_session_events_live)")
+      .all() as ReadonlyArray<{ name: string }>;
+    expect(keyColumns.map((column) => column.name)).toEqual(["session_id", "sequence"]);
+
+    // THE PREDICATE, off `sqlite_master.sql` because nothing else reports it. An
+    // index whose WHERE clause silently widened to every row would still report
+    // `partial: 1` here while indexing the entire retained history — the exact
+    // cost this index exists to avoid.
+    const indexDdl = db
+      .prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?")
+      .get("idx_session_events_live") as { sql: string } | undefined;
+    expect(indexDdl?.sql).toContain("WHERE retention_class IS NULL");
+  });
+
+  it("anchors the version-9 schema_version row with its Plan-006 description", () => {
+    const versionRows = db
+      .prepare("SELECT description FROM schema_version WHERE version = 9")
+      .all() as ReadonlyArray<{ description: string }>;
+    expect(versionRows).toHaveLength(1);
+    expect(versionRows[0]?.description).toBe(
+      "Compaction retention discriminator + post-compaction stub commitment " +
+        "(session_events.retention_class, session_events.stub_signature, idx_session_events_live)",
+    );
+  });
+});

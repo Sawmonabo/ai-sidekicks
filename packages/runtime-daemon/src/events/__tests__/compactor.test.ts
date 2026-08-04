@@ -62,6 +62,7 @@ import {
   type RollbackAttribution,
   type RollbackAttributionSource,
 } from "../compactor.js";
+import type { IngestHaltSource } from "../ingest-halt-source.js";
 import { MerkleAnchorService } from "../merkle-anchor-service.js";
 import { __resetSessionAppendLocksForTest, withSessionAppendLock } from "../session-append-lock.js";
 import type { Ed25519PrivateKey, Ed25519PublicKey } from "../signer.js";
@@ -82,6 +83,19 @@ const DAEMON_PUBLIC_KEY = ed25519.getPublicKey(DAEMON_PRIVATE_KEY) as Ed25519Pub
 const keySource: DaemonSigningKeySource = {
   create: () => Promise.resolve({ publicKey: DAEMON_PUBLIC_KEY }),
   read: () => Promise.resolve(DAEMON_PRIVATE_KEY),
+};
+
+// The pre-CP-006-7 daemon: every real session's key resolves, the daemon-scope
+// sentinel's does not. `DaemonSigningKeySource.read` is deliberately NOT
+// create-on-read, so an unprovisioned sentinel really does reject — this stub
+// reproduces that rejection rather than inventing a failure mode.
+const SENTINEL_KEY_ABSENT_MESSAGE = "no signing key row for the daemon-scope sentinel";
+const sentinelLessKeySource: DaemonSigningKeySource = {
+  create: () => Promise.resolve({ publicKey: DAEMON_PUBLIC_KEY }),
+  read: (sessionId: SessionId) =>
+    sessionId === DAEMON_SCOPE_SENTINEL_SESSION_ID
+      ? Promise.reject(new Error(SENTINEL_KEY_ABSENT_MESSAGE))
+      : Promise.resolve(DAEMON_PRIVATE_KEY),
 };
 
 /** An anchor source that records its calls and can be told to misbehave. */
@@ -272,6 +286,8 @@ function anchorRows(): ReadonlyArray<{ start_sequence: number; end_sequence: num
 interface BuildOptions {
   readonly anchorSource?: CompactionAnchorSource;
   readonly eventLog?: CompactionEventLog;
+  readonly signingKeySource?: DaemonSigningKeySource;
+  readonly haltSource?: IngestHaltSource;
   readonly rollbackAttributionSource?: RollbackAttributionSource;
   readonly eventCountThreshold?: number;
   readonly ageThresholdDays?: number;
@@ -282,10 +298,15 @@ function buildCompactor(options?: BuildOptions): Compactor {
   return new Compactor({
     db: database,
     nodeId: NODE,
-    signingKeySource: keySource,
+    signingKeySource: options?.signingKeySource ?? keySource,
     eventLog: options?.eventLog ?? new RecordingEventLog(),
     anchorSource: options?.anchorSource ?? new RecordingAnchorSource(),
     now: () => new Date(PASS_INSTANT),
+    // Left UNSET by default rather than passed as a never-halting stub: the
+    // production default is itself `NeverHaltedIngestHaltSource`, and letting the
+    // fixture supply one would test the fixture's fail-open stance instead of the
+    // constructor's.
+    ...(options?.haltSource !== undefined ? { haltSource: options.haltSource } : {}),
     ...(options?.rollbackAttributionSource !== undefined
       ? { rollbackAttributionSource: options.rollbackAttributionSource }
       : {}),
@@ -1171,5 +1192,286 @@ describe("Compactor — pass-result census", () => {
 
     releaseAttribution();
     expect((await firstTick).rowsStubbed).toBe(1);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// The checks that run BEFORE anything is destroyed
+// ----------------------------------------------------------------------------
+//
+// Every arm here pins a NEGATIVE outcome — a pass that declined to run — so each
+// is paired with a positive arm over the SAME seeds and the SAME thresholds.
+// Without the pairing an arm asserting "nothing was stubbed" passes just as well
+// against a compactor that stubs nothing ever, and would keep passing if the
+// trigger it depends on silently stopped firing.
+
+describe("Compactor — the sentinel signing key is probed before any row is mutated", () => {
+  /** Two rows over a count threshold of 1: one candidate, one retained. */
+  function seedOneCandidate(): { readonly id: string } {
+    const candidate = seed({
+      category: "session_lifecycle",
+      type: "session.updated",
+      payload: { text: "destroyable" },
+    });
+    seed({ category: "session_lifecycle", type: "session.updated", payload: { text: "keep" } });
+    return candidate;
+  }
+
+  it("refuses the pass with zero rows mutated and zero anchors forced", async () => {
+    const candidate = seedOneCandidate();
+    const originalPayload = readRow(candidate.id).payload;
+    const anchorSource = new RecordingAnchorSource();
+    const eventLog = new RecordingEventLog();
+
+    const result = await buildCompactor({
+      anchorSource,
+      eventLog,
+      signingKeySource: sentinelLessKeySource,
+      eventCountThreshold: 1,
+    }).tick();
+
+    expect(result.sessionsRefused).toBe(1);
+    expect(result.rowsStubbed).toBe(0);
+    expect(result.bytesReclaimed).toBe(0);
+
+    // The row is untouched — payload bytes intact, not marked as a stub.
+    const stored = readRow(candidate.id);
+    expect(stored.payload).toBe(originalPayload);
+    expect(stored.retention_class).toBeNull();
+    expect(stored.pii_payload).not.toBeNull();
+
+    // BEFORE the anchor, not merely before the row loop. A force-fired anchor
+    // over a range that will never be compacted queues an upload for nothing.
+    expect(anchorSource.calls).toHaveLength(0);
+    expect(eventLog.appended).toHaveLength(0);
+
+    // Observable on the outcome, which is where every other refusal in this
+    // module surfaces.
+    const reason = result.outcomes[0]?.refusedReason ?? "";
+    expect(reason).toContain("sentinel");
+    expect(reason).toContain(SENTINEL_KEY_ABSENT_MESSAGE);
+  });
+
+  it("never renders key material into the refusal it reports", async () => {
+    seedOneCandidate();
+
+    const result = await buildCompactor({
+      signingKeySource: sentinelLessKeySource,
+      eventCountThreshold: 1,
+    }).tick();
+
+    // The probe resolves a PRIVATE key on the success path and discards it. The
+    // encodings a careless `String(...)` or a debug interpolation would produce
+    // are enumerated rather than described, so this fails on the day one of them
+    // reaches the message.
+    const reason = result.outcomes[0]?.refusedReason ?? "";
+    // Non-vacuity first: `not.toContain` on an empty string passes for free, so
+    // the arm has to establish that a refusal was actually rendered.
+    expect(reason.length).toBeGreaterThan(0);
+    const secret = Buffer.from(DAEMON_PRIVATE_KEY);
+    expect(reason).not.toContain(secret.toString("hex"));
+    expect(reason).not.toContain(secret.toString("base64"));
+    expect(reason).not.toContain(DAEMON_PRIVATE_KEY.join(","));
+  });
+
+  it("compacts the same seeds once the sentinel key resolves", async () => {
+    // THE PAIRED POSITIVE ARM. Identical seeds and threshold; the ONE difference
+    // is a key source that answers for the sentinel. If this fails, the two arms
+    // above are pinning a dead trigger rather than the probe.
+    const candidate = seedOneCandidate();
+    const anchorSource = new RecordingAnchorSource();
+    const eventLog = new RecordingEventLog();
+
+    const result = await buildCompactor({
+      anchorSource,
+      eventLog,
+      eventCountThreshold: 1,
+    }).tick();
+
+    expect(result.sessionsRefused).toBe(0);
+    expect(result.rowsStubbed).toBe(1);
+    expect(readRow(candidate.id).retention_class).toBe(AUDIT_STUB_RETENTION_CLASS);
+    expect(anchorSource.calls).toHaveLength(1);
+    expect(eventLog.appended).toHaveLength(1);
+  });
+});
+
+describe("Compactor — a halted session is skipped, not compacted", () => {
+  function seedTwoSessions(): { readonly halted: string; readonly healthy: string } {
+    const halted = seed({
+      category: "session_lifecycle",
+      type: "session.updated",
+      payload: { text: "halted-candidate" },
+    });
+    seed({ category: "session_lifecycle", type: "session.updated", payload: { text: "keep" } });
+    const healthy = seed({
+      category: "session_lifecycle",
+      type: "session.updated",
+      payload: { text: "healthy-candidate" },
+      sessionId: SECOND_SESSION,
+      sequence: 0,
+    });
+    seed({
+      category: "session_lifecycle",
+      type: "session.updated",
+      payload: { text: "keep" },
+      sessionId: SECOND_SESSION,
+      sequence: 1,
+    });
+    return { halted: halted.id, healthy: healthy.id };
+  }
+
+  it("leaves the halted session untouched while a sibling in the same tick compacts", async () => {
+    // Stub-signing is attestation under the key the halt declared repudiable, so
+    // the halted session must not be re-signed — and the sibling arm is what
+    // proves the pass was running at all rather than declining wholesale.
+    const rows = seedTwoSessions();
+    const anchorSource = new RecordingAnchorSource();
+    const eventLog = new RecordingEventLog();
+
+    const result = await buildCompactor({
+      anchorSource,
+      eventLog,
+      haltSource: { isHalted: (sessionId: SessionId) => sessionId === SESSION },
+      eventCountThreshold: 1,
+    }).tick();
+
+    expect(readRow(rows.halted).retention_class).toBeNull();
+    expect(readRow(rows.healthy).retention_class).toBe(AUDIT_STUB_RETENTION_CLASS);
+
+    // A SKIP, not a refusal: the halted session produces no outcome entry at
+    // all, because its triggers were never evaluated.
+    expect(result.sessionsExamined).toBe(2);
+    expect(result.sessionsCompacted).toBe(1);
+    expect(result.sessionsRefused).toBe(0);
+    expect(result.outcomes).toHaveLength(1);
+    expect(result.outcomes[0]?.sessionId).toBe(SECOND_SESSION);
+
+    // Skipped before the anchor step, so exactly one session force-fired one.
+    expect(anchorSource.calls).toHaveLength(1);
+    expect(eventLog.appended).toHaveLength(1);
+    expect(eventLog.appended[0]?.payload.sessionId).toBe(SECOND_SESSION);
+  });
+
+  it("compacts the previously halted session on the first tick after the halt clears", async () => {
+    // THE POINT OF SKIPPING RATHER THAN REFUSING. Nothing about the trigger state
+    // was consumed by the skip, so the session compacts with no re-arming — which
+    // is also what makes the arm above a statement about the halt and not about
+    // an exhausted trigger.
+    const rows = seedTwoSessions();
+    let halted = true;
+    const compactor = buildCompactor({
+      haltSource: { isHalted: (sessionId: SessionId) => halted && sessionId === SESSION },
+      eventCountThreshold: 1,
+    });
+
+    const duringHalt = await compactor.tick();
+    expect(duringHalt.outcomes.map((outcome) => outcome.sessionId)).toEqual([SECOND_SESSION]);
+    expect(readRow(rows.halted).retention_class).toBeNull();
+
+    halted = false;
+    const afterHalt = await compactor.tick();
+
+    expect(afterHalt.outcomes.map((outcome) => outcome.sessionId)).toEqual([SESSION]);
+    expect(afterHalt.rowsStubbed).toBe(1);
+    expect(readRow(rows.halted).retention_class).toBe(AUDIT_STUB_RETENTION_CLASS);
+  });
+
+  it("costs one session's pass, not the tick, when the halt source itself throws", async () => {
+    // The halt source is an INJECTED seam, so it is consulted inside the same
+    // guarded region as every other fallible step. The discriminating assertion
+    // is the sibling: the census is ordered by session id and `SESSION` sorts
+    // first, so a throw that escaped `#compactSession` would abort the tick
+    // before `SECOND_SESSION` was ever reached.
+    const rows = seedTwoSessions();
+    const result = await buildCompactor({
+      haltSource: {
+        isHalted: (sessionId: SessionId): boolean => {
+          if (sessionId === SESSION) {
+            throw new Error("halt registry unavailable");
+          }
+          return false;
+        },
+      },
+      eventCountThreshold: 1,
+    }).tick();
+
+    expect(result.sessionsRefused).toBe(1);
+    expect(readRow(rows.halted).retention_class).toBeNull();
+    expect(readRow(rows.healthy).retention_class).toBe(AUDIT_STUB_RETENTION_CLASS);
+
+    // Refused upstream of trigger evaluation, which is the one shape
+    // `CompactionSessionOutcome.reason` documents as reasonless.
+    const refused = result.outcomes.find((outcome) => outcome.refusedReason !== undefined);
+    expect(refused?.sessionId).toBe(SESSION);
+    expect(refused?.reason).toBeUndefined();
+    expect(refused?.rowsStubbed).toBe(0);
+    expect(refused?.refusedReason).toContain("halt registry unavailable");
+  });
+});
+
+describe("Compactor — a tick entered from inside an append-lock hold does nothing", () => {
+  function seedOneCandidate(): { readonly id: string } {
+    const candidate = seed({
+      category: "session_lifecycle",
+      type: "session.updated",
+      payload: { text: "destroyable" },
+    });
+    seed({ category: "session_lifecycle", type: "session.updated", payload: { text: "keep" } });
+    return candidate;
+  }
+
+  it("returns an empty result and mutates nothing under a hold on the session it would compact", async () => {
+    // The hazard this guards is silent: the lock is owner-scoped REENTRANT, so a
+    // nested tick would be granted the outer frame's hold and stub rows outside
+    // the serialization the hold exists to provide, with no error anywhere.
+    const candidate = seedOneCandidate();
+    const compactor = buildCompactor({ eventCountThreshold: 1 });
+
+    const insideHold = await withSessionAppendLock(SESSION, () => compactor.tick());
+
+    expect(insideHold.sessionsExamined).toBe(0);
+    expect(insideHold.rowsStubbed).toBe(0);
+    expect(readRow(candidate.id).retention_class).toBeNull();
+
+    // THE PAIRED POSITIVE ARM, on the same instance: the refusal is a property of
+    // the calling context, not of a compactor that was never going to act.
+    const outsideHold = await compactor.tick();
+    expect(outsideHold.rowsStubbed).toBe(1);
+    expect(readRow(candidate.id).retention_class).toBe(AUDIT_STUB_RETENTION_CLASS);
+  });
+
+  it("refuses under a hold on an UNRELATED session", async () => {
+    // ANY-session, not per-session. A tick has no session in hand when it is
+    // entered and will acquire every session it visits — including, here, the one
+    // the caller already holds nothing of. Narrowing the guard to the held session
+    // would clear this call and then walk straight into the reentrant grant.
+    const candidate = seedOneCandidate();
+    const compactor = buildCompactor({ eventCountThreshold: 1 });
+
+    const insideHold = await withSessionAppendLock(SECOND_SESSION, () => compactor.tick());
+
+    expect(insideHold.sessionsExamined).toBe(0);
+    expect(readRow(candidate.id).retention_class).toBeNull();
+  });
+
+  it("compacts from a straggler that inherited the context but outlived the hold", async () => {
+    // A RELEASED hold must not keep refusing. This is the exact shape the lock's
+    // `released` flag exists for: a task SPAWNED inside the critical section and
+    // never awaited by it inherits the async context and runs after release, at
+    // which point it holds nothing and would acquire normally. Treating it as a
+    // holder would wedge compaction for the rest of the process.
+    const candidate = seedOneCandidate();
+    const compactor = buildCompactor({ eventCountThreshold: 1 });
+
+    let straggler!: Promise<CompactionPassResult>;
+    await withSessionAppendLock(SESSION, () => {
+      straggler = nextMacrotask().then(() => compactor.tick());
+      return Promise.resolve();
+    });
+
+    const result = await straggler;
+    expect(result.rowsStubbed).toBe(1);
+    expect(readRow(candidate.id).retention_class).toBe(AUDIT_STUB_RETENTION_CLASS);
   });
 });
