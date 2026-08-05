@@ -85,7 +85,7 @@ Decisions below were adjudicated by the Tier-6 plan-readiness audit (2026-06-10)
 - `packages/runtime-daemon/src/workspace/workspace-service.ts`
 - `packages/runtime-daemon/src/workspace/workspace-projector.ts`
 - `packages/runtime-daemon/src/workspace/workspace-event-emitter.ts`
-- `packages/runtime-daemon/src/migrations/0NNN-repo-workspaces.ts` (NN = next free version at PR-open time)
+- `packages/runtime-daemon/src/migrations/0010-repo-workspaces.ts` (version resolved from the `0NNN` next-free-at-PR-open placeholder by the 2026-08-04 §Notes true-up)
 - `packages/runtime-daemon/src/session/migration-runner.ts` (EXTEND — guarded block per the runner's documented extension contract)
 - `packages/runtime-daemon/src/ipc/handlers/repo-attach.ts`, `repo-mount-read.ts`, `repo-workspace-bind.ts`, `repo-execution-mode-capabilities-read.ts`, `repo-workspace-list.ts`, `repo-detach.ts` (+ `handlers/index.ts` EXTEND)
 - `packages/client-sdk/src/repoClient.ts` (+ `packages/client-sdk/src/index.ts` EXTEND)
