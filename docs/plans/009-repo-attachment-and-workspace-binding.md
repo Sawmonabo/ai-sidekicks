@@ -283,7 +283,7 @@ preconditions:
 **Preconditions.**
 
 - [x] Plan-009 Phase 1 merged (contracts — Zod schemas for the six interface pairs) — merged 2026-07-26 via PR #250 (squash 0ed3c7f)
-- [ ] Plan-009 Phase 2 merged (RepoMount/workspace services + execution-mode capability projections)
+- [x] Plan-009 Phase 2 merged (RepoMount/workspace services + execution-mode capability projections) — merged 2026-08-05 via PR #292 (squash 7531bd5)
 - [x] `repo.*` method strings ratified — api-payload-contracts.md §Repo Method-Name Registry (Tier 6) (D-009-1)
 - [x] BL-142 landed — deployed registry method-name regex conformed to the Tier-1 ratified canonical (the deployed tail class rejects camelCase; without the fix, `repo.mountRead`-class registrations throw at daemon boot)
 - [x] BL-143 landed — `DaemonDomainError` projection branch in `mapJsonRpcError` (without it, T3.6's wire assertions observe anonymous `-32603` errors instead of the ratified `repo.*` codes; surfaced by the Tier-6 Plan-010 walk)
