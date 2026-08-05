@@ -676,9 +676,13 @@ export interface CreateDefaultWorkspaceInput {
  * The split is not cosmetic. Putting the workspace INSERT in the
  * `workspace.ready` append instead would leave a crash window in which a mount
  * exists with no default workspace — and D-009-7 makes `defaultWorkspaceId`
- * REQUIRED on a mount read, so that window produces a mount nothing can render.
- * This split's window is the survivable one: both rows are present and
- * consistent, and only the `workspace.ready` event is missing.
+ * REQUIRED on the ATTACH response (`RepoMountReadResponse` has no such field,
+ * so the read side is not what forces this). `packages/contracts/src/repo.ts`
+ * gives the reason at `RepoAttachResponse.defaultWorkspaceId`: optionality
+ * "would make 'attached, but no workspace' representable, and the persistence
+ * model never produces it" — which is precisely what that crash window would
+ * make durable. This split's window is the survivable one instead: both rows
+ * are present and consistent, and only the `workspace.ready` event is missing.
  *
  * {@link WorkspaceService.createDefaultWorkspace} takes the mount's fields as
  * arguments rather than reading the mount row, because at call time that row is
@@ -717,7 +721,11 @@ const HOLDING_RUN_ID_METADATA_PATH = "$.holdingRunId";
 // --------------------------------------------------------------------------
 
 /**
- * Owns every read and write of the `workspaces` table.
+ * Owns every workspace lifecycle transition, and every statement against the
+ * `workspaces` table with one exception: the detach cascade's dependent read
+ * and archive write live in `./repo-mount-service.js`, because they must share
+ * the mount flip's transaction and an archive primitive here — which would
+ * open its own event append — could not participate in one.
  *
  * Statement-per-transition rather than one composed writer: each `UPDATE`
  * carries its own legal-predecessor set in its `WHERE` clause, which puts the
