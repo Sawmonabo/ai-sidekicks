@@ -697,9 +697,11 @@ Compaction runs as a background daemon task during idle periods. It never runs d
 | Retention Class | Retained | Compacted |
 | --- | --- | --- |
 | Audit stubs | Indefinitely | Never — audit stubs are the compacted form |
-| Full event payloads | 90 days or 50K events (whichever is more generous) | Replaced by audit stubs |
+| Full event payloads | Until any ONE §Event Compaction Policy trigger names the event a candidate | Replaced by audit stubs |
 | PII payloads | Per GDPR policy (Spec-022) | Crypto-shredded independently of compaction |
 | Reasoning content | 7 days (detailed) / indefinitely (summary) | Detailed reasoning compacted; durable summary retained |
+
+**The triggers are independent, never a joint floor (clarified 2026-08-04).** Each trigger's candidate set is its own §Event Compaction Policy Description column, and a pass compacts their **union** — an event becomes compactable as soon as ONE trigger names it. The Full-event-payloads row above previously read "90 days or 50K events (whichever is more generous)", which, taken as a per-row conjunction over both windows, promised the opposite: a session under 50,000 events would retain full payloads past 90 days indefinitely. That reading is inadmissible on two independent grounds. First, it contradicts [Spec-022 §Data Retention and Deletion Policy](./022-data-retention-and-gdpr.md#data-retention-and-deletion-policy), which records as **verified** that "the event compaction policy (Spec-006) compacts events older than 90 days", and on which that spec's 90-day `session_events.pii_payload` retention entry depends — under the conjunctive reading a low-volume session retains full PII indefinitely, which Spec-022 makes an ADR-triggering exception rather than the default. Second, it would make the age trigger dead code for every session, its candidate set being a strict subset of the count trigger's, contradicting §Event Compaction Policy's own "Any one of the following triggers initiates compaction". The Description columns are the normative statement of what each trigger may destroy; this table summarizes retention classes, not trigger arithmetic.
 
 ### Compacted Event Format
 
