@@ -449,9 +449,9 @@ export class WorkspaceEventEmitter {
       // Absent, not null: `EventEnvelope` types the correlation pair
       // `?: string | undefined` — optional and NOT nullable — because absent
       // is that pair's only no-value wire state (`actor` alone carries the
-      // null-for-system convention). Under `exactOptionalPropertyTypes` an
-      // explicit `undefined` is not assignable either, so the key is omitted
-      // outright when the caller supplies none.
+      // null-for-system convention). The declared `| undefined` means an
+      // explicit `undefined` key would still type-check, so the omission is
+      // enforced by the conditional spread below, not by the compiler.
       ...(base.correlationId != null ? { correlationId: base.correlationId } : {}),
       ...(base.causationId != null ? { causationId: base.causationId } : {}),
       version: REPO_WORKSPACE_EVENT_VERSION,
