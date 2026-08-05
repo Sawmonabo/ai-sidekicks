@@ -283,7 +283,7 @@ preconditions:
 **Preconditions.**
 
 - [x] Plan-009 Phase 1 merged (contracts — Zod schemas for the six interface pairs) — merged 2026-07-26 via PR #250 (squash 0ed3c7f)
-- [ ] Plan-009 Phase 2 merged (RepoMount/workspace services + execution-mode capability projections)
+- [x] Plan-009 Phase 2 merged (RepoMount/workspace services + execution-mode capability projections) — merged 2026-08-05 via PR #292 (squash 7531bd5)
 - [x] `repo.*` method strings ratified — api-payload-contracts.md §Repo Method-Name Registry (Tier 6) (D-009-1)
 - [x] BL-142 landed — deployed registry method-name regex conformed to the Tier-1 ratified canonical (the deployed tail class rejects camelCase; without the fix, `repo.mountRead`-class registrations throw at daemon boot)
 - [x] BL-143 landed — `DaemonDomainError` projection branch in `mapJsonRpcError` (without it, T3.6's wire assertions observe anonymous `-32603` errors instead of the ratified `repo.*` codes; surfaced by the Tier-6 Plan-010 walk)
@@ -475,6 +475,74 @@ shipped:
       this plan's Cross-Plan Amendments section: the node-id.ts extraction, the lane-2 Plan-001
       race-control hardening, comment-only true-ups, and the Plan-010 payload-mechanism
       amendment. NS-38 auto-created in the housekeeping PR.
+  - phase: 2
+    task: [T2.1, T2.2, T2.3, T2.4, T2.5, T2.6]
+    pr: 292
+    sha: 7531bd5
+    merged_at: 2026-08-05
+    files:
+      - docs/architecture/schemas/local-sqlite-schema.md
+      - docs/plans/009-repo-attachment-and-workspace-binding.md
+      - docs/plans/010-worktree-lifecycle-and-execution-modes.md
+      - packages/runtime-daemon/src/migrations/0010-repo-workspaces.ts
+      - packages/runtime-daemon/src/node/node-event-emitter.ts
+      - packages/runtime-daemon/src/session/__tests__/migration-shape.test.ts
+      - packages/runtime-daemon/src/session/__tests__/session-service.test.ts
+      - packages/runtime-daemon/src/session/migration-runner.ts
+      - packages/runtime-daemon/src/workspace/__tests__/repo-mount-service.test.ts
+      - packages/runtime-daemon/src/workspace/__tests__/repo-workspace-acceptance.test.ts
+      - packages/runtime-daemon/src/workspace/__tests__/repo-workspace-migration.test.ts
+      - packages/runtime-daemon/src/workspace/__tests__/workspace-event-emitter.test.ts
+      - packages/runtime-daemon/src/workspace/__tests__/workspace-projector.test.ts
+      - packages/runtime-daemon/src/workspace/__tests__/workspace-service.test.ts
+      - packages/runtime-daemon/src/workspace/repo-mount-service.ts
+      - packages/runtime-daemon/src/workspace/workspace-event-emitter.ts
+      - packages/runtime-daemon/src/workspace/workspace-projector.ts
+      - packages/runtime-daemon/src/workspace/workspace-service.ts
+    verifies_invariant: [I-009-5, I-009-6, I-009-7, I-009-8, I-009-9]
+    spec_coverage:
+      [
+        "Spec-009 line 73 (repo mount record persists canonical root, owner node, lifecycle state)",
+        "Spec-009 line 74 (workspace record persists execution root, repo association, health)",
+        "Spec-006 line 288 (repo.attached)",
+        "Spec-006 line 289 (repo.detached)",
+        "Spec-006 line 290 (workspace.provisioning)",
+        "Spec-006 line 291 (workspace.ready)",
+        "Spec-006 line 292 (workspace.stale)",
+        "Spec-006 line 293 (workspace.archived)",
+        "Spec-009 line 57 (capability gap exposed explicitly, never silent substitution)",
+        "Spec-009 line 66 (capabilities read exposes which modes are currently valid)",
+        "Spec-009 line 75 (repo health and git metadata are daemon-owned projection state)",
+        "Spec-009 line 129 (AC3 — non-git workspaces usable without pretending git-only features)",
+        "Spec-009 line 151 (repo mount health is the daemon-probed reachability projection)",
+        "Spec-009 line 43 (binding is explicit and resolves to one concrete execution root before a run)",
+        "Spec-009 line 45 (reject path traversal / outside trust envelope)",
+        "Spec-009 line 51 (read-only default until a writable mode is explicitly selected)",
+        "Spec-009 line 59 (unavailable path -> stale; new write runs blocked until repair)",
+        "Spec-009 line 65 (WorkspaceBind accepts repo mount plus intended execution mode)",
+        "Spec-009 line 67 (WorkspaceList exposes workspace health and binding state)",
+        "Spec-009 line 85 (mode switch re-provisions in place; workspace ID stable)",
+        "Spec-009 line 87 (state progression ready -> provisioning -> ready)",
+        "Spec-009 line 90 (row keeps id; execution_mode/fs_root updated; state cycles through provisioning)",
+        "Spec-009 line 91 (failed switch -> stale with error detail in workspace metadata)",
+        "Spec-009 line 128 (AC2 — multiple repo mounts and multiple bound workspaces per session)",
+        "Spec-009 line 40 (explicit attach creates a durable RepoMount)",
+        "Spec-009 line 41 (canonical root persisted, not only the user-entered path)",
+        "Spec-009 line 50 (attach defaults: one repo mount + one default workspace at the main checkout)",
+        "Spec-009 line 56 (non-git path binds as plain-directory mount with git features disabled)",
+        "Spec-009 line 58 (root-resolution failure fails explicitly)",
+        "Spec-009 line 63 (RepoAttach accepts local path, session id, owning runtime node)",
+        "Spec-009 line 64 (RepoMountRead exposes canonical root, VCS metadata, current health)",
+        "Spec-009 line 127 (AC1 — durable repo mount with canonical root metadata)",
+        "Spec-009 line 157 (detach refused with repo.detach_conflict while a dependent workspace is busy)",
+        "Spec-009 line 158 (detach archives dependent workspaces and emits the lifecycle events)",
+        "Spec-009 line 127 (AC1 — attach yields a durable repo mount with canonical root metadata)",
+        "Spec-009 line 128 (AC2 — a session contains multiple repo mounts and multiple bound workspaces)",
+        "Spec-009 line 129 (AC3 — non-git directory workspaces usable without pretending git-only features)",
+        "Spec-009 line 42 (multiple repo mounts in one session)",
+      ]
+    notes: |
+      Whole-phase PR (T2.1–T2.6 in DAG dispatch order T2.1/T2.2 → T2.5 → T2.4 → T2.3 → T2.6). Codex advisory review unavailable at merge (provider usage limits); required checks ci-gate + docs-corpus-gate green.
 ```
 
 ### Notes

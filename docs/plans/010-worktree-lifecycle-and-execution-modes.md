@@ -197,7 +197,7 @@ preconditions:
 **Preconditions.**
 
 - [x] Phase 1 merged (contracts in `packages/contracts/src/worktree.ts` — branded ids, the three Plan-010-owned enum vocabularies, `WorktreeLifecyclePayloadSchema`, the five `worktree.*` union registrations, and the seven wire pairs; the four-table migration `0004-worktree-lifecycle.ts`; the I-010-2 contract↔DDL conformance tripwire) — merged 2026-07-26 via PR #253 (squash `f3c9947`)
-- [ ] Plan-009 Phase 2 merged (`WorkspaceService` primitives incl. `markBusy`/`releaseBusy` per CP-009-7; `repo_mounts`/`workspaces` rows)
+- [x] Plan-009 Phase 2 merged (`WorkspaceService` primitives incl. `markBusy`/`releaseBusy` per CP-009-7; `repo_mounts`/`workspaces` rows) — satisfied 2026-08-05 via PR #292 (squash `7531bd5`)
 - [x] Plan-006 Phase 3 merged (`EventLogService.append` — sole append path; build-order precondition, same emitter pattern as Plan-009 Phase 2) — satisfied 2026-08-04 via PR #287 (squash `1ed7e1b`)
 - [x] D-010-6/7/8/9/10/12/13/19 ratified (Tier-6 audit — placement, collision, base-ref, branch-bind-only, hooks, event mapping, sweep, wire-branch requiredness)
 
