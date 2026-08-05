@@ -197,7 +197,7 @@ preconditions:
 **Preconditions.**
 
 - [ ] Phase 1 merged
-- [ ] Plan-006 Phase 3 merged (`EventLogService.append` — sole append path; Tier 4)
+- [x] Plan-006 Phase 3 merged (`EventLogService.append` — sole append path; Tier 4) — satisfied 2026-08-04 via PR #287 (squash `1ed7e1b`)
 - [ ] Plan-009 Phase 2 merged + Plan-010 Phases 1/3 merged (`workspaces.fs_root` / `worktrees.fs_root` + `run_execution_contexts` — the CP-012-9 envelope-root reads; within-tier ordering)
 - [x] D-012-9 engine + custody ratified (Tier-6 audit — `@cedar-policy/cedar-wasm`, signed compiled policy set, fail-closed start; ADR-012 Decision Log entries)
 - [x] D-012-7/-10/-11/-12/-13/-14/-15 ratified (Tier-6 audit — canonicity, scope semantics, invalidation, approver identity, seam shape, expiry, derived trust inputs)
