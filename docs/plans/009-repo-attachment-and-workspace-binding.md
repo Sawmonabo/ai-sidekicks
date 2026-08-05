@@ -547,6 +547,14 @@ T2.1's migration 0010 trips two Plan-001-owned suites — and every affected sit
 
 **Refs:** Plan-001 Phase 3 (migration substrate + both session-substrate suites' ownership, original ship PR #9).
 
+**PR #292 (2026-08-05) — comment-only true-up riding the Housekeeping Exception (`packages/runtime-daemon/src/node/node-event-emitter.ts` correlation-pair comment).**
+
+One documentation-only rider corrected a file this plan does not own. The Plan-003-owned emitter's correlation-pair comment claimed that under `exactOptionalPropertyTypes` an explicit `undefined` "is not assignable either" to the optional correlation fields — false for fields declared `?: string | undefined`, where the declared `| undefined` arm makes an explicit `undefined` key type-check; the omission is enforced by the conditional spread, not the compiler. The comment now says so. The neighboring `transactionalPrelude` comment in the same file makes the same-shaped claim TRUTHFULLY (the option is a bare optional with no `| undefined` arm) and is untouched — the repair was adjudicated instance-by-instance, not as a bulk rewrite.
+
+**Cross-plan touch rationale (Housekeeping Exception, [cross-plan-dependencies.md §Ownership Rule](../architecture/cross-plan-dependencies.md#ownership-rule)):** (a) comment-only — zero runtime or behavioral change, strictly inside the exception's structural-only bound; (b) first discoverable via this plan's composition — T2.2's `workspace-event-emitter.ts` mirrors the shipped emitter pattern per its T2.2 Note, and the T2.5 review round's audit of the mirrored comment against the actual field declarations is what falsified the claim, in the copy and its origin alike; (c) 3 changed comment lines, one sub-day dispatch; (d) one-time correction — Plan-003 retains ownership of its emitter, and Plan-009 claims no ongoing edit rights. This block is the criterion-(e) disclosure.
+
+**Refs:** Plan-003 Phase 2 (`node-event-emitter.ts` original ship, NS-31 / PR #137).
+
 ## Done Checklist
 
 - [ ] Code changes implemented
