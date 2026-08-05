@@ -17,7 +17,8 @@
 // `migrations/0006-run-lifecycle-terminal-backstop-index.ts`,
 // `migrations/0007-pii-participant-id.ts`,
 // `migrations/0008-pending-anchor-uploads.ts`,
-// `migrations/0009-retention-class-and-stub-signature.ts`). Subsequent plans
+// `migrations/0009-retention-class-and-stub-signature.ts`); version 10 by
+// Plan-009 (`migrations/0010-repo-workspaces.ts`). Subsequent plans
 // (015, 022...) — and Plan-006's own remaining migrations — register their
 // version as a further guarded block of the same shape and bump
 // `schema_version`.
@@ -35,7 +36,14 @@
 // in the trivial `session_events`-touching sense and nothing stronger, but its
 // own three statements ARE internally ordered: the partial index it creates has
 // a `WHERE retention_class IS NULL` predicate over the column the same script
-// adds two statements earlier.
+// adds two statements earlier. Version 10 is order-independent of 2 through 9:
+// it CREATEs two tables whose only inbound references FROM OTHER MIGRATIONS are
+// version 4's forward `REFERENCES` clauses (the pair's own `workspaces` →
+// `repo_mounts` FK is internal to this script), and SQLite resolves FK targets
+// at DML time rather than at CREATE time — so the pair applies in either order.
+// What version 10 changes is the failure class of an INSERT into those
+// version-4 columns: `SQLITE_ERROR: no such table` before it, an ordinary
+// `FOREIGN KEY constraint failed` after.
 //
 // SQL is sourced as a TypeScript string constant (not a sibling .sql file)
 // because `tsc -b` does not copy non-TS assets into `dist/` and `package.json`
@@ -62,6 +70,7 @@ import { RUN_LIFECYCLE_TERMINAL_BACKSTOP_MIGRATION_SQL } from "../migrations/000
 import { PII_PARTICIPANT_ID_MIGRATION_SQL } from "../migrations/0007-pii-participant-id.js";
 import { PENDING_ANCHOR_UPLOADS_MIGRATION_SQL } from "../migrations/0008-pending-anchor-uploads.js";
 import { RETENTION_CLASS_AND_STUB_SIGNATURE_MIGRATION_SQL } from "../migrations/0009-retention-class-and-stub-signature.js";
+import { REPO_WORKSPACES_MIGRATION_SQL } from "../migrations/0010-repo-workspaces.js";
 
 /**
  * Apply pragmas to an open Database handle. MUST be called on every
@@ -235,6 +244,23 @@ export function applyMigrations(db: DatabaseType): void {
     db.transaction(() => {
       if (!hasMigrationApplied(db, 9)) {
         db.exec(RETENTION_CLASS_AND_STUB_SIGNATURE_MIGRATION_SQL);
+      }
+    }).immediate();
+  }
+
+  if (!hasMigrationApplied(db, 10)) {
+    // Version 10 (Plan-009) — repo_mounts + workspaces, the durable attach
+    // record and its execution binding. This is the version that supplies the
+    // parent tables version 4's forward REFERENCES clauses target, so it is
+    // also the version after which those columns fail as ordinary FK
+    // violations rather than as `no such table`. Atomicity matters here for the
+    // reason it does at versions 6, 8, and 9: a torn apply that landed
+    // `repo_mounts` without the partial-unique `idx_repo_mounts_active_root`
+    // would leave the attach path admitting duplicate active mounts of one
+    // canonical root, silently (see the 0010 file header).
+    db.transaction(() => {
+      if (!hasMigrationApplied(db, 10)) {
+        db.exec(REPO_WORKSPACES_MIGRATION_SQL);
       }
     }).immediate();
   }
