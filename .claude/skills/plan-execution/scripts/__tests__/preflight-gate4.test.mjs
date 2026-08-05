@@ -3677,8 +3677,10 @@ test("CORPUS: every legacy marker's lineNo lands on its own raw line", () => {
   // The alignment the comment on `nearestTaskIdAt` asserts, re-verified under the
   // composed detection view: 48 of 48 live `Verifies invariant` compact-inline
   // markers. (That 48 is the LEGACY-MARKER population — unrelated to the fenced
-  // YAML count above, which was also 48 before this change and is now 67. Two
-  // different figures that happened to collide.)
+  // YAML count above, which also read 48 before this change; two different
+  // figures that happened to collide. The fenced count's live value is pinned
+  // solely by its own census test — it moves on every Shipment-Manifest append,
+  // so no other surface should quote it.)
   const plansDir = resolve(REPO_ROOT_FOR_TESTS, "docs", "plans");
   let markers = 0;
   const misaligned = [];
