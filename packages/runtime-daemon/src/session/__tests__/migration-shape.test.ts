@@ -21,6 +21,10 @@ import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { INITIAL_MIGRATION_SQL } from "../../migrations/0001-initial.js";
+import { RUNTIME_NODE_MIGRATION_SQL } from "../../migrations/0002-runtime-node.js";
+import { RUNTIME_BINDINGS_MIGRATION_SQL } from "../../migrations/0003-runtime-bindings.js";
+import { WORKTREE_LIFECYCLE_MIGRATION_SQL } from "../../migrations/0004-worktree-lifecycle.js";
 import { applyMigrations, applyPragmas, openDatabase } from "../migration-runner.js";
 
 // Bound to exported identifiers so `Plan-010 §References` can anchor at the
@@ -51,13 +55,16 @@ const PLAN_001_TABLES: ReadonlyArray<string> = [
 
 // The full set of tables present after ALL migrations have applied
 // (Plan-001 version-1 tables + Plan-003 version-2 tables + Plan-005
-// version-3 tables + Plan-010 version-4 tables + the two Plan-006 tables:
-// version-5 `daemon_signing_keys` and version-8 `pending_anchor_uploads`).
+// version-3 tables + Plan-010 version-4 tables + the two Plan-006 tables —
+// version-5 `daemon_signing_keys` and version-8 `pending_anchor_uploads` —
+// plus the two Plan-009 version-10 tables `repo_mounts` and `workspaces`).
 // Alphabetical by SQLite's `ORDER BY name` — BINARY collation, so
 // `_` (0x5F) sorts before every lowercase letter and
-// `run_execution_contexts` precedes `runtime_bindings`. Kept separate from
-// `PLAN_001_TABLES` so the snapshot loop's 0001-immutability guard is
-// unaffected by the 0002 / 0003 / 0004 / 0005 / 0008 additions.
+// `run_execution_contexts` precedes `runtime_bindings`, while `workspaces`
+// precedes `worktrees` on the fifth byte (`s` 0x73 < `t` 0x74). Kept
+// separate from `PLAN_001_TABLES` so the snapshot loop's 0001-immutability
+// guard is unaffected by the 0002 / 0003 / 0004 / 0005 / 0008 / 0010
+// additions.
 const ALL_EXPECTED_TABLES: ReadonlyArray<string> = [
   "branch_contexts",
   "daemon_signing_keys",
@@ -69,11 +76,13 @@ const ALL_EXPECTED_TABLES: ReadonlyArray<string> = [
   "node_trust_state",
   "participant_keys",
   "pending_anchor_uploads",
+  "repo_mounts",
   "run_execution_contexts",
   "runtime_bindings",
   "schema_version",
   "session_events",
   "session_snapshots",
+  "workspaces",
   "worktrees",
 ];
 
@@ -114,13 +123,14 @@ describe("0001-initial migration shape", () => {
     const rows = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
       .all() as ReadonlyArray<{ name: string }>;
-    // After version-8 (Plan-006) the DB holds the full sixteen-table set:
+    // After version-10 (Plan-009) the DB holds the full eighteen-table set:
     // the four Plan-001 tables, the two Plan-003 tables (node_capabilities,
     // node_trust_state), the four Plan-005 tables (runtime_bindings,
     // driver_capabilities, driver_tools, driver_contract_meta), the four
     // Plan-010 tables (worktrees, ephemeral_clones, branch_contexts,
-    // run_execution_contexts), and the two Plan-006 tables
-    // (daemon_signing_keys at v5, pending_anchor_uploads at v8).
+    // run_execution_contexts), the two Plan-006 tables
+    // (daemon_signing_keys at v5, pending_anchor_uploads at v8), and the two
+    // Plan-009 tables (repo_mounts, workspaces at v10).
     expect(rows.map((r) => r.name)).toEqual(ALL_EXPECTED_TABLES);
   });
 
@@ -167,36 +177,37 @@ describe("0001-initial migration shape", () => {
     expect(byName.get("monotonic_ns")?.notnull).toBe(1);
   });
 
-  it("anchors schema_version rows at versions [1, 2, 3, 4, 5, 6, 7, 8, 9]", () => {
+  it("anchors schema_version rows at versions [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]", () => {
     // The `ORDER BY version` is load-bearing: without it the row order is
     // insertion-order luck and the assertion would silently stop pinning
     // which versions landed.
     const versionRows = db
       .prepare("SELECT version FROM schema_version ORDER BY version")
       .all() as ReadonlyArray<{ version: number }>;
-    expect(versionRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    expect(versionRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   });
 
   it("is idempotent when applyMigrations runs twice", () => {
     // Second invocation must be a no-op (the migration runner short-
     // circuits via hasMigrationApplied per version). Re-running must not
     // throw, must not double-insert any schema_version anchor row, must
-    // not duplicate tables. Nine DISTINCT versions [1..9] is not
+    // not duplicate tables. Ten DISTINCT versions [1..10] is not
     // duplication.
     //
     // Version 7 makes this arm strictly load-bearing rather than a
     // formality: it is an `ALTER TABLE ... ADD COLUMN`, and SQLite has no
     // `ADD COLUMN IF NOT EXISTS`, so a runner guard regression turns a
     // re-apply into a hard "duplicate column name" throw here. Version 6
-    // is the same story for `CREATE INDEX` / `CREATE TRIGGER`, version 8
-    // for `CREATE TABLE` (no `IF NOT EXISTS` in the transcribed DDL either),
-    // and version 9 for BOTH at once (two ADD COLUMNs plus a CREATE INDEX).
+    // is the same story for `CREATE INDEX` / `CREATE TRIGGER`, versions 8
+    // and 10 for `CREATE TABLE` (no `IF NOT EXISTS` in the transcribed DDL
+    // either), and version 9 for BOTH at once (two ADD COLUMNs plus a
+    // CREATE INDEX).
     applyMigrations(db);
     const versionRows = db
       .prepare("SELECT version FROM schema_version ORDER BY version")
       .all() as ReadonlyArray<{ version: number }>;
-    expect(versionRows).toHaveLength(9);
-    expect(versionRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    expect(versionRows).toHaveLength(10);
+    expect(versionRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   });
 });
 
@@ -666,9 +677,10 @@ describe("0003-runtime-bindings migration shape", () => {
 // The cross-migration table census and runner-guard idempotency (double
 // apply) are pinned by the shared 0001-block tests above and not re-tested
 // here. Fresh-apply and the version-4 anchor row ARE re-asserted below, but
-// only on a parent-less handle, where the claim is narrower: the CREATEs and
-// the anchor row land atomically even though the forward REFERENCES targets
-// do not exist.
+// only on a handle migrated through version 4 in ISOLATION, where the claim
+// is narrower: the CREATEs and the anchor row land atomically even though
+// the forward REFERENCES targets do not exist yet at that point in the
+// chain.
 //
 // Shape-checkable spec/invariant cites:
 //   * Spec-010 §State And Data Implications — worktree records persist
@@ -685,44 +697,88 @@ describe("0003-runtime-bindings migration shape", () => {
 //     contract enums is owned by the T1.4 conformance test, NOT asserted
 //     here.
 //
-// Plan-009 fixture stubs (B23 forward-reference ordering): the migration's
+// Plan-009 parent rows (B23 forward-reference ordering): the migration's
 // `REFERENCES repo_mounts(id)` / `REFERENCES workspaces(id)` clauses target
-// Plan-009 Phase 2 tables that no migration creates yet. SQLite resolves FK
-// targets lazily at DML time, so the CREATEs apply on a fresh db and the
-// referencing INSERT is what fails while a parent table is absent — as a
-// `SQLITE_ERROR` statement-compile failure (`no such table: main.<parent>`),
-// NOT a `FOREIGN KEY constraint failed` violation. That shipped write-inert
-// state is pinned by its own test below; the stub-backed handle this block
-// otherwise uses reaches the true FK-constraint class, where the parent
-// TABLE exists and only the parent ROW is missing. The insert-shaped tests
-// below therefore create minimal id-only FIXTURE STUBS for the two parent
-// tables — NOT verbatim Plan-009 DDL (Plan-009 owns those tables' real
-// shape). Plain CREATE (not IF NOT EXISTS) on purpose: when
-// Plan-009's migration lands the real tables, this fixture throws "table
-// already exists" — the loud signal to replace the stubs with fixture rows
-// against the real DDL.
+// tables version 4 does not create — Plan-009's version-10 migration does.
+// SQLite resolves FK targets lazily at DML time, so the version-4 CREATEs
+// apply against absent parents and the referencing INSERT is what fails while
+// a parent table is missing — as a `SQLITE_ERROR` statement-compile failure
+// (`no such table: main.<parent>`), NOT a `FOREIGN KEY constraint failed`
+// violation. BOTH classes stay pinned, on the two handles that can each
+// exhibit exactly one: the version-≤4 isolation handle
+// (`openDatabaseMigratedThroughVersionFour`) reaches the `SQLITE_ERROR`
+// class, and the fully-migrated handle this block otherwise uses reaches the
+// true FK-constraint class, where the parent TABLE exists and only the parent
+// ROW is missing. The insert-shaped tests below therefore seed FIXTURE ROWS
+// against the real Plan-009 DDL that `openDatabase` creates at version 10.
+// A stub parent table cannot serve here: the real table already exists on
+// that handle, so a plain `CREATE TABLE repo_mounts` would collide with it.
 describe("0004-worktree-lifecycle migration shape", () => {
   let db: DatabaseType;
 
   const FIXTURE_TIMESTAMP: string = "2026-07-05T00:00:00.000Z";
 
+  /**
+   * A handle carrying versions 1 through 4 and NOTHING later — the only state
+   * in which version 4's forward `REFERENCES` targets are absent, which is the
+   * premise the two isolation-scoped tests below pin.
+   *
+   * The SHIPPED migration constants are exec'd in chain order rather than
+   * hand-built DDL: re-encoding the parent-less schema in this file is exactly
+   * the drift the census pin above exists to prevent, and `applyMigrations`
+   * offers no version ceiling to stop at. Order is load-bearing — each script
+   * carries its own `INSERT INTO schema_version`, and version 1 is what creates
+   * the table those inserts target.
+   */
+  function openDatabaseMigratedThroughVersionFour(): DatabaseType {
+    const isolatedDb: DatabaseType = new Database(":memory:");
+    applyPragmas(isolatedDb);
+    isolatedDb.exec(INITIAL_MIGRATION_SQL);
+    isolatedDb.exec(RUNTIME_NODE_MIGRATION_SQL);
+    isolatedDb.exec(RUNTIME_BINDINGS_MIGRATION_SQL);
+    isolatedDb.exec(WORKTREE_LIFECYCLE_MIGRATION_SQL);
+    return isolatedDb;
+  }
+
   beforeEach(() => {
     // Canonical factory (Plan-001): ":memory:" is better-sqlite3's in-memory
     // database-path spelling, so `openDatabase` composes the pinned
-    // applyPragmas → applyMigrations order for this block too. The migration
-    // itself applies BEFORE the stubs below exist, so every run of this
-    // block exercises the B23 lazy-FK forward reference.
+    // applyPragmas → applyMigrations order for this block too — which now
+    // reaches version 10 and therefore creates the real Plan-009 parents.
     db = openDatabase(":memory:");
-    db.exec(`
-      -- FIXTURE STUBS pending Plan-009 Phase 2 (NOT verbatim Plan-009 DDL —
-      -- Plan-009 owns the real repo_mounts / workspaces shape). Minimal
-      -- id-only parents so the version-4 REFERENCES clauses resolve at DML
-      -- time under foreign_keys = ON.
-      CREATE TABLE repo_mounts (id TEXT PRIMARY KEY);
-      CREATE TABLE workspaces (id TEXT PRIMARY KEY);
-    `);
-    db.prepare("INSERT INTO repo_mounts (id) VALUES (?)").run("mount-1");
-    db.prepare("INSERT INTO workspaces (id) VALUES (?)").run("workspace-1");
+    // FIXTURE PARENT ROWS against the real Plan-009 DDL, supplying every
+    // NOT NULL column those tables declare, so the version-4 REFERENCES
+    // clauses resolve at DML time under foreign_keys = ON. The mount is
+    // inserted FIRST: `workspaces.repo_mount_id` is itself an enforced FK.
+    db.prepare(
+      `INSERT INTO repo_mounts
+         (id, session_id, node_id, local_path, canonical_root, vcs_type, state, attached_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      "mount-1",
+      "session-1",
+      "node-alpha",
+      "/repos/checkout/src",
+      "/repos/checkout",
+      "git",
+      "attached",
+      FIXTURE_TIMESTAMP,
+      FIXTURE_TIMESTAMP,
+    );
+    db.prepare(
+      `INSERT INTO workspaces
+         (id, session_id, repo_mount_id, execution_mode, fs_root, state, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      "workspace-1",
+      "session-1",
+      "mount-1",
+      "read-only",
+      "/repos/checkout",
+      "ready",
+      FIXTURE_TIMESTAMP,
+      FIXTURE_TIMESTAMP,
+    );
   });
 
   afterEach(() => {
@@ -837,14 +893,16 @@ describe("0004-worktree-lifecycle migration shape", () => {
     );
   }
 
-  it("applies on a fresh db whose FK-target tables (repo_mounts, workspaces) do not exist yet", () => {
+  it("applies migration 0004 in isolation without creating repo_mounts / workspaces", () => {
     // B23 forward-reference ordering: SQLite resolves REFERENCES targets
-    // lazily at DML time, so the version-4 CREATEs land on a database that
-    // has never seen a Plan-009 migration. This second handle gets NO
-    // fixture stubs — the assertion is on the migration alone.
-    const freshDb: DatabaseType = openDatabase(":memory:");
+    // lazily at DML time, so the version-4 CREATEs land on a database that has
+    // never seen a Plan-009 migration. The claim is about migration 0004 IN
+    // ISOLATION — it creates its own four tables and neither Plan-009 parent —
+    // which a fully-migrated handle can no longer demonstrate, since version 10
+    // creates those parents for real.
+    const isolatedDb: DatabaseType = openDatabaseMigratedThroughVersionFour();
     try {
-      const tableRows = freshDb
+      const tableRows = isolatedDb
         .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
         .all() as ReadonlyArray<{ name: string }>;
       const tableNames: ReadonlyArray<string> = tableRows.map((row) => row.name);
@@ -856,34 +914,41 @@ describe("0004-worktree-lifecycle migration shape", () => {
       ]) {
         expect(tableNames).toContain(plan010Table);
       }
-      // The migration must NOT create the Plan-009 parents itself — the
-      // stubs in beforeEach are test fixture, not migration content.
+      // Migration 0004 must NOT create the Plan-009 parents itself: they are
+      // Plan-009-owned, and a version-4 CREATE of either would collide with
+      // version 10's real DDL on every fully-migrated handle.
       expect(tableNames).not.toContain("repo_mounts");
       expect(tableNames).not.toContain("workspaces");
       // The version-4 anchor row landed atomically with the CREATEs.
-      const anchorRow = freshDb
+      const anchorRow = isolatedDb
         .prepare("SELECT COUNT(*) AS count FROM schema_version WHERE version = 4")
         .get() as { count: number };
       expect(anchorRow.count).toBe(1);
     } finally {
-      freshDb.close();
+      isolatedDb.close();
     }
   });
 
   it(WRITE_INERT_ON_PARENTLESS_DB_TEST, () => {
-    // The state the daemon actually ships in until Plan-009 Phase 2 lands.
+    // Scoped to a handle carrying versions 1 through 4 only — the point in the
+    // chain where version 4's REFERENCES targets genuinely do not exist.
+    // SQLite's forward-reference behavior does not stop being true once version
+    // 10 supplies them: any migration that ships a REFERENCES clause ahead of
+    // its parent inherits exactly this failure class, and a caller that
+    // discriminates FK failures by message would miss it.
+    //
     // Empirically discovered against the pinned toolchain (better-sqlite3
     // 12.9.0 / SQLite 3.53.0): with the parent TABLE absent, SQLite refuses
     // the statement outright — `SQLITE_ERROR: no such table:
     // main.repo_mounts` — and never reaches constraint evaluation, so the
     // error class is NOT the `FOREIGN KEY constraint failed`
-    // (SQLITE_CONSTRAINT_FOREIGNKEY) the stub-backed negative control below
+    // (SQLITE_CONSTRAINT_FOREIGNKEY) the real-parent negative control below
     // produces, where the parent TABLE exists and only the parent ROW is
-    // missing. Any future caller that discriminates FK failures by message
-    // would miss this one, so both halves are pinned. The throw actually
-    // surfaces at prepare(), before a value is bound; prepare and run stay
-    // inside one block so the pin does not depend on which phase raises.
-    const parentlessDb: DatabaseType = openDatabase(":memory:");
+    // missing. Both halves are pinned, on the two handles that can each
+    // exhibit exactly one. The throw actually surfaces at prepare(), before a
+    // value is bound; prepare and run stay inside one block so the pin does
+    // not depend on which phase raises.
+    const parentlessDb: DatabaseType = openDatabaseMigratedThroughVersionFour();
     try {
       expect(parentlessDb.pragma("foreign_keys", { simple: true })).toBe(1);
 
@@ -941,16 +1006,18 @@ describe("0004-worktree-lifecycle migration shape", () => {
   });
 
   it(FORWARD_REFERENCES_DML_ENFORCEMENT_TEST, () => {
-    // Negative control for the fixture-stub pattern: proves FK enforcement
-    // is live on this handle, so the stub-backed accepts in this block pass
-    // because the parents exist — not because enforcement is silently off —
-    // and proves the REFERENCES clauses shipped un-stripped.
+    // Negative control for the fixture-row pattern: proves FK enforcement is
+    // live on this handle, so every accept in this block passes because the
+    // parent ROW exists — not because enforcement is silently off — and proves
+    // the REFERENCES clauses shipped un-stripped. This is the FK-constraint
+    // half of the class distinction the parent-less test above opens: here the
+    // parent table is Plan-009's real one and only the row is missing.
     expect(db.pragma("foreign_keys", { simple: true })).toBe(1);
     expect(() => {
       insertWorktreeRow({ id: "worktree-dangling", repoMountId: "missing-mount" });
     }).toThrow(/FOREIGN KEY constraint failed/i);
     expect(() => {
-      insertWorktreeRow({ id: "worktree-stubbed" });
+      insertWorktreeRow({ id: "worktree-with-parent" });
     }).not.toThrow();
   });
 
@@ -1622,9 +1689,9 @@ describe("0004-worktree-lifecycle migration shape", () => {
 // column ORDER especially, which no reading of the CREATE TABLE can certify.
 //
 // What this block does NOT re-assert, deliberately: the table-name census, the
-// `schema_version` `[1, 2, 3, 4, 5]` anchor, and applyMigrations idempotency
-// are all pinned by the 0001 block above and would be duplicate coverage here
-// — the same division the 0004 block observes.
+// `schema_version` version-walk anchor, and applyMigrations idempotency are all
+// pinned by the 0001 block above and would be duplicate coverage here — the
+// same division the 0004 block observes.
 //
 // SHAPE-CHECKABLE CITES:
 //   * `Spec-022 §Daemon Master Key` — the private half is SEALED at rest via
