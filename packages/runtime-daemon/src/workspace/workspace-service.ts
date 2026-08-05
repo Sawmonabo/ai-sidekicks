@@ -591,8 +591,9 @@ export function normalizeWorkspaceLastError(rawDetail: string): string | null {
  * `reachable: false` without racing a directory removal.
  *
  * Production's binding (see {@link WorkspaceServiceDeps.probePath}) sets
- * `probedPath` from its own argument and nothing else. That is obligation #4:
- * the path read out of `workspaces.fs_root` reaches the projector VERBATIM,
+ * `probedPath` from its own argument and nothing else. That is the
+ * verbatim-probe-subject obligation: the path read out of `workspaces.fs_root`
+ * reaches the projector VERBATIM,
  * with no re-resolution in between. Re-canonicalising it would make every row
  * fail the subject-binding guard on any path whose stored spelling differs from
  * its resolved one — and would defeat the guard's purpose, which is to catch
@@ -602,7 +603,17 @@ export type FilesystemPathProbeFn = (path: string) => Promise<FilesystemPathProb
 
 /** Constructor dependencies. Every optional member defaults to the real one. */
 export interface WorkspaceServiceDeps {
-  /** Open daemon database. Statements are prepared once, in the constructor. */
+  /**
+   * Open daemon database. Statements are prepared once, in the constructor.
+   *
+   * MUST be the same connection the event log behind {@link events} appends
+   * through. Every transition writes its row as a `transactionalPrelude`, and
+   * a statement prepared on a different connection does not join the event
+   * transaction — the row/event atomicity I-009-9 rests on would silently
+   * vanish, with no exception anywhere. Nothing here can verify handle
+   * identity (the event log sits behind the emitter seam), so the composition
+   * root owns the constraint; the plan's Phase-3 wiring obligation records it.
+   */
   readonly database: Database;
   /** The single seam through which workspace lifecycle events are appended (T2.2). */
   readonly events: WorkspaceEventEmitter;
@@ -1389,7 +1400,11 @@ export class WorkspaceService {
     options: { readonly actor?: string | null } = {},
   ): Promise<boolean> {
     const row = this.#findWorkspaceRow(workspaceId);
-    if (row === undefined || row.state === "stale" || row.state === "archived") {
+    if (
+      row === undefined ||
+      row.state === ("stale" satisfies WorkspaceState) ||
+      row.state === ("archived" satisfies WorkspaceState)
+    ) {
       return false;
     }
 
@@ -1455,7 +1470,7 @@ export class WorkspaceService {
 
     // Contention is answered before the probe: a caller losing a race for the
     // hold does not need a filesystem verdict, it needs to know who won.
-    if (row.state === "busy") {
+    if (row.state === ("busy" satisfies WorkspaceState)) {
       throw new WorkspaceBusyError(workspaceId, readHoldingRunId(row));
     }
 
@@ -1482,10 +1497,10 @@ export class WorkspaceService {
       if (currentRow === undefined) {
         throw new WorkspaceNotFoundError(workspaceId);
       }
-      if (currentRow.state === "busy") {
+      if (currentRow.state === ("busy" satisfies WorkspaceState)) {
         throw new WorkspaceBusyError(workspaceId, readHoldingRunId(currentRow));
       }
-      if (currentRow.state === "stale") {
+      if (currentRow.state === ("stale" satisfies WorkspaceState)) {
         throw new WorkspaceStaleError(workspaceId);
       }
       throw new WorkspaceServiceInvariantError(
@@ -1566,8 +1581,9 @@ export class WorkspaceService {
       // defect.
       let probe: FilesystemPathProbe | null = null;
       if (PROBE_BEARING_WORKSPACE_STATES.has(state) && row.fs_root !== null) {
-        // VERBATIM: the stored path is what the probe measures. Obligation #4 —
-        // no re-resolution stands between the column and the projector.
+        // VERBATIM: the stored path is what the probe measures — the
+        // verbatim-probe-subject obligation; no re-resolution stands between
+        // the column and the projector.
         probe = await this.#probePath(row.fs_root);
       }
       return computeWorkspaceHealth({ state, fsRoot: row.fs_root }, probe);
@@ -1642,7 +1658,7 @@ export class WorkspaceService {
     if (legalPredecessors.includes(row.state as WorkspaceState)) {
       return;
     }
-    if (row.state === "busy") {
+    if (row.state === ("busy" satisfies WorkspaceState)) {
       throw new WorkspaceBusyError(row.id, readHoldingRunId(row));
     }
     throw new WorkspaceServiceInvariantError(
@@ -1664,7 +1680,8 @@ export class WorkspaceService {
  * afterwards would overstate the verdict's freshness in the one case where
  * freshness matters.
  *
- * `probedPath` is the argument, unmodified. Obligation #4.
+ * `probedPath` is the argument, unmodified — the verbatim-probe-subject
+ * obligation.
  */
 function createDefaultPathProbe(): FilesystemPathProbeFn {
   return async (path: string): Promise<FilesystemPathProbe> => {
@@ -1744,8 +1761,13 @@ function assertAbsoluteExecutionRoot(candidate: string, workspaceId: string | nu
   if (namesOneCompleteLocation(candidate)) {
     return;
   }
+  // The candidate is NOT echoed. The IPC sanitizer redacts only the
+  // absolute-form path shapes — exactly the forms this guard accepts — so a
+  // rejected relative or `~` candidate would survive redaction verbatim,
+  // against this module's no-path-echo posture. The structured detail already
+  // attributes the refusal.
   throw new WorkspaceServiceInvariantError(
-    `execution root "${candidate}" does not name one complete location; the daemon would have to supply the missing piece from its own context`,
+    "execution root does not name one complete location; the daemon would have to supply the missing piece from its own context",
     { kind: "non_absolute_execution_root", workspaceId },
   );
 }

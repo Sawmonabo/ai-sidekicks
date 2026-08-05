@@ -153,17 +153,18 @@
  *
  * Those follow-on events carry no `causationId` pointing at the `repo.detached`
  * they belong to. T2.2 ratified append receipts as UNEXAMINED (this module never
- * reads `.sequence`, `.eventId`, or anything else off one), so the emitted
+ * reads `.sequence`, `.id`, or anything else off one), so the emitted
  * event's id is not available to name as a cause without breaking that seam. The
  * caller's `correlationId` is threaded through every event of the cascade
  * instead, which is what makes them collatable.
  *
  * ## The Windows `git` seam
  *
- * `Plan-009 §Notes` (2026-07-25) records that libuv resolves a bare executable
- * name against the CHILD's working directory first on Windows, so spawning bare
- * `git` with `cwd` set to an operator-supplied repository path can execute a
- * `git.exe` sitting in that repository. T1.5's resolver takes an injectable
+ * `Plan-009 §Notes` (2026-07-25) records that libuv searches a bare executable
+ * name in the SPAWNING process's current directory before `PATH` on Windows —
+ * so spawning bare `git` can execute a `git.exe` sitting in the daemon's own
+ * working directory (the resolver passes no `cwd`; its header carries the
+ * libuv `search_path` authority). T1.5's resolver takes an injectable
  * `gitExecutablePath` for exactly this, and this service exposes it through
  * {@link RepoMountServiceDeps.gitExecutablePath} so the daemon-config surface
  * can supply an ABSOLUTE path on `win32` without this module having to know
@@ -354,7 +355,18 @@ export interface SessionExistenceReader {
 
 /** Constructor dependencies. Every optional member defaults to the real one. */
 export interface RepoMountServiceDeps {
-  /** Open daemon database. Statements are prepared once, in the constructor. */
+  /**
+   * Open daemon database. Statements are prepared once, in the constructor.
+   *
+   * MUST be the same connection the event log behind {@link events} appends
+   * through. The attach dual-write and the detach cascade run as
+   * `transactionalPrelude`s, and a statement prepared on a different connection
+   * does not join the event transaction — the row/event atomicity I-009-9
+   * rests on would silently vanish, with no exception anywhere. Nothing here
+   * can verify handle identity (the event log sits behind the emitter seam),
+   * so the composition root owns the constraint; the plan's Phase-3 wiring
+   * obligation records it.
+   */
   readonly database: Database;
   /** The single seam through which repo/workspace lifecycle events are appended (T2.2). */
   readonly events: WorkspaceEventEmitter;
@@ -506,15 +518,15 @@ export class RepoMountService {
       deps.gitExecutablePath === undefined
     ) {
       // FAIL CLOSED. Constructing the stock resolver here would spawn bare
-      // `git`, and libuv resolves a bare name against the CHILD's working
-      // directory first on Windows — so a `git.exe` planted in an
-      // operator-supplied repository would run. That is the whole hazard the
-      // seam exists for, and defaulting past it silently is worse than not
-      // having the seam: the daemon would believe it was pinned.
+      // `git`, and libuv searches a bare name in the spawning process's
+      // current directory before `PATH` on Windows — so a `git.exe` planted
+      // in the daemon's own working directory would run. That is the whole
+      // hazard the seam exists for, and defaulting past it silently is worse
+      // than not having the seam: the daemon would believe it was pinned.
       throw new TypeError(
         "RepoMountService: on win32 you must supply either an absolute gitExecutablePath or a " +
-          "ready-made resolver. Spawning bare `git` there lets a git.exe inside the attached " +
-          "repository execute instead of the system one (Plan-009 §Notes, 2026-07-25).",
+          "ready-made resolver. Spawning bare `git` there lets a git.exe in the daemon's own " +
+          "working directory execute instead of the system one (Plan-009 §Notes, 2026-07-25).",
       );
     }
 

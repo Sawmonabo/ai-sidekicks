@@ -83,9 +83,9 @@
 // WORKSPACE-scoped read answers "what may THIS workspace do now", which
 // additionally narrows writable modes for a `stale` workspace per
 // `Spec-009 §Fallback Behavior`. T2.5 is specified for the mount-keyed matrix
-// only, so the per-workspace narrowing is an UNASSIGNED obligation of the
-// workspace-scoped read path (T2.4's service plus the Phase-3 handler), not
-// something answered here.
+// only; the per-workspace narrowing is T3.2's — the Phase-3 query-handler task
+// EXTENDs this module with it (`Plan-009 §Notes`, 2026-08-05 T2.5 entry) — so
+// it is deliberately not answered here.
 //
 // Whoever lands it MUST route it through the same per-mode verdict shape:
 // narrowing by filtering `availableModes` in a handler would drop a mode

@@ -24,9 +24,9 @@
 //   * Reconciliation: one `sessionId` / `actor` input populates BOTH the
 //     envelope and the payload, and the envelope-only linkage fields stay OUT
 //     of the payload.
-//   * Subject identification: a workspace event names its workspace, and only
-//     the detach cascade's `workspace.archived` also names the mount that
-//     caused it.
+//   * Subject identification: a workspace event names its workspace, and it
+//     names a mount only when its producer supplies the association — the
+//     birth events and the detach cascade's `workspace.archived` both do.
 //   * Emission boundary: a payload the family schema refuses makes the emit
 //     throw BEFORE the append, so nothing is persisted — the `.parse()` seam
 //     is a true gate, not a post-hoc check.
@@ -55,8 +55,8 @@
 // naming both a workspace and its mount).
 // Verifies invariant: I-009-9 (emitter-side half: one emit, one row, with the
 // method-determined state. The producer-side "every transition" quantifier
-// rides T2.3/T2.4 and is closed at T2.6's integration pass — this suite
-// cannot establish it, because the producers do not exist in this diff).
+// rides T2.3/T2.4 — this suite constructs no producer, so that half is closed
+// by T2.6's acceptance walk rather than here).
 
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

@@ -1020,9 +1020,9 @@ describe("list", () => {
 
     // A LYING probe seam — the only way to reach the subject-binding guard,
     // because the production probe stamps `probedPath` from its own argument
-    // and this service re-resolves nothing between the row and the probe
-    // (obligation #4). A service that DID re-resolve would fail this arm on
-    // every row rather than only on the planted one.
+    // and this service re-resolves nothing between the row and the probe (the
+    // verbatim-probe-subject obligation). A service that DID re-resolve would
+    // fail this arm on every row rather than only on the planted one.
     const failure = await captureRejection(() =>
       createService({ probePath: mispairedProbe(harness.secondGitMountRoot) }).list({
         sessionId: SESSION_ID,

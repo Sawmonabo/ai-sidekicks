@@ -275,10 +275,13 @@ export interface EmitRepoMountEventInput extends WorkspaceEventEmitBase {
 export interface EmitWorkspaceEventInput extends WorkspaceEventEmitBase {
   // The workspace this event describes. Required, for the same reason.
   readonly workspaceId: string;
-  // The mount this workspace binds to. Optional, and populated by the detach
-  // cascade: a `workspace.archived` caused by a `repo.detached` legitimately
-  // names both ids, and a reader that only knows the mount would otherwise
-  // have no way to attribute the archival.
+  // The mount this workspace binds to. Optional, and populated whenever the
+  // event carries the association: the BIRTH events (`workspace.ready` /
+  // `workspace.provisioning` from default-workspace creation and bind, where
+  // the timeline first learns the workspace/mount pairing) and the detach
+  // cascade's `workspace.archived`, which names the mount whose detach caused
+  // the archival — a reader that only knows the mount would otherwise have no
+  // way to attribute it.
   readonly repoMountId?: string;
 }
 
