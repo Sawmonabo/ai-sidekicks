@@ -331,8 +331,13 @@ export interface EmitWorktreeEventInput {
   // I-010-13's "transactionally with the row write" is discharged: the
   // `worktrees` INSERT/UPDATE rides down here rather than running in a
   // transaction of the producer's own. The constraints on what may go in one
-  // (synchronous, same connection, writes only) are documented on
-  // `EventLogAppendOptions.transactionalPrelude`; this seam only forwards it.
+  // (synchronous, same connection, and no read whose result shapes THIS row's
+  // PAYLOAD — which was canonicalized and signed before the transaction opened)
+  // are documented on `EventLogAppendOptions.transactionalPrelude`; this seam
+  // only forwards it. A read that decides whether to ABORT is not barred by
+  // that rule and is the reason a prelude may throw at all: aborting before the
+  // INSERT is how a producer refuses a transition whose precondition must hold
+  // in the SAME transaction as the write.
   readonly transactionalPrelude?: () => void;
 }
 
