@@ -5508,15 +5508,21 @@ function flowBracketDelta(text) {
   return delta;
 }
 
-function countFencedInvariantYamlRefs(section) {
+// Returns the ids THEMSELVES, not a tally of them. A caller reconciling this
+// channel against another reader of the same bytes can only do so by identity:
+// comparing cardinalities lets one reader's miss cancel the other reader's
+// extra, so a reconciliation that subtracts totals reports agreement precisely
+// when the two readers disagree in offsetting ways. The count remains available
+// as `.length`, which is the only thing the disclosure line needs.
+function collectFencedInvariantYamlRefs(section) {
   const rawLines = section.split("\n");
   const maskedLines = maskNonContentLines(section).split("\n");
   // The masker is length-preserving, so a line it consumed differs from its raw
   // form iff the raw form had any non-space byte. A whitespace-only line is
   // therefore invisible to the oracle in BOTH directions — see the skip below.
   const isFenced = (index) => maskedLines[index] !== rawLines[index];
-  const countIds = (text) => (text.match(fencedInvariantYamlIdPattern()) || []).length;
-  let count = 0;
+  const idsIn = (text) => text.match(fencedInvariantYamlIdPattern()) || [];
+  const ids = [];
   for (let index = 0; index < rawLines.length; index += 1) {
     const key = FENCED_INVARIANT_YAML_KEY_RE.exec(rawLines[index]);
     if (key === null) continue;
@@ -5525,7 +5531,7 @@ function countFencedInvariantYamlRefs(section) {
     // defect and must not be silently folded into this count.
     if (!isFenced(index)) continue;
     const [, keyIndent, keyTail] = key;
-    count += countIds(keyTail);
+    ids.push(...idsIn(keyTail));
     let openBrackets = flowBracketDelta(keyTail);
     // A value that closed on the key line (`[I-001-1]`, `[]`, a bare id) has no
     // continuation to read. An EMPTY tail always does — that is both the block
@@ -5540,7 +5546,7 @@ function countFencedInvariantYamlRefs(section) {
       if (line.trim() === "") continue;
       if (!isFenced(cursor)) break;
       if (openBrackets > 0) {
-        count += countIds(line);
+        ids.push(...idsIn(line));
         openBrackets += flowBracketDelta(line);
         if (openBrackets <= 0) break;
         continue;
@@ -5548,7 +5554,7 @@ function countFencedInvariantYamlRefs(section) {
       const content = line.trimStart();
       // The wrapped-flow opener, on the line AFTER the key.
       if (content.startsWith("[")) {
-        count += countIds(line);
+        ids.push(...idsIn(line));
         openBrackets += flowBracketDelta(line);
         if (openBrackets <= 0) break;
         continue;
@@ -5558,13 +5564,13 @@ function countFencedInvariantYamlRefs(section) {
       // is not a sequence entry (the next mapping key) — never on indentation
       // alone, which would drop the same-indent spelling.
       if (line.length - content.length >= keyIndent.length && /^-\s/.test(content)) {
-        count += countIds(line);
+        ids.push(...idsIn(line));
         continue;
       }
       break;
     }
   }
-  return count;
+  return ids;
 }
 
 // Resolve one plan's declared invariants, memoized per run.
@@ -5856,7 +5862,12 @@ export function verifyInvariantReferences(
   }
 
   // No combined `resolved`: see the two-channel note on the doc comment.
-  return { findings, bold, legacy, fencedYamlRefs: countFencedInvariantYamlRefs(section) };
+  // Both spellings of the fenced channel ship: the tally the disclosure line
+  // prints, and the ids behind it, so a consumer can reconcile this channel
+  // against another reader of the same bytes by identity rather than by
+  // cardinality (see `collectFencedInvariantYamlRefs`).
+  const fencedYamlRefIds = collectFencedInvariantYamlRefs(section);
+  return { findings, bold, legacy, fencedYamlRefs: fencedYamlRefIds.length, fencedYamlRefIds };
 }
 
 const WHOLE_DOCUMENT_UNIT_LABEL = "(whole document)";

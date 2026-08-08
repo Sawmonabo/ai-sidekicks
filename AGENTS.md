@@ -32,7 +32,9 @@ Research artifacts are transient drafting locations, not authoritative state.
    - **Specs**: inline citations in body prose + per-section `### References` blocks
    - **Plans**: flat `## References` list at end of file
    - **Architecture / schema docs**: inline citation pattern matching neighboring docs
-3. **Delete** — the research file is deleted before the consuming-doc commit lands
+3. **Delete** — the agent that drafted a research file deletes it before the consuming-doc commit lands
+
+**No hook enforces step 3.** Deletion is author discipline, not tooling: no pre-commit or CI job prunes `.agents/tmp/`, deliberately — an unconditional prune would shift responsibility off the drafting agent and weaken the surface-forward check that step 3 exists to force, and `.agents/tmp/` also holds working state that intentionally outlives a single commit (housekeeper manifests, smoke-test working directories, POC scaffolds), which a blanket prune would destroy. The obligation therefore reads as an obligation, never as a description of what the harness does: because nothing collects them, undeleted research files accumulate in a working checkout until an agent or the author removes them, and finding leftovers there is evidence of a missed step 3, not of a failed hook. Prune them by hand when you notice them.
 
 ### Why This Pattern
 

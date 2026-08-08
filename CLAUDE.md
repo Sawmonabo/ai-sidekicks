@@ -50,7 +50,7 @@ Read `AGENTS.md` on demand before:
 - Dispatching parallel research subagents
 - Committing any doc whose content was drafted with subagent research artifacts (the surface-forward-then-delete step)
 
-**Anti-pattern**: never cite `.agents/tmp/...` paths from committed docs. The directory is gitignored and per-commit-deleted; surface citations forward into the consuming doc's References section before deletion (per AGENTS.md "Surface-Forward-Then-Delete").
+**Anti-pattern**: never cite `.agents/tmp/...` paths from committed docs. The directory is gitignored and manually pruned — no hook deletes it; surface citations forward into the consuming doc's References section, then delete the research file yourself before the consuming-doc commit lands (per AGENTS.md "Surface-Forward-Then-Delete").
 
 ## Worktrees
 
