@@ -482,10 +482,14 @@ export interface PreparedEphemeralClone {
    * would report a base the clone never had. The clone's HEAD is immutable
    * ground truth for the copy that was actually taken.
    *
-   * ABSENT — the key omitted, never an empty string — when the source had a
-   * detached HEAD, which the clone inherits: there is no branch name to report.
-   * That is a lawful outcome, not a failure; the prepare succeeds and the caller
-   * self-anchors. A read that FAILS is the other case entirely and raises
+   * ABSENT — the key omitted, never an empty string — when the CLONE's own
+   * HEAD is detached: there is no branch name to report. That takes more than a
+   * detached source: `git clone` resolves the remote HEAD to a branch naming
+   * that commit, so a source merely detached at a branch tip still yields that
+   * branch, and the clone lands detached only when no branch references the
+   * source's HEAD commit (pinned against real git by the T2.6 acceptance
+   * suite). A lawful outcome, not a failure; the prepare succeeds and the
+   * caller self-anchors. A read that FAILS is the other case entirely and raises
    * `base_branch_unreadable`.
    */
   readonly baseBranch?: string;
@@ -1454,7 +1458,9 @@ export class EphemeralCloneService {
   /**
    * Materialize the clone: copy the mount's canonical root to the D-010-6 path,
    * observe the base branch it landed on, then create the requested head branch
-   * in it. Returns the observed base, or `undefined` for a detached-HEAD source.
+   * in it. Returns the observed base, or `undefined` when the clone's own HEAD
+   * lands detached (a source HEAD commit no branch references — see the
+   * `baseBranch` contract).
    *
    * Only the PARENT directory is created here. `git clone` creates its own
    * target and refuses one that already exists and is non-empty, and creating

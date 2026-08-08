@@ -368,8 +368,11 @@ export type WorktreeReuseConflictReason =
  *     clone's own HEAD did not complete. UNREADABLE rather than the siblings'
  *     "unavailable", and the difference is the member's whole point: the
  *     siblings name something that could not be brought into existence, whereas
- *     a base branch can be LAWFULLY ABSENT. A detached-HEAD source clones to a
- *     detached-HEAD clone, where that read succeeds and prints nothing, and the
+ *     a base branch can be LAWFULLY ABSENT. When no branch references the
+ *     source's HEAD commit, the clone's own HEAD lands detached — a merely
+ *     detached source does not suffice, `git clone` resolving the remote HEAD
+ *     to a branch naming that commit — and there the read succeeds and prints
+ *     nothing, and the
  *     preparation goes on to report no base branch at all — not this reason, not
  *     any failure. This member fires only when the invocation itself fails.
  *     Collapsing the two would let a transient read failure followed by a

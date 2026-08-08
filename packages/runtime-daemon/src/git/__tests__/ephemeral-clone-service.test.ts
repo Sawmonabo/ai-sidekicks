@@ -26,7 +26,7 @@
 //   * `Spec-010 §Required Behavior` — an `ephemeral clone`-mode prepare
 //     provisions a disposable isolated clone: the row, the D-010-6 root, the
 //     created head branch, the base branch observed from the clone before that
-//     cut (absent for a detached-HEAD source), and the reported policy /
+//     cut (absent when the clone's own HEAD lands detached), and the reported policy /
 //     expiry / branch.
 //   * `Spec-010 §Default Behavior` — every provisioning git invocation
 //     neutralizes hook execution at the invocation layer.
@@ -188,7 +188,8 @@ class FakeCloneGit {
   readonly invocations: RecordedGitInvocation[] = [];
   cloneFails: boolean = false;
   baseBranchReadFails: boolean = false;
-  /** `null` models a detached-HEAD source, which the clone inherits. */
+  /** `null` models a source whose HEAD commit no branch references — the one
+   * source shape whose clone lands with a detached HEAD. */
   sourceHeadBranch: string | null = SOURCE_DEFAULT_BRANCH;
   readonly existingBranchNames: Set<string> = new Set([SOURCE_DEFAULT_BRANCH]);
 
@@ -602,11 +603,13 @@ describe("EphemeralCloneService.prepare (`Spec-010 §Required Behavior`)", () =>
     expect(verbs.indexOf("branch")).toBeLessThan(verbs.indexOf("checkout"));
   });
 
-  it("omits the base branch entirely for a detached-HEAD source", async () => {
+  it("omits the base branch entirely when the clone's HEAD lands detached", async () => {
     const service = makeService();
-    // The lawful-absence case: `git clone` of a detached-HEAD source succeeds and
-    // the clone inherits the detachment, where `branch --show-current` prints
-    // nothing and still EXITS 0. That is not a failure, so the prepare must
+    // The lawful-absence case: cloning a source whose HEAD commit no branch
+    // references succeeds with the clone's own HEAD detached (a source merely
+    // detached at a branch tip clones ONTO that branch — remote-HEAD
+    // resolution), where `branch --show-current` prints nothing and still
+    // EXITS 0. That is not a failure, so the prepare must
     // succeed — and the key must be absent rather than present-and-undefined,
     // which is what `exactOptionalPropertyTypes` makes a real distinction.
     ctx.git.sourceHeadBranch = null;
