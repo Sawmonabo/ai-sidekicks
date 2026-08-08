@@ -357,7 +357,12 @@ function insertAttachedMount(): void {
  * state say so with a one-line UPDATE at the point they need it, where the
  * reason is visible.
  */
-function insertWorkspace(workspaceId: string = WORKSPACE_ID): void {
+// Options object rather than a positional `workspaceId`: the sibling T2.2
+// suite's same-named seeder takes a workspace STATE in its one slot, and two
+// same-arity `(string)` signatures with opposite meanings across sibling files
+// let a miscopied call type-check while seeding a UUID into `state`.
+function insertWorkspace(options: { readonly workspaceId?: string } = {}): void {
+  const workspaceId = options.workspaceId ?? WORKSPACE_ID;
   const statement = ctx.db.prepare(
     `INSERT INTO workspaces (
        id, session_id, repo_mount_id, execution_mode, fs_root, state, created_at, updated_at
@@ -448,13 +453,13 @@ function readEventTypes(): readonly string[] {
   return statement.all(SESSION_ID).map((row) => row.type);
 }
 
-async function captureRejection(work: Promise<unknown>): Promise<unknown> {
+async function captureRejection(work: () => Promise<unknown>): Promise<unknown> {
   try {
-    await work;
-  } catch (thrown) {
-    return thrown;
+    await work();
+  } catch (rejection) {
+    return rejection;
   }
-  throw new Error("expected the operation to reject");
+  throw new Error("expected the call to reject, but it resolved");
 }
 
 /** The happy path: a workspace row plus a `ready` clone against it. */
@@ -627,7 +632,7 @@ describe("EphemeralCloneService.prepare (`Spec-010 §Required Behavior`)", () =>
     const service = makeService();
     ctx.git.baseBranchReadFails = true;
 
-    const failure = await captureRejection(
+    const failure = await captureRejection(() =>
       service.prepare({ workspaceId: WORKSPACE_ID, branchName: BRANCH_NAME }),
     );
 
@@ -648,7 +653,7 @@ describe("EphemeralCloneService.prepare (`Spec-010 §Required Behavior`)", () =>
     const service = makeService();
     ctx.git.cloneFails = true;
 
-    const failure = await captureRejection(
+    const failure = await captureRejection(() =>
       service.prepare({ workspaceId: WORKSPACE_ID, branchName: BRANCH_NAME }),
     );
 
@@ -670,7 +675,7 @@ describe("EphemeralCloneService.prepare (`Spec-010 §Required Behavior`)", () =>
     // worktree surface has one — recorded at the service's header.
     const service = makeService();
 
-    const failure = await captureRejection(
+    const failure = await captureRejection(() =>
       service.prepare({ workspaceId: WORKSPACE_ID, branchName: SOURCE_DEFAULT_BRANCH }),
     );
 
@@ -696,7 +701,7 @@ describe("EphemeralCloneService.prepare (`Spec-010 §Required Behavior`)", () =>
       },
     });
 
-    const failure = await captureRejection(
+    const failure = await captureRejection(() =>
       service.prepare({ workspaceId: WORKSPACE_ID, branchName: BRANCH_NAME }),
     );
 
@@ -722,7 +727,7 @@ describe("EphemeralCloneService.prepare (`Spec-010 §Required Behavior`)", () =>
     });
     ctx.git.cloneFails = true;
 
-    const failure = await captureRejection(
+    const failure = await captureRejection(() =>
       service.prepare({ workspaceId: WORKSPACE_ID, branchName: BRANCH_NAME }),
     );
 
@@ -754,7 +759,7 @@ describe("EphemeralCloneService.prepare (`Spec-010 §Required Behavior`)", () =>
       },
     });
 
-    const failure = await captureRejection(
+    const failure = await captureRejection(() =>
       service.prepare({ workspaceId: WORKSPACE_ID, branchName: BRANCH_NAME }),
     );
 
@@ -778,7 +783,7 @@ describe("EphemeralCloneService.prepare (`Spec-010 §Required Behavior`)", () =>
   it("raises `workspace.not_found` before any git runs when the workspace is unknown", async () => {
     const service = makeService();
 
-    const failure = await captureRejection(
+    const failure = await captureRejection(() =>
       service.prepare({ workspaceId: UNKNOWN_WORKSPACE_ID, branchName: BRANCH_NAME }),
     );
 
@@ -791,7 +796,7 @@ describe("EphemeralCloneService.prepare (`Spec-010 §Required Behavior`)", () =>
     ctx.db.prepare(`UPDATE repo_mounts SET state = 'detached' WHERE id = ?`).run(REPO_MOUNT_ID);
     const service = makeService();
 
-    const failure = await captureRejection(
+    const failure = await captureRejection(() =>
       service.prepare({ workspaceId: WORKSPACE_ID, branchName: BRANCH_NAME }),
     );
 
@@ -803,10 +808,10 @@ describe("EphemeralCloneService.prepare (`Spec-010 §Required Behavior`)", () =>
     const service = makeService();
     ctx.git.cloneFails = true;
 
-    const prepareFailure = await captureRejection(
+    const prepareFailure = await captureRejection(() =>
       service.prepare({ workspaceId: WORKSPACE_ID, branchName: BRANCH_NAME }),
     );
-    const notFound = await captureRejection(service.dispose(UNKNOWN_CLONE_ID));
+    const notFound = await captureRejection(() => service.dispose(UNKNOWN_CLONE_ID));
 
     expect(notFound).toBeInstanceOf(CloneNotFoundError);
     // EVERY member of the taxonomy, not only the one the arm above drives. The
@@ -888,7 +893,9 @@ describe("EphemeralCloneService.dispose (explicit disposal)", () => {
   it("retires a `failed` clone so the sweep can reach its root", async () => {
     const service = makeService();
     ctx.git.cloneFails = true;
-    await captureRejection(service.prepare({ workspaceId: WORKSPACE_ID, branchName: BRANCH_NAME }));
+    await captureRejection(() =>
+      service.prepare({ workspaceId: WORKSPACE_ID, branchName: BRANCH_NAME }),
+    );
     const failedCloneId = readSoleCloneId();
 
     const response = await service.dispose(failedCloneId);
@@ -900,7 +907,7 @@ describe("EphemeralCloneService.dispose (explicit disposal)", () => {
   it("raises `clone.not_found` for an unknown clone id", async () => {
     const service = makeService();
 
-    const failure = await captureRejection(service.dispose(UNKNOWN_CLONE_ID));
+    const failure = await captureRejection(() => service.dispose(UNKNOWN_CLONE_ID));
 
     expect(failure).toBeInstanceOf(CloneNotFoundError);
     expect((failure as CloneNotFoundError).code).toBe("clone.not_found");
@@ -947,7 +954,7 @@ describe("EphemeralCloneService.retireForWorkspace (the run-terminal path)", () 
   });
 
   it("leaves another workspace's clones alone", async () => {
-    insertWorkspace(OTHER_WORKSPACE_ID);
+    insertWorkspace({ workspaceId: OTHER_WORKSPACE_ID });
     const service = makeService();
     const ownCloneId = await prepareReadyClone(service);
     const otherCloneId = await prepareReadyClone(service, OTHER_WORKSPACE_ID);
@@ -1250,7 +1257,7 @@ describe("EphemeralCloneService.cleanupTick (D-010-13 legs (a), (b), (d))", () =
     // disagreement the fail-closed arm exists to surface.
     ctx.db.prepare(`UPDATE repo_mounts SET vcs_type = 'none' WHERE id = ?`).run(REPO_MOUNT_ID);
 
-    const failure = await captureRejection(service.cleanupTick());
+    const failure = await captureRejection(() => service.cleanupTick());
 
     expect(failure).toBeInstanceOf(WorkspaceModeUnsupportedError);
     // Ordering the disposition before the removal is what makes a propagating
@@ -1346,7 +1353,7 @@ describe("EphemeralCloneService — invariants across a full lifecycle", () => {
     await service.dispose(cloneId);
     const failingService = makeService();
     ctx.git.cloneFails = true;
-    await captureRejection(
+    await captureRejection(() =>
       failingService.prepare({ workspaceId: WORKSPACE_ID, branchName: `${BRANCH_NAME}-3` }),
     );
     advanceClock(2 * ONE_HOUR_MS);

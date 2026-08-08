@@ -1361,6 +1361,55 @@ describe("explicit worktree reuse", () => {
     });
     expect(readBranchContexts()).toHaveLength(0);
   });
+
+  it("refuses a candidate whose directory a busy workspace holds, before the bracket", async () => {
+    // The concurrent root HANDOFF `Spec-010 §State And Data Implications`
+    // refuses: the candidate's own workspace is busy IN that directory, and a
+    // second workspace asks to bind the same working tree. The refusal must
+    // name the HOLDER and must fire pre-bracket — routed through the
+    // materialization catch it would `failReprovision` the requester into
+    // `stale` repair for someone else's live run.
+    const candidateRoot = `${EXECUTION_ROOTS_DIRECTORY}/${REPO_MOUNT_ID}/worktrees/${SEEDED_WORKTREE_ID}`;
+    insertWorktreeRow({
+      worktreeId: SEEDED_WORKTREE_ID,
+      branchName: FEATURE_BRANCH,
+      fsRoot: candidateRoot,
+    });
+    // The holder: the candidate's own workspace, busy in the candidate's root.
+    insertWorkspace({ executionMode: "worktree", state: "busy", fsRoot: candidateRoot });
+    insertBranchContext({
+      id: SEEDED_CONTEXT_ID,
+      workspaceId: WORKSPACE_ID,
+      worktreeId: SEEDED_WORKTREE_ID,
+      baseBranch: SEEDED_BASE_BRANCH,
+      headBranch: FEATURE_BRANCH,
+    });
+    insertWorkspace({
+      workspaceId: OTHER_WORKSPACE_ID,
+      executionMode: "worktree",
+      state: "provisioning",
+    });
+
+    const rejection = await captureRejection(() =>
+      makeService().prepare({
+        workspaceId: OTHER_WORKSPACE_ID,
+        branchName: FEATURE_BRANCH,
+        reuseWorktreeId: SEEDED_WORKTREE_ID,
+      }),
+    );
+
+    expect(rejection).toBeInstanceOf(WorkspaceBusyError);
+    // The HOLDER's id, not the requester's — what the caller must wait on.
+    expect(rejection).toMatchObject({ workspaceId: WORKSPACE_ID });
+    // Pre-bracket, as claimed: `validateReuse` was never consulted, no second
+    // pair row landed, and the requester's row is exactly as it was found.
+    expect(ctx.worktrees.reuseInputs).toHaveLength(0);
+    expect(readBranchContexts()).toHaveLength(1);
+    const requesterState = ctx.db
+      .prepare<[string], { state: string }>(`SELECT state FROM workspaces WHERE id = ?`)
+      .get(OTHER_WORKSPACE_ID);
+    expect(requesterState?.state).toBe("provisioning");
+  });
 });
 
 // ============================================================================

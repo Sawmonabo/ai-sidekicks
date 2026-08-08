@@ -65,8 +65,8 @@ import { join } from "node:path";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts";
-import type { SessionId } from "@ai-sidekicks/contracts";
+import { JsonRpcErrorCode, WORKTREE_GIT_REF_MAX_LEN } from "@ai-sidekicks/contracts";
+import type { SessionId, WorkspaceState } from "@ai-sidekicks/contracts";
 
 import { EventLogService } from "../../events/event-log-service.js";
 import type { EventLogAppendReceipt } from "../../events/event-log-service.js";
@@ -319,7 +319,7 @@ beforeEach(() => {
     hookNeutralizationDirectory: join(executionRootsDirectory, ".hook-neutralization"),
     tmpDir,
   };
-  insertMount(REPO_MOUNT_ID);
+  insertMount({ repoMountId: REPO_MOUNT_ID });
 });
 
 afterEach(() => {
@@ -346,26 +346,52 @@ function makeService(overrides: Partial<WorktreeServiceDeps> = {}): WorktreeServ
 // Row fixtures and reads
 // ----------------------------------------------------------------------------
 
-function insertMount(
-  repoMountId: string,
-  state: string = "attached",
-  canonicalRoot: string = CANONICAL_ROOT,
-): void {
+// Options objects rather than positionals, matching the T2.4 and T2.6 suites:
+// the sibling T2.3 suite's same-named workspace seeder keys its one slot on the
+// workspace ID where this one keys the STATE, and the acceptance suite's mount
+// seeder puts a PATH in the slot this one gives a state — same-arity `(string)`
+// signatures with opposite meanings let a miscopied call type-check while
+// seeding garbage.
+function insertMount(options: {
+  readonly repoMountId: string;
+  readonly state?: string;
+  readonly canonicalRoot?: string;
+}): void {
+  const canonicalRoot = options.canonicalRoot ?? CANONICAL_ROOT;
   const statement = ctx.db.prepare(
     `INSERT INTO repo_mounts (
        id, session_id, node_id, local_path, canonical_root, state, attached_at, updated_at
      ) VALUES (?, ?, 'node-1', ?, ?, ?, ?, ?)`,
   );
-  statement.run(repoMountId, SESSION_ID, canonicalRoot, canonicalRoot, state, NOW, NOW);
+  statement.run(
+    options.repoMountId,
+    SESSION_ID,
+    canonicalRoot,
+    canonicalRoot,
+    options.state ?? "attached",
+    NOW,
+    NOW,
+  );
 }
 
-function insertWorkspace(state: string): void {
+function insertWorkspace(options: {
+  readonly state: WorkspaceState;
+  readonly fsRoot?: string;
+}): void {
   const statement = ctx.db.prepare(
     `INSERT INTO workspaces (
        id, session_id, repo_mount_id, execution_mode, fs_root, state, created_at, updated_at
      ) VALUES (?, ?, ?, 'worktree', ?, ?, ?, ?)`,
   );
-  statement.run(WORKSPACE_ID, SESSION_ID, REPO_MOUNT_ID, CANONICAL_ROOT, state, NOW, NOW);
+  statement.run(
+    WORKSPACE_ID,
+    SESSION_ID,
+    REPO_MOUNT_ID,
+    options.fsRoot ?? CANONICAL_ROOT,
+    options.state,
+    NOW,
+    NOW,
+  );
 }
 
 function insertBranchContext(worktreeId: string): void {
@@ -430,13 +456,13 @@ function readEventTypes(): readonly string[] {
   return statement.all(SESSION_ID).map((row) => row.type);
 }
 
-async function captureRejection(work: Promise<unknown>): Promise<unknown> {
+async function captureRejection(work: () => Promise<unknown>): Promise<unknown> {
   try {
-    await work;
-  } catch (thrown) {
-    return thrown;
+    await work();
+  } catch (rejection) {
+    return rejection;
   }
-  throw new Error("expected the operation to reject");
+  throw new Error("expected the call to reject, but it resolved");
 }
 
 /**
@@ -478,7 +504,7 @@ class BusyHolderInjectingEmitter extends WorktreeEventEmitter {
   override async emitWorktreeRetired(
     input: EmitWorktreeEventInput,
   ): Promise<EventLogAppendReceipt> {
-    insertWorkspace("busy");
+    insertWorkspace({ state: "busy" });
     insertBranchContext(input.worktreeId);
     return super.emitWorktreeRetired(input);
   }
@@ -695,7 +721,7 @@ describe("WorktreeService.create", () => {
     await createReadyWorktree(service);
     const eventsBeforeCollision = readEventTypes().length;
 
-    const thrown = await captureRejection(createReadyWorktree(service));
+    const thrown = await captureRejection(() => createReadyWorktree(service));
 
     expect(thrown).toBeInstanceOf(WorktreeBranchCollisionError);
     const collision = thrown as WorktreeBranchCollisionError;
@@ -743,11 +769,36 @@ describe("WorktreeService.create", () => {
     };
     await service.create({ ...base, onCollision: "refuse" });
 
-    const thrown = await captureRejection(service.create({ ...base, onCollision: "refuse" }));
+    const thrown = await captureRejection(() => service.create({ ...base, onCollision: "refuse" }));
     const suffixed = await service.create({ ...base, onCollision: "suffix" });
 
     expect(thrown).toBeInstanceOf(WorktreeBranchCollisionError);
     expect(suffixed.branchName).toBe(`${DERIVED_BRANCH_NAME}-2`);
+  });
+
+  it("refuses a suffix that would outgrow the ref cap instead of persisting it", async () => {
+    // A name accepted AT `WORKTREE_GIT_REF_MAX_LEN` collides; every suffixed
+    // candidate is strictly longer than the cap, and a persisted over-cap
+    // `branch_name` would fail response validation for the WHOLE T2.5 status
+    // projection. The write refuses instead — `branch_name_unavailable`, the
+    // same answer ordinal exhaustion gives: the request's policy has no usable
+    // name left.
+    const service = makeService();
+    const capLengthBranchName = `feature/${"x".repeat(WORKTREE_GIT_REF_MAX_LEN - "feature/".length)}`;
+    const base: Omit<CreateWorktreeInput, "onCollision"> = {
+      repoMountId: REPO_MOUNT_ID,
+      sessionId: SESSION_ID,
+      runId: RUN_ID,
+      branchName: capLengthBranchName,
+    };
+    await service.create({ ...base, onCollision: "refuse" });
+
+    const thrown = await captureRejection(() => service.create({ ...base, onCollision: "suffix" }));
+
+    expect(thrown).toBeInstanceOf(WorktreeCreateFailedError);
+    expect((thrown as WorktreeCreateFailedError).reason).toBe("branch_name_unavailable");
+    // The guard refused before anything landed: one row, the original's.
+    expect(readAllWorktreeIds()).toHaveLength(1);
   });
 
   it("frees the bare name in the active-branch index once the colliding row is retired", async () => {
@@ -793,7 +844,7 @@ describe("WorktreeService.create", () => {
       onCollision: "refuse",
     });
 
-    const thrown = await captureRejection(
+    const thrown = await captureRejection(() =>
       service.create({
         repoMountId: REPO_MOUNT_ID,
         sessionId: SESSION_ID,
@@ -827,7 +878,7 @@ describe("WorktreeService.create", () => {
       events: new CreatedEmissionFailingEmitter({ sessionEvents: ctx.eventLog }, appendFailure),
     });
 
-    const thrown = await captureRejection(
+    const thrown = await captureRejection(() =>
       failingService.create({
         repoMountId: REPO_MOUNT_ID,
         sessionId: SESSION_ID,
@@ -852,7 +903,7 @@ describe("WorktreeService.create", () => {
       events: new CreatedEmissionFailingEmitter({ sessionEvents: ctx.eventLog }, uniqueViolation),
     });
 
-    const thrown = await captureRejection(
+    const thrown = await captureRejection(() =>
       service.create({
         repoMountId: REPO_MOUNT_ID,
         sessionId: SESSION_ID,
@@ -869,7 +920,7 @@ describe("WorktreeService.create", () => {
     ctx.git.headBranch = null;
     const service = makeService();
 
-    const thrown = await captureRejection(
+    const thrown = await captureRejection(() =>
       service.create({
         repoMountId: REPO_MOUNT_ID,
         sessionId: SESSION_ID,
@@ -890,7 +941,7 @@ describe("WorktreeService.create", () => {
   it("refuses an option-like base ref before spawning git at all", async () => {
     const service = makeService();
 
-    const thrown = await captureRejection(
+    const thrown = await captureRejection(() =>
       service.create({
         repoMountId: REPO_MOUNT_ID,
         sessionId: SESSION_ID,
@@ -926,7 +977,7 @@ describe("WorktreeService.create", () => {
     ctx.git.worktreeAddFails = true;
     const service = makeService();
 
-    const thrown = await captureRejection(
+    const thrown = await captureRejection(() =>
       service.create({
         repoMountId: REPO_MOUNT_ID,
         sessionId: SESSION_ID,
@@ -966,7 +1017,7 @@ describe("WorktreeService.create", () => {
       events: new ReadyEmissionFailingEmitter({ sessionEvents: ctx.eventLog }),
     });
 
-    const thrown = await captureRejection(createReadyWorktree(service));
+    const thrown = await captureRejection(() => createReadyWorktree(service));
 
     // The ORIGINAL failure, not whatever the recovery did about it.
     expect(thrown).toBe(READY_EMISSION_FAILURE);
@@ -992,7 +1043,7 @@ describe("WorktreeService.create", () => {
   it("refuses an unknown mount with Plan-009's carrier", async () => {
     const service = makeService();
 
-    const thrown = await captureRejection(
+    const thrown = await captureRejection(() =>
       service.create({
         repoMountId: OTHER_REPO_MOUNT_ID,
         sessionId: SESSION_ID,
@@ -1007,10 +1058,14 @@ describe("WorktreeService.create", () => {
   });
 
   it("refuses a detached mount", async () => {
-    insertMount(OTHER_REPO_MOUNT_ID, "detached", OTHER_CANONICAL_ROOT);
+    insertMount({
+      repoMountId: OTHER_REPO_MOUNT_ID,
+      state: "detached",
+      canonicalRoot: OTHER_CANONICAL_ROOT,
+    });
     const service = makeService();
 
-    const thrown = await captureRejection(
+    const thrown = await captureRejection(() =>
       service.create({
         repoMountId: OTHER_REPO_MOUNT_ID,
         sessionId: SESSION_ID,
@@ -1069,7 +1124,7 @@ describe("WorktreeService.validateReuse", () => {
     const created = await createReadyWorktree(service);
     ctx.git.statusOutput = " M src/index.ts\n";
 
-    const thrown = await captureRejection(
+    const thrown = await captureRejection(() =>
       service.validateReuse({
         worktreeId: created.worktreeId,
         repoMountId: REPO_MOUNT_ID,
@@ -1107,7 +1162,7 @@ describe("WorktreeService.validateReuse", () => {
     const created = await createReadyWorktree(service);
     ctx.git.statusOutput = " M src/index.ts\n";
 
-    const thrown = await captureRejection(
+    const thrown = await captureRejection(() =>
       service.validateReuse({
         worktreeId: created.worktreeId,
         repoMountId: REPO_MOUNT_ID,
@@ -1122,11 +1177,11 @@ describe("WorktreeService.validateReuse", () => {
   });
 
   it("refuses a candidate that belongs to another mount", async () => {
-    insertMount(OTHER_REPO_MOUNT_ID, "attached", OTHER_CANONICAL_ROOT);
+    insertMount({ repoMountId: OTHER_REPO_MOUNT_ID, canonicalRoot: OTHER_CANONICAL_ROOT });
     const service = makeService();
     const created = await createReadyWorktree(service);
 
-    const thrown = await captureRejection(
+    const thrown = await captureRejection(() =>
       service.validateReuse({
         worktreeId: created.worktreeId,
         repoMountId: OTHER_REPO_MOUNT_ID,
@@ -1146,7 +1201,7 @@ describe("WorktreeService.validateReuse", () => {
     const created = await createReadyWorktree(service);
     await service.retire(created.worktreeId);
 
-    const thrown = await captureRejection(
+    const thrown = await captureRejection(() =>
       service.validateReuse({
         worktreeId: created.worktreeId,
         repoMountId: REPO_MOUNT_ID,
@@ -1164,7 +1219,7 @@ describe("WorktreeService.validateReuse", () => {
     const created = await createReadyWorktree(service);
     ctx.git.statusFails = true;
 
-    const thrown = await captureRejection(
+    const thrown = await captureRejection(() =>
       service.validateReuse({
         worktreeId: created.worktreeId,
         repoMountId: REPO_MOUNT_ID,
@@ -1181,7 +1236,7 @@ describe("WorktreeService.validateReuse", () => {
   it("answers not-found for a candidate id that names no row", async () => {
     const service = makeService();
 
-    const thrown = await captureRejection(
+    const thrown = await captureRejection(() =>
       service.validateReuse({
         worktreeId: UNKNOWN_WORKTREE_ID,
         repoMountId: REPO_MOUNT_ID,
@@ -1223,10 +1278,10 @@ describe("WorktreeService.retire", () => {
   it("refuses while a busy workspace is holding the worktree", async () => {
     const service = makeService();
     const created = await createReadyWorktree(service);
-    insertWorkspace("busy");
+    insertWorkspace({ state: "busy" });
     insertBranchContext(created.worktreeId);
 
-    const thrown = await captureRejection(service.retire(created.worktreeId));
+    const thrown = await captureRejection(() => service.retire(created.worktreeId));
 
     expect(thrown).toBeInstanceOf(WorktreeRetireConflictError);
     const conflict = thrown as WorktreeRetireConflictError;
@@ -1240,7 +1295,7 @@ describe("WorktreeService.retire", () => {
   it("retires once a released workspace no longer holds the worktree", async () => {
     const service = makeService();
     const created = await createReadyWorktree(service);
-    insertWorkspace("ready");
+    insertWorkspace({ state: "ready" });
     insertBranchContext(created.worktreeId);
 
     await service.retire(created.worktreeId);
@@ -1259,7 +1314,7 @@ describe("WorktreeService.retire", () => {
       events: new BusyHolderInjectingEmitter({ sessionEvents: ctx.eventLog }),
     });
 
-    const thrown = await captureRejection(racedService.retire(created.worktreeId));
+    const thrown = await captureRejection(() => racedService.retire(created.worktreeId));
 
     expect(thrown).toBeInstanceOf(WorktreeRetireConflictError);
     const conflict = thrown as WorktreeRetireConflictError;
@@ -1310,7 +1365,7 @@ describe("WorktreeService.retire", () => {
     // is never a retire OUTCOME.
     ctx.git.worktreeAddFails = true;
     const service = makeService();
-    await captureRejection(
+    await captureRejection(() =>
       service.create({
         repoMountId: REPO_MOUNT_ID,
         sessionId: SESSION_ID,
@@ -1348,7 +1403,7 @@ describe("WorktreeService.retire", () => {
   it("answers not-found for an unknown worktree", async () => {
     const service = makeService();
 
-    const thrown = await captureRejection(service.retire(UNKNOWN_WORKTREE_ID));
+    const thrown = await captureRejection(() => service.retire(UNKNOWN_WORKTREE_ID));
 
     expect(thrown).toBeInstanceOf(WorktreeNotFoundError);
   });
@@ -1446,10 +1501,10 @@ describe("WorktreeService.cleanupPass", () => {
     const service = makeService();
     const created = await createReadyWorktree(service);
     ctx.db.prepare(`UPDATE repo_mounts SET state = 'detached' WHERE id = ?`).run(REPO_MOUNT_ID);
-    insertWorkspace("busy");
+    insertWorkspace({ state: "busy" });
     insertBranchContext(created.worktreeId);
 
-    const thrown = await captureRejection(service.cleanupPass());
+    const thrown = await captureRejection(() => service.cleanupPass());
 
     expect(thrown).toBeInstanceOf(WorktreeRetireConflictError);
     const conflict = thrown as WorktreeRetireConflictError;
@@ -1462,6 +1517,32 @@ describe("WorktreeService.cleanupPass", () => {
     expect(row.cleaned_at).toBeNull();
     expect(existsSync(created.fsRoot)).toBe(true);
     expect(readEventTypes()).toEqual(["worktree.created", "worktree.ready"]);
+  });
+
+  it("defers leg (d) removal while a busy workspace holds the retired root", async () => {
+    // The retire-time probe decides at the retirement instant, and Plan-009's
+    // `markBusy` requires only `ready` — so a workspace still pointing at the
+    // root can become busy AFTERWARD. Without the sweep-side deferral the next
+    // pass would remove a working tree out from under the run holding it.
+    const service = makeService();
+    const created = await createReadyWorktree(service);
+    await service.retire(created.worktreeId);
+    insertWorkspace({ state: "busy", fsRoot: created.fsRoot });
+
+    const held = await service.cleanupPass();
+
+    expect(held.cleanedWorktreeIds).toEqual([]);
+    expect(existsSync(created.fsRoot)).toBe(true);
+    expect(readWorktreeRow(created.worktreeId).cleaned_at).toBeNull();
+
+    // Deferral, not exclusion: the holder returning to `ready` releases the
+    // root to the very next pass.
+    ctx.db.prepare(`UPDATE workspaces SET state = 'ready' WHERE id = ?`).run(WORKSPACE_ID);
+    const released = await service.cleanupPass();
+
+    expect(released.cleanedWorktreeIds).toEqual([created.worktreeId]);
+    expect(existsSync(created.fsRoot)).toBe(false);
+    expect(readWorktreeRow(created.worktreeId).cleaned_at).not.toBeNull();
   });
 
   it("is a no-op on a second pass", async () => {

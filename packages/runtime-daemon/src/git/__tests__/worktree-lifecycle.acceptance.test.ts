@@ -62,6 +62,11 @@
 //   * I-010-10 — no repository-controlled code executes during provisioning:
 //     the hostile hooks never fire for any service invocation, and the
 //     neutralization directory the services point `core.hooksPath` at is empty.
+//   * I-010-13 (producer half) — every observed lifecycle transition emits its
+//     mapped event: the full-sequence event assertions on the lifecycle walks
+//     (create→reuse→retire→cleanup, the failure arms, and the clone walk's
+//     empty sequence) are the evidence the emitter and its unit suite delegate
+//     to this tier — a thinned sequence assertion here breaks that hand-off.
 
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -102,6 +107,7 @@ import { WorkspaceService } from "../../workspace/workspace-service.js";
 import { EphemeralCloneService } from "../ephemeral-clone-service.js";
 import {
   ClonePrepareFailedError,
+  WorkspaceBranchMismatchError,
   WorktreeBranchCollisionError,
   WorktreeCreateFailedError,
   WorktreeRetireConflictError,
@@ -122,6 +128,7 @@ const DETACHED_REPO_MOUNT_ID: string = "0191a2b0-3333-7f7b-9a32-3d8e7c5f0b22";
 const WORKSPACE_ID: string = "0191a2b0-4444-7a8c-8b43-4e9f8d60c132";
 const CLONE_WORKSPACE_ID: string = "0191a2b0-5555-7a8c-8b43-4e9f8d60c133";
 const DETACHED_WORKSPACE_ID: string = "0191a2b0-6666-7a8c-8b43-4e9f8d60c134";
+const BRANCH_WORKSPACE_ID: string = "0191a2b0-8888-7a8c-8b43-4e9f8d60c135";
 const RUN_ID: string = "0191a2b0-7777-7b9d-9c54-5f0a9e71c243";
 
 const DEFAULT_BRANCH: string = "main";
@@ -1794,6 +1801,127 @@ describe("the ephemeral-clone lifecycle on real git", () => {
       expect(cloneRow.state).toBe("retired");
       expect(cloneRow.cleaned_at).not.toBeNull();
       expect(existsSync(prepared.executionRoot)).toBe(false);
+      expect(ctx.repository.firedHooks()).toEqual([]);
+    },
+    ACCEPTANCE_TEST_TIMEOUT_MS,
+  );
+});
+
+// ----------------------------------------------------------------------------
+// D-010-9 — branch mode against real git
+// ----------------------------------------------------------------------------
+
+describe("branch mode — the main checkout as the execution root", () => {
+  it(
+    "binds the mount's own checkout and mutates nothing",
+    async () => {
+      // The one writable mode whose execution root IS the user's checkout —
+      // the exact I-010-6 blast radius this tier polices — driven through the
+      // real bracket: `assertWritable` → bind-verify (real `symbolic-ref`) →
+      // `beginReprovision` → `completeReprovision`.
+      const before = await snapshotMainCheckout(ctx.repository);
+      insertWorkspace({
+        workspaceId: BRANCH_WORKSPACE_ID,
+        executionMode: "branch",
+        fsRoot: ctx.repository.root,
+      });
+
+      const prepared = await ctx.executionRoots.prepare({
+        workspaceId: BRANCH_WORKSPACE_ID,
+        branchName: DEFAULT_BRANCH,
+        runId: RUN_ID,
+      });
+
+      expect(prepared.executionMode).toBe("branch");
+      expect(prepared.executionRoot).toBe(ctx.repository.root);
+      expect(readWorkspaceRow(BRANCH_WORKSPACE_ID).state).toBe("ready");
+      // The context row fills NEITHER root column (I-010-5's branch-mode arm)
+      // and self-anchors — branch mode cuts nothing, so there is no cut point
+      // to record.
+      const contextRow = ctx.db
+        .prepare<
+          [string],
+          {
+            worktree_id: string | null;
+            ephemeral_clone_id: string | null;
+            base_branch: string;
+            head_branch: string;
+          }
+        >(
+          `SELECT worktree_id, ephemeral_clone_id, base_branch, head_branch
+             FROM branch_contexts WHERE workspace_id = ?`,
+        )
+        .get(BRANCH_WORKSPACE_ID);
+      expect(contextRow).toMatchObject({
+        worktree_id: null,
+        ephemeral_clone_id: null,
+        base_branch: DEFAULT_BRANCH,
+        head_branch: DEFAULT_BRANCH,
+      });
+      // Not one byte moved: working tree, HEAD and branch roster all identical.
+      expect(await snapshotMainCheckout(ctx.repository)).toEqual(before);
+      expect(ctx.repository.firedHooks()).toEqual([]);
+    },
+    ACCEPTANCE_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "refuses a detached main checkout as a mismatch through real git's exit status",
+    async () => {
+      // The seam contract `#verifyBranchModeBind` discriminates on — detached
+      // HEAD means `symbolic-ref --quiet --short HEAD` exits 1 with empty
+      // stdout — pinned here against real git, the treatment the clone side's
+      // `branch --show-current` contract already gets in this suite. Any other
+      // exit status would surface as the anonymous invariant carrier instead
+      // of the ratified `workspace.branch_mismatch` refusal.
+      insertWorkspace({
+        workspaceId: BRANCH_WORKSPACE_ID,
+        executionMode: "branch",
+        fsRoot: ctx.repository.root,
+      });
+      await ctx.repository.git(["checkout", "--quiet", "--detach", "HEAD"]);
+      // `snapshotMainCheckout` itself runs `symbolic-ref HEAD`, which exits 128
+      // on the very detachment this case constructs — so the no-mutation claim
+      // rides its detached-safe fields, plus an explicit detachment probe that
+      // doubles as the premise check.
+      const snapshotDetachedCheckout = async () => ({
+        workingTree: hashWorkingTree(ctx.repository.root),
+        headCommit: (await ctx.repository.git(["rev-parse", "HEAD"])).trim(),
+        porcelainStatus: await ctx.repository.git(["status", "--porcelain"]),
+        branchRoster: (
+          await ctx.repository.git([
+            "for-each-ref",
+            "--format=%(refname) %(objectname)",
+            "refs/heads",
+          ])
+        )
+          .split("\n")
+          .filter((line) => line !== "")
+          .sort(),
+        headIsDetached:
+          (await ctx.repository.gitCapturing(["symbolic-ref", "--quiet", "HEAD"])).exitCode !== 0,
+      });
+      const detachedSnapshot = await snapshotDetachedCheckout();
+      expect(detachedSnapshot.headIsDetached).toBe(true);
+
+      const rejection = await captureRejection(() =>
+        ctx.executionRoots.prepare({
+          workspaceId: BRANCH_WORKSPACE_ID,
+          branchName: DEFAULT_BRANCH,
+          runId: RUN_ID,
+        }),
+      );
+
+      expect(rejection).toBeInstanceOf(WorkspaceBranchMismatchError);
+      expect(rejection).toMatchObject({
+        requestedBranchName: DEFAULT_BRANCH,
+        currentBranchName: "(detached HEAD)",
+      });
+      // Bind-only verification: the refusal switched no branch, wrote no row,
+      // and left the detached checkout exactly as it found it (D-010-9,
+      // I-010-6).
+      expect(readWorkspaceRow(BRANCH_WORKSPACE_ID).state).toBe("ready");
+      expect(await snapshotDetachedCheckout()).toEqual(detachedSnapshot);
       expect(ctx.repository.firedHooks()).toEqual([]);
     },
     ACCEPTANCE_TEST_TIMEOUT_MS,
