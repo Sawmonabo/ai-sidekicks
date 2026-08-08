@@ -929,57 +929,98 @@ describe("EphemeralCloneService.dispose (explicit disposal)", () => {
 });
 
 // ----------------------------------------------------------------------------
-// retireForWorkspace
+// retireRunClone
 // ----------------------------------------------------------------------------
 
-describe("EphemeralCloneService.retireForWorkspace (the run-terminal path)", () => {
+describe("EphemeralCloneService.retireRunClone (the run-terminal path)", () => {
   beforeEach(() => {
     insertWorkspace();
   });
 
-  it("retires the `on_run_complete` clones and leaves `manual` ones live", async () => {
+  it("retires the named `on_run_complete` clone and nothing else", async () => {
+    // The delayed-terminal hazard the clone scoping exists for: the terminal
+    // sequence releases the workspace before it retires, so a NEXT run can
+    // prepare a fresh clone in that window — here `nextRunClone` — and a
+    // selection keyed on the workspace alone would retire it with the old.
     const service = makeService();
-    const disposableCloneId = await prepareReadyClone(service);
+    const terminatingCloneId = await prepareReadyClone(service);
+    const nextRunClone = await service.prepare({
+      workspaceId: WORKSPACE_ID,
+      branchName: `${BRANCH_NAME}-next`,
+    });
+
+    const retired = await service.retireRunClone({
+      workspaceId: WORKSPACE_ID,
+      cloneId: terminatingCloneId,
+      trigger: "on_run_complete",
+    });
+
+    expect(retired).toEqual([terminatingCloneId]);
+    expect(readCloneRow(terminatingCloneId).state).toBe("retired");
+    expect(readCloneRow(nextRunClone.cloneId).state).toBe("ready");
+  });
+
+  it("leaves a `manual` clone live even when the terminal call names it", async () => {
+    const service = makeService();
     const manualClone = await service.prepare({
       workspaceId: WORKSPACE_ID,
       branchName: `${BRANCH_NAME}-manual`,
       cleanupPolicy: "manual",
     });
 
-    const retired = await service.retireForWorkspace(WORKSPACE_ID, "on_run_complete");
+    const retired = await service.retireRunClone({
+      workspaceId: WORKSPACE_ID,
+      cloneId: manualClone.cloneId,
+      trigger: "on_run_complete",
+    });
 
-    expect(retired).toEqual([disposableCloneId]);
-    expect(readCloneRow(disposableCloneId).state).toBe("retired");
+    expect(retired).toEqual([]);
     expect(readCloneRow(manualClone.cloneId).state).toBe("ready");
   });
 
-  it("leaves another workspace's clones alone", async () => {
+  it("selects nothing for a clone id bound to another workspace", async () => {
+    // The workspace id is a consistency bind: a clone id read off the wrong
+    // context must select nothing rather than retire across workspaces.
     insertWorkspace({ workspaceId: OTHER_WORKSPACE_ID });
     const service = makeService();
-    const ownCloneId = await prepareReadyClone(service);
     const otherCloneId = await prepareReadyClone(service, OTHER_WORKSPACE_ID);
 
-    await service.retireForWorkspace(WORKSPACE_ID, "on_run_complete");
+    const retired = await service.retireRunClone({
+      workspaceId: WORKSPACE_ID,
+      cloneId: otherCloneId,
+      trigger: "on_run_complete",
+    });
 
-    expect(readCloneRow(ownCloneId).state).toBe("retired");
+    expect(retired).toEqual([]);
     expect(readCloneRow(otherCloneId).state).toBe("ready");
   });
 
-  it("is a no-op for a workspace that never prepared a clone", async () => {
+  it("is a no-op for an unknown clone id", async () => {
     const service = makeService();
 
-    const retired = await service.retireForWorkspace(UNKNOWN_WORKSPACE_ID, "on_run_complete");
+    const retired = await service.retireRunClone({
+      workspaceId: WORKSPACE_ID,
+      cloneId: UNKNOWN_CLONE_ID,
+      trigger: "on_run_complete",
+    });
 
     expect(retired).toEqual([]);
   });
 
-  it("defers a clone the next run is already executing in (I-010-11)", async () => {
+  it("defers the named clone while a busy workspace is executing in it (I-010-11)", async () => {
+    // Near-vacuous under clone scoping — a next run always prepares a fresh
+    // clone — but the busy guard is the retirement paths' shared floor, and
+    // this pins that the run-terminal path did not drop it.
     const service = makeService();
     const cloneId = await prepareReadyClone(service);
     await adoptCloneAsExecutionRoot(cloneId);
     await ctx.workspaces.markBusy(WORKSPACE_ID, RUN_ID);
 
-    const retired = await service.retireForWorkspace(WORKSPACE_ID, "on_run_complete");
+    const retired = await service.retireRunClone({
+      workspaceId: WORKSPACE_ID,
+      cloneId,
+      trigger: "on_run_complete",
+    });
 
     expect(retired).toEqual([]);
     expect(readCloneRow(cloneId).state).toBe("ready");

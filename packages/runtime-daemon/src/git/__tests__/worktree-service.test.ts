@@ -107,6 +107,7 @@ import { WorktreeService, deriveWorktreeBranchName } from "../worktree-service.j
 import type {
   CreateWorktreeInput,
   CreatedWorktree,
+  WorktreeFilesystem,
   WorktreeGitInvocationResult,
   WorktreeGitRunner,
   WorktreeServiceDeps,
@@ -504,8 +505,15 @@ class BusyHolderInjectingEmitter extends WorktreeEventEmitter {
   override async emitWorktreeRetired(
     input: EmitWorktreeEventInput,
   ): Promise<EventLogAppendReceipt> {
-    insertWorkspace({ state: "busy" });
-    insertBranchContext(input.worktreeId);
+    // The hold is what CP-009-7 means by one: a `busy` workspace whose CURRENT
+    // `fs_root` is the worktree's own directory.
+    const row = ctx.db
+      .prepare<[string], { fs_root: string }>(`SELECT fs_root FROM worktrees WHERE id = ?`)
+      .get(input.worktreeId);
+    if (row === undefined) {
+      throw new Error(`expected a worktrees row for ${input.worktreeId}`);
+    }
+    insertWorkspace({ state: "busy", fsRoot: row.fs_root });
     return super.emitWorktreeRetired(input);
   }
 }
@@ -1278,8 +1286,7 @@ describe("WorktreeService.retire", () => {
   it("refuses while a busy workspace is holding the worktree", async () => {
     const service = makeService();
     const created = await createReadyWorktree(service);
-    insertWorkspace({ state: "busy" });
-    insertBranchContext(created.worktreeId);
+    insertWorkspace({ state: "busy", fsRoot: created.fsRoot });
 
     const thrown = await captureRejection(() => service.retire(created.worktreeId));
 
@@ -1292,10 +1299,27 @@ describe("WorktreeService.retire", () => {
     expect(readEventTypes()).toEqual(["worktree.created", "worktree.ready"]);
   });
 
+  it("retires a worktree whose historical binder is busy on a different root", async () => {
+    // `branch_contexts` rows are retained history: a workspace that once bound
+    // this worktree and has since reprovisioned elsewhere is not holding THIS
+    // root, and a probe keyed through the context rows would refuse the
+    // retirement for the whole duration of an unrelated run. The probe is
+    // `fs_root`-keyed exactly so this retirement proceeds.
+    const service = makeService();
+    const created = await createReadyWorktree(service);
+    insertWorkspace({ state: "busy", fsRoot: OTHER_CANONICAL_ROOT });
+    insertBranchContext(created.worktreeId);
+
+    const response = await service.retire(created.worktreeId);
+
+    expect(response).toEqual({ worktreeId: created.worktreeId, state: "retired" });
+    expect(readWorktreeRow(created.worktreeId).state).toBe("retired");
+  });
+
   it("retires once a released workspace no longer holds the worktree", async () => {
     const service = makeService();
     const created = await createReadyWorktree(service);
-    insertWorkspace({ state: "ready" });
+    insertWorkspace({ state: "ready", fsRoot: created.fsRoot });
     insertBranchContext(created.worktreeId);
 
     await service.retire(created.worktreeId);
@@ -1501,8 +1525,7 @@ describe("WorktreeService.cleanupPass", () => {
     const service = makeService();
     const created = await createReadyWorktree(service);
     ctx.db.prepare(`UPDATE repo_mounts SET state = 'detached' WHERE id = ?`).run(REPO_MOUNT_ID);
-    insertWorkspace({ state: "busy" });
-    insertBranchContext(created.worktreeId);
+    insertWorkspace({ state: "busy", fsRoot: created.fsRoot });
 
     const thrown = await captureRejection(() => service.cleanupPass());
 
@@ -1543,6 +1566,66 @@ describe("WorktreeService.cleanupPass", () => {
     expect(released.cleanedWorktreeIds).toEqual([created.worktreeId]);
     expect(existsSync(created.fsRoot)).toBe(false);
     expect(readWorktreeRow(created.worktreeId).cleaned_at).not.toBeNull();
+  });
+
+  it("re-decides the leg (d) deferral per row, before each removal", async () => {
+    // The candidate list is a SNAPSHOT: a `markBusy` landing during an earlier
+    // row's removal await would be invisible to a predicate evaluated once for
+    // the whole pass, and the pass would then delete a working tree a live run
+    // just received. Symmetric injection on purpose — leg (d)'s ordering is
+    // not observable here, so whichever root is removed first takes a busy
+    // hold on the OTHER, the deterministic form of "markBusy landed mid-pass".
+    const service = makeService();
+    const first = await createReadyWorktree(service);
+    const second = await service.create({
+      repoMountId: REPO_MOUNT_ID,
+      sessionId: SESSION_ID,
+      runId: RUN_ID,
+      branchName: "feature/second",
+      onCollision: "refuse",
+    });
+    await service.retire(first.worktreeId);
+    await service.retire(second.worktreeId);
+    const otherRootOf = new Map([
+      [first.fsRoot, second.fsRoot],
+      [second.fsRoot, first.fsRoot],
+    ]);
+    let holdTaken = false;
+    const raceInjectingFilesystem: WorktreeFilesystem = {
+      createDirectory: (path: string): Promise<void> => {
+        mkdirSync(path, { recursive: true });
+        return Promise.resolve();
+      },
+      removeDirectory: (path: string): Promise<void> => {
+        const otherRoot = otherRootOf.get(path);
+        if (!holdTaken && otherRoot !== undefined) {
+          insertWorkspace({ state: "busy", fsRoot: otherRoot });
+          holdTaken = true;
+        }
+        rmSync(path, { recursive: true, force: true });
+        return Promise.resolve();
+      },
+    };
+    const racedService = makeService({ filesystem: raceInjectingFilesystem });
+
+    const raced = await racedService.cleanupPass();
+
+    // Exactly one root survived: the one whose hold landed mid-pass.
+    expect(raced.cleanedWorktreeIds).toHaveLength(1);
+    const survivors = [first, second].filter((worktree) => existsSync(worktree.fsRoot));
+    expect(survivors).toHaveLength(1);
+    const survivor = survivors[0];
+    if (survivor === undefined) {
+      throw new Error("expected a surviving worktree root");
+    }
+    expect(readWorktreeRow(survivor.worktreeId).cleaned_at).toBeNull();
+
+    // Deferral, not exclusion: releasing the hold frees the root to the next
+    // pass.
+    ctx.db.prepare(`UPDATE workspaces SET state = 'ready' WHERE id = ?`).run(WORKSPACE_ID);
+    const released = await service.cleanupPass();
+    expect(released.cleanedWorktreeIds).toEqual([survivor.worktreeId]);
+    expect(existsSync(survivor.fsRoot)).toBe(false);
   });
 
   it("is a no-op on a second pass", async () => {

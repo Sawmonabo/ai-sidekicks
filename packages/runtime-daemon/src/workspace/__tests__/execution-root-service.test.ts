@@ -83,6 +83,7 @@ import {
   WorkspaceBranchMismatchError,
   WorkspaceBranchNameRequiredError,
   WorktreeCreateFailedError,
+  WorktreeReuseConflictError,
 } from "../../git/worktree-errors.js";
 import type {
   CreateWorktreeInput,
@@ -1410,6 +1411,86 @@ describe("explicit worktree reuse", () => {
       .get(OTHER_WORKSPACE_ID);
     expect(requesterState?.state).toBe("provisioning");
   });
+
+  it("ignores a busy-held reuse candidate on a branch-mode prepare (inert field)", async () => {
+    // The dispatch consumes `reuseWorktreeId` only in the worktree arm; on a
+    // `branch` prepare the field is inert, and the pre-bracket busy probe must
+    // not turn it into a `workspace.busy` refusal over a directory the prepare
+    // never touches.
+    const candidateRoot = `${EXECUTION_ROOTS_DIRECTORY}/${REPO_MOUNT_ID}/worktrees/${SEEDED_WORKTREE_ID}`;
+    insertWorktreeRow({
+      worktreeId: SEEDED_WORKTREE_ID,
+      branchName: FEATURE_BRANCH,
+      fsRoot: candidateRoot,
+    });
+    insertWorkspace({
+      workspaceId: OTHER_WORKSPACE_ID,
+      executionMode: "worktree",
+      state: "busy",
+      fsRoot: candidateRoot,
+    });
+    insertWorkspace({ executionMode: "branch", state: "ready", fsRoot: PRIOR_ROOT });
+    ctx.git.headBranch = FEATURE_BRANCH;
+
+    const prepared = await makeService().prepare({
+      workspaceId: WORKSPACE_ID,
+      branchName: FEATURE_BRANCH,
+      reuseWorktreeId: SEEDED_WORKTREE_ID,
+    });
+
+    expect(prepared.executionMode).toBe("branch");
+    expect(prepared.executionRoot).toBe(CANONICAL_ROOT);
+  });
+
+  it("refuses a candidate retired during validation, at the context write", async () => {
+    // `validateReuse` decides across an await — its cleanliness probe spawns
+    // git — so a retirement can commit between its verdict and the context
+    // write, after which the bound "execution root" is a directory sweep leg
+    // (d) is entitled to delete under the adopting workspace. The bind-time
+    // re-check runs in the same synchronous block as the upsert and refuses.
+    const candidateRoot = `${EXECUTION_ROOTS_DIRECTORY}/${REPO_MOUNT_ID}/worktrees/${SEEDED_WORKTREE_ID}`;
+    insertWorktreeRow({
+      worktreeId: SEEDED_WORKTREE_ID,
+      branchName: FEATURE_BRANCH,
+      fsRoot: candidateRoot,
+    });
+    insertWorkspace({ executionMode: "worktree", state: "provisioning" });
+    insertBranchContext({
+      id: SEEDED_CONTEXT_ID,
+      workspaceId: WORKSPACE_ID,
+      worktreeId: SEEDED_WORKTREE_ID,
+      baseBranch: SEEDED_BASE_BRANCH,
+      headBranch: FEATURE_BRANCH,
+    });
+    // The race, made deterministic: the retirement lands on the shared
+    // synchronous connection while the validation verdict is in flight.
+    class RetireInjectingProvisioner extends FakeWorktreeProvisioner {
+      override validateReuse(
+        input: ValidateWorktreeReuseInput,
+      ): Promise<ReusableWorktreeCandidate> {
+        const verdict = super.validateReuse(input);
+        ctx.db.prepare(`UPDATE worktrees SET state = 'retired' WHERE id = ?`).run(input.worktreeId);
+        return verdict;
+      }
+    }
+
+    const rejection = await captureRejection(() =>
+      makeService({ worktrees: new RetireInjectingProvisioner() }).prepare({
+        workspaceId: WORKSPACE_ID,
+        branchName: FEATURE_BRANCH,
+        reuseWorktreeId: SEEDED_WORKTREE_ID,
+      }),
+    );
+
+    expect(rejection).toBeInstanceOf(WorktreeReuseConflictError);
+    expect(rejection).toMatchObject({ code: "worktree.reuse_conflict", reason: "not_live" });
+    // The refused bind landed nothing: the seeded row alone, byte-untouched.
+    expect(readBranchContexts()).toHaveLength(1);
+    expect(readBranchContext(SEEDED_CONTEXT_ID).updated_at).toBe(SEEDED_CONTEXT_STAMP);
+    // Post-bracket, so the fault disposition is the honest one: the workspace
+    // parks `stale` with the detail rather than adopting a doomed root.
+    expect(readWorkspaceRow().state).toBe("stale");
+  });
 });
 
 // ============================================================================
@@ -1701,6 +1782,50 @@ describe("compensation", () => {
     // compensating, and replacing the cause would hide the step that broke.
     expect(rejection).toBe(failure);
     expect(ctx.worktrees.retiredWorktreeIds).toEqual(ctx.worktrees.createdWorktreeIds);
+  });
+
+  it("retires a created root when the context write itself fails", async () => {
+    // The leak one step earlier than the completion-failure arm: the
+    // materialization succeeded and the `branch_contexts` write is what threw.
+    // A live `created` worktree on an attached mount is invisible to both
+    // sweep legs, so without compensation here the directory and its
+    // `(mount, branch)` pair leak permanently. No pair row landed, so there is
+    // no delete leg — the foreign row that forced the failure must survive.
+    insertWorkspace({
+      workspaceId: OTHER_WORKSPACE_ID,
+      executionMode: "branch",
+      state: "ready",
+      fsRoot: PRIOR_ROOT,
+    });
+    insertBranchContext({
+      id: SEEDED_CONTEXT_ID,
+      workspaceId: OTHER_WORKSPACE_ID,
+      worktreeId: null,
+      baseBranch: SEEDED_BASE_BRANCH,
+      headBranch: FEATURE_BRANCH,
+    });
+    insertWorkspace({ executionMode: "worktree", state: "provisioning" });
+
+    const rejection = await captureRejection(() =>
+      // The id source collides with the seeded row, so the context INSERT
+      // fails on the primary key — a write fault the upsert's
+      // `(worktree_id, workspace_id)` conflict target does not absorb.
+      makeService({ newBranchContextId: () => SEEDED_CONTEXT_ID }).prepare({
+        workspaceId: WORKSPACE_ID,
+        branchName: FEATURE_BRANCH,
+      }),
+    );
+
+    // The caller is owed the write fault itself, not a wrapper.
+    expect(String(rejection)).toMatch(/constraint/i);
+    // Compensation retired exactly the root this call created.
+    expect(ctx.worktrees.retiredWorktreeIds).toEqual(ctx.worktrees.createdWorktreeIds);
+    expect(ctx.worktrees.createdWorktreeIds).toHaveLength(1);
+    // The delete leg was skipped for want of a target: the foreign row stands.
+    expect(readBranchContexts()).toHaveLength(1);
+    expect(readBranchContext(SEEDED_CONTEXT_ID).workspace_id).toBe(OTHER_WORKSPACE_ID);
+    // And the workspace parks in the fault state with the detail recorded.
+    expect(readWorkspaceRow().state).toBe("stale");
   });
 });
 
