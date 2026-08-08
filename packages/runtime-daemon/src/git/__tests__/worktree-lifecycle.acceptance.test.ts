@@ -60,8 +60,11 @@
 //     `reuseWorktreeId`, a dirty candidate needs `acknowledgeDirtyCandidate` as
 //     well, and a prepare that omits the id REFUSES rather than rebinding.
 //   * I-010-10 — no repository-controlled code executes during provisioning:
-//     the hostile hooks never fire for any service invocation, and the
-//     neutralization directory the services point `core.hooksPath` at is empty.
+//     the hostile hooks never fire for any service invocation — the
+//     `hooks/`-resident sentinels `core.hooksPath` redirects away AND the
+//     config-named fsmonitor hook `-c core.fsmonitor=false` suppresses — and
+//     the neutralization directory the services point `core.hooksPath` at is
+//     empty.
 //   * I-010-13 (producer half) — every observed lifecycle transition emits its
 //     mapped event: the full-sequence event assertions on the lifecycle walks
 //     (create→reuse→retire→cleanup, the failure arms, and the clone walk's
@@ -163,6 +166,18 @@ const SENTINEL_HOOK_NAMES: readonly string[] = [
   "pre-commit",
   "post-commit",
 ];
+
+/**
+ * The marker the config-named fsmonitor sentinel writes.
+ *
+ * Deliberately NOT a member of {@link SENTINEL_HOOK_NAMES}: those are
+ * `hooks/`-resident files `core.hooksPath` redirects away, while the fsmonitor
+ * hook is named by a repo-local `core.fsmonitor=<pathname>` that
+ * `core.hooksPath` never governs. The services suppress it with
+ * `-c core.fsmonitor=false`, and the mechanism-attribution control below is
+ * what proves that second flag is load-bearing rather than decorative.
+ */
+const FSMONITOR_SENTINEL_MARKER: string = "fsmonitor-hook";
 
 /** A fixed-key signing source — enough for a suite that only ever signs. */
 const FIXED_DAEMON_PRIVATE_KEY: Ed25519PrivateKey = new Uint8Array(32).fill(7) as Ed25519PrivateKey;
@@ -308,6 +323,38 @@ class FixtureRepository {
   /** Hook-neutralized invocation; the caller inspects the exit status itself. */
   gitCapturing(argv: readonly string[], cwd: string = this.root): Promise<FixtureGitResult> {
     return spawnGit(
+      [
+        "-c",
+        `core.hooksPath=${this.#hookNeutralizationDirectory}`,
+        "-c",
+        "core.fsmonitor=false",
+        ...argv,
+      ],
+      this.#environment,
+      cwd,
+    );
+  }
+
+  /**
+   * The first escape hatch: an invocation that lets the repository's own hooks
+   * run. Reserved for the controls that prove the sentinels are armed.
+   */
+  gitWithHooksLive(argv: readonly string[], cwd: string = this.root): Promise<FixtureGitResult> {
+    return spawnGit([...argv], this.#environment, cwd);
+  }
+
+  /**
+   * The second escape hatch: `core.hooksPath` neutralized, `core.fsmonitor`
+   * left alone. Reserved for the mechanism-attribution control — the
+   * config-named fsmonitor hook fires through this form and through nothing
+   * {@link gitCapturing} issues, which is what pins the services' second flag
+   * as load-bearing.
+   */
+  gitWithHooksPathOnly(
+    argv: readonly string[],
+    cwd: string = this.root,
+  ): Promise<FixtureGitResult> {
+    return spawnGit(
       ["-c", `core.hooksPath=${this.#hookNeutralizationDirectory}`, ...argv],
       this.#environment,
       cwd,
@@ -315,14 +362,16 @@ class FixtureRepository {
   }
 
   /**
-   * The ONE escape hatch: an invocation that lets the repository's own hooks run.
-   * Reserved for the negative control that proves the sentinels are armed.
+   * Install the `hooks/`-resident sentinels plus the fsmonitor sentinel script,
+   * and return the pathname the repo-local `core.fsmonitor` must point at —
+   * config the CALLER writes, because this method spawns nothing.
+   *
+   * The fsmonitor script answers the hook protocol honestly: `/` on stdout is
+   * the valid "consider everything changed" reply, so a consulted sentinel
+   * leaves git CORRECT and merely slower — a sentinel that broke `status` would
+   * turn a neutralization case into a git-failure case.
    */
-  gitWithHooksLive(argv: readonly string[], cwd: string = this.root): Promise<FixtureGitResult> {
-    return spawnGit([...argv], this.#environment, cwd);
-  }
-
-  installSentinelHooks(): void {
+  installSentinelHooks(): string {
     const hooksDirectory = join(this.root, ".git", "hooks");
     mkdirSync(hooksDirectory, { recursive: true });
     for (const hookName of SENTINEL_HOOK_NAMES) {
@@ -333,6 +382,13 @@ class FixtureRepository {
       );
       chmodSync(hookPath, 0o755);
     }
+    const fsmonitorSentinelPath = join(hooksDirectory, "fsmonitor-sentinel");
+    writeFileSync(
+      fsmonitorSentinelPath,
+      `#!/bin/sh\n: > "${join(this.hookMarkerDirectory, FSMONITOR_SENTINEL_MARKER)}"\necho "/"\nexit 0\n`,
+    );
+    chmodSync(fsmonitorSentinelPath, 0o755);
+    return fsmonitorSentinelPath;
   }
 
   /** The hooks that have run so far, by name, sorted. */
@@ -383,7 +439,10 @@ async function buildFixtureRepository(options: {
   writeFileSync(join(root, "src", "app.ts"), "export const answer: number = 42;\n");
   await repository.git(["add", "-A"]);
   await repository.git(["commit", "-q", "-m", "initial commit"]);
-  repository.installSentinelHooks();
+  const fsmonitorSentinelPath = repository.installSentinelHooks();
+  // Repo-local, which is the hostile shape: a mounted repository can carry this
+  // value, and `core.hooksPath` does not govern it.
+  await repository.git(["config", "core.fsmonitor", fsmonitorSentinelPath]);
   return repository;
 }
 
@@ -393,15 +452,21 @@ async function buildFixtureRepository(options: {
  * "No hook ran" is only evidence if a hook could have run, and the negative
  * control below uses a throwaway repository of its own — so a mount fixture that
  * silently failed to install its hooks would satisfy every I-010-10 assertion
- * vacuously. A ref update is the smallest un-neutralized trigger available: it
- * fires `reference-transaction` and leaves nothing behind once the branch is
- * deleted.
+ * vacuously. A ref update is the smallest un-neutralized trigger available for
+ * the `hooks/`-resident sentinels: it fires `reference-transaction` and leaves
+ * nothing behind once the branch is deleted. The fsmonitor sentinel needs its
+ * own arming probe because no `hooks/`-resident trigger reaches it — an
+ * un-neutralized `status` refreshes the index and must consult the repo-local
+ * `core.fsmonitor` pathname.
  */
 async function proveSentinelsAreArmed(repository: FixtureRepository): Promise<void> {
   const armingProbe = await repository.gitWithHooksLive(["branch", "sentinel-arming-probe"]);
   expect(armingProbe.exitCode).toBe(0);
   expect(repository.firedHooks()).toContain("reference-transaction");
   await repository.git(["branch", "-D", "sentinel-arming-probe"]);
+  const fsmonitorArmingProbe = await repository.gitWithHooksLive(["status", "--porcelain"]);
+  expect(fsmonitorArmingProbe.exitCode).toBe(0);
+  expect(repository.firedHooks()).toContain(FSMONITOR_SENTINEL_MARKER);
   repository.clearFiredHooks();
 }
 
@@ -1127,16 +1192,36 @@ describe("I-010-10 — no repository-controlled code executes during provisionin
       expect(added.exitCode).toBe(0);
       expect(hostileRepository.firedHooks()).toContain("post-checkout");
       expect(hostileRepository.firedHooks()).toContain("reference-transaction");
+      // The checkout population also consults the config-named fsmonitor hook —
+      // the leg `core.hooksPath` cannot reach.
+      expect(hostileRepository.firedHooks()).toContain(FSMONITOR_SENTINEL_MARKER);
 
-      // And the neutralized form of the SAME command fires nothing — the A/B that
-      // identifies `core.hooksPath` as the mechanism rather than a coincidence.
+      // `core.hooksPath` alone suppresses the `hooks/`-resident sentinels and
+      // NOTHING else: the fsmonitor sentinel still fires, exactly alone. This is
+      // the arm that pins the services' second flag as load-bearing rather than
+      // decorative.
       hostileRepository.clearFiredHooks();
-      const neutralized = await hostileRepository.gitCapturing([
+      const hooksPathOnly = await hostileRepository.gitWithHooksPathOnly([
         "worktree",
         "add",
         "-b",
         "control/second-branch",
         join(ctx.fixtureRoot, "hook-control-second-worktree"),
+        DEFAULT_BRANCH,
+      ]);
+      expect(hooksPathOnly.exitCode).toBe(0);
+      expect(hostileRepository.firedHooks()).toEqual([FSMONITOR_SENTINEL_MARKER]);
+
+      // And the full service prefix — both flags — fires nothing: the A/B/C
+      // that attributes each suppression to its mechanism rather than to
+      // coincidence.
+      hostileRepository.clearFiredHooks();
+      const neutralized = await hostileRepository.gitCapturing([
+        "worktree",
+        "add",
+        "-b",
+        "control/third-branch",
+        join(ctx.fixtureRoot, "hook-control-third-worktree"),
         DEFAULT_BRANCH,
       ]);
       expect(neutralized.exitCode).toBe(0);
@@ -1188,8 +1273,10 @@ describe("I-010-10 — no repository-controlled code executes during provisionin
       // Weaker evidence than the `worktree add` arm above and deliberately so: a
       // local clone consults the SOURCE repository's hooks for nothing, and the
       // clone's own hooks come from the init templates rather than from the
-      // source. The discriminating hook case is the one with the negative
-      // control; this is the corroborating sweep over the clone path.
+      // source. The source's config-named executables are walled by git itself —
+      // the clone-service header records the probes. The discriminating hook
+      // case is the one with the negative control; this is the corroborating
+      // sweep over the clone path.
       expect(ctx.repository.firedHooks()).toEqual([]);
       expect(readdirSync(ctx.hookNeutralizationDirectory)).toEqual([]);
     },

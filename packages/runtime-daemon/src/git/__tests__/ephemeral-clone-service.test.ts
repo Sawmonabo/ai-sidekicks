@@ -44,9 +44,9 @@
 // Verifies invariant: I-010-9 (a retirement leaves `cleaned_at` NULL and the
 // root on disk; only a tick removes and stamps, and a second tick does not move
 // the stamp), I-010-10 (EVERY recorded invocation carries
-// `-c core.hooksPath=<empty dir>`, asserted over a full prepare / dispose / tick
-// lifecycle rather than over one call, and the directory is empty — an empty
-// directory is the mechanism).
+// `-c core.hooksPath=<empty dir>` and `-c core.fsmonitor=false`, asserted over
+// a full prepare / dispose / tick lifecycle rather than over one call, and the
+// directory is empty — an empty directory is the mechanism).
 //
 // Also pinned here, each with its negative control: an UNEXPIRED clone survives
 // a tick (without which "the expired one was retired" does not discriminate), a
@@ -141,7 +141,7 @@ function resolveGit(stdout: string): Promise<EphemeralCloneGitInvocationResult> 
  * The verb of a recorded invocation, found by SKIPPING the leading option pairs
  * rather than by a fixed index.
  *
- * `./worktree-service.test.ts` can read its verb at index 4 because every one of
+ * `./worktree-service.test.ts` can read its verb at index 6 because every one of
  * that service's invocations carries `-C <dir>`. This service's do not: `clone`
  * addresses its source and target positionally and has no `-C`, so a fixed index
  * would read `clone`'s SOURCE PATH as the verb of one shape and the real verb of
@@ -558,7 +558,7 @@ describe("EphemeralCloneService.prepare (`Spec-010 §Required Behavior`)", () =>
     // rides the VALUE slot of `-b`, which is what keeps it out of git's option
     // parser.
     const cloneArgv = ctx.git.argvFor("clone");
-    expect(cloneArgv.slice(2)).toEqual([
+    expect(cloneArgv.slice(4)).toEqual([
       "clone",
       "--no-hardlinks",
       CANONICAL_ROOT,
@@ -573,6 +573,8 @@ describe("EphemeralCloneService.prepare (`Spec-010 §Required Behavior`)", () =>
     expect(ctx.git.argvFor("checkout")).toEqual([
       "-c",
       `core.hooksPath=${ctx.hookNeutralizationDirectory}`,
+      "-c",
+      "core.fsmonitor=false",
       "-C",
       prepared.cloneRoot,
       "checkout",
@@ -585,6 +587,8 @@ describe("EphemeralCloneService.prepare (`Spec-010 §Required Behavior`)", () =>
     expect(ctx.git.argvFor("branch")).toEqual([
       "-c",
       `core.hooksPath=${ctx.hookNeutralizationDirectory}`,
+      "-c",
+      "core.fsmonitor=false",
       "-C",
       prepared.cloneRoot,
       "branch",
@@ -1373,9 +1377,11 @@ describe("EphemeralCloneService — invariants across a full lifecycle", () => {
 
     expect(ctx.git.invocations.length).toBeGreaterThan(0);
     for (const invocation of ctx.git.invocations) {
-      expect(invocation.argv.slice(0, 2)).toEqual([
+      expect(invocation.argv.slice(0, 4)).toEqual([
         "-c",
         `core.hooksPath=${ctx.hookNeutralizationDirectory}`,
+        "-c",
+        "core.fsmonitor=false",
       ]);
       // Bounded, in the same universal loop and for the same reason: `execFile`
       // reads `timeout: 0` as NO timeout, so a zero here would fail OPEN and

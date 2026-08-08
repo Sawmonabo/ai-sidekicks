@@ -45,8 +45,9 @@
 // NULL and the root on disk; only a cleanup pass removes, prunes and stamps —
 // and the busy refusal that guards it is decided inside the retirement
 // transaction, so a hold taken mid-flight still refuses), I-010-10 (EVERY
-// recorded invocation carries `-c core.hooksPath=<empty dir>`, asserted over all
-// four invocation shapes rather than only the two `create` issues), I-010-13
+// recorded invocation carries `-c core.hooksPath=<empty dir>` and
+// `-c core.fsmonitor=false`, asserted over all four invocation shapes rather
+// than only the two `create` issues), I-010-13
 // (one event per real transition; `-> failed` emits none; a failed
 // `worktree.ready` emission leaves no `ready` row behind).
 //
@@ -220,9 +221,9 @@ class FakeGit {
 
   readonly run: WorktreeGitRunner = (argv, options) => {
     this.invocations.push({ argv: [...argv], timeoutMs: options.timeoutMs });
-    // argv is `-c core.hooksPath=… -C <dir> <verb> …`, so the verb is index 4
-    // and a `worktree` subcommand is index 5.
-    const verb: string | undefined = argv[4];
+    // argv is `-c core.hooksPath=… -c core.fsmonitor=false -C <dir> <verb> …`,
+    // so the verb is index 6 and a `worktree` subcommand is index 7.
+    const verb: string | undefined = argv[6];
 
     if (verb === "symbolic-ref") {
       if (this.headBranch === null) {
@@ -232,7 +233,7 @@ class FakeGit {
     }
 
     if (verb === "worktree") {
-      const subcommand: string | undefined = argv[5];
+      const subcommand: string | undefined = argv[7];
       if (subcommand === "prune") {
         if (this.worktreePruneFails) {
           return Promise.reject(new Error("fatal: not a git repository"));
@@ -243,7 +244,7 @@ class FakeGit {
         if (this.worktreeAddFails) {
           return Promise.reject(new Error("fatal: could not create worktree"));
         }
-        const targetRoot: string | undefined = argv[8];
+        const targetRoot: string | undefined = argv[10];
         if (targetRoot !== undefined) {
           mkdirSync(targetRoot, { recursive: true });
           writeFileSync(join(targetRoot, "README.md"), "fixture\n");
@@ -266,11 +267,11 @@ class FakeGit {
   };
 
   verbs(): readonly (string | undefined)[] {
-    return this.invocations.map((invocation) => invocation.argv[4]);
+    return this.invocations.map((invocation) => invocation.argv[6]);
   }
 
   argvFor(verb: string): readonly string[] {
-    const found = this.invocations.find((invocation) => invocation.argv[4] === verb);
+    const found = this.invocations.find((invocation) => invocation.argv[6] === verb);
     if (found === undefined) {
       throw new Error(`no recorded git invocation for verb "${verb}"`);
     }
@@ -281,7 +282,7 @@ class FakeGit {
   worktreeSubcommandArgvs(subcommand: string): readonly (readonly string[])[] {
     return this.invocations
       .filter(
-        (invocation) => invocation.argv[4] === "worktree" && invocation.argv[5] === subcommand,
+        (invocation) => invocation.argv[6] === "worktree" && invocation.argv[7] === subcommand,
       )
       .map((invocation) => invocation.argv);
   }
@@ -573,9 +574,11 @@ class CreatedEmissionFailingEmitter extends WorktreeEventEmitter {
 function assertEveryInvocationIsHookNeutralized(): void {
   expect(ctx.git.invocations.length).toBeGreaterThan(0);
   for (const invocation of ctx.git.invocations) {
-    expect(invocation.argv.slice(0, 2)).toEqual([
+    expect(invocation.argv.slice(0, 4)).toEqual([
       "-c",
       `core.hooksPath=${ctx.hookNeutralizationDirectory}`,
+      "-c",
+      "core.fsmonitor=false",
     ]);
     expect(invocation.timeoutMs).toBeGreaterThan(0);
   }
@@ -713,6 +716,8 @@ describe("WorktreeService.create", () => {
     expect(ctx.git.argvFor("worktree")).toEqual([
       "-c",
       `core.hooksPath=${ctx.hookNeutralizationDirectory}`,
+      "-c",
+      "core.fsmonitor=false",
       "-C",
       CANONICAL_ROOT,
       "worktree",
@@ -1009,6 +1014,8 @@ describe("WorktreeService.create", () => {
       [
         "-c",
         `core.hooksPath=${ctx.hookNeutralizationDirectory}`,
+        "-c",
+        "core.fsmonitor=false",
         "-C",
         CANONICAL_ROOT,
         "worktree",
@@ -1040,6 +1047,8 @@ describe("WorktreeService.create", () => {
       [
         "-c",
         `core.hooksPath=${ctx.hookNeutralizationDirectory}`,
+        "-c",
+        "core.fsmonitor=false",
         "-C",
         CANONICAL_ROOT,
         "worktree",
@@ -1464,6 +1473,8 @@ describe("WorktreeService.cleanupPass", () => {
       [
         "-c",
         `core.hooksPath=${ctx.hookNeutralizationDirectory}`,
+        "-c",
+        "core.fsmonitor=false",
         "-C",
         CANONICAL_ROOT,
         "worktree",

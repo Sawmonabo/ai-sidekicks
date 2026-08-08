@@ -41,8 +41,9 @@
 // Verifies invariant: I-010-5 (one row, at most one root id — all four modes),
 // I-010-6 (the branch-mode arm's only git call is a read, and a mismatch leaves
 // the checkout and the row untouched), I-010-7 (each mode returns ITS root; no
-// arm substitutes another), I-010-10 (the neutralizing `-c core.hooksPath` pair
-// leads the argv, and the directory it names is created first), I-010-11
+// arm substitutes another), I-010-10 (the neutralizing `-c core.hooksPath` and
+// `-c core.fsmonitor=false` pairs lead the argv, and the directory the first
+// names is created first), I-010-11
 // (asserted twice: a source scan with its own negative control, AND a full
 // prepare with the primitives stubbed out leaving the `workspaces` row
 // byte-identical), I-010-12 (the gate precedes every writable prepare that finds
@@ -200,9 +201,10 @@ interface RecordedGitInvocation {
 /**
  * The verb of a recorded invocation, found by SKIPPING leading option pairs.
  *
- * Every invocation this service makes carries `-c core.hooksPath=<dir>` and
- * `-C <root>`, so a fixed index would work — but it would work by accident, and
- * would silently read a directory as a verb the first time the prefix changed.
+ * Every invocation this service makes carries `-c core.hooksPath=<dir>`,
+ * `-c core.fsmonitor=false` and `-C <root>`, so a fixed index would work — but
+ * it would work by accident, and would silently read a directory as a verb the
+ * first time the prefix changed (as it did when the fsmonitor pair arrived).
  */
 function gitVerb(argv: readonly string[]): string | undefined {
   let index = 0;
@@ -1070,11 +1072,13 @@ describe("git invocation", () => {
     const invocation = ctx.git.invocations[0];
     expect(ctx.git.invocations).toHaveLength(1);
     // FIRST in the argv, which is what makes it win: a command-line `-c` outranks
-    // repository, global and system config, so a repo-local `core.hooksPath` in
-    // the user's own checkout cannot take it back.
-    expect(invocation?.argv.slice(0, 2)).toEqual([
+    // repository, global and system config, so a repo-local `core.hooksPath` or
+    // `core.fsmonitor` in the user's own checkout cannot take either back.
+    expect(invocation?.argv.slice(0, 4)).toEqual([
       "-c",
       `core.hooksPath=${HOOK_NEUTRALIZATION_DIRECTORY}`,
+      "-c",
+      "core.fsmonitor=false",
     ]);
     // And the directory must EXIST — git ignores a `core.hooksPath` that does not
     // resolve, which would silently restore the hooks this flag disables.
