@@ -185,6 +185,7 @@ import type { Database, Statement } from "better-sqlite3";
 import {
   ExecutionModeSchema,
   WorkspaceStateSchema,
+  WorktreeStateSchema,
   type ExecutionMode,
   type WorkspaceState,
 } from "@ai-sidekicks/contracts";
@@ -196,6 +197,7 @@ import type {
 import {
   WorkspaceBranchMismatchError,
   WorkspaceBranchNameRequiredError,
+  WorktreeReuseConflictError,
 } from "../git/worktree-errors.js";
 import {
   deriveWorktreeBranchName,
@@ -589,6 +591,10 @@ interface BranchContextBaseRow {
   readonly base_branch: string;
 }
 
+interface WorktreeStateRow {
+  readonly state: string;
+}
+
 /** A read-only workspace's position and the root it can serve from. */
 interface ServableBindRow {
   readonly state: WorkspaceState;
@@ -655,6 +661,7 @@ export class ExecutionRootService {
     BusyWorktreeHolderRow
   >;
   readonly #selectWorktreePairContextStmt: Statement<WorktreePairLookupParams, BranchContextIdRow>;
+  readonly #selectWorktreeStateStmt: Statement<WorktreeContextLookupParams, WorktreeStateRow>;
   readonly #upsertWorktreeContextStmt: Statement<BranchContextWriteParams>;
   readonly #insertBranchContextStmt: Statement<BranchContextWriteParams>;
   readonly #deleteBranchContextStmt: Statement<BranchContextDeleteParams>;
@@ -739,6 +746,21 @@ export class ExecutionRootService {
       `SELECT id
          FROM branch_contexts
         WHERE worktree_id = @worktree_id AND workspace_id = @workspace_id`,
+    );
+
+    // The bind-time liveness re-check for a REUSED candidate.
+    // `validateReuse`'s verdict is decided across an await (its cleanliness
+    // probe spawns git), so a concurrent retirement can commit between the
+    // verdict and the context write — after which the bound "execution root"
+    // is a directory leg (d) of the sweep is entitled to delete. This read
+    // runs in the SAME synchronous block as the upsert; `better-sqlite3`
+    // statements are synchronous, so the retire transaction commits either
+    // before it (and is seen) or after the whole write. See
+    // `#writeBranchContext` for the refusal.
+    this.#selectWorktreeStateStmt = database.prepare(
+      `SELECT state
+         FROM worktrees
+        WHERE id = @worktree_id`,
     );
 
     // D-010-15's upsert, arbitrated by T1.3's partial-unique
@@ -991,8 +1013,12 @@ export class ExecutionRootService {
     // defers a busy-held root), or wrong branch — answers wait-and-retry
     // `workspace.busy` first when its directory has a live holder. A
     // misordered refusal is the cheaper defect: the post-bracket alternative
-    // stales the REQUESTER for someone else's run.
-    if (input.reuseWorktreeId !== undefined) {
+    // stales the REQUESTER for someone else's run. Gated on the `worktree` arm
+    // because the dispatch consumes `reuseWorktreeId` nowhere else: on a
+    // `branch` or `ephemeral clone` prepare the field is inert, and an inert
+    // field must not become a `workspace.busy` refusal over a directory the
+    // prepare will never touch.
+    if (executionMode === "worktree" && input.reuseWorktreeId !== undefined) {
       const busyHolder = this.#selectBusyWorktreeHolderStmt.get({
         worktree_id: input.reuseWorktreeId,
       });
@@ -1019,7 +1045,7 @@ export class ExecutionRootService {
       await this.#workspaces.beginReprovision(workspace.id, executionMode);
     }
 
-    let materialized: MaterializedRoot;
+    let materialized: MaterializedRoot | undefined;
     let branchContextId: string;
     try {
       materialized = await this.#materialize(
@@ -1032,6 +1058,18 @@ export class ExecutionRootService {
       );
       branchContextId = this.#writeBranchContext(workspace.id, materialized);
     } catch (preparationFailure) {
+      // A context write that fails AFTER materialization leaves a root nothing
+      // will ever adopt — the same permanent leak `#compensateOrphanedRoot`
+      // names, reached one step earlier: a live `created` worktree on an
+      // attached mount is invisible to both sweep legs, and its
+      // `(mount, branch)` pair stays held against every later create. No pair
+      // row landed (the write is what failed), so the compensation runs with
+      // no context id to delete. A `materialized` still unassigned means the
+      // materialization itself failed, and its own service already recorded
+      // that disposition.
+      if (materialized !== undefined) {
+        await this.#compensateOrphanedRoot(materialized, null);
+      }
       await this.#failReprovision(workspace.id, preparationFailure);
       // The ORIGINAL cause, not a wrapper: D-010-16 makes wrapping the run-setup
       // gate's job, and it wraps by CODE. A cause replaced here would arrive
@@ -1242,6 +1280,9 @@ export class ExecutionRootService {
    *   cross-workspace reuse land a FRESH row scoped to the binding workspace while
    *   leaving the candidate's own row untouched, and makes a workspace re-binding
    *   a worktree it bound before refresh its existing row instead of duplicating.
+   *   A `reused` candidate re-proves liveness before the upsert, in the same
+   *   synchronous block — `validateReuse` decided across an await, and a
+   *   retirement can have committed since; the in-arm comment carries the race.
    * - `ephemeral clone` — the row references the clone. A plain insert: every
    *   prepare mints a new clone, so there is nothing to conflict with.
    * - `branch` — the row references NEITHER root, and is likewise a plain insert,
@@ -1260,6 +1301,24 @@ export class ExecutionRootService {
 
     if (materialized.worktreeId !== null) {
       const worktreeId = materialized.worktreeId;
+      // A REUSED candidate re-proves liveness inside this synchronous block —
+      // the statement's docblock carries the race argument. A retirement that
+      // lands AFTER this block finds the pair row and a `provisioning`
+      // workspace, not a `busy` one, so it proceeds by ratified design; the
+      // sweep's busy deferral and the Phase-3 root-keyed gate own that side. A
+      // vanished row folds into `not_live`: no DELETE path exists on
+      // `worktrees`, and whatever removed it certainly did not leave a live
+      // candidate. `created` provenance skips the check — the id was minted
+      // inside this call and nothing else can have learned it yet; the
+      // mount-detach cascade retiring it mid-handover is accepted as residual.
+      if (materialized.provenance === "reused") {
+        const current = this.#selectWorktreeStateStmt.get({ worktree_id: worktreeId });
+        const currentState =
+          current === undefined ? "retired" : WorktreeStateSchema.parse(current.state);
+        if (currentState === "retired" || currentState === "failed") {
+          throw new WorktreeReuseConflictError(worktreeId, "not_live");
+        }
+      }
       this.#upsertWorktreeContextStmt.run({
         id: this.#newBranchContextId(),
         workspace_id: workspaceId,
@@ -1425,6 +1484,12 @@ export class ExecutionRootService {
    * is in neither set — so the leak is permanent rather than eventual. That is why
    * it is compensated here instead of recorded as a residual.
    *
+   * TWO callers, one leak. The `completeReprovision` catch passes the context
+   * row id it just wrote; the preparation catch passes `null`, because there
+   * the `branch_contexts` write is what failed — the root exists, no pair row
+   * does, and the delete leg is skipped for want of a target rather than by
+   * policy.
+   *
    * `failReprovision` is deliberately NOT the answer: the preparation SUCCEEDED, and
    * labelling it a preparation failure would misreport which step broke.
    *
@@ -1461,16 +1526,18 @@ export class ExecutionRootService {
    */
   async #compensateOrphanedRoot(
     materialized: MaterializedRoot,
-    branchContextId: string,
+    branchContextId: string | null,
   ): Promise<void> {
     if (materialized.provenance !== "created") {
       return;
     }
 
-    try {
-      this.#deleteBranchContextStmt.run({ id: branchContextId });
-    } catch {
-      // Deliberate. See the docblock.
+    if (branchContextId !== null) {
+      try {
+        this.#deleteBranchContextStmt.run({ id: branchContextId });
+      } catch {
+        // Deliberate. See the docblock.
+      }
     }
 
     try {

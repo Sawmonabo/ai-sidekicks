@@ -6,8 +6,10 @@
 //   * `Spec-010 §Required Behavior` — `ephemeral clone` mode provisions a
 //     disposable isolated clone before writable execution begins.
 //   * `Spec-010 §Default Behavior` — provisioning git invocations neutralize
-//     repository-controlled hook execution at the invocation layer, so cloning a
-//     hostile repository executes no repository-controlled code.
+//     repository-controlled hook execution at the invocation layer. The claim
+//     is HOOKS-scoped, exactly as the spec states it; the checkout-time
+//     filter-driver residual it does not cover is recorded at the I-010-10
+//     section below.
 //   * `Spec-010 §Fallback Behavior` — a failed clone preparation leaves the run
 //     blocked in setup rather than substituting another execution mode; the
 //     sweep records retirement with metadata preserved and removes the disk root
@@ -91,6 +93,20 @@
 // finds the sweep empty. That leg is corroborating rather than discriminating,
 // and says so in-file: a local clone consults the source's hooks for nothing,
 // so the discriminating A/B control lives on the `worktree add` arm.
+//
+// What the neutralized surface does NOT cover — recorded rather than implied:
+// checkout-time FILTER DRIVERS. `git clone` materializes the new working tree,
+// and a `.gitattributes` carried in the SOURCE's content may name a
+// `filter.<driver>` whose smudge/process command git then invokes while
+// populating the checkout. The COMMAND comes from git config — user, system,
+// or the repository the user owns — never from the cloned content, and a
+// driver the config does not define degrades to a passthrough. So content
+// alone cannot introduce code; it can only trigger commands the user already
+// configured, git-lfs being the canonical case. Neutralizing them is
+// deliberately NOT attempted: git offers no blanket filter-disable switch, the
+// driver namespace cannot be enumerated from here, and pointing the smudge
+// chain at nothing would silently corrupt every LFS-managed checkout. I-010-10
+// stays HOOKS-scoped, here as at the sibling.
 //
 // ---------------------------------------------------------------------------
 // I-010-9 — recorded, then cleaned; and why the DISPOSITION comes first
@@ -432,10 +448,35 @@ export interface PrepareEphemeralCloneInput {
    * What retires this clone. Defaults to `on_run_complete`: the disposable
    * per-run clone is the case `Spec-010 §Required Behavior` describes, and
    * `manual` is the opt-out a caller states explicitly. `manual` clones are
-   * exempt from {@link EphemeralCloneService.retireForWorkspace} and are retired
+   * exempt from {@link EphemeralCloneService.retireRunClone} and are retired
    * by {@link EphemeralCloneService.dispose} or by their TTL.
    */
   readonly cleanupPolicy?: EphemeralCloneCleanupPolicy;
+}
+
+/**
+ * Inputs for {@link EphemeralCloneService.retireRunClone}.
+ *
+ * The CLONE is named, not discovered: `ephemeral_clones` records no run
+ * provenance, and a selection keyed on the workspace alone was the
+ * delayed-terminal hazard — the terminal sequence releases the workspace before
+ * it retires, so a NEXT run can prepare a fresh clone in that window and a
+ * workspace-wide sweep would retire the new run's clone with the old. The
+ * terminal caller holds the identity already: the run's branch context names
+ * its clone, and Phase 3's terminal integration reads it from there.
+ */
+export interface RetireRunCloneInput {
+  /**
+   * The workspace the terminating run executed against. A CONSISTENCY BIND
+   * rather than a selector: the query requires the named clone to belong to
+   * this workspace, so a clone id read off another workspace's context selects
+   * nothing instead of retiring across workspaces.
+   */
+  readonly workspaceId: string;
+  /** The clone the terminating run's branch context names. */
+  readonly cloneId: string;
+  /** Why the retirement fired; selects the policies it may retire. */
+  readonly trigger: EphemeralCloneRetirementTrigger;
 }
 
 /**
@@ -451,7 +492,7 @@ export interface PrepareEphemeralCloneInput {
 export type EphemeralCloneCleanupPolicy = "on_run_complete" | "manual";
 
 /**
- * Why {@link EphemeralCloneService.retireForWorkspace} was called.
+ * Why {@link EphemeralCloneService.retireRunClone} was called.
  *
  * A closed one-member union rather than a `string`: `on_run_complete` names the
  * condition that fired — the run reached a terminal state. `manual` is
@@ -616,7 +657,7 @@ const DEFAULT_CLEANUP_POLICY: EphemeralCloneCleanupPolicy = "on_run_complete";
 
 // Which `cleanup_policy` each retirement trigger retires.
 //
-// Today's single entry is an identity mapping, and `retireForWorkspace` could
+// Today's single entry is an identity mapping, and `retireRunClone` could
 // bind its `trigger` argument straight into the query instead. It deliberately
 // does not: that only works while the two vocabularies share a spelling, and the
 // failure it sets up is silent. A second trigger — a session close, say — bound
@@ -654,7 +695,7 @@ interface AttachedMountRow {
  * A retirement candidate, with the workspace facts the disposition decision
  * needs alongside it.
  *
- * One shape for all three retirement paths — `dispose`, `retireForWorkspace` and
+ * One shape for all three retirement paths — `dispose`, `retireRunClone` and
  * the tick's legs (a)/(b) — so `#retireClone` takes one type and the disposition
  * rule is applied in one place.
  *
@@ -686,7 +727,8 @@ interface CloneLookupParams {
   readonly clone_id: string;
 }
 
-interface WorkspaceRetirementParams {
+interface RunCloneRetirementParams {
+  readonly clone_id: string;
   readonly workspace_id: string;
   readonly cleanup_policy: string;
 }
@@ -868,10 +910,7 @@ export class EphemeralCloneService {
   readonly #selectWorkspaceStmt: Statement<WorkspaceLookupParams, WorkspaceMountRow>;
   readonly #selectAttachedMountStmt: Statement<MountLookupParams, AttachedMountRow>;
   readonly #selectCloneStmt: Statement<CloneLookupParams, CloneRetirementRow>;
-  readonly #selectRetirableForWorkspaceStmt: Statement<
-    WorkspaceRetirementParams,
-    CloneRetirementRow
-  >;
+  readonly #selectRetirableRunCloneStmt: Statement<RunCloneRetirementParams, CloneRetirementRow>;
   readonly #selectSweepableStmt: Statement<SweepParams, CloneRetirementRow>;
   readonly #selectUncleanedRetiredStmt: Statement<[], CloneRetirementRow>;
   readonly #insertCloneStmt: Statement<InsertCloneParams>;
@@ -931,11 +970,14 @@ export class EphemeralCloneService {
         WHERE clones.id = @clone_id`,
     );
 
-    // The run-terminal path. Filtered by `cleanup_policy` rather than retiring
-    // everything the workspace owns: a `manual` clone survives its run by
-    // definition, and that filter is the whole content of the policy column.
-    this.#selectRetirableForWorkspaceStmt = database.prepare<
-      WorkspaceRetirementParams,
+    // The run-terminal path, scoped to the ONE clone the terminating run
+    // executed in — see `RetireRunCloneInput` for why the identity comes from
+    // the caller. The workspace id rides as a consistency bind, the
+    // `cleanup_policy` filter is the whole content of the policy column (a
+    // `manual` clone survives its run by definition), and the busy-holder
+    // deferral is carried like every other retirement path.
+    this.#selectRetirableRunCloneStmt = database.prepare<
+      RunCloneRetirementParams,
       CloneRetirementRow
     >(
       `SELECT clones.id, clones.workspace_id, clones.clone_root, clones.state,
@@ -944,7 +986,8 @@ export class EphemeralCloneService {
               workspaces.fs_root AS workspace_fs_root
          FROM ephemeral_clones AS clones
          LEFT JOIN workspaces ON workspaces.id = clones.workspace_id
-        WHERE clones.workspace_id = @workspace_id
+        WHERE clones.id = @clone_id
+          AND clones.workspace_id = @workspace_id
           AND clones.cleanup_policy = @cleanup_policy
           AND ${RETIRABLE_CLONE_STATE_PREDICATE}
           AND ${CLONE_NOT_HELD_BY_BUSY_WORKSPACE_PREDICATE}
@@ -1131,7 +1174,7 @@ export class EphemeralCloneService {
 
     if (this.#markReadyStmt.run({ clone_id: cloneId, now: this.#now() }).changes !== 1) {
       // The row left `creating` while git was running, which only a concurrent
-      // `dispose` or `retireForWorkspace` can do. Reported as a preparation
+      // `dispose` or `retireRunClone` can do. Reported as a preparation
       // failure — which is the honest answer, since no usable clone came out of
       // this call — rather than as a consistency error: the row is already
       // `retired`, so leg (d) removes the directory, and `#recordPrepareFailure`
@@ -1200,12 +1243,20 @@ export class EphemeralCloneService {
   }
 
   // ------------------------------------------------------------------------
-  // retireForWorkspace
+  // retireRunClone
   // ------------------------------------------------------------------------
 
   /**
-   * The run-terminal path: retire the workspace's clones whose `cleanup_policy`
-   * matches the trigger. Returns the ids retired, in creation order.
+   * The run-terminal path: retire the clone the terminating run executed in,
+   * when its `cleanup_policy` matches the trigger. Returns the ids retired, in
+   * creation order — at most one today, an array so a wider trigger can keep
+   * the shape.
+   *
+   * Scoped to the NAMED clone rather than to the workspace's live clones — see
+   * {@link RetireRunCloneInput} for the delayed-terminal hazard the
+   * workspace-wide selection carried: it would retire a NEXT run's fresh clone
+   * along with the terminating run's, failing that prepare's `creating`
+   * compare-and-swap or yanking its `ready` workspace back to `provisioning`.
    *
    * The trigger selects the policies it retires through
    * {@link RETIREMENT_TRIGGER_POLICIES}; `on_run_complete` retires exactly the
@@ -1213,10 +1264,11 @@ export class EphemeralCloneService {
    * it and waits for an explicit {@link EphemeralCloneService.dispose} or its
    * TTL.
    *
-   * SELECTION never refuses: an unknown workspace, or one with no matching
-   * clones, is a no-op. This is called on the terminal path of every run,
-   * including runs in modes that never prepared a clone at all, so "there is
-   * nothing to retire" is the ordinary answer rather than an exceptional one.
+   * SELECTION never refuses: an unknown clone, a clone on another workspace, or
+   * one whose policy the trigger does not retire, is a no-op. Runs in modes
+   * that never prepared a clone have no clone to name and skip the call, so
+   * "there is nothing to retire" is the ordinary answer rather than an
+   * exceptional one.
    *
    * The DISPOSITION can still throw, and the distinction matters to the caller.
    * On a clone-mode teardown the disposition is not an edge case — it is the
@@ -1229,20 +1281,18 @@ export class EphemeralCloneService {
    * caller therefore owns this failure — the honest handling is to record it and
    * let the next `cleanupTick` converge, not to treat the call as infallible.
    *
-   * Carries the busy-holder deferral like every other retirement path, which is
-   * not vacuous on this path: a workspace released by one run can be claimed by
-   * the next before this call lands, and the clone the next run is executing in
-   * is exactly the one this call would otherwise retire. The deferred clone is
-   * picked up by that run's own terminal call, or by its TTL.
+   * Carries the busy-holder deferral like every other retirement path. It is
+   * near-vacuous under clone scoping — a NEXT run always prepares a fresh
+   * clone, so the named clone cannot be the one it holds — but the guard is
+   * the retirement paths' shared floor, and dropping it here would make this
+   * the one path able to retire out from under a hold the others defer to.
    */
-  async retireForWorkspace(
-    workspaceId: string,
-    trigger: EphemeralCloneRetirementTrigger,
-  ): Promise<readonly string[]> {
+  async retireRunClone(input: RetireRunCloneInput): Promise<readonly string[]> {
     const retiredCloneIds: string[] = [];
-    const candidates = this.#selectRetirableForWorkspaceStmt.all({
-      workspace_id: workspaceId,
-      cleanup_policy: RETIREMENT_TRIGGER_POLICIES[trigger],
+    const candidates = this.#selectRetirableRunCloneStmt.all({
+      clone_id: input.cloneId,
+      workspace_id: input.workspaceId,
+      cleanup_policy: RETIREMENT_TRIGGER_POLICIES[input.trigger],
     });
     for (const row of candidates) {
       await this.#retireClone(row);

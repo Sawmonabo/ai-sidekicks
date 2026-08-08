@@ -146,6 +146,20 @@
 // closes the remaining channel, which is option injection rather than shell
 // injection.
 //
+// What the neutralized surface does NOT cover — recorded rather than implied:
+// checkout-time FILTER DRIVERS. `worktree add` populates a working tree, and a
+// `.gitattributes` carried in the checked-out content may name a
+// `filter.<driver>` whose smudge/process command git then invokes. The COMMAND
+// comes from git config — user, system, or the repository the user owns —
+// never from the checked-out content, and a driver the config does not define
+// degrades to a passthrough. So content alone cannot introduce code; it can
+// only trigger commands the user already configured, git-lfs being the
+// canonical case. Neutralizing them is deliberately NOT attempted: git offers
+// no blanket filter-disable switch, the driver namespace cannot be enumerated
+// from here, and pointing the smudge chain at nothing would silently corrupt
+// every LFS-managed checkout. I-010-10's claim is therefore HOOKS-scoped,
+// exactly as `Spec-010 §Default Behavior` states it.
+//
 // ---------------------------------------------------------------------------
 // I-010-9 — recorded, then cleaned
 // ---------------------------------------------------------------------------
@@ -976,15 +990,24 @@ export class WorktreeService {
     // The retire-conflict probe, executed INSIDE the retirement transaction
     // (`#emitRetirement`'s prelude) rather than before it — see the header's
     // I-010-9 section for the window an outside probe leaves open.
-    // `branch_contexts` is the ONLY link between a worktree and a workspace —
-    // `worktrees` has no `workspace_id` column — and a `busy` workspace is
-    // precisely CP-009-7's "a run is holding this root".
+    //
+    // Keyed on `fs_root`, NOT through `branch_contexts`. Context rows are
+    // retained history (insert-per-prepare, deliberately never pruned), so a
+    // join through them reads "some workspace once bound this worktree" — and
+    // a workspace that has since reprovisioned onto a DIFFERENT root and gone
+    // `busy` there would block a retirement it no longer contends with, for
+    // the whole duration of an unrelated run. A `busy` workspace whose CURRENT
+    // `fs_root` is this worktree's directory is precisely CP-009-7's "a run is
+    // holding this root", and the path is also the one link T2.4's
+    // compensation cannot sever (it deletes pair rows while roots stay live).
+    // `cleanupPass` leg (d) re-runs this same probe per row before removal —
+    // same statement, so the two decisions cannot drift.
     this.#selectBusyHolderStmt = database.prepare<WorktreeLookupParams, HoldingWorkspaceRow>(
-      `SELECT workspaces.id AS workspace_id
-         FROM branch_contexts
-         JOIN workspaces ON workspaces.id = branch_contexts.workspace_id
-        WHERE branch_contexts.worktree_id = @worktree_id
-          AND workspaces.state = 'busy'
+      `SELECT holder.id AS workspace_id
+         FROM worktrees
+         JOIN workspaces AS holder ON holder.fs_root = worktrees.fs_root
+        WHERE worktrees.id = @worktree_id
+          AND holder.state = 'busy'
         LIMIT 1`,
     );
 
@@ -1398,6 +1421,21 @@ export class WorktreeService {
 
     const cleanedWorktreeIds: string[] = [];
     for (const row of this.#selectUncleanedRetiredStmt.all()) {
+      // The candidate list is a SNAPSHOT, and every earlier row's removal is
+      // an await a `markBusy` can land during — so the busy-holder deferral is
+      // re-decided per row, immediately before ITS removal, through the same
+      // statement the retirement prelude uses. What this cannot close is a
+      // `markBusy` landing during this row's OWN removal await: `worktrees`
+      // offers no claim column and I-010-9 forbids stamping before removing,
+      // so that residual window is owned by the Phase-3 run-setup gate, whose
+      // root-keyed busy probe (recorded at the plan's Phase 3 Goal) refuses
+      // the hold before a run adopts a retired root. The clone sweep needs no
+      // twin: its leg (d) disposes the workspace to `provisioning` — a state
+      // `markBusy` cannot claim — before it removes, and skips on a busy
+      // refusal.
+      if (this.#selectBusyHolderStmt.get({ worktree_id: row.id }) !== undefined) {
+        continue;
+      }
       await this.#filesystem.removeDirectory(row.fs_root);
       // AFTER the removal, never before: `worktree prune` drops the entries
       // whose working tree is MISSING, so run against a directory that is still

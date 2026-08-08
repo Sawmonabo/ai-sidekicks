@@ -392,7 +392,7 @@ export type WorktreeReuseConflictReason =
  *     "user intent is never silently adapted" posture D-010-7 takes for worktree
  *     branch collisions.
  *   * `concurrently_retired` — the clone row left `creating` while git was
- *     running, which only a concurrent `dispose` or `retireForWorkspace` can do.
+ *     running, which only a concurrent `dispose` or `retireRunClone` can do.
  *     Unlike every other member this reports no defect: the preparation was
  *     CANCELLED by a legitimate concurrent retirement, and the compare-and-swap
  *     to `ready` is what observes it. It still belongs on `clone.prepare_failed`
