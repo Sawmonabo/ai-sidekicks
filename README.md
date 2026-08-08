@@ -202,7 +202,7 @@ V1 ships 23 core features across CLI and Desktop GUI per [ADR-015: V1 Feature Sc
 | 11 | Local daemon + CLI | First client over the typed SDK |
 | 12 | Presence | Online / idle / offline awareness |
 | 13 | Event audit log | Event-sourced persistence backbone |
-| 14 | Artifacts (local + cross-node) | Diffs, files, and attachments; shared artifacts stay fetchable while the publishing node is offline via an eager relay pin of E2EE ciphertext (ADR-015 amendment 2026-07-08) |
+| 14 | Artifacts (local + cross-node) | Diffs, files, and attachments; shared artifacts stay fetchable while the publishing node is offline via an eager relay pin of E2EE ciphertext (ADR-015 amendment 2026-07-08; threat-model-scoped 2026-08-08 — see that ADR's §Decision Log for the two accepted V1 residuals and their named closure) |
 | 15 | Desktop GUI | Electron shell + React/Vite renderer over the same typed SDK |
 | 16 | Multi-agent channels | Cross-agent coordination primitives per [Spec-016](docs/specs/016-multi-agent-channels-and-orchestration.md) |
 | 17 | Workflow authoring and execution | Full workflow engine per [Spec-017](docs/specs/017-workflow-authoring-and-execution.md) |
