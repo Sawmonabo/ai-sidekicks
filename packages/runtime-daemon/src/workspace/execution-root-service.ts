@@ -217,7 +217,11 @@ import {
 // Constants
 // --------------------------------------------------------------------------
 
-/** Two minutes, matching the sibling provisioning services' git ceiling. */
+/**
+ * Two minutes, matching the worktree service's ceiling — NOT the clone
+ * service's, which deliberately runs ten (a large-repository `git clone` is
+ * its normal case; this module's only git call is a `symbolic-ref` read).
+ */
 const DEFAULT_EXECUTION_ROOT_GIT_TIMEOUT_MS = 120_000;
 
 /**
@@ -568,6 +572,15 @@ interface AttachedMountRow {
   readonly canonical_root: string;
 }
 
+interface BusyWorktreeHolderParams {
+  readonly worktree_id: string;
+}
+
+interface BusyWorktreeHolderRow {
+  readonly workspace_id: string;
+  readonly holding_run_id: string | null;
+}
+
 interface BranchContextIdRow {
   readonly id: string;
 }
@@ -637,6 +650,10 @@ export class ExecutionRootService {
     WorktreeContextLookupParams,
     BranchContextBaseRow
   >;
+  readonly #selectBusyWorktreeHolderStmt: Statement<
+    BusyWorktreeHolderParams,
+    BusyWorktreeHolderRow
+  >;
   readonly #selectWorktreePairContextStmt: Statement<WorktreePairLookupParams, BranchContextIdRow>;
   readonly #upsertWorktreeContextStmt: Statement<BranchContextWriteParams>;
   readonly #insertBranchContextStmt: Statement<BranchContextWriteParams>;
@@ -682,6 +699,26 @@ export class ExecutionRootService {
       `SELECT id, canonical_root
          FROM repo_mounts
         WHERE id = @repo_mount_id AND state = 'attached'`,
+    );
+
+    // Step (3b)'s busy-holder probe (`Spec-010 §State And Data Implications`,
+    // the busy bullet): is a run executing in the reuse CANDIDATE's directory?
+    // Joined on `fs_root` like T2.3's sweep predicates rather than through
+    // `branch_contexts` — this service's own compensation deletes pair rows
+    // while roots stay live, so the path is the one link that cannot be severed
+    // out from under the probe — and keyed by the candidate's ROW ID so the
+    // probe runs pre-bracket with nothing but the request in hand. A candidate
+    // this read cannot resolve answers nothing here; `validateReuse` owns that
+    // refusal taxonomy. `json_extract` mirrors `#selectWorkspaceStmt`'s
+    // projection of the same metadata key.
+    this.#selectBusyWorktreeHolderStmt = database.prepare(
+      `SELECT holder.id AS workspace_id,
+              json_extract(holder.metadata, '${HOLDING_RUN_ID_METADATA_PATH}') AS holding_run_id
+         FROM worktrees
+         JOIN workspaces AS holder ON holder.fs_root = worktrees.fs_root
+        WHERE worktrees.id = @worktree_id
+          AND holder.state = 'busy'
+        LIMIT 1`,
     );
 
     // The carry-over source for an explicit reuse. EARLIEST row wins: it is the
@@ -872,9 +909,10 @@ export class ExecutionRootService {
   /**
    * The three writable arms, in the order the header sets out.
    *
-   * Steps 1-4 (gate, branch name, busy, bind verification) run before the
-   * workspace is committed to `provisioning`, so every refusal below leaves the
-   * row exactly as it was found.
+   * Steps 1-4 (gate, branch name, busy — the requester's hold and the reuse
+   * candidate's, bind verification) run before the workspace is committed to
+   * `provisioning`, so every refusal below leaves the row exactly as it was
+   * found.
    */
   async #prepareWritableRoot(
     input: PrepareExecutionRootInput,
@@ -935,6 +973,26 @@ export class ExecutionRootService {
     // spawns the git read below.
     if (workspace.state === "busy") {
       throw new WorkspaceBusyError(workspace.id, workspace.holding_run_id);
+    }
+
+    // (3b) The same bullet, asked of the reuse CANDIDATE: an explicit reuse
+    // names a worktree whose directory another workspace can hold `busy`, and
+    // handing that working tree to a second run is exactly the concurrent root
+    // HANDOFF the bullet refuses. PRE-bracket like step (3), and for the same
+    // reason busy refusals live in this group at all — busy is a wait-and-retry
+    // answer, and routing it through the materialization catch would
+    // `failReprovision` the REQUESTER into `stale` repair for someone else's
+    // live run. Root-keyed rather than workspace-keyed, which is also the shape
+    // the Phase-3 gate must add beside CP-010-4's workspace-keyed `markBusy`
+    // when it lands — `branch` mode shares the mount's checkout, the same
+    // hazard one arm over.
+    if (input.reuseWorktreeId !== undefined) {
+      const busyHolder = this.#selectBusyWorktreeHolderStmt.get({
+        worktree_id: input.reuseWorktreeId,
+      });
+      if (busyHolder !== undefined) {
+        throw new WorkspaceBusyError(busyHolder.workspace_id, busyHolder.holding_run_id);
+      }
     }
 
     const mount = this.#requireAttachedMount(workspace.repo_mount_id);
@@ -1243,8 +1301,10 @@ export class ExecutionRootService {
    *
    * FAILS CLOSED when there is none. This service is the sole `branch_contexts`
    * writer and writes a row for every worktree it creates, so a candidate without
-   * one is a worktree this daemon did not provision — and any value invented here
-   * would be persisted as a provenance claim about a branch nobody can verify.
+   * one is a worktree this daemon did not provision — or one whose failed
+   * handover was half-compensated (`#compensateOrphanedRoot`'s delete landing
+   * while its retire faulted) — and any value invented here would be persisted
+   * as a provenance claim about a branch nobody can verify.
    * `head_branch` comes from the worktree row instead of from the carried context:
    * `validateReuse` has already established that the candidate is on the requested
    * branch, which makes the worktree the fresher authority.
@@ -1381,11 +1441,17 @@ export class ExecutionRootService {
    * the same benign accumulation the insert-per-prepare reading already accepts.
    * Only a `created` root is certainly this call's own on both legs.
    *
-   * Every fault is swallowed — the caller is owed the completion failure, and a
-   * compensation that fails leaves things no worse than not compensating. One
-   * residual stays open by design: a worktree that a legitimate reuse bound between
-   * the delete and the retire is refused by that busy probe, and SHOULD be. The
-   * refusal is the correct answer there, not a missed cleanup.
+   * Every fault is swallowed — the caller is owed the completion failure, not a
+   * compensation stack. The swallowing carries its own residual: a delete that
+   * succeeds followed by a retire that faults leaves a live `ready` worktree
+   * with NO pair row, which a later explicit reuse refuses as
+   * `reuse_candidate_without_branch_context` and whose `(mount, branch)` pair
+   * stays held against a later create — strictly worse than not compensating at
+   * all, accepted because surfacing the compensation fault would mask the
+   * completion failure the caller is owed. A second residual stays open by
+   * design: a worktree that a legitimate reuse bound between the delete and the
+   * retire is refused by that busy probe, and SHOULD be. The refusal is the
+   * correct answer there, not a missed cleanup.
    */
   async #compensateOrphanedRoot(
     materialized: MaterializedRoot,

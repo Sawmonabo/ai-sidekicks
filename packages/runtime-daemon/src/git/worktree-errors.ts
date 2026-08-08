@@ -248,7 +248,10 @@ export const PLAN_010_WORKSPACE_ERROR_CODES: readonly Plan010WorkspaceErrorCode[
  *     here too, deliberately, because both leave the daemon without a base and
  *     the decision that matters is the same one — refuse rather than guess.
  *   * `branch_name_unavailable` — the D-010-7 `suffix` arm exhausted its
- *     ordinal budget without finding a free name.
+ *     ordinal budget without finding a free name, or the next candidate — the
+ *     caller's own name included — would exceed `WORKTREE_GIT_REF_MAX_LEN`,
+ *     which T2.5's status projection enforces on every response. Both are one
+ *     answer: the request's policy has no usable name left.
  *   * `execution_root_unavailable` — the execution root's parent directory
  *     could not be prepared under the daemon's execution-roots directory
  *     (D-010-6).
@@ -297,7 +300,7 @@ const WORKTREE_CREATE_FAILURE_MESSAGES: Record<WorktreeCreateFailureReason, stri
   base_ref_unresolved:
     "worktree creation failed: no base ref was supplied and the repo mount's HEAD does not resolve to a branch",
   branch_name_unavailable:
-    "worktree creation failed: no free branch name was available within the ordinal-suffix budget",
+    "worktree creation failed: no usable branch name was available under the request's collision policy and the ref-length cap",
   execution_root_unavailable:
     "worktree creation failed: the daemon execution root could not be prepared",
   git_invocation_failed: "worktree creation failed: the git worktree invocation did not complete",

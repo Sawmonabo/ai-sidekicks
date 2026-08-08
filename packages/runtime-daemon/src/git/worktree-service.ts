@@ -227,6 +227,7 @@ import { join } from "node:path";
 import type { Database, Statement } from "better-sqlite3";
 
 import {
+  WORKTREE_GIT_REF_MAX_LEN,
   WorktreeIdSchema,
   WorktreeStateSchema,
   type WorktreeRetireResponse,
@@ -1025,11 +1026,29 @@ export class WorktreeService {
     // `applyPragmas`, hence without `foreign_keys = ON`). On such a row the
     // load-bearing removal must still run, which is the whole argument for the
     // LEFT join — so the arm is defense in depth rather than a live case.
+    //
+    // The busy-holder deferral is the same one T2.3 interpolates into every
+    // clone sweep, keyed on `fs_root` rather than on a binding row: `worktrees`
+    // has no workspace column, and T2.4's compensation can delete a
+    // `branch_contexts` row while the root stays live, so the path is the one
+    // link that cannot be severed out from under this read. The retire-time
+    // probe does NOT cover this window — it decides at the retirement instant,
+    // and a workspace still pointing at the root can be marked busy AFTERWARD
+    // (Plan-009's `markBusy` requires only `ready`), which without this clause
+    // would let the next pass delete a working tree a live run just received.
+    // Deferral, not exclusion: `releaseBusy` returns the holder to `ready`,
+    // `cleaned_at` stays NULL, and the next pass reclaims the root.
     this.#selectUncleanedRetiredStmt = database.prepare<[], WorktreeRootRow>(
       `SELECT worktrees.id, worktrees.fs_root, repo_mounts.canonical_root
          FROM worktrees
          LEFT JOIN repo_mounts ON repo_mounts.id = worktrees.repo_mount_id
         WHERE worktrees.state = 'retired' AND worktrees.cleaned_at IS NULL
+          AND NOT EXISTS (
+                SELECT 1
+                  FROM workspaces AS holder
+                 WHERE holder.state = 'busy'
+                   AND holder.fs_root = worktrees.fs_root
+              )
         ORDER BY worktrees.updated_at ASC, worktrees.id ASC`,
     );
 
@@ -1417,6 +1436,19 @@ export class WorktreeService {
     for (let ordinal = 1; ordinal <= MAX_BRANCH_NAME_ORDINAL; ordinal += 1) {
       const candidateBranchName =
         ordinal === 1 ? input.branchName : `${input.branchName}-${ordinal}`;
+
+      // The suffix arm can outgrow the wire cap: a request name accepted at
+      // `WORKTREE_GIT_REF_MAX_LEN` gains `-<ordinal>` here, and a persisted
+      // over-cap `branch_name` would fail response validation for the WHOLE
+      // T2.5 status-read projection, hiding every other worktree with it.
+      // Refused as `branch_name_unavailable` — the name space the request's
+      // policy allows is exhausted — and refused on the FIRST over-cap
+      // candidate, since every later ordinal is strictly longer. Ordinal 1
+      // takes this arm only for a service-level caller that bypassed the wire
+      // cap, which the same reasoning refuses fail-closed.
+      if (candidateBranchName.length > WORKTREE_GIT_REF_MAX_LEN) {
+        throw new WorktreeCreateFailedError("branch_name_unavailable");
+      }
 
       try {
         await this.#events.emitWorktreeCreated({
