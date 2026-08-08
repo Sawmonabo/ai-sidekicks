@@ -387,11 +387,14 @@ export const WorktreeLifecyclePayloadSchema: z.ZodType<WorktreeLifecyclePayload>
 // it. That argument says an under-sized cap can make a LAWFUL daemon RESPONSE
 // unrepresentable, because responses are validated too. It does not reach
 // here: every `branchName` that can appear on a Plan-010 response originated
-// either at this same capped wire or from the daemon's own slug rule
-// (`Spec-010 §Default Behavior`'s `sidekicks/<session-short-id>/<task-slug>`
-// pattern, whose slug segment T2.2 truncates far below this bound), and
-// `branch` mode writes no worktree or clone row at all — so no read surface
-// can inherit a name this cap would refuse.
+// at this same capped wire, from the daemon's own slug rule (`Spec-010
+// §Default Behavior`'s `sidekicks/<session-short-id>/<task-slug>` pattern,
+// whose slug segment T2.2 truncates far below this bound), or from T2.2's
+// `onCollision: 'suffix'` arm appending `-<ordinal>` to a capped name — the
+// one origin that can OUTGROW the cap, which T2.2 refuses at the write
+// (`branch_name_unavailable`) rather than persist a name this bound would
+// make unrepresentable — and `branch` mode writes no worktree or clone row at
+// all. So no read surface can inherit a name this cap would refuse.
 //
 // ACCEPTED RESIDUAL: a PRE-EXISTING repository branch longer than 256
 // characters cannot be probed through `repo.worktreeReuseCheck` or named as a
