@@ -3512,34 +3512,71 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
 // pinning its VALUE is re-pinned by every ship, and becomes a changelog of the
 // housekeeper rather than a check on the counter.
 //
-// What is append-stable, and what this arm therefore asserts, is the PARTITION:
-// the fenced counter and the manifest parser must account for exactly the same
-// ids, leaving a task-DAG residue of zero. An append raises both sides equally
-// and cannot move it. The two ways it CAN move both deserve a red test — a task
-// DAG committed into a plan file, or the counter and the parser disagreeing
-// about one fence (drift between the two readers of the same block). Only the
-// second is unambiguously a bug; the first is a change in the unscreened
-// surface, which must be adjudicated rather than silently absorbed, since those
-// ids sit outside the manifest schema where no consumer of the manifest sees
-// them. The disclosure total is still surveyed and
-// printed; it is simply not pinned, because no assertion can pin a
-// housekeeper-written number and stay meaningful.
+// What is append-stable, and what this arm therefore asserts, is that the two
+// readers of the same bytes ACCOUNT FOR THE SAME IDS — compared by identity, in
+// both directions, never by comparing totals. Subtracting cardinalities is the
+// tempting form and it is unsound: a manifest id the fenced reader missed
+// cancels a task-DAG id it counted, so the difference reads zero precisely when
+// the two readers disagree. Identity splits that into two named residues:
+//
+//   unaccounted  fenced ids the Shipment Manifest does not claim — a task DAG
+//                committed into a plan file, i.e. a change in the unscreened
+//                surface. Not unambiguously a bug, but it must be adjudicated
+//                rather than silently absorbed, since those ids sit outside the
+//                manifest schema where no consumer of the manifest sees them.
+//   unread       manifest ids the fenced reader did not see — drift between the
+//                two readers of one block, which is always a bug.
+//
+// An append extends both readers' id lists identically and moves neither
+// residue. The disclosure total is still surveyed and printed; it is simply not
+// pinned, because no assertion can pin a housekeeper-written number and stay
+// meaningful.
 
-function countManifestInvariantRefs(planSource) {
+function manifestInvariantRefs(planSource) {
   const parsed = parseManifestBlock(planSource);
-  // Fails CLOSED by arithmetic rather than by a throw: an unparseable manifest
-  // contributes 0 against a non-zero fenced count, so the residue check reddens.
-  if (!parsed.ok) return 0;
-  return (parsed.shipped ?? []).reduce(
-    (total, entry) => total + (entry.verifies_invariant?.length ?? 0),
-    0,
-  );
+  // Fails CLOSED by identity rather than by a throw: an unparseable manifest
+  // claims no ids, so every fenced id lands in `unaccounted` and the arm reddens.
+  if (!parsed.ok) return [];
+  return (parsed.shipped ?? []).flatMap((entry) => entry.verifies_invariant ?? []);
 }
 
-function partitionFencedRefs(planSource) {
-  const { fencedYamlRefs } = verifyInvariantReferences(planSource, { cache: new Map() });
-  const manifest = countManifestInvariantRefs(planSource);
-  return { fenced: fencedYamlRefs, manifest, taskDag: fencedYamlRefs - manifest };
+// id -> occurrence count. Deliberately not a Set: one invariant id legitimately
+// appears in several manifest entries (successive phases verifying the same
+// invariant), so collapsing duplicates would let a dropped repeat read as
+// agreement.
+function tallyById(ids) {
+  const tally = new Map();
+  for (const id of ids) tally.set(id, (tally.get(id) ?? 0) + 1);
+  return tally;
+}
+
+// Occurrences of `left` not covered by `right`, as a plain object so a failure
+// names the offending ids instead of printing a bare number.
+function excessById(left, right) {
+  const excess = {};
+  for (const [id, occurrences] of left) {
+    const surplus = occurrences - (right.get(id) ?? 0);
+    if (surplus > 0) excess[id] = surplus;
+  }
+  return excess;
+}
+
+// Pure set logic, kept separate from the pipeline below so the cancellation case
+// can be driven directly — a correct fenced reader cannot produce it.
+function reconcile(fencedIds, manifestIds) {
+  const fenced = tallyById(fencedIds);
+  const manifest = tallyById(manifestIds);
+  return {
+    unaccounted: excessById(fenced, manifest),
+    unread: excessById(manifest, fenced),
+    fencedTotal: fencedIds.length,
+    manifestTotal: manifestIds.length,
+  };
+}
+
+function reconcileFencedRefs(planSource) {
+  const { fencedYamlRefIds } = verifyInvariantReferences(planSource, { cache: new Map() });
+  return reconcile(fencedYamlRefIds, manifestInvariantRefs(planSource));
 }
 
 test("every fenced invariant ref is accounted for by the Shipment Manifest", () => {
@@ -3548,34 +3585,42 @@ test("every fenced invariant ref is accounted for by the Shipment Manifest", () 
     (n) => /^\d{3}-.+\.md$/.test(n) && !n.startsWith("000-"),
   );
   // Without this, a corpus that failed to load leaves every check below
-  // vacuously green — the residue of nothing is zero.
+  // vacuously green — nothing reconciled against nothing agrees.
   assert.ok(planNames.length >= 20, `expected the plan corpus, read ${planNames.length} files`);
 
-  const taskDagResidue = {};
-  let manifestTotal = 0;
+  const unaccountedByPlan = {};
+  const unreadByPlan = {};
+  let manifestGrandTotal = 0;
   for (const name of planNames) {
-    const { manifest, taskDag } = partitionFencedRefs(
+    const { unaccounted, unread, manifestTotal } = reconcileFencedRefs(
       readFileSync(resolve(plansDir, name), "utf8"),
     );
-    manifestTotal += manifest;
-    if (taskDag !== 0) taskDagResidue[name.slice(0, 3)] = taskDag;
+    manifestGrandTotal += manifestTotal;
+    const planNumber = name.slice(0, 3);
+    if (Object.keys(unaccounted).length > 0) unaccountedByPlan[planNumber] = unaccounted;
+    if (Object.keys(unread).length > 0) unreadByPlan[planNumber] = unread;
   }
   assert.deepEqual(
-    taskDagResidue,
+    unaccountedByPlan,
     {},
-    "fenced ids outside the Shipment Manifest, or counter/parser drift on one fence",
+    "fenced ids the Shipment Manifest does not claim (a task DAG committed into a plan)",
+  );
+  assert.deepEqual(
+    unreadByPlan,
+    {},
+    "manifest ids the fenced reader did not see (drift between the two readers)",
   );
   // Composition still matters, but the append-stable statement of it is that the
   // manifests are read at ALL — a parser returning nothing everywhere satisfies
-  // the residue check above while disclosing nothing.
-  assert.ok(manifestTotal > 0, "manifest parser disclosed no ids across the whole corpus");
+  // both residue checks above while disclosing nothing.
+  assert.ok(manifestGrandTotal > 0, "manifest parser disclosed no ids across the whole corpus");
 });
 
-test("NEGATIVE CONTROL: a manifest append leaves the partition still, a task-DAG edit moves it", () => {
-  // The property the partition exists to establish, driven both directions on
-  // one synthetic plan. Proving the check can FAIL is the point: the live-corpus
-  // arm above asserts an empty object, which a broken partition would also
-  // produce.
+test("NEGATIVE CONTROL: a manifest append leaves the residues still, a task-DAG edit moves them", () => {
+  // The property the reconciliation exists to establish, driven both directions
+  // on one synthetic plan. Proving the check can FAIL is the point: the
+  // live-corpus arm above asserts empty objects, which a broken reconciliation
+  // would also produce.
   const planWithBoth = [
     "#### Tasks",
     "",
@@ -3602,13 +3647,16 @@ test("NEGATIVE CONTROL: a manifest append leaves the partition still, a task-DAG
     "",
   ].join("\n");
 
-  const before = partitionFencedRefs(planWithBoth);
-  assert.deepEqual(before, { fenced: 4, manifest: 2, taskDag: 2 });
+  const before = reconcileFencedRefs(planWithBoth);
+  assert.deepEqual(before.unaccounted, { "I-100-1": 1, "I-100-2": 1 }, "the task-DAG ids, named");
+  assert.deepEqual(before.unread, {}, "the fenced reader saw both manifest ids");
+  assert.equal(before.fencedTotal, 4);
+  assert.equal(before.manifestTotal, 2);
 
   // (a) A housekeeper append — the motion this redesign exists to absorb. Driven
   // through the production writer, so a change to the serialized id spelling is
   // exercised here rather than assumed.
-  const afterAppend = partitionFencedRefs(
+  const afterAppend = reconcileFencedRefs(
     appendManifestEntry(planWithBoth, {
       phase: 2,
       task: "T2.1",
@@ -3620,25 +3668,59 @@ test("NEGATIVE CONTROL: a manifest append leaves the partition still, a task-DAG
       spec_coverage: [],
     }),
   );
-  assert.equal(afterAppend.taskDag, before.taskDag, "an append must not move the task-DAG residue");
-  assert.equal(afterAppend.manifest, before.manifest + 3);
-  assert.equal(afterAppend.fenced, before.fenced + 3, "both sides must rise by the same three");
+  assert.deepEqual(
+    afterAppend.unaccounted,
+    before.unaccounted,
+    "an append must not move the unaccounted residue",
+  );
+  assert.deepEqual(afterAppend.unread, {}, "and must leave the two readers in agreement");
+  assert.equal(afterAppend.manifestTotal, before.manifestTotal + 3);
+  assert.equal(
+    afterAppend.fencedTotal,
+    before.fencedTotal + 3,
+    "both readers must rise by the same three",
+  );
 
-  // (b) A task-DAG edit — the motion it must NOT absorb. If the partition were
-  // wired to subtract everything, or to read the manifest fence twice, this arm
-  // would stay still and the check above would be asserting nothing.
-  const afterTaskDagEdit = partitionFencedRefs(
+  // (b) A task-DAG edit — the motion it must NOT absorb. If the reconciliation
+  // were wired to compare everything, or to read the manifest fence twice, this
+  // arm would stay still and the check above would be asserting nothing.
+  const afterTaskDagEdit = reconcileFencedRefs(
     planWithBoth.replace(
       "    verifies_invariant: [I-100-1, I-100-2]",
       "    verifies_invariant: [I-100-1, I-100-2, I-100-6]",
     ),
   );
-  assert.equal(afterTaskDagEdit.taskDag, before.taskDag + 1, "the residue must track task-DAG ids");
-  assert.equal(
-    afterTaskDagEdit.manifest,
-    before.manifest,
-    "and must not be charged to the manifest",
+  assert.deepEqual(
+    afterTaskDagEdit.unaccounted,
+    { ...before.unaccounted, "I-100-6": 1 },
+    "the residue must NAME the new task-DAG id",
   );
+  assert.deepEqual(afterTaskDagEdit.unread, {}, "and must not be charged to the manifest");
+});
+
+test("NEGATIVE CONTROL: equal totals with divergent ids redden both directions", () => {
+  // The defect identity comparison exists to catch, and the reason this arm
+  // calls `reconcile` directly rather than going through a plan fixture: a
+  // CORRECT fenced reader always sees the manifest's own ids, so this state is
+  // unreachable through the pipeline. It models a reader that missed one
+  // manifest id while counting one task-DAG id — cardinalities then agree
+  // exactly, and the subtraction this test used to perform reported success.
+  const manifestIds = ["I-100-8", "I-100-9"];
+  const fencedIdsFromADriftedReader = ["I-100-8", "I-100-1"];
+  assert.equal(
+    fencedIdsFromADriftedReader.length,
+    manifestIds.length,
+    "the totals must cancel — that is the premise of the arm",
+  );
+
+  const cancelled = reconcile(fencedIdsFromADriftedReader, manifestIds);
+  assert.deepEqual(cancelled.unaccounted, { "I-100-1": 1 }, "the task-DAG id must still be named");
+  assert.deepEqual(cancelled.unread, { "I-100-9": 1 }, "and the missed manifest id named too");
+
+  // The multiset property `tallyById` exists for: a dropped REPEAT is a real
+  // divergence that a Set-based comparison would report as agreement.
+  const droppedRepeat = reconcile(["I-100-8"], ["I-100-8", "I-100-8"]);
+  assert.deepEqual(droppedRepeat.unread, { "I-100-8": 1 }, "a dropped repeat is a divergence");
 });
 
 test("all three YAML list spellings are counted, on continuation lines too", () => {
