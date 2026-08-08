@@ -1,11 +1,12 @@
 // Turn-snapshot service — the daemon-side owner of the per-run snapshot refs
 // under `refs/sidekicks/runs/<runId>/epoch-<E>/turn-<N>` (Plan-010 Phase 5).
 //
-// This file lands in three passes. T5.1 authored the CAPTURE leg; T5.2 (here)
-// EXTENDS it with the non-mutating `resolveRestoreTarget` plus the mutating
-// `restoreToTurn`, and T5.3 will add the retention prune. The class, the git
-// invocation layer, the ref builders and the diagnostic seam below are written
-// once for all three.
+// This file landed in three passes. T5.1 authored the CAPTURE leg; T5.2
+// EXTENDED it with the non-mutating `resolveRestoreTarget` plus the mutating
+// `restoreToTurn`; T5.3 (here) adds the window-based RETENTION prune plus the
+// sweeper driver at the foot of the file that the sanctioned wiring call in
+// `../bootstrap/index.ts` invokes. The class, the git invocation layer, the ref
+// builders and the diagnostic seam below are written once for all three.
 //
 // Spec coverage:
 //   * `Spec-010 §Turn-Boundary Snapshots` — the capture temp-index recipe
@@ -22,6 +23,16 @@
 //     `read-tree --reset HEAD` (issued against the verified OID rather than the
 //     name — see the site), the collision-overwrite and divergent-gitlink
 //     enumerations, and the convergent partial-restore disposition.
+//   * `Spec-010 §Turn-Boundary Snapshots` — the RETENTION prune: a run's
+//     snapshot refs become prune-eligible once `run_execution_contexts`'s
+//     `released_at` plus the configured window has elapsed (the window is daemon
+//     configuration, and this service owns the mechanism because the V1 corpus
+//     names no general run-retention owner — `Spec-006 §Retention Windows`
+//     governs event-log compaction and `Spec-015 §Retention` governs SQLite
+//     backup files, neither these refs); the sweep enumerates and deletes
+//     through the recorded `git_common_dir`; and the ephemeral-clone disposal
+//     boundary — a disposed clone takes its refs with it, and a later rollback
+//     of that run proceeds conversation-only (campaign B2's recorded ruling).
 //   * `Spec-004 §Required Behavior` — the execution epoch `<E>`: `0` before any
 //     rollback, advanced with each accepted `run.rolled_back`. SUPPLIED by the
 //     caller and never derived here (CP-010-12) — and the two-phase split, which
@@ -31,7 +42,11 @@
 //
 // Verifies invariant: I-010-21 (snapshot refs live only under
 // `refs/sidekicks/runs/…`, never `refs/heads/`, and are invisible to branch
-// history by construction), I-010-22 (create-only per-epoch refs: the write is a
+// history — held on the write side by the create-only CAS plus `--no-deref`, and
+// on the delete side by the listing prefix re-check plus `--no-deref`; the flag
+// is what keeps each of those checks about the name this service validated
+// rather than about wherever that name resolves), I-010-22 (create-only
+// per-epoch refs: the write is a
 // compare-and-swap against ref ABSENCE, so a retried or duplicated capture never
 // repoints an existing ref and a post-rollback re-execution's identical ordinal
 // mints a fresh ref under its own `epoch-<E>` segment), I-010-23 (fail-closed
@@ -46,15 +61,26 @@
 // CP-010-12 (PURE CALLEE — see below).
 //
 // ---------------------------------------------------------------------------
-// CP-010-12 — this service resolves NOTHING
+// CP-010-12 — the capture and restore legs resolve NOTHING
 // ---------------------------------------------------------------------------
 //
 // `executionRoot`, `runId`, `epoch`, `turnOrdinal` and `mode` all arrive as
-// parameters. This module never reads `run_execution_contexts` (it holds no
-// database handle at all in the capture leg), never derives the epoch from
-// rollback history, and never infers the mode from the root's shape. The
-// production call site — the Plan-004 run engine's turn boundary — is authored
-// by the campaign's B9 bundle and owns every one of those resolutions.
+// parameters. Neither the capture leg nor the restore leg reads
+// `run_execution_contexts`, derives the epoch from rollback history, or infers
+// the mode from the root's shape. The production call site — the Plan-004 run
+// engine's turn boundary — is authored by the campaign's B9 bundle and owns
+// every one of those resolutions.
+//
+// The RETENTION leg is the deliberate exception, and CP-010-12 carves it out in
+// so many words: "the T5.3 retention leg's `released_at` / `git_common_dir`
+// reads are a separate concern, outside this obligation". It is not a caller's
+// question to answer — nothing outside this module knows which refs exist, and
+// the sweep runs on a daemon cadence with no run in flight to be a callee OF.
+// The `database` dependency is therefore OPTIONAL rather than required: a
+// service wired for the turn boundary alone holds no handle at all, exactly as
+// the capture leg always did, and the two retention entry points refuse loudly
+// rather than answering emptily when it is absent (see
+// {@link TurnSnapshotService.sweepPrunableRuns}).
 //
 // The `mode` self-guard is the one place the parameter is INTERPRETED rather
 // than passed through, and it is deliberately a self-guard rather than a
@@ -108,13 +134,43 @@
 // not as the mechanism enforcing I-010-21. See
 // {@link SNAPSHOT_NEUTRALIZED_GIT_ENV_KEYS}.
 //
+// The third channel is the SYMBOLIC REF, and it threatens the invariant from a
+// direction neither of the other two can see: a validated, in-namespace ref NAME
+// that RESOLVES somewhere else. `git symbolic-ref refs/sidekicks/runs/<id>/… <target>`
+// is a cheap, non-destructive write for anything sharing the repository — this
+// product's own threat surface is several agents in one session and one repo —
+// and the ref path it plants is perfectly well-formed, so every name-based guard
+// this service has passes it. It reaches BOTH sides, and `--no-deref` is what
+// closes each; the flag makes git act on the name rather than on its referent.
+//
+//   * DELETE. After the plant, `for-each-ref` reports an in-prefix name carrying
+//     the BRANCH's oid — the name check passes, the oid parses, and the
+//     compare-and-swap matches the very thing it is about to destroy. Unflagged,
+//     `update-ref -d` then deletes `refs/heads/main`: measured on git 2.50.1,
+//     exit 0, reported as a clean prune, a retention window after the run ended.
+//     Flagged, the deletion lands on the symref itself and branch history is
+//     byte-identical. See `#pruneRunRefs`.
+//   * CREATE. git splits a symbolic-ref update into an update of its REFERENT and
+//     transfers the must-not-exist check there, so the create-only CAS stops
+//     guarding the validated name. A live referent refuses either way; a DANGLING
+//     one does not — measured on the same version, an unflagged capture into a
+//     squatted turn path CREATES `refs/heads/evil` at the snapshot commit and
+//     reports success. Flagged, the write lands at the validated name and nothing
+//     outside the namespace is touched. See `#writeCreateOnlyRef`.
+//
+// The two sides fail in opposite directions — the delete destroys an existing
+// branch, the create mints a new one — which is why neither guard substitutes for
+// the other and both invocations carry the flag.
+//
 // ---------------------------------------------------------------------------
 // I-010-22 — the CAS is the arbiter; nothing pre-checks it
 // ---------------------------------------------------------------------------
 //
-// `git update-ref <ref> <commit> ""` — the trailing EMPTY old-value — is a
-// compare-and-swap against ref absence (git 2.50.1: exit 128, "cannot lock ref
-// …: reference already exists"). The capture pipeline runs unconditionally and
+// `git update-ref --no-deref <ref> <commit> ""` — the trailing EMPTY old-value —
+// is a compare-and-swap against ref absence (git 2.50.1: exit 128, "cannot lock
+// ref …: reference already exists"), the flag keeping that "absence" a statement
+// about `<ref>` itself for the reason the channel above gives. The capture
+// pipeline runs unconditionally and
 // the CAS decides; there is deliberately no "does the ref already exist" probe
 // in front of it. A pre-check would be a SECOND arbiter racing the first, which
 // is the read-then-write pattern `./worktree-service.ts`'s header refuses for
@@ -250,7 +306,116 @@
 // survives the restore, where the same content anywhere else is deleted. The
 // path is reported in `divergentGitlinks`, which is the caller's whole signal
 // that the boundary applied there.
-
+//
+// ---------------------------------------------------------------------------
+// Retention is WINDOW-BASED, and the git dir is the one that SURVIVES
+// ---------------------------------------------------------------------------
+//
+// `Spec-010 §Turn-Boundary Snapshots` prunes "when the run's retention window
+// closes (terminal state + the configured window)", which is two facts, not one.
+// Terminal state alone does not prune: a rollback is a thing a user reaches for
+// AFTER a run has finished, so deleting at the terminal event would make the
+// snapshots useless exactly when they are wanted. So the mechanism is a SWEEP —
+// {@link TurnSnapshotService.sweepPrunableRuns} deletes every run whose window
+// has closed — rather than a terminal-invoked callback, and that shape is also
+// what makes the daemon-startup reconcile fall out for free: a window that
+// elapsed while the daemon was down is just a candidate the first sweep finds.
+// A terminal-invoked design would have had to reconstruct those misses.
+//
+// The ref ops run through `git --git-dir=<git_common_dir>` — the value
+// `run_execution_contexts` recorded at context creation — and NEVER through
+// `execution_root`. This is the whole reason that column exists (its DDL comment
+// says so). A `worktree`-mode root is physically retired by T2.2 when the
+// workspace is done with it, which can happen long before the retention window
+// closes; the refs, meanwhile, live in the SHARED common object store and are
+// perfectly reachable from the canonical repository. Pruning through the
+// execution root would therefore skip precisely the runs whose refs are still
+// there, and would look like a working sweep while leaking every retired
+// worktree's snapshots forever.
+//
+// Skip-and-enumerate, never fatal. A recorded `git_common_dir` that is gone at
+// sweep time (the repository was removed) is not this sweep's failure — it is a
+// run whose refs went with its repository. That run is SKIPPED, recorded in the
+// pass's skip enumeration, and the pass continues; the per-run `try` sits INSIDE
+// the loop for that reason, because one `EACCES` stranding every later candidate
+// is the failure mode the never-fatal rule is written against.
+//
+// The skip vocabulary is three-way where a single `git-dir-unusable` would have
+// been one line shorter, and the third arm is what keeps the other two honest.
+// git answers a removed repository, a disposed clone, an `EACCES` on a live
+// store, a missing `git` binary and a failure creating the daemon's own
+// hook-neutralization directory with the SAME rejection, so the reason is
+// attributed by a `stat` probe on the failure path plus the row's
+// `execution_mode` — never by parsing git's stderr, and never by assuming.
+// Absent-and-a-clone is `clone-disposed`, absent-otherwise is `git-dir-absent`,
+// and present-but-unusable is `git-dir-unusable`, the fault arm. The probe fails
+// TOWARD the fault (see `isPathProvablyAbsent`), because misreading an `EACCES`
+// as a disposal is the mistake that goes quiet.
+//
+// The clone-disposal boundary is the same fact from the other side. In
+// `ephemeral clone` mode the recorded common dir is the CLONE's own git dir, so
+// the snapshot refs share the clone's disposal lifecycle: an `on_run_complete`
+// disposal (T2.3) takes them with it, possibly before the retention window
+// closes, and a later rollback of that run proceeds CONVERSATION-ONLY — the
+// ruling campaign B2 recorded, with the file-leg disposition carried on the
+// intervention outcome by Plan-004. Neither disposal nor sweep is a retention
+// violation: a disposed clone leaves nothing to restore into, and the sweep
+// fires only after the window. Concretely, the sweep then finds the recorded
+// common dir gone and reports `clone-disposed` — the plan row's "the sweep then
+// finds nothing to delete", which is why that arm alone does not raise the pass
+// warn (see `sweepPrunableRuns`). On a clone-mode daemon it is otherwise EVERY
+// run the daemon ever executed, arriving hourly, forever.
+//
+// Deletion is a COMPARE-AND-SWAP, matching the capture leg's posture: the
+// enumeration reads `<oid> <refname>` and each deletion names the oid it read
+// (`update-ref --no-deref -d <ref> <oid>`), so a ref that changed between the two is
+// refused rather than deleted (git 2.50.1: exit 1, "cannot lock ref"). Nothing
+// should be able to move a snapshot ref — I-010-22 makes every write create-only
+// — which is exactly why naming the oid costs nothing and why a refusal here is
+// worth hearing about rather than steamrolling.
+//
+// RESIDUALS, recorded rather than closed:
+//
+//   * The candidate set is every terminal WRITABLE run whose window has closed,
+//     EVERY tick, forever — so the per-tick spawn count grows with the daemon's
+//     LIFETIME run count, not with the number of runs that have anything left to
+//     prune: a daemon with five thousand historical runs spawns five thousand
+//     `git for-each-ref` processes an hour to delete nothing. Nothing memoizes an
+//     already-pruned run, because the only durable key available is `released_at`
+//     and a terminal-source rollback CLEARS and re-stamps it (the table's own DDL
+//     comment); a memo keyed on it would go stale in exactly the case that
+//     matters. `LIMIT` is not the missing bound either: with `ORDER BY
+//     released_at ASC` and no memo it re-reads the same oldest N rows forever and
+//     starves everything behind them. The one bound that IS sound is taken —
+//     `read-only` runs can never have captured a ref, so the predicate excludes
+//     them. Row retention for `run_execution_contexts` has no owner in the V1
+//     corpus and is not this service's to invent: it holds no writer for that
+//     table.
+//   * The same absent memo has a SECOND consequence, on the operator channel: a
+//     run that is skipped rather than pruned re-enumerates in the
+//     `retention-prune-skipped` diagnostic every tick, for as long as its row
+//     lives. That is plan-compelled, not an oversight — the row requires a
+//     removed-repository run "skipped and enumerated in the sweep diagnostic",
+//     and a pass that skips it and says nothing would not be enumerating it. So
+//     a daemon whose canonical repository was deleted warns hourly, forever,
+//     over a set that stops growing but never empties (no retention owner for
+//     the rows). Only the `clone-disposed` arm is exempted, and that exemption
+//     buys silence only where the set would otherwise grow without bound — see
+//     {@link NON_ALARMING_SKIP_REASONS}.
+//   * Spawn count scales with (turns x epochs) per run, because the ratified
+//     recipe is per-ref `update-ref -d` rather than a batched `--stdin`
+//     transaction. Deviating would need a plan amendment; the batched form is
+//     also all-or-nothing, where the per-ref form partially prunes and reports.
+//   * `released_at <= <cutoff>` is a TEXT comparison, so it is chronological only
+//     while the column holds fixed-width UTC `toISOString()` spellings. That is a
+//     forward contract on the T3.2 gate that stamps it, spelled the same way
+//     `./ephemeral-clone-service.ts` spells its own `expires_at` contract.
+//   * The sweep takes no lock against a concurrent rollback re-opening a run
+//     whose window had already closed. The exposure is a rollback issued in the
+//     same moment as a sweep of a run the retention policy had already released,
+//     and its outcome is the ordinary one for a missing snapshot: a typed
+//     no-snapshot refusal, never a wrong tree.
+//
 // ---------------------------------------------------------------------------
 // Capture NEVER throws into the turn boundary
 // ---------------------------------------------------------------------------
@@ -313,6 +478,8 @@ import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, rmdir, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
+
+import type { Database, Statement } from "better-sqlite3";
 
 import type { ExecutionMode } from "@ai-sidekicks/contracts";
 
@@ -502,7 +669,105 @@ export type TurnSnapshotRestoreStep =
   | "close-index";
 
 /**
- * What the capture leg reports to the daemon's observability layer.
+ * Why one run's snapshot refs were not pruned. See {@link TurnSnapshotRetentionSkip}.
+ *
+ * The vocabulary splits FAULT from BOUNDARY: `clone-disposed` and
+ * `git-dir-absent` are outcomes, while the rest are conditions somebody acts on.
+ * The warn gate is drawn one notch tighter than that split — only
+ * `clone-disposed` is silent, because only it is unbounded — so "the pass
+ * diagnostic can quiesce" is a claim about a clone-mode daemon specifically. See
+ * {@link NON_ALARMING_SKIP_REASONS} and
+ * {@link TurnSnapshotService.sweepPrunableRuns}.
+ */
+export type TurnSnapshotRetentionSkipReason =
+  /** The `runId` is not safe as a ref path component (I-010-21) — refused before any git call. */
+  | "unsafe-run-id"
+  /** No `run_execution_contexts` row names this run, so no git dir to prune through. */
+  | "run-context-absent"
+  /**
+   * The `run_execution_contexts` read itself FAILED — a closed handle racing a
+   * shutdown, a schema fault. Deliberately not `run-context-absent`: "I found
+   * nothing" and "I could not look" are the two answers this leg must never
+   * conflate, and only this one means the prune must be retried. Carries a
+   * `retention-sweep-failed` diagnostic alongside, as the sweep's equivalent does.
+   */
+  | "run-context-unreadable"
+  /**
+   * An `ephemeral clone`-mode run whose recorded git dir is GONE — the T2.3
+   * `on_run_complete` disposal took the refs with it, since they lived in the
+   * clone's own object store. The expected boundary, not a fault: the plan row
+   * reads "the sweep then finds nothing to delete", and a later rollback of that
+   * run proceeds conversation-only (campaign B2). Excluded from the pass warn.
+   */
+  | "clone-disposed"
+  /**
+   * The recorded `git_common_dir` is absent from disk in a mode that does NOT
+   * dispose its store — the plan row's "the repo was removed", which that row
+   * requires to be "skipped and enumerated in the sweep diagnostic". So this one
+   * DOES raise the pass warn, unlike `clone-disposed`.
+   *
+   * The distinction is SET SIZE, not report frequency — nothing memoizes on
+   * either side, so both classes re-enumerate on every tick for as long as their
+   * rows live (residual 1). But a removed repository implicates a BOUNDED set:
+   * the runs that were executing in it when it vanished, a number that stops
+   * growing the moment it does. Disposed clones are unbounded and growing —
+   * every clone-mode run the daemon ever finishes adds one, forever. A warn that
+   * says the same bounded thing until somebody deals with it is a warn; one that
+   * grows without limit under normal operation is what drowns it.
+   */
+  | "git-dir-absent"
+  /**
+   * The recorded `git_common_dir` EXISTS and still could not be enumerated — a
+   * permissions fault, a corrupt store, a missing `git` binary, or a failure
+   * creating the daemon's own hook-neutralization directory. A genuine fault,
+   * and the one that raises the pass warn.
+   */
+  | "git-dir-unusable"
+  /**
+   * The enumeration succeeded and at least one `update-ref -d` did not. The
+   * refs that WERE deleted are still reported — this leg partially prunes and
+   * says so, rather than pretending the pass was atomic.
+   */
+  | "ref-delete-failed";
+
+/**
+ * The skip reasons that do not raise the pass warn. A pass whose skips are all
+ * in this set emits no `retention-prune-skipped` diagnostic at all, which is the
+ * whole of "the warn can quiesce"; every skip is on the sweep RESULT either way.
+ *
+ * `git-dir-absent` is deliberately NOT a member even though it is equally an
+ * outcome rather than a fault: the T5.3 row names that case specifically and
+ * requires it "skipped and enumerated in the sweep diagnostic", and the set of
+ * runs a removed repository implicates is BOUNDED — where disposed clones
+ * accumulate one per clone-mode run, without limit, as the design works. Neither
+ * side memoizes, so both re-report every tick; only the size differs, and the
+ * unbounded one is what would drown the channel (see the reason's own docblock
+ * and residual 1 in the header).
+ *
+ * COUPLED to the diagnostic's `disposedCloneCount`, which counts the skips whose
+ * reason IS in this set — `skipped.length - actionableSkips.length`, where
+ * `actionableSkips` is the complement. A second member here means renaming that
+ * field, because it would no longer be counting only clones.
+ */
+const NON_ALARMING_SKIP_REASONS: ReadonlySet<TurnSnapshotRetentionSkipReason> =
+  new Set<TurnSnapshotRetentionSkipReason>(["clone-disposed"]);
+
+/**
+ * One run the sweep declined to finish, and why.
+ *
+ * The plan's obligation is that such a run is "skipped and enumerated in the
+ * sweep diagnostic, never fatal", so this is the enumeration's element type and
+ * it appears BOTH on the per-run result and on the pass's diagnostic.
+ */
+export interface TurnSnapshotRetentionSkip {
+  readonly runId: string;
+  readonly reason: TurnSnapshotRetentionSkipReason;
+  /** Free-form; the rejection's message when there was one. */
+  readonly detail: string;
+}
+
+/**
+ * What this service reports to the daemon's observability layer.
  *
  * The first two kinds are spec-named: `Spec-010 §Turn-Boundary Snapshots`
  * requires the failure diagnostic ("capture failure emits an OTel diagnostic and
@@ -614,6 +879,58 @@ export type TurnSnapshotDiagnostic =
       readonly ref: string;
       /** Free-form; what was attempted, since the rejection itself is swallowed. */
       readonly detail: string;
+    }
+  | {
+      /**
+       * ONE per sweep pass that skipped at least one run — the "skipped and
+       * enumerated in the sweep diagnostic" obligation of the T5.3 plan row,
+       * spelled as the plan spells it: a PASS-level enumeration, not a
+       * diagnostic per skipped run.
+       *
+       * Deliberately so. The operational fact an operator acts on is "this
+       * daemon has N runs it can no longer prune", and N separate lines is the
+       * shape that gets filtered out as noise on the day N is large — which is
+       * the day it matters. The per-run primitive stays quiet and returns its
+       * skip on the RESULT; a direct caller reads it there.
+       *
+       * Carries no `runId` / `epoch` / `turnOrdinal`: a pass spans runs and no
+       * turn at all. {@link warnDiagnostic} branches on that rather than
+       * rendering `epoch=undefined`.
+       */
+      readonly kind: "retention-prune-skipped";
+      /**
+       * The skips an operator can act on. Non-empty by construction — the sweep
+       * does not emit an empty enumeration — and deliberately NOT every skip of
+       * the pass: see `disposedCloneCount`.
+       */
+      readonly skipped: readonly TurnSnapshotRetentionSkip[];
+      /**
+       * How many candidates were skipped because their ephemeral clone had been
+       * disposed. A COUNT rather than an enumeration, and that is the whole
+       * point: on a clone-mode daemon EVERY run ever executed ends here, nothing
+       * memoizes an already-seen one (see the header's residuals), and by the
+       * plan's own ruling there is nothing to act on — so enumerating them would
+       * bury the actionable skips beside them under a list that only grows. The
+       * sweep RESULT still carries every one of them in full.
+       */
+      readonly disposedCloneCount: number;
+      /** How many runs the pass examined, so the skip count reads as a proportion. */
+      readonly examinedRunCount: number;
+    }
+  | {
+      /**
+       * The sweep could not run AT ALL — the candidate read rejected, or the
+       * clock did not honour its contract. Distinct from the enumeration above,
+       * which reports runs skipped inside a pass that otherwise worked.
+       *
+       * This is the daemon's ONLY signal for the condition: the sweep returns an
+       * empty result and never throws (it is a background leg on a timer, where
+       * a rejection is an unhandled one), so an unreported candidate-read
+       * failure would be a retention policy that silently stopped applying.
+       */
+      readonly kind: "retention-sweep-failed";
+      /** Free-form; the rejection's message when there was one. */
+      readonly detail: string;
     };
 
 export interface TurnSnapshotServiceDeps {
@@ -627,6 +944,31 @@ export interface TurnSnapshotServiceDeps {
    * here; the daemon's configuration layer owns that check.
    */
   readonly executionRootsDirectory: string;
+  /**
+   * The daemon's SQLite handle, for the RETENTION leg alone — the only leg that
+   * reads `run_execution_contexts` (`released_at`, `git_common_dir`).
+   *
+   * OPTIONAL, and that is the contract rather than a convenience. CP-010-12
+   * makes capture and restore pure callees that hold no database handle at all,
+   * so a service constructed for the turn boundary passes none and is unchanged
+   * by this leg's existence. Prepared statements are built here only when a
+   * handle IS supplied; {@link TurnSnapshotService.sweepPrunableRuns} and
+   * {@link TurnSnapshotService.pruneSnapshotsForRun} throw when it was not,
+   * because a retention sweep that answers "nothing to prune" on a mis-wired
+   * daemon is indistinguishable from one that is working (see those methods).
+   */
+  readonly database?: Database;
+  /**
+   * How long a run's snapshot refs outlive its terminal release, in
+   * milliseconds. Defaults to
+   * {@link DEFAULT_TURN_SNAPSHOT_RETENTION_WINDOW_MS}.
+   *
+   * Daemon configuration expressed as constructor config, following T2.3's
+   * ephemeral-clone TTL exactly: `Spec-010 §Turn-Boundary Snapshots` calls the
+   * window "configured" without fixing a number, and the corpus-true home for a
+   * Plan-010 daemon-side duration is daemon config, not the wire.
+   */
+  readonly retentionWindowMs?: number;
   /** Git process seam; defaults to {@link runTurnSnapshotGitWithExecFile}. */
   readonly git?: TurnSnapshotGitRunner;
   /** Filesystem seam; defaults to `node:fs/promises`. */
@@ -643,6 +985,11 @@ export interface TurnSnapshotServiceDeps {
    * therefore OID inputs, and a `-0700` host would otherwise mint a different
    * snapshot OID than a `+0000` one for identical project state at the identical
    * instant (`Spec-010 §Turn-Boundary Snapshots`).
+   *
+   * The RETENTION leg reads the same clock for its window arithmetic, and the
+   * `toISOString()` requirement is load-bearing a second time there: the
+   * candidate predicate is a TEXT comparison against `released_at`, which is
+   * chronological only between fixed-width UTC spellings.
    */
   readonly now?: () => string;
   /**
@@ -675,7 +1022,9 @@ export interface CaptureTurnSnapshotInput {
   /**
    * The run's execution root — the worktree, the main checkout (`branch` mode)
    * or the ephemeral clone. Resolved by the caller from the
-   * `run_execution_contexts` row (D-010-5); this service never reads that table.
+   * `run_execution_contexts` row (D-010-5); the capture leg never reads that
+   * table itself (CP-010-12 — only the retention leg does, for a different
+   * column and on a different trigger; see the header).
    */
   readonly executionRoot: string;
   /**
@@ -1159,6 +1508,48 @@ export type TurnSnapshotRestoreResult =
   | TurnSnapshotRestoreHeadMoved
   | TurnSnapshotPartialRestore;
 
+/**
+ * What one {@link TurnSnapshotService.pruneSnapshotsForRun} did to one run.
+ *
+ * A FLAT record rather than a discriminated union, deliberately. The three
+ * outcomes this leg produces are not disjoint: a prune can delete four refs and
+ * then be refused on the fifth, and a union would have to either lose the four
+ * or grow a third arm that carries both halves anyway. Flat also makes the
+ * idempotent case read as what it is — `deletedRefs: []` with `skipped: null`,
+ * the same shape a first prune of a run with no refs produces, because those two
+ * situations are genuinely the same situation.
+ */
+export interface TurnSnapshotRetentionPruneResult {
+  readonly runId: string;
+  /**
+   * Full ref paths deleted by THIS call, in enumeration order. Empty on an
+   * idempotent re-prune, on a run that never captured, and on a skip that
+   * happened before any deletion.
+   */
+  readonly deletedRefs: readonly string[];
+  /** `null` when the prune completed; otherwise why it stopped. */
+  readonly skipped: TurnSnapshotRetentionSkip | null;
+}
+
+/** What one {@link TurnSnapshotService.sweepPrunableRuns} pass did. */
+export interface TurnSnapshotRetentionSweepResult {
+  /**
+   * Every run whose window had closed at this pass's cutoff — the candidate set,
+   * skips included. Reported so a caller can tell "nothing was eligible" from
+   * "everything eligible was skipped", which the two lists below cannot.
+   */
+  readonly examinedRunIds: readonly string[];
+  /** The subset that completed with no skip. */
+  readonly prunedRunIds: readonly string[];
+  /**
+   * Every ref this pass deleted, across all runs. Attribution needs no separate
+   * field: each path carries its own `refs/sidekicks/runs/<runId>/…` segment.
+   */
+  readonly deletedRefs: readonly string[];
+  /** The enumeration the `retention-prune-skipped` diagnostic carries. */
+  readonly skipped: readonly TurnSnapshotRetentionSkip[];
+}
+
 // --------------------------------------------------------------------------
 // Constants
 // --------------------------------------------------------------------------
@@ -1234,6 +1625,38 @@ const SNAPSHOT_INDEX_SEGMENT = ".snapshot-indexes";
 // than to the resolver's metadata-read bound: the staging legs walk the whole
 // worktree, which is `worktree add`'s order of work, not `rev-parse`'s.
 const DEFAULT_TURN_SNAPSHOT_GIT_TIMEOUT_MS = 120_000;
+
+/**
+ * How long a run's snapshot refs outlive its terminal release: seven days.
+ *
+ * INVENTED rather than ratified, and said plainly for the reason
+ * `./ephemeral-clone-service.ts` says it of its own invocation ceiling:
+ * `Spec-010 §Turn-Boundary Snapshots` fixes that a window exists and that it is
+ * CONFIGURED, not what it is. The number is chosen from the direction of the
+ * risk rather than from a benchmark. Too SHORT loses a rollback the user still
+ * wanted, and loses it silently — the refs are simply gone and Plan-004 reports
+ * "no snapshot", which reads exactly like a run that never captured. Too LONG
+ * costs object-store growth, which is visible as disk and is recoverable by
+ * shortening the window. So it errs long, and seven days is the span over which
+ * "go back to before that turn" is still a thing somebody says about a run.
+ *
+ * Exported so a composition root expresses a configured override as a delta from
+ * this default rather than re-spelling it — the shape and the reason
+ * {@link DEFAULT_EPHEMERAL_CLONE_TTL_MS} established in T2.3.
+ */
+export const DEFAULT_TURN_SNAPSHOT_RETENTION_WINDOW_MS: number = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * How often the daemon runs the retention sweep: hourly.
+ *
+ * Lives here rather than in `../bootstrap/index.ts` because it is Plan-010
+ * configuration and that file is Plan-007's — the wiring call there passes a
+ * cadence through, it does not own one. Neither direction of error is severe, which is
+ * why the value is unceremonious: too frequent spends a handful of git spawns on
+ * an empty candidate set, and too rare lets refs outlive their window by up to
+ * one cadence, which is a rounding error against a seven-day window.
+ */
+export const DEFAULT_TURN_SNAPSHOT_SWEEP_CADENCE_MS: number = 60 * 60 * 1000;
 
 // stdout ceiling. Eight times `./worktree-service.ts`'s, because the `-z`
 // listing this module reads is one NUL-terminated path per tracked-or-untracked
@@ -1530,6 +1953,25 @@ const DEFAULT_TURN_SNAPSHOT_FILESYSTEM: TurnSnapshotFilesystem = {
  * structured attribute bag — so the swap is not a rewrite.
  */
 function warnDiagnostic(diagnostic: TurnSnapshotDiagnostic): void {
+  // The retention kinds are PASS-scoped: a sweep spans runs and no turn at all,
+  // so the shared identity line below has nothing to render for them and would
+  // print `run=undefined epoch=undefined turn=undefined`. The branch is an
+  // early return rather than a widened template so the per-turn rendering is
+  // byte-unchanged for the kinds that do carry an identity.
+  if (diagnostic.kind === "retention-prune-skipped") {
+    console.warn(
+      `turn-snapshot ${diagnostic.kind}: ` +
+        `skipped=${String(diagnostic.skipped.length)} of ` +
+        `examined=${String(diagnostic.examinedRunCount)} ` +
+        `disposed-clones=${String(diagnostic.disposedCloneCount)}`,
+      diagnostic,
+    );
+    return;
+  }
+  if (diagnostic.kind === "retention-sweep-failed") {
+    console.warn(`turn-snapshot ${diagnostic.kind}: ${diagnostic.detail}`, diagnostic);
+    return;
+  }
   console.warn(
     `turn-snapshot ${diagnostic.kind}: run=${diagnostic.runId} ` +
       `epoch=${String(diagnostic.epoch)} turn=${String(diagnostic.turnOrdinal)}`,
@@ -1602,6 +2044,59 @@ function splitNulTerminatedListing(listing: Buffer): readonly string[] {
   // from the snapshot.
   if (start < listing.length) {
     entries.push(listing.toString("utf8", start));
+  }
+  return entries;
+}
+
+/** One `<oid> <refname>` line of the retention leg's `for-each-ref` listing. */
+interface SnapshotRefListingEntry {
+  readonly objectId: string;
+  readonly ref: string;
+}
+
+/**
+ * Parse `for-each-ref --format=%(objectname) %(refname)` output, keeping only
+ * well-formed lines whose ref really is under `expectedPrefix`.
+ *
+ * The prefix re-check is one of two I-010-21 guards on the DELETION side —
+ * `--no-deref` at the deletion itself is the other — and it is not redundant with
+ * the validated `runId` that built the pattern. git's pattern matching is the
+ * only thing standing between the argv this module assembled and the ref set it
+ * is about to delete, and this module's whole posture on that invariant (see the
+ * header) is that it enforces the namespace at THIS layer rather than trusting
+ * git to. Every entry that fails the check is dropped before it can reach
+ * `update-ref -d`, so a listing that somehow named `refs/heads/main` prunes
+ * nothing rather than deleting a branch.
+ *
+ * The two guards answer different questions and neither covers the other's: this
+ * one judges the NAME git reported, while the flag governs what that name is
+ * allowed to resolve to. A symbolic ref planted in-namespace passes here on the
+ * merits.
+ *
+ * Lines are decoded as UTF-8 and split on the FIRST space, which is exact for
+ * this format: `git check-ref-format` forbids spaces in a refname, so the
+ * separator cannot appear on the right-hand side. A line that does not parse —
+ * a truncated read, a non-UTF-8 refname that is by construction not one of ours
+ * — is DROPPED rather than refused: the effect is a ref that survives this pass
+ * and is enumerated again by the next one, where refusing the whole run would
+ * strand every ref beside it for the same reason.
+ */
+function parseSnapshotRefListing(
+  listing: Buffer,
+  expectedPrefix: string,
+): readonly SnapshotRefListingEntry[] {
+  const entries: SnapshotRefListingEntry[] = [];
+  for (const line of listing.toString("utf8").split("\n")) {
+    const separatorIndex: number = line.indexOf(" ");
+    if (separatorIndex <= 0) {
+      continue;
+    }
+    const objectId: string = line.slice(0, separatorIndex);
+    const ref: string = line.slice(separatorIndex + 1);
+    if (!OBJECT_ID_PATTERN.test(objectId) || !ref.startsWith(expectedPrefix)) {
+      continue;
+    }
+    entries.push({ objectId, ref });
   }
   return entries;
 }
@@ -1720,6 +2215,39 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
+/**
+ * Whether `path` is PROVABLY absent — the retention leg's discriminator between
+ * a git dir that is gone and one it merely could not use.
+ *
+ * A separate helper rather than `!(await pathExists(path))`, and the difference
+ * is the whole reason it exists: `pathExists` treats every error as absence,
+ * which is right for the restore leg's directory observations and exactly wrong
+ * here. An `EACCES` on a live repository would then read as a disposal and go
+ * quiet, which is the fault this taxonomy is drawn to surface. So only `ENOENT`
+ * and `ENOTDIR` are absence; anything else — including a probe that failed for a
+ * reason with no `code` at all — resolves `false` and lands the run in the
+ * alarming `git-dir-unusable` arm. Fails toward the alarm, deliberately.
+ *
+ * The errno read is typed `string | undefined` (this file's established form, at
+ * the `rmdir` funnel) rather than `unknown`, and the type is doing work: under
+ * `unknown`, a maintainer reaching for a NUMERIC errno — `code === 2` — compiles
+ * to a permanently-false branch, and a genuinely-absent repository would then be
+ * reported present and alarmed on. Typed, that spelling is a compile error.
+ *
+ * A READ, so it does not go through {@link TurnSnapshotFilesystem}, which is the
+ * seam through which this service MUTATES — the same boundary the restore leg's
+ * observations respect.
+ */
+async function isPathProvablyAbsent(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return false;
+  } catch (reason: unknown) {
+    const code: string | undefined = (reason as NodeJS.ErrnoException | null)?.code;
+    return code === "ENOENT" || code === "ENOTDIR";
+  }
+}
+
 /** A colliding ignored path plus the on-disk state the failure is measured against. */
 interface ProspectiveCollision {
   readonly path: string;
@@ -1745,6 +2273,55 @@ const NO_PROSPECTIVE_RESTORE_EFFECTS: ProspectiveRestoreEffects = {
 };
 
 // --------------------------------------------------------------------------
+// Retention reads (`run_execution_contexts`)
+// --------------------------------------------------------------------------
+
+/**
+ * One prune candidate. Column-cased, matching the sibling services' row shapes —
+ * these are SQL result columns, not this module's identifiers.
+ */
+interface PrunableRunRow {
+  readonly run_id: string;
+  readonly git_common_dir: string;
+  /**
+   * `string` rather than `ExecutionMode`, matching
+   * `./ephemeral-clone-service.ts`'s row shapes: the DDL's CHECK constrains the
+   * column, but a row type is what SQLite handed back, not a parse of it. The
+   * comparison happens against the annotated constants below.
+   */
+  readonly execution_mode: string;
+}
+
+/**
+ * The two `run_execution_contexts` modes this leg reasons about, written as
+ * annotated constants rather than inline literals — the idiom (and the reason)
+ * `./ephemeral-clone-service.ts` states at its own pair: `'ephemeral clone'`
+ * carries a SPACE, and a typo in it would silently make the disposal arm
+ * unreachable rather than failing anywhere.
+ */
+const EPHEMERAL_CLONE_EXECUTION_MODE: ExecutionMode = "ephemeral clone";
+const READ_ONLY_EXECUTION_MODE: ExecutionMode = "read-only";
+
+interface RetentionCutoffParams {
+  readonly released_before: string;
+  readonly excluded_mode: ExecutionMode;
+}
+
+interface RunContextLookupParams {
+  readonly run_id: string;
+}
+
+/**
+ * The retention entry points' refusal when the service was constructed without a
+ * `database`. A message rather than a bare `TypeError`, because the recovery is
+ * a wiring change in a composition root and the reader of this string is
+ * whoever wired it.
+ */
+const RETENTION_WITHOUT_DATABASE_MESSAGE =
+  "TurnSnapshotService: the retention leg needs a `database` dependency " +
+  "(construct with `database` to call sweepPrunableRuns / pruneSnapshotsForRun)";
+
+// --------------------------------------------------------------------------
 // TurnSnapshotService
 // --------------------------------------------------------------------------
 
@@ -1765,6 +2342,14 @@ export class TurnSnapshotService {
   readonly #gitCommandTimeoutMs: number;
   readonly #now: () => string;
   readonly #emitDiagnostic: (diagnostic: TurnSnapshotDiagnostic) => void;
+  readonly #retentionWindowMs: number;
+  // `null` when no `database` was supplied — the capture/restore-only wiring
+  // CP-010-12 describes. Prepared ONCE in the constructor, the idiom
+  // `./ephemeral-clone-service.ts` and `../workspace/execution-root-service.ts`
+  // both use, so a schema drift fails at construction rather than at the first
+  // sweep an hour into the daemon's life.
+  readonly #selectPrunableRunsStmt: Statement<RetentionCutoffParams, PrunableRunRow> | null;
+  readonly #selectRunContextStmt: Statement<RunContextLookupParams, PrunableRunRow> | null;
 
   constructor(deps: TurnSnapshotServiceDeps) {
     this.#hookNeutralizationDirectory = join(
@@ -1777,6 +2362,75 @@ export class TurnSnapshotService {
     this.#gitCommandTimeoutMs = deps.gitCommandTimeoutMs ?? DEFAULT_TURN_SNAPSHOT_GIT_TIMEOUT_MS;
     this.#now = deps.now ?? ((): string => new Date().toISOString());
     this.#emitDiagnostic = deps.emitDiagnostic ?? warnDiagnostic;
+
+    // REFUSED rather than normalized, and refused HERE rather than at the first
+    // sweep an hour into the daemon's life. The window is the only input to this
+    // leg whose bad values fail OPEN: a zero or negative one puts the cutoff at
+    // or after `now`, so `released_at <= @released_before` matches every terminal
+    // run and the first sweep deletes snapshots the policy meant to keep —
+    // silently, because nothing failed. `NaN` and `Infinity` fail closed but
+    // opaquely, throwing "Invalid time value" from inside the sweep's own `try`
+    // every tick while retention never actually runs. Both are a config typo
+    // (`DEFAULT_… / 0`, a units mix-up, a subtraction the wrong way), and both
+    // deserve the same answer the sweep cadence gives one.
+    const retentionWindowMs: number =
+      deps.retentionWindowMs ?? DEFAULT_TURN_SNAPSHOT_RETENTION_WINDOW_MS;
+    if (!Number.isFinite(retentionWindowMs) || retentionWindowMs <= 0) {
+      throw new RangeError(
+        "TurnSnapshotService: retentionWindowMs must be a positive finite number of " +
+          `milliseconds (received ${String(retentionWindowMs)})`,
+      );
+    }
+    this.#retentionWindowMs = retentionWindowMs;
+
+    const database: Database | undefined = deps.database;
+    if (database === undefined) {
+      this.#selectPrunableRunsStmt = null;
+      this.#selectRunContextStmt = null;
+    } else {
+      // The candidate predicate, and the whole of "the window has closed":
+      // `released_at` is NULL for a run that is still open (the T3.2 gate stamps
+      // it at run terminal), so a still-open run is never a candidate no matter
+      // how old it is, and the cutoff the caller binds is already
+      // `now - retentionWindow`.
+      //
+      // The `IS NOT NULL` clause is EXPLICIT rather than load-bearing: SQL's
+      // three-valued logic already drops a NULL from the `<=` comparison, so the
+      // clause states the intent and keeps the predicate readable rather than
+      // resting the "a live run is never pruned" property on a subtlety.
+      //
+      // `read-only` runs are excluded at the PREDICATE rather than skipped later:
+      // {@link SNAPSHOT_APPLICABLE_MODES} guarantees they never captured a ref,
+      // so every one of them would cost a `git for-each-ref` spawn to enumerate
+      // nothing — and would inflate `examinedRunCount`, the denominator an
+      // operator reads the skip list against. Bound rather than interpolated, so
+      // the excluded mode is one typed constant and not a hand-typed literal.
+      //
+      // The comparison is TEXT `<=`; see the header for the fixed-width-UTC
+      // constraint that makes it chronological. Ordered so a pass is
+      // deterministic and the oldest release prunes first — with `run_id` as the
+      // tiebreak, since two runs can release in the same millisecond.
+      this.#selectPrunableRunsStmt = database.prepare<RetentionCutoffParams, PrunableRunRow>(
+        `SELECT run_id, git_common_dir, execution_mode
+           FROM run_execution_contexts
+          WHERE released_at IS NOT NULL
+            AND released_at <= @released_before
+            AND execution_mode <> @excluded_mode
+          ORDER BY released_at ASC, run_id ASC`,
+      );
+
+      // The per-run primitive's own resolution. Deliberately UNFILTERED by
+      // `released_at` AND by mode: the window is the SWEEP's predicate and the
+      // read-only exclusion is the sweep's economy, while this statement backs
+      // the primitive that an operator (or a future explicit-disposal path)
+      // calls for one named run — see `pruneSnapshotsForRun`. A read-only run
+      // reached that way enumerates nothing, which is the honest answer.
+      this.#selectRunContextStmt = database.prepare<RunContextLookupParams, PrunableRunRow>(
+        `SELECT run_id, git_common_dir, execution_mode
+           FROM run_execution_contexts
+          WHERE run_id = @run_id`,
+      );
+    }
   }
 
   // ------------------------------------------------------------------------
@@ -2133,8 +2787,32 @@ export class TurnSnapshotService {
     snapshotCommit: string,
   ): Promise<string | null> {
     try {
-      // The trailing EMPTY old-value is the compare-and-swap against absence.
-      await this.#runGit(["-C", executionRoot, "update-ref", ref, snapshotCommit, ""], {});
+      // The trailing EMPTY old-value is the compare-and-swap against absence,
+      // and `--no-deref` is what keeps that check on the name this service
+      // VALIDATED. Without it git splits a symbolic-ref update into an update of
+      // its referent and moves the must-not-exist check there — so the CAS stops
+      // guarding the namespace the moment the name resolves elsewhere. Existing
+      // referents were never the exposure (the check refuses on them either way);
+      // a DANGLING one is: measured on git 2.50.1, planting
+      // `symbolic-ref refs/sidekicks/runs/<id>/epoch-0/turn-<next> refs/heads/evil`
+      // with no such branch makes the unflagged create write `refs/heads/evil` at
+      // the snapshot commit and exit 0 — a daemon write outside the namespace,
+      // reported as a successful capture. The turn path is guessable from inside
+      // the run, which is what makes it plantable in advance.
+      //
+      // WITH the flag, measured on the same version: the write lands on the
+      // validated in-namespace name (replacing the planted pointer with an
+      // ordinary snapshot ref), `refs/heads/` is untouched, and the capture is a
+      // truthful `captured` — the snapshot ref really does hold the snapshot
+      // commit. A LIVE referent still refuses, "reference already exists", and
+      // `#readRefIfPresent` below resolves through it to the recorded oid, which
+      // is the pre-existing already-captured reading, unchanged. For a direct ref
+      // — every ref this service writes — the flag is a measured no-op, and the
+      // per-epoch idempotence refusal (I-010-22) is preserved.
+      await this.#runGit(
+        ["-C", executionRoot, "update-ref", "--no-deref", ref, snapshotCommit, ""],
+        {},
+      );
       return null;
     } catch (reason: unknown) {
       const recorded: string | null = await this.#readRefIfPresent(executionRoot, ref);
@@ -2828,6 +3506,342 @@ export class TurnSnapshotService {
   }
 
   // ------------------------------------------------------------------------
+  // Retention (T5.3)
+  // ------------------------------------------------------------------------
+
+  /**
+   * Delete the snapshot refs of every run whose retention window has closed.
+   *
+   * The daemon's ONE retention trigger, and it serves both the plan's drivers
+   * with the same code: a startup call is the "reconcile runs whose windows
+   * elapsed while the daemon was down" pass — those runs are simply candidates
+   * the first sweep finds — and the periodic call on the daemon cadence is the
+   * ongoing one. Both are driven by {@link registerTurnSnapshotRetentionSweep}
+   * at the foot of this file, which `../bootstrap/index.ts` calls.
+   *
+   * NEVER REJECTS on a runtime fault. This runs on a timer with nobody awaiting
+   * it, where a rejection is an UNHANDLED rejection and Node's default
+   * `--unhandled-rejections=throw` would take the daemon down over a removed
+   * directory. So: a candidate read that fails becomes a `retention-sweep-failed`
+   * diagnostic and an empty result, and a run that cannot be pruned is skipped,
+   * enumerated in the pass's `retention-prune-skipped` diagnostic, and does not
+   * strand the candidates behind it (the per-run `try` is INSIDE the loop).
+   *
+   * THE WARN CAN QUIESCE, and it has to be able to. Nothing memoizes an
+   * already-skipped run (the header's first residual), so a skip class that
+   * recurs by construction would fire this diagnostic every hour forever with a
+   * list that only grows — and the genuine `EACCES` would be the line nobody
+   * reads. So a pass whose skips are ALL disposed ephemeral clones emits
+   * nothing, and a pass that emits reports those clones as a count beside the
+   * skips an operator can act on. The plan row's "a run whose recorded
+   * `git_common_dir` is missing … is skipped and enumerated in the sweep
+   * diagnostic" is honored for exactly the case it names — a removed
+   * REPOSITORY, `git-dir-absent` — while the clone-disposal boundary follows
+   * the row's own other clause for it, "the sweep then finds nothing to delete".
+   * Every skip of every class is on the RESULT regardless.
+   *
+   * It DOES throw for one condition, and the asymmetry is the point: a service
+   * constructed without a `database` cannot answer the retention question at
+   * all. Returning an empty result there would make a mis-wired daemon
+   * indistinguishable from a daemon with nothing to prune — silent forever,
+   * which is the exact failure this leg's diagnostics exist to prevent. That is
+   * a programmer error at the composition root, on the same footing as the
+   * un-minted-restore-target refusal in `restoreToTurn`. It is refused twice
+   * over: the wiring call in `../bootstrap/index.ts` will not build a sweeper
+   * without a handle at all, and {@link registerTurnSnapshotRetentionSweep}
+   * contains the throw if one reaches it anyway, rather than letting a timer
+   * callback carry it to the process.
+   */
+  async sweepPrunableRuns(): Promise<TurnSnapshotRetentionSweepResult> {
+    // OUTSIDE the `try`, deliberately: this is the wiring-defect throw described
+    // above, and the funnel below exists to swallow runtime faults, not to
+    // convert a mis-wired daemon into a quiet no-op.
+    const selectPrunableRuns = this.#selectPrunableRunsStmt;
+    if (selectPrunableRuns === null) {
+      throw new TypeError(RETENTION_WITHOUT_DATABASE_MESSAGE);
+    }
+
+    const examinedRunIds: string[] = [];
+    const prunedRunIds: string[] = [];
+    const deletedRefs: string[] = [];
+    const skipped: TurnSnapshotRetentionSkip[] = [];
+
+    try {
+      const cutoff: string | null = this.#retentionCutoff();
+      if (cutoff === null) {
+        throw new Error("turn-snapshot clock did not return an ISO-8601 instant");
+      }
+      const candidates: readonly PrunableRunRow[] = selectPrunableRuns.all({
+        released_before: cutoff,
+        excluded_mode: READ_ONLY_EXECUTION_MODE,
+      });
+      for (const candidate of candidates) {
+        examinedRunIds.push(candidate.run_id);
+        const outcome: TurnSnapshotRetentionPruneResult = await this.#pruneRunRefs(
+          candidate.run_id,
+          candidate.git_common_dir,
+          candidate.execution_mode,
+        );
+        deletedRefs.push(...outcome.deletedRefs);
+        if (outcome.skipped === null) {
+          prunedRunIds.push(candidate.run_id);
+        } else {
+          skipped.push(outcome.skipped);
+        }
+      }
+    } catch (reason: unknown) {
+      // The candidate read, the clock, and anything `#pruneRunRefs` did not
+      // already convert into a skip. Its own `try` is per-ref, so a leak from
+      // there is a fault in this module rather than in the repository — and it
+      // still must not reject into a timer callback.
+      this.#emit({ kind: "retention-sweep-failed", detail: describeRejection(reason) });
+    } finally {
+      // A `finally`, not a tail statement: a pass that failed halfway still
+      // skipped the runs it skipped, and losing that enumeration would report
+      // the fault while hiding which runs it stranded.
+      //
+      // The partition, and the gate: an expected-absence skip never RAISES the
+      // diagnostic and is never enumerated in it, only counted. See the method
+      // docblock for why a diagnostic that cannot go quiet is a diagnostic
+      // nobody reads.
+      const actionableSkips: TurnSnapshotRetentionSkip[] = skipped.filter(
+        (entry: TurnSnapshotRetentionSkip): boolean => !NON_ALARMING_SKIP_REASONS.has(entry.reason),
+      );
+      if (actionableSkips.length > 0) {
+        this.#emit({
+          kind: "retention-prune-skipped",
+          skipped: actionableSkips,
+          disposedCloneCount: skipped.length - actionableSkips.length,
+          examinedRunCount: examinedRunIds.length,
+        });
+      }
+    }
+
+    return { examinedRunIds, prunedRunIds, deletedRefs, skipped };
+  }
+
+  /**
+   * Delete one run's snapshot refs, whatever its retention window says.
+   *
+   * The idempotent per-run primitive; the sweep runs the same ref ops through
+   * `#pruneRunRefs` with the row it already read, so the row lookup below is
+   * reached only from HERE. A second prune of an already-pruned run enumerates
+   * nothing and therefore deletes nothing, returning empty `deletedRefs` with
+   * `skipped: null`. It is idempotent by
+   * CONSTRUCTION rather than by a guard — there is no "was this already pruned"
+   * state anywhere, which is also why a run that never captured and a run pruned
+   * an hour ago produce the identical answer.
+   *
+   * UNCONDITIONAL on the window, and that division is deliberate: the window is
+   * the sweep's predicate (`Spec-010 §Turn-Boundary Snapshots` attaches it to
+   * "the run's retention window closes", which is what the sweep asks), and this
+   * is the primitive underneath — the same split `./ephemeral-clone-service.ts`
+   * makes between its TTL-driven `cleanupTick` and its unconditional `dispose`.
+   * The consequence, stated rather than hidden: calling this for a LIVE run
+   * deletes that run's snapshots and its rollback then has nothing to restore
+   * into. Nothing in the daemon does that today — the sweeper is the only
+   * trigger, and CP-010-12 keeps retention out of the B9 turn-boundary caller.
+   *
+   * Never rejects on a runtime fault, for the sweep's reasons; the missing-
+   * `database` throw is the same programmer-error path documented on
+   * {@link TurnSnapshotService.sweepPrunableRuns}.
+   */
+  async pruneSnapshotsForRun(runId: string): Promise<TurnSnapshotRetentionPruneResult> {
+    const selectRunContext = this.#selectRunContextStmt;
+    if (selectRunContext === null) {
+      throw new TypeError(RETENTION_WITHOUT_DATABASE_MESSAGE);
+    }
+
+    let row: PrunableRunRow | undefined;
+    try {
+      row = selectRunContext.get({ run_id: runId });
+    } catch (reason: unknown) {
+      // "I could not look" — a closed handle racing a shutdown, a schema fault.
+      // Its OWN reason, because a caller switching on the vocabulary would
+      // otherwise conclude the run has no execution context and there was
+      // nothing to prune, when the refs are still there and the prune must be
+      // retried. Diagnosed as well as returned, matching what the sweep does
+      // with its own failed candidate read: the two are the same fault.
+      const detail: string = describeRejection(reason);
+      this.#emit({ kind: "retention-sweep-failed", detail });
+      return this.#skipPrune(runId, "run-context-unreadable", detail);
+    }
+    if (row === undefined) {
+      // Not a fault: a run the daemon has no execution context for has no
+      // recorded git dir, so there is no repository to prune IN. Reported as a
+      // skip rather than as an empty success, because "I found nothing" and "I
+      // could not look" are the two answers this leg must never conflate.
+      return this.#skipPrune(runId, "run-context-absent", "no run_execution_contexts row");
+    }
+    return this.#pruneRunRefs(runId, row.git_common_dir, row.execution_mode);
+  }
+
+  /**
+   * The ref ops, shared by both entry points above so the sweep never re-reads a
+   * row it already has and the primitive never duplicates the recipe.
+   *
+   * The `runId` validation lives HERE rather than in the two callers, and that
+   * is structural for the same reason `#runGit` is: this is the only path from
+   * either entry point to a git invocation, so I-010-21's "no caller-supplied
+   * string reaches a ref path unvalidated" holds by there being nowhere else to
+   * go. It covers the sweep's DB-sourced ids as well as the primitive's
+   * caller-supplied one — the table is written by the T3.2 gate with
+   * event-sourced UUIDs, and the guard costs a regex either way.
+   */
+  async #pruneRunRefs(
+    runId: string,
+    gitCommonDir: string,
+    executionMode: string,
+  ): Promise<TurnSnapshotRetentionPruneResult> {
+    if (!isSafeRefComponent(runId)) {
+      return this.#skipPrune(runId, "unsafe-run-id", "run id is not a safe ref path component");
+    }
+    const refPrefix: string = buildRunSnapshotRefPrefix(runId);
+
+    // `--git-dir=<git_common_dir>`, NEVER the execution root — see the header.
+    // The pattern's trailing slash scopes the match to this run's own segment
+    // (confirmed on git 2.50.1: a sibling `run-AB` is not matched by a
+    // `run-A/` pattern), and the format carries the oid each deletion needs.
+    let listing: TurnSnapshotGitInvocationResult;
+    try {
+      listing = await this.#runGit(
+        [
+          `--git-dir=${gitCommonDir}`,
+          "for-each-ref",
+          "--format=%(objectname) %(refname)",
+          refPrefix,
+        ],
+        {},
+      );
+    } catch (reason: unknown) {
+      // The plan's named skip: "a run whose recorded `git_common_dir` is missing
+      // or invalid at sweep time (the repo was removed) is skipped and
+      // enumerated in the sweep diagnostic, never fatal". git reports it as
+      // `fatal: not a git repository`, exit 128.
+      //
+      // ATTRIBUTED rather than assumed, and by a probe rather than by parsing
+      // git's stderr — the T5.2 discipline in this same file, where a failed
+      // resolve gets its own second question instead of folding into the absent
+      // case. git answers this one rejection for a removed repository, a
+      // disposed clone, an `EACCES` on a live store, a missing `git` binary and
+      // a failure creating the daemon's OWN hook-neutralization directory
+      // (`#runGit` creates it before spawning), and the last three are faults
+      // where the first two are outcomes. One `stat` on the failure path buys
+      // the distinction; the happy path pays nothing.
+      return this.#skipPrune(
+        runId,
+        await this.#classifyGitDirFailure(gitCommonDir, executionMode),
+        describeRejection(reason),
+      );
+    }
+
+    const deletedRefs: string[] = [];
+    for (const entry of parseSnapshotRefListing(listing.stdout, refPrefix)) {
+      try {
+        // `--no-deref` closes I-010-21's THIRD channel here, and it is the second
+        // guard on the delete side, beside the listing prefix re-check. They are
+        // not interchangeable: the prefix check validates the name git REPORTED,
+        // while `update-ref -d` acts on what that name RESOLVES to, and those
+        // differ for one input — a symbolic ref planted inside the run namespace
+        // (`git symbolic-ref refs/sidekicks/runs/<id>/epoch-0/turn-9
+        // refs/heads/main` — a cheap, non-destructive write available to anything
+        // sharing the repo, which is this product's own threat surface). Nothing
+        // upstream can catch it: `for-each-ref` resolves `%(objectname)` THROUGH
+        // the symref, so the listing entry is a 40-hex oid at an in-prefix name
+        // and the parser rightly accepts it, and the compare-and-swap matches
+        // because the oid it names is already the referent's.
+        //
+        // Measured on git 2.50.1 rather than taken from the flag's description.
+        // WITHOUT it, `update-ref -d <symref> <referent tip>` deletes
+        // `refs/heads/main` and leaves the symref dangling — exit 0, reported as
+        // a clean prune, a week after release and outside any approval path.
+        // WITH it, the same command deletes the symref ITSELF and `refs/heads/`
+        // is byte-identical afterwards. For a direct ref — every ref this service
+        // writes — it is a no-op, also measured. So the flag costs nothing on the
+        // path that exists and closes the one a hostile write opens.
+        await this.#runGit(
+          [
+            `--git-dir=${gitCommonDir}`,
+            "update-ref",
+            "--no-deref",
+            "-d",
+            entry.ref,
+            entry.objectId,
+          ],
+          {},
+        );
+      } catch (reason: unknown) {
+        // STOPS at the first refusal rather than pressing on through the rest.
+        // One run's refs share one git dir and one lock domain, so a failure at
+        // ref K is overwhelmingly the same condition at ref K+1 — a read-only
+        // directory, a removal mid-pass — and pressing on would spend a doomed
+        // process per remaining ref. Nothing durable is lost: the leg is
+        // idempotent, so the next sweep re-enumerates exactly what survived.
+        // The refs already deleted are still reported, because they really were.
+        return {
+          runId,
+          deletedRefs,
+          skipped: {
+            runId,
+            reason: "ref-delete-failed",
+            detail: `${entry.ref}: ${describeRejection(reason)}`,
+          },
+        };
+      }
+      deletedRefs.push(entry.ref);
+    }
+    return { runId, deletedRefs, skipped: null };
+  }
+
+  /**
+   * Which of the three git-dir skip reasons a failed enumeration earned.
+   *
+   * The mode is the second half of the answer and the DDL says why: for
+   * `ephemeral clone` the recorded common dir is the clone's OWN git dir, whose
+   * lifecycle is the clone's, so its absence is the T2.3 disposal working. For
+   * every other mode the recorded dir belongs to a repository nobody was
+   * supposed to delete, so the same absence is news.
+   *
+   * The probe itself is contained: a `stat` that rejects for an exotic reason
+   * resolves "not provably absent" (see {@link isPathProvablyAbsent}) and the
+   * run lands in the fault arm, which is the direction that gets looked at.
+   */
+  async #classifyGitDirFailure(
+    gitCommonDir: string,
+    executionMode: string,
+  ): Promise<TurnSnapshotRetentionSkipReason> {
+    if (!(await isPathProvablyAbsent(gitCommonDir))) {
+      return "git-dir-unusable";
+    }
+    return executionMode === EPHEMERAL_CLONE_EXECUTION_MODE ? "clone-disposed" : "git-dir-absent";
+  }
+
+  /** A prune that deleted nothing, carrying why. */
+  #skipPrune(
+    runId: string,
+    reason: TurnSnapshotRetentionSkipReason,
+    detail: string,
+  ): TurnSnapshotRetentionPruneResult {
+    return { runId, deletedRefs: [], skipped: { runId, reason, detail } };
+  }
+
+  /**
+   * `now - retentionWindow`, in the spelling `released_at` is compared against,
+   * or `null` for a clock that did not honour its contract.
+   *
+   * The subtraction runs on MILLISECONDS and the comparison on the re-serialized
+   * ISO string, so the window arithmetic is never a string operation — which is
+   * what keeps a month or year boundary from being a special case.
+   */
+  #retentionCutoff(): string | null {
+    const nowMilliseconds: number = Date.parse(this.#now());
+    if (!Number.isFinite(nowMilliseconds)) {
+      return null;
+    }
+    return new Date(nowMilliseconds - this.#retentionWindowMs).toISOString();
+  }
+
+  // ------------------------------------------------------------------------
   // Internals — plumbing
   // ------------------------------------------------------------------------
 
@@ -2914,4 +3928,210 @@ export class TurnSnapshotService {
       // See the docblock: swallowed on purpose.
     }
   }
+}
+
+// --------------------------------------------------------------------------
+// The retention sweeper driver (T5.3)
+// --------------------------------------------------------------------------
+//
+// OWNED HERE, called from `../bootstrap/index.ts`. That split is the shape
+// `docs/architecture/cross-plan-dependencies.md` §2 sanctions for this edit and
+// the Plan-026 precedent it names: the `register…` function lives in the owning
+// plan's own namespace (CP-010-7 grants Plan-010 this `src/git/` subtree
+// outright), and only the CALL wires into the Plan-007-owned bootstrap file.
+//
+// An earlier draft of this task put the whole driver in `bootstrap/index.ts` and
+// argued that a typed collaborator there "would make this Plan-007 file import
+// Plan-010's module — ownership by the back door". That argument was WRONG and is
+// recorded here rather than quietly dropped: the same §2 row sanctions Plan-006
+// constructing an `EventLogService` inside that very file and calls it "a wiring
+// call, not ownership". Importing a plan's module into `bootstrap/index.ts` IS
+// the sanctioned shape; what would be ownership is the driver body, which is why
+// it lives here.
+
+/** What a composition root hands {@link registerTurnSnapshotRetentionSweep}. */
+export interface TurnSnapshotRetentionSweepRegistration {
+  /**
+   * One retention pass. In production this is
+   * `() => turnSnapshotService.sweepPrunableRuns()`, bound at the sanctioned
+   * wiring call in `../bootstrap/index.ts`.
+   *
+   * A BARE CALLABLE rather than a {@link TurnSnapshotService}, on grounds that
+   * survive the relocation above: this is a lifecycle driver, and the two things
+   * it actually guarantees — that a rejecting sweeper cannot reach the process
+   * and that a THROWING one cannot either — are then assertable with plain
+   * functions instead of a cast against a class that makes one of them
+   * unreachable by construction. It does NOT assume the sweeper honours
+   * `sweepPrunableRuns`'s never-rejects posture: a rejection inside a timer
+   * callback with nobody awaiting it is an unhandled rejection that takes the
+   * daemon down. The cost, accepted: the type system does not stop a composition
+   * root binding the wrong callable — mitigated by there being exactly one
+   * production binding site, in the file the ownership map points at.
+   */
+  readonly runRetentionSweep: () => Promise<unknown>;
+  /**
+   * How often the periodic sweep runs, in milliseconds. Daemon configuration;
+   * defaults to {@link DEFAULT_TURN_SNAPSHOT_SWEEP_CADENCE_MS}, the same way the
+   * retention window defaults on the service.
+   *
+   * MUST be a positive integer no larger than {@link MAXIMUM_TIMER_DELAY_MS}.
+   * Refused rather than normalized — see the `@throws` on the function.
+   */
+  readonly sweepCadenceMs?: number;
+  /**
+   * Where a sweep that REJECTED is reported. Defaults to a `console.warn`
+   * rendering, the same interim sink the daemon's other diagnostic seams use
+   * until an OpenTelemetry substrate exists.
+   *
+   * Reports the SEAM's failures only. A sweep that ran and skipped some runs
+   * reports that through the service's own diagnostic sink; this hears about the
+   * sweep that could not run at all — a mis-wired sweeper, most plausibly.
+   */
+  readonly reportSweepFailure?: (reason: unknown) => void;
+}
+
+/** The shutdown half of {@link registerTurnSnapshotRetentionSweep}. */
+export interface TurnSnapshotRetentionSweepHandle {
+  /**
+   * Stops the periodic sweep.
+   *
+   * Idempotent, and by `clearInterval` itself being a no-op on a timer already
+   * cleared rather than by a flag this object keeps — a flag would be state
+   * nothing could observe, which is a worse thing to maintain than the property
+   * it claims to provide. A sweep already IN FLIGHT runs to completion: it holds
+   * no resource this handle owns, and cancelling a half-finished ref deletion
+   * would leave exactly the partial state the leg's idempotence exists to make
+   * harmless anyway.
+   */
+  dispose(): void;
+}
+
+/**
+ * The largest delay Node's timers accept before wrapping. A delay above this —
+ * like a delay below `1`, fractional ones included — is silently coerced to
+ * `1 ms`, which is why the cadence guard has an upper bound at all.
+ */
+const MAXIMUM_TIMER_DELAY_MS = 2_147_483_647;
+
+/**
+ * Start the turn-snapshot retention sweeper: one immediate reconcile pass, then
+ * a periodic sweep on the supplied cadence, until the returned handle is
+ * disposed.
+ *
+ * ORDERING OBLIGATION, and it is the caller's. This must run AFTER database
+ * migrations have been applied, because the sweeper reads
+ * `run_execution_contexts` on its very first pass. The wiring call in
+ * `../bootstrap/index.ts` takes an already-open handle for that reason, which
+ * discharges the obligation by construction rather than by comment.
+ *
+ * The two drivers the Plan-010 T5.3 row names are both here:
+ *
+ *   * the DAEMON-STARTUP RECONCILE — the immediate pass, which prunes runs whose
+ *     retention windows elapsed while the daemon was down. Kicked off ASYNC and
+ *     NON-BLOCKING: retention is housekeeping, and a daemon that waited on a git
+ *     walk before opening its listeners would have made a background concern into
+ *     a startup latency. A failure is diagnosed, never thrown.
+ *   * the PERIODIC SWEEP on the daemon-owned cadence.
+ *
+ * Overlapping ticks are suppressed. A sweep still in flight when the next tick
+ * fires causes that tick to be skipped rather than a second concurrent pass: two
+ * sweeps enumerate the same refs and race each other's deletions, and on a daemon
+ * whose sweep is slower than its cadence the passes would otherwise pile up
+ * without bound. The skipped tick costs nothing — the next one re-enumerates
+ * whatever is left, the sweep being idempotent.
+ *
+ * The interval is `unref`'d, so a composition root that forgets to `dispose()`
+ * cannot by itself keep the process alive at shutdown. It is a safety net and not
+ * a substitute: an undisposed sweeper still fires for as long as anything else
+ * holds the loop open.
+ *
+ * @throws RangeError when `sweepCadenceMs` is present and is not a positive
+ * integer of at most {@link MAXIMUM_TIMER_DELAY_MS} milliseconds.
+ */
+export function registerTurnSnapshotRetentionSweep(
+  registration: TurnSnapshotRetentionSweepRegistration,
+): TurnSnapshotRetentionSweepHandle {
+  // Resolved first, then validated: an absent cadence is the DEFAULT and not a
+  // refusal, which is what makes the cadence daemon config on the same footing
+  // as the retention window.
+  const sweepCadenceMs: number =
+    registration.sweepCadenceMs ?? DEFAULT_TURN_SNAPSHOT_SWEEP_CADENCE_MS;
+  // Every arm here is one of Node's timer coercions, and they are the reason for
+  // the shape of the check rather than a tidier `> 0`. A delay of `0`, a negative
+  // one, `NaN`, `Infinity`, a FRACTIONAL one below `1`, and one ABOVE
+  // 2147483647 all become a 1 ms interval — so a plausible monthly cadence
+  // (`DEFAULT_TURN_SNAPSHOT_RETENTION_WINDOW_MS * 4` = 2419200000) would pass a
+  // positive-and-finite check and then spawn `git for-each-ref` against every
+  // historical run a thousand times a second. Refused rather than normalized,
+  // because a daemon that quietly reinterprets a monthly cadence as 1 ms is worse
+  // than one that will not start.
+  if (
+    !Number.isInteger(sweepCadenceMs) ||
+    sweepCadenceMs < 1 ||
+    sweepCadenceMs > MAXIMUM_TIMER_DELAY_MS
+  ) {
+    throw new RangeError(
+      "registerTurnSnapshotRetentionSweep: sweepCadenceMs must be a positive integer of at " +
+        `most ${String(MAXIMUM_TIMER_DELAY_MS)} milliseconds (received ${String(sweepCadenceMs)})`,
+    );
+  }
+
+  // Guarded in turn. This is called from inside a `.catch` handler, so a reporter
+  // that threw would reject the promise that handler settles — with no further
+  // handler attached, which is the unhandled rejection this whole wrapper exists
+  // to prevent, arriving by the one path a `try` around the sweep would miss. The
+  // same double-guard reasoning as the turn-snapshot service's own `#emit`.
+  const reportSweepFailure = (reason: unknown): void => {
+    try {
+      const report: ((reason: unknown) => void) | undefined = registration.reportSweepFailure;
+      if (report === undefined) {
+        console.warn("turn-snapshot retention sweep failed", reason);
+        return;
+      }
+      report(reason);
+    } catch {
+      /* a reporter that throws must not become the failure it was reporting */
+    }
+  };
+
+  let sweepInFlight = false;
+  const runSweepGuarded = (): void => {
+    if (sweepInFlight) {
+      return;
+    }
+    sweepInFlight = true;
+    try {
+      // `Promise.resolve(…)` rather than the returned promise directly: the seam
+      // is typed `() => Promise<unknown>`, and an implementation that returned a
+      // thenable — or nothing at all, which erased types permit at a JS call site
+      // — would otherwise make `.catch` a TypeError right here.
+      void Promise.resolve(registration.runRetentionSweep())
+        .catch(reportSweepFailure)
+        .finally(() => {
+          sweepInFlight = false;
+        });
+    } catch (reason: unknown) {
+      // A sweeper that threw SYNCHRONOUSLY, before returning a promise at all —
+      // which no `.catch` can ever see, since there is no promise to attach one
+      // to. That is a NON-`async` implementation of the seam; it is NOT the
+      // Plan-010 missing-`database` wiring defect, whose `TypeError` is raised
+      // inside an `async` method and therefore always arrives as a REJECTION on
+      // the `.catch` path above. Both guards exist because those are two
+      // different paths, and the one that carries the known production defect is
+      // the other one.
+      sweepInFlight = false;
+      reportSweepFailure(reason);
+    }
+  };
+
+  runSweepGuarded();
+
+  const sweepInterval: NodeJS.Timeout = setInterval(runSweepGuarded, sweepCadenceMs);
+  sweepInterval.unref();
+
+  return {
+    dispose(): void {
+      clearInterval(sweepInterval);
+    },
+  };
 }

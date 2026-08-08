@@ -1,5 +1,7 @@
-// Plan-010 Phase 5 — T5.1, the turn-snapshot CAPTURE leg, and T5.2, the
-// two-phase RESTORE leg (`resolveRestoreTarget` + `restoreToTurn`).
+// Plan-010 Phase 5 — T5.1, the turn-snapshot CAPTURE leg; T5.2, the two-phase
+// RESTORE leg (`resolveRestoreTarget` + `restoreToTurn`); and T5.3, the
+// window-based RETENTION prune (`sweepPrunableRuns` + `pruneSnapshotsForRun`)
+// with its sanctioned `../../bootstrap/index.ts` wiring seam.
 //
 // REAL GIT, NO MOCKS. Every case drives `../turn-snapshot-service.ts` over a git
 // repository in a temporary directory, and the service's `git` seam is left at
@@ -43,6 +45,22 @@
 //   * `Spec-004 §Required Behavior` — the execution epoch is the CALLER's value
 //     (`0` before any rollback, advanced with each accepted `run.rolled_back`),
 //     placed in the ref verbatim and never derived here (CP-010-12).
+//   * `Spec-010 §Turn-Boundary Snapshots` — the RETENTION prune, driven over a
+//     REAL migrated SQLite database rather than a stubbed row source, because
+//     the claim is about a predicate over `run_execution_contexts` and a fake
+//     table would assert it against the fake: terminal-but-inside-the-window
+//     refs survive (the case that makes "prunes at terminal" fail), an elapsed
+//     window prunes while a still-open run — `released_at IS NULL` — survives
+//     beside it, and the window boundary is driven to the exact millisecond in
+//     both directions. The `git_common_dir` leg is exercised against a REAL
+//     linked worktree that is then really removed, which is the only fixture in
+//     which "the refs outlive the execution root" is a fact rather than a
+//     stipulation; the ephemeral-clone disposal boundary against a real clone,
+//     asserted non-vacuously (the canonical repository is shown NEVER to have
+//     held those refs, so "the sweep found nothing" is a statement about the
+//     clone's store and not about an empty fixture); and the skip enumeration
+//     against a pass whose FIRST candidate is unusable, so "never fatal" is
+//     asserted as the later candidates still being pruned.
 //
 // Verifies invariant:
 //
@@ -54,6 +72,21 @@
 //     on the environment channel the ref-path guard cannot reach (a capture run
 //     under an ambient `GIT_DIR` + `GIT_OBJECT_DIRECTORY` still lands in the
 //     EXECUTION ROOT's own store, with the decoy repository empty).
+//
+//     The SYMBOLIC-REF channel is driven on both sides, because a validated name
+//     that resolves elsewhere is what no name-based guard can catch: a dangling
+//     in-namespace symref squatting the next capture path is written AT the
+//     validated name rather than minting the branch it points at, and on the
+//     delete side a symref planted in the namespace is deleted itself rather than
+//     its referent. Each is asserted against `refs/heads/` byte-identical, and
+//     each fails if `--no-deref` is dropped from its invocation.
+//
+//     The RETENTION leg carries the invariant on channels the capture leg's cases
+//     cannot reach: pruning one run leaves `refs/heads/` and a PREFIX-SIBLING
+//     run's refs byte-identical; a `run_execution_contexts` row whose `run_id`
+//     would escape the namespace is refused before any git call, from the sweep
+//     as well as from the primitive; and a fabricated `for-each-ref` listing
+//     naming `refs/heads/main` is DROPPED rather than deleted.
 //   * I-010-22 — create-only, PER-EPOCH refs. The discriminating case mutates
 //     the worktree between two captures of the same `(runId, epoch, turnOrdinal)`
 //     and asserts the ref did not move, which is what "never repoints an existing
@@ -91,13 +124,18 @@
 //     forgery a brand FIELD would have admitted — against the negative control of
 //     a genuine one that is accepted.
 //
-// Two behaviours are pinned as GIT FACTS this suite established rather than
-// reasoned about, both on git 2.50.1: the delete pass's two non-fixpoint exits
+// Several behaviours are pinned as GIT FACTS this suite established rather than
+// reasoned about, all on git 2.50.1: the delete pass's two non-fixpoint exits
 // (the no-progress detection naming its stuck path, and the pass ceiling driven
-// to its exact count by a seam whose removals keep minting new content), and
+// to its exact count by a seam whose removals keep minting new content);
 // `ls-files -o` declining to descend into a path the index holds as a `160000`
 // gitlink — so post-boundary content inside a snapshot-gitlink path survives the
-// restore, asserted beside the control that identical content outside it does not.
+// restore, asserted beside the control that identical content outside it does
+// not; a `run-A/` enumeration pattern not matching a sibling `run-AB`; and both
+// halves of the `--no-deref` measurement — unflagged, `update-ref -d` on an
+// in-namespace symref deletes its REFERENT (a branch) at exit 0, and an unflagged
+// create-only CAS through a DANGLING one mints the branch it points at, while the
+// flagged forms of each act on the validated name and leave `refs/heads/` alone.
 //
 // Each host-config pin carries a NEGATIVE CONTROL in the same case: the fixture
 // re-runs the equivalent leg WITHOUT the pin and the assertion is that the
@@ -120,17 +158,23 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ExecutionMode } from "@ai-sidekicks/contracts";
 
+import { wireTurnSnapshotRetentionSweep } from "../../bootstrap/index.js";
+import { openDatabase } from "../../session/migration-runner.js";
 import {
+  DEFAULT_TURN_SNAPSHOT_RETENTION_WINDOW_MS,
+  DEFAULT_TURN_SNAPSHOT_SWEEP_CADENCE_MS,
   SNAPSHOT_NEUTRALIZED_GIT_ENV_KEYS,
   // A VALUE import, not a type-only one: the forgery case needs the class object
   // itself to prove that `Reflect.construct` reaches the erased-at-emit private
   // constructor and is still refused.
   TurnSnapshotRestoreTarget,
   TurnSnapshotService,
+  registerTurnSnapshotRetentionSweep,
   runTurnSnapshotGitWithExecFile,
   type ResolveRestoreTargetInput,
   type TurnSnapshotCaptureResult,
@@ -144,6 +188,8 @@ import {
   type TurnSnapshotRestoreResult,
   type TurnSnapshotRestoreStep,
   type TurnSnapshotRestored,
+  type TurnSnapshotRetentionPruneResult,
+  type TurnSnapshotRetentionSweepResult,
 } from "../turn-snapshot-service.js";
 
 // ----------------------------------------------------------------------------
@@ -428,6 +474,9 @@ interface ServiceOverrides {
   readonly filesystem?: TurnSnapshotFilesystem;
   readonly now?: () => string;
   readonly emitDiagnostic?: (diagnostic: TurnSnapshotDiagnostic) => void;
+  /** T5.3 only. The capture and restore cases construct WITHOUT one (CP-010-12). */
+  readonly database?: DatabaseType;
+  readonly retentionWindowMs?: number;
 }
 
 /** The service under test, at production seams unless a case overrides one. */
@@ -442,6 +491,10 @@ function buildService(overrides: ServiceOverrides = {}): TurnSnapshotService {
       }),
     ...(overrides.git === undefined ? {} : { git: overrides.git }),
     ...(overrides.filesystem === undefined ? {} : { filesystem: overrides.filesystem }),
+    ...(overrides.database === undefined ? {} : { database: overrides.database }),
+    ...(overrides.retentionWindowMs === undefined
+      ? {}
+      : { retentionWindowMs: overrides.retentionWindowMs }),
   });
 }
 
@@ -1775,6 +1828,58 @@ describe("TurnSnapshotService.captureTurnSnapshot", () => {
       await repository.git(["--git-dir", decoyRepository, "for-each-ref", "--format=%(refname)"]),
     ).toBe("");
     expect(existsSync(hijackedObjectDirectory)).toBe(false);
+  });
+
+  it("writes at the validated name when a DANGLING symref squats the capture path (I-010-21)", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    applyTurnEffects();
+
+    // The create side's own symref channel, and the one the create-only CAS does
+    // NOT cover: git splits a symbolic-ref update into an update of its referent
+    // and moves the must-not-exist check there, so "this ref must not exist"
+    // stops being a statement about the validated name. A LIVE referent refuses
+    // either way; a DANGLING one is the hole. The turn path is predictable from
+    // inside the run, so it can be squatted before the capture that will use it.
+    const squattedRef = `refs/sidekicks/runs/${RUN_ID}/epoch-0/turn-1`;
+    const hostileBranch = "refs/heads/evil";
+    await repository.git(["symbolic-ref", squattedRef, hostileBranch]);
+    const headsBefore: string = await repository.refListing("refs/heads/");
+    // Non-vacuity: the target really is dangling, which is the whole precondition
+    // — against an EXISTING branch the CAS refuses and this case proves nothing.
+    expect(headsBefore).not.toContain(hostileBranch);
+    expect(
+      (await repository.gitCapturing(["rev-parse", "--verify", hostileBranch])).exitCode,
+    ).not.toBe(0);
+
+    const captured = expectCaptured(
+      await buildService().captureTurnSnapshot({
+        ...CAPTURE_DEFAULTS,
+        executionRoot: repository.root,
+      }),
+    );
+
+    // Measured on git 2.50.1 — WITHOUT `--no-deref` this same create writes
+    // `refs/heads/evil` at the snapshot commit and exits 0, and the capture
+    // reports success: a daemon write outside the namespace, silent. WITH it the
+    // write lands on the validated name, replacing the planted pointer with an
+    // ordinary snapshot ref, and branch history never learns the ref existed.
+    expect(await repository.refListing("refs/heads/")).toBe(headsBefore);
+    expect(
+      (await repository.gitCapturing(["rev-parse", "--verify", hostileBranch])).exitCode,
+    ).not.toBe(0);
+    // The invariant as a whole-repository claim, not a per-branch one: every ref
+    // this capture produced is inside the run's own namespace.
+    // (`for-each-ref` sorts by refname, so `refs/heads/…` precedes `refs/sidekicks/…`.)
+    expect(await repository.refListing()).toBe(
+      `${headsBefore}\n${captured.snapshotCommit} ${squattedRef}`,
+    );
+    // And the capture is TRUTHFUL rather than merely safe — the reported ref
+    // really does hold the reported snapshot commit.
+    expect(captured.ref).toBe(squattedRef);
+    expect(await repository.git(["rev-parse", "--verify", squattedRef])).toBe(
+      captured.snapshotCommit,
+    );
+    expect(fixture.diagnostics).toEqual([]);
   });
 
   it("prepends the hook-neutralization flags to every invocation (D-010-10)", async () => {
@@ -3202,5 +3307,1728 @@ describe("TurnSnapshotService.restoreToTurn", () => {
     // gitlink boundary rather than about the delete pass being inert: identical
     // post-boundary content OUTSIDE that path is deleted.
     expect(existsSync(join(repository.root, "post-snapshot.txt"))).toBe(false);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Retention harness (T5.3)
+// ----------------------------------------------------------------------------
+//
+// A REAL migrated SQLite database, not a stubbed row source. The retention leg's
+// whole content is a predicate over `run_execution_contexts` — `released_at`
+// plus the window, and `git_common_dir` as the git dir — so a fake table would
+// assert the predicate against the fake, including the mode-conditional CHECK
+// that decides which companion rows a context legally has. Seeding through the
+// real DDL is also what keeps the `worktree` / `ephemeral clone` cases honest:
+// each one really does carry the root row its mode requires.
+
+const RETENTION_SESSION_ID = "0192b3c0-3333-7c4a-9b1c-1b7c5b3e8f00";
+const RETENTION_MOUNT_ID = "0192b3c0-4444-7c4a-9b1c-1b7c5b3e8f00";
+const RETENTION_WORKSPACE_ID = "0192b3c0-5555-7c4a-9b1c-1b7c5b3e8f00";
+
+/** The sweep's "now". Held, so every window assertion is arithmetic and not luck. */
+const RETENTION_NOW = "2026-06-01T00:00:00.000Z";
+
+/** Released 31 days before {@link RETENTION_NOW} — outside the 7-day default window. */
+const RELEASED_LONG_AGO = "2026-05-01T00:00:00.000Z";
+
+/** Released 1 day before {@link RETENTION_NOW} — terminal, but still INSIDE the window. */
+const RELEASED_RECENTLY = "2026-05-31T00:00:00.000Z";
+
+/**
+ * A second run id that is a strict PREFIX-EXTENSION of {@link RUN_ID}.
+ *
+ * Deliberately not just "another uuid": the enumeration pattern is
+ * `refs/sidekicks/runs/<runId>/`, and the failure this guards against is a
+ * pattern that matched by prefix rather than by path segment, which only a
+ * sibling whose id STARTS with the pruned one can catch.
+ */
+const SIBLING_RUN_ID = `${RUN_ID}b`;
+
+const UNSAFE_RUN_ID = "../../heads/main";
+
+let retentionDatabase: DatabaseType | null = null;
+
+/** Open a migrated database inside the fixture root and seed the mount + workspace. */
+function openRetentionDatabase(): DatabaseType {
+  const database: DatabaseType = openDatabase(join(fixture.fixtureRoot, "daemon.db"));
+  retentionDatabase = database;
+  database
+    .prepare(
+      `INSERT INTO repo_mounts (
+         id, session_id, node_id, local_path, canonical_root, state, attached_at, updated_at
+       ) VALUES (@id, @session_id, 'node-1', @root, @root, 'attached', @now, @now)`,
+    )
+    .run({
+      id: RETENTION_MOUNT_ID,
+      session_id: RETENTION_SESSION_ID,
+      root: fixture.repository.root,
+      now: RETENTION_NOW,
+    });
+  database
+    .prepare(
+      `INSERT INTO workspaces (
+         id, session_id, repo_mount_id, execution_mode, fs_root, state, created_at, updated_at
+       ) VALUES (@id, @session_id, @repo_mount_id, 'worktree', @root, 'ready', @now, @now)`,
+    )
+    .run({
+      id: RETENTION_WORKSPACE_ID,
+      session_id: RETENTION_SESSION_ID,
+      repo_mount_id: RETENTION_MOUNT_ID,
+      root: fixture.repository.root,
+      now: RETENTION_NOW,
+    });
+  return database;
+}
+
+function closeRetentionDatabase(): void {
+  const database: DatabaseType | null = retentionDatabase;
+  retentionDatabase = null;
+  if (database !== null && database.open) {
+    database.close();
+  }
+}
+
+interface RunContextSeed {
+  readonly runId: string;
+  readonly executionMode: ExecutionMode;
+  readonly executionRoot: string;
+  /** What the sweep runs its ref ops through. The whole point of the column. */
+  readonly gitCommonDir: string;
+  /** `null` is a run that is still OPEN — never a prune candidate. */
+  readonly releasedAt: string | null;
+}
+
+/**
+ * Seed one `run_execution_contexts` row plus exactly the companion rows its
+ * mode's CHECK requires (every writable mode carries a branch context; the
+ * worktree and clone modes each carry their own root row).
+ *
+ * The companions are not decoration: the CHECK refuses a `worktree`-mode row
+ * with a NULL `worktree_id`, so a fixture that skipped them could only have
+ * seeded `read-only` rows — the one mode that never captures a snapshot at all,
+ * and therefore the one mode in which every retention assertion would be vacuous.
+ */
+function insertRunExecutionContext(database: DatabaseType, seed: RunContextSeed): void {
+  let worktreeId: string | null = null;
+  let ephemeralCloneId: string | null = null;
+
+  if (seed.executionMode === "worktree") {
+    worktreeId = `worktree-${seed.runId}`;
+    database
+      .prepare(
+        `INSERT INTO worktrees (
+           id, repo_mount_id, created_by_session_id, created_by_run_id,
+           branch_name, fs_root, state, created_at, updated_at
+         ) VALUES (@id, @repo_mount_id, @session_id, @run_id, @branch, @root, 'ready', @now, @now)`,
+      )
+      .run({
+        id: worktreeId,
+        repo_mount_id: RETENTION_MOUNT_ID,
+        session_id: RETENTION_SESSION_ID,
+        run_id: seed.runId,
+        branch: `feature/${seed.runId}`,
+        root: seed.executionRoot,
+        now: RETENTION_NOW,
+      });
+  }
+
+  if (seed.executionMode === "ephemeral clone") {
+    ephemeralCloneId = `clone-${seed.runId}`;
+    database
+      .prepare(
+        `INSERT INTO ephemeral_clones (
+           id, workspace_id, clone_root, branch_name, expires_at, created_at, updated_at
+         ) VALUES (@id, @workspace_id, @root, @branch, @expires_at, @now, @now)`,
+      )
+      .run({
+        id: ephemeralCloneId,
+        workspace_id: RETENTION_WORKSPACE_ID,
+        root: seed.executionRoot,
+        branch: `feature/${seed.runId}`,
+        expires_at: RETENTION_NOW,
+        now: RETENTION_NOW,
+      });
+  }
+
+  // `read-only` is the one mode whose CHECK requires all three companion ids
+  // NULL — it carries no branch context at all, which is also why it can never
+  // have captured a snapshot.
+  let branchContextId: string | null = null;
+  if (seed.executionMode !== "read-only") {
+    branchContextId = `branch-context-${seed.runId}`;
+    database
+      .prepare(
+        `INSERT INTO branch_contexts (
+           id, workspace_id, worktree_id, ephemeral_clone_id,
+           base_branch, head_branch, created_at, updated_at
+         ) VALUES (@id, @workspace_id, @worktree_id, @clone_id, 'main', @head, @now, @now)`,
+      )
+      .run({
+        id: branchContextId,
+        workspace_id: RETENTION_WORKSPACE_ID,
+        worktree_id: worktreeId,
+        clone_id: ephemeralCloneId,
+        head: `feature/${seed.runId}`,
+        now: RETENTION_NOW,
+      });
+  }
+
+  database
+    .prepare(
+      `INSERT INTO run_execution_contexts (
+         run_id, session_id, workspace_id, execution_mode, execution_root, git_common_dir,
+         worktree_id, ephemeral_clone_id, branch_context_id, created_at, released_at
+       ) VALUES (
+         @run_id, @session_id, @workspace_id, @execution_mode, @execution_root, @git_common_dir,
+         @worktree_id, @clone_id, @branch_context_id, @now, @released_at
+       )`,
+    )
+    .run({
+      run_id: seed.runId,
+      session_id: RETENTION_SESSION_ID,
+      workspace_id: RETENTION_WORKSPACE_ID,
+      execution_mode: seed.executionMode,
+      execution_root: seed.executionRoot,
+      git_common_dir: seed.gitCommonDir,
+      worktree_id: worktreeId,
+      clone_id: ephemeralCloneId,
+      branch_context_id: branchContextId,
+      now: RETENTION_NOW,
+      released_at: seed.releasedAt,
+    });
+}
+
+/** The fixture repository's own git directory — the surviving canonical store. */
+function canonicalGitDirectory(): string {
+  return join(fixture.repository.root, ".git");
+}
+
+/** A retention-wired service: the real DB, the held clock, the production git seam. */
+function buildRetentionService(
+  database: DatabaseType,
+  overrides: ServiceOverrides = {},
+): TurnSnapshotService {
+  return buildService({ database, now: (): string => RETENTION_NOW, ...overrides });
+}
+
+/**
+ * Poll `condition` until it holds, or fail the case naming what never happened.
+ *
+ * The sweeper's passes are ASYNC and non-blocking by contract — registration
+ * returns before the startup reconcile has finished, and a tick returns before
+ * its pass has — so a case that drives the seam can only observe the effect,
+ * never await the promise. A fixed number of `setImmediate` turns would encode a
+ * guess about how many awaits a pass takes; this encodes only that it finishes.
+ *
+ * `setTimeout` is REAL here: the seam cases fake `setInterval`/`clearInterval`
+ * and nothing else, precisely so real work can still make progress.
+ */
+async function waitUntilSettled(
+  condition: () => Promise<boolean>,
+  description: string,
+): Promise<void> {
+  const deadline: number = Date.now() + FIXTURE_GIT_TIMEOUT_MS;
+  for (;;) {
+    if (await condition()) {
+      return;
+    }
+    if (Date.now() > deadline) {
+      throw new Error(`waitUntilSettled: timed out waiting for ${description}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
+/** A git seam that records every argv the service assembled, then really runs it. */
+function buildRecordingRunner(invocations: string[][]): TurnSnapshotGitRunner {
+  return async (argv, options) => {
+    invocations.push([...argv]);
+    return runTurnSnapshotGitWithExecFile(argv, options);
+  };
+}
+
+describe("TurnSnapshotService retention prune", () => {
+  afterEach(() => {
+    // Before the outer hook removes the fixture root out from under the handle.
+    closeRetentionDatabase();
+  });
+
+  it("retains a terminal run whose retention window has NOT elapsed", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    const database: DatabaseType = openRetentionDatabase();
+    const service: TurnSnapshotService = buildRetentionService(database);
+    applyTurnEffects();
+    await captureTurn(service);
+    const refsBefore: string = await repository.refListing("refs/sidekicks/");
+    expect(refsBefore).not.toBe("");
+
+    // Terminal — `released_at` is stamped — but only one day ago against a
+    // seven-day window. This is the case that distinguishes window-based
+    // retention from a terminal-invoked prune: at terminal the refs must still
+    // be there, because a rollback is something a user reaches for afterwards.
+    insertRunExecutionContext(database, {
+      runId: RUN_ID,
+      executionMode: "worktree",
+      executionRoot: repository.root,
+      gitCommonDir: canonicalGitDirectory(),
+      releasedAt: RELEASED_RECENTLY,
+    });
+
+    const sweep: TurnSnapshotRetentionSweepResult = await service.sweepPrunableRuns();
+
+    expect(sweep).toEqual({
+      examinedRunIds: [],
+      prunedRunIds: [],
+      deletedRefs: [],
+      skipped: [],
+    });
+    expect(await repository.refListing("refs/sidekicks/")).toBe(refsBefore);
+    expect(fixture.diagnostics).toEqual([]);
+  });
+
+  it("prunes an elapsed window while a still-open run is retained", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    const database: DatabaseType = openRetentionDatabase();
+    const service: TurnSnapshotService = buildRetentionService(database);
+    applyTurnEffects();
+    const elapsed = await captureTurn(service, { turnOrdinal: 1 });
+    const stillOpen = expectCaptured(
+      await service.captureTurnSnapshot({
+        ...CAPTURE_DEFAULTS,
+        runId: SIBLING_RUN_ID,
+        turnOrdinal: 1,
+        executionRoot: repository.root,
+      }),
+    );
+
+    insertRunExecutionContext(database, {
+      runId: RUN_ID,
+      executionMode: "worktree",
+      executionRoot: repository.root,
+      gitCommonDir: canonicalGitDirectory(),
+      releasedAt: RELEASED_LONG_AGO,
+    });
+    // `released_at IS NULL` — the run has not reached terminal at all. Age is
+    // irrelevant to it, which is what the NULL arm of the predicate means.
+    insertRunExecutionContext(database, {
+      runId: SIBLING_RUN_ID,
+      executionMode: "worktree",
+      executionRoot: repository.root,
+      gitCommonDir: canonicalGitDirectory(),
+      releasedAt: null,
+    });
+
+    const sweep: TurnSnapshotRetentionSweepResult = await service.sweepPrunableRuns();
+
+    expect(sweep.examinedRunIds).toEqual([RUN_ID]);
+    expect(sweep.prunedRunIds).toEqual([RUN_ID]);
+    expect(sweep.deletedRefs).toEqual([elapsed.ref]);
+    expect(sweep.skipped).toEqual([]);
+    expect(await repository.refListing("refs/sidekicks/")).toBe(
+      `${stillOpen.snapshotCommit} ${stillOpen.ref}`,
+    );
+    // No skips, so no enumeration diagnostic: the quiet path is asserted too.
+    expect(fixture.diagnostics).toEqual([]);
+  });
+
+  it("applies the configured window to the exact millisecond, both directions", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    const database: DatabaseType = openRetentionDatabase();
+    // One minute, so the boundary is expressible without a day of arithmetic.
+    const windowMs = 60_000;
+    const service: TurnSnapshotService = buildRetentionService(database, {
+      retentionWindowMs: windowMs,
+    });
+    applyTurnEffects();
+    const atBoundary = await captureTurn(service, { turnOrdinal: 1 });
+    const insideWindow = expectCaptured(
+      await service.captureTurnSnapshot({
+        ...CAPTURE_DEFAULTS,
+        runId: SIBLING_RUN_ID,
+        turnOrdinal: 1,
+        executionRoot: repository.root,
+      }),
+    );
+
+    const cutoffMs: number = Date.parse(RETENTION_NOW) - windowMs;
+    insertRunExecutionContext(database, {
+      runId: RUN_ID,
+      executionMode: "worktree",
+      executionRoot: repository.root,
+      gitCommonDir: canonicalGitDirectory(),
+      // EXACTLY at the cutoff — the predicate is `<=`, so this one goes.
+      releasedAt: new Date(cutoffMs).toISOString(),
+    });
+    insertRunExecutionContext(database, {
+      runId: SIBLING_RUN_ID,
+      executionMode: "worktree",
+      executionRoot: repository.root,
+      gitCommonDir: canonicalGitDirectory(),
+      // One millisecond newer — the window has NOT closed.
+      releasedAt: new Date(cutoffMs + 1).toISOString(),
+    });
+
+    const sweep: TurnSnapshotRetentionSweepResult = await service.sweepPrunableRuns();
+
+    expect(sweep.deletedRefs).toEqual([atBoundary.ref]);
+    expect(await repository.refListing("refs/sidekicks/")).toBe(
+      `${insideWindow.snapshotCommit} ${insideWindow.ref}`,
+    );
+  });
+
+  it("deletes only the named run's namespace — heads and a sibling run survive (I-010-21)", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    const database: DatabaseType = openRetentionDatabase();
+    const service: TurnSnapshotService = buildRetentionService(database);
+    applyTurnEffects();
+    // Two epochs and two ordinals for the pruned run, so "deleted the run's
+    // refs" is a claim about a SET rather than about one ref.
+    const first = await captureTurn(service, { epoch: 0, turnOrdinal: 1 });
+    const second = await captureTurn(service, { epoch: 1, turnOrdinal: 2 });
+    const sibling = expectCaptured(
+      await service.captureTurnSnapshot({
+        ...CAPTURE_DEFAULTS,
+        runId: SIBLING_RUN_ID,
+        executionRoot: repository.root,
+      }),
+    );
+    await repository.git(["branch", "release/1.0"]);
+    const headsBefore: string = await repository.refListing("refs/heads/");
+    const siblingRefsBefore: string = await repository.refListing(
+      `refs/sidekicks/runs/${SIBLING_RUN_ID}/`,
+    );
+    insertRunExecutionContext(database, {
+      runId: RUN_ID,
+      executionMode: "worktree",
+      executionRoot: repository.root,
+      gitCommonDir: canonicalGitDirectory(),
+      releasedAt: RELEASED_LONG_AGO,
+    });
+
+    const pruned: TurnSnapshotRetentionPruneResult = await service.pruneSnapshotsForRun(RUN_ID);
+
+    expect(pruned.skipped).toBeNull();
+    expect([...pruned.deletedRefs].sort()).toEqual([first.ref, second.ref].sort());
+    // The invariant, as ground truth on both surfaces: branch history is
+    // untouched, and the prefix-extension sibling — whose ref path starts with
+    // the pruned run's id — kept every ref it had.
+    expect(await repository.refListing("refs/heads/")).toBe(headsBefore);
+    expect(await repository.refListing(`refs/sidekicks/runs/${SIBLING_RUN_ID}/`)).toBe(
+      siblingRefsBefore,
+    );
+    expect(await repository.refListing("refs/sidekicks/")).toBe(
+      `${sibling.snapshotCommit} ${sibling.ref}`,
+    );
+  });
+
+  it("deletes a SYMBOLIC ref planted in the run namespace, never its target branch (I-010-21)", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    const database: DatabaseType = openRetentionDatabase();
+    const service: TurnSnapshotService = buildRetentionService(database);
+    applyTurnEffects();
+    const captured = await captureTurn(service);
+
+    // The attack the name check cannot see, because the name is LEGITIMATE: a
+    // symbolic ref at a well-formed in-namespace path whose target is a branch.
+    // `symbolic-ref` destroys nothing when it runs and needs no approval — it
+    // writes a pointer — and the damage arrives a full retention window later,
+    // inside an unattended background sweep. `for-each-ref` reports it with
+    // `%(objectname)` resolved THROUGH the symref, so the listing entry is a
+    // 40-hex oid at an in-prefix name: the parser accepts it correctly, and the
+    // compare-and-swap matches, because the oid it carries is already the
+    // branch's. Only `--no-deref` stands between this row and a deleted branch.
+    const checkedOutBranch: string = await repository.git(["symbolic-ref", "HEAD"]);
+    const plantedRef = `refs/sidekicks/runs/${RUN_ID}/epoch-0/turn-9`;
+    await repository.git(["symbolic-ref", plantedRef, checkedOutBranch]);
+    const branchTipBefore: string = await repository.git([
+      "rev-parse",
+      "--verify",
+      checkedOutBranch,
+    ]);
+    const headsBefore: string = await repository.refListing("refs/heads/");
+    expect(headsBefore).toContain(checkedOutBranch);
+    // The listing the prune will act on really does resolve through the symref —
+    // if this stopped being true the case would pass while testing nothing.
+    expect(await repository.refListing(`refs/sidekicks/runs/${RUN_ID}/`)).toContain(
+      `${branchTipBefore} ${plantedRef}`,
+    );
+    insertRunExecutionContext(database, {
+      runId: RUN_ID,
+      executionMode: "worktree",
+      executionRoot: repository.root,
+      gitCommonDir: canonicalGitDirectory(),
+      releasedAt: RELEASED_LONG_AGO,
+    });
+
+    const sweep: TurnSnapshotRetentionSweepResult = await service.sweepPrunableRuns();
+
+    // The invariant, on the surface that matters: branch history byte-identical.
+    // Measured on git 2.50.1 — WITHOUT `--no-deref` this same argv deletes the
+    // branch, leaves the symref dangling, exits 0, and the pass reports a clean
+    // prune with `skipped: null`. WITH it, the deletion lands on the symref.
+    expect(await repository.refListing("refs/heads/")).toBe(headsBefore);
+    expect(await repository.git(["rev-parse", "--verify", checkedOutBranch])).toBe(branchTipBefore);
+    // And the in-namespace pointer is gone, along with the real snapshot: the
+    // flag scopes the delete, it does not skip the entry.
+    expect(await repository.refListing("refs/sidekicks/")).toBe("");
+    expect([...sweep.deletedRefs].sort()).toEqual([captured.ref, plantedRef].sort());
+    expect(sweep.skipped).toEqual([]);
+    expect(fixture.diagnostics).toEqual([]);
+  });
+
+  it("refuses a namespace-escaping run id from the SWEEP before any git call (I-010-21)", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    const database: DatabaseType = openRetentionDatabase();
+    const invocations: string[][] = [];
+    const service: TurnSnapshotService = buildRetentionService(database, {
+      git: buildRecordingRunner(invocations),
+    });
+    const headsBefore: string = await repository.refListing("refs/heads/");
+    expect(headsBefore).not.toBe("");
+
+    // A hostile ROW rather than a hostile argument: the sweep's ids come from
+    // the table, so the table is where this invariant is actually exposed.
+    insertRunExecutionContext(database, {
+      runId: UNSAFE_RUN_ID,
+      executionMode: "worktree",
+      executionRoot: repository.root,
+      gitCommonDir: canonicalGitDirectory(),
+      releasedAt: RELEASED_LONG_AGO,
+    });
+
+    const sweep: TurnSnapshotRetentionSweepResult = await service.sweepPrunableRuns();
+
+    expect(sweep.examinedRunIds).toEqual([UNSAFE_RUN_ID]);
+    expect(sweep.prunedRunIds).toEqual([]);
+    expect(sweep.deletedRefs).toEqual([]);
+    expect(sweep.skipped).toEqual([
+      {
+        runId: UNSAFE_RUN_ID,
+        reason: "unsafe-run-id",
+        detail: "run id is not a safe ref path component",
+      },
+    ]);
+    // Refused BEFORE git, not by git: not one invocation was assembled. Relying
+    // on git's own `refusing to update ref with bad name` would report a
+    // successful prune of nothing here, which is indistinguishable from the
+    // idempotent re-prune case.
+    expect(invocations).toEqual([]);
+    expect(await repository.refListing("refs/heads/")).toBe(headsBefore);
+    expect(fixture.diagnostics).toEqual([
+      {
+        kind: "retention-prune-skipped",
+        examinedRunCount: 1,
+        disposedCloneCount: 0,
+        skipped: sweep.skipped,
+      },
+    ]);
+  });
+
+  it("refuses a namespace-escaping run id from the PRIMITIVE before any git call", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    const database: DatabaseType = openRetentionDatabase();
+    const invocations: string[][] = [];
+    const service: TurnSnapshotService = buildRetentionService(database, {
+      git: buildRecordingRunner(invocations),
+    });
+    const headsBefore: string = await repository.refListing("refs/heads/");
+    insertRunExecutionContext(database, {
+      runId: UNSAFE_RUN_ID,
+      executionMode: "branch",
+      executionRoot: repository.root,
+      gitCommonDir: canonicalGitDirectory(),
+      releasedAt: null,
+    });
+
+    const pruned: TurnSnapshotRetentionPruneResult =
+      await service.pruneSnapshotsForRun(UNSAFE_RUN_ID);
+
+    expect(pruned).toEqual({
+      runId: UNSAFE_RUN_ID,
+      deletedRefs: [],
+      skipped: {
+        runId: UNSAFE_RUN_ID,
+        reason: "unsafe-run-id",
+        detail: "run id is not a safe ref path component",
+      },
+    });
+    expect(invocations).toEqual([]);
+    expect(await repository.refListing("refs/heads/")).toBe(headsBefore);
+    // A REFUSAL, not a fault — no diagnostic, exactly as the capture leg's typed
+    // refusals produce none.
+    expect(fixture.diagnostics).toEqual([]);
+  });
+
+  it("drops a listing entry outside the run prefix instead of deleting it (I-010-21)", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    const database: DatabaseType = openRetentionDatabase();
+    const headCommit: string = await repository.git(["rev-parse", "HEAD"]);
+    const deletions: string[][] = [];
+
+    // An I-010-21 channel a validated `runId` cannot cover: git's own pattern
+    // matching. The enumeration is FABRICATED to name a branch, which is what a
+    // `for-each-ref` that matched more than it was asked for would look like from
+    // this module's side. This case pins the PARSER — the entry never reaches an
+    // argv — so it is not evidence about what `update-ref -d` does with an entry
+    // that passes; the symref cases carry that.
+    const hostileListingRunner: TurnSnapshotGitRunner = async (argv, options) => {
+      if (argv.includes("for-each-ref")) {
+        return { stdout: Buffer.from(`${headCommit} refs/heads/main\n`, "utf8"), stderr: "" };
+      }
+      if (argv.includes("update-ref")) {
+        deletions.push([...argv]);
+      }
+      return runTurnSnapshotGitWithExecFile(argv, options);
+    };
+    const service: TurnSnapshotService = buildRetentionService(database, {
+      git: hostileListingRunner,
+    });
+    const headsBefore: string = await repository.refListing("refs/heads/");
+    insertRunExecutionContext(database, {
+      runId: RUN_ID,
+      executionMode: "worktree",
+      executionRoot: repository.root,
+      gitCommonDir: canonicalGitDirectory(),
+      releasedAt: RELEASED_LONG_AGO,
+    });
+
+    const sweep: TurnSnapshotRetentionSweepResult = await service.sweepPrunableRuns();
+
+    expect(sweep.prunedRunIds).toEqual([RUN_ID]);
+    expect(sweep.deletedRefs).toEqual([]);
+    expect(deletions).toEqual([]);
+    expect(await repository.refListing("refs/heads/")).toBe(headsBefore);
+  });
+
+  it("refuses a ref whose oid moved since the enumeration, reporting the partial prune", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    const database: DatabaseType = openRetentionDatabase();
+    applyTurnEffects();
+    const capturing: TurnSnapshotService = buildRetentionService(database);
+    const first = await captureTurn(capturing, { turnOrdinal: 1 });
+    const second = await captureTurn(capturing, { turnOrdinal: 2 });
+    // A real object that is NOT the snapshot commit — the snapshot's own parent.
+    const staleObjectId: string = await repository.git(["rev-parse", "HEAD"]);
+
+    // The deletion names the oid the enumeration read, so it is a
+    // compare-and-swap. This listing reports a STALE oid for the second ref,
+    // which is what a ref that moved between the two commands would look like.
+    const staleListingRunner: TurnSnapshotGitRunner = async (argv, options) => {
+      if (argv.includes("for-each-ref")) {
+        return {
+          stdout: Buffer.from(
+            `${first.snapshotCommit} ${first.ref}\n${staleObjectId} ${second.ref}\n`,
+            "utf8",
+          ),
+          stderr: "",
+        };
+      }
+      return runTurnSnapshotGitWithExecFile(argv, options);
+    };
+    insertRunExecutionContext(database, {
+      runId: RUN_ID,
+      executionMode: "worktree",
+      executionRoot: repository.root,
+      gitCommonDir: canonicalGitDirectory(),
+      releasedAt: RELEASED_LONG_AGO,
+    });
+
+    const pruned: TurnSnapshotRetentionPruneResult = await buildRetentionService(database, {
+      git: staleListingRunner,
+    }).pruneSnapshotsForRun(RUN_ID);
+
+    // CONVERGENT: the refs it really deleted are reported alongside the reason
+    // it stopped, rather than the pass claiming to be atomic in either
+    // direction.
+    expect(pruned.deletedRefs).toEqual([first.ref]);
+    expect(pruned.skipped).toMatchObject({ runId: RUN_ID, reason: "ref-delete-failed" });
+    expect(pruned.skipped?.detail).toContain(second.ref);
+    // The compare-and-swap held: the ref whose oid disagreed still exists.
+    expect(await repository.refListing("refs/sidekicks/")).toBe(
+      `${second.snapshotCommit} ${second.ref}`,
+    );
+  });
+
+  it("prunes a RETIRED-AND-REMOVED worktree run through git_common_dir", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    const database: DatabaseType = openRetentionDatabase();
+    const service: TurnSnapshotService = buildRetentionService(database);
+    const worktreeRoot: string = join(fixture.fixtureRoot, "linked-worktree");
+    await repository.git(["worktree", "add", "-q", "-b", "feature/run", worktreeRoot]);
+
+    // What the T3.2 gate records at context creation, read the way it reads it —
+    // not hardcoded, so the fixture cannot agree with the service by accident.
+    const recordedCommonDirectory: string = await repository.git(
+      ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+      { cwd: worktreeRoot },
+    );
+
+    const captured = expectCaptured(
+      await service.captureTurnSnapshot({ ...CAPTURE_DEFAULTS, executionRoot: worktreeRoot }),
+    );
+    // The premise, established rather than assumed: a ref written from INSIDE a
+    // linked worktree lands in the SHARED common object store.
+    expect(await repository.refListing("refs/sidekicks/")).toBe(
+      `${captured.snapshotCommit} ${captured.ref}`,
+    );
+
+    insertRunExecutionContext(database, {
+      runId: RUN_ID,
+      executionMode: "worktree",
+      executionRoot: worktreeRoot,
+      gitCommonDir: recordedCommonDirectory,
+      releasedAt: RELEASED_LONG_AGO,
+    });
+
+    // T2.2's physical retirement: the execution root is GONE while the window is
+    // still open. A sweep that pruned through `execution_root` would find
+    // nothing here and leak these refs forever.
+    rmSync(worktreeRoot, { recursive: true, force: true });
+    await repository.git(["worktree", "prune"]);
+    expect(existsSync(worktreeRoot)).toBe(false);
+
+    const sweep: TurnSnapshotRetentionSweepResult = await service.sweepPrunableRuns();
+
+    expect(sweep.prunedRunIds).toEqual([RUN_ID]);
+    expect(sweep.deletedRefs).toEqual([captured.ref]);
+    expect(sweep.skipped).toEqual([]);
+    expect(await repository.refListing("refs/sidekicks/")).toBe("");
+  });
+
+  it("skips a REMOVED repository as git-dir-absent and still prunes the candidates behind it", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    const database: DatabaseType = openRetentionDatabase();
+    const service: TurnSnapshotService = buildRetentionService(database);
+    applyTurnEffects();
+    const survivor = expectCaptured(
+      await service.captureTurnSnapshot({
+        ...CAPTURE_DEFAULTS,
+        runId: SIBLING_RUN_ID,
+        executionRoot: repository.root,
+      }),
+    );
+    const removedRepositoryRoot: string = join(fixture.fixtureRoot, "removed-repo");
+
+    // The unusable candidate is released EARLIER, so it sorts FIRST. That
+    // ordering is the whole test: a `try` outside the loop would strand the
+    // second candidate, and the sweep would look like it had nothing to do.
+    insertRunExecutionContext(database, {
+      runId: RUN_ID,
+      executionMode: "worktree",
+      executionRoot: removedRepositoryRoot,
+      gitCommonDir: join(removedRepositoryRoot, ".git"),
+      releasedAt: RELEASED_LONG_AGO,
+    });
+    insertRunExecutionContext(database, {
+      runId: SIBLING_RUN_ID,
+      executionMode: "worktree",
+      executionRoot: repository.root,
+      gitCommonDir: canonicalGitDirectory(),
+      releasedAt: "2026-05-02T00:00:00.000Z",
+    });
+
+    const sweep: TurnSnapshotRetentionSweepResult = await service.sweepPrunableRuns();
+
+    expect(sweep.examinedRunIds).toEqual([RUN_ID, SIBLING_RUN_ID]);
+    expect(sweep.prunedRunIds).toEqual([SIBLING_RUN_ID]);
+    expect(sweep.deletedRefs).toEqual([survivor.ref]);
+    expect(sweep.skipped).toHaveLength(1);
+    // ABSENT, not merely unusable: the mode is `worktree`, so nothing was
+    // supposed to remove this store — which is the plan row's "the repo was
+    // removed" case, and the one it requires enumerated in the diagnostic.
+    expect(sweep.skipped[0]).toMatchObject({ runId: RUN_ID, reason: "git-dir-absent" });
+    expect(sweep.skipped[0]?.detail).toContain("not a git repository");
+    // Enumerated, never fatal — and enumerated ONCE for the whole pass.
+    expect(fixture.diagnostics).toEqual([
+      {
+        kind: "retention-prune-skipped",
+        examinedRunCount: 2,
+        disposedCloneCount: 0,
+        skipped: sweep.skipped,
+      },
+    ]);
+    expect(await repository.refListing("refs/sidekicks/")).toBe("");
+  });
+
+  it("finds nothing to delete once an ephemeral clone has been disposed", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    const database: DatabaseType = openRetentionDatabase();
+    const service: TurnSnapshotService = buildRetentionService(database);
+    const cloneRoot: string = join(fixture.fixtureRoot, "ephemeral-clone");
+    await repository.git(["clone", "-q", repository.root, cloneRoot], {
+      cwd: fixture.fixtureRoot,
+    });
+    const cloneGitDirectory: string = join(cloneRoot, ".git");
+    writeFileSync(join(cloneRoot, "created-in-clone.txt"), "clone-side work\n");
+
+    const captured = expectCaptured(
+      await service.captureTurnSnapshot({
+        ...CAPTURE_DEFAULTS,
+        mode: "ephemeral clone",
+        executionRoot: cloneRoot,
+      }),
+    );
+    // NON-VACUITY, both directions: the refs really exist, and they exist in the
+    // CLONE's own store — the canonical repository never held them, which is
+    // what makes "the sweep found nothing" a statement about the disposal rather
+    // than about an empty fixture.
+    expect(
+      await repository.git([
+        "--git-dir",
+        cloneGitDirectory,
+        "for-each-ref",
+        "--format=%(objectname) %(refname)",
+        "refs/sidekicks/",
+      ]),
+    ).toBe(`${captured.snapshotCommit} ${captured.ref}`);
+    expect(await repository.refListing("refs/sidekicks/")).toBe("");
+
+    insertRunExecutionContext(database, {
+      runId: RUN_ID,
+      executionMode: "ephemeral clone",
+      executionRoot: cloneRoot,
+      gitCommonDir: cloneGitDirectory,
+      releasedAt: RELEASED_LONG_AGO,
+    });
+
+    // `on_run_complete` disposal (T2.3) removes the clone root, and the snapshot
+    // refs go with it: they lived in the clone's object store. Campaign B2's
+    // ruling — the refs do not relocate, and a later rollback of this run is
+    // conversation-only.
+    rmSync(cloneRoot, { recursive: true, force: true });
+
+    const sweep: TurnSnapshotRetentionSweepResult = await service.sweepPrunableRuns();
+
+    expect(sweep.deletedRefs).toEqual([]);
+    expect(sweep.prunedRunIds).toEqual([]);
+    expect(sweep.skipped).toHaveLength(1);
+    // Attributed to the DISPOSAL, by the mode plus the probe — not folded into
+    // the fault arm a removed repository lands in.
+    expect(sweep.skipped[0]).toMatchObject({ runId: RUN_ID, reason: "clone-disposed" });
+    // And SILENT. This is the case that recurs by construction — every
+    // clone-mode run the daemon ever executed reaches it, hourly, with nothing
+    // memoizing it — so a pass whose only skips are disposals emits nothing at
+    // all. The full skip is still on the result above.
+    expect(fixture.diagnostics).toEqual([]);
+    // Not a retention violation and not a fault in the canonical repository: it
+    // is untouched, and it never had anything of this run's to lose.
+    expect(await repository.refListing("refs/sidekicks/")).toBe("");
+  });
+
+  it("is idempotent — a second prune of an already-pruned run no-ops", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    const database: DatabaseType = openRetentionDatabase();
+    const service: TurnSnapshotService = buildRetentionService(database);
+    applyTurnEffects();
+    const captured = await captureTurn(service);
+    insertRunExecutionContext(database, {
+      runId: RUN_ID,
+      executionMode: "worktree",
+      executionRoot: repository.root,
+      gitCommonDir: canonicalGitDirectory(),
+      releasedAt: RELEASED_LONG_AGO,
+    });
+
+    const first: TurnSnapshotRetentionPruneResult = await service.pruneSnapshotsForRun(RUN_ID);
+    const refsAfterFirst: string = await repository.refListing();
+    const second: TurnSnapshotRetentionPruneResult = await service.pruneSnapshotsForRun(RUN_ID);
+
+    expect(first).toEqual({ runId: RUN_ID, deletedRefs: [captured.ref], skipped: null });
+    // Not "the same result": an EMPTY one. The second prune enumerated nothing,
+    // so it issued no `update-ref -d` at all — which is why the whole ref set is
+    // still byte-identical rather than merely equivalent.
+    expect(second).toEqual({ runId: RUN_ID, deletedRefs: [], skipped: null });
+    expect(await repository.refListing()).toBe(refsAfterFirst);
+    expect(fixture.diagnostics).toEqual([]);
+  });
+
+  it("reports an absent execution-context row as a skip, not as an empty success", async () => {
+    const database: DatabaseType = openRetentionDatabase();
+    const service: TurnSnapshotService = buildRetentionService(database);
+    const unknownRunId = "0192b3c0-9999-7c4a-9b1c-1b7c5b3e8f00";
+
+    const pruned: TurnSnapshotRetentionPruneResult =
+      await service.pruneSnapshotsForRun(unknownRunId);
+
+    // "I found nothing" and "I could not look" must never read the same. An
+    // empty `deletedRefs` with `skipped: null` is the idempotent case above.
+    expect(pruned).toEqual({
+      runId: unknownRunId,
+      deletedRefs: [],
+      skipped: {
+        runId: unknownRunId,
+        reason: "run-context-absent",
+        detail: "no run_execution_contexts row",
+      },
+    });
+  });
+
+  it("diagnoses a candidate-read failure instead of rejecting into the timer", async () => {
+    const database: DatabaseType = openRetentionDatabase();
+    const service: TurnSnapshotService = buildRetentionService(database);
+    // The prepared statement outlives the handle it was prepared on — what a
+    // shutdown racing a sweep tick looks like from inside the sweep.
+    database.close();
+
+    const sweep: TurnSnapshotRetentionSweepResult = await service.sweepPrunableRuns();
+
+    expect(sweep).toEqual({
+      examinedRunIds: [],
+      prunedRunIds: [],
+      deletedRefs: [],
+      skipped: [],
+    });
+    expect(fixture.diagnostics).toHaveLength(1);
+    expect(fixture.diagnostics[0]).toMatchObject({ kind: "retention-sweep-failed" });
+    expect((fixture.diagnostics[0] as { readonly detail: string }).detail).toContain(
+      "database connection is not open",
+    );
+  });
+
+  it("diagnoses a clock that did not return an ISO-8601 instant", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    const database: DatabaseType = openRetentionDatabase();
+    applyTurnEffects();
+    // Captured through a service with a GOOD clock, so the fixture's refs exist
+    // and the assertion below is about the sweep rather than about the capture.
+    await captureTurn(buildRetentionService(database));
+    const refsBefore: string = await repository.refListing("refs/sidekicks/");
+    insertRunExecutionContext(database, {
+      runId: RUN_ID,
+      executionMode: "worktree",
+      executionRoot: repository.root,
+      gitCommonDir: canonicalGitDirectory(),
+      releasedAt: RELEASED_LONG_AGO,
+    });
+
+    const sweep: TurnSnapshotRetentionSweepResult = await buildRetentionService(database, {
+      now: (): string => "the day before yesterday",
+    }).sweepPrunableRuns();
+
+    expect(sweep.examinedRunIds).toEqual([]);
+    // Fails CLOSED: an unusable cutoff prunes nothing rather than defaulting to
+    // an epoch cutoff that would have swept every run in the table.
+    expect(await repository.refListing("refs/sidekicks/")).toBe(refsBefore);
+    expect(fixture.diagnostics).toEqual([
+      {
+        kind: "retention-sweep-failed",
+        detail: "turn-snapshot clock did not return an ISO-8601 instant",
+      },
+    ]);
+  });
+
+  it("throws from both retention entry points when constructed without a database", async () => {
+    // The capture/restore wiring CP-010-12 describes: no database at all.
+    const service: TurnSnapshotService = buildService();
+
+    // A mis-wired daemon must not be indistinguishable from a daemon with
+    // nothing to prune, so this is the one condition the never-throws posture
+    // deliberately does not cover. Asserted on the MESSAGE: without the guard,
+    // an incidental `TypeError` on an undefined statement would satisfy a bare
+    // `rejects.toThrow()`.
+    await expect(service.sweepPrunableRuns()).rejects.toThrow(
+      /retention leg needs a `database` dependency/,
+    );
+    await expect(service.pruneSnapshotsForRun(RUN_ID)).rejects.toThrow(
+      /retention leg needs a `database` dependency/,
+    );
+    expect(fixture.diagnostics).toEqual([]);
+  });
+
+  it("renders the skip enumeration through the default console.warn sink", async () => {
+    const database: DatabaseType = openRetentionDatabase();
+    const warnings = vi.spyOn(console, "warn").mockImplementation(() => {
+      /* the rendering is the assertion; the output is not wanted in the run */
+    });
+    // Built WITHOUT `emitDiagnostic`, so the default sink is exercised rather
+    // than described. TRIPWIRE, as on the capture-leg case: this is the interim
+    // `console.warn` standing in for the OTel diagnostic.
+    const service = new TurnSnapshotService({
+      executionRootsDirectory: fixture.executionRootsDirectory,
+      database,
+      now: () => RETENTION_NOW,
+    });
+    insertRunExecutionContext(database, {
+      runId: UNSAFE_RUN_ID,
+      executionMode: "branch",
+      executionRoot: fixture.repository.root,
+      gitCommonDir: canonicalGitDirectory(),
+      releasedAt: RELEASED_LONG_AGO,
+    });
+
+    await service.sweepPrunableRuns();
+
+    // The PASS-scoped kinds render their own identity line: the shared one would
+    // print `run=undefined epoch=undefined turn=undefined`, since a sweep spans
+    // runs and no turn at all.
+    expect(warnings).toHaveBeenCalledTimes(1);
+    expect(warnings).toHaveBeenCalledWith(
+      "turn-snapshot retention-prune-skipped: skipped=1 of examined=1 disposed-clones=0",
+      expect.objectContaining({ kind: "retention-prune-skipped", examinedRunCount: 1 }),
+    );
+  });
+
+  it("renders a sweep failure through the default console.warn sink", async () => {
+    const database: DatabaseType = openRetentionDatabase();
+    const warnings = vi.spyOn(console, "warn").mockImplementation(() => {
+      /* see above */
+    });
+    const service = new TurnSnapshotService({
+      executionRootsDirectory: fixture.executionRootsDirectory,
+      database,
+      now: () => "not an instant",
+    });
+
+    await service.sweepPrunableRuns();
+
+    expect(warnings).toHaveBeenCalledTimes(1);
+    expect(warnings).toHaveBeenCalledWith(
+      "turn-snapshot retention-sweep-failed: turn-snapshot clock did not return an ISO-8601 instant",
+      expect.objectContaining({ kind: "retention-sweep-failed" }),
+    );
+  });
+
+  it("refuses a retention window that would delete what the leg exists to keep", () => {
+    // The window is the one input to this leg whose bad values fail OPEN: zero
+    // or negative puts the cutoff at or AFTER now, so every terminal run matches
+    // and the first sweep silently deletes snapshots the policy meant to keep.
+    // `NaN` / `Infinity` fail closed but opaquely, throwing "Invalid time value"
+    // from inside the sweep every tick while retention never runs. Refused at
+    // construction, where the typo is, rather than an hour later.
+    for (const retentionWindowMs of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => buildService({ retentionWindowMs })).toThrow(RangeError);
+      expect(() => buildService({ retentionWindowMs })).toThrow(/retentionWindowMs must be/);
+    }
+    // A positive window still constructs, so the guard is a statement about the
+    // bad values and not about the parameter.
+    expect(() => buildService({ retentionWindowMs: 1 })).not.toThrow();
+  });
+
+  it("reports an unreadable execution-context row as its OWN reason, and diagnoses it", async () => {
+    const database: DatabaseType = openRetentionDatabase();
+    const service: TurnSnapshotService = buildRetentionService(database);
+    // A prepared statement outliving the handle it was prepared on — a shutdown
+    // racing an operator-triggered prune.
+    database.close();
+
+    const pruned: TurnSnapshotRetentionPruneResult = await service.pruneSnapshotsForRun(RUN_ID);
+
+    // NOT `run-context-absent`. A consumer switching on the reason would
+    // otherwise conclude the run has no execution context and there was nothing
+    // to prune, when the refs are still there and the prune must be retried.
+    expect(pruned.skipped).toMatchObject({ runId: RUN_ID, reason: "run-context-unreadable" });
+    expect(pruned.skipped?.detail).toContain("database connection is not open");
+    expect(pruned.deletedRefs).toEqual([]);
+    // And diagnosed, exactly as the sweep's equivalent candidate-read failure is:
+    // the two are the same fault reached from the two entry points.
+    expect(fixture.diagnostics).toHaveLength(1);
+    expect(fixture.diagnostics[0]).toMatchObject({ kind: "retention-sweep-failed" });
+  });
+
+  it("never examines a read-only run — it cannot have captured a ref", async () => {
+    const database: DatabaseType = openRetentionDatabase();
+    const invocations: string[][] = [];
+    const service: TurnSnapshotService = buildRetentionService(database, {
+      git: buildRecordingRunner(invocations),
+    });
+    // Terminal, ancient, and in the one mode `SNAPSHOT_APPLICABLE_MODES`
+    // excludes. Without the predicate's mode exclusion this is a `for-each-ref`
+    // spawn per hour, forever, to enumerate nothing — and an inflated
+    // `examinedRunCount`, the denominator an operator reads the skip list
+    // against.
+    insertRunExecutionContext(database, {
+      runId: RUN_ID,
+      executionMode: "read-only",
+      executionRoot: fixture.repository.root,
+      gitCommonDir: canonicalGitDirectory(),
+      releasedAt: RELEASED_LONG_AGO,
+    });
+
+    const sweep: TurnSnapshotRetentionSweepResult = await service.sweepPrunableRuns();
+
+    expect(sweep.examinedRunIds).toEqual([]);
+    expect(invocations).toEqual([]);
+    expect(fixture.diagnostics).toEqual([]);
+
+    // The primitive is UNFILTERED by mode, deliberately — it is the unconditional
+    // per-run op, and a read-only run reached that way enumerates nothing, which
+    // is the honest answer rather than a refusal.
+    const pruned: TurnSnapshotRetentionPruneResult = await service.pruneSnapshotsForRun(RUN_ID);
+    expect(pruned).toEqual({ runId: RUN_ID, deletedRefs: [], skipped: null });
+    expect(invocations).toHaveLength(1);
+  });
+
+  it("attributes a PRESENT-but-unusable git dir to the fault arm, and raises the warn", async () => {
+    const database: DatabaseType = openRetentionDatabase();
+    // The git dir is really there — this is the `EACCES` / corrupt-store /
+    // missing-binary class, which git answers with the same rejection a removed
+    // repository draws. Only the probe tells them apart, and misreading this one
+    // as an absence is how a genuine fault goes quiet.
+    const refusingRunner: TurnSnapshotGitRunner = async (argv, options) => {
+      if (argv.includes("for-each-ref")) {
+        throw new Error("fatal: cannot access '.': Permission denied");
+      }
+      return runTurnSnapshotGitWithExecFile(argv, options);
+    };
+    const service: TurnSnapshotService = buildRetentionService(database, { git: refusingRunner });
+    insertRunExecutionContext(database, {
+      runId: RUN_ID,
+      // `ephemeral clone` MODE with a git dir that still exists: the mode alone
+      // must not be enough to call this a disposal.
+      executionMode: "ephemeral clone",
+      executionRoot: fixture.repository.root,
+      gitCommonDir: canonicalGitDirectory(),
+      releasedAt: RELEASED_LONG_AGO,
+    });
+    expect(existsSync(canonicalGitDirectory())).toBe(true);
+
+    const sweep: TurnSnapshotRetentionSweepResult = await service.sweepPrunableRuns();
+
+    expect(sweep.skipped).toHaveLength(1);
+    expect(sweep.skipped[0]).toMatchObject({ runId: RUN_ID, reason: "git-dir-unusable" });
+    expect(fixture.diagnostics).toEqual([
+      {
+        kind: "retention-prune-skipped",
+        examinedRunCount: 1,
+        disposedCloneCount: 0,
+        skipped: sweep.skipped,
+      },
+    ]);
+  });
+
+  it("fails TOWARD the fault arm when the probe itself cannot answer", async () => {
+    const database: DatabaseType = openRetentionDatabase();
+    const service: TurnSnapshotService = buildRetentionService(database);
+    // A path component past the OS limit: `stat` rejects with `ENAMETOOLONG`,
+    // not `ENOENT`. The distinction is the point — a probe that treated every
+    // error as absence would call this a disposal and go silent, which is
+    // exactly how a live `EACCES` on a real store would be lost. Only a PROVABLE
+    // absence is an absence.
+    const unprobeableGitDirectory: string = join(fixture.fixtureRoot, "x".repeat(300), ".git");
+    insertRunExecutionContext(database, {
+      runId: RUN_ID,
+      // The mode that would otherwise earn the silent `clone-disposed` arm.
+      executionMode: "ephemeral clone",
+      executionRoot: join(fixture.fixtureRoot, "x".repeat(300)),
+      gitCommonDir: unprobeableGitDirectory,
+      releasedAt: RELEASED_LONG_AGO,
+    });
+
+    const sweep: TurnSnapshotRetentionSweepResult = await service.sweepPrunableRuns();
+
+    expect(sweep.skipped).toHaveLength(1);
+    expect(sweep.skipped[0]).toMatchObject({ runId: RUN_ID, reason: "git-dir-unusable" });
+    expect(fixture.diagnostics).toHaveLength(1);
+  });
+
+  it("counts disposed clones beside the actionable skips rather than enumerating them", async () => {
+    const database: DatabaseType = openRetentionDatabase();
+    const service: TurnSnapshotService = buildRetentionService(database);
+    const disposedCloneRoot: string = join(fixture.fixtureRoot, "already-disposed-clone");
+    // A disposed clone AND a removed repository in the same pass. The pass has
+    // something to say, so it speaks — and what it enumerates is the removal,
+    // with the disposal reduced to the count it is.
+    insertRunExecutionContext(database, {
+      runId: RUN_ID,
+      executionMode: "ephemeral clone",
+      executionRoot: disposedCloneRoot,
+      gitCommonDir: join(disposedCloneRoot, ".git"),
+      releasedAt: RELEASED_LONG_AGO,
+    });
+    insertRunExecutionContext(database, {
+      runId: SIBLING_RUN_ID,
+      executionMode: "worktree",
+      executionRoot: join(fixture.fixtureRoot, "removed-repo"),
+      gitCommonDir: join(fixture.fixtureRoot, "removed-repo", ".git"),
+      releasedAt: "2026-05-02T00:00:00.000Z",
+    });
+
+    const sweep: TurnSnapshotRetentionSweepResult = await service.sweepPrunableRuns();
+
+    // The RESULT keeps full fidelity — both skips, both reasons.
+    expect(sweep.skipped.map((skip) => skip.reason)).toEqual(["clone-disposed", "git-dir-absent"]);
+    expect(fixture.diagnostics).toEqual([
+      {
+        kind: "retention-prune-skipped",
+        examinedRunCount: 2,
+        disposedCloneCount: 1,
+        skipped: [sweep.skipped[1]],
+      },
+    ]);
+  });
+
+  it("drops a listing entry whose OID is not an object id, before it reaches an argv", async () => {
+    const database: DatabaseType = openRetentionDatabase();
+    const invocations: string[][] = [];
+    const capturing: TurnSnapshotService = buildRetentionService(database);
+    applyTurnEffects();
+    const captured = await captureTurn(capturing);
+
+    // The other half of the listing guard. This line's REF is under the correct
+    // prefix, so the prefix check passes it — what disqualifies it is the field
+    // git would have filled with an object id, here carrying a git OPTION. The
+    // deletion argv is `update-ref -d <ref> <oid>`, so an unchecked value there
+    // is a flag in a command that deletes refs.
+    const forgedOidRunner: TurnSnapshotGitRunner = async (argv, options) => {
+      invocations.push([...argv]);
+      if (argv.includes("for-each-ref")) {
+        return {
+          stdout: Buffer.from(`--upload-pack=x ${captured.ref}\n`, "utf8"),
+          stderr: "",
+        };
+      }
+      return runTurnSnapshotGitWithExecFile(argv, options);
+    };
+    insertRunExecutionContext(database, {
+      runId: RUN_ID,
+      executionMode: "worktree",
+      executionRoot: fixture.repository.root,
+      gitCommonDir: canonicalGitDirectory(),
+      releasedAt: RELEASED_LONG_AGO,
+    });
+
+    const pruned: TurnSnapshotRetentionPruneResult = await buildRetentionService(database, {
+      git: forgedOidRunner,
+    }).pruneSnapshotsForRun(RUN_ID);
+
+    expect(pruned).toEqual({ runId: RUN_ID, deletedRefs: [], skipped: null });
+    expect(invocations.filter((argv) => argv.includes("update-ref"))).toEqual([]);
+    // The ref the forged line named is untouched, which is what "dropped" means
+    // here rather than "refused".
+    expect(await fixture.repository.refListing("refs/sidekicks/")).toBe(
+      `${captured.snapshotCommit} ${captured.ref}`,
+    );
+  });
+
+  it("keeps sweeping past a run whose deletion was refused mid-way", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    const database: DatabaseType = openRetentionDatabase();
+    applyTurnEffects();
+    const capturing: TurnSnapshotService = buildRetentionService(database);
+    const first = await captureTurn(capturing, { turnOrdinal: 1 });
+    const second = await captureTurn(capturing, { turnOrdinal: 2 });
+    const behind = expectCaptured(
+      await capturing.captureTurnSnapshot({
+        ...CAPTURE_DEFAULTS,
+        runId: SIBLING_RUN_ID,
+        executionRoot: repository.root,
+      }),
+    );
+    const staleObjectId: string = await repository.git(["rev-parse", "HEAD"]);
+
+    // The FIRST candidate's second ref reports a stale oid, so its
+    // compare-and-swap deletion is refused halfway through that run. The
+    // candidate BEHIND it must still be pruned — a per-run refusal is a returned
+    // value, not a throw, and starving the queue behind one bad ref is the
+    // failure mode the never-fatal rule is written against.
+    const staleListingRunner: TurnSnapshotGitRunner = async (argv, options) => {
+      if (
+        argv.includes("for-each-ref") &&
+        argv.some((entry) => entry.includes(RUN_ID) && !entry.includes(SIBLING_RUN_ID))
+      ) {
+        return {
+          stdout: Buffer.from(
+            `${first.snapshotCommit} ${first.ref}\n${staleObjectId} ${second.ref}\n`,
+            "utf8",
+          ),
+          stderr: "",
+        };
+      }
+      return runTurnSnapshotGitWithExecFile(argv, options);
+    };
+    insertRunExecutionContext(database, {
+      runId: RUN_ID,
+      executionMode: "worktree",
+      executionRoot: repository.root,
+      gitCommonDir: canonicalGitDirectory(),
+      releasedAt: RELEASED_LONG_AGO,
+    });
+    insertRunExecutionContext(database, {
+      runId: SIBLING_RUN_ID,
+      executionMode: "worktree",
+      executionRoot: repository.root,
+      gitCommonDir: canonicalGitDirectory(),
+      releasedAt: "2026-05-02T00:00:00.000Z",
+    });
+
+    const sweep: TurnSnapshotRetentionSweepResult = await buildRetentionService(database, {
+      git: staleListingRunner,
+    }).sweepPrunableRuns();
+
+    expect(sweep.examinedRunIds).toEqual([RUN_ID, SIBLING_RUN_ID]);
+    expect(sweep.prunedRunIds).toEqual([SIBLING_RUN_ID]);
+    // The partial deletion is reported alongside the run that finished behind it.
+    expect(sweep.deletedRefs).toEqual([first.ref, behind.ref]);
+    expect(sweep.skipped).toHaveLength(1);
+    expect(sweep.skipped[0]).toMatchObject({ runId: RUN_ID, reason: "ref-delete-failed" });
+    // The compare-and-swap held: the ref whose oid disagreed still exists, and it
+    // is the only thing left.
+    expect(await repository.refListing("refs/sidekicks/")).toBe(
+      `${second.snapshotCommit} ${second.ref}`,
+    );
+  });
+});
+
+// ----------------------------------------------------------------------------
+// The sanctioned bootstrap wiring seam (T5.3)
+// ----------------------------------------------------------------------------
+//
+// Lives in THIS file rather than in `../../bootstrap/__tests__/`, because the
+// seam is Plan-010's obligation inside a Plan-007-owned file — the wiring call
+// is sanctioned, a test surface there is not. The first case drives the seam
+// over the REAL service and a real database, which is what makes "startup
+// reconciles and the interval fires the sweep" an end-to-end claim; the rest
+// drive injected callables, because their subject is the seam's containment and
+// lifecycle rather than the sweep.
+//
+// `setInterval` / `clearInterval` are the ONLY faked timers. `execFile`'s own
+// timeout uses `setTimeout`, and faking that would freeze every real git
+// invocation the first case depends on.
+
+describe("registerTurnSnapshotRetentionSweep", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    closeRetentionDatabase();
+  });
+
+  it("reconciles at startup and fires the sweep again on the cadence", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    const database: DatabaseType = openRetentionDatabase();
+    const service: TurnSnapshotService = buildRetentionService(database);
+    applyTurnEffects();
+    const downtimeRun = await captureTurn(service, { turnOrdinal: 1 });
+    const laterRun = expectCaptured(
+      await service.captureTurnSnapshot({
+        ...CAPTURE_DEFAULTS,
+        runId: SIBLING_RUN_ID,
+        executionRoot: repository.root,
+      }),
+    );
+
+    // The window closed while the daemon was DOWN — there is no terminal event
+    // left to fire, which is exactly why retention is a sweep.
+    insertRunExecutionContext(database, {
+      runId: RUN_ID,
+      executionMode: "worktree",
+      executionRoot: repository.root,
+      gitCommonDir: canonicalGitDirectory(),
+      releasedAt: RELEASED_LONG_AGO,
+    });
+
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    // Through the REAL bootstrap call — the sanctioned wiring edit — rather than
+    // through the registrar it wraps. Nothing here constructs the service: the
+    // wiring does, from daemon config, which is the clause of the T5.3 row this
+    // case is the evidence for.
+    const handle = wireTurnSnapshotRetentionSweep({
+      turnSnapshot: {
+        executionRootsDirectory: fixture.executionRootsDirectory,
+        database,
+        now: (): string => RETENTION_NOW,
+        emitDiagnostic: (diagnostic: TurnSnapshotDiagnostic): void => {
+          fixture.diagnostics.push(diagnostic);
+        },
+      },
+      sweepCadenceMs: DEFAULT_TURN_SNAPSHOT_SWEEP_CADENCE_MS,
+    });
+
+    // The startup reconcile — kicked off by registration, not by a tick, and
+    // asserted on the REFS rather than on a spy, since the sweeper the wiring
+    // built is not a thing this case holds. Awaited by polling because the pass
+    // is deliberately async and non-blocking: registration returns before it.
+    await waitUntilSettled(
+      async (): Promise<boolean> =>
+        (await repository.refListing("refs/sidekicks/")) ===
+        `${laterRun.snapshotCommit} ${laterRun.ref}`,
+      "the startup reconcile to prune the downtime run",
+    );
+    expect(await repository.refListing(`refs/sidekicks/runs/${RUN_ID}/`)).toBe("");
+    expect(downtimeRun.ref).toContain(RUN_ID);
+
+    // A second run reaches its terminal release while the daemon is UP, and its
+    // window is already closed. Nothing calls the sweeper; the interval does.
+    insertRunExecutionContext(database, {
+      runId: SIBLING_RUN_ID,
+      executionMode: "worktree",
+      executionRoot: repository.root,
+      gitCommonDir: canonicalGitDirectory(),
+      releasedAt: RELEASED_LONG_AGO,
+    });
+    // The startup pass's `.finally` has to have run before a tick can start, or
+    // the in-flight guard swallows it. Waiting on the EFFECT above already
+    // implies it — the settling continuations are microtasks and the observation
+    // is real I/O — but the drain says so rather than relying on it, so a future
+    // await added to the sweep's tail cannot turn this into a flake.
+    await new Promise((resolve) => setImmediate(resolve));
+    vi.advanceTimersByTime(DEFAULT_TURN_SNAPSHOT_SWEEP_CADENCE_MS);
+
+    await waitUntilSettled(
+      async (): Promise<boolean> => (await repository.refListing("refs/sidekicks/")) === "",
+      "the periodic sweep to prune the run released while the daemon was up",
+    );
+    handle.dispose();
+    expect(fixture.diagnostics).toEqual([]);
+  });
+
+  it("refuses to wire a sweeper with no database, at the moment the mistake is made", () => {
+    // The mis-wire the service itself can only report once an hour. The wiring
+    // call knows at construction that a sweeper without a handle can do nothing
+    // but complain, so it refuses there — the service's own optionality (a
+    // turn-boundary service holds no handle, CP-010-12) is untouched.
+    //
+    // BOTH refusals are pinned here, and the `@ts-expect-error` is half the
+    // assertion rather than a nuisance suppression: it fails the typecheck if the
+    // parameter type stops rejecting a handle-less wiring, and the `toThrow`
+    // fails if the runtime guard stops answering the untyped caller who gets past
+    // it. Deleting either mechanism breaks this case.
+    expect(() =>
+      wireTurnSnapshotRetentionSweep({
+        // @ts-expect-error - `database` is required on the wiring input
+        turnSnapshot: { executionRootsDirectory: fixture.executionRootsDirectory },
+      }),
+    ).toThrow(TypeError);
+    expect(() =>
+      wireTurnSnapshotRetentionSweep({
+        // @ts-expect-error - `database` is required on the wiring input
+        turnSnapshot: { executionRootsDirectory: fixture.executionRootsDirectory },
+      }),
+    ).toThrow(/needs an open `database`/);
+  });
+
+  it("passes the daemon-config window and cadence through to what it constructs", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    const database: DatabaseType = openRetentionDatabase();
+    applyTurnEffects();
+    const captured = await captureTurn(buildRetentionService(database));
+    const windowMs = 60_000;
+    const cutoffMs: number = Date.parse(RETENTION_NOW) - windowMs;
+    // Older than the ONE-MINUTE window, far younger than the seven-day default:
+    // a wiring that dropped the configured window on the floor would retain this
+    // run and the assertion below would fail.
+    const releasedAt: string = new Date(cutoffMs - 1_000).toISOString();
+    insertRunExecutionContext(database, {
+      runId: RUN_ID,
+      executionMode: "worktree",
+      executionRoot: repository.root,
+      gitCommonDir: canonicalGitDirectory(),
+      releasedAt,
+    });
+    // The non-vacuity guard, computed from the timestamp this case ACTUALLY
+    // seeds: age it past the default and the case would still pass while proving
+    // nothing about the configured window, which is the whole regression this
+    // guard exists to catch.
+    expect(Date.parse(RETENTION_NOW) - Date.parse(releasedAt)).toBeLessThan(
+      DEFAULT_TURN_SNAPSHOT_RETENTION_WINDOW_MS,
+    );
+    // And the refs are really there to lose before the sweep runs.
+    expect(await repository.refListing("refs/sidekicks/")).toBe(
+      `${captured.snapshotCommit} ${captured.ref}`,
+    );
+
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const handle = wireTurnSnapshotRetentionSweep({
+      turnSnapshot: {
+        executionRootsDirectory: fixture.executionRootsDirectory,
+        database,
+        retentionWindowMs: windowMs,
+        now: (): string => RETENTION_NOW,
+      },
+      // And the cadence: one tick of it must fire a second pass.
+      sweepCadenceMs: 1_000,
+    });
+
+    await waitUntilSettled(
+      async (): Promise<boolean> => (await repository.refListing("refs/sidekicks/")) === "",
+      "the configured window to make the run a candidate",
+    );
+
+    // A second run, and only the CADENCE can prune it — nothing else ticks.
+    const second = expectCaptured(
+      await buildRetentionService(database).captureTurnSnapshot({
+        ...CAPTURE_DEFAULTS,
+        runId: SIBLING_RUN_ID,
+        executionRoot: repository.root,
+      }),
+    );
+    insertRunExecutionContext(database, {
+      runId: SIBLING_RUN_ID,
+      executionMode: "worktree",
+      executionRoot: repository.root,
+      gitCommonDir: canonicalGitDirectory(),
+      releasedAt: new Date(cutoffMs - 1_000).toISOString(),
+    });
+    expect(await repository.refListing("refs/sidekicks/")).toBe(
+      `${second.snapshotCommit} ${second.ref}`,
+    );
+    // See the sibling case: the first pass must have settled before a tick can
+    // start, and this drain is what makes that a fact rather than a timing bet.
+    await new Promise((resolve) => setImmediate(resolve));
+    vi.advanceTimersByTime(1_000);
+
+    await waitUntilSettled(
+      async (): Promise<boolean> => (await repository.refListing("refs/sidekicks/")) === "",
+      "the configured cadence to fire a second pass",
+    );
+    handle.dispose();
+  });
+
+  it("stops firing once the handle is disposed, and disposes idempotently", async () => {
+    let sweepCount = 0;
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const handle = registerTurnSnapshotRetentionSweep({
+      runRetentionSweep: (): Promise<void> => {
+        sweepCount += 1;
+        return Promise.resolve();
+      },
+      sweepCadenceMs: 1_000,
+    });
+
+    // One tick at a time with a macrotask boundary between, because the
+    // in-flight flag is cleared in the sweep promise's `.finally` — a MICROTASK,
+    // which a synchronous `advanceTimersByTime(3_000)` never lets run. Three
+    // fake seconds elapsing inside one synchronous statement is not a thing a
+    // daemon does; an hour of real time between ticks is.
+    for (let tick = 0; tick < 3; tick += 1) {
+      await new Promise((resolve) => setImmediate(resolve));
+      vi.advanceTimersByTime(1_000);
+    }
+    expect(sweepCount).toBe(4); // the startup reconcile plus three ticks
+
+    handle.dispose();
+    handle.dispose();
+    for (let tick = 0; tick < 10; tick += 1) {
+      await new Promise((resolve) => setImmediate(resolve));
+      vi.advanceTimersByTime(1_000);
+    }
+
+    expect(sweepCount).toBe(4);
+  });
+
+  it("contains a rejecting sweeper and reports it instead of taking the daemon down", async () => {
+    const failures: unknown[] = [];
+    const rejection = new Error("candidate read exploded");
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const handle = registerTurnSnapshotRetentionSweep({
+      // The seam does not assume its sweeper honours the never-rejects posture:
+      // a rejection here has NOBODY awaiting it, and Node's default
+      // `--unhandled-rejections=throw` would end the process.
+      runRetentionSweep: (): Promise<never> => Promise.reject(rejection),
+      sweepCadenceMs: 1_000,
+      reportSweepFailure: (reason: unknown): void => {
+        failures.push(reason);
+      },
+    });
+
+    await new Promise((resolve) => setImmediate(resolve));
+    vi.advanceTimersByTime(1_000);
+    await new Promise((resolve) => setImmediate(resolve));
+    handle.dispose();
+
+    expect(failures).toEqual([rejection, rejection]);
+  });
+
+  it("contains the missing-database defect on the .catch path and a sync throw on the other", async () => {
+    const failures: unknown[] = [];
+    // The real wiring defect in its real shape: a service constructed without a
+    // `database`, handed to the seam by a composition root that forgot one.
+    // `sweepPrunableRuns` is `async`, so its `TypeError` is always a REJECTION —
+    // it arrives through `.catch`, never through the synchronous guard. Which
+    // arm catches which is asserted here rather than assumed, because the
+    // dangerous misreading is the one that concludes the `.catch` is redundant.
+    const misWiredService: TurnSnapshotService = buildService();
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const handle = registerTurnSnapshotRetentionSweep({
+      runRetentionSweep: (): Promise<unknown> => misWiredService.sweepPrunableRuns(),
+      sweepCadenceMs: 1_000,
+      reportSweepFailure: (reason: unknown): void => {
+        failures.push(reason);
+      },
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    handle.dispose();
+
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toBeInstanceOf(TypeError);
+    expect(String(failures[0])).toContain("retention leg needs a `database` dependency");
+
+    // And the OTHER guard, for the other arrival path: a NON-`async` sweeper
+    // that throws before returning a promise at all, which no `.catch` can ever
+    // see because there is no promise to attach one to. Both guards exist
+    // because these are two paths, not one.
+    failures.length = 0;
+    const thrown = new Error("thrown before any promise existed");
+    const throwingHandle = registerTurnSnapshotRetentionSweep({
+      runRetentionSweep: (): Promise<unknown> => {
+        throw thrown;
+      },
+      sweepCadenceMs: 1_000,
+      reportSweepFailure: (reason: unknown): void => {
+        failures.push(reason);
+      },
+    });
+    throwingHandle.dispose();
+
+    expect(failures).toEqual([thrown]);
+  });
+
+  it("skips a tick while a sweep is still in flight", async () => {
+    let sweepStarts = 0;
+    let releaseSweep: () => void = () => {
+      throw new Error("the sweeper was never started");
+    };
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const handle = registerTurnSnapshotRetentionSweep({
+      runRetentionSweep: (): Promise<void> =>
+        new Promise<void>((resolve) => {
+          sweepStarts += 1;
+          releaseSweep = resolve;
+        }),
+      sweepCadenceMs: 1_000,
+    });
+
+    expect(sweepStarts).toBe(1);
+    // Three ticks pass while the first sweep is still running. Without the
+    // in-flight guard these would be three CONCURRENT passes racing each other's
+    // deletions, and a daemon whose sweep is slower than its cadence would pile
+    // them up without bound.
+    vi.advanceTimersByTime(3_000);
+    expect(sweepStarts).toBe(1);
+
+    releaseSweep();
+    await new Promise((resolve) => setImmediate(resolve));
+    vi.advanceTimersByTime(1_000);
+
+    expect(sweepStarts).toBe(2);
+    handle.dispose();
+  });
+
+  it("refuses every cadence the platform's timers would silently reinterpret", () => {
+    const runRetentionSweep = (): Promise<void> => Promise.resolve();
+    for (const sweepCadenceMs of [
+      0,
+      -1,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      // ABOVE the 32-bit ceiling. A plausible monthly cadence written as
+      // `DEFAULT_TURN_SNAPSHOT_RETENTION_WINDOW_MS * 4` is 2_419_200_000 —
+      // positive and finite, and coerced to 1 ms all the same.
+      2_147_483_648,
+      DEFAULT_TURN_SNAPSHOT_RETENTION_WINDOW_MS * 4,
+      // And BELOW 1, which is the same coercion from the other end.
+      0.5,
+    ]) {
+      // `setInterval` silently coerces every one of these to a 1 ms interval,
+      // which turns a configuration typo into a daemon spawning git in a hot
+      // loop. Refused rather than normalized.
+      expect(() =>
+        registerTurnSnapshotRetentionSweep({ runRetentionSweep, sweepCadenceMs }),
+      ).toThrow(RangeError);
+    }
+    // The ceiling itself is ACCEPTED — the boundary is inclusive, so the refusal
+    // is a statement about the coercion and not an off-by-one.
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    registerTurnSnapshotRetentionSweep({
+      runRetentionSweep,
+      sweepCadenceMs: 2_147_483_647,
+    }).dispose();
+  });
+
+  it("takes the exported cadence default when the daemon configures none", async () => {
+    let sweepCount = 0;
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    // An ABSENT cadence is config, not a refusal: the default is Plan-010's, the
+    // same way the retention window's is.
+    const handle = registerTurnSnapshotRetentionSweep({
+      runRetentionSweep: (): Promise<void> => {
+        sweepCount += 1;
+        return Promise.resolve();
+      },
+    });
+
+    expect(sweepCount).toBe(1);
+    // The startup pass has to SETTLE before a tick can start — the in-flight
+    // flag clears in a `.finally`, a microtask no synchronous timer advance lets
+    // run. An hour of real time between ticks makes that boundary a non-issue;
+    // an hour of fake time inside one statement does not.
+    await new Promise((resolve) => setImmediate(resolve));
+    vi.advanceTimersByTime(DEFAULT_TURN_SNAPSHOT_SWEEP_CADENCE_MS - 1);
+    expect(sweepCount).toBe(1);
+    vi.advanceTimersByTime(1);
+    expect(sweepCount).toBe(2);
+    handle.dispose();
+  });
+
+  it("returns normally when the failure REPORTER itself throws", async () => {
+    const reported: unknown[] = [];
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    // The reporter runs from inside a `.catch`, so its own throw would reject
+    // the promise that handler settles — with no further handler attached. That
+    // is the unhandled rejection the whole wrapper exists to prevent, arriving
+    // by the one path a `try` around the sweep would miss.
+    const handle = registerTurnSnapshotRetentionSweep({
+      runRetentionSweep: (): Promise<never> => Promise.reject(new Error("pass failed")),
+      sweepCadenceMs: 1_000,
+      reportSweepFailure: (reason: unknown): never => {
+        reported.push(reason);
+        throw new Error("the reporter is broken too");
+      },
+    });
+
+    await new Promise((resolve) => setImmediate(resolve));
+    // The reporter really ran and really threw, and the tick that follows still
+    // starts: a swallowed reporter throw must not wedge the in-flight flag.
+    expect(reported).toHaveLength(1);
+    vi.advanceTimersByTime(1_000);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(reported).toHaveLength(2);
+    handle.dispose();
+  });
+
+  it("lets a sweep already in flight settle after the handle is disposed", async () => {
+    const failures: unknown[] = [];
+    const rejection = new Error("the pass failed after disposal");
+    let failSweep: () => void = () => {
+      throw new Error("the sweeper was never started");
+    };
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const handle = registerTurnSnapshotRetentionSweep({
+      runRetentionSweep: (): Promise<void> =>
+        new Promise<void>((_resolve, reject) => {
+          failSweep = (): void => {
+            reject(rejection);
+          };
+        }),
+      sweepCadenceMs: 1_000,
+      reportSweepFailure: (reason: unknown): void => {
+        failures.push(reason);
+      },
+    });
+
+    // Disposal stops the INTERVAL. It does not cancel a pass midway and it does
+    // not detach the containment around one: the pass holds no resource this
+    // handle owns, and an in-flight rejection arriving after shutdown is still a
+    // rejection nobody else is holding.
+    handle.dispose();
+    failSweep();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(failures).toEqual([rejection]);
+    // And the disposal really took: no further pass starts behind it.
+    vi.advanceTimersByTime(5_000);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(failures).toEqual([rejection]);
+  });
+
+  it("exports a retention window and a sweep cadence as daemon-config defaults", () => {
+    // Independently spelled, so a changed default is a decision somebody makes
+    // rather than a number that drifted.
+    expect(DEFAULT_TURN_SNAPSHOT_RETENTION_WINDOW_MS).toBe(7 * 24 * 60 * 60 * 1000);
+    expect(DEFAULT_TURN_SNAPSHOT_SWEEP_CADENCE_MS).toBe(60 * 60 * 1000);
+    // The window must outlast the cadence, or no sweep could ever observe a run
+    // inside its own window.
+    expect(DEFAULT_TURN_SNAPSHOT_RETENTION_WINDOW_MS).toBeGreaterThan(
+      DEFAULT_TURN_SNAPSHOT_SWEEP_CADENCE_MS,
+    );
   });
 });
