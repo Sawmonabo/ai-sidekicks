@@ -3483,7 +3483,11 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // 585/59 -> 587/59 (2026-08-03, PR #284 round 2): the Codex round-2 fixes
     // added I-004-19 to Plan-004's T3.4 and T3.5 `Verifies invariant:` rows —
     // two more bold resolved references.
-    bold: { resolved: 587, noneArm: 106, parentResolved: 0 },
+    // 587/59 -> 588/59 (2026-08-08, PR #298): the Codex round-1 fix added
+    // I-010-19 (daemon half) to Plan-010's T2.5 `Verifies invariant:` row,
+    // aligning it with the row's own Tests prose — one more bold resolved
+    // reference.
+    bold: { resolved: 588, noneArm: 106, parentResolved: 0 },
     legacy: { resolved: 59, noneArm: 3, parentResolved: 1 },
   });
 });
@@ -3527,11 +3531,11 @@ test("continuation-line refs are counted — the 48-vs-67 undercount", () => {
   // Shipment Manifest entry landed five more ids inside the plan's fenced
   // manifest YAML (its key-line verifies_invariant flow list, I-009-5 through
   // I-009-9).
-  // 010: 2 -> 14, total 76 -> 88 (2026-08-08, PR #298): the Plan-010 Phase-2
-  // Shipment Manifest entry landed twelve more ids inside the plan's fenced
+  // 010: 2 -> 15, total 76 -> 89 (2026-08-08, PR #298): the Plan-010 Phase-2
+  // Shipment Manifest entry landed thirteen more ids inside the plan's fenced
   // manifest YAML (a wrapped verifies_invariant flow list whose ids all sit on
   // continuation lines below the key — the undercount shape this test pins —
-  // I-010-3 through I-010-13 plus I-010-20).
+  // I-010-3 through I-010-13 plus I-010-19 and I-010-20).
   assert.deepEqual(perPlan, {
     "001": 5,
     "002": 6,
@@ -3541,10 +3545,10 @@ test("continuation-line refs are counted — the 48-vs-67 undercount", () => {
     "007": 14,
     "008": 2,
     "009": 9,
-    "010": 14,
+    "010": 15,
     "024": 5,
   });
-  assert.equal(total, 88);
+  assert.equal(total, 89);
 });
 
 test("all three YAML list spellings are counted, on continuation lines too", () => {

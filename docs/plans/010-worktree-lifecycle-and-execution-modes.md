@@ -246,7 +246,7 @@ preconditions:
   - Pure fold from `worktrees` + `ephemeral_clones` rows (session-scoped via `repo_mounts`) to the `WorktreeStatusReadResponse` shape — no IO beyond injected row reads, no derivation beyond projection (daemon-owned projections per `Spec-010 §State And Data Implications`).
   - **Tests:** the projection fixture covers every state incl. `failed`/`retired` (never filtered — I-010-19's daemon half); provenance fields pass through; the `repoMountId` filter narrows.
   - **Spec coverage:** Spec-010 line 81 (status read exposes lifecycle + provenance), Spec-010 line 90 (daemon-owned dirty/merged projections)
-  - **Verifies invariant:** I-010-20 (daemon half)
+  - **Verifies invariant:** I-010-19 (daemon half), I-010-20 (daemon half)
   - **Consumes:** rows ← T1.3; response schema ← T1.2
 - **T2.6 — Acceptance suite on real git fixtures.**
   - **Files:** `packages/runtime-daemon/src/git/__tests__/worktree-lifecycle.acceptance.test.ts` (CREATE)
@@ -594,6 +594,7 @@ shipped:
         I-010-11,
         I-010-12,
         I-010-13,
+        I-010-19,
         I-010-20,
       ]
     spec_coverage:
@@ -633,8 +634,9 @@ shipped:
       residual whose run-start re-proof the Phase-3 root-keyed run-setup gate owns); round 3 closed
       with no response under the session review cap. verifies_invariant scoping: I-010-13 is verified
       for the Phase-2 emission legs only — the dirty/merged producer half is a recorded Phase-3
-      obligation (plan Phase 3 Goal); I-010-20 rides as its daemon half per the T2.5 row. NS-48
-      auto-created in the housekeeping PR.
+      obligation (plan Phase 3 Goal); I-010-19 and I-010-20 ride as their daemon halves per the
+      T2.5 row (canonical completion stays with Phase 4's views per the invariants task column).
+      NS-48 auto-created in the housekeeping PR.
 ```
 
 ### Notes
