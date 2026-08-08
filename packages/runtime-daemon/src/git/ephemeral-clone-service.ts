@@ -83,11 +83,14 @@
 // are daemon-derived — the mount's canonical root and a path this service just
 // minted under its own execution-roots directory.
 //
-// This is a RATIFIED discharge rather than an empirically verified one: no test
-// in this package spawns real git, so the neutralization is asserted here by
-// argv inspection. The hostile-repository sentinel fixture — a repo whose hooks
-// would write a marker file if they ran — belongs to T2.6's real-git acceptance
-// tier, and the clone leg of it is what turns the argv assertion into evidence.
+// The unit tier asserts this discharge by argv inspection — what this module
+// passes, not what git does with it. The real-git half is landed: T2.6's
+// `__tests__/worktree-lifecycle.acceptance.test.ts` runs a clone preparation
+// against a hostile-repository sentinel fixture — a repo whose hooks would
+// write a marker file if they ran — behind proof the sentinels are armed, and
+// finds the sweep empty. That leg is corroborating rather than discriminating,
+// and says so in-file: a local clone consults the source's hooks for nothing,
+// so the discriminating A/B control lives on the `worktree add` arm.
 //
 // ---------------------------------------------------------------------------
 // I-010-9 — recorded, then cleaned; and why the DISPOSITION comes first
@@ -200,7 +203,7 @@
 // RESIDUAL — a head-branch collision is REFUSED, and reported as a 500
 // ---------------------------------------------------------------------------
 //
-// The four points this file can fail a prepare are told apart by
+// The points this file can fail a prepare are told apart by
 // {@link ClonePrepareFailureReason}, which T2.3 supplied to the carrier from
 // these throw sites. What the discriminant does NOT settle is the policy behind
 // one of them.

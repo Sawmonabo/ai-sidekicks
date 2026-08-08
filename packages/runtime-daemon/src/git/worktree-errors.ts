@@ -372,9 +372,9 @@ export type WorktreeReuseConflictReason =
  *     source's HEAD commit, the clone's own HEAD lands detached — a merely
  *     detached source does not suffice, `git clone` resolving the remote HEAD
  *     to a branch naming that commit — and there the read succeeds and prints
- *     nothing, and the
- *     preparation goes on to report no base branch at all — not this reason, not
- *     any failure. This member fires only when the invocation itself fails.
+ *     nothing, and the preparation goes on to report no base branch at all —
+ *     not this reason, not any failure. This member fires only when the
+ *     invocation itself fails.
  *     Collapsing the two would let a transient read failure followed by a
  *     successful branch cut ship silently self-anchored provenance into
  *     `branch_contexts`, which CP-010-6 hands to Plan-011 for PR and diff
@@ -390,7 +390,7 @@ export type WorktreeReuseConflictReason =
  *     branch collisions.
  *   * `concurrently_retired` — the clone row left `creating` while git was
  *     running, which only a concurrent `dispose` or `retireForWorkspace` can do.
- *     Unlike the other three this reports no defect: the preparation was
+ *     Unlike every other member this reports no defect: the preparation was
  *     CANCELLED by a legitimate concurrent retirement, and the compare-and-swap
  *     to `ready` is what observes it. It still belongs on `clone.prepare_failed`
  *     rather than on a conflict code, because the caller's disposition is the
@@ -632,16 +632,16 @@ export class CloneNotFoundError extends DaemonDomainError {
  * would have pre-committed every downstream importer to a shape no ratified
  * surface asked for. The widening was left to whoever first had real throw
  * sites, on the reasoning that adding a parameter later is additive whereas
- * retracting a leaky one after Phase 3 ships is not. T2.3 supplied the four
- * members from the four points its `prepare` can fail.
+ * retracting a leaky one after Phase 3 ships is not. T2.3 supplied the
+ * members, one per point its `prepare` can fail.
  *
- * The reason is what lets a caller tell the three defects apart from the one
+ * The reason is what lets a caller tell the defect members apart from the one
  * non-defect (`concurrently_retired`, a preparation cancelled by a concurrent
  * disposal) without parsing prose, and it is the value the workspace-level
  * incident can carry into `workspace.stale` metadata. The underlying git
  * `stderr` is still given no channel here — it stays in the service's scope,
  * and the persisted row remains the queryable trail (D-010-11): state `failed`
- * on the three defect arms, and already `retired` on the cancelled one.
+ * on every defect arm, and already `retired` on the cancelled one.
  */
 export class ClonePrepareFailedError extends DaemonDomainError {
   /** Non-path-bearing failure discriminant. Projects to `data.fields.reason`. */

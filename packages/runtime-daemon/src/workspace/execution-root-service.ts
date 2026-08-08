@@ -1371,12 +1371,15 @@ export class ExecutionRootService {
    * Retiring then RECORDS the retirement and removes nothing from disk (I-010-9);
    * the sweep reclaims the root on a later tick, which is the only lawful shape.
    *
-   * GATED on `created`, both legs. A `reused` worktree pre-existed this call and may
-   * be bound by other workspaces, so retiring it would destroy state this call never
-   * created; `bound` is the user's own main checkout. The same gate is what keeps
-   * the DELETE off a refreshed row: only a freshly-created root can have had no
-   * prior pair row, so only there is `#writeBranchContext`'s returned id certainly
-   * the id this call minted rather than one a previous binding owns.
+   * GATED on `created`, both legs, for reasons that differ per provenance. A
+   * `reused` worktree pre-existed this call and may be bound by other workspaces,
+   * so retiring it would destroy state this call never created — and its pair row
+   * was UPSERTED onto a pre-existing id, so `#writeBranchContext`'s returned id
+   * may be one a previous binding owns and the DELETE would take that binding's
+   * provenance with it. `bound` is the user's own main checkout, never retired;
+   * its freshly-inserted row stands as history of a binding that never completed,
+   * the same benign accumulation the insert-per-prepare reading already accepts.
+   * Only a `created` root is certainly this call's own on both legs.
    *
    * Every fault is swallowed — the caller is owed the completion failure, and a
    * compensation that fails leaves things no worse than not compensating. One
