@@ -487,9 +487,9 @@ export interface PreparedEphemeralClone {
    * detached source: `git clone` resolves the remote HEAD to a branch naming
    * that commit, so a source merely detached at a branch tip still yields that
    * branch, and the clone lands detached only when no branch references the
-   * source's HEAD commit (pinned against real git by the T2.6 acceptance
-   * suite). A lawful outcome, not a failure; the prepare succeeds and the
-   * caller self-anchors. A read that FAILS is the other case entirely and raises
+   * source's HEAD commit (empirically confirmed on real git 2.50.1). A lawful
+   * outcome, not a failure; the prepare succeeds and the caller self-anchors. A
+   * read that FAILS is the other case entirely and raises
    * `base_branch_unreadable`.
    */
   readonly baseBranch?: string;

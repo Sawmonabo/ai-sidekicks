@@ -24,8 +24,9 @@
 //   `stale` with the detail, which is what blocks the run in setup rather than
 //   degrading it.
 // - `Spec-010 §Fallback Behavior` (stale prepares refuse) — `assertWritable`
-//   runs on EVERY arm: writable ones whose bracket is closed, and read-only,
-//   which needs the gate's PERSISTENCE half. See `#resolveBindRoot`.
+//   runs on writable arms whose bracket is closed — the open bracket's own
+//   provisioner lawfully skips it — and on read-only, which needs the gate's
+//   PERSISTENCE half. See `#resolveBindRoot`.
 // - `Spec-010 §State And Data Implications` (branch context per writable mode)
 //   — `#writeBranchContext`: a row for each of the three writable modes,
 //   polymorphic in WHICH root column it fills, and none at all for `read-only`.
@@ -128,18 +129,20 @@
 //   post-retirement clone prepare, and widening `assertWritable` to admit
 //   `provisioning` would weaken a Plan-009 guard for every OTHER caller of it.
 //
-// - **`base_branch` for `ephemeral clone` mode self-anchors ONLY when the source
-//   was detached.** T2.3 observes the branch its clone was cut from and reports it
-//   on `PreparedEphemeralClone.baseBranch`, so the recorded base is now a
-//   measurement in the ordinary case. It is absent exactly when the source HEAD was
-//   on no branch — a lawful outcome there, not a failure — and `base_branch` is
+// - **`base_branch` for `ephemeral clone` mode self-anchors ONLY when no branch
+//   referenced the source's HEAD commit.** T2.3 observes the branch its clone was
+//   cut from and reports it on `PreparedEphemeralClone.baseBranch`, so the
+//   recorded base is now a measurement in the ordinary case. It is absent exactly
+//   when the CLONE's own HEAD lands detached — which takes a source HEAD commit
+//   no branch references, since `git clone` resolves the remote HEAD to a branch
+//   naming it — a lawful outcome there, not a failure — and `base_branch` is
 //   `TEXT NOT NULL`, so something must still be written. The fallback records the
-//   head branch, which is the one true statement available: a clone cut from a
-//   detached HEAD has no branch it descends from. What that cannot express is the
-//   COMMIT it descends from, which is the honest answer and needs a column no
-//   ratified surface has. Plan-011's recorded-context extension is where that
+//   head branch, which is the one true statement available: a clone whose own
+//   HEAD landed detached has no branch it descends from. What that cannot express
+//   is the COMMIT it descends from, which is the honest answer and needs a column
+//   no ratified surface has. Plan-011's recorded-context extension is where that
 //   belongs; until then the fallback is indistinguishable from a genuine
-//   self-anchor, and only for detached-source clones.
+//   self-anchor, and only for those unreferenced-commit clones.
 //
 // - **`base_branch` for `branch` mode self-anchors too**, and for a stronger
 //   reason: branch mode CUTS NOTHING. It binds a branch that already exists, so
@@ -1147,11 +1150,12 @@ export class ExecutionRootService {
     return {
       executionRoot: prepared.cloneRoot,
       branchName: prepared.branchName,
-      // T2.3 OBSERVED the base its clone was cut from, and reports it when the
-      // source HEAD was on a branch. Absent means the source was detached, which
-      // is a lawful outcome there rather than a failure — and `base_branch` is
-      // `TEXT NOT NULL`, so the self-anchor stays mandatory. See the header's
-      // residual for what that fallback still cannot express.
+      // T2.3 OBSERVED the base its clone was cut from, and reports it whenever
+      // a branch referenced the source's HEAD commit. Absent means none did —
+      // the clone's own HEAD landed detached — a lawful outcome there rather
+      // than a failure — and `base_branch` is `TEXT NOT NULL`, so the
+      // self-anchor stays mandatory. See the header's residual for what that
+      // fallback still cannot express.
       baseBranch: prepared.baseBranch ?? prepared.branchName,
       worktreeId: null,
       ephemeralCloneId: prepared.cloneId,
