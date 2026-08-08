@@ -1561,7 +1561,7 @@ function allCarriers(): readonly CarrierCase[] {
       httpStatus: 404,
     },
     {
-      error: new ClonePrepareFailedError(),
+      error: new ClonePrepareFailedError("clone_invocation_failed"),
       name: "ClonePrepareFailedError",
       code: "clone.prepare_failed",
       httpStatus: 500,

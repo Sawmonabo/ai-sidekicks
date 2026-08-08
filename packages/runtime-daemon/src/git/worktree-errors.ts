@@ -102,17 +102,21 @@
 // What the arguments themselves may carry is bounded the same way and is
 // uneven by design, exactly as `../workspace/repo-errors.js`'s is:
 //
-//   * The two DISCRIMINANT-BEARING carriers ({@link WorktreeCreateFailedError},
-//     {@link WorktreeReuseConflictError}) admit a closed reason enum and
-//     nothing else, so their whole message is a table lookup. A git `stderr`
-//     capture — the one value on these paths most likely to contain a path —
-//     has no channel to reach either.
-//   * {@link ClonePrepareFailedError} admits nothing at all, the
-//     `TrustEnvelopeViolationError` posture: T2.3 owns the clone-prepare
-//     failure taxonomy, and minting a discriminant here on its behalf would
-//     pre-commit it to a shape no ratified surface asks for. Adding a
-//     parameter later is additive; retracting a leaky one after Phase 3 ships
-//     is not.
+//   * The three DISCRIMINANT-BEARING carriers
+//     ({@link WorktreeCreateFailedError}, {@link WorktreeReuseConflictError},
+//     {@link ClonePrepareFailedError}) admit a closed reason enum and nothing
+//     else, so their whole message is a table lookup. A git `stderr` capture —
+//     the one value on these paths most likely to contain a path — has no
+//     channel to reach any of them.
+//
+//     {@link ClonePrepareFailedError} took no argument at all when T2.2
+//     declared it, deliberately: T2.3 owned the clone-prepare failure
+//     taxonomy, and minting a discriminant here on its behalf would have
+//     pre-committed every downstream importer to a shape no ratified surface
+//     asked for. T2.3 has since supplied it from its four real throw sites
+//     ({@link ClonePrepareFailureReason}) — the additive widening that
+//     argument-free staging was holding open, taken by the task that owns the
+//     taxonomy rather than guessed by the one that declared the carrier.
 //   * The ID- and REF-bearing carriers interpolate opaque identifiers (mount /
 //     worktree / clone / workspace ids) and git REF NAMES (branch names) into
 //     `message` and `detail`. Neither class is a path: ids are opaque scalars
@@ -342,6 +346,61 @@ export type WorktreeReuseConflictReason =
   | "dirty_unacknowledged"
   | "cleanliness_unresolved";
 
+/**
+ * Why ephemeral clone preparation failed. Closed and non-path-bearing, for the
+ * same reason {@link WorktreeCreateFailureReason} is.
+ *
+ * Four members, in the order `ephemeral-clone-service.ts`'s `prepare` reaches
+ * them. The first three are the sibling's shape — a step of the preparation did
+ * not work — and the fourth is not, which is why it is last:
+ *
+ *   * `execution_root_unavailable` — the clone-roots directory could not be
+ *     prepared under the daemon's execution-roots directory (D-010-6). Named
+ *     identically to its {@link WorktreeCreateFailureReason} member because it
+ *     is the same failure of the same D-010-6 step; the two unions are distinct
+ *     types, so the shared spelling costs nothing and makes the parallel legible.
+ *   * `clone_invocation_failed` — the `git clone` invocation did not complete.
+ *     Deliberately NOT the sibling's `git_invocation_failed`: preparation makes
+ *     TWO git invocations, and the other one's failure is the next member, so a
+ *     name that said only "a git call failed" would not discriminate.
+ *   * `head_branch_unavailable` — the `git checkout -b` invocation did not
+ *     create the caller's head branch. Its reachable case is a name that already
+ *     exists in the fresh clone, the source's own default branch being the
+ *     obvious one. The obligation to CREATE the supplied head branch is the
+ *     Plan-010 Phase-2 T2.3 row's; D-010-19 is the separate ruling that makes
+ *     the name REQUIRED at this seam rather than derivable inside it. A name
+ *     that is already present is refused rather than silently bound, the same
+ *     "user intent is never silently adapted" posture D-010-7 takes for worktree
+ *     branch collisions.
+ *   * `concurrently_retired` — the clone row left `creating` while git was
+ *     running, which only a concurrent `dispose` or `retireForWorkspace` can do.
+ *     Unlike the other three this reports no defect: the preparation was
+ *     CANCELLED by a legitimate concurrent retirement, and the compare-and-swap
+ *     to `ready` is what observes it. It still belongs on `clone.prepare_failed`
+ *     rather than on a conflict code, because the caller's disposition is the
+ *     registry row's exactly — no usable clone came out of the call and the run
+ *     stays blocked in setup — and the repair (prepare again) is the same one.
+ *     The directory git did materialize is not leaked by reporting it this way:
+ *     the row is already `retired`, so the cleanup sweep owns its removal.
+ */
+export type ClonePrepareFailureReason =
+  | "execution_root_unavailable"
+  | "clone_invocation_failed"
+  | "head_branch_unavailable"
+  | "concurrently_retired";
+
+/** Fixed, path-free message per clone-preparation reason. Total `Record`, as above. */
+const CLONE_PREPARE_FAILURE_MESSAGES: Record<ClonePrepareFailureReason, string> = {
+  execution_root_unavailable:
+    "ephemeral clone preparation failed: the daemon execution root could not be prepared",
+  clone_invocation_failed:
+    "ephemeral clone preparation failed: the git clone invocation did not complete",
+  head_branch_unavailable:
+    "ephemeral clone preparation failed: the requested head branch could not be created in the clone",
+  concurrently_retired:
+    "ephemeral clone preparation failed: the clone was retired by a concurrent disposal before preparation completed",
+};
+
 /** Fixed, path-free message per reuse-conflict reason. Total `Record`, as above. */
 const WORKTREE_REUSE_CONFLICT_MESSAGES: Record<WorktreeReuseConflictReason, string> = {
   mount_mismatch: "worktree reuse refused: the candidate belongs to a different repo mount",
@@ -546,25 +605,36 @@ export class CloneNotFoundError extends DaemonDomainError {
  * blocked in setup" (`error-contracts.md §Ephemeral Clone`, notional HTTP 500;
  * `Spec-010 §Fallback Behavior`).
  *
- * DELIBERATELY ARGUMENT-FREE, and deliberately more conservative than its
- * `worktree.create_failed` sibling. A closed reason enum would not breach the
- * §Ephemeral Clone no-path ban, and T2.3 may well want one — but T2.3 owns the
- * clone-prepare failure taxonomy, and minting its discriminant here on its
- * behalf would pre-commit every downstream importer to a shape no ratified
- * surface asks for. Accepting nothing keeps the ban structural and leaves the
- * widening to whoever first has a real consumer: adding a parameter later is
- * additive, whereas retracting a leaky one after Phase 3 ships is not. The
- * `TrustEnvelopeViolationError` posture, for the same stated reason.
+ * Carries the closed {@link ClonePrepareFailureReason}, and nothing else — the
+ * shape its `worktree.create_failed` sibling has, reached the same way. This
+ * class was declared ARGUMENT-FREE by T2.2 on purpose: a closed reason enum
+ * would not have breached the §Ephemeral Clone no-path ban, but T2.3 owned the
+ * clone-prepare failure taxonomy, and minting a discriminant here on its behalf
+ * would have pre-committed every downstream importer to a shape no ratified
+ * surface asked for. The widening was left to whoever first had real throw
+ * sites, on the reasoning that adding a parameter later is additive whereas
+ * retracting a leaky one after Phase 3 ships is not. T2.3 supplied the four
+ * members from the four points its `prepare` can fail.
+ *
+ * The reason is what lets a caller tell the three defects apart from the one
+ * non-defect (`concurrently_retired`, a preparation cancelled by a concurrent
+ * disposal) without parsing prose, and it is the value the workspace-level
+ * incident can carry into `workspace.stale` metadata. The underlying git
+ * `stderr` is still given no channel here — it stays in the service's scope,
+ * and the persisted row remains the queryable trail (D-010-11): state `failed`
+ * on the three defect arms, and already `retired` on the cancelled one.
  */
 export class ClonePrepareFailedError extends DaemonDomainError {
-  constructor() {
-    super(
-      "ephemeral clone preparation failed: no clone root was prepared and the run stays blocked in setup",
-      {
-        code: "clone.prepare_failed" satisfies EphemeralCloneErrorCode,
-        httpStatus: 500,
-      },
-    );
+  /** Non-path-bearing failure discriminant. Projects to `data.fields.reason`. */
+  readonly reason: ClonePrepareFailureReason;
+
+  constructor(reason: ClonePrepareFailureReason) {
+    super(CLONE_PREPARE_FAILURE_MESSAGES[reason], {
+      code: "clone.prepare_failed" satisfies EphemeralCloneErrorCode,
+      httpStatus: 500,
+      detail: { reason },
+    });
+    this.reason = reason;
   }
 }
 
