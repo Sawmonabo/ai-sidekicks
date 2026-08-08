@@ -350,10 +350,12 @@ class FakeClonePreparer implements ExecutionRootClonePreparer {
   /** Compensation's target for clone mode. */
   readonly disposedCloneIds: string[] = [];
   /**
-   * The base T2.3 OBSERVED, or `null` for a source that was on no branch.
+   * The base T2.3 OBSERVED, or `null` for a source HEAD commit no branch
+   * references.
    *
-   * `null` is the detached-source case, where T2.3 reports the field absent — a
-   * lawful outcome for it, and the one case where this service still self-anchors.
+   * `null` is the case where the clone's own HEAD lands detached and T2.3
+   * reports the field absent — a lawful outcome for it, and the one case where
+   * this service still self-anchors.
    */
   observedBaseBranch: string | null = SEEDED_BASE_BRANCH;
 
@@ -375,7 +377,7 @@ class FakeClonePreparer implements ExecutionRootClonePreparer {
       branchName: input.branchName,
       // Conditional spread, matching T2.3's own contract: `exactOptionalPropertyTypes`
       // makes an absent key and an explicit `undefined` different values, and the
-      // detached-source case is ABSENT.
+      // detached-clone-HEAD case is ABSENT.
       ...(this.observedBaseBranch === null ? {} : { baseBranch: this.observedBaseBranch }),
       cleanupPolicy: "on_run_complete",
       expiresAt: EPOCH,
@@ -1397,12 +1399,12 @@ describe("branch_contexts polymorphism", () => {
     expect(row.base_branch).not.toBe(row.head_branch);
   });
 
-  it("self-anchors a clone whose source was on no branch", async () => {
+  it("self-anchors a clone whose source commit no branch references", async () => {
     // The ONLY case left where the recorded base is not a measurement. T2.3 omits
-    // the field for a detached source — lawful there, not a failure — and
-    // `base_branch` is TEXT NOT NULL, so something must be written. The head branch
-    // is the one true statement available: a clone cut from a detached HEAD has no
-    // branch it descends from.
+    // the field when the clone's own HEAD lands detached — lawful there, not a
+    // failure — and `base_branch` is TEXT NOT NULL, so something must be written.
+    // The head branch is the one true statement available: a clone whose HEAD
+    // landed detached has no branch it descends from.
     insertWorkspace({ executionMode: "ephemeral clone", state: "provisioning" });
     ctx.clones.observedBaseBranch = null;
 
