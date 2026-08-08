@@ -20,8 +20,10 @@
 //     record; the clone's owning `workspaceId`).
 //   • `Spec-010 §State And Data Implications` — "Dirty and merged state belong
 //     to daemon-owned workspace projections." `dirty` and `merged` are DAEMON
-//     verdicts, already resolved onto the `worktrees` row by the services that
-//     transition it (T2.2). This projection carries them verbatim and infers
+//     verdicts that arrive on the `worktrees` row; their `-> dirty` / `-> merged`
+//     transitions belong to the run-integration layer above T2.2, not to any
+//     Phase-2 writer (the plan's Phase 3 record carries the ownership). This
+//     projection carries whatever state the row holds verbatim and infers
 //     cleanliness from nothing — there is no working-tree read here, and there
 //     could not be: the module performs no I/O.
 //

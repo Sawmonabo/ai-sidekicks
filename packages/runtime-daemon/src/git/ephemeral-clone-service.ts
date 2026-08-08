@@ -385,7 +385,7 @@ export interface EphemeralCloneServiceDeps {
   readonly git?: EphemeralCloneGitRunner;
   /** Filesystem seam; defaults to `node:fs/promises`. */
   readonly filesystem?: EphemeralCloneFilesystem;
-  /** Per-invocation git timeout; defaults to {@link DEFAULT_CLONE_GIT_TIMEOUT_MS}. */
+  /** Per-invocation git timeout; defaults to ten minutes (`git clone` on a large repository is this service's normal case). */
   readonly gitCommandTimeoutMs?: number;
   /**
    * Wall clock for `created_at` / `updated_at` / `expires_at` / `cleaned_at`.
