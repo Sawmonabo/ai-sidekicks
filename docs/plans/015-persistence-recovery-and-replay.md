@@ -58,7 +58,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 ## Invariants
 
-- **I-015-1 (exactly-once recovery execution):** A side-effecting tool call identified by `command_id` executes at most once across any number of daemon restarts and concurrent recovery workers, enforced by the two-phase receipt commit and the Phase-2 optimistic CAS (`UPDATE ... SET started_at = now() WHERE started_at IS NULL`). `Spec-015 §Idempotency Protocol`, `Spec-015 §Two-Phase Receipt Commit`.
+- **I-015-1 (at-most-once recovery execution):** A side-effecting tool call identified by `command_id` executes at most once across any number of daemon restarts and concurrent recovery workers, enforced by the two-phase receipt commit and the Phase-2 optimistic CAS (`UPDATE ... SET started_at = now() WHERE started_at IS NULL`). `Spec-015 §Idempotency Protocol`, `Spec-015 §Two-Phase Receipt Commit`.
 - **I-015-2 (idempotent rebuild):** `ProjectionRebuild` for a session over the same canonical event range yields identical projection state regardless of how many times it runs. `Spec-015 §Interfaces And Contracts`, `Spec-015 §Acceptance Criteria`.
 - **I-015-3 (no premature admission):** No mutable operation is accepted until startup recovery has restored canonical local truth or the node is in an explicit blocked/degraded state. `Spec-015 §Default Behavior`, `Spec-015 §Acceptance Criteria`.
 - **I-015-4 (no silent run loss):** A persisted driver handle that cannot be resumed transitions its run to `failed` with visible recovery-failure detail; it never silently disappears or restarts as a new run. `Spec-015 §Fallback Behavior`, `Spec-015 §Acceptance Criteria`.

@@ -46,19 +46,32 @@
 
   - Each invariant gets a stable I-NNN-N identifier (NNN = this plan's number)
     so other plans and this plan's PRs can cite it by name.
-  - Each entry: short header sentence, why-load-bearing paragraph, and a
-    Verification line naming the test or PR that proves it.
+  - Each entry: short header sentence, a grounding reference (governing spec
+    clause, or an explicit plan-owned declaration), why-load-bearing paragraph,
+    and a Verification line naming the test or PR that proves it.
   - Invariants buried in narrative are review-invisible (the Plan-007 cyclic-dep
     defect class). Promote MUSTs out of prose into this section.
+  - The three rules rendered below the section boilerplate (grounding,
+    delivery-guarantee vocabulary, Verifies-invariant resolution) are authoring
+    obligations owned by this template, not boilerplate to copy forward — a plan
+    satisfies them in its entries and does not restate them.
 -->
 
 ## Invariants
 
 The following invariants are **load-bearing** and MUST be preserved across all Plan-NNN PRs and downstream extensions. Any change that would weaken or remove an invariant requires a coordinated cross-plan amendment (see [cross-plan-dependencies.md](../architecture/cross-plan-dependencies.md)).
 
+**Grounding (required).** Every invariant MUST either (a) name the governing spec text it holds the implementation to, in the durable `Spec-NNN §Heading` form per AGENTS.md §Durable-Cite Rule, or (b) explicitly declare itself **plan-owned**. The obligation attaches to the entry, not to a fixed paragraph slot, so it is satisfied in place by whichever entry form the plan uses: the heading form sketched below, a bullet entry with a trailing `Cite:` clause ([Plan-006 §Invariants](./006-session-event-taxonomy-and-audit-log.md#invariants) I-006-4-04, which cites two Spec-006 sections for one claim), or a table row carrying the link inside its cell ([Plan-004 §Invariants](./004-queue-steer-pause-resume.md#invariants) I-004-3). Plan-owned is a first-class outcome, not a failure to find a citation — a cardinality or census count no spec states, and an enforcement mechanism a plan designs on top of a spec's detection-only signal, are legitimately plan-owned. What the rule forbids is the third state: an assertion that reads as if a spec required it while no spec does. Exemplars worth copying: [Plan-028 §Invariants](./028-mcp-server-configuration-and-governance.md#invariants) I-028-4, which anchors each half of the claim to the spec clause that half rests on; [Plan-003 §Invariants](./003-runtime-node-attach.md#invariants) I-003-5, which anchors and then quotes the spec sentence it ratifies; and [Plan-008 §Invariants](./008-control-plane-relay-and-session-join.md#invariants) I-008-12, whose legs ground in different documents and are anchored per leg.
+
+**Delivery-guarantee vocabulary.** `exactly-once`, `at-most-once`, and `at-least-once` are three distinct guarantees, and an invariant's **label** MUST name the same one its **body** establishes — headline, parenthetical, and statement are one claim, not a summary and a detail that may drift apart. Where one sentence names two guarantees it MUST also name the two **referents** they apply to and the mechanism bridging them; two guarantee terms with no named bridge read as a contradiction to every later reader. The corpus's model forms: [api-payload-contracts.md §Plan-004 — Queue Steer Pause Resume](../architecture/contracts/api-payload-contracts.md#plan-004--queue-steer-pause-resume) bridges at-least-once **delivery** to exactly-once **application** through a requester-generated `clientIdempotencyKey` persisted under `UNIQUE(target_run_id, client_idempotency_key)`; [Plan-008 §Invariants](./008-control-plane-relay-and-session-join.md#invariants) I-008-12 scopes at-most-once **apply** to a projection epoch and names the cross-cycle at-least-once **redelivery** residual as deliberate, with the reasoning recorded in that plan's [§Decision Log](./008-control-plane-relay-and-session-join.md#decision-log) (the 2026-07-21 campaign-B12 row's honestly-scoped clause: the caller's `acknowledged` cursor is the single durable authority, and effective exactly-once is ack-after-durable-apply — the caller's discipline, not the decorator's guarantee). This rule's scope is not the §Invariants section alone: it governs every surface that states a delivery guarantee, `docs/architecture/` included, where [local-sqlite-schema.md](../architecture/schemas/local-sqlite-schema.md) and [api-payload-contracts.md](../architecture/contracts/api-payload-contracts.md) both carry guarantee lines. It is deliberately documentation and **not** a mechanical gate: a false-positive census over the corpus's guarantee-vocabulary lines found every multi-guarantee line to be a legitimate two-referent construction, while the real defect class is a label-versus-body disagreement spread across two spellings of one guarantee — the shape a co-occurrence screen cannot see at all.
+
+**Resolving a task's `Verifies invariant:` field.** The audit-authored `#### Tasks` field admits three value classes, and a plan that declares no §Invariants section is not thereby non-conforming. (1) One or more `I-NNN-M` ids declared in the §Invariants block of the plan each id names — the canonical form, and the only class the preflight Gate-4 screen resolves. (2) A governing spec clause in unbackticked `Spec-NNN §Heading` form (Gate 4 owns those marker lines and parses the bare form), optionally naming the clause it pins, where the property is stated by the spec and the plan declares no invariant of its own for it; [Plan-023 §Tier 1 Partial PR Sequence](./023-desktop-shell-and-renderer.md#tier-1-partial-pr-sequence) is the ratified precedent, each task there pinning the Spec-023 clause its build-time assertion or lint rule enforces. (3) `none`, or a short prose descriptor, where the task claims no invariant — with the reason after an em dash. Classes (2) and (3) go unresolved by the id screen **by design**: [preflight-contract.md §Gate 4 — Tasks-block G4 cites](../../.claude/skills/plan-execution/references/preflight-contract.md#gate-4--tasks-block-g4-cites) classifies only the structured `I-NNN-…` namespace and leaves what the field may contain to this rule. A descriptor in class (3) may legitimately contain an `I-NNN-M` token in its explanation, so the classes are distinguished by the field's leading token, never by a substring scan.
+
 ### I-NNN-1 — {Short headline sentence}
 
 {Statement of the invariant.}
+
+**Grounds in.** {Spec-NNN §Heading — the governing clause this holds the implementation to; or: plan-owned, because {no spec states this cardinality / census total / plan-designed enforcement mechanism}.}
 
 **Why load-bearing.** {What breaks if this is violated, and which plans depend on it.}
 
