@@ -121,7 +121,7 @@ Every `packages/*` and `apps/*` member receives a `package.json` (with `"type": 
 
 Electron-bound packages (`apps/desktop/*`, `packages/runtime-daemon/*`) use the lower-tier Node target. Control-plane packages (`packages/control-plane/*`) use the upper-tier target. Shared packages consumed by both sides (`packages/contracts/*`, `packages/client-sdk/*`) target the lower tier as the lowest common denominator.
 
-Vitest test file convention (project-wide): `packages/<name>/test/*.test.ts`. Per-package `vitest.config.ts` extends a workspace `vitest.workspace.ts` declaring all `packages/*` and `apps/*` projects. The Phase 1 sanity test lives at `packages/contracts/test/sanity.test.ts`.
+Vitest test-file discovery is owned by each package's own `vitest.config.ts`, which extends a workspace `vitest.workspace.ts` declaring all `packages/*` and `apps/*` projects — there is no single project-wide test path. The prevailing form is `src/**/__tests__/**/*.test.ts`; the exceptions are `packages/client-sdk/` (that form plus `test/**/*.test.ts`) and `apps/desktop/` (a main project on `test/**/*.test.ts` alongside a renderer project on `src/renderer/**/__tests__/**/*.test.{ts,tsx}`). The Phase 1 sanity test lives at `packages/contracts/src/__tests__/sanity.test.ts`.
 
 ## Data And Storage Changes
 
@@ -237,7 +237,7 @@ Plan-001 implementation lands as a sequence of small PRs. Each PR exercises one 
 - Install `pg` 8.20+ as a workspace dep on `packages/control-plane/` per [ADR-022](../decisions/022-v1-toolchain-selection.md)
 - Wire engineering CI surface per [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md): `.github/workflows/{ci,release}.yml`, lefthook 2.1.6 + `lefthook.yml`, `lint-staged.config.mjs`, commitlint 20.5.2 config, Renovate config, Gitleaks workflow, `CODEOWNERS`, release-please-action@v5 + actions/attest@v4 release-automation skeleton (no actual release runs yet — first release is post-Plan-001 ship). The literal-file content for `lefthook.yml`, `CODEOWNERS`, `renovate.json5`, `eslint.config.mjs`, `prettier.config.js`, `commitlint.config.mjs`, and the three workflow files is the Phase 1 PR's authoring scope; `ADR-023 §Decision` pins versions and policy choices, the implementer of this Phase materializes the literal artifact contents.
 - Verify: `pnpm install`, `pnpm turbo build`, `pnpm turbo typecheck`, and `pnpm turbo lint` all green; CI runs green on this PR; pre-commit hooks active locally; required-checks gate is enforced on subsequent PRs
-- Single passing test (in `packages/contracts/test/sanity.test.ts`): trivial sanity check that Vitest is wired (test ID **W1** per § Test And Verification Plan)
+- Single passing test (in `packages/contracts/src/__tests__/sanity.test.ts`): trivial sanity check that Vitest is wired (test ID **W1** per § Test And Verification Plan)
 
 #### Tasks
 
@@ -263,7 +263,7 @@ Plan-001 implementation lands as a sequence of small PRs. Each PR exercises one 
 
 ##### T1.6 — Vitest sanity test
 
-**File:** `packages/contracts/test/sanity.test.ts` **Acceptance:** `vitest run` returns exit 0; W1 (per § Tests below) green. **Spec coverage:** none (tooling readiness) **Verifies invariant:** none (tooling readiness)
+**File:** `packages/contracts/src/__tests__/sanity.test.ts` **Acceptance:** `vitest run` returns exit 0; W1 (per § Tests below) green. **Spec coverage:** none (tooling readiness) **Verifies invariant:** none (tooling readiness)
 
 #### Tests
 
@@ -741,7 +741,7 @@ shipped:
 ## Done Checklist
 
 - [x] Code changes implemented — Phases 1–4 shipped via PRs #6 / #8 / #9 / #10 (2026-04-27); Phase 5 Lane A (T5.1 / T5.5 / T5.6) shipped via PRs #30 / #36 / #38; Phase 5 Lane B (T5.4) via PR #48; Phase 5 Lane C (T5.2) via PR #77; Phase 5 Lane D (T5.3) via PR #83 (sha `a70de3e`, merged 2026-05-20); Plan-001 residuals (D5 migration-shape test, T2.3 version-error envelopes, AC8 participant-limit enforcement) via this PR (Tier 1 closing audit Path A).
-- [x] Tests added or updated — full coverage chain: C1–C8 (PR #30 client-sdk transport hardening), D1–D5 (PR #9 daemon migration + projection + the D5 migration-shape snapshot test landed in this PR), P1–P5 (PR #10 control-plane directory + the P5 AC8 enforcement tests landed in this PR), I1–I7 (Phase 5 Lane A test files), 32 cross-platform unit tests + 2 platform-gated Windows-CI tests for T5.4 (PR #48), 4-test happy-dom suite for T5.2 (PR #77), per-backend shutdown tests + FIFO-position-0 lifecycle tests for T5.3 (PR #83).
+- [x] Tests added or updated — full coverage chain: C1–C4 (PR #8 contracts package), D1–D5 (PR #9 daemon migration + projection + the D5 migration-shape snapshot test landed in this PR), P1–P5 (PR #10 control-plane directory + the P5 AC8 enforcement tests landed in this PR), I1–I7 (Phase 5 Lane A test files), 32 cross-platform unit tests + 2 platform-gated Windows-CI tests for T5.4 (PR #48), 4-test happy-dom suite for T5.2 (PR #77), per-backend shutdown tests + FIFO-position-0 lifecycle tests for T5.3 (PR #83). Beyond that chain, PR #30 added eight client-sdk transport-hardening regression tests labeled C1–C8 inside `packages/client-sdk/test/sessionClient.integration.test.ts` (see `Plan-001 §Progress Log`); that series is package-local, numbered per Codex round-trip finding, and shares no namespace with the C-tier contract tests above.
 - [x] Verification completed — anchored in the §Decision Log entries below. Phase 5 ship-evidence is the I1–I7 unit/integration suite on merged `develop`; the `Plan-001 §Phase 5 — Client SDK And Desktop Bootstrap` / `Plan-001 §Verification` "manual two-client smoke test" line is Tier-8 deferred per the §Decision Log waiver (`Plan-002 §T2.1 — Implement invite-service.ts issuance with PASETO v4.local (consumes @ai-sidekicks/crypto-paseto v4.local encryptV4Local surface from Plan-025 Tier 1 Partial per CP-002-4 — BL-119 resolved via Option A).` + Plan-023 Tier 8 IPC dispatcher milestone).
 - [x] Related docs updated — §Shipment Manifest T5.3 row appended (this commit); §Decision Log section added (this commit); §Status promoted to `completed` (this commit).
 - [x] All `TODO(Plan-001 Phase N)` annotations in the source tree are discharged or migrated to a follow-up issue. `rg "TODO\(Plan-001 " packages/ apps/` returns zero matches at HEAD (verified 2026-05-20). The lock-ordering test strengthening in `packages/control-plane/src/sessions/__tests__/session-directory-service.test.ts` shipped via PR #38 (T5.6); the `TODO(Plan-001 Phase 5)` annotation was discharged in that commit.

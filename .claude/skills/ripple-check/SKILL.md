@@ -174,7 +174,7 @@ Each invocation writes a transient log to `.agents/tmp/ripple-check/<short-sha>-
 
 Once the catalog edit is staged, delete the transient log. The `.agents/tmp/` directory is gitignored and manually pruned — no hook deletes it, so the deletion is yours to perform; the catalog edit is the durable surface-forward.
 
-Without this step, the telemetry is documentation theater — the gitignored log dies at the end of the session and the next hook-sharpening pass has nothing to read.
+Without this step, the telemetry is documentation theater — nothing prunes the gitignored log on your behalf, so it persists in the checkout as a private scratch file rather than a durable, surfaced feedback record, and the next hook-sharpening pass has nothing it can rely on reading.
 
 ## What this skill does NOT do
 
