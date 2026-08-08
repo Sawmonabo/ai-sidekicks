@@ -172,7 +172,7 @@ Each invocation writes a transient log to `.agents/tmp/ripple-check/<short-sha>-
 1. If the finding fits an existing `CAT-NN` row, the orchestrator (or the author) appends a one-row entry to that row's `Known Gaps` field in `docs/operations/failure-mode-catalog.md` with the date, the structural action that was missed, and a one-line reproduction of the finding.
 2. If the finding does not fit any existing row, the orchestrator surfaces the gap to the author with a recommendation to either tighten an existing row's structural-action definition or propose a new `CAT-NN` row in a separate doc PR. Adding a row is itself a corpus edit and goes through normal review.
 
-Once the catalog edit is staged, the transient log can be deleted. The `.agents/tmp/` directory is gitignored and per-commit-deleted; the catalog edit is the durable surface-forward.
+Once the catalog edit is staged, delete the transient log. The `.agents/tmp/` directory is gitignored and manually pruned — no hook deletes it, so the deletion is yours to perform; the catalog edit is the durable surface-forward.
 
 Without this step, the telemetry is documentation theater — the gitignored log dies at the end of the session and the next hook-sharpening pass has nothing to read.
 

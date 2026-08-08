@@ -86,6 +86,8 @@ Every override emits exactly one `security.default.override=<behavior>` log even
 
 **Why load-bearing.** Per-request emission would flood the audit log and obscure single-event audit semantics; missing emission would silently hide an active override. Banner content (Spec-027 row 10) enumerates active overrides on every startup as a parallel surface.
 
+**Verification.** Test W-007p-1-T5 in `Plan-007 §Test And Verification Plan` asserts both halves of the count, since a one-sided test passes under either failure mode: each active override emits its `security.default.override=<behavior>` event exactly once per startup (catching re-emission), and a two-override scenario emits one event per distinct override rather than one for the set (catching a dedupe that collapses distinct overrides into a single record). Enforced by the per-startup emitted-behavior set on `packages/runtime-daemon/src/bootstrap/secure-defaults-events.ts#SecureDefaultOverrideEmitter`, which is process-scoped precisely so the count cannot be reset mid-startup.
+
 ### I-007-5 — Validation surface widens with bind surface
 
 These invariants apply to whatever bind paths the daemon exposes at the current execution window. Plan-007-partial (Tier 1) ships a minimal bind surface (loopback OS-local socket only) and a `SecureDefaults` validation surface scoped accordingly; Plan-007-remainder (Tier 4) extends both as additional bind paths (HTTP, non-loopback, TLS) are introduced. The invariants hold at every window — the validation surface widens as the bind surface widens.

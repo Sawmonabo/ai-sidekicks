@@ -215,7 +215,7 @@ The TDD test list below is enumerated and ordered by implementation dependency. 
 
 - `pnpm turbo test` at workspace root green across all packages
 - Manual smoke: create session in one desktop client, join from second client, verify timeline parity
-- All 19 enumerated tests above pass before Plan-001 is marked complete (4 C-tier + 5 D-tier + 5 P-tier + 4 I-tier + 1 W-tier tooling — see Phase 1 §Tests; CP-001-1 / CP-001-2 coverage via I5 / I6 lands at Phase 5 against the [Plan-023 Tier 1 Partial substrate](./023-desktop-shell-and-renderer.md#tier-1-partial-pr-sequence) per BL-101 (a) resolution).
+- All 22 enumerated tests above pass before Plan-001 is marked complete (4 C-tier + 5 D-tier + 5 P-tier + 7 I-tier + 1 W-tier tooling — see Phase 1 §Tests; CP-001-1 / CP-001-2 coverage via I5 / I6 lands at Phase 5 against the [Plan-023 Tier 1 Partial substrate](./023-desktop-shell-and-renderer.md#tier-1-partial-pr-sequence) per BL-101 (a) resolution).
 - Test ID prefixes map to Phases as follows: W → Phase 1, C → Phase 2, D → Phase 3, P → Phase 4, I → Phase 5. Each Phase's Goal line names the ID range it owns.
 - Spec-001 AC7 (concurrent participants, channels, and runs without timeline corruption) receives full coverage at the integration boundary in [Plan-008](./008-control-plane-relay-and-session-join.md) when cross-daemon relay flows land. Plan-001 covers AC7 only partially via I3's reconnect-ordering invariant — single-daemon concurrent SQL writes serialize on SQLite's `UNIQUE(session_id, sequence)` constraint, leaving cross-daemon concurrency as the residual coverage gap.
 

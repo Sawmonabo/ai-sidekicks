@@ -45,6 +45,7 @@ import {
   verifyInvariantReferences,
   facetBaseId,
 } from "../preflight.mjs";
+import { appendManifestEntry, parseManifestBlock } from "../lib/manifest.mjs";
 
 const FIXTURE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "preflight-gate4-fixtures");
 // `__tests__` → `scripts` → `plan-execution` → `skills` → `.claude` → repo root.
@@ -3494,61 +3495,150 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
 
 // ---------- Fenced `verifies_invariant:` YAML disclosure ----------
 //
-// The count is DISCLOSURE, not verification: these ids sit inside fenced task-DAG
-// YAML, which the maskers hide from both extractors, so the survey prints how
-// many references it did not screen. That makes an UNDERCOUNT the worst possible
-// defect — it understates the unscreened surface while looking precise. The count
-// read 48 while 67 existed, because it read only the ids on the `verifies_invariant:`
-// key line and the corpus writes 19 of them on CONTINUATION lines.
+// The count is DISCLOSURE, not verification: these ids sit inside fenced YAML,
+// which the maskers hide from both extractors, so the survey prints how many
+// references it did not screen. That makes an UNDERCOUNT the worst possible
+// defect — it understates the unscreened surface while looking precise. The
+// count once read 48 while 67 existed, because it read only the ids on the
+// `verifies_invariant:` key line and the corpus writes many of them on
+// CONTINUATION lines. The three synthetic-fixture tests below are what pin that
+// counter property, and they are append-stable by construction.
+//
+// CONSTRAINT ON THE LIVE-CORPUS ARM. In a committed plan, `verifies_invariant:`
+// is a Shipment-Manifest schema key (`../lib/manifest.mjs`): the post-merge
+// housekeeper appends one entry per phase ship, each carrying a fresh id list. A
+// task DAG is a dispatch-time artifact and never lands in `docs/plans/`, so the
+// live fenced total is a function of how many phases have shipped — any test
+// pinning its VALUE is re-pinned by every ship, and becomes a changelog of the
+// housekeeper rather than a check on the counter.
+//
+// What is append-stable, and what this arm therefore asserts, is the PARTITION:
+// the fenced counter and the manifest parser must account for exactly the same
+// ids, leaving a task-DAG residue of zero. An append raises both sides equally
+// and cannot move it. The two ways it CAN move both deserve a red test — a task
+// DAG committed into a plan file, or the counter and the parser disagreeing
+// about one fence (drift between the two readers of the same block). Only the
+// second is unambiguously a bug; the first is a change in the unscreened
+// surface, which must be adjudicated rather than silently absorbed, since those
+// ids sit outside the manifest schema where no consumer of the manifest sees
+// them. The disclosure total is still surveyed and
+// printed; it is simply not pinned, because no assertion can pin a
+// housekeeper-written number and stay meaningful.
 
-test("continuation-line refs are counted — the 48-vs-67 undercount", () => {
-  // Composition, not just the total. A total-only assertion stays green while
-  // the makeup shifts underneath it (one plan gaining what another lost), which
-  // is precisely the class of error the original 48 belonged to.
+function countManifestInvariantRefs(planSource) {
+  const parsed = parseManifestBlock(planSource);
+  // Fails CLOSED by arithmetic rather than by a throw: an unparseable manifest
+  // contributes 0 against a non-zero fenced count, so the residue check reddens.
+  if (!parsed.ok) return 0;
+  return (parsed.shipped ?? []).reduce(
+    (total, entry) => total + (entry.verifies_invariant?.length ?? 0),
+    0,
+  );
+}
+
+function partitionFencedRefs(planSource) {
+  const { fencedYamlRefs } = verifyInvariantReferences(planSource, { cache: new Map() });
+  const manifest = countManifestInvariantRefs(planSource);
+  return { fenced: fencedYamlRefs, manifest, taskDag: fencedYamlRefs - manifest };
+}
+
+test("every fenced invariant ref is accounted for by the Shipment Manifest", () => {
   const plansDir = resolve(REPO_ROOT_FOR_TESTS, "docs", "plans");
-  const perPlan = {};
-  let total = 0;
-  for (const name of readdirSync(plansDir).filter(
+  const planNames = readdirSync(plansDir).filter(
     (n) => /^\d{3}-.+\.md$/.test(n) && !n.startsWith("000-"),
-  )) {
-    const { fencedYamlRefs } = verifyInvariantReferences(
+  );
+  // Without this, a corpus that failed to load leaves every check below
+  // vacuously green — the residue of nothing is zero.
+  assert.ok(planNames.length >= 20, `expected the plan corpus, read ${planNames.length} files`);
+
+  const taskDagResidue = {};
+  let manifestTotal = 0;
+  for (const name of planNames) {
+    const { manifest, taskDag } = partitionFencedRefs(
       readFileSync(resolve(plansDir, name), "utf8"),
-      { cache: new Map() },
     );
-    total += fencedYamlRefs;
-    if (fencedYamlRefs > 0) perPlan[name.slice(0, 3)] = fencedYamlRefs;
+    manifestTotal += manifest;
+    if (taskDag !== 0) taskDagResidue[name.slice(0, 3)] = taskDag;
   }
-  // Plan-006 (4 → 18) writes a wrapped flow list whose ids all sit BELOW the
-  // key line; Plan-024 (0 → 5) writes two block sequences and contributed
-  // nothing at all. Everything else is the pre-existing key-line-only makeup and
-  // must be untouched — the fix must not have inflated the plans that were
-  // already right.
-  // 006: 18 -> 22, total 67 -> 71 (2026-08-04, PR #289): the Plan-006 Phase-3
-  // Shipment Manifest entry landed four more ids inside the plan's fenced
-  // manifest YAML (its verifies_invariant flow list, I-006-3-01 through
-  // I-006-3-04).
-  // 009: 4 -> 9, total 71 -> 76 (2026-08-05, PR #296): the Plan-009 Phase-2
-  // Shipment Manifest entry landed five more ids inside the plan's fenced
-  // manifest YAML (its key-line verifies_invariant flow list, I-009-5 through
-  // I-009-9).
-  // 010: 2 -> 15, total 76 -> 89 (2026-08-08, PR #298): the Plan-010 Phase-2
-  // Shipment Manifest entry landed thirteen more ids inside the plan's fenced
-  // manifest YAML (a wrapped verifies_invariant flow list whose ids all sit on
-  // continuation lines below the key — the undercount shape this test pins —
-  // I-010-3 through I-010-13 plus I-010-19 and I-010-20).
-  assert.deepEqual(perPlan, {
-    "001": 5,
-    "002": 6,
-    "003": 8,
-    "005": 3,
-    "006": 22,
-    "007": 14,
-    "008": 2,
-    "009": 9,
-    "010": 15,
-    "024": 5,
-  });
-  assert.equal(total, 89);
+  assert.deepEqual(
+    taskDagResidue,
+    {},
+    "fenced ids outside the Shipment Manifest, or counter/parser drift on one fence",
+  );
+  // Composition still matters, but the append-stable statement of it is that the
+  // manifests are read at ALL — a parser returning nothing everywhere satisfies
+  // the residue check above while disclosing nothing.
+  assert.ok(manifestTotal > 0, "manifest parser disclosed no ids across the whole corpus");
+});
+
+test("NEGATIVE CONTROL: a manifest append leaves the partition still, a task-DAG edit moves it", () => {
+  // The property the partition exists to establish, driven both directions on
+  // one synthetic plan. Proving the check can FAIL is the point: the live-corpus
+  // arm above asserts an empty object, which a broken partition would also
+  // produce.
+  const planWithBoth = [
+    "#### Tasks",
+    "",
+    "```yaml",
+    "tasks:",
+    "  - id: T1",
+    "    verifies_invariant: [I-100-1, I-100-2]",
+    "```",
+    "",
+    "### Shipment Manifest",
+    "",
+    "```yaml",
+    "manifest_schema_version: 1",
+    "shipped:",
+    "  - phase: 1",
+    "    task: T1.1",
+    "    pr: 4242",
+    "    sha: abc1234",
+    "    merged_at: 2026-01-01",
+    "    files: [packages/x/src/a.ts]",
+    "    verifies_invariant: [I-100-8, I-100-9]",
+    "    spec_coverage: []",
+    "```",
+    "",
+  ].join("\n");
+
+  const before = partitionFencedRefs(planWithBoth);
+  assert.deepEqual(before, { fenced: 4, manifest: 2, taskDag: 2 });
+
+  // (a) A housekeeper append — the motion this redesign exists to absorb. Driven
+  // through the production writer, so a change to the serialized id spelling is
+  // exercised here rather than assumed.
+  const afterAppend = partitionFencedRefs(
+    appendManifestEntry(planWithBoth, {
+      phase: 2,
+      task: "T2.1",
+      pr: 4243,
+      sha: "def5678",
+      merged_at: "2026-02-02",
+      files: ["packages/x/src/b.ts"],
+      verifies_invariant: ["I-100-3", "I-100-4", "I-100-5"],
+      spec_coverage: [],
+    }),
+  );
+  assert.equal(afterAppend.taskDag, before.taskDag, "an append must not move the task-DAG residue");
+  assert.equal(afterAppend.manifest, before.manifest + 3);
+  assert.equal(afterAppend.fenced, before.fenced + 3, "both sides must rise by the same three");
+
+  // (b) A task-DAG edit — the motion it must NOT absorb. If the partition were
+  // wired to subtract everything, or to read the manifest fence twice, this arm
+  // would stay still and the check above would be asserting nothing.
+  const afterTaskDagEdit = partitionFencedRefs(
+    planWithBoth.replace(
+      "    verifies_invariant: [I-100-1, I-100-2]",
+      "    verifies_invariant: [I-100-1, I-100-2, I-100-6]",
+    ),
+  );
+  assert.equal(afterTaskDagEdit.taskDag, before.taskDag + 1, "the residue must track task-DAG ids");
+  assert.equal(
+    afterTaskDagEdit.manifest,
+    before.manifest,
+    "and must not be charged to the manifest",
+  );
 });
 
 test("all three YAML list spellings are counted, on continuation lines too", () => {
@@ -3691,9 +3781,10 @@ test("CORPUS: every legacy marker's lineNo lands on its own raw line", () => {
   // composed detection view: 48 of 48 live `Verifies invariant` compact-inline
   // markers. (That 48 is the LEGACY-MARKER population — unrelated to the fenced
   // YAML count above, which also read 48 before this change; two different
-  // figures that happened to collide. The fenced count's live value is pinned
-  // solely by its own census test — it moves on every Shipment-Manifest append,
-  // so no other surface should quote it.)
+  // figures that happened to collide. The fenced count's live value is now
+  // pinned by NO test — it moves on every Shipment-Manifest append, so the arm
+  // above asserts the append-stable partition instead. No surface should quote
+  // the value.)
   const plansDir = resolve(REPO_ROOT_FOR_TESTS, "docs", "plans");
   let markers = 0;
   const misaligned = [];
