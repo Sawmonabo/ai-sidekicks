@@ -25,7 +25,9 @@
 // Coverage map (the cites are the contract, not just the ACs):
 //   * `Spec-010 §Required Behavior` — an `ephemeral clone`-mode prepare
 //     provisions a disposable isolated clone: the row, the D-010-6 root, the
-//     created head branch, and the reported policy / expiry / branch.
+//     created head branch, the base branch observed from the clone before that
+//     cut (absent for a detached-HEAD source), and the reported policy /
+//     expiry / branch.
 //   * `Spec-010 §Default Behavior` — every provisioning git invocation
 //     neutralizes hook execution at the invocation layer.
 //   * `Spec-010 §Fallback Behavior` — a failed preparation records the failure
@@ -159,10 +161,17 @@ function gitVerb(argv: readonly string[]): string | undefined {
 }
 
 /**
- * Records every invocation and answers the two verbs the service issues.
+ * Records every invocation and answers the three verbs the service issues.
  *
  * `clone` MATERIALIZES its target, so the arms that watch a root survive a
  * retirement and disappear in a tick have a real directory to watch.
+ *
+ * `branch --show-current` answers BOTH of git's real behaviors, keyed on
+ * {@link sourceHeadBranch}: the branch name for an attached HEAD, and empty
+ * output — still a SUCCESSFUL invocation — for a detached one. Carrying both is
+ * what makes the detached-HEAD case a negative control rather than an assertion
+ * about a stub, and the newline is real because git prints one and the service
+ * is supposed to trim it.
  *
  * `checkout -b` refuses a name in {@link existingBranchNames}, which MODELS
  * git's own behavior — `fatal: a branch named '<name>' already exists` — and is
@@ -178,6 +187,9 @@ function gitVerb(argv: readonly string[]): string | undefined {
 class FakeCloneGit {
   readonly invocations: RecordedGitInvocation[] = [];
   cloneFails: boolean = false;
+  baseBranchReadFails: boolean = false;
+  /** `null` models a detached-HEAD source, which the clone inherits. */
+  sourceHeadBranch: string | null = SOURCE_DEFAULT_BRANCH;
   readonly existingBranchNames: Set<string> = new Set([SOURCE_DEFAULT_BRANCH]);
 
   readonly run: EphemeralCloneGitRunner = (argv, options) => {
@@ -195,6 +207,16 @@ class FakeCloneGit {
         writeFileSync(join(targetRoot, "README.md"), "fixture\n");
       }
       return resolveGit("");
+    }
+
+    if (verb === "branch") {
+      if (this.baseBranchReadFails) {
+        return Promise.reject(new Error("fatal: not a git repository"));
+      }
+      return Promise.resolve({
+        stdout: this.sourceHeadBranch === null ? "" : `${this.sourceHeadBranch}\n`,
+        stderr: "",
+      });
     }
 
     if (verb === "checkout") {
@@ -523,7 +545,7 @@ describe("EphemeralCloneService.prepare (`Spec-010 §Required Behavior`)", () =>
 
     const prepared = await service.prepare({ workspaceId: WORKSPACE_ID, branchName: BRANCH_NAME });
 
-    expect(ctx.git.verbs()).toEqual(["clone", "checkout"]);
+    expect(ctx.git.verbs()).toEqual(["clone", "branch", "checkout"]);
     // Both `clone` positionals are daemon-derived; the caller's branch name
     // rides the VALUE slot of `-b`, which is what keeps it out of git's option
     // parser.
@@ -549,6 +571,72 @@ describe("EphemeralCloneService.prepare (`Spec-010 §Required Behavior`)", () =>
       "-b",
       BRANCH_NAME,
     ]);
+    // The base read runs against the CLONE, never the mount's own checkout: the
+    // operator can switch branches in that checkout between the read and the
+    // clone, so only the clone's own HEAD is ground truth for the copy taken.
+    expect(ctx.git.argvFor("branch")).toEqual([
+      "-c",
+      `core.hooksPath=${ctx.hookNeutralizationDirectory}`,
+      "-C",
+      prepared.cloneRoot,
+      "branch",
+      "--show-current",
+    ]);
+  });
+
+  it("reports the base branch the clone's HEAD named before the cut", async () => {
+    const service = makeService();
+
+    const prepared = await service.prepare({ workspaceId: WORKSPACE_ID, branchName: BRANCH_NAME });
+
+    // Trimmed: git terminates the name with a newline, and a `base_branch` of
+    // "main\n" would be a ref name no lookup matches.
+    expect(prepared.baseBranch).toBe(SOURCE_DEFAULT_BRANCH);
+    // ORDER, which is the whole reason the read sits where it does: after
+    // `checkout -b` HEAD names the NEW branch, so a read placed after the cut
+    // would report `BRANCH_NAME` as its own base. The presence check is not
+    // redundant — `indexOf` returns -1 for a verb that never ran, so without it
+    // the ordering assertion would pass vacuously if the read were deleted.
+    const verbs = ctx.git.verbs();
+    expect(verbs).toContain("branch");
+    expect(verbs.indexOf("branch")).toBeLessThan(verbs.indexOf("checkout"));
+  });
+
+  it("omits the base branch entirely for a detached-HEAD source", async () => {
+    const service = makeService();
+    // The lawful-absence case: `git clone` of a detached-HEAD source succeeds and
+    // the clone inherits the detachment, where `branch --show-current` prints
+    // nothing and still EXITS 0. That is not a failure, so the prepare must
+    // succeed — and the key must be absent rather than present-and-undefined,
+    // which is what `exactOptionalPropertyTypes` makes a real distinction.
+    ctx.git.sourceHeadBranch = null;
+
+    const prepared = await service.prepare({ workspaceId: WORKSPACE_ID, branchName: BRANCH_NAME });
+
+    expect(prepared.state).toBe("ready");
+    expect("baseBranch" in prepared).toBe(false);
+    expect(readCloneRow(prepared.cloneId).state).toBe("ready");
+  });
+
+  it("records the failure and refuses when the base-branch read fails", async () => {
+    const service = makeService();
+    ctx.git.baseBranchReadFails = true;
+
+    const failure = await captureRejection(
+      service.prepare({ workspaceId: WORKSPACE_ID, branchName: BRANCH_NAME }),
+    );
+
+    // The distinction the member exists for: a FAILED read is not a detached
+    // HEAD. Swallowing it into the absent case would let a transient failure,
+    // followed by a branch cut that succeeds, ship self-anchored provenance into
+    // `branch_contexts` — which CP-010-6 hands to Plan-011 for attribution.
+    expect(failure).toBeInstanceOf(ClonePrepareFailedError);
+    expect((failure as ClonePrepareFailedError).reason).toBe("base_branch_unreadable");
+    // No cut was attempted, and the disposition is the head-branch arm's: the
+    // clone had materialized, so the row records the failure and the root is
+    // removed best-effort.
+    expect(ctx.git.verbs()).toEqual(["clone", "branch"]);
+    expect(readCloneRow(readSoleCloneId()).state).toBe("failed");
   });
 
   it("records the failure and refuses when the clone invocation fails", async () => {
@@ -583,7 +671,7 @@ describe("EphemeralCloneService.prepare (`Spec-010 §Required Behavior`)", () =>
 
     expect(failure).toBeInstanceOf(ClonePrepareFailedError);
     expect((failure as ClonePrepareFailedError).reason).toBe("head_branch_unavailable");
-    expect(ctx.git.verbs()).toEqual(["clone", "checkout"]);
+    expect(ctx.git.verbs()).toEqual(["clone", "branch", "checkout"]);
     expect(readCloneRow(readSoleCloneId()).state).toBe("failed");
   });
 
@@ -719,11 +807,12 @@ describe("EphemeralCloneService.prepare (`Spec-010 §Required Behavior`)", () =>
     // EVERY member of the taxonomy, not only the one the arm above drives. The
     // §Ephemeral Clone ban is on the message TABLE, so the way a path would
     // enter it is through a member no live arm in this suite happens to reach.
-    // Keyed as a total `Record`: a fifth member added to the union without a row
+    // Keyed as a total `Record`: a sixth member added to the union without a row
     // here fails to compile rather than silently escaping the guard.
     const everyPrepareCarrier: Record<ClonePrepareFailureReason, ClonePrepareFailedError> = {
       execution_root_unavailable: new ClonePrepareFailedError("execution_root_unavailable"),
       clone_invocation_failed: new ClonePrepareFailedError("clone_invocation_failed"),
+      base_branch_unreadable: new ClonePrepareFailedError("base_branch_unreadable"),
       head_branch_unavailable: new ClonePrepareFailedError("head_branch_unavailable"),
       concurrently_retired: new ClonePrepareFailedError("concurrently_retired"),
     };

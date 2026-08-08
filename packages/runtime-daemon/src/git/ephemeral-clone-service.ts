@@ -274,11 +274,12 @@ export interface EphemeralCloneGitInvocationOptions {
  * Takes the COMPLETE argv — positionals and any `-C <dir>` alike — and no
  * working directory, which is what makes the argv the whole invocation. Not
  * every invocation carries `-C`: `clone` names its source and target
- * positionally and runs in no repository at all, while `checkout` runs inside
- * the clone and needs one. A `cwd` option would put half the target outside the
- * recorded argv, and I-010-10 is asserted by inspecting recorded argvs: a suite
- * that can see `clone` but not which repository it ran against cannot tell a
- * clone provisioning from a command against the user's own checkout.
+ * positionally and runs in no repository at all, while the base-branch read and
+ * `checkout` both run inside the clone and need one. A `cwd` option would put
+ * half the target outside the recorded argv, and I-010-10 is asserted by
+ * inspecting recorded argvs: a suite that can see `clone` but not which
+ * repository it ran against cannot tell a clone provisioning from a command
+ * against the user's own checkout.
  *
  * Declared LOCALLY rather than imported from `./worktree-service.ts`, whose
  * `WorktreeGitRunner` is structurally identical. The two are interchangeable by
@@ -471,6 +472,23 @@ export interface PreparedEphemeralClone {
    * the caller's `branch_contexts` row does not have to reconstruct it.
    */
   readonly branchName: string;
+  /**
+   * The branch the clone's HEAD named BEFORE {@link branchName} was cut — what
+   * the new branch descends from.
+   *
+   * Observed from the CLONE rather than from the mount's own checkout, and that
+   * is not an implementation preference: reading the user's checkout admits a
+   * race (the operator can switch branches between the read and the clone) and
+   * would report a base the clone never had. The clone's HEAD is immutable
+   * ground truth for the copy that was actually taken.
+   *
+   * ABSENT — the key omitted, never an empty string — when the source had a
+   * detached HEAD, which the clone inherits: there is no branch name to report.
+   * That is a lawful outcome, not a failure; the prepare succeeds and the caller
+   * self-anchors. A read that FAILS is the other case entirely and raises
+   * `base_branch_unreadable`.
+   */
+  readonly baseBranch?: string;
   /** The policy that landed on the row — the supplied one, or the default. */
   readonly cleanupPolicy: EphemeralCloneCleanupPolicy;
   /**
@@ -1091,8 +1109,9 @@ export class EphemeralCloneService {
       now: preparedAt,
     });
 
+    let observedBaseBranch: string | undefined;
     try {
-      await this.#materializeClone({
+      observedBaseBranch = await this.#materializeClone({
         canonicalRoot: mount.canonical_root,
         cloneRootsDirectory,
         cloneRoot,
@@ -1119,6 +1138,10 @@ export class EphemeralCloneService {
       workspaceId: workspace.id,
       cloneRoot,
       branchName: input.branchName,
+      // Conditional spread rather than `baseBranch: observedBaseBranch`:
+      // `exactOptionalPropertyTypes` distinguishes an absent key from one
+      // explicitly set to `undefined`, and the contract above says ABSENT.
+      ...(observedBaseBranch === undefined ? {} : { baseBranch: observedBaseBranch }),
       cleanupPolicy,
       expiresAt,
       state: "ready",
@@ -1430,18 +1453,20 @@ export class EphemeralCloneService {
 
   /**
    * Materialize the clone: copy the mount's canonical root to the D-010-6 path,
-   * then create the requested head branch in it.
+   * observe the base branch it landed on, then create the requested head branch
+   * in it. Returns the observed base, or `undefined` for a detached-HEAD source.
    *
    * Only the PARENT directory is created here. `git clone` creates its own
    * target and refuses one that already exists and is non-empty, and creating
    * the leaf would put this module in the business of predicting which of those
    * git tolerates — the same reason `./worktree-service.ts` gives.
    *
-   * TWO invocations rather than one `clone --branch`: `--branch` selects an
+   * A clone plus a cut rather than one `clone --branch`: `--branch` selects an
    * EXISTING ref in the source to check out, while this seam's contract is to
    * CREATE the supplied head branch. `clone -b` on a name the source does not
    * have fails, so the pair is not an implementation preference — it is the only
-   * spelling that does what the task row asks.
+   * spelling that does what the task row asks. The base read sits between them,
+   * for the reason argued at its site.
    *
    * Every failure here becomes `ClonePrepareFailedError`, each carrying its own
    * {@link ClonePrepareFailureReason}. The git `stderr` stops HERE: it is the
@@ -1449,7 +1474,7 @@ export class EphemeralCloneService {
    * §Ephemeral Clone` bans echoing one, so the discriminant is all that survives
    * the boundary.
    */
-  async #materializeClone(materialization: CloneMaterialization): Promise<void> {
+  async #materializeClone(materialization: CloneMaterialization): Promise<string | undefined> {
     try {
       await this.#filesystem.createDirectory(materialization.cloneRootsDirectory);
     } catch {
@@ -1479,11 +1504,42 @@ export class EphemeralCloneService {
       throw new ClonePrepareFailedError("clone_invocation_failed");
     }
 
+    let observedBaseBranch: string | undefined;
+    try {
+      // BETWEEN the clone and the cut, and that ordering is forced: once
+      // `checkout -b` lands, HEAD names the NEW branch and the base it descended
+      // from is no longer recoverable from the clone.
+      //
+      // `branch --show-current` rather than `symbolic-ref --short HEAD`, and the
+      // reason is this module's own seam rather than taste. A detached HEAD is a
+      // lawful source shape, and `symbolic-ref` reports it by exiting NON-ZERO
+      // with empty output — a signal {@link EphemeralCloneGitRunner} structurally
+      // cannot carry, since it surfaces a failed invocation as an opaque
+      // rejection with no exit code. Reading absence off that rejection would
+      // mean treating every failure as "detached", which is exactly the swallow
+      // `base_branch_unreadable` exists to prevent. `--show-current` exits 0 for
+      // both shapes and reports absence as empty stdout, keeping the lawful case
+      // and the failure case distinguishable at a seam that only sees stdout.
+      // It is porcelain; its empty-on-detached contract is documented, was
+      // verified on git 2.50.1 when this landed, and is re-pinned against real
+      // git at T2.6's acceptance tier.
+      const headBranchRead = await this.#runGit([
+        "-C",
+        materialization.cloneRoot,
+        "branch",
+        "--show-current",
+      ]);
+      const observedHead = headBranchRead.stdout.trim();
+      observedBaseBranch = observedHead === "" ? undefined : observedHead;
+    } catch {
+      throw new ClonePrepareFailedError("base_branch_unreadable");
+    }
+
     try {
       // `-C <cloneRoot>` rather than a `cwd`: the invocation is entirely in the
       // argv (see {@link EphemeralCloneGitRunner}). `branchName` rides the VALUE
       // slot of `-b`, which is what discharges the option-injection obligation
-      // for the one caller-supplied element in either argv.
+      // for the one caller-supplied element in any of the three argvs.
       await this.#runGit([
         "-C",
         materialization.cloneRoot,
@@ -1497,5 +1553,7 @@ export class EphemeralCloneService {
       // than bound. See the header's residual for the open status question.
       throw new ClonePrepareFailedError("head_branch_unavailable");
     }
+
+    return observedBaseBranch;
   }
 }

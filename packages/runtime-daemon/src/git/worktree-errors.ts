@@ -113,7 +113,7 @@
 //     declared it, deliberately: T2.3 owned the clone-prepare failure
 //     taxonomy, and minting a discriminant here on its behalf would have
 //     pre-committed every downstream importer to a shape no ratified surface
-//     asked for. T2.3 has since supplied it from its four real throw sites
+//     asked for. T2.3 has since supplied it from its five real throw sites
 //     ({@link ClonePrepareFailureReason}) — the additive widening that
 //     argument-free staging was holding open, taken by the task that owns the
 //     taxonomy rather than guessed by the one that declared the carrier.
@@ -350,9 +350,9 @@ export type WorktreeReuseConflictReason =
  * Why ephemeral clone preparation failed. Closed and non-path-bearing, for the
  * same reason {@link WorktreeCreateFailureReason} is.
  *
- * Four members, in the order `ephemeral-clone-service.ts`'s `prepare` reaches
- * them. The first three are the sibling's shape — a step of the preparation did
- * not work — and the fourth is not, which is why it is last:
+ * Five members, in the order `ephemeral-clone-service.ts`'s `prepare` reaches
+ * them. The first four are the sibling's shape — a step of the preparation did
+ * not work — and the fifth is not, which is why it is last:
  *
  *   * `execution_root_unavailable` — the clone-roots directory could not be
  *     prepared under the daemon's execution-roots directory (D-010-6). Named
@@ -361,8 +361,21 @@ export type WorktreeReuseConflictReason =
  *     types, so the shared spelling costs nothing and makes the parallel legible.
  *   * `clone_invocation_failed` — the `git clone` invocation did not complete.
  *     Deliberately NOT the sibling's `git_invocation_failed`: preparation makes
- *     TWO git invocations, and the other one's failure is the next member, so a
- *     name that said only "a git call failed" would not discriminate.
+ *     THREE git invocations, and the other two's failures are the next two
+ *     members, so a name that said only "a git call failed" would not
+ *     discriminate.
+ *   * `base_branch_unreadable` — the `git branch --show-current` read of the
+ *     clone's own HEAD did not complete. UNREADABLE rather than the siblings'
+ *     "unavailable", and the difference is the member's whole point: the
+ *     siblings name something that could not be brought into existence, whereas
+ *     a base branch can be LAWFULLY ABSENT. A detached-HEAD source clones to a
+ *     detached-HEAD clone, where that read succeeds and prints nothing, and the
+ *     preparation goes on to report no base branch at all — not this reason, not
+ *     any failure. This member fires only when the invocation itself fails.
+ *     Collapsing the two would let a transient read failure followed by a
+ *     successful branch cut ship silently self-anchored provenance into
+ *     `branch_contexts`, which CP-010-6 hands to Plan-011 for PR and diff
+ *     attribution.
  *   * `head_branch_unavailable` — the `git checkout -b` invocation did not
  *     create the caller's head branch. Its reachable case is a name that already
  *     exists in the fresh clone, the source's own default branch being the
@@ -386,6 +399,7 @@ export type WorktreeReuseConflictReason =
 export type ClonePrepareFailureReason =
   | "execution_root_unavailable"
   | "clone_invocation_failed"
+  | "base_branch_unreadable"
   | "head_branch_unavailable"
   | "concurrently_retired";
 
@@ -395,6 +409,8 @@ const CLONE_PREPARE_FAILURE_MESSAGES: Record<ClonePrepareFailureReason, string> 
     "ephemeral clone preparation failed: the daemon execution root could not be prepared",
   clone_invocation_failed:
     "ephemeral clone preparation failed: the git clone invocation did not complete",
+  base_branch_unreadable:
+    "ephemeral clone preparation failed: the clone's base branch could not be read",
   head_branch_unavailable:
     "ephemeral clone preparation failed: the requested head branch could not be created in the clone",
   concurrently_retired:
