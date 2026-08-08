@@ -1305,7 +1305,7 @@ describe("I-010-6 — the main checkout across every failure path", () => {
   it(
     "leaves the working tree, HEAD and the branch roster byte-identical",
     async () => {
-      // Setup for the four failure paths, all of it BEFORE the snapshot.
+      // Setup for the five failure paths (a)-(e), all of it BEFORE the snapshot.
       await ctx.repository.git(["branch", "feature/taken"]);
       const live = await createWorktree("feature/live");
       writeFileSync(join(live.fsRoot, "scratch-notes.txt"), "work in progress\n");

@@ -26,8 +26,8 @@
 //   * `Spec-010 §Required Behavior` — an `ephemeral clone`-mode prepare
 //     provisions a disposable isolated clone: the row, the D-010-6 root, the
 //     created head branch, the base branch observed from the clone before that
-//     cut (absent when the clone's own HEAD lands detached), and the reported policy /
-//     expiry / branch.
+//     cut (absent when the clone's own HEAD lands detached), and the reported
+//     policy / expiry / branch.
 //   * `Spec-010 §Default Behavior` — every provisioning git invocation
 //     neutralizes hook execution at the invocation layer.
 //   * `Spec-010 §Fallback Behavior` — a failed preparation records the failure
@@ -167,8 +167,9 @@ function gitVerb(argv: readonly string[]): string | undefined {
  * retirement and disappear in a tick have a real directory to watch.
  *
  * `branch --show-current` answers BOTH of git's real behaviors, keyed on
- * {@link sourceHeadBranch}: the branch name for an attached HEAD, and empty
- * output — still a SUCCESSFUL invocation — for a detached one. Carrying both is
+ * {@link cloneHeadBranch}: the branch name when the clone's HEAD is attached,
+ * and empty output — still a SUCCESSFUL invocation — when it lands detached.
+ * Carrying both is
  * what makes the detached-HEAD case a negative control rather than an assertion
  * about a stub, and the newline is real because git prints one and the service
  * is supposed to trim it.
@@ -188,9 +189,10 @@ class FakeCloneGit {
   readonly invocations: RecordedGitInvocation[] = [];
   cloneFails: boolean = false;
   baseBranchReadFails: boolean = false;
-  /** `null` models a source whose HEAD commit no branch references — the one
-   * source shape whose clone lands with a detached HEAD. */
-  sourceHeadBranch: string | null = SOURCE_DEFAULT_BRANCH;
+  /** What `branch --show-current` prints inside the clone. `null` models a
+   * source whose HEAD commit no branch references — the one source shape whose
+   * clone lands with a detached HEAD. */
+  cloneHeadBranch: string | null = SOURCE_DEFAULT_BRANCH;
   readonly existingBranchNames: Set<string> = new Set([SOURCE_DEFAULT_BRANCH]);
 
   readonly run: EphemeralCloneGitRunner = (argv, options) => {
@@ -215,7 +217,7 @@ class FakeCloneGit {
         return Promise.reject(new Error("fatal: not a git repository"));
       }
       return Promise.resolve({
-        stdout: this.sourceHeadBranch === null ? "" : `${this.sourceHeadBranch}\n`,
+        stdout: this.cloneHeadBranch === null ? "" : `${this.cloneHeadBranch}\n`,
         stderr: "",
       });
     }
@@ -609,10 +611,10 @@ describe("EphemeralCloneService.prepare (`Spec-010 §Required Behavior`)", () =>
     // references succeeds with the clone's own HEAD detached (a source merely
     // detached at a branch tip clones ONTO that branch — remote-HEAD
     // resolution), where `branch --show-current` prints nothing and still
-    // EXITS 0. That is not a failure, so the prepare must
-    // succeed — and the key must be absent rather than present-and-undefined,
-    // which is what `exactOptionalPropertyTypes` makes a real distinction.
-    ctx.git.sourceHeadBranch = null;
+    // EXITS 0. That is not a failure, so the prepare must succeed — and the
+    // key must be absent rather than present-and-undefined, a distinction
+    // `exactOptionalPropertyTypes` makes real.
+    ctx.git.cloneHeadBranch = null;
 
     const prepared = await service.prepare({ workspaceId: WORKSPACE_ID, branchName: BRANCH_NAME });
 

@@ -69,7 +69,7 @@ import { join } from "node:path";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type { ExecutionMode, SessionId } from "@ai-sidekicks/contracts";
+import type { ExecutionMode, SessionId, WorkspaceState } from "@ai-sidekicks/contracts";
 
 import { EventLogService } from "../../events/event-log-service.js";
 import { __resetSessionAppendLocksForTest } from "../../events/session-append-lock.js";
@@ -526,7 +526,7 @@ function insertAttachedMount(): void {
 function insertWorkspace(options: {
   readonly workspaceId?: string;
   readonly executionMode: ExecutionMode;
-  readonly state: string;
+  readonly state: WorkspaceState;
   readonly fsRoot?: string | null;
 }): void {
   ctx.db
