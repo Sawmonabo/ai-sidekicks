@@ -262,7 +262,7 @@ preconditions:
 
 **Preconditions.**
 
-- [ ] Phases 1–2 merged
+- [x] Phases 1–2 merged — Phase 1 satisfied 2026-07-26 via PR #253 (squash `f3c9947`); Phase 2 satisfied 2026-08-08 via PR #297 (squash `3e98412`)
 - [ ] Plan-004 Phase 3 merged (run-engine + the T3.10 `RunSetupGate` seam — Tier 5)
 - [x] BL-142 landed — registry regex conformance (camelCase tails: `repo.executionModeSelect`-class strings throw at boot without it)
 - [x] BL-143 landed — `DaemonDomainError` projection branch in `mapJsonRpcError` (T3.8's wire assertions observe anonymous `-32603` without it)
@@ -401,7 +401,7 @@ preconditions:
 **Preconditions.**
 
 - [x] `Spec-010 §Turn-Boundary Snapshots` ratified — the B21 amendment (2026-07-06), re-promoted `approved` 2026-07-18 via the campaign's W1.5 batch spec gate (Task 28); the `epoch-<E>` ref segment and the disposed-clone / post-snapshot-commit rulings landed via campaign B2 (Spec-004 + Spec-010)
-- [ ] Phases 1 and 2 merged — Phase 1 for the execution-root contract shapes (the `run_execution_contexts` table + `execution_root` column, D-010-5 / T1.3) and Phase 2 for the hook-neutralized git-invocation discipline (D-010-10) the service reuses per-invocation. **No Phase-3 / Plan-004 dependency:** the capture and restore legs take the execution root as a caller-resolved parameter and never query `run_execution_contexts` themselves — root resolution, epoch supply, and `epochLineage` derivation are the B9-authored call-site's job (CP-010-12). The prune leg's `run_execution_contexts.released_at` read (T5.3) is a Phase-1 schema column (D-010-5 / T1.3); its runtime population by the T3.2 gate is a data-flow, not a build edge — an un-terminated run simply stays unprunable. Build order is therefore Phases 1/2 → Phase 5 (B23) → Plan-004 Phase 3 → Plan-010 Phase 3, acyclic — a Phase-3 precondition here would deadlock (Plan-010 Phase 3 preconditions on Plan-004 Phase 3, which the §5 preamble orders after Phase 5)
+- [x] Phases 1 and 2 merged — satisfied: Phase 1 2026-07-26 via PR #253 (squash `f3c9947`), Phase 2 2026-08-08 via PR #297 (squash `3e98412`). Phase 1 for the execution-root contract shapes (the `run_execution_contexts` table + `execution_root` column, D-010-5 / T1.3) and Phase 2 for the hook-neutralized git-invocation discipline (D-010-10) the service reuses per-invocation. **No Phase-3 / Plan-004 dependency:** the capture and restore legs take the execution root as a caller-resolved parameter and never query `run_execution_contexts` themselves — root resolution, epoch supply, and `epochLineage` derivation are the B9-authored call-site's job (CP-010-12). The prune leg's `run_execution_contexts.released_at` read (T5.3) is a Phase-1 schema column (D-010-5 / T1.3); its runtime population by the T3.2 gate is a data-flow, not a build edge — an un-terminated run simply stays unprunable. Build order is therefore Phases 1/2 → Phase 5 (B23) → Plan-004 Phase 3 → Plan-010 Phase 3, acyclic — a Phase-3 precondition here would deadlock (Plan-010 Phase 3 preconditions on Plan-004 Phase 3, which the §5 preamble orders after Phase 5)
 - [x] `<E>` execution-epoch source ratified — `Spec-004 §Required Behavior` (0 before any rollback, advanced with each accepted `run.rolled_back` — a confirmed conversation rewind, position-mismatch-at-the-recorded-floor and the same-position recovery's convergence no-op included, regardless of file-leg disposition; caller-supplied by the Plan-004 run engine, campaign B2)
 
 ```yaml
@@ -560,6 +560,81 @@ shipped:
       discharged by it. The Preconditions audit box is unchecked accordingly, blocking Phase
       2 and Phase 5 dispatch until the delta lands. The same round surfaced that the edge had
       never propagated to the plan-header Dependencies row either (D3), repaired here.
+  - phase: 2
+    task: [T2.1, T2.2, T2.3, T2.4, T2.5, T2.6]
+    pr: 297
+    sha: 3e98412
+    merged_at: 2026-08-08
+    files:
+      - docs/plans/009-repo-attachment-and-workspace-binding.md
+      - docs/plans/010-worktree-lifecycle-and-execution-modes.md
+      - packages/contracts/src/worktree.ts
+      - packages/runtime-daemon/src/git/__tests__/ephemeral-clone-service.test.ts
+      - packages/runtime-daemon/src/git/__tests__/worktree-event-emitter.test.ts
+      - packages/runtime-daemon/src/git/__tests__/worktree-lifecycle.acceptance.test.ts
+      - packages/runtime-daemon/src/git/__tests__/worktree-projector.test.ts
+      - packages/runtime-daemon/src/git/__tests__/worktree-service.test.ts
+      - packages/runtime-daemon/src/git/ephemeral-clone-service.ts
+      - packages/runtime-daemon/src/git/worktree-errors.ts
+      - packages/runtime-daemon/src/git/worktree-event-emitter.ts
+      - packages/runtime-daemon/src/git/worktree-projector.ts
+      - packages/runtime-daemon/src/git/worktree-service.ts
+      - packages/runtime-daemon/src/workspace/__tests__/execution-root-service.test.ts
+      - packages/runtime-daemon/src/workspace/execution-root-service.ts
+    verifies_invariant:
+      [
+        I-010-3,
+        I-010-4,
+        I-010-5,
+        I-010-6,
+        I-010-7,
+        I-010-8,
+        I-010-9,
+        I-010-10,
+        I-010-11,
+        I-010-12,
+        I-010-13,
+        I-010-20,
+      ]
+    spec_coverage:
+      [
+        "Spec-010 line 144 (failed and clone transitions deliberately not separately evented)",
+        "Spec-010 line 46 (create-or-reuse before execution)",
+        "Spec-010 line 51 (explicit reuse preserves branch + provenance context)",
+        "Spec-010 line 55 (naming pattern)",
+        "Spec-010 line 58 (retirement preserves metadata with async cleanup)",
+        "Spec-010 line 114 (explicit collision handling)",
+        "Spec-010 line 139 (slug rule)",
+        "Spec-010 line 140 (provenance-split collision policy)",
+        "Spec-010 line 141 (base-ref policy)",
+        "Spec-010 line 47 (clone provisions before writable execution)",
+        "Spec-010 line 65 (clone-prep failure blocks in setup)",
+        "Spec-010 line 70 (sweep retirement disposition incl. workspace return-to-provisioning)",
+        "Spec-010 line 143 (TTL as daemon config)",
+        "Spec-010 line 42 (exactly one canonical mode per run binding)",
+        "Spec-010 line 45 (branch mode is an explicit writable override on the existing checkout)",
+        "Spec-010 line 48 (no silent main-checkout fallback)",
+        "Spec-010 line 64 (worktree-creation failure blocks in setup)",
+        "Spec-010 line 69 (stale refusal)",
+        "Spec-010 line 89 (branch context persisted per writable mode)",
+        "Spec-010 line 142 (branch-mode bind-only verification)",
+        "Spec-010 line 81 (status read exposes lifecycle + provenance)",
+        "Spec-010 line 90 (daemon-owned dirty/merged projections)",
+        "Spec-010 line 121 (no hidden main-checkout mutation)",
+        "Spec-010 line 127 (AC1 — writable run on git defaults to worktree mode at the service layer)",
+        "Spec-010 line 129 (AC3 — creation failure blocks rather than mutating)",
+        "Spec-010 line 130 (AC4 — reused worktrees stay linked to branch + prior context)",
+      ]
+    notes: |
+      Full-phase single-PR ship (T2.1-T2.6). Codex round 1 closed reply-and-resolve (retire and
+      cleanup races closed, clone retirement rescoped to the run's recorded cloneId, detached-snapshot
+      helper fold); round 2 likewise (the config-named fsmonitor hook joined the D-010-10
+      neutralization argv in all three services; the reuse-cleanliness TOCTOU recorded as an accepted
+      residual whose run-start re-proof the Phase-3 root-keyed run-setup gate owns); round 3 closed
+      with no response under the session review cap. verifies_invariant scoping: I-010-13 is verified
+      for the Phase-2 emission legs only — the dirty/merged producer half is a recorded Phase-3
+      obligation (plan Phase 3 Goal); I-010-20 rides as its daemon half per the T2.5 row. NS-48
+      auto-created in the housekeeping PR.
 ```
 
 ### Notes

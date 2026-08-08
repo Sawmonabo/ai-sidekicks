@@ -3527,6 +3527,11 @@ test("continuation-line refs are counted — the 48-vs-67 undercount", () => {
   // Shipment Manifest entry landed five more ids inside the plan's fenced
   // manifest YAML (its key-line verifies_invariant flow list, I-009-5 through
   // I-009-9).
+  // 010: 2 -> 14, total 76 -> 88 (2026-08-08, PR #298): the Plan-010 Phase-2
+  // Shipment Manifest entry landed twelve more ids inside the plan's fenced
+  // manifest YAML (a wrapped verifies_invariant flow list whose ids all sit on
+  // continuation lines below the key — the undercount shape this test pins —
+  // I-010-3 through I-010-13 plus I-010-20).
   assert.deepEqual(perPlan, {
     "001": 5,
     "002": 6,
@@ -3536,10 +3541,10 @@ test("continuation-line refs are counted — the 48-vs-67 undercount", () => {
     "007": 14,
     "008": 2,
     "009": 9,
-    "010": 2,
+    "010": 14,
     "024": 5,
   });
-  assert.equal(total, 76);
+  assert.equal(total, 88);
 });
 
 test("all three YAML list spellings are counted, on continuation lines too", () => {
