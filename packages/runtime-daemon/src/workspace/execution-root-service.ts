@@ -985,7 +985,13 @@ export class ExecutionRootService {
     // live run. Root-keyed rather than workspace-keyed, which is also the shape
     // the Phase-3 gate must add beside CP-010-4's workspace-keyed `markBusy`
     // when it lands — `branch` mode shares the mount's checkout, the same
-    // hazard one arm over.
+    // hazard one arm over. Accepted residual: this probe fires BEFORE
+    // `validateReuse`'s declared refusal order, so a candidate that would be
+    // refused outright — wrong mount, retired (reachable while sweep leg (d)
+    // defers a busy-held root), or wrong branch — answers wait-and-retry
+    // `workspace.busy` first when its directory has a live holder. A
+    // misordered refusal is the cheaper defect: the post-bracket alternative
+    // stales the REQUESTER for someone else's run.
     if (input.reuseWorktreeId !== undefined) {
       const busyHolder = this.#selectBusyWorktreeHolderStmt.get({
         worktree_id: input.reuseWorktreeId,

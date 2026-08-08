@@ -412,7 +412,8 @@ async function proveSentinelsAreArmed(repository: FixtureRepository): Promise<vo
 interface MainCheckoutSnapshot {
   /** `<relative path> <sha256>` for every working-tree file, sorted. */
   readonly workingTree: readonly string[];
-  readonly headSymbolicRef: string;
+  /** Full ref HEAD points at, or null when HEAD is detached. */
+  readonly headSymbolicRef: string | null;
   readonly headCommit: string;
   readonly porcelainStatus: string;
   /** `<refname> <objectname>` for every local branch, sorted. */
@@ -454,9 +455,15 @@ async function snapshotMainCheckout(repository: FixtureRepository): Promise<Main
     "--format=%(refname) %(objectname)",
     "refs/heads",
   ]);
+  // `--quiet` turns detachment into a plain exit 1 instead of a fatal 128, so
+  // the ONE snapshot helper serves attached and detached checkouts alike — a
+  // null here doubles as the detachment premise the branch-mode refusal case
+  // asserts on before exercising the seam.
+  const headSymbolicRefProbe = await repository.gitCapturing(["symbolic-ref", "--quiet", "HEAD"]);
   return {
     workingTree: hashWorkingTree(repository.root),
-    headSymbolicRef: (await repository.git(["symbolic-ref", "HEAD"])).trim(),
+    headSymbolicRef:
+      headSymbolicRefProbe.exitCode === 0 ? headSymbolicRefProbe.stdout.trim() : null,
     headCommit: (await repository.git(["rev-parse", "HEAD"])).trim(),
     porcelainStatus: await repository.git(["status", "--porcelain"]),
     branchRoster: branchRoster
@@ -1880,29 +1887,11 @@ describe("branch mode — the main checkout as the execution root", () => {
         fsRoot: ctx.repository.root,
       });
       await ctx.repository.git(["checkout", "--quiet", "--detach", "HEAD"]);
-      // `snapshotMainCheckout` itself runs `symbolic-ref HEAD`, which exits 128
-      // on the very detachment this case constructs — so the no-mutation claim
-      // rides its detached-safe fields, plus an explicit detachment probe that
-      // doubles as the premise check.
-      const snapshotDetachedCheckout = async () => ({
-        workingTree: hashWorkingTree(ctx.repository.root),
-        headCommit: (await ctx.repository.git(["rev-parse", "HEAD"])).trim(),
-        porcelainStatus: await ctx.repository.git(["status", "--porcelain"]),
-        branchRoster: (
-          await ctx.repository.git([
-            "for-each-ref",
-            "--format=%(refname) %(objectname)",
-            "refs/heads",
-          ])
-        )
-          .split("\n")
-          .filter((line) => line !== "")
-          .sort(),
-        headIsDetached:
-          (await ctx.repository.gitCapturing(["symbolic-ref", "--quiet", "HEAD"])).exitCode !== 0,
-      });
-      const detachedSnapshot = await snapshotDetachedCheckout();
-      expect(detachedSnapshot.headIsDetached).toBe(true);
+      // Premise check: the shared helper's `headSymbolicRef` is null exactly
+      // when `symbolic-ref --quiet` exits non-zero — the same exit-status
+      // contract `#verifyBranchModeBind` reads.
+      const before = await snapshotMainCheckout(ctx.repository);
+      expect(before.headSymbolicRef).toBeNull();
 
       const rejection = await captureRejection(() =>
         ctx.executionRoots.prepare({
@@ -1921,7 +1910,7 @@ describe("branch mode — the main checkout as the execution root", () => {
       // and left the detached checkout exactly as it found it (D-010-9,
       // I-010-6).
       expect(readWorkspaceRow(BRANCH_WORKSPACE_ID).state).toBe("ready");
-      expect(await snapshotDetachedCheckout()).toEqual(detachedSnapshot);
+      expect(await snapshotMainCheckout(ctx.repository)).toEqual(before);
       expect(ctx.repository.firedHooks()).toEqual([]);
     },
     ACCEPTANCE_TEST_TIMEOUT_MS,
