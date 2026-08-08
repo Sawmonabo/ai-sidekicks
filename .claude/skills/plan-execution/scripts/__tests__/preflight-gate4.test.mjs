@@ -3579,6 +3579,45 @@ function reconcileFencedRefs(planSource) {
   return reconcile(fencedYamlRefIds, manifestInvariantRefs(planSource));
 }
 
+// Which plans MUST each contribute at least one manifest reference.
+//
+// Identity reconciliation is blind to a whole manifest DISAPPEARING: a plan with
+// no manifest and no fenced ids has both readers return nothing, so both
+// residues are empty and the plan passes — vacuously — while the surviving
+// plans keep any global total comfortably positive. Deleting Plan-001's
+// Shipment Manifest wholesale leaves every residue check green and the corpus
+// total at 84. This floor is the detection for that.
+//
+// PINNED, not derived, and that is the whole point: a set derived from the same
+// bytes under test IS the vacuity hole — a plan whose manifest vanished simply
+// drops out of the derived expectation, and the check congratulates itself.
+//
+// APPEND-STABLE because it is a floor, not an equality. A plan that newly starts
+// carrying a manifest never fails it; only a listed plan's contribution going to
+// zero does. Add a number here when a plan ships its first manifest entry;
+// removing one is a claim that the plan is no longer expected to contribute, and
+// should be argued for rather than done to quiet a failure.
+const PLANS_THAT_MUST_CARRY_MANIFEST_REFS = [
+  "001",
+  "002",
+  "003",
+  "005",
+  "006",
+  "007",
+  "008",
+  "009",
+  "010",
+  "024",
+];
+
+// Shared by the live-corpus arm and its negative control, so the control drives
+// the same code the corpus arm gates on rather than restating the condition.
+function missingFloorContributors(contributingPlanNumbers) {
+  return PLANS_THAT_MUST_CARRY_MANIFEST_REFS.filter(
+    (planNumber) => !contributingPlanNumbers.has(planNumber),
+  );
+}
+
 test("every fenced invariant ref is accounted for by the Shipment Manifest", () => {
   const plansDir = resolve(REPO_ROOT_FOR_TESTS, "docs", "plans");
   const planNames = readdirSync(plansDir).filter(
@@ -3590,13 +3629,13 @@ test("every fenced invariant ref is accounted for by the Shipment Manifest", () 
 
   const unaccountedByPlan = {};
   const unreadByPlan = {};
-  let manifestGrandTotal = 0;
+  const contributingPlans = new Set();
   for (const name of planNames) {
     const { unaccounted, unread, manifestTotal } = reconcileFencedRefs(
       readFileSync(resolve(plansDir, name), "utf8"),
     );
-    manifestGrandTotal += manifestTotal;
     const planNumber = name.slice(0, 3);
+    if (manifestTotal > 0) contributingPlans.add(planNumber);
     if (Object.keys(unaccounted).length > 0) unaccountedByPlan[planNumber] = unaccounted;
     if (Object.keys(unread).length > 0) unreadByPlan[planNumber] = unread;
   }
@@ -3610,10 +3649,14 @@ test("every fenced invariant ref is accounted for by the Shipment Manifest", () 
     {},
     "manifest ids the fenced reader did not see (drift between the two readers)",
   );
-  // Composition still matters, but the append-stable statement of it is that the
-  // manifests are read at ALL — a parser returning nothing everywhere satisfies
-  // both residue checks above while disclosing nothing.
-  assert.ok(manifestGrandTotal > 0, "manifest parser disclosed no ids across the whole corpus");
+  // Both residue checks above are satisfied by silence, so the arm needs a floor
+  // that silence cannot satisfy. Per-plan rather than a global total: a global
+  // count stays healthy while any one plan's manifest quietly disappears.
+  assert.deepEqual(
+    missingFloorContributors(contributingPlans),
+    [],
+    "a plan expected to carry Shipment-Manifest refs contributed none — manifest lost, or the parser stopped reading it",
+  );
 });
 
 test("NEGATIVE CONTROL: a manifest append leaves the residues still, a task-DAG edit moves them", () => {
@@ -3721,6 +3764,43 @@ test("NEGATIVE CONTROL: equal totals with divergent ids redden both directions",
   // divergence that a Set-based comparison would report as agreement.
   const droppedRepeat = reconcile(["I-100-8"], ["I-100-8", "I-100-8"]);
   assert.deepEqual(droppedRepeat.unread, { "I-100-8": 1 }, "a dropped repeat is a divergence");
+});
+
+test("NEGATIVE CONTROL: a vanished Shipment Manifest passes both residues and is caught only by the floor", () => {
+  // Half one — the vacuity itself. A plan carrying no manifest and no fenced ids
+  // reconciles perfectly clean, because BOTH readers return nothing and nothing
+  // is therefore in excess either way. This is not a contrived shape: deleting a
+  // real plan's manifest wholesale produces exactly it.
+  const planWithNoManifest = ["## Invariants", "", "### I-100-1 — a declared invariant", ""].join(
+    "\n",
+  );
+  const vacuous = reconcileFencedRefs(planWithNoManifest);
+  assert.deepEqual(vacuous.unaccounted, {}, "no fenced ids, so nothing reads as unaccounted");
+  assert.deepEqual(vacuous.unread, {}, "and no manifest ids, so nothing reads as unread");
+  assert.equal(vacuous.fencedTotal, 0);
+  assert.equal(vacuous.manifestTotal, 0, "it contributes nothing — the silence the floor owns");
+
+  // Half two — the floor turning that silence into a failure, driven through the
+  // same helper the corpus arm gates on. Plan-006 stands in for "a listed plan
+  // whose manifest vanished".
+  const everyPlanButOne = new Set(
+    PLANS_THAT_MUST_CARRY_MANIFEST_REFS.filter((planNumber) => planNumber !== "006"),
+  );
+  assert.deepEqual(
+    missingFloorContributors(everyPlanButOne),
+    ["006"],
+    "a listed plan that stopped contributing must be named",
+  );
+
+  // And the append-stability the pin depends on: a plan NOT on the list that
+  // starts carrying a manifest must never fail the floor, or every new manifest
+  // would break the suite and the list would rot into a rubber stamp.
+  const withUnlistedNewcomer = new Set([...PLANS_THAT_MUST_CARRY_MANIFEST_REFS, "099"]);
+  assert.deepEqual(
+    missingFloorContributors(withUnlistedNewcomer),
+    [],
+    "an unlisted plan newly carrying a manifest must not fail the floor",
+  );
 });
 
 test("all three YAML list spellings are counted, on continuation lines too", () => {
