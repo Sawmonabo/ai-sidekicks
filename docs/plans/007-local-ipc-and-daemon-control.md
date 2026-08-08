@@ -319,7 +319,7 @@ Phase R3's CLI imports `@ai-sidekicks/client-sdk` for the typed daemon client (J
 - `packages/runtime-daemon/src/bootstrap/first-run-keys.ts` — daemon first-run key generation (NEW — Phase R2 T-007r-2-4; Spec-027 row 3 daemon scope)
 - `packages/runtime-daemon/src/bootstrap/daemon-key-store.ts` — `DaemonKeyStore` interface + test-only `InMemoryDaemonKeyStore` stub (NEW — Phase R2 T-007r-2-4; real `OsKeystoreSealedDaemonKeyStore` ships at Plan-022 Tier 5 per CP-007-8)
 - `packages/runtime-daemon/src/bootstrap/update-notify.ts` — Spec-027 row 7a notify-by-default poller (NEW — Phase R2 T-007r-2-5)
-- `packages/runtime-daemon/src/bootstrap/index.ts` (EXTEND — Phase R1 T-007r-1-7 wires owned-namespace `register*` calls after `SecureDefaults.load`; Phase R2 T-007r-2-8 orchestrates `FirstRunKeys` + `TlsSurface` + `UpdateNotifyPoller`)
+- `packages/runtime-daemon/src/bootstrap/index.ts` (EXTEND — Phase R1 T-007r-1-7 wires owned-namespace `register*` calls after `SecureDefaults.load`; Phase R2 T-007r-2-7 orchestrates `FirstRunKeys` + `TlsSurface` + `UpdateNotifyPoller`)
 
 ### Client SDK + CLI (`packages/client-sdk/`, `apps/cli/`)
 
@@ -987,6 +987,7 @@ Plan-007 partial Phases 1-3 shipped (PRs #16/#17/#19, merged 2026-04-29/2026-04-
 - [ ] R2 update-notify poller lands: `bootstrap/update-notify.ts` passively polls; `getEffectiveSettings()` projection exposes channel + mode + lastChecked + pendingVersion for banner content (T-007r-2-5)
 - [ ] R3-PR-a self-update CLI lands at `apps/cli/src/commands/self-update.ts` (in the R3-owned scaffold, alongside the other CLI commands): dual-verification (manifest-sig + Sigstore) + anti-rollback/freeze checks verified on Linux, macOS, and Windows; I-007-16 security-critical banner non-suppression honored (T-007r-3-6a; relocated from R2 per the 2026-05-28 ratification reversal)
 - [ ] R2 bootstrap-ordering wires the new surfaces: `SecureDefaults.load` → `TlsSurface.maybeStart` → `FirstRunKeyCeremony.maybeRun` → `UpdateNotifyPoller.start` → banner-content assembly per CP-007-9 (T-007r-2-7)
+- [ ] R2 closes the activation-side half of I-007-4: each override-bearing row's production path (Spec-027 row 2 `insecure_bind`, row 8 `legacy_tls12`) reaches `SecureDefaultOverrideEmitter.emit()` at its call-site, and an integration assertion activates each override and observes its event. Tier 1's W-007p-1-T5 drives the emitter directly, so it establishes the count only GIVEN invocation and cannot catch an override that activates without emitting — a gap that was unreachable at Tier 1, where no production caller existed (call-sites land with the bootstrap-ordering wiring, T-007r-2-7)
 - [ ] R2 I-007-16 enforcement lands: security-critical override-banner rows tagged at emission time so the R3 CLI cannot suppress them via `--no-banner` (T-007r-2-8)
 - [ ] R2 test suite passes: R2-T1..R2-T6 (TLS surface rejects non-TLS-1.3; first-run-keys ceremony is idempotent given an already-populated `DaemonKeyStore` — the `InMemoryDaemonKeyStore` stub at R2, with real sealed-store at-rest persistence verified at Plan-022 Tier 5; update-notify polls passively + does not auto-apply; banner-content extension projects all R2-owned fields from `effectiveSettings()`; I-007-12 self-swap integration; `--no-banner` does NOT suppress security-critical rows per I-007-16) (T-007r-2-9)
 
