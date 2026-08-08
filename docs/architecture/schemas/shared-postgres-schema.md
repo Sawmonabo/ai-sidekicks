@@ -333,8 +333,8 @@ CREATE INDEX idx_artifact_relay_blobs_expires ON artifact_relay_blobs(expires_at
 -- second node keeps the blob alive until it fetches or TTL; delivered_at is written ONLY by the
 -- authenticated ArtifactFetchComplete ack that follows client-side chunk/commitment/CAS verification,
 -- never inferred from the last chunk GET — Spec-014 Fetch step 6; the acked row is resolved from the
--- fetch token's own (participant, node) DPoP-bound claims, never a caller-supplied node_id, so a node presenting a token minted for itself cannot mark a sibling delivered; mint-time authorization is participant-granular (Spec-014 Fetch step 5, scoped 2026-08-08), so a same-participant compromised daemon
--- is a bounded residual there — delivery attribution only, each row's wrapped_cek being sealed to that node's own durable artifact-encryption key — not a closed case; and the write is idempotent), and the in-flight fetch grace lease
+-- fetch token's own (participant, node) DPoP-bound claims, never a caller-supplied node_id, so a node presenting a token minted for itself cannot mark a sibling delivered; mint-time authorization is participant-granular (Spec-014 Fetch step 5, scoped 2026-08-08) and this ack proves no CEK unwrap, so a COMPROMISED
+-- same-participant node CAN still forge this write, clear the blob's last outstanding row, and destroy the blob at refcount-zero GC with no remedy while the publisher is offline — the named V1 availability residual, not a closed case; and the write is idempotent), and the in-flight fetch grace lease
 -- (GC must not evict the blob while a lease is live). Hard-DELETE class in the CP-022-6 closure:
 -- deleting a participant's rows IS the crypto-shred (their reach to the CEK is destroyed) and
 -- simultaneously removes them from the intended-recipient set, keeping refcount semantics
