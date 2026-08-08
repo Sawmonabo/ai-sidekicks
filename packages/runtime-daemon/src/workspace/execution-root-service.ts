@@ -1283,6 +1283,12 @@ export class ExecutionRootService {
    *   A `reused` candidate re-proves liveness before the upsert, in the same
    *   synchronous block — `validateReuse` decided across an await, and a
    *   retirement can have committed since; the in-arm comment carries the race.
+   *   Cleanliness is deliberately NOT re-proven here: it has no synchronous
+   *   read (only a git spawn observes it), so a bind-time re-probe would be
+   *   another sample at the head of the unbounded `ready`-wait that dominates
+   *   the window — `validateReuse`'s docblock carries the argument, and the
+   *   Phase-3 root-keyed run-setup gate owns the re-proof at the point it
+   *   matters.
    * - `ephemeral clone` — the row references the clone. A plain insert: every
    *   prepare mints a new clone, so there is nothing to conflict with.
    * - `branch` — the row references NEITHER root, and is likewise a plain insert,
@@ -1626,20 +1632,37 @@ export class ExecutionRootService {
   /**
    * The single git entry point.
    *
-   * Prepends `-c core.hooksPath=<empty dir>` unconditionally (I-010-10). The
-   * invariant quantifies over INVOCATIONS, not over invocations believed to run
-   * hooks, and this module's one call runs against the USER's main checkout —
-   * the single place in Plan-010 where a repository's own hooks are most likely
-   * to exist. Discharged by there being no other way to reach git from here.
+   * Prepends `-c core.hooksPath=<empty dir>` and `-c core.fsmonitor=false`
+   * unconditionally (I-010-10). The invariant quantifies over INVOCATIONS, not
+   * over invocations believed to run hooks, and this module's one call runs
+   * against the USER's main checkout — the single place in Plan-010 where a
+   * repository's own hooks are most likely to exist. Discharged by there being
+   * no other way to reach git from here.
    *
-   * A command-line `-c` outranks repository, global and system config alike, so a
-   * repo-local `core.hooksPath` cannot win it back.
+   * The fsmonitor flag is UNIFORMITY with the git-service siblings rather than
+   * a closed hole: the fsmonitor hook is config-named (a non-boolean
+   * `core.fsmonitor=<pathname>` IS the hook command, outside `core.hooksPath`'s
+   * reach), but `symbolic-ref` reads a ref file and never refreshes the index,
+   * so this module's one verb has no path to it. The flag keeps the argv prefix
+   * identical across all three services, so the quantifier stays a property of
+   * one shared shape instead of three per-service judgments about which verbs
+   * consult which hook.
+   *
+   * A command-line `-c` outranks repository, global and system config alike, so
+   * a repo-local value cannot win either flag back.
    */
   async #runGit(argv: readonly string[]): Promise<ExecutionRootGitInvocationResult> {
     await this.#filesystem.createDirectory(this.#hookNeutralizationDirectory);
-    return this.#git(["-c", `core.hooksPath=${this.#hookNeutralizationDirectory}`, ...argv], {
-      timeoutMs: this.#gitCommandTimeoutMs,
-    });
+    return this.#git(
+      [
+        "-c",
+        `core.hooksPath=${this.#hookNeutralizationDirectory}`,
+        "-c",
+        "core.fsmonitor=false",
+        ...argv,
+      ],
+      { timeoutMs: this.#gitCommandTimeoutMs },
+    );
   }
 }
 

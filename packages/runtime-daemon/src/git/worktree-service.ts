@@ -128,12 +128,27 @@
 //
 // Every git invocation in this module goes through one private `#runGit`, and
 // that method is the only place an argv is assembled. It prepends
-// `-c core.hooksPath=<empty dir>` unconditionally, so the invariant's "every
-// provisioning git invocation" quantifier is discharged by there being no other
-// way to reach git from here — not by remembering the flag at each call site. A
-// command-line `-c` outranks repository, global and system config and the
-// `GIT_CONFIG_*` injection channel alike, so a repo-local `core.hooksPath`
-// cannot win it back.
+// `-c core.hooksPath=<empty dir>` and `-c core.fsmonitor=false` unconditionally,
+// so the invariant's "every provisioning git invocation" quantifier is
+// discharged by there being no other way to reach git from here — not by
+// remembering the flags at each call site. A command-line `-c` outranks
+// repository, global and system config and the `GIT_CONFIG_*` injection channel
+// alike, so a repo-local value cannot win either flag back.
+//
+// The second flag exists because the fsmonitor hook is the one hook git names
+// by CONFIG VALUE rather than by a `hooks/`-resident file: a non-boolean
+// `core.fsmonitor=<pathname>` IS the hook command, so `core.hooksPath` never
+// governs it. Index-refreshing verbs in this module's set reach it — `status`
+// consults it for the cleanliness verdict, and `worktree add` consults it while
+// populating the new checkout (both reproduced empirically on git 2.50.1 with a
+// repo-local pathname hook under hooksPath-only neutralization; `=false`
+// suppressed both). Two other repo-local config values that name executables
+// and have a plausible path into this module's verbs were probed and need no
+// flag: `uploadpack.packObjectsHook` is honored only
+// from protected config — git's own documented safety measure against untrusted
+// repositories — and `core.alternateRefsCommand` fires only on receive-pack's
+// alternate-tip advertisement, a push-target path no verb in I-010-6's
+// invocation set ever engages.
 //
 // The neutralization directory is created (recursively, idempotently) before
 // each invocation rather than once at construction: an EMPTY directory is the
@@ -1269,6 +1284,28 @@ export class WorktreeService {
    * A candidate id that resolves to NO row raises `WorktreeNotFoundError`
    * rather than a conflict: 409 for an id that names nothing would send a caller
    * to repair a row that is not there.
+   *
+   * The cleanliness probe is D-010-15's TOCTOU re-check, and its verdict is a
+   * SAMPLE — both halves are deliberate. The "check" in
+   * `Spec-010 §Fallback Behavior`'s "becomes dirty between check and bind" is
+   * the caller's earlier observation (the `WorktreeReuseCheckRequest` wire
+   * probe, or however the candidate was picked); THIS probe runs inside the
+   * bind operation itself, so dirt that arrived since the caller looked
+   * refuses `dirty_unacknowledged` here rather than binding silently. What stays open
+   * is the sample's own tail. Liveness gets re-proven at the bind because a
+   * synchronous `worktrees.state` read can share the context write's
+   * transaction; dirtiness has no synchronous read — it is filesystem state
+   * only a git spawn can observe, mutable by the user's editor at any moment —
+   * so a second, bind-adjacent probe would still be a sample, one taken at the
+   * head of a window whose tail dominates it: a prepared workspace sits
+   * `ready` for an unbounded time before a run first touches the root. And it
+   * would refuse prepares that are FINE — an editor save landing mid-provision
+   * would kick a clean-validated candidate into `stale` repair — converting a
+   * benign race into a user-visible failure without closing anything. The
+   * premise's meaningful re-proof point is run start, owned by the Phase-3
+   * root-keyed run-setup gate (Plan-010 §Phase 3). An ACKNOWLEDGED dirty
+   * candidate never carried the premise, so nothing downstream re-proves it
+   * either.
    */
   async validateReuse(input: ValidateWorktreeReuseInput): Promise<ReusableWorktreeCandidate> {
     const row = this.#selectWorktreeStmt.get({ worktree_id: input.worktreeId });
@@ -1644,14 +1681,23 @@ export class WorktreeService {
   // ------------------------------------------------------------------------
 
   /**
-   * The single git entry point. Prepends the hook-neutralization flag and
+   * The single git entry point. Prepends the two hook-neutralization flags and
    * nothing else, so I-010-10's quantifier holds structurally (see the header).
+   * `core.fsmonitor=false` rides along because the fsmonitor hook is
+   * config-named, not `hooks/`-resident — `core.hooksPath` never governs it.
    */
   async #runGit(argv: readonly string[]): Promise<WorktreeGitInvocationResult> {
     await this.#filesystem.createDirectory(this.#hookNeutralizationDirectory);
-    return this.#git(["-c", `core.hooksPath=${this.#hookNeutralizationDirectory}`, ...argv], {
-      timeoutMs: this.#gitCommandTimeoutMs,
-    });
+    return this.#git(
+      [
+        "-c",
+        `core.hooksPath=${this.#hookNeutralizationDirectory}`,
+        "-c",
+        "core.fsmonitor=false",
+        ...argv,
+      ],
+      { timeoutMs: this.#gitCommandTimeoutMs },
+    );
   }
 
   /**

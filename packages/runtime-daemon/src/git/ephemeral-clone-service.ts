@@ -56,13 +56,14 @@
 //
 // Every git invocation in this module goes through one private `#runGit`, and
 // that method is the only place an argv is assembled. It prepends
-// `-c core.hooksPath=<empty dir>` unconditionally, so the invariant's "every
-// provisioning git invocation" quantifier is discharged by there being no other
-// way to reach git from here — not by remembering the flag at each call site.
-// A command-line `-c` outranks repository, global and system config and the
-// `GIT_CONFIG_*` injection channel alike, and because it sits BEFORE the
-// subcommand it is scoped to the invocation: it configures the clone operation
-// without being written into the new clone's persistent config.
+// `-c core.hooksPath=<empty dir>` and `-c core.fsmonitor=false`
+// unconditionally, so the invariant's "every provisioning git invocation"
+// quantifier is discharged by there being no other way to reach git from here —
+// not by remembering the flags at each call site. A command-line `-c` outranks
+// repository, global and system config and the `GIT_CONFIG_*` injection channel
+// alike, and because it sits BEFORE the subcommand it is scoped to the
+// invocation: it configures the clone operation without being written into the
+// new clone's persistent config.
 //
 // That placement matters more here than it does for a worktree. `git clone`
 // reads the SOURCE repository (whose hooks are the hostile ones D-010-10 is
@@ -70,6 +71,23 @@
 // `.git/hooks` is populated from git's templates rather than from the source —
 // so the neutralization has to cover the invocation, and the clone that results
 // carries no `core.hooksPath` of ours into later commands run against it.
+//
+// `core.fsmonitor=false` rides along for structural parity with the sibling
+// services: the fsmonitor hook is the one hook git names by CONFIG VALUE rather
+// than by a `hooks/`-resident file, so `core.hooksPath` never governs it. Here
+// the flag is UNIFORMITY rather than a closed hole — this module's verbs run
+// against the fresh clone (whose config the daemon just minted) or read the
+// source over transport, and neither path consults a source-repo-local
+// `core.fsmonitor`; the discriminating case lives at the worktree sibling,
+// whose `status` and `worktree add` verbs demonstrably invoke a repo-local
+// pathname hook when only `core.hooksPath` is neutralized. Two other repo-local
+// config values that name executables and have a plausible path into this
+// module's verbs were probed against the exact clone shape (a local-path
+// source, which DOES engage `upload-pack` on modern git) and need no flag: `uploadpack.packObjectsHook` is honored only from
+// protected config — git's own documented safety measure against untrusted
+// repositories — and `core.alternateRefsCommand` fires only on receive-pack's
+// alternate-tip advertisement, a push-target path no verb in this module's
+// invocation set ever engages.
 //
 // The neutralization directory is created (recursively, idempotently) before
 // each invocation rather than once at construction: an EMPTY directory is the
@@ -1498,14 +1516,23 @@ export class EphemeralCloneService {
   // ------------------------------------------------------------------------
 
   /**
-   * The single git entry point. Prepends the hook-neutralization flag and
+   * The single git entry point. Prepends the two hook-neutralization flags and
    * nothing else, so I-010-10's quantifier holds structurally (see the header).
+   * `core.fsmonitor=false` is structural parity with the siblings — the header
+   * records why it is uniformity rather than a closed hole here.
    */
   async #runGit(argv: readonly string[]): Promise<EphemeralCloneGitInvocationResult> {
     await this.#filesystem.createDirectory(this.#hookNeutralizationDirectory);
-    return this.#git(["-c", `core.hooksPath=${this.#hookNeutralizationDirectory}`, ...argv], {
-      timeoutMs: this.#gitCommandTimeoutMs,
-    });
+    return this.#git(
+      [
+        "-c",
+        `core.hooksPath=${this.#hookNeutralizationDirectory}`,
+        "-c",
+        "core.fsmonitor=false",
+        ...argv,
+      ],
+      { timeoutMs: this.#gitCommandTimeoutMs },
+    );
   }
 
   /**
