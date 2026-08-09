@@ -127,17 +127,23 @@
 //     a genuine one that is accepted.
 //
 // Several behaviours are pinned as GIT FACTS this suite established rather than
-// reasoned about, all on git 2.50.1: the delete pass's two non-fixpoint exits
-// (the no-progress detection naming its stuck path, and the pass ceiling driven
-// to its exact count by a seam whose removals keep minting new content);
-// `ls-files -o` declining to descend into a path the index holds as a `160000`
-// gitlink — so post-boundary content inside a snapshot-gitlink path survives the
-// restore, asserted beside the control that identical content outside it does
-// not; a `run-A/` enumeration pattern not matching a sibling `run-AB`; and both
-// halves of the `--no-deref` measurement — unflagged, `update-ref -d` on an
-// in-namespace symref deletes its REFERENT (a branch) at exit 0, and an unflagged
-// create-only CAS through a DANGLING one mints the branch it points at, while the
-// flagged forms of each act on the validated name and leave `refs/heads/` alone.
+// reasoned about, measured on git 2.50.1 unless the item says otherwise: the
+// delete pass's two non-fixpoint exits (the no-progress detection naming its
+// stuck path, and the pass ceiling driven to its exact count by a seam whose
+// removals keep minting new content); `ls-files -o` declining to descend into a
+// path the index holds as a `160000` gitlink — so post-boundary content inside a
+// snapshot-gitlink path survives the restore, asserted beside the control that
+// identical content outside it does not; a `run-A/` enumeration pattern not
+// matching a sibling `run-AB`; and both halves of the `--no-deref` measurement —
+// unflagged, `update-ref -d` on an in-namespace symref deletes its REFERENT (a
+// branch) at exit 0, and an unflagged create-only CAS through a DANGLING one
+// mints the branch it points at, the latter measured on git 2.50.1 and on git
+// 2.54.0 alike (which is why that case's `refs/heads/` assertions sit outside its
+// version branch). The FLAGGED forms act on the validated name and leave
+// `refs/heads/` alone on every git measured, and that is the half each case
+// asserts; what the flagged CREATE then REPORTS is version-dependent, and the
+// case accepts either answer — see the I-010-21 entry above for the split, rather
+// than a second copy of it here.
 //
 // Each host-config pin carries a NEGATIVE CONTROL in the same case: the fixture
 // re-runs the equivalent leg WITHOUT the pin and the assertion is that the
@@ -209,6 +215,28 @@ const RUN_ID = "0192b3c0-1111-7c4a-9b1c-1b7c5b3e8f00";
 const FIXED_INSTANT = "2026-01-01T00:00:00.000Z";
 
 const FIXTURE_GIT_TIMEOUT_MS = 30_000;
+
+/**
+ * The per-case budget for the two MULTI-SEQUENCE cases in this file.
+ *
+ * Every other case here spawns one capture and/or one restore and lands around a
+ * second; two do not, and their cost is set by a count rather than by a fixed
+ * handful of spawns — the delete-pass ceiling drives 64 sequential passes, and
+ * the host-independence case runs four whole capture pipelines plus a porcelain
+ * negative control per pin. Measured across four full runs of this file they
+ * peaked at over five seconds and at 3.2s respectively, against Vitest's 5s
+ * default (this package sets no `testTimeout`), and the first of them really did
+ * time out once on a loaded machine. That is a machine-speed flake, not a
+ * regression, and the honest fix is a budget sized to the work rather than a
+ * suite that fails when something else is compiling.
+ *
+ * Deliberately LARGER than {@link FIXTURE_GIT_TIMEOUT_MS}, not equal to it: a
+ * genuinely hung git spawn must hit its own 30s timeout FIRST, so the case fails
+ * with the leg that hung named in the message. A case budget equal to the git
+ * budget would race it and report only "Test timed out", which is the diagnosis
+ * this file's failures are worth more than.
+ */
+const MULTI_SEQUENCE_CASE_TIMEOUT_MS = 60_000;
 
 /**
  * This suite's INDEPENDENT spelling of the environment variables the service
@@ -970,104 +998,108 @@ describe("TurnSnapshotService.captureTurnSnapshot", () => {
     expect(entries).toContain(".gitignore");
   });
 
-  it("mints a host-config-independent OID across autocrlf, commitEncoding and excludesFile", async () => {
-    const repository: FixtureRepository = fixture.repository;
-    applyTurnEffects();
-    // A CRLF worktree file is what gives `core.autocrlf` something to convert.
-    repository.write("crlf.txt", "line one\r\nline two\r\n");
-    const service: TurnSnapshotService = buildService();
+  it(
+    "mints a host-config-independent OID across autocrlf, commitEncoding and excludesFile",
+    { timeout: MULTI_SEQUENCE_CASE_TIMEOUT_MS },
+    async () => {
+      const repository: FixtureRepository = fixture.repository;
+      applyTurnEffects();
+      // A CRLF worktree file is what gives `core.autocrlf` something to convert.
+      repository.write("crlf.txt", "line one\r\nline two\r\n");
+      const service: TurnSnapshotService = buildService();
 
-    const baseline = expectCaptured(
-      await service.captureTurnSnapshot({
-        ...CAPTURE_DEFAULTS,
-        executionRoot: repository.root,
-      }),
-    );
-    const baselineTree: string = await repository.git(["rev-parse", `${baseline.ref}^{tree}`]);
+      const baseline = expectCaptured(
+        await service.captureTurnSnapshot({
+          ...CAPTURE_DEFAULTS,
+          executionRoot: repository.root,
+        }),
+      );
+      const baselineTree: string = await repository.git(["rev-parse", `${baseline.ref}^{tree}`]);
 
-    // --- host `core.autocrlf` ------------------------------------------------
-    await repository.git(["config", "core.autocrlf", "true"]);
-    const underAutocrlf = expectCaptured(
-      await service.captureTurnSnapshot({
-        ...CAPTURE_DEFAULTS,
-        turnOrdinal: 2,
-        executionRoot: repository.root,
-      }),
-    );
-    expect(underAutocrlf.snapshotCommit).toBe(baseline.snapshotCommit);
-    // NEGATIVE CONTROL: unpinned staging under the same config re-hashes the CRLF
-    // bytes to LF blobs and lands a DIFFERENT tree. The pin is load-bearing.
-    expect(await repository.porcelainAddAllTree(join(fixture.fixtureRoot, "p1.index"))).not.toBe(
-      baselineTree,
-    );
-    await repository.git(["config", "--unset", "core.autocrlf"]);
+      // --- host `core.autocrlf` ------------------------------------------------
+      await repository.git(["config", "core.autocrlf", "true"]);
+      const underAutocrlf = expectCaptured(
+        await service.captureTurnSnapshot({
+          ...CAPTURE_DEFAULTS,
+          turnOrdinal: 2,
+          executionRoot: repository.root,
+        }),
+      );
+      expect(underAutocrlf.snapshotCommit).toBe(baseline.snapshotCommit);
+      // NEGATIVE CONTROL: unpinned staging under the same config re-hashes the CRLF
+      // bytes to LF blobs and lands a DIFFERENT tree. The pin is load-bearing.
+      expect(await repository.porcelainAddAllTree(join(fixture.fixtureRoot, "p1.index"))).not.toBe(
+        baselineTree,
+      );
+      await repository.git(["config", "--unset", "core.autocrlf"]);
 
-    // --- host `i18n.commitEncoding` -----------------------------------------
-    await repository.git(["config", "i18n.commitEncoding", "ISO-8859-1"]);
-    const underEncoding = expectCaptured(
-      await service.captureTurnSnapshot({
-        ...CAPTURE_DEFAULTS,
-        turnOrdinal: 3,
-        executionRoot: repository.root,
-      }),
-    );
-    expect(underEncoding.snapshotCommit).toBe(baseline.snapshotCommit);
-    // NEGATIVE CONTROL, and simultaneously a RECONSTRUCTION of the whole commit
-    // recipe: the fixture re-runs `commit-tree` over the same tree, parent,
-    // message and six-var ident/date set. WITH the pin it reproduces the
-    // service's OID exactly; without it, the host encoding writes an `encoding`
-    // header and the OID moves.
-    const identityOverrides = {
-      GIT_AUTHOR_NAME: "AI Sidekicks",
-      GIT_AUTHOR_EMAIL: "snapshots@ai-sidekicks.invalid",
-      GIT_AUTHOR_DATE: "1767225600 +0000",
-      GIT_COMMITTER_NAME: "AI Sidekicks",
-      GIT_COMMITTER_EMAIL: "snapshots@ai-sidekicks.invalid",
-      GIT_COMMITTER_DATE: "1767225600 +0000",
-    };
-    const commitTreeArgv: readonly string[] = [
-      "commit-tree",
-      baselineTree,
-      "-p",
-      baseline.baseCommit,
-      "-m",
-      "sidekicks: turn-boundary snapshot",
-    ];
-    expect(
-      await repository.git(["-c", "i18n.commitEncoding=utf-8", ...commitTreeArgv], {
-        environmentOverrides: identityOverrides,
-      }),
-    ).toBe(baseline.snapshotCommit);
-    expect(
-      await repository.git(commitTreeArgv, { environmentOverrides: identityOverrides }),
-    ).not.toBe(baseline.snapshotCommit);
-    await repository.git(["config", "--unset", "i18n.commitEncoding"]);
+      // --- host `i18n.commitEncoding` -----------------------------------------
+      await repository.git(["config", "i18n.commitEncoding", "ISO-8859-1"]);
+      const underEncoding = expectCaptured(
+        await service.captureTurnSnapshot({
+          ...CAPTURE_DEFAULTS,
+          turnOrdinal: 3,
+          executionRoot: repository.root,
+        }),
+      );
+      expect(underEncoding.snapshotCommit).toBe(baseline.snapshotCommit);
+      // NEGATIVE CONTROL, and simultaneously a RECONSTRUCTION of the whole commit
+      // recipe: the fixture re-runs `commit-tree` over the same tree, parent,
+      // message and six-var ident/date set. WITH the pin it reproduces the
+      // service's OID exactly; without it, the host encoding writes an `encoding`
+      // header and the OID moves.
+      const identityOverrides = {
+        GIT_AUTHOR_NAME: "AI Sidekicks",
+        GIT_AUTHOR_EMAIL: "snapshots@ai-sidekicks.invalid",
+        GIT_AUTHOR_DATE: "1767225600 +0000",
+        GIT_COMMITTER_NAME: "AI Sidekicks",
+        GIT_COMMITTER_EMAIL: "snapshots@ai-sidekicks.invalid",
+        GIT_COMMITTER_DATE: "1767225600 +0000",
+      };
+      const commitTreeArgv: readonly string[] = [
+        "commit-tree",
+        baselineTree,
+        "-p",
+        baseline.baseCommit,
+        "-m",
+        "sidekicks: turn-boundary snapshot",
+      ];
+      expect(
+        await repository.git(["-c", "i18n.commitEncoding=utf-8", ...commitTreeArgv], {
+          environmentOverrides: identityOverrides,
+        }),
+      ).toBe(baseline.snapshotCommit);
+      expect(
+        await repository.git(commitTreeArgv, { environmentOverrides: identityOverrides }),
+      ).not.toBe(baseline.snapshotCommit);
+      await repository.git(["config", "--unset", "i18n.commitEncoding"]);
 
-    // --- host `core.excludesFile` -------------------------------------------
-    // A developer's private ignore patterns are not project declarations, so an
-    // untracked project file matching one must still be captured.
-    const excludesFile: string = join(fixture.fixtureRoot, "host-excludes");
-    writeFileSync(excludesFile, "created.txt\n");
-    await repository.git(["config", "core.excludesFile", excludesFile]);
-    const underExcludes = expectCaptured(
-      await service.captureTurnSnapshot({
-        ...CAPTURE_DEFAULTS,
-        turnOrdinal: 4,
-        executionRoot: repository.root,
-      }),
-    );
-    expect(underExcludes.snapshotCommit).toBe(baseline.snapshotCommit);
-    // NEGATIVE CONTROL: porcelain DOES consult the host excludes and silently
-    // omits the file — which is precisely why the recipe is plumbing with
-    // explicit exclusion flags rather than `git add -A`.
-    const porcelainUnderExcludes: string = await repository.porcelainAddAllTree(
-      join(fixture.fixtureRoot, "p2.index"),
-    );
-    expect(porcelainUnderExcludes).not.toBe(baselineTree);
-    expect(
-      await repository.git(["ls-tree", "-r", "--name-only", porcelainUnderExcludes]),
-    ).not.toContain("created.txt");
-  });
+      // --- host `core.excludesFile` -------------------------------------------
+      // A developer's private ignore patterns are not project declarations, so an
+      // untracked project file matching one must still be captured.
+      const excludesFile: string = join(fixture.fixtureRoot, "host-excludes");
+      writeFileSync(excludesFile, "created.txt\n");
+      await repository.git(["config", "core.excludesFile", excludesFile]);
+      const underExcludes = expectCaptured(
+        await service.captureTurnSnapshot({
+          ...CAPTURE_DEFAULTS,
+          turnOrdinal: 4,
+          executionRoot: repository.root,
+        }),
+      );
+      expect(underExcludes.snapshotCommit).toBe(baseline.snapshotCommit);
+      // NEGATIVE CONTROL: porcelain DOES consult the host excludes and silently
+      // omits the file — which is precisely why the recipe is plumbing with
+      // explicit exclusion flags rather than `git add -A`.
+      const porcelainUnderExcludes: string = await repository.porcelainAddAllTree(
+        join(fixture.fixtureRoot, "p2.index"),
+      );
+      expect(porcelainUnderExcludes).not.toBe(baselineTree);
+      expect(
+        await repository.git(["ls-tree", "-r", "--name-only", porcelainUnderExcludes]),
+      ).not.toContain("created.txt");
+    },
+  );
 
   it("returns the recorded OID and leaves the ref unmoved on a duplicate capture (I-010-22)", async () => {
     const repository: FixtureRepository = fixture.repository;
@@ -1221,10 +1253,7 @@ describe("TurnSnapshotService.captureTurnSnapshot", () => {
     const refsBefore: string = await repository.refListing();
 
     const invocations: string[][] = [];
-    const recordingRunner: TurnSnapshotGitRunner = async (argv, options) => {
-      invocations.push([...argv]);
-      return runTurnSnapshotGitWithExecFile(argv, options);
-    };
+    const recordingRunner: TurnSnapshotGitRunner = buildRecordingRunner(invocations);
 
     // A mode from the FUTURE — the double assertion is the point, since no such
     // `ExecutionMode` member exists today. The case is about what happens when
@@ -1646,10 +1675,7 @@ describe("TurnSnapshotService.captureTurnSnapshot", () => {
     const refsBefore: string = await repository.refListing();
 
     const invocations: string[][] = [];
-    const recordingRunner: TurnSnapshotGitRunner = async (argv, options) => {
-      invocations.push([...argv]);
-      return runTurnSnapshotGitWithExecFile(argv, options);
-    };
+    const recordingRunner: TurnSnapshotGitRunner = buildRecordingRunner(invocations);
 
     // Table-driven, because the guard is a DISJUNCTION: a suite that drove only
     // the `runId` arm would let the epoch and ordinal arms be deleted without a
@@ -1949,10 +1975,7 @@ describe("TurnSnapshotService.captureTurnSnapshot", () => {
     await createEmbeddedRepository("embedded");
 
     const invocations: string[][] = [];
-    const recordingRunner: TurnSnapshotGitRunner = async (argv, options) => {
-      invocations.push([...argv]);
-      return runTurnSnapshotGitWithExecFile(argv, options);
-    };
+    const recordingRunner: TurnSnapshotGitRunner = buildRecordingRunner(invocations);
 
     expectCaptured(
       await buildService({ git: recordingRunner }).captureTurnSnapshot({
@@ -2170,10 +2193,7 @@ describe("TurnSnapshotService.resolveRestoreTarget", () => {
     applyTurnEffects();
 
     const invocations: string[][] = [];
-    const recordingRunner: TurnSnapshotGitRunner = async (argv, options) => {
-      invocations.push([...argv]);
-      return runTurnSnapshotGitWithExecFile(argv, options);
-    };
+    const recordingRunner: TurnSnapshotGitRunner = buildRecordingRunner(invocations);
     const service: TurnSnapshotService = buildService({ git: recordingRunner });
 
     const rows: readonly {
@@ -2379,10 +2399,7 @@ describe("TurnSnapshotService.restoreToTurn", () => {
     const indexBefore: string = readIndexFingerprint(repository.root);
 
     const invocations: string[][] = [];
-    const recordingRunner: TurnSnapshotGitRunner = async (argv, options) => {
-      invocations.push([...argv]);
-      return runTurnSnapshotGitWithExecFile(argv, options);
-    };
+    const recordingRunner: TurnSnapshotGitRunner = buildRecordingRunner(invocations);
     const result = await buildService({ git: recordingRunner }).restoreToTurn(target);
 
     expect(result).toEqual({
@@ -2899,54 +2916,58 @@ describe("TurnSnapshotService.restoreToTurn", () => {
     expect(existsSync(join(repository.root, "post-snapshot.txt"))).toBe(true);
   });
 
-  it("stops at the pass ceiling when every pass changes the listing but none converges", async () => {
-    const repository: FixtureRepository = fixture.repository;
-    applyTurnEffects();
-    const service: TurnSnapshotService = buildService();
-    await captureTurn(service);
-    repository.write("post-snapshot.txt", "arrived after the boundary\n");
-    const target: TurnSnapshotRestoreTarget = expectResolved(
-      await service.resolveRestoreTarget(buildResolveInput()),
-    );
+  it(
+    "stops at the pass ceiling when every pass changes the listing but none converges",
+    { timeout: MULTI_SEQUENCE_CASE_TIMEOUT_MS },
+    async () => {
+      const repository: FixtureRepository = fixture.repository;
+      applyTurnEffects();
+      const service: TurnSnapshotService = buildService();
+      await captureTurn(service);
+      repository.write("post-snapshot.txt", "arrived after the boundary\n");
+      const target: TurnSnapshotRestoreTarget = expectResolved(
+        await service.resolveRestoreTarget(buildResolveInput()),
+      );
 
-    // The shape the no-progress check does NOT cover, and the reason the ceiling
-    // stays: a seam whose removals genuinely remove but keep minting new
-    // untracked content, so every listing differs and the sequence never
-    // converges. This is the only path that reaches the final pass, which is why
-    // it is driven explicitly rather than assumed unreachable.
-    let churnCounter = 0;
-    const churningFilesystem: TurnSnapshotFilesystem = {
-      createDirectory(path: string): Promise<void> {
-        mkdirSync(path, { recursive: true });
-        return Promise.resolve();
-      },
-      removePath(path: string): Promise<void> {
-        rmSync(path, { recursive: true, force: true });
-        writeFileSync(join(repository.root, `churn-${String(churnCounter)}.txt`), "churn\n");
-        churnCounter += 1;
-        return Promise.resolve();
-      },
-      removeDirectoryIfEmpty(): Promise<void> {
-        return Promise.resolve();
-      },
-    };
+      // The shape the no-progress check does NOT cover, and the reason the ceiling
+      // stays: a seam whose removals genuinely remove but keep minting new
+      // untracked content, so every listing differs and the sequence never
+      // converges. This is the only path that reaches the final pass, which is why
+      // it is driven explicitly rather than assumed unreachable.
+      let churnCounter = 0;
+      const churningFilesystem: TurnSnapshotFilesystem = {
+        createDirectory(path: string): Promise<void> {
+          mkdirSync(path, { recursive: true });
+          return Promise.resolve();
+        },
+        removePath(path: string): Promise<void> {
+          rmSync(path, { recursive: true, force: true });
+          writeFileSync(join(repository.root, `churn-${String(churnCounter)}.txt`), "churn\n");
+          churnCounter += 1;
+          return Promise.resolve();
+        },
+        removeDirectoryIfEmpty(): Promise<void> {
+          return Promise.resolve();
+        },
+      };
 
-    const result: TurnSnapshotPartialRestore = expectPartialRestore(
-      await buildService({ filesystem: churningFilesystem }).restoreToTurn(target),
-    );
+      const result: TurnSnapshotPartialRestore = expectPartialRestore(
+        await buildService({ filesystem: churningFilesystem }).restoreToTurn(target),
+      );
 
-    expect(result.failedStep).toBe("delete-untracked" satisfies TurnSnapshotRestoreStep);
-    expect(fixture.diagnostics[0]).toMatchObject({
-      kind: "restore-failed",
-      failedStep: "delete-untracked",
-      detail: "turn-snapshot untracked-delete pass did not reach a fixpoint",
-    });
-    // The ceiling is EXACTLY the constant: sixty-four passes ran, each deleting
-    // one path and minting the next. An off-by-one in the loop bound shows up
-    // here as a count rather than as a message that reads the same either way.
-    expect(churnCounter).toBe(64);
-    expect(existsSync(join(repository.root, "churn-63.txt"))).toBe(true);
-  });
+      expect(result.failedStep).toBe("delete-untracked" satisfies TurnSnapshotRestoreStep);
+      expect(fixture.diagnostics[0]).toMatchObject({
+        kind: "restore-failed",
+        failedStep: "delete-untracked",
+        detail: "turn-snapshot untracked-delete pass did not reach a fixpoint",
+      });
+      // The ceiling is EXACTLY the constant: sixty-four passes ran, each deleting
+      // one path and minting the next. An off-by-one in the loop bound shows up
+      // here as a count rather than as a message that reads the same either way.
+      expect(churnCounter).toBe(64);
+      expect(existsSync(join(repository.root, "churn-63.txt"))).toBe(true);
+    },
+  );
 
   it("runs every restore invocation hook-neutralized, with the pinned recipe argv (D-010-10)", async () => {
     const repository: FixtureRepository = fixture.repository;
@@ -2991,6 +3012,12 @@ describe("TurnSnapshotService.restoreToTurn", () => {
     // smudge decision and the environment variable takes the SYSTEM one; neither
     // covers the other's, and in-tree `.gitattributes` stays deliberately
     // honoured by both.
+    //
+    // The final token is the OID the resolve verified, NOT `captured.ref` — the
+    // tree-ish the destructive leg writes is fixed at resolve time rather than
+    // re-resolved from a mutable name here. `captured.ref` is asserted alongside
+    // as the negative control, so a regression that put the name back cannot pass
+    // by the two spellings happening to agree.
     const checkoutLeg = invocations.find((invocation) => invocation.argv.includes("-u"));
     expect(checkoutLeg?.argv).toEqual([
       ...neutralizationFlags,
@@ -3005,8 +3032,9 @@ describe("TurnSnapshotService.restoreToTurn", () => {
       "read-tree",
       "--reset",
       "-u",
-      captured.ref,
+      captured.snapshotCommit,
     ]);
+    expect(checkoutLeg?.argv).not.toContain(captured.ref);
     expect(checkoutLeg?.environmentOverrides).toEqual({ GIT_ATTR_NOSYSTEM: "1" });
 
     // …and the CLOSING leg is last and index-only: no `-u`, so worktree bytes
@@ -4382,9 +4410,16 @@ describe("TurnSnapshotService retention prune", () => {
     expect(pruned.skipped?.detail).toContain("database connection is not open");
     expect(pruned.deletedRefs).toEqual([]);
     // And diagnosed, exactly as the sweep's equivalent candidate-read failure is:
-    // the two are the same fault reached from the two entry points.
+    // the two are the same fault reached from the two entry points. The `runId`
+    // is what keeps the SHARED kind attributable from this side — the sweep's
+    // emitter is pass-scoped and omits it, which the whole-object `toEqual`
+    // above ("diagnoses a clock that did not return an ISO-8601 instant") pins as
+    // this assertion's negative control.
     expect(fixture.diagnostics).toHaveLength(1);
-    expect(fixture.diagnostics[0]).toMatchObject({ kind: "retention-sweep-failed" });
+    expect(fixture.diagnostics[0]).toMatchObject({
+      kind: "retention-sweep-failed",
+      runId: RUN_ID,
+    });
   });
 
   it("never examines a read-only run — it cannot have captured a ref", async () => {
@@ -4628,6 +4663,96 @@ describe("TurnSnapshotService retention prune", () => {
     expect(await repository.refListing("refs/sidekicks/")).toBe(
       `${second.snapshotCommit} ${second.ref}`,
     );
+  });
+
+  it("applies a snapshot whose ref the prune deleted inside the resolve→restore window", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    const database: DatabaseType = openRetentionDatabase();
+    const service: TurnSnapshotService = buildRetentionService(database);
+    applyTurnEffects();
+    const captured: TurnSnapshotCaptured = await captureTurn(service);
+
+    // The state the restore has to reproduce, taken AT the boundary.
+    const censusAtCapture: string = collectWorktreeCensus(repository.root);
+    const branchesAtCapture: string = await repository.refListing("refs/heads/");
+    const headAtCapture: string = await repository.git(["rev-parse", "HEAD"]);
+    applyPostSnapshotEffects();
+    expect(collectWorktreeCensus(repository.root)).not.toBe(censusAtCapture);
+
+    // Phase one of I-010-23, taken while the ref is still there.
+    const target: TurnSnapshotRestoreTarget = expectResolved(
+      await service.resolveRestoreTarget(buildResolveInput()),
+    );
+
+    // …and the retention leg then deletes that very ref inside the two-phase
+    // window. This is the T5.2/T5.3 interleave neither task owns: the sweep
+    // takes no lock against a rollback already in flight (the service header's
+    // retention residuals record that), so the ordering is reachable and the
+    // only open question is what it produces.
+    insertRunExecutionContext(database, {
+      runId: RUN_ID,
+      executionMode: "worktree",
+      executionRoot: repository.root,
+      gitCommonDir: canonicalGitDirectory(),
+      releasedAt: RELEASED_LONG_AGO,
+    });
+    const pruned: TurnSnapshotRetentionPruneResult = await service.pruneSnapshotsForRun(RUN_ID);
+    expect(pruned.skipped).toBeNull();
+    expect(pruned.deletedRefs).toEqual([captured.ref]);
+
+    // The two halves the case turns on, asserted rather than assumed. The NAME
+    // is really gone — without this the interleave never happened and every
+    // assertion below passes for the wrong reason…
+    expect(await repository.refListing("refs/sidekicks/")).toBe("");
+    // …and the snapshot COMMIT is still in the object store, unreferenced until
+    // a `gc` this service neither runs nor schedules.
+    expect(await repository.git(["cat-file", "-t", captured.snapshotCommit])).toBe("commit");
+
+    // The measured contract, and it is a SUCCESS. A snapshot's identity is its
+    // OID; the ref is a name for it, and the RESOLVE is what establishes which
+    // OID this `(run, epoch, turn)` means — frozen into the minted target. Every
+    // leg downstream of the resolve names that OID (the derivation and the
+    // destructive checkout alike), so deleting the name afterwards removes a
+    // label, not the snapshot. Refusing instead would convert a
+    // retention-bookkeeping event into a failed user rollback and report it
+    // through `partial_restore` — an arm that would then be describing nothing
+    // that happened.
+    const restored: TurnSnapshotRestored = expectRestored(await service.restoreToTurn(target));
+    expect(restored).toEqual({
+      outcome: "restored",
+      ref: captured.ref,
+      snapshotCommit: captured.snapshotCommit,
+      overwrittenIgnoredPaths: [],
+      divergentGitlinks: [],
+    });
+    // "Never a wrong tree" as GROUND TRUTH rather than as an outcome tag: the
+    // worktree is byte-identical to the capture boundary, not merely to
+    // something, and nothing is staged.
+    expect(collectWorktreeCensus(repository.root)).toBe(censusAtCapture);
+    expect(await repository.git(["diff", "--cached", "--name-only"])).toBe("");
+    // The restore writes no refs, so the prune's deletion still stands and
+    // branch history is untouched on both sides of the interleave (I-010-21).
+    expect(await repository.refListing("refs/sidekicks/")).toBe("");
+    expect(await repository.refListing("refs/heads/")).toBe(branchesAtCapture);
+    expect(await repository.git(["rev-parse", "HEAD"])).toBe(headAtCapture);
+    expect(fixture.diagnostics).toEqual([]);
+
+    // The OTHER side of the window, driven in the same already-pruned fixture: a
+    // prune landing BEFORE the resolve refuses, because there is then no OID to
+    // freeze. The header residual's two cases are exactly these, and they differ
+    // only in which side of the resolve the deletion falls on.
+    const censusBeforeRefusal: string = collectWorktreeCensus(repository.root);
+    const indexBeforeRefusal: string = readIndexFingerprint(repository.root);
+    expect(await service.resolveRestoreTarget(buildResolveInput())).toEqual({
+      outcome: "no_snapshot",
+      ref: captured.ref,
+      owningEpoch: 0,
+      reason: "ref-absent",
+    });
+    // And the refusal costs nothing, as every refusal arm must: worktree and
+    // index byte-identical across it.
+    expect(collectWorktreeCensus(repository.root)).toBe(censusBeforeRefusal);
+    expect(readIndexFingerprint(repository.root)).toBe(indexBeforeRefusal);
   });
 });
 

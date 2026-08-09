@@ -20,9 +20,11 @@
 //     `HEAD` precondition, the lineage walk with its no-fallthrough refusal, the
 //     pinned `read-tree --reset -u` leg under the checkout-conversion pins, the
 //     untracked-delete pass repeated to a FIXPOINT, the closing index-only
-//     `read-tree --reset HEAD` (issued against the verified OID rather than the
-//     name — see the site), the collision-overwrite and divergent-gitlink
-//     enumerations, and the convergent partial-restore disposition.
+//     `read-tree --reset HEAD` (both of those spec spellings name a MUTABLE ref
+//     that an earlier check already read, so both are issued against the
+//     verified OID instead — see the sites), the collision-overwrite and
+//     divergent-gitlink enumerations, and the convergent partial-restore
+//     disposition.
 //   * `Spec-010 §Turn-Boundary Snapshots` — the RETENTION prune: a run's
 //     snapshot refs become prune-eligible once `run_execution_contexts`'s
 //     `released_at` plus the configured window has elapsed (the window is daemon
@@ -153,9 +155,11 @@
 //   * CREATE. git splits a symbolic-ref update into an update of its REFERENT and
 //     transfers the must-not-exist check there, so the create-only CAS stops
 //     guarding the validated name. A live referent refuses either way; a DANGLING
-//     one does not — measured on the same version, an unflagged capture into a
-//     squatted turn path CREATES `refs/heads/evil` at the snapshot commit and
-//     reports success. Flagged, nothing outside the namespace is touched on any
+//     one does not — measured on git 2.50.1 and on git 2.54.0 alike, an unflagged
+//     capture into a squatted turn path CREATES `refs/heads/evil` at the snapshot
+//     commit and reports success. The UNFLAGGED breach is version-INVARIANT, which
+//     is the whole reason the suite asserts `refs/heads/` outside any version
+//     branch. Flagged, nothing outside the namespace is touched on any
 //     git measured; WHAT the capture reports splits by version. On git 2.50.1 the
 //     write lands at the validated name and the capture is `captured`; on git
 //     2.54.0 the same flagged create is REFUSED over a dangling in-namespace
@@ -167,6 +171,23 @@
 // The two sides fail in opposite directions — the delete destroys an existing
 // branch, the create mints a new one — which is why neither guard substitutes for
 // the other and both invocations carry the flag.
+//
+// BOUNDARY, recorded so the flag is not read as more than it is. `--no-deref` and
+// the create-only CAS are statements about where THIS service's writes land, not
+// about the integrity of a ref store it shares. Anyone with repository write
+// access already holds the ordinary spellings: `git update-ref
+// refs/sidekicks/runs/<id>/epoch-<E>/turn-<N> <any-oid>` pre-plants or REPOINTS an
+// in-namespace ref with no symref anywhere in it and no compare-and-swap guarding
+// an overwrite, and `git symbolic-ref` rewrites one without a CAS either. There is
+// no ref-store ACL at this layer to appeal to, so detecting the symref spelling on
+// the read path would close one spelling of a channel that stays wide open in its
+// plainest one — false confidence, bought with a mechanism. What the guards do
+// buy: every write this service issues lands on a name it validated and inside the
+// namespace, and an input it cannot make sense of becomes a typed refusal rather
+// than a guess. What they do not buy: that a ref this service READS BACK was
+// written by this service. That bounds what the two reading legs may claim — see
+// {@link TurnSnapshotAlreadyCaptured} and
+// {@link TurnSnapshotService.resolveRestoreTarget}.
 //
 // ---------------------------------------------------------------------------
 // I-010-22 — the CAS is the arbiter; nothing pre-checks it
@@ -235,7 +256,10 @@
 // otherwise be silent, and `restoreToTurn`'s docblock spells out what it
 // prevents. It is a check and not a lock, so the closing reset names the OID it
 // just verified rather than the mutable name `HEAD` — which does not close the
-// remaining window, but decides what a commit landing inside it looks like.
+// remaining window, but decides what a commit landing inside it looks like. The
+// destructive checkout leg names its verified OID for the same reason, one name
+// down: the resolver read the snapshot ref, so the checkout does not ask git to
+// re-resolve it.
 //
 // Fail-closed means the equality must be ESTABLISHED, not merely
 // un-contradicted: an unreadable `HEAD` and an unreadable recorded parent refuse
@@ -419,8 +443,16 @@
 //   * The sweep takes no lock against a concurrent rollback re-opening a run
 //     whose window had already closed. The exposure is a rollback issued in the
 //     same moment as a sweep of a run the retention policy had already released,
-//     and its outcome is the ordinary one for a missing snapshot: a typed
-//     no-snapshot refusal, never a wrong tree.
+//     and its outcome splits by WHICH SIDE of the resolve the deletion lands on:
+//     before it, the ordinary answer for a missing snapshot — a typed
+//     no-snapshot/`ref-absent` refusal with nothing applied; between the resolve
+//     and the application, the correct tree still applies, because the resolve
+//     froze the snapshot's OID into the target and both legs downstream of it
+//     name that OID, while the commit object outlives its last ref until `gc`.
+//     Deleting the ref removes a NAME, not the snapshot. Never a wrong tree
+//     either way; both sides are driven by one case in the retention suite,
+//     "applies a snapshot whose ref the prune deleted inside the
+//     resolve→restore window".
 //
 // ---------------------------------------------------------------------------
 // Capture NEVER throws into the turn boundary
@@ -925,18 +957,38 @@ export type TurnSnapshotDiagnostic =
     }
   | {
       /**
-       * The sweep could not run AT ALL — the candidate read rejected, or the
-       * clock did not honour its contract. Distinct from the enumeration above,
-       * which reports runs skipped inside a pass that otherwise worked.
+       * A retention read FAILED, so a prune that should have been decided was
+       * not. TWO legs emit this kind, because it is one fault seen at two
+       * scopes, and the `runId` field is what tells them apart:
        *
-       * This is the daemon's ONLY signal for the condition: the sweep returns an
-       * empty result and never throws (it is a background leg on a timer, where
-       * a rejection is an unhandled one), so an unreported candidate-read
-       * failure would be a retention policy that silently stopped applying.
+       *   * {@link TurnSnapshotService.sweepPrunableRuns} — the sweep could not
+       *     run AT ALL: its candidate read rejected, or the clock did not honour
+       *     its contract. No `runId`; the pass never got far enough to name one.
+       *     This is the daemon's ONLY signal for that condition, because the
+       *     sweep returns an empty result and never throws (a background leg on a
+       *     timer, where a rejection is an unhandled one) — so an unreported
+       *     candidate read would be a retention policy that silently stopped
+       *     applying.
+       *   * {@link TurnSnapshotService.pruneSnapshotsForRun} — ONE run's
+       *     `run_execution_contexts` row was unreadable. That leg also returns a
+       *     typed `run-context-unreadable` skip, so the emission is not its only
+       *     channel; it exists so the identical fault reaches a subscriber by the
+       *     same path from both entry points rather than only through a return
+       *     value nothing is subscribed to. Carries `runId`.
+       *
+       * Distinct from the enumeration above either way, which reports runs
+       * skipped inside a pass that otherwise worked.
        */
       readonly kind: "retention-sweep-failed";
       /** Free-form; the rejection's message when there was one. */
       readonly detail: string;
+      /**
+       * The run whose row could not be read — present ONLY on the per-run
+       * emitter, where the fault is attributable, and absent on the sweep's,
+       * where no single run is implicated. Optional rather than nullable so the
+       * sweep's payload is byte-unchanged by its addition.
+       */
+      readonly runId?: string;
     };
 
 export interface TurnSnapshotServiceDeps {
@@ -1096,6 +1148,10 @@ export interface TurnSnapshotAlreadyCaptured {
    * That distinction is the invariant: the first successful write wins, and a
    * later capture of the same turn under the same epoch never repoints the ref
    * at later file state.
+   *
+   * Bounded, per the header's symref BOUNDARY paragraph: this is whatever the
+   * ref names ON DISK at read time, which under a co-resident writer holding
+   * repository write access need not be an OID this service ever recorded.
    */
   readonly snapshotCommit: string;
 }
@@ -1410,9 +1466,22 @@ export type TurnSnapshotResolution =
  * Both enumerations are REQUIRED and empty-when-none — the field names are
  * pinned name-identical to Plan-004's wire arms so the T3.13 mapping is an
  * identity, never a rename.
+ *
+ * What this arm ATTESTS, per the header's symref BOUNDARY paragraph: that
+ * I-010-23's fail-closed preconditions all held, and that the tree this service
+ * wrote is the one the resolve verified — the checkout names that OID. It is not
+ * an attestation that the ref store went unmodified by a co-resident writer
+ * meanwhile; nothing at this layer can observe that.
  */
 export interface TurnSnapshotRestored {
   readonly outcome: "restored";
+  /**
+   * The ref this restore RESOLVED from — reported for correlation, not as a live
+   * handle. It may already be gone: the T5.3 prune can delete it inside the
+   * resolve→application window and the restore still succeeds, because the
+   * tree-ish actually applied is {@link TurnSnapshotRestored.snapshotCommit}. See
+   * the retention residuals in the header.
+   */
   readonly ref: string;
   readonly snapshotCommit: string;
   /**
@@ -2824,8 +2893,14 @@ export class TurnSnapshotService {
       // refusal rather than the branch-minting success above. I-010-21 holds
       // either way; only the outcome tag differs. A LIVE referent still refuses on
       // both versions, "reference already exists", and `#readRefIfPresent` below
-      // resolves through it to the recorded oid, which is the pre-existing
-      // already-captured reading, unchanged. For a direct ref
+      // resolves through it to whatever oid that name holds on disk. When the ref
+      // genuinely predates this call — the ordinary case — that IS the
+      // pre-existing already-captured reading, unchanged. It is not a claim the
+      // oid is one this service wrote: an actor with repository write access can
+      // plant or repoint an in-namespace ref by ordinary means, and this read
+      // reports what it finds (see the header's boundary paragraph). What holds
+      // regardless is the part this leg is responsible for — the refusal stays a
+      // refusal, and nothing outside the namespace is written. For a direct ref
       // — every ref this service writes — the flag is a measured no-op, and the
       // per-epoch idempotence refusal (I-010-22) is preserved.
       await this.#runGit(
@@ -2951,6 +3026,15 @@ export class TurnSnapshotService {
    * closed: a failure isolated to the one ref — a permission bit on a single
    * loose ref file — still reports `ref-absent`, because the repository does
    * answer.
+   *
+   * A second RESIDUAL, from the header's symref BOUNDARY paragraph: the accepted
+   * arm reports the OID the snapshot ref names AT RESOLVE TIME. It attests that
+   * the fail-closed preconditions held against that OID, not that the ref store
+   * was unmodified by a co-resident writer — an actor with repository write
+   * access can repoint an in-namespace ref by ordinary means, and this leg reads
+   * what it finds. Freezing the OID into the minted target is what confines that
+   * exposure to the resolve: {@link TurnSnapshotService.restoreToTurn} applies the
+   * OID checked HERE, so a later repoint cannot redirect the checkout.
    */
   async resolveRestoreTarget(input: ResolveRestoreTargetInput): Promise<TurnSnapshotResolution> {
     if (
@@ -3041,7 +3125,9 @@ export class TurnSnapshotService {
    *   2. `derive-enumerations` — read-only listings that fix the PROSPECTIVE
    *      collision-overwrite and gitlink-divergence sets, plus the on-disk state
    *      a later failure is measured against.
-   *   3. `read-tree` — `read-tree --reset -u <ref>` under the checkout-conversion
+   *   3. `read-tree` — the destructive checkout, which `Spec-010 §Turn-Boundary
+   *      Snapshots` spells `read-tree --reset -u <ref>` and this issues against
+   *      the resolved OID (see the site), under the checkout-conversion
    *      pins, which extend the capture leg's host-config-independence class to
    *      the smudge path: a host `*.txt eol=crlf` would otherwise restore
    *      different bytes than were captured. In-tree `.gitattributes` stays
@@ -3050,8 +3136,10 @@ export class TurnSnapshotService {
    *   4. `delete-untracked` — the post-snapshot untracked sweep, repeated to a
    *      fixpoint.
    *   5. `close-index` — the index-only reset the spec spells `read-tree --reset
-   *      HEAD`, issued against the just-verified OID rather than the name (see the
-   *      site for why the name is a check-then-act).
+   *      HEAD`, issued against the just-verified OID rather than the name — as
+   *      step 3 is, and for the same reason: both spec spellings are MUTABLE
+   *      names read by an earlier check, so naming them again would be a
+   *      check-then-act (see either site).
    *
    * Steps 4 and 5 are ordered, not merely sequenced: the delete pass is safe
    * only while the index still holds the SNAPSHOT tree, which is what makes
@@ -3150,11 +3238,25 @@ export class TurnSnapshotService {
           "read-tree",
           "--reset",
           "-u",
-          // The REF, as the spec spells it. A ref deleted between the resolve
-          // and here (the T5.3 retention prune is the only thing that deletes
-          // one) fails this leg, which reports `partial_restore` at `read-tree`
-          // with both enumerations empty — a restore that did not happen.
-          target.ref,
+          // The verified OID, not the name — the same check-then-act reasoning
+          // the closing reset below documents, applied to the destructive leg.
+          // `resolveRestoreTarget` read the ref once and froze what it resolved
+          // to; re-naming the ref here would let git re-resolve a MUTABLE name
+          // across a window that already spans two `HEAD` re-verifies and the
+          // derivation's own spawns. A commit is a valid tree-ish, so outside
+          // that window the two spellings are the same command; `Spec-010
+          // §Turn-Boundary Snapshots` spells the leg with the ref, and this is
+          // that value resolved one step earlier — the very OID step 2 above
+          // enumerated against, so what is written and what was enumerated can
+          // no longer disagree.
+          //
+          // It also decouples the leg from the ref's LIFETIME. A ref deleted
+          // between the resolve and here (the T5.3 retention prune is the only
+          // thing that deletes one) no longer starves the checkout: the commit
+          // object outlives its last name until `gc`, so the resolved snapshot
+          // still applies instead of reporting `partial_restore` at `read-tree`
+          // for a retention-bookkeeping event that changed no tree.
+          target.snapshotCommit,
         ],
         { environmentOverrides: { GIT_ATTR_NOSYSTEM: "1" } },
       );
@@ -3682,7 +3784,9 @@ export class TurnSnapshotService {
       // retried. Diagnosed as well as returned, matching what the sweep does
       // with its own failed candidate read: the two are the same fault.
       const detail: string = describeRejection(reason);
-      this.#emit({ kind: "retention-sweep-failed", detail });
+      // `runId` is what makes this emission attributable — the sweep's emitter
+      // of the same kind is pass-scoped and omits it.
+      this.#emit({ kind: "retention-sweep-failed", detail, runId });
       return this.#skipPrune(runId, "run-context-unreadable", detail);
     }
     if (row === undefined) {

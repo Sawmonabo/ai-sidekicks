@@ -61,12 +61,14 @@
 
 // The Plan-010 imports below serve the sanctioned retention-sweeper wiring call
 // at the foot of this file, and nothing else here. See the banner there.
-import type { TurnSnapshotServiceDeps } from "../git/turn-snapshot-service.js";
+import type {
+  TurnSnapshotRetentionSweepHandle,
+  TurnSnapshotRetentionSweepResult,
+  TurnSnapshotServiceDeps,
+} from "../git/turn-snapshot-service.js";
 import {
   TurnSnapshotService,
   registerTurnSnapshotRetentionSweep,
-  type TurnSnapshotRetentionSweepHandle,
-  type TurnSnapshotRetentionSweepResult,
 } from "../git/turn-snapshot-service.js";
 
 import type { SecureDefaultsConfig } from "./secure-defaults.js";
