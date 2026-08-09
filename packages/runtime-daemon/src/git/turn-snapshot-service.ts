@@ -452,7 +452,12 @@
 //     Deleting the ref removes a NAME, not the snapshot. Never a wrong tree
 //     either way; both sides are driven by one case in the retention suite,
 //     "applies a snapshot whose ref the prune deleted inside the
-//     resolve→restore window".
+//     resolve→restore window". There is a composite THIRD shape, recorded
+//     because it is the one place the deletion still bites: a deletion inside
+//     that window costs nothing until some UNRELATED step fails, and the
+//     resulting partial restore is then terminal for its target, because the
+//     fresh rollback's resolve refuses `ref-absent`. See
+//     {@link TurnSnapshotPartialRestore}.
 //
 // ---------------------------------------------------------------------------
 // Capture NEVER throws into the turn boundary
@@ -1530,15 +1535,28 @@ export interface TurnSnapshotRestoreHeadMoved {
  * declarative snapshot-tree target, so re-running it re-runs to the fixpoint —
  * but that is a property of the commands, not a promise that recovery always
  * succeeds: a fresh rollback first has to pass
- * {@link TurnSnapshotService.resolveRestoreTarget} again. The one failure that
- * is therefore TERMINAL for this target is `close-index` reached by a MOVED
- * `HEAD`: the resolve will refuse `head_moved` from then on, and the partial
- * state stands until whoever moved `HEAD` deals with it. Every other
- * `failedStep` leaves the precondition intact and re-runs cleanly — including
- * the other non-git `close-index` failure, a `HEAD` that could not be READ,
- * which is an environmental fault rather than a changed precondition. The two
- * are not distinguishable from `failedStep` alone; the diagnostic detail is
- * where they part, and that is why its wording is branched at the site.
+ * {@link TurnSnapshotService.resolveRestoreTarget} again, and TWO different
+ * things can stop it there, so this arm has two terminal shapes rather than one:
+ *
+ *   * TERMINAL BY PRECONDITION — `close-index` reached by a MOVED `HEAD`. The
+ *     resolve refuses `head_moved` from then on, and the partial state stands
+ *     until whoever moved `HEAD` deals with it.
+ *   * TERMINAL BY LIFETIME — ANY `failedStep` whose ref the T5.3 retention prune
+ *     has since deleted. The resolve then refuses `no_snapshot`/`ref-absent`,
+ *     because there is no longer an OID to freeze, and the partial state stands
+ *     with no snapshot left to re-apply. Not tied to one step, unlike the other:
+ *     a deletion inside the resolve→application window is survivable by the
+ *     APPLICATION (the checkout names the frozen OID, and the commit outlives
+ *     its last name), so it costs nothing unless some unrelated step fails and
+ *     sends the caller back through the resolve. See the header's retention
+ *     residuals.
+ *
+ * Every other `failedStep` leaves both the precondition and the ref intact and
+ * re-runs cleanly — including the other non-git `close-index` failure, a `HEAD`
+ * that could not be READ, which is an environmental fault rather than a changed
+ * precondition. Those two `close-index` causes are not distinguishable from
+ * `failedStep` alone; the diagnostic detail is where they part, and that is why
+ * its wording is branched at the site.
  *
  * WHAT THE ENUMERATIONS ARE, exactly — they are two effect CLASSES, never a
  * census of everything the sequence touched:
@@ -1577,6 +1595,13 @@ export interface TurnSnapshotPartialRestore {
  * minted — is a throw rather than an outcome (see
  * {@link TurnSnapshotService.restoreToTurn}). The snake_cased names are pinned;
  * see {@link TurnSnapshotResolution}.
+ *
+ * `ref` means the same thing on ALL THREE arms, and it is not a live handle: it
+ * is the ref the restore RESOLVED from, reported for correlation. The T5.3
+ * retention prune can delete it inside the resolve→application window, on any
+ * arm — see {@link TurnSnapshotRestored.ref} for why a restore nonetheless
+ * succeeds across that deletion, and the header's retention residuals for what
+ * it costs a RETRY.
  */
 export type TurnSnapshotRestoreResult =
   | TurnSnapshotRestored

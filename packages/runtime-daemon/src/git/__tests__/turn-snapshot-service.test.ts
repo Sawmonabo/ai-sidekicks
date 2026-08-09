@@ -230,11 +230,17 @@ const FIXTURE_GIT_TIMEOUT_MS = 30_000;
  * regression, and the honest fix is a budget sized to the work rather than a
  * suite that fails when something else is compiling.
  *
- * Deliberately LARGER than {@link FIXTURE_GIT_TIMEOUT_MS}, not equal to it: a
- * genuinely hung git spawn must hit its own 30s timeout FIRST, so the case fails
- * with the leg that hung named in the message. A case budget equal to the git
- * budget would race it and report only "Test timed out", which is the diagnosis
- * this file's failures are worth more than.
+ * Deliberately LARGER than {@link FIXTURE_GIT_TIMEOUT_MS}, not equal to it, and
+ * that buys exactly one thing: a hung FIXTURE spawn — `spawnFixtureGit`, and the
+ * `waitUntilSettled` deadline — hits its own 30s limit first, so the case fails
+ * naming the leg rather than reporting a bare "Test timed out". It does NOT
+ * cover the SERVICE's spawns, which are most of the work in both governed cases:
+ * {@link buildService} sets no `gitCommandTimeoutMs`, so the service under test
+ * runs at its 120s production default, double this budget. A hang inside the
+ * service therefore surfaces as a case timeout, by design — threading the
+ * fixture's 30s into the constructor would make the sentence above true of every
+ * spawn, at the cost of the posture that makes this suite worth anything: the
+ * service runs at PRODUCTION seams unless a case deliberately overrides one.
  */
 const MULTI_SEQUENCE_CASE_TIMEOUT_MS = 60_000;
 
