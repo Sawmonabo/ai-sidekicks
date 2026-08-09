@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| **Status** | `approved` |
+| **Status** | `review` |
 | **NNN** | `010` |
 | **Slug** | `worktree-lifecycle-and-execution-modes` |
 | **Date** | `2026-04-14` |
@@ -143,6 +143,8 @@ At each turn boundary of a writable-mode run — turn completion is first-class 
 - V1 decision: ephemeral-clone TTL is daemon configuration (default 24 hours per `Spec-009 §Ephemeral Clone Lifecycle`), not a wire parameter.
 - V1 decision: worktree and ephemeral-clone state transitions are not separately evented in V1 beyond the worktree lifecycle events already registered in the Spec-006 taxonomy; the `failed` transition and all ephemeral-clone transitions surface through the owning workspace's lifecycle events (`workspace.stale` carries the failure detail) and the `WorktreeStatusRead` surface. The Spec-006 event-type registry stays closed.
 - V1 decision: repository setup scripts do not run automatically during worktree or ephemeral-clone preparation in the first implementation. Setup execution requires an explicit follow-on action under normal approval and policy rules.
+
+> **Amendment (2026-08-09, sparse-root capture closure — flips the previously-`approved` spec to `review` per the audit runbook's spec-amendment rule, since it converts the capture bullet's parked sparse-root residual into normative Required Behavior text; a targeted readiness-audit delta restores `approved`; [Plan-010](../plans/010-worktree-lifecycle-and-execution-modes.md) flips to `review` with it under the runbook's Status Flip Rule rows 3–4 — the amendment adds Phase 6 / T6.1 and invariant I-010-24, and changes what the capture recipe stages in sparse roots — its Preconditions boxes tracking the restore).** The §Turn-Boundary Snapshots capture bullet settles the parked adjudication for **sparse-aware staging**: capture in a sparse root partitions both of its listings by the repository's own sparse-checkout definition evaluated through git's exclude machinery (pattern-keyed, never `skip-worktree`-bit-keyed; one match-means-in-cone polarity across cone and non-cone modes; never conflated with the `.gitignore` exclusion pass), re-stats only in-cone paths, persists out-of-cone cached entries at their `<base>` state, and never adds out-of-cone untracked files — byte-identical to porcelain `git add -A` in that root (measured on git 2.50.1, clean and materialized sparse states alike), so a sparse-root snapshot is a complete full tree and sparseness stays a checkout-time projection; restore re-applies the sparse definition with no new pipeline step and enumerates discarded materialized out-of-cone content on its diagnostic channel (the result unions stay frozen for the rollback consumer). Scope: `branch` mode only — daemon-provisioned worktrees and ephemeral clones are never sparse. Implementation: Plan-010 Phase 6 (T6.1, invariant I-010-24).
 
 ## References
 
