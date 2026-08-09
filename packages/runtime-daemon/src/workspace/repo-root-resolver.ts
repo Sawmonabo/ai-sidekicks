@@ -79,9 +79,15 @@
 // `GIT_WORK_TREE` would otherwise have every attach answered about the ambient
 // repository instead of the supplied path — a resolved root with no relation to
 // its input, which is precisely the guessed root I-009-1 forbids.
-// `GIT_CEILING_DIRECTORIES` is the mirror-image hazard: it bounds upward
-// discovery, so an ambient value can make git report not-a-repository for a
-// real repository, reclassifying it `vcsType: "none"` in violation of I-009-4.
+// TWO variables carry the mirror-image hazard, by different mechanisms.
+// `GIT_CEILING_DIRECTORIES` bounds upward discovery. `GIT_OBJECT_DIRECTORY` is
+// substituted into git's own is-this-a-repository predicate, so a value naming
+// nothing accessible makes EVERY candidate fail it. Either way an ambient value
+// makes git report not-a-repository for a REAL repository, and an attach from a
+// nested subdirectory then persists that subdirectory as `vcsType: "none"` — an
+// I-009-4 breach that is silent, because nothing in git's answer distinguishes
+// it from an honest plain directory. `DISCOVERY_REDIRECTING_GIT_ENV_KEYS`
+// carries the observation and the second, opposite wrong answer.
 // The omission is case-insensitive, which is a Windows correctness requirement
 // rather than fastidiousness; `buildGitEnvironment` states why.
 //
@@ -524,15 +530,47 @@ const NOT_A_REPOSITORY_STDERR_MARKER = /^fatal: not a git repository/im;
 const GIT_METADATA_ENTRY_NAME = ".git";
 
 /**
- * `GIT_*` variables omitted from the child environment because each one can
- * redirect git's repository DISCOVERY — the exact question this module asks.
- * Every entry is a correctness measure, not hygiene; see the header.
+ * `GIT_*` variables omitted from the child environment because each one can BEND
+ * git's repository DISCOVERY — the exact question this module asks. Most of them
+ * redirect it, which is what the name says; one bends what git accepts as a
+ * repository instead, and is named below rather than renaming a symbol three
+ * other modules import. Every entry is a correctness measure, not hygiene; see
+ * the header.
  *
- * TWO MECHANISMS, one list. The first five redirect discovery DIRECTLY, and
+ * THREE MECHANISMS, one list. The first five redirect discovery DIRECTLY, and
  * they are the demonstrated hazard: with `GIT_DIR` and `GIT_WORK_TREE`
  * exported, this module's own argv — `-C <path> rev-parse --show-toplevel` —
  * answers about the AMBIENT repository rather than the supplied path, the `-C`
  * notwithstanding (git 2.50.1).
+ *
+ * The sixth, `GIT_OBJECT_DIRECTORY`, does not redirect discovery — it changes
+ * what git will ACCEPT as a repository, and it moves the verdict in BOTH
+ * directions. Observed on git 2.50.1, against this module's exact argv:
+ *
+ *   * a value naming nothing accessible — absent, a dangling symlink, a regular
+ *     file, a mode-`000` directory, or the empty string — makes `-C <root>
+ *     rev-parse --show-toplevel` refuse a REAL repository with the anchored
+ *     `fatal: not a git repository` at exit 128, i.e. the exact shape
+ *     `classifyGitFailure` reads as the POSITIVE not-a-repository verdict;
+ *   * a value naming an accessible directory makes a `.git` carrying a valid
+ *     `HEAD` and `refs/` but NO object store — refused outright under a clean
+ *     environment — discover as a toplevel.
+ *
+ * A mode-`111` directory (searchable, unreadable) is ACCEPTED, which is what
+ * pins the check to an accessibility test rather than an object read. The
+ * natural explanation is that git's is-this-a-repository predicate substitutes
+ * this variable for the `<candidate>/objects` probe it would otherwise make;
+ * that explanation is INFERENCE from the behaviors above and nothing here rests
+ * on it — the strip rests on the observations.
+ *
+ * Both directions are reachable wrong answers, not merely refusals. The first
+ * one is the worse of the two: an attach of a NESTED subdirectory of a real
+ * repository takes the plain-directory arm — the consistency gate below looks
+ * for `<supplied>/.git`, and a subdirectory has none — so the daemon persists
+ * `vcs_type: 'none'` rooted at the subdirectory instead of `'git'` rooted at the
+ * repository. That is I-009-4 and the I-009-1 guessed-root family at once, and
+ * it is silent. The second survives steps 4 and 5 unchallenged, because the
+ * fixpoint query runs under the same poisoned environment and self-reports.
  *
  * The last two are the env-borne CONFIG-INJECTION channels, and they are
  * INDEPENDENT of each other. `GIT_CONFIG_COUNT` is the switch that makes
@@ -570,11 +608,22 @@ const GIT_METADATA_ENTRY_NAME = ".git";
  * for arbitrary keys) and operator-level redirection (honored, on the same
  * trust plane as `PATH` and the rest of the inherited environment).
  *
- * Variables that do NOT affect discovery are also left alone
- * (`GIT_OBJECT_DIRECTORY`, `GIT_NAMESPACE`, `GIT_INDEX_FILE`, the `GIT_*_NAME`
+ * `GIT_OBJECT_DIRECTORY` sits on the STRIPPED side of that line with
+ * `GIT_CEILING_DIRECTORIES`, not the honored side, and the asymmetry is the
+ * point: dropping `GIT_CONFIG_GLOBAL` would re-enable config the operator
+ * deliberately excluded, whereas dropping this one re-enables nothing. It only
+ * makes discovery answer about the supplied path, which is the entire contract
+ * of this module.
+ *
+ * Variables that do NOT affect this query are still left alone (`GIT_NAMESPACE`,
+ * `GIT_INDEX_FILE`, `GIT_ALTERNATE_OBJECT_DIRECTORIES`, the `GIT_*_NAME`
  * identity pair, …). `rev-parse --show-toplevel` reads no objects, no index and
- * writes nothing, so stripping them would buy nothing and would make the
- * child's environment differ from the operator's for no stated reason.
+ * writes nothing, so stripping them would buy nothing and would make the child's
+ * environment differ from the operator's for no stated reason. That claim is
+ * narrower than it once was and better supported for it: each of the three named
+ * above was re-probed on git 2.50.1 against this module's argv, and each leaves
+ * a nested-subdirectory resolution reporting the repository root unchanged — the
+ * `GIT_OBJECT_DIRECTORY` entry above is what the same probe refuted.
  *
  * Exported for the suite's census only. Unlike the stderr marker above, an
  * assertion against this list is not circular: the suite keeps its own literal
@@ -587,6 +636,7 @@ export const DISCOVERY_REDIRECTING_GIT_ENV_KEYS: readonly string[] = [
   "GIT_COMMON_DIR",
   "GIT_CEILING_DIRECTORIES",
   "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+  "GIT_OBJECT_DIRECTORY",
   "GIT_CONFIG_COUNT",
   "GIT_CONFIG_PARAMETERS",
 ];
