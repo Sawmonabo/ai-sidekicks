@@ -353,12 +353,20 @@ const MULTI_SEQUENCE_CASE_TIMEOUT_MS = 60_000;
  * This suite's INDEPENDENT spelling of the environment variables the service
  * strips, pinned to the service's exported list by set equality below.
  *
- * The first seven mirror `../workspace/repo-root-resolver.ts`'s discovery
- * redirectors, which the service's list imports rather than re-spells; they are
- * repeated here deliberately, because the claim under test is about the whole
- * set THIS module strips, not about how it was assembled. A key the resolver
- * adds therefore surfaces here as a census failure rather than as silently
- * widened behaviour nothing asserts.
+ * Eight of these eleven mirror `../workspace/repo-root-resolver.ts`'s discovery
+ * redirectors, which the service's list imports rather than re-spells; the other
+ * three — `GIT_ALTERNATE_OBJECT_DIRECTORIES`, `GIT_NAMESPACE`, `GIT_INDEX_FILE` —
+ * are the service's own literals. The imported eight are repeated here
+ * deliberately, because the claim under test is about the whole set THIS module
+ * strips, not about how it was assembled. A key the resolver adds therefore
+ * surfaces here as a census failure rather than as silently widened behaviour
+ * nothing asserts.
+ *
+ * `GIT_OBJECT_DIRECTORY` moved INTO that imported set (it bends discovery for
+ * every consumer, not only this module's object writes) and out of the service's
+ * own literals. The roster is unchanged by that move and deliberately so: this
+ * list asserts WHAT is stripped, never where the entry was assembled, so a
+ * key crossing the seam must leave the census exactly as it found it.
  */
 const EXPECTED_NEUTRALIZED_GIT_ENV_KEYS = [
   "GIT_DIR",
@@ -2315,10 +2323,13 @@ describe("TurnSnapshotService.captureTurnSnapshot", () => {
   });
 
   it("pins its roster to the service's exported strip list — set equality both ways", () => {
-    // The behavioural case below drives ONE variable. Set equality is what keeps
-    // the other ten from going silently unasserted: a key added to the service's
-    // list and to nothing else fails here, and a key dropped from it fails here
-    // too. The two spellings stay independent, so neither side can drift alone.
+    // The behavioural case below asserts on TWO variables — `GIT_DIR` and
+    // `GIT_OBJECT_DIRECTORY`, the ones that demonstrably bite; `GIT_NAMESPACE`
+    // is stubbed alongside them and deliberately asserted nothing about. Set
+    // equality is what keeps the other nine from going silently unasserted: a
+    // key added to the service's list and to nothing else fails here, and a key
+    // dropped from it fails here too. The two spellings stay independent, so
+    // neither side can drift alone.
     expect([...EXPECTED_NEUTRALIZED_GIT_ENV_KEYS].sort()).toStrictEqual(
       [...SNAPSHOT_NEUTRALIZED_GIT_ENV_KEYS].sort(),
     );

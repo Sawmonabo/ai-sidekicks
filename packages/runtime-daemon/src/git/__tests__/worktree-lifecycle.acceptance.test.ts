@@ -90,7 +90,7 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
 import type { Database as DatabaseType } from "better-sqlite3";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SessionId } from "@ai-sidekicks/contracts";
 
@@ -1895,6 +1895,118 @@ describe("the ephemeral-clone lifecycle on real git", () => {
       expect(cloneRow.state).toBe("retired");
       expect(cloneRow.cleaned_at).not.toBeNull();
       expect(existsSync(prepared.executionRoot)).toBe(false);
+      expect(ctx.repository.firedHooks()).toEqual([]);
+    },
+    ACCEPTANCE_TEST_TIMEOUT_MS,
+  );
+});
+
+// ----------------------------------------------------------------------------
+// Ambient GIT_OBJECT_DIRECTORY — the Plan-009 strip both services inherit
+// ----------------------------------------------------------------------------
+//
+// THIS TIER OR NOWHERE. Both services build their child environment inside their
+// default `execFile` runner, and their git seam is `(argv, {timeoutMs})` — it
+// carries no environment at all. The sibling unit suites inject a fake runner
+// for every case, which bypasses that builder entirely, so a strip assertion
+// written there could only ever observe the fake. This suite is the one place
+// the seams are left at their production defaults, which makes it the only place
+// the environment the child actually receives is on the table.
+//
+// The variable is `GIT_OBJECT_DIRECTORY`, and it is NOT a discovery redirector
+// in the `GIT_DIR` sense: git substitutes it into its own is-this-a-repository
+// predicate, so a value naming nothing accessible makes every candidate fail
+// that predicate and every invocation refuse with `not a git repository` at exit
+// 128 (git 2.50.1). Both services strip it because they share
+// `DISCOVERY_REDIRECTING_GIT_ENV_KEYS` with `../../workspace/repo-root-resolver.ts`,
+// which is where the full observation and its mechanism note live.
+//
+// ORDER IS LOAD-BEARING in each case below. The fixture environment is captured
+// by `buildFixtureEnvironment` in `beforeEach`, BEFORE any stub, so fixture-side
+// git keeps a clean environment throughout and the read-back assertions are
+// never themselves running under the hijack. The services read `process.env` at
+// CALL time, so the stub reaches them and nothing else.
+describe("ambient GIT_OBJECT_DIRECTORY cannot reach either service's git", () => {
+  /** A path that names nothing — the shape that blinds git's predicate. */
+  function poisonedObjectDirectory(): string {
+    return join(ctx.fixtureRoot, "absent-object-directory");
+  }
+
+  /** Run `work` with the poisoned variable exported, restoring it either way. */
+  async function withPoisonedObjectDirectory<T>(work: () => Promise<T>): Promise<T> {
+    try {
+      vi.stubEnv("GIT_OBJECT_DIRECTORY", poisonedObjectDirectory());
+      return await work();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  }
+
+  it("negative control — raw git IS blinded by GIT_OBJECT_DIRECTORY", async () => {
+    // Without this, the two cases below are satisfied by a variable that never
+    // mattered. `spawnGit` takes the environment explicitly, so this control
+    // poisons the fixture environment rather than `process.env`.
+    const blinded = await spawnGit(
+      ["-C", ctx.repository.root, "rev-parse", "--show-toplevel"],
+      { ...ctx.environment, GIT_OBJECT_DIRECTORY: poisonedObjectDirectory() },
+      ctx.fixtureRoot,
+    );
+
+    // git's fatal exit, and the wording every blinded invocation below would
+    // otherwise have drawn.
+    expect(blinded.exitCode).toBe(128);
+    expect(blinded.stderr).toContain("not a git repository");
+  });
+
+  it(
+    "creates a real linked worktree with GIT_OBJECT_DIRECTORY exported",
+    async () => {
+      const branchName = "feature/ambient-object-directory";
+      const mainCommit = (await ctx.repository.git(["rev-parse", DEFAULT_BRANCH])).trim();
+
+      const created = await withPoisonedObjectDirectory(() => createWorktree(branchName));
+
+      expect(created.state).toBe("ready");
+      expect(readWorktreeRow(created.worktreeId)).toMatchObject({
+        state: "ready",
+        branch_name: branchName,
+      });
+      // Real git facts, read back under the clean fixture environment: the branch
+      // exists at the mount HEAD and is checked out in the new root.
+      expect((await ctx.repository.git(["rev-parse", branchName])).trim()).toBe(mainCommit);
+      expect(
+        (await ctx.repository.git(["symbolic-ref", "--short", "HEAD"], created.fsRoot)).trim(),
+      ).toBe(branchName);
+      // Nothing was written to the hijacked location, and no hook fired.
+      expect(existsSync(poisonedObjectDirectory())).toBe(false);
+      expect(ctx.repository.firedHooks()).toEqual([]);
+    },
+    ACCEPTANCE_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "prepares a real ephemeral clone with GIT_OBJECT_DIRECTORY exported",
+    async () => {
+      insertWorkspace({
+        workspaceId: CLONE_WORKSPACE_ID,
+        executionMode: "ephemeral clone",
+        fsRoot: ctx.repository.root,
+      });
+
+      const prepared = await withPoisonedObjectDirectory(() =>
+        ctx.clones.prepare({
+          workspaceId: CLONE_WORKSPACE_ID,
+          branchName: "sidekicks/clone-work",
+        }),
+      );
+
+      // The clone leg spans `clone` plus the base-branch observation and the
+      // head-branch cut, so a surviving hijack fails it at the first invocation.
+      expect(prepared.baseBranch).toBe(DEFAULT_BRANCH);
+      expect(
+        (await ctx.repository.git(["symbolic-ref", "--short", "HEAD"], prepared.cloneRoot)).trim(),
+      ).toBe("sidekicks/clone-work");
+      expect(existsSync(poisonedObjectDirectory())).toBe(false);
       expect(ctx.repository.firedHooks()).toEqual([]);
     },
     ACCEPTANCE_TEST_TIMEOUT_MS,

@@ -123,10 +123,19 @@
 // repository's `HEAD` and `write-tree` reports its index. `GIT_OBJECT_DIRECTORY`
 // is cruder still: set WITHOUT `GIT_DIR`, the pipeline's first leg
 // (`rev-parse --verify HEAD` through `-C <root>`) refuses with
-// `not a git repository`, exit 128 — observed on that leg and on
-// `hash-object -w`, and not generalized past them here, since one refused leg
-// is already a capture that never happens. Both classes are stripped by the
-// environment builder below.
+// `not a git repository`, exit 128 — observed by T5.1 on that leg and on
+// `hash-object -w`.
+//
+// A later probe on git 2.50.1 generalized that finding rather than leaving it
+// scoped to those two: `rev-parse --show-toplevel`, `rev-parse --git-dir`,
+// `rev-parse --git-common-dir` and `status --porcelain` all draw the same
+// refusal, so it is not a property of the legs T5.1 happened to run. The same
+// probe pinned the MECHANISM: an accessible-but-unreadable value (a mode-`111`
+// directory) is ACCEPTED while an inaccessible one (absent, dangling symlink,
+// regular file, mode-`000`, empty string) is refused, which makes it an
+// accessibility test performed during repository setup rather than an object
+// read. Both VARIABLE classes — the `GIT_DIR` redirectors above and
+// `GIT_OBJECT_DIRECTORY` itself — are stripped by the environment builder below.
 //
 // `GIT_NAMESPACE` is on the strip list too, but honesty about WHY matters more
 // than the tidy story: it does NOT relocate these writes. Local ref plumbing —
@@ -2376,14 +2385,17 @@ const RESERVED_REF_LOCK_SUFFIX = ".lock";
  *
  * Each entry earns its place against an invariant this module carries:
  *
- *   * `GIT_OBJECT_DIRECTORY` / `GIT_ALTERNATE_OBJECT_DIRECTORIES` — the snapshot
- *     tree and commit would be written to, or resolved from, an object store
- *     that is not the execution root's. A ref pointing at an object the
- *     repository cannot reach is a snapshot that restores nowhere. In practice
- *     git is blunter: `GIT_OBJECT_DIRECTORY` set without `GIT_DIR` makes every
- *     invocation refuse discovery (`not a git repository`, exit 128 on git
- *     2.50.1, `-C <root>` notwithstanding), so an unstripped one is a daemon
- *     that captures nothing anywhere.
+ *   * `GIT_ALTERNATE_OBJECT_DIRECTORIES` — the snapshot tree and commit would be
+ *     resolved from an object store that is not the execution root's, and a ref
+ *     pointing at an object the repository cannot reach is a snapshot that
+ *     restores nowhere. Its louder counterpart `GIT_OBJECT_DIRECTORY` is NO
+ *     LONGER listed here, having moved into the imported
+ *     {@link DISCOVERY_REDIRECTING_GIT_ENV_KEYS}: that list's owner re-probed it
+ *     on git 2.50.1 and found it bending repository DISCOVERY for every consumer,
+ *     not just this module's object writes. This module's behaviour is unchanged
+ *     — it still strips the variable, now through the spread rather than through
+ *     a second literal — and the entry's original finding survives at the header
+ *     above.
  *   * `GIT_NAMESPACE` — defense in depth, and deliberately NOT claimed as the
  *     enforcement of I-010-21. Local ref plumbing ignores it (empirically
  *     confirmed on git 2.50.1: a namespaced `update-ref` writes the unprefixed
@@ -2413,7 +2425,6 @@ const RESERVED_REF_LOCK_SUFFIX = ".lock";
  */
 export const SNAPSHOT_NEUTRALIZED_GIT_ENV_KEYS: readonly string[] = [
   ...DISCOVERY_REDIRECTING_GIT_ENV_KEYS,
-  "GIT_OBJECT_DIRECTORY",
   "GIT_ALTERNATE_OBJECT_DIRECTORIES",
   "GIT_NAMESPACE",
   "GIT_INDEX_FILE",

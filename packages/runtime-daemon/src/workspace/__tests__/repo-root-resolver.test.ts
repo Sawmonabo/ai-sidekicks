@@ -192,12 +192,15 @@ const itOnCaseInsensitiveFilesystem = it.skipIf(!filesystemIsCaseInsensitive);
  * Everything the resolver strips, spelled out INDEPENDENTLY of the resolver's
  * own list rather than re-exported from it — the census below pins the two
  * together, and a mirror that imported its expectation would have nothing to
- * pin. Five direct discovery redirectors plus the two INDEPENDENT env-borne
- * config-injection channels: `GIT_CONFIG_COUNT`, the switch that makes
- * `GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n` pairs live, and
- * `GIT_CONFIG_PARAMETERS`, which is not gated on that count. Both are stripped
- * as defense in depth rather than on a demonstrated redirection — the
- * resolver's own list documents the empirical severity.
+ * pin. Five direct discovery redirectors, then `GIT_OBJECT_DIRECTORY` — which
+ * bends what git ACCEPTS as a repository rather than where it looks, in both
+ * directions, and whose behavioural pair below is the only strip on this list
+ * driven against real git in BOTH the hazard and the fix — plus the two
+ * INDEPENDENT env-borne config-injection channels: `GIT_CONFIG_COUNT`, the
+ * switch that makes `GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n` pairs live, and
+ * `GIT_CONFIG_PARAMETERS`, which is not gated on that count. Those last two are
+ * stripped as defense in depth rather than on a demonstrated redirection — the
+ * resolver's own list documents the empirical severity of each.
  */
 const EXPECTED_DISCOVERY_REDIRECTING_GIT_ENV_KEYS = [
   "GIT_DIR",
@@ -205,6 +208,7 @@ const EXPECTED_DISCOVERY_REDIRECTING_GIT_ENV_KEYS = [
   "GIT_COMMON_DIR",
   "GIT_CEILING_DIRECTORIES",
   "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+  "GIT_OBJECT_DIRECTORY",
   "GIT_CONFIG_COUNT",
   "GIT_CONFIG_PARAMETERS",
 ];
@@ -2095,6 +2099,49 @@ describe("ambient GIT_* variables cannot redirect discovery (I-009-1, I-009-4)",
     // faithfully turn into `vcsType: "none"`. Stripping is what prevents it.
     vi.stubEnv("GIT_CEILING_DIRECTORIES", join(fixtures.repositoryRoot, "nested"));
     const resolution = await new RepoRootResolver().resolveCanonicalRoot(fixtures.nestedDirectory);
+    expect(resolution).toEqual({ canonicalRoot: fixtures.repositoryRoot, vcsType: "git" });
+  });
+
+  it("negative control — raw git IS blinded by GIT_OBJECT_DIRECTORY", async () => {
+    // The SECOND mirror-image hazard, by a different mechanism than the ceiling
+    // above: the variable is substituted into git's own is-this-a-repository
+    // predicate, so a value naming nothing accessible makes every candidate fail
+    // it. Confirmed on git 2.50.1 — and note the wording is the ANCHORED
+    // `fatal: not a git repository`, i.e. exactly what `classifyGitFailure`
+    // reads as a POSITIVE plain-directory verdict.
+    const blinded = await runGitDirectly(
+      ["-C", fixtures.nestedDirectory, "rev-parse", "--show-toplevel"],
+      {
+        ...fixtures.environment,
+        GIT_OBJECT_DIRECTORY: join(fixtures.fixtureRoot, "absent-object-directory"),
+      },
+    );
+    expect(blinded.exitCode).toBe(GIT_FATAL_EXIT_CODE);
+    expect(blinded.stderr).toContain("not a git repository");
+  });
+
+  it("still resolves a repository with GIT_OBJECT_DIRECTORY exported", async () => {
+    // The breach the strip closes, and it is a SILENT WRONG ANSWER rather than a
+    // refusal. Attaching a NESTED subdirectory routes the blinded verdict to the
+    // plain-directory arm — the consistency gate looks for `<supplied>/.git`,
+    // and a subdirectory has none — so without the strip this resolves to
+    // `{ canonicalRoot: <the subdirectory>, vcsType: "none" }` and the daemon
+    // persists a live repository as a plain directory rooted below its own top
+    // level. Both halves are wrong: I-009-4's classification and I-009-1's root.
+    vi.stubEnv("GIT_OBJECT_DIRECTORY", join(fixtures.fixtureRoot, "absent-object-directory"));
+    const resolution = await new RepoRootResolver().resolveCanonicalRoot(fixtures.nestedDirectory);
+    expect(resolution).toEqual({ canonicalRoot: fixtures.repositoryRoot, vcsType: "git" });
+  });
+
+  it("still resolves a repository root with GIT_OBJECT_DIRECTORY exported", async () => {
+    // The root-attach half of the same hazard. It fails CLOSED without the strip
+    // (`<supplied>/.git` exists, so the consistency gate turns the blinded
+    // verdict into `vcs_error`) — a refused attach of a healthy repository
+    // rather than a wrong answer. Pinned alongside the nested case so the strip
+    // is asserted on both arms of the plain-directory gate, not just the one
+    // that misclassifies.
+    vi.stubEnv("GIT_OBJECT_DIRECTORY", join(fixtures.fixtureRoot, "absent-object-directory"));
+    const resolution = await new RepoRootResolver().resolveCanonicalRoot(fixtures.repositoryRoot);
     expect(resolution).toEqual({ canonicalRoot: fixtures.repositoryRoot, vcsType: "git" });
   });
 });
