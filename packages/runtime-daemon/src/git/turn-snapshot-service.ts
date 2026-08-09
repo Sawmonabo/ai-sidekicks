@@ -10,8 +10,10 @@
 //
 // Spec coverage:
 //   * `Spec-010 §Turn-Boundary Snapshots` — the capture temp-index recipe
-//     (out-of-worktree `GIT_INDEX_FILE`, the three conversion-channel pins plus
-//     `GIT_ATTR_NOSYSTEM=1`, the single base OID reused for tree base AND
+//     (out-of-worktree `GIT_INDEX_FILE`, the check-in leg's conversion pins plus
+//     `GIT_ATTR_NOSYSTEM=1` — see the closed disposition table below for the
+//     whole knob population and each knob's one ruling, this leg's and the
+//     checkout leg's alike, the single base OID reused for tree base AND
 //     recorded parent, the untracked-embedded-repo `160000` normalization with
 //     its unborn-`HEAD` skip, the encoding-pinned `commit-tree`, the six-var
 //     host-independence env set), the epoch-namespaced create-only ref write and
@@ -304,10 +306,13 @@
 // recording each candidate's on-disk state at that moment — and, at a failure,
 // reports the subset whose on-disk state actually CHANGED.
 //
-// That observation is deliberately git-free (a content hash and a directory
-// stat): it runs on the failure path, where the git seam is the thing that just
-// failed, and an enumeration that needed a working git could empty-wash exactly
-// the report Plan-004 maps to its `files-partially-restored` disposition.
+// That observation is deliberately git-free (a TYPE-AWARE path fingerprint and a
+// directory stat): it runs on the failure path, where the git seam is the thing
+// that just failed, and an enumeration that needed a working git could
+// empty-wash exactly the report Plan-004 maps to its `files-partially-restored`
+// disposition. Type-aware because bytes alone cannot see a destroyed dangling
+// symlink or a symlink replaced by a byte-identical file — see
+// {@link fingerprintPath}.
 //
 // The rule's one deliberate consequence, recorded rather than hidden: a
 // submodule that is PRESENT but divergent is enumerated on a completed restore
@@ -336,6 +341,138 @@
 // survives the restore, where the same content anywhere else is deleted. The
 // path is reported in `divergentGitlinks`, which is the caller's whole signal
 // that the boundary applied there.
+//
+// ---------------------------------------------------------------------------
+// Host-config knobs — the CLOSED disposition table
+// ---------------------------------------------------------------------------
+//
+// This service has exactly TWO legs that touch worktree content: the check-in
+// leg (`update-index --add --remove`, which hashes worktree bytes into the
+// snapshot tree) and the destructive checkout leg (`read-tree --reset -u`,
+// which writes them back). Every other invocation moves object ids or reads
+// listings.
+//
+// Two rounds of external review each found ONE more host-config knob able to
+// change what those two legs do — `core.safecrlf`, then `core.eol`. A third
+// round would find a third, so the answer is not another pin: it is an
+// ENUMERATION, of every git config knob and environment input that can alter
+// the BYTES or the SET OF PATHS either leg hashes or writes, each with exactly
+// one recorded disposition. A knob absent from this table is a gap in it, and a
+// pin added below without a measurement is a claim, not a closure.
+//
+// Every "measured" below is git 2.50.1; the suite re-drives the behavioral ones
+// on whatever git CI runs (2.54 at time of writing).
+//
+// PINNED — the value is forced, so the host cannot reach the outcome.
+//
+//   * `core.autocrlf=false`, BOTH legs. Check-in: a host `input` or `true`
+//     re-hashes CRLF worktree bytes to LF blobs, so identical worktree bytes
+//     yield different blob, tree and snapshot OIDs. Checkout: the pin is ALSO
+//     what makes the next row load-bearing — measured, a host `core.autocrlf=true`
+//     writes CRLF whatever `core.eol` says, and only under this pin does the
+//     checkout follow `core.eol` at all.
+//   * `core.eol=lf`, CHECKOUT leg only. Measured against an in-tree `*.txt text`:
+//     under the pin above, host `core.eol=crlf` restores CRLF and `lf` restores
+//     LF, so without this the restored bytes are the host's decision — exactly
+//     the class the other pins close. `lf` and not `native`, because `native`
+//     resolved to LF on the measuring host only by being a LF host and would
+//     restore CRLF on Windows for bytes captured as LF. The check-in leg does NOT
+//     carry it: measured, staging with the host at `core.eol=crlf` and staging
+//     with `core.eol=lf` pinned produce the IDENTICAL tree OID (the `text`
+//     attribute's clean filter normalizes on the way in either way).
+//   * `core.safecrlf=false`, CHECK-IN leg only. A veto rather than a conversion —
+//     measured, present-or-pinned-false produce the identical tree — so what a
+//     host `core.safecrlf=true` adds is a FATAL, turning snapshot AVAILABILITY
+//     into a host-config question. The restore checkouts never consult it
+//     (measured), so it is not pinned there.
+//   * `core.attributesFile=/dev/null` plus `GIT_ATTR_NOSYSTEM=1`, BOTH legs. Takes
+//     the user and system attribute files out of the conversion decision, leaving
+//     only the in-tree declaration below.
+//   * `submodule.recurse=false`, CHECKOUT leg. Bounds the path SET rather than any
+//     path's bytes: the checkout stops at a gitlink. Its two-way consequence has
+//     its own header section above.
+//   * `core.hooksPath=<empty dir>` and `core.fsmonitor=false`, PINNED ELSEWHERE —
+//     `#runGit` prepends both to every invocation this module makes, so they cover
+//     these two legs by construction (D-010-10, and see the I-010-10 section
+//     below). Listed here because a table claiming a closed population may not
+//     omit a knob merely because another mechanism already closed it.
+//
+// DELIBERATELY HONORED — the host is allowed to decide, and the reason is that
+// the alternative is worse than the exposure.
+//
+//   * IN-TREE `.gitattributes`, both legs. A project declaration, checked in and
+//     identical on every host, so honouring it is what makes a restored worktree
+//     byte-identical to any porcelain checkout of the project. This covers `text`,
+//     `eol=`, `working-tree-encoding=` and `filter=` NAMES alike — measured for
+//     `working-tree-encoding=UTF-16LE`, where the odb blob is UTF-8 and the
+//     restored worktree file is UTF-16LE, which is the declared and correct
+//     answer.
+//   * `core.protectNTFS` / `core.protectHFS`, checkout leg. These are a PATH-SET
+//     effect, and the only one in this table whose honest disposition is "leave it
+//     alone": they REFUSE tree paths that alias `.git` on case-folding or
+//     name-mangling filesystems. Pinning them off to make the checkout more
+//     deterministic would open a hole — a hostile snapshot tree writing into
+//     `.git` — so determinism loses to the guard here, deliberately.
+//   * `core.ignorecase` / `core.precomposeUnicode`, both legs. `git init` writes
+//     both from a PROBE of the filesystem (measured: both `true` on the macOS
+//     host), so they state what the filesystem does rather than what the host
+//     prefers. A pin would contradict the filesystem, not the operator.
+//   * `core.symlinks`, CHECKOUT leg. Measured: default restores `link.txt` as a
+//     symlink; `-c core.symlinks=false` restores it as a REGULAR file whose
+//     content is the target path. Not pinned in either direction, because the
+//     value is a filesystem CAPABILITY: pinning `true` on a filesystem without
+//     symlink support makes the checkout fail rather than restore, and pinning
+//     `false` would degrade every host that does support them. Honouring it means
+//     the restore reproduces what a porcelain checkout produces on that host,
+//     which is this table's standard everywhere else. Measured irrelevant on the
+//     check-in leg: with and without the knob the staged tree is identical,
+//     `120000` mode included.
+//
+// MEASURED-IRRELEVANT — reachable in principle, measured not to reach these legs.
+//
+//   * `core.eol` on the check-in leg, and `core.symlinks` on the check-in leg —
+//     both measured above, both identical tree OIDs.
+//   * `core.untrackedCache`. The two `ls-files` legs that fix the delete-pass and
+//     collision path sets are the only place it could change a path SET; measured
+//     with it `false` and `true` after a `status` populated the cache, both
+//     `ls-files -o` and `ls-files -o -i` returned identical listings.
+//
+// RECORDED RESIDUALS — the honest failure modes, closed by neither pin nor
+// measurement.
+//
+//   * `core.sparseCheckout` (with `core.sparseCheckoutCone`, `index.sparse` and
+//     `$GIT_DIR/info/sparse-checkout`). A sparse execution root loses out-of-cone
+//     content across a capture/restore pair, and NO pin on any leg fixes it,
+//     because the defect is not on the checkout leg at all. Measured: the scratch
+//     index a capture seeds carries no skip-worktree bits, so `ls-files -c` lists
+//     every out-of-cone path and `--remove` drops each one for being absent from
+//     the worktree — the snapshot tree simply does not contain them. A restore of
+//     that snapshot then removes those paths' index entries, and after the closing
+//     reset `git status` reports the whole out-of-cone set as deleted. Measured on
+//     the checkout leg, all three of as-shipped, `-c core.sparseCheckout=false`
+//     and `--no-sparse-checkout` produce BYTE-IDENTICAL loss; the `false` pin only
+//     suppresses git's `error: Path … not uptodate` advisory, so adding it would
+//     make the failure quieter and nothing else. It is deliberately NOT added.
+//     `--ignore-skip-worktree-entries` on the check-in leg is likewise a no-op
+//     here (measured, identical tree), since there are no skip-worktree bits in a
+//     freshly seeded scratch index to protect.
+//     SCOPE: daemon-created `worktree` roots and ephemeral clones are never
+//     sparse, so the exposure is `in_place` mode on a user's canonical repository.
+//     The two candidate closures — refusing capture in a sparse root (fail-closed,
+//     but it makes snapshot availability a repo-config question, the very harm the
+//     `core.safecrlf` pin exists to prevent) and reading the sparse patterns to
+//     drive the staging listing — are both product decisions above this module's
+//     authority, so the behaviour is characterized by the suite rather than
+//     changed. See the suite's sparse-checkout residual case.
+//   * `filter.<name>.smudge` / `.clean` / `.required`, where `<name>` arrives from
+//     an IN-TREE attribute but the driver commands live in HOST config. Measured:
+//     with `*.secret filter=redact` in-tree, a host `filter.redact.smudge` rewrote
+//     the restored bytes (`PLAINTEXT` in the odb, `SMUDGED` on disk). `-c
+//     filter.redact.smudge=` neutralizes that ONE driver (measured — the restore
+//     returns `PLAINTEXT`), but the name is chosen by the repository, so the set
+//     of knobs to pin is unbounded and no closed pin set exists. This is the same
+//     mechanism the partial-restore section names as the archetypal mid-checkout
+//     failure, seen from the bytes side rather than the failure side.
 //
 // ---------------------------------------------------------------------------
 // Retention is WINDOW-BASED, and the git dir is the one that SURVIVES
@@ -519,7 +656,8 @@
 
 import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rm, rmdir, stat } from "node:fs/promises";
+import type { Stats } from "node:fs";
+import { lstat, mkdir, readFile, readlink, rm, rmdir, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import type { Database, Statement } from "better-sqlite3";
@@ -1816,16 +1954,28 @@ const EXCLUDE_PER_DIRECTORY_GITIGNORE = "--exclude-per-directory=.gitignore";
 const UNTRACKED_DELETE_PASS_LIMIT = 64;
 
 /**
- * What a `runId` may contain to be safe as a ref path component (I-010-21).
+ * The CHARACTER-CLASS half of "safe as a ref path component" (I-010-21) — an
+ * allowlisted alphabet with an alphanumeric first character.
  *
- * Deliberately far narrower than `git check-ref-format` admits. Run ids are
- * event-sourced UUIDs, so the cost of the narrow rule is zero and it needs no
- * reasoning about git's own rule set — no `..`, no `@{`, no control characters,
- * no leading dash, no path separator, by construction rather than by
- * enumeration. A caller whose id does not match gets a typed `validate-inputs`
- * failure before any git call.
+ * It is half of the rule and not the rule: `.` is in the class, so this pattern
+ * alone admits several dot spellings that must not reach a ref path. The rest of
+ * the rule is composed in {@link isSafeRefComponent}, which is where the reasons
+ * live. Do not test against this constant directly.
+ *
+ * What the class alone does close, by construction rather than by enumeration:
+ * no path separator, no `@{`, no control character, no space, no leading dash,
+ * no leading dot, and no character outside `[A-Za-z0-9._-]` at all.
  */
-const SAFE_REF_COMPONENT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const SAFE_REF_COMPONENT_CHARACTER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+/** A component may not contain `..` anywhere — see {@link isSafeRefComponent}. */
+const CONSECUTIVE_DOTS = "..";
+
+/**
+ * The `.lock` suffix git reserves, lowercased for a case-INSENSITIVE compare —
+ * see {@link isSafeRefComponent}.
+ */
+const RESERVED_REF_LOCK_SUFFIX = ".lock";
 
 /**
  * Variables stripped from the git environment IN ADDITION to
@@ -1917,9 +2067,65 @@ function buildTurnSnapshotRef(runId: string, epoch: number, turnOrdinal: number)
   return `${buildRunSnapshotRefPrefix(runId)}epoch-${String(epoch)}/turn-${String(turnOrdinal)}`;
 }
 
-/** See {@link SAFE_REF_COMPONENT_PATTERN}. */
+/**
+ * Whether `value` is safe as a ref path component (I-010-21) — the whole rule,
+ * of which {@link SAFE_REF_COMPONENT_CHARACTER_PATTERN} is the alphabet.
+ *
+ * Composed as four explicit checks rather than folded into one regex on purpose:
+ * this is a security predicate, and the negative lookaheads that would express
+ * the dot rules inline are the kind of thing a reader verifies by trusting
+ * rather than by reading. Each check below states which shape it refuses and
+ * why, and the four split cleanly in two — the first pair are refusals git
+ * itself makes, the second pair are this module's own narrowing.
+ *
+ * REFUSED BY GIT TOO, and hoisted here because of WHERE git refuses. Both were
+ * admitted by the character class alone, and the docblock that class carried
+ * before claimed otherwise (`run..1` matched it); both are measured on git
+ * 2.50.1 against the full ref path this module builds:
+ *
+ *   * `..` ANYWHERE — `run..1` yields `refs/sidekicks/runs/run..1/epoch-0/turn-1`,
+ *     which `check-ref-format` refuses and `update-ref` refuses ("refusing to
+ *     update ref with bad name"). That refusal arrives from git, several spawns
+ *     into a capture — and capture SWALLOWS its failures into a diagnostic, so
+ *     relying on it converts a typed refusal into a silent no-op. The same
+ *     reasoning the header gives for `../../heads/main`, applied to the spelling
+ *     the pattern actually let through.
+ *   * A `.lock` SUFFIX — `run.lock` is refused by both, git applying the rule
+ *     per slash-separated component rather than to the last one only. Suffix and
+ *     not substring: `a.lock.b` is accepted by git and stays accepted here
+ *     (measured), because narrowing past git's own rule buys nothing.
+ *
+ * THIS MODULE'S OWN NARROWING — git ACCEPTS both of these, so neither is an echo
+ * of a git rule and each needs its own reason (both measured on git 2.50.1:
+ * `check-ref-format` and `update-ref` accept them, and the ref is created):
+ *
+ *   * A TRAILING DOT. git's "cannot end with a dot" is a rule about the whole
+ *     refname, and a `runId` is a MID-PATH component, so `run.` sails through as
+ *     `refs/sidekicks/runs/run./epoch-0/turn-1`. It is refused here because a
+ *     loose ref is a real directory path, and Win32 strips trailing dots from
+ *     path components: `run.` and `run` are the same directory there, so two
+ *     distinct runs would share one epoch namespace and the create-only CAS of
+ *     I-010-22 would fire across runs that never collided on the ids the daemon
+ *     issued.
+ *   * A `.LOCK` suffix in any casing. git's rule is case-SENSITIVE, so `run.LOCK`
+ *     is accepted (measured — the ref is created). It is refused here for the
+ *     same filesystem reason one case down: git's own lock file for a sibling ref
+ *     `refs/sidekicks/runs/run` is literally `run.lock` on disk, and on a
+ *     case-insensitive filesystem — APFS and NTFS by default — a directory named
+ *     `run.LOCK` is that path. `toLowerCase` compares the two spellings the
+ *     filesystem would.
+ *
+ * None of this loosens I-010-21. Run ids are event-sourced UUIDs, which contain
+ * no dots at all, so every shape refused here costs a real caller nothing; the
+ * refusal is a typed `validate-inputs` result before any git call.
+ */
 function isSafeRefComponent(value: string): boolean {
-  return SAFE_REF_COMPONENT_PATTERN.test(value);
+  return (
+    SAFE_REF_COMPONENT_CHARACTER_PATTERN.test(value) &&
+    !value.includes(CONSECUTIVE_DOTS) &&
+    !value.endsWith(".") &&
+    !value.toLowerCase().endsWith(RESERVED_REF_LOCK_SUFFIX)
+  );
 }
 
 function isNonNegativeInteger(value: number): boolean {
@@ -2301,23 +2507,87 @@ function collectProperAncestorDirectories(path: string): readonly string[] {
 }
 
 /**
- * A content hash of the file at `path`, or `null` when it could not be read.
+ * A TYPE-AWARE fingerprint of whatever is at `path` — the restore leg's evidence
+ * for "this colliding ignored path was overwritten".
  *
- * The restore leg's evidence for "this colliding ignored path was overwritten"
- * is a fingerprint taken before the mutation and compared to one taken at the
- * failure — raw bytes on both sides, so no attribute, filter or index state can
- * make the comparison disagree with what is actually on disk. `null` on both
- * sides compares equal, which is the honest answer for a path that was
- * unreadable throughout.
+ * One string per observable state, never `null`, and the type is half the value:
+ * a fingerprint that carried bytes alone answered "same bytes?" when the
+ * question is "same THING?", and the two differ in exactly the cases this
+ * enumeration exists to catch. Both were measured on git 2.50.1 and both are
+ * driven by the suite:
+ *
+ *   * A DANGLING SYMLINK destroyed by the restore. Reading it fails (`ENOENT`
+ *     through the link), and reading what replaced it — a directory the checkout
+ *     needed — fails too (`EISDIR`). A bytes-only fingerprint scored that
+ *     `null` → `null`, compared them EQUAL, and dropped a destroyed ignored path
+ *     out of a `partial_restore` report whose whole job is to name it.
+ *   * A LIVE SYMLINK replaced by a regular file with byte-identical content. A
+ *     bytes-only fingerprint follows the link, hashes the target's bytes, and
+ *     scores the two sides equal — so a link the restore replaced with the
+ *     snapshot's own file goes unreported. `lstat` and not `stat` for this
+ *     reason: every probe here is about the entry AT the path, never about what
+ *     it points at.
+ *
+ * The arms are prefixed rather than bare hashes, so the two arms that DO carry a
+ * hash cannot collide across types: a file whose bytes are `x` and a symlink
+ * whose target is `x` are different observations and compare unequal. The two
+ * hashless arms are coarser by construction and say so — `directory` and `other`
+ * each describe a state rather than identify one — and each is a NAMED residual
+ * rather than an oversight:
+ *
+ *   * `other` (fifo, socket, device) collides with a different `other`. Not
+ *     reachable as a restore EFFECT: `read-tree --reset -u` writes regular files,
+ *     symlinks and the directories that hold them, never a device node, so
+ *     scoring `other` on both sides means the restore did not touch that path.
+ *   * `directory` collides with a directory whose CONTENTS changed. Reachable —
+ *     it is exactly what replaced the dangling symlink above — and left coarse on
+ *     purpose: the enumerated paths are the ones the checkout named as blockers,
+ *     which are blobs in the snapshot tree, and hashing a directory instead would
+ *     be a recursive walk on the failure path, where the rule is to observe
+ *     cheaply and never to become the failure being reported.
+ *
+ * `absent` is the answer for a path with nothing observable, an `lstat` that
+ * failed for any reason included — the same fail-to-absent posture
+ * {@link isDirectory} and {@link pathExists} take, and the reason
+ * {@link isPathProvablyAbsent} exists separately for the retention leg, where
+ * that collapse would be wrong. It is a deliberate residual here: a path
+ * unreadable before AND after for two DIFFERENT reasons compares equal and is
+ * not enumerated. The alternative — reporting every unreadable path as
+ * overwritten — would fabricate data loss out of an `EACCES`.
+ *
+ * Deliberately git-free (an `lstat`, a `readFile`, a `readlink`): it runs on the
+ * failure path, where the git seam is the thing that just failed.
  */
-async function fingerprintFile(path: string): Promise<string | null> {
+async function fingerprintPath(path: string): Promise<string> {
+  let entry: Stats;
   try {
-    return createHash("sha256")
-      .update(await readFile(path))
-      .digest("hex");
+    entry = await lstat(path);
   } catch {
-    return null;
+    return "absent";
   }
+  if (entry.isSymbolicLink()) {
+    try {
+      return `symlink:${hashBytes(Buffer.from(await readlink(path), "utf8"))}`;
+    } catch {
+      return "symlink:unreadable";
+    }
+  }
+  if (entry.isDirectory()) {
+    return "directory";
+  }
+  if (!entry.isFile()) {
+    return "other";
+  }
+  try {
+    return `file:${hashBytes(await readFile(path))}`;
+  } catch {
+    return "file:unreadable";
+  }
+}
+
+/** The one hash spelling {@link fingerprintPath}'s arms share. */
+function hashBytes(bytes: Buffer): string {
+  return createHash("sha256").update(bytes).digest("hex");
 }
 
 /** Whether `path` is a directory. Any error — including `ENOENT` — is `false`. */
@@ -2372,10 +2642,20 @@ async function isPathProvablyAbsent(path: string): Promise<boolean> {
   }
 }
 
-/** A colliding ignored path plus the on-disk state the failure is measured against. */
+/**
+ * A colliding ignored path plus the on-disk state the failure is measured
+ * against.
+ *
+ * The fingerprint is a non-nullable {@link fingerprintPath} arm, and the absence
+ * of `| null` is load-bearing rather than tidy: the nullable form made "could
+ * not read either side" compare EQUAL to "could not read either side" for two
+ * entirely different reasons, which is how a destroyed dangling symlink went
+ * unreported. `absent` is one arm among several here, not the type's escape
+ * hatch.
+ */
 interface ProspectiveCollision {
   readonly path: string;
-  readonly fingerprintBeforeRestore: string | null;
+  readonly fingerprintBeforeRestore: string;
 }
 
 /** A divergent gitlink plus the on-disk state the failure is measured against. */
@@ -3299,6 +3579,22 @@ export class TurnSnapshotService {
           target.executionRoot,
           "-c",
           "core.autocrlf=false",
+          // `core.eol` decides the line ending the SMUDGE path writes for a path
+          // the attributes declare `text`, and the pin above is what hands it that
+          // decision: measured on git 2.50.1 against an in-tree `*.txt text`, a
+          // host `core.autocrlf=true` produces CRLF whatever `core.eol` says,
+          // while under the `false` pin the restored bytes follow `core.eol`
+          // exactly — host `crlf` writes CRLF, `lf` writes LF. So without this
+          // second pin the previous line does not close the checkout channel; it
+          // merely moves the host's control of it one knob along.
+          //
+          // `lf` and not `native`, which is the same measurement's other half:
+          // `native` resolved to LF here only because the measuring host is a LF
+          // host, so it would restore CRLF on Windows for bytes captured as LF.
+          // The snapshot's blobs are git-canonical, and this is the value that
+          // spells them back byte-identically on every host.
+          "-c",
+          "core.eol=lf",
           "-c",
           "submodule.recurse=false",
           "-c",
@@ -3451,9 +3747,11 @@ export class TurnSnapshotService {
    * whole, `.git` included, when the snapshot puts a file at or above its path,
    * and is merged into with its payload and `.git` intact when the snapshot only
    * holds paths BENEATH it. Shape 3 is a file-only obstruction for that reason.
-   * Its `fingerprintBeforeRestore` is `null`, since {@link fingerprintFile}
-   * cannot read a directory — the correct before-state for a path that held no
-   * readable file bytes to begin with.
+   * Its `fingerprintBeforeRestore` is {@link fingerprintPath}'s `directory` arm
+   * — the correct before-state for a path that held no file bytes to begin with,
+   * and one that compares UNEQUAL to the `file:<hash>` a snapshot file
+   * displacing it leaves behind, which is what makes shapes 1 and 2 observable
+   * at that path rather than washing out.
    *
    * "Untracked" there is an INDEX fact, not a disk fact: `ls-files -o` lists a
    * path only while it is absent from the current index, so a path that is both
@@ -3536,7 +3834,7 @@ export class TurnSnapshotService {
       }
       collisions.push({
         path,
-        fingerprintBeforeRestore: await fingerprintFile(join(target.executionRoot, path)),
+        fingerprintBeforeRestore: await fingerprintPath(join(target.executionRoot, path)),
       });
     }
 
@@ -3700,18 +3998,20 @@ export class TurnSnapshotService {
    * The one place a mid-sequence restore failure is reported: observe, diagnose,
    * then the typed result.
    *
-   * The observation is deliberately git-free — a content hash and a directory
-   * stat — because it runs on the failure path, where the git seam is the thing
-   * that just failed. An enumeration that needed a working git would empty-wash
-   * exactly the report `Spec-010 §Turn-Boundary Snapshots` requires never be
-   * empty-washed.
+   * The observation is deliberately git-free — a typed path fingerprint and a
+   * directory stat — because it runs on the failure path, where the git seam is
+   * the thing that just failed. An enumeration that needed a working git would
+   * empty-wash exactly the report `Spec-010 §Turn-Boundary Snapshots` requires
+   * never be empty-washed.
    *
-   * A collision counts as applied when its bytes no longer match the
-   * pre-mutation fingerprint (a vanished file included — its ignored content is
-   * gone either way). A gitlink counts as applied when its directory was
-   * materialized where none existed; a present-but-divergent submodule is
-   * deliberately NOT reported here, because `submodule.recurse=false` means the
-   * failed sequence applied nothing at that path (see the header).
+   * A collision counts as applied when its {@link fingerprintPath} no longer
+   * matches the pre-mutation one — a vanished file included (its ignored content
+   * is gone either way), and a path whose TYPE changed under identical bytes
+   * included too, which a bytes-only comparison could not see. A gitlink counts
+   * as applied when its directory was materialized where none existed; a
+   * present-but-divergent submodule is deliberately NOT reported here, because
+   * `submodule.recurse=false` means the failed sequence applied nothing at that
+   * path (see the header).
    */
   async #failRestore(
     target: TurnSnapshotRestoreTarget,
@@ -3721,7 +4021,7 @@ export class TurnSnapshotService {
   ): Promise<TurnSnapshotPartialRestore> {
     const overwrittenIgnoredPaths: string[] = [];
     for (const collision of prospectiveEffects.collisions) {
-      const fingerprintNow: string | null = await fingerprintFile(
+      const fingerprintNow: string = await fingerprintPath(
         join(target.executionRoot, collision.path),
       );
       if (fingerprintNow !== collision.fingerprintBeforeRestore) {

@@ -40,7 +40,11 @@
 //     independent, plus the `core.safecrlf` pin that makes capture's SUCCESS
 //     host-independent — against the project's own `text` attribute a host
 //     `true` is otherwise fatal, and an uncaptured turn is an unrollbackable
-//     one; the create-only `update-ref` and its per-epoch idempotence;
+//     one; the `core.eol` NON-pin on this leg, driven as its own case rather
+//     than left as an assumption — two captures either side of a host
+//     `core.eol=crlf` produce the identical tree OID, which is the evidence
+//     behind the service's disposition table calling that knob checkout-only;
+//     the create-only `update-ref` and its per-epoch idempotence;
 //     the writable-modes-only applicability rule, exercised across ALL THREE
 //     writable modes and the one non-applicable mode; and the out-of-worktree
 //     scratch index, asserted against the execution root's OWN index rather than
@@ -75,6 +79,20 @@
 //     on the environment channel the ref-path guard cannot reach (a capture run
 //     under an ambient `GIT_DIR` + `GIT_OBJECT_DIRECTORY` still lands in the
 //     EXECUTION ROOT's own store, with the decoy repository empty).
+//
+//     The ref-component predicate is driven through BOTH halves of its rule and
+//     against over-narrowing. The refusal rows include the four DOT shapes an
+//     alphabet-only pattern admitted: `run..1` and `run.lock`, which git refuses
+//     too but only at `update-ref` — several spawns into a capture whose failures
+//     are swallowed into a diagnostic, so the BOUNDARY is what is under test
+//     rather than the outcome — and `run.` and `run.LOCK`, which git ACCEPTS
+//     (measured on git 2.50.1; both refs are created) and which are refused as
+//     this module's own filesystem-aliasing narrowing. The control is a case that
+//     CAPTURES successfully under `a.lock.b`, `run.l`, `run-1_2.3` and a real
+//     UUIDv7, so a predicate that refused `.lock` as a substring — or every dot —
+//     fails there rather than passing the refusal rows. The retention primitive
+//     drives one shape from each half, because that path reaches the predicate
+//     through a DATABASE row rather than a caller's argument.
 //
 //     The SYMBOLIC-REF channel is driven on both sides, because a validated name
 //     that resolves elsewhere is what no name-based guard can catch: a dangling
@@ -130,6 +148,17 @@
 //     shares CHARACTERS without sharing a segment boundary (`collidex/…` under a
 //     tracked `collide`, an ignored `sibling` under a tracked
 //     `sibling-prefix.txt`) or shares a directory without obstructing it;
+//     the collision fingerprint is driven as a TYPE-AWARE observation, through the
+//     two shapes a bytes-only one could not see and which are therefore each
+//     asserted with an in-case control that reproduces the blindness: an ignored
+//     DANGLING SYMLINK destroyed by the checkout (unreadable before as `ENOENT`
+//     and after as `EISDIR`, so the old form scored `null` on both sides and
+//     dropped the loss out of the report), and an ignored LIVE SYMLINK replaced by
+//     a byte-identical regular file (the bytes through the link are asserted equal
+//     to the restored bytes, so only the entry TYPE distinguishes them — the
+//     `lstat`-not-`stat` corner). Both drive an induced mid-sequence failure,
+//     because the `restored` arm reports the prospective set verbatim and never
+//     consults the comparison;
 //     and a target the service never minted is refused with nothing mutated —
 //     twice over, by a cast object literal and by a `Reflect.construct` that
 //     really does reach the erased-at-emit private constructor, which is the
@@ -179,19 +208,35 @@
 // result differs. A stability assertion whose pin was already inert would
 // otherwise pass for the wrong reason. `core.safecrlf`'s control differs in KIND
 // rather than in degree — unpinned, the equivalent staging leg does not produce
-// a different tree, it exits fatal.
+// a different tree, it exits fatal. `core.eol`'s case carries TWO controls,
+// because that pin's authority is conditional: unpinned the checkout follows the
+// host and lands CRLF, and under a host `core.autocrlf=true` the pin is ignored
+// and CRLF lands anyway — so the two conversion pins are shown to be
+// individually load-bearing rather than one restating the other's default.
+//
+// The service's disposition table records `core.sparseCheckout` as an open
+// RESIDUAL rather than a pin, and this suite characterizes it rather than
+// blessing it: a sparse execution root's out-of-cone content is measured being
+// dropped from the snapshot tree at CAPTURE — the root cause, since the scratch
+// index carries no skip-worktree bits — and then lost from the worktree across a
+// restore that still reports `restored` with both enumerations empty. The
+// negative control in that case is the pin deliberately NOT added: a checkout leg
+// carrying `-c core.sparseCheckout=false` reproduces the identical loss, so the
+// case also documents why adding it would buy only a quieter failure.
 
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   copyFileSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -784,6 +829,43 @@ async function advanceHeadWithoutTouchingWorktree(message: string): Promise<stri
   const commit: string = await repository.git(["commit-tree", tree, "-p", parent, "-m", message]);
   await repository.git(["update-ref", "HEAD", commit]);
   return commit;
+}
+
+/**
+ * The errno a plain byte read of `path` fails with, or `null` when it succeeds.
+ *
+ * The collision cases' negative control for the TYPE-AWARE fingerprint: it
+ * reproduces what a bytes-only fingerprint could observe, so a case can assert
+ * that the old form was blind here rather than asserting it in prose. It is
+ * never the thing under test — the assertion under test is always the
+ * `overwrittenIgnoredPaths` the service produced.
+ */
+function readFileErrorCode(path: string): string | null {
+  try {
+    readFileSync(path);
+    return null;
+  } catch (reason: unknown) {
+    return (reason as NodeJS.ErrnoException).code ?? "UNKNOWN";
+  }
+}
+
+/**
+ * A git seam that fails the DELETE PASS's untracked listing and passes
+ * everything else through to the production runner.
+ *
+ * The `-i`-free listing is the delete pass's; the derivation's carries `-i` and
+ * must still run, or the collision enumeration under test would be vacuous. This
+ * is the only way to reach `#failRestore` with the checkout already applied,
+ * which is where the fingerprint comparison lives — the `restored` arm reports
+ * the prospective set verbatim and never consults it.
+ */
+function buildUntrackedListingFailure(): TurnSnapshotGitRunner {
+  return async (argv, options) => {
+    if (argv.includes("ls-files") && argv.includes("-o") && !argv.includes("-i")) {
+      throw new Error("induced untracked-listing failure");
+    }
+    return runTurnSnapshotGitWithExecFile(argv, options);
+  };
 }
 
 /** The turn's post-snapshot effects: an edit, a deletion, new files, a new tree. */
@@ -1804,6 +1886,22 @@ describe("TurnSnapshotService.captureTurnSnapshot", () => {
       { label: "runId with a leading dash", overrides: { runId: "-run" } },
       { label: "empty runId", overrides: { runId: "" } },
       { label: "runId with a reflog spelling", overrides: { runId: "run@{0}" } },
+      // The DOT shapes the character class alone admitted. The first two are
+      // refused by git as well — measured on git 2.50.1, `check-ref-format` and
+      // `update-ref` both refuse `refs/sidekicks/runs/run..1/epoch-0/turn-1` and
+      // the `run.lock` spelling — but they are refused HERE because a refusal
+      // arriving from git is a swallowed capture failure rather than a typed one,
+      // which is the same reason the escaping spelling above does not rely on it.
+      { label: "runId with consecutive dots", overrides: { runId: "run..1" } },
+      { label: "runId with a .lock suffix", overrides: { runId: "run.lock" } },
+      // These two git ACCEPTS (measured on git 2.50.1: both refs are created), so
+      // each is this module's own narrowing rather than an echo of a git rule —
+      // a trailing dot because Win32 strips it from a path component, so `run.`
+      // and `run` would share one loose-ref directory, and `.LOCK` because git's
+      // rule is case-sensitive while APFS and NTFS are not, so the directory
+      // would be the path of a sibling ref's own lock file.
+      { label: "runId with a trailing dot", overrides: { runId: "run." } },
+      { label: "runId with an upper-case .LOCK suffix", overrides: { runId: "run.LOCK" } },
       { label: "negative epoch", overrides: { epoch: -1 } },
       { label: "fractional epoch", overrides: { epoch: 1.5 } },
       { label: "negative turn ordinal", overrides: { turnOrdinal: -3 } },
@@ -1835,6 +1933,40 @@ describe("TurnSnapshotService.captureTurnSnapshot", () => {
     // delegated to it.
     expect(invocations).toEqual([]);
     expect(await repository.refListing()).toBe(refsBefore);
+  });
+
+  it("still accepts run ids that only RESEMBLE the refused dot shapes", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    applyTurnEffects();
+
+    // The over-narrowing control for the four dot rows above. Each of these is
+    // accepted by `git check-ref-format` (measured on git 2.50.1) and must stay
+    // accepted here: a predicate that refused `.lock` as a SUBSTRING, or every
+    // dot outright, would pass the refusal rows while quietly breaking callers.
+    // Driven as real captures rather than against the predicate, so the evidence
+    // is a ref that exists at the spelled path.
+    const acceptedRunIds: readonly string[] = [
+      "a.lock.b", // `.lock` present, but not as the suffix
+      "run.l", // a prefix of the reserved suffix
+      "run-1_2.3", // the full punctuation alphabet, dots included
+      RUN_ID, // the shape production actually issues — a UUIDv7
+    ];
+
+    for (const [index, runId] of acceptedRunIds.entries()) {
+      const captured: TurnSnapshotCaptured = expectCaptured(
+        await buildService().captureTurnSnapshot({
+          ...CAPTURE_DEFAULTS,
+          runId,
+          turnOrdinal: index + 1,
+          executionRoot: repository.root,
+        }),
+      );
+      expect(captured.ref, runId).toBe(`refs/sidekicks/runs/${runId}/epoch-0/turn-${index + 1}`);
+      expect(await repository.git(["rev-parse", captured.ref]), runId).toBe(
+        captured.snapshotCommit,
+      );
+    }
+    expect(fixture.diagnostics).toEqual([]);
   });
 
   it("reports a clock that is not an ISO instant as a commit-tree failure", async () => {
@@ -2958,6 +3090,96 @@ describe("TurnSnapshotService.restoreToTurn", () => {
     expect(readFileSync(join(repository.root, "plain.txt")).includes(0x0d)).toBe(true);
   });
 
+  it("restores LF bytes under a host core.eol=crlf (checkout-conversion pins)", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    const service: TurnSnapshotService = buildService();
+    // The in-tree declaration is what makes `core.eol` reachable at all: the
+    // knob governs the smudge path only for a path the attributes call `text`.
+    // So this fixture is the project declaring normalization — deliberately
+    // honoured — while the HOST tries to decide what that normalization spells.
+    repository.write(".gitattributes", "*.txt text\n");
+    repository.write("eol.txt", "alpha\nbeta\n");
+    await repository.git(["add", ".gitattributes", "eol.txt"]);
+    await repository.git(["commit", "-q", "-m", "text attribute"]);
+    const captured: TurnSnapshotCaptured = await captureTurn(service);
+
+    // Set AFTER the capture, so the check-in side of this case is untouched and
+    // the assertion is purely about the checkout leg.
+    await repository.git(["config", "core.eol", "crlf"]);
+    rmSync(join(repository.root, "eol.txt"));
+
+    const target: TurnSnapshotRestoreTarget = expectResolved(
+      await service.resolveRestoreTarget(buildResolveInput()),
+    );
+    expectRestored(await service.restoreToTurn(target));
+
+    // Git-canonical LF, exactly the blob's own bytes — the host's `crlf` never
+    // reached the smudge path.
+    expect(readFileSync(join(repository.root, "eol.txt"), "utf8")).toBe("alpha\nbeta\n");
+    expect(readFileSync(join(repository.root, "eol.txt")).includes(0x0d)).toBe(false);
+
+    // NEGATIVE CONTROL: the same checkout WITHOUT the `core.eol` pin honours the
+    // host value and lands CRLF. Without this the case would pass on a host whose
+    // `core.eol` was inert, which is every host that has not set it.
+    rmSync(join(repository.root, "eol.txt"));
+    await repository.git([
+      "-c",
+      "core.autocrlf=false",
+      "-c",
+      "submodule.recurse=false",
+      "-c",
+      "core.attributesFile=/dev/null",
+      "read-tree",
+      "--reset",
+      "-u",
+      captured.ref,
+    ]);
+    expect(readFileSync(join(repository.root, "eol.txt")).includes(0x0d)).toBe(true);
+
+    // SECOND CONTROL, for the ORDER the service pins the two knobs in: the
+    // `core.autocrlf=false` pin is what hands the decision to `core.eol`. Under a
+    // host `core.autocrlf=true` the eol pin is ignored and CRLF lands anyway — so
+    // neither pin is redundant, and the first is not merely a default restated.
+    rmSync(join(repository.root, "eol.txt"));
+    await repository.git([
+      "-c",
+      "core.autocrlf=true",
+      "-c",
+      "core.eol=lf",
+      "-c",
+      "submodule.recurse=false",
+      "-c",
+      "core.attributesFile=/dev/null",
+      "read-tree",
+      "--reset",
+      "-u",
+      captured.ref,
+    ]);
+    expect(readFileSync(join(repository.root, "eol.txt")).includes(0x0d)).toBe(true);
+  });
+
+  it("captures the same tree OID under a host core.eol=crlf (check-in leg is unaffected)", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    // The disposition table's claim that `core.eol` is pinned on the CHECKOUT leg
+    // ONLY needs its own evidence, or the omission on the check-in leg is an
+    // assumption rather than a measurement. Same worktree, same declaration, two
+    // captures either side of the host setting: identical snapshot trees.
+    repository.write(".gitattributes", "*.txt text\n");
+    repository.write("eol.txt", "alpha\nbeta\n");
+    await repository.git(["add", ".gitattributes", "eol.txt"]);
+    await repository.git(["commit", "-q", "-m", "text attribute"]);
+
+    const before: TurnSnapshotCaptured = await captureTurn(buildService());
+    await repository.git(["config", "core.eol", "crlf"]);
+    const after: TurnSnapshotCaptured = await captureTurn(buildService(), {
+      turnOrdinal: CAPTURE_DEFAULTS.turnOrdinal + 1,
+    });
+
+    expect(await repository.git(["rev-parse", `${after.ref}^{tree}`])).toBe(
+      await repository.git(["rev-parse", `${before.ref}^{tree}`]),
+    );
+  });
+
   it("honours an IN-TREE conversion attribute, restoring to git-canonical form", async () => {
     const repository: FixtureRepository = fixture.repository;
     const service: TurnSnapshotService = buildService();
@@ -3163,6 +3385,193 @@ describe("TurnSnapshotService.restoreToTurn", () => {
         divergentGitlinks: [],
       },
     ]);
+  });
+
+  // Both symlink cases below need a real symlink, which needs POSIX. CI is
+  // ubuntu-only, so these skips are latent there and fire only for a maintainer
+  // running the suite on native Windows — the same posture
+  // `../../workspace/__tests__/repo-root-resolver.test.ts` takes for its own
+  // symlink cases.
+  const itOnPosix = it.skipIf(process.platform === "win32");
+
+  itOnPosix(
+    "enumerates a destroyed DANGLING SYMLINK, which a bytes-only fingerprint missed",
+    async () => {
+      const repository: FixtureRepository = fixture.repository;
+      applyTurnEffects();
+      // Collision shape 3 — an ignored entry squatting a directory the snapshot
+      // needs — with the entry a symlink whose target does not exist. Measured on
+      // git 2.50.1: `ls-files -o -i` reports `collide` as an ordinary (non-slash)
+      // entry, and the checkout exits 0 while unlinking it to make the directory.
+      repository.write("collide/a.txt", "snapshot child content\n");
+      const service: TurnSnapshotService = buildService();
+      const captured: TurnSnapshotCaptured = await captureTurn(service);
+
+      rmSync(join(repository.root, "collide"), { recursive: true });
+      symlinkSync("no-such-target", join(repository.root, "collide"));
+      repository.write(".gitignore", `${FIXTURE_IGNORE_RULES}collide\n`);
+
+      // IN-CASE NEGATIVE CONTROL, and the whole reason this case exists: on BOTH
+      // sides of the restore a bytes-only fingerprint reads nothing — `ENOENT`
+      // through the dangling link before, `EISDIR` on the directory that replaces
+      // it after. The old `string | null` form therefore scored `null` twice,
+      // compared them equal, and dropped this path out of the report below.
+      expect(readFileErrorCode(join(repository.root, "collide"))).toBe("ENOENT");
+
+      const target: TurnSnapshotRestoreTarget = expectResolved(
+        await service.resolveRestoreTarget(buildResolveInput()),
+      );
+      const result: TurnSnapshotPartialRestore = expectPartialRestore(
+        await buildService({ git: buildUntrackedListingFailure() }).restoreToTurn(target),
+      );
+
+      expect(result.failedStep).toBe("delete-untracked" satisfies TurnSnapshotRestoreStep);
+      expect(result.overwrittenIgnoredPaths).toEqual(["collide"]);
+      expect(result.divergentGitlinks).toEqual([]);
+      expect(fixture.diagnostics[0]).toMatchObject({
+        kind: "restore-failed",
+        ref: captured.ref,
+        overwrittenIgnoredPaths: ["collide"],
+      });
+
+      // Ground truth for the enumeration: the link really is gone and the
+      // snapshot's directory really is there — and the after-state is unreadable
+      // as bytes, which closes the control.
+      expect(readFileErrorCode(join(repository.root, "collide"))).toBe("EISDIR");
+      expect(readFileSync(join(repository.root, "collide", "a.txt"), "utf8")).toBe(
+        "snapshot child content\n",
+      );
+    },
+  );
+
+  itOnPosix(
+    "enumerates a symlink replaced by a BYTE-IDENTICAL file (lstat, not stat)",
+    async () => {
+      const repository: FixtureRepository = fixture.repository;
+      applyTurnEffects();
+      // Collision shape 1 — the ignored path IS the snapshot-tracked path — with
+      // the ignored entry a LIVE symlink whose target holds exactly the bytes the
+      // snapshot will write. Following the link (`stat` + `readFile`) makes the
+      // two sides identical; observing the entry (`lstat`) does not.
+      repository.write("link-target.txt", "shared payload\n");
+      repository.write("collide.txt", "shared payload\n");
+      await repository.git(["add", "link-target.txt"]);
+      await repository.git(["add", "-f", "collide.txt"]);
+      await repository.git(["commit", "-q", "-m", "symlink collision fixture"]);
+      const service: TurnSnapshotService = buildService();
+      const captured: TurnSnapshotCaptured = await captureTurn(service);
+
+      // `git rm --cached` is not decoration: "untracked" in `ls-files -o` is an
+      // INDEX fact, so a path that is merely ignored-by-rule while still in the
+      // index never enters the listing and the case would be vacuous.
+      await repository.git(["rm", "-q", "--cached", "collide.txt"]);
+      rmSync(join(repository.root, "collide.txt"));
+      symlinkSync("link-target.txt", join(repository.root, "collide.txt"));
+      repository.write(".gitignore", `${FIXTURE_IGNORE_RULES}collide.txt\n`);
+
+      // IN-CASE NEGATIVE CONTROL: the bytes reachable THROUGH the link before the
+      // restore are byte-identical to the bytes the snapshot writes at that path,
+      // so a bytes-only fingerprint compares the two sides equal and reports
+      // nothing. Asserted rather than asserted-by-narrative.
+      const bytesThroughLink: Buffer = readFileSync(join(repository.root, "collide.txt"));
+      expect(bytesThroughLink).toEqual(readFileSync(join(repository.root, "link-target.txt")));
+
+      const target: TurnSnapshotRestoreTarget = expectResolved(
+        await service.resolveRestoreTarget(buildResolveInput()),
+      );
+      const result: TurnSnapshotPartialRestore = expectPartialRestore(
+        await buildService({ git: buildUntrackedListingFailure() }).restoreToTurn(target),
+      );
+
+      expect(result.failedStep).toBe("delete-untracked" satisfies TurnSnapshotRestoreStep);
+      expect(result.overwrittenIgnoredPaths).toEqual(["collide.txt"]);
+      expect(fixture.diagnostics[0]).toMatchObject({
+        kind: "restore-failed",
+        ref: captured.ref,
+        overwrittenIgnoredPaths: ["collide.txt"],
+      });
+
+      // Ground truth: the entry is no longer a link, and its bytes are the ones
+      // the control proved indistinguishable. The ONLY observable that changed is
+      // the entry TYPE, which is exactly what the enumeration now reads.
+      expect(lstatSync(join(repository.root, "collide.txt")).isSymbolicLink()).toBe(false);
+      expect(readFileSync(join(repository.root, "collide.txt"))).toEqual(bytesThroughLink);
+    },
+  );
+
+  it("CHARACTERIZES the recorded sparse-checkout residual — out-of-cone content is LOST", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    // NOT a blessing of this outcome. The service's header records
+    // `core.sparseCheckout` as an open residual with a named exposure, and a
+    // residual asserted only in prose is one that silently changes. This case
+    // pins the CURRENT measured behaviour so the eventual fix — refusing capture
+    // in a sparse root, or teaching the staging listing about the patterns — has
+    // to come here and say so.
+    repository.write("cone-in/kept.txt", "in-cone content\n");
+    repository.write("cone-out/excluded.txt", "out-of-cone content\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+    // Cone mode always keeps root-level files, so this prunes `cone-out/` alone.
+    await repository.git(["sparse-checkout", "set", "cone-in"]);
+    expect(existsSync(join(repository.root, "cone-out"))).toBe(false);
+
+    // ROOT CAUSE, asserted directly: the capture's scratch index is seeded by a
+    // bare `read-tree` and carries NO skip-worktree bits, so the out-of-cone path
+    // is listed as an ordinary cached entry and `--remove` drops it for being
+    // absent from the worktree. The snapshot tree simply does not contain it.
+    //
+    // Nothing refreshes the real index between the sparse set and this capture,
+    // deliberately: `git status` CLEARS skip-worktree for an out-of-cone path
+    // present on disk, which would confound the fixture in the other direction.
+    const service: TurnSnapshotService = buildService();
+    const captured: TurnSnapshotCaptured = await captureTurn(service);
+    const snapshotPaths: string = await repository.git([
+      "ls-tree",
+      "-r",
+      "--name-only",
+      `${captured.ref}^{tree}`,
+    ]);
+    expect(snapshotPaths).toContain("cone-in/kept.txt");
+    expect(snapshotPaths).not.toContain("cone-out/excluded.txt");
+
+    // The turn then writes at the out-of-cone path — the content codex's repro
+    // loses. It is post-snapshot content by construction, since the snapshot
+    // above does not hold that path at all.
+    repository.write("cone-out/excluded.txt", "written by the turn, out of cone\n");
+
+    const target: TurnSnapshotRestoreTarget = expectResolved(
+      await service.resolveRestoreTarget(buildResolveInput()),
+    );
+    const restored: TurnSnapshotRestored = expectRestored(await service.restoreToTurn(target));
+
+    // The silent-success arm: `restored`, with BOTH enumerations empty. The loss
+    // is not a collision (the path is not ignored) and not a gitlink, so no
+    // existing enumeration can carry it — which is the residual, stated as an
+    // assertion.
+    expect(restored.overwrittenIgnoredPaths).toEqual([]);
+    expect(restored.divergentGitlinks).toEqual([]);
+    expect(existsSync(join(repository.root, "cone-out", "excluded.txt"))).toBe(false);
+
+    // …and the sparse checkout itself is left incoherent: the closing reset
+    // returns the index to `HEAD`, which DOES track the path, so `git status`
+    // reports the whole out-of-cone set as deleted where it previously reported
+    // a clean tree.
+    expect(await repository.git(["status", "--porcelain"])).toContain("cone-out/excluded.txt");
+
+    // NEGATIVE CONTROL for the pin that is deliberately NOT added: measured on
+    // git 2.50.1, a checkout leg carrying `-c core.sparseCheckout=false` produces
+    // the identical loss. The pin suppresses git's `not uptodate` advisory and
+    // changes nothing else, so adding it would buy a quieter failure and no fix.
+    repository.write("cone-out/excluded.txt", "written again, out of cone\n");
+    await repository.git([
+      "-c",
+      "core.sparseCheckout=false",
+      "read-tree",
+      "--reset",
+      "-u",
+      captured.snapshotCommit,
+    ]);
+    expect(existsSync(join(repository.root, "cone-out", "excluded.txt"))).toBe(false);
   });
 
   it("enumerates an overwrite applied by a read-tree that then failed IN-COMMAND", async () => {
@@ -3418,12 +3827,19 @@ describe("TurnSnapshotService.restoreToTurn", () => {
       expect(invocation.argv.slice(0, 4)).toEqual(neutralizationFlags);
     }
 
-    // The checkout leg, spelled verbatim: the three conversion pins plus
+    // The checkout leg, spelled verbatim: the four conversion pins plus
     // `GIT_ATTR_NOSYSTEM=1`. TWO mechanisms, covering two different files —
     // `core.attributesFile=/dev/null` takes the USER attributes file out of the
     // smudge decision and the environment variable takes the SYSTEM one; neither
     // covers the other's, and in-tree `.gitattributes` stays deliberately
     // honoured by both.
+    //
+    // `core.eol=lf` sits between `core.autocrlf=false` and `submodule.recurse=false`
+    // because the pin before it is what gives it authority: measured, a host
+    // `core.autocrlf=true` overrides `core.eol` entirely. This exact-argv
+    // assertion is the structural half of that pin's coverage — the behavioural
+    // half, with its own negative control, is the host-`core.eol` case in the
+    // conversion-pin group.
     //
     // The final token is the OID the resolve verified, NOT `captured.ref` — the
     // tree-ish the destructive leg writes is fixed at resolve time rather than
@@ -3437,6 +3853,8 @@ describe("TurnSnapshotService.restoreToTurn", () => {
       repository.root,
       "-c",
       "core.autocrlf=false",
+      "-c",
+      "core.eol=lf",
       "-c",
       "submodule.recurse=false",
       "-c",
@@ -4358,6 +4776,46 @@ describe("TurnSnapshotService retention prune", () => {
     expect(await repository.refListing("refs/heads/")).toBe(headsBefore);
     // A REFUSAL, not a fault — no diagnostic, exactly as the capture leg's typed
     // refusals produce none.
+    expect(fixture.diagnostics).toEqual([]);
+  });
+
+  it("refuses a DOT-SHAPED run id from the primitive before any git call", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    const database: DatabaseType = openRetentionDatabase();
+    const invocations: string[][] = [];
+    const service: TurnSnapshotService = buildRetentionService(database, {
+      git: buildRecordingRunner(invocations),
+    });
+    const headsBefore: string = await repository.refListing("refs/heads/");
+
+    // The prune path reaches `isSafeRefComponent` through a DATABASE row rather
+    // than through a caller's argument, so a predicate tightened only where the
+    // capture leg consults it would leave this side admitting shapes the
+    // enumeration then interpolates into a `for-each-ref` prefix. One shape from
+    // each half of the rule: `run..1` git refuses too, `run.` git ACCEPTS
+    // (measured on git 2.50.1) and only this predicate stops.
+    for (const runId of ["run..1", "run."]) {
+      insertRunExecutionContext(database, {
+        runId,
+        executionMode: "branch",
+        executionRoot: repository.root,
+        gitCommonDir: canonicalGitDirectory(),
+        releasedAt: null,
+      });
+
+      expect(await service.pruneSnapshotsForRun(runId), runId).toEqual({
+        runId,
+        deletedRefs: [],
+        skipped: {
+          runId,
+          reason: "unsafe-run-id",
+          detail: "run id is not a safe ref path component",
+        },
+      });
+    }
+
+    expect(invocations).toEqual([]);
+    expect(await repository.refListing("refs/heads/")).toBe(headsBefore);
     expect(fixture.diagnostics).toEqual([]);
   });
 
