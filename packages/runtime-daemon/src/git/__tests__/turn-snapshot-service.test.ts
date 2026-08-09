@@ -33,7 +33,10 @@
 //   * `Spec-010 §Turn-Boundary Snapshots` — the capture temp-index recipe: the
 //     single base OID reused for tree base and recorded parent; `git add -A`
 //     tree equivalence including the untracked-embedded-repo `160000` gitlink;
-//     the commitless embedded repository skipped and enumerated; ignore
+//     the embedded repository skipped and enumerated when its `HEAD` yields no
+//     OID the superproject index can hold — commitless, and the MIXED OBJECT
+//     FORMAT case in both directions, which is a healthy repository whose OID is
+//     simply the wrong width; ignore
 //     semantics (project-declared rules only, tracking wins over ignoring); the
 //     `core.autocrlf` / `core.attributesFile` / `i18n.commitEncoding` pins and
 //     the `core.excludesFile` non-consultation that make the OID host-
@@ -193,15 +196,18 @@
 // non-file spelling in that listing, and only while the current index holds
 // nothing beneath it — and both of that entry's dispositions are pinned: taken
 // whole, `.git` included, by a snapshot file at its path, and merely populated,
-// `.git` intact, when the snapshot holds a path BENEATH it. The gitlink RESIDUAL
-// the derivation's `160000` filter leaves open is pinned as measured rather than
-// argued away: an ignored file at a snapshot gitlink's own path, and one at an
-// ancestor directory of a deeper gitlink, are both unlinked by the materializing
-// checkout while no collision shape reports them, so each is asserted to reach
-// the caller through `divergentGitlinks` instead — beside that boundary's other
-// side, where ignored content BENEATH a gitlink path is neither enumerated nor
-// deleted, which is what a derivation keeping `160000` entries would get wrong in
-// the opposite direction.
+// `.git` intact, when the snapshot holds a path BENEATH it. A snapshot `160000`
+// entry needs a DIRECTORY at its path even though it writes no bytes there, so
+// the three gitlink dispositions are pinned separately and must stay apart: an
+// ignored FILE at a gitlink's own path, and one at an ancestor directory of a
+// deeper gitlink, are unlinked by the materializing checkout and are asserted to
+// be ENUMERATED (the gitlink seeds the required-directory set, so the ignored
+// path is reported as destroyed, beside the `divergentGitlinks` entry for the
+// gitlink itself, which reports a different fact about a different path); an
+// ignored DIRECTORY at a gitlink's own path survives untouched and is asserted
+// NOT enumerated; and ignored content BENEATH a gitlink path is likewise neither
+// enumerated nor deleted, which is what a derivation putting `160000` entries in
+// the TRACKED set would get wrong in the opposite direction.
 //
 // Each host-config pin carries a NEGATIVE CONTROL in the same case: the fixture
 // re-runs the equivalent leg WITHOUT the pin and the assertion is that the
@@ -213,6 +219,17 @@
 // host and lands CRLF, and under a host `core.autocrlf=true` the pin is ignored
 // and CRLF lands anyway — so the two conversion pins are shown to be
 // individually load-bearing rather than one restating the other's default.
+// `core.fileMode` is NOT a pin, and its two capture cases are built the opposite
+// way round: they carry a PORCELAIN control rather than an unpinned one. The
+// service honors that knob as probe-written capability config, so the claim to
+// hold is `git add -A` equivalence under whatever the host says — which means
+// the reference each case compares against is porcelain under the SAME config,
+// not the same leg minus a pin. The pair is the point: one case takes a
+// turn-CREATED executable (bit lost, and porcelain loses it identically — the
+// recorded residual), the other a file executable IN THE BASE COMMIT (recorded
+// `100755` kept, and porcelain keeps it identically). A `-c core.fileMode=true`
+// pin passes the first and FAILS the second, destroying a recorded exec bit the
+// turn never touched, and that second cell is why the pin was removed.
 //
 // The service's disposition table records `core.sparseCheckout` as an open
 // RESIDUAL rather than a pin, and this suite characterizes it rather than
@@ -227,6 +244,7 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+  chmodSync,
   copyFileSync,
   existsSync,
   lstatSync,
@@ -669,6 +687,54 @@ async function createEmbeddedRepository(relativePath: string): Promise<string> {
   return repository.git(["rev-parse", "HEAD"], { cwd: absolute });
 }
 
+/**
+ * An untracked embedded git repository with a commit, at a chosen OBJECT FORMAT
+ * and inside a chosen parent — the mixed-format cases' fixture. Returns its
+ * `HEAD`, whose hex length is the thing those cases turn on.
+ */
+async function createEmbeddedRepositoryWithObjectFormat(
+  parent: FixtureRepository,
+  relativePath: string,
+  objectFormat: string,
+): Promise<string> {
+  const absolute: string = join(parent.root, relativePath);
+  mkdirSync(absolute, { recursive: true });
+  await parent.git(
+    ["-c", "init.defaultBranch=main", "init", "-q", `--object-format=${objectFormat}`, absolute],
+    { cwd: parent.root },
+  );
+  writeFileSync(join(absolute, "inner.txt"), "inner\n");
+  await parent.git(["add", "-A"], { cwd: absolute });
+  await parent.git(["commit", "-q", "-m", "inner"], { cwd: absolute });
+  return parent.git(["rev-parse", "HEAD"], { cwd: absolute });
+}
+
+/**
+ * An INDEPENDENT execution root at a chosen object format, with the same base
+ * commit shape the harness builds.
+ *
+ * The harness repository is SHA-1, so the SHA-256 SUPERPROJECT direction is not
+ * reachable from it; capture takes its execution root per call, which is what
+ * makes a second root usable without a second harness.
+ */
+async function createExecutionRootWithObjectFormat(
+  name: string,
+  objectFormat: string,
+): Promise<FixtureRepository> {
+  const root: string = join(fixture.fixtureRoot, name);
+  const repository = new FixtureRepository(root, buildFixtureEnvironment(fixture.fixtureRoot));
+  mkdirSync(root, { recursive: true });
+  await repository.git(
+    ["-c", "init.defaultBranch=main", "init", "-q", `--object-format=${objectFormat}`, root],
+    { cwd: fixture.fixtureRoot },
+  );
+  repository.write("tracked.txt", "tracked v1\n");
+  repository.write(".gitignore", FIXTURE_IGNORE_RULES);
+  await repository.git(["add", "-A"]);
+  await repository.git(["commit", "-q", "-m", "base"]);
+  return repository;
+}
+
 /** An untracked embedded git repository with an UNBORN `HEAD` — not a gitlink. */
 async function createCommitlessEmbeddedRepository(relativePath: string): Promise<void> {
   const repository: FixtureRepository = fixture.repository;
@@ -1098,6 +1164,90 @@ describe("TurnSnapshotService.captureTurnSnapshot", () => {
     });
     expect(porcelain.exitCode).not.toBe(0);
     expect(porcelain.stderr).toContain("does not have a commit checked out");
+  });
+
+  it("skips a SHA-1 embedded repository in a SHA-256 superproject instead of failing capture", async () => {
+    const superproject: FixtureRepository = await createExecutionRootWithObjectFormat(
+      "sha256-execution-root",
+      "sha256",
+    );
+    const embeddedHead: string = await createEmbeddedRepositoryWithObjectFormat(
+      superproject,
+      "nested",
+      "sha1",
+    );
+    // Both repositories are HEALTHY — this is not the unborn case wearing a
+    // different hat. The only thing wrong is that their object formats differ.
+    expect(await superproject.git(["rev-parse", "--show-object-format"])).toBe("sha256");
+    expect(embeddedHead).toHaveLength(40);
+
+    const result = expectCaptured(
+      await buildService().captureTurnSnapshot({
+        ...CAPTURE_DEFAULTS,
+        executionRoot: superproject.root,
+      }),
+    );
+
+    // The whole point: a capture, not a failure. Unguarded, the `--cacheinfo`
+    // insert takes down the entire `normalize-embedded-repositories` step, and
+    // every later rollback in the run resolves to `no_snapshot`.
+    expect(result.skippedEmbeddedRepositories).toEqual(["nested"]);
+    expect(fixture.diagnostics).toEqual([
+      {
+        kind: "embedded-repositories-skipped",
+        runId: RUN_ID,
+        epoch: 0,
+        turnOrdinal: 1,
+        ref: result.ref,
+        skippedPaths: ["nested"],
+      },
+    ]);
+    const snapshotTree: string = await superproject.git(["rev-parse", `${result.ref}^{tree}`]);
+    expect(await superproject.git(["ls-tree", snapshotTree, "nested"])).toBe("");
+    // …and the rest of the worktree is captured normally, so the skip is one
+    // path wide rather than a quietly empty snapshot.
+    expect(await superproject.git(["ls-tree", snapshotTree, "tracked.txt"])).toContain("blob");
+
+    // The NEGATIVE CONTROL for the predicate: the insert the service no longer
+    // reaches genuinely refuses this OID, so the skip is closing a real failure
+    // rather than pre-empting one that would have worked.
+    const controlIndex: string = join(fixture.fixtureRoot, "mixed-format.index");
+    const controlEnvironment = { GIT_INDEX_FILE: controlIndex };
+    await superproject.git(["read-tree", "HEAD"], { environmentOverrides: controlEnvironment });
+    const refusal: FixtureGitResult = await superproject.gitCapturing(
+      ["update-index", "--add", "--cacheinfo", `160000,${embeddedHead},nested`],
+      { environmentOverrides: controlEnvironment },
+    );
+    expect(refusal.exitCode).not.toBe(0);
+    expect(refusal.stderr).toContain("expects <mode>,<sha1>,<path>");
+  });
+
+  it("skips a SHA-256 embedded repository in a SHA-1 superproject, the mirror direction", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    applyTurnEffects();
+    const embeddedHead: string = await createEmbeddedRepositoryWithObjectFormat(
+      repository,
+      "nested",
+      "sha256",
+    );
+    // The harness repository is SHA-1, so this is the comparison running the
+    // other way. A length test rather than a format-name test would be the same
+    // thing; a `catch` around the insert would be neither, and would swallow an
+    // index-lock failure with it.
+    expect(await repository.git(["rev-parse", "--show-object-format"])).toBe("sha1");
+    expect(embeddedHead).toHaveLength(64);
+
+    const result = expectCaptured(
+      await buildService().captureTurnSnapshot({
+        ...CAPTURE_DEFAULTS,
+        executionRoot: repository.root,
+      }),
+    );
+
+    expect(result.skippedEmbeddedRepositories).toEqual(["nested"]);
+    const snapshotTree: string = await repository.git(["rev-parse", `${result.ref}^{tree}`]);
+    expect(await repository.git(["ls-tree", snapshotTree, "nested"])).toBe("");
+    expect(await repository.git(["ls-tree", snapshotTree, "created.txt"])).toContain("blob");
   });
 
   it("excludes ignored untracked paths while capturing a tracked file that matches .gitignore", async () => {
@@ -2245,6 +2395,85 @@ describe("TurnSnapshotService.captureTurnSnapshot", () => {
     // is the mechanism, not the path alone.
     expect(readdirSync(neutralizationDirectory)).toEqual([]);
   });
+
+  // Mode bits need POSIX; same posture as the restore describe's symlink cases.
+  const itOnPosix = it.skipIf(process.platform === "win32");
+
+  itOnPosix(
+    "CHARACTERIZES the honored core.fileMode residual — a turn-created exec bit is LOST",
+    async () => {
+      const repository: FixtureRepository = fixture.repository;
+      applyTurnEffects();
+      // NOT a blessing of this outcome, and not a bug either — the same posture
+      // as the sparse residual case. The service's header honors
+      // `core.fileMode` as probe-written capability config, and records THIS as
+      // the residual that honoring costs. A residual asserted only in prose is
+      // one that silently changes.
+      repository.write("build.sh", "#!/bin/sh\necho build\n");
+      chmodSync(join(repository.root, "build.sh"), 0o755);
+      await repository.git(["config", "core.fileMode", "false"]);
+
+      const captured: TurnSnapshotCaptured = await captureTurn(buildService());
+
+      // The bit is gone from the snapshot: a file the turn CREATED is staged
+      // from a mode git was told not to trust.
+      expect(await repository.git(["ls-tree", `${captured.ref}^{tree}`, "build.sh"])).toContain(
+        "100644 blob",
+      );
+
+      // IN-CASE PORCELAIN CONTROL, and the whole reason this is a residual and
+      // not a defect: `git add -A` under the SAME host config records exactly
+      // the same `100644`. `Spec-010 §Turn-Boundary Snapshots` asks for add -A
+      // tree equivalence, so honoring the knob keeps the contract while pinning
+      // it `true` would have broken it — see this describe's tracked-file case
+      // for the half that pin got wrong.
+      const porcelainTree: string = await repository.porcelainAddAllTree(
+        join(fixture.fixtureRoot, "filemode-created.index"),
+      );
+      expect(await repository.git(["ls-tree", porcelainTree, "build.sh"])).toContain("100644 blob");
+    },
+  );
+
+  itOnPosix(
+    "honors a TRACKED file's recorded 100755 under core.fileMode=false, as add -A does",
+    async () => {
+      const repository: FixtureRepository = fixture.repository;
+      // The discriminating half, and the cell that reversed this knob's
+      // disposition: the file is EXECUTABLE IN THE BASE COMMIT, so its mode is a
+      // recorded fact rather than a disk observation.
+      repository.write("tool.sh", "#!/bin/sh\necho tool\n");
+      chmodSync(join(repository.root, "tool.sh"), 0o755);
+      await repository.git(["add", "-A"]);
+      await repository.git(["commit", "-q", "-m", "exec base"]);
+      expect(await repository.git(["ls-tree", "HEAD", "tool.sh"])).toContain("100755 blob");
+
+      applyTurnEffects();
+      // The turn drops the bit on disk, and the host says disk modes are not to
+      // be trusted. Under `false` git believes the RECORD, not the disk.
+      chmodSync(join(repository.root, "tool.sh"), 0o644);
+      await repository.git(["config", "core.fileMode", "false"]);
+
+      const captured: TurnSnapshotCaptured = await captureTurn(buildService());
+
+      // A `-c core.fileMode=true` pin on the staging leg records `100644` here —
+      // the seeded scratch index carries no stat data, so `update-index`
+      // re-stats every path and the pin makes lstat outrank the base commit's
+      // recorded mode. That is a recorded exec bit destroyed for a file the turn
+      // never meant to change, which is why the pin came out.
+      expect(await repository.git(["ls-tree", `${captured.ref}^{tree}`, "tool.sh"])).toContain(
+        "100755 blob",
+      );
+
+      // The porcelain control, again the standard the capture is held to: under
+      // the same host config `git add -A` also keeps `100755`, so the honored
+      // knob leaves capture and porcelain agreeing in BOTH directions — the
+      // created-file cell above and the tracked-file cell here.
+      const porcelainTree: string = await repository.porcelainAddAllTree(
+        join(fixture.fixtureRoot, "filemode-tracked.index"),
+      );
+      expect(await repository.git(["ls-tree", porcelainTree, "tool.sh"])).toContain("100755 blob");
+    },
+  );
 });
 
 describe("TurnSnapshotService.resolveRestoreTarget", () => {
@@ -2944,7 +3173,7 @@ describe("TurnSnapshotService.restoreToTurn", () => {
     expect(existsSync(join(repository.root, "collide", "inner.txt"))).toBe(false);
   });
 
-  it("routes an ignored file a materialized gitlink DISPLACES to the divergence signal", async () => {
+  it("enumerates an ignored file a materialized gitlink DISPLACES, beside its divergence", async () => {
     const repository: FixtureRepository = fixture.repository;
     applyTurnEffects();
     // Captured while an embedded repository stood at `sub`, so the snapshot tree
@@ -2963,18 +3192,19 @@ describe("TurnSnapshotService.restoreToTurn", () => {
     );
     const restored: TurnSnapshotRestored = expectRestored(await service.restoreToTurn(target));
 
-    // The RESIDUAL, pinned rather than left as prose: `160000` entries are held
-    // out of the collision derivation's tracked set, so no collision shape sees
-    // this path — and the checkout destroys the file anyway, because it has to
-    // put a directory where the file stood. What the caller gets instead is the
-    // DIVERGENCE enumeration naming the gitlink, which is what this suite's
-    // gitlink-boundary note means by a gitlink path's whole disposition being
-    // that enumeration's to report.
+    // The checkout destroys the file because it has to put a directory where the
+    // file stood, so the file is reported as destroyed — a `160000` entry is held
+    // out of the derivation's TRACKED set (it writes no bytes) but seeds the
+    // REQUIRED-DIRECTORY set, which is the shape that catches this. Both
+    // enumerations fire here and they are not redundant: they name different
+    // paths in the general case, and state different facts even when the paths
+    // coincide — `sub`'s ignored bytes were destroyed, and the gitlink `sub` does
+    // not match the snapshot's recorded commit.
     expect(restored).toEqual({
       outcome: "restored",
       ref: captured.ref,
       snapshotCommit: captured.snapshotCommit,
-      overwrittenIgnoredPaths: [],
+      overwrittenIgnoredPaths: ["sub"],
       divergentGitlinks: ["sub"],
     });
     // Measured ground truth: the checkout exits 0, the ignored bytes are gone and
@@ -2984,7 +3214,7 @@ describe("TurnSnapshotService.restoreToTurn", () => {
     expect(readdirSync(join(repository.root, "sub"))).toEqual([]);
   });
 
-  it("routes an ignored file a gitlink's ANCESTOR directory displaces the same way", async () => {
+  it("enumerates an ignored file a gitlink's ANCESTOR directory displaces, the same way", async () => {
     const repository: FixtureRepository = fixture.repository;
     applyTurnEffects();
     // The gitlink one segment deeper, so what the checkout has to create at the
@@ -3002,19 +3232,71 @@ describe("TurnSnapshotService.restoreToTurn", () => {
     );
     const restored: TurnSnapshotRestored = expectRestored(await service.restoreToTurn(target));
 
-    // Same residual by the same mechanism, one segment out: a filtered-out
-    // `160000` entry contributes no ANCESTOR directories to the derivation
-    // either, so the shape that would otherwise catch `sub` — an ignored file
-    // holding a directory the snapshot needs — has nothing to match against.
+    // Same mechanism one segment out, and the case that proves the gitlink seeds
+    // its ANCESTORS and not just its own path: what the checkout must create at
+    // `sub` is an ordinary parent directory, so the ignored file there is
+    // unlinked and enumerated. The two enumerations name DIFFERENT paths here,
+    // which is why neither can stand in for the other.
+    expect(restored).toEqual({
+      outcome: "restored",
+      ref: captured.ref,
+      snapshotCommit: captured.snapshotCommit,
+      overwrittenIgnoredPaths: ["sub"],
+      divergentGitlinks: ["sub/mod"],
+    });
+    expect(readdirSync(join(repository.root, "sub"))).toEqual(["mod"]);
+    expect(readdirSync(join(repository.root, "sub", "mod"))).toEqual([]);
+  });
+
+  it("leaves an ignored DIRECTORY at a gitlink's own path unenumerated and intact", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    applyTurnEffects();
+    const capturedHead: string = await createEmbeddedRepository("sub");
+    const service: TurnSnapshotService = buildService();
+    const captured: TurnSnapshotCaptured = await captureTurn(service);
+
+    // The bound on the two cases above. Same snapshot `160000` entry at `sub`,
+    // and the turn put a DIRECTORY at that path rather than a file — a different
+    // embedded repository, so the listing spells it with a trailing slash and the
+    // gitlink is genuinely divergent.
+    rmSync(join(repository.root, "sub"), { recursive: true });
+    await createEmbeddedRepository("sub");
+    const embeddedRoot: string = join(repository.root, "sub");
+    repository.write("sub/derived.bin", "written by the turn, inside the replacement\n");
+    await repository.git(["add", "-A"], { cwd: embeddedRoot });
+    await repository.git(["commit", "-q", "-m", "derived"], { cwd: embeddedRoot });
+    const replacementHead: string = await repository.git(["rev-parse", "HEAD"], {
+      cwd: embeddedRoot,
+    });
+    expect(replacementHead).not.toBe(capturedHead);
+    repository.write(".gitignore", `${FIXTURE_IGNORE_RULES}sub/\n`);
+
+    const target: TurnSnapshotRestoreTarget = expectResolved(
+      await service.resolveRestoreTarget(buildResolveInput()),
+    );
+    const restored: TurnSnapshotRestored = expectRestored(await service.restoreToTurn(target));
+
+    // NOT a collision, and the reason the required-directory shape stays
+    // FILE-only after gitlinks start seeding it: the checkout wants a directory
+    // at `sub` and one is already standing there, so nothing is destroyed. The
+    // path's whole disposition is the divergence enumeration's here — which is
+    // what the two cases above would say wrongly if `!isDirectoryEntry` were
+    // dropped from that clause.
     expect(restored).toEqual({
       outcome: "restored",
       ref: captured.ref,
       snapshotCommit: captured.snapshotCommit,
       overwrittenIgnoredPaths: [],
-      divergentGitlinks: ["sub/mod"],
+      divergentGitlinks: ["sub"],
     });
-    expect(readdirSync(join(repository.root, "sub"))).toEqual(["mod"]);
-    expect(readdirSync(join(repository.root, "sub", "mod"))).toEqual([]);
+    // Measured ground truth for the non-report: the checkout exits 0 leaving the
+    // directory, its payload and its `.git` untouched, and the delete pass then
+    // declines to descend into a path the index holds as a gitlink.
+    expect(existsSync(join(repository.root, "sub", ".git"))).toBe(true);
+    expect(readFileSync(join(repository.root, "sub", "derived.bin"), "utf8")).toBe(
+      "written by the turn, inside the replacement\n",
+    );
+    expect(readFileSync(join(repository.root, "sub", "inner.txt"), "utf8")).toBe("inner\n");
   });
 
   it("neither enumerates nor deletes ignored content BENEATH a snapshot-gitlink path", async () => {
@@ -3037,10 +3319,12 @@ describe("TurnSnapshotService.restoreToTurn", () => {
     );
     const restored: TurnSnapshotRestored = expectRestored(await service.restoreToTurn(target));
 
-    // Unenumerated, and this time correctly so rather than as a residual: the
-    // checkout writes nothing at a gitlink path, so nothing beneath one is
-    // obstructed. A derivation that kept `160000` entries in its tracked set
-    // would report both of these, `sub` being an ancestor of each.
+    // Unenumerated, and the case that bounds the two preceding ones: a gitlink
+    // seeds the required-directory set with its own path and its ancestors, NOT
+    // with anything beneath it, so content inside a materialized gitlink is
+    // obstructed by nothing. A derivation that instead put `160000` entries in
+    // its TRACKED set would report both of these, `sub` being an ancestor of
+    // each — and would be reporting content the checkout never touches.
     expect(restored).toEqual({
       outcome: "restored",
       ref: captured.ref,
@@ -3393,6 +3677,43 @@ describe("TurnSnapshotService.restoreToTurn", () => {
   // `../../workspace/__tests__/repo-root-resolver.test.ts` takes for its own
   // symlink cases.
   const itOnPosix = it.skipIf(process.platform === "win32");
+
+  itOnPosix(
+    "restores a 100755 file's exec bit under a repo-level core.fileMode=false (no pin, either leg)",
+    async () => {
+      const repository: FixtureRepository = fixture.repository;
+      applyTurnEffects();
+      repository.write("build.sh", "#!/bin/sh\necho build\n");
+      chmodSync(join(repository.root, "build.sh"), 0o755);
+      const service: TurnSnapshotService = buildService();
+      const captured: TurnSnapshotCaptured = await captureTurn(service);
+      expect(await repository.git(["ls-tree", `${captured.ref}^{tree}`, "build.sh"])).toContain(
+        "100755 blob",
+      );
+
+      // The turn then dropped the bit, and the host declares modes untrustworthy.
+      chmodSync(join(repository.root, "build.sh"), 0o644);
+      await repository.git(["config", "core.fileMode", "false"]);
+      // The control that makes the assertion below mean something: the bit is
+      // genuinely GONE before the restore, so restoring it is an effect and not
+      // a state that was never lost.
+      expect(lstatSync(join(repository.root, "build.sh")).mode & 0o111).toBe(0);
+
+      const target: TurnSnapshotRestoreTarget = expectResolved(
+        await service.resolveRestoreTarget(buildResolveInput()),
+      );
+      expectRestored(await service.restoreToTurn(target));
+
+      // What does the work here is the RECORDED TREE MODE, and nothing else:
+      // `read-tree --reset -u` writes the tree's mode irrespective of
+      // `core.fileMode` (measured in five shapes; see the service header), so
+      // the knob does not reach this leg and no pin exists on either one. The
+      // restore direction is therefore safe under a host `false` even though the
+      // capture direction has a recorded residual under it — the two legs are
+      // exposed differently, which is why they are adjudicated separately.
+      expect(lstatSync(join(repository.root, "build.sh")).mode & 0o111).not.toBe(0);
+    },
+  );
 
   itOnPosix(
     "enumerates a destroyed DANGLING SYMLINK, which a bytes-only fingerprint missed",

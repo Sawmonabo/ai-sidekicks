@@ -352,13 +352,72 @@
 // which writes them back). Every other invocation moves object ids or reads
 // listings.
 //
-// Two rounds of external review each found ONE more host-config knob able to
-// change what those two legs do — `core.safecrlf`, then `core.eol`. A third
-// round would find a third, so the answer is not another pin: it is an
-// ENUMERATION, of every git config knob and environment input that can alter
-// the BYTES or the SET OF PATHS either leg hashes or writes, each with exactly
-// one recorded disposition. A knob absent from this table is a gap in it, and a
-// pin added below without a measurement is a claim, not a closure.
+// Three rounds of external review each found ONE more host-config knob able to
+// change what those two legs do — `core.safecrlf`, then `core.eol`, then
+// `core.fileMode`. Three for three is not bad luck, it is a population that was
+// being ACCUMULATED from review findings rather than derived, so the closure
+// claim was never checkable. It is now derived, and it names its source.
+//
+// The third finding also fixed the table's METHOD, and the row records it: a
+// knob that reaches these legs is not thereby a knob to pin. `core.fileMode` was
+// pinned on the half of the evidence a review finding arrived with, and
+// measuring the other half — what the pin does to files ALREADY TRACKED at the
+// base commit — reversed the disposition to honored. A disposition here needs
+// the whole matrix, not the cell that motivated the question.
+//
+// ENUMERATION SOURCE — the variable listing of `git help --config` on git
+// 2.50.1: 62 variables under `core.*`, plus `index.*` (6), `submodule.*` (12),
+// `filter.*` (2) and `i18n.*` (2), those being the other namespaces either leg
+// reaches. Re-running that command and counting those namespaces is how a
+// reader checks this table rather than trusting it. (The listing's grand total
+// is deliberately not quoted: it depends on how parameterized `<name>` entries
+// are counted, so it is not reproducible the way the per-namespace counts are.)
+//
+// IN POPULATION — a knob is in scope when, holding the worktree bytes and the
+// repository fixed, it can change (a) the BYTES either leg hashes or writes,
+// (b) the SET OF PATHS either leg hashes or writes, or (c) whether either leg
+// SUCCEEDS, the availability class `core.safecrlf` established. Everything in
+// scope carries exactly one recorded disposition below.
+//
+// OUT OF POPULATION by stated criterion rather than row by row, because these
+// are large families whose members are individually inert here:
+//
+//   * OBJECT ENCODING AND STORAGE LAYOUT — `core.compression`,
+//     `core.looseCompression`, `core.bigFileThreshold`, `core.fsync`,
+//     `core.fsyncMethod`, `core.fsyncObjectFiles`, `core.createObject`,
+//     `core.deltaBaseCacheLimit`, `core.packedGitLimit`,
+//     `core.packedGitWindowSize`, `core.commitGraph`, `core.multiPackIndex`,
+//     `core.splitIndex`, `index.version`, `index.skipHash`,
+//     `index.recordEndOfIndexEntries`, `index.recordOffsetTable`,
+//     `index.threads`, and `core.sharedRepository` (permissions on the files git
+//     WRITES into the repository, never a worktree path's mode). These decide
+//     how bytes are STORED, never which bytes or which paths; a tree OID is a
+//     function of content and mode alone. Spot-measured all the same — see the
+//     stat-family row below, whose sweep drove eight of these through the
+//     check-in leg for identical tree OIDs.
+//   * PORCELAIN AND UI SURFACES this module never invokes — `core.pager`,
+//     `core.editor`, `core.askPass`, `core.commentChar`, `core.commentString`,
+//     `core.abbrev`, `core.whitespace`, `core.notesRef`, `core.logAllRefUpdates`,
+//     `core.warnAmbiguousRefs`, `i18n.logOutputEncoding`. Also `core.quotePath`,
+//     which is a path-DISPLAY knob and cannot reach a `-z` listing at all (every
+//     listing leg here passes `-z`, which is what makes that structural rather
+//     than lucky).
+//   * REPOSITORY IDENTITY — `core.bare`, `core.worktree`,
+//     `core.repositoryFormatVersion`, `core.preferSymlinkRefs`,
+//     `core.useReplaceRefs`. These decide whether there is a usable execution
+//     root at all, not what these legs do inside one.
+//   * TRANSPORT, PROXY, HOOK-ADJACENT AND PLATFORM knobs neither leg reaches —
+//     `core.gitProxy`, `core.sshCommand`, `core.alternateRefsCommand`,
+//     `core.alternateRefsPrefixes`, `core.filesRefLockTimeout`,
+//     `core.packedRefsTimeout`, `core.fsmonitorHookVersion`,
+//     `core.hideDotFiles`, `core.unsetenvvars`, `core.restrictinheritedhandles`,
+//     `core.maxTreeDepth` (a recursion BOUND, measured identical at 4096), and
+//     the whole `submodule.*` namespace other than `submodule.recurse`, which is
+//     pinned below — the rest configure fetch and update of DECLARED submodules,
+//     and this module neither fetches nor updates one.
+//
+// A knob in population and absent from this table is a gap in it, and a pin
+// added below without a measurement is a claim, not a closure.
 //
 // Every "measured" below is git 2.50.1; the suite re-drives the behavioral ones
 // on whatever git CI runs (2.54 at time of writing).
@@ -391,6 +450,14 @@
 //   * `submodule.recurse=false`, CHECKOUT leg. Bounds the path SET rather than any
 //     path's bytes: the checkout stops at a gitlink. Its two-way consequence has
 //     its own header section above.
+//   * `i18n.commitEncoding=utf-8`, PINNED ELSEWHERE — on the `commit-tree` leg,
+//     which is neither of the two content legs and so touches no worktree byte or
+//     path. It is here because it reaches the same OUTCOME from the other end: a
+//     host `i18n.commitEncoding` writes an `encoding` header into the commit
+//     object, changing the snapshot OID for identical project state. Listed for
+//     the same reason as the row below — the table adjudicates both `i18n.*`
+//     variables it claims to enumerate, and `i18n.logOutputEncoding` is out of
+//     population as a porcelain surface.
 //   * `core.hooksPath=<empty dir>` and `core.fsmonitor=false`, PINNED ELSEWHERE —
 //     `#runGit` prepends both to every invocation this module makes, so they cover
 //     these two legs by construction (D-010-10, and see the I-010-10 section
@@ -427,15 +494,112 @@
 //     which is this table's standard everywhere else. Measured irrelevant on the
 //     check-in leg: with and without the knob the staged tree is identical,
 //     `120000` mode included.
+//   * `core.fileMode`, CHECK-IN leg — the fourth member of the probe-written
+//     capability family above (`core.ignorecase`, `core.precomposeUnicode`,
+//     `core.symlinks`), and the only knob in this table that decides a tree
+//     entry's MODE rather than its bytes. It was briefly pinned to `true` here on
+//     a review finding, and MEASURING THE OTHER HALF reversed that. The four
+//     cells, git 2.50.1 on a capable filesystem, repo-level `core.fileMode=false`,
+//     a turn that `chmod 644`s a tracked `100755` file and creates a new `0755`
+//     one:
+//
+//         entry                pinned true   unpinned   add -A false   add -A unset
+//         tracked  tool.sh       100644       100755      100755         100644
+//         created  created.sh    100755       100644      100644         100755
+//
+//     Read the columns, not the rows. UNPINNED is byte-identical to porcelain
+//     `git add -A` under the same host config in all four cells — the measured
+//     trees were the same OID — and `add -A` tree equivalence is the capture
+//     contract `Spec-010 §Turn-Boundary Snapshots` states. PINNED reproduces
+//     porcelain under a DIFFERENT config than the host actually has, which is not
+//     a fix; it is a second opinion about the operator's repository.
+//     The mechanism is this file's own stat-family row: the scratch index a
+//     capture seeds carries NO stat data, so `update-index` re-stats every listed
+//     path, and under a `true` pin each TRACKED file's mode then comes from lstat
+//     — discarding the mode its base commit recorded. That is the `100755 →
+//     100644` cell, and it is the dangerous direction: a recorded exec bit lost
+//     for a file the turn never meant to change.
+//     REASONED, NOT MEASURED — the mechanism above is measured; this consequence
+//     of it is not, for want of the host. On a bit-incapable filesystem (a
+//     `vfat`/`exFAT` mount, or Windows, a V1 shipping tier per `ADR-019`) git's
+//     own probe writes `core.fileMode=false` precisely because lstat cannot
+//     report the bit truthfully. A `true` pin there would feed that fabrication
+//     into EVERY tracked file's recorded mode, turning a per-turn annoyance into
+//     recorded-bit loss across the snapshot.
+//     RESIDUAL, recorded rather than closed: honouring the knob means a
+//     preference-set or stale `false` on a capable filesystem loses a
+//     turn-created executable's bit, and records a boundary `chmod` of a tracked
+//     file as that file's stale recorded mode. Both are exactly what porcelain
+//     `add -A` does under that config, so equivalence holds by construction and
+//     the snapshot is never worse than the repository it came from. A stale
+//     `false` is narrow — git's probe never writes it on a capable filesystem, so
+//     it takes an explicit preference or a repository moved across filesystems.
 //
 // MEASURED-IRRELEVANT — reachable in principle, measured not to reach these legs.
 //
 //   * `core.eol` on the check-in leg, and `core.symlinks` on the check-in leg —
 //     both measured above, both identical tree OIDs.
+//   * `core.fileMode` on the CHECKOUT leg. `read-tree --reset -u` writes the
+//     TREE's mode to disk regardless of it. Measured under a repo-level
+//     `core.fileMode=false`, in five shapes chosen to be the ones that could
+//     diverge — target absent; present at `0644` with identical content;
+//     present at `0644` with different content; a pre-restore index already
+//     holding `100755` against a `0644` disk; and the reverse direction, a
+//     `100644` tree against a disk file carrying the exec bit — the restored
+//     mode followed the tree in all five (exec bit ON for the first four, and
+//     STRIPPED in the fifth). Re-running each with `-c core.fileMode=true`
+//     produced identical results, so a pin would be inert here whatever the
+//     check-in leg decides. Recorded separately from the honored row above
+//     because it answers a different question — that row says why the knob is
+//     honored where it DOES reach, this one says the restore direction was
+//     checked and the knob does not reach it at all.
 //   * `core.untrackedCache`. The two `ls-files` legs that fix the delete-pass and
 //     collision path sets are the only place it could change a path SET; measured
 //     with it `false` and `true` after a `status` populated the cache, both
 //     `ls-files -o` and `ls-files -o -i` returned identical listings.
+//   * THE STAT-COMPARISON FAMILY — `core.checkStat`, `core.trustctime`,
+//     `core.ignoreStat` and `core.preloadIndex` (`core.fsmonitor` belongs to it
+//     by mechanism but is PINNED above, and carries that disposition instead).
+//     One mechanism closes the family, which is why it is one row: these knobs
+//     only ever decide when git may TRUST cached index stat data instead of
+//     re-reading a file, and the scratch index this service stages into has
+//     none — it is seeded by a bare `read-tree`, which writes no stat data at
+//     all. Measured with `ls-files
+//     --debug` on an index seeded by a bare `read-tree` — every entry reports
+//     `ctime: 0:0`, `mtime: 0:0`, `dev: 0`, `ino: 0`, `size: 0`, against real
+//     values in the repository's own index — so `update-index --add --remove`
+//     re-stats and re-hashes every listed path unconditionally. Confirmed by
+//     tree-OID identity across a same-size content change with the original
+//     mtime restored (the input designed to fool a stat comparison) under
+//     `core.trustctime=false`, `core.checkStat=minimal`, `core.ignoreStat=true`,
+//     `core.preloadIndex=false`, `core.splitIndex=true`, `index.version=2`,
+//     `index.skipHash=true`, `core.bigFileThreshold=1`, `core.compression=0`,
+//     `core.looseCompression=0`, `core.fsyncMethod=writeout-only`,
+//     `core.quotePath=false`, `core.sharedRepository=group`,
+//     `core.maxTreeDepth=4096` and `core.useReplaceRefs=false` — all fifteen
+//     identical to the unpinned baseline. Being a property of a freshly seeded
+//     scratch index rather than of any one knob, this also covers the stat knobs
+//     a future git adds.
+//   * `core.excludesFile` — STRUCTURAL, not measured, and flagged as such
+//     because this section's other rows carry identity measurements and this one
+//     cannot be read as if it did. It would otherwise be in population: it can
+//     widen the ignore set, which is a PATH-SET effect on the check-in listing
+//     and both delete passes. What rules it out is the argv itself — all three
+//     listing legs pass `--exclude-per-directory=.gitignore` and no other
+//     exclude source, and that flag does not consult it. The evidence is
+//     therefore the invocation, which is stronger than a measurement rather than
+//     weaker: a measurement would show it inert for the arguments tested, while
+//     the argv shows it unreachable for all of them. See
+//     {@link EXCLUDE_PER_DIRECTORY_GITIGNORE}, where that same agreement is
+//     load-bearing for a different reason.
+//   * `core.checkRoundtripEncoding`. Only reachable at all with an in-tree
+//     `working-tree-encoding` declaration, which is a DELIBERATELY HONORED row
+//     above. Measured with `*.txt working-tree-encoding=UTF-16LE` in-tree: host-
+//     unset and `-c core.checkRoundtripEncoding=UTF-16LE` produce the identical
+//     tree at exit 0. The one refusal reachable in that fixture — `fatal: BOM is
+//     prohibited in 'wt.txt' if encoded as UTF-16LE` — fires identically with
+//     the knob UNSET, so it belongs to the in-tree attribute's own BOM rule and
+//     not to the host.
 //
 // RECORDED RESIDUALS — the honest failure modes, closed by neither pin nor
 // measurement.
@@ -987,10 +1151,14 @@ export type TurnSnapshotDiagnostic =
       readonly ref: string;
       /**
        * Worktree-relative paths of untracked embedded repositories that could
-       * not be recorded as gitlinks — an unborn `HEAD` has no commit OID to
-       * record. Porcelain `git add -A` hard-fails on this input
-       * (`does not have a commit checked out`, exit 128 on git 2.50.1); capture
-       * skips and enumerates instead, because capture never blocks the turn.
+       * not be recorded as gitlinks. Two measured causes, both non-blocking by
+       * design: an unborn `HEAD` has no commit OID to record (porcelain
+       * `git add -A` hard-fails on that input — `does not have a commit checked
+       * out`, exit 128 on git 2.50.1), and a HEALTHY embedded repository whose
+       * object format differs from the superproject's has an OID the
+       * superproject index cannot hold (`update-index --cacheinfo` exit 129 on
+       * git 2.50.1). Capture skips and enumerates in both, because capture never
+       * blocks the turn.
        */
       readonly skippedPaths: readonly string[];
     }
@@ -1914,6 +2082,19 @@ const GIT_STDIO_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 // object two commands later.
 const OBJECT_ID_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
+// Hex length per `rev-parse --show-object-format` name. Because that pattern
+// admits BOTH widths, an object id valid on its own terms can still be
+// un-insertable in a given repository — see
+// {@link TurnSnapshotService.#normalizeEmbeddedRepositories}, where the two are
+// compared. An unrecognized name throws rather than defaulting: a third object
+// format would change what `update-index --cacheinfo` accepts, and assuming
+// SHA-1 there would resurrect the whole-capture failure that comparison exists
+// to prevent.
+const OBJECT_ID_HEX_LENGTHS: ReadonlyMap<string, number> = new Map<string, number>([
+  ["sha1", 40],
+  ["sha256", 64],
+]);
+
 // git's superproject submodule representation ([gitsubmodules]) — the mode the
 // capture leg records for an untracked embedded repository and the mode the
 // restore leg reads back out of the snapshot tree to derive its gitlink
@@ -2486,6 +2667,23 @@ function parseSnapshotTreeListing(listing: Buffer): readonly SnapshotTreeEntry[]
 }
 
 /**
+ * The object-id hex length a repository uses, from `rev-parse
+ * --show-object-format`. See {@link OBJECT_ID_HEX_LENGTHS}.
+ *
+ * Throwing on an unrecognized name is deliberate: it reaches the capture funnel
+ * as a `normalize-embedded-repositories` failure, which is the honest report for
+ * a git whose object formats this module has never been measured against.
+ */
+function requireObjectIdHexLength(stdout: Buffer): number {
+  const format: string = stdout.toString("utf8").trim();
+  const hexLength: number | undefined = OBJECT_ID_HEX_LENGTHS.get(format);
+  if (hexLength === undefined) {
+    throw new Error(`git reported an unrecognized object format: ${format}`);
+  }
+  return hexLength;
+}
+
+/**
  * Every PROPER ancestor directory of a git-spelled repo-relative path, outermost
  * first: `a/b/c` yields `a` and `a/b`, and a single-segment path yields none.
  *
@@ -2865,8 +3063,9 @@ export class TurnSnapshotService {
    *     for a non-ignored embedded repository (`Ignoring path nested/`, exit 0),
    *     so the bare pipeline would omit a whole repository that existed at the
    *     boundary. Each is re-recorded as a `160000` gitlink — porcelain
-   *     `git add -A`'s own representation — and a commitless one is skipped and
-   *     enumerated.
+   *     `git add -A`'s own representation — and one whose `HEAD` yields no OID
+   *     the superproject index can hold (commitless, or a differing object
+   *     format) is skipped and enumerated.
    */
   async captureTurnSnapshot(input: CaptureTurnSnapshotInput): Promise<TurnSnapshotCaptureResult> {
     // The mode self-guard runs FIRST — see the header. Nothing above this line
@@ -2949,12 +3148,21 @@ export class TurnSnapshotService {
           // user and system attribute files out of the conversion decision,
           // while in-tree `.gitattributes` — a project declaration, checked in
           // and identical on every host — stays deliberately honoured.
+          // `core.fileMode` is deliberately NOT pinned here, and the reason is
+          // this leg specifically: the seeded scratch index carries no stat data,
+          // so `update-index` re-stats every listed path, and a `fileMode=true`
+          // pin would therefore take each TRACKED file's mode from lstat and
+          // discard the mode its base commit recorded. Measured — see the
+          // header's row for the four-cell matrix — and the unpinned column is
+          // byte-identical to `git add -A` under the same host config, which is
+          // the equivalence `Spec-010 §Turn-Boundary Snapshots` actually asks
+          // for.
           //
           // This is the only leg that pins them because it is the only leg that
           // hashes worktree bytes: the gitlink insert below passes a literal OID
           // through `--cacheinfo` and reads no content, `write-tree` and
-          // `commit-tree` hash objects the index already holds, and `safecrlf`
-          // is a check-in check the restore checkouts never consult (measured).
+          // `commit-tree` hash objects the index already holds, and `safecrlf` is
+          // a check-in check the restore checkouts never consult (measured).
           "-c",
           "core.autocrlf=false",
           "-c",
@@ -3089,16 +3297,31 @@ export class TurnSnapshotService {
    * already silently dropped each of them.
    *
    * The classification is FAIL-SAFE rather than unborn-specific: any such entry
-   * whose `rev-parse HEAD` does not yield an object id is skipped and
-   * enumerated. That covers the commitless embedded repository the spec calls
-   * out — porcelain `git add -A` hard-fails on it, so capture skipping honours
-   * capture-never-blocks — and any other trailing-slash entry that is not a
-   * repository at all, without a second code path whose behaviour nothing pins.
+   * whose `rev-parse HEAD` does not yield an object id INSERTABLE IN THE
+   * SUPERPROJECT'S OBJECT FORMAT is skipped and enumerated. That covers the
+   * commitless embedded repository the spec calls out — porcelain `git add -A`
+   * hard-fails on it, so capture skipping honours capture-never-blocks — any
+   * other trailing-slash entry that is not a repository at all, and the MIXED
+   * FORMAT case, where both repositories are healthy and their object formats
+   * simply differ.
    *
-   * `GIT_INDEX_FILE` is deliberately absent from the `rev-parse` overlay: that
-   * invocation runs INSIDE the embedded repository, and pointing it at the
-   * superproject's scratch index would be a category error even where it is
-   * harmless.
+   * That last one is why the skip test is a predicate and not a `try` around the
+   * insert. Measured on git 2.50.1: a SHA-1 embedded `HEAD` offered to a
+   * SHA-256 superproject (and the converse) makes `update-index --cacheinfo`
+   * exit 129 — `error: option 'cacheinfo' expects <mode>,<sha1>,<path>` — which
+   * unguarded fails the WHOLE capture at `normalize-embedded-repositories` and
+   * leaves every later rollback with no snapshot to restore. Widening a `catch`
+   * over the insert would swallow index-lock and I/O failures with it, turning
+   * an infrastructure fault into a silent one-path skip; comparing formats up
+   * front skips exactly the case that is genuinely un-insertable and leaves the
+   * insert free to fail loudly for every other reason.
+   *
+   * `GIT_INDEX_FILE` is deliberately absent from both `rev-parse` overlays, for
+   * two different reasons. The `HEAD` one runs INSIDE the embedded repository,
+   * where pointing at the superproject's scratch index would be a category error
+   * even though it is harmless. The `--show-object-format` one runs in the
+   * superproject but reads a repository-format fact, not index state, so an
+   * index overlay would suggest a dependency that is not there.
    */
   async #normalizeEmbeddedRepositories(
     executionRoot: string,
@@ -3106,6 +3329,7 @@ export class TurnSnapshotService {
     listing: Buffer,
   ): Promise<readonly string[]> {
     const skipped: string[] = [];
+    let superprojectObjectIdLength: number | null = null;
     for (const entry of splitNulTerminatedListing(listing)) {
       if (!entry.endsWith("/")) {
         continue;
@@ -3122,6 +3346,22 @@ export class TurnSnapshotService {
           ).stdout,
         );
       } catch {
+        skipped.push(embeddedPath);
+        continue;
+      }
+      // Resolved LAZILY and once: a listing with no trailing-slash entry is the
+      // overwhelmingly common case and must not pay for a git invocation, and a
+      // repository's object format cannot change under a single capture. This
+      // call failing is INFRASTRUCTURE, not a classification — it propagates and
+      // fails the capture, exactly like the insert below. Only a successfully
+      // resolved format that DISAGREES is a skip.
+      if (superprojectObjectIdLength === null) {
+        superprojectObjectIdLength = requireObjectIdHexLength(
+          (await this.#runGit(["-C", executionRoot, "rev-parse", "--show-object-format"], {}))
+            .stdout,
+        );
+      }
+      if (embeddedHead.length !== superprojectObjectIdLength) {
         skipped.push(embeddedPath);
         continue;
       }
@@ -3763,23 +4003,33 @@ export class TurnSnapshotService {
    * user-data collision. A fixture reproducing the collision therefore has to
    * `git rm --cached` the path; content-only ignoring is not enough.
    *
-   * `160000` entries are filtered out of the tracked set, so they neither
-   * collide nor contribute the ancestor directories shape 3 tests. This leg
-   * populates NOTHING at a gitlink path — under `submodule.recurse=false` it
-   * materializes an empty directory and stops — so that path's disposition is
-   * the divergence enumeration's to report, below, and running it through both
-   * would say one path twice under two different contracts.
+   * `160000` entries are filtered out of the TRACKED set, so they never fire
+   * shapes 1 and 2: this leg writes no file bytes at a gitlink path — under
+   * `submodule.recurse=false` it materializes an empty directory and stops —
+   * and those two shapes report an ignored path a snapshot FILE overwrote.
    *
-   * Making room for that empty directory is a measured RESIDUAL, recorded here
-   * rather than enumerated: it DOES unlink an ignored file holding the gitlink's
-   * own path, or an ancestor directory of it (both measured on git 2.50.1 —
-   * ignored file `sub` against a snapshot gitlink at `sub`, and against one at
-   * `sub/mod`), and no shape above sees it, because the entry that displaces the
-   * file is exactly the one filtered out. The operator's signal there is
-   * `divergentGitlinks` naming the gitlink path, per this file's gitlink-boundary
-   * note. Ignored content merely BENEATH a materialized gitlink directory is left
-   * alone (measured) — the checkout's side of the same `submodule.recurse=false`
-   * boundary the delete pass meets from `ls-files -o`.
+   * It does need a DIRECTORY there, though, so every `160000` entry seeds
+   * `snapshotRequiredDirectories` with its own path AND its ancestors, and shape
+   * 3 enumerates whatever clearing room for that directory unlinks. Measured on
+   * git 2.50.1: an ignored FILE holding a snapshot gitlink's own path (file
+   * `sub`, gitlink at `sub`) and one holding an ancestor directory of a deeper
+   * gitlink (file `sub`, gitlink at `sub/mod`) are both unlinked by the
+   * checkout, and both are reported — under the ignored path being destroyed,
+   * with {@link fingerprintPath}'s `file:<hash>` arm as the before-state, on the
+   * same contract shapes 1-3 carry everywhere else.
+   *
+   * Shape 3's `!isDirectoryEntry` guard is what keeps that exact. An ignored
+   * DIRECTORY at a gitlink path is not a collision because it is not destroyed:
+   * measured on git 2.50.1 with an ignored embedded repository at a snapshot
+   * gitlink's path, the checkout exits 0 leaving the directory, its payload and
+   * its `.git` untouched — the directory the gitlink wants is already there, and
+   * this leg does not descend into it. That path's disposition is the divergence
+   * enumeration's below: reported through `divergentGitlinks` when the embedded
+   * `HEAD` disagrees with the snapshot's, and reported nowhere when it agrees,
+   * because then nothing moved. Ignored content merely BENEATH a materialized
+   * gitlink directory is likewise neither enumerated nor deleted (measured) —
+   * the checkout's side of the same `submodule.recurse=false` boundary the
+   * delete pass meets from `ls-files -o`.
    *
    * Gitlink divergence is per `160000` entry in the snapshot tree: the working
    * copy's embedded `HEAD` is resolved and compared, and anything that is not an
@@ -3808,6 +4058,22 @@ export class TurnSnapshotService {
     const snapshotRequiredDirectories = new Set<string>();
     for (const trackedPath of snapshotTrackedPaths) {
       for (const ancestor of collectProperAncestorDirectories(trackedPath)) {
+        snapshotRequiredDirectories.add(ancestor);
+      }
+    }
+    // A gitlink needs a directory AT ITS OWN PATH — the empty one the checkout
+    // materializes under `submodule.recurse=false` — as well as along the way to
+    // it, so each `160000` entry seeds both. Deliberately NOT added to
+    // `snapshotTrackedPaths`: this leg writes no file bytes at a gitlink path, so
+    // shapes 1 and 2 (an ignored path a snapshot FILE overwrites) must not fire
+    // there, while shape 3 (an ignored file unlinked to clear a directory's
+    // place) must.
+    for (const entry of treeEntries) {
+      if (entry.mode !== GITLINK_TREE_MODE) {
+        continue;
+      }
+      snapshotRequiredDirectories.add(entry.path);
+      for (const ancestor of collectProperAncestorDirectories(entry.path)) {
         snapshotRequiredDirectories.add(ancestor);
       }
     }
