@@ -306,13 +306,16 @@
 // recording each candidate's on-disk state at that moment — and, at a failure,
 // reports the subset whose on-disk state actually CHANGED.
 //
-// That observation is deliberately git-free (a TYPE-AWARE path fingerprint and a
-// directory stat): it runs on the failure path, where the git seam is the thing
-// that just failed, and an enumeration that needed a working git could
-// empty-wash exactly the report Plan-004 maps to its `files-partially-restored`
-// disposition. Type-aware because bytes alone cannot see a destroyed dangling
-// symlink or a symlink replaced by a byte-identical file — see
-// {@link fingerprintPath}.
+// That observation is deliberately git-free (one TYPE-AWARE path fingerprint per
+// candidate, for BOTH candidate sets): it runs on the failure path, where the
+// git seam is the thing that just failed, and an enumeration that needed a
+// working git could empty-wash exactly the report Plan-004 maps to its
+// `files-partially-restored` disposition. Type-aware because bytes alone cannot
+// see a destroyed dangling symlink or a symlink replaced by a byte-identical
+// file — see {@link fingerprintPath}. The gitlink set reached this standard by
+// correction rather than design: it carried a `stat`-based presence boolean,
+// which read a symlink-to-directory as a directory and dropped the destroyed
+// symlink out of the report.
 //
 // The rule's one deliberate consequence, recorded rather than hidden: a
 // submodule that is PRESENT but divergent is enumerated on a completed restore
@@ -352,18 +355,41 @@
 // which writes them back). Every other invocation moves object ids or reads
 // listings.
 //
-// Three rounds of external review each found ONE more host-config knob able to
-// change what those two legs do — `core.safecrlf`, then `core.eol`, then
-// `core.fileMode`. Three for three is not bad luck, it is a population that was
-// being ACCUMULATED from review findings rather than derived, so the closure
-// claim was never checkable. It is now derived, and it names its source.
+// Four rounds of external review each found ONE more host-config knob able to
+// change what this service does — `core.safecrlf`, then `core.eol`, then
+// `core.fileMode`, then `core.useReplaceRefs`. Four for four is not bad luck.
+// The first three were a population being ACCUMULATED from review findings
+// rather than derived, so the closure claim was never checkable; it is now
+// derived, and it names its source.
 //
-// The third finding also fixed the table's METHOD, and the row records it: a
-// knob that reaches these legs is not thereby a knob to pin. `core.fileMode` was
+// The fourth arrived AFTER that derivation and is the more instructive one,
+// because the enumeration had already caught the knob — and filed it OUT of
+// population under repository identity, on a reading of its name rather than a
+// measurement of its effect. A derived population is only as closed as its
+// classification. `core.useReplaceRefs` does not decide whether a usable root
+// exists; it decides whether an object read inside a perfectly usable one
+// returns the object that was asked for. Enumerating a knob and then
+// misfiling it fails the same closure claim that omitting it does, and it fails
+// it more quietly, because the name appears in the table and so reads as
+// adjudicated. Each out-of-population bullet below therefore states the
+// MECHANISM it claims inertness from, so a reader can falsify the claim instead
+// of the label.
+//
+// That finding also widened the table's own subject. "Two legs touch worktree
+// content" is still true, and it is not the whole exposure: an invocation that
+// merely INTERPRETS a recorded object id is a leg whose answer the host can
+// change, which is why the pinned row below is scoped by leg rather than by
+// which leg writes bytes.
+//
+// The third finding fixed the table's METHOD, and the row records it: a knob
+// that reaches these legs is not thereby a knob to pin. `core.fileMode` was
 // pinned on the half of the evidence a review finding arrived with, and
 // measuring the other half — what the pin does to files ALREADY TRACKED at the
 // base commit — reversed the disposition to honored. A disposition here needs
-// the whole matrix, not the cell that motivated the question.
+// the whole matrix, not the cell that motivated the question. The fourth
+// finding is that method applied to a knob needing the pin on SOME legs and not
+// others: the closing index reset honours it deliberately, and pinning there
+// would have been the `core.fileMode` mistake in a new place.
 //
 // ENUMERATION SOURCE — the variable listing of `git help --config` on git
 // 2.50.1: 62 variables under `core.*`, plus `index.*` (6), `submodule.*` (12),
@@ -403,9 +429,18 @@
 //     listing leg here passes `-z`, which is what makes that structural rather
 //     than lucky).
 //   * REPOSITORY IDENTITY — `core.bare`, `core.worktree`,
-//     `core.repositoryFormatVersion`, `core.preferSymlinkRefs`,
-//     `core.useReplaceRefs`. These decide whether there is a usable execution
-//     root at all, not what these legs do inside one.
+//     `core.repositoryFormatVersion`. These decide whether there is a usable
+//     execution root at all, not what these legs do inside one. The family lost
+//     a member to the round-4 finding above: `core.useReplaceRefs` was here and
+//     is now PINNED below, because it changes what an object read RETURNS inside
+//     a root that is perfectly usable.
+//   * REF STORAGE FORM — `core.preferSymlinkRefs`, stated apart from the family
+//     above rather than filed with it, since the point of that finding is that a
+//     bullet's mechanism has to cover its members. This one decides whether a
+//     ref is written as a filesystem symlink instead of a `ref:` file; git reads
+//     both, every ref leg here goes through `update-ref`/`show-ref`/
+//     `for-each-ref`, and the value a ref RESOLVES to is unchanged by how it is
+//     spelled on disk.
 //   * TRANSPORT, PROXY, HOOK-ADJACENT AND PLATFORM knobs neither leg reaches —
 //     `core.gitProxy`, `core.sshCommand`, `core.alternateRefsCommand`,
 //     `core.alternateRefsPrefixes`, `core.filesRefLockTimeout`,
@@ -463,6 +498,54 @@
 //     these two legs by construction (D-010-10, and see the I-010-10 section
 //     below). Listed here because a table claiming a closed population may not
 //     omit a knob merely because another mechanism already closed it.
+//   * `core.useReplaceRefs=false`, on every leg that INTERPRETS a recorded object
+//     id: the destructive checkout, the delete pass's snapshot-tree listing, the
+//     lineage parent read, the capture's index seed, and the snapshot message
+//     read that recovers the skipped-repository trailer. `refs/replace/<oid>`
+//     substitutes one object for another transparently, so a ref an attacker
+//     cannot write is not the same protection as an object id an attacker cannot
+//     redirect — and this service's whole restore-side safety argument is stated
+//     in frozen object ids.
+//     Reproduced on git 2.50.1: with `git replace <snapshotCommit> <attacker>`,
+//     the attacker commit carrying the SAME parent and a different tree, every
+//     HEAD guard still passes — the parents compare equal — while `ls-tree` of
+//     the frozen id enumerates the ATTACKER's paths and `read-tree --reset -u` of
+//     it writes the ATTACKER's bytes at exit 0. That is a restore reporting
+//     success having written something other than what it verified, which is the
+//     one outcome I-010-23's fail-closed posture exists to prevent. Pinned, the
+//     same fixture restores the original tree.
+//     The CAPTURE seed is in the set on its own measurement rather than by
+//     analogy, because most seed damage is self-correcting: `update-index --add
+//     --remove` re-lists and re-stats, so a phantom path from a replacement tree
+//     is dropped again. The class that SURVIVES is a path both index-tracked and
+//     ignored-by-rule, which only the seed can carry into the snapshot (`ls-files
+//     -o` will not list it, being ignored). Measured with exactly that path and a
+//     replace ref on the base commit: porcelain `add -A` keeps it, the unpinned
+//     pipeline silently loses it, the pinned pipeline matches porcelain — so the
+//     pin is what holds the `add -A` tree equivalence the capture contract is
+//     stated in, and its absence would be silent data loss rather than a fault.
+//     NOT pinned, each measured on the same fixtures rather than assumed:
+//       - `rev-parse HEAD` (the observed head) and the ref reads `show-ref
+//         --verify --hash` and `for-each-ref %(objectname)`. These RESOLVE refs
+//         rather than interpret objects; a replace ref on the resolved commit
+//         leaves all three outputs unchanged.
+//       - `commit-tree -p <base>` and `update-ref`'s written value both record
+//         the literal id supplied, not the replacement (measured identical with
+//         and without the pin), and `update-ref -d`'s CAS old-value compares ref
+//         values on that same footing.
+//       - THE CLOSING INDEX RESET, `read-tree --reset <expectedHead>`, is the one
+//         leg measurably redirected and DELIBERATELY HONORED anyway. Unpinned it
+//         loads the replacement tree, pinned it loads the original — and
+//         PORCELAIN AGREES WITH THE UNPINNED ANSWER, because `rev-parse
+//         HEAD^{tree}` and `git reset -q` go through the replace ref too. Pinning
+//         would leave the index disagreeing with what every other git command in
+//         that worktree calls HEAD, which `git status` then reports as fabricated
+//         STAGED modifications (`D  extra.txt`, `M  tracked.txt`) where the
+//         honoring close reports those same paths unstaged, byte-identical to
+//         `git reset -q`. This leg's contract is "leave the index where porcelain
+//         would", not "interpret a snapshot id", so it follows the host on the
+//         same standard `core.symlinks` and `core.fileMode` follow it elsewhere.
+//         The pin belongs to the id being INTERPRETED, not to the command name.
 //
 // DELIBERATELY HONORED — the host is allowed to decide, and the reason is that
 // the alternative is worse than the exposure.
@@ -575,11 +658,15 @@
 //     `core.preloadIndex=false`, `core.splitIndex=true`, `index.version=2`,
 //     `index.skipHash=true`, `core.bigFileThreshold=1`, `core.compression=0`,
 //     `core.looseCompression=0`, `core.fsyncMethod=writeout-only`,
-//     `core.quotePath=false`, `core.sharedRepository=group`,
-//     `core.maxTreeDepth=4096` and `core.useReplaceRefs=false` — all fifteen
-//     identical to the unpinned baseline. Being a property of a freshly seeded
-//     scratch index rather than of any one knob, this also covers the stat knobs
-//     a future git adds.
+//     `core.quotePath=false`, `core.sharedRepository=group` and
+//     `core.maxTreeDepth=4096` — all fourteen identical to the unpinned
+//     baseline. Being a property of a freshly seeded scratch index rather than of
+//     any one knob, this also covers the stat knobs a future git adds.
+//     `core.useReplaceRefs=false` was in this sweep and has been REMOVED from it,
+//     which is the round-4 finding's second correction: the sweep drives the
+//     CHECK-IN leg with no replace ref present, so its identity result cleared
+//     nothing about object interpretation and citing it here read as a closure it
+//     never performed. Its single disposition is the PINNED row above.
 //   * `core.excludesFile` — STRUCTURAL, not measured, and flagged as such
 //     because this section's other rows carry identity measurements and this one
 //     cannot be read as if it did. It would otherwise be in population: it can
@@ -924,8 +1011,8 @@ export type TurnSnapshotGitRunner = (
  * that turns out to still hold snapshot content is the ordinary case rather than
  * an error.
  *
- * The restore leg's OBSERVATIONS — the collision fingerprints and the gitlink
- * directory stats — deliberately do not come through here. They are reads, they
+ * The restore leg's OBSERVATIONS — the collision and gitlink path fingerprints
+ * — deliberately do not come through here. They are reads, they
  * run on the failure path where a seam is the least trustworthy thing available,
  * and seaming them would hand every implementor (the suite's two capture-only
  * doubles included) verbs it has no opinion about. The boundary is therefore
@@ -1114,17 +1201,23 @@ export interface TurnSnapshotRetentionSkip {
 /**
  * What this service reports to the daemon's observability layer.
  *
- * The first two kinds are spec-named: `Spec-010 §Turn-Boundary Snapshots`
- * requires the failure diagnostic ("capture failure emits an OTel diagnostic and
- * never blocks or fails the turn") and requires the skipped commitless embedded
- * repositories to be "enumerated in the capture diagnostic" — which happens on a
- * capture that otherwise SUCCEEDED, hence the second kind rather than a field on
- * the first. The third is operational rather than spec-named: the scratch-index
- * cleanup is best-effort by construction (it must never convert a completed
- * capture into a failure), and best-effort with no report is how a daemon leaks
- * index files into its own execution-roots directory for months without a
- * signal. It is deliberately NOT a `capture-failed`: the capture it follows may
- * have fully succeeded, and the outcome is reported by the RESULT, not here.
+ * Two kinds are spec-named: `Spec-010 §Turn-Boundary Snapshots` requires the
+ * failure diagnostic ("capture failure emits an OTel diagnostic and never blocks
+ * or fails the turn") and requires the skipped commitless embedded repositories
+ * to be "enumerated in the capture diagnostic" — which happens on a capture that
+ * otherwise SUCCEEDED, hence its own kind rather than a field on `capture-failed`.
+ *
+ * The rest are operational rather than spec-named.
+ * `embedded-repositories-preserved` is the restore-side mirror of the skip
+ * enumeration, and exists because the skip has a consequence the spec did not
+ * anticipate: those repositories had to be protected from the restore's own
+ * delete pass, and a daemon that silently declines to delete something owes an
+ * operator the list. `scratch-index-cleanup-failed` covers a cleanup that is
+ * best-effort by construction (it must never convert a completed capture into a
+ * failure), where best-effort with no report is how a daemon leaks index files
+ * into its own execution-roots directory for months without a signal. It is
+ * deliberately NOT a `capture-failed`: the capture it follows may have fully
+ * succeeded, and the outcome is reported by the RESULT, not here.
  *
  * Paths appear here deliberately. The `error-contracts.md` no-path-echo rule
  * governs typed errors that reach the WIRE; a diagnostic is daemon-local
@@ -1161,6 +1254,38 @@ export type TurnSnapshotDiagnostic =
        * blocks the turn.
        */
       readonly skippedPaths: readonly string[];
+    }
+  | {
+      /**
+       * The RESTORE side of the kind above: the skipped embedded repositories a
+       * restore protected from its own delete pass.
+       *
+       * A DIAGNOSTIC rather than a field on the restore result, and the choice is
+       * forced rather than preferred. `TurnSnapshotRestoreResult` is the shape
+       * T3.13 froze for Plan-004's rollback consumer; adding a member to its
+       * success arm changes a contract this task has no authority over, for
+       * information that arm's consumer does not act on. The observability layer
+       * is where "the daemon deliberately did not touch these paths" belongs, and
+       * emitting it as the mirror of `embedded-repositories-skipped` means the two
+       * halves of one lifecycle read the same way in a log: capture could not
+       * record these, restore did not delete them.
+       *
+       * Emitted only when the set is non-empty and only after the delete pass has
+       * run, so its presence means protection was actually exercised.
+       */
+      readonly kind: "embedded-repositories-preserved";
+      readonly runId: string;
+      /** The OWNING epoch — the resolved ref's own `epoch-<E>` segment. */
+      readonly epoch: number;
+      /** The target position — the resolved ref's own `turn-<N>` segment. */
+      readonly turnOrdinal: number;
+      readonly ref: string;
+      /**
+       * Worktree-relative paths recorded by the capture's
+       * `Skipped-Embedded-Repositories` trailer, which the delete pass left alone
+       * along with everything beneath them.
+       */
+      readonly preservedPaths: readonly string[];
     }
   | {
       readonly kind: "scratch-index-cleanup-failed";
@@ -1991,15 +2116,65 @@ const SNAPSHOT_APPLICABLE_MODES: ReadonlySet<ExecutionMode> = new Set<ExecutionM
 ]);
 
 /**
- * The snapshot commit's message. FIXED — the same bytes for every snapshot, per
- * `Spec-010 §Turn-Boundary Snapshots`'s `-m <fixed snapshot message>`.
+ * The snapshot commit's message SUBJECT. FIXED — the same bytes for every
+ * snapshot, per `Spec-010 §Turn-Boundary Snapshots`'s `-m <fixed snapshot
+ * message>`.
  *
  * Deliberately carries no run id, epoch or ordinal: the message is a commit-object
- * field and therefore an OID input, and identifying content in it would make two
+ * field and therefore an OID input, and IDENTITY content in it would make two
  * snapshots of byte-identical project state at the identical instant hash
  * differently. The identity of a snapshot is its REF, which carries all three.
+ *
+ * The prohibition is on identity, not on content as such — which is what leaves
+ * room for {@link SKIPPED_EMBEDDED_REPOSITORIES_TRAILER} below. A trailer
+ * derived from PROJECT STATE keeps the property the prohibition protects: two
+ * captures of byte-identical project state still produce byte-identical
+ * messages, and so still hash identically.
  */
 const SNAPSHOT_COMMIT_MESSAGE = "sidekicks: turn-boundary snapshot";
+
+/**
+ * The trailer key naming the embedded repositories the CAPTURE could not record,
+ * written into the snapshot commit's message as a second paragraph.
+ *
+ * It exists because those paths are the one class the restore has no authority
+ * over, and the restore had no way to know which they were. A skipped embedded
+ * repository is absent from the snapshot tree, so the delete pass lists it as
+ * post-boundary untracked content and removes it RECURSIVELY — measured on git
+ * 2.50.1: `ls-files -o --exclude-per-directory=.gitignore` names the skipped
+ * repository as `nested/`, and the pass destroys the directory, its payload, and
+ * a `.git` holding the only copy of its history. The pass is right to delete an
+ * embedded repository the TURN created; it is wrong to delete one the capture
+ * declined to record. Nothing on disk at restore time distinguishes them, so the
+ * knowledge has to be carried FROM the capture, and the snapshot commit is the
+ * only thing the restore already reads that the capture already writes.
+ *
+ * Three properties, each load-bearing:
+ *
+ *   * WRITTEN ONLY WHEN THE SKIP LIST IS NON-EMPTY. The overwhelmingly common
+ *     capture skips nothing, and its message must stay the fixed bytes above so
+ *     its OID stays what it was — the host-config table's determinism claims and
+ *     the suite's host-config-independent OID case are stated on that message.
+ *     A trailer present on every capture would change every snapshot OID in the
+ *     repository to buy nothing for the 99% case.
+ *   * JSON-ENCODED. Paths are arbitrary bytes; a newline in one would otherwise
+ *     forge a trailer boundary, and a path could then be read as a key. Inside a
+ *     JSON string a newline is `\n` — inert — so the trailer is exactly one
+ *     line no matter what the worktree contains.
+ *   * SORTED. The message is an OID input, so an unstable order would make two
+ *     captures of identical project state hash differently and break the
+ *     idempotence the create-only ref write depends on. `ls-files` order is
+ *     stable in practice; sorting makes it stable by construction.
+ *
+ * RESIDUAL, recorded rather than closed: the ref is create-only (I-010-22), so a
+ * second capture at the same turn does not overwrite the first, and the trailer
+ * a restore reads is the FIRST capture's. If the skip list differed between
+ * them, the protection follows the recorded snapshot rather than the worktree —
+ * which is the same rule the rest of the restore follows, and the honest one:
+ * this trailer is a fact about the snapshot, not about the worktree at restore
+ * time.
+ */
+const SKIPPED_EMBEDDED_REPOSITORIES_TRAILER = "Skipped-Embedded-Repositories:";
 
 /**
  * The daemon-owned author/committer identity stamped into every snapshot commit.
@@ -2054,6 +2229,28 @@ const DEFAULT_TURN_SNAPSHOT_GIT_TIMEOUT_MS = 120_000;
  * {@link DEFAULT_EPHEMERAL_CLONE_TTL_MS} established in T2.3.
  */
 export const DEFAULT_TURN_SNAPSHOT_RETENTION_WINDOW_MS: number = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * The largest retention window the constructor accepts: ECMAScript's own Date
+ * range, ±8.64e15 ms of the epoch.
+ *
+ * The bound exists for the same reason {@link MAXIMUM_TIMER_DELAY_MS} does — a
+ * value the platform cannot represent does not announce itself, it degrades. A
+ * window above this passes a finite-and-positive check and then makes
+ * `now - window` unrepresentable, so `#retentionCutoff`'s `toISOString()` throws
+ * `RangeError: Invalid time value` on EVERY sweep. The sweep's own `try`
+ * contains that throw, which is the bad part: one accepted configuration
+ * disables retention indefinitely while the daemon keeps reporting a sweep that
+ * ran. `Number.MAX_SAFE_INTEGER` — a plausible "keep everything" spelling — is
+ * exactly this input, and it is the vector the bound is written against.
+ *
+ * The bound is NOT the whole defense, only the half that can be checked once.
+ * It constrains the window, and the window is one of two terms; a clock that
+ * returns an instant far from the epoch can put the difference out of range with
+ * a window this check accepted (measured: a `1900-01-01` clock against a window
+ * at exactly this ceiling). `#retentionCutoff` carries the other half.
+ */
+const MAXIMUM_RETENTION_WINDOW_MS = 8_640_000_000_000_000;
 
 /**
  * How often the daemon runs the retention sweep: hourly.
@@ -2116,6 +2313,20 @@ const GITLINK_TREE_MODE = "160000";
 // off-switch, and a developer's private ignore patterns are not project
 // declarations (the Scope bullet of `Spec-010 §Turn-Boundary Snapshots`).
 const EXCLUDE_PER_DIRECTORY_GITIGNORE = "--exclude-per-directory=.gitignore";
+
+// The pin that makes an object read return the object that was asked for,
+// spelled once for the same reason the exclude source above is: the legs that
+// carry it have to agree, and a reader checking the host-config table's
+// `core.useReplaceRefs` row needs one grep to see exactly which legs those are.
+//
+// `refs/replace/<oid>` substitutes objects transparently, so an id this service
+// froze and verified is not, by itself, an id git will hand back. Scope is
+// deliberately per-leg rather than prepended in `#runGit` beside the two hook
+// knobs: the closing index reset is measurably redirected too and must NOT carry
+// this, because porcelain is redirected identically there and the leg's contract
+// is to leave the index where porcelain would. See the PINNED row in the
+// host-config table for the full leg-by-leg measurement.
+const USE_REPLACE_REFS_PIN: readonly string[] = ["-c", "core.useReplaceRefs=false"];
 
 // Ceiling on the untracked-delete pass (`Spec-010 §Turn-Boundary Snapshots`
 // requires repetition to a FIXPOINT, not a fixed count).
@@ -2667,6 +2878,55 @@ function parseSnapshotTreeListing(listing: Buffer): readonly SnapshotTreeEntry[]
 }
 
 /**
+ * The paths {@link SKIPPED_EMBEDDED_REPOSITORIES_TRAILER} recorded, out of a raw
+ * `cat-file commit` body. An absent trailer is an empty list.
+ *
+ * FAIL-CLOSED on a malformed trailer, which is the one interesting decision
+ * here. Returning `[]` for an unparseable body would be the tolerant reading and
+ * is exactly wrong: this list is the delete pass's DO-NOT-DELETE set, so an
+ * empty list is not a neutral default but full authority to destroy the
+ * repositories the trailer exists to protect. A body carrying the key and not a
+ * decodable array is a snapshot this code does not understand, and the safe
+ * answer to that is to refuse the restore rather than to proceed with the
+ * protection silently disabled. The throw lands at `derive-enumerations`, which
+ * is pre-mutation — the refusal costs nothing on disk.
+ *
+ * The commit body is located by the FIRST blank line, per git's object format:
+ * everything before it is headers (`tree`, `parent`, `author`, `committer`, and
+ * possibly `encoding` or a multi-line `gpgsig` whose continuations are
+ * space-prefixed), everything after is the message. Scanning the whole object
+ * instead would let a header value ending in the trailer key be read as one.
+ */
+function parseSkippedEmbeddedRepositories(commitObject: Buffer): readonly string[] {
+  const text: string = commitObject.toString("utf8");
+  const separator: number = text.indexOf("\n\n");
+  if (separator < 0) {
+    return [];
+  }
+  for (const line of text.slice(separator + 2).split("\n")) {
+    if (!line.startsWith(SKIPPED_EMBEDDED_REPOSITORIES_TRAILER)) {
+      continue;
+    }
+    const encoded: string = line.slice(SKIPPED_EMBEDDED_REPOSITORIES_TRAILER.length).trim();
+    let decoded: unknown;
+    try {
+      decoded = JSON.parse(encoded);
+    } catch {
+      throw new Error(
+        "turn-snapshot could not decode the snapshot's skipped-embedded-repository trailer",
+      );
+    }
+    if (!Array.isArray(decoded) || decoded.some((path) => typeof path !== "string")) {
+      throw new Error(
+        "turn-snapshot skipped-embedded-repository trailer was not an array of paths",
+      );
+    }
+    return decoded as readonly string[];
+  }
+  return [];
+}
+
+/**
  * The object-id hex length a repository uses, from `rev-parse
  * --show-object-format`. See {@link OBJECT_ID_HEX_LENGTHS}.
  *
@@ -2702,6 +2962,26 @@ function collectProperAncestorDirectories(path: string): readonly string[] {
     ancestors.push(segments.slice(0, boundary).join("/"));
   }
   return ancestors;
+}
+
+/**
+ * Whether an `ls-files -o` entry names a path the CAPTURE put outside this
+ * restore's write authority — the delete pass's exemption test.
+ *
+ * `entry` arrives in listing spelling, so a directory carries the trailing slash
+ * git adds to a path it did not descend into; it is stripped before comparing,
+ * because the recorded paths are worktree-relative names without one.
+ *
+ * AT or BENEATH, on SEGMENT boundaries, for the reason
+ * {@link collectProperAncestorDirectories} states in the other direction: a bare
+ * `startsWith` would make recorded `nested` protect an unrelated `nested-copy/`,
+ * which is over-protection — content the restore is supposed to delete surviving
+ * because of a shared name prefix. The `/` in the test is what keeps the
+ * exemption to the recorded subtree.
+ */
+function isPreservedListingEntry(entry: string, preservedPaths: readonly string[]): boolean {
+  const path: string = entry.endsWith("/") ? entry.slice(0, -1) : entry;
+  return preservedPaths.some((preserved) => path === preserved || path.startsWith(`${preserved}/`));
 }
 
 /**
@@ -2746,7 +3026,7 @@ function collectProperAncestorDirectories(path: string): readonly string[] {
  *
  * `absent` is the answer for a path with nothing observable, an `lstat` that
  * failed for any reason included — the same fail-to-absent posture
- * {@link isDirectory} and {@link pathExists} take, and the reason
+ * {@link pathExists} takes, and the reason
  * {@link isPathProvablyAbsent} exists separately for the retention leg, where
  * that collapse would be wrong. It is a deliberate residual here: a path
  * unreadable before AND after for two DIFFERENT reasons compares equal and is
@@ -2786,15 +3066,6 @@ async function fingerprintPath(path: string): Promise<string> {
 /** The one hash spelling {@link fingerprintPath}'s arms share. */
 function hashBytes(bytes: Buffer): string {
   return createHash("sha256").update(bytes).digest("hex");
-}
-
-/** Whether `path` is a directory. Any error — including `ENOENT` — is `false`. */
-async function isDirectory(path: string): Promise<boolean> {
-  try {
-    return (await stat(path)).isDirectory();
-  } catch {
-    return false;
-  }
 }
 
 /** Whether anything exists at `path`. Any error — including `ENOENT` — is `false`. */
@@ -2856,22 +3127,45 @@ interface ProspectiveCollision {
   readonly fingerprintBeforeRestore: string;
 }
 
-/** A divergent gitlink plus the on-disk state the failure is measured against. */
+/**
+ * A divergent gitlink plus the on-disk state the failure is measured against.
+ *
+ * The same non-nullable {@link fingerprintPath} arm {@link ProspectiveCollision}
+ * records, and for a sharper version of the same reason. This field was a
+ * `presentBeforeRestore: boolean` filled by a `stat`, which FOLLOWS symlinks, so
+ * a symlink pointing at a directory scored `true` — indistinguishable from a
+ * real directory — and the failure report skipped every `true`. A restore that
+ * replaced that symlink with a materialized gitlink directory and then failed
+ * later therefore destroyed a symlink and enumerated nothing. That is round-2's
+ * `stat`-follows-symlink defect recurring at a second consumer, which is why the
+ * fix is the type rather than the call site: a boolean cannot express the
+ * distinction, so any consumer of one is one edit away from re-introducing it.
+ */
 interface ProspectiveGitlinkDivergence {
   readonly path: string;
-  readonly presentBeforeRestore: boolean;
+  readonly fingerprintBeforeRestore: string;
 }
 
 /** What the pre-mutation derivation produces; see the header. */
 interface ProspectiveRestoreEffects {
   readonly collisions: readonly ProspectiveCollision[];
   readonly gitlinkDivergences: readonly ProspectiveGitlinkDivergence[];
+  /**
+   * Paths the CAPTURE recorded as skipped embedded repositories, and therefore
+   * paths outside this restore's write authority — see
+   * {@link SKIPPED_EMBEDDED_REPOSITORIES_TRAILER}. Carried alongside the two
+   * enumerations because it is derived from the same object read and consumed in
+   * the same sequence, not because it is an "effect": nothing happens at these
+   * paths, which is the entire point.
+   */
+  readonly preservedEmbeddedRepositories: readonly string[];
 }
 
-/** The derivation's value before it has run — a failure here reports both empty. */
+/** The derivation's value before it has run — a failure here reports all empty. */
 const NO_PROSPECTIVE_RESTORE_EFFECTS: ProspectiveRestoreEffects = {
   collisions: [],
   gitlinkDivergences: [],
+  preservedEmbeddedRepositories: [],
 };
 
 // --------------------------------------------------------------------------
@@ -2975,12 +3269,23 @@ export class TurnSnapshotService {
     // every tick while retention never actually runs. Both are a config typo
     // (`DEFAULT_… / 0`, a units mix-up, a subtraction the wrong way), and both
     // deserve the same answer the sweep cadence gives one.
+    //
+    // The UPPER bound joins them for a third failure direction that reads like
+    // the opposite of a typo: `Number.MAX_SAFE_INTEGER` spelled as "keep
+    // everything". It is finite and positive, so the first two clauses pass it,
+    // and it then makes every cutoff unrepresentable — see
+    // {@link MAXIMUM_RETENTION_WINDOW_MS} for why that is worse than a throw.
     const retentionWindowMs: number =
       deps.retentionWindowMs ?? DEFAULT_TURN_SNAPSHOT_RETENTION_WINDOW_MS;
-    if (!Number.isFinite(retentionWindowMs) || retentionWindowMs <= 0) {
+    if (
+      !Number.isFinite(retentionWindowMs) ||
+      retentionWindowMs <= 0 ||
+      retentionWindowMs > MAXIMUM_RETENTION_WINDOW_MS
+    ) {
       throw new RangeError(
         "TurnSnapshotService: retentionWindowMs must be a positive finite number of " +
-          `milliseconds (received ${String(retentionWindowMs)})`,
+          `milliseconds no greater than ${String(MAXIMUM_RETENTION_WINDOW_MS)} ` +
+          `(received ${String(retentionWindowMs)})`,
       );
     }
     this.#retentionWindowMs = retentionWindowMs;
@@ -3106,9 +3411,18 @@ export class TurnSnapshotService {
       const baseCommit: string = await this.#resolveBaseCommit(input.executionRoot);
 
       step = "seed-index";
-      await this.#runGit(["-C", input.executionRoot, "read-tree", baseCommit], {
-        environmentOverrides: { GIT_INDEX_FILE: scratchIndexPath },
-      });
+      // The pin is load-bearing HERE, not decorative-by-symmetry with the restore
+      // legs: a replace ref on the base commit seeds the scratch index from the
+      // replacement's tree, and while the re-listing below corrects most of that,
+      // a path both index-tracked and ignored-by-rule is carried by the seed
+      // ALONE and is silently dropped. Measured against porcelain `add -A`; see
+      // the host-config table's `core.useReplaceRefs` row.
+      await this.#runGit(
+        ["-C", input.executionRoot, ...USE_REPLACE_REFS_PIN, "read-tree", baseCommit],
+        {
+          environmentOverrides: { GIT_INDEX_FILE: scratchIndexPath },
+        },
+      );
 
       step = "list-paths";
       // `-c` re-lists the temp index's seeded base paths so `--add --remove`
@@ -3202,6 +3516,7 @@ export class TurnSnapshotService {
         input.executionRoot,
         treeObjectId,
         baseCommit,
+        skippedEmbeddedRepositories,
       );
 
       step = "write-ref";
@@ -3397,16 +3712,35 @@ export class TurnSnapshotService {
    * author and committer name, email and DATE: the dates are commit-object
    * fields too, so ident env alone would still leak the host's wall-clock
    * timezone into every snapshot OID.
+   *
+   * `skippedEmbeddedRepositories` is the one piece of capture-time knowledge the
+   * restore cannot re-derive, and this is where it is persisted — see
+   * {@link SKIPPED_EMBEDDED_REPOSITORIES_TRAILER} for what it protects and why a
+   * commit message is the right carrier. The determinism contract survives it
+   * intact: the trailer is a function of PROJECT STATE (which repositories are
+   * there and unrecordable), so two captures of identical state still produce
+   * identical messages and identical OIDs, and a capture that skipped nothing
+   * produces the exact bytes it produced before this existed.
    */
   async #commitSnapshotTree(
     executionRoot: string,
     treeObjectId: string,
     baseCommit: string,
+    skippedEmbeddedRepositories: readonly string[],
   ): Promise<string> {
     const stampedDate: string | null = toRawGitDate(this.#now());
     if (stampedDate === null) {
       throw new Error("turn-snapshot clock did not return an ISO-8601 instant");
     }
+    // Sorted for OID stability and omitted entirely when empty, both for the
+    // reasons the trailer constant records. `JSON.stringify` of a `string[]` is
+    // total — no throwing input exists — so no guard is owed here.
+    const skippedTrailer: string | null =
+      skippedEmbeddedRepositories.length === 0
+        ? null
+        : `${SKIPPED_EMBEDDED_REPOSITORIES_TRAILER} ${JSON.stringify(
+            [...skippedEmbeddedRepositories].sort(),
+          )}`;
     const result = await this.#runGit(
       [
         "-C",
@@ -3419,6 +3753,12 @@ export class TurnSnapshotService {
         baseCommit,
         "-m",
         SNAPSHOT_COMMIT_MESSAGE,
+        // A SECOND `-m` rather than one interpolated string: git joins multiple
+        // `-m` values with a blank line, so the subject above stays byte-identical
+        // and the trailer arrives as its own paragraph. Verified against
+        // `--format=%s` — the subject a reader or a later tool parses is
+        // unchanged by the trailer's presence.
+        ...(skippedTrailer === null ? [] : ["-m", skippedTrailer]),
       ],
       {
         environmentOverrides: {
@@ -3521,11 +3861,23 @@ export class TurnSnapshotService {
    * base resolution takes it: the bare form echoes its own argument on a miss,
    * and {@link OBJECT_ID_PATTERN} then has to be the only thing standing between
    * an echo and a later argv.
+   *
+   * `configPins` exists because the callers split on the round-4 predicate and
+   * the split is not visible from in here: reading `HEAD` RESOLVES a ref, while
+   * reading `<commit>^` INTERPRETS an object, and only the second can be
+   * redirected by a replace ref (measured both ways). Defaulting to none keeps
+   * every ref-resolving caller unpinned and makes the one pinned call site state
+   * its own reason, rather than this helper quietly pinning reads whose
+   * disposition the host-config table records as unpinned.
    */
-  async #readRevisionIfPresent(gitDirectory: string, revision: string): Promise<string | null> {
+  async #readRevisionIfPresent(
+    gitDirectory: string,
+    revision: string,
+    configPins: readonly string[] = [],
+  ): Promise<string | null> {
     try {
       const result = await this.#runGit(
-        ["-C", gitDirectory, "rev-parse", "--verify", revision],
+        ["-C", gitDirectory, ...configPins, "rev-parse", "--verify", revision],
         {},
       );
       return this.#requireObjectId(result.stdout);
@@ -3660,9 +4012,17 @@ export class TurnSnapshotService {
 
     // `<commit>^` rather than `<ref>^`: the ref is create-only, so the two agree,
     // and asking the OID keeps the question independent of the ref one more time.
+    //
+    // PINNED, and this is the guard's own integrity rather than the checkout's: a
+    // replace ref on the snapshot commit answers `^` with the REPLACEMENT's
+    // parent (measured — an attacker commit with a different parent returns that
+    // parent here), and this value is the left-hand side of every `head_moved`
+    // comparison below. Unpinned, an attacker chooses both what the guard
+    // compares and what the checkout writes.
     const expectedHead: string | null = await this.#readRevisionIfPresent(
       input.executionRoot,
       `${snapshotCommit}^`,
+      USE_REPLACE_REFS_PIN,
     );
     const observedHead: string | null = await this.#readRevisionIfPresent(
       input.executionRoot,
@@ -3839,6 +4199,14 @@ export class TurnSnapshotService {
           "submodule.recurse=false",
           "-c",
           "core.attributesFile=/dev/null",
+          // Without this, the verified OID below is not the tree that gets
+          // written: a `refs/replace/<snapshotCommit>` entry substitutes an
+          // attacker's commit transparently, and one built with the SAME parent
+          // passes every HEAD guard above (measured on git 2.50.1 — the unpinned
+          // leg writes the attacker's bytes at exit 0 and the restore reports
+          // success). Freezing the id is necessary and not sufficient; this is
+          // the other half.
+          ...USE_REPLACE_REFS_PIN,
           "read-tree",
           "--reset",
           "-u",
@@ -3866,7 +4234,25 @@ export class TurnSnapshotService {
       );
 
       step = "delete-untracked";
-      await this.#deleteUntrackedToFixpoint(target.executionRoot);
+      await this.#deleteUntrackedToFixpoint(
+        target.executionRoot,
+        prospectiveEffects.preservedEmbeddedRepositories,
+      );
+
+      // Emitted HERE rather than at the derivation, because this is the point at
+      // which the protection was actually exercised: a restore that refused at
+      // window one deleted nothing, and reporting "preserved" for a pass that
+      // never ran would be a claim about work that did not happen.
+      if (prospectiveEffects.preservedEmbeddedRepositories.length > 0) {
+        this.#emit({
+          kind: "embedded-repositories-preserved",
+          runId: target.runId,
+          epoch: target.owningEpoch,
+          turnOrdinal: target.targetPosition,
+          ref: target.ref,
+          preservedPaths: prospectiveEffects.preservedEmbeddedRepositories,
+        });
+      }
 
       step = "close-index";
       // Window two. Past this point the worktree already holds snapshot content,
@@ -4034,17 +4420,56 @@ export class TurnSnapshotService {
    * Gitlink divergence is per `160000` entry in the snapshot tree: the working
    * copy's embedded `HEAD` is resolved and compared, and anything that is not an
    * exact match — a moved submodule, a directory that is not a repository, an
-   * absent one — is divergent. Each candidate's presence on disk is recorded
-   * here because materializing an ABSENT gitlink as an empty directory is the
-   * one worktree effect this leg has at a gitlink path, and the failure
-   * observation needs a before-state to see it.
+   * absent one — is divergent. Each candidate's on-disk state is recorded here
+   * because materializing an ABSENT gitlink as an empty directory is the effect
+   * this leg most often has at a gitlink path, and the failure observation needs
+   * a before-state to see it. Recorded as a {@link fingerprintPath} arm rather
+   * than as a presence boolean: the boolean came from a symlink-FOLLOWING `stat`
+   * and so could not distinguish a directory from a symlink pointing at one,
+   * which silently excused the destruction of the symlink from the report.
+   *
+   * The skipped-repository trailer is read here too, in the same pre-mutation
+   * window and for the same reason the enumerations are: it constrains what the
+   * later legs are allowed to do, so it has to exist before any of them run, and
+   * a malformed one has to be able to refuse while nothing has been written.
    */
   async #deriveProspectiveRestoreEffects(
     target: TurnSnapshotRestoreTarget,
   ): Promise<ProspectiveRestoreEffects> {
+    // An OID-INTERPRETATION read, so it carries the pin: an unpinned `cat-file`
+    // would hand back the replacement commit's message, and an attacker who can
+    // plant a replace ref could then blank the trailer and re-arm the delete pass
+    // against the very repositories it protects.
+    const preservedEmbeddedRepositories: readonly string[] = parseSkippedEmbeddedRepositories(
+      (
+        await this.#runGit(
+          [
+            "-C",
+            target.executionRoot,
+            ...USE_REPLACE_REFS_PIN,
+            "cat-file",
+            "commit",
+            target.snapshotCommit,
+          ],
+          {},
+        )
+      ).stdout,
+    );
     const treeListing: Buffer = (
       await this.#runGit(
-        ["-C", target.executionRoot, "ls-tree", "-r", "-z", target.snapshotCommit],
+        [
+          "-C",
+          target.executionRoot,
+          // Same predicate as the checkout leg: this INTERPRETS the frozen id, so
+          // an unpinned listing would enumerate a replacement tree's paths and
+          // hand the failure report a candidate set describing a different
+          // snapshot than the one about to be written.
+          ...USE_REPLACE_REFS_PIN,
+          "ls-tree",
+          "-r",
+          "-z",
+          target.snapshotCommit,
+        ],
         {},
       )
     ).stdout;
@@ -4116,11 +4541,11 @@ export class TurnSnapshotService {
       }
       gitlinkDivergences.push({
         path: entry.path,
-        presentBeforeRestore: await isDirectory(gitlinkPath),
+        fingerprintBeforeRestore: await fingerprintPath(gitlinkPath),
       });
     }
 
-    return { collisions, gitlinkDivergences };
+    return { collisions, gitlinkDivergences, preservedEmbeddedRepositories };
   }
 
   /**
@@ -4133,6 +4558,22 @@ export class TurnSnapshotService {
    * otherwise report the SUPERPROJECT's `HEAD` as the embedded one. A `.git`
    * entry — the directory form, or the `gitdir:` file form a real submodule uses
    * — is what distinguishes the two.
+   *
+   * This probe KEEPS its symlink-following `stat`, adjudicated rather than
+   * inherited, and it is the one consumer in this file that wants follow
+   * semantics. The question the probe asks is not "is there an entry named
+   * `.git`" but "is there a repository reachable through it", and only the
+   * follow answers that. Measured on git 2.50.1, both directions:
+   *   * a DANGLING `.git` symlink — `lstat` says present, `stat` says absent.
+   *     Under `lstat` the probe would pass and `git -C` would ascend and return
+   *     the superproject's `HEAD` at exit 0, i.e. the exact false match the
+   *     probe exists to prevent, now dressed as a successful read.
+   *   * a `.git` symlink to a REAL git dir — both agree present, and `git -C`
+   *     returns the embedded repository's own `HEAD`, which is the right answer
+   *     and the one the follow preserves.
+   * So the fail-to-absent collapse is correct here for the same reason it is
+   * correct in {@link fingerprintPath}: an unreadable probe resolves `null`,
+   * which routes to "no repository there" rather than to a fabricated match.
    */
   async #resolveEmbeddedHead(gitlinkPath: string): Promise<string | null> {
     if (!(await pathExists(join(gitlinkPath, ".git")))) {
@@ -4198,9 +4639,31 @@ export class TurnSnapshotService {
    * deletion that does not happen, where the divergence enumeration is the same
    * boundary showing up as a restore that does not happen; the path is reported
    * in `divergentGitlinks` either way, which is the whole signal the caller gets.
+   *
+   * The pass CAN over-delete in exactly one way, and `preservedPaths` is that
+   * hole closed. An embedded repository the capture SKIPPED is absent from the
+   * snapshot tree, so it looks identical to one the turn created: `ls-files -o`
+   * names it `nested/` and the recursive removal above takes it whole — `.git`,
+   * un-captured history and all. The two cases are indistinguishable on disk at
+   * restore time, which is why the discriminator is carried from the capture in
+   * the snapshot commit's own message ({@link
+   * SKIPPED_EMBEDDED_REPOSITORIES_TRAILER}) rather than probed for here. The rule
+   * the exemption expresses: THE DELETE PASS'S AUTHORITY IS THE SNAPSHOT, and a
+   * path the capture declared out-of-snapshot is a path this pass has no
+   * authority to delete. A turn-created nested repository is unaffected — it is
+   * on no recorded list, and it is still deleted.
+   *
+   * Protection extends BENEATH each recorded path, on segment boundaries. The
+   * listing usually names the repository itself, but a turn that removed its
+   * `.git` makes `ls-files -o` descend and enumerate the payload file by file,
+   * and deleting `nested/src/a.ts` one path at a time destroys the repository
+   * just as completely as deleting `nested/`.
    */
-  async #deleteUntrackedToFixpoint(executionRoot: string): Promise<void> {
-    let previousListing: Buffer | null = null;
+  async #deleteUntrackedToFixpoint(
+    executionRoot: string,
+    preservedPaths: readonly string[],
+  ): Promise<void> {
+    let previousDeletable: string | null = null;
     for (let pass = 0; pass < UNTRACKED_DELETE_PASS_LIMIT; pass += 1) {
       const listing: Buffer = (
         await this.#runGit(
@@ -4208,23 +4671,36 @@ export class TurnSnapshotService {
           {},
         )
       ).stdout;
+      // BOTH termination checks run on the DELETABLE subset, not on the raw
+      // listing, and that is the whole interlock rather than a refinement of it.
+      // A preserved path is listed on every pass forever — it is never deleted —
+      // so against the raw listing the empty check could never fire and the
+      // byte-equality check would report "no progress" the moment the deletable
+      // work finished. A correct restore would fail at `delete-untracked` purely
+      // for having protected something.
       const entries: readonly string[] = splitNulTerminatedListing(listing);
-      if (entries.length === 0) {
+      const deletable: readonly string[] = entries.filter(
+        (entry) => !isPreservedListingEntry(entry, preservedPaths),
+      );
+      if (deletable.length === 0) {
         return;
       }
-      if (previousListing !== null && listing.equals(previousListing)) {
+      const deletableKey: string = deletable.join("\0");
+      if (previousDeletable !== null && deletableKey === previousDeletable) {
         throw new Error(
-          `turn-snapshot untracked-delete made no progress at ${entries[0] ?? "(unnamed path)"}`,
+          `turn-snapshot untracked-delete made no progress at ${deletable[0] ?? "(unnamed path)"}`,
         );
       }
-      previousListing = listing;
+      previousDeletable = deletableKey;
 
       const emptiedDirectories = new Set<string>();
-      for (const entry of entries) {
+      for (const entry of deletable) {
         // A TRAILING SLASH is git reporting a directory it does not descend
         // into — a nested repository the turn created, the class `clean -ffd`'s
         // second `-f` exists for. The removal is recursive either way, which is
         // what takes such a directory whole; for a plain file it is an unlink.
+        // It is also why the exemption has to filter BEFORE this line: there is
+        // no partial form of this removal to fall back on.
         const relativePath: string = entry.endsWith("/") ? entry.slice(0, -1) : entry;
         await this.#filesystem.removePath(join(executionRoot, relativePath));
         const parent: string = dirname(relativePath);
@@ -4264,20 +4740,30 @@ export class TurnSnapshotService {
    * The one place a mid-sequence restore failure is reported: observe, diagnose,
    * then the typed result.
    *
-   * The observation is deliberately git-free — a typed path fingerprint and a
-   * directory stat — because it runs on the failure path, where the git seam is
-   * the thing that just failed. An enumeration that needed a working git would
+   * The observation is deliberately git-free — one typed path fingerprint per
+   * candidate — because it runs on the failure path, where the git seam is the
+   * thing that just failed. An enumeration that needed a working git would
    * empty-wash exactly the report `Spec-010 §Turn-Boundary Snapshots` requires
    * never be empty-washed.
    *
-   * A collision counts as applied when its {@link fingerprintPath} no longer
-   * matches the pre-mutation one — a vanished file included (its ignored content
-   * is gone either way), and a path whose TYPE changed under identical bytes
-   * included too, which a bytes-only comparison could not see. A gitlink counts
-   * as applied when its directory was materialized where none existed; a
-   * present-but-divergent submodule is deliberately NOT reported here, because
-   * `submodule.recurse=false` means the failed sequence applied nothing at that
-   * path (see the header).
+   * BOTH candidate sets now apply one standard: an effect counts as applied when
+   * {@link fingerprintPath} no longer matches the pre-mutation arm. For a
+   * collision that means a vanished file included (its ignored content is gone
+   * either way), and a path whose TYPE changed under identical bytes included
+   * too, which a bytes-only comparison could not see.
+   *
+   * For a gitlink the shared standard replaces a `stat`-based "was it already a
+   * directory?" boolean, and it changes three answers, each in the direction of
+   * reporting a real effect the old form hid:
+   *   * a SYMLINK to a directory, which `stat` could not tell from a directory,
+   *     is now reported when the restore replaced it (the round-4 finding);
+   *   * a divergent submodule directory the failed restore DELETED is now
+   *     reported, where the boolean's `continue` skipped it as "present before";
+   *   * a gitlink path holding a file whose bytes changed is now reported.
+   * The one answer that must NOT change is preserved: a present-but-divergent
+   * submodule the sequence never touched fingerprints `directory` on both sides,
+   * compares equal, and stays unreported — because `submodule.recurse=false`
+   * means the failed sequence applied nothing at that path (see the header).
    */
   async #failRestore(
     target: TurnSnapshotRestoreTarget,
@@ -4297,10 +4783,10 @@ export class TurnSnapshotService {
 
     const divergentGitlinks: string[] = [];
     for (const divergence of prospectiveEffects.gitlinkDivergences) {
-      if (divergence.presentBeforeRestore) {
-        continue;
-      }
-      if (await isDirectory(join(target.executionRoot, divergence.path))) {
+      const fingerprintNow: string = await fingerprintPath(
+        join(target.executionRoot, divergence.path),
+      );
+      if (fingerprintNow !== divergence.fingerprintBeforeRestore) {
         divergentGitlinks.push(divergence.path);
       }
     }
@@ -4390,7 +4876,11 @@ export class TurnSnapshotService {
     try {
       const cutoff: string | null = this.#retentionCutoff();
       if (cutoff === null) {
-        throw new Error("turn-snapshot clock did not return an ISO-8601 instant");
+        // Widened past "the clock is bad": the cutoff also fails to exist when a
+        // representable clock and a constructor-accepted window differ into a
+        // value outside Date's range, and a message naming only the clock would
+        // send that reader hunting the wrong term.
+        throw new Error("turn-snapshot retention cutoff is not a representable instant");
       }
       const candidates: readonly PrunableRunRow[] = selectPrunableRuns.all({
         released_before: cutoff,
@@ -4650,18 +5140,34 @@ export class TurnSnapshotService {
 
   /**
    * `now - retentionWindow`, in the spelling `released_at` is compared against,
-   * or `null` for a clock that did not honour its contract.
+   * or `null` when that difference is not a representable instant.
    *
    * The subtraction runs on MILLISECONDS and the comparison on the re-serialized
    * ISO string, so the window arithmetic is never a string operation — which is
    * what keeps a month or year boundary from being a special case.
+   *
+   * The `null` channel covers BOTH ways the difference goes bad, because they
+   * are the same observation and deserve one mechanism rather than two. A clock
+   * that did not return an ISO-8601 instant makes `Date.parse` `NaN`, and a
+   * difference outside ECMAScript's Date range is `NaN` once constructed; asking
+   * the constructed Date for `getTime()` detects the union exactly (measured
+   * against `toISOString()`'s own throw across both boundaries and both
+   * overflow directions — zero disagreements). The range half is the defense
+   * {@link MAXIMUM_RETENTION_WINDOW_MS} cannot provide: the constructor bounds
+   * the window, but the window is one of two terms, and a clock far enough from
+   * the epoch overflows a window that bound accepted.
+   *
+   * `null` rather than a throw because the caller already has the channel, and
+   * routing here keeps the failure a reported skip instead of a `RangeError`
+   * raised from inside the sweep's own `try` — the shape that let one accepted
+   * configuration disable retention silently.
    */
   #retentionCutoff(): string | null {
-    const nowMilliseconds: number = Date.parse(this.#now());
-    if (!Number.isFinite(nowMilliseconds)) {
+    const cutoff = new Date(Date.parse(this.#now()) - this.#retentionWindowMs);
+    if (Number.isNaN(cutoff.getTime())) {
       return null;
     }
-    return new Date(nowMilliseconds - this.#retentionWindowMs).toISOString();
+    return cutoff.toISOString();
   }
 
   // ------------------------------------------------------------------------

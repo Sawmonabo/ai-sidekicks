@@ -254,6 +254,7 @@ import {
   readdirSync,
   realpathSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -1250,6 +1251,84 @@ describe("TurnSnapshotService.captureTurnSnapshot", () => {
     expect(await repository.git(["ls-tree", snapshotTree, "created.txt"])).toContain("blob");
   });
 
+  it("keeps the snapshot message's bytes when nothing was skipped, and records the skips when something was", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    applyTurnEffects();
+    const service: TurnSnapshotService = buildService();
+
+    // The 99% capture: no skip, so the message must still be exactly the fixed
+    // subject `Spec-010 §Turn-Boundary Snapshots` specifies. This is the
+    // determinism guarantee the trailer had to be designed around — a trailer on
+    // every capture would have changed every snapshot OID in the repository.
+    const clean: TurnSnapshotCaptured = await captureTurn(service);
+    expect(await repository.git(["cat-file", "commit", clean.snapshotCommit])).toMatch(
+      /\n\nsidekicks: turn-boundary snapshot$/,
+    );
+    expect(await repository.git(["cat-file", "commit", clean.snapshotCommit])).not.toContain(
+      "Skipped-Embedded-Repositories",
+    );
+
+    // …and with a skip, the trailer arrives as its own paragraph.
+    await createCommitlessEmbeddedRepository("unborn");
+    const skipped: TurnSnapshotCaptured = await captureTurn(service, { turnOrdinal: 2 });
+    expect(skipped.skippedEmbeddedRepositories).toEqual(["unborn"]);
+    const message: string = await repository.git(["cat-file", "commit", skipped.snapshotCommit]);
+    expect(message).toContain('Skipped-Embedded-Repositories: ["unborn"]');
+    // The SUBJECT is unchanged by the trailer's presence — the trailer is a
+    // second `-m`, not an edit to the first — so anything reading `%s` is
+    // unaffected.
+    expect(await repository.git(["log", "-1", "--format=%s", skipped.snapshotCommit])).toBe(
+      "sidekicks: turn-boundary snapshot",
+    );
+  });
+
+  it("mints the SAME OID for two captures of identical state that both skip", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    applyTurnEffects();
+    // Two skipped repositories, created in an order that is NOT sorted order, so
+    // a regression that dropped the sort would have something to be unstable
+    // about.
+    await createCommitlessEmbeddedRepository("zulu");
+    await createCommitlessEmbeddedRepository("alpha");
+    const service: TurnSnapshotService = buildService();
+
+    const first: TurnSnapshotCaptured = await captureTurn(service);
+    const second: TurnSnapshotCaptured = await captureTurn(service, { turnOrdinal: 2 });
+
+    // The trailer is a function of PROJECT STATE, so the determinism the fixed
+    // message bought is intact: identical state, identical instant (the fixture
+    // clock is held), identical OID. Sorted, so the order `ls-files` happened to
+    // report is not an OID input.
+    expect(first.skippedEmbeddedRepositories).toEqual(["alpha", "zulu"]);
+    expect(second.snapshotCommit).toBe(first.snapshotCommit);
+    expect(await repository.git(["cat-file", "commit", first.snapshotCommit])).toContain(
+      'Skipped-Embedded-Repositories: ["alpha","zulu"]',
+    );
+  });
+
+  it("writes a newline-bearing skipped path as one inert JSON line", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    applyTurnEffects();
+    // A path that, unencoded, would forge a second trailer naming a path the
+    // capture never skipped — which on the restore side is authority to keep
+    // something the delete pass should remove.
+    const hostilePath = 'ev\nSkipped-Embedded-Repositories: ["forged"]';
+    await createCommitlessEmbeddedRepository(hostilePath);
+
+    const captured: TurnSnapshotCaptured = await captureTurn(buildService());
+
+    expect(captured.skippedEmbeddedRepositories).toEqual([hostilePath]);
+    const message: string = await repository.git(["cat-file", "commit", captured.snapshotCommit]);
+    // JSON-escaped, so the newline is `\n` INSIDE a string literal and the whole
+    // list is one physical line. The forged key never begins a line.
+    const trailerLines: readonly string[] = message
+      .split("\n")
+      .filter((line) => line.startsWith("Skipped-Embedded-Repositories:"));
+    expect(trailerLines).toHaveLength(1);
+    expect(trailerLines[0]).toContain("\\n");
+    expect(message).not.toContain('\nSkipped-Embedded-Repositories: ["forged"]');
+  });
+
   it("excludes ignored untracked paths while capturing a tracked file that matches .gitignore", async () => {
     const repository: FixtureRepository = fixture.repository;
     applyTurnEffects();
@@ -1379,6 +1458,59 @@ describe("TurnSnapshotService.captureTurnSnapshot", () => {
       ).not.toContain("created.txt");
     },
   );
+
+  it("seeds the scratch index past a replace ref planted on the base commit", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    applyTurnEffects();
+    const baseCommit: string = await repository.git(["rev-parse", "HEAD"]);
+
+    // The attacker's base: the real one minus a path that is BOTH index-tracked
+    // and ignored-by-rule. That class is the whole fixture, and it is the only
+    // one that can survive the re-listing: `ls-files -o` will not name an ignored
+    // path, so `--add --remove` can neither re-add it nor notice it missing. What
+    // the seed drops here, the snapshot loses silently.
+    const attackerIndex: string = join(fixture.fixtureRoot, "replace-attacker.index");
+    const attackerEnvironment = { GIT_INDEX_FILE: attackerIndex };
+    await repository.git(["read-tree", baseCommit], {
+      environmentOverrides: attackerEnvironment,
+    });
+    await repository.git(["update-index", "--force-remove", "tracked-but-ignored.txt"], {
+      environmentOverrides: attackerEnvironment,
+    });
+    const attackerTree: string = await repository.git(["write-tree"], {
+      environmentOverrides: attackerEnvironment,
+    });
+    const attackerCommit: string = await repository.git(["commit-tree", attackerTree, "-m", "x"]);
+    await repository.git(["update-ref", `refs/replace/${baseCommit}`, attackerCommit]);
+
+    // IN-CASE NEGATIVE CONTROL, and it runs FIRST so the fixture is proven
+    // hostile before the assertion that depends on it: an unpinned `read-tree` of
+    // the very same base OID seeds from the replacement and the path is gone.
+    const controlIndex: string = join(fixture.fixtureRoot, "replace-control.index");
+    await repository.git(["read-tree", baseCommit], {
+      environmentOverrides: { GIT_INDEX_FILE: controlIndex },
+    });
+    expect(
+      await repository.git(["ls-files", "tracked-but-ignored.txt"], {
+        environmentOverrides: { GIT_INDEX_FILE: controlIndex },
+      }),
+    ).toBe("");
+
+    const captured: TurnSnapshotCaptured = await captureTurn(buildService());
+
+    // Pinned, the capture seeds from the object it named, so the path is in the
+    // snapshot — and the `add -A` equivalence the capture contract is stated in
+    // survives a hostile replace ref.
+    const snapshotTree: string = await repository.git([
+      "rev-parse",
+      `${captured.snapshotCommit}^{tree}`,
+    ]);
+    expect(await repository.git(["ls-tree", snapshotTree, "tracked-but-ignored.txt"])).toContain(
+      "blob",
+    );
+    // The parent recorded is the id the service resolved, not the substitute.
+    expect(captured.baseCommit).toBe(baseCommit);
+  });
 
   it("captures under a host `core.safecrlf` that would otherwise make staging FATAL", async () => {
     const repository: FixtureRepository = fixture.repository;
@@ -4167,6 +4299,11 @@ describe("TurnSnapshotService.restoreToTurn", () => {
     // re-resolved from a mutable name here. `captured.ref` is asserted alongside
     // as the negative control, so a regression that put the name back cannot pass
     // by the two spellings happening to agree.
+    // `core.useReplaceRefs=false` is last of the five and is a different KIND of
+    // pin from the four before it: those decide how bytes are converted, this one
+    // decides whether the OID names the object it says it does. Freezing the id
+    // is not sufficient without it — see the hostile-replace-ref cases below for
+    // the behavioural half.
     const checkoutLeg = invocations.find((invocation) => invocation.argv.includes("-u"));
     expect(checkoutLeg?.argv).toEqual([
       ...neutralizationFlags,
@@ -4180,6 +4317,8 @@ describe("TurnSnapshotService.restoreToTurn", () => {
       "submodule.recurse=false",
       "-c",
       "core.attributesFile=/dev/null",
+      "-c",
+      "core.useReplaceRefs=false",
       "read-tree",
       "--reset",
       "-u",
@@ -4547,6 +4686,342 @@ describe("TurnSnapshotService.restoreToTurn", () => {
     // gitlink boundary rather than about the delete pass being inert: identical
     // post-boundary content OUTSIDE that path is deleted.
     expect(existsSync(join(repository.root, "post-snapshot.txt"))).toBe(false);
+  });
+
+  itOnPosix(
+    "enumerates a SYMLINK destroyed where a divergent gitlink was materialized",
+    async () => {
+      const repository: FixtureRepository = fixture.repository;
+      applyTurnEffects();
+      await createEmbeddedRepository("embedded");
+      const service: TurnSnapshotService = buildService();
+      const captured: TurnSnapshotCaptured = await captureTurn(service);
+
+      // The turn replaced the embedded repository with a SYMLINK pointing at a
+      // directory. This is the case a `stat`-based presence boolean could not
+      // see: `stat` follows, so the symlink scored "already a directory" and the
+      // failure report skipped it — while the checkout really does unlink it and
+      // materialize an empty gitlink directory in its place (measured).
+      rmSync(join(repository.root, "embedded"), { recursive: true, force: true });
+      const linkTarget: string = join(fixture.fixtureRoot, "symlink-target-directory");
+      mkdirSync(linkTarget, { recursive: true });
+      writeFileSync(join(linkTarget, "payload.txt"), "the symlink's target\n");
+      symlinkSync(linkTarget, join(repository.root, "embedded"));
+      expect(lstatSync(join(repository.root, "embedded")).isSymbolicLink()).toBe(true);
+      // The fixture's hostility, stated as the assertion the OLD mechanism made:
+      // a symlink-following stat cannot distinguish this from a real directory.
+      expect(statSync(join(repository.root, "embedded")).isDirectory()).toBe(true);
+
+      const target: TurnSnapshotRestoreTarget = expectResolved(
+        await service.resolveRestoreTarget(buildResolveInput()),
+      );
+      const result: TurnSnapshotPartialRestore = expectPartialRestore(
+        await buildService({ git: buildUntrackedListingFailure() }).restoreToTurn(target),
+      );
+
+      expect(result.ref).toBe(captured.ref);
+      expect(result.failedStep).toBe("delete-untracked" satisfies TurnSnapshotRestoreStep);
+      // The whole finding: a destroyed symlink at a gitlink path is DATA LOSS the
+      // partial-restore report has to name, and the type-aware fingerprint is what
+      // sees it — `symlink:<hash>` before, `directory` after.
+      expect(result.divergentGitlinks).toEqual(["embedded"]);
+      expect(lstatSync(join(repository.root, "embedded")).isSymbolicLink()).toBe(false);
+      // …and the report is about the LINK, not its target, which is untouched.
+      expect(readFileSync(join(linkTarget, "payload.txt"), "utf8")).toBe("the symlink's target\n");
+    },
+  );
+
+  it("does NOT enumerate a divergent submodule the failed sequence never touched", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    const embeddedRoot: string = join(repository.root, "embedded");
+    applyTurnEffects();
+    await createEmbeddedRepository("embedded");
+    const service: TurnSnapshotService = buildService();
+    await captureTurn(service);
+
+    // Divergent — its HEAD moved past the snapshot's gitlink — but still a real
+    // directory holding a real repository, so `submodule.recurse=false` means the
+    // checkout applied NOTHING here.
+    writeFileSync(join(embeddedRoot, "inner.txt"), "inner v2\n");
+    await repository.git(["add", "-A"], { cwd: embeddedRoot });
+    await repository.git(["commit", "-q", "-m", "inner v2"], { cwd: embeddedRoot });
+
+    const target: TurnSnapshotRestoreTarget = expectResolved(
+      await service.resolveRestoreTarget(buildResolveInput()),
+    );
+    const result: TurnSnapshotPartialRestore = expectPartialRestore(
+      await buildService({ git: buildUntrackedListingFailure() }).restoreToTurn(target),
+    );
+
+    // The answer the fingerprint switch had to PRESERVE: `directory` on both
+    // sides compares equal, so a path nothing happened at is not reported as an
+    // applied effect. Without this the enumeration would name every divergent
+    // submodule on every partial restore and mean nothing.
+    expect(result.failedStep).toBe("delete-untracked" satisfies TurnSnapshotRestoreStep);
+    expect(result.divergentGitlinks).toEqual([]);
+    expect(existsSync(join(embeddedRoot, ".git"))).toBe(true);
+  });
+
+  it("restores the snapshot's own tree past a replace ref planted on the snapshot commit", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    applyTurnEffects();
+    const service: TurnSnapshotService = buildService();
+    const captured: TurnSnapshotCaptured = await captureTurn(service);
+    const snapshotBytes: Buffer = readFileSync(join(repository.root, "tracked.txt"));
+
+    // The attacker's commit carries the SAME parent as the snapshot — which is
+    // what makes this interesting. Every `HEAD` guard in the restore compares
+    // `<snapshot>^` against `HEAD`, so a replacement sharing the parent sails
+    // through all three of them, and only the object reads decide what lands.
+    repository.write("attacker-payload.txt", "attacker payload\n");
+    repository.write("tracked.txt", "attacker rewrote this\n");
+    const attackerIndex: string = join(fixture.fixtureRoot, "restore-attacker.index");
+    const attackerEnvironment = { GIT_INDEX_FILE: attackerIndex };
+    await repository.git(["read-tree", captured.snapshotCommit], {
+      environmentOverrides: attackerEnvironment,
+    });
+    await repository.git(["add", "-A", "attacker-payload.txt", "tracked.txt"], {
+      environmentOverrides: attackerEnvironment,
+    });
+    const attackerTree: string = await repository.git(["write-tree"], {
+      environmentOverrides: attackerEnvironment,
+    });
+    const attackerCommit: string = await repository.git([
+      "commit-tree",
+      attackerTree,
+      "-p",
+      captured.baseCommit,
+      "-m",
+      "attacker",
+    ]);
+    await repository.git(["update-ref", `refs/replace/${captured.snapshotCommit}`, attackerCommit]);
+
+    // IN-CASE NEGATIVE CONTROL, run before the assertion it licenses: unpinned,
+    // git really does hand back the attacker's tree for the frozen snapshot OID.
+    // Without this the case could pass against a git that ignored replace refs.
+    expect(
+      await repository.git(["ls-tree", "-r", "--name-only", captured.snapshotCommit]),
+    ).toContain("attacker-payload.txt");
+    expect(
+      await repository.git([
+        "-c",
+        "core.useReplaceRefs=false",
+        "ls-tree",
+        "-r",
+        "--name-only",
+        captured.snapshotCommit,
+      ]),
+    ).not.toContain("attacker-payload.txt");
+
+    const target: TurnSnapshotRestoreTarget = expectResolved(
+      await service.resolveRestoreTarget(buildResolveInput()),
+    );
+    const restored: TurnSnapshotRestored = expectRestored(await service.restoreToTurn(target));
+
+    // Freezing the OID was never sufficient: without the pin this restore reports
+    // SUCCESS having written a tree nobody verified. Pinned, the snapshot's own
+    // bytes come back and the attacker's payload is treated as post-boundary
+    // untracked content — deleted, not restored.
+    expect(restored.ref).toBe(captured.ref);
+    expect(readFileSync(join(repository.root, "tracked.txt"))).toEqual(snapshotBytes);
+    expect(existsSync(join(repository.root, "attacker-payload.txt"))).toBe(false);
+  });
+
+  it("preserves a SKIPPED embedded repository through the restore while deleting a turn-created one", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    applyTurnEffects();
+    // The mixed-format skip class: both repositories healthy, object formats
+    // simply differ, so the capture cannot record a gitlink for it.
+    await createEmbeddedRepositoryWithObjectFormat(repository, "nested", "sha256");
+    const service: TurnSnapshotService = buildService();
+    const captured: TurnSnapshotCaptured = await captureTurn(service);
+    expect(captured.skippedEmbeddedRepositories).toEqual(["nested"]);
+    const innerBytes: Buffer = readFileSync(join(repository.root, "nested", "inner.txt"));
+    const innerHead: string = await repository.git(["rev-parse", "HEAD"], {
+      cwd: join(repository.root, "nested"),
+    });
+
+    // A SECOND embedded repository, created after the boundary — the control that
+    // makes this a statement about the trailer rather than about the delete pass
+    // having gone inert on nested repositories generally.
+    await createEmbeddedRepository("created-after-the-boundary");
+    repository.write("post-snapshot.txt", "arrived after the boundary\n");
+
+    const target: TurnSnapshotRestoreTarget = expectResolved(
+      await service.resolveRestoreTarget(buildResolveInput()),
+    );
+    const restored: TurnSnapshotRestored = expectRestored(await service.restoreToTurn(target));
+
+    // SURVIVES, and survives WHOLE: the delete pass listed `nested/` exactly as it
+    // lists any untracked directory, and the recursive removal would have taken
+    // `.git` and the only copy of its history with it. The capture's trailer is
+    // the only thing that distinguishes this path from the one below.
+    expect(existsSync(join(repository.root, "nested", ".git"))).toBe(true);
+    expect(readFileSync(join(repository.root, "nested", "inner.txt"))).toEqual(innerBytes);
+    expect(
+      await repository.git(["rev-parse", "HEAD"], { cwd: join(repository.root, "nested") }),
+    ).toBe(innerHead);
+    // …while a nested repository the TURN created is still deleted, as it must be.
+    expect(existsSync(join(repository.root, "created-after-the-boundary"))).toBe(false);
+    expect(existsSync(join(repository.root, "post-snapshot.txt"))).toBe(false);
+    expect(restored.outcome).toBe("restored");
+
+    // Reported, not silent: a daemon that declines to delete something owes an
+    // operator the list, and this is the restore-side mirror of the capture's
+    // skip enumeration.
+    expect(fixture.diagnostics).toEqual([
+      {
+        kind: "embedded-repositories-skipped",
+        runId: RUN_ID,
+        epoch: 0,
+        turnOrdinal: 1,
+        ref: captured.ref,
+        skippedPaths: ["nested"],
+      },
+      {
+        kind: "embedded-repositories-preserved",
+        runId: RUN_ID,
+        epoch: 0,
+        turnOrdinal: 1,
+        ref: captured.ref,
+        preservedPaths: ["nested"],
+      },
+    ]);
+  });
+
+  it("preserves a COMMITLESS skipped repository through the restore, payload included", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    applyTurnEffects();
+    // The other skip class, and the one `Spec-010 §Turn-Boundary Snapshots` names
+    // by hand: an unborn `HEAD` has no commit id to record as a gitlink.
+    await createCommitlessEmbeddedRepository("unborn");
+    writeFileSync(join(repository.root, "unborn", "work-in-progress.txt"), "not yet committed\n");
+    const service: TurnSnapshotService = buildService();
+    const captured: TurnSnapshotCaptured = await captureTurn(service);
+    expect(captured.skippedEmbeddedRepositories).toEqual(["unborn"]);
+
+    const target: TurnSnapshotRestoreTarget = expectResolved(
+      await service.resolveRestoreTarget(buildResolveInput()),
+    );
+    expectRestored(await service.restoreToTurn(target));
+
+    // Same protection, same reason: the snapshot has no entry at this path, so
+    // without the trailer the pass deletes an entire repository — here one whose
+    // content was never committed anywhere and is therefore unrecoverable.
+    expect(existsSync(join(repository.root, "unborn", ".git"))).toBe(true);
+    expect(readFileSync(join(repository.root, "unborn", "work-in-progress.txt"), "utf8")).toBe(
+      "not yet committed\n",
+    );
+  });
+
+  it("reaches a fixpoint with protected paths present, deleting the rest", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    applyTurnEffects();
+    await createCommitlessEmbeddedRepository("unborn");
+    const service: TurnSnapshotService = buildService();
+    await captureTurn(service);
+    repository.write("post-snapshot.txt", "arrived after the boundary\n");
+
+    let untrackedListings = 0;
+    const countingRunner: TurnSnapshotGitRunner = async (argv, options) => {
+      if (argv.includes("ls-files") && argv.includes("-o") && !argv.includes("-i")) {
+        untrackedListings += 1;
+      }
+      return runTurnSnapshotGitWithExecFile(argv, options);
+    };
+    const target: TurnSnapshotRestoreTarget = expectResolved(
+      await service.resolveRestoreTarget(buildResolveInput()),
+    );
+    expectRestored(await buildService({ git: countingRunner }).restoreToTurn(target));
+
+    // THE INTERLOCK. A protected path is listed on every pass forever, so both
+    // termination checks had to move to the DELETABLE subset: against the raw
+    // listing the empty check could never fire, and the byte-equality check would
+    // report "made no progress" the instant the real work finished — failing a
+    // correct restore purely for having protected something.
+    //
+    // One deleting pass plus the confirming pass that finds nothing deletable.
+    expect(untrackedListings).toBe(2);
+    expect(existsSync(join(repository.root, "post-snapshot.txt"))).toBe(false);
+    expect(existsSync(join(repository.root, "unborn", ".git"))).toBe(true);
+  });
+
+  it("converges immediately when the only untracked content is protected", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    applyTurnEffects();
+    await createCommitlessEmbeddedRepository("unborn");
+    const service: TurnSnapshotService = buildService();
+    await captureTurn(service);
+
+    let untrackedListings = 0;
+    const countingRunner: TurnSnapshotGitRunner = async (argv, options) => {
+      if (argv.includes("ls-files") && argv.includes("-o") && !argv.includes("-i")) {
+        untrackedListings += 1;
+      }
+      return runTurnSnapshotGitWithExecFile(argv, options);
+    };
+    const target: TurnSnapshotRestoreTarget = expectResolved(
+      await service.resolveRestoreTarget(buildResolveInput()),
+    );
+    expectRestored(await buildService({ git: countingRunner }).restoreToTurn(target));
+
+    // The degenerate case the interlock has to get right: nothing deletable at
+    // all. One listing, no deletions, no second pass — and emphatically not a
+    // "made no progress" failure, which is what a raw-listing comparison would
+    // have produced on the second pass.
+    expect(untrackedListings).toBe(1);
+    expect(existsSync(join(repository.root, "unborn", ".git"))).toBe(true);
+  });
+
+  it("refuses the restore, pre-mutation, when the skip trailer cannot be decoded", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    applyTurnEffects();
+    await createCommitlessEmbeddedRepository("unborn");
+    const service: TurnSnapshotService = buildService();
+    const captured: TurnSnapshotCaptured = await captureTurn(service);
+
+    // A snapshot commit whose trailer is present and undecodable, planted over
+    // the captured one. The service must not read this as "nothing was skipped".
+    const snapshotTree: string = await repository.git([
+      "rev-parse",
+      `${captured.snapshotCommit}^{tree}`,
+    ]);
+    const corrupted: string = await repository.git([
+      "commit-tree",
+      snapshotTree,
+      "-p",
+      captured.baseCommit,
+      "-m",
+      "sidekicks: turn-boundary snapshot",
+      "-m",
+      "Skipped-Embedded-Repositories: [not json",
+    ]);
+    await repository.git(["update-ref", captured.ref, corrupted]);
+    repository.write("post-snapshot.txt", "arrived after the boundary\n");
+    const censusBefore: string = collectWorktreeCensus(repository.root);
+
+    const target: TurnSnapshotRestoreTarget = expectResolved(
+      await service.resolveRestoreTarget(buildResolveInput()),
+    );
+    const result: TurnSnapshotPartialRestore = expectPartialRestore(
+      await service.restoreToTurn(target),
+    );
+
+    // FAIL-CLOSED. Returning an empty list for an undecodable trailer would be the
+    // tolerant reading and is exactly backwards: this list is the delete pass's
+    // do-not-delete set, so "empty" is not a neutral default but full authority to
+    // destroy the repositories the trailer exists to protect.
+    expect(result.failedStep).toBe("derive-enumerations" satisfies TurnSnapshotRestoreStep);
+    expect(fixture.diagnostics.at(-1)).toMatchObject({
+      kind: "restore-failed",
+      failedStep: "derive-enumerations",
+      detail: expect.stringContaining("could not decode") as unknown as string,
+    });
+    // Pre-mutation, so the refusal costs nothing: the worktree is untouched and the
+    // protected repository is still there.
+    expect(collectWorktreeCensus(repository.root)).toBe(censusBefore);
+    expect(existsSync(join(repository.root, "unborn", ".git"))).toBe(true);
+    expect(existsSync(join(repository.root, "post-snapshot.txt"))).toBe(true);
   });
 });
 
@@ -5493,7 +5968,10 @@ describe("TurnSnapshotService retention prune", () => {
     expect(fixture.diagnostics).toEqual([
       {
         kind: "retention-sweep-failed",
-        detail: "turn-snapshot clock did not return an ISO-8601 instant",
+        // The message names the CUTOFF rather than the clock, because the `null`
+        // channel now carries two causes — this one and a representable clock
+        // whose difference from the window is out of Date's range.
+        detail: "turn-snapshot retention cutoff is not a representable instant",
       },
     ]);
   });
@@ -5564,7 +6042,8 @@ describe("TurnSnapshotService retention prune", () => {
 
     expect(warnings).toHaveBeenCalledTimes(1);
     expect(warnings).toHaveBeenCalledWith(
-      "turn-snapshot retention-sweep-failed: turn-snapshot clock did not return an ISO-8601 instant",
+      "turn-snapshot retention-sweep-failed: " +
+        "turn-snapshot retention cutoff is not a representable instant",
       expect.objectContaining({ kind: "retention-sweep-failed" }),
     );
   });
@@ -5583,6 +6062,62 @@ describe("TurnSnapshotService retention prune", () => {
     // A positive window still constructs, so the guard is a statement about the
     // bad values and not about the parameter.
     expect(() => buildService({ retentionWindowMs: 1 })).not.toThrow();
+  });
+
+  it("refuses a retention window too large to subtract from a clock", () => {
+    // The third failure direction, and it does not look like a typo at all:
+    // `Number.MAX_SAFE_INTEGER` is how somebody spells "keep everything". It is
+    // finite and positive, so the guard above passes it, and every cutoff is then
+    // unrepresentable — `toISOString()` throws `RangeError: Invalid time value`
+    // from inside the sweep's own `try`, on every tick, forever. Retention is
+    // disabled and the daemon reports a sweep that ran.
+    expect(() => buildService({ retentionWindowMs: Number.MAX_SAFE_INTEGER })).toThrow(RangeError);
+    expect(() => buildService({ retentionWindowMs: Number.MAX_SAFE_INTEGER })).toThrow(
+      /no greater than 8640000000000000/,
+    );
+
+    // The BOUNDARY, both sides, so the constant is pinned rather than approximated:
+    // ECMAScript's Date range is ±8.64e15 ms, and a window of exactly that is
+    // still subtractable from an epoch-adjacent clock.
+    expect(() => buildService({ retentionWindowMs: 8_640_000_000_000_000 })).not.toThrow();
+    expect(() => buildService({ retentionWindowMs: 8_640_000_000_000_001 })).toThrow(RangeError);
+  });
+
+  it("reports an unrepresentable cutoff as a skip rather than throwing from the sweep", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    const database: DatabaseType = openRetentionDatabase();
+    applyTurnEffects();
+    await captureTurn(buildRetentionService(database));
+    const refsBefore: string = await repository.refListing("refs/sidekicks/");
+    insertRunExecutionContext(database, {
+      runId: RUN_ID,
+      executionMode: "worktree",
+      executionRoot: repository.root,
+      gitCommonDir: canonicalGitDirectory(),
+      releasedAt: RELEASED_LONG_AGO,
+    });
+
+    // The residual the constructor bound CANNOT close, which is why the cutoff
+    // carries the other half of the defense: BOTH inputs here are individually
+    // accepted — the window is exactly the permitted maximum and the clock is a
+    // perfectly well-formed ISO instant — and only their DIFFERENCE is outside
+    // Date's range. A bound on one term cannot see that.
+    const sweep: TurnSnapshotRetentionSweepResult = await buildRetentionService(database, {
+      retentionWindowMs: 8_640_000_000_000_000,
+      now: (): string => "1900-01-01T00:00:00.000Z",
+    }).sweepPrunableRuns();
+
+    // Routed into the EXISTING invalid-clock channel rather than a second
+    // mechanism: a reported failure and a fail-closed sweep, not a `RangeError`
+    // escaping into the timer.
+    expect(sweep.examinedRunIds).toEqual([]);
+    expect(await repository.refListing("refs/sidekicks/")).toBe(refsBefore);
+    expect(fixture.diagnostics).toEqual([
+      {
+        kind: "retention-sweep-failed",
+        detail: "turn-snapshot retention cutoff is not a representable instant",
+      },
+    ]);
   });
 
   it("reports an unreadable execution-context row as its OWN reason, and diagnoses it", async () => {
