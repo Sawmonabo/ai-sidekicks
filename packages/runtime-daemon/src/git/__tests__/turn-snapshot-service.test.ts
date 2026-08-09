@@ -75,8 +75,10 @@
 //
 //     The SYMBOLIC-REF channel is driven on both sides, because a validated name
 //     that resolves elsewhere is what no name-based guard can catch: a dangling
-//     in-namespace symref squatting the next capture path is written AT the
-//     validated name rather than minting the branch it points at, and on the
+//     in-namespace symref squatting the next capture path never mints the branch
+//     it points at — git 2.50.1 writes at the validated name, git 2.54.0 refuses
+//     the flagged create and the capture is the typed `failed`, and the case
+//     accepts either, since the invariant is what both preserve — and on the
 //     delete side a symref planted in the namespace is deleted itself rather than
 //     its referent. Each is asserted against `refs/heads/` byte-identical, and
 //     each fails if `--no-deref` is dropped from its invocation.
@@ -1830,7 +1832,7 @@ describe("TurnSnapshotService.captureTurnSnapshot", () => {
     expect(existsSync(hijackedObjectDirectory)).toBe(false);
   });
 
-  it("writes at the validated name when a DANGLING symref squats the capture path (I-010-21)", async () => {
+  it("never touches refs/heads when a DANGLING symref squats the capture path (I-010-21)", async () => {
     const repository: FixtureRepository = fixture.repository;
     applyTurnEffects();
 
@@ -1851,35 +1853,94 @@ describe("TurnSnapshotService.captureTurnSnapshot", () => {
       (await repository.gitCapturing(["rev-parse", "--verify", hostileBranch])).exitCode,
     ).not.toBe(0);
 
-    const captured = expectCaptured(
-      await buildService().captureTurnSnapshot({
-        ...CAPTURE_DEFAULTS,
-        executionRoot: repository.root,
-      }),
-    );
+    const result: TurnSnapshotCaptureResult = await buildService().captureTurnSnapshot({
+      ...CAPTURE_DEFAULTS,
+      executionRoot: repository.root,
+    });
 
-    // Measured on git 2.50.1 — WITHOUT `--no-deref` this same create writes
-    // `refs/heads/evil` at the snapshot commit and exits 0, and the capture
-    // reports success: a daemon write outside the namespace, silent. WITH it the
-    // write lands on the validated name, replacing the planted pointer with an
-    // ordinary snapshot ref, and branch history never learns the ref existed.
+    // I-010-21 FIRST and UNBRANCHED, because it is the one claim that does not
+    // depend on which git is running — and because it is the assertion that kills
+    // a dropped `--no-deref` on every version. Unflagged, this same create writes
+    // `refs/heads/evil` at the snapshot commit and exits 0 (git transfers the
+    // must-not-exist check to the referent), reporting a successful capture: a
+    // daemon write outside the namespace, silent. Measured unflagged on BOTH of
+    // the git versions named below, so the mutant lands on the `captured` arm on
+    // either one — moved inside that arm, these two assertions would let it
+    // survive on the other.
     expect(await repository.refListing("refs/heads/")).toBe(headsBefore);
     expect(
       (await repository.gitCapturing(["rev-parse", "--verify", hostileBranch])).exitCode,
     ).not.toBe(0);
-    // The invariant as a whole-repository claim, not a per-branch one: every ref
-    // this capture produced is inside the run's own namespace.
-    // (`for-each-ref` sorts by refname, so `refs/heads/…` precedes `refs/sidekicks/…`.)
-    expect(await repository.refListing()).toBe(
-      `${headsBefore}\n${captured.snapshotCommit} ${squattedRef}`,
-    );
-    // And the capture is TRUTHFUL rather than merely safe — the reported ref
-    // really does hold the reported snapshot commit.
-    expect(captured.ref).toBe(squattedRef);
-    expect(await repository.git(["rev-parse", "--verify", squattedRef])).toBe(
-      captured.snapshotCommit,
-    );
-    expect(fixture.diagnostics).toEqual([]);
+
+    // What the FLAGGED create then DOES with the squatted name is git-version
+    // dependent, and the outcome tag is the only thing that splits:
+    //
+    //   * git 2.50.1 — the local suite's version, which drives the `captured` arm.
+    //     The create succeeds: the write lands on the validated in-namespace name,
+    //     replacing the planted pointer with an ordinary snapshot ref, and branch
+    //     history never learns the ref existed.
+    //   * git 2.54.0 — CI's version, which drives the `failed` arm. The same
+    //     flagged create REFUSES over a dangling in-namespace symref (the
+    //     refs-transaction hardening whose lineage is git 2.52's fix for `fetch`
+    //     clobbering dangling symrefs). The service catches the refusal, its
+    //     existence probe reads nothing back — a dangling symref does not resolve
+    //     for `show-ref --verify` — and the rethrow reaches the funnel as the
+    //     typed `failed` at `write-ref`.
+    //
+    // Both arms are accepted here because both PRESERVE the invariant: a squatted
+    // capture path that refuses fail-closed with a diagnostic, leaving the turn to
+    // proceed, is the capture-never-blocks-the-turn posture, not a breach.
+    if (result.outcome === "captured") {
+      const captured = expectCaptured(result);
+      // The invariant as a whole-repository claim, not a per-branch one: every ref
+      // this capture produced is inside the run's own namespace.
+      // (`for-each-ref` sorts by refname, so `refs/heads/…` precedes `refs/sidekicks/…`.)
+      expect(await repository.refListing()).toBe(
+        `${headsBefore}\n${captured.snapshotCommit} ${squattedRef}`,
+      );
+      // And the capture is TRUTHFUL rather than merely safe — the reported ref
+      // really does hold the reported snapshot commit.
+      expect(captured.ref).toBe(squattedRef);
+      expect(await repository.git(["rev-parse", "--verify", squattedRef])).toBe(
+        captured.snapshotCommit,
+      );
+      expect(fixture.diagnostics).toEqual([]);
+    } else {
+      // The WHOLE typed shape, so a third outcome fails here rather than passing
+      // through this arm unexamined — an `already-captured` above all, which would
+      // mean the existence probe had fabricated an OID for a snapshot that was
+      // never written.
+      expect(result).toEqual({
+        outcome: "failed",
+        ref: squattedRef,
+        failedStep: "write-ref" satisfies TurnSnapshotCaptureStep,
+      });
+      // A refusal is a REFUSAL, not a half-write: the planted pointer survives
+      // exactly as planted. Read back with `symbolic-ref` rather than the listing
+      // helper every other assertion in this case uses — `for-each-ref` OMITS a
+      // dangling symref entirely, so a listing claim about the survivor would be
+      // vacuous.
+      expect(await repository.git(["symbolic-ref", squattedRef])).toBe(hostileBranch);
+      // …and for that same reason the whole-repository listing is `refs/heads/`
+      // alone: no snapshot ref was written, and the survivor is invisible to it.
+      expect(await repository.refListing()).toBe(headsBefore);
+      // Diagnosed rather than silent, and carrying the step that failed. The
+      // detail is Node's echoed argv followed by git's stderr, so it is asserted on
+      // the ARGV token: pinning git's refusal wording would re-break on the next
+      // version that rewords it.
+      expect(fixture.diagnostics).toHaveLength(1);
+      expect(fixture.diagnostics[0]).toMatchObject({
+        kind: "capture-failed",
+        runId: RUN_ID,
+        epoch: 0,
+        turnOrdinal: 1,
+        ref: squattedRef,
+        failedStep: "write-ref",
+      });
+      expect((fixture.diagnostics[0] as { readonly detail: string }).detail).toContain(
+        "update-ref",
+      );
+    }
   });
 
   it("prepends the hook-neutralization flags to every invocation (D-010-10)", async () => {

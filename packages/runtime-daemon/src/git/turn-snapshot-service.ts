@@ -155,8 +155,14 @@
 //     guarding the validated name. A live referent refuses either way; a DANGLING
 //     one does not — measured on the same version, an unflagged capture into a
 //     squatted turn path CREATES `refs/heads/evil` at the snapshot commit and
-//     reports success. Flagged, the write lands at the validated name and nothing
-//     outside the namespace is touched. See `#writeCreateOnlyRef`.
+//     reports success. Flagged, nothing outside the namespace is touched on any
+//     git measured; WHAT the capture reports splits by version. On git 2.50.1 the
+//     write lands at the validated name and the capture is `captured`; on git
+//     2.54.0 the same flagged create is REFUSED over a dangling in-namespace
+//     symref (refs-transaction hardening, lineage git 2.52's fix for `fetch`
+//     clobbering dangling symrefs), the existence probe behind the CAS reads
+//     nothing back, and the capture is the typed `failed` — fail-closed,
+//     diagnosed, the turn unblocked. See `#writeCreateOnlyRef`.
 //
 // The two sides fail in opposite directions — the delete destroys an existing
 // branch, the create mints a new one — which is why neither guard substitutes for
@@ -2793,7 +2799,8 @@ export class TurnSnapshotService {
       // its referent and moves the must-not-exist check there — so the CAS stops
       // guarding the namespace the moment the name resolves elsewhere. Existing
       // referents were never the exposure (the check refuses on them either way);
-      // a DANGLING one is: measured on git 2.50.1, planting
+      // a DANGLING one is: measured on git 2.50.1 and on git 2.54.0 alike,
+      // planting
       // `symbolic-ref refs/sidekicks/runs/<id>/epoch-0/turn-<next> refs/heads/evil`
       // with no such branch makes the unflagged create write `refs/heads/evil` at
       // the snapshot commit and exit 0 — a daemon write outside the namespace,
@@ -2804,9 +2811,21 @@ export class TurnSnapshotService {
       // validated in-namespace name (replacing the planted pointer with an
       // ordinary snapshot ref), `refs/heads/` is untouched, and the capture is a
       // truthful `captured` — the snapshot ref really does hold the snapshot
-      // commit. A LIVE referent still refuses, "reference already exists", and
-      // `#readRefIfPresent` below resolves through it to the recorded oid, which
-      // is the pre-existing already-captured reading, unchanged. For a direct ref
+      // commit. That last sentence is version-scoped, and git 2.54.0 is where it
+      // splits: there the same flagged create REFUSES over a dangling
+      // in-namespace symref (refs-transaction hardening, lineage git 2.52's fix
+      // for `fetch` clobbering dangling symrefs). The refusal lands in the `catch`
+      // below, `#readRefIfPresent` finds nothing — a dangling symref does not
+      // resolve for `show-ref --verify` — and the rethrow becomes the typed
+      // `failed` at `write-ref`: fail-closed, diagnosed, and the turn proceeds,
+      // which is this leg's posture for any capture that cannot be written. The
+      // flag is load-bearing on BOTH versions and for one reason — it is what
+      // keeps 2.50.1's success inside the namespace and keeps 2.54.0's refusal a
+      // refusal rather than the branch-minting success above. I-010-21 holds
+      // either way; only the outcome tag differs. A LIVE referent still refuses on
+      // both versions, "reference already exists", and `#readRefIfPresent` below
+      // resolves through it to the recorded oid, which is the pre-existing
+      // already-captured reading, unchanged. For a direct ref
       // — every ref this service writes — the flag is a measured no-op, and the
       // per-epoch idempotence refusal (I-010-22) is preserved.
       await this.#runGit(
