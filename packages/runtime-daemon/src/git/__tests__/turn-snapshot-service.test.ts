@@ -37,7 +37,10 @@
 //     semantics (project-declared rules only, tracking wins over ignoring); the
 //     `core.autocrlf` / `core.attributesFile` / `i18n.commitEncoding` pins and
 //     the `core.excludesFile` non-consultation that make the OID host-
-//     independent; the create-only `update-ref` and its per-epoch idempotence;
+//     independent, plus the `core.safecrlf` pin that makes capture's SUCCESS
+//     host-independent — against the project's own `text` attribute a host
+//     `true` is otherwise fatal, and an uncaptured turn is an unrollbackable
+//     one; the create-only `update-ref` and its per-epoch idempotence;
 //     the writable-modes-only applicability rule, exercised across ALL THREE
 //     writable modes and the one non-applicable mode; and the out-of-worktree
 //     scratch index, asserted against the execution root's OWN index rather than
@@ -120,6 +123,13 @@
 //     and on a pre-mutation failure whose fixture deliberately HAS both a
 //     collision and a divergent gitlink — so the empty pair is a statement about
 //     what was applied rather than about what the fixture happened to contain;
+//     the COLLISION enumeration is driven through all three shapes the checkout
+//     destroys through — the shared path, a snapshot file replacing a directory
+//     of ignored content, and an ignored file squatting a directory the snapshot
+//     needs — each against on-disk ground truth, and each beside a control that
+//     shares CHARACTERS without sharing a segment boundary (`collidex/…` under a
+//     tracked `collide`, an ignored `sibling` under a tracked
+//     `sibling-prefix.txt`) or shares a directory without obstructing it;
 //     and a target the service never minted is refused with nothing mutated —
 //     twice over, by a cast object literal and by a `Reflect.construct` that
 //     really does reach the erased-at-emit private constructor, which is the
@@ -145,10 +155,31 @@
 // case accepts either answer — see the I-010-21 entry above for the split, rather
 // than a second copy of it here.
 //
+// The RESTORE checkout's obstruction handling is measured the same way, because
+// the collision enumeration is a claim about what `read-tree --reset -u` destroys
+// rather than about what it reports: it exits 0 while replacing a directory of
+// ignored content with a snapshot FILE, and while unlinking an ignored file to
+// make room for a directory the snapshot needs. `ls-files -o -i` reports an
+// ignored EMBEDDED REPOSITORY as a trailing-slash directory entry — the one
+// non-file spelling in that listing, and only while the current index holds
+// nothing beneath it — and both of that entry's dispositions are pinned: taken
+// whole, `.git` included, by a snapshot file at its path, and merely populated,
+// `.git` intact, when the snapshot holds a path BENEATH it. The gitlink RESIDUAL
+// the derivation's `160000` filter leaves open is pinned as measured rather than
+// argued away: an ignored file at a snapshot gitlink's own path, and one at an
+// ancestor directory of a deeper gitlink, are both unlinked by the materializing
+// checkout while no collision shape reports them, so each is asserted to reach
+// the caller through `divergentGitlinks` instead — beside that boundary's other
+// side, where ignored content BENEATH a gitlink path is neither enumerated nor
+// deleted, which is what a derivation keeping `160000` entries would get wrong in
+// the opposite direction.
+//
 // Each host-config pin carries a NEGATIVE CONTROL in the same case: the fixture
 // re-runs the equivalent leg WITHOUT the pin and the assertion is that the
 // result differs. A stability assertion whose pin was already inert would
-// otherwise pass for the wrong reason.
+// otherwise pass for the wrong reason. `core.safecrlf`'s control differs in KIND
+// rather than in degree — unpinned, the equivalent staging leg does not produce
+// a different tree, it exits fatal.
 
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -215,6 +246,16 @@ const RUN_ID = "0192b3c0-1111-7c4a-9b1c-1b7c5b3e8f00";
 const FIXED_INSTANT = "2026-01-01T00:00:00.000Z";
 
 const FIXTURE_GIT_TIMEOUT_MS = 30_000;
+
+/**
+ * The base repository's project-declared ignore rules, committed by `beforeEach`.
+ *
+ * Named rather than repeated because the collision cases EXTEND it — a rule that
+ * makes their colliding path disposable, appended to the fixture's own — and a
+ * case that restated the base rules instead would silently drop one if this
+ * fixture ever grew a fourth.
+ */
+const FIXTURE_IGNORE_RULES = "ignored-dir/\nignored-file.txt\ntracked-but-ignored.txt\n";
 
 /**
  * The per-case budget for the two MULTI-SEQUENCE cases in this file.
@@ -484,7 +525,7 @@ beforeEach(async () => {
     cwd: fixtureRoot,
   });
   repository.write("tracked.txt", "tracked v1\n");
-  repository.write(".gitignore", "ignored-dir/\nignored-file.txt\ntracked-but-ignored.txt\n");
+  repository.write(".gitignore", FIXTURE_IGNORE_RULES);
   repository.write("tracked-but-ignored.txt", "tracking wins over ignoring\n");
   repository.write("doomed.txt", "deleted during the turn\n");
   await repository.git(["add", "-A"]);
@@ -1106,6 +1147,68 @@ describe("TurnSnapshotService.captureTurnSnapshot", () => {
       ).not.toContain("created.txt");
     },
   );
+
+  it("captures under a host `core.safecrlf` that would otherwise make staging FATAL", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    const service: TurnSnapshotService = buildService();
+    // The project's own declaration — checked in, deliberately honoured, and the
+    // thing that gives the host's reversibility check something to object to. A
+    // `core.safecrlf` with no attribute in play converts nothing and refuses
+    // nothing.
+    repository.write(".gitattributes", "*.txt text\n");
+    await repository.git(["add", ".gitattributes"]);
+    await repository.git(["commit", "-q", "-m", "in-tree attributes"]);
+    await repository.git(["config", "core.safecrlf", "true"]);
+    repository.write("crlf.txt", "line one\r\nline two\r\n");
+
+    const captured: TurnSnapshotCaptured = await captureTurn(service);
+
+    // What git ACTUALLY produced, read back rather than assumed: the in-tree
+    // attribute still normalized the blob to LF, and the worktree still holds the
+    // CRLF bytes the turn wrote. The pin removed the host's VETO, not the
+    // project's conversion.
+    const blob: FixtureGitResult = await repository.gitCapturing([
+      "cat-file",
+      "-p",
+      `${captured.ref}^{tree}:crlf.txt`,
+    ]);
+    expect(blob.exitCode).toBe(0);
+    expect(blob.stdout).toBe("line one\nline two\n");
+    expect(readFileSync(join(repository.root, "crlf.txt"), "utf8")).toBe(
+      "line one\r\nline two\r\n",
+    );
+
+    // NEGATIVE CONTROL: the same `update-index --add` conversion decision, pinned
+    // exactly as the recipe pins it MINUS `core.safecrlf=false`, is fatal against
+    // this fixture — so the capture above is a statement about the pin and not
+    // about a host setting that was inert. Driven against a scratch index, so the
+    // fixture's own index is untouched either way.
+    const scratchIndexPath: string = join(fixture.fixtureRoot, "safecrlf.index");
+    const scratchOverrides = { GIT_INDEX_FILE: scratchIndexPath, GIT_ATTR_NOSYSTEM: "1" };
+    await repository.git(["read-tree", "HEAD"], { environmentOverrides: scratchOverrides });
+    const stagingArgv: readonly string[] = [
+      "-c",
+      "core.autocrlf=false",
+      "-c",
+      "core.attributesFile=/dev/null",
+      "update-index",
+      "--add",
+      "--",
+      "crlf.txt",
+    ];
+    const unpinned: FixtureGitResult = await repository.gitCapturing(stagingArgv, {
+      environmentOverrides: scratchOverrides,
+    });
+    expect(unpinned.exitCode).not.toBe(0);
+    expect(unpinned.stderr).toContain("CRLF would be replaced by LF");
+    // …and the ONE added pin is what closes it: capture availability stops
+    // depending on host config.
+    const pinned: FixtureGitResult = await repository.gitCapturing(
+      ["-c", "core.safecrlf=false", ...stagingArgv],
+      { environmentOverrides: scratchOverrides },
+    );
+    expect(pinned.exitCode).toBe(0);
+  });
 
   it("returns the recorded OID and leaves the ref unmoved on a duplicate capture (I-010-22)", async () => {
     const repository: FixtureRepository = fixture.repository;
@@ -2516,6 +2619,309 @@ describe("TurnSnapshotService.restoreToTurn", () => {
     // The non-colliding ignored path is untouched AND unenumerated: the
     // enumeration is of collisions, not of every ignored file in the tree.
     expect(readFileSync(join(repository.root, "ignored-file.txt"))).toEqual(untouchedIgnoredBytes);
+  });
+
+  it("ENUMERATES ignored content a snapshot FILE obstructs as a directory prefix", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    applyTurnEffects();
+    // A DIRECTORY-only rule, so the turn's plain file `collide` is capturable
+    // while anything a later turn puts INSIDE a directory of that name is
+    // project-declared disposable. That asymmetry is what makes this shape
+    // reachable at all. `collidex/` is the segment-boundary control below.
+    repository.write(".gitignore", `${FIXTURE_IGNORE_RULES}collide/\ncollidex/\n`);
+    repository.write("collide", "snapshot bytes at the colliding path\n");
+    const service: TurnSnapshotService = buildService();
+    const captured: TurnSnapshotCaptured = await captureTurn(service);
+    const snapshotBytes: Buffer = readFileSync(join(repository.root, "collide"));
+    const untouchedIgnoredBytes: Buffer = readFileSync(join(repository.root, "ignored-file.txt"));
+
+    // Post-boundary the file becomes a DIRECTORY holding ignored content. The
+    // derivation's listing reports `collide/artifact.bin`, which never EQUALS the
+    // snapshot's `collide` — the escape an exact-path intersection leaves open.
+    rmSync(join(repository.root, "collide"));
+    repository.write("collide/artifact.bin", "ignored content the checkout destroys\n");
+    // The control, in the same listing: a string prefix that is not a SEGMENT
+    // prefix. `collidex/artifact.bin` starts with `collide` and obstructs
+    // nothing.
+    repository.write("collidex/artifact.bin", "ignored content nothing obstructs\n");
+    const unobstructedBytes: Buffer = readFileSync(
+      join(repository.root, "collidex", "artifact.bin"),
+    );
+
+    const target: TurnSnapshotRestoreTarget = expectResolved(
+      await service.resolveRestoreTarget(buildResolveInput()),
+    );
+    const restored: TurnSnapshotRestored = expectRestored(await service.restoreToTurn(target));
+
+    expect(restored).toEqual({
+      outcome: "restored",
+      ref: captured.ref,
+      snapshotCommit: captured.snapshotCommit,
+      overwrittenIgnoredPaths: ["collide/artifact.bin"],
+      divergentGitlinks: [],
+    });
+    // Ground truth for the enumeration, measured on git 2.50.1: the checkout
+    // exits 0, removes the obstructing directory WHOLE and writes the snapshot
+    // file where it stood.
+    expect(readFileSync(join(repository.root, "collide"))).toEqual(snapshotBytes);
+    expect(existsSync(join(repository.root, "collide", "artifact.bin"))).toBe(false);
+    // …and the paths that obstruct nothing are neither enumerated nor touched.
+    expect(readFileSync(join(repository.root, "collidex", "artifact.bin"))).toEqual(
+      unobstructedBytes,
+    );
+    expect(readFileSync(join(repository.root, "ignored-file.txt"))).toEqual(untouchedIgnoredBytes);
+  });
+
+  it("ENUMERATES an ignored FILE obstructing a directory the snapshot needs", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    applyTurnEffects();
+    repository.write("collide/a.txt", "snapshot child content\n");
+    const service: TurnSnapshotService = buildService();
+    const captured: TurnSnapshotCaptured = await captureTurn(service);
+    const snapshotChildBytes: Buffer = readFileSync(join(repository.root, "collide", "a.txt"));
+
+    // Post-boundary the directory becomes an ignored FILE, declared disposable by
+    // a rule the turn itself added. The derivation's listing reports `collide`,
+    // which the snapshot tree does not contain — it contains a path BENEATH it,
+    // and the checkout cannot have both.
+    rmSync(join(repository.root, "collide"), { recursive: true });
+    repository.write("collide", "ignored file squatting the snapshot's directory\n");
+    repository.write(".gitignore", `${FIXTURE_IGNORE_RULES}collide\n`);
+
+    const target: TurnSnapshotRestoreTarget = expectResolved(
+      await service.resolveRestoreTarget(buildResolveInput()),
+    );
+    const restored: TurnSnapshotRestored = expectRestored(await service.restoreToTurn(target));
+
+    expect(restored).toEqual({
+      outcome: "restored",
+      ref: captured.ref,
+      snapshotCommit: captured.snapshotCommit,
+      overwrittenIgnoredPaths: ["collide"],
+      divergentGitlinks: [],
+    });
+    // Measured: the checkout exits 0, unlinks the obstructing file and
+    // materializes the directory with the snapshot's child inside it.
+    expect(readFileSync(join(repository.root, "collide", "a.txt"))).toEqual(snapshotChildBytes);
+  });
+
+  it("leaves ignored paths that merely SHARE a prefix unenumerated and byte-identical", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    applyTurnEffects();
+    // Two non-collisions the widened predicate must still refuse: a SIBLING
+    // inside a directory the snapshot also populates, and an ignored file that is
+    // a string prefix of a snapshot-tracked path without being an ancestor of it.
+    repository.write(".gitignore", `${FIXTURE_IGNORE_RULES}keep-dir/ignored.txt\nsibling\n`);
+    repository.write("keep-dir/child.txt", "captured child\n");
+    repository.write("keep-dir/ignored.txt", "ignored sibling, obstructing nothing\n");
+    repository.write("sibling-prefix.txt", "captured, and no descendant of `sibling`\n");
+    repository.write("sibling", "ignored, and a string PREFIX of a snapshot path\n");
+    const service: TurnSnapshotService = buildService();
+    await captureTurn(service);
+    const siblingBytes: Buffer = readFileSync(join(repository.root, "keep-dir", "ignored.txt"));
+    const prefixBytes: Buffer = readFileSync(join(repository.root, "sibling"));
+
+    // Post-boundary work at the shared directory, so the checkout really does
+    // write into it rather than finding it already correct.
+    repository.write("keep-dir/child.txt", "edited after the boundary\n");
+
+    const target: TurnSnapshotRestoreTarget = expectResolved(
+      await service.resolveRestoreTarget(buildResolveInput()),
+    );
+    const restored: TurnSnapshotRestored = expectRestored(await service.restoreToTurn(target));
+
+    // Ancestry is tested segment-wise: `keep-dir/ignored.txt` shares a DIRECTORY
+    // with `keep-dir/child.txt`, and `sibling` shares only characters with
+    // `sibling-prefix.txt`. A raw string-prefix predicate reports both.
+    expect(restored.overwrittenIgnoredPaths).toEqual([]);
+    expect(readFileSync(join(repository.root, "keep-dir", "ignored.txt"))).toEqual(siblingBytes);
+    expect(readFileSync(join(repository.root, "sibling"))).toEqual(prefixBytes);
+    // …and the snapshot content around them really was restored.
+    expect(readFileSync(join(repository.root, "keep-dir", "child.txt"), "utf8")).toBe(
+      "captured child\n",
+    );
+  });
+
+  it("ENUMERATES an ignored embedded repository the snapshot's file replaces", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    applyTurnEffects();
+    repository.write(".gitignore", `${FIXTURE_IGNORE_RULES}collide/\n`);
+    repository.write("collide", "snapshot bytes at the colliding path\n");
+    const service: TurnSnapshotService = buildService();
+    await captureTurn(service);
+    const snapshotBytes: Buffer = readFileSync(join(repository.root, "collide"));
+
+    // An ignored directory git will not descend into is reported by the
+    // derivation's listing as the single entry `collide/`, trailing slash and
+    // all — the one shape in that listing that is not a file path.
+    rmSync(join(repository.root, "collide"));
+    await createEmbeddedRepository("collide");
+
+    const target: TurnSnapshotRestoreTarget = expectResolved(
+      await service.resolveRestoreTarget(buildResolveInput()),
+    );
+    const restored: TurnSnapshotRestored = expectRestored(await service.restoreToTurn(target));
+
+    // Enumerated under its slash-stripped name, which is the spelling every other
+    // path in this field carries.
+    expect(restored.overwrittenIgnoredPaths).toEqual(["collide"]);
+    // The snapshot holds no `160000` entry — it was captured while `collide` was
+    // a plain file — so this is a collision and not a gitlink divergence.
+    expect(restored.divergentGitlinks).toEqual([]);
+    // Measured: the checkout exits 0 and takes the whole repository, `.git`
+    // included. Enumerating it is the difference between a reported loss and a
+    // silent one.
+    expect(readFileSync(join(repository.root, "collide"))).toEqual(snapshotBytes);
+    expect(existsSync(join(repository.root, "collide", ".git"))).toBe(false);
+  });
+
+  it("leaves an ignored embedded repository the checkout MERGES into unenumerated", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    applyTurnEffects();
+    repository.write("collide/a.txt", "snapshot child content\n");
+    const service: TurnSnapshotService = buildService();
+    await captureTurn(service);
+
+    // The same trailing-slash listing entry as the case above, and the opposite
+    // disposition: here the snapshot holds a path BENEATH `collide`, so the
+    // checkout needs the directory that is already standing there.
+    rmSync(join(repository.root, "collide"), { recursive: true });
+    await createEmbeddedRepository("collide");
+    repository.write(".gitignore", `${FIXTURE_IGNORE_RULES}collide/\n`);
+
+    const target: TurnSnapshotRestoreTarget = expectResolved(
+      await service.resolveRestoreTarget(buildResolveInput()),
+    );
+    const restored: TurnSnapshotRestored = expectRestored(await service.restoreToTurn(target));
+
+    // Not a collision. A directory is only destroyed by a file at or above its
+    // own path, so the ignored-path-is-an-ancestor shape is FILE-only; treating a
+    // directory entry as one reports `collide` here, wrongly.
+    expect(restored.overwrittenIgnoredPaths).toEqual([]);
+    // Measured ground truth for that: the checkout exits 0, writes the snapshot's
+    // child INTO the existing directory and leaves the embedded `.git` standing.
+    expect(readFileSync(join(repository.root, "collide", "a.txt"), "utf8")).toBe(
+      "snapshot child content\n",
+    );
+    expect(existsSync(join(repository.root, "collide", ".git"))).toBe(true);
+    // The embedded repository's own file is then taken by the UNTRACKED-DELETE
+    // pass, under a different contract: the restored `.gitignore` no longer
+    // carries the rule the turn added, so `collide/inner.txt` is ordinary
+    // post-snapshot untracked content. Asserted so the case states the whole
+    // outcome rather than the half that flatters the enumeration.
+    expect(existsSync(join(repository.root, "collide", "inner.txt"))).toBe(false);
+  });
+
+  it("routes an ignored file a materialized gitlink DISPLACES to the divergence signal", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    applyTurnEffects();
+    // Captured while an embedded repository stood at `sub`, so the snapshot tree
+    // holds a `160000` entry there and not a blob.
+    await createEmbeddedRepository("sub");
+    const service: TurnSnapshotService = buildService();
+    const captured: TurnSnapshotCaptured = await captureTurn(service);
+
+    // The turn replaced the whole repository with an ignored file at its path.
+    rmSync(join(repository.root, "sub"), { recursive: true });
+    repository.write("sub", "ignored file squatting the gitlink's own path\n");
+    repository.write(".gitignore", `${FIXTURE_IGNORE_RULES}sub\n`);
+
+    const target: TurnSnapshotRestoreTarget = expectResolved(
+      await service.resolveRestoreTarget(buildResolveInput()),
+    );
+    const restored: TurnSnapshotRestored = expectRestored(await service.restoreToTurn(target));
+
+    // The RESIDUAL, pinned rather than left as prose: `160000` entries are held
+    // out of the collision derivation's tracked set, so no collision shape sees
+    // this path — and the checkout destroys the file anyway, because it has to
+    // put a directory where the file stood. What the caller gets instead is the
+    // DIVERGENCE enumeration naming the gitlink, which is what this suite's
+    // gitlink-boundary note means by a gitlink path's whole disposition being
+    // that enumeration's to report.
+    expect(restored).toEqual({
+      outcome: "restored",
+      ref: captured.ref,
+      snapshotCommit: captured.snapshotCommit,
+      overwrittenIgnoredPaths: [],
+      divergentGitlinks: ["sub"],
+    });
+    // Measured ground truth: the checkout exits 0, the ignored bytes are gone and
+    // an EMPTY directory stands in their place — `submodule.recurse=false`
+    // materializes the gitlink and never populates it. `readdirSync` is the
+    // assertion of both facts at once; it would throw `ENOTDIR` on a file.
+    expect(readdirSync(join(repository.root, "sub"))).toEqual([]);
+  });
+
+  it("routes an ignored file a gitlink's ANCESTOR directory displaces the same way", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    applyTurnEffects();
+    // The gitlink one segment deeper, so what the checkout has to create at the
+    // ignored path is an ordinary parent directory rather than the gitlink.
+    await createEmbeddedRepository("sub/mod");
+    const service: TurnSnapshotService = buildService();
+    const captured: TurnSnapshotCaptured = await captureTurn(service);
+
+    rmSync(join(repository.root, "sub"), { recursive: true });
+    repository.write("sub", "ignored file squatting the gitlink's parent\n");
+    repository.write(".gitignore", `${FIXTURE_IGNORE_RULES}sub\n`);
+
+    const target: TurnSnapshotRestoreTarget = expectResolved(
+      await service.resolveRestoreTarget(buildResolveInput()),
+    );
+    const restored: TurnSnapshotRestored = expectRestored(await service.restoreToTurn(target));
+
+    // Same residual by the same mechanism, one segment out: a filtered-out
+    // `160000` entry contributes no ANCESTOR directories to the derivation
+    // either, so the shape that would otherwise catch `sub` — an ignored file
+    // holding a directory the snapshot needs — has nothing to match against.
+    expect(restored).toEqual({
+      outcome: "restored",
+      ref: captured.ref,
+      snapshotCommit: captured.snapshotCommit,
+      overwrittenIgnoredPaths: [],
+      divergentGitlinks: ["sub/mod"],
+    });
+    expect(readdirSync(join(repository.root, "sub"))).toEqual(["mod"]);
+    expect(readdirSync(join(repository.root, "sub", "mod"))).toEqual([]);
+  });
+
+  it("neither enumerates nor deletes ignored content BENEATH a snapshot-gitlink path", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    applyTurnEffects();
+    await createEmbeddedRepository("sub");
+    const service: TurnSnapshotService = buildService();
+    const captured: TurnSnapshotCaptured = await captureTurn(service);
+
+    // The boundary's other side. The turn destroyed the embedded repository's
+    // `.git` — leaving an ORDINARY directory, which the derivation's listing
+    // descends into and reports file by file — and left ignored content inside.
+    rmSync(join(repository.root, "sub", ".git"), { recursive: true });
+    repository.write("sub/artifact.bin", "derived, and beneath a gitlink path\n");
+    repository.write(".gitignore", `${FIXTURE_IGNORE_RULES}sub/\n`);
+    const beneathBytes: Buffer = readFileSync(join(repository.root, "sub", "artifact.bin"));
+
+    const target: TurnSnapshotRestoreTarget = expectResolved(
+      await service.resolveRestoreTarget(buildResolveInput()),
+    );
+    const restored: TurnSnapshotRestored = expectRestored(await service.restoreToTurn(target));
+
+    // Unenumerated, and this time correctly so rather than as a residual: the
+    // checkout writes nothing at a gitlink path, so nothing beneath one is
+    // obstructed. A derivation that kept `160000` entries in its tracked set
+    // would report both of these, `sub` being an ancestor of each.
+    expect(restored).toEqual({
+      outcome: "restored",
+      ref: captured.ref,
+      snapshotCommit: captured.snapshotCommit,
+      overwrittenIgnoredPaths: [],
+      divergentGitlinks: ["sub"],
+    });
+    // …and the non-report is honest rather than a silent loss, because the
+    // content SURVIVES: the delete pass runs while the index holds the gitlink,
+    // and `ls-files -o` declines to descend into one even when the working copy
+    // there is an ordinary directory.
+    expect(readFileSync(join(repository.root, "sub", "artifact.bin"))).toEqual(beneathBytes);
+    expect(readFileSync(join(repository.root, "sub", "inner.txt"), "utf8")).toBe("inner\n");
   });
 
   it("restores git-canonical bytes under a host attributes file (checkout-conversion pins)", async () => {
@@ -5173,6 +5579,39 @@ describe("registerTurnSnapshotRetentionSweep", () => {
     expect(reported).toHaveLength(1);
     vi.advanceTimersByTime(1_000);
     await new Promise((resolve) => setImmediate(resolve));
+    expect(reported).toHaveLength(2);
+    handle.dispose();
+  });
+
+  it("contains the rejection when the failure reporter is ASYNC", async () => {
+    const reported: unknown[] = [];
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    // No cast: an `async` function IS assignable to the seam's
+    // `(reason: unknown) => void`, and that is the whole hazard. The case above
+    // throws where this one REJECTS — the surrounding `try` sees the first and
+    // cannot see the second, so a reporter wired to an exporter with a transient
+    // failure raises a rejection nobody holds, from inside the `.catch` this
+    // wrapper attaches, under Node's default `--unhandled-rejections=throw`.
+    const handle = registerTurnSnapshotRetentionSweep({
+      runRetentionSweep: (): Promise<never> => Promise.reject(new Error("pass failed")),
+      sweepCadenceMs: 1_000,
+      reportSweepFailure: (reason: unknown): Promise<never> => {
+        reported.push(reason);
+        return Promise.reject(new Error("the reporter is broken asynchronously"));
+      },
+    });
+
+    // An escaped rejection is reported OUTSIDE any case and fails the run with a
+    // non-zero exit — verified against a build with the `.catch` removed, the
+    // same way the async diagnostic-sink case in this file was — so SURVIVING
+    // the macrotasks below is the containment assertion. The counts only prove
+    // it wasn't vacuous.
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(reported).toHaveLength(1);
+    vi.advanceTimersByTime(1_000);
+    await new Promise((resolve) => setImmediate(resolve));
+    // And the tick behind it still starts: containing a rejection must leave the
+    // in-flight flag exactly where swallowing a throw leaves it.
     expect(reported).toHaveLength(2);
     handle.dispose();
   });

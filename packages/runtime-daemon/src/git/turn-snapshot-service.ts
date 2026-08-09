@@ -10,7 +10,7 @@
 //
 // Spec coverage:
 //   * `Spec-010 §Turn-Boundary Snapshots` — the capture temp-index recipe
-//     (out-of-worktree `GIT_INDEX_FILE`, the two conversion pins plus
+//     (out-of-worktree `GIT_INDEX_FILE`, the three conversion-channel pins plus
 //     `GIT_ATTR_NOSYSTEM=1`, the single base OID reused for tree base AND
 //     recorded parent, the untracked-embedded-repo `160000` normalization with
 //     its unborn-`HEAD` skip, the encoding-pinned `commit-tree`, the six-var
@@ -1492,7 +1492,10 @@ export interface TurnSnapshotRestored {
   /**
    * Ignored untracked paths that collided with snapshot-tracked content and were
    * overwritten by the `read-tree --reset -u` leg. Restore wins by design; the
-   * enumeration is what keeps the loss observable rather than silent.
+   * enumeration is what keeps the loss observable rather than silent. Colliding
+   * means occupying a path the checkout has to have, so it covers a shared path
+   * and either direction of segment-boundary PREFIX obstruction — see
+   * `#deriveProspectiveRestoreEffects` for the three measured shapes.
    */
   readonly overwrittenIgnoredPaths: readonly string[];
   /**
@@ -2122,7 +2125,7 @@ function toRawGitDate(isoInstant: string): string | null {
  * that consume them have different exposure. Capture uses them only to classify
  * trailing-slash entries as embedded repositories, where a mangled decode at
  * worst mis-classifies a path git will report again next turn. The RESTORE legs
- * use them as real paths: the collision intersection (a mangled decode drops the
+ * use them as real paths: the collision derivation (a mangled decode drops the
  * path from an enumeration) and the delete pass (a mangled decode makes the
  * removal a silent no-op). The second is why that pass detects a listing that
  * did not change rather than trusting its own deletions — see
@@ -2252,7 +2255,7 @@ interface SnapshotTreeEntry {
  * NUL-terminated record.
  *
  * `-z` is what makes this parseable at all: without it git QUOTES paths
- * containing unusual bytes, and the collision intersection below would then miss
+ * containing unusual bytes, and the collision derivation below would then miss
  * exactly the paths whose names are hardest to reason about. A record that does
  * not carry the expected separators is skipped rather than guessed at — it would
  * be a git that changed its plumbing format, and a fabricated path would
@@ -2274,6 +2277,27 @@ function parseSnapshotTreeListing(listing: Buffer): readonly SnapshotTreeEntry[]
     entries.push({ mode, objectId, path: record.slice(tabIndex + 1) });
   }
   return entries;
+}
+
+/**
+ * Every PROPER ancestor directory of a git-spelled repo-relative path, outermost
+ * first: `a/b/c` yields `a` and `a/b`, and a single-segment path yields none.
+ *
+ * Splitting on `/` is what makes the restore leg's obstruction test respect
+ * SEGMENT boundaries — `foo` is an ancestor of `foo/a` and is not one of
+ * `foobar/a`, which a raw string-prefix test would get backwards. Both listings
+ * this compares come from git itself (`ls-tree -r` and `ls-files`), and git
+ * spells repo-relative paths with forward slashes on every platform, so no
+ * host separator enters the comparison — which is also why `dirname` is not the
+ * tool here.
+ */
+function collectProperAncestorDirectories(path: string): readonly string[] {
+  const segments: readonly string[] = path.split("/");
+  const ancestors: string[] = [];
+  for (let boundary = 1; boundary < segments.length; boundary += 1) {
+    ancestors.push(segments.slice(0, boundary).join("/"));
+  }
+  return ancestors;
 }
 
 /**
@@ -2630,12 +2654,31 @@ export class TurnSnapshotService {
           // default, neutralized by pinning: a host `core.autocrlf=input` or
           // `true` re-hashes CRLF worktree bytes to LF blobs, changing blob,
           // tree and snapshot OIDs for identical worktree bytes.
+          // `core.safecrlf=false` pins that same channel's VETO off, and it is a
+          // veto rather than a conversion: measured on git 2.50.1, staging with
+          // the host setting absent and staging with it pinned false produce the
+          // IDENTICAL tree. What a host `core.safecrlf=true` adds is a fatal —
+          // check-in-time, against an in-tree `*.txt text` and CRLF worktree
+          // bytes it exits `fatal: CRLF would be replaced by LF`, so capture
+          // fails, the turn runs uncovered, and the rollback that should have
+          // had a snapshot answers `no_snapshot`. That is snapshot AVAILABILITY
+          // turning on host config — the same class the OID pins close from the
+          // other side — so the project's own declared normalization proceeds
+          // here without the host's veto over it.
           // `core.attributesFile=/dev/null` plus `GIT_ATTR_NOSYSTEM=1` take the
           // user and system attribute files out of the conversion decision,
           // while in-tree `.gitattributes` — a project declaration, checked in
           // and identical on every host — stays deliberately honoured.
+          //
+          // This is the only leg that pins them because it is the only leg that
+          // hashes worktree bytes: the gitlink insert below passes a literal OID
+          // through `--cacheinfo` and reads no content, `write-tree` and
+          // `commit-tree` hash objects the index already holds, and `safecrlf`
+          // is a check-in check the restore checkouts never consult (measured).
           "-c",
           "core.autocrlf=false",
+          "-c",
+          "core.safecrlf=false",
           "-c",
           "core.attributesFile=/dev/null",
           "update-index",
@@ -3373,13 +3416,44 @@ export class TurnSnapshotService {
   /**
    * The PROSPECTIVE enumerations, derived before anything is mutated.
    *
-   * Collisions are the intersection of two listings: the ignored untracked paths
-   * on disk (`ls-files -o -i` on the same `--exclude-per-directory=.gitignore`
-   * pipeline as capture, so project-declared rules only) and the snapshot tree's
-   * non-gitlink paths. That intersection is exactly `Spec-010 §Turn-Boundary
-   * Snapshots`'s collision case — ignored content sitting where the snapshot
-   * tracks a file — and the `read-tree --reset -u` leg will overwrite every
-   * member of it.
+   * A collision is an ignored untracked path on disk (`ls-files -o -i` on the
+   * same `--exclude-per-directory=.gitignore` pipeline as capture, so
+   * project-declared rules only) that the `read-tree --reset -u` leg will
+   * destroy. Equality with a snapshot-tracked path is only ONE of the three ways
+   * that happens, because the checkout replaces a whole OBSTRUCTING file or
+   * directory rather than merging around it. All three are measured on git
+   * 2.50.1, and in each the checkout exits 0 while taking the ignored content
+   * with it:
+   *
+   *   1. SAME PATH — the snapshot tracks a file at the ignored path, and writes
+   *      over it.
+   *   2. FILE OVER DIRECTORY — an ancestor of the ignored path is a
+   *      snapshot-tracked FILE (snapshot has file `foo`; disk has ignored
+   *      `foo/a`). The directory is removed whole and the file written in its
+   *      place, so everything beneath it goes with it.
+   *   3. DIRECTORY OVER FILE — the ignored path is an ancestor directory of some
+   *      snapshot-tracked path (ignored file `foo`; snapshot tracks `foo/a`).
+   *      The checkout needs a directory there, so the file is unlinked.
+   *
+   * Prefix obstruction is the same never-silent overwrite `Spec-010
+   * §Turn-Boundary Snapshots` names as the exact-path case, so it is enumerated
+   * the same way: in all three shapes the reported path — and the fingerprint
+   * taken against it — is the IGNORED one, the content being destroyed, never
+   * the snapshot path that displaced it. Ancestry is tested segment-wise (see
+   * {@link collectProperAncestorDirectories}), so `foo` collides with `foo/a`
+   * and never with `foobar/a`. What does NOT collide is a SIBLING: ignored
+   * `foo/b` beside snapshot-tracked `foo/a` shares a directory the checkout
+   * merely populates, and survives byte-identically.
+   *
+   * A TRAILING SLASH is git spelling a directory it will not descend into — an
+   * ignored embedded repository — and it is enumerated under its slash-stripped
+   * name, through shapes 1 and 2 only. Measured: such a directory is destroyed
+   * whole, `.git` included, when the snapshot puts a file at or above its path,
+   * and is merged into with its payload and `.git` intact when the snapshot only
+   * holds paths BENEATH it. Shape 3 is a file-only obstruction for that reason.
+   * Its `fingerprintBeforeRestore` is `null`, since {@link fingerprintFile}
+   * cannot read a directory — the correct before-state for a path that held no
+   * readable file bytes to begin with.
    *
    * "Untracked" there is an INDEX fact, not a disk fact: `ls-files -o` lists a
    * path only while it is absent from the current index, so a path that is both
@@ -3390,6 +3464,24 @@ export class TurnSnapshotService {
    * the run committed, whose overwrite is the ordinary restore, not a
    * user-data collision. A fixture reproducing the collision therefore has to
    * `git rm --cached` the path; content-only ignoring is not enough.
+   *
+   * `160000` entries are filtered out of the tracked set, so they neither
+   * collide nor contribute the ancestor directories shape 3 tests. This leg
+   * populates NOTHING at a gitlink path — under `submodule.recurse=false` it
+   * materializes an empty directory and stops — so that path's disposition is
+   * the divergence enumeration's to report, below, and running it through both
+   * would say one path twice under two different contracts.
+   *
+   * Making room for that empty directory is a measured RESIDUAL, recorded here
+   * rather than enumerated: it DOES unlink an ignored file holding the gitlink's
+   * own path, or an ancestor directory of it (both measured on git 2.50.1 —
+   * ignored file `sub` against a snapshot gitlink at `sub`, and against one at
+   * `sub/mod`), and no shape above sees it, because the entry that displaces the
+   * file is exactly the one filtered out. The operator's signal there is
+   * `divergentGitlinks` naming the gitlink path, per this file's gitlink-boundary
+   * note. Ignored content merely BENEATH a materialized gitlink directory is left
+   * alone (measured) — the checkout's side of the same `submodule.recurse=false`
+   * boundary the delete pass meets from `ls-files -o`.
    *
    * Gitlink divergence is per `160000` entry in the snapshot tree: the working
    * copy's embedded `HEAD` is resolved and compared, and anything that is not an
@@ -3412,6 +3504,15 @@ export class TurnSnapshotService {
     const snapshotTrackedPaths = new Set<string>(
       treeEntries.filter((entry) => entry.mode !== GITLINK_TREE_MODE).map((entry) => entry.path),
     );
+    // Shape 3's side of the test, derived once instead of per ignored path.
+    // Membership means "the checkout has to have a directory here", which is
+    // exactly what an ignored FILE sitting there obstructs.
+    const snapshotRequiredDirectories = new Set<string>();
+    for (const trackedPath of snapshotTrackedPaths) {
+      for (const ancestor of collectProperAncestorDirectories(trackedPath)) {
+        snapshotRequiredDirectories.add(ancestor);
+      }
+    }
 
     const ignoredListing: Buffer = (
       await this.#runGit(
@@ -3421,8 +3522,16 @@ export class TurnSnapshotService {
     ).stdout;
 
     const collisions: ProspectiveCollision[] = [];
-    for (const path of splitNulTerminatedListing(ignoredListing)) {
-      if (!snapshotTrackedPaths.has(path)) {
+    for (const entry of splitNulTerminatedListing(ignoredListing)) {
+      const isDirectoryEntry: boolean = entry.endsWith("/");
+      const path: string = isDirectoryEntry ? entry.slice(0, -1) : entry;
+      const obstructed: boolean =
+        snapshotTrackedPaths.has(path) ||
+        collectProperAncestorDirectories(path).some((ancestor) =>
+          snapshotTrackedPaths.has(ancestor),
+        ) ||
+        (!isDirectoryEntry && snapshotRequiredDirectories.has(path));
+      if (!obstructed) {
         continue;
       }
       collisions.push({
@@ -4224,11 +4333,18 @@ export function registerTurnSnapshotRetentionSweep(
     );
   }
 
-  // Guarded in turn. This is called from inside a `.catch` handler, so a reporter
-  // that threw would reject the promise that handler settles — with no further
-  // handler attached, which is the unhandled rejection this whole wrapper exists
-  // to prevent, arriving by the one path a `try` around the sweep would miss. The
-  // same double-guard reasoning as the turn-snapshot service's own `#emit`.
+  // Guarded in turn, on BOTH halves, because this is called from inside a `.catch`
+  // handler: whatever escapes here rejects the promise that handler settles, with
+  // no further handler attached — the unhandled rejection this whole wrapper
+  // exists to prevent, arriving by the one path a `try` around the sweep would
+  // miss. A synchronous throw is the `catch` below. An ASYNCHRONOUS rejection is
+  // the attached `.catch`, and it needs one because the seam is typed
+  // `(reason: unknown) => void`: void-return assignability accepts an `async`
+  // reporter, whose returned promise the surrounding `try` cannot see, let alone
+  // contain. `Promise.resolve(…)` wraps the call so a reporter returning nothing
+  // — which the type invites and erased types permit — does not make `.catch` a
+  // TypeError. This is the turn-snapshot service's own `#emit` idiom, for the
+  // same reason and in the same order.
   const reportSweepFailure = (reason: unknown): void => {
     try {
       const report: ((reason: unknown) => void) | undefined = registration.reportSweepFailure;
@@ -4236,7 +4352,9 @@ export function registerTurnSnapshotRetentionSweep(
         console.warn("turn-snapshot retention sweep failed", reason);
         return;
       }
-      report(reason);
+      void Promise.resolve(report(reason)).catch(() => {
+        /* an async reporter's rejection must not become the failure it was reporting */
+      });
     } catch {
       /* a reporter that throws must not become the failure it was reporting */
     }
