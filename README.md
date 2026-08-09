@@ -259,7 +259,7 @@ Each tier's prerequisites are the prior tier's completion. See [`docs/architectu
 
 ## Project Status
 
-**Phase: Tier 2-4 code execution underway; plan-readiness audits complete through Tier 7 — except the re-opened Preconditions deltas: Plan-014's relay scope growth (the 2026-07-08 growth re-opened its checkbox: Tasks 7–10 await the readiness-audit delta; Tasks 1–6 stay covered) and the 2026-08-03 V1 product-vision reconciliation flips on Plans 002 / 003 / 004 / 008 / 012 / 016 — Plan-004 (with Spec-004) restored `approved` 2026-08-08 by its cross-user run-control authorization targeted readiness-audit delta (#299 / NS-49); the other five each await theirs.**
+**Phase: Tier 2-4 code execution underway; plan-readiness audits complete through Tier 7 — except the re-opened Preconditions deltas: Plan-014's relay scope growth (the 2026-07-08 growth re-opened its checkbox: Tasks 7–10 await the readiness-audit delta; Tasks 1–6 stay covered), the 2026-08-03 V1 product-vision reconciliation flips on Plans 002 / 003 / 004 / 008 / 012 / 016 — Plan-004 (with Spec-004) restored `approved` 2026-08-08 by its cross-user run-control authorization targeted readiness-audit delta (#299 / NS-49); the other five each await theirs — and the 2026-08-09 sparse-root capture-closure flip on Plan-010 (with Spec-010): the new Phase 6 / T6.1 awaits its restoring targeted readiness-audit delta (PR #307).**
 
 Current documentation corpus:
 
