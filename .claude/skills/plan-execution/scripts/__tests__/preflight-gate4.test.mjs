@@ -3488,7 +3488,10 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // I-010-19 (daemon half) to Plan-010's T2.5 `Verifies invariant:` row,
     // aligning it with the row's own Tests prose — one more bold resolved
     // reference.
-    bold: { resolved: 588, noneArm: 106, parentResolved: 0 },
+    // 588/59 -> 589/59 (2026-08-09, PR #307): the sparse-root capture-closure
+    // amendment added Plan-010 Phase 6 / T6.1 with its `Verifies invariant:`
+    // I-010-24 row — one more bold resolved reference.
+    bold: { resolved: 589, noneArm: 106, parentResolved: 0 },
     legacy: { resolved: 59, noneArm: 3, parentResolved: 1 },
   });
 });
