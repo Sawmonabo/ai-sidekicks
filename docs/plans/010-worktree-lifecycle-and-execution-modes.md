@@ -637,6 +637,45 @@ shipped:
       obligation (plan Phase 3 Goal); I-010-19 and I-010-20 ride as their daemon halves per the
       T2.5 row (canonical completion stays with Phase 4's views per the invariants task column).
       NS-48 auto-created in the housekeeping PR.
+  - phase: 5
+    task: [T5.1, T5.2, T5.3]
+    pr: 303
+    sha: 5bcf40c
+    merged_at: 2026-08-09
+    files:
+      - packages/runtime-daemon/src/bootstrap/index.ts
+      - packages/runtime-daemon/src/git/__tests__/turn-snapshot-service.test.ts
+      - packages/runtime-daemon/src/git/turn-snapshot-service.ts
+    verifies_invariant: [I-010-21, I-010-22, I-010-23]
+    spec_coverage:
+      [
+        "Spec-010 §Turn-Boundary Snapshots (capture temp-index recipe, epoch-namespaced create-only refs, writable-modes-only applicability, untracked-embedded-repo gitlink normalization and single-base-OID resolution, both folded into the capture bullet by the 2026-07-20 errata batch)",
+        "Spec-004 §Required Behavior (execution-epoch definition)",
+        "Spec-010 §Turn-Boundary Snapshots (restore two-step plus index close, fail-closed HEAD precondition, fixpoint untracked-delete, collision-overwrite enumeration, submodule gitlink boundary, lineage-walk target resolution with no-fallthrough refusal; captured-embedded-repo gitlink survives the untracked-delete pass by construction and an absent gitlink materializes as an enumerated empty directory; checkout-conversion host-config neutralization and the partial-restore enumerations, both folded into the restore bullet by the 2026-07-20 errata batch)",
+        "Spec-004 §Required Behavior (non-mutating pre-dispatch validation, then bound restore under exclusive execution-root tenancy)",
+        "Spec-010 §Turn-Boundary Snapshots (retention prune on window close - window as daemon config, the service owns the mechanism absent a run-retention owner; ephemeral-clone-disposal shares the clone lifecycle, post-disposal rollback conversation-only)",
+      ]
+    notes: |
+      Full-phase single-PR ship (T5.1-T5.3) through /plan-execution: per-task three-reviewer rounds,
+      a PR-scope final round, and four external codex rounds. Twelve codex findings fixed - among
+      them the replace-ref pin class (-c core.useReplaceRefs=false on the five OID-interpretation
+      legs), skipped-embedded-repository restore preservation via the sorted-JSON
+      Skipped-Embedded-Repositories snapshot-commit trailer (written only when non-empty; restore
+      reads it fail-closed and exempts recorded paths from the untracked-delete fixpoint),
+      segment-boundary collision enumeration, the core.eol/core.safecrlf conversion pins, and
+      two-sided update-ref --no-deref symref hardening. One finding disputed with rationale (the
+      bootstrap wiring seam is the sanctioned single wiring call), one root-caused and recorded as
+      a scoped residual (sparse-cone capture loss; closure adjudication parked for Plan-010), one
+      reversed by measurement (core.fileMode deliberately honored). A CI follow-up pinned the
+      git-2.54 refs-transaction refusal over dangling symrefs as a version-split account beside
+      local 2.50.1. Final scoped suite 138 tests; 59-arm mutation battery all KILLED against the
+      merged bytes with byte-identical source restore. The restore result unions
+      (TurnSnapshotResolution / TurnSnapshotRestoreResult and their enumeration fields) are frozen
+      wire identity for Plan-004 T3.13's rollback consumer; the resolve-freezes-the-OID
+      prune-restore interleave contract and the ref-store BOUNDARY scoping are recorded in the
+      service header, with the governance errata riding this PR's second commit. The retention
+      sweep handle is exported for Plan-007's future composition root (interval unref()ed; dispose
+      un-wired by design, the recorded residual).
 ```
 
 ### Notes
