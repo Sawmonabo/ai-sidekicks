@@ -452,7 +452,11 @@ preconditions:
 <!-- prettier-ignore -->
 ```yaml
 preconditions:
-  # Machine-enforced form of the boxes above (preflight Gate 5).
+  # Machine-enforced subset (preflight Gate 5); the restore box above has no
+  # Gate-5 entry vocabulary (no entry type reads a spec/plan Status row) and
+  # rides the gate's checkbox leg instead — any unchecked box halts — with
+  # the flip window additionally held plan-wide by Gate 2 (re-opened audit
+  # box) and Gate 7 (Status `review` + re-opened paired-spec box).
   - { type: plan_phase, plan: 010, phase: 5, status: merged }
 ```
 
