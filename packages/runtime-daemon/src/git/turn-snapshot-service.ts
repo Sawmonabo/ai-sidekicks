@@ -1142,16 +1142,26 @@ export type TurnSnapshotGitRunner = (
  * rather than through an injected seam — which is the stronger test anyway,
  * since the protocol being honoured is git's and not this module's.
  *
- * Paths are `string`, deliberately and with a known cost. A path name that is
- * not valid UTF-8 reaches these verbs with replacement characters, so the
- * removal silently finds nothing — the complete fix is Buffer-typed paths
- * throughout, which is not taken while this seam stays three narrow mutation
- * verbs whose every implementor (the suite's doubles included) would have to
- * carry the wider type for a case none of them exercises. The delete pass
- * compensates where it matters, by detecting a listing that did not change
- * instead of trusting that its removals removed (see
- * {@link splitNulTerminatedListing} for the same boundary on the capture side,
- * where the listing never gets decoded at all).
+ * Paths are `string`, deliberately and with a known cost, and the cost is not the
+ * one it first looks like. A path name that is not valid UTF-8 reaches these
+ * verbs with replacement characters, and the hazard is NOT that the removal
+ * silently finds nothing: U+FFFD is a character a filename may legitimately
+ * contain, so the mangled spelling can address a DIFFERENT path that really
+ * exists — including one the caller adjudicated as protected. The complete fix is
+ * Buffer-typed paths throughout, which is not taken while this seam stays three
+ * narrow mutation verbs whose every implementor (the suite's doubles included)
+ * would have to carry the wider type for a case none of them exercises.
+ *
+ * What keeps a lossy spelling from ever reaching these verbs is the delete pass's
+ * PRE-MUTATION ROUND-TRIP GUARD: the one leg that derives paths for them from a
+ * git listing refuses a whole pass holding any entry whose decoded text does not
+ * re-encode to the bytes git emitted, before any removal in that pass runs (see
+ * {@link listingEntryTextRoundTripsToItsBytes}; the other `removePath` caller
+ * addresses this module's own scratch-index path). Behind that, the same pass
+ * still detects a listing that did not change instead of trusting that its
+ * removals removed, which is what covers the stalls a spelling check cannot see
+ * (see {@link splitNulTerminatedListing} for the same boundary on the capture
+ * side, where the listing never gets decoded at all).
  */
 export interface TurnSnapshotFilesystem {
   createDirectory(path: string): Promise<void>;
@@ -3086,10 +3096,12 @@ function toRawGitDate(isoInstant: string): string | null {
  * paths compare equal and cost a file. The delete pass is the instructive one: it
  * still needs a path STRING because the filesystem seam is string-typed, so it
  * keys its exemption and its no-progress check on the bytes and hands only the
- * removal the decoded text. A mangled decode there makes the removal a silent
- * no-op, which is why that pass detects a listing that did not change rather than
- * trusting its own deletions — see {@link TurnSnapshotFilesystem} for why the seam
- * is not Buffer-typed instead.
+ * removal the decoded text. A mangled decode there does not merely make the
+ * removal a no-op — it can address a different real path — so that pass refuses
+ * any entry whose text does not re-encode to its own bytes before removing
+ * anything ({@link listingEntryTextRoundTripsToItsBytes}), and detects a listing
+ * that did not change rather than trusting its own deletions behind it — see
+ * {@link TurnSnapshotFilesystem} for why the seam is not Buffer-typed instead.
  */
 function splitNulTerminatedListing(listing: Buffer): readonly string[] {
   const entries: string[] = [];
@@ -3207,6 +3219,34 @@ interface DeletableListingEntry {
   readonly key: string;
   /** The decoded entry, for {@link TurnSnapshotFilesystem} and for humans. */
   readonly text: string;
+}
+
+/**
+ * Whether an entry's decoded {@link DeletableListingEntry.text} re-encodes to the
+ * exact bytes its {@link DeletableListingEntry.key} carries — the delete pass's
+ * PRE-MUTATION guard, and what makes a string-typed removal seam safe at all.
+ *
+ * The two halves of that record speak different alphabets, and the gap between
+ * them is ADDRESSABLE. The exemptions adjudicate BYTES; the removal hands
+ * {@link TurnSnapshotFilesystem} the decoded text. When the decode was lossy that
+ * text is not a mangled spelling of nothing — U+FFFD is a character a filename may
+ * perfectly well contain, so it is a REAL, DIFFERENT name, and it can be the name
+ * of a path the same pass just decided it must not touch. The concrete shape: a
+ * recorded boundary FILE whose valid-UTF-8 name holds a literal U+FFFD (`EF BF
+ * BD`, which every target filesystem accepts) standing beside a turn-created path
+ * carrying a lone `0xFF` where those three bytes are. The two share no bytes, so
+ * the byte-keyed exemption correctly protects the first and marks the second
+ * deletable — and the second's decoded text addresses the FIRST. Removing it
+ * destroys the protected file, at exit 0, through the very keying that got the
+ * adjudication right.
+ *
+ * `latin1` back to bytes is exact ({@link listingEntryKey}) and a `utf8`
+ * re-encoding is exact for every name that really is valid UTF-8, so this test
+ * cannot fire on ordinary content — which is what lets the caller treat a failure
+ * as evidence rather than as noise.
+ */
+function listingEntryTextRoundTripsToItsBytes(entry: DeletableListingEntry): boolean {
+  return Buffer.from(entry.text, "utf8").equals(Buffer.from(entry.key, "latin1"));
 }
 
 /** One `<oid> <refname>` line of the retention leg's `for-each-ref` listing. */
@@ -3608,12 +3648,15 @@ function isPreservedListingEntry(entry: string, preservedPaths: readonly string[
  * they cannot drift apart. See {@link SPARSE_BOUNDARY_PATHS_TRAILER} for why the
  * kinds are distinguishable at all.
  *
- * A SET for the file kind, whose consumers test exact membership per listing
- * entry on every delete pass; an ARRAY for the directory kind, whose consumer has
- * to scan, exactly as {@link isPreservedListingEntry}'s does and for the same
- * reason. Directory names are stored SLASH-STRIPPED — the slash did its work at
- * classification time and every comparison downstream is against a stripped
- * listing path.
+ * A SET for BOTH kinds, and for the same reason on each: every consumer asks
+ * MEMBERSHIP, once per candidate path, and it asks it on the hot dimensions —
+ * every `ls-files -o` entry on every delete pass, every cached index entry at the
+ * pre-drop. The file kind asks it of the candidate itself; the directory kind
+ * asks it of the candidate's own proper ancestors
+ * ({@link isWithinSparseBoundaryDirectory}), which is what lets that kind be a
+ * Set too rather than the list a `startsWith` scan would need. Directory names
+ * are stored SLASH-STRIPPED — the slash did its work at classification time and
+ * every comparison downstream is against a stripped listing path.
  *
  * Both members hold BYTE KEYS ({@link listingEntryKey} spelling), never text,
  * because every one of this type's consumers is a membership test and a
@@ -3624,13 +3667,13 @@ function isPreservedListingEntry(entry: string, preservedPaths: readonly string[
  */
 interface SparseBoundarySet {
   readonly filePaths: ReadonlySet<string>;
-  readonly directoryPaths: readonly string[];
+  readonly directoryPaths: ReadonlySet<string>;
 }
 
 /** The boundary set of a snapshot that recorded none. */
 const EMPTY_SPARSE_BOUNDARY_SET: SparseBoundarySet = {
   filePaths: new Set<string>(),
-  directoryPaths: [],
+  directoryPaths: new Set<string>(),
 };
 
 /**
@@ -3657,12 +3700,12 @@ const EMPTY_SPARSE_BOUNDARY_SET: SparseBoundarySet = {
  */
 function classifySparseBoundaryPaths(recordedPaths: readonly string[]): SparseBoundarySet {
   const filePaths = new Set<string>();
-  const directoryPaths: string[] = [];
+  const directoryPaths = new Set<string>();
   for (const recordedPath of recordedPaths) {
     if (recordedPath.endsWith("/")) {
       const directoryPath: string = recordedPath.slice(0, -1);
       if (directoryPath.length > 0) {
-        directoryPaths.push(directoryPath);
+        directoryPaths.add(directoryPath);
       }
       continue;
     }
@@ -3759,14 +3802,42 @@ function isSparseBoundaryListingEntry(entryKey: string, boundarySet: SparseBound
  * legs are the same statement about one path made to two mechanisms ("the restore
  * has no authority to destroy this"), and a width that drifted between them would
  * mean the pre-drop unstaging something the delete pass then removes, or the
- * reverse. The `/` in the prefix test is the segment boundary
- * {@link collectProperAncestorDirectories} argues for from the other side:
- * recorded `nested` must not reach `nested-copy/a.txt`.
+ * reverse.
+ *
+ * ASKED OF THE CANDIDATE, never of the recorded set, and that is a cost property
+ * rather than a taste: equality against the recorded directories, then one
+ * membership test per PROPER ANCESTOR of the candidate. The scan this replaces —
+ * a `startsWith` against every recorded directory — cost the PRODUCT of two
+ * dimensions this module bounds neither of, and both callers run it on the hot
+ * one: the delete exemption over every `ls-files -o` entry on every pass, the
+ * pre-drop over every cached index entry. The recorded set's size no longer
+ * enters the per-candidate cost at all, which now tracks the candidate's path
+ * DEPTH — the shared width itself is unchanged, and the equality case is still
+ * part of it (see {@link isSparseBoundaryIndexPath} for what rests on that).
+ *
+ * THE TWO SPELLINGS ARE THE SAME PREDICATE, with no side condition on the
+ * recorded name. The old test — `pathKey` starting with a recorded
+ * `directoryPath` plus `/` — holds exactly when `pathKey` is `directoryPath`, a
+ * `/`, and a remainder. Splitting and re-joining on `/` are exact inverses, so
+ * that is exactly the case where SOME PROPER PREFIX of `pathKey`'s segments
+ * re-joins to `directoryPath` — which is what
+ * {@link collectProperAncestorDirectories} enumerates, and the equality case
+ * covers the remaining one where the whole path does. The `/` the old prefix test
+ * carried is the segment boundary that helper argues for from the other side, and
+ * it survives the rewrite for free: recorded `nested` still must not reach
+ * `nested-copy/a.txt`, because `nested-copy` is that path's ancestor and `nested`
+ * is not.
  */
 function isWithinSparseBoundaryDirectory(pathKey: string, boundarySet: SparseBoundarySet): boolean {
-  return boundarySet.directoryPaths.some(
-    (directoryPath) => pathKey === directoryPath || pathKey.startsWith(`${directoryPath}/`),
-  );
+  if (boundarySet.directoryPaths.has(pathKey)) {
+    return true;
+  }
+  for (const ancestor of collectProperAncestorDirectories(pathKey)) {
+    if (boundarySet.directoryPaths.has(ancestor)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -6256,10 +6327,9 @@ export class TurnSnapshotService {
     boundarySet: SparseBoundarySet,
     treeEntries: readonly SnapshotTreeEntry[],
   ): Promise<readonly BoundaryObstruction[]> {
-    if (boundarySet.filePaths.size === 0 && boundarySet.directoryPaths.length === 0) {
+    if (boundarySet.filePaths.size === 0 && boundarySet.directoryPaths.size === 0) {
       return [];
     }
-    const boundaryDirectoryPaths = new Set<string>(boundarySet.directoryPaths);
 
     // Shape 1 and shape 2 candidates, by path shape alone — no matcher, no disk.
     // Kept apart rather than in one map keyed by path, because a forged trailer
@@ -6280,7 +6350,7 @@ export class TurnSnapshotService {
       // `.git` untouched). Only a blob displaces.
       if (entry.mode !== GITLINK_TREE_MODE) {
         blobEntriesByPathKey.set(entry.pathKey, entry);
-        if (boundaryDirectoryPaths.has(entry.pathKey)) {
+        if (boundarySet.directoryPaths.has(entry.pathKey)) {
           appendToPathIndex(directoryBoundaryDisplacers, entry.pathKey, entry);
         }
       }
@@ -6303,7 +6373,7 @@ export class TurnSnapshotService {
           fileBoundaryDisplacers,
         ],
       ),
-      ...boundarySet.directoryPaths.map(
+      ...[...boundarySet.directoryPaths].map(
         (boundaryPathKey): readonly [string, Map<string, SnapshotTreeEntry[]>] => [
           boundaryPathKey,
           directoryBoundaryDisplacers,
@@ -6558,7 +6628,7 @@ export class TurnSnapshotService {
     boundarySet: SparseBoundarySet,
     treeEntries: readonly SnapshotTreeEntry[],
   ): Promise<readonly Buffer[]> {
-    if (boundarySet.filePaths.size === 0 && boundarySet.directoryPaths.length === 0) {
+    if (boundarySet.filePaths.size === 0 && boundarySet.directoryPaths.size === 0) {
       return [];
     }
     // Every tree path, gitlinks INCLUDED: a gitlink is snapshot-recorded too — it
@@ -6711,15 +6781,24 @@ export class TurnSnapshotService {
    *
    *   * NO PROGRESS — this pass's deletable set is byte-identical to the previous
    *     pass's, so the deletions did not delete and repeating is pointless. It
-   *     fails immediately, naming a stuck path. The concrete case is a path name
-   *     that is not valid UTF-8: the listing is split on the BUFFER and every
-   *     DECISION here keeps those bytes, but the entry is decoded before it
-   *     reaches {@link TurnSnapshotFilesystem}, so such a name arrives with
-   *     replacement characters, `rm` finds nothing there, `force` swallows it, and
-   *     git lists the same path forever. The complete fix is Buffer-typed paths
-   *     through the seam, deliberately not taken while that seam stays
-   *     mutation-only and three-verb — the capture leg keeps the same discipline
-   *     and the same boundary (see {@link splitNulTerminatedListing}). What is NOT
+   *     fails immediately, naming a stuck path. Its former concrete case is no
+   *     longer one of its shapes: a path name that is not valid UTF-8 used to
+   *     arrive at {@link TurnSnapshotFilesystem} with replacement characters, `rm`
+   *     find nothing there, `force` swallow it, and git list the same path
+   *     forever — that entry is now REFUSED on the first pass that lists it as
+   *     deletable (pass one for an entry on disk at the checkout; later for one a
+   *     turn-created `.gitignore` shielded until an earlier pass removed it),
+   *     before any removal in THAT pass runs, by the round-trip guard below, which
+   *     also explains why such a spelling is destructive rather than merely inert
+   *     ({@link listingEntryTextRoundTripsToItsBytes}). The complete fix remains
+   *     Buffer-typed paths through the seam, deliberately not taken while that
+   *     seam stays mutation-only and three-verb — the capture leg keeps the same
+   *     discipline and the same boundary (see {@link splitNulTerminatedListing}).
+   *     What this check still covers is every OTHER stall: a seam that reports a
+   *     removal it did not perform (the shape the suite drives), a path something
+   *     outside this sequence recreates between listings, and whatever a future
+   *     seam invents — all of them invisible to a pass that trusted its own
+   *     deletions, and none of them detectable at the entry. What is NOT
    *     acceptable is grinding through every remaining pass — each one a full
    *     worktree walk under the caller's exclusive hold — before failing.
    *   * THE CEILING — {@link UNTRACKED_DELETE_PASS_LIMIT} passes each of which
@@ -6774,13 +6853,33 @@ export class TurnSnapshotService {
    * NAMED RESIDUAL of the boundary exemption's byte-exactness, in the
    * fail-CLOSED direction: a turn-created path whose bytes are not valid UTF-8
    * used to alias onto a recorded boundary path once both decoded to U+FFFD and
-   * was exempted by accident. It is now correctly deletable — and the removal
-   * above cannot delete it, for the seam reason the no-progress bullet states, so
-   * this pass stalls and the restore reports `partial_restore` at
-   * `delete-untracked`. A restore that used to succeed by protecting the wrong
-   * thing now fails honestly instead, which is the right side of that trade; the
-   * shape is unreachable on a filesystem that rejects non-UTF-8 names (APFS does)
-   * and closes entirely with a Buffer-typed seam.
+   * was exempted by accident. It is now correctly deletable — and it still cannot
+   * be removed, because its decoded spelling is not a name this pass may hand a
+   * seam that addresses paths by string. So the pass REFUSES it BEFORE any
+   * removal in that pass runs, and the restore reports `partial_restore` at
+   * `delete-untracked` with the worktree exactly as the checkout left it. A
+   * restore that used to succeed by protecting the wrong thing now fails honestly
+   * instead, which is the right side of that trade.
+   *
+   * THAT REFUSAL IS ALSO WHAT CLOSES the same aliasing's DESTRUCTIVE corner,
+   * which a stall detected one pass after the fact could not. The decoded
+   * spelling of an un-decodable path is a real name, and it can be the recorded
+   * boundary file's own: a boundary file legitimately named with a literal U+FFFD
+   * beside a turn-created path carrying a lone `0xFF` in the same position. The
+   * exemption adjudicates those two correctly on bytes — protecting one, marking
+   * the other deletable — and the removal then addressed the PROTECTED file with
+   * the deletable one's text and deleted it at exit 0. Nothing is removed in a
+   * pass holding such an entry, so `removePath` is never handed a spelling that
+   * could address a path other than the one adjudicated deletable; the corner is
+   * closed, not merely stalled into.
+   *
+   * SCOPED to what this pass decides, which is the honest form of that claim: the
+   * guard runs on the DELETABLE subset, so an entry the exemptions already
+   * protected never reaches it. {@link isPreservedListingEntry} compares DECODED
+   * text and keeps its own aliasing residual, stated there — and that one spares a
+   * path from deletion rather than destroying one, which is the direction this
+   * module accepts. Both shapes are unreachable on a filesystem that rejects
+   * non-UTF-8 names (APFS does) and close entirely with a Buffer-typed seam.
    */
   async #deleteUntrackedToFixpoint(
     executionRoot: string,
@@ -6827,6 +6926,26 @@ export class TurnSnapshotService {
         );
       if (deletable.length === 0) {
         return;
+      }
+      // THE PASS'S OWN PRECONDITION, checked before anything in it is removed and
+      // ahead of the no-progress fingerprint: every entry this pass is about to
+      // delete must be ADDRESSABLE at the spelling the seam takes, or none of them
+      // is removed. An entry whose decoded text does not re-encode to its bytes
+      // names a different path than the one adjudicated deletable — possibly one
+      // this same pass exempted — so the removal loop below can only run once no
+      // such entry is present. Whole-pass rather than per-entry, and the skip is
+      // the tempting wrong answer: the entry can never leave the listing, so the
+      // pass is going to fail at the no-progress check one full worktree walk
+      // later — after this pass's other removals already ran. Refusing here keeps
+      // the failure pre-mutation for the pass that detected it, which is the same
+      // trade the no-progress check itself makes against the ceiling.
+      const unaddressableEntry: DeletableListingEntry | undefined = deletable.find(
+        (entry) => !listingEntryTextRoundTripsToItsBytes(entry),
+      );
+      if (unaddressableEntry !== undefined) {
+        throw new Error(
+          `turn-snapshot untracked-delete refused a path whose name is not valid UTF-8 at ${unaddressableEntry.text}`,
+        );
       }
       // Fingerprinted on the KEYS: two passes that listed byte-different paths
       // which merely decode alike are progress, and a decoded fingerprint would

@@ -268,15 +268,37 @@
 //         keeps it. Scoped accordingly: that arm asserts the TRAILER and the
 //         staged tree, and makes no claim about the delete pass or the restore.
 //
-//     The RESIDUAL that survives both, stated rather than implied: a surviving
-//     non-UTF-8 path is RECORDED in its U+FFFD-replaced spelling, because the
-//     trailer is JSON. Two distinct un-decodable survivors would therefore collapse
-//     to one trailer entry and the restore would exempt both — an aliasing that can
-//     only spare a path from deletion, never expose one, which is the opposite
-//     direction from the pre-repair subtraction's. The RESTORE side scores
-//     candidates it rebuilt from already-decoded tree paths, so it makes no
-//     byte-exactness claim to cover: both sides of its comparison are decoded
-//     strings out of one `ls-tree`.
+//     THE RESTORE SIDE carries the same keying, and both of its destructive legs
+//     are driven against the aliasing that used to defeat them. One fixture pair
+//     throughout: a boundary FILE whose valid-UTF-8 name is a literal U+FFFD (`EF
+//     BF BD`, really on disk, really recorded as those bytes) beside a
+//     byte-distinct lone `0xFF` in the same position, which decodes to the same
+//     string. Synthesized on the injected side only, for the reason the SUBTRACTION
+//     arm states.
+//
+//       - The PRE-DROP arm puts the alias in the restore's `ls-tree`, where a
+//         `utf8`-keyed exclusion sees the snapshot tree already holding the
+//         boundary path, skips the drop, and lets `read-tree --reset -u` unlink the
+//         file's only on-disk copy.
+//       - The DELETE-PASS arm puts it in that pass's own `ls-files -o`, which is
+//         the leg where the exemption is right and the REMOVAL is wrong: the
+//         adjudication is byte-keyed and correct, and the string-typed seam is then
+//         handed the deletable entry's decoded text, which addresses the PROTECTED
+//         file. The refusal is whole-pass and pre-mutation, so the arm pins an
+//         EMPTY removal log and an ordinary turn-created file still on disk beside
+//         the intact boundary file — a per-entry skip leaves that boundary file
+//         intact too and is caught by exactly those two.
+//
+//     The RESIDUAL that survives all of them, stated rather than implied, and it is
+//     no longer the sparse trailer's: that trailer records `latin1` byte keys and
+//     its JSON round trip is asserted on BYTES. It belongs to the SKIPPED-EMBEDDED-
+//     REPOSITORIES trailer, which holds DECODED paths because the same values reach
+//     the capture result — two un-decodable nested repositories collapse to one
+//     entry there and the delete pass exempts both. That aliasing can only spare a
+//     path from deletion, never expose one, which is the direction this module
+//     accepts. The restore's matcher candidates make no byte-exactness claim to
+//     cover either: it rebuilds them from already-decoded tree paths, so both sides
+//     of that comparison are decoded strings out of one `ls-tree`.
 //
 // Verifies invariant:
 //
@@ -293,7 +315,11 @@
 //     both floors: on the capture side by injecting the below-2.41
 //     unknown-subcommand failure through the git seam (never by requiring an old
 //     binary), and on the restore side at `derive-enumerations`, pre-mutation,
-//     asserted as a byte-identical worktree census.
+//     asserted as a byte-identical worktree census. The DELETE PASS has a
+//     pre-mutation floor of its own and it is driven too: a deletable entry whose
+//     decoded spelling could address some path other than the one adjudicated
+//     deletable refuses the WHOLE pass before any removal in it runs, so
+//     boundary-time content cannot be destroyed through a decode-identical sibling.
 //   * I-010-21 — snapshot refs live only under `refs/sidekicks/runs/…`, never
 //     `refs/heads/`, and are invisible to branch history. Asserted as ground
 //     truth (`for-each-ref refs/heads/` byte-identical across the capture,
@@ -390,9 +416,11 @@
 //
 // Several behaviours are pinned as GIT FACTS this suite established rather than
 // reasoned about, measured on git 2.50.1 unless the item says otherwise: the
-// delete pass's two non-fixpoint exits (the no-progress detection naming its
-// stuck path, and the pass ceiling driven to its exact count by a seam whose
-// removals keep minting new content); `ls-files -o` declining to descend into a
+// delete pass's two BEHAVIOURAL non-fixpoint exits (the no-progress detection
+// naming its stuck path, and the pass ceiling driven to its exact count by a seam
+// whose removals keep minting new content — the third exit, the pre-mutation
+// round-trip refusal, is a check on the listing entry rather than a measured
+// behaviour and is covered above); `ls-files -o` declining to descend into a
 // path the index holds as a `160000` gitlink — so post-boundary content inside a
 // snapshot-gitlink path survives the restore, asserted beside the control that
 // identical content outside it does not; a `run-A/` enumeration pattern not
@@ -475,6 +503,7 @@ import {
   readdirSync,
   realpathSync,
   rmSync,
+  rmdirSync,
   statSync,
   symlinkSync,
   writeFileSync,
@@ -4472,10 +4501,14 @@ describe("TurnSnapshotService.restoreToTurn", () => {
 
     // A seam that REPORTS a deletion it did not perform is the one input the
     // spec's termination argument does not cover — every pass lists the same
-    // file forever. The real-world shape is a path name that is not valid UTF-8:
-    // it reaches the seam mangled, `rm --force` finds nothing and swallows it.
-    // Grinding out the remaining passes would be dozens of full worktree walks
-    // under the caller's exclusive hold, so the identical listing is the signal.
+    // file forever. It is no longer reachable through a path name that is not
+    // valid UTF-8: such an entry is refused by the round-trip guard before any
+    // removal in its pass runs, because that spelling can address a DIFFERENT real
+    // file rather than nothing (the decode-ALIAS arm in the sparse suite drives
+    // it). What is left for this check is every other seam that reports without
+    // removing, and grinding out the remaining passes would be dozens of full
+    // worktree walks under the caller's exclusive hold — so the identical listing
+    // is still the signal.
     const lyingFilesystem: TurnSnapshotFilesystem = {
       createDirectory(path: string): Promise<void> {
         mkdirSync(path, { recursive: true });
@@ -7422,6 +7455,143 @@ describe("TurnSnapshotService sparse execution roots (T6.1, I-010-24)", () => {
     expect(await repository.git(["ls-files", "-c", `cone-out/${boundaryName}`])).toBe("");
     // …and the restore did its actual job meanwhile, which the injected record
     // could have perturbed and did not.
+    expect(readFileSync(join(repository.root, "cone-in", "kept.txt"), "utf8")).toBe("in cone\n");
+  });
+
+  it("REFUSES the delete pass rather than remove a boundary file through a decode ALIAS", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    // THE DESTRUCTIVE CORNER the byte-keyed exemption alone does not close, and the
+    // one the mutation seam's string typing opens. The exemption adjudicates on
+    // BYTES and gets this fixture exactly right — the boundary file is protected,
+    // the byte-distinct turn path is deletable — and then the REMOVAL addresses the
+    // filesystem with the deletable entry's DECODED text. A lossy decode is not a
+    // spelling of nothing: U+FFFD is a character a filename may legitimately hold,
+    // so the mangled name is a real, different path, and here it is the protected
+    // file's own name. Deleting through it destroys boundary-time content at exit
+    // 0, past a correct adjudication.
+    repository.write("cone-in/kept.txt", "in cone\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+    await repository.git(["sparse-checkout", "set", "cone-in"]);
+    mkdirSync(join(repository.root, "cone-out"), { recursive: true });
+    // Valid UTF-8 (`EF BF BD`), a real file on a real disk — the same name the
+    // pre-drop arm above uses, for the same reason: it is the one spelling that
+    // aliases with an un-decodable sibling without either side being synthetic.
+    const boundaryName = "�.txt";
+    repository.write(`cone-out/${boundaryName}`, "existed at the boundary\n");
+
+    const service: TurnSnapshotService = buildService();
+    const captured: TurnSnapshotCaptured = await captureTurn(service);
+    expect(await readSparseBoundaryTrailerBytes(repository, captured.snapshotCommit)).toEqual([
+      Buffer.from(`cone-out/${boundaryName}`, "utf8"),
+    ]);
+
+    // An ORDINARY deletable file beside it, and it is what makes the WHOLE-PASS
+    // refusal measurable rather than merely stated: a per-entry skip — the fix that
+    // looks equivalent — deletes this one and leaves the boundary file intact too.
+    repository.write("cone-out/turn-created.txt", "created by the turn\n");
+
+    // The alias, injected into the DELETE PASS's own listing. Matched on the flags
+    // AFTER the subcommand, the discipline `isBoundaryDropListing` documents: this
+    // pass spells it `-o --exclude-per-directory=.gitignore -z`, where the
+    // collision listing adds `-i` and the capture listing uses `-co`, so the
+    // injection reaches one leg and no other. A lone `0xFF` where the boundary
+    // name's three bytes are: byte-DISTINCT, so the exemption correctly marks it
+    // deletable, and decode-IDENTICAL, so its text names the protected file.
+    // Synthesized for the reason the subtraction arm states — APFS rejects a
+    // non-UTF-8 filename at `creat(2)`, so this listing cannot come off the disk.
+    const aliasListingEntry: Buffer = Buffer.concat([
+      Buffer.from("cone-out/"),
+      Buffer.from([0xff]),
+      Buffer.from(".txt"),
+    ]);
+    let deleteListingInjections = 0;
+    const injectingRunner: TurnSnapshotGitRunner = async (argv, options) => {
+      const result = await runTurnSnapshotGitWithExecFile(argv, options);
+      const lsFilesIndex: number = argv.indexOf("ls-files");
+      if (
+        lsFilesIndex !== -1 &&
+        argv.slice(lsFilesIndex + 1).join(" ") === "-o --exclude-per-directory=.gitignore -z"
+      ) {
+        deleteListingInjections += 1;
+        return {
+          ...result,
+          stdout: Buffer.concat([result.stdout, aliasListingEntry, Buffer.from([0])]),
+        };
+      }
+      return result;
+    };
+    // The PRODUCTION seam, verbatim, with a log of the paths it was ASKED to
+    // remove. Recording rather than stubbing, because the property is that the
+    // refusal happens BEFORE the syscall — a seam that swallowed the removal would
+    // leave the file intact for the wrong reason and read identically on disk.
+    const removalRequests: string[] = [];
+    const recordingFilesystem: TurnSnapshotFilesystem = {
+      createDirectory(path: string): Promise<void> {
+        mkdirSync(path, { recursive: true });
+        return Promise.resolve();
+      },
+      removePath(path: string): Promise<void> {
+        removalRequests.push(path);
+        rmSync(path, { recursive: true, force: true });
+        return Promise.resolve();
+      },
+      removeDirectoryIfEmpty(path: string): Promise<void> {
+        try {
+          rmdirSync(path);
+        } catch (reason: unknown) {
+          const code: string | undefined = (reason as NodeJS.ErrnoException | null)?.code;
+          if (code !== "ENOTEMPTY" && code !== "EEXIST" && code !== "ENOENT") {
+            throw reason;
+          }
+        }
+        return Promise.resolve();
+      },
+    };
+
+    const injecting: TurnSnapshotService = buildService({
+      git: injectingRunner,
+      filesystem: recordingFilesystem,
+    });
+    const partial: TurnSnapshotPartialRestore = expectPartialRestore(
+      await injecting.restoreToTurn(
+        expectResolved(await injecting.resolveRestoreTarget(buildResolveInput())),
+      ),
+    );
+
+    expect(partial.failedStep).toBe("delete-untracked" satisfies TurnSnapshotRestoreStep);
+    // THE LOAD-BEARING ASSERTIONS FIRST, ahead of the message that describes them,
+    // because `failedStep` is not discriminating here: an UNGUARDED pass lands on
+    // `delete-untracked` too, one pass later, through the no-progress check — with
+    // the boundary file already deleted. What separates the two dispositions is
+    // what is on disk, so that is what is asserted before anything else.
+    //
+    // NOTHING was removed — not the alias, and not the ordinary deletable file
+    // beside it. The empty log is what the whole-pass semantics rests on, and it is
+    // the assertion a per-entry skip fails.
+    expect(removalRequests).toEqual([]);
+    // …so the protected file still holds its boundary-time bytes, which is
+    // I-010-24's own sentence about this fixture.
+    expect(readFileSync(join(repository.root, "cone-out", boundaryName), "utf8")).toBe(
+      "existed at the boundary\n",
+    );
+    expect(existsSync(join(repository.root, "cone-out", "turn-created.txt"))).toBe(true);
+    // ONE listing: the first pass refused, so no second walk ran. Also the
+    // non-vacuity control — without it the arm would pass just as happily against a
+    // predicate that matched no invocation and injected nothing.
+    expect(deleteListingInjections).toBe(1);
+    // The DETAIL is what separates this refusal from the no-progress one in the
+    // REPORT, as the on-disk assertions above separate them in fact. The path it
+    // names READS like the boundary file, because that collapse is the thing being
+    // refused.
+    const failure = fixture.diagnostics.find(
+      (diagnostic) => diagnostic.kind === "restore-failed",
+    ) as { readonly detail: string } | undefined;
+    expect(failure?.detail).toBe(
+      `turn-snapshot untracked-delete refused a path whose name is not valid UTF-8 at cone-out/${boundaryName}`,
+    );
+    // The checkout ahead of the delete pass still did its work, so the refusal is a
+    // statement about that pass rather than about a restore that never started.
     expect(readFileSync(join(repository.root, "cone-in", "kept.txt"), "utf8")).toBe("in cone\n");
   });
 
