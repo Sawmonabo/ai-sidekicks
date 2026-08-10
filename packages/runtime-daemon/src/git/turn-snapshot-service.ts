@@ -2431,9 +2431,37 @@ const SKIPPED_EMBEDDED_REPOSITORIES_TRAILER = "Skipped-Embedded-Repositories:";
  *   * JSON-ENCODED and SORTED, for the sibling trailer's reasons exactly — a
  *     newline inside a path would otherwise forge a trailer boundary, and the
  *     message is an OID input so the order has to be stable by construction.
+ *   * LATIN1-ENCODED, which is what makes the JSON above a BYTE record rather
+ *     than a text one, and it is the property the rest of this closure rests on.
+ *     Every path here is a git path, which is BYTES — POSIX admits any byte but
+ *     NUL and `/` — and `latin1` is the one Node encoding that is a bijection on
+ *     arbitrary bytes ({@link listingEntryKey}). A `utf8` trailer collapses every
+ *     invalid sequence onto U+FFFD, so two DISTINCT boundary paths, or a boundary
+ *     path and an unrelated tracked one, are recorded as the same string — and
+ *     every restore-side decision keyed on this set (the delete exemption, the
+ *     index pre-drop and its snapshot-tree exclusion, the obstruction guard) then
+ *     compares them EQUAL. The destructive direction of that aliasing is the
+ *     pre-drop's exclusion firing spuriously, which leaves a boundary path's
+ *     index entry in place for `read-tree --reset -u` to unlink. So the bytes are
+ *     preserved to the trailer and back, and the utf8 decode happens only where a
+ *     HUMAN reads the result (see {@link decodeSparseBoundaryPathKey}).
+ *
+ *     Two consequences worth stating rather than discovering. The JSON is still
+ *     valid and still one line — `JSON.stringify` escapes every code point below
+ *     U+0020, the newline included, and emits U+0080–U+00FF literally, which the
+ *     message's own UTF-8 encoding then carries losslessly. And "SORTED" becomes
+ *     BYTE-LEXICOGRAPHIC by construction: a JS code-unit sort over latin1 strings
+ *     IS a sort over the bytes, so the OID-stability the sort exists for holds on
+ *     the same terms it always did.
  *   * ORDERED AFTER {@link SKIPPED_EMBEDDED_REPOSITORIES_TRAILER} whenever both
  *     are present. Trailer order is message bytes and therefore OID bytes; fixing
  *     it here is what keeps two captures of identical project state identical.
+ *     The sibling trailer stays UTF-8 TEXT, deliberately: its contents reach the
+ *     capture RESULT and a diagnostic, which are wire-facing values a human and
+ *     Plan-004 both read, and its own consumer ({@link isPreservedListingEntry})
+ *     compares them against decoded listing strings. The two trailers therefore
+ *     carry different kinds of string, which {@link readJsonPathArrayTrailer}
+ *     states at the one place both are read.
  *
  * TYPE-PRESERVING: a path git listed with a TRAILING SLASH is recorded WITH it.
  * The slash is not decoration — it is git saying "a directory I did not descend
@@ -2615,6 +2643,12 @@ const USE_REPLACE_REFS_PIN: readonly string[] = ["-c", "core.useReplaceRefs=fals
 // The record terminator every `-z` stream this module writes ends each entry
 // with. See {@link joinNulTerminatedListing}.
 const NUL_TERMINATOR: Buffer = Buffer.from([0]);
+
+// The field separator in a `ls-tree -z` record, as a BYTE — the tree listing is
+// split on the buffer, so the separator has to be one too. See
+// {@link parseSnapshotTreeListing} for why the first occurrence is always the
+// real separator.
+const TAB_SEPARATOR_BYTE: number = 0x09;
 
 // The config key that IS the sparse-root predicate. Spelled once so the
 // host-config table's `READ AS INPUT` row and the detection leg cannot drift
@@ -3031,21 +3065,31 @@ function toRawGitDate(isoInstant: string): string | null {
  * capture leg hands the whole listing Buffer to that child's stdin and never
  * decodes it on the way.
  *
- * The per-entry STRINGS this returns are a different matter, and the two legs
- * that consume them have different exposure. Capture uses them at exactly one
- * site — {@link TurnSnapshotService.#normalizeEmbeddedRepositories}, classifying
- * trailing-slash entries as embedded repositories — where a mangled decode at
- * worst mis-classifies a path git will report again next turn. The sparse
- * partition and the boundary subtraction deliberately do NOT appear on that list
- * and never did after their byte-exactness repair: both run on
- * {@link splitNulTerminatedListingBytes} and {@link listingEntryKey}, because
- * there a mangled decode would make two DIFFERENT out-of-cone paths compare
- * equal and drop one from the trailer. The RESTORE legs use these strings as
- * real paths: the collision derivation (a mangled decode drops the path from an
- * enumeration) and the delete pass (a mangled decode makes the removal a silent
- * no-op). The second is why that pass detects a listing that did not change
- * rather than trusting its own deletions — see {@link TurnSnapshotFilesystem}
- * for why the seam is not Buffer-typed instead.
+ * The per-entry STRINGS this returns are a different matter, and what remains on
+ * that list is now a short and deliberate set: nothing that decides membership
+ * against the byte-keyed sparse boundary set decodes any more. Capture uses these
+ * strings at exactly one site — {@link TurnSnapshotService.#normalizeEmbeddedRepositories},
+ * classifying trailing-slash entries as embedded repositories — where a mangled
+ * decode at worst mis-classifies a path git will report again next turn. Restore
+ * uses them at two: the collision derivation, which tests an ignored-file listing
+ * against the DECODED snapshot-tree paths, and {@link parseCachedStateListing},
+ * whose records the discarded-subset diagnostic matches against those same decoded
+ * paths. Both compare a decode against a decode — like against like — and both
+ * fail by UNDER-reporting a diagnostic rather than by destroying content, which is
+ * what makes the decode tolerable there rather than merely convenient.
+ *
+ * What deliberately does NOT appear on that list: the sparse partition, the
+ * boundary subtraction, {@link parseSnapshotTreeListing}, the boundary index
+ * pre-drop, and the delete pass all read {@link splitNulTerminatedListingBytes}
+ * and key on {@link listingEntryKey}, because each of them compares a listing
+ * entry against the boundary set, where a mangled decode would make two DIFFERENT
+ * paths compare equal and cost a file. The delete pass is the instructive one: it
+ * still needs a path STRING because the filesystem seam is string-typed, so it
+ * keys its exemption and its no-progress check on the bytes and hands only the
+ * removal the decoded text. A mangled decode there makes the removal a silent
+ * no-op, which is why that pass detects a listing that did not change rather than
+ * trusting its own deletions — see {@link TurnSnapshotFilesystem} for why the seam
+ * is not Buffer-typed instead.
  */
 function splitNulTerminatedListing(listing: Buffer): readonly string[] {
   const entries: string[] = [];
@@ -3079,7 +3123,9 @@ function splitNulTerminatedListing(listing: Buffer): readonly string[] {
  * strings would re-encode them: a non-UTF-8 path decodes to replacement
  * characters, fails to match git's own echo of its bytes, and is dropped from
  * the snapshot — a silent loss, in the one leg whose entire purpose is to stop
- * losing what porcelain keeps.
+ * losing what porcelain keeps. {@link parseSnapshotTreeListing} joined that
+ * argument on the restore side: its paths are compared against the boundary set,
+ * and a comparison is only as exact as its least exact side.
  *
  * So the partition runs end to end on bytes. `slice` shares the parent Buffer's
  * memory rather than copying, which is exactly right here: the slices are read,
@@ -3131,10 +3177,36 @@ function joinNulTerminatedListing(entries: readonly Buffer[]): Buffer {
  * two entries share a key exactly when they share their bytes. A `utf8` key
  * collapses every invalid sequence onto U+FFFD, which would make two DIFFERENT
  * un-decodable paths compare equal — and this key decides which paths reach the
- * snapshot. The strings never leave this module and are never rendered.
+ * snapshot.
+ *
+ * These strings USED to be module-local scratch. They are not any more: the same
+ * encoding is what {@link SPARSE_BOUNDARY_PATHS_TRAILER} records, so a key minted
+ * here at capture is the key matched at restore, one commit message and any
+ * number of processes later. That is the property the whole boundary closure
+ * rests on, and it holds because `latin1` is a bijection in BOTH directions —
+ * {@link decodeSparseBoundaryPathKey} is the only sanctioned way back out, and it
+ * exists for RENDERING, never for comparing.
  */
 function listingEntryKey(entry: Buffer): string {
   return entry.toString("latin1");
+}
+
+/**
+ * One `ls-files -o` entry the delete pass may remove, in BOTH representations.
+ *
+ * A record rather than a string because that pass needs both and the choice is
+ * not one a reader should have to make per line: its exemption test and its
+ * no-progress fingerprint are DECISIONS and run on {@link key}, while the removal
+ * itself and the failure message are a syscall and a sentence and run on
+ * {@link text}. Collapsing to one of them silently breaks the other half — a
+ * key-only pass hands `rm` a `latin1` mojibake, a text-only pass lets two
+ * byte-distinct paths borrow each other's exemption.
+ */
+interface DeletableListingEntry {
+  /** {@link listingEntryKey} spelling: the entry's bytes, for every comparison. */
+  readonly key: string;
+  /** The decoded entry, for {@link TurnSnapshotFilesystem} and for humans. */
+  readonly text: string;
 }
 
 /** One `<oid> <refname>` line of the retention leg's `for-each-ref` listing. */
@@ -3232,8 +3304,17 @@ interface SnapshotTreeEntry {
   /** `100644`, `120000`, `160000` (a gitlink), … */
   readonly mode: string;
   readonly objectId: string;
-  /** Worktree-relative, as git emitted it. */
+  /**
+   * Worktree-relative, DECODED — for rendering, for the filesystem seam, and for
+   * the decode-to-decode comparisons that are documented as such. Not for
+   * deciding whether this entry is the same path as a boundary record.
+   */
   readonly path: string;
+  /**
+   * The same path as {@link listingEntryKey} bytes: the form every membership
+   * test uses. Equal keys mean equal bytes; equal {@link path}s do not.
+   */
+  readonly pathKey: string;
 }
 
 /**
@@ -3246,21 +3327,41 @@ interface SnapshotTreeEntry {
  * not carry the expected separators is skipped rather than guessed at — it would
  * be a git that changed its plumbing format, and a fabricated path would
  * silently widen or narrow an enumeration.
+ *
+ * Split on the BUFFER and carry BOTH representations, because this listing sits
+ * on both sides of the byte-exactness line. Its paths are matched against the
+ * byte-keyed boundary set — the pre-drop's snapshot-tree exclusion and the
+ * obstruction guard's ancestor test both do it — and a decoded path there would
+ * make an unrelated tracked file compare EQUAL to a boundary path whose bytes it
+ * merely resembles once U+FFFD has eaten both. The same paths are also rendered
+ * and handed to the filesystem, which needs text. So the record carries `pathKey`
+ * for every decision and `path` for everything a human or a syscall sees, and no
+ * caller has to remember which one it is holding.
+ *
+ * The split point is unambiguous on bytes: the header before it is ASCII and
+ * contains no TAB, so the FIRST 0x09 is the separator even when the path itself
+ * contains one — which `-z` output does not quote.
  */
 function parseSnapshotTreeListing(listing: Buffer): readonly SnapshotTreeEntry[] {
   const entries: SnapshotTreeEntry[] = [];
-  for (const record of splitNulTerminatedListing(listing)) {
-    const tabIndex: number = record.indexOf("\t");
+  for (const record of splitNulTerminatedListingBytes(listing)) {
+    const tabIndex: number = record.indexOf(TAB_SEPARATOR_BYTE);
     if (tabIndex < 0) {
       continue;
     }
-    const fields: readonly string[] = record.slice(0, tabIndex).split(" ");
+    const fields: readonly string[] = record.subarray(0, tabIndex).toString("latin1").split(" ");
     const mode: string | undefined = fields[0];
     const objectId: string | undefined = fields[2];
     if (mode === undefined || objectId === undefined) {
       continue;
     }
-    entries.push({ mode, objectId, path: record.slice(tabIndex + 1) });
+    const pathBytes: Buffer = record.subarray(tabIndex + 1);
+    entries.push({
+      mode,
+      objectId,
+      path: pathBytes.toString("utf8"),
+      pathKey: listingEntryKey(pathBytes),
+    });
   }
   return entries;
 }
@@ -3310,6 +3411,11 @@ function parseCachedStateListing(listing: Buffer): readonly CachedStateEntry[] {
  * sparse trailer is written unconditionally in a sparse root, so no trailer means
  * the capture was not sparse-aware. See {@link readJsonPathArrayTrailer} for the
  * fail-closed rule they share on a malformed value.
+ *
+ * The strings here are TEXT — decoded paths, the same kind the capture RESULT and
+ * the preserved-entry check already carry. That differs from the sibling reader
+ * below, whose strings are byte keys; the divergence and its reason live in
+ * {@link readJsonPathArrayTrailer}.
  */
 function parseSkippedEmbeddedRepositories(commitObject: Buffer): readonly string[] {
   return (
@@ -3342,6 +3448,11 @@ function parseSkippedEmbeddedRepositories(commitObject: Buffer): readonly string
  *
  * Collapsing the two would force one of those to be wrong. Present-but-
  * undecodable throws in both roots, exactly as the sibling does.
+ *
+ * The strings here are BYTE KEYS, not text: `latin1`, exactly as
+ * {@link listingEntryKey} mints them, because every restore-side consumer
+ * compares them against a listing and a comparison is only as exact as its least
+ * exact side. Render one only through {@link decodeSparseBoundaryPathKey}.
  */
 function parseSparseBoundaryPaths(commitObject: Buffer): readonly string[] | null {
   return readJsonPathArrayTrailer(commitObject, SPARSE_BOUNDARY_PATHS_TRAILER, "sparse-boundary");
@@ -3366,6 +3477,20 @@ function parseSparseBoundaryPaths(commitObject: Buffer): readonly string[] | nul
  * possibly `encoding` or a multi-line `gpgsig` whose continuations are
  * space-prefixed), everything after is the message. Scanning the whole object
  * instead would let a header value ending in a trailer key be read as one.
+ *
+ * ONE reader, TWO kinds of string, and this is the place to know it. The commit
+ * object is decoded as UTF-8 here because that is what it IS — the message was
+ * written as UTF-8 bytes — but what the recovered code points MEAN is the
+ * caller's fact, not this function's. {@link parseSkippedEmbeddedRepositories}
+ * gets TEXT: its writer stringified decoded paths, and its consumers render them
+ * and compare them against decoded listing entries.
+ * {@link parseSparseBoundaryPaths} gets BYTE KEYS: its writer stringified
+ * `latin1` keys, so each recovered code point is one path byte and
+ * `Buffer.from(key, "latin1")` is the original path. The asymmetry survives this
+ * function untouched — U+0080–U+00FF make the round trip through
+ * `JSON.stringify` → UTF-8 message bytes → `toString("utf8")` → `JSON.parse`
+ * unchanged, and every code point below U+0020 is escaped, so no path byte can
+ * forge the newline that would end the trailer.
  */
 function readJsonPathArrayTrailer(
   commitObject: Buffer,
@@ -3460,6 +3585,15 @@ function appendToPathIndex<Value>(index: Map<string, Value[]>, path: string, val
  * which is over-protection — content the restore is supposed to delete surviving
  * because of a shared name prefix. The `/` in the test is what keeps the
  * exemption to the recorded subtree.
+ *
+ * TEXT on both sides, unlike {@link isSparseBoundaryListingEntry}, which compares
+ * byte keys. Not an inconsistency: this predicate's recorded list arrives from
+ * {@link parseSkippedEmbeddedRepositories}, whose trailer holds decoded paths
+ * because they also reach the capture RESULT, so decoded-against-decoded is like
+ * against like here. The residual that leaves — two un-decodable nested
+ * repositories aliasing onto one recorded entry — is over-protection of a path
+ * the capture already declared out-of-snapshot, and closing it means changing
+ * that trailer's encoding and the wire-facing values it feeds.
  */
 function isPreservedListingEntry(entry: string, preservedPaths: readonly string[]): boolean {
   const path: string = entry.endsWith("/") ? entry.slice(0, -1) : entry;
@@ -3480,6 +3614,13 @@ function isPreservedListingEntry(entry: string, preservedPaths: readonly string[
  * reason. Directory names are stored SLASH-STRIPPED — the slash did its work at
  * classification time and every comparison downstream is against a stripped
  * listing path.
+ *
+ * Both members hold BYTE KEYS ({@link listingEntryKey} spelling), never text,
+ * because every one of this type's consumers is a membership test and a
+ * membership test on decoded paths answers the wrong question — see
+ * {@link SPARSE_BOUNDARY_PATHS_TRAILER}. The three consumers, all byte-keyed:
+ * the delete exemption ({@link isSparseBoundaryListingEntry}), the index pre-drop
+ * ({@link isSparseBoundaryIndexPath}), and the obstruction guard.
  */
 interface SparseBoundarySet {
   readonly filePaths: ReadonlySet<string>;
@@ -3508,6 +3649,11 @@ const EMPTY_SPARSE_BOUNDARY_SET: SparseBoundarySet = {
  * blast radius available here; refusing would fail a restore over an entry that
  * names nothing. Dropping costs exactly nothing real, because no listing entry
  * can ever equal it.
+ *
+ * `recordedPaths` are BYTE KEYS and the kind test still works on them, because
+ * the trailing slash is 0x2F and no byte of a multi-byte UTF-8 sequence can be
+ * 0x2F — the same property that lets git split its own paths on `/`. So the kind
+ * survives whatever the path's bytes are, decodable or not.
  */
 function classifySparseBoundaryPaths(recordedPaths: readonly string[]): SparseBoundarySet {
   const filePaths = new Set<string>();
@@ -3566,18 +3712,90 @@ function classifySparseBoundaryPaths(recordedPaths: readonly string[]): SparseBo
  * property this closure must not trade away, and the suite pins it with a
  * turn-created file inside a boundary-time PLAIN directory.
  *
- * The listing entry's own trailing slash is still stripped before comparing:
- * both kinds are stored slash-free, and a restore-time listing may spell the very
- * same directory with or without one depending on whether git descended it.
+ * THE TRAILING SLASH IS HANDLED ASYMMETRICALLY, and the asymmetry is the whole
+ * content of the kind distinction at match time:
+ *
+ *   * The FILE arm requires the listing entry to be SLASH-FREE. A trailing slash
+ *     in an `ls-files -o` entry is git saying "this is a DIRECTORY I did not
+ *     descend into", so a slash-suffixed entry standing at a recorded boundary
+ *     FILE path is not that file — it is a directory the TURN created where the
+ *     file used to be, most plausibly an embedded repository. Stripping first and
+ *     matching the file set anyway exempted that directory WHOLE, on the strength
+ *     of a name it merely inherited, which is the exact-path width this docblock
+ *     claims being quietly false.
+ *   * The DIRECTORY arm accepts BOTH spellings, because there the slash is not
+ *     evidence: git emits it only for a directory it refused to walk, so the same
+ *     boundary-time directory is spelled `nested/` in one listing and reached as
+ *     `nested/payload.txt` (slash-free, and beneath) in the next. Requiring the
+ *     slash on this arm would under-exempt, and under-exemption on this arm is
+ *     deletion of boundary-time content — the failure the trailer exists to stop.
+ *
+ * SECOND NAMED RESIDUAL, the mirror of the first and deliberately retained: a
+ * FILE the turn created at a recorded boundary DIRECTORY path is exempted by the
+ * directory arm's equality case. Distinguishing it would mean requiring the slash
+ * on that arm, which is the destructive trade just refused. Over-protection of a
+ * turn-created path is survivable; deletion of boundary-time content is not.
+ *
+ * `entryKey` is a {@link listingEntryKey} byte key and both of this set's members
+ * are too — the exemption is decided on bytes, never on decoded text, so two
+ * paths that merely COLLAPSE to the same string cannot borrow each other's
+ * protection.
  */
-function isSparseBoundaryListingEntry(entry: string, boundarySet: SparseBoundarySet): boolean {
-  const path: string = entry.endsWith("/") ? entry.slice(0, -1) : entry;
+function isSparseBoundaryListingEntry(entryKey: string, boundarySet: SparseBoundarySet): boolean {
+  const isDirectorySpelling: boolean = entryKey.endsWith("/");
+  const pathKey: string = isDirectorySpelling ? entryKey.slice(0, -1) : entryKey;
   return (
-    boundarySet.filePaths.has(path) ||
-    boundarySet.directoryPaths.some(
-      (directoryPath) => path === directoryPath || path.startsWith(`${directoryPath}/`),
-    )
+    (!isDirectorySpelling && boundarySet.filePaths.has(pathKey)) ||
+    isWithinSparseBoundaryDirectory(pathKey, boundarySet)
   );
+}
+
+/**
+ * Whether `pathKey` is AT or BENEATH a recorded boundary DIRECTORY, on segment
+ * boundaries — the directory kind's width, spelled once for the two legs that
+ * must agree on it.
+ *
+ * Shared by the delete exemption and the index pre-drop deliberately: those two
+ * legs are the same statement about one path made to two mechanisms ("the restore
+ * has no authority to destroy this"), and a width that drifted between them would
+ * mean the pre-drop unstaging something the delete pass then removes, or the
+ * reverse. The `/` in the prefix test is the segment boundary
+ * {@link collectProperAncestorDirectories} argues for from the other side:
+ * recorded `nested` must not reach `nested-copy/a.txt`.
+ */
+function isWithinSparseBoundaryDirectory(pathKey: string, boundarySet: SparseBoundarySet): boolean {
+  return boundarySet.directoryPaths.some(
+    (directoryPath) => pathKey === directoryPath || pathKey.startsWith(`${directoryPath}/`),
+  );
+}
+
+/**
+ * Whether an INDEX path falls inside the recorded boundary set — the pre-drop's
+ * membership test.
+ *
+ * The exemption's width, minus the slash question: git's index holds files, so an
+ * index path is never slash-suffixed and the file arm is a plain exact match. The
+ * directory arm is shared outright with {@link isSparseBoundaryListingEntry},
+ * equality case included, so a boundary directory that the turn REPLACED with a
+ * tracked file is unstaged rather than left for `read-tree` to overwrite.
+ */
+function isSparseBoundaryIndexPath(pathKey: string, boundarySet: SparseBoundarySet): boolean {
+  return (
+    boundarySet.filePaths.has(pathKey) || isWithinSparseBoundaryDirectory(pathKey, boundarySet)
+  );
+}
+
+/**
+ * A boundary byte key rendered back to TEXT, for a human.
+ *
+ * The one sanctioned exit from the byte-keyed world, and it exists so the rest of
+ * the closure never needs another: refusal detail, diagnostics and log lines all
+ * come through here, and nothing that DECIDES anything does. `latin1` back to
+ * bytes is exact; the `utf8` decode after it is lossy in precisely the way that is
+ * fine for a message and fatal for a comparison.
+ */
+function decodeSparseBoundaryPathKey(pathKey: string): string {
+  return Buffer.from(pathKey, "latin1").toString("utf8");
 }
 
 /**
@@ -3822,9 +4040,11 @@ interface ProspectiveRestoreEffects {
    * carried here for the reason above: same object read, same sequence.
    *
    * Classified ONCE, here, rather than per consumer: three legs read it (the
-   * delete-pass exemption, the index pre-drop and the obstruction guard) and each
-   * needs a different kind, so re-deriving the split at each site is exactly the
-   * drift this carries a type to prevent.
+   * delete-pass exemption, the index pre-drop and the obstruction guard) and they
+   * ask the two kinds different questions — the guard's two shapes are per-kind,
+   * while the exemption and the pre-drop share a width they must not drift apart
+   * on ({@link isWithinSparseBoundaryDirectory}). Re-deriving the split at each
+   * site is exactly the drift this carries a type to prevent.
    */
   readonly sparseBoundarySet: SparseBoundarySet;
   /**
@@ -4615,15 +4835,25 @@ export class TurnSnapshotService {
    * bytes VERBATIM, unaffected by `core.quotePath`, emitting the in-cone subset —
    * so keying on the echo is a byte-exact identity rather than a decode.
    *
-   * CANDIDATE PROVENANCE IS THE CALLER'S, and the three callers split two ways.
-   * The capture partition supplies the original listing's own Buffer slices, so
-   * no path in that leg is ever reconstructed from a decode. The two RESTORE
-   * callers — the discarded-subset diagnostic and the obstruction guard — supply
-   * `Buffer.from(<already-decoded tree path>)`, where byte-exactness is
-   * unattainable AND unneeded: both sides of each comparison are decoded strings
-   * out of one `ls-tree`, so the round trip is decode-to-decode and cannot
-   * introduce a mismatch the tree listing did not already carry. This is a CLOSED
-   * list; a fourth caller has to state which side of it it lands on.
+   * CANDIDATE PROVENANCE IS THE CALLER'S, and the three callers split two ways —
+   * TWO byte-exact, ONE decode-to-decode:
+   *
+   *   * The capture partition supplies the original listing's own Buffer slices,
+   *     so no path in that leg is ever reconstructed from a decode.
+   *   * The obstruction guard supplies `Buffer.from(<tree pathKey>, "latin1")`,
+   *     which restores the tree listing's ORIGINAL bytes rather than re-encoding a
+   *     decode. It sits on this side because its answer gates a REFUSAL against a
+   *     byte-keyed boundary set, and a decode there could score the wrong path's
+   *     materialization.
+   *   * The discarded-subset diagnostic supplies `Buffer.from(<decoded tree
+   *     path>, "utf8")`, where byte-exactness is unattainable AND unneeded: both
+   *     sides of that comparison are decoded strings out of one `ls-tree`, so the
+   *     round trip is decode-to-decode and cannot introduce a mismatch the tree
+   *     listing did not already carry — and its output is a diagnostic, not an
+   *     authority over anything on disk.
+   *
+   * This is a CLOSED list; a fourth caller has to state which side of it it lands
+   * on.
    */
   async #scoreInConeKeys(
     executionRoot: string,
@@ -4652,8 +4882,9 @@ export class TurnSnapshotService {
    * listing's own slices; the staging stream is rebuilt from those ORIGINAL slices
    * rather than from git's output; and the out-of-cone half is those same slices
    * handed on untouched. No path is reconstructed from a decode at any point, and
-   * nothing here decodes at all — the one decode this data ever meets is at the
-   * trailer boundary, AFTER the subtraction has run on bytes. See
+   * nothing here decodes at all — nor does anything downstream: the subtraction
+   * runs on bytes and the trailer RECORDS the byte keys, so an out-of-cone path's
+   * identity survives from this split to the restore that must not delete it. See
    * {@link splitNulTerminatedListingBytes} and {@link #deriveSparseBoundaryPaths}.
    *
    * The trailing slash is likewise carried through rather than stripped here: it
@@ -4705,15 +4936,22 @@ export class TurnSnapshotService {
    * capture partition's all-bytes discipline was for and what this leg used to
    * throw away one line before spending it.
    *
-   * DECODED AFTER THE SUBTRACTION, at the trailer boundary, because the trailer
-   * is JSON and JSON is text. That leaves a stated RESIDUAL rather than a closed
-   * hole: a surviving non-UTF-8 path is RECORDED as its U+FFFD-replaced spelling,
-   * so two distinct un-decodable survivors would collapse into one trailer entry,
-   * and the restore's exemption (which compares decoded listing strings) would
-   * then exempt both. That aliasing direction is PROTECTIVE — it can only spare a
-   * path from deletion, never expose one — where the pre-subtraction aliasing this
-   * fixes was destructive. Closing it entirely means a non-textual trailer
-   * encoding, which is a format change with no live snapshot to justify it.
+   * NOT DECODED AFTER THE SUBTRACTION EITHER — the survivors leave here as the
+   * SAME {@link listingEntryKey} byte keys the subtraction ran on, and the trailer
+   * records those. The trailer is JSON and JSON is text, but `latin1` makes those
+   * two facts compatible: the key IS a string, one code point per path byte, and
+   * it survives `JSON.stringify` → UTF-8 message → `JSON.parse` unchanged.
+   *
+   * Decoding here instead used to leave a stated residual, and this is what
+   * closed it. A non-UTF-8 survivor was RECORDED as its U+FFFD-replaced spelling,
+   * so two distinct un-decodable survivors collapsed into one trailer entry — and
+   * worse, a survivor could collide with an unrelated TRACKED path once both were
+   * decoded, which is the direction the restore's index pre-drop reads as "the
+   * snapshot holds this, leave the index alone" and then lets `read-tree --reset
+   * -u` unlink the boundary path's only on-disk copy. The aliasing was called
+   * protective on the strength of the delete exemption alone; the pre-drop's
+   * exclusion made it destructive. Byte keys end to end remove the collapse rather
+   * than reasoning about which side of it is safe.
    */
   async #deriveSparseBoundaryPaths(
     executionRoot: string,
@@ -4738,9 +4976,7 @@ export class TurnSnapshotService {
     const recordedKeys = new Set<string>(
       splitNulTerminatedListingBytes(treeListing).map(listingEntryKey),
     );
-    return outOfConeEntries
-      .filter((entry) => !recordedKeys.has(listingEntryKey(entry)))
-      .map((entry) => entry.toString("utf8"));
+    return outOfConeEntries.map(listingEntryKey).filter((entryKey) => !recordedKeys.has(entryKey));
   }
 
   /**
@@ -4905,6 +5141,14 @@ export class TurnSnapshotService {
     //
     // ORDER IS FIXED, skipped before sparse, because trailer order is message
     // bytes and therefore OID bytes.
+    //
+    // The two lists are DIFFERENT KINDS OF STRING and both sorts are still total:
+    // the skip list holds decoded paths, the sparse list holds `latin1` byte keys
+    // ({@link SPARSE_BOUNDARY_PATHS_TRAILER}), so the second sort is a code-unit
+    // sort over one-code-point-per-byte strings — byte order exactly, which is
+    // the stronger form of the stability this sort exists for. Every code point a
+    // key can hold survives `JSON.stringify` (control bytes escaped, U+0080–U+00FF
+    // literal) and the UTF-8 encoding of the message declared just above.
     const paragraphs: string[] = [SNAPSHOT_COMMIT_MESSAGE];
     if (skippedEmbeddedRepositories.length > 0) {
       paragraphs.push(
@@ -5867,8 +6111,7 @@ export class TurnSnapshotService {
     const droppableBoundaryIndexEntries: readonly Buffer[] =
       await this.#deriveDroppableBoundaryIndexEntries(
         target.executionRoot,
-        sparseBoundarySet.filePaths,
-        snapshotTrackedPaths,
+        sparseBoundarySet,
         treeEntries,
       );
 
@@ -5988,6 +6231,24 @@ export class TurnSnapshotService {
    * survives this third caller intact: a sparse root whose rules file vanished
    * fails here as it fails everywhere else. What DOES gate it is the recorded set
    * being empty, which is a fact about the snapshot rather than about the matcher.
+   *
+   * EVERY PATH COMPARISON HERE IS BYTE-EXACT — the recorded set's keys against
+   * {@link SnapshotTreeEntry.pathKey}, the ancestor walk over those same keys, the
+   * matcher scored on `latin1`-restored bytes. The decode happens twice and both
+   * times at the exit: the obstruction's `path` and its `displacedBy` names are
+   * read by a human out of a refusal detail. ORDER is taken on the keys before
+   * that decode, so the message stays a function of repository state rather than
+   * of which spelling survived a decode.
+   *
+   * NAMED RESIDUAL, in the fail-open direction and pre-existing rather than
+   * introduced: the presence probe addresses the filesystem, whose seam is
+   * string-typed, so a boundary path whose bytes are not valid UTF-8 is probed at
+   * its DECODED spelling. That path answers `absent`, no obstruction is recorded
+   * for it, and the guard waves through a checkout that may destroy it. It is
+   * unreachable on a filesystem that rejects non-UTF-8 names (APFS does, at
+   * `creat`), and closing it means a Buffer-typed filesystem seam — see
+   * {@link TurnSnapshotFilesystem}. Stated here because this guard's posture is
+   * otherwise fail-closed and a reader is owed the exception.
    */
   async #deriveBoundaryObstructions(
     executionRoot: string,
@@ -6006,9 +6267,9 @@ export class TurnSnapshotService {
     // of the same path.
     const fileBoundaryDisplacers = new Map<string, SnapshotTreeEntry[]>();
     const directoryBoundaryDisplacers = new Map<string, SnapshotTreeEntry[]>();
-    const blobEntriesByPath = new Map<string, SnapshotTreeEntry>();
+    const blobEntriesByPathKey = new Map<string, SnapshotTreeEntry>();
     for (const entry of treeEntries) {
-      for (const ancestor of collectProperAncestorDirectories(entry.path)) {
+      for (const ancestor of collectProperAncestorDirectories(entry.pathKey)) {
         if (boundarySet.filePaths.has(ancestor)) {
           appendToPathIndex(fileBoundaryDisplacers, ancestor, entry);
         }
@@ -6018,9 +6279,9 @@ export class TurnSnapshotService {
       // (measured — the checkout leaves such a directory, its payload and its
       // `.git` untouched). Only a blob displaces.
       if (entry.mode !== GITLINK_TREE_MODE) {
-        blobEntriesByPath.set(entry.path, entry);
-        if (boundaryDirectoryPaths.has(entry.path)) {
-          appendToPathIndex(directoryBoundaryDisplacers, entry.path, entry);
+        blobEntriesByPathKey.set(entry.pathKey, entry);
+        if (boundaryDirectoryPaths.has(entry.pathKey)) {
+          appendToPathIndex(directoryBoundaryDisplacers, entry.pathKey, entry);
         }
       }
     }
@@ -6035,75 +6296,86 @@ export class TurnSnapshotService {
     // and it puts these displacers inside the SINGLE oracle batch scored next.
     // At most one ancestor can match — git cannot hold a blob at both `a` and
     // `a/b` — but the walk is written for the general case rather than that proof.
-    for (const [boundaryPath, displacers] of [
+    for (const [boundaryPathKey, displacers] of [
       ...[...boundarySet.filePaths].map(
-        (boundaryPath): readonly [string, Map<string, SnapshotTreeEntry[]>] => [
-          boundaryPath,
+        (boundaryPathKey): readonly [string, Map<string, SnapshotTreeEntry[]>] => [
+          boundaryPathKey,
           fileBoundaryDisplacers,
         ],
       ),
       ...boundarySet.directoryPaths.map(
-        (boundaryPath): readonly [string, Map<string, SnapshotTreeEntry[]>] => [
-          boundaryPath,
+        (boundaryPathKey): readonly [string, Map<string, SnapshotTreeEntry[]>] => [
+          boundaryPathKey,
           directoryBoundaryDisplacers,
         ],
       ),
     ]) {
-      for (const ancestor of collectProperAncestorDirectories(boundaryPath)) {
-        const shadowingBlob: SnapshotTreeEntry | undefined = blobEntriesByPath.get(ancestor);
+      for (const ancestor of collectProperAncestorDirectories(boundaryPathKey)) {
+        const shadowingBlob: SnapshotTreeEntry | undefined = blobEntriesByPathKey.get(ancestor);
         if (shadowingBlob !== undefined) {
-          appendToPathIndex(displacers, boundaryPath, shadowingBlob);
+          appendToPathIndex(displacers, boundaryPathKey, shadowingBlob);
         }
       }
     }
 
-    const conflictingBlobPaths: readonly string[] = [
+    const conflictingBlobPathKeys: readonly string[] = [
       ...new Set<string>(
         [...fileBoundaryDisplacers.values(), ...directoryBoundaryDisplacers.values()]
           .flat()
           .filter((entry) => entry.mode !== GITLINK_TREE_MODE)
-          .map((entry) => entry.path),
+          .map((entry) => entry.pathKey),
       ),
     ];
     const inConeKeys: ReadonlySet<string> | null = isSparseRoot
       ? await this.#scoreInConeKeys(
           executionRoot,
-          conflictingBlobPaths.map((path) => Buffer.from(path, "utf8")),
+          // `latin1` back to bytes, which restores the ORIGINAL `ls-tree` bytes
+          // rather than a re-encoding of a decode — the matcher echoes what it is
+          // given, so its keys land in the same alphabet as `pathKey`.
+          conflictingBlobPathKeys.map((pathKey) => Buffer.from(pathKey, "latin1")),
         )
       : null;
     const willMaterialize = (entry: SnapshotTreeEntry): boolean =>
-      entry.mode === GITLINK_TREE_MODE ||
-      inConeKeys === null ||
-      inConeKeys.has(listingEntryKey(Buffer.from(entry.path, "utf8")));
+      entry.mode === GITLINK_TREE_MODE || inConeKeys === null || inConeKeys.has(entry.pathKey);
 
-    const obstructions: BoundaryObstruction[] = [];
-    for (const [boundaryPath, displacers, obstructingPresence] of [
+    const obstructions: { readonly pathKey: string; readonly obstruction: BoundaryObstruction }[] =
+      [];
+    for (const [boundaryPathKey, displacers, obstructingPresence] of [
       ...[...fileBoundaryDisplacers].map(
-        ([path, entries]) => [path, entries, "non-directory"] as const,
+        ([pathKey, entries]) => [pathKey, entries, "non-directory"] as const,
       ),
       ...[...directoryBoundaryDisplacers].map(
-        ([path, entries]) => [path, entries, "directory"] as const,
+        ([pathKey, entries]) => [pathKey, entries, "directory"] as const,
       ),
     ]) {
-      const displacedBy: readonly string[] = displacers
+      // `filter` already copies, so the sort cannot reorder the map's own array.
+      const materializingDisplacers: readonly SnapshotTreeEntry[] = displacers
         .filter(willMaterialize)
-        .map((entry) => entry.path)
-        .sort();
-      if (displacedBy.length === 0) {
+        .sort((left, right) => (left.pathKey < right.pathKey ? -1 : 1));
+      if (materializingDisplacers.length === 0) {
         continue;
       }
       const presence: BoundaryPathPresence = await probeBoundaryPathPresence(
-        join(executionRoot, boundaryPath),
+        join(executionRoot, decodeSparseBoundaryPathKey(boundaryPathKey)),
       );
       // `unreadable` obstructs whatever kind was recorded — see the probe.
       if (presence !== obstructingPresence && presence !== "unreadable") {
         continue;
       }
-      obstructions.push({ path: boundaryPath, displacedBy });
+      obstructions.push({
+        pathKey: boundaryPathKey,
+        obstruction: {
+          path: decodeSparseBoundaryPathKey(boundaryPathKey),
+          displacedBy: materializingDisplacers.map((entry) => entry.path),
+        },
+      });
     }
     // Sorted so the refusal's message is a function of the repository state and
-    // not of `ls-tree` ordering; the suite asserts on it.
-    return obstructions.sort((left, right) => (left.path < right.path ? -1 : 1));
+    // not of `ls-tree` ordering; the suite asserts on it. On the KEYS, so the
+    // order is the paths' byte order and no decode can perturb it.
+    return obstructions
+      .sort((left, right) => (left.pathKey < right.pathKey ? -1 : 1))
+      .map((entry) => entry.obstruction);
   }
 
   /**
@@ -6222,7 +6494,11 @@ export class TurnSnapshotService {
    *
    * Cost in the ordinary non-sparse restore is zero rather than small. A snapshot
    * captured in a non-sparse root carries no trailer, an absent trailer decodes
-   * to the empty set THERE, and an empty set returns before the listing spawns.
+   * to the empty set THERE, and a set empty in BOTH kinds returns before the
+   * listing spawns. A snapshot that recorded only DIRECTORY entries now reaches
+   * the listing where it used to return early — one `ls-files -c -z` on a shape
+   * that previously had no protection at all, which is the trade the widening
+   * below is.
    * So the leg is reached only by a trailer-BEARING snapshot, and nothing about
    * the non-sparse pipeline's spawn sequence changes.
    *
@@ -6235,40 +6511,68 @@ export class TurnSnapshotService {
    * gains the drop in a non-sparse root. (The same legacy snapshot restored into a
    * still-SPARSE root is refused outright by the vintage gate; see the call site.)
    *
-   * FILE ENTRIES ONLY, of the recorded set's two kinds — the caller passes
-   * `filePaths` and the directory kind never reaches here. That is not a
-   * simplification but the shape of the data: `ls-files -o` emits a trailing-slash
-   * entry ONLY for a directory it did not descend into, and it descends the moment
-   * the index holds anything at or beneath that directory (measured on git
-   * 2.50.1). So at capture time a recorded directory entry provably has no index
-   * entry inside it, and a subtree drop would have nothing to drop. RESIDUAL,
-   * narrow and named: a path STAGED beneath such a directory during the turn —
-   * possible only after the turn removed the embedded `.git` that made git refuse
-   * to descend — is not pre-dropped, and the checkout unlinks it. Not covered.
+   * THE RECORDED SET'S FULL WIDTH, both kinds — {@link isSparseBoundaryIndexPath},
+   * which is the delete-pass exemption's width minus the slash question an index
+   * path cannot raise. Taking only `filePaths` here read as a shape-of-the-data
+   * argument and was a hole: `ls-files -o` emits a trailing-slash entry ONLY for a
+   * directory it did not descend into, and it descends the moment the index holds
+   * anything at or beneath that directory (measured on git 2.50.1), so at CAPTURE
+   * time a recorded directory provably has no index entry inside it. The flaw is
+   * that this leg runs at RESTORE time, and the turn is free to change the fact in
+   * between: remove the embedded `.git` that made git refuse to descend, `git add`
+   * something beneath it, and the index now holds a path under a recorded boundary
+   * directory that the snapshot tree does not — precisely the index/tree
+   * disagreement `read-tree --reset -u` resolves by UNLINKING. The narrow, named,
+   * uncovered residual was therefore a live data-loss path, and matching the
+   * exemption's width closes it.
+   *
+   * The DIRECTORY arm's equality case (an index entry AT the recorded directory
+   * path, not beneath it) is included rather than carved out, even though the
+   * brief for this leg is "strictly beneath". Two reasons, and the second is why
+   * it is not merely harmless: a file the turn created where the boundary
+   * directory stood is exactly the shape the exemption already protects — the two
+   * legs are one statement made to two mechanisms and a width that drifted between
+   * them would unstage what the delete pass then removes — and the outcome of
+   * including it is an UNSTAGE, never a delete. The tree exclusion below still
+   * fires first for anything the snapshot itself holds.
+   *
+   * THE TREE EXCLUSION STAYS, and widening the membership is exactly why it must.
+   * A snapshot-tree path beneath a recorded boundary directory is content the
+   * checkout is SUPPOSED to write — the ordinary sparse restore of a directory
+   * whose payload the capture could not enumerate — so dropping its index entry
+   * would leave the checkout to merge it back in from a tree it no longer knows is
+   * missing, or worse, strand it. The predicate is "the recorded set holds this
+   * path and the snapshot tree does NOT", and only the first half moved.
+   *
+   * BYTE-KEYED on both halves. The live index entry is keyed with
+   * {@link listingEntryKey}, the recorded set already holds byte keys, and the
+   * exclusion set is built from {@link SnapshotTreeEntry.pathKey} rather than from
+   * decoded paths. A `utf8` key here was the second live data-loss path: a tracked
+   * snapshot path byte-DISTINCT from a boundary path but decode-IDENTICAL to it
+   * (both collapsing onto U+FFFD) made the exclusion fire for the boundary entry,
+   * which then kept its index entry and lost its only on-disk copy to the
+   * checkout. Bytes cannot alias.
    */
   async #deriveDroppableBoundaryIndexEntries(
     executionRoot: string,
-    boundaryFilePaths: ReadonlySet<string>,
-    snapshotTrackedPaths: ReadonlySet<string>,
+    boundarySet: SparseBoundarySet,
     treeEntries: readonly SnapshotTreeEntry[],
   ): Promise<readonly Buffer[]> {
-    if (boundaryFilePaths.size === 0) {
+    if (boundarySet.filePaths.size === 0 && boundarySet.directoryPaths.length === 0) {
       return [];
     }
-    // A gitlink is snapshot-recorded too — it is simply filtered out of the
-    // tracked set for the collision shapes — so it must not be dropped here.
-    const recordedPaths = new Set<string>(snapshotTrackedPaths);
-    for (const entry of treeEntries) {
-      recordedPaths.add(entry.path);
-    }
+    // Every tree path, gitlinks INCLUDED: a gitlink is snapshot-recorded too — it
+    // is simply filtered out of the tracked set the collision shapes use — so it
+    // must not be dropped here.
+    const recordedPathKeys = new Set<string>(treeEntries.map((entry) => entry.pathKey));
 
     const cachedListing: Buffer = (
       await this.#runGit(["-C", executionRoot, "ls-files", "-c", "-z"], {})
     ).stdout;
     const droppable: Buffer[] = [];
     for (const entry of splitNulTerminatedListingBytes(cachedListing)) {
-      const path: string = entry.toString("utf8");
-      if (boundaryFilePaths.has(path) && !recordedPaths.has(path)) {
+      const pathKey: string = listingEntryKey(entry);
+      if (isSparseBoundaryIndexPath(pathKey, boundarySet) && !recordedPathKeys.has(pathKey)) {
         droppable.push(entry);
       }
     }
@@ -6405,19 +6709,19 @@ export class TurnSnapshotService {
    * There are therefore TWO ways out other than the fixpoint, and they report
    * different things because they are different failures:
    *
-   *   * NO PROGRESS — this pass's listing is byte-identical to the previous
+   *   * NO PROGRESS — this pass's deletable set is byte-identical to the previous
    *     pass's, so the deletions did not delete and repeating is pointless. It
    *     fails immediately, naming a stuck path. The concrete case is a path name
-   *     that is not valid UTF-8: the listing is split on the BUFFER but the
-   *     entries are decoded to strings before they reach
-   *     {@link TurnSnapshotFilesystem}, so such a name arrives with replacement
-   *     characters, `rm` finds nothing there, `force` swallows it, and git lists
-   *     the same path forever. The complete fix is Buffer-typed paths through
-   *     the seam, deliberately not taken while that seam stays mutation-only and
-   *     three-verb — the capture leg keeps the same discipline and the same
-   *     boundary (see {@link splitNulTerminatedListing}). What is NOT acceptable
-   *     is grinding through every remaining pass — each one a full worktree walk
-   *     under the caller's exclusive hold — before failing.
+   *     that is not valid UTF-8: the listing is split on the BUFFER and every
+   *     DECISION here keeps those bytes, but the entry is decoded before it
+   *     reaches {@link TurnSnapshotFilesystem}, so such a name arrives with
+   *     replacement characters, `rm` finds nothing there, `force` swallows it, and
+   *     git lists the same path forever. The complete fix is Buffer-typed paths
+   *     through the seam, deliberately not taken while that seam stays
+   *     mutation-only and three-verb — the capture leg keeps the same discipline
+   *     and the same boundary (see {@link splitNulTerminatedListing}). What is NOT
+   *     acceptable is grinding through every remaining pass — each one a full
+   *     worktree walk under the caller's exclusive hold — before failing.
    *   * THE CEILING — {@link UNTRACKED_DELETE_PASS_LIMIT} passes each of which
    *     did change the listing. Unreachable through the pinned listing, and left
    *     standing behind the no-progress check for the shape it does not cover: a
@@ -6466,6 +6770,17 @@ export class TurnSnapshotService {
    * `.git` makes `ls-files -o` descend and enumerate the payload file by file,
    * and deleting `nested/src/a.ts` one path at a time destroys the repository
    * just as completely as deleting `nested/`.
+   *
+   * NAMED RESIDUAL of the boundary exemption's byte-exactness, in the
+   * fail-CLOSED direction: a turn-created path whose bytes are not valid UTF-8
+   * used to alias onto a recorded boundary path once both decoded to U+FFFD and
+   * was exempted by accident. It is now correctly deletable — and the removal
+   * above cannot delete it, for the seam reason the no-progress bullet states, so
+   * this pass stalls and the restore reports `partial_restore` at
+   * `delete-untracked`. A restore that used to succeed by protecting the wrong
+   * thing now fails honestly instead, which is the right side of that trade; the
+   * shape is unreachable on a filesystem that rejects non-UTF-8 names (APFS does)
+   * and closes entirely with a Buffer-typed seam.
    */
   async #deleteUntrackedToFixpoint(
     executionRoot: string,
@@ -6487,26 +6802,39 @@ export class TurnSnapshotService {
       // byte-equality check would report "no progress" the moment the deletable
       // work finished. A correct restore would fail at `delete-untracked` purely
       // for having protected something.
-      const entries: readonly string[] = splitNulTerminatedListing(listing);
-      const deletable: readonly string[] = entries.filter(
-        (entry) =>
-          !isPreservedListingEntry(entry, preservedPaths) &&
-          // The sparse exemption joins the DELETABLE computation, not the removal
-          // site, and for exactly the interlock reason above: a boundary path is
-          // never deleted either, so against the raw listing it would keep the
-          // empty check from ever firing and make the byte-equality check report
-          // "no progress" the moment the deletable work finished. A correct
-          // restore of a sparse root would then fail at `delete-untracked` purely
-          // for having protected something.
-          !isSparseBoundaryListingEntry(entry, sparseBoundarySet),
-      );
+      const deletable: readonly DeletableListingEntry[] = splitNulTerminatedListingBytes(listing)
+        .map(
+          (entry): DeletableListingEntry => ({
+            key: listingEntryKey(entry),
+            text: entry.toString("utf8"),
+          }),
+        )
+        .filter(
+          (entry) =>
+            // TEXT against the skipped-repository list, KEY against the boundary
+            // set, because the two trailers carry different kinds of string —
+            // see {@link readJsonPathArrayTrailer}. Each comparison is like
+            // against like, which is the only property either one needs.
+            !isPreservedListingEntry(entry.text, preservedPaths) &&
+            // The sparse exemption joins the DELETABLE computation, not the removal
+            // site, and for exactly the interlock reason above: a boundary path is
+            // never deleted either, so against the raw listing it would keep the
+            // empty check from ever firing and make the byte-equality check report
+            // "no progress" the moment the deletable work finished. A correct
+            // restore of a sparse root would then fail at `delete-untracked` purely
+            // for having protected something.
+            !isSparseBoundaryListingEntry(entry.key, sparseBoundarySet),
+        );
       if (deletable.length === 0) {
         return;
       }
-      const deletableKey: string = deletable.join("\0");
+      // Fingerprinted on the KEYS: two passes that listed byte-different paths
+      // which merely decode alike are progress, and a decoded fingerprint would
+      // call them a stall.
+      const deletableKey: string = deletable.map((entry) => entry.key).join("\0");
       if (previousDeletable !== null && deletableKey === previousDeletable) {
         throw new Error(
-          `turn-snapshot untracked-delete made no progress at ${deletable[0] ?? "(unnamed path)"}`,
+          `turn-snapshot untracked-delete made no progress at ${deletable[0]?.text ?? "(unnamed path)"}`,
         );
       }
       previousDeletable = deletableKey;
@@ -6519,7 +6847,9 @@ export class TurnSnapshotService {
         // what takes such a directory whole; for a plain file it is an unlink.
         // It is also why the exemption has to filter BEFORE this line: there is
         // no partial form of this removal to fall back on.
-        const relativePath: string = entry.endsWith("/") ? entry.slice(0, -1) : entry;
+        const relativePath: string = entry.text.endsWith("/")
+          ? entry.text.slice(0, -1)
+          : entry.text;
         await this.#filesystem.removePath(join(executionRoot, relativePath));
         const parent: string = dirname(relativePath);
         if (parent !== "." && parent !== "" && parent !== "/") {
