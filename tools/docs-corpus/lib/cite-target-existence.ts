@@ -13,7 +13,17 @@
 //                                   form; a code target under packages/|apps/
 //                                   cited this way is DENIED)
 //   - `path/to/file.ts#symbol`     (docs→code durable anchor — the symbol must
-//                                   be present in the target file)
+//                                   be present in the target file; a fragment
+//                                   that is NOT an identifier — or is a GitHub
+//                                   `L<line>` line-pin in fragment costume —
+//                                   is DENIED as malformed-symbol-anchor.
+//                                   Dotted fragments (`#Namespace.method`)
+//                                   deny DELIBERATELY: the anchor contract is
+//                                   one TS/Rust identifier, so cite the
+//                                   enclosing export, not a member path —
+//                                   zero live instances at the 2026-08-10
+//                                   closure, stated here so the first one is
+//                                   a conscious contract change, not a bug)
 
 import { readFileSync, existsSync } from "node:fs";
 import { dirname, relative, resolve, isAbsolute, sep } from "node:path";
@@ -26,7 +36,8 @@ export interface Cite {
   rawTarget: string;
   targetPath: string;
   targetLine: number; // 0 for symbol-form and section-form cites
-  symbol?: string; // present for `path#symbol` cites
+  symbol?: string; // present for `path#fragment` cites (fragment verbatim)
+  symbolMalformed?: boolean; // fragment fails symbol-anchor grammar — deny
   section?: string; // present for backticked `Spec-NNN §Heading` cites (label-cite pass 3)
   volatileCodeTarget?: boolean; // raw line-pin into packages/ | apps/
   lineWordDeny?: boolean; // line-word / bare-basename form in a CODE citer (label-cite passes 5-6)
@@ -41,6 +52,7 @@ export interface CiteViolation {
     | "raw-line-cite-into-volatile-code"
     | "raw-line-cite-into-governance-doc"
     | "symbol-not-found"
+    | "malformed-symbol-anchor"
     | "section-not-found"
     | "line-anchored-cite-in-code"
     | "line-anchored-cite-in-docs";
@@ -68,7 +80,22 @@ const VOLATILE_CODE_PREFIXES = ["packages/", "apps/"];
 // volatile `.rs` line-pin is denied, a volatile `.rs#symbol` is verified, and
 // a non-volatile `.rs` mention stays gate-invisible (Codex review, PR #188
 // round 4).
-const symbolRe = /`([\w./-]+\.(?:ts|tsx|js|mjs|mts|cts|rs))#([A-Za-z_$][\w$]*)`/g;
+// The fragment is captured WIDE (anything up to the closing backtick) and
+// classified against anchor grammar afterwards. The previous identifier-charset
+// capture (`[A-Za-z_$][\w$]*` with the closing backtick required immediately
+// after) could not span a hyphen, so a spelling like a hyphenated test id
+// matched NO extraction pass at all — no symbol check, no existence check, the
+// gate exited 0 (PR #302 discovery record). Malformed fragments now extract
+// and DENY (fail closed) instead of silently skipping.
+const symbolRe = /`([\w./-]+\.(?:ts|tsx|js|mjs|mts|cts|rs))#([^`]*)`/g;
+// A durable symbol anchor is a TS/Rust identifier — but the deny is keyed on
+// the semantic KIND, not the charset alone: a GitHub-style `L<line>` /
+// `L<start>-L<end>` fragment is a line-pin in fragment costume (the dominant
+// malformed shape in the wild — 100 of 100 in the excluded docs/reference/
+// excerpts), and the single-line form is identifier-shaped, so it gets its own
+// deny rather than falling through to a coincidental content match.
+const SYMBOL_FRAGMENT_RE = /^[A-Za-z_$][\w$]*$/;
+const LINE_PIN_FRAGMENT_RE = /^L\d+(?:-L\d+)?$/;
 
 function findRepoRoot(): string {
   // Termination via parent-equals-current rather than `dir !== "/"` so the walk
@@ -291,13 +318,20 @@ export function extractCites(
         !VOLATILE_CODE_PREFIXES.some((prefix) => symbolRepoRelative.startsWith(prefix))
       )
         continue;
+      // Anchor-grammar classification happens AFTER the gating above so the
+      // malformed deny inherits exactly the pass's scope: slash-free bare
+      // names and external `.rs` mentions stay gate-invisible in both arms.
+      const fragment = m[2];
+      const fragmentIsAnchor =
+        SYMBOL_FRAGMENT_RE.test(fragment) && !LINE_PIN_FRAGMENT_RE.test(fragment);
       cites.push({
         file: citingFile,
         line: i + 1,
-        rawTarget: `${symbolTargetName}#${m[2]}`,
+        rawTarget: `${symbolTargetName}#${fragment}`,
         targetPath: symbolCandidate,
         targetLine: 0,
-        symbol: m[2],
+        symbol: fragment,
+        ...(fragmentIsAnchor ? {} : { symbolMalformed: true }),
       });
     }
   }
@@ -318,6 +352,17 @@ export function checkCite(
       reason: "raw-line-cite-into-volatile-code",
       detail:
         "cite `path#exportedSymbol` instead (AGENTS.md §Durable-Cite Rule) — raw line-pins into packages//apps/ rot on every edit; pick the export enclosing the old line (rg -n 'export' <target>)",
+    };
+  }
+  // A malformed #fragment is a FORM defect like the volatile deny above — it
+  // fires before any read, whatever the target's state (a cite that is wrong
+  // in form stays wrong even if today's target happens to exist). The detail
+  // names the two observed shapes so the fix is self-serve.
+  if (c.symbolMalformed) {
+    return {
+      cite: c,
+      reason: "malformed-symbol-anchor",
+      detail: `fragment \`#${c.symbol ?? ""}\` is not an exported-symbol anchor — \`path#symbol\` cites must name a TS/Rust identifier (AGENTS.md §Durable-Cite Rule); test titles, heading slugs, and GitHub \`L<line>\` ranges rot like line numbers. Pick the export enclosing the content (rg -n 'export' <target>)`,
     };
   }
   let content: string;
