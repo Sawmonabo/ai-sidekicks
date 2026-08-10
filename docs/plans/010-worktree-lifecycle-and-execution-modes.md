@@ -710,6 +710,21 @@ shipped:
       service header, with the governance errata riding this PR's second commit. The retention
       sweep handle is exported for Plan-007's future composition root (interval unref()ed; dispose
       un-wired by design, the recorded residual).
+  - phase: 6
+    task: T6.1
+    pr: 309
+    sha: d83ae0e
+    merged_at: 2026-08-10
+    files:
+      - packages/runtime-daemon/src/git/turn-snapshot-service.ts
+      - packages/runtime-daemon/src/git/__tests__/turn-snapshot-service.test.ts
+    verifies_invariant: [I-010-24]
+    spec_coverage:
+      [
+        "Spec-010 §Turn-Boundary Snapshots (the capture bullet's 2026-08-09 sparse-aware-staging closure — config-bit-alone sparse detection, the check-rules sparsity-matcher oracle, porcelain byte-equivalence in sparse roots over the live-index-seeded scratch index, the `Sparse-Boundary-Paths:` trailer (unconditional in sparse roots — the closure's format marker) and its set-keyed restore delete-exemption with the recorded-boundary-set index pre-drop (intent-to-add and turn-staged entries alike), the `-F -` message-transport conversion, full-tree snapshot with sparseness as a checkout-time projection, the materialized-path residual and its diagnostic enumeration)",
+      ]
+    notes: |
+      Codex round 1 hardened the boundary-set path in-PR: byte-exact trailer subtraction (latin1-keyed), kind-preserving trailer (directory entries slash-suffixed; subtree delete-exemption), and the pre-mutation boundary-obstruction refusal covering all three measured collision shapes. The refusal disposition (typed refusal over restore-wins-enumerate) was ratified by product decision 2026-08-10; the I-010-24/Spec-010 amendment naming it is owed as the next docs PR (NS-52 records the obligation).
 ```
 
 ### Notes
