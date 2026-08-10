@@ -3,7 +3,7 @@
 // `session.test.ts` covering all five payload schema families; the shipped
 // split left SessionSubscribe exercised only transitively through consumer
 // suites
-// (`packages/runtime-daemon/src/ipc/handlers/__tests__/session-handlers.test.ts`,
+// (`packages/runtime-daemon/src/ipc/handlers/__tests__/session-handlers.test.ts#SessionSubscribeRequestSchema`,
 // control-plane SSE factory). This file completes the SessionSubscribe leg of
 // the direct coverage — see the `Plan-001 §Decision Log` errata entry, same
 // date.

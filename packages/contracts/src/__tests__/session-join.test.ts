@@ -17,8 +17,9 @@
 // Plan-001 file-row errata PR (2026-08-10) appended the
 // `SessionJoinResponseSchema` block below: the T2.1 coverage sweep found the
 // join RESPONSE arm had no direct unit coverage anywhere in this package
-// (exercised only transitively through daemon IPC handler suites) — see the
-// `Plan-001 §Decision Log` errata entry, same date.
+// (exercised only transitively through
+// `packages/runtime-daemon/src/ipc/handlers/__tests__/session-handlers.test.ts#SessionJoinResponseSchema`)
+// — see the `Plan-001 §Decision Log` errata entry, same date.
 import { describe, expect, it } from "vitest";
 
 import {

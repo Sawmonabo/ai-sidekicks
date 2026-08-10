@@ -3,7 +3,7 @@
 // covering all five payload schema families; the shipped split
 // (session-id / session-create / session-join) left SessionRead exercised
 // only transitively through consumer suites
-// (`packages/runtime-daemon/src/ipc/handlers/__tests__/session-handlers.test.ts`,
+// (`packages/runtime-daemon/src/ipc/handlers/__tests__/session-handlers.test.ts#SessionReadResponseSchema`,
 // control-plane router). This file completes the SessionRead leg of the
 // direct coverage — see the `Plan-001 §Decision Log` errata entry, same date.
 //
