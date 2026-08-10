@@ -1,11 +1,12 @@
 // Plan-001 file-row errata PR (2026-08-10) — direct schema coverage for the
 // SessionSubscribe payload family. T2.1's Files row promised a
 // `session.test.ts` covering all five payload schema families; the shipped
-// split covered three directly, with SessionSubscribe exercised only
-// transitively through consumer suites
+// split left SessionSubscribe exercised only transitively through consumer
+// suites
 // (`packages/runtime-daemon/src/ipc/handlers/__tests__/session-handlers.test.ts`,
-// control-plane SSE factory). This file completes the direct coverage — see
-// the Plan-001 §Decision Log errata entry, same date.
+// control-plane SSE factory). This file completes the SessionSubscribe leg of
+// the direct coverage — see the `Plan-001 §Decision Log` errata entry, same
+// date.
 //
 // Backstops Spec-001 AC4 (a joining client receives full event history —
 // subscribe replay is the delivery surface) and AC6 (replay-from-cursor:

@@ -13,6 +13,12 @@
 // to pin the consumer-side behavior (the helper is also covered indirectly
 // by the wide free-form-field coverage in `session-event.test.ts` and
 // `error.test.ts`).
+//
+// Plan-001 file-row errata PR (2026-08-10) appended the
+// `SessionJoinResponseSchema` block below: the T2.1 coverage sweep found the
+// join RESPONSE arm had no direct unit coverage anywhere in this package
+// (exercised only transitively through daemon IPC handler suites) — see the
+// `Plan-001 §Decision Log` errata entry, same date.
 import { describe, expect, it } from "vitest";
 
 import {
@@ -20,9 +26,12 @@ import {
   EventCursorSchema,
   IDENTITY_HANDLE_MAX_LEN,
   SessionJoinRequestSchema,
+  SessionJoinResponseSchema,
 } from "../session.js";
 
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
+const PARTICIPANT_ID = "770e8400-e29b-41d4-a716-446655440002";
+const MEMBERSHIP_ID = "880e8400-e29b-41d4-a716-446655440003";
 
 const buildValidJoin = () => ({
   sessionId: SESSION_ID,
@@ -92,5 +101,62 @@ describe("EventCursorSchema (Round 2: defense-in-depth length cap)", () => {
   it("accepts a cursor at exactly the length cap (boundary)", () => {
     const valid = "x".repeat(EVENT_CURSOR_MAX_LEN);
     expect(EventCursorSchema.safeParse(valid).success).toBe(true);
+  });
+});
+
+describe("SessionJoinResponseSchema (response shape)", () => {
+  // Wire-shaped fixture, no per-field brand casts — safeParse accepts plain
+  // UUID strings and brands them on the way out (same rationale as
+  // session-create.test.ts's buildValidResponse).
+  const buildValidResponse = () => ({
+    sessionId: SESSION_ID,
+    participantId: PARTICIPANT_ID,
+    membershipId: MEMBERSHIP_ID,
+    sharedMetadata: { displayName: "Alice" },
+  });
+
+  it("accepts a well-formed response and round-trips every field", () => {
+    const parsed = SessionJoinResponseSchema.parse(buildValidResponse());
+    expect(parsed.sessionId).toBe(SESSION_ID);
+    expect(parsed.participantId).toBe(PARTICIPANT_ID);
+    expect(parsed.membershipId).toBe(MEMBERSHIP_ID);
+    expect(parsed.sharedMetadata).toEqual({ displayName: "Alice" });
+  });
+
+  it("accepts an empty sharedMetadata record (required key, contents free-form)", () => {
+    const valid = { ...buildValidResponse(), sharedMetadata: {} };
+    expect(SessionJoinResponseSchema.safeParse(valid).success).toBe(true);
+  });
+
+  it.each(["sessionId", "participantId", "membershipId", "sharedMetadata"] as const)(
+    "rejects a response missing required field: %s",
+    (field) => {
+      const broken = { ...buildValidResponse() } as Record<string, unknown>;
+      delete broken[field];
+      expect(SessionJoinResponseSchema.safeParse(broken).success).toBe(false);
+    },
+  );
+
+  it.each(["sessionId", "participantId", "membershipId"] as const)(
+    "rejects a malformed %s (UUID guard)",
+    (field) => {
+      const broken = { ...buildValidResponse(), [field]: "not-a-uuid" };
+      expect(SessionJoinResponseSchema.safeParse(broken).success).toBe(false);
+    },
+  );
+
+  it("rejects a non-object sharedMetadata (string)", () => {
+    const broken = { ...buildValidResponse(), sharedMetadata: "not-a-record" };
+    expect(SessionJoinResponseSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects a null sharedMetadata", () => {
+    const broken = { ...buildValidResponse(), sharedMetadata: null };
+    expect(SessionJoinResponseSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it("rejects unknown extra fields (.strict() guard)", () => {
+    const broken = { ...buildValidResponse(), unexpected: "field" };
+    expect(SessionJoinResponseSchema.safeParse(broken).success).toBe(false);
   });
 });

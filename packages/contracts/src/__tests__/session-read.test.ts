@@ -1,11 +1,11 @@
 // Plan-001 file-row errata PR (2026-08-10) — direct schema coverage for the
 // SessionRead payload family. T2.1's Files row promised a `session.test.ts`
 // covering all five payload schema families; the shipped split
-// (session-id / session-create / session-join) covered three directly, with
-// SessionRead exercised only transitively through consumer suites
+// (session-id / session-create / session-join) left SessionRead exercised
+// only transitively through consumer suites
 // (`packages/runtime-daemon/src/ipc/handlers/__tests__/session-handlers.test.ts`,
-// control-plane router). This file completes the direct coverage — see the
-// Plan-001 §Decision Log errata entry, same date.
+// control-plane router). This file completes the SessionRead leg of the
+// direct coverage — see the `Plan-001 §Decision Log` errata entry, same date.
 //
 // Backstops Spec-001 AC3 (session id stable across reconnect — read resolves
 // the projection by id) and AC6 (reconnecting clients restore from the
