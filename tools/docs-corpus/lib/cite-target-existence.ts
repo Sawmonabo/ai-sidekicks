@@ -13,7 +13,21 @@
 //                                   form; a code target under packages/|apps/
 //                                   cited this way is DENIED)
 //   - `path/to/file.ts#symbol`     (docs→code durable anchor — the symbol must
-//                                   be present in the target file)
+//                                   be present in the target file; a fragment
+//                                   that is NOT a Unicode TS/Rust identifier —
+//                                   or is a GitHub `L<line>` line-pin in
+//                                   fragment costume — is DENIED as
+//                                   malformed-symbol-anchor, except in the
+//                                   example channels (fenced blocks, waivered
+//                                   lines, exempt citer trees), where the
+//                                   FORM deny reverts to gate-invisible.
+//                                   Dotted fragments (`#Namespace.method`)
+//                                   deny DELIBERATELY: the anchor contract is
+//                                   one TS/Rust identifier, so cite the
+//                                   enclosing export, not a member path —
+//                                   zero live instances at the 2026-08-10
+//                                   closure, stated here so the first one is
+//                                   a conscious contract change, not a bug)
 
 import { readFileSync, existsSync } from "node:fs";
 import { dirname, relative, resolve, isAbsolute, sep } from "node:path";
@@ -26,7 +40,8 @@ export interface Cite {
   rawTarget: string;
   targetPath: string;
   targetLine: number; // 0 for symbol-form and section-form cites
-  symbol?: string; // present for `path#symbol` cites
+  symbol?: string; // present for `path#fragment` cites (fragment verbatim)
+  symbolMalformed?: boolean; // fragment fails symbol-anchor grammar — deny
   section?: string; // present for backticked `Spec-NNN §Heading` cites (label-cite pass 3)
   volatileCodeTarget?: boolean; // raw line-pin into packages/ | apps/
   lineWordDeny?: boolean; // line-word / bare-basename form in a CODE citer (label-cite passes 5-6)
@@ -41,6 +56,7 @@ export interface CiteViolation {
     | "raw-line-cite-into-volatile-code"
     | "raw-line-cite-into-governance-doc"
     | "symbol-not-found"
+    | "malformed-symbol-anchor"
     | "section-not-found"
     | "line-anchored-cite-in-code"
     | "line-anchored-cite-in-docs";
@@ -57,6 +73,29 @@ export type FileContentReader = (absolutePath: string) => string;
 
 const defaultReader: FileContentReader = (absolutePath) => readFileSync(absolutePath, "utf8");
 
+// Per-line waiver for ILLUSTRATIVE cite-shape examples only (failure-mode
+// catalog rows, rule-text examples). A line carrying the marker is exempt from
+// the md-lane FORM denies — here the malformed-symbol-anchor deny, in
+// label-cite the volatile-cite deny; the marker is visible in review, so
+// exemptions stay deliberate. It is NOT an escape hatch for real cites:
+// content VERIFICATION (symbol presence, line floors) still runs on waivered
+// lines. Defined here (the upstream module) and imported by label-cite so the
+// two gates can never drift onto different spellings.
+export const CITE_SHAPE_EXAMPLE_MARKER: string = "<!-- cite-shape-example -->";
+
+// Citer trees exempt from the md-lane FORM denies: docs/superpowers/ campaign
+// logs are dated design-time records dense with illustrative cite shapes, as
+// is the .claude/ harness tree (skills, agents, rules). Frozen trees are
+// already excluded from per-file checks by the runner; listed here for
+// defense in depth so a direct library caller gets the same answer. Shared
+// with label-cite's volatile-cite deny (same rationale, one definition).
+export const MD_DENY_EXEMPT_CITER_PREFIXES: readonly string[] = [
+  "docs/superpowers/",
+  "docs/archive/",
+  "docs/reference/",
+  ".claude/",
+];
+
 // Volatile trees per AGENTS.md §Durable-Cite Rule: raw line-pins into code
 // under these prefixes rot on every edit and are denied in favor of the
 // `path#exportedSymbol` form.
@@ -68,7 +107,28 @@ const VOLATILE_CODE_PREFIXES = ["packages/", "apps/"];
 // volatile `.rs` line-pin is denied, a volatile `.rs#symbol` is verified, and
 // a non-volatile `.rs` mention stays gate-invisible (Codex review, PR #188
 // round 4).
-const symbolRe = /`([\w./-]+\.(?:ts|tsx|js|mjs|mts|cts|rs))#([A-Za-z_$][\w$]*)`/g;
+// The fragment is captured WIDE (anything up to the closing backtick) and
+// classified against anchor grammar afterwards. The previous identifier-charset
+// capture (`[A-Za-z_$][\w$]*` with the closing backtick required immediately
+// after) could not span a hyphen, so a spelling like a hyphenated test id
+// matched NO extraction pass at all — no symbol check, no existence check, the
+// gate exited 0 (PR #302 discovery record). Malformed fragments now extract
+// and DENY (fail closed) instead of silently skipping.
+const symbolRe = /`([\w./-]+\.(?:ts|tsx|js|mjs|mts|cts|rs))#([^`]*)`/g;
+// A durable symbol anchor is a TS/Rust identifier — but the deny is keyed on
+// the semantic KIND, not the charset alone: a GitHub-style `L<line>` /
+// `L<start>-L<end>` fragment is a line-pin in fragment costume (the dominant
+// malformed shape in the wild — 100 of 100 in the excluded docs/reference/
+// excerpts), and the single-line form is identifier-shaped, so it gets its own
+// deny rather than falling through to a coincidental content match.
+// The grammar is UNICODE identifier grammar, not ASCII: TS follows ECMAScript
+// IdentifierName (ID_Start plus `$`/`_` to start; ID_Continue plus `$` and
+// ZWNJ/ZWJ to continue) and Rust identifiers are Unicode ID_Start/ID_Continue,
+// so an ASCII-only charset would deny a legal export like `café` as malformed
+// (Codex P2, PR #315). One grammar covers both languages; Rust raw
+// identifiers (`r#type`) are out of scope — none are cited.
+const SYMBOL_FRAGMENT_RE = /^[$_\p{ID_Start}][$\u200C\u200D\p{ID_Continue}]*$/u;
+const LINE_PIN_FRAGMENT_RE = /^L\d+(?:-L\d+)?$/;
 
 function findRepoRoot(): string {
   // Termination via parent-equals-current rather than `dir !== "/"` so the walk
@@ -127,6 +187,15 @@ export function extractCites(
   const bareVolatileRe =
     /(?<![`[\w])((?:[\w.-]+\/)+[\w.-]+\.(?:ts|tsx|js|mjs|mts|cts|rs)):(\d+(?:\s*[,-]\s*\d+)*)/g;
   const repoRoot = getRepoRoot();
+  // Citer-tree exemption for the malformed-symbol-anchor FORM deny below —
+  // the same exempt set as label-cite's md-lane deny (shared constant). The
+  // exemption suppresses only the deny: well-formed cites from these trees
+  // keep their standing verification, and the runner's population filter
+  // already keeps most of them out (defense in depth for direct callers).
+  const citerRepoRelative = relative(repoRoot, resolve(citingFile)).split(sep).join("/");
+  const citerFormDenyExempt = MD_DENY_EXEMPT_CITER_PREFIXES.some((prefix) =>
+    citerRepoRelative.startsWith(prefix),
+  );
 
   const lines = content.split("\n");
   // Fence tracking feeds ONLY the bare-volatile pass below: fenced content is
@@ -291,13 +360,33 @@ export function extractCites(
         !VOLATILE_CODE_PREFIXES.some((prefix) => symbolRepoRelative.startsWith(prefix))
       )
         continue;
+      // Anchor-grammar classification happens AFTER the gating above so the
+      // malformed deny inherits exactly the pass's scope: slash-free bare
+      // names and external `.rs` mentions stay gate-invisible in both arms.
+      const fragment = m[2];
+      const fragmentIsAnchor =
+        SYMBOL_FRAGMENT_RE.test(fragment) && !LINE_PIN_FRAGMENT_RE.test(fragment);
+      // Example channels suppress the FORM deny only (Codex P2, PR #315): a
+      // malformed fragment inside a fence, on a waivered line, or in an
+      // exempt citer tree is quoted-example territory and reverts to the
+      // pre-ratchet posture (gate-invisible), exactly like label-cite's
+      // md-lane deny. Well-formed cites in the same contexts still extract —
+      // the symbol pass's deliberate fence-blind VERIFICATION (see the fence
+      // note above the loop) is unchanged.
+      if (
+        !fragmentIsAnchor &&
+        (insideFence || line.includes(CITE_SHAPE_EXAMPLE_MARKER) || citerFormDenyExempt)
+      ) {
+        continue;
+      }
       cites.push({
         file: citingFile,
         line: i + 1,
-        rawTarget: `${symbolTargetName}#${m[2]}`,
+        rawTarget: `${symbolTargetName}#${fragment}`,
         targetPath: symbolCandidate,
         targetLine: 0,
-        symbol: m[2],
+        symbol: fragment,
+        ...(fragmentIsAnchor ? {} : { symbolMalformed: true }),
       });
     }
   }
@@ -320,6 +409,17 @@ export function checkCite(
         "cite `path#exportedSymbol` instead (AGENTS.md §Durable-Cite Rule) — raw line-pins into packages//apps/ rot on every edit; pick the export enclosing the old line (rg -n 'export' <target>)",
     };
   }
+  // A malformed #fragment is a FORM defect like the volatile deny above — it
+  // fires before any read, whatever the target's state (a cite that is wrong
+  // in form stays wrong even if today's target happens to exist). The detail
+  // names the two observed shapes so the fix is self-serve.
+  if (c.symbolMalformed) {
+    return {
+      cite: c,
+      reason: "malformed-symbol-anchor",
+      detail: `fragment \`#${c.symbol ?? ""}\` is not an exported-symbol anchor — \`path#symbol\` cites must name a TS/Rust identifier (AGENTS.md §Durable-Cite Rule); test titles, heading slugs, and GitHub \`L<line>\` ranges rot like line numbers. Pick the export enclosing the content (rg -n 'export' <target>)`,
+    };
+  }
   let content: string;
   try {
     content = reader(c.targetPath);
@@ -335,15 +435,19 @@ export function checkCite(
   // `SessionSubscribeRequest`, and plain \b breaks on $-suffixed symbols
   // (`\bstore\$\b` demands a word char AFTER the $, so it never matches
   // `store$ =`; $ is legal in the symbol charset and regex-special).
-  // (?<![\w$])…(?![\w$]) treats $ as part of the identifier alphabet on both
-  // edges. On failure the detail lists the file's current exported symbols so
-  // the fix is self-serve.
+  // The boundary alphabet is the SAME Unicode identifier grammar the
+  // fragment classifier uses ($ + ID_Continue + ZWNJ/ZWJ) — an ASCII-only
+  // (?<![\w$]) edge would let `#caf` match inside `café` (é is not \w, so
+  // the ASCII lookahead sees a boundary mid-identifier). On failure the
+  // detail lists the file's current exported symbols so the fix is
+  // self-serve.
   if (c.symbol !== undefined) {
     const escaped = c.symbol.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    if (!new RegExp(`(?<![\\w$])${escaped}(?![\\w$])`).test(content)) {
+    const boundaryClass = "[$\\u200C\\u200D\\p{ID_Continue}]";
+    if (!new RegExp(`(?<!${boundaryClass})${escaped}(?!${boundaryClass})`, "u").test(content)) {
       const exports = [
         ...content.matchAll(
-          /^export\s+(?:async\s+)?(?:function|const|let|class|interface|type|enum)\s+([A-Za-z_$][\w$]*)/gm,
+          /^export\s+(?:async\s+)?(?:function|const|let|class|interface|type|enum)\s+([$_\p{ID_Start}][$\u200C\u200D\p{ID_Continue}]*)/gmu,
         ),
       ]
         .map((e) => e[1])

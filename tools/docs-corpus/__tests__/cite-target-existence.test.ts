@@ -557,6 +557,287 @@ describe("durable-cite rule — Codex round-4 hardening (PR #188)", () => {
   });
 });
 
+describe("durable-cite rule — malformed #fragment deny (fails closed)", () => {
+  // Before this suite's subject landed, symbolRe's fragment charset could not
+  // span a hyphen AND required the closing backtick immediately after, so a
+  // `path#some-test-id` spelling matched NO extraction pass: no symbol check,
+  // no existence check, exit 0 even against a nonexistent path (PR #302
+  // discovery record — the perturbation probe that proved the hole). These
+  // cases are the negative controls proving the checker can now fail.
+  it("denies a hyphenated test-id fragment on an existing volatile target", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/plans/001-x.md":
+        "# Plan\n\nCovered by `packages/foo/src/bar.test.ts#emits-created-event`.\n",
+      "packages/foo/src/bar.test.ts": 'it("emits-created-event", () => {});\n',
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/plans/001-x.md")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("malformed-symbol-anchor");
+      expect(violations[0].detail).toContain("exported-symbol anchor");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("denies a malformed fragment even when the target file is missing (form precedes read)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/plans/001-x.md": "# Plan\n\nSee `packages/lost/src/gone.ts#some-test-id`.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/plans/001-x.md")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("malformed-symbol-anchor");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("denies a GitHub single-line `#L42` fragment (identifier-shaped line-pin, denied by kind)", () => {
+    // `L42` passes identifier grammar, so a charset-only classifier would fall
+    // through to the symbol-presence check and the verdict would ride on
+    // whether the file coincidentally contains the string `L42`.
+    const { root, cleanup } = setupRepo({
+      "docs/plans/001-x.md": "# Plan\n\nSee `packages/foo/src/bar.ts#L42` for the guard.\n",
+      "packages/foo/src/bar.ts": "export function doThing(): void {}\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/plans/001-x.md")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("malformed-symbol-anchor");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("denies a GitHub range `#L18-L205` fragment", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/plans/001-x.md": "# Plan\n\nSee `packages/foo/src/bar.ts#L18-L205` for the span.\n",
+      "packages/foo/src/bar.ts": "export function doThing(): void {}\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/plans/001-x.md")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("malformed-symbol-anchor");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("denies an EMPTY fragment on a non-volatile path (scope is path-shaped, not volatile-only)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/note.md": "see `tools/docs-corpus/lib/slug.ts#` for context.\n",
+      "tools/docs-corpus/lib/slug.ts": "export const slug = 1;\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/note.md")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("malformed-symbol-anchor");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("keeps slash-free malformed fragments gated like every bare-name cite", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/note.md": "see `session.ts#some-test-id` for context.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/note.md")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("keeps EXTERNAL .rs malformed fragments invisible (upstream anchor conventions differ)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/decisions/021-x.md": "# ADR\n\nSee `src/windows.rs#cred-write-flow` upstream.\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/decisions/021-x.md")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("flags only the malformed cite when a valid #symbol cite shares the line", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/plans/001-x.md":
+        "# Plan\n\nPer `packages/foo/src/bar.ts#doThing` and `packages/foo/src/bar.ts#does-the-thing`.\n",
+      "packages/foo/src/bar.ts": "export function doThing(): void {}\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/plans/001-x.md")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("malformed-symbol-anchor");
+      expect(violations[0].cite.rawTarget).toBe("packages/foo/src/bar.ts#does-the-thing");
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe("durable-cite rule — malformed-deny round 2 (Codex P2s, PR #315)", () => {
+  // Round-2 hardening of the deny above. (1) The FORM deny honors the repo's
+  // example channels — fenced blocks, `<!-- cite-shape-example -->` waivered
+  // lines, exempt citer trees — reverting to the pre-ratchet gate-invisible
+  // posture there; WELL-FORMED cites in the same contexts keep the symbol
+  // pass's standing fence-blind verification, so the ratchet only ever
+  // tightened enforced prose. (2) The fragment grammar is Unicode identifier
+  // grammar (TS = ECMAScript IdentifierName, Rust = ID_Start/ID_Continue),
+  // so a legal `café` export is citable and the boundary lookarounds cannot
+  // false-match a fragment inside a longer Unicode identifier.
+  it("suppresses the deny for a malformed example inside a fenced block", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/plans/001-x.md":
+        "# Plan\n\n```md\nsee `packages/foo/src/bar.test.ts#emits-created-event`\n```\n",
+      "packages/foo/src/bar.test.ts": 'it("emits-created-event", () => {});\n',
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/plans/001-x.md")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("suppresses the deny for a malformed example on a waivered line", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/operations/catalog.md":
+        "# Catalog\n\n| Example | `packages/foo/src/bar.ts#some-test-id` | <!-- cite-shape-example -->\n",
+      "packages/foo/src/bar.ts": "export function doThing(): void {}\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/operations/catalog.md")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("suppresses the deny for a malformed cite from an exempt citer tree (docs/superpowers/)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/superpowers/plans/campaign.md":
+        "# Campaign\n\nSee `packages/foo/src/bar.ts#some-test-id`.\n",
+      "packages/foo/src/bar.ts": "export function doThing(): void {}\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/superpowers/plans/campaign.md")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("still VERIFIES a well-formed cite inside a fence (fence-blind verification preserved)", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/plans/001-x.md": "# Plan\n\n```md\nsee `packages/foo/src/bar.ts#doesNotExist`\n```\n",
+      "packages/foo/src/bar.ts": "export function doThing(): void {}\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/plans/001-x.md")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("symbol-not-found");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("still VERIFIES a well-formed cite on a waivered line", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/operations/catalog.md":
+        "# Catalog\n\n| Hook | `packages/foo/src/bar.ts#doesNotExist` | <!-- cite-shape-example -->\n",
+      "packages/foo/src/bar.ts": "export function doThing(): void {}\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/operations/catalog.md")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("symbol-not-found");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("accepts a Unicode exported identifier fragment", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/plans/001-x.md": "# Plan\n\nPer `packages/foo/src/bar.ts#café`.\n",
+      "packages/foo/src/bar.ts": "export const café = 1;\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/plans/001-x.md")]),
+      );
+      expect(violations).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("routes an ABSENT Unicode fragment to symbol-not-found and lists Unicode exports", () => {
+    const { root, cleanup } = setupRepo({
+      "docs/plans/001-x.md": "# Plan\n\nPer `packages/foo/src/bar.ts#thé`.\n",
+      "packages/foo/src/bar.ts": "export const café = 1;\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/plans/001-x.md")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("symbol-not-found");
+      expect(violations[0].detail).toContain("café");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("does not false-match a fragment that is a prefix of a longer Unicode identifier", () => {
+    // The ASCII lookahead (?![\w$]) saw a boundary between `caf` and `é`
+    // (é is not ASCII \w), so `#caf` verified against `café`. The Unicode
+    // boundary class closes that.
+    const { root, cleanup } = setupRepo({
+      "docs/plans/001-x.md": "# Plan\n\nPer `packages/foo/src/bar.ts#caf`.\n",
+      "packages/foo/src/bar.ts": "export const café = 1;\n",
+    });
+    try {
+      const violations = withRepoRoot(root, () =>
+        checkCiteTargetExistence([resolve(root, "docs/plans/001-x.md")]),
+      );
+      expect(violations).toHaveLength(1);
+      expect(violations[0].reason).toBe("symbol-not-found");
+    } finally {
+      cleanup();
+    }
+  });
+});
+
 describe("cite-target-existence — flush-digit locator boundary + shared fence tracker (round 3)", () => {
   it("a colon-space numeric VALUE after an md link is prose, not a floor-checked pin", () => {
     const { root, cleanup } = setupRepo({

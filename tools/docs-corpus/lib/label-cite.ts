@@ -51,9 +51,11 @@ import { dirname, relative, resolve, sep } from "node:path";
 
 import {
   checkCite,
+  CITE_SHAPE_EXAMPLE_MARKER,
   type Cite,
   type CiteViolation,
   type FileContentReader,
+  MD_DENY_EXEMPT_CITER_PREFIXES,
 } from "./cite-target-existence.ts";
 import {
   advanceScanState,
@@ -84,25 +86,14 @@ const FROZEN_DOC_PREFIXES = ["docs/archive/", "docs/reference/"];
 // that rots on the target's next amendment — denied with the durable-form
 // remediation, exactly like the code lane (checkMarkdownVolatileCites below).
 
-// Per-line waiver for ILLUSTRATIVE cite-shape examples only (failure-mode
-// catalog rows, rule-text examples). A line carrying the marker is exempt from
-// the md-lane deny; the marker is visible in review, so exemptions stay
-// deliberate. It is NOT an escape hatch for real cites.
-const CITE_SHAPE_EXAMPLE_MARKER = "<!-- cite-shape-example -->";
-
-// Citer trees exempt from the md-lane deny: docs/superpowers/ campaign logs
-// are dated design-time records whose positional cites are provenance
-// (positions at authoring time), not live claims. The .claude/ harness tree
-// (skills, agents, rules) is rule text dense with illustrative cite shapes —
-// staging one of those files must not trip the deny. Frozen trees are already
-// excluded from per-file checks by the runner; listed here for defense in
-// depth so a direct library caller gets the same answer.
-const MD_DENY_EXEMPT_CITER_PREFIXES = [
-  "docs/superpowers/",
-  "docs/archive/",
-  "docs/reference/",
-  ".claude/",
-];
+// The per-line `<!-- cite-shape-example -->` waiver and the exempt citer
+// trees (docs/superpowers/ campaign logs — dated design-time records whose
+// positional cites are provenance, not live claims — plus the .claude/
+// harness tree of rule text dense with illustrative cite shapes) are shared
+// with cite-target-existence's malformed-symbol-anchor deny: both constants
+// live there (the upstream module) so the two gates can never drift onto
+// different spellings or exempt sets. See CITE_SHAPE_EXAMPLE_MARKER and
+// MD_DENY_EXEMPT_CITER_PREFIXES in the import above.
 
 // Plan Tasks-block cite grammar stays legal (AGENTS.md §Durable-Cite Rule,
 // namespace carve-out (1)): plan-execution preflight Gate 4 parses and
