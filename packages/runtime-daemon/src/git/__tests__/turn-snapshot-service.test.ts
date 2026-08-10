@@ -72,8 +72,128 @@
 //     against a pass whose FIRST candidate is unusable, so "never fatal" is
 //     asserted as the later candidates still being pruned.
 //
+//   * `Spec-010 §Turn-Boundary Snapshots` — the amended capture bullet's
+//     SPARSE-AWARE STAGING (T6.1). Detection is the `core.sparseCheckout` bit
+//     ALONE, driven through all four quadrants of the bit×rules-file matrix: the
+//     ordinary sparse root, the bit-set-rules-vanished root that must reach the
+//     sparse arm and fail closed, the stale-rules-file-with-the-bit-false root
+//     that must run the non-sparse pipeline byte-identically, and the plain
+//     non-sparse root. Partition is git's own `sparse-checkout check-rules -z`
+//     oracle in its live-rules form, asserted through the fixture where a
+//     gitignore-based reimplementation gives the WRONG answer (`/*` plus a nested
+//     negation) rather than only where the two agree. Seeding is a copy of the
+//     LIVE index taken under git's own `<index>.lock`, driven for round-trip
+//     content on BOTH legs — the capture records the staged blob, and the restore
+//     writes it back to disk once the cone widens over the path — for lock
+//     contention in a main checkout AND in a linked worktree (whose index lives
+//     under `.git/worktrees/<id>/`), and for the `worktree`-mode sparse
+//     INHERITANCE that makes the second fixture reachable at all.
+//
+//     DOCUMENTED RESIDUAL, driven by its own case rather than left to be
+//     discovered: under an UNCHANGED cone that staged blob is captured but never
+//     lands on disk. Both restore legs are projections — `read-tree --reset -u`
+//     will not materialize an out-of-cone path, and `close-index` then returns the
+//     index entry to `HEAD`'s blob — so the worktree stays sparse and the bytes
+//     remain reachable only inside the snapshot object. That is
+//     sparseness-as-checkout-time-projection applied consistently, not a loss: the
+//     companion case asserts the bytes ARE in the object and that widening
+//     recovers them.
+//
+//     The `Sparse-Boundary-Paths:` trailer is driven as a FORMAT MARKER —
+//     written unconditionally in a sparse root, empty set spelled `[]`, absent in
+//     a non-sparse one — because that is what makes an absent trailer decidable;
+//     both of its restore-side consumers are driven (the index pre-drop for
+//     intent-to-add and turn-staged entries, the delete-pass exemption in BOTH
+//     directions) and so is its fail-closed decode. The pre-drop is additionally
+//     driven for its ORDERING: it is the restore's first mutation, so a `HEAD`
+//     that moves during the derivation must still refuse `head_moved` with the
+//     drop UNAPPLIED, asserted as a byte-identical index file. That case has to
+//     live in the sparse suite — the base suite's HEAD-during-derivation arm runs
+//     in a non-sparse fixture where the drop never fires.
+//
+//     …and for its SCOPE, which is the asymmetry the two restore-side sparse legs
+//     carry deliberately. The materialization diagnostic is ROOT-scoped: it
+//     describes the live cone, so it is meaningless without one. The pre-drop is
+//     MEMBERSHIP-scoped: what makes it necessary is a live-index entry the
+//     snapshot tree lacks, which is a fact about the snapshot, and disabling
+//     sparse checkout between capture and restore does not remove that entry. Both
+//     directions are driven — a recorded boundary path SURVIVES a restore into a
+//     root that stopped being sparse (root-gating the leg deletes it, since the
+//     delete-pass exemption is already membership-scoped and cannot defend a file
+//     the checkout unlinked first), and a snapshot that recorded no set never
+//     spawns the enumeration at all, asserted on the ARGV so the no-op is proven
+//     rather than inferred from an unchanged outcome. The legacy residual is
+//     unmoved by that scope change and stays stated: a pre-closure snapshot
+//     carries no trailer, decodes empty, and no-ops exactly as before. The `commit-tree`
+//     transport conversion from `-m` argv to `-F -` stream is pinned by ARGV (no
+//     `-m`, no message bytes on the command line), by OID (a non-sparse capture is
+//     byte-identical to the pre-closure pipeline, skipped-trailer case included)
+//     and by SIZE — a boundary set serializing past 32767 characters, the bound
+//     Windows `CreateProcess` puts on a command line, round-trips through the
+//     stream and is still consumed by the restore's exemption.
+//
+//     The materialized-path residual is driven as the diagnostic it is reported
+//     on, in the state the diagnostic actually describes: a cone widened between
+//     capture and restore MATERIALIZES the out-of-cone path, a config-only
+//     narrowing then leaves it on disk while the LIVE definition excludes it, and
+//     the restore's re-projection DISCARDS it — reported and asserted gone from
+//     disk in the same case. Because the diagnostic names what the restore did
+//     rather than what it was about to do, the arms that pin the difference are
+//     the ones that matter: a `read-tree` failed at the spawn leaves both
+//     candidates on disk and emits NOTHING, and a `close-index` failure behind a
+//     completed checkout emits the real set EXACTLY ONCE. The emptiness control
+//     is the same fixture with the cone never touched.
+//
+//     The partition is driven in BOTH directions, and the in-cone one needed its
+//     own arm. Porcelain equivalence over a CLEAN worktree cannot fail on the
+//     in-cone half: the scratch index is seeded from the live index in a sparse
+//     root, so a listing that staged nothing still writes the right tree, and the
+//     boundary set subtracts every tracked path back out of the trailer. Measured
+//     by mutation — an oracle stubbed to "nothing is in cone" left every clean
+//     arm green. The arm holding UNCOMMITTED in-cone content at capture time is
+//     what closes that, with an out-of-cone write beside it so a partition that
+//     staged everything fails too. A second measurement, kept for whoever mutates
+//     this next: DROPPING `-z` from the oracle argv is a weak mutant, not a clean
+//     kill. Without it git reads the NUL-joined candidates as ONE line and echoes
+//     it with a trailing newline, so every key but the last still matches and
+//     only an arm sensitive to the final entry notices.
+//
+//     Fail-closed is driven on BOTH sides of the oracle, and the restore side
+//     twice: once with candidates to score, and once with a snapshot tree holding
+//     no path at all — the shape where an early return would have skipped the only
+//     restore-side matcher call and restored blind. That case also proves the
+//     healthy half, since `check-rules` has to exit 0 on an empty candidate set
+//     for the unguarded call to be safe.
+//
+//     NOT COVERED, stated rather than implied: the CAPTURE partition's byte
+//     discipline. On that leg — and only that leg — `check-rules` candidates go
+//     out and come back as raw listing SLICES keyed bijectively through `latin1`,
+//     so no path is reconstructed from a decode, which is the property that makes
+//     a non-UTF-8 filename safe. It is asserted by construction only. APFS on the
+//     measuring host rejects a non-UTF-8 filename at `creat(2)`, so the fixture
+//     that would exercise it cannot be built here; the closest reachable
+//     measurement, taken and not kept as a case, is that `check-rules -z` echoes
+//     multibyte UTF-8 names verbatim even under a forced `core.quotepath=true`.
+//     The RESTORE side scores candidates it rebuilt from already-decoded tree
+//     paths, so it makes no byte-exactness claim to cover: both sides of its
+//     comparison are decoded strings out of one `ls-tree`.
+//
 // Verifies invariant:
 //
+//   * I-010-24 — sparse-faithful capture and restore. The load-bearing claim is
+//     that a sparse execution root's capture is EQUIVALENT TO PORCELAIN and its
+//     restore re-projects a full tree through the live cone, and the suite
+//     asserts the first against `git add -A` under the same config (never against
+//     a hand-written expectation) across a matrix of cone, non-cone
+//     positive-pattern, top-level-negation and nested-negation definitions, in
+//     both a clean and a materialized worktree state. The second is asserted as
+//     git's own disposition codes — the out-of-cone path stays `S`, the in-cone
+//     one is `H`, and `git status --porcelain` is EMPTY afterwards, which is the
+//     precise observable the pre-closure loss broke. Fail-closed is driven at
+//     both floors: on the capture side by injecting the below-2.41
+//     unknown-subcommand failure through the git seam (never by requiring an old
+//     binary), and on the restore side at `derive-enumerations`, pre-mutation,
+//     asserted as a byte-identical worktree census.
 //   * I-010-21 — snapshot refs live only under `refs/sidekicks/runs/…`, never
 //     `refs/heads/`, and are invisible to branch history. Asserted as ground
 //     truth (`for-each-ref refs/heads/` byte-identical across the capture,
@@ -231,15 +351,16 @@
 // pin passes the first and FAILS the second, destroying a recorded exec bit the
 // turn never touched, and that second cell is why the pin was removed.
 //
-// The service's disposition table records `core.sparseCheckout` as an open
-// RESIDUAL rather than a pin, and this suite characterizes it rather than
-// blessing it: a sparse execution root's out-of-cone content is measured being
-// dropped from the snapshot tree at CAPTURE — the root cause, since the scratch
-// index carries no skip-worktree bits — and then lost from the worktree across a
-// restore that still reports `restored` with both enumerations empty. The
-// negative control in that case is the pin deliberately NOT added: a checkout leg
-// carrying `-c core.sparseCheckout=false` reproduces the identical loss, so the
-// case also documents why adding it would buy only a quieter failure.
+// `core.sparseCheckout` is the one knob the service READS AS INPUT rather than
+// pinning, honoring or tolerating, and its cases DRIVE the closure rather than
+// characterizing a loss. That is a reversal: this suite used to carry a case
+// asserting that a sparse root's out-of-cone content was dropped from the
+// snapshot tree at capture and then deleted from the worktree by a restore that
+// still reported `restored` — the residual the service's disposition table
+// recorded. T6.1 closed it, so that case now asserts RETENTION and porcelain
+// equivalence at the same observables, and the suite carries exactly one reading
+// of this behaviour. The sparse block below is described in the
+// `Spec-010 §Turn-Boundary Snapshots` coverage entry and the I-010-24 entry.
 
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -259,7 +380,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -395,6 +516,16 @@ interface FixtureGitResult {
 interface FixtureGitOptions {
   readonly cwd?: string;
   readonly environmentOverrides?: Readonly<Record<string, string>>;
+  /**
+   * Written to the child's stdin, which is then closed.
+   *
+   * One fixture needs it: `update-index --index-info` is the only way to write
+   * the three STAGES of an unmerged path, and no `--cacheinfo` spelling reaches
+   * a non-zero stage. Added to the fixture rather than worked around because the
+   * alternative — provoking a real merge conflict and then narrowing the cone
+   * around it — makes the fixture's own construction the fragile part.
+   */
+  readonly stdin?: string;
 }
 
 /**
@@ -461,9 +592,10 @@ function spawnFixtureGit(
   argv: readonly string[],
   environment: NodeJS.ProcessEnv,
   cwd: string,
+  stdin?: string,
 ): Promise<FixtureGitResult> {
   return new Promise<FixtureGitResult>((resolve, reject) => {
-    execFile(
+    const child = execFile(
       "git",
       [...argv],
       { encoding: "utf8", env: environment, cwd, timeout: FIXTURE_GIT_TIMEOUT_MS },
@@ -482,6 +614,19 @@ function spawnFixtureGit(
         resolve({ exitCode: reportedCode, stdout, stderr });
       },
     ).on("error", reject);
+    // Closed on EVERY spawn, supplied or not — a fixture command that reads
+    // stdin would otherwise hang on the test runner's, which is exactly the trap
+    // the service's own seam closes on its side.
+    const childStdin = child.stdin;
+    if (childStdin !== null) {
+      childStdin.on("error", () => {
+        /* the invocation's failure already travels on the exit status */
+      });
+      if (stdin !== undefined) {
+        childStdin.write(stdin);
+      }
+      childStdin.end();
+    }
   });
 }
 
@@ -515,7 +660,7 @@ class FixtureRepository {
       ...this.#environment,
       ...options.environmentOverrides,
     };
-    return spawnFixtureGit(argv, environment, options.cwd ?? this.root);
+    return spawnFixtureGit(argv, environment, options.cwd ?? this.root, options.stdin);
   }
 
   write(relativePath: string, contents: string): void {
@@ -539,6 +684,20 @@ class FixtureRepository {
   }
 
   /**
+   * This repository's own index file, resolved through git.
+   *
+   * NOT `<root>/.git/index`. A linked worktree's `.git` is a FILE, and its index
+   * lives under `<main>/.git/worktrees/<id>/index`; the naive spelling
+   * `ENOTDIR`s there, and would silently read the MAIN checkout's index anywhere
+   * it happened to resolve. This is the same resolution the service performs for
+   * its own sparse seed, arrived at here for the same reason.
+   */
+  async resolvedIndexPath(): Promise<string> {
+    const reported: string = await this.git(["rev-parse", "--git-path", "index"]);
+    return isAbsolute(reported) ? reported : join(this.root, reported);
+  }
+
+  /**
    * The tree porcelain `git add -A` would stage from the current worktree — the
    * REFERENCE the capture pipeline is measured against.
    *
@@ -546,13 +705,54 @@ class FixtureRepository {
    * fixture's own state is untouched and the answer is the true porcelain answer
    * (an empty scratch index would make every tracked deletion invisible, since
    * there would be nothing in the index to delete).
+   *
+   * The `add -A` leg tolerates exactly ONE non-zero exit, and no others. The two
+   * inputs that make it non-zero-or-noisy are both inputs this reference has to
+   * survive rather than refuse:
+   *
+   *   * an untracked embedded repository, where `add -A` warns on stderr and
+   *     exits 0;
+   *   * an out-of-cone path in a SPARSE root, where `add -A` exits 1 with the
+   *     `paths … outside of your sparse-checkout definition` advice. That advice
+   *     is about which paths porcelain DECLINED to update, and the index it
+   *     leaves behind is exactly the reference wanted — measured on git 2.50.1:
+   *     the tree after the refused `add -A` is byte-identical to staging only the
+   *     in-cone listing. Refusing here would make the sparse arms unable to state
+   *     the equivalence at all, which is the arm porcelain is most needed for.
+   *
+   * The tolerance is scoped to SPARSE roots rather than applied blanket, because
+   * this helper served eight non-sparse call sites before the sparse arms existed
+   * and "ignore the status" would silently relax all of them — an `add -A` that
+   * failed on a lock, a bad pathspec or an unwritable index would then hand back
+   * a reference tree derived from a half-updated index. The scope is read from
+   * `core.sparseCheckout`, deliberately NOT from git's advice string: the wording
+   * is prose that may differ between the 2.50.1 this was measured on and the
+   * 2.54.x CI runs, and a helper that THROWS on a non-match would turn a reworded
+   * message into a red sparse suite on CI and a green one here. The config bit
+   * discriminates exactly as well and reads the same on every version.
+   * `write-tree`'s status is checked either way, so both legs still have to be
+   * genuinely usable.
    */
   async porcelainAddAllTree(scratchIndexPath: string): Promise<string> {
-    copyFileSync(join(this.root, ".git", "index"), scratchIndexPath);
+    copyFileSync(await this.resolvedIndexPath(), scratchIndexPath);
     const overrides = { GIT_INDEX_FILE: scratchIndexPath };
-    // Exit status only. `git add -A` writes an embedded-repository WARNING to
-    // stderr on the gitlink fixtures and still exits 0.
-    await this.git(["add", "-A"], { environmentOverrides: overrides });
+    const staged: FixtureGitResult = await this.gitCapturing(["add", "-A"], {
+      environmentOverrides: overrides,
+    });
+    if (staged.exitCode !== 0) {
+      const sparseBit: string = await this.git([
+        "config",
+        "--type=bool",
+        "--default=false",
+        "--get",
+        "core.sparseCheckout",
+      ]);
+      if (sparseBit !== "true") {
+        throw new Error(
+          `fixture porcelain git add -A exited ${String(staged.exitCode)}: ${staged.stderr}`,
+        );
+      }
+    }
     return this.git(["write-tree"], { environmentOverrides: overrides });
   }
 }
@@ -877,6 +1077,14 @@ function collectWorktreeCensus(root: string): string {
  * and the index is where a stray `read-tree`, `add` or `checkout` would land
  * without changing a single worktree byte. Raw file bytes rather than
  * `ls-files --stage`, so even a rewritten-but-equivalent index fails.
+ *
+ * MAIN-CHECKOUT ONLY, by the naive `<root>/.git/index` spelling this takes
+ * deliberately: it is synchronous, which is what lets it sit inside an `expect`,
+ * and every caller is a main-checkout fixture. Handed a LINKED worktree's root
+ * this `ENOTDIR`s, since that root's `.git` is a FILE — loud rather than silent,
+ * which is what makes the narrow spelling tolerable here. The general resolution
+ * is {@link FixtureRepository.resolvedIndexPath}, which is async and is what the
+ * sparse arms use.
  */
 function readIndexFingerprint(root: string): string {
   return createHash("sha256")
@@ -3963,14 +4171,15 @@ describe("TurnSnapshotService.restoreToTurn", () => {
     },
   );
 
-  it("CHARACTERIZES the recorded sparse-checkout residual — out-of-cone content is LOST", async () => {
+  it("RETAINS out-of-cone content across a sparse capture/restore pair (I-010-24)", async () => {
     const repository: FixtureRepository = fixture.repository;
-    // NOT a blessing of this outcome. The service's header records
-    // `core.sparseCheckout` as an open residual with a named exposure, and a
-    // residual asserted only in prose is one that silently changes. This case
-    // pins the CURRENT measured behaviour so the eventual fix — refusing capture
-    // in a sparse root, or teaching the staging listing about the patterns — has
-    // to come here and say so.
+    // THE INVERTED CASE. This case used to characterize the loss the service's
+    // disposition table recorded as an open residual — the out-of-cone path
+    // dropped from the snapshot tree at capture and then deleted from the
+    // worktree by the restore, reported `restored` with both enumerations empty.
+    // T6.1 closed that residual, so the case now asserts the closure at exactly
+    // the observables it used to assert the loss at, and the suite carries ONE
+    // reading of this behaviour rather than two.
     repository.write("cone-in/kept.txt", "in-cone content\n");
     repository.write("cone-out/excluded.txt", "out-of-cone content\n");
     await repository.git(["add", "-A"]);
@@ -3979,10 +4188,10 @@ describe("TurnSnapshotService.restoreToTurn", () => {
     await repository.git(["sparse-checkout", "set", "cone-in"]);
     expect(existsSync(join(repository.root, "cone-out"))).toBe(false);
 
-    // ROOT CAUSE, asserted directly: the capture's scratch index is seeded by a
-    // bare `read-tree` and carries NO skip-worktree bits, so the out-of-cone path
-    // is listed as an ordinary cached entry and `--remove` drops it for being
-    // absent from the worktree. The snapshot tree simply does not contain it.
+    // ROOT CAUSE, inverted and asserted directly: the capture now seeds the
+    // scratch index from a COPY OF THE LIVE INDEX, which carries the
+    // skip-worktree bits, so the out-of-cone entry arrives already staged at its
+    // recorded blob and `--remove` never re-stats it. The snapshot tree is FULL.
     //
     // Nothing refreshes the real index between the sparse set and this capture,
     // deliberately: `git status` CLEARS skip-worktree for an out-of-cone path
@@ -3996,11 +4205,19 @@ describe("TurnSnapshotService.restoreToTurn", () => {
       `${captured.ref}^{tree}`,
     ]);
     expect(snapshotPaths).toContain("cone-in/kept.txt");
-    expect(snapshotPaths).not.toContain("cone-out/excluded.txt");
+    expect(snapshotPaths).toContain("cone-out/excluded.txt");
 
-    // The turn then writes at the out-of-cone path — the content codex's repro
-    // loses. It is post-snapshot content by construction, since the snapshot
-    // above does not hold that path at all.
+    // PORCELAIN EQUIVALENCE, which is the equivalence `Spec-010 §Turn-Boundary
+    // Snapshots` actually asks for and the one the loss used to break: what
+    // `git add -A` would stage from this sparse worktree, staged against a copy
+    // of the real index, is exactly what the capture recorded.
+    expect(await repository.git(["rev-parse", `${captured.ref}^{tree}`])).toBe(
+      await repository.porcelainAddAllTree(join(fixture.fixtureRoot, "porcelain-sparse.index")),
+    );
+
+    // The turn then writes at the out-of-cone path. Under the closure this IS
+    // snapshot-tracked content, so the restore is entitled to overwrite it — and
+    // is asserted below to put the recorded bytes back rather than to delete it.
     repository.write("cone-out/excluded.txt", "written by the turn, out of cone\n");
 
     const target: TurnSnapshotRestoreTarget = expectResolved(
@@ -4008,34 +4225,40 @@ describe("TurnSnapshotService.restoreToTurn", () => {
     );
     const restored: TurnSnapshotRestored = expectRestored(await service.restoreToTurn(target));
 
-    // The silent-success arm: `restored`, with BOTH enumerations empty. The loss
-    // is not a collision (the path is not ignored) and not a gitlink, so no
-    // existing enumeration can carry it — which is the residual, stated as an
-    // assertion.
     expect(restored.overwrittenIgnoredPaths).toEqual([]);
     expect(restored.divergentGitlinks).toEqual([]);
-    expect(existsSync(join(repository.root, "cone-out", "excluded.txt"))).toBe(false);
 
-    // …and the sparse checkout itself is left incoherent: the closing reset
-    // returns the index to `HEAD`, which DOES track the path, so `git status`
-    // reports the whole out-of-cone set as deleted where it previously reported
-    // a clean tree.
-    expect(await repository.git(["status", "--porcelain"])).toContain("cone-out/excluded.txt");
-
-    // NEGATIVE CONTROL for the pin that is deliberately NOT added: measured on
-    // git 2.50.1, a checkout leg carrying `-c core.sparseCheckout=false` produces
-    // the identical loss. The pin suppresses git's `not uptodate` advisory and
-    // changes nothing else, so adding it would buy a quieter failure and no fix.
-    repository.write("cone-out/excluded.txt", "written again, out of cone\n");
-    await repository.git([
-      "-c",
-      "core.sparseCheckout=false",
-      "read-tree",
-      "--reset",
-      "-u",
-      captured.snapshotCommit,
-    ]);
+    // THE SPARSE PROJECTION, which is the whole shape of the fix: the tree is
+    // full, and the checkout re-projects it through the LIVE cone. So the
+    // out-of-cone path stays unmaterialized (`S` — skip-worktree) rather than
+    // being written to disk, the in-cone one is materialized (`H`), and the turn's
+    // stray out-of-cone file is gone because the checkout un-materialized the
+    // path it was squatting.
     expect(existsSync(join(repository.root, "cone-out", "excluded.txt"))).toBe(false);
+    expect(await repository.git(["ls-files", "-c", "-t", "cone-out/excluded.txt"])).toBe(
+      "S cone-out/excluded.txt",
+    );
+    expect(await repository.git(["ls-files", "-c", "-t", "cone-in/kept.txt"])).toBe(
+      "H cone-in/kept.txt",
+    );
+
+    // …and the sparse checkout is COHERENT, where the residual left it reporting
+    // the whole out-of-cone set as deleted. The closing reset returns the index
+    // to `HEAD`, which tracks the path — and so does the snapshot, so there is
+    // nothing to report.
+    expect(await repository.git(["status", "--porcelain"])).toBe("");
+
+    // GROUND TRUTH for the retention claim, independent of `git status`: the
+    // recorded blob at the out-of-cone path is the BOUNDARY's content, not the
+    // turn's, so a snapshot that merely carried the path forward from the turn
+    // would fail here.
+    expect(
+      await repository.git([
+        "cat-file",
+        "blob",
+        `${captured.snapshotCommit}:cone-out/excluded.txt`,
+      ]),
+    ).toBe("out-of-cone content");
   });
 
   it("enumerates an overwrite applied by a read-tree that then failed IN-COMMAND", async () => {
@@ -5033,6 +5256,1654 @@ describe("TurnSnapshotService.restoreToTurn", () => {
     expect(collectWorktreeCensus(repository.root)).toBe(censusBefore);
     expect(existsSync(join(repository.root, "unborn", ".git"))).toBe(true);
     expect(existsSync(join(repository.root, "post-snapshot.txt"))).toBe(true);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Sparse-root harness (T6.1)
+// ----------------------------------------------------------------------------
+//
+// The sparse cases need one thing the rest of this suite does not: a way to put
+// a repository into a sparse state that is NOT cone mode, because the closure's
+// oracle claim is about git's whole sparsity matcher and cone mode exercises the
+// easy half of it. `sparse-checkout set --no-cone` is deprecated-but-present on
+// every git this project supports; the fixtures below write
+// `$GIT_DIR/info/sparse-checkout` and set the bits directly instead, which is
+// both what `--no-cone` does and what a repository configured by some other tool
+// looks like — the state the daemon actually has to survive.
+
+/**
+ * Put `repository` into a NON-CONE sparse state with the given patterns, then
+ * make the worktree match.
+ *
+ * `read-tree -mu HEAD` is git's own way of applying a changed sparse definition
+ * to the working tree: it re-projects the current tree through the new patterns,
+ * materializing what is now in and removing what is now out. Doing it this way
+ * rather than through `sparse-checkout set` is what keeps `core.sparseCheckoutCone`
+ * genuinely false — the porcelain rewrites the patterns into cone form.
+ */
+async function applyNonConeSparseDefinition(
+  repository: FixtureRepository,
+  patterns: readonly string[],
+): Promise<void> {
+  const gitDirectory: string = await repository.git(["rev-parse", "--absolute-git-dir"]);
+  mkdirSync(join(gitDirectory, "info"), { recursive: true });
+  writeFileSync(join(gitDirectory, "info", "sparse-checkout"), `${patterns.join("\n")}\n`);
+  await repository.git(["config", "core.sparseCheckout", "true"]);
+  await repository.git(["config", "core.sparseCheckoutCone", "false"]);
+  await repository.git(["read-tree", "-mu", "HEAD"]);
+}
+
+/**
+ * The single assertion every porcelain-equivalence arm makes: the tree the
+ * service captured IS the tree `git add -A` would stage from this worktree under
+ * the same config.
+ *
+ * A COMPARATIVE assertion rather than a literal path list, and that is the
+ * suite's existing `core.fileMode` idiom applied to a knob whose behaviour is
+ * genuinely git's to define. A literal expectation would encode this suite's
+ * model of what a given sparse definition admits — the very reimplementation the
+ * service refuses to do — and would go version-fragile the moment git changed a
+ * matcher corner. The comparative form holds wherever the two agree, which is the
+ * property `Spec-010 §Turn-Boundary Snapshots` actually asks for.
+ */
+async function expectCapturePorcelainEquivalent(
+  repository: FixtureRepository,
+  captured: TurnSnapshotCaptured,
+  scratchIndexName: string,
+): Promise<void> {
+  expect(await repository.git(["rev-parse", `${captured.ref}^{tree}`])).toBe(
+    await repository.porcelainAddAllTree(join(fixture.fixtureRoot, scratchIndexName)),
+  );
+}
+
+/** The decoded `Sparse-Boundary-Paths:` trailer line, or `null` when absent. */
+async function readSparseBoundaryTrailer(
+  repository: FixtureRepository,
+  snapshotCommit: string,
+): Promise<readonly string[] | null> {
+  const body: string = await repository.git(["cat-file", "commit", snapshotCommit]);
+  for (const line of body.split("\n")) {
+    if (line.startsWith("Sparse-Boundary-Paths:")) {
+      return JSON.parse(line.slice("Sparse-Boundary-Paths:".length).trim()) as readonly string[];
+    }
+  }
+  return null;
+}
+
+/**
+ * Whether `argv` is the boundary-drop enumeration's own `ls-files` invocation.
+ *
+ * Matched on the flags AFTER the subcommand, never with `argv.includes`. Every
+ * invocation this module makes is wrapped in `-c core.hooksPath=…` and `-c
+ * core.fsmonitor=false` before it reaches the seam, so a bare `includes("-c")`
+ * matches the delete pass and the collision listing too — measured, by writing
+ * this the loose way first. The drop's spelling is exactly `ls-files -c -z`; the
+ * materialization derivation adds `-t` and the other two use `-o`.
+ */
+function isBoundaryDropListing(argv: readonly string[]): boolean {
+  const subcommandIndex: number = argv.indexOf("ls-files");
+  if (subcommandIndex === -1) {
+    return false;
+  }
+  return argv.slice(subcommandIndex + 1).join(" ") === "-c -z";
+}
+
+/**
+ * A git seam that fails ONE leg, identified by a predicate over the argv, with a
+ * rejection carrying `stderr` exactly as the production runner does.
+ *
+ * This is how the below-2.41 floor is driven. Requiring an old git binary would
+ * make the case unrunnable on every machine that has a current one — including
+ * CI, which runs 2.54 — so what is under test is the SERVICE's disposition of an
+ * unknown-subcommand failure, which is a claim about this module and is fully
+ * observable through the seam. The seam is WRAPPED, not replaced: every other leg
+ * really runs, so the failure lands in a genuine pipeline.
+ */
+function buildLegFailingRunner(
+  matches: (argv: readonly string[]) => boolean,
+  message: string,
+): TurnSnapshotGitRunner {
+  return async (argv, options) => {
+    if (matches(argv)) {
+      return Promise.reject(Object.assign(new Error(message), { stderr: message }));
+    }
+    return runTurnSnapshotGitWithExecFile(argv, options);
+  };
+}
+
+describe("TurnSnapshotService sparse execution roots (T6.1, I-010-24)", () => {
+  it(
+    "matches porcelain across cone, non-cone and NEGATION definitions, clean and materialized",
+    async () => {
+      const repository: FixtureRepository = fixture.repository;
+      // The negation fixture is the load-bearing one. A `/*` include plus a nested
+      // `!/a/b/` re-exclusion is where the gitignore machinery this module already
+      // runs gives the WRONG answer (measured on git 2.50.1: it scores
+      // `a/b/deep.txt` includable, and the sparsity matcher does not), so a
+      // partition built on the exclude pipeline instead of on `check-rules` passes
+      // the cone arm and fails here.
+      repository.write("cone-in/kept.txt", "in cone\n");
+      repository.write("cone-out/excluded.txt", "out of cone\n");
+      repository.write("a/top.txt", "a top\n");
+      repository.write("a/b/deep.txt", "a b deep\n");
+      repository.write("a/b/c/deeper.txt", "a b c deeper\n");
+      await repository.git(["add", "-A"]);
+      await repository.git(["commit", "-q", "-m", "sparse matrix fixture"]);
+
+      const service: TurnSnapshotService = buildService();
+      let turnOrdinal = 0;
+
+      // Each arm: apply the definition, capture, assert porcelain equivalence.
+      // CONE mode first — the ordinary shape, and the control that a failure in a
+      // later arm is about the matcher rather than about the pipeline.
+      await repository.git(["sparse-checkout", "set", "cone-in"]);
+      turnOrdinal += 1;
+      await expectCapturePorcelainEquivalent(
+        repository,
+        await captureTurn(service, { turnOrdinal }),
+        "porcelain-cone.index",
+      );
+
+      // NON-CONE POSITIVE PATTERN.
+      await repository.git(["sparse-checkout", "disable"]);
+      await applyNonConeSparseDefinition(repository, ["/cone-in/", "/*.txt", "/.gitignore"]);
+      turnOrdinal += 1;
+      await expectCapturePorcelainEquivalent(
+        repository,
+        await captureTurn(service, { turnOrdinal }),
+        "porcelain-noncone.index",
+      );
+
+      // TOP-LEVEL NEGATION — everything, minus one top-level directory.
+      await applyNonConeSparseDefinition(repository, ["/*", "!/cone-out/"]);
+      turnOrdinal += 1;
+      await expectCapturePorcelainEquivalent(
+        repository,
+        await captureTurn(service, { turnOrdinal }),
+        "porcelain-negate-top.index",
+      );
+
+      // NESTED NEGATION — the case a gitignore-based oracle gets wrong.
+      await applyNonConeSparseDefinition(repository, ["/*", "!/a/b/"]);
+      turnOrdinal += 1;
+      await expectCapturePorcelainEquivalent(
+        repository,
+        await captureTurn(service, { turnOrdinal }),
+        "porcelain-negate-nested.index",
+      );
+
+      // …and the same definition with the worktree MATERIALIZED at out-of-cone
+      // paths, which is a different index state entirely: `read-tree -mu` cleared
+      // skip-worktree for nothing, but writing at an out-of-cone path leaves a file
+      // git's own listing reports as untracked. Porcelain and the capture have to
+      // still agree about it.
+      repository.write("a/b/deep.txt", "materialized out-of-cone edit\n");
+      repository.write("a/b/stray.txt", "materialized out-of-cone stray\n");
+      turnOrdinal += 1;
+      await expectCapturePorcelainEquivalent(
+        repository,
+        await captureTurn(service, { turnOrdinal }),
+        "porcelain-materialized.index",
+      );
+    },
+    MULTI_SEQUENCE_CASE_TIMEOUT_MS,
+  );
+
+  it("stages UNCOMMITTED in-cone work — the partition's in-cone half, not just its exclusions", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    // Every other porcelain arm above compares a CLEAN worktree, and on a clean
+    // worktree the scratch index's live-index seed already carries the whole
+    // answer: an in-cone listing that staged NOTHING would still write the right
+    // tree, because `update-index` with empty stdin is a no-op over a seeded
+    // index. Measured, by making the matcher call return the empty set — the
+    // suite stayed green on every arm but one, and the boundary trailer stayed
+    // small too, since it subtracts every tracked path back out. So this arm
+    // holds UNCOMMITTED in-cone content at capture time, which is the shape that
+    // actually fails when the partition's in-cone half goes wrong.
+    repository.write("cone-in/kept.txt", "committed content\n");
+    repository.write("cone-out/excluded.txt", "out of cone\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "in-cone staging fixture"]);
+    await repository.git(["sparse-checkout", "set", "cone-in"]);
+
+    // Both kinds: a MODIFICATION to a tracked in-cone file and a NEW untracked
+    // one. The out-of-cone write beside them is the control — the same capture
+    // that has to carry these two has to keep excluding that one, so a partition
+    // that simply staged everything passes neither.
+    repository.write("cone-in/kept.txt", "UNCOMMITTED edit\n");
+    repository.write("cone-in/added.txt", "UNCOMMITTED addition\n");
+    repository.write("cone-out/materialized.txt", "materialized out of cone\n");
+
+    const captured: TurnSnapshotCaptured = await captureTurn(buildService());
+
+    expect(await repository.git(["cat-file", "blob", `${captured.ref}:cone-in/kept.txt`])).toBe(
+      "UNCOMMITTED edit",
+    );
+    expect(await repository.git(["cat-file", "blob", `${captured.ref}:cone-in/added.txt`])).toBe(
+      "UNCOMMITTED addition",
+    );
+    expect(
+      await repository.git(["ls-tree", "-r", "--name-only", `${captured.ref}^{tree}`]),
+    ).not.toContain("cone-out/materialized.txt");
+    await expectCapturePorcelainEquivalent(repository, captured, "porcelain-in-cone-work.index");
+  });
+
+  it("inherits sparsity into a linked WORKTREE root and captures it faithfully", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    // Detection is ROOT-KEYED and mode-agnostic, and this is the fixture that
+    // makes that assertable rather than asserted: `git worktree add` copies the
+    // sparse state, so a `worktree`-mode root is sparse without anything in the
+    // daemon saying so. A detector keyed on `input.mode` would classify this root
+    // non-sparse and lose its out-of-cone content.
+    repository.write("cone-in/kept.txt", "in cone\n");
+    repository.write("cone-out/excluded.txt", "out of cone\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+    await repository.git(["sparse-checkout", "set", "cone-in"]);
+
+    const worktreeRoot: string = join(fixture.fixtureRoot, "linked-worktree");
+    await repository.git(["worktree", "add", "-q", "-b", "feature/sparse", worktreeRoot]);
+    const worktree = new FixtureRepository(
+      worktreeRoot,
+      buildFixtureEnvironment(fixture.fixtureRoot),
+    );
+    // Inheritance, asserted rather than assumed — if a future git stopped copying
+    // the state, this case would otherwise silently become a non-sparse one.
+    expect(await worktree.git(["config", "--type=bool", "--get", "core.sparseCheckout"])).toBe(
+      "true",
+    );
+    expect(existsSync(join(worktreeRoot, "cone-out"))).toBe(false);
+
+    const service: TurnSnapshotService = buildService();
+    const captured: TurnSnapshotCaptured = expectCaptured(
+      await service.captureTurnSnapshot({ ...CAPTURE_DEFAULTS, executionRoot: worktreeRoot }),
+    );
+    await expectCapturePorcelainEquivalent(worktree, captured, "porcelain-worktree.index");
+    expect(
+      await worktree.git(["ls-tree", "-r", "--name-only", `${captured.ref}^{tree}`]),
+    ).toContain("cone-out/excluded.txt");
+  });
+
+  it("round-trips content staged with `add --sparse` before the cone shrank", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    // The LIVE-INDEX SEED's discriminating fixture. The user stages out-of-cone
+    // content, then narrows the cone; the live index now legitimately differs
+    // from `HEAD` at that path, and `read-tree <base>` — the pre-closure seed —
+    // records the BASE's blob rather than the staged one. Only a seed taken from
+    // the live index can see what was staged.
+    repository.write("cone-in/kept.txt", "in cone\n");
+    repository.write("cone-out/excluded.txt", "base content\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+    repository.write("cone-out/excluded.txt", "STAGED out-of-cone content\n");
+    await repository.git(["add", "--sparse", "cone-out/excluded.txt"]);
+    await repository.git(["sparse-checkout", "set", "cone-in"]);
+
+    const captured: TurnSnapshotCaptured = await captureTurn(buildService());
+    await expectCapturePorcelainEquivalent(repository, captured, "porcelain-staged.index");
+    // Ground truth, independent of the porcelain comparison: the recorded blob is
+    // the STAGED content, which is the byte the `<base>` seed could not reach.
+    expect(
+      await repository.git([
+        "cat-file",
+        "blob",
+        `${captured.snapshotCommit}:cone-out/excluded.txt`,
+      ]),
+    ).toBe("STAGED out-of-cone content");
+  });
+
+  it("records out-of-cone untracked and intent-to-add paths as the BOUNDARY SET", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    repository.write("cone-in/kept.txt", "in cone\n");
+    repository.write("cone-out/tracked.txt", "tracked out of cone\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+    await repository.git(["sparse-checkout", "set", "cone-in"]);
+    // Both shapes the snapshot tree cannot hold, created after the cone narrowed.
+    mkdirSync(join(repository.root, "cone-out"), { recursive: true });
+    repository.write("cone-out/untracked.txt", "untracked out of cone\n");
+    repository.write("cone-out/intent.txt", "intent-to-add out of cone\n");
+    await repository.git(["add", "-N", "--sparse", "cone-out/intent.txt"]);
+
+    const captured: TurnSnapshotCaptured = await captureTurn(buildService());
+
+    // THE INTENT-TO-ADD GUARD, asserted COMPARATIVELY. Whether `write-tree` omits
+    // an intent-to-add entry is git's call, so the claim under test is that the
+    // capture agrees with porcelain about it — an absolute expectation would go
+    // version-fragile if a future git changed that disposition, while agreement
+    // holds either way.
+    await expectCapturePorcelainEquivalent(repository, captured, "porcelain-boundary.index");
+
+    // The boundary set is exactly the two paths the tree could not hold. The
+    // tracked out-of-cone path is NOT in it — the live-index seed recorded it, so
+    // the restore has a copy and no exemption is owed.
+    expect(await readSparseBoundaryTrailer(repository, captured.snapshotCommit)).toEqual([
+      "cone-out/intent.txt",
+      "cone-out/untracked.txt",
+    ]);
+    const snapshotPaths: string = await repository.git([
+      "ls-tree",
+      "-r",
+      "--name-only",
+      `${captured.ref}^{tree}`,
+    ]);
+    expect(snapshotPaths).toContain("cone-out/tracked.txt");
+    expect(snapshotPaths).not.toContain("cone-out/intent.txt");
+    expect(snapshotPaths).not.toContain("cone-out/untracked.txt");
+  });
+
+  it("exempts the recorded boundary set from the delete pass, in BOTH directions", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    repository.write("cone-in/kept.txt", "in cone\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+    await repository.git(["sparse-checkout", "set", "cone-in"]);
+    mkdirSync(join(repository.root, "cone-out"), { recursive: true });
+    repository.write("cone-out/boundary.txt", "existed at the boundary\n");
+
+    const service: TurnSnapshotService = buildService();
+    const captured: TurnSnapshotCaptured = await captureTurn(service);
+    expect(await readSparseBoundaryTrailer(repository, captured.snapshotCommit)).toEqual([
+      "cone-out/boundary.txt",
+    ]);
+
+    // The turn creates a SECOND out-of-cone untracked file, and edits the first.
+    // The two are indistinguishable on disk at restore time; only the trailer
+    // separates them.
+    repository.write("cone-out/turn-created.txt", "created by the turn\n");
+    repository.write("cone-out/boundary.txt", "edited by the turn\n");
+
+    const restored: TurnSnapshotRestored = expectRestored(
+      await service.restoreToTurn(
+        expectResolved(await service.resolveRestoreTarget(buildResolveInput())),
+      ),
+    );
+    expect(restored.outcome).toBe("restored");
+
+    // SURVIVAL: the boundary path is still there, with the TURN's bytes. The
+    // exemption is about the path's identity, not about its content — the
+    // snapshot holds no copy of these bytes to restore, so leaving the file alone
+    // is the only honest option.
+    expect(existsSync(join(repository.root, "cone-out", "boundary.txt"))).toBe(true);
+    expect(readFileSync(join(repository.root, "cone-out", "boundary.txt"), "utf8")).toBe(
+      "edited by the turn\n",
+    );
+    // DELETION: turn-created out-of-cone content is deleted exactly as in-cone
+    // content is. Without this direction the closure would have turned the whole
+    // out-of-cone region into a write-protected zone.
+    expect(existsSync(join(repository.root, "cone-out", "turn-created.txt"))).toBe(false);
+  });
+
+  it("keeps the boundary-set exemption keyed on the CAPTURE cone when the cone widens", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    repository.write("cone-in/kept.txt", "in cone\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+    await repository.git(["sparse-checkout", "set", "cone-in"]);
+    mkdirSync(join(repository.root, "cone-out"), { recursive: true });
+    repository.write("cone-out/boundary.txt", "existed at the boundary\n");
+
+    const service: TurnSnapshotService = buildService();
+    await captureTurn(service);
+
+    // The cone WIDENS between capture and restore, so `cone-out/boundary.txt` is
+    // now in cone — and the exemption still holds, because path identity was
+    // fixed at capture. This is the direction a live-cone-keyed exemption would
+    // get wrong, deleting a file it protected a moment ago for a reason that has
+    // nothing to do with the snapshot.
+    await repository.git(["sparse-checkout", "set", "cone-in", "cone-out"]);
+    expectRestored(
+      await service.restoreToTurn(
+        expectResolved(await service.resolveRestoreTarget(buildResolveInput())),
+      ),
+    );
+    expect(existsSync(join(repository.root, "cone-out", "boundary.txt"))).toBe(true);
+  });
+
+  it("PRE-DROPS a turn-staged boundary path from the index so the checkout cannot delete it", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    repository.write("cone-in/kept.txt", "in cone\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+    await repository.git(["sparse-checkout", "set", "cone-in"]);
+    mkdirSync(join(repository.root, "cone-out"), { recursive: true });
+    repository.write("cone-out/boundary.txt", "existed at the boundary\n");
+
+    const service: TurnSnapshotService = buildService();
+    await captureTurn(service);
+
+    // The turn STAGES the boundary path. The live index now holds an entry the
+    // snapshot tree does not, which is exactly what `read-tree --reset -u`
+    // removes — before the delete pass ever runs, so the delete-pass exemption
+    // cannot reach it. Only the index pre-drop can.
+    await repository.git(["add", "--sparse", "cone-out/boundary.txt"]);
+    expect(await repository.git(["ls-files", "-c", "cone-out/boundary.txt"])).toBe(
+      "cone-out/boundary.txt",
+    );
+
+    expectRestored(
+      await service.restoreToTurn(
+        expectResolved(await service.resolveRestoreTarget(buildResolveInput())),
+      ),
+    );
+
+    // Dropped from the index and STILL ON DISK: `--force-remove` removes the
+    // entry and leaves the file, which returns the path to untracked, where the
+    // delete-pass exemption then protects it.
+    expect(existsSync(join(repository.root, "cone-out", "boundary.txt"))).toBe(true);
+    expect(await repository.git(["ls-files", "-c", "cone-out/boundary.txt"])).toBe("");
+  });
+
+  it("PRE-DROPS an intent-to-add boundary path rather than letting the checkout unlink it", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    repository.write("cone-in/kept.txt", "in cone\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+    await repository.git(["sparse-checkout", "set", "cone-in"]);
+    mkdirSync(join(repository.root, "cone-out"), { recursive: true });
+    repository.write("cone-out/intent.txt", "intent-to-add at the boundary\n");
+    await repository.git(["add", "-N", "--sparse", "cone-out/intent.txt"]);
+
+    const service: TurnSnapshotService = buildService();
+    const captured: TurnSnapshotCaptured = await captureTurn(service);
+    expect(await readSparseBoundaryTrailer(repository, captured.snapshotCommit)).toEqual([
+      "cone-out/intent.txt",
+    ]);
+
+    expectRestored(
+      await service.restoreToTurn(
+        expectResolved(await service.resolveRestoreTarget(buildResolveInput())),
+      ),
+    );
+    expect(existsSync(join(repository.root, "cone-out", "intent.txt"))).toBe(true);
+    expect(readFileSync(join(repository.root, "cone-out", "intent.txt"), "utf8")).toBe(
+      "intent-to-add at the boundary\n",
+    );
+  });
+
+  it("writes the trailer UNCONDITIONALLY in a sparse root — the empty set spells `[]`", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    repository.write("cone-in/kept.txt", "in cone\n");
+    repository.write("cone-out/excluded.txt", "out of cone\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+    await repository.git(["sparse-checkout", "set", "cone-in"]);
+
+    // No untracked and no intent-to-add out-of-cone content, so the boundary set
+    // is EMPTY — and the trailer is written anyway. That is the format marker:
+    // presence has to mean "a sparse-aware capture wrote this" all by itself, or
+    // the absent-trailer vintage below is undecidable in the common case.
+    const service: TurnSnapshotService = buildService();
+    const captured: TurnSnapshotCaptured = await captureTurn(service);
+    expect(await readSparseBoundaryTrailer(repository, captured.snapshotCommit)).toEqual([]);
+
+    // OID DETERMINISM survives the unconditional trailer: a second capture of the
+    // identical state at a later turn mints the identical TREE, and its commit
+    // differs only in the ref it is written at. The message is an OID input, so a
+    // trailer whose encoding was unstable would break this.
+    const second: TurnSnapshotCaptured = await captureTurn(service, { turnOrdinal: 2 });
+    expect(second.snapshotCommit).toBe(captured.snapshotCommit);
+  });
+
+  it("orders BOTH trailers, skipped before sparse, as their own paragraphs", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    // Trailer ORDER is message bytes and therefore OID bytes, so it is fixed
+    // rather than incidental — and this is the only fixture where both trailers
+    // are present at once. It also drives the three-paragraph form of the `-F -`
+    // stream, which the two-paragraph regression guard below cannot reach.
+    repository.write("cone-in/kept.txt", "in cone\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+    await repository.git(["sparse-checkout", "set", "cone-in"]);
+    mkdirSync(join(repository.root, "cone-out"), { recursive: true });
+    repository.write("cone-out/boundary.txt", "existed at the boundary\n");
+    await createCommitlessEmbeddedRepository("cone-in/unborn");
+
+    const captured: TurnSnapshotCaptured = await captureTurn(buildService());
+    expect(captured.skippedEmbeddedRepositories).toEqual(["cone-in/unborn"]);
+
+    // The UNTRIMMED channel, deliberately: the message's terminating newline is
+    // one of the two properties that make the `-F -` stream byte-equivalent to
+    // the `-m` argv it replaced (the other is the blank-line join, which the
+    // paragraph boundaries below assert), and a trimmed read cannot see it.
+    const body: string = (
+      await repository.gitCapturing(["cat-file", "commit", captured.snapshotCommit])
+    ).stdout;
+    const message: string = body.slice(body.indexOf("\n\n") + 2);
+    expect(message).toBe(
+      "sidekicks: turn-boundary snapshot\n\n" +
+        'Skipped-Embedded-Repositories: ["cone-in/unborn"]\n\n' +
+        'Sparse-Boundary-Paths: ["cone-out/boundary.txt"]\n',
+    );
+  });
+
+  it("runs the NON-SPARSE pipeline byte-identically — no trailer, and the `-F -` OID unchanged", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    // The regression guard for the transport conversion. The commit is
+    // reconstructed with fixture git using the `-m` spellings the service used to
+    // pass, and the service's `-F -` stream has to mint the SAME OID — for the
+    // one-paragraph message and, below, for the two-paragraph skipped-trailer
+    // form, which is where a join-without-terminate would diverge.
+    applyTurnEffects();
+    const service: TurnSnapshotService = buildService();
+    const captured: TurnSnapshotCaptured = await captureTurn(service);
+
+    expect(await readSparseBoundaryTrailer(repository, captured.snapshotCommit)).toBeNull();
+    const identity = {
+      GIT_AUTHOR_NAME: "AI Sidekicks",
+      GIT_AUTHOR_EMAIL: "snapshots@ai-sidekicks.invalid",
+      GIT_AUTHOR_DATE: "1767225600 +0000",
+      GIT_COMMITTER_NAME: "AI Sidekicks",
+      GIT_COMMITTER_EMAIL: "snapshots@ai-sidekicks.invalid",
+      GIT_COMMITTER_DATE: "1767225600 +0000",
+    };
+    expect(
+      await repository.git(
+        [
+          "-c",
+          "i18n.commitEncoding=utf-8",
+          "commit-tree",
+          `${captured.ref}^{tree}`,
+          "-p",
+          captured.baseCommit,
+          "-m",
+          "sidekicks: turn-boundary snapshot",
+        ],
+        { environmentOverrides: identity },
+      ),
+    ).toBe(captured.snapshotCommit);
+
+    // The TWO-PARAGRAPH form, driven through a real skipped embedded repository
+    // so the trailer is the service's own bytes rather than this case's guess.
+    await createCommitlessEmbeddedRepository("unborn");
+    const skipped: TurnSnapshotCaptured = await captureTurn(service, { turnOrdinal: 2 });
+    expect(skipped.skippedEmbeddedRepositories).toEqual(["unborn"]);
+    expect(
+      await repository.git(
+        [
+          "-c",
+          "i18n.commitEncoding=utf-8",
+          "commit-tree",
+          `${skipped.ref}^{tree}`,
+          "-p",
+          skipped.baseCommit,
+          "-m",
+          "sidekicks: turn-boundary snapshot",
+          "-m",
+          'Skipped-Embedded-Repositories: ["unborn"]',
+        ],
+        { environmentOverrides: identity },
+      ),
+    ).toBe(skipped.snapshotCommit);
+  });
+
+  it("passes the message on STDIN, never on the argv", async () => {
+    // The argv bound this conversion removes is invisible from the OID, so it is
+    // asserted on the argv itself: `commit-tree` carries `-F -` and no `-m`, and
+    // no element of the command line is the message. A future edit that "simply"
+    // re-inlined the trailers would pass every OID assertion above and fail here.
+    const invocations: string[][] = [];
+    const service: TurnSnapshotService = buildService({ git: buildRecordingRunner(invocations) });
+    await captureTurn(service);
+
+    const commitTree: string[] | undefined = invocations.find((argv) =>
+      argv.includes("commit-tree"),
+    );
+    expect(commitTree).toBeDefined();
+    expect(commitTree).toContain("-F");
+    expect(commitTree).not.toContain("-m");
+    expect(commitTree?.some((element) => element.includes("turn-boundary snapshot"))).toBe(false);
+    expect(commitTree?.at(-1)).toBe("-");
+  });
+
+  it("classifies a stale rules file with the bit FALSE as NON-sparse", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    // The CONVERSE QUADRANT. Detection is the bit alone, so a leftover
+    // `$GIT_DIR/info/sparse-checkout` from a disabled sparse checkout must not
+    // pull the root onto the sparse arm — the worktree is intact and the
+    // non-sparse pipeline is correct for it. Measured: `sparse-checkout disable`
+    // leaves the patterns file behind and clears only the bit.
+    repository.write("cone-in/kept.txt", "in cone\n");
+    repository.write("cone-out/excluded.txt", "out of cone\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+    await repository.git(["sparse-checkout", "set", "cone-in"]);
+    await repository.git(["sparse-checkout", "disable"]);
+    const gitDirectory: string = await repository.git(["rev-parse", "--absolute-git-dir"]);
+    expect(existsSync(join(gitDirectory, "info", "sparse-checkout"))).toBe(true);
+    expect(
+      await repository.git([
+        "config",
+        "--type=bool",
+        "--default=false",
+        "--get",
+        "core.sparseCheckout",
+      ]),
+    ).toBe("false");
+
+    const captured: TurnSnapshotCaptured = await captureTurn(buildService());
+    // Non-sparse pipeline, byte-identically: no trailer at all, and the tree is
+    // still porcelain's.
+    expect(await readSparseBoundaryTrailer(repository, captured.snapshotCommit)).toBeNull();
+    await expectCapturePorcelainEquivalent(repository, captured, "porcelain-stale-rules.index");
+  });
+
+  it("FAILS CLOSED at `check-sparse-rules` when the bit is set and the rules VANISHED", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    // The quadrant the detection rule exists for. The bit is set, the rules file
+    // is gone, and the worktree still holds every out-of-cone path — measured on
+    // git 2.50.1, porcelain `add -A` still records them. A detector that folded
+    // "the rules parse" into its predicate would classify this NON-sparse, run
+    // the `read-tree <base>` seed and drop exactly what porcelain keeps.
+    repository.write("cone-in/kept.txt", "in cone\n");
+    repository.write("cone-out/excluded.txt", "out of cone\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+    await repository.git(["sparse-checkout", "set", "cone-in", "cone-out"]);
+    const gitDirectory: string = await repository.git(["rev-parse", "--absolute-git-dir"]);
+    rmSync(join(gitDirectory, "info", "sparse-checkout"));
+    expect(existsSync(join(repository.root, "cone-out", "excluded.txt"))).toBe(true);
+
+    const service: TurnSnapshotService = buildService();
+    const result: TurnSnapshotCaptureResult = await service.captureTurnSnapshot({
+      ...CAPTURE_DEFAULTS,
+      executionRoot: repository.root,
+    });
+    expect(result).toMatchObject({ outcome: "failed", failedStep: "check-sparse-rules" });
+    expect(fixture.diagnostics).toContainEqual(
+      expect.objectContaining({ kind: "capture-failed", failedStep: "check-sparse-rules" }),
+    );
+    // Never a partial capture: no ref was written, so a rollback reports
+    // `no_snapshot` rather than restoring a snapshot with a hole in it.
+    expect(await repository.refListing("refs/sidekicks/")).toBe("");
+  });
+
+  it("FAILS CLOSED at `check-sparse-rules` on a git too old to know the subcommand", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    repository.write("cone-in/kept.txt", "in cone\n");
+    repository.write("cone-out/excluded.txt", "out of cone\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+    await repository.git(["sparse-checkout", "set", "cone-in"]);
+
+    // The below-2.41 floor, driven through the SEAM rather than by requiring an
+    // old binary — see `buildLegFailingRunner`. The rule under test is the
+    // service's: a matcher it cannot run is a typed failure, never a degrade to
+    // the unpartitioned listing, which would be the shipped defect under a new
+    // name.
+    const service: TurnSnapshotService = buildService({
+      git: buildLegFailingRunner(
+        (argv) => argv.includes("check-rules"),
+        "git: 'sparse-checkout check-rules' is not a git command.",
+      ),
+    });
+    const result: TurnSnapshotCaptureResult = await service.captureTurnSnapshot({
+      ...CAPTURE_DEFAULTS,
+      executionRoot: repository.root,
+    });
+    expect(result).toMatchObject({ outcome: "failed", failedStep: "check-sparse-rules" });
+    expect(await repository.refListing("refs/sidekicks/")).toBe("");
+  });
+
+  it("reports an unreadable `core.sparseCheckout` as `detect-sparse-root`, never as NOT sparse", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    repository.write("cone-in/kept.txt", "in cone\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+    await repository.git(["sparse-checkout", "set", "cone-in"]);
+
+    // The detection leg's own floor. With `--default=false` an UNSET key is a
+    // clean `false` at exit 0, so the only rejection left is a repository whose
+    // config could not be read — and defaulting that to the non-sparse pipeline
+    // is precisely the silent loss the whole closure is against.
+    const service: TurnSnapshotService = buildService({
+      git: buildLegFailingRunner(
+        (argv) => argv.includes("config") && argv.includes("core.sparseCheckout"),
+        "fatal: unable to read config file",
+      ),
+    });
+    const result: TurnSnapshotCaptureResult = await service.captureTurnSnapshot({
+      ...CAPTURE_DEFAULTS,
+      executionRoot: repository.root,
+    });
+    expect(result).toMatchObject({ outcome: "failed", failedStep: "detect-sparse-root" });
+  });
+
+  it("does NOT let the cone rescue a gitignored in-cone path — the exclude pipeline still rules", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    // The negative control for the partition's SCOPE. The cone decides which
+    // paths the matcher admits; it never decides which paths are ignorable. An
+    // implementation that replaced the exclude pipeline with the cone test — or
+    // that ran the cone test on the wrong side of it — would capture this
+    // project-declared disposable file, which `Spec-010 §Turn-Boundary Snapshots`
+    // says it must not.
+    repository.write("cone-in/kept.txt", "in cone\n");
+    repository.write("cone-in/ignored-file.txt", "in cone AND project-declared disposable\n");
+    await repository.git(["add", "cone-in/kept.txt"]);
+    await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+    repository.write(".gitignore", `${FIXTURE_IGNORE_RULES}cone-in/ignored-file.txt\n`);
+    await repository.git(["add", ".gitignore"]);
+    await repository.git(["commit", "-q", "-m", "ignore the in-cone artifact"]);
+    await repository.git(["sparse-checkout", "set", "cone-in"]);
+
+    const captured: TurnSnapshotCaptured = await captureTurn(buildService());
+    const snapshotPaths: string = await repository.git([
+      "ls-tree",
+      "-r",
+      "--name-only",
+      `${captured.ref}^{tree}`,
+    ]);
+    expect(snapshotPaths).toContain("cone-in/kept.txt");
+    expect(snapshotPaths).not.toContain("cone-in/ignored-file.txt");
+    await expectCapturePorcelainEquivalent(repository, captured, "porcelain-ignored-in-cone.index");
+  });
+
+  it("REFUSES a trailer-less snapshot in a sparse restore root, before any mutation", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    // The VINTAGE GATE, both halves of which are the point: this half is the root
+    // that was NOT sparse when the snapshot was taken and is sparse now. Its
+    // trailer-less snapshot is indistinguishable from a pre-closure capture's, and
+    // both must refuse — the boundary set is unknowable, so proceeding would run
+    // the delete pass with no exemption over content the user still has.
+    repository.write("cone-in/kept.txt", "in cone\n");
+    repository.write("cone-out/excluded.txt", "out of cone\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+
+    const service: TurnSnapshotService = buildService();
+    const captured: TurnSnapshotCaptured = await captureTurn(service);
+    expect(await readSparseBoundaryTrailer(repository, captured.snapshotCommit)).toBeNull();
+
+    // The root turns sparse AFTER the capture.
+    await repository.git(["sparse-checkout", "set", "cone-in"]);
+    repository.write("post-snapshot.txt", "created after the snapshot\n");
+    const censusBefore: string = collectWorktreeCensus(repository.root);
+
+    const partial: TurnSnapshotPartialRestore = expectPartialRestore(
+      await service.restoreToTurn(
+        expectResolved(await service.resolveRestoreTarget(buildResolveInput())),
+      ),
+    );
+    expect(partial).toMatchObject({ failedStep: "derive-enumerations" });
+    expect(fixture.diagnostics).toContainEqual(
+      expect.objectContaining({
+        kind: "restore-failed",
+        failedStep: "derive-enumerations",
+        detail: expect.stringContaining("sparse-boundary trailer") as unknown as string,
+      }),
+    );
+    // PRE-MUTATION, asserted as a byte census rather than as a handful of paths:
+    // the refusal costs nothing on disk, which is what makes fail-closed the safe
+    // choice rather than a merely conservative one.
+    expect(collectWorktreeCensus(repository.root)).toBe(censusBefore);
+    expect(existsSync(join(repository.root, "post-snapshot.txt"))).toBe(true);
+  });
+
+  it("reads an absent trailer as the EMPTY SET in a non-sparse restore root", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    // The gate's other half, and the reason the decoder distinguishes absent from
+    // empty at all: every snapshot ever captured before this closure carries no
+    // trailer, and in a non-sparse root that is simply the correct answer. A
+    // decoder that refused on absence everywhere would break every existing
+    // rollback.
+    applyTurnEffects();
+    const service: TurnSnapshotService = buildService();
+    const captured: TurnSnapshotCaptured = await captureTurn(service);
+    expect(await readSparseBoundaryTrailer(repository, captured.snapshotCommit)).toBeNull();
+
+    repository.write("post-snapshot.txt", "created after the snapshot\n");
+    expectRestored(
+      await service.restoreToTurn(
+        expectResolved(await service.resolveRestoreTarget(buildResolveInput())),
+      ),
+    );
+    // The restore ran in full: post-snapshot content deleted, and the turn's own
+    // captured effects put back. `applyTurnEffects` ran BEFORE the capture, so
+    // the boundary this restores to is the post-effects one — `created.txt` is
+    // snapshot content, and `doomed.txt` is correctly still gone.
+    expect(existsSync(join(repository.root, "post-snapshot.txt"))).toBe(false);
+    expect(readFileSync(join(repository.root, "created.txt"), "utf8")).toBe(
+      "created during the turn\n",
+    );
+    expect(existsSync(join(repository.root, "doomed.txt"))).toBe(false);
+  });
+
+  it("FAILS CLOSED on an UNDECODABLE sparse trailer, in a non-sparse root too", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    // Present-but-undecodable is a snapshot this code does not understand, and
+    // the answer is the same in both roots — which is what makes the non-sparse
+    // arm above a reading of ABSENCE specifically rather than a tolerant decoder.
+    applyTurnEffects();
+    const service: TurnSnapshotService = buildService();
+    await captureTurn(service);
+    const base: string = await repository.git(["rev-parse", "HEAD"]);
+    const forged: string = await repository.git(
+      [
+        "commit-tree",
+        `refs/sidekicks/runs/${RUN_ID}/epoch-0/turn-1^{tree}`,
+        "-p",
+        base,
+        "-m",
+        "sidekicks: turn-boundary snapshot",
+        "-m",
+        "Sparse-Boundary-Paths: {not-an-array}",
+      ],
+      { environmentOverrides: { GIT_AUTHOR_DATE: "1767225600 +0000" } },
+    );
+    await repository.git([
+      "update-ref",
+      `refs/sidekicks/runs/${RUN_ID}/epoch-0/turn-1`,
+      forged,
+      await repository.git(["rev-parse", `refs/sidekicks/runs/${RUN_ID}/epoch-0/turn-1`]),
+    ]);
+
+    const censusBefore: string = collectWorktreeCensus(repository.root);
+    expect(
+      await service.restoreToTurn(
+        expectResolved(await service.resolveRestoreTarget(buildResolveInput())),
+      ),
+    ).toMatchObject({ outcome: "partial_restore", failedStep: "derive-enumerations" });
+    expect(collectWorktreeCensus(repository.root)).toBe(censusBefore);
+  });
+
+  it("REPORTS the observed out-of-cone paths a WIDENED cone materialized", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    // The residual the closure does NOT remove, reported instead of hidden. The
+    // snapshot tree is full, so a cone widened between capture and restore makes
+    // the checkout write out-of-cone content the user did not ask for. Neither
+    // result arm names it, so the diagnostic channel is the whole signal.
+    repository.write("cone-in/kept.txt", "in cone\n");
+    repository.write("cone-out/excluded.txt", "out of cone\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+    await repository.git(["sparse-checkout", "set", "cone-in"]);
+
+    const service: TurnSnapshotService = buildService();
+    await captureTurn(service);
+
+    // Widen, which MATERIALIZES the out-of-cone path — this is the observable the
+    // diagnostic is derived from, and it is asserted here so the case cannot pass
+    // against a cone that never widened.
+    await repository.git(["sparse-checkout", "set", "cone-in", "cone-out"]);
+    expect(existsSync(join(repository.root, "cone-out", "excluded.txt"))).toBe(true);
+    // …and NARROW again just before the restore, so the LIVE definition at
+    // `derive-enumerations` scores the path out of cone while it is still on
+    // disk. `--no-checkout`-free `set` would un-materialize it; the config write
+    // alone changes the definition without touching the worktree, which is the
+    // exact state the diagnostic exists to describe.
+    const gitDirectory: string = await repository.git(["rev-parse", "--absolute-git-dir"]);
+    writeFileSync(join(gitDirectory, "info", "sparse-checkout"), "/*\n!/cone-out/\n");
+    await repository.git(["config", "core.sparseCheckoutCone", "false"]);
+    expect(existsSync(join(repository.root, "cone-out", "excluded.txt"))).toBe(true);
+
+    expectRestored(
+      await service.restoreToTurn(
+        expectResolved(await service.resolveRestoreTarget(buildResolveInput())),
+      ),
+    );
+    expect(fixture.diagnostics).toContainEqual(
+      expect.objectContaining({
+        kind: "sparse-out-of-cone-materialized",
+        runId: RUN_ID,
+        epoch: 0,
+        turnOrdinal: 1,
+        materializedPaths: ["cone-out/excluded.txt"],
+      }),
+    );
+    // The EFFECT the diagnostic names, asserted on disk. Reporting is only half of
+    // the arm: the re-projection genuinely removes the out-of-cone file, and
+    // without this the case could pass against a diagnostic that fired for a path
+    // the checkout left alone.
+    expect(existsSync(join(repository.root, "cone-out", "excluded.txt"))).toBe(false);
+    expect(await repository.git(["ls-files", "-t", "cone-out/excluded.txt"])).toBe(
+      "S cone-out/excluded.txt",
+    );
+  });
+
+  it("emits NO materialization diagnostic when nothing out of cone is on disk", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    // The control for the case above: same sparse root, same full tree, cone
+    // UNCHANGED — so the checkout re-projects the out-of-cone path as
+    // unmaterialized and there is nothing to report. Without this arm the
+    // diagnostic could be firing on every sparse restore and the case above would
+    // not notice.
+    repository.write("cone-in/kept.txt", "in cone\n");
+    repository.write("cone-out/excluded.txt", "out of cone\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+    await repository.git(["sparse-checkout", "set", "cone-in"]);
+
+    const service: TurnSnapshotService = buildService();
+    await captureTurn(service);
+    expectRestored(
+      await service.restoreToTurn(
+        expectResolved(await service.resolveRestoreTarget(buildResolveInput())),
+      ),
+    );
+    expect(
+      fixture.diagnostics.filter(
+        (diagnostic) => diagnostic.kind === "sparse-out-of-cone-materialized",
+      ),
+    ).toEqual([]);
+  });
+
+  it("fails the capture at `seed-index` when the repository index is LOCKED", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    // A REAL held lock, not an injected seam. The property under test is that
+    // this leg honours git's own lockfile protocol, so simulating the contention
+    // would assert the simulation. The lock is created the way git creates one —
+    // exclusively, at `<index>.lock` — and removed by this case, never by the
+    // service, which is the other half of the protocol.
+    repository.write("cone-in/kept.txt", "in cone\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+    await repository.git(["sparse-checkout", "set", "cone-in"]);
+
+    const gitDirectory: string = await repository.git(["rev-parse", "--absolute-git-dir"]);
+    const lockPath: string = join(gitDirectory, "index.lock");
+    writeFileSync(lockPath, "");
+    try {
+      const service: TurnSnapshotService = buildService();
+      expect(
+        await service.captureTurnSnapshot({
+          ...CAPTURE_DEFAULTS,
+          executionRoot: repository.root,
+        }),
+      ).toMatchObject({ outcome: "failed", failedStep: "seed-index" });
+      // The service did NOT remove a lock it did not create. A leg that cleaned up
+      // on failure would corrupt the repository of whatever process really holds
+      // it — the exact harm the protocol prevents.
+      expect(existsSync(lockPath)).toBe(true);
+    } finally {
+      rmSync(lockPath, { force: true });
+    }
+
+    // …and the lock released, the same capture succeeds. Without this the case
+    // would pass against a leg that always failed.
+    expect(
+      (
+        await buildService().captureTurnSnapshot({
+          ...CAPTURE_DEFAULTS,
+          executionRoot: repository.root,
+        })
+      ).outcome,
+    ).toBe("captured");
+  });
+
+  it(
+    "locks the LINKED WORKTREE's own index, not the main checkout's",
+    async () => {
+      const repository: FixtureRepository = fixture.repository;
+      // The linked-worktree layout is why the index path comes from `rev-parse
+      // --git-path index` rather than from `<root>/.git/index`. A linked worktree
+      // keeps its index under `<main>/.git/worktrees/<id>/index`, so the naive
+      // spelling would lock and copy the MAIN checkout's index — a different
+      // worktree's staged state recorded as this one's snapshot.
+      repository.write("cone-in/kept.txt", "in cone\n");
+      repository.write("cone-out/excluded.txt", "out of cone\n");
+      await repository.git(["add", "-A"]);
+      await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+      await repository.git(["sparse-checkout", "set", "cone-in"]);
+
+      const worktreeRoot: string = join(fixture.fixtureRoot, "linked-worktree");
+      await repository.git(["worktree", "add", "-q", "-b", "feature/sparse-lock", worktreeRoot]);
+      const worktree = new FixtureRepository(
+        worktreeRoot,
+        buildFixtureEnvironment(fixture.fixtureRoot),
+      );
+      const worktreeIndexPath: string = await worktree.resolvedIndexPath();
+      // The layout, asserted rather than assumed — this is the whole reason the
+      // service resolves the index path through git instead of spelling it.
+      expect(worktreeIndexPath).toContain(join(".git", "worktrees"));
+
+      const lockPath = `${worktreeIndexPath}.lock`;
+      writeFileSync(lockPath, "");
+      try {
+        expect(
+          await buildService().captureTurnSnapshot({
+            ...CAPTURE_DEFAULTS,
+            executionRoot: worktreeRoot,
+          }),
+        ).toMatchObject({ outcome: "failed", failedStep: "seed-index" });
+      } finally {
+        rmSync(lockPath, { force: true });
+      }
+
+      // THE DISCRIMINATOR: with only the MAIN checkout's index locked, the
+      // worktree's capture succeeds. A leg that resolved the index path naively
+      // would fail here, which is what makes the arm above about the right file.
+      const mainLockPath: string = join(
+        await repository.git(["rev-parse", "--absolute-git-dir"]),
+        "index.lock",
+      );
+      writeFileSync(mainLockPath, "");
+      try {
+        expect(
+          (
+            await buildService().captureTurnSnapshot({
+              ...CAPTURE_DEFAULTS,
+              executionRoot: worktreeRoot,
+            })
+          ).outcome,
+        ).toBe("captured");
+      } finally {
+        rmSync(mainLockPath, { force: true });
+      }
+    },
+    MULTI_SEQUENCE_CASE_TIMEOUT_MS,
+  );
+
+  it("fails the capture where PORCELAIN fails it on an UNMERGED out-of-cone entry", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    // PARITY, not a bespoke rule. An unmerged entry is one `write-tree` refuses,
+    // and the closure must not turn that refusal into a silently-dropped path.
+    // The stages are written directly with `update-index --index-info`, because a
+    // real merge conflict at an out-of-cone path is not reachable — git resolves
+    // sparseness before it merges.
+    repository.write("cone-in/kept.txt", "in cone\n");
+    repository.write("cone-out/conflicted.txt", "base\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+    await repository.git(["sparse-checkout", "set", "cone-in"]);
+
+    const baseBlob: string = await repository.git(["rev-parse", "HEAD:cone-out/conflicted.txt"]);
+    const oursBlob: string = await repository.git(["hash-object", "-w", "--stdin"], {
+      stdin: "ours\n",
+    });
+    const theirsBlob: string = await repository.git(["hash-object", "-w", "--stdin"], {
+      stdin: "theirs\n",
+    });
+    await repository.git(["update-index", "--index-info"], {
+      stdin:
+        `0 0000000000000000000000000000000000000000\tcone-out/conflicted.txt\n` +
+        `100644 ${baseBlob} 1\tcone-out/conflicted.txt\n` +
+        `100644 ${oursBlob} 2\tcone-out/conflicted.txt\n` +
+        `100644 ${theirsBlob} 3\tcone-out/conflicted.txt\n`,
+    });
+    expect(await repository.git(["ls-files", "-u", "cone-out/conflicted.txt"])).toContain(" 1\t");
+
+    // PORCELAIN'S ANSWER FIRST, so the assertion below is a parity claim rather
+    // than a stipulation about what the service ought to do with an input git
+    // itself decides about.
+    const porcelainIndex: string = join(fixture.fixtureRoot, "porcelain-unmerged.index");
+    copyFileSync(await repository.resolvedIndexPath(), porcelainIndex);
+    const porcelainWriteTree: FixtureGitResult = await repository.gitCapturing(["write-tree"], {
+      environmentOverrides: { GIT_INDEX_FILE: porcelainIndex },
+    });
+
+    // Asserted, not branched on. `write-tree` has never been able to write an
+    // unmerged path into a tree, and a case whose interesting arm was conditional
+    // would pass vacuously the day this fixture stopped producing one.
+    expect(porcelainWriteTree.exitCode).not.toBe(0);
+    expect(porcelainWriteTree.stderr).toContain("unmerged");
+
+    // So the capture is the typed failure at the leg that refused — never a
+    // snapshot silently missing the unmerged path, which is the failure mode the
+    // sparse partition could plausibly have introduced by filtering it out of the
+    // staging listing.
+    expect(
+      await buildService().captureTurnSnapshot({
+        ...CAPTURE_DEFAULTS,
+        executionRoot: repository.root,
+      }),
+    ).toMatchObject({ outcome: "failed", failedStep: "write-tree" });
+    expect(await repository.refListing("refs/sidekicks/")).toBe("");
+  });
+
+  it("names the boundary-path DROP in the diagnostic when the index write fails", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    // `derive-enumerations` covers three things now — the object reads, the
+    // vintage gate and the index pre-drop — and the restore step vocabulary is
+    // frozen at five members by Plan-004's wire mapping. So the drop is
+    // attributed through the diagnostic `detail`, exactly as the multi-reachable
+    // `close-index` distinguishes its three causes, and this case asserts that
+    // attribution rather than accepting a bare step name.
+    repository.write("cone-in/kept.txt", "in cone\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+    await repository.git(["sparse-checkout", "set", "cone-in"]);
+    mkdirSync(join(repository.root, "cone-out"), { recursive: true });
+    repository.write("cone-out/boundary.txt", "existed at the boundary\n");
+
+    const service: TurnSnapshotService = buildService();
+    await captureTurn(service);
+    await repository.git(["add", "--sparse", "cone-out/boundary.txt"]);
+
+    const censusBefore: string = collectWorktreeCensus(repository.root);
+    const failing: TurnSnapshotService = buildService({
+      git: buildLegFailingRunner(
+        (argv) => argv.includes("--force-remove"),
+        "fatal: Unable to write new index file",
+      ),
+    });
+    const target: TurnSnapshotRestoreTarget = expectResolved(
+      await failing.resolveRestoreTarget(buildResolveInput()),
+    );
+    expect(await failing.restoreToTurn(target)).toMatchObject({
+      outcome: "partial_restore",
+      failedStep: "derive-enumerations",
+    });
+    expect(fixture.diagnostics).toContainEqual(
+      expect.objectContaining({
+        kind: "restore-failed",
+        failedStep: "derive-enumerations",
+        detail: expect.stringContaining("drop sparse boundary paths") as unknown as string,
+      }),
+    );
+    // A FAILED drop leaves index and worktree untouched, which is what keeps the
+    // step's pre-mutation reading honest.
+    expect(collectWorktreeCensus(repository.root)).toBe(censusBefore);
+    expect(await repository.git(["ls-files", "-c", "cone-out/boundary.txt"])).toBe(
+      "cone-out/boundary.txt",
+    );
+  });
+
+  it("refuses head_moved with the pre-drop UNAPPLIED when HEAD moves during the derivation", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    // The ORDERING guard for the pre-drop, and the reason it is a sparse case of
+    // its own: the base suite's "HEAD moves during the enumeration derivation"
+    // arm runs in a NON-sparse fixture, where the drop never fires, so it cannot
+    // see this. `head_moved` is frozen by Plan-004's wire mapping as the answer
+    // that refuses with NOTHING applied. The pre-drop is the sequence's first
+    // mutation, so it has to sit on the far side of the post-derivation `HEAD`
+    // read — enumerated with the listings, applied after the window closes.
+    repository.write("cone-in/kept.txt", "in cone\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+    await repository.git(["sparse-checkout", "set", "cone-in"]);
+    mkdirSync(join(repository.root, "cone-out"), { recursive: true });
+    repository.write("cone-out/boundary.txt", "existed at the boundary\n");
+
+    const service: TurnSnapshotService = buildService();
+    await captureTurn(service);
+    // Staged DURING the turn, so the live index holds an entry the snapshot tree
+    // does not: the pre-drop has real work to do here, which is what makes the
+    // assertions below discriminating rather than vacuous.
+    await repository.git(["add", "--sparse", "cone-out/boundary.txt"]);
+
+    const target: TurnSnapshotRestoreTarget = expectResolved(
+      await service.resolveRestoreTarget(buildResolveInput()),
+    );
+    const censusBefore: string = collectWorktreeCensus(repository.root);
+    const indexBefore: string = readIndexFingerprint(repository.root);
+
+    let movedHead: string | null = null;
+    const committingRunner: TurnSnapshotGitRunner = async (argv, options) => {
+      // Fired on the derivation's first listing, so the move lands BEFORE the
+      // drop is enumerated and well before it would be applied.
+      if (argv.includes("ls-tree") && movedHead === null) {
+        movedHead = await advanceHeadWithoutTouchingWorktree("landed during the sparse derivation");
+      }
+      return runTurnSnapshotGitWithExecFile(argv, options);
+    };
+
+    expect(await buildService({ git: committingRunner }).restoreToTurn(target)).toEqual({
+      outcome: "head_moved",
+      ref: target.ref,
+      expectedHead: target.expectedHead,
+      observedHead: movedHead,
+    });
+    // The DISCRIMINATING half. With the drop at the derivation's tail this same
+    // fixture still returns `head_moved` — the outcome alone proves nothing — but
+    // the user's staged entry is gone by then. A byte-identical index is the only
+    // assertion that separates the two placements.
+    expect(readIndexFingerprint(repository.root)).toBe(indexBefore);
+    expect(await repository.git(["ls-files", "-c", "cone-out/boundary.txt"])).toBe(
+      "cone-out/boundary.txt",
+    );
+    expect(collectWorktreeCensus(repository.root)).toBe(censusBefore);
+  });
+
+  it("re-materializes the STAGED blob on restore once the cone widens over it", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    // The RESTORE half of the live-index-seed guard. The capture case above proves
+    // the staged blob reached the snapshot OBJECT; this proves it comes back out
+    // and lands on disk. Sparseness is a checkout-time projection, so the leg that
+    // makes it observable is a cone WIDENED over the path before the rollback.
+    repository.write("cone-in/kept.txt", "in cone\n");
+    repository.write("cone-out/excluded.txt", "base content\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+    repository.write("cone-out/excluded.txt", "STAGED out-of-cone content\n");
+    await repository.git(["add", "--sparse", "cone-out/excluded.txt"]);
+    await repository.git(["sparse-checkout", "set", "cone-in"]);
+
+    const service: TurnSnapshotService = buildService();
+    await captureTurn(service);
+
+    // The turn continues: the cone widens back over the path, the staging is
+    // undone, and the file is overwritten. Every one of those is what makes the
+    // assertion below discriminating — without them the widening alone would
+    // materialize the staged blob from the INDEX and the case would pass without
+    // the restore writing anything.
+    await repository.git(["sparse-checkout", "set", "cone-in", "cone-out"]);
+    await repository.git(["restore", "--staged", "cone-out/excluded.txt"]);
+    repository.write("cone-out/excluded.txt", "post-boundary junk\n");
+    expect(readFileSync(join(repository.root, "cone-out", "excluded.txt"), "utf8")).toBe(
+      "post-boundary junk\n",
+    );
+
+    expectRestored(
+      await service.restoreToTurn(
+        expectResolved(await service.resolveRestoreTarget(buildResolveInput())),
+      ),
+    );
+    // The only place these bytes still exist is the snapshot object, so a seed
+    // that had read `<base>` instead of the live index could not produce them.
+    expect(readFileSync(join(repository.root, "cone-out", "excluded.txt"), "utf8")).toBe(
+      "STAGED out-of-cone content\n",
+    );
+  });
+
+  it("leaves a staged boundary blob inside the OBJECT when the cone never widens", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    // The companion to the case above, and the residual it documents. Under an
+    // UNCHANGED cone the staged blob is captured but never lands on disk, because
+    // both restore legs are projections: `read-tree --reset -u` cannot materialize
+    // an out-of-cone path, and `close-index` then returns the index entry to
+    // `HEAD`'s blob. That is sparseness-as-checkout-time-projection applied
+    // consistently — the snapshot is faithful, the worktree stays sparse — and it
+    // is asserted rather than left for someone to discover.
+    repository.write("cone-in/kept.txt", "in cone\n");
+    repository.write("cone-out/excluded.txt", "base content\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+    const baseBlob: string = await repository.git(["rev-parse", "HEAD:cone-out/excluded.txt"]);
+    repository.write("cone-out/excluded.txt", "STAGED out-of-cone content\n");
+    await repository.git(["add", "--sparse", "cone-out/excluded.txt"]);
+    await repository.git(["sparse-checkout", "set", "cone-in"]);
+
+    const service: TurnSnapshotService = buildService();
+    const captured: TurnSnapshotCaptured = await captureTurn(service);
+    expectRestored(
+      await service.restoreToTurn(
+        expectResolved(await service.resolveRestoreTarget(buildResolveInput())),
+      ),
+    );
+
+    // Not on disk — the path is out of cone, and the checkout honours that.
+    expect(existsSync(join(repository.root, "cone-out", "excluded.txt"))).toBe(false);
+    // Index entry back at `HEAD`'s blob, skip-worktree, which is what an unchanged
+    // sparse definition means for this path.
+    expect(await repository.git(["ls-files", "-s", "cone-out/excluded.txt"])).toContain(baseBlob);
+    expect(await repository.git(["ls-files", "-t", "cone-out/excluded.txt"])).toBe(
+      "S cone-out/excluded.txt",
+    );
+    // …and REACHABLE, which is the half that makes the residual acceptable: the
+    // staged bytes are in the snapshot object, so widening the cone (the case
+    // above) or reading the object recovers them. Nothing was lost, only projected.
+    expect(
+      await repository.git([
+        "cat-file",
+        "blob",
+        `${captured.snapshotCommit}:cone-out/excluded.txt`,
+      ]),
+    ).toBe("STAGED out-of-cone content");
+    expect(await repository.git(["status", "--porcelain"])).toBe("");
+  });
+
+  it("materializes a snapshot-tracked out-of-cone path at its CAPTURED state when the cone widens", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    // The full-tree claim seen from the restore side. A snapshot tree is FULL, so
+    // widening the definition between capture and restore is what turns recorded
+    // out-of-cone content back into worktree content. Without the closure the path
+    // is not in the tree at all, and `read-tree --reset -u` DELETES it instead.
+    repository.write("cone-in/kept.txt", "in cone\n");
+    repository.write("cone-out/excluded.txt", "captured out-of-cone bytes\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+    await repository.git(["sparse-checkout", "set", "cone-in"]);
+    expect(existsSync(join(repository.root, "cone-out", "excluded.txt"))).toBe(false);
+
+    const service: TurnSnapshotService = buildService();
+    const captured: TurnSnapshotCaptured = await captureTurn(service);
+    expect(
+      await repository.git(["ls-tree", "-r", "--name-only", `${captured.ref}^{tree}`]),
+    ).toContain("cone-out/excluded.txt");
+
+    // Widened through the CONFIG-AND-RULES form rather than the porcelain, so the
+    // definition this restore reads is one no `sparse-checkout` command normalized.
+    await applyNonConeSparseDefinition(repository, ["/*"]);
+    expect(existsSync(join(repository.root, "cone-out", "excluded.txt"))).toBe(true);
+    // Post-boundary damage, so the restore has to WRITE the captured bytes rather
+    // than find them already there.
+    repository.write("cone-out/excluded.txt", "post-boundary edit\n");
+
+    expectRestored(
+      await service.restoreToTurn(
+        expectResolved(await service.resolveRestoreTarget(buildResolveInput())),
+      ),
+    );
+    expect(readFileSync(join(repository.root, "cone-out", "excluded.txt"), "utf8")).toBe(
+      "captured out-of-cone bytes\n",
+    );
+    expect(await repository.git(["ls-files", "-t", "cone-out/excluded.txt"])).toBe(
+      "H cone-out/excluded.txt",
+    );
+  });
+
+  it(
+    "carries a boundary set past the 32-KiB command-line bound on the `-F -` stream",
+    async () => {
+      const repository: FixtureRepository = fixture.repository;
+      // The transport conversion's SIZE claim. The trailer is unbounded by
+      // construction — it names every out-of-cone untracked path at the boundary —
+      // so the message is caller-influenced data, and `-m` puts caller-influenced
+      // data on a command line. 32767 characters is where Windows `CreateProcess`
+      // stops accepting one; POSIX hosts allow far more, which is exactly why an
+      // argv transport would have passed here and failed there. The stream has no
+      // such bound, and this drives a set past it end to end.
+      repository.write("cone-in/kept.txt", "in cone\n");
+      await repository.git(["add", "-A"]);
+      await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+      await repository.git(["sparse-checkout", "set", "cone-in"]);
+
+      mkdirSync(join(repository.root, "cone-out"), { recursive: true });
+      const filler: string = "b".repeat(150);
+      const boundaryPaths: readonly string[] = Array.from(
+        { length: 220 },
+        (_unused, index) => `cone-out/${String(index).padStart(4, "0")}-${filler}.txt`,
+      );
+      for (const boundaryPath of boundaryPaths) {
+        repository.write(boundaryPath, `boundary ${boundaryPath}\n`);
+      }
+
+      const service: TurnSnapshotService = buildService();
+      const captured: TurnSnapshotCaptured = await captureTurn(service);
+
+      const trailer: readonly string[] | null = await readSparseBoundaryTrailer(
+        repository,
+        captured.snapshotCommit,
+      );
+      expect(trailer).toEqual([...boundaryPaths].sort());
+      // The bound itself, asserted on the SERIALIZED line rather than assumed from
+      // the path count — a future filler length that quietly fell under it would
+      // otherwise leave this case named for a property it no longer drives.
+      expect(JSON.stringify(trailer).length).toBeGreaterThan(32_767);
+
+      expectRestored(
+        await service.restoreToTurn(
+          expectResolved(await service.resolveRestoreTarget(buildResolveInput())),
+        ),
+      );
+      // Decoded and CONSUMED: every recorded path is exempt from the delete pass.
+      for (const boundaryPath of boundaryPaths) {
+        expect(existsSync(join(repository.root, boundaryPath))).toBe(true);
+      }
+    },
+    MULTI_SEQUENCE_CASE_TIMEOUT_MS,
+  );
+
+  it("omits the discarded-subset diagnostic when the checkout never ran", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    // The observed-not-bookkept guard for the sparse diagnostic. The candidate set
+    // is fixed BEFORE the checkout, so emitting it verbatim would report a path as
+    // discarded on a `partial_restore` that never touched it. Two materialized
+    // out-of-cone paths and a `read-tree` that fails at the spawn: both files are
+    // still on disk afterwards, so the honest report names neither.
+    repository.write("cone-in/kept.txt", "in cone\n");
+    repository.write("cone-out/a.txt", "out of cone a\n");
+    repository.write("cone-out/b.txt", "out of cone b\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+
+    // Config-and-rules narrowing, so both paths stay MATERIALIZED while the live
+    // definition excludes them — the state the diagnostic's candidates come from.
+    await applyNonConeSparseDefinition(repository, ["/*"]);
+    const gitDirectory: string = await repository.git(["rev-parse", "--absolute-git-dir"]);
+
+    const service: TurnSnapshotService = buildService();
+    await captureTurn(service);
+    writeFileSync(join(gitDirectory, "info", "sparse-checkout"), "/*\n!/cone-out/\n");
+    expect(existsSync(join(repository.root, "cone-out", "a.txt"))).toBe(true);
+    expect(existsSync(join(repository.root, "cone-out", "b.txt"))).toBe(true);
+
+    const censusBefore: string = collectWorktreeCensus(repository.root);
+    const failing: TurnSnapshotService = buildService({
+      git: buildLegFailingRunner(
+        (argv) => argv.includes("read-tree") && argv.includes("-u"),
+        "fatal: unable to write new index file",
+      ),
+    });
+    expect(
+      await failing.restoreToTurn(
+        expectResolved(await failing.resolveRestoreTarget(buildResolveInput())),
+      ),
+    ).toMatchObject({ outcome: "partial_restore", failedStep: "read-tree" });
+
+    // Nothing discarded, so nothing reported — and the census proves the premise
+    // rather than trusting the arm.
+    expect(collectWorktreeCensus(repository.root)).toBe(censusBefore);
+    expect(
+      fixture.diagnostics.filter(
+        (diagnostic) => diagnostic.kind === "sparse-out-of-cone-materialized",
+      ),
+    ).toEqual([]);
+  });
+
+  it("emits the discarded subset EXACTLY ONCE when a late leg fails", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    // The double-emit guard. The checkout really ran here — so the diagnostic is
+    // owed — and then `close-index` failed. An emission sited before `close-index`
+    // would fire on the success path AND again from the failure reporter, two
+    // diagnostics for one restore, which leaks the arm the restore took.
+    repository.write("cone-in/kept.txt", "in cone\n");
+    repository.write("cone-out/excluded.txt", "out of cone\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+    await applyNonConeSparseDefinition(repository, ["/*"]);
+    const gitDirectory: string = await repository.git(["rev-parse", "--absolute-git-dir"]);
+
+    const service: TurnSnapshotService = buildService();
+    await captureTurn(service);
+    writeFileSync(join(gitDirectory, "info", "sparse-checkout"), "/*\n!/cone-out/\n");
+
+    // Fails the CLOSING reset only — it is the one `read-tree` with neither `-u`
+    // nor `-m`, so the destructive checkout ahead of it really runs.
+    const failing: TurnSnapshotService = buildService({
+      git: buildLegFailingRunner(
+        (argv) => argv.includes("read-tree") && argv.includes("--reset") && !argv.includes("-u"),
+        "fatal: unable to write new index file",
+      ),
+    });
+    expect(
+      await failing.restoreToTurn(
+        expectResolved(await failing.resolveRestoreTarget(buildResolveInput())),
+      ),
+    ).toMatchObject({ outcome: "partial_restore", failedStep: "close-index" });
+
+    expect(existsSync(join(repository.root, "cone-out", "excluded.txt"))).toBe(false);
+    expect(
+      fixture.diagnostics.filter(
+        (diagnostic) => diagnostic.kind === "sparse-out-of-cone-materialized",
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        kind: "sparse-out-of-cone-materialized",
+        materializedPaths: ["cone-out/excluded.txt"],
+      }),
+    ]);
+  });
+
+  it("FAILS CLOSED at `derive-enumerations` when the RESTORE-side matcher is unavailable", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    // The restore side of the both-sides fail-closed rule. The capture arm above
+    // drives the same floor at `check-sparse-rules`; this one proves the restore
+    // does not quietly proceed on an oracle that cannot answer — a git below the
+    // 2.41 `check-rules` floor, or a rules file that vanished — because proceeding
+    // would run the delete pass and the pre-drop against an unknown cone.
+    repository.write("cone-in/kept.txt", "in cone\n");
+    repository.write("cone-out/excluded.txt", "out of cone\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+    await repository.git(["sparse-checkout", "set", "cone-in"]);
+    mkdirSync(join(repository.root, "cone-out"), { recursive: true });
+    repository.write("cone-out/boundary.txt", "existed at the boundary\n");
+
+    const service: TurnSnapshotService = buildService();
+    await captureTurn(service);
+
+    const censusBefore: string = collectWorktreeCensus(repository.root);
+    const indexBefore: string = readIndexFingerprint(repository.root);
+    const failing: TurnSnapshotService = buildService({
+      git: buildLegFailingRunner(
+        (argv) => argv.includes("check-rules"),
+        "git: 'sparse-checkout check-rules' is not a git command",
+      ),
+    });
+    expect(
+      await failing.restoreToTurn(
+        expectResolved(await failing.resolveRestoreTarget(buildResolveInput())),
+      ),
+    ).toMatchObject({ outcome: "partial_restore", failedStep: "derive-enumerations" });
+
+    // Pre-mutation, asserted on both surfaces the restore can touch. The index
+    // matters as much as the worktree here: the pre-drop is enumerated in the same
+    // leg, so a refusal that had already dropped entries would be the same defect
+    // in a place `collectWorktreeCensus` cannot see.
+    expect(collectWorktreeCensus(repository.root)).toBe(censusBefore);
+    expect(readIndexFingerprint(repository.root)).toBe(indexBefore);
+  });
+
+  it("asks the matcher even when the snapshot tree has NO paths to score", async () => {
+    // The shape an early return would have skipped. A snapshot tree with no
+    // non-gitlink path leaves the restore's materialization derivation with an
+    // empty candidate set, and returning early on that would make it the ONE
+    // sparse restore that never consults the oracle — precisely where a vanished
+    // rules file or a below-floor git would go unnoticed. Both halves are driven
+    // here: the healthy root must still succeed (so `check-rules` is proven to
+    // exit 0 on an empty candidate set rather than assumed to), and the same
+    // fixture must REFUSE when the oracle cannot answer.
+    const emptyRoot: string = join(fixture.fixtureRoot, "empty-tree-root");
+    mkdirSync(emptyRoot, { recursive: true });
+    const emptyRepository = new FixtureRepository(
+      emptyRoot,
+      buildFixtureEnvironment(fixture.fixtureRoot),
+    );
+    await emptyRepository.git(["-c", "init.defaultBranch=main", "init", "-q", emptyRoot], {
+      cwd: fixture.fixtureRoot,
+    });
+    await emptyRepository.git(["commit", "-q", "--allow-empty", "-m", "empty base"]);
+    await applyNonConeSparseDefinition(emptyRepository, ["/*"]);
+    expect(await emptyRepository.git(["ls-tree", "-r", "--name-only", "HEAD"])).toBe("");
+
+    const service: TurnSnapshotService = buildService();
+    expectCaptured(
+      await service.captureTurnSnapshot({ ...CAPTURE_DEFAULTS, executionRoot: emptyRoot }),
+    );
+    const resolveInput: ResolveRestoreTargetInput = buildResolveInput({ executionRoot: emptyRoot });
+    expectRestored(
+      await service.restoreToTurn(expectResolved(await service.resolveRestoreTarget(resolveInput))),
+    );
+
+    const failing: TurnSnapshotService = buildService({
+      git: buildLegFailingRunner(
+        (argv) => argv.includes("check-rules"),
+        "git: 'sparse-checkout check-rules' is not a git command",
+      ),
+    });
+    expect(
+      await failing.restoreToTurn(expectResolved(await failing.resolveRestoreTarget(resolveInput))),
+    ).toMatchObject({ outcome: "partial_restore", failedStep: "derive-enumerations" });
+  });
+
+  it("PRE-DROPS a recorded boundary path after the root stopped being sparse", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    // The pre-drop is scoped by RECORDED-SET MEMBERSHIP, never by the restore
+    // root's own sparsity, and this is the fixture that separates the two. What
+    // makes the drop necessary is an index entry the snapshot tree lacks — a fact
+    // about the SNAPSHOT — and disabling sparse checkout does not remove that
+    // entry. Root-gating the leg would leave the delete-pass exemption still
+    // protecting this path while `read-tree --reset -u` deleted it first, so the
+    // exemption would be defending a file that no longer existed.
+    repository.write("cone-in/kept.txt", "in cone\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+    await repository.git(["sparse-checkout", "set", "cone-in"]);
+    mkdirSync(join(repository.root, "cone-out"), { recursive: true });
+    repository.write("cone-out/boundary.txt", "existed at the boundary\n");
+
+    const service: TurnSnapshotService = buildService();
+    const captured: TurnSnapshotCaptured = await captureTurn(service);
+    expect(await readSparseBoundaryTrailer(repository, captured.snapshotCommit)).toEqual([
+      "cone-out/boundary.txt",
+    ]);
+    // The turn stages it, so the live index holds an entry the snapshot tree does
+    // not — the exact index/tree disagreement `read-tree --reset -u` resolves by
+    // deleting the file.
+    await repository.git(["add", "--sparse", "cone-out/boundary.txt"]);
+
+    // …and THEN the root stops being sparse. `disable` clears the config bit and
+    // removes the rules file together, which is the state a user reaches by
+    // deciding they want the whole tree back.
+    await repository.git(["sparse-checkout", "disable"]);
+    const cachedListings: string[][] = [];
+    const recordingRunner: TurnSnapshotGitRunner = async (argv, options) => {
+      if (isBoundaryDropListing(argv)) {
+        cachedListings.push([...argv]);
+      }
+      return runTurnSnapshotGitWithExecFile(argv, options);
+    };
+    expect(
+      await repository.git([
+        "config",
+        "--type=bool",
+        "--default=false",
+        "--get",
+        "core.sparseCheckout",
+      ]),
+    ).toBe("false");
+
+    const recording: TurnSnapshotService = buildService({ git: recordingRunner });
+    expectRestored(
+      await recording.restoreToTurn(
+        expectResolved(await recording.resolveRestoreTarget(buildResolveInput())),
+      ),
+    );
+    // The leg RAN here — the positive half of the same probe the trailer-less case
+    // asserts empty, so neither case can pass by the predicate simply never
+    // matching anything.
+    expect(cachedListings).toHaveLength(1);
+
+    // SURVIVES, by both halves working together in a root that is no longer
+    // sparse: the pre-drop returned the entry to untracked, and the delete-pass
+    // exemption — which was already membership-scoped — then left the file alone.
+    expect(existsSync(join(repository.root, "cone-out", "boundary.txt"))).toBe(true);
+    expect(readFileSync(join(repository.root, "cone-out", "boundary.txt"), "utf8")).toBe(
+      "existed at the boundary\n",
+    );
+    expect(await repository.git(["ls-files", "-c", "cone-out/boundary.txt"])).toBe("");
+  });
+
+  it("never spawns the boundary-drop listing for a snapshot that recorded no set", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    // The other direction of the membership scope, and the reason removing the
+    // root gate costs a genuinely non-sparse restore nothing. A non-sparse capture
+    // writes no trailer, an absent trailer decodes to the empty set in a
+    // non-sparse root, and an empty set returns before the enumeration's listing
+    // ever spawns. Asserted on the ARGV rather than on the outcome: an outcome
+    // assertion would stay green if the leg ran and simply found nothing.
+    applyTurnEffects();
+    const service: TurnSnapshotService = buildService();
+    const captured: TurnSnapshotCaptured = await captureTurn(service);
+    expect(await readSparseBoundaryTrailer(repository, captured.snapshotCommit)).toBeNull();
+
+    const cachedListings: string[][] = [];
+    const recordingRunner: TurnSnapshotGitRunner = async (argv, options) => {
+      if (isBoundaryDropListing(argv)) {
+        cachedListings.push([...argv]);
+      }
+      return runTurnSnapshotGitWithExecFile(argv, options);
+    };
+
+    const recording: TurnSnapshotService = buildService({ git: recordingRunner });
+    expectRestored(
+      await recording.restoreToTurn(
+        expectResolved(await recording.resolveRestoreTarget(buildResolveInput())),
+      ),
+    );
+    expect(cachedListings).toEqual([]);
   });
 });
 

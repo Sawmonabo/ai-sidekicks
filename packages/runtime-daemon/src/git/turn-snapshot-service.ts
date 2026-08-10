@@ -697,33 +697,106 @@
 //     the knob UNSET, so it belongs to the in-tree attribute's own BOM rule and
 //     not to the host.
 //
-// RECORDED RESIDUALS — the honest failure modes, closed by neither pin nor
-// measurement.
+// READ AS INPUT — the host decides, and this service ASKS what it decided
+// rather than pinning or tolerating it. One family, added by T6.1.
 //
 //   * `core.sparseCheckout` (with `core.sparseCheckoutCone`, `index.sparse` and
-//     `$GIT_DIR/info/sparse-checkout`). A sparse execution root loses out-of-cone
-//     content across a capture/restore pair, and NO pin on any leg fixes it,
-//     because the defect is not on the checkout leg at all. Measured: the scratch
-//     index a capture seeds carries no skip-worktree bits, so `ls-files -c` lists
-//     every out-of-cone path and `--remove` drops each one for being absent from
-//     the worktree — the snapshot tree simply does not contain them. A restore of
-//     that snapshot then removes those paths' index entries, and after the closing
-//     reset `git status` reports the whole out-of-cone set as deleted. Measured on
-//     the checkout leg, all three of as-shipped, `-c core.sparseCheckout=false`
-//     and `--no-sparse-checkout` produce BYTE-IDENTICAL loss; the `false` pin only
-//     suppresses git's `error: Path … not uptodate` advisory, so adding it would
-//     make the failure quieter and nothing else. It is deliberately NOT added.
-//     `--ignore-skip-worktree-entries` on the check-in leg is likewise a no-op
-//     here (measured, identical tree), since there are no skip-worktree bits in a
-//     freshly seeded scratch index to protect.
-//     SCOPE: daemon-created `worktree` roots and ephemeral clones are never
-//     sparse, so the exposure is `in_place` mode on a user's canonical repository.
-//     The two candidate closures — refusing capture in a sparse root (fail-closed,
-//     but it makes snapshot availability a repo-config question, the very harm the
-//     `core.safecrlf` pin exists to prevent) and reading the sparse patterns to
-//     drive the staging listing — are both product decisions above this module's
-//     authority, so the behaviour is characterized by the suite rather than
-//     changed. See the suite's sparse-checkout residual case.
+//     `$GIT_DIR/info/sparse-checkout`). This was the table's largest RECORDED
+//     RESIDUAL and is now closed, so the row records both the defect and its
+//     closure — a reader checking the closure needs the shape of what it closed.
+//
+//     THE DEFECT, as measured before T6.1: the scratch index a capture seeded
+//     with `read-tree <base>` carries no skip-worktree bits, so `ls-files -c`
+//     listed every out-of-cone path and `--remove` dropped each one for being
+//     absent from the worktree — the snapshot tree simply did not contain them.
+//     A restore of that snapshot then removed those paths' index entries, and
+//     after the closing reset `git status` reported the whole out-of-cone set as
+//     deleted. No pin fixed it, because the defect was never on the checkout leg:
+//     as-shipped, `-c core.sparseCheckout=false` and `--no-sparse-checkout` all
+//     produce BYTE-IDENTICAL loss there, the `false` pin only suppressing git's
+//     `error: Path … not uptodate` advisory. `--ignore-skip-worktree-entries` on
+//     the check-in leg was a no-op for the same reason (identical tree): a freshly
+//     seeded scratch index has no skip-worktree bits to protect.
+//
+//     THE CLOSURE (`Spec-010 §Turn-Boundary Snapshots`, the amended capture
+//     bullet; I-010-24) inverts the seed instead of pinning anything. In a
+//     detected sparse root the scratch index is seeded as a COPY OF THE LIVE
+//     INDEX, which carries the skip-worktree bits, so out-of-cone entries arrive
+//     already-staged at their recorded blobs and `--remove` never sees them; the
+//     staging listing is then partitioned by git's own sparsity matcher so
+//     `--remove` is never even offered an out-of-cone path to re-stat. The
+//     snapshot tree is FULL — sparseness is a checkout-time projection, not a
+//     property of the recorded state — which is what makes the restore able to
+//     re-project it.
+//
+//     Each co-tenant knob therefore has its own disposition now, because this
+//     service reads all four rather than being merely exposed to them:
+//
+//       - `core.sparseCheckout` is the WHOLE detection predicate, read with
+//         `config --type=bool --default=false --get`. The rules file is
+//         deliberately not part of it: a set bit with an unreadable rules file
+//         must reach the sparse arm so the matcher's own failure becomes a typed
+//         capture failure, where an "is it really sparse?" heuristic would
+//         silently take the non-sparse path and drop exactly what porcelain keeps
+//         (measured — the worktree still holds the out-of-cone content).
+//       - `core.sparseCheckoutCone` and `$GIT_DIR/info/sparse-checkout` are
+//         DELEGATED, not read. `sparse-checkout check-rules -z` in its live-rules
+//         form is the oracle, so cone-ness, pattern syntax and negation semantics
+//         are resolved by the same code git resolves them with. This is the one
+//         disposition that cannot be got right by reimplementation: the gitignore
+//         machinery this module already runs (`--exclude-per-directory`) answers
+//         a DIFFERENT question and over-includes under negation (measured — `/*`
+//         plus `!/a/b/` scores `a/b/deep.txt` includable, and the cone does not).
+//       - `index.sparse` is TOLERATED. A sparse index expands on demand for the
+//         `ls-files` legs and git says so on stderr; this module reads stderr on
+//         no leg (see {@link TurnSnapshotGitInvocationResult}), so the advisory is
+//         structurally unable to become a failure. The listing content is
+//         unaffected.
+//
+//     SCOPE, restated because the row's previous one was wrong in a way worth
+//     recording: it read "the exposure is `in_place` mode on a user's canonical
+//     repository", and `in_place` names no member of {@link ExecutionMode} at
+//     all. The exposure is not a mode, it is a ROOT — any execution root whose
+//     `core.sparseCheckout` bit is set. Canonically that is a `branch`-mode root,
+//     which IS the user's own checkout and is therefore sparse whenever the user
+//     made it so; a `worktree`-mode root reaches it too, by INHERITANCE, since
+//     `git worktree add` copies the sparse state (driven by the suite, not
+//     assumed); and an `ephemeral clone` starts full, which is a fact about how
+//     the daemon creates it rather than a rule this module may rely on. Which is
+//     exactly why detection reads the ROOT and never `input.mode` — a mode-keyed
+//     detector would have inherited the old sentence's error as behaviour.
+//
+//     The residual this closure does NOT remove is MATERIALIZATION, and it is
+//     stated rather than hidden: the restore's `read-tree --reset -u` writes every
+//     path the CURRENT sparse definition admits, so a definition that changed
+//     between capture and restore projects the full snapshot tree differently than
+//     the capture-time one did. That is git's projection of a full tree through the
+//     live definition, which is the correct behaviour and also an effect no result
+//     arm names.
+//
+//     What the restore reports about it is an OBSERVATION, taken TWICE, under the
+//     same observed-not-bookkept discipline the collision and gitlink enumerations
+//     follow — and for the same reason they do. Before the checkout, in the
+//     pre-mutation window, the restore reads which snapshot-tracked paths the LIVE
+//     definition scores OUT of cone and are nevertheless sitting on disk, and
+//     records a fingerprint for each. At report time it re-reads them and emits
+//     only the ones that changed. So the diagnostic names paths the restore
+//     actually DISCARDED, and a sequence that refused before the checkout — or
+//     whose checkout failed at the spawn — emits nothing, because it discarded
+//     nothing. Reporting the pre-mutation candidate list on that path would have
+//     been a bookkept claim about work that did not happen, which is the exact
+//     defect the sibling enumerations were written to avoid.
+//
+//     The honest limit of the reading: a definition WIDENED at restore time makes
+//     the newly-admitted paths IN cone, so their materialization is ordinary
+//     projection and this enumeration does not name them — the reported slice is
+//     the out-of-cone-yet-present one the re-projection removes. See the suite's
+//     sparse cases, which drive the closure rather than characterizing the loss.
+//
+// RECORDED RESIDUALS — the honest failure modes, closed by neither pin nor
+// measurement. The family above used to be the other member of this section;
+// what remains is the one whose pin set is unbounded by construction.
+//
 //   * `filter.<name>.smudge` / `.clean` / `.required`, where `<name>` arrives from
 //     an IN-TREE attribute but the driver commands live in HOST config. Measured:
 //     with `*.secret filter=redact` in-tree, a host `filter.redact.smudge` rewrote
@@ -917,8 +990,20 @@
 import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import type { Stats } from "node:fs";
-import { lstat, mkdir, readFile, readlink, rm, rmdir, stat } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import type { FileHandle } from "node:fs/promises";
+import {
+  copyFile,
+  lstat,
+  mkdir,
+  open,
+  readFile,
+  readlink,
+  rm,
+  rmdir,
+  stat,
+} from "node:fs/promises";
+import { isAbsolute, dirname, join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 
 import type { Database, Statement } from "better-sqlite3";
 
@@ -972,14 +1057,21 @@ export interface TurnSnapshotGitInvocationOptions {
    */
   readonly environmentOverrides?: Readonly<Record<string, string>>;
   /**
-   * Written to the child's stdin, which is then closed. The `update-index
-   * --stdin` leg is the only caller that supplies one.
+   * Written to the child's stdin, which is then closed. FOUR legs supply one:
+   * `update-index --add --remove -z --stdin` (the staging listing),
+   * `sparse-checkout check-rules -z` (the candidate paths), `update-index
+   * --force-remove -z --stdin` (the restore's boundary-set index pre-drop) and
+   * `commit-tree -F -` (the snapshot message).
    *
-   * stdin is closed on EVERY invocation, supplied or not. `Spec-010
-   * §Turn-Boundary Snapshots` calls out the failure mode: `commit-tree` without
-   * `-m` reads its message from stdin and hangs wherever the daemon left stdin
-   * open. This module always passes `-m`, so the close is the belt to that
-   * braces — a hang that cannot be reintroduced by a later edit to the argv.
+   * stdin is closed on EVERY invocation, supplied or not, and that close is now
+   * LOAD-BEARING rather than a belt. `Spec-010 §Turn-Boundary Snapshots` calls
+   * out the failure mode — `commit-tree` reading its message from stdin and
+   * hanging wherever the daemon left stdin open — and T6.1 converted that leg
+   * from `-m` argv to `-F -` deliberately, so the message is a stream this
+   * module writes and closes rather than an argv element bounded by the
+   * platform's argument limit. The hang the spec names is therefore reachable
+   * exactly when this contract is broken, which is why it is stated here and not
+   * only at the call site.
    */
   readonly stdin?: Buffer;
 }
@@ -1025,7 +1117,22 @@ export type TurnSnapshotGitRunner = (
  * run on the failure path where a seam is the least trustworthy thing available,
  * and seaming them would hand every implementor (the suite's two capture-only
  * doubles included) verbs it has no opinion about. The boundary is therefore
- * "this interface is where the service writes", stated rather than implied.
+ * "this interface is where the service writes", with ONE stated carve-out.
+ *
+ * THE CARVE-OUT is the sparse seed's index lock (T6.1), and the discriminator is
+ * the idempotence sentence above rather than the write/read line. Copying the
+ * live index under git's own lockfile protocol requires an EXCLUSIVE create of
+ * `<index>.lock` — non-idempotent BY DESIGN, since a create that finds the file
+ * already there is the contention signal the protocol is made of. Adding it here
+ * would either break the invariant every other verb's tolerance rests on (the
+ * `finally` cleanup and the restore's directory pruning are correct only because
+ * their verbs tolerate a repeat) or force a fourth verb documented as the
+ * exception to its own interface's opening line. So
+ * {@link TurnSnapshotService.#seedScratchIndexFromLiveIndex} calls `node:fs`
+ * directly, exactly as `fingerprintPath` and `isPathProvablyAbsent` already do
+ * on the read side, and its failure mode is exercised against a REAL held lock
+ * rather than through an injected seam — which is the stronger test anyway,
+ * since the protocol being honoured is git's and not this module's.
  *
  * Paths are `string`, deliberately and with a known cost. A path name that is
  * not valid UTF-8 reaches these verbs with replacement characters, so the
@@ -1059,13 +1166,36 @@ export interface TurnSnapshotFilesystem {
  * a SIBLING type rather than a growth of this one: `failedStep` on the restore
  * result is pinned name-identical to Plan-004's wire arms, and a shared union
  * would leak capture steps into a restore disposition.
+ *
+ * T6.1's sparse closure added exactly TWO members, slotted in execution order
+ * rather than overloaded onto neighbours, because each is a distinct thing an
+ * operator does about a failure:
+ *
+ *   * `detect-sparse-root` — the `core.sparseCheckout` read failed, which is a
+ *     repository whose config could not be read at all. Never "not sparse": an
+ *     unreadable predicate that defaulted to the non-sparse pipeline would drop
+ *     exactly the content the closure exists to keep.
+ *   * `check-sparse-rules` — git's sparsity matcher failed or is unavailable
+ *     (`check-rules` predates no git this daemon supports on paper, but a
+ *     below-2.41 binary reports an unknown subcommand, and an unreadable rules
+ *     file reports `fatal: unable to load existing sparse-checkout patterns`).
+ *     Both are fail-closed here rather than a degrade to an unpartitioned
+ *     listing, which would be the shipped defect wearing a new name.
+ *
+ * The re-sourced seed keeps the shipped `seed-index` name deliberately. A sparse
+ * root seeds from a copy of the LIVE index instead of `read-tree <base>`, but it
+ * is the same step doing the same job at the same point in the sequence, and
+ * splitting it would make one operator-visible failure into two spellings of
+ * "the scratch index could not be seeded".
  */
 export type TurnSnapshotCaptureStep =
   | "validate-inputs"
   | "prepare-scratch-index"
   | "resolve-base"
+  | "detect-sparse-root"
   | "seed-index"
   | "list-paths"
+  | "check-sparse-rules"
   | "stage-paths"
   | "normalize-embedded-repositories"
   | "write-tree"
@@ -1078,8 +1208,19 @@ export type TurnSnapshotCaptureStep =
  * stopped so Plan-004's intervention outcome can say WHICH leg left the tree
  * where it is.
  *
- * The first two are pre-mutation by construction, so a failure naming either of
- * them is the spec's "failure before any mutation". The last three are the
+ * The first two are pre-mutation by construction — with ONE qualification T6.1
+ * added and did not want to leave implied. `derive-enumerations` now also
+ * performs the sparse boundary set's INDEX PRE-DROP, which writes the index; a
+ * failure there still leaves index and worktree untouched, because the drop is a
+ * single `update-index --force-remove` invocation and git's index write is
+ * atomic (lock, write, rename), so it either applied whole or not at all. What
+ * the qualification costs is the stronger reading: a SUCCEEDED drop ahead of a
+ * later failed step is reported by that later step, not by this one. The
+ * property the spec's sentence protects — nothing is half-applied where a
+ * failure is reported — survives; the property "no bytes moved at all under this
+ * name" no longer does, and the drop is deliberately not given a step of its own
+ * because Plan-004's wire mapping froze this vocabulary at five. The last three
+ * are the
  * pinned three-step of `Spec-010 §Turn-Boundary Snapshots`, in the order that
  * spec fixes: the delete pass must run while the index still holds the SNAPSHOT
  * tree, and `close-index` must run after it. Swapped, the close returns the
@@ -1295,6 +1436,62 @@ export type TurnSnapshotDiagnostic =
        * along with everything beneath them.
        */
       readonly preservedPaths: readonly string[];
+    }
+  | {
+      /**
+       * The materialized out-of-cone paths a sparse restore DISCARDED from the
+       * worktree — the residual the host-config table's sparse row names,
+       * reported instead of hidden.
+       *
+       * A snapshot tree is FULL: the capture records out-of-cone content because
+       * sparseness is a checkout-time projection, not a property of the recorded
+       * state. `read-tree --reset -u` then re-projects that tree through the cone
+       * that is live AT RESTORE TIME, which is the correct behaviour and is also
+       * the one restore effect a caller has no other way to learn about — a path
+       * the live definition excludes can still be sitting in the worktree (the
+       * cone widened and then narrowed again without a checkout, or git could not
+       * un-materialize it), and the re-projection removes it while neither result
+       * arm names the path.
+       *
+       * OBSERVED, never bookkept, which is this module's standing discipline for
+       * a restore effect (see the header's partial-restore section), and observed
+       * TWICE. Before the checkout, three facts fix the candidate set: the paths
+       * the snapshot tree tracks, the ones git's matcher scores out-of-cone under
+       * the LIVE definition, and the ones actually present on disk (a path in the
+       * first two and absent from disk is the ordinary unmaterialized case and is
+       * never a candidate). Each candidate's pre-mutation
+       * {@link fingerprintPath} is recorded. At report time each is re-read, and
+       * only the changed ones are named — so this says what the restore DID,
+       * never what it was going to do.
+       *
+       * The second observation is what makes the arm safe on the failure path. A
+       * `partial_restore` that refused at window two, or whose checkout failed at
+       * the spawn, discarded nothing: every candidate fingerprints equal and the
+       * diagnostic is not emitted at all. One that got past the checkout and
+       * failed at `delete-untracked` or `close-index` reports the real set. The
+       * candidate list alone could not tell those apart.
+       *
+       * A DIAGNOSTIC and not a result field, for the reason
+       * `embedded-repositories-preserved` states at length: T3.13 froze
+       * `TurnSnapshotRestoreResult` for Plan-004's consumer, and this task has no
+       * authority to grow a union that consumer switches on. Emitted at most ONCE
+       * per restore — on the success tail after the last leg that can fail, or
+       * from the failure reporter, never both.
+       */
+      readonly kind: "sparse-out-of-cone-materialized";
+      readonly runId: string;
+      /** The OWNING epoch — the resolved ref's own `epoch-<E>` segment. */
+      readonly epoch: number;
+      /** The target position — the resolved ref's own `turn-<N>` segment. */
+      readonly turnOrdinal: number;
+      readonly ref: string;
+      /**
+       * Worktree-relative, sorted. Snapshot-tracked paths that the live sparse
+       * definition scores OUT of cone, that were observed materialized before the
+       * checkout, and whose on-disk state the restore then changed. Never empty
+       * — an empty set is not emitted.
+       */
+      readonly materializedPaths: readonly string[];
     }
   | {
       readonly kind: "scratch-index-cleanup-failed";
@@ -2186,6 +2383,53 @@ const SNAPSHOT_COMMIT_MESSAGE = "sidekicks: turn-boundary snapshot";
 const SKIPPED_EMBEDDED_REPOSITORIES_TRAILER = "Skipped-Embedded-Repositories:";
 
 /**
+ * The trailer key naming the SPARSE BOUNDARY PATHS a capture observed — the
+ * out-of-cone content that existed at the turn boundary and that the snapshot
+ * tree therefore does not track.
+ *
+ * Its job is the mirror of the trailer above's, for a class the restore likewise
+ * has no other way to learn about. In a sparse root the capture keeps out-of-cone
+ * content by seeding from the live index, but two kinds of out-of-cone path have
+ * nothing in that index to keep: an UNTRACKED one (`ls-files -o` lists it,
+ * `write-tree` cannot record it because staging never re-stats an out-of-cone
+ * path) and an INTENT-TO-ADD one (`git add -N --sparse`, which leaves the `-o`
+ * listing and which `write-tree` omits — measured on git 2.50.1). Both are
+ * content the user has on disk that the snapshot does not hold, so the restore's
+ * two destructive legs would each destroy them: `read-tree --reset -u` removes
+ * the intent-to-add path's file because the index holds an entry the snapshot
+ * tree lacks, and the untracked-delete pass removes the untracked one as
+ * post-boundary content. Neither is post-boundary. The capture is the only place
+ * that knows, so it writes what it saw.
+ *
+ * Three properties, and the FIRST differs from the sibling trailer's on purpose:
+ *
+ *   * WRITTEN UNCONDITIONALLY IN A SPARSE ROOT, empty set spelled `[]`, and
+ *     NEVER in a non-sparse one. This is the closure's FORMAT MARKER, not
+ *     bookkeeping. A restore in a sparse root that finds no trailer cannot tell a
+ *     pre-closure snapshot (out-of-cone content lost, boundary set unknown) from
+ *     a post-closure capture that observed an empty boundary set — the vintages
+ *     are indistinguishable and their correct handling is opposite — so presence
+ *     has to mean "a sparse-aware capture wrote this" all by itself. Conditioning
+ *     it on non-emptiness would make the common case exactly the undecidable one.
+ *     The non-sparse pipeline stays byte-identical to its pre-closure self for
+ *     the reason the sibling trailer's own first property gives: every existing
+ *     snapshot OID and every determinism claim in the host-config table is stated
+ *     on that message.
+ *   * JSON-ENCODED and SORTED, for the sibling trailer's reasons exactly — a
+ *     newline inside a path would otherwise forge a trailer boundary, and the
+ *     message is an OID input so the order has to be stable by construction.
+ *   * ORDERED AFTER {@link SKIPPED_EMBEDDED_REPOSITORIES_TRAILER} whenever both
+ *     are present. Trailer order is message bytes and therefore OID bytes; fixing
+ *     it here is what keeps two captures of identical project state identical.
+ *
+ * RESIDUAL, the same one the sibling trailer records: the ref is create-only
+ * (I-010-22), so a restore reads the FIRST capture's boundary set at that turn.
+ * The exemption follows the recorded snapshot rather than the worktree, which is
+ * the honest rule — this trailer is a fact about the snapshot.
+ */
+const SPARSE_BOUNDARY_PATHS_TRAILER = "Sparse-Boundary-Paths:";
+
+/**
  * The daemon-owned author/committer identity stamped into every snapshot commit.
  *
  * Not the user's. `Spec-010 §Turn-Boundary Snapshots` records both failure modes
@@ -2336,6 +2580,32 @@ const EXCLUDE_PER_DIRECTORY_GITIGNORE = "--exclude-per-directory=.gitignore";
 // is to leave the index where porcelain would. See the PINNED row in the
 // host-config table for the full leg-by-leg measurement.
 const USE_REPLACE_REFS_PIN: readonly string[] = ["-c", "core.useReplaceRefs=false"];
+
+// The record terminator every `-z` stream this module writes ends each entry
+// with. See {@link joinNulTerminatedListing}.
+const NUL_TERMINATOR: Buffer = Buffer.from([0]);
+
+// The config key that IS the sparse-root predicate. Spelled once so the
+// host-config table's `READ AS INPUT` row and the detection leg cannot drift
+// apart — the table's claim is about this exact key and no other.
+const CORE_SPARSE_CHECKOUT_KEY = "core.sparseCheckout";
+
+// How many times the sparse seed re-tries git's index lock, and how long it
+// waits between attempts.
+//
+// A FIXED, SMALL budget on purpose. The lock is held for the duration of one
+// git index write — microseconds to a few milliseconds — so a contended
+// acquisition is almost always a concurrent `git status` from the user's own
+// terminal, and it clears immediately. What the budget must NOT do is wait out a
+// STALE lock (a crashed git leaves the file behind, and nothing here is entitled
+// to remove it): that is a repository an operator has to unblock, and a capture
+// that ground on it for seconds would spend the turn boundary's latency budget
+// to arrive at the same typed failure. Deliberately not clock-injected — the
+// delay is a real sleep of a few tens of milliseconds, below the resolution at
+// which a test would want to control it, and the contention arm the suite drives
+// holds a REAL lock file rather than simulating one.
+const SPARSE_SEED_INDEX_LOCK_ATTEMPTS = 4;
+const SPARSE_SEED_INDEX_LOCK_RETRY_DELAY_MS = 25;
 
 // Ceiling on the untracked-delete pass (`Spec-010 §Turn-Boundary Snapshots`
 // requires repetition to a FIXPOINT, not a fixed count).
@@ -2760,6 +3030,76 @@ function splitNulTerminatedListing(listing: Buffer): readonly string[] {
   return entries;
 }
 
+/**
+ * The same split as {@link splitNulTerminatedListing}, stopping one step short:
+ * BUFFER SLICES, never decoded.
+ *
+ * This exists because the sparse partition turns the staging stdin from a
+ * pass-through into a SUBSET, and that changes what a decode costs. Today the
+ * whole listing Buffer is handed to `update-index --stdin` untouched, so a path
+ * git emitted as raw non-UTF-8 bytes round-trips unchanged and the decoded
+ * strings are only ever used for classification. A partition built on those
+ * strings would re-encode them: a non-UTF-8 path decodes to replacement
+ * characters, fails to match git's own echo of its bytes, and is dropped from
+ * the snapshot — a silent loss, in the one leg whose entire purpose is to stop
+ * losing what porcelain keeps.
+ *
+ * So the partition runs end to end on bytes. `slice` shares the parent Buffer's
+ * memory rather than copying, which is exactly right here: the slices are read,
+ * concatenated and discarded inside one capture.
+ */
+function splitNulTerminatedListingBytes(listing: Buffer): readonly Buffer[] {
+  const entries: Buffer[] = [];
+  let start = 0;
+  for (let index = 0; index < listing.length; index += 1) {
+    if (listing[index] === 0) {
+      if (index > start) {
+        entries.push(listing.subarray(start, index));
+      }
+      start = index + 1;
+    }
+  }
+  // Same tolerance, and the same reason, as the string form: dropping a trailing
+  // path would silently omit it from the snapshot.
+  if (start < listing.length) {
+    entries.push(listing.subarray(start));
+  }
+  return entries;
+}
+
+/**
+ * Re-join listing entries into the NUL-TERMINATED form git's `-z` readers want.
+ *
+ * TERMINATED, not separated: `update-index -z --stdin` and `sparse-checkout
+ * check-rules -z` both read records ending in NUL, and a final entry without one
+ * is the shape the splitter above tolerates on input rather than the shape
+ * anything should be handed.
+ */
+function joinNulTerminatedListing(entries: readonly Buffer[]): Buffer {
+  if (entries.length === 0) {
+    return Buffer.alloc(0);
+  }
+  const parts: Buffer[] = [];
+  for (const entry of entries) {
+    parts.push(entry, NUL_TERMINATOR);
+  }
+  return Buffer.concat(parts);
+}
+
+/**
+ * A BYTE-EXACT map key for a listing entry.
+ *
+ * `latin1` and not `utf8`, deliberately and for the only reason that matters
+ * here: it is the one Node encoding that is a bijection on arbitrary bytes, so
+ * two entries share a key exactly when they share their bytes. A `utf8` key
+ * collapses every invalid sequence onto U+FFFD, which would make two DIFFERENT
+ * un-decodable paths compare equal — and this key decides which paths reach the
+ * snapshot. The strings never leave this module and are never rendered.
+ */
+function listingEntryKey(entry: Buffer): string {
+  return entry.toString("latin1");
+}
+
 /** One `<oid> <refname>` line of the retention leg's `for-each-ref` listing. */
 interface SnapshotRefListingEntry {
   readonly objectId: string;
@@ -2888,53 +3228,135 @@ function parseSnapshotTreeListing(listing: Buffer): readonly SnapshotTreeEntry[]
   return entries;
 }
 
+/** One `git ls-files -t -z` record: a status tag and the path it describes. */
+interface CachedStateEntry {
+  /** `H` (materialized), `S` (skip-worktree), `M` (unmerged), … */
+  readonly tag: string;
+  /** Worktree-relative, as git emitted it. */
+  readonly path: string;
+}
+
+/**
+ * Parse `git ls-files -t -z` — `<tag> SP <path>` per NUL-terminated record.
+ *
+ * The tag is returned rather than interpreted, exactly as
+ * {@link parseSnapshotTreeListing} returns every record and lets its caller pick:
+ * which tags MEAN something is the consumer's question, and the one consumer here
+ * wants `H`.
+ *
+ * A record that does not carry the expected separator is skipped rather than
+ * guessed at, and unlike the tree listing the direction of that skip is knowable:
+ * a dropped record is a path its consumer will not see as materialized, so the
+ * discarded-subset diagnostic UNDER-reports. That is the safe direction for a
+ * channel whose whole discipline is to avoid over-claiming, and it is why the
+ * skip is tolerable here rather than merely conventional.
+ */
+function parseCachedStateListing(listing: Buffer): readonly CachedStateEntry[] {
+  const entries: CachedStateEntry[] = [];
+  for (const record of splitNulTerminatedListing(listing)) {
+    if (record.length < 2 || record[1] !== " ") {
+      continue;
+    }
+    entries.push({ tag: record.slice(0, 1), path: record.slice(2) });
+  }
+  return entries;
+}
+
 /**
  * The paths {@link SKIPPED_EMBEDDED_REPOSITORIES_TRAILER} recorded, out of a raw
  * `cat-file commit` body. An absent trailer is an empty list.
  *
- * FAIL-CLOSED on a malformed trailer, which is the one interesting decision
- * here. Returning `[]` for an unparseable body would be the tolerant reading and
- * is exactly wrong: this list is the delete pass's DO-NOT-DELETE set, so an
- * empty list is not a neutral default but full authority to destroy the
- * repositories the trailer exists to protect. A body carrying the key and not a
- * decodable array is a snapshot this code does not understand, and the safe
- * answer to that is to refuse the restore rather than to proceed with the
- * protection silently disabled. The throw lands at `derive-enumerations`, which
- * is pre-mutation — the refusal costs nothing on disk.
+ * Absent-collapses-to-empty is correct HERE and is not the general rule — see
+ * {@link parseSparseBoundaryPaths}, whose absent case is a refusal. The
+ * difference is what the two trailers mean by absence: this one is written only
+ * when the skip list is non-empty, so no trailer IS the empty list, while the
+ * sparse trailer is written unconditionally in a sparse root, so no trailer means
+ * the capture was not sparse-aware. See {@link readJsonPathArrayTrailer} for the
+ * fail-closed rule they share on a malformed value.
+ */
+function parseSkippedEmbeddedRepositories(commitObject: Buffer): readonly string[] {
+  return (
+    readJsonPathArrayTrailer(
+      commitObject,
+      SKIPPED_EMBEDDED_REPOSITORIES_TRAILER,
+      "skipped-embedded-repository",
+    ) ?? []
+  );
+}
+
+/**
+ * The paths {@link SPARSE_BOUNDARY_PATHS_TRAILER} recorded, or `null` when the
+ * snapshot carries no such trailer at all.
+ *
+ * THREE outcomes where the sibling decoder has two, and the third is the whole
+ * point. `null` (absent) and `[]` (present and empty) are different facts about
+ * the SNAPSHOT'S VINTAGE, and their correct handling is opposite:
+ *
+ *   * In a sparse restore root, ABSENT means the snapshot's out-of-cone
+ *     disposition is unknown — either a pre-closure capture that lost the content
+ *     or a root that was not sparse when it was captured — and the restore
+ *     REFUSES at `derive-enumerations`, before anything is written. Reading it as
+ *     the empty set would hand the delete pass full authority over exactly the
+ *     content the trailer exists to protect, which is the failure mode the
+ *     sibling decoder's fail-closed rule already names in the other direction.
+ *   * In a NON-sparse restore root, absent is the ordinary answer for the
+ *     overwhelming majority of snapshots ever captured, and the empty set is the
+ *     correct reading: there is no boundary set because there was no cone.
+ *
+ * Collapsing the two would force one of those to be wrong. Present-but-
+ * undecodable throws in both roots, exactly as the sibling does.
+ */
+function parseSparseBoundaryPaths(commitObject: Buffer): readonly string[] | null {
+  return readJsonPathArrayTrailer(commitObject, SPARSE_BOUNDARY_PATHS_TRAILER, "sparse-boundary");
+}
+
+/**
+ * The shared reader behind the two trailer decoders above: the JSON string array
+ * at `key`, or `null` when the message carries no line with that key.
+ *
+ * FAIL-CLOSED on a malformed value, which is the one interesting decision here.
+ * Returning `null` for an unparseable body would be the tolerant reading and is
+ * exactly wrong for both callers: each list is a DO-NOT-DELETE set, so an absent
+ * list is not a neutral default but full authority to destroy the content the
+ * trailer exists to protect. A body carrying the key and not a decodable array is
+ * a snapshot this code does not understand, and the safe answer to that is to
+ * refuse the restore rather than to proceed with the protection silently
+ * disabled. The throw lands at `derive-enumerations`, which is pre-mutation — the
+ * refusal costs nothing on disk.
  *
  * The commit body is located by the FIRST blank line, per git's object format:
  * everything before it is headers (`tree`, `parent`, `author`, `committer`, and
  * possibly `encoding` or a multi-line `gpgsig` whose continuations are
  * space-prefixed), everything after is the message. Scanning the whole object
- * instead would let a header value ending in the trailer key be read as one.
+ * instead would let a header value ending in a trailer key be read as one.
  */
-function parseSkippedEmbeddedRepositories(commitObject: Buffer): readonly string[] {
+function readJsonPathArrayTrailer(
+  commitObject: Buffer,
+  key: string,
+  description: string,
+): readonly string[] | null {
   const text: string = commitObject.toString("utf8");
   const separator: number = text.indexOf("\n\n");
   if (separator < 0) {
-    return [];
+    return null;
   }
   for (const line of text.slice(separator + 2).split("\n")) {
-    if (!line.startsWith(SKIPPED_EMBEDDED_REPOSITORIES_TRAILER)) {
+    if (!line.startsWith(key)) {
       continue;
     }
-    const encoded: string = line.slice(SKIPPED_EMBEDDED_REPOSITORIES_TRAILER.length).trim();
+    const encoded: string = line.slice(key.length).trim();
     let decoded: unknown;
     try {
       decoded = JSON.parse(encoded);
     } catch {
-      throw new Error(
-        "turn-snapshot could not decode the snapshot's skipped-embedded-repository trailer",
-      );
+      throw new Error(`turn-snapshot could not decode the snapshot's ${description} trailer`);
     }
     if (!Array.isArray(decoded) || decoded.some((path) => typeof path !== "string")) {
-      throw new Error(
-        "turn-snapshot skipped-embedded-repository trailer was not an array of paths",
-      );
+      throw new Error(`turn-snapshot ${description} trailer was not an array of paths`);
     }
     return decoded as readonly string[];
   }
-  return [];
+  return null;
 }
 
 /**
@@ -2993,6 +3415,34 @@ function collectProperAncestorDirectories(path: string): readonly string[] {
 function isPreservedListingEntry(entry: string, preservedPaths: readonly string[]): boolean {
   const path: string = entry.endsWith("/") ? entry.slice(0, -1) : entry;
   return preservedPaths.some((preserved) => path === preserved || path.startsWith(`${preserved}/`));
+}
+
+/**
+ * Whether an `ls-files -o` entry names a path the capture recorded as a SPARSE
+ * BOUNDARY path — the delete pass's other exemption test.
+ *
+ * A SEPARATE predicate from {@link isPreservedListingEntry}, and EXACT-PATH where
+ * that one matches subtrees. The two exemptions protect different things and the
+ * asymmetry is the reason:
+ *
+ *   * A skipped embedded repository is a REPOSITORY. Deleting `nested/src/a.ts`
+ *     one path at a time destroys it as completely as deleting `nested/`, so the
+ *     exemption has to cover everything beneath it.
+ *   * A sparse boundary path is a PATH. The capture recorded the identity of each
+ *     out-of-cone path it observed at the boundary, and that is exactly the set
+ *     the restore may not delete. Matching subtrees here would over-protect: a
+ *     boundary-time out-of-cone directory would shelter files the TURN created
+ *     inside it, which are post-boundary content the delete pass is supposed to
+ *     remove — and removing turn-created out-of-cone files exactly as it removes
+ *     in-cone ones is the property that keeps this closure from turning the whole
+ *     out-of-cone region into a write-protected zone.
+ *
+ * The trailing slash is still stripped, because a boundary path that is a
+ * directory git did not descend into (an out-of-cone embedded repository) is
+ * listed with one and recorded without.
+ */
+function isSparseBoundaryListingEntry(entry: string, boundaryPaths: ReadonlySet<string>): boolean {
+  return boundaryPaths.has(entry.endsWith("/") ? entry.slice(0, -1) : entry);
 }
 
 /**
@@ -3157,6 +3607,28 @@ interface ProspectiveGitlinkDivergence {
   readonly fingerprintBeforeRestore: string;
 }
 
+/**
+ * A snapshot-tracked path the LIVE sparse definition excludes that was sitting
+ * MATERIALIZED on disk before the checkout, plus the state its later removal is
+ * measured against.
+ *
+ * The third member of the same family, carrying the same non-nullable
+ * {@link fingerprintPath} arm for the same reason, and it is a CANDIDATE rather
+ * than a conclusion. The set this seeds is the checkout's re-projection of a full
+ * tree through a narrower live cone, which discards the path from the worktree —
+ * so it is a real restore effect and belongs in the report. But it is an effect
+ * of the CHECKOUT, and a sequence that refused before the checkout ran (or whose
+ * checkout failed at the spawn) discarded nothing. Reporting the pre-mutation
+ * candidate list on that path would be a bookkept claim about work that did not
+ * happen, which is the failure the collision and gitlink enumerations already
+ * solved by re-observing at report time. This carries the fingerprint so it can
+ * be held to the same standard rather than to a weaker one.
+ */
+interface ProspectiveMaterialization {
+  readonly path: string;
+  readonly fingerprintBeforeRestore: string;
+}
+
 /** What the pre-mutation derivation produces; see the header. */
 interface ProspectiveRestoreEffects {
   readonly collisions: readonly ProspectiveCollision[];
@@ -3170,6 +3642,47 @@ interface ProspectiveRestoreEffects {
    * paths, which is the entire point.
    */
   readonly preservedEmbeddedRepositories: readonly string[];
+  /**
+   * Paths the CAPTURE recorded as its sparse boundary set — see
+   * {@link SPARSE_BOUNDARY_PATHS_TRAILER}. The delete pass's other exemption, and
+   * carried here for the reason above: same object read, same sequence.
+   *
+   * A SET rather than a list, because its consumer tests exact membership per
+   * listing entry on every pass (see {@link isSparseBoundaryListingEntry}), where
+   * the subtree-matching sibling above has to scan.
+   */
+  readonly sparseBoundaryPaths: ReadonlySet<string>;
+  /**
+   * Snapshot-tracked paths the LIVE sparse definition scores out of cone and that
+   * were observed materialized before the checkout — the diagnostic's CANDIDATE
+   * set, not its payload. Sorted, empty in a non-sparse root. Each carries the
+   * pre-mutation fingerprint the emission re-observes against, so what is
+   * reported is the subset the restore actually discarded. See
+   * {@link ProspectiveMaterialization} and the `sparse-out-of-cone-materialized`
+   * arm of {@link TurnSnapshotDiagnostic}.
+   */
+  readonly materializedOutOfCone: readonly ProspectiveMaterialization[];
+  /**
+   * The LIVE-index entries the pre-drop is about to remove — recorded boundary
+   * paths the index holds and the snapshot tree does not. Raw `-z` listing bytes
+   * rather than decoded names, so the invocation that consumes them feeds git
+   * back the exact bytes git produced (the capture partition's discipline, for
+   * the same reason: no path here is ever reconstructed from a decode).
+   *
+   * DERIVED here and applied by the caller, which is not a stylistic split. This
+   * is the derivation's one mutating consequence, and the sequence puts a second
+   * `HEAD` read between the derivation and the first mutation precisely so that
+   * a `HEAD` moving during the listings refuses with NOTHING applied. Performing
+   * the drop inside the derivation would make that `head_moved` arm — frozen by
+   * Plan-004's wire mapping as the "refused before any mutation" answer — report
+   * a refusal it had already half-acted on.
+   *
+   * Non-empty only for a snapshot that RECORDED a boundary set, whatever the
+   * restore root's own sparsity now is — the same membership scope
+   * {@link sparseBoundaryPaths} carries, because the two are halves of one
+   * protection.
+   */
+  readonly droppableBoundaryIndexEntries: readonly Buffer[];
 }
 
 /** The derivation's value before it has run — a failure here reports all empty. */
@@ -3177,7 +3690,24 @@ const NO_PROSPECTIVE_RESTORE_EFFECTS: ProspectiveRestoreEffects = {
   collisions: [],
   gitlinkDivergences: [],
   preservedEmbeddedRepositories: [],
+  sparseBoundaryPaths: new Set<string>(),
+  materializedOutOfCone: [],
+  droppableBoundaryIndexEntries: [],
 };
+
+/**
+ * The capture leg's cone partition of one `-z` listing.
+ *
+ * `inConeListing` is a REBUILT `-z` stream ready for `update-index --stdin`, made
+ * from the original listing's own byte slices; `outOfConePaths` are decoded
+ * worktree-relative names with any trailing slash stripped, used only to derive
+ * the trailer. See {@link TurnSnapshotService.#partitionListingByCone} for why
+ * the two halves have different types.
+ */
+interface SparseListingPartition {
+  readonly inConeListing: Buffer;
+  readonly outOfConePaths: readonly string[];
+}
 
 // --------------------------------------------------------------------------
 // Retention reads (`run_execution_contexts`)
@@ -3421,19 +3951,38 @@ export class TurnSnapshotService {
       step = "resolve-base";
       const baseCommit: string = await this.#resolveBaseCommit(input.executionRoot);
 
+      step = "detect-sparse-root";
+      const isSparseRoot: boolean = await this.#detectSparseRoot(input.executionRoot);
+
       step = "seed-index";
-      // The pin is load-bearing HERE, not decorative-by-symmetry with the restore
-      // legs: a replace ref on the base commit seeds the scratch index from the
-      // replacement's tree, and while the re-listing below corrects most of that,
-      // a path both index-tracked and ignored-by-rule is carried by the seed
-      // ALONE and is silently dropped. Measured against porcelain `add -A`; see
-      // the host-config table's `core.useReplaceRefs` row.
-      await this.#runGit(
-        ["-C", input.executionRoot, ...USE_REPLACE_REFS_PIN, "read-tree", baseCommit],
-        {
-          environmentOverrides: { GIT_INDEX_FILE: scratchIndexPath },
-        },
-      );
+      if (isSparseRoot) {
+        // The closure's inversion, and the reason it is a SEED change rather than
+        // a staging change. `read-tree <base>` builds an index with no
+        // skip-worktree bits, so every out-of-cone path is a live entry the
+        // staging leg would re-stat, find absent from the worktree, and
+        // `--remove` — which is precisely how the shipped pipeline lost them.
+        // Copying the LIVE index carries the bits, so out-of-cone entries arrive
+        // already staged at the blobs the user's index records, and `write-tree`
+        // records them without this pipeline ever hashing a byte of out-of-cone
+        // content. `<base>` is not the right source for a further reason the pin
+        // below cannot fix: the live index legitimately differs from `HEAD` at
+        // out-of-cone paths (a `git add --sparse` earlier in the run), and only
+        // the live index knows what those entries are.
+        await this.#seedScratchIndexFromLiveIndex(input.executionRoot, scratchIndexPath);
+      } else {
+        // The pin is load-bearing HERE, not decorative-by-symmetry with the restore
+        // legs: a replace ref on the base commit seeds the scratch index from the
+        // replacement's tree, and while the re-listing below corrects most of that,
+        // a path both index-tracked and ignored-by-rule is carried by the seed
+        // ALONE and is silently dropped. Measured against porcelain `add -A`; see
+        // the host-config table's `core.useReplaceRefs` row.
+        await this.#runGit(
+          ["-C", input.executionRoot, ...USE_REPLACE_REFS_PIN, "read-tree", baseCommit],
+          {
+            environmentOverrides: { GIT_INDEX_FILE: scratchIndexPath },
+          },
+        );
+      }
 
       step = "list-paths";
       // `-c` re-lists the temp index's seeded base paths so `--add --remove`
@@ -3442,12 +3991,22 @@ export class TurnSnapshotService {
       // honouring IN-TREE `.gitignore` rules only — see that constant for why
       // the exclude source is pinned rather than left to porcelain, and for the
       // two restore legs that must spell it identically.
-      const listing: Buffer = (
+      const fullListing: Buffer = (
         await this.#runGit(
           ["-C", input.executionRoot, "ls-files", "-co", EXCLUDE_PER_DIRECTORY_GITIGNORE, "-z"],
           { environmentOverrides: { GIT_INDEX_FILE: scratchIndexPath } },
         )
       ).stdout;
+
+      step = "check-sparse-rules";
+      // In a non-sparse root this is the identity partition and costs no spawn:
+      // every path is in cone, and the staging stdin below is the same Buffer the
+      // shipped pipeline handed over. In a sparse root it is git's own matcher
+      // deciding, never this module's.
+      const partition: SparseListingPartition = isSparseRoot
+        ? await this.#partitionListingByCone(input.executionRoot, fullListing)
+        : { inConeListing: fullListing, outOfConePaths: [] };
+      const listing: Buffer = partition.inConeListing;
 
       step = "stage-paths";
       await this.#runGit(
@@ -3522,12 +4081,34 @@ export class TurnSnapshotService {
         ).stdout,
       );
 
+      // The boundary set, derived from the tree that was just written and folded
+      // under this step rather than given one of its own — it is the write-tree
+      // result being read back, not a new stage of the pipeline, and the capture
+      // vocabulary grows by exactly the two members the closure needs.
+      //
+      // OUT-OF-CONE MINUS RECORDED, and both halves are necessary. The listing's
+      // out-of-cone entries include paths the live-index seed already carries
+      // (every ordinary skip-worktree entry), and those are IN the snapshot tree
+      // — recording them would exempt the restore from touching content it holds
+      // a copy of. What remains after subtracting the tree is exactly the class
+      // the trailer exists for: out-of-cone paths the snapshot could not record,
+      // which is untracked ones plus intent-to-add ones (`write-tree` omits an
+      // intent-to-add entry — measured on git 2.50.1).
+      const sparseBoundaryPaths: readonly string[] | null = isSparseRoot
+        ? await this.#deriveSparseBoundaryPaths(
+            input.executionRoot,
+            treeObjectId,
+            partition.outOfConePaths,
+          )
+        : null;
+
       step = "commit-tree";
       const snapshotCommit: string = await this.#commitSnapshotTree(
         input.executionRoot,
         treeObjectId,
         baseCommit,
         skippedEmbeddedRepositories,
+        sparseBoundaryPaths,
       );
 
       step = "write-ref";
@@ -3612,6 +4193,283 @@ export class TurnSnapshotService {
   async #resolveBaseCommit(executionRoot: string): Promise<string> {
     const result = await this.#runGit(["-C", executionRoot, "rev-parse", "--verify", "HEAD"], {});
     return this.#requireObjectId(result.stdout);
+  }
+
+  /**
+   * Whether `executionRoot` is a SPARSE root — the closure's whole detection
+   * predicate (I-010-24).
+   *
+   * THE CONFIG BIT ALONE. `core.sparseCheckout` is what git itself consults
+   * before applying skip-worktree semantics, and the rules file deliberately does
+   * not join the predicate. A "bit set AND the rules parse" test reads as the
+   * more careful one and is the dangerous one: with the bit set and the rules
+   * file deleted, git leaves every out-of-cone path materialized on disk and
+   * porcelain `add -A` still records it (measured on git 2.50.1), so classifying
+   * that root as non-sparse would run the `read-tree <base>` seed and drop
+   * exactly the content porcelain keeps — silently, and only in a repository that
+   * is already in a broken state. Under this predicate the same root reaches the
+   * sparse arm, the matcher below fails on it (`fatal: unable to load existing
+   * sparse-checkout patterns`, exit 128 — measured, including for an EMPTY
+   * candidate set), and the capture reports a typed `check-sparse-rules` failure.
+   * Fail-closed, and a capture that did not happen is what
+   * `Spec-010 §Turn-Boundary Snapshots` makes safe by never blocking the turn.
+   *
+   * ROOT-KEYED AND MODE-AGNOSTIC. Nothing here consults `input.mode`, because
+   * sparseness is a property of the checkout and not of how the daemon came to be
+   * pointed at it: a `worktree`-mode root INHERITS its main checkout's sparse
+   * configuration (`worktree add` copies the sparse state), while an ephemeral
+   * clone starts full. Reading the root is what makes both answers correct
+   * without this module holding a table of which modes can be sparse.
+   *
+   * `--type=bool --default=false` rather than exit-code interpretation. This
+   * module's git seam reports failure BY EXIT STATUS ONLY and rejections are
+   * opaque to it (see {@link TurnSnapshotGitRunner}), so a bare `--get` — which
+   * exits 1 for an unset key and 128 for an unreadable config — would make "not
+   * sparse" and "could not read this repository's config" the same observation.
+   * With a default supplied, an unset key is a clean `false` at exit 0 and a
+   * genuine read failure is the only rejection left, which is what lets it be
+   * reported as a typed `detect-sparse-root` failure instead of being mistaken
+   * for a non-sparse root.
+   */
+  async #detectSparseRoot(executionRoot: string): Promise<boolean> {
+    const result = await this.#runGit(
+      [
+        "-C",
+        executionRoot,
+        "config",
+        "--type=bool",
+        "--default=false",
+        "--get",
+        CORE_SPARSE_CHECKOUT_KEY,
+      ],
+      {},
+    );
+    return result.stdout.toString("utf8").trim() === "true";
+  }
+
+  /**
+   * Seed the scratch index as a COPY OF THE LIVE INDEX, taken under git's own
+   * lockfile protocol.
+   *
+   * The copy is the closure (see the call site); the LOCK is what makes it
+   * trustworthy. A git index write is lock-write-rename, so a copy taken without
+   * the lock can read a file being replaced underneath it — an index that is
+   * torn, or simply gone between `stat` and `open`. Taking git's own lock is the
+   * only serialization available, because it is the one every other git process
+   * in the repository already respects; a lock of this module's own invention
+   * would exclude nothing.
+   *
+   * The protocol, honoured exactly: create `<index>.lock` EXCLUSIVELY, do the
+   * work, then release WITHOUT writing. `wx` is the create — an existing lock
+   * makes it `EEXIST`, which is the contention signal rather than an error to
+   * work around, and this leg never removes a lock it did not create. Releasing
+   * by unlinking the lock and leaving the index alone is git's "rollback": the
+   * rename that would have replaced the index never happens, so a reader that
+   * observes this whole sequence sees no change at all.
+   *
+   * The index path comes from `rev-parse --git-path index`, never from
+   * `<root>/.git/index`. A LINKED WORKTREE keeps its index under
+   * `<main>/.git/worktrees/<id>/index`, so the naive spelling would lock and copy
+   * the MAIN checkout's index — a different worktree's staged state recorded as
+   * this one's snapshot, and a lock taken against a repository nobody is
+   * contending for. git answers the question for both layouts, and it answers
+   * RELATIVELY for a main checkout (`.git/index`) and ABSOLUTELY for a linked one
+   * (measured on git 2.50.1), which is why the result is resolved against the
+   * execution root rather than used as given.
+   *
+   * Contention gets a brief fixed retry and then becomes a typed `seed-index`
+   * failure through the ordinary envelope — see
+   * {@link SPARSE_SEED_INDEX_LOCK_ATTEMPTS} for why the budget is small.
+   */
+  async #seedScratchIndexFromLiveIndex(
+    executionRoot: string,
+    scratchIndexPath: string,
+  ): Promise<void> {
+    const reportedIndexPath: string = (
+      await this.#runGit(["-C", executionRoot, "rev-parse", "--git-path", "index"], {})
+    ).stdout
+      .toString("utf8")
+      .trim();
+    if (reportedIndexPath === "") {
+      throw new Error("git did not report an index path for the execution root");
+    }
+    const liveIndexPath: string = isAbsolute(reportedIndexPath)
+      ? reportedIndexPath
+      : join(executionRoot, reportedIndexPath);
+    const lockPath = `${liveIndexPath}.lock`;
+
+    let lockHandle: FileHandle | null = null;
+    for (let attempt = 0; attempt < SPARSE_SEED_INDEX_LOCK_ATTEMPTS; attempt += 1) {
+      try {
+        lockHandle = await open(lockPath, "wx");
+        break;
+      } catch (reason: unknown) {
+        // Only `EEXIST` is contention. An `EACCES` or a vanished git directory is
+        // a fault this leg has no retry for, and grinding through the budget
+        // before reporting it would delay the turn boundary for nothing.
+        if ((reason as NodeJS.ErrnoException | null)?.code !== "EEXIST") {
+          throw reason;
+        }
+        if (attempt === SPARSE_SEED_INDEX_LOCK_ATTEMPTS - 1) {
+          throw new Error(
+            "turn-snapshot could not acquire the repository index lock to seed the scratch index",
+            { cause: reason },
+          );
+        }
+        await delay(SPARSE_SEED_INDEX_LOCK_RETRY_DELAY_MS);
+      }
+    }
+    if (lockHandle === null) {
+      throw new Error("turn-snapshot could not acquire the repository index lock");
+    }
+    try {
+      await copyFile(liveIndexPath, scratchIndexPath);
+    } finally {
+      // Release, never commit: close the handle and unlink the lock, leaving the
+      // real index exactly as it was found. In its own `try` so a failed close
+      // cannot strand the lock, which would block every subsequent git command in
+      // the user's repository — a far worse outcome than a failed capture.
+      try {
+        await lockHandle.close();
+      } finally {
+        await rm(lockPath, { force: true });
+      }
+    }
+  }
+
+  /**
+   * Score CANDIDATES against this root's live sparsity rules, returning the keys
+   * of the ones git considers IN CONE.
+   *
+   * THE ORACLE, SPELLED ONCE. Both sparse legs call it — the capture partition
+   * and the restore's discarded-subset derivation — and their answers are
+   * load-bearing against each other: capture decides what a snapshot OMITS and
+   * restore decides what it may DISCARD, which is one question asked twice and
+   * has to be asked of the same matcher. Two spellings that drifted (a
+   * `--rules-file` on one side and a live read on the other) would put the legs
+   * on different definitions of the cone with every test still green, so the argv
+   * is single-sourced exactly as {@link EXCLUDE_PER_DIRECTORY_GITIGNORE} and
+   * {@link USE_REPLACE_REFS_PIN} are.
+   *
+   * `sparse-checkout check-rules -z` in its LIVE-RULES form: no `--rules-file`,
+   * so the rules are the ones git would apply to this root right now, cone-ness
+   * and negation semantics included. Reimplementing that test is the mistake this
+   * method exists to avoid, and the near miss is instructive — the module already
+   * runs gitignore machinery (`--exclude-per-directory`) and it answers a
+   * DIFFERENT question. Measured on git 2.50.1 with `/*` plus `!/a/b/`, the
+   * ignore machinery scores `a/b/deep.txt` includable while the cone does not, so
+   * a listing partitioned by exclude rules would stage out-of-cone content and
+   * lose the property this closure is for.
+   *
+   * FAIL-CLOSED, never a degrade. Every rejection — an unreadable rules file, a
+   * git too old to know the subcommand — propagates to the caller's step funnel,
+   * because the only alternative is to proceed on an unpartitioned answer. INVOKED
+   * UNCONDITIONALLY for the same reason, EMPTY candidate set included: a sparse
+   * root whose rules vanished must fail rather than trivially succeed at
+   * partitioning nothing. Neither caller guards the call, and making that one
+   * place a reader can check is half of why this is extracted.
+   *
+   * KEYS, not paths: the far-side membership test must run {@link
+   * listingEntryKey} over the same bytes. Measured — `check-rules -z` echoes input
+   * bytes VERBATIM, unaffected by `core.quotePath`, emitting the in-cone subset —
+   * so keying on the echo is a byte-exact identity rather than a decode.
+   *
+   * CANDIDATE PROVENANCE IS THE CALLER'S, and the two callers differ. The capture
+   * partition supplies the original listing's own Buffer slices, so no path in
+   * that leg is ever reconstructed from a decode. The restore derivation supplies
+   * `Buffer.from(<already-decoded tree path>)`, where byte-exactness is
+   * unattainable AND unneeded: both sides of its comparison are decoded strings
+   * out of one `ls-tree`, so the round trip is decode-to-decode and cannot
+   * introduce a mismatch the tree listing did not already carry.
+   */
+  async #scoreInConeKeys(
+    executionRoot: string,
+    candidates: readonly Buffer[],
+  ): Promise<ReadonlySet<string>> {
+    const matcherOutput: Buffer = (
+      await this.#runGit(["-C", executionRoot, "sparse-checkout", "check-rules", "-z"], {
+        stdin: joinNulTerminatedListing(candidates),
+      })
+    ).stdout;
+    return new Set<string>(splitNulTerminatedListingBytes(matcherOutput).map(listingEntryKey));
+  }
+
+  /**
+   * Split a `-z` listing into the IN-CONE staging stream and the out-of-cone
+   * paths, using git's own sparsity matcher.
+   *
+   * The matcher call is {@link #scoreInConeKeys}, which carries the live-rules
+   * form, the fail-closed rule and the byte-exact echo this leg rests on. What is
+   * local here is the CONSEQUENCE of a rejection: it surfaces as a
+   * `check-sparse-rules` failure, and it may not degrade because the only
+   * alternative is to stage the unpartitioned listing, which is the shipped defect
+   * exactly.
+   *
+   * ALL BYTES, both directions. Candidates go in as the original listing's own
+   * slices, and the staging stream is then rebuilt from those ORIGINAL slices
+   * rather than from git's output, so no path is reconstructed from a decode at
+   * any point. See {@link splitNulTerminatedListingBytes}.
+   *
+   * Under `index.sparse=true` the `ls-files` legs make git print a sparse-index
+   * expansion advisory on stderr. This module reads stderr on no leg, so the
+   * advisory is structurally unable to become a failure; see the host-config
+   * table's row.
+   */
+  async #partitionListingByCone(
+    executionRoot: string,
+    listing: Buffer,
+  ): Promise<SparseListingPartition> {
+    const entries: readonly Buffer[] = splitNulTerminatedListingBytes(listing);
+    const inConeKeys: ReadonlySet<string> = await this.#scoreInConeKeys(executionRoot, entries);
+
+    const inConeEntries: Buffer[] = [];
+    const outOfConePaths: string[] = [];
+    for (const entry of entries) {
+      if (inConeKeys.has(listingEntryKey(entry))) {
+        inConeEntries.push(entry);
+        continue;
+      }
+      // Decoded ONLY here, and only for the trailer. An out-of-cone path is
+      // reported, sorted and JSON-encoded, all of which are string operations;
+      // the staging stream above never sees a decoded path.
+      const decoded: string = entry.toString("utf8");
+      outOfConePaths.push(decoded.endsWith("/") ? decoded.slice(0, -1) : decoded);
+    }
+    return { inConeListing: joinNulTerminatedListing(inConeEntries), outOfConePaths };
+  }
+
+  /**
+   * The boundary set: the out-of-cone paths the snapshot tree does NOT hold.
+   *
+   * Reads the written tree back with `ls-tree -r --name-only -z` and subtracts.
+   * The read carries {@link USE_REPLACE_REFS_PIN} for the same reason the restore
+   * legs' object reads do: this INTERPRETS an object id, and a replace ref on the
+   * freshly written tree would hand back a different path set — which here would
+   * silently widen or narrow the trailer, and the trailer is both an OID input to
+   * the commit and the restore's authority over what it may delete.
+   */
+  async #deriveSparseBoundaryPaths(
+    executionRoot: string,
+    treeObjectId: string,
+    outOfConePaths: readonly string[],
+  ): Promise<readonly string[]> {
+    const treeListing: Buffer = (
+      await this.#runGit(
+        [
+          "-C",
+          executionRoot,
+          ...USE_REPLACE_REFS_PIN,
+          "ls-tree",
+          "-r",
+          "--name-only",
+          "-z",
+          treeObjectId,
+        ],
+        {},
+      )
+    ).stdout;
+    const recordedPaths = new Set<string>(splitNulTerminatedListing(treeListing));
+    return outOfConePaths.filter((path) => !recordedPaths.has(path));
   }
 
   /**
@@ -3724,34 +4582,71 @@ export class TurnSnapshotService {
    * fields too, so ident env alone would still leak the host's wall-clock
    * timezone into every snapshot OID.
    *
-   * `skippedEmbeddedRepositories` is the one piece of capture-time knowledge the
-   * restore cannot re-derive, and this is where it is persisted — see
-   * {@link SKIPPED_EMBEDDED_REPOSITORIES_TRAILER} for what it protects and why a
-   * commit message is the right carrier. The determinism contract survives it
-   * intact: the trailer is a function of PROJECT STATE (which repositories are
-   * there and unrecordable), so two captures of identical state still produce
-   * identical messages and identical OIDs, and a capture that skipped nothing
-   * produces the exact bytes it produced before this existed.
+   * `skippedEmbeddedRepositories` and `sparseBoundaryPaths` are the two pieces of
+   * capture-time knowledge the restore cannot re-derive, and this is where both
+   * are persisted — see {@link SKIPPED_EMBEDDED_REPOSITORIES_TRAILER} and
+   * {@link SPARSE_BOUNDARY_PATHS_TRAILER} for what each protects and why a commit
+   * message is the right carrier. The determinism contract survives them intact:
+   * each trailer is a function of PROJECT STATE (which repositories are there and
+   * unrecordable; which out-of-cone paths existed at the boundary), so two
+   * captures of identical state still produce identical messages and identical
+   * OIDs, and a NON-SPARSE capture that skipped nothing produces the exact bytes
+   * it produced before either existed.
+   *
+   * THE MESSAGE TRANSPORT IS `-F -`, converted from `-m` argv by T6.1, and the
+   * conversion is a correctness fix rather than a tidy-up. A message is an OID
+   * input, and under `-m` its bytes were argv bytes — bounded by the platform's
+   * argument limit (~32 KB on Windows, and it is the whole command line that is
+   * bounded, not the one element). The sparse trailer is an enumeration of
+   * worktree paths with no bound of its own, so a repository with enough
+   * out-of-cone content would have turned a capture into a spawn failure whose
+   * cause is invisible from every leg's argv. Streaming the message removes the
+   * bound instead of raising it.
+   *
+   * The stream is byte-equivalent to the `-m` spellings it replaces, verified by
+   * OID on git 2.50.1 for both the one- and two-paragraph forms, and the suite
+   * pins that equivalence rather than leaving it to inspection. Two properties
+   * carry it: git joins successive `-m` values with a BLANK LINE, which is what
+   * `\n\n` between paragraphs reproduces, and git terminates the message it
+   * builds from `-m` with a single newline, which is what the trailing `\n`
+   * reproduces (an unterminated stream mints a DIFFERENT commit — measured, and
+   * the precise reason this is spelled as a join-plus-terminate rather than a
+   * join). `-F -` reads until EOF, and the seam closes the child's stdin on every
+   * invocation, so the hang `Spec-010 §Turn-Boundary Snapshots` warns about is
+   * closed by the seam's contract rather than by this call site's argv — see
+   * {@link TurnSnapshotGitInvocationOptions.stdin}.
    */
   async #commitSnapshotTree(
     executionRoot: string,
     treeObjectId: string,
     baseCommit: string,
     skippedEmbeddedRepositories: readonly string[],
+    sparseBoundaryPaths: readonly string[] | null,
   ): Promise<string> {
     const stampedDate: string | null = toRawGitDate(this.#now());
     if (stampedDate === null) {
       throw new Error("turn-snapshot clock did not return an ISO-8601 instant");
     }
-    // Sorted for OID stability and omitted entirely when empty, both for the
-    // reasons the trailer constant records. `JSON.stringify` of a `string[]` is
-    // total — no throwing input exists — so no guard is owed here.
-    const skippedTrailer: string | null =
-      skippedEmbeddedRepositories.length === 0
-        ? null
-        : `${SKIPPED_EMBEDDED_REPOSITORIES_TRAILER} ${JSON.stringify(
-            [...skippedEmbeddedRepositories].sort(),
-          )}`;
+    // Each trailer sorted for OID stability, and each present under its own
+    // recorded rule: the skip list only when non-empty, the sparse set whenever
+    // the root is sparse (`null` here means it is not). `JSON.stringify` of a
+    // `string[]` is total — no throwing input exists — so no guard is owed here.
+    //
+    // ORDER IS FIXED, skipped before sparse, because trailer order is message
+    // bytes and therefore OID bytes.
+    const paragraphs: string[] = [SNAPSHOT_COMMIT_MESSAGE];
+    if (skippedEmbeddedRepositories.length > 0) {
+      paragraphs.push(
+        `${SKIPPED_EMBEDDED_REPOSITORIES_TRAILER} ${JSON.stringify(
+          [...skippedEmbeddedRepositories].sort(),
+        )}`,
+      );
+    }
+    if (sparseBoundaryPaths !== null) {
+      paragraphs.push(
+        `${SPARSE_BOUNDARY_PATHS_TRAILER} ${JSON.stringify([...sparseBoundaryPaths].sort())}`,
+      );
+    }
     const result = await this.#runGit(
       [
         "-C",
@@ -3762,14 +4657,8 @@ export class TurnSnapshotService {
         treeObjectId,
         "-p",
         baseCommit,
-        "-m",
-        SNAPSHOT_COMMIT_MESSAGE,
-        // A SECOND `-m` rather than one interpolated string: git joins multiple
-        // `-m` values with a blank line, so the subject above stays byte-identical
-        // and the trailer arrives as its own paragraph. Verified against
-        // `--format=%s` — the subject a reader or a later tool parses is
-        // unchanged by the trailer's presence.
-        ...(skippedTrailer === null ? [] : ["-m", skippedTrailer]),
+        "-F",
+        "-",
       ],
       {
         environmentOverrides: {
@@ -3780,6 +4669,9 @@ export class TurnSnapshotService {
           GIT_COMMITTER_EMAIL: SNAPSHOT_IDENTITY_EMAIL,
           GIT_COMMITTER_DATE: stampedDate,
         },
+        // Blank-line joined, newline terminated. See the docblock: both halves
+        // are what make this byte-equivalent to the `-m` form it replaces.
+        stdin: Buffer.from(`${paragraphs.join("\n\n")}\n`, "utf8"),
       },
     );
     return this.#requireObjectId(result.stdout);
@@ -4083,7 +4975,13 @@ export class TurnSnapshotService {
    *      refuses with NO mutation.
    *   2. `derive-enumerations` — read-only listings that fix the PROSPECTIVE
    *      collision-overwrite and gitlink-divergence sets, plus the on-disk state
-   *      a later failure is measured against.
+   *      a later failure is measured against. For a snapshot that RECORDED a
+   *      sparse boundary set — whatever this root's own sparsity now is — the
+   *      step's NAME also covers the boundary-path pre-drop, which fires on
+   *      recorded-set membership in any root and is not a listing: it is
+   *      enumerated with the rest here and applied after the window read below,
+   *      so it is the first mutation in the sequence rather than part of the
+   *      read-only block. See {@link #dropBoundaryPathsFromLiveIndex}.
    *   3. `read-tree` — the destructive checkout, which `Spec-010 §Turn-Boundary
    *      Snapshots` spells `read-tree --reset -u <ref>` and this issues against
    *      the resolved OID (see the site), under the checkout-conversion
@@ -4112,7 +5010,11 @@ export class TurnSnapshotService {
    *   * BETWEEN the derivation and `read-tree` — still pre-mutation, so the
    *     answer is the same `head_moved` refusal step 1 gives, with nothing
    *     applied. Without this read the derivation's own listings (an `ls-tree`
-   *     and an `ls-files`) are the window, and it is wide enough to lose.
+   *     and an `ls-files`) are the window, and it is wide enough to lose. "With
+   *     nothing applied" is what orders the boundary pre-drop AFTER this read
+   *     rather than at the derivation's tail: it is a mutation, and putting it on
+   *     the far side would make this arm report a refusal it had already acted
+   *     on.
    *   * BETWEEN `read-tree` and `close-index` — the worktree already holds
    *     snapshot content, so the honest answer is `partial_restore` at
    *     `close-index`. Closing the index against the MOVED `HEAD` instead is the
@@ -4183,6 +5085,18 @@ export class TurnSnapshotService {
         };
       }
 
+      // The boundary pre-drop — the sequence's FIRST mutation, and therefore
+      // placed on this side of the read above rather than inside the derivation
+      // that enumerated it. The cursor stays `derive-enumerations` deliberately:
+      // the step vocabulary is frozen at five members, and this belongs to the
+      // enumeration leg by contract even though it runs after the window closes.
+      // Empty — and so a no-op — whenever the snapshot recorded no boundary set,
+      // which is every snapshot a non-sparse capture ever produced.
+      await this.#dropBoundaryPathsFromLiveIndex(
+        target.executionRoot,
+        prospectiveEffects.droppableBoundaryIndexEntries,
+      );
+
       step = "read-tree";
       await this.#runGit(
         [
@@ -4248,6 +5162,7 @@ export class TurnSnapshotService {
       await this.#deleteUntrackedToFixpoint(
         target.executionRoot,
         prospectiveEffects.preservedEmbeddedRepositories,
+        prospectiveEffects.sparseBoundaryPaths,
       );
 
       // Emitted HERE rather than at the derivation, because this is the point at
@@ -4321,6 +5236,22 @@ export class TurnSnapshotService {
         ["-C", target.executionRoot, "read-tree", "--reset", target.expectedHead],
         {},
       );
+
+      // LAST, after every leg that can still fail. Emitting it before
+      // `close-index` — where it sat — meant a refusal at window two, or a throw
+      // from the closing reset, routed to the failure reporter and emitted the
+      // identical payload a second time: two diagnostics for one restore, and the
+      // duplication itself leaked which arm was taken, which the arm's own
+      // docblock forbids. `embedded-repositories-preserved` above is the
+      // precedent for the other half of the rule — it lives only on the success
+      // tail, because only the success tail proves its pass ran. Here the
+      // failure tail DOES need its own emission (the checkout can succeed and a
+      // later leg fail), so the fix is placement rather than exclusivity, and the
+      // re-observation is what makes the two mutually exclusive in practice.
+      //
+      // The closing reset above is index-only, so re-observing after it sees the
+      // same worktree the checkout left.
+      await this.#emitMaterializedOutOfCone(target, prospectiveEffects);
 
       return {
         outcome: "restored",
@@ -4451,21 +5382,51 @@ export class TurnSnapshotService {
     // would hand back the replacement commit's message, and an attacker who can
     // plant a replace ref could then blank the trailer and re-arm the delete pass
     // against the very repositories it protects.
-    const preservedEmbeddedRepositories: readonly string[] = parseSkippedEmbeddedRepositories(
-      (
-        await this.#runGit(
-          [
-            "-C",
-            target.executionRoot,
-            ...USE_REPLACE_REFS_PIN,
-            "cat-file",
-            "commit",
-            target.snapshotCommit,
-          ],
-          {},
-        )
-      ).stdout,
-    );
+    const commitObject: Buffer = (
+      await this.#runGit(
+        [
+          "-C",
+          target.executionRoot,
+          ...USE_REPLACE_REFS_PIN,
+          "cat-file",
+          "commit",
+          target.snapshotCommit,
+        ],
+        {},
+      )
+    ).stdout;
+    const preservedEmbeddedRepositories: readonly string[] =
+      parseSkippedEmbeddedRepositories(commitObject);
+
+    // The sparse vintage gate. Read here, in the same pre-mutation window and for
+    // the same reason the trailer above is: it constrains what the later legs may
+    // do, so it has to exist before any of them run, and a refusal has to be able
+    // to fire while nothing has been written.
+    const isSparseRoot: boolean = await this.#detectSparseRoot(target.executionRoot);
+    const recordedBoundaryPaths: readonly string[] | null = parseSparseBoundaryPaths(commitObject);
+    if (isSparseRoot && recordedBoundaryPaths === null) {
+      // REFUSED, not degraded, and the two vintages this covers are why. A
+      // trailer-less snapshot in a sparse root is either a pre-closure capture —
+      // whose out-of-cone content was never recorded and whose boundary set is
+      // therefore unknowable — or a capture taken while this root was NOT sparse,
+      // which the user made sparse afterwards. The two are indistinguishable from
+      // here and their safe handling is the same: proceeding would run the delete
+      // pass with no boundary exemption at all, and the pre-drop over an empty
+      // recorded set — the pre-drop is scoped by set MEMBERSHIP, not by this root
+      // test, and an absent trailer is precisely an absent input to it —
+      // destroying out-of-cone content the user still has on disk. The
+      // throw lands at `derive-enumerations`, pre-mutation, so the refusal costs
+      // nothing on disk — the whole reason this read is here and not later.
+      throw new Error(
+        "turn-snapshot refuses a snapshot with no sparse-boundary trailer in a sparse execution root",
+      );
+    }
+    // A non-sparse root reads an absent trailer as the empty set, which is the
+    // correct reading THERE: there is no boundary set because there is no cone.
+    // See {@link parseSparseBoundaryPaths} for why the decoder distinguishes the
+    // two rather than making this the only reading.
+    const sparseBoundaryPaths = new Set<string>(recordedBoundaryPaths ?? []);
+
     const treeListing: Buffer = (
       await this.#runGit(
         [
@@ -4556,7 +5517,293 @@ export class TurnSnapshotService {
       });
     }
 
-    return { collisions, gitlinkDivergences, preservedEmbeddedRepositories };
+    // The two sparse legs, and they are scoped DIFFERENTLY on purpose — the one
+    // asymmetry in this closure worth stating outright, because the symmetric
+    // reading is the plausible one and it loses data.
+    //
+    // The DIAGNOSTIC leg keys on the LIVE definition: it reports what the live
+    // cone is about to discard, so it is meaningless in a root that has no cone,
+    // and it is the only leg here that consults the matcher.
+    //
+    // The DROP leg keys on the RECORDED SET ALONE — membership plus absence from
+    // the snapshot tree, no matcher, no live definition, no root test. It has to,
+    // for the same reason the delete-pass exemption it pairs with does: both
+    // exist to keep boundary-time content alive, the recorded set is what fixes
+    // that content's identity at CAPTURE time, and a cone edit between capture
+    // and restore must never turn boundary-time content into a deletion
+    // candidate. Root-gating this one would break exactly that pairing. A capture
+    // records path P, the user disables sparse checkout, and the restore then
+    // skips the drop while still exempting P from the delete pass — so
+    // `read-tree --reset -u` finds a live-index entry the snapshot tree lacks and
+    // deletes P from disk before the exemption is ever consulted. The exemption
+    // cannot save a file the checkout already unlinked.
+    //
+    // Nothing is spent in the ordinary non-sparse case: a snapshot captured in a
+    // non-sparse root carries no trailer, the decode reads that as the empty set,
+    // and {@link #deriveDroppableBoundaryIndexEntries} returns on it without
+    // spawning anything. Only a trailer-BEARING snapshot reaches the listing.
+    const materializedOutOfCone: readonly ProspectiveMaterialization[] = isSparseRoot
+      ? await this.#deriveMaterializedOutOfCone(target.executionRoot, treeEntries)
+      : [];
+    // ENUMERATED here, applied by the caller after the second `HEAD` read — see
+    // the field's docblock, and {@link #dropBoundaryPathsFromLiveIndex} for why
+    // the split exists. Nothing else in this derivation depends on the drop
+    // having happened: the materialization set above is filtered to
+    // snapshot-tracked paths, and a droppable boundary path is by construction
+    // one the snapshot tree does NOT track.
+    const droppableBoundaryIndexEntries: readonly Buffer[] =
+      await this.#deriveDroppableBoundaryIndexEntries(
+        target.executionRoot,
+        sparseBoundaryPaths,
+        snapshotTrackedPaths,
+        treeEntries,
+      );
+
+    return {
+      collisions,
+      gitlinkDivergences,
+      preservedEmbeddedRepositories,
+      sparseBoundaryPaths,
+      materializedOutOfCone,
+      droppableBoundaryIndexEntries,
+    };
+  }
+
+  /**
+   * The CANDIDATES for the discarded-subset diagnostic: snapshot-tracked paths
+   * the LIVE cone excludes that are on disk right now, each carrying the state
+   * its removal will be measured against.
+   *
+   * OBSERVED, never bookkept, and that discipline is why this returns candidates
+   * rather than an answer. The three facts readable at this moment (what the
+   * snapshot tracks, what the matcher scores out of cone, what `ls-files -c`
+   * reports as materialized rather than skip-worktree) say what the checkout is
+   * ABOUT TO discard. What it actually discarded is a different question, and it
+   * is settled at emission by re-fingerprinting — the standard the collision and
+   * gitlink enumerations already hold themselves to, arrived at here for the same
+   * reason: a `partial_restore` that never reached these paths must not report
+   * them. Nothing here changes what the checkout does; no result arm grows. See
+   * the `sparse-out-of-cone-materialized` arm of {@link TurnSnapshotDiagnostic}.
+   *
+   * "On disk" is asked of the INDEX, not of the filesystem, and deliberately: git
+   * marks an unmaterialized out-of-cone entry skip-worktree (`ls-files -t` spells
+   * it `S`), so the index already holds the answer for every tracked path and a
+   * per-path `lstat` would buy nothing but a worktree walk on the pre-mutation
+   * path. A path the snapshot tracks that is absent from the live index entirely
+   * is not materialized either, and falls out of the same test. The per-candidate
+   * {@link fingerprintPath} that follows IS a filesystem read, but only over the
+   * paths that survived that test — the walk this avoids is the whole tree.
+   *
+   * FAIL-CLOSED like every other matcher call: a failure here is a
+   * `derive-enumerations` failure, pre-mutation. Degrading to "report nothing"
+   * would be defensible for a diagnostic and is not taken, because the same
+   * matcher answer feeds nothing else here and a matcher that cannot answer is
+   * the condition the whole sparse arm refuses on.
+   *
+   * The candidates are rebuilt with `Buffer.from(path)` from tree-listing paths
+   * that {@link parseSnapshotTreeListing} already decoded, which is a deliberate
+   * departure from the capture partition's all-bytes discipline: byte-exactness is
+   * unattainable here — the strings arrive decoded — and unneeded, because both
+   * sides of the comparison below come from that one `ls-tree`, making the round
+   * trip decode-to-decode. See {@link #scoreInConeKeys} on candidate provenance.
+   *
+   * NO EARLY RETURN ON AN EMPTY CANDIDATE SET, and that is the point rather than
+   * an oversight. A snapshot tree with no non-gitlink path (an empty base commit;
+   * a tree holding only submodules) would otherwise skip the ONLY oracle call the
+   * restore side makes, so a sparse root whose rules file had vanished — or a git
+   * below the 2.41 `check-rules` floor — would restore BLIND in exactly the shape
+   * where nothing is left to fail on later. The capture side has never had such a
+   * guard either, and since both legs now reach the matcher through
+   * {@link #scoreInConeKeys}, which guards nothing, "the oracle answers or the
+   * sequence refuses" is enforced by STRUCTURE rather than by two call sites
+   * independently remembering to. The cost is one spawn on a shape that is nearly
+   * always empty anyway, and `check-rules` exits 0 on an empty candidate set in a
+   * healthy sparse root (driven by the suite, not assumed).
+   */
+  async #deriveMaterializedOutOfCone(
+    executionRoot: string,
+    treeEntries: readonly SnapshotTreeEntry[],
+  ): Promise<readonly ProspectiveMaterialization[]> {
+    const snapshotPaths: readonly string[] = treeEntries
+      .filter((entry) => entry.mode !== GITLINK_TREE_MODE)
+      .map((entry) => entry.path);
+    const candidates: readonly Buffer[] = snapshotPaths.map((path) => Buffer.from(path, "utf8"));
+    const inConeKeys: ReadonlySet<string> = await this.#scoreInConeKeys(executionRoot, candidates);
+
+    // `-c` alone lists every cached path; `--sparse` is deliberately absent, so a
+    // sparse index is expanded and skip-worktree entries are reported. The `-t`
+    // form is what carries the disposition: `H` is materialized, `S` is
+    // skip-worktree, and only the former is content the checkout will overwrite.
+    const materializedPaths = new Set<string>(
+      parseCachedStateListing(
+        (await this.#runGit(["-C", executionRoot, "ls-files", "-c", "-t", "-z"], {})).stdout,
+      )
+        .filter((entry) => entry.tag === "H")
+        .map((entry) => entry.path),
+    );
+
+    const discardable: readonly string[] = snapshotPaths
+      .filter(
+        (path) =>
+          !inConeKeys.has(listingEntryKey(Buffer.from(path, "utf8"))) &&
+          materializedPaths.has(path),
+      )
+      .sort();
+
+    const observed: ProspectiveMaterialization[] = [];
+    for (const path of discardable) {
+      observed.push({
+        path,
+        fingerprintBeforeRestore: await fingerprintPath(join(executionRoot, path)),
+      });
+    }
+    return observed;
+  }
+
+  /**
+   * The LIVE-index entries the pre-drop will remove: recorded boundary paths the
+   * index holds and the snapshot tree does not. READ-ONLY — see
+   * {@link #dropBoundaryPathsFromLiveIndex}, which applies them.
+   *
+   * The `ls-files -c` read is deliberately taken here rather than at apply time,
+   * with the derivation's other listings, so the whole enumeration is fixed in
+   * one window. Re-reading it after the second `HEAD` check would widen the set
+   * to entries staged during the derivation, which is content this restore never
+   * measured and must not silently unstage.
+   *
+   * MEMBERSHIP-SCOPED, NOT ROOT-SCOPED, and the early return below is what makes
+   * that affordable. The caller does not ask whether this root is sparse: the
+   * predicate is "the RECORDED set holds this path and the snapshot tree does
+   * not", both of which are facts about the SNAPSHOT. A root that stopped being
+   * sparse between capture and restore still holds the live-index entries the
+   * capture recorded, and `read-tree --reset -u` still deletes them — sparseness
+   * is not what makes that dangerous, the index/tree disagreement is. Gating on
+   * the live root would also split this leg from the delete-pass exemption it
+   * exists to complete, which is already membership-scoped; see the call site.
+   *
+   * Cost in the ordinary non-sparse restore is zero rather than small. A snapshot
+   * captured in a non-sparse root carries no trailer, an absent trailer decodes
+   * to the empty set THERE, and an empty set returns before the listing spawns.
+   * So the leg is reached only by a trailer-BEARING snapshot, and nothing about
+   * the non-sparse pipeline's spawn sequence changes.
+   *
+   * That also leaves the LEGACY residual exactly where it was, which is the point
+   * worth checking rather than assuming. A pre-closure snapshot captured in a
+   * sparse root carries no trailer either; restored into a root that is no longer
+   * sparse it decodes empty, this leg no-ops, and the sequence behaves precisely
+   * as it did before the closure — its out-of-cone content was never recorded, so
+   * there is nothing here that could protect it. Only a trailer-BEARING snapshot
+   * gains the drop in a non-sparse root. (The same legacy snapshot restored into a
+   * still-SPARSE root is refused outright by the vintage gate; see the call site.)
+   */
+  async #deriveDroppableBoundaryIndexEntries(
+    executionRoot: string,
+    boundaryPaths: ReadonlySet<string>,
+    snapshotTrackedPaths: ReadonlySet<string>,
+    treeEntries: readonly SnapshotTreeEntry[],
+  ): Promise<readonly Buffer[]> {
+    if (boundaryPaths.size === 0) {
+      return [];
+    }
+    // A gitlink is snapshot-recorded too — it is simply filtered out of the
+    // tracked set for the collision shapes — so it must not be dropped here.
+    const recordedPaths = new Set<string>(snapshotTrackedPaths);
+    for (const entry of treeEntries) {
+      recordedPaths.add(entry.path);
+    }
+
+    const cachedListing: Buffer = (
+      await this.#runGit(["-C", executionRoot, "ls-files", "-c", "-z"], {})
+    ).stdout;
+    const droppable: Buffer[] = [];
+    for (const entry of splitNulTerminatedListingBytes(cachedListing)) {
+      const path: string = entry.toString("utf8");
+      if (boundaryPaths.has(path) && !recordedPaths.has(path)) {
+        droppable.push(entry);
+      }
+    }
+    return droppable;
+  }
+
+  /**
+   * Drop the enumerated boundary entries from the LIVE index, in one invocation,
+   * before anything destructive runs.
+   *
+   * This is the half of the boundary-set protection the delete-pass exemption
+   * cannot provide, because the two destructive legs destroy that content by
+   * different mechanisms. The delete pass removes an UNTRACKED boundary path as
+   * post-boundary content, and the exemption stops it. `read-tree --reset -u`
+   * removes a boundary path the LIVE INDEX holds and the snapshot tree does not,
+   * because that is what resetting to a tree means — and it does so before the
+   * delete pass ever runs, so no exemption there can reach it. Two shapes land in
+   * that second case, and both are ordinary user actions inside a sparse root:
+   *
+   *   * INTENT-TO-ADD (`git add -N --sparse`). The capture recorded the path as a
+   *     boundary path precisely because `write-tree` omits such an entry, so the
+   *     index-versus-tree disagreement is guaranteed rather than incidental.
+   *   * TURN-STAGED (`git add --sparse` DURING the turn, after the boundary). The
+   *     capture saw an untracked out-of-cone path; the user then staged it. The
+   *     rollback's whole promise is to return the tree to the boundary, which
+   *     means the staging is undone — not that the file is deleted.
+   *
+   * "Inside a sparse root" describes where those entries are CREATED, not where
+   * this leg runs. The restore root's own sparsity is never consulted: what the
+   * index holds outlives the config bit, so a user who disables sparse checkout
+   * between capture and restore still arrives here with the entry, and skipping
+   * the drop would delete the file. See the enumeration's docblock and the call
+   * site for why the pairing with the delete-pass exemption forces that scope.
+   *
+   * ONE `update-index --force-remove -z --stdin` invocation, and both properties
+   * of that spelling are load-bearing. `--force-remove` drops the INDEX entry and
+   * leaves the file on disk, which is exactly the transition wanted (the path
+   * returns to untracked, where the delete-pass exemption then protects it).
+   * SINGLE invocation because git's index write is atomic — lock, write, rename —
+   * so a failure leaves index and worktree untouched and the `derive-enumerations`
+   * failure it reports is truthful. A per-path loop would have a half-applied
+   * middle.
+   *
+   * CALLED AFTER THE SECOND `HEAD` READ, and that placement is the reason this is
+   * a method of its own rather than the derivation's last statement. This is the
+   * sequence's FIRST mutation, and the read in front of it exists so that a
+   * `HEAD` moving while the derivation's listings ran refuses with nothing
+   * applied — an arm Plan-004's wire mapping freezes as exactly that. Dropping
+   * inside the derivation would have that refusal fire against an index this call
+   * had already edited: a `head_moved` result reporting no mutation, next to a
+   * user's unstaged intent-to-add entry that this code removed.
+   *
+   * Runs under the `derive-enumerations` step cursor with no step of its own: the
+   * restore vocabulary is frozen at five members by Plan-004's wire mapping (see
+   * {@link TurnSnapshotRestoreStep}, whose docblock carries the qualification this
+   * makes necessary). The multi-reachable `close-index` is the precedent — one
+   * step name already covers three distinguishable conditions there, and the
+   * diagnostic `detail` is what tells them apart, which is what the thrown message
+   * below does here.
+   *
+   * NO `GIT_INDEX_FILE` OVERLAY. This is the one index-touching leg in the module
+   * that must reach the REAL index; pointing it at a scratch file would drop
+   * entries from a temporary nobody reads and leave the live index exactly as
+   * destructive as before.
+   */
+  async #dropBoundaryPathsFromLiveIndex(
+    executionRoot: string,
+    droppableEntries: readonly Buffer[],
+  ): Promise<void> {
+    if (droppableEntries.length === 0) {
+      return;
+    }
+    try {
+      await this.#runGit(["-C", executionRoot, "update-index", "--force-remove", "-z", "--stdin"], {
+        stdin: joinNulTerminatedListing(droppableEntries),
+      });
+    } catch (reason: unknown) {
+      // Re-thrown with the leg NAMED, because `derive-enumerations` covers three
+      // things now (the object reads, the vintage gate and this drop) and the
+      // diagnostic `detail` is the operator's only way to tell which stopped.
+      throw new Error(
+        `turn-snapshot could not drop sparse boundary paths from the index: ${describeRejection(reason)}`,
+        { cause: reason },
+      );
+    }
   }
 
   /**
@@ -4673,6 +5920,7 @@ export class TurnSnapshotService {
   async #deleteUntrackedToFixpoint(
     executionRoot: string,
     preservedPaths: readonly string[],
+    sparseBoundaryPaths: ReadonlySet<string>,
   ): Promise<void> {
     let previousDeletable: string | null = null;
     for (let pass = 0; pass < UNTRACKED_DELETE_PASS_LIMIT; pass += 1) {
@@ -4691,7 +5939,16 @@ export class TurnSnapshotService {
       // for having protected something.
       const entries: readonly string[] = splitNulTerminatedListing(listing);
       const deletable: readonly string[] = entries.filter(
-        (entry) => !isPreservedListingEntry(entry, preservedPaths),
+        (entry) =>
+          !isPreservedListingEntry(entry, preservedPaths) &&
+          // The sparse exemption joins the DELETABLE computation, not the removal
+          // site, and for exactly the interlock reason above: a boundary path is
+          // never deleted either, so against the raw listing it would keep the
+          // empty check from ever firing and make the byte-equality check report
+          // "no progress" the moment the deletable work finished. A correct
+          // restore of a sparse root would then fail at `delete-untracked` purely
+          // for having protected something.
+          !isSparseBoundaryListingEntry(entry, sparseBoundaryPaths),
       );
       if (deletable.length === 0) {
         return;
@@ -4801,6 +6058,15 @@ export class TurnSnapshotService {
         divergentGitlinks.push(divergence.path);
       }
     }
+
+    // The third re-observation, held to the standard the two above set: the
+    // candidates were fixed before the checkout, and only the ones whose on-disk
+    // state actually changed are reported. A sequence that failed at the
+    // `read-tree` spawn leaves them all untouched and emits nothing — the checkout
+    // is what discards an out-of-cone path, so a checkout that never ran discarded
+    // none. A sequence that failed at `delete-untracked` or `close-index` has a
+    // completed checkout behind it and reports the real set.
+    await this.#emitMaterializedOutOfCone(target, prospectiveEffects);
 
     this.#emit({
       kind: "restore-failed",
@@ -5214,6 +6480,62 @@ export class TurnSnapshotService {
         ...(options.stdin === undefined ? {} : { stdin: options.stdin }),
       },
     );
+  }
+
+  /**
+   * Re-observe the materialization candidates and emit the subset the restore
+   * actually discarded.
+   *
+   * RE-OBSERVED, not replayed, and that is the whole content of this method. The
+   * candidate list was fixed before the checkout; what this reports is the part
+   * of it whose on-disk state then CHANGED, measured with the same
+   * {@link fingerprintPath} standard the collision and gitlink enumerations use.
+   * A `partial_restore` that never reached the checkout — a refusal at the second
+   * `HEAD` read, a `read-tree` that failed at the spawn — leaves every candidate
+   * byte-identical, so nothing is emitted and no claim is made about work that
+   * did not happen. The ordinary success case moves every one of them (the
+   * re-projection un-materializes the out-of-cone path, so its fingerprint goes
+   * from `file:<hash>` to `absent`), which is why the discipline costs nothing in
+   * the case it is most often exercised on.
+   *
+   * A path that reappeared byte-identical would be omitted, which is the correct
+   * reading here and differs from the collision enumeration's: a collision
+   * reports paths the restore OVERWROTE, so identical bytes still count, while
+   * this reports paths the restore DISCARDED from the worktree, and a path still
+   * sitting there in the same state was not discarded.
+   *
+   * Factored because BOTH restore tails call it and the rule has to be the same
+   * on each — a different standard on one would make the diagnostic report which
+   * arm the restore took rather than what it did to the worktree. Empty in every
+   * non-sparse root by construction, so a non-sparse restore's diagnostic stream
+   * is byte-unchanged by this closure. Called ONCE per restore: on the success
+   * tail it sits after the last leg that can fail, so a late failure routes to
+   * the reporter instead of adding a second emission of the same payload.
+   */
+  async #emitMaterializedOutOfCone(
+    target: TurnSnapshotRestoreTarget,
+    prospectiveEffects: ProspectiveRestoreEffects,
+  ): Promise<void> {
+    const discardedPaths: string[] = [];
+    for (const candidate of prospectiveEffects.materializedOutOfCone) {
+      const fingerprintNow: string = await fingerprintPath(
+        join(target.executionRoot, candidate.path),
+      );
+      if (fingerprintNow !== candidate.fingerprintBeforeRestore) {
+        discardedPaths.push(candidate.path);
+      }
+    }
+    if (discardedPaths.length === 0) {
+      return;
+    }
+    this.#emit({
+      kind: "sparse-out-of-cone-materialized",
+      runId: target.runId,
+      epoch: target.owningEpoch,
+      turnOrdinal: target.targetPosition,
+      ref: target.ref,
+      materializedPaths: discardedPaths,
+    });
   }
 
   /** See {@link OBJECT_ID_PATTERN}. Throws into the funnel on anything else. */
