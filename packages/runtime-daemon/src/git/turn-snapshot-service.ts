@@ -793,6 +793,14 @@
 //     the out-of-cone-yet-present one the re-projection removes. See the suite's
 //     sparse cases, which drive the closure rather than characterizing the loss.
 //
+//     Widening is ordinary in exactly one direction, though, and DESTRUCTIVE in
+//     the other: a newly-admitted snapshot path whose place on disk is held by a
+//     RECORDED BOUNDARY path is written over content the trailer promised to keep,
+//     by the checkout itself, before any exemption is consulted. That case is
+//     refused pre-mutation rather than reported — see
+//     {@link TurnSnapshotService.#deriveBoundaryObstructions} for the three
+//     shapes and for why a diagnostic would not have satisfied I-010-24.
+//
 // RECORDED RESIDUALS — the honest failure modes, closed by neither pin nor
 // measurement. The family above used to be the other member of this section;
 // what remains is the one whose pin set is unbounded by construction.
@@ -1219,7 +1227,12 @@ export type TurnSnapshotCaptureStep =
  * property the spec's sentence protects — nothing is half-applied where a
  * failure is reported — survives; the property "no bytes moved at all under this
  * name" no longer does, and the drop is deliberately not given a step of its own
- * because Plan-004's wire mapping froze this vocabulary at five. The last three
+ * because Plan-004's wire mapping froze this vocabulary at five. The step's three
+ * REFUSALS are all upstream of that drop — an undecodable trailer, the sparse
+ * vintage gate and the boundary-obstruction guard all throw from inside the
+ * read-only derivation — so each of them does still leave index and worktree
+ * byte-identical, which is the stronger reading and the one the suite pins. The
+ * last three
  * are the
  * pinned three-step of `Spec-010 §Turn-Boundary Snapshots`, in the order that
  * spec fixes: the delete pass must run while the index still holds the SNAPSHOT
@@ -2422,6 +2435,24 @@ const SKIPPED_EMBEDDED_REPOSITORIES_TRAILER = "Skipped-Embedded-Repositories:";
  *     are present. Trailer order is message bytes and therefore OID bytes; fixing
  *     it here is what keeps two captures of identical project state identical.
  *
+ * TYPE-PRESERVING: a path git listed with a TRAILING SLASH is recorded WITH it.
+ * The slash is not decoration — it is git saying "a directory I did not descend
+ * into", which for an `ls-files -o` listing means an embedded repository or
+ * anything else `-o` refuses to walk. That distinction survives to the restore
+ * because the two entry kinds need OPPOSITE exemption widths, and only the
+ * capture can tell them apart: at restore time a boundary-time embedded
+ * repository whose `.git` the turn removed is listed as its payload FILES, and
+ * an exemption that matched the recorded name exactly would protect none of
+ * them. See {@link classifySparseBoundaryPaths} for the split and
+ * {@link isSparseBoundaryListingEntry} for what each kind then protects.
+ *
+ * Recording the slash costs no ambiguity: git spells repo-relative paths with
+ * forward slashes and never emits a trailing one for a blob, so the suffix is a
+ * free discriminator rather than a reserved character carved out of the path
+ * space. It is also why the capture's subtraction cannot mistake a directory
+ * candidate for a tree path — `ls-tree -r` lists blobs and gitlinks, both
+ * slash-free, so a slash-suffixed candidate can never match one.
+ *
  * RESIDUAL, the same one the sibling trailer records: the ref is create-only
  * (I-010-22), so a restore reads the FIRST capture's boundary set at that turn.
  * The exemption follows the recorded snapshot rather than the worktree, which is
@@ -3001,14 +3032,20 @@ function toRawGitDate(isoInstant: string): string | null {
  * decodes it on the way.
  *
  * The per-entry STRINGS this returns are a different matter, and the two legs
- * that consume them have different exposure. Capture uses them only to classify
- * trailing-slash entries as embedded repositories, where a mangled decode at
- * worst mis-classifies a path git will report again next turn. The RESTORE legs
- * use them as real paths: the collision derivation (a mangled decode drops the
- * path from an enumeration) and the delete pass (a mangled decode makes the
- * removal a silent no-op). The second is why that pass detects a listing that
- * did not change rather than trusting its own deletions — see
- * {@link TurnSnapshotFilesystem} for why the seam is not Buffer-typed instead.
+ * that consume them have different exposure. Capture uses them at exactly one
+ * site — {@link TurnSnapshotService.#normalizeEmbeddedRepositories}, classifying
+ * trailing-slash entries as embedded repositories — where a mangled decode at
+ * worst mis-classifies a path git will report again next turn. The sparse
+ * partition and the boundary subtraction deliberately do NOT appear on that list
+ * and never did after their byte-exactness repair: both run on
+ * {@link splitNulTerminatedListingBytes} and {@link listingEntryKey}, because
+ * there a mangled decode would make two DIFFERENT out-of-cone paths compare
+ * equal and drop one from the trailer. The RESTORE legs use these strings as
+ * real paths: the collision derivation (a mangled decode drops the path from an
+ * enumeration) and the delete pass (a mangled decode makes the removal a silent
+ * no-op). The second is why that pass detects a listing that did not change
+ * rather than trusting its own deletions — see {@link TurnSnapshotFilesystem}
+ * for why the seam is not Buffer-typed instead.
  */
 function splitNulTerminatedListing(listing: Buffer): readonly string[] {
   const entries: string[] = [];
@@ -3397,13 +3434,25 @@ function collectProperAncestorDirectories(path: string): readonly string[] {
   return ancestors;
 }
 
+/** Append `value` to the list `index` holds at `path`, creating the list once. */
+function appendToPathIndex<Value>(index: Map<string, Value[]>, path: string, value: Value): void {
+  const existing: Value[] | undefined = index.get(path);
+  if (existing === undefined) {
+    index.set(path, [value]);
+    return;
+  }
+  existing.push(value);
+}
+
 /**
  * Whether an `ls-files -o` entry names a path the CAPTURE put outside this
  * restore's write authority — the delete pass's exemption test.
  *
  * `entry` arrives in listing spelling, so a directory carries the trailing slash
  * git adds to a path it did not descend into; it is stripped before comparing,
- * because the recorded paths are worktree-relative names without one.
+ * because {@link classifySparseBoundaryPaths} has already moved that slash from
+ * the path text into the KIND — both of its sets hold slash-free names, and the
+ * trailer keeps the slash only so the kind survives the round trip.
  *
  * AT or BENEATH, on SEGMENT boundaries, for the reason
  * {@link collectProperAncestorDirectories} states in the other direction: a bare
@@ -3418,31 +3467,117 @@ function isPreservedListingEntry(entry: string, preservedPaths: readonly string[
 }
 
 /**
+ * The recorded sparse boundary set, SPLIT BY THE ENTRY KIND the capture saw.
+ *
+ * The trailer is one JSON array; this is that array read ONCE into the two kinds
+ * its consumers must treat differently, so no consumer re-derives the split and
+ * they cannot drift apart. See {@link SPARSE_BOUNDARY_PATHS_TRAILER} for why the
+ * kinds are distinguishable at all.
+ *
+ * A SET for the file kind, whose consumers test exact membership per listing
+ * entry on every delete pass; an ARRAY for the directory kind, whose consumer has
+ * to scan, exactly as {@link isPreservedListingEntry}'s does and for the same
+ * reason. Directory names are stored SLASH-STRIPPED — the slash did its work at
+ * classification time and every comparison downstream is against a stripped
+ * listing path.
+ */
+interface SparseBoundarySet {
+  readonly filePaths: ReadonlySet<string>;
+  readonly directoryPaths: readonly string[];
+}
+
+/** The boundary set of a snapshot that recorded none. */
+const EMPTY_SPARSE_BOUNDARY_SET: SparseBoundarySet = {
+  filePaths: new Set<string>(),
+  directoryPaths: [],
+};
+
+/**
+ * Split the decoded trailer array into {@link SparseBoundarySet}'s two kinds.
+ *
+ * PURE, and deliberately downstream of {@link parseSparseBoundaryPaths} rather
+ * than folded into it: that decoder's three-way answer — absent, present-empty,
+ * malformed — is the sparse VINTAGE gate, and this classification must not be
+ * able to blur it. An empty array in, an empty set of both kinds out; `null`
+ * never reaches here.
+ *
+ * A zero-length name after stripping (`""`, or a bare `"/"` — neither is a shape
+ * `ls-files` produces) is DROPPED rather than kept or refused. Kept as a
+ * directory name it would prefix-match the entire worktree and exempt every
+ * untracked path from the delete pass, which is the failure mode with the widest
+ * blast radius available here; refusing would fail a restore over an entry that
+ * names nothing. Dropping costs exactly nothing real, because no listing entry
+ * can ever equal it.
+ */
+function classifySparseBoundaryPaths(recordedPaths: readonly string[]): SparseBoundarySet {
+  const filePaths = new Set<string>();
+  const directoryPaths: string[] = [];
+  for (const recordedPath of recordedPaths) {
+    if (recordedPath.endsWith("/")) {
+      const directoryPath: string = recordedPath.slice(0, -1);
+      if (directoryPath.length > 0) {
+        directoryPaths.push(directoryPath);
+      }
+      continue;
+    }
+    if (recordedPath.length > 0) {
+      filePaths.add(recordedPath);
+    }
+  }
+  return { filePaths, directoryPaths };
+}
+
+/**
  * Whether an `ls-files -o` entry names a path the capture recorded as a SPARSE
  * BOUNDARY path — the delete pass's other exemption test.
  *
- * A SEPARATE predicate from {@link isPreservedListingEntry}, and EXACT-PATH where
- * that one matches subtrees. The two exemptions protect different things and the
- * asymmetry is the reason:
+ * A SEPARATE predicate from {@link isPreservedListingEntry}, and THREE-WAY where
+ * that one has a single rule. What the capture recorded decides the width, and
+ * the three cases are:
  *
- *   * A skipped embedded repository is a REPOSITORY. Deleting `nested/src/a.ts`
- *     one path at a time destroys it as completely as deleting `nested/`, so the
- *     exemption has to cover everything beneath it.
- *   * A sparse boundary path is a PATH. The capture recorded the identity of each
- *     out-of-cone path it observed at the boundary, and that is exactly the set
- *     the restore may not delete. Matching subtrees here would over-protect: a
- *     boundary-time out-of-cone directory would shelter files the TURN created
- *     inside it, which are post-boundary content the delete pass is supposed to
- *     remove — and removing turn-created out-of-cone files exactly as it removes
- *     in-cone ones is the property that keeps this closure from turning the whole
- *     out-of-cone region into a write-protected zone.
+ *   * A skipped embedded repository ({@link isPreservedListingEntry}) is a
+ *     REPOSITORY. Deleting `nested/src/a.ts` one path at a time destroys it as
+ *     completely as deleting `nested/`, so the exemption covers everything
+ *     beneath it.
+ *   * A boundary FILE entry is a PATH, and its exemption is EXACT. The capture
+ *     recorded the identity of one out-of-cone file, and that file is exactly
+ *     what the restore may not delete. Matching subtrees for this kind would
+ *     over-protect in the direction that matters: it cannot, because a file has
+ *     no subtree — which is precisely why the kinds are recorded separately
+ *     instead of the whole set taking one width.
+ *   * A boundary DIRECTORY entry is a SUBTREE, for the same reason the skipped
+ *     repository is. `ls-files -o` emits a trailing-slash entry only for a
+ *     directory it did NOT descend into, so the capture could not enumerate what
+ *     was inside; path identity for that entry IS the subtree, and there is no
+ *     narrower true statement available about it. The concrete case: a
+ *     boundary-time out-of-cone embedded repository, recorded as `nested/`, whose
+ *     turn removed its `.git` — the restore's listing now descends and emits
+ *     `nested/payload.txt`, which an exact-path exemption would not cover, and
+ *     the delete pass would take the boundary-time payload the trailer exists to
+ *     keep.
  *
- * The trailing slash is still stripped, because a boundary path that is a
- * directory git did not descend into (an out-of-cone embedded repository) is
- * listed with one and recorded without.
+ * NAMED RESIDUAL, the cost of that third case: a file the TURN created INSIDE a
+ * boundary-time non-descended directory is post-boundary content that this
+ * exemption nonetheless protects. It is the same over-protection the skipped-
+ * repository exemption already accepts, bounded to directories git refused to
+ * walk, and it is the survivable direction — the alternative deletes
+ * boundary-time content. Turn-created out-of-cone files ANYWHERE ELSE are still
+ * deleted exactly as their in-cone counterparts are, which is the I-010-24
+ * property this closure must not trade away, and the suite pins it with a
+ * turn-created file inside a boundary-time PLAIN directory.
+ *
+ * The listing entry's own trailing slash is still stripped before comparing:
+ * both kinds are stored slash-free, and a restore-time listing may spell the very
+ * same directory with or without one depending on whether git descended it.
  */
-function isSparseBoundaryListingEntry(entry: string, boundaryPaths: ReadonlySet<string>): boolean {
-  return boundaryPaths.has(entry.endsWith("/") ? entry.slice(0, -1) : entry);
+function isSparseBoundaryListingEntry(entry: string, boundarySet: SparseBoundarySet): boolean {
+  const path: string = entry.endsWith("/") ? entry.slice(0, -1) : entry;
+  return (
+    boundarySet.filePaths.has(path) ||
+    boundarySet.directoryPaths.some(
+      (directoryPath) => path === directoryPath || path.startsWith(`${directoryPath}/`),
+    )
+  );
 }
 
 /**
@@ -3527,6 +3662,44 @@ async function fingerprintPath(path: string): Promise<string> {
 /** The one hash spelling {@link fingerprintPath}'s arms share. */
 function hashBytes(bytes: Buffer): string {
   return createHash("sha256").update(bytes).digest("hex");
+}
+
+/**
+ * What the boundary-obstruction guard needs to know about a path: is a DIRECTORY
+ * there, is something else there, is nothing there — or could this not be
+ * settled at all.
+ *
+ * A SEPARATE observer from {@link fingerprintPath}, and the fourth arm is the
+ * entire reason. That one collapses every `lstat` rejection onto `"absent"`,
+ * which is right for a fingerprint (an unreadable path compares unequal to
+ * whatever replaces it, so a destroyed path is still reported) and exactly wrong
+ * here: this answer decides whether a DESTRUCTIVE checkout is refused, so
+ * reading `EACCES` as "nothing is there" would fail OPEN in a guard whose only
+ * job is to fail closed. `"unreadable"` is therefore its own arm and its consumer
+ * treats it as obstruction.
+ *
+ * `ENOENT` and `ENOTDIR` are the two rejections that really do mean "not on
+ * disk" — the second is what `lstat` says when an ancestor of the path is a file
+ * — and they are the only two read as absence.
+ *
+ * `lstat` and not `stat`, so a SYMLINK is its own thing rather than whatever it
+ * points at. A symlink where a boundary FILE entry was recorded answers
+ * `"non-directory"`, which is the fail-closed reading and also the measured one:
+ * on git 2.50.1 `read-tree --reset -u` unlinks a symlink standing where the
+ * snapshot needs a directory (the link's TARGET survives; the link itself, which
+ * is the boundary-time content, does not).
+ */
+type BoundaryPathPresence = "absent" | "directory" | "non-directory" | "unreadable";
+
+async function probeBoundaryPathPresence(path: string): Promise<BoundaryPathPresence> {
+  let entry: Stats;
+  try {
+    entry = await lstat(path);
+  } catch (reason) {
+    const code: string | undefined = (reason as NodeJS.ErrnoException | null)?.code;
+    return code === "ENOENT" || code === "ENOTDIR" ? "absent" : "unreadable";
+  }
+  return entry.isDirectory() ? "directory" : "non-directory";
 }
 
 /** Whether anything exists at `path`. Any error — including `ENOENT` — is `false`. */
@@ -3643,15 +3816,17 @@ interface ProspectiveRestoreEffects {
    */
   readonly preservedEmbeddedRepositories: readonly string[];
   /**
-   * Paths the CAPTURE recorded as its sparse boundary set — see
-   * {@link SPARSE_BOUNDARY_PATHS_TRAILER}. The delete pass's other exemption, and
+   * Paths the CAPTURE recorded as its sparse boundary set, already split by entry
+   * kind — see {@link SPARSE_BOUNDARY_PATHS_TRAILER} and
+   * {@link classifySparseBoundaryPaths}. The delete pass's other exemption, and
    * carried here for the reason above: same object read, same sequence.
    *
-   * A SET rather than a list, because its consumer tests exact membership per
-   * listing entry on every pass (see {@link isSparseBoundaryListingEntry}), where
-   * the subtree-matching sibling above has to scan.
+   * Classified ONCE, here, rather than per consumer: three legs read it (the
+   * delete-pass exemption, the index pre-drop and the obstruction guard) and each
+   * needs a different kind, so re-deriving the split at each site is exactly the
+   * drift this carries a type to prevent.
    */
-  readonly sparseBoundaryPaths: ReadonlySet<string>;
+  readonly sparseBoundarySet: SparseBoundarySet;
   /**
    * Snapshot-tracked paths the LIVE sparse definition scores out of cone and that
    * were observed materialized before the checkout — the diagnostic's CANDIDATE
@@ -3679,7 +3854,7 @@ interface ProspectiveRestoreEffects {
    *
    * Non-empty only for a snapshot that RECORDED a boundary set, whatever the
    * restore root's own sparsity now is — the same membership scope
-   * {@link sparseBoundaryPaths} carries, because the two are halves of one
+   * {@link sparseBoundarySet} carries, because the two are halves of one
    * protection.
    */
   readonly droppableBoundaryIndexEntries: readonly Buffer[];
@@ -3690,7 +3865,7 @@ const NO_PROSPECTIVE_RESTORE_EFFECTS: ProspectiveRestoreEffects = {
   collisions: [],
   gitlinkDivergences: [],
   preservedEmbeddedRepositories: [],
-  sparseBoundaryPaths: new Set<string>(),
+  sparseBoundarySet: EMPTY_SPARSE_BOUNDARY_SET,
   materializedOutOfCone: [],
   droppableBoundaryIndexEntries: [],
 };
@@ -3698,15 +3873,76 @@ const NO_PROSPECTIVE_RESTORE_EFFECTS: ProspectiveRestoreEffects = {
 /**
  * The capture leg's cone partition of one `-z` listing.
  *
- * `inConeListing` is a REBUILT `-z` stream ready for `update-index --stdin`, made
- * from the original listing's own byte slices; `outOfConePaths` are decoded
- * worktree-relative names with any trailing slash stripped, used only to derive
- * the trailer. See {@link TurnSnapshotService.#partitionListingByCone} for why
- * the two halves have different types.
+ * BOTH HALVES ARE BYTES, and the out-of-cone half being bytes is the repair
+ * rather than a symmetry. `inConeListing` is a REBUILT `-z` stream ready for
+ * `update-index --stdin`, made from the original listing's own byte slices;
+ * `outOfConeEntries` are those same slices, VERBATIM — trailing slash included,
+ * nothing decoded, nothing stripped. They stay bytes because the subtraction that
+ * consumes them is a set operation against another git listing, and a decode
+ * there maps every invalid sequence onto U+FFFD and so can make two DIFFERENT
+ * paths compare equal. See {@link TurnSnapshotService.#deriveSparseBoundaryPaths}
+ * for what that cost, and {@link listingEntryKey} for the keying that avoids it.
  */
 interface SparseListingPartition {
   readonly inConeListing: Buffer;
-  readonly outOfConePaths: readonly string[];
+  readonly outOfConeEntries: readonly Buffer[];
+}
+
+/**
+ * One refusal reason from the boundary-obstruction guard: a recorded boundary
+ * path standing where the checkout is about to write, and the snapshot paths that
+ * would displace it.
+ *
+ * `displacedBy` holds only paths that WILL materialize at this restore — see
+ * {@link TurnSnapshotService.#deriveBoundaryObstructions}. Naming a path that the
+ * live cone leaves unwritten would make the refusal's one operator-facing channel
+ * point at something that was never the cause.
+ */
+interface BoundaryObstruction {
+  readonly path: string;
+  readonly displacedBy: readonly string[];
+}
+
+/**
+ * How many displacers the refusal names per obstruction before it starts
+ * counting. Small on purpose: the first few carry the diagnosis, and the rest
+ * only carry size.
+ */
+const NAMED_DISPLACERS_PER_OBSTRUCTION = 3;
+
+/**
+ * The obstruction refusal's detail, bounded — the two halves are bounded
+ * DIFFERENTLY because only one of them amplifies.
+ *
+ * Every obstructing boundary path is named, with no cap. That list is the
+ * operator's action item, and capping it would cost one refused restore per
+ * batch to discover the next names; for a guard whose whole job is standing in
+ * front of data destruction, a truncated action list is the wrong trade. Its
+ * size is bounded by the recorded boundary set — a string this very snapshot
+ * already carries in its commit message and this very call already decoded, so
+ * naming all of it re-emits a quantity the system holds anyway.
+ *
+ * The displacers are only evidence, and they are a PRODUCT: shape (i) fires for
+ * every proper ancestor, so a boundary file sitting high in the tree is
+ * displaced by its entire subtree, and the string would then grow with the
+ * REPOSITORY rather than with the trailer. It has nowhere to be truncated
+ * downstream — `detail` reaches {@link TurnSnapshotPartialRestore} and the
+ * `restore-failed` diagnostic verbatim, and both sibling pre-mutation refusals
+ * are fixed-length strings, so this is the one message that could grow at all.
+ */
+function describeBoundaryObstructions(obstructions: readonly BoundaryObstruction[]): string {
+  return obstructions
+    .map((obstruction) => {
+      const named: readonly string[] = obstruction.displacedBy.slice(
+        0,
+        NAMED_DISPLACERS_PER_OBSTRUCTION,
+      );
+      const unnamedCount: number = obstruction.displacedBy.length - named.length;
+      const evidence: string =
+        unnamedCount === 0 ? named.join(", ") : `${named.join(", ")}, and ${unnamedCount} more`;
+      return `${obstruction.path} (displaced by ${evidence})`;
+    })
+    .join("; ");
 }
 
 // --------------------------------------------------------------------------
@@ -4005,7 +4241,7 @@ export class TurnSnapshotService {
       // deciding, never this module's.
       const partition: SparseListingPartition = isSparseRoot
         ? await this.#partitionListingByCone(input.executionRoot, fullListing)
-        : { inConeListing: fullListing, outOfConePaths: [] };
+        : { inConeListing: fullListing, outOfConeEntries: [] };
       const listing: Buffer = partition.inConeListing;
 
       step = "stage-paths";
@@ -4094,11 +4330,14 @@ export class TurnSnapshotService {
       // the trailer exists for: out-of-cone paths the snapshot could not record,
       // which is untracked ones plus intent-to-add ones (`write-tree` omits an
       // intent-to-add entry — measured on git 2.50.1).
+      //
+      // The subtraction runs on the partition's raw listing slices, not on
+      // decoded names, and the decode happens on its far side; see the leg.
       const sparseBoundaryPaths: readonly string[] | null = isSparseRoot
         ? await this.#deriveSparseBoundaryPaths(
             input.executionRoot,
             treeObjectId,
-            partition.outOfConePaths,
+            partition.outOfConeEntries,
           )
         : null;
 
@@ -4366,21 +4605,25 @@ export class TurnSnapshotService {
    * because the only alternative is to proceed on an unpartitioned answer. INVOKED
    * UNCONDITIONALLY for the same reason, EMPTY candidate set included: a sparse
    * root whose rules vanished must fail rather than trivially succeed at
-   * partitioning nothing. Neither caller guards the call, and making that one
-   * place a reader can check is half of why this is extracted.
+   * partitioning nothing. NO caller guards on candidate emptiness — the
+   * obstruction guard scores an empty conflict set rather than skipping the
+   * spawn — and making that one place a reader can check is half of why this is
+   * extracted.
    *
    * KEYS, not paths: the far-side membership test must run {@link
    * listingEntryKey} over the same bytes. Measured — `check-rules -z` echoes input
    * bytes VERBATIM, unaffected by `core.quotePath`, emitting the in-cone subset —
    * so keying on the echo is a byte-exact identity rather than a decode.
    *
-   * CANDIDATE PROVENANCE IS THE CALLER'S, and the two callers differ. The capture
-   * partition supplies the original listing's own Buffer slices, so no path in
-   * that leg is ever reconstructed from a decode. The restore derivation supplies
+   * CANDIDATE PROVENANCE IS THE CALLER'S, and the three callers split two ways.
+   * The capture partition supplies the original listing's own Buffer slices, so
+   * no path in that leg is ever reconstructed from a decode. The two RESTORE
+   * callers — the discarded-subset diagnostic and the obstruction guard — supply
    * `Buffer.from(<already-decoded tree path>)`, where byte-exactness is
-   * unattainable AND unneeded: both sides of its comparison are decoded strings
+   * unattainable AND unneeded: both sides of each comparison are decoded strings
    * out of one `ls-tree`, so the round trip is decode-to-decode and cannot
-   * introduce a mismatch the tree listing did not already carry.
+   * introduce a mismatch the tree listing did not already carry. This is a CLOSED
+   * list; a fourth caller has to state which side of it it lands on.
    */
   async #scoreInConeKeys(
     executionRoot: string,
@@ -4405,10 +4648,19 @@ export class TurnSnapshotService {
    * alternative is to stage the unpartitioned listing, which is the shipped defect
    * exactly.
    *
-   * ALL BYTES, both directions. Candidates go in as the original listing's own
-   * slices, and the staging stream is then rebuilt from those ORIGINAL slices
-   * rather than from git's output, so no path is reconstructed from a decode at
-   * any point. See {@link splitNulTerminatedListingBytes}.
+   * ALL BYTES, both directions AND both outputs. Candidates go in as the original
+   * listing's own slices; the staging stream is rebuilt from those ORIGINAL slices
+   * rather than from git's output; and the out-of-cone half is those same slices
+   * handed on untouched. No path is reconstructed from a decode at any point, and
+   * nothing here decodes at all — the one decode this data ever meets is at the
+   * trailer boundary, AFTER the subtraction has run on bytes. See
+   * {@link splitNulTerminatedListingBytes} and {@link #deriveSparseBoundaryPaths}.
+   *
+   * The trailing slash is likewise carried through rather than stripped here: it
+   * is the capture's only record of an entry git refused to descend, the restore
+   * needs it to choose an exemption width, and stripping it at the earliest
+   * possible moment is what made it unrecoverable. See
+   * {@link SPARSE_BOUNDARY_PATHS_TRAILER}.
    *
    * Under `index.sparse=true` the `ls-files` legs make git print a sparse-index
    * expansion advisory on stderr. This module reads stderr on no leg, so the
@@ -4423,19 +4675,11 @@ export class TurnSnapshotService {
     const inConeKeys: ReadonlySet<string> = await this.#scoreInConeKeys(executionRoot, entries);
 
     const inConeEntries: Buffer[] = [];
-    const outOfConePaths: string[] = [];
+    const outOfConeEntries: Buffer[] = [];
     for (const entry of entries) {
-      if (inConeKeys.has(listingEntryKey(entry))) {
-        inConeEntries.push(entry);
-        continue;
-      }
-      // Decoded ONLY here, and only for the trailer. An out-of-cone path is
-      // reported, sorted and JSON-encoded, all of which are string operations;
-      // the staging stream above never sees a decoded path.
-      const decoded: string = entry.toString("utf8");
-      outOfConePaths.push(decoded.endsWith("/") ? decoded.slice(0, -1) : decoded);
+      (inConeKeys.has(listingEntryKey(entry)) ? inConeEntries : outOfConeEntries).push(entry);
     }
-    return { inConeListing: joinNulTerminatedListing(inConeEntries), outOfConePaths };
+    return { inConeListing: joinNulTerminatedListing(inConeEntries), outOfConeEntries };
   }
 
   /**
@@ -4447,11 +4691,34 @@ export class TurnSnapshotService {
    * freshly written tree would hand back a different path set — which here would
    * silently widen or narrow the trailer, and the trailer is both an OID input to
    * the commit and the restore's authority over what it may delete.
+   *
+   * THE SUBTRACTION IS BYTE-EXACT, keyed through {@link listingEntryKey} on both
+   * sides — the candidates' own listing slices against the tree listing's own
+   * slices, never a decoded string against a decoded string. What a `utf8`-keyed
+   * subtraction cost is specific and destructive: on a POSIX repository holding
+   * two DISTINCT out-of-cone names with invalid UTF-8 byte sequences, both decode
+   * to U+FFFD-bearing strings, so a tracked path could compare equal to an
+   * unrelated untracked or intent-to-add boundary path and SUBTRACT it away. The
+   * omitted path then reaches the restore unprotected: for an intent-to-add entry
+   * the pre-drop skips it and `read-tree --reset -u` unlinks its only on-disk
+   * copy. Keying on bytes makes the two paths distinct again, which is what the
+   * capture partition's all-bytes discipline was for and what this leg used to
+   * throw away one line before spending it.
+   *
+   * DECODED AFTER THE SUBTRACTION, at the trailer boundary, because the trailer
+   * is JSON and JSON is text. That leaves a stated RESIDUAL rather than a closed
+   * hole: a surviving non-UTF-8 path is RECORDED as its U+FFFD-replaced spelling,
+   * so two distinct un-decodable survivors would collapse into one trailer entry,
+   * and the restore's exemption (which compares decoded listing strings) would
+   * then exempt both. That aliasing direction is PROTECTIVE — it can only spare a
+   * path from deletion, never expose one — where the pre-subtraction aliasing this
+   * fixes was destructive. Closing it entirely means a non-textual trailer
+   * encoding, which is a format change with no live snapshot to justify it.
    */
   async #deriveSparseBoundaryPaths(
     executionRoot: string,
     treeObjectId: string,
-    outOfConePaths: readonly string[],
+    outOfConeEntries: readonly Buffer[],
   ): Promise<readonly string[]> {
     const treeListing: Buffer = (
       await this.#runGit(
@@ -4468,8 +4735,12 @@ export class TurnSnapshotService {
         {},
       )
     ).stdout;
-    const recordedPaths = new Set<string>(splitNulTerminatedListing(treeListing));
-    return outOfConePaths.filter((path) => !recordedPaths.has(path));
+    const recordedKeys = new Set<string>(
+      splitNulTerminatedListingBytes(treeListing).map(listingEntryKey),
+    );
+    return outOfConeEntries
+      .filter((entry) => !recordedKeys.has(listingEntryKey(entry)))
+      .map((entry) => entry.toString("utf8"));
   }
 
   /**
@@ -5002,6 +5273,14 @@ export class TurnSnapshotService {
    * only while the index still holds the SNAPSHOT tree, which is what makes
    * every captured file index-tracked and therefore not a deletion candidate.
    *
+   * Step 2 carries THREE pre-mutation refusals, all typed, all landing at
+   * `derive-enumerations` with nothing written: an undecodable trailer, a sparse
+   * root whose snapshot predates the boundary closure, and a recorded boundary
+   * path the checkout would destroy ({@link #deriveBoundaryObstructions}). They
+   * are grouped there for one reason — a refusal that costs nothing on disk is
+   * only available BEFORE step 3, so every question whose wrong answer is
+   * destructive has to be asked while the derivation is still read-only.
+   *
    * `HEAD` is read THREE times, and the two extra reads are the reason step 1's
    * name is not the whole story. The caller's exclusive tenancy covers the
    * intervention, but nothing stops a user terminal in the same execution root
@@ -5162,7 +5441,7 @@ export class TurnSnapshotService {
       await this.#deleteUntrackedToFixpoint(
         target.executionRoot,
         prospectiveEffects.preservedEmbeddedRepositories,
-        prospectiveEffects.sparseBoundaryPaths,
+        prospectiveEffects.sparseBoundarySet,
       );
 
       // Emitted HERE rather than at the derivation, because this is the point at
@@ -5425,7 +5704,14 @@ export class TurnSnapshotService {
     // correct reading THERE: there is no boundary set because there is no cone.
     // See {@link parseSparseBoundaryPaths} for why the decoder distinguishes the
     // two rather than making this the only reading.
-    const sparseBoundaryPaths = new Set<string>(recordedBoundaryPaths ?? []);
+    //
+    // Classified into its two entry kinds ONCE, here, because three legs below
+    // consume it and each needs a different kind. The classification is pure and
+    // deliberately downstream of the vintage gate above, which is the only place
+    // absent-versus-empty may be decided.
+    const sparseBoundarySet: SparseBoundarySet = classifySparseBoundaryPaths(
+      recordedBoundaryPaths ?? [],
+    );
 
     const treeListing: Buffer = (
       await this.#runGit(
@@ -5517,13 +5803,40 @@ export class TurnSnapshotService {
       });
     }
 
-    // The two sparse legs, and they are scoped DIFFERENTLY on purpose — the one
+    // THE OBSTRUCTION GUARD, and it comes first among the sparse legs because it
+    // is the only one that can REFUSE. Still read-only, still pre-mutation: the
+    // throw lands at `derive-enumerations` with the index and the worktree
+    // untouched, exactly as the vintage gate above does.
+    const obstructions: readonly BoundaryObstruction[] = await this.#deriveBoundaryObstructions(
+      target.executionRoot,
+      isSparseRoot,
+      sparseBoundarySet,
+      treeEntries,
+    );
+    if (obstructions.length > 0) {
+      throw new Error(
+        "turn-snapshot refuses a restore whose checkout would destroy recorded sparse-boundary content: " +
+          describeBoundaryObstructions(obstructions),
+      );
+    }
+
+    // The three sparse legs, and they are scoped DIFFERENTLY on purpose — the one
     // asymmetry in this closure worth stating outright, because the symmetric
     // reading is the plausible one and it loses data.
     //
     // The DIAGNOSTIC leg keys on the LIVE definition: it reports what the live
     // cone is about to discard, so it is meaningless in a root that has no cone,
-    // and it is the only leg here that consults the matcher.
+    // and it is the only leg here whose EXISTENCE turns on the matcher.
+    //
+    // The OBSTRUCTION guard above is scoped BOTH ways, and needs to be. Which
+    // boundary paths it must consider is a fact about the SNAPSHOT (the recorded
+    // set, like the drop leg below), while whether a conflicting snapshot path
+    // actually gets written is a fact about the LIVE cone (the matcher, like the
+    // diagnostic leg above) — a conflict the live projection leaves unwritten
+    // destroys nothing and must not refuse a restore. Root-gating its membership
+    // half would miss the shape where a capture recorded a boundary path and the
+    // user then disabled sparse checkout, which is the shape where EVERY snapshot
+    // path materializes and the destruction is total.
     //
     // The DROP leg keys on the RECORDED SET ALONE — membership plus absence from
     // the snapshot tree, no matcher, no live definition, no root test. It has to,
@@ -5554,7 +5867,7 @@ export class TurnSnapshotService {
     const droppableBoundaryIndexEntries: readonly Buffer[] =
       await this.#deriveDroppableBoundaryIndexEntries(
         target.executionRoot,
-        sparseBoundaryPaths,
+        sparseBoundarySet.filePaths,
         snapshotTrackedPaths,
         treeEntries,
       );
@@ -5563,10 +5876,234 @@ export class TurnSnapshotService {
       collisions,
       gitlinkDivergences,
       preservedEmbeddedRepositories,
-      sparseBoundaryPaths,
+      sparseBoundarySet,
       materializedOutOfCone,
       droppableBoundaryIndexEntries,
     };
+  }
+
+  /**
+   * Recorded boundary paths the CHECKOUT ITSELF would destroy — the restore's
+   * pre-mutation refusal reason, and the half of the boundary protection neither
+   * the index pre-drop nor the delete-pass exemption can supply.
+   *
+   * WHY A THIRD LEG EXISTS. The other two each stop one destructive mechanism:
+   * the pre-drop removes the index entry that would make `read-tree --reset -u`
+   * unlink a boundary path it holds, and the exemption stops the delete pass from
+   * removing an untracked one. Neither reaches the case where the boundary path
+   * and a SNAPSHOT path want the same place on disk. There is no index entry to
+   * drop — the index caches `foo/bar`, not `foo` — and the delete pass runs after
+   * the checkout, so its exemption arrives to protect a file that was unlinked two
+   * legs ago. The checkout does this at exit 0 and says nothing.
+   *
+   * THREE DESTRUCTIVE SHAPES, each measured on git 2.50.1, each stated in terms
+   * of what the CAPTURE recorded. The shape SET is not invented here: it mirrors
+   * the collision taxonomy [Spec-010 §Turn-Boundary Snapshots] measured for
+   * IGNORED paths, which enumerates the three ways `read-tree --reset -u`
+   * destroys an obstructing path rather than merging around it — a snapshot file
+   * AT the path, a snapshot file at an ANCESTOR of it, and the path standing as
+   * an ancestor DIRECTORY of a snapshot path. Boundary paths meet the same
+   * checkout through the same mechanism, so the taxonomy transfers whole and the
+   * set is complete for the same reason that one is: it covers both directions of
+   * the file/directory conflict plus the ancestor direction, which is every way a
+   * single checkout can need a path's place.
+   *
+   *   1. A boundary FILE entry `P` standing where the snapshot needs a DIRECTORY,
+   *      because the tree holds something strictly beneath `P`. The checkout
+   *      unlinks the file and creates the directory. The tree entry beneath may be
+   *      a blob (`P/bar`) or a GITLINK — a gitlink needs the empty directory the
+   *      checkout materializes under `submodule.recurse=false`, and measured, an
+   *      ordinary file standing at a gitlink's own path is unlinked to make room
+   *      for it.
+   *   2. A boundary DIRECTORY entry `P/` standing where the snapshot holds a BLOB
+   *      at `P`. Measured: the directory is removed WHOLE, its untracked payload
+   *      with it, and the blob written in its place — the same destruction the
+   *      collision enumeration reports for an ignored directory, arriving at a
+   *      path the trailer promised to keep.
+   *   3. A boundary entry of EITHER kind whose proper ANCESTOR is a snapshot BLOB.
+   *      The checkout needs a file at the ancestor, so it removes the directory
+   *      standing there WHOLE and everything beneath goes with it — including a
+   *      boundary path several segments down. A SPARSE root is what makes this
+   *      reachable rather than exotic: an out-of-cone tracked blob at `P` is
+   *      skip-worktree and so absent from disk, the turn is free to `mkdir P` and
+   *      write `P/child` into the space it left, and `ls-files -o` then records
+   *      `P/child` in the boundary set while the tree keeps its cached blob at `P`
+   *      — the very persistence I-010-24 requires of out-of-cone cached entries.
+   *      Measured end to end on that fixture: `ls-files -o` reports `P/child`, and
+   *      after a widening the checkout writes file `P` at exit 0 with `P/child`
+   *      gone. A GITLINK at an ancestor is NOT a displacer, for the same reason it
+   *      is not one in shape 2: it wants a DIRECTORY at that path, which is what
+   *      is already there, so the checkout merges rather than removes. That carve
+   *      is belt-and-braces rather than load-bearing, and no test drives it,
+   *      because the case is unreachable from a capture: git does not descend into
+   *      an embedded repository, so `ls-files -o` reports nothing beneath a
+   *      gitlink and no boundary path can be recorded under one in the first
+   *      place. It is written anyway, because the carve costs one comparison and
+   *      the unreachability is a property of the CAPTURE leg that a future change
+   *      there could quietly retire.
+   *
+   * WHAT IS NOT A SHAPE, stated because each is the plausible false positive:
+   *
+   *   * A boundary DIRECTORY entry whose STRICT DESCENDANTS materialize. Measured:
+   *      the checkout merges into the directory, leaving its payload and its
+   *      `.git` intact. Refusing there would refuse the ordinary sparse restore.
+   *   * A conflicting tree path that will NOT materialize. Under the live sparse
+   *      projection an out-of-cone blob is never written, so nothing displaces the
+   *      boundary path and there is nothing to refuse.
+   *   * A tree path AT a boundary FILE path. Structurally unreachable rather than
+   *      tolerated: the capture derives the boundary set by SUBTRACTING the whole
+   *      `ls-tree -r` listing (blobs and gitlinks alike), so a recorded boundary
+   *      FILE path is by construction absent from that snapshot's tree. The
+   *      DIRECTORY kind is the deliberate exception and the reason shape 2 exists
+   *      — a recorded `P/` carries a trailing slash that no `ls-tree -r` path
+   *      does, so the subtraction cannot cancel it against a blob at `P`.
+   *
+   * WHY REFUSE RATHER THAN REPORT AND PROCEED. I-010-24 says boundary-time
+   * out-of-cone content SURVIVES the restore on disk; a diagnostic naming what was
+   * destroyed would satisfy the enumeration half of that sentence and violate the
+   * survival half. The `restore wins, with enumeration` precedent belongs to
+   * IGNORED paths, which the snapshot contract excludes from the outset — boundary
+   * paths are that contract's protected subject, so the precedent does not reach
+   * them. The refusal is typed, lands at `derive-enumerations` and costs nothing
+   * on disk, which is the same disposition the sparse vintage gate already has.
+   *
+   * MATERIALIZATION IS ASKED, NOT ASSUMED, and asked differently per entry kind —
+   * this is where a plausible implementation fails open. A GITLINK always
+   * materializes: measured, git never marks a gitlink skip-worktree (`ls-files -t`
+   * reports `H` for an out-of-cone one) and the checkout makes its directory
+   * whatever the cone says, so scoring gitlinks through the matcher would score
+   * the destructive case out of cone and wave it through. Only BLOBS are scored,
+   * and only in a sparse root — in a non-sparse one every tree path materializes,
+   * which is exactly the widened-cone case this guard exists for.
+   *
+   * DISK IS CONSULTED LAST, and only for boundary paths that already conflict by
+   * PATH SHAPE against a MATERIALIZING displacer. A path nothing is about to
+   * displace needs no `lstat`, and the whole worktree walk this avoids would be
+   * the pre-mutation path's most expensive read. The probe is
+   * {@link probeBoundaryPathPresence} rather than {@link fingerprintPath}, because
+   * an unreadable path has to count as obstruction here; see that observer.
+   *
+   * The matcher call does NOT guard on an empty candidate set, so
+   * {@link #scoreInConeKeys}'s "the oracle answers or the sequence refuses" rule
+   * survives this third caller intact: a sparse root whose rules file vanished
+   * fails here as it fails everywhere else. What DOES gate it is the recorded set
+   * being empty, which is a fact about the snapshot rather than about the matcher.
+   */
+  async #deriveBoundaryObstructions(
+    executionRoot: string,
+    isSparseRoot: boolean,
+    boundarySet: SparseBoundarySet,
+    treeEntries: readonly SnapshotTreeEntry[],
+  ): Promise<readonly BoundaryObstruction[]> {
+    if (boundarySet.filePaths.size === 0 && boundarySet.directoryPaths.length === 0) {
+      return [];
+    }
+    const boundaryDirectoryPaths = new Set<string>(boundarySet.directoryPaths);
+
+    // Shape 1 and shape 2 candidates, by path shape alone — no matcher, no disk.
+    // Kept apart rather than in one map keyed by path, because a forged trailer
+    // may record both `a` and `a/` and the two kinds then ask opposite questions
+    // of the same path.
+    const fileBoundaryDisplacers = new Map<string, SnapshotTreeEntry[]>();
+    const directoryBoundaryDisplacers = new Map<string, SnapshotTreeEntry[]>();
+    const blobEntriesByPath = new Map<string, SnapshotTreeEntry>();
+    for (const entry of treeEntries) {
+      for (const ancestor of collectProperAncestorDirectories(entry.path)) {
+        if (boundarySet.filePaths.has(ancestor)) {
+          appendToPathIndex(fileBoundaryDisplacers, ancestor, entry);
+        }
+      }
+      // A gitlink AT a boundary directory destroys nothing: the directory the
+      // gitlink wants is already there, and this leg does not descend into it
+      // (measured — the checkout leaves such a directory, its payload and its
+      // `.git` untouched). Only a blob displaces.
+      if (entry.mode !== GITLINK_TREE_MODE) {
+        blobEntriesByPath.set(entry.path, entry);
+        if (boundaryDirectoryPaths.has(entry.path)) {
+          appendToPathIndex(directoryBoundaryDisplacers, entry.path, entry);
+        }
+      }
+    }
+
+    // Shape 3 candidates, walked from the BOUNDARY side rather than the tree side
+    // — the shape's displacer sits ABOVE the boundary path, so the tree loop above
+    // never passes through it. Its displacers are appended into the SAME per-kind
+    // maps instead of a third one, because shape 3 asks nothing new about the
+    // boundary path itself: whichever kind was recorded is the kind that must
+    // still be standing on disk for there to be anything to destroy. That keeps
+    // the presence probe, the sort, and the `displacedBy` merge below identical,
+    // and it puts these displacers inside the SINGLE oracle batch scored next.
+    // At most one ancestor can match — git cannot hold a blob at both `a` and
+    // `a/b` — but the walk is written for the general case rather than that proof.
+    for (const [boundaryPath, displacers] of [
+      ...[...boundarySet.filePaths].map(
+        (boundaryPath): readonly [string, Map<string, SnapshotTreeEntry[]>] => [
+          boundaryPath,
+          fileBoundaryDisplacers,
+        ],
+      ),
+      ...boundarySet.directoryPaths.map(
+        (boundaryPath): readonly [string, Map<string, SnapshotTreeEntry[]>] => [
+          boundaryPath,
+          directoryBoundaryDisplacers,
+        ],
+      ),
+    ]) {
+      for (const ancestor of collectProperAncestorDirectories(boundaryPath)) {
+        const shadowingBlob: SnapshotTreeEntry | undefined = blobEntriesByPath.get(ancestor);
+        if (shadowingBlob !== undefined) {
+          appendToPathIndex(displacers, boundaryPath, shadowingBlob);
+        }
+      }
+    }
+
+    const conflictingBlobPaths: readonly string[] = [
+      ...new Set<string>(
+        [...fileBoundaryDisplacers.values(), ...directoryBoundaryDisplacers.values()]
+          .flat()
+          .filter((entry) => entry.mode !== GITLINK_TREE_MODE)
+          .map((entry) => entry.path),
+      ),
+    ];
+    const inConeKeys: ReadonlySet<string> | null = isSparseRoot
+      ? await this.#scoreInConeKeys(
+          executionRoot,
+          conflictingBlobPaths.map((path) => Buffer.from(path, "utf8")),
+        )
+      : null;
+    const willMaterialize = (entry: SnapshotTreeEntry): boolean =>
+      entry.mode === GITLINK_TREE_MODE ||
+      inConeKeys === null ||
+      inConeKeys.has(listingEntryKey(Buffer.from(entry.path, "utf8")));
+
+    const obstructions: BoundaryObstruction[] = [];
+    for (const [boundaryPath, displacers, obstructingPresence] of [
+      ...[...fileBoundaryDisplacers].map(
+        ([path, entries]) => [path, entries, "non-directory"] as const,
+      ),
+      ...[...directoryBoundaryDisplacers].map(
+        ([path, entries]) => [path, entries, "directory"] as const,
+      ),
+    ]) {
+      const displacedBy: readonly string[] = displacers
+        .filter(willMaterialize)
+        .map((entry) => entry.path)
+        .sort();
+      if (displacedBy.length === 0) {
+        continue;
+      }
+      const presence: BoundaryPathPresence = await probeBoundaryPathPresence(
+        join(executionRoot, boundaryPath),
+      );
+      // `unreadable` obstructs whatever kind was recorded — see the probe.
+      if (presence !== obstructingPresence && presence !== "unreadable") {
+        continue;
+      }
+      obstructions.push({ path: boundaryPath, displacedBy });
+    }
+    // Sorted so the refusal's message is a function of the repository state and
+    // not of `ls-tree` ordering; the suite asserts on it.
+    return obstructions.sort((left, right) => (left.path < right.path ? -1 : 1));
   }
 
   /**
@@ -5606,6 +6143,8 @@ export class TurnSnapshotService {
    * unattainable here — the strings arrive decoded — and unneeded, because both
    * sides of the comparison below come from that one `ls-tree`, making the round
    * trip decode-to-decode. See {@link #scoreInConeKeys} on candidate provenance.
+   * The capture side has NO such departure left: its subtraction runs on listing
+   * bytes end to end, and the one decode there happens after it, at the trailer.
    *
    * NO EARLY RETURN ON AN EMPTY CANDIDATE SET, and that is the point rather than
    * an oversight. A snapshot tree with no non-gitlink path (an empty base commit;
@@ -5695,14 +6234,25 @@ export class TurnSnapshotService {
    * there is nothing here that could protect it. Only a trailer-BEARING snapshot
    * gains the drop in a non-sparse root. (The same legacy snapshot restored into a
    * still-SPARSE root is refused outright by the vintage gate; see the call site.)
+   *
+   * FILE ENTRIES ONLY, of the recorded set's two kinds — the caller passes
+   * `filePaths` and the directory kind never reaches here. That is not a
+   * simplification but the shape of the data: `ls-files -o` emits a trailing-slash
+   * entry ONLY for a directory it did not descend into, and it descends the moment
+   * the index holds anything at or beneath that directory (measured on git
+   * 2.50.1). So at capture time a recorded directory entry provably has no index
+   * entry inside it, and a subtree drop would have nothing to drop. RESIDUAL,
+   * narrow and named: a path STAGED beneath such a directory during the turn —
+   * possible only after the turn removed the embedded `.git` that made git refuse
+   * to descend — is not pre-dropped, and the checkout unlinks it. Not covered.
    */
   async #deriveDroppableBoundaryIndexEntries(
     executionRoot: string,
-    boundaryPaths: ReadonlySet<string>,
+    boundaryFilePaths: ReadonlySet<string>,
     snapshotTrackedPaths: ReadonlySet<string>,
     treeEntries: readonly SnapshotTreeEntry[],
   ): Promise<readonly Buffer[]> {
-    if (boundaryPaths.size === 0) {
+    if (boundaryFilePaths.size === 0) {
       return [];
     }
     // A gitlink is snapshot-recorded too — it is simply filtered out of the
@@ -5718,7 +6268,7 @@ export class TurnSnapshotService {
     const droppable: Buffer[] = [];
     for (const entry of splitNulTerminatedListingBytes(cachedListing)) {
       const path: string = entry.toString("utf8");
-      if (boundaryPaths.has(path) && !recordedPaths.has(path)) {
+      if (boundaryFilePaths.has(path) && !recordedPaths.has(path)) {
         droppable.push(entry);
       }
     }
@@ -5920,7 +6470,7 @@ export class TurnSnapshotService {
   async #deleteUntrackedToFixpoint(
     executionRoot: string,
     preservedPaths: readonly string[],
-    sparseBoundaryPaths: ReadonlySet<string>,
+    sparseBoundarySet: SparseBoundarySet,
   ): Promise<void> {
     let previousDeletable: string | null = null;
     for (let pass = 0; pass < UNTRACKED_DELETE_PASS_LIMIT; pass += 1) {
@@ -5948,7 +6498,7 @@ export class TurnSnapshotService {
           // "no progress" the moment the deletable work finished. A correct
           // restore of a sparse root would then fail at `delete-untracked` purely
           // for having protected something.
-          !isSparseBoundaryListingEntry(entry, sparseBoundaryPaths),
+          !isSparseBoundaryListingEntry(entry, sparseBoundarySet),
       );
       if (deletable.length === 0) {
         return;

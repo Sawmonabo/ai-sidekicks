@@ -132,6 +132,87 @@
 //     Windows `CreateProcess` puts on a command line, round-trips through the
 //     stream and is still consumed by the restore's exemption.
 //
+//     The trailer is TYPE-PRESERVING, and the exemption it feeds is three-way
+//     rather than one rule. A path git listed with a trailing slash is a directory
+//     `ls-files -o` refused to descend, the capture records it WITH that slash, and
+//     the restore gives it SUBTREE protection where a boundary FILE entry keeps an
+//     EXACT one. Driven from the shape that forces it: a boundary-time out-of-cone
+//     embedded repository whose turn removed its `.git`, so the restore's listing
+//     descends the same directory and spells it as its payload files — an exact
+//     exemption covers none of them. Both widths are pinned against each other,
+//     because either alone is satisfiable by the wrong rule. The directory arm
+//     asserts the payload survives AND names the over-protection it accepts (a
+//     turn-created file inside that directory survives too, the same residual the
+//     skipped-repository exemption already carries) AND that the residual is
+//     bounded — turn-created content elsewhere out of cone is still deleted. The
+//     file arm asserts the opposite width from the opposite fixture: a boundary
+//     FILE the turn replaced with a directory does NOT shelter what the turn put
+//     inside it.
+//
+//     THE OBSTRUCTION GUARD is the third pre-mutation refusal, and the one whose
+//     absence the other two protections cannot cover: when a boundary path and a
+//     snapshot path want the same place on disk, `read-tree --reset -u` takes it at
+//     exit 0 — before the delete pass runs, and with no index entry for the
+//     pre-drop to remove. All three destructive shapes are driven — the set
+//     mirrors Spec-010's measured collision taxonomy for ignored paths, which is
+//     the same checkout meeting the same mechanism — and so is each plausible
+//     false positive:
+//
+//       - A boundary FILE where the snapshot needs a DIRECTORY, from an ordinary
+//         capture (index cached `cone-out/foo/bar`; disk held a file at
+//         `cone-out/foo`) with the definition widened afterwards. The widening is
+//         PARTIAL, so the refusal's attribution is measurable: the detail names the
+//         conflicting path that materializes and NOT the sibling the live cone
+//         still excludes.
+//       - A snapshot BLOB where the boundary recorded a DIRECTORY, in a NON-sparse
+//         restore root — the membership half of the guard's scope, and the case
+//         where every snapshot path materializes. FORGED, and only because a single
+//         capture provably cannot produce it: git emits a trailing-slash entry only
+//         for a directory nothing in the index sits at or beneath.
+//       - A snapshot BLOB at a proper ANCESTOR of a boundary path, which removes
+//         the directory standing there WHOLE and takes the boundary path down with
+//         it. A sparse root is what makes this ordinary: an out-of-cone tracked
+//         blob is skip-worktree and absent from disk, so the turn can `mkdir` over
+//         it and write beneath. Driven for BOTH boundary kinds — a file entry
+//         (`cone-out/shadowed/payload.txt`) and a directory entry (an embedded
+//         repository beneath the same shadowed path), each from an ordinary
+//         capture rather than a forged trailer.
+//       - NOT a shape: the same ancestor conflict with the cone LEFT ALONE, so the
+//         shadowing blob stays skip-worktree, nothing is written over the
+//         directory, and the boundary payload survives an ordinary restore.
+//       - NOT a shape: the same conflicting path shape with the cone LEFT ALONE, so
+//         nothing beneath the boundary path materializes and the restore proceeds.
+//         This is the arm that keeps the guard from being a blunt path-shape test —
+//         an oracle stubbed to "everything materializes" refuses every ordinary
+//         sparse restore of that repository, and this arm is what catches it.
+//       - NOT a shape: a boundary DIRECTORY whose STRICT DESCENDANTS materialize.
+//         The checkout merges into it, so the payload survives and the snapshot
+//         path is written back beside it. This arm is a JOINT pin — it also depends
+//         on the delete pass exempting the directory's subtree, so narrowing that
+//         exemption to exact paths turns it red alongside the directory-kind arm.
+//       - The two KINDS held apart when one path is recorded as BOTH `a` and `a/`.
+//         They ask opposite questions of that path — displacers beneath it and a
+//         non-directory on disk, versus a displacer at it and a directory on disk —
+//         so the fixture makes two paths each answer through a different kind, and
+//         a single merged index cannot stay green by picking a winner.
+//       - The refusal DETAIL is bounded, and asymmetrically: every obstructing
+//         boundary path is named, while displacers past the first few collapse to a
+//         count. The obstruction list is bounded by the trailer the snapshot already
+//         carries; the displacers are a product of boundary set and tree size, and
+//         `detail` reaches the result and the diagnostic with nothing downstream to
+//         truncate it.
+//
+//     Every refusal is asserted on TWO surfaces — a byte-identical worktree census
+//     and a byte-identical index fingerprint — because the census alone would stay
+//     green if the refusal fired downstream of the boundary pre-drop.
+//
+//     NOT COVERED, structurally: `probeBoundaryPathPresence`'s fail-closed
+//     `unreadable` arm. The probe is module-local, so it sits behind none of the
+//     injected seams, and the only way to drive it from a fixture is to make a
+//     parent directory unreadable — which the worktree census then cannot walk
+//     either. The arm is asserted by construction and named here rather than
+//     silently skipped.
+//
 //     The materialized-path residual is driven as the diagnostic it is reported
 //     on, in the state the diagnostic actually describes: a cone widened between
 //     capture and restore MATERIALIZES the out-of-cone path, a config-only
@@ -165,18 +246,37 @@
 //     healthy half, since `check-rules` has to exit 0 on an empty candidate set
 //     for the unguarded call to be safe.
 //
-//     NOT COVERED, stated rather than implied: the CAPTURE partition's byte
-//     discipline. On that leg — and only that leg — `check-rules` candidates go
-//     out and come back as raw listing SLICES keyed bijectively through `latin1`,
-//     so no path is reconstructed from a decode, which is the property that makes
-//     a non-UTF-8 filename safe. It is asserted by construction only. APFS on the
-//     measuring host rejects a non-UTF-8 filename at `creat(2)`, so the fixture
-//     that would exercise it cannot be built here; the closest reachable
-//     measurement, taken and not kept as a case, is that `check-rules -z` echoes
-//     multibyte UTF-8 names verbatim even under a forced `core.quotepath=true`.
-//     The RESTORE side scores candidates it rebuilt from already-decoded tree
-//     paths, so it makes no byte-exactness claim to cover: both sides of its
-//     comparison are decoded strings out of one `ls-tree`.
+//     BYTE DISCIPLINE ON THE CAPTURE LEG is driven by TWO arms, which between
+//     them cover what an earlier revision of this note could only claim by
+//     construction. The property: on that leg — and only that leg — `check-rules`
+//     candidates go out and come back as raw listing SLICES keyed bijectively
+//     through `latin1`, and the boundary SUBTRACTION is keyed the same way against
+//     the tree listing's own slices, so no path is reconstructed from a decode
+//     before the trailer is built.
+//
+//       - The REAL-PIPELINE arm writes a multibyte UTF-8 out-of-cone name under a
+//         forced `core.quotepath=true` and follows it end to end: `-z` listings
+//         defeat the quoting, the trailer records the name verbatim, and the
+//         restore preserves the file. Every byte is a real byte off a real disk.
+//       - The SUBTRACTION arm drives the one case APFS cannot host. The measuring
+//         host rejects a non-UTF-8 filename at `creat(2)` (`EILSEQ`), so both
+//         listings are SYNTHESIZED through the git seam — a `cone-out/<0xFF>`
+//         candidate appended to the capture's `ls-files -co`, and a DISTINCT
+//         `cone-out/<0xFE>` appended to the boundary derivation's `ls-tree`. The
+//         two decode to the SAME U+FFFD-bearing string and share no bytes, so a
+//         `utf8`-keyed subtraction drops the boundary path and a byte-keyed one
+//         keeps it. Scoped accordingly: that arm asserts the TRAILER and the
+//         staged tree, and makes no claim about the delete pass or the restore.
+//
+//     The RESIDUAL that survives both, stated rather than implied: a surviving
+//     non-UTF-8 path is RECORDED in its U+FFFD-replaced spelling, because the
+//     trailer is JSON. Two distinct un-decodable survivors would therefore collapse
+//     to one trailer entry and the restore would exempt both — an aliasing that can
+//     only spare a path from deletion, never expose one, which is the opposite
+//     direction from the pre-repair subtraction's. The RESTORE side scores
+//     candidates it rebuilt from already-decoded tree paths, so it makes no
+//     byte-exactness claim to cover: both sides of its comparison are decoded
+//     strings out of one `ls-tree`.
 //
 // Verifies invariant:
 //
@@ -5332,6 +5432,42 @@ async function readSparseBoundaryTrailer(
 }
 
 /**
+ * Rewrite the turn-1 snapshot commit so it carries `boundaryPaths` as its
+ * `Sparse-Boundary-Paths:` trailer, leaving its tree and parent alone.
+ *
+ * FORGING, and only for shapes a single capture provably cannot produce. Git emits
+ * a trailing-slash `ls-files -o` entry only for a directory nothing in the index
+ * sits at or beneath, so a capture can never record a directory entry that the
+ * same snapshot's tree also holds paths at — which is exactly the collision the
+ * obstruction guard's second shape is about. The trailer is the restore's
+ * authority over what it may not destroy WHATEVER produced it, so driving the
+ * guard from a crafted one tests the disposition rather than the capture that
+ * would have to be wrong to reach it. The undecodable-trailer arm above
+ * establishes the technique.
+ */
+async function forgeSparseBoundaryTrailer(
+  repository: FixtureRepository,
+  boundaryPaths: readonly string[],
+): Promise<void> {
+  const ref = `refs/sidekicks/runs/${RUN_ID}/epoch-0/turn-1`;
+  const previous: string = await repository.git(["rev-parse", ref]);
+  const forged: string = await repository.git(
+    [
+      "commit-tree",
+      `${ref}^{tree}`,
+      "-p",
+      await repository.git(["rev-parse", `${ref}^`]),
+      "-m",
+      "sidekicks: turn-boundary snapshot",
+      "-m",
+      `Sparse-Boundary-Paths: ${JSON.stringify(boundaryPaths)}`,
+    ],
+    { environmentOverrides: { GIT_AUTHOR_DATE: "1767225600 +0000" } },
+  );
+  await repository.git(["update-ref", ref, forged, previous]);
+}
+
+/**
  * Whether `argv` is the boundary-drop enumeration's own `ls-files` invocation.
  *
  * Matched on the flags AFTER the subcommand, never with `argv.includes`. Every
@@ -6904,6 +7040,594 @@ describe("TurnSnapshotService sparse execution roots (T6.1, I-010-24)", () => {
       ),
     );
     expect(cachedListings).toEqual([]);
+  });
+
+  it("carries a MULTIBYTE out-of-cone name through the whole pipeline under `core.quotepath`", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    // The capture leg's byte discipline, measured on real bytes off a real disk.
+    // `core.quotepath=true` is the host setting that makes git render non-ASCII
+    // paths as C-quoted escapes in its PORCELAIN output; every listing this module
+    // reads is `-z`, which git documents as defeating that quoting, and the whole
+    // partition rests on it — a quoted echo would key the in-cone map on a
+    // different string than the listing slice and drop the path from the snapshot.
+    //
+    // A CJK name rather than an accented Latin one, deliberately: APFS normalizes
+    // filenames to NFD, so `café` would round-trip through a different byte
+    // sequence than it was written with and the arm would be measuring the
+    // filesystem's normalization instead of git's quoting.
+    await repository.git(["config", "core.quotepath", "true"]);
+    repository.write("cone-in/kept.txt", "in cone\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+    await repository.git(["sparse-checkout", "set", "cone-in"]);
+    mkdirSync(join(repository.root, "cone-out"), { recursive: true });
+    repository.write("cone-out/日本語.txt", "multibyte out of cone\n");
+
+    const service: TurnSnapshotService = buildService();
+    const captured: TurnSnapshotCaptured = await captureTurn(service);
+    await expectCapturePorcelainEquivalent(repository, captured, "porcelain-multibyte.index");
+    // VERBATIM in the trailer: not `cone-out/\346\227\245…`, which is what a leg
+    // reading porcelain output under this config would have recorded.
+    expect(await readSparseBoundaryTrailer(repository, captured.snapshotCommit)).toEqual([
+      "cone-out/日本語.txt",
+    ]);
+
+    // And the exemption keyed on that name really protects the file, which is the
+    // half a trailer assertion alone would not reach: a name mangled anywhere
+    // between the listing and the delete pass makes the exemption a silent no-op.
+    repository.write("cone-out/turn-created.txt", "created by the turn\n");
+    expectRestored(
+      await service.restoreToTurn(
+        expectResolved(await service.resolveRestoreTarget(buildResolveInput())),
+      ),
+    );
+    expect(readFileSync(join(repository.root, "cone-out", "日本語.txt"), "utf8")).toBe(
+      "multibyte out of cone\n",
+    );
+    expect(existsSync(join(repository.root, "cone-out", "turn-created.txt"))).toBe(false);
+  });
+
+  it("subtracts the boundary set BYTE-EXACTLY, so paths that decode alike stay distinct", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    // SYNTHESIZED ON BOTH SIDES, and scoped to match: this arm drives
+    // `#deriveSparseBoundaryPaths`' KEYING and asserts only the trailer and the
+    // staged tree. It claims nothing about the delete pass or the restore, because
+    // neither listing here came off a disk — APFS rejects a non-UTF-8 filename at
+    // `creat(2)` with `EILSEQ` (measured), so the repository this arm needs cannot
+    // exist on the measuring host and the seam is the only honest way in.
+    //
+    // The two injected paths share NO bytes and decode to the SAME string: `0xFF`
+    // and `0xFE` are both invalid UTF-8 lead bytes and both become U+FFFD. So a
+    // subtraction keyed on decoded strings sees the tree already holding the
+    // boundary candidate and drops it from the trailer; one keyed on bytes does
+    // not. The dropped path is what the restore then destroys — for an
+    // intent-to-add entry the pre-drop skips it and `read-tree --reset -u` unlinks
+    // its only on-disk copy.
+    repository.write("cone-in/kept.txt", "in cone\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+    await repository.git(["sparse-checkout", "set", "cone-in"]);
+
+    const invalidCandidate: Buffer = Buffer.concat([Buffer.from("cone-out/"), Buffer.from([0xff])]);
+    const invalidTreePath: Buffer = Buffer.concat([Buffer.from("cone-out/"), Buffer.from([0xfe])]);
+    const NUL: Buffer = Buffer.from([0]);
+    // Matched on the flags AFTER the subcommand, the same discipline
+    // `isBoundaryDropListing` documents: `-co` is unique to the capture listing,
+    // and `--name-only` is unique to the boundary derivation's `ls-tree` (the
+    // restore's tree listing carries modes and object ids).
+    const injectingRunner: TurnSnapshotGitRunner = async (argv, options) => {
+      const result = await runTurnSnapshotGitWithExecFile(argv, options);
+      const lsFilesIndex: number = argv.indexOf("ls-files");
+      if (
+        lsFilesIndex !== -1 &&
+        argv.slice(lsFilesIndex + 1).join(" ") === "-co --exclude-per-directory=.gitignore -z"
+      ) {
+        return { ...result, stdout: Buffer.concat([result.stdout, invalidCandidate, NUL]) };
+      }
+      if (argv.includes("ls-tree") && argv.includes("--name-only")) {
+        return { ...result, stdout: Buffer.concat([result.stdout, invalidTreePath, NUL]) };
+      }
+      return result;
+    };
+
+    const service: TurnSnapshotService = buildService({ git: injectingRunner });
+    const captured: TurnSnapshotCaptured = await captureTurn(service);
+
+    // SURVIVES the subtraction. Its trailer spelling is U+FFFD-replaced, which is
+    // the residual the suite header names — the point is that the path is IN the
+    // set at all, where a decoded subtraction returns `[]`.
+    expect(await readSparseBoundaryTrailer(repository, captured.snapshotCommit)).toEqual([
+      "cone-out/�",
+    ]);
+    // The injection perturbed the SUBTRACTION only: the staged tree is still the
+    // one porcelain builds, so the out-of-cone candidate never reached staging and
+    // the in-cone half of the partition is byte-identical to an un-injected run.
+    await expectCapturePorcelainEquivalent(repository, captured, "porcelain-byte-exact.index");
+  });
+
+  it("records a non-descended boundary DIRECTORY with its slash and protects its SUBTREE", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    // The representation change the trailer has to survive. At CAPTURE an
+    // out-of-cone untracked embedded repository is one `ls-files -o` entry with a
+    // trailing slash — git refuses to descend it, so the capture cannot enumerate
+    // what is inside. If the turn removes that `.git`, the RESTORE's listing
+    // descends the very same directory and emits its payload file by file. An
+    // exemption keyed on the recorded name exactly then covers none of those
+    // paths, and the delete pass takes boundary-time content the trailer exists to
+    // keep. Recording the slash is what lets the restore know the recorded name
+    // stood for a subtree.
+    repository.write("cone-in/kept.txt", "in cone\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+    await repository.git(["sparse-checkout", "set", "cone-in"]);
+    mkdirSync(join(repository.root, "cone-out"), { recursive: true });
+    await createEmbeddedRepository("cone-out/nested");
+    writeFileSync(join(repository.root, "cone-out", "nested", "payload.txt"), "boundary payload\n");
+
+    const service: TurnSnapshotService = buildService();
+    const captured: TurnSnapshotCaptured = await captureTurn(service);
+    // TYPE-PRESERVING: recorded WITH the slash git listed it with.
+    expect(await readSparseBoundaryTrailer(repository, captured.snapshotCommit)).toEqual([
+      "cone-out/nested/",
+    ]);
+
+    // The turn removes the embedded `.git`, leaving the payload. Nothing else about
+    // the directory changed; only git's willingness to descend it did.
+    rmSync(join(repository.root, "cone-out", "nested", ".git"), { recursive: true, force: true });
+    repository.write("cone-out/nested/turn-created.txt", "created by the turn\n");
+    repository.write("cone-out/turn-created.txt", "created by the turn, outside\n");
+
+    expectRestored(
+      await service.restoreToTurn(
+        expectResolved(await service.resolveRestoreTarget(buildResolveInput())),
+      ),
+    );
+
+    // SURVIVES, per file, through a listing that now spells the directory as its
+    // contents.
+    expect(readFileSync(join(repository.root, "cone-out", "nested", "payload.txt"), "utf8")).toBe(
+      "boundary payload\n",
+    );
+    expect(readFileSync(join(repository.root, "cone-out", "nested", "inner.txt"), "utf8")).toBe(
+      "inner\n",
+    );
+    // THE NAMED RESIDUAL, pinned rather than left to prose: a file the TURN created
+    // inside a boundary-time non-descended directory is protected too, because the
+    // capture could not enumerate that directory and path identity for such an
+    // entry IS the subtree. The same over-protection the skipped-repository
+    // exemption already accepts.
+    expect(existsSync(join(repository.root, "cone-out", "nested", "turn-created.txt"))).toBe(true);
+    // And the residual is BOUNDED to that directory: turn-created out-of-cone
+    // content anywhere else is still deleted.
+    expect(existsSync(join(repository.root, "cone-out", "turn-created.txt"))).toBe(false);
+  });
+
+  it("keeps the FILE kind EXACT — turn content beneath a boundary FILE path is deleted", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    // The companion control for the arm above, and the reason the two kinds are
+    // recorded separately instead of the whole set taking the wider width. A
+    // boundary FILE entry names one file. If the turn replaces that file with a
+    // DIRECTORY, everything now inside it is post-boundary content and the delete
+    // pass must take it — a subtree-matching exemption over the file kind would
+    // shelter it and turn the out-of-cone region into a write-protected zone.
+    repository.write("cone-in/kept.txt", "in cone\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+    await repository.git(["sparse-checkout", "set", "cone-in"]);
+    mkdirSync(join(repository.root, "cone-out"), { recursive: true });
+    repository.write("cone-out/thing", "a FILE at the boundary\n");
+
+    const service: TurnSnapshotService = buildService();
+    const captured: TurnSnapshotCaptured = await captureTurn(service);
+    // Recorded WITHOUT a slash — git descended nothing, because there was nothing
+    // to descend.
+    expect(await readSparseBoundaryTrailer(repository, captured.snapshotCommit)).toEqual([
+      "cone-out/thing",
+    ]);
+
+    rmSync(join(repository.root, "cone-out", "thing"));
+    repository.write("cone-out/thing/created.txt", "created by the turn\n");
+
+    expectRestored(
+      await service.restoreToTurn(
+        expectResolved(await service.resolveRestoreTarget(buildResolveInput())),
+      ),
+    );
+    expect(existsSync(join(repository.root, "cone-out", "thing", "created.txt"))).toBe(false);
+  });
+
+  it("REFUSES when a widened cone would checkout OVER a boundary path, naming only what materializes", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    // THE CHECKOUT'S OWN DESTRUCTION, which neither the index pre-drop nor the
+    // delete-pass exemption can reach. The index caches `cone-out/foo/bar`, so
+    // there is no `cone-out/foo` entry to pre-drop; and the delete pass runs AFTER
+    // the checkout, so its exemption arrives to protect a file `read-tree --reset
+    // -u` unlinked two legs ago — at exit 0, saying nothing.
+    repository.write("cone-in/kept.txt", "in cone\n");
+    repository.write("cone-out/foo/bar", "tracked beneath the boundary path\n");
+    repository.write("cone-out/foo/other", "also tracked beneath it\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+    await repository.git(["sparse-checkout", "set", "cone-in"]);
+    // With `cone-out/` unprojected, a FILE can stand exactly where the snapshot
+    // needs a directory. This is reachable from an ordinary capture, not forged.
+    mkdirSync(join(repository.root, "cone-out"), { recursive: true });
+    repository.write("cone-out/foo", "boundary-time file where a directory must go\n");
+
+    const service: TurnSnapshotService = buildService();
+    const captured: TurnSnapshotCaptured = await captureTurn(service);
+    expect(await readSparseBoundaryTrailer(repository, captured.snapshotCommit)).toEqual([
+      "cone-out/foo",
+    ]);
+
+    // The DEFINITION widens without a re-projection — a user editing the rules
+    // file, or any tool that changes the definition before the next checkout. The
+    // widening is PARTIAL on purpose: it admits `cone-out/foo/bar` and still
+    // excludes `cone-out/foo/other`, so the refusal's attribution is measurable
+    // rather than merely present.
+    const gitDirectory: string = await repository.git(["rev-parse", "--absolute-git-dir"]);
+    await repository.git(["config", "core.sparseCheckoutCone", "false"]);
+    writeFileSync(join(gitDirectory, "info", "sparse-checkout"), "/cone-in/\n/cone-out/foo/bar\n");
+    const censusBefore: string = collectWorktreeCensus(repository.root);
+    const indexBefore: string = readIndexFingerprint(repository.root);
+
+    const partial: TurnSnapshotPartialRestore = expectPartialRestore(
+      await service.restoreToTurn(
+        expectResolved(await service.resolveRestoreTarget(buildResolveInput())),
+      ),
+    );
+    expect(partial).toMatchObject({ failedStep: "derive-enumerations" });
+    const failure = fixture.diagnostics.find(
+      (diagnostic) => diagnostic.kind === "restore-failed",
+    ) as { readonly detail: string } | undefined;
+    expect(failure?.detail).toContain("cone-out/foo (displaced by cone-out/foo/bar)");
+    // ATTRIBUTED THROUGH THE ORACLE: `cone-out/foo/other` conflicts by path shape
+    // and the live cone leaves it unwritten, so it is not a cause and is not named.
+    expect(failure?.detail).not.toContain("cone-out/foo/other");
+
+    // PRE-MUTATION on BOTH surfaces. The worktree census is the invariant's own
+    // claim — boundary-time content survives on disk — and the index fingerprint is
+    // what proves the refusal fired upstream of the boundary pre-drop rather than
+    // after it.
+    expect(collectWorktreeCensus(repository.root)).toBe(censusBefore);
+    expect(readIndexFingerprint(repository.root)).toBe(indexBefore);
+    expect(readFileSync(join(repository.root, "cone-out", "foo"), "utf8")).toBe(
+      "boundary-time file where a directory must go\n",
+    );
+  });
+
+  it("does NOT refuse when the conflicting snapshot path stays OUT of cone", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    // The oracle's other side, and the arm that keeps the guard from being a blunt
+    // path-shape test. The identical conflicting SHAPE as above — a boundary file
+    // at `cone-out/foo`, snapshot paths beneath it — with the cone left where the
+    // capture found it. Nothing beneath `cone-out/foo` materializes, so nothing
+    // displaces the boundary path and there is nothing to refuse. A guard that
+    // skipped the materialization question would refuse every ordinary sparse
+    // restore of this repository.
+    repository.write("cone-in/kept.txt", "in cone\n");
+    repository.write("cone-out/foo/bar", "tracked beneath the boundary path\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+    await repository.git(["sparse-checkout", "set", "cone-in"]);
+    mkdirSync(join(repository.root, "cone-out"), { recursive: true });
+    repository.write("cone-out/foo", "boundary-time file\n");
+
+    const service: TurnSnapshotService = buildService();
+    await captureTurn(service);
+    repository.write("cone-out/turn-created.txt", "created by the turn\n");
+
+    expectRestored(
+      await service.restoreToTurn(
+        expectResolved(await service.resolveRestoreTarget(buildResolveInput())),
+      ),
+    );
+    // Restored in full, and the boundary path kept by the exemption as always.
+    expect(readFileSync(join(repository.root, "cone-out", "foo"), "utf8")).toBe(
+      "boundary-time file\n",
+    );
+    expect(existsSync(join(repository.root, "cone-out", "turn-created.txt"))).toBe(false);
+  });
+
+  it("REFUSES when a snapshot BLOB would displace a boundary DIRECTORY, in a non-sparse root", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    // The second destructive shape, and the MEMBERSHIP half of the guard's scope:
+    // this restore root is not sparse at all, so every snapshot path materializes
+    // and the question is only what the SNAPSHOT recorded. Measured on git 2.50.1
+    // — a directory standing where the checkout writes a blob is removed WHOLE,
+    // untracked payload and all, at exit 0.
+    //
+    // FORGED, because this shape is not reachable from a single capture: git emits
+    // a trailing-slash `ls-files -o` entry only for a directory nothing in the
+    // index sits at or beneath, so a capture that recorded `cone-out/blob/` could
+    // not also have held a blob there. The trailer is the restore's authority
+    // whatever produced it, which is exactly the property under test.
+    repository.write("cone-in/kept.txt", "in cone\n");
+    repository.write("cone-out/blob", "snapshot blob\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "fixture"]);
+
+    const service: TurnSnapshotService = buildService();
+    await captureTurn(service);
+    await forgeSparseBoundaryTrailer(repository, ["cone-out/blob/"]);
+
+    // The turn replaces the tracked file with a directory holding untracked work.
+    rmSync(join(repository.root, "cone-out", "blob"));
+    repository.write("cone-out/blob/payload.txt", "content the trailer promised to keep\n");
+    const censusBefore: string = collectWorktreeCensus(repository.root);
+    const indexBefore: string = readIndexFingerprint(repository.root);
+
+    expect(
+      await service.restoreToTurn(
+        expectResolved(await service.resolveRestoreTarget(buildResolveInput())),
+      ),
+    ).toMatchObject({ outcome: "partial_restore", failedStep: "derive-enumerations" });
+    expect(collectWorktreeCensus(repository.root)).toBe(censusBefore);
+    expect(readIndexFingerprint(repository.root)).toBe(indexBefore);
+    expect(readFileSync(join(repository.root, "cone-out", "blob", "payload.txt"), "utf8")).toBe(
+      "content the trailer promised to keep\n",
+    );
+  });
+
+  it("does NOT refuse when a boundary DIRECTORY's descendants materialize — the checkout merges", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    // The plausible false positive, and the reason the two shapes are stated
+    // separately rather than as "a boundary path and a snapshot path overlap".
+    // Measured on git 2.50.1: a snapshot holding paths only BENEATH a directory
+    // merges into it, leaving its payload and its `.git` untouched. Refusing here
+    // would refuse the ordinary restore of any sparse root whose boundary set
+    // holds a directory — the common case, not an edge.
+    repository.write("cone-in/kept.txt", "in cone\n");
+    repository.write("cone-out/nested/tracked.txt", "tracked beneath the boundary directory\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "fixture"]);
+
+    const service: TurnSnapshotService = buildService();
+    await captureTurn(service);
+    await forgeSparseBoundaryTrailer(repository, ["cone-out/nested/"]);
+
+    // The turn deletes the tracked file (so the restore has to write it back into
+    // the directory) and leaves untracked boundary payload beside it.
+    rmSync(join(repository.root, "cone-out", "nested", "tracked.txt"));
+    repository.write("cone-out/nested/payload.txt", "boundary payload\n");
+
+    expectRestored(
+      await service.restoreToTurn(
+        expectResolved(await service.resolveRestoreTarget(buildResolveInput())),
+      ),
+    );
+    // BOTH: the snapshot's own path is merged back in, and the boundary
+    // directory's payload survives the delete pass through the subtree exemption.
+    expect(readFileSync(join(repository.root, "cone-out", "nested", "tracked.txt"), "utf8")).toBe(
+      "tracked beneath the boundary directory\n",
+    );
+    expect(readFileSync(join(repository.root, "cone-out", "nested", "payload.txt"), "utf8")).toBe(
+      "boundary payload\n",
+    );
+  });
+
+  it("keeps the two boundary KINDS apart when one path is recorded as both", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    // WHY THE GUARD INDEXES THE TWO KINDS SEPARATELY instead of one map keyed by
+    // path. A trailer may record both `a` and `a/`, and the two kinds then ask
+    // OPPOSITE questions of that path: the file kind wants displacers BENEATH it
+    // and refuses on a non-directory; the directory kind wants a displacer AT it
+    // and refuses on a directory. Merged into one entry, one of the two questions
+    // is lost — and losing either one fails OPEN, which is the direction that
+    // destroys content.
+    //
+    // Both paths carry both kinds in the trailer, and the fixture makes each path
+    // answer through a DIFFERENT kind, so a collapse cannot stay green by picking
+    // a winner.
+    repository.write("cone-in/kept.txt", "in cone\n");
+    repository.write("cone-out/asfile/deep", "tracked BENEATH the path recorded as a file\n");
+    repository.write("cone-out/asdir", "tracked AT the path recorded as a directory\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "fixture"]);
+
+    const service: TurnSnapshotService = buildService();
+    await captureTurn(service);
+    await forgeSparseBoundaryTrailer(repository, [
+      "cone-out/asdir",
+      "cone-out/asdir/",
+      "cone-out/asfile",
+      "cone-out/asfile/",
+    ]);
+
+    // The turn inverts both path kinds on disk, so each is now standing where the
+    // checkout writes the other shape.
+    rmSync(join(repository.root, "cone-out", "asfile"), { recursive: true });
+    repository.write("cone-out/asfile", "boundary file where the snapshot needs a directory\n");
+    rmSync(join(repository.root, "cone-out", "asdir"));
+    repository.write("cone-out/asdir/payload.txt", "boundary payload the trailer promised\n");
+    const censusBefore: string = collectWorktreeCensus(repository.root);
+    const indexBefore: string = readIndexFingerprint(repository.root);
+
+    expect(
+      await service.restoreToTurn(
+        expectResolved(await service.resolveRestoreTarget(buildResolveInput())),
+      ),
+    ).toMatchObject({ outcome: "partial_restore", failedStep: "derive-enumerations" });
+    const failure = fixture.diagnostics.find(
+      (diagnostic) => diagnostic.kind === "restore-failed",
+    ) as { readonly detail: string } | undefined;
+    // Each path named through the kind that actually answers for it: `asdir` by the
+    // blob standing AT it, `asfile` by the blob standing BENEATH it.
+    expect(failure?.detail).toContain("cone-out/asdir (displaced by cone-out/asdir)");
+    expect(failure?.detail).toContain("cone-out/asfile (displaced by cone-out/asfile/deep)");
+    expect(collectWorktreeCensus(repository.root)).toBe(censusBefore);
+    expect(readIndexFingerprint(repository.root)).toBe(indexBefore);
+  });
+
+  it("BOUNDS the refusal detail — every obstruction named, displacers counted", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    // THE ONE MESSAGE IN THIS MODULE THAT COULD GROW. Both sibling pre-mutation
+    // refusals are fixed strings; this one interpolates. Its two halves are bounded
+    // differently on purpose: the obstruction list is the operator's action item and
+    // is bounded by the trailer the snapshot already carries, while the displacers
+    // are a PRODUCT — the file shape fires for every proper ancestor, so one
+    // boundary file high in a tree is displaced by its whole subtree and the detail
+    // would grow with the REPOSITORY. `detail` reaches the partial-restore result
+    // and the `restore-failed` diagnostic verbatim; nothing downstream truncates it.
+    repository.write("cone-in/kept.txt", "in cone\n");
+    for (const leaf of ["a", "b", "c", "d", "e"]) {
+      repository.write(`cone-out/many/${leaf}`, `tracked beneath the boundary path: ${leaf}\n`);
+    }
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "fixture"]);
+
+    const service: TurnSnapshotService = buildService();
+    await captureTurn(service);
+    await forgeSparseBoundaryTrailer(repository, ["cone-out/many"]);
+
+    rmSync(join(repository.root, "cone-out", "many"), { recursive: true });
+    repository.write("cone-out/many", "boundary file where the snapshot needs a directory\n");
+
+    expect(
+      await service.restoreToTurn(
+        expectResolved(await service.resolveRestoreTarget(buildResolveInput())),
+      ),
+    ).toMatchObject({ outcome: "partial_restore", failedStep: "derive-enumerations" });
+    const failure = fixture.diagnostics.find(
+      (diagnostic) => diagnostic.kind === "restore-failed",
+    ) as { readonly detail: string } | undefined;
+    // Sorted, so the cap takes a stable prefix rather than whatever `ls-tree`
+    // emitted first — the count carries the rest.
+    expect(failure?.detail).toContain(
+      "cone-out/many (displaced by cone-out/many/a, cone-out/many/b, cone-out/many/c, and 2 more)",
+    );
+    expect(failure?.detail).not.toContain("cone-out/many/d");
+    expect(failure?.detail).not.toContain("cone-out/many/e");
+    // The boundary path itself is never elided — it is what the operator must act on.
+    expect(failure?.detail).toContain("cone-out/many (");
+  });
+
+  it("REFUSES when a snapshot BLOB at an ANCESTOR would remove the boundary path's directory", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    // THE THIRD DESTRUCTIVE SHAPE, and the one a sparse root makes ordinary rather
+    // than exotic. `cone-out/shadowed` is TRACKED, so narrowing the cone marks it
+    // skip-worktree and takes it off disk — leaving the path free for the turn to
+    // `mkdir` over and write beneath. The index keeps its cached blob there the
+    // whole time, which is exactly what I-010-24 requires of out-of-cone cached
+    // entries, so the snapshot tree carries a blob at a proper ANCESTOR of a
+    // recorded boundary path.
+    //
+    // NEGATIVE CONTROL — measured on git 2.50.1 before this guard existed: the
+    // restore PROCEEDED (shape 1 looks beneath the boundary path and finds nothing;
+    // shape 2 needs a directory entry), `read-tree --reset -u` wrote file
+    // `cone-out/shadowed` at exit 0, and `cone-out/shadowed/payload.txt` was gone.
+    repository.write("cone-in/kept.txt", "in cone\n");
+    repository.write("cone-out/shadowed", "tracked blob that will shadow a directory\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+    await repository.git(["sparse-checkout", "set", "cone-in"]);
+    expect(existsSync(join(repository.root, "cone-out", "shadowed"))).toBe(false);
+    mkdirSync(join(repository.root, "cone-out", "shadowed"), { recursive: true });
+    repository.write("cone-out/shadowed/payload.txt", "boundary payload beneath the blob\n");
+
+    const service: TurnSnapshotService = buildService();
+    const captured: TurnSnapshotCaptured = await captureTurn(service);
+    expect(await readSparseBoundaryTrailer(repository, captured.snapshotCommit)).toEqual([
+      "cone-out/shadowed/payload.txt",
+    ]);
+
+    const gitDirectory: string = await repository.git(["rev-parse", "--absolute-git-dir"]);
+    await repository.git(["config", "core.sparseCheckoutCone", "false"]);
+    writeFileSync(join(gitDirectory, "info", "sparse-checkout"), "/cone-in/\n/cone-out/shadowed\n");
+    const censusBefore: string = collectWorktreeCensus(repository.root);
+    const indexBefore: string = readIndexFingerprint(repository.root);
+
+    const partial: TurnSnapshotPartialRestore = expectPartialRestore(
+      await service.restoreToTurn(
+        expectResolved(await service.resolveRestoreTarget(buildResolveInput())),
+      ),
+    );
+    expect(partial).toMatchObject({ failedStep: "derive-enumerations" });
+    const failure = fixture.diagnostics.find(
+      (diagnostic) => diagnostic.kind === "restore-failed",
+    ) as { readonly detail: string } | undefined;
+    // The DESTROYED path is named, displaced by the ancestor standing above it.
+    expect(failure?.detail).toContain(
+      "cone-out/shadowed/payload.txt (displaced by cone-out/shadowed)",
+    );
+    expect(collectWorktreeCensus(repository.root)).toBe(censusBefore);
+    expect(readIndexFingerprint(repository.root)).toBe(indexBefore);
+    expect(readFileSync(join(repository.root, "cone-out", "shadowed", "payload.txt"), "utf8")).toBe(
+      "boundary payload beneath the blob\n",
+    );
+  });
+
+  it("REFUSES an ancestor BLOB that would remove a boundary DIRECTORY entry", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    // The same shape reaching the OTHER boundary kind, and constructible from an
+    // ordinary capture: an embedded repository beneath the shadowed path is the
+    // one thing `ls-files -o` still spells with a trailing slash there, because it
+    // refuses to descend it. So the recorded entry is a DIRECTORY whose ancestor
+    // is a snapshot blob — the kind pairing the shape-3 pass has to reach through
+    // the directory map rather than the file map.
+    repository.write("cone-in/kept.txt", "in cone\n");
+    repository.write("cone-out/shadowed", "tracked blob that will shadow a directory\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+    await repository.git(["sparse-checkout", "set", "cone-in"]);
+    mkdirSync(join(repository.root, "cone-out", "shadowed"), { recursive: true });
+    await createEmbeddedRepository("cone-out/shadowed/repo");
+
+    const service: TurnSnapshotService = buildService();
+    const captured: TurnSnapshotCaptured = await captureTurn(service);
+    expect(await readSparseBoundaryTrailer(repository, captured.snapshotCommit)).toEqual([
+      "cone-out/shadowed/repo/",
+    ]);
+
+    const gitDirectory: string = await repository.git(["rev-parse", "--absolute-git-dir"]);
+    await repository.git(["config", "core.sparseCheckoutCone", "false"]);
+    writeFileSync(join(gitDirectory, "info", "sparse-checkout"), "/cone-in/\n/cone-out/shadowed\n");
+    const censusBefore: string = collectWorktreeCensus(repository.root);
+
+    expect(
+      await service.restoreToTurn(
+        expectResolved(await service.resolveRestoreTarget(buildResolveInput())),
+      ),
+    ).toMatchObject({ outcome: "partial_restore", failedStep: "derive-enumerations" });
+    const failure = fixture.diagnostics.find(
+      (diagnostic) => diagnostic.kind === "restore-failed",
+    ) as { readonly detail: string } | undefined;
+    // Named under its slash-stripped path, the spelling the classification stores.
+    expect(failure?.detail).toContain("cone-out/shadowed/repo (displaced by cone-out/shadowed)");
+    expect(collectWorktreeCensus(repository.root)).toBe(censusBefore);
+    expect(existsSync(join(repository.root, "cone-out", "shadowed", "repo", ".git"))).toBe(true);
+  });
+
+  it("does NOT refuse when the ancestor BLOB stays OUT of cone", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    // Shape 3's materialization control, and the arm that keeps the new pass from
+    // refusing every ordinary sparse restore of a repository whose turn wrote
+    // beneath a skip-worktree blob. The identical conflicting shape as above with
+    // the cone LEFT ALONE: `cone-out/shadowed` stays skip-worktree, the checkout
+    // writes nothing there, and the boundary payload is in no danger at all.
+    repository.write("cone-in/kept.txt", "in cone\n");
+    repository.write("cone-out/shadowed", "tracked blob that stays out of cone\n");
+    await repository.git(["add", "-A"]);
+    await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+    await repository.git(["sparse-checkout", "set", "cone-in"]);
+    mkdirSync(join(repository.root, "cone-out", "shadowed"), { recursive: true });
+    repository.write("cone-out/shadowed/payload.txt", "boundary payload beneath the blob\n");
+
+    const service: TurnSnapshotService = buildService();
+    await captureTurn(service);
+    repository.write("cone-out/turn-created.txt", "created by the turn\n");
+
+    expectRestored(
+      await service.restoreToTurn(
+        expectResolved(await service.resolveRestoreTarget(buildResolveInput())),
+      ),
+    );
+    // Boundary payload kept by the exemption; turn content still deleted, which is
+    // what proves the delete pass ran rather than the restore having been skipped.
+    expect(readFileSync(join(repository.root, "cone-out", "shadowed", "payload.txt"), "utf8")).toBe(
+      "boundary payload beneath the blob\n",
+    );
+    expect(existsSync(join(repository.root, "cone-out", "turn-created.txt"))).toBe(false);
   });
 });
 
