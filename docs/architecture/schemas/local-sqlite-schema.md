@@ -873,6 +873,8 @@ Full workflow-engine V1 schema. Nine tables implement the 10-state phase machine
 
 The normalized-table-over-blob shape, the per-run hash-chained gate-resolution audit trail, and the rebuildable-projection split align with industry persistence precedents: durable-execution engines persist normalized state per run rather than monolithic blobs ([Restate — What is Durable Execution](https://restate.dev/what-is-durable-execution), fetched 2026-04-26); large-engine persistence tiers separate hot live state from cold archive ([Argo Workflows — Workflow Archive](https://argo-workflows.readthedocs.io/en/latest/workflow-archive/), fetched 2026-04-25); and append-only hash-chained audit trails are the canonical academic precedent for tamper-evident logging (_"a tamper-evident log... uses a hash chain to detect tampering with high probability"_ — [Crosby & Wallach, Efficient Data Structures for Tamper-Evident Logging, USENIX Security 2009](https://static.usenix.org/event/sec09/tech/full_papers/crosby.pdf), fetched 2026-04-25). `Spec-017 §References` > Persistence + hash-chain enumerates the full primary-source corpus.
 
+`workflow_definitions` stores no canvas geometry, at this table or any other. Canvas layout is client-local per `Spec-017 §Canvas layout is not definition bytes (SA-35)` — the same tier as `human_phase_form_state` drafts — because a mutable per-author geometry is neither immutable truth nor a projection rebuildable from `session_events`, and the SA-25 hierarchy defines no third durable tier. Layout travels between machines only inside the definition file form, outside the hashed body. **The nine-table census is unchanged by the visual-builder amendment: no table is added or removed.**
+
 ```sql
 -- ========================================================================
 -- 1. workflow_definitions — content-hashed, immutable, schema-versioned
@@ -883,18 +885,54 @@ CREATE TABLE workflow_definitions (
   id                   TEXT PRIMARY KEY,               -- ULID; NOT the content hash
   session_id           TEXT NOT NULL,                  -- owning session
   name                 TEXT NOT NULL,                  -- author-facing name
+  -- Three-value scope domain per Spec-017 §Resolved Questions and V1 Scope Decisions
+  -- (amended 2026-08-10, Tier-8 audit): 'session' binds to the authoring session,
+  -- 'project' spans a project's sessions, 'shared' is the cross-project reuse tier —
+  -- visible to any project on this daemon, out of this same table. 'shared' is
+  -- breadth only: no distribution, no cross-machine sync, no additional table.
+  -- session_id below keeps recording the authoring session at every scope.
+  -- The pre-audit 'channel' value was never in the governing spec and is struck.
   scope                TEXT NOT NULL DEFAULT 'session'
-                       CHECK(scope IN ('session','channel')),
+                       CHECK(scope IN ('session','project','shared')),
+  -- Scope identity, in the shape Spec-028 §Unified Inventory already uses for
+  -- scope-qualified bindings (see mcp_server_trust.scope_ref below): the authoring
+  -- session id at 'session', the canonical symlink-resolved repository root
+  -- (repo_mounts.canonical_root) at 'project', the '' sentinel at 'shared'. Without
+  -- this column a 'project' row would name no project, so the scope tier is not
+  -- storable on `scope` alone.
+  -- The DEFAULT '' is safe beside `scope`'s DEFAULT 'session' only because the
+  -- CHECK below makes an all-defaults row invalid — and an all-defaults INSERT is
+  -- already unreachable, since content_hash, name, schema_version, and
+  -- definition_body are NOT NULL with no defaults. The default exists so the
+  -- 'shared' sentinel is written by the schema rather than by every caller,
+  -- matching mcp_server_trust.scope_ref below. Do not "fix" it by dropping the
+  -- CHECK.
+  scope_ref            TEXT NOT NULL DEFAULT '',
+  -- Copy-on-write provenance (Spec-017 §Definition scope in the builder (SA-36)):
+  -- the content hash of the 'shared' definition this row was branched from when an
+  -- author edited a shared definition, NULL for a definition authored from scratch.
+  -- Provenance only — it is not part of the hashed body, so a branched definition
+  -- and a from-scratch definition with identical bodies carry the same content_hash
+  -- and collide on the dedupe key below, which is the intended convergence.
+  parent_content_hash  TEXT,
   content_hash         TEXT NOT NULL,                  -- BLAKE3 over JCS-canonicalized definition body
   schema_version       TEXT NOT NULL                   -- `ai-sidekicks-schema: 1.0` per C-8
                        CHECK(schema_version GLOB '[0-9]*.[0-9]*'),
   definition_body      TEXT NOT NULL,                  -- JSON (canonicalized per RFC 8785); full author-supplied definition
   created_at           TEXT NOT NULL,
   created_by           TEXT,                           -- participant_id
-  UNIQUE(session_id, content_hash)                     -- dedupe identical submissions
+  -- Only 'shared' is daemon-wide and therefore ref-free; 'session' and 'project'
+  -- REQUIRE a ref. Mirrors the Spec-028 binding CHECK idiom as defense in depth
+  -- behind the schema-layer validation.
+  CHECK((scope = 'shared') = (scope_ref = '')),
+  -- Dedupe is per scope identity, NOT per authoring session: two sessions storing
+  -- the same 'shared' or 'project' definition must converge on one row, or
+  -- resolution has two irreconcilable candidates. session_id stays provenance only.
+  UNIQUE(scope, scope_ref, content_hash)
 );
 
 CREATE INDEX idx_workflow_definitions_session ON workflow_definitions(session_id);
+CREATE INDEX idx_workflow_definitions_scope ON workflow_definitions(scope, scope_ref);
 CREATE INDEX idx_workflow_definitions_content_hash ON workflow_definitions(content_hash);
 
 -- Note: `updated_at` intentionally absent — definitions are immutable by C-9/F13 convention.
@@ -904,7 +942,7 @@ CREATE INDEX idx_workflow_definitions_content_hash ON workflow_definitions(conte
 -- 2. workflow_versions — definition history chain (F13 additive versioning)
 -- ========================================================================
 -- Owner: Plan-017
--- Wave-1 commitments: F13 / C-8 version-API-at-V1 (Pass D §2.2)
+-- Wave-1 commitments: F13 / C-8 version-API-at-V1; see Spec-017 §Required Behavior
 CREATE TABLE workflow_versions (
   id                   TEXT PRIMARY KEY,               -- ULID
   definition_id        TEXT NOT NULL REFERENCES workflow_definitions(id),
@@ -912,12 +950,12 @@ CREATE TABLE workflow_versions (
   parent_version_id    TEXT REFERENCES workflow_versions(id), -- NULL at version_number=1
   parent_content_hash  TEXT,                           -- BLAKE3 of parent definition body; NULL at version 1
   content_hash         TEXT NOT NULL,                  -- BLAKE3 of THIS version's body
-  phase_definitions    TEXT NOT NULL DEFAULT '[]',     -- JSON array of phase configs
+  definition_body      TEXT NOT NULL,                  -- JSON (canonicalized per RFC 8785); THIS version's full definition body — name, entry record, and the phase-definitions array (each phase entry carrying the per-phase dependsOn list and join-phase parallelJoinPolicy when the definition declares explicit topology, Spec-017 §Graph model — nodes, ports, and edges (SA-32)) — the BLAKE3 preimage of content_hash, so a version read serves name/entry/phaseDefinitions parsed from this body and read -> export reproduces the canonical bytes verbatim (PR #318 review round: was phase_definitions, which stored the array alone and left later versions' name/entry unreconstructable against content_hash; not a duplicate of workflow_definitions.definition_body above — that row carries the definition's current author-supplied body, each version row snapshots its own immutable bytes)
   author_note          TEXT,                           -- opt-in changelog message
   created_at           TEXT NOT NULL,
   created_by           TEXT,                           -- participant_id
   UNIQUE(definition_id, version_number),
-  UNIQUE(content_hash)                                 -- dedupe across definitions too
+  UNIQUE(definition_id, content_hash)                  -- per-definition: one definition never stores the same bytes as two versions; copy-on-write and project -> shared promotion reuse a hash under a new definition id by design (Spec-017 §Definition scope in the builder (SA-36))
 );
 
 CREATE INDEX idx_workflow_versions_definition ON workflow_versions(definition_id, version_number DESC);
@@ -949,8 +987,12 @@ CREATE TABLE workflow_runs (
   pool_reservations_snapshot TEXT NOT NULL DEFAULT '{}', -- JSON: {pty_slots: n, agent_memory_mb: n}
   -- Result
   failure_reason            TEXT,                       -- null unless status in ('failed','cancelled')
-  failure_detail            TEXT,                       -- JSON; includes cancellation_reason per Pass F
+  failure_detail            TEXT,                       -- JSON; includes cancellation_reason per Spec-017 §Workflow Timeline Integration
   created_at                TEXT NOT NULL,
+  -- participant_id at V1: the entry node's only V1 start mode is manual, so every run
+  -- is participant-initiated (Spec-017 §Entry node and the V1 trigger surface (SA-37)).
+  -- The 'or trigger' arm is the forward-compatible hook for a firing engine, which V1
+  -- does not ship — the persistence seam exists so no schema change is owed when one does.
   created_by                TEXT,                       -- participant_id or trigger
   CHECK(phase_transitions_count <= max_phase_transitions),
   CHECK(max_duration_ms > 0)
@@ -967,19 +1009,30 @@ CREATE INDEX idx_workflow_runs_version ON workflow_runs(workflow_version_id);
 -- 4. workflow_phase_states — per-phase state machine projection
 -- ========================================================================
 -- Owner: Plan-017
--- Wave-1 commitments: 10-state machine from Wave-1 §7.1 / Pass F scope
--- Phase types cover all four V1 types: single-agent, multi-agent, automated, human
--- (`automated` subtype `auto-continue`/`done`/`quality-checks`; `human` subtype `human-approval`/`human`)
+-- Wave-1 commitments: the 10-state phase machine (see the `state` CHECK below)
 CREATE TABLE workflow_phase_states (
-  id                      TEXT PRIMARY KEY,            -- ULID; also the phase_run_id used by Pass B channels
+  -- This id IS the phase_run_id — the OWN-channel anchor (SA-6) and the retry-attempt
+  -- identity. A derived opaque identifier, NOT a ULID: totally determined per Spec-017
+  -- §Deterministic identity (SA-21) by BLAKE3(workflow_run_id || phase_id ||
+  -- attempt_number). A ULID's leading 48 bits are a millisecond timestamp, which that
+  -- preimage cannot produce, so the pre-audit "ULID" comment contradicted the
+  -- determinism the spec mandates. The digest's text rendering — width, padding or
+  -- truncation rule, alphabet — is open; see Spec-017 §Open Questions. The column stays
+  -- TEXT under every candidate rendering, so this DDL does not wait on that ruling.
+  id                      TEXT PRIMARY KEY,
   workflow_run_id         TEXT NOT NULL REFERENCES workflow_runs(id),
-  phase_id                TEXT NOT NULL,               -- logical phase id from workflow_versions.phase_definitions
+  phase_id                TEXT NOT NULL,               -- logical phase id from the phase-definitions array in workflow_versions.definition_body
+  -- The four V1 phase types per Spec-017 §Phase-Type and Gate-Type Taxonomy. Gate
+  -- types (`auto-continue`, `quality-checks`, `human-approval`, `done`) live on the
+  -- gate column, never here. Corrected 2026-08-10 by the Tier-8 audit: the previous
+  -- constraint conflated the two taxonomies, carried two values (`gate`, `terminal`)
+  -- in no taxonomy at all, and omitted `automated` — so inserting a first-class V1
+  -- `automated` phase violated the CHECK.
   phase_type              TEXT NOT NULL
                           CHECK(phase_type IN (
-                            'single-agent','multi-agent','auto-continue','done',
-                            'human-approval','human','quality-checks','gate','terminal'
+                            'single-agent','multi-agent','automated','human'
                           )),
-  -- 10-state machine per Wave-1 §7.1 / Pass F
+  -- 10-state machine
   state                   TEXT NOT NULL DEFAULT 'admitted'
                           CHECK(state IN (
                             'admitted','waiting_on_pool','started','progressed',
@@ -1042,7 +1095,8 @@ CREATE INDEX idx_phase_outputs_artifact ON phase_outputs(artifact_manifest_id)
 -- 6. workflow_gate_resolutions — append-only hash-chained per C-13 / I7
 -- ========================================================================
 -- Owner: Plan-017
--- Wave-1 commitment: C-13 append-only hash-chained approval history (Pass E §4.7)
+-- Wave-1 commitment: C-13 append-only hash-chained approval history; the invariant
+-- is I7 in Spec-017 §Pitfalls To Avoid, the scheme Spec-017 §State And Data Implications
 -- Algorithm anchored to Spec-006 §Integrity Protocol (BLAKE3 + Ed25519 + RFC 8785 JCS)
 -- to keep one canonicalization rule across the daemon.
 CREATE TABLE workflow_gate_resolutions (
@@ -1093,7 +1147,7 @@ CREATE INDEX idx_gate_resolutions_approval ON workflow_gate_resolutions(approval
 -- 7. parallel_join_state — sibling set + cancellation bookkeeping
 -- ========================================================================
 -- Owner: Plan-017
--- Wave-1 commitment: SA-4 ParallelJoinPolicy (Pass A §3.4)
+-- Wave-1 commitment: SA-4 ParallelJoinPolicy per Spec-017 §Execution semantics
 CREATE TABLE parallel_join_state (
   id                      TEXT PRIMARY KEY,           -- ULID; referenced by workflow_phase_states.parallel_join_id
   workflow_run_id         TEXT NOT NULL REFERENCES workflow_runs(id),
@@ -1107,7 +1161,8 @@ CREATE TABLE parallel_join_state (
   resolution              TEXT
                           CHECK(resolution IS NULL OR resolution IN ('all_succeeded','any_succeeded','any_failed','all_failed','cancelled')),
   resolved_at             TEXT,                       -- set when the join condition fires
-  -- Cancellation cascade bookkeeping (Wave-1 §3.1 synchrony verification)
+  -- Cancellation cascade bookkeeping — the tick-synchronous cascade required by
+  -- Spec-017 §Workflow Timeline Integration (SA-20: never mid-callback)
   cancel_wave_tick        INTEGER,                    -- executor tick at which cancel wave fired; NULL until fail-fast triggers
   created_at              TEXT NOT NULL
 );
@@ -1121,7 +1176,8 @@ CREATE INDEX idx_parallel_join_state_unresolved ON parallel_join_state(workflow_
 -- ========================================================================
 -- Owner: Plan-017
 -- Wave-1 commitment: SA-6 ownership: OWN V1 (BIND deferred to V1.1 under criterion-gated commitments per ADR-015)
--- Pass B §3.1 channel-lifecycle coupling; Spec-016 linkage
+-- Channel-lifecycle coupling per Spec-017 §Interfaces And Contracts; the channel_id
+-- foreign key below is Plan-016-owned surface consumed over its wire methods (CP-017-5)
 CREATE TABLE workflow_channels (
   id                      TEXT PRIMARY KEY,           -- ULID
   phase_run_id            TEXT NOT NULL UNIQUE REFERENCES workflow_phase_states(id), -- UNIQUE = OWN 1:1
@@ -1144,8 +1200,11 @@ CREATE INDEX idx_workflow_channels_channel ON workflow_channels(channel_id);
 -- 9. human_phase_form_state — draft autosave (daemon-side fallback for V1.x)
 -- ========================================================================
 -- Owner: Plan-017
--- Wave-1 status: Pass C §3 — V1 clients use localStorage/IndexedDB; this table
--- ships empty in V1 so the V1.x daemon-side draft persistence has no migration cost.
+-- Wave-1 status per Spec-017 §Ship-empty tables (SA-28) — V1 clients use
+-- localStorage/IndexedDB; this table ships empty in V1 so the V1.x daemon-side draft
+-- persistence has no migration cost. Its wire companion `workflow.humanFormDraftSave`
+-- is declared in api-payload-contracts.md §Plan-017 with no V1 handler: table and
+-- operation light up together in V1.x.
 CREATE TABLE human_phase_form_state (
   id                      TEXT PRIMARY KEY,           -- ULID
   phase_run_id            TEXT NOT NULL REFERENCES workflow_phase_states(id),

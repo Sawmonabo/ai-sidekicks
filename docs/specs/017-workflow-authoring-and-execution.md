@@ -6,7 +6,7 @@
 | **NNN** | `017` |
 | **Slug** | `workflow-authoring-and-execution` |
 | **Date** | `2026-04-14` |
-| **Amended** | `2026-04-22` (full engine V1 per BL-097 / ADR-015 amendment — was V1.1-deferred-subset at original approval; see §Resolved Questions and V1 Scope Decisions) |
+| **Amended** | `2026-04-22` (full engine V1 per BL-097 / ADR-015 amendment — was V1.1-deferred-subset at original approval; see §Resolved Questions and V1 Scope Decisions); `2026-08-10` (Tier-8 plan-readiness audit — the workflow-definition scope domain becomes three-valued `session` / `project` / `shared`, carried by a `scope_ref` companion in the shape Spec-028 already governs, without which `project` names nothing and the tier is unstorable; `WorkflowDefinitionList` added to §Core SDK and persistence contracts, the enumeration the operation set lacked; `## Preconditions` and `## Open Questions` backfilled per the spec template; §Deterministic identity clarified — a `phaseRunId` is totally derived and therefore not a ULID, with the digest's text rendering left open under §Open Questions rather than decided by the audit; §Visual Workflow Builder added — the node-graph authoring surface, its refusal set, its reference-only tool bindings, the layout-outside-the-hash rule, builder scope semantics including copy-on-write off `shared`, the single-value entry record, and the canonical export/import file form, carried by SA-32 through SA-37 and C-17 and paired with ADR-026; the same amendment narrows the marketplace Non-Goal to distribution and replaces the wholesale editor-UI Non-Goal with a pixel-level one); `2026-08-11` (PR #318 Codex review round — two mechanism-naming additions under the same swap's audit coverage: the SA-32 graph model gains its persistence spelling (each phase's optional `dependsOn` predecessor list and the join-phase `parallelJoinPolicy`, all-or-none per definition, embedded in the canonical body so the stored bytes are the complete executable graph, additive-optional per ADR-018), and the SA-36 operator boundary gains its enforcement naming (a `shared`-target `WorkflowDefinitionCreate` adjudicates operator-scope authorization through the Plan-012 Cedar evaluation surface before any write, fail-closed — "operator" is enforced, not honorific). Each names the mechanism for a boundary the 2026-08-10 amendment already ratifies — no new graph semantics, no new authority — so the Status does not move) |
 | **Author(s)** | `Codex` |
 | **Depends On** | [Multi Agent Channels And Orchestration](../specs/016-multi-agent-channels-and-orchestration.md), [Queue Steer Pause Resume](../specs/004-queue-steer-pause-resume.md), [Agent Channel And Run Model](../domain/agent-channel-and-run-model.md), [Session Event Taxonomy And Audit Log](../specs/006-session-event-taxonomy-and-audit-log.md), [Persistence Recovery And Replay](../specs/015-persistence-recovery-and-replay.md), [Approvals Permissions And Trust Boundaries](../specs/012-approvals-permissions-and-trust-boundaries.md), [Artifacts Files And Attachments](../specs/014-artifacts-files-and-attachments.md) |
 | **Implementation Plan** | [Plan-017: Workflow Authoring And Execution](../plans/017-workflow-authoring-and-execution.md) |
@@ -28,12 +28,13 @@ This spec covers:
 - Workflow event taxonomy (new Spec-006 categories + event types)
 - Durable phase state persisted via Spec-015 (SQLite + WAL)
 - Replay-determinism contract
+- Visual node-graph authoring of workflow definitions, and the canonical file form definitions export to and import from (§Visual Workflow Builder)
 
 ## Non-Goals
 
 - General-purpose external workflow engines (no Temporal, Restate, Argo binding at V1)
-- Marketplace or sharing semantics for workflow templates
-- Full UI design for workflow editors
+- Marketplace or distribution semantics for workflow templates — publishing, importing from outside the daemon, or any cross-machine sync of definitions. Narrowed 2026-08-10 (Tier-8 audit) rather than deleted: the ratified `shared` scope value adds daemon-local cross-project **reuse**, which is a visibility breadth, not distribution. A `shared` definition never leaves the daemon that stores it, so this Non-Goal stands with its subject stated precisely. Definition portability between machines at V1 is therefore the operator-driven file form of §Definition file form — export and import (C-17) — a file an operator moves, never a service that moves it.
+- Pixel-level UI design for the workflow editor. V1 ships the visual builder surface specified in §Visual Workflow Builder — its node taxonomy, port and connection rules, refusal set, layout-persistence tier, and scope semantics are normative here; visual styling, theming, and interaction polish beyond those rules stay out of the spec and are implementation choices. (Amended 2026-08-10, Tier-8 audit: the prior bullet scoped out "full UI design for workflow editors" wholesale, which the visual-builder amendment contradicts.)
 - `BIND` multi-phase channel reuse — criterion-gated V1.1 commitment per [ADR-015 §V1.1 Criterion-Gated Commitments](../decisions/015-v1-feature-scope-definition.md#v11-criterion-gated-commitments). V1 ships `ownership: OWN` only; `BIND` lands only if three named criteria are satisfied (see Interfaces And Contracts §Multi-agent).
 - Default timeout for `human` phase — required typed opt-in in V1 per BL-097 D1. Default-timeout + escalate-to-paging deferred to V1.x under notification-routing criterion per `ADR-015 §V1.1 Criterion-Gated Commitments`.
 - Daemon-side draft autosave for `human` phase forms — V1 ships with client-side localStorage / IndexedDB only (SA-28 / Pass G §10.3). Daemon-side form-state table ships empty at V1.
@@ -54,6 +55,15 @@ This spec covers:
 - [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
 - [Component Architecture Desktop App](../architecture/component-architecture-desktop-app.md)
 
+## Preconditions
+
+Backfilled 2026-08-10 by the Tier-8 plan-readiness audit (A-017-12) — the spec predates the template's Preconditions block, so its original promotion left no record of the gate. Recorded as found, not retrofitted to pass.
+
+- [ ] All declared `Depends On` specs are at `approved` status — Spec-004 (restored 2026-08-08, PR #299), Spec-006, and Spec-015 are `approved`; **Spec-012, Spec-014, and Spec-016 are `review`**, each pending its own restoring targeted readiness-audit delta. This box is the residual that keeps Plan-017 code dispatch bound to [AGENTS.md §Doc-First Discipline](../../AGENTS.md#doc-first-discipline) on those three specs, over and above Plan-017's own audit and status gates.
+- [x] All declared `Depends On` ADRs are at `accepted` status — ADR-015 (amended 2026-04-22), ADR-002, and ADR-018 per §References; the plan-side Required-ADR set additionally names ADR-001, ADR-004, ADR-012, and ADR-017, all `accepted`
+- [x] Blocking open questions are resolved or explicitly deferred — see `## Open Questions`; all three deferred items carry named vehicles (two are upstream-tier amendments, one is a lead ratification), and none gates a Required Behavior row
+- [x] **Spec-status promotion gate cleared per [`docs/operations/plan-implementation-readiness-audit-runbook.md#spec-status-promotion-gate`](../operations/plan-implementation-readiness-audit-runbook.md#spec-status-promotion-gate)** — executed per criterion at the 2026-08-10 flip-and-restore: criterion 1 is recorded as the standing residual above rather than claimed clear; criterion 2 is discharged by `## Open Questions`; criterion 3 holds because no code citing this spec has shipped (Plan-017's shipment manifest is empty and Tier-8 code has not started); criterion 4 is the promotion PR's own citation. **Flip-and-restore record (2026-08-10, this swap):** the Tier-8 plan-readiness audit's three ratified growths — the three-valued scope domain with its `scope_ref` identity, the `WorkflowDefinitionList` enumeration, and the visual-builder amendment (§Visual Workflow Builder, SA-32…SA-37, C-17, two narrowed Non-Goals) — change a governed domain, the operation set, and the required-behavior surface, tripping the runbook's spec-amendment rule and flipping this spec `approved → review`; the same audit's targeted coverage of the growths restores `approved` in the same swap (the Plan-010/Spec-010 flip-and-restore shape), so the README spec-status census does not move; the header Status cell stays bare per preflight Gate 7, this row carrying the narrative.
+
 ## Required Behavior
 
 ### Authoring + versioning
@@ -62,7 +72,7 @@ This spec covers:
 - Workflow authoring format: YAML definitions + typed TypeScript SDK. **No bespoke DSL** (no CUE, no HCL, no custom expression language) — C-1 commitment. DSL lock-in cost is precedent-heavy: Dagger maintained its CUE SDK as primary authoring language from Jan 2022 (v0.1.0) through Dec 2023, then ended CUE SDK support after a year of dual-maintenance against multi-language SDKs, citing that "engineers...want to write code in a language they already know. Learning a brand new language, however powerful, is simply not what they're looking for" ([Dagger — Ending Support for the Dagger CUE SDK, 2023](https://dagger.io/blog/ending-cue-support/); [Solomon Hykes on Changelog #550, 2023](https://changelog.com/podcast/550)); GitHub Actions migrated off HCL to YAML under breaking-change pressure ([GitHub Actions HCL→YAML deprecation, 2019](https://github.blog/changelog/2019-09-17-github-actions-will-stop-running-workflows-written-in-hcl/)).
 - Workflow definition files must carry an explicit schema version marker (e.g., `ai-sidekicks-schema: 1.0`). Daemon must support compat mode for reading older-marker files (SA-14 / C-8 — Temporal's Version Sets → Build IDs retrofit is the precedent cost avoided here).
 - Workflow definitions must be stored as first-class durable definition and version records. Artifact publication may represent workflow exports or summaries, but it must not be the canonical source of workflow definition truth.
-- `WorkflowDefinitionCreate` must run a DFS three-color cycle check against the phase graph and reject invalid definitions with a typed error. Graph stays acyclic at definition time; `go-back-to` is a state-reset operation, not a cyclic edge.
+- `WorkflowDefinitionCreate` must run a DFS three-color cycle check against the phase graph and reject invalid definitions with a typed error. Graph stays acyclic at definition time; `go-back-to` is a state-reset operation, not a cyclic edge. The graph the check runs over is the one the definition declares: the per-phase `dependsOn` predecessor lists when the definition carries them, the phase array's sequential chain when every phase omits them (§Graph model — nodes, ports, and edges (SA-32)).
 
 ### Execution semantics
 
@@ -120,8 +130,10 @@ This spec covers:
 
 ### Core SDK and persistence contracts
 
-- `WorkflowDefinitionCreate` must persist phase definitions and version metadata with schema version marker (C-8).
+- `WorkflowDefinitionCreate` must persist phase definitions and version metadata with schema version marker (C-8). Persisted phase definitions embed the declared topology — each phase's `dependsOn` predecessor list and, on a join phase, its `parallelJoinPolicy` (§Graph model — nodes, ports, and edges (SA-32)) — so the stored body is the complete executable graph and no edge lives outside it.
+- `WorkflowDefinitionCreate` with target scope `shared` — direct authoring, file import, and the §Definition scope in the builder (SA-36) promotion alike, which all ride the one operation — must adjudicate the daemon's operator-scope authorization through the Plan-012 Cedar evaluation surface (`PermissionCheckService`) against the daemon-resolved node-owner participant identity before any row is written, the same boundary Spec-028 §Authorization applies to governance mutations. A principal that does not resolve to the node owner is refused with a typed error, the check fails closed while the identity-resolution seam is unwired, and a refusal never silently downgrades the request to a narrower scope.
 - `WorkflowDefinitionRead` must return the canonical definition record and selected version metadata for the requested scope.
+- `WorkflowDefinitionList` must enumerate the definitions visible to a caller, resolving scope most-specific-first — the caller's session, then its project, then the daemon's `shared` tier — and deduping on `(scope, scopeRef, contentHash)` (added 2026-08-10 by the Tier-8 plan-readiness audit). Enumeration is not optional polish: every other operation here addresses a definition by an id the caller must already hold, so without it a definition that is not already known cannot be reached at all, and the `session` / `project` / `shared` breadth the same amendment ratified would be unobservable.
 - `WorkflowRunStart` must bind a workflow version to a session and create phase execution state.
 - Definition/execution entity separation: `WorkflowPhaseId` identifies a phase in the definition (static); `PhaseRunId` identifies a specific execution (with iteration number, status, timestamps). `PhaseRunId` is deterministically generated as `BLAKE3(workflowRunId || phaseDefinitionId || attemptNumber)` (SA-21 — see State And Data Implications).
 - `PhaseOutputRead` must expose durable phase outputs and artifact references.
@@ -195,9 +207,11 @@ Workflow definitions, versions, and phase outputs must be durable and replayable
 
 Plan-017 specifies the concrete 9-table SQLite schema (SA-24 lands there — implementation detail, not spec contract).
 
+Canvas layout is deliberately **none of the three tiers** and therefore holds no daemon storage at V1: it is not truth (it is mutable per author), it is not a projection (it is not rebuildable from `session_events`), and it is not run-ephemeral (it must outlive a run). It is client-local, per §Canvas layout is not definition bytes (SA-35).
+
 ### Deterministic identity (SA-21)
 
-`PhaseRunId` generator: `BLAKE3(workflowRunId || phaseDefinitionId || attemptNumber)`. Replay reproduces the same `phaseRunId` sequence; random ULIDs are forbidden for `phaseRunId`. Replay uses `session_events` + immutable truth tables as authority; projection tables rebuild via `ProjectionRebuild` ([Temporal Encyclopedia — Event History](https://docs.temporal.io/encyclopedia/event-history); [Bitovi — Replay Testing in Temporal](https://www.bitovi.com/blog/replay-testing-to-avoid-non-determinism-in-temporal-workflows)).
+`PhaseRunId` generator: `BLAKE3(workflowRunId || phaseDefinitionId || attemptNumber)`. **Derivation is total (clarified 2026-08-10, Tier-8 plan-readiness audit):** every bit of the identifier is a function of that preimage and none of it comes from a clock or an entropy source — so a `phaseRunId` is **not a ULID**, whose leading 48 bits are a millisecond timestamp the preimage cannot produce. Implementation surfaces that typed the column as a ULID were describing a shape this rule forbids; the audit corrected them and left the identifier's concrete text rendering open (see §Open Questions), because choosing a rendering is a design decision rather than an audit finding. Any ratified rendering must stay a pure function of the digest. Replay reproduces the same `phaseRunId` sequence; random ULIDs are forbidden for `phaseRunId`. Replay uses `session_events` + immutable truth tables as authority; projection tables rebuild via `ProjectionRebuild` ([Temporal Encyclopedia — Event History](https://docs.temporal.io/encyclopedia/event-history); [Bitovi — Replay Testing in Temporal](https://www.bitovi.com/blog/replay-testing-to-avoid-non-determinism-in-temporal-workflows)).
 
 ### Hash-chain scheme (SA-26, SA-27)
 
@@ -208,7 +222,7 @@ Plan-017 specifies the concrete 9-table SQLite schema (SA-24 lands there — imp
 
 ### Ship-empty tables (SA-28)
 
-`human_phase_form_state` ships in V1 as an **empty schema** (reserved for V1.x daemon-side draft autosave). Zero migration cost when autosave feature lands; zero runtime cost while unused. Clients resume drafts from their own localStorage / IndexedDB per Pass C §3.2 until daemon-side drafts ship V1.x.
+`human_phase_form_state` ships in V1 as an **empty schema** (reserved for V1.x daemon-side draft autosave). Zero migration cost when autosave feature lands; zero runtime cost while unused. Clients resume drafts from their own localStorage / IndexedDB per Pass C §3.2 until daemon-side drafts ship V1.x. Canvas layout for the visual builder persists on this same client-local tier and for the same reason — see §Canvas layout is not definition bytes (SA-35). Neither is daemon state at V1.
 
 ### I/O format invariants (C-5)
 
@@ -315,6 +329,91 @@ Gate types (V1):
 
 Failure behaviors: `retry`, `go-back-to`, `stop`. Phase run statuses: `pending`, `running`, `completed`, `failed`, `skipped`. Gate result statuses: `passed`, `failed`, `waiting-human`.
 
+## Visual Workflow Builder
+
+V1 ships a visual, node-graph authoring surface for workflow definitions alongside the file and SDK authoring paths. The builder is an **authoring and visualization surface over the execution model defined above** — it introduces no execution semantics, no scheduling behavior, and no node kind the phase model cannot already express. Every graph the builder can produce serializes to the same `PhaseDefinition` sequence a hand-authored definition produces, and the daemon accepts it through the same `workflow.definitionCreate` path with the same validation. See [ADR-026](../decisions/026-visual-node-graph-workflow-authoring.md).
+
+### Graph model — nodes, ports, and edges (SA-32)
+
+The persisted node set is **exactly the phase set plus one entry node**. Nothing else is a node.
+
+| Node kind | Persisted as | Count | Notes |
+| --- | --- | --- | --- |
+| Phase node | one `PhaseDefinition` in the definition's phase sequence | one per phase | Carries the phase's declared type — `single-agent`, `multi-agent`, `automated`, `human` — from §Phase-Type and Gate-Type Taxonomy. The node's visual class is that type; there is no fifth phase type and the builder cannot mint one. |
+| Entry node | not a phase; a definition-level `entry` record | exactly one, mandatory | Names how a run of this definition begins. It never enters the phase sequence, never receives a phase run id, and never produces a phase-state row. |
+
+Everything else an author manipulates on the canvas is a **property of a phase node**, edited in that node's inspector and rendered on the node as a badge or attached affordance — never an independent node with its own identity:
+
+- **Gate** — the phase's gate type (`auto-continue`, `quality-checks`, `human-approval`, `done`). Rendered on the phase node's outgoing edge shoulder. A gate is not a node; promoting it to one would require a node kind the phase-type domain does not contain and would put a second writer on the phase-state row.
+- **Agent assignment** — the agents a `single-agent` or `multi-agent` phase runs, rendered as avatars inside the phase node. A `multi-agent` phase's agents are the members of that phase's OWN channel; they are not separate graph nodes, because they have no independent position in the phase sequence.
+- **Tool / action binding** — see §Tool bindings are references, never inline policy (SA-34) below.
+- **Human-form definition** — a `human` phase's form config, edited in the inspector.
+
+**Edges.** A single edge kind exists: the **sequence edge**, meaning "when the source phase's gate resolves to continue, the target phase becomes eligible." Fan-out from one phase node to several targets is the graph spelling of the existing within-phase-boundary parallel construct and carries the definition's `ParallelJoinPolicy` on the join, exactly as a hand-authored definition does. Ports are typed by construction: a phase node exposes one inbound port and one gate-qualified outbound port; the entry node exposes an outbound port only and has no inbound port.
+
+Sequence edges persist **in the canonical definition body**, as each phase's optional `dependsOn` predecessor list — the ids of the phases whose gates must resolve to continue before this phase becomes eligible. An empty list marks an entry-node successor. The field is all-or-none across a definition: when every phase omits it, the order of the phase array declares the sequential chain of §Default Behavior and the stored bytes stay exactly what the author submitted — the daemon never materializes the lists; supplying the field on some phases but not others is refused server-side alongside the SA-33 rules. Fan-out is one phase id appearing in more than one `dependsOn` list; a join is a phase whose list carries more than one id, and that phase carries the fan-out's `ParallelJoinPolicy` as its `parallelJoinPolicy` value — required exactly there and refused on any non-join phase, with the §Default Behavior `fail-fast` default supplied by the authoring surfaces (the builder and the SDK write it into the definition they emit; the wire and the store never default it). The daemon therefore executes the declared topology from the stored body alone, and the builder round-trips it with no out-of-band edge store.
+
+**`go-back-to` is not an edge.** §Required Behavior states it is a state-reset operation, not a cyclic edge, and `workflow.definitionCreate` runs a cycle check that would reject the cyclic spelling. The builder therefore renders a phase's `go-back-to` target as an **annotation on the phase node** (a labelled back-reference), never as a drawn connection, and the connection layer refuses any attempt to draw one. A builder that drew it would emit definitions the daemon rejects on every save.
+
+### Graph shapes that are refused (SA-33)
+
+The builder refuses these at **edit time** — a connection that would produce one cannot be completed, and a definition that already contains one cannot be saved:
+
+1. **Any cycle** among phase nodes, including a self-edge. Mirrors the definition-create cycle check.
+2. **An orphan phase** — a phase node not reachable from the entry node by sequence edges.
+3. **Zero phase nodes.** A definition must contain at least one phase.
+4. **Zero or more than one entry node in the graph.** The refusal is on the graph and on the stored definition, which always carry exactly one entry record — it is **not** a wire-level requirement: a `workflow.definitionCreate` request may omit the entry record, because `manual` is the only V1 start mode and the daemon materializes it (§Entry node and the V1 trigger surface (SA-37)). A request carrying an entry record with an unrecognized start mode still refuses.
+5. **Any edge whose target is the entry node.**
+6. **A `done`-gated phase with an outgoing sequence edge** — `done` terminates; an outgoing edge would assert a successor the engine will never run.
+7. **A fan-out whose branches carry no join policy**, or whose branches converge on more than one join point.
+
+**Edit-time validation mirrors the daemon check; it never replaces it (SA-33).** Every rule above is re-evaluated server-side at `workflow.definitionCreate`, and the daemon's answer is authoritative. A client that skips, weakens, or predates a rule produces a **refusal**, not a persisted definition — the fail-closed direction. Refusals surface as the typed codes registered in [error-contracts.md](../architecture/contracts/error-contracts.md) §Workflow; the builder mints no error surface of its own, and until the pending §Workflow extension lands, an unregistered condition refuses under the existing codes rather than inventing one, per §Loud-errors discipline (C-12).
+
+### Tool bindings are references, never inline policy (SA-34)
+
+A phase node may bind tools. The binding a definition persists is a **reference only**: the scope-qualified binding identity plus a tool name, resolved at phase launch through the [Spec-005](../specs/005-provider-driver-contract-and-capabilities.md) §Tool Metadata layer that [Spec-028](../specs/028-mcp-server-configuration-and-governance.md) §Tool-Level Overrides feeds.
+
+A workflow definition **MUST NOT** carry any governance facet inline. Specifically, a tool binding in a definition carries no `enabled`, no `approvalMode`, and no `idempotencyClass` value — those three facets are node-operator surface, set only through the Spec-028 override operations, Cedar-gated per [Spec-028](../specs/028-mcp-server-configuration-and-governance.md) §Authorization, and independent per binding scope. A definition that carried them would let a workflow author grant themselves an approval posture the operator never granted, and would let a definition exported from one machine silently import a weakened posture onto another. The builder's inspector therefore **displays** the effective facets read-only, sourced live from the governance surface, and offers no control that writes them.
+
+Trust is likewise not a definition concern: an untrusted binding refuses at launch under the Spec-028 trust rules, and the builder shows that state rather than overriding it. This is a distinct mechanism from the content-addressed external-tool pin of §External tool references — content-addressed (C-7): that pin governs a fetched tool artifact's bytes, while a tool binding's identity and trust are governed by the binding's own keyed base-config hash. Neither substitutes for the other.
+
+### Canvas layout is not definition bytes (SA-35)
+
+The **canonical definition** is the JCS-canonicalized JSON body the BLAKE3 content hash already covers. Canvas geometry — node coordinates, viewport pan and zoom, collapse state, and any other purely visual attribute — is **excluded from that body** and from the hash preimage. Dragging a node changes no byte of the definition, mints no content hash, and creates no version. This exclusion is **hash-scope only, never semantics-scope**: nothing that affects execution may be moved into the layout channel to escape hashing, and every field the engine reads stays inside the hashed body.
+
+Layout persists **client-local**, on the same tier and by the same mechanism as `human` phase form drafts in §Ship-empty tables (SA-28) — browser-local storage in the renderer, with no daemon write and no table. The choice is forced by §Truth vs projection vs ephemeral (SA-25): `workflow_versions` is immutable truth, so a mutable per-author geometry cannot live there; a new mutable table would be neither truth nor a projection rebuildable from `session_events`, which is a tier SA-25 does not define; and eventing geometry would enlarge the workflow event taxonomy for data no execution path reads.
+
+Layout is nonetheless **portable**, because the file form of §Definition file form — export and import (C-17) carries it as an optional top-level section outside the hashed body. A definition opened with no layout available — freshly imported, authored through the CLI or SDK, or opened on a second machine — renders through a **deterministic topological auto-layout** derived from the phase sequence, so a definition is never unopenable and two authors opening the same layout-less definition see the same arrangement.
+
+### Definition scope in the builder (SA-36)
+
+The builder loads and saves at all three scopes of §Resolved Questions and V1 Scope Decisions.
+
+- **Loading** lists definitions visible from the current context — the session's own, its project's, and the daemon's `shared` tier — grouped by scope, with the resolution order (`session`, then `project`, then `shared`) shown so an author can see which definition a run would pick.
+- **Saving at `session` or `project` scope** creates a new immutable version of that definition, exactly as today.
+- **Saving an edit to a `shared` definition is copy-on-write, never edit-in-place.** Opening a `shared` definition and editing it produces a **new definition at the editing context's scope** (`project` by default, `session` if there is no project context), carrying the shared definition's content hash as its parent content hash so provenance is recorded in the existing version-chain field. The `shared` original is untouched.
+
+  Copy-on-write is required, not preferred. Definition rows are immutable by construction — the definitions table deliberately carries no updated-at column — so "editing in place" would mean appending a version to the shared definition, which silently repoints **every project on the daemon** that resolves it, with no signal at any consuming project and no way for a consumer to pin. Copy-on-write keeps the blast radius of an edit equal to the scope the editor is standing in, which is the same containment principle that makes two same-scope-name MCP bindings distinct entries rather than a merge.
+
+- **Promotion `project → shared` is an explicit, separately-invoked operator action**, never an implicit consequence of saving. It creates the definition at `shared` scope from the promoted version's exact bytes. "Operator" is enforced, not honorific: promotion rides `workflow.definitionCreate` at `shared` scope and therefore clears the same operator-scope authorization every `shared`-target create clears (§Core SDK and persistence contracts) — the boundary keys on the target scope, never on the invoking gesture, so no route into `shared` bypasses it.
+
+### Entry node and the V1 trigger surface (SA-37)
+
+Every definition has exactly one entry node, which records **how a run begins**. At V1 the entry node's start mode has exactly one value: **manual** — a run begins when a participant starts it through `workflow.runStart` or the CLI.
+
+The entry node is shipped as a **structurally extensible single-value record, not a union with unhonored arms**. No `schedule`, `event`, or `webhook` arm is declared, because §Non-Goals records the C-11 precedent for exactly this shape — an enum whose arms outran the engine had to be break-removed later — and §Loud-errors discipline (C-12) forbids a surface that looks like a capability and silently is not. When a firing engine ships, its start mode is an additive-MINOR extension under [ADR-018](../decisions/018-cross-version-compatibility.md), and the run row's existing creator field already distinguishes a participant-initiated run from a trigger-initiated one, so the persistence hook is in place without declaring the arm early.
+
+### Definition file form — export and import (C-17)
+
+A workflow definition has one canonical file form, and it is the YAML the authoring commitment already names, carrying the schema-version marker the versioning commitment already requires. **No second schema dialect exists**: the file is the definition, and its canonical bytes are the JCS-canonicalized JSON of the parsed document — which is precisely the existing hash preimage, so a definition's content hash is identical whether it arrived through the builder, the SDK, or a file.
+
+The document has exactly two top-level parts:
+
+1. The **definition body** — the hashed, canonical part. Everything the engine reads.
+2. An **optional `layout` section** — canvas geometry, outside the hashed body. An importer that does not understand it, or a consumer that does not want it, ignores it and loses nothing executable. A CLI-authored file omits it entirely.
+
+Round-tripping is closed in both directions: builder → file → CLI → daemon and CLI → file → builder produce the same definition body bytes and therefore the same content hash. Export is a serialization of an existing read; import is a submission through the ordinary definition-create path with the ordinary validation, so an imported definition is subject to every refusal rule above and to the ordinary tool-governance resolution — an import can never carry governance state with it.
+
 ## Implementation Notes
 
 - Workflow authoring belongs in the product surface, but workflow execution still uses the same run, approval, and artifact primitives as free-form sessions.
@@ -377,12 +476,20 @@ Engine implementations violating any of the following are **non-conformant**. Ea
 - If cross-plan SQLite STRICT adoption warrants, draft the SQLite STRICT policy ADR (proposed follow-up task per [ADR-015 §V1.1 Criterion-Gated Commitments](../decisions/015-v1-feature-scope-definition.md#v11-criterion-gated-commitments)).
 - If OpenTelemetry workflow semantic conventions ratify, draft an additive ADR-018 MINOR bump for `traceparent` carriage on the envelope.
 
+## Open Questions
+
+Backfilled 2026-08-10 by the Tier-8 plan-readiness audit (A-017-12). Questions this spec settled are recorded below in §Resolved Questions and V1 Scope Decisions. The first two entries here are open against **other** specs, not against this one; the third is open against this spec but is narrow — it asks how a value this spec already constrains is rendered, not what the value must be. No entry gates a Required Behavior row: §Deterministic identity (SA-21) is satisfied by any rendering that stays a pure function of the digest, so the determinism row holds irrespective of which rendering is ratified. Criterion 2 of the runbook `§Spec-Status Promotion Gate` is therefore satisfied by deferral with a named vehicle rather than by resolution.
+
+- **Where the 23 `workflow.*` event types and their five categories are registered.** §Workflow Timeline Integration enumerates them, but `Spec-006 §Event Type Summary` — the owning registry — carries no `workflow` category. Deferred to a combined Spec-006/Plan-006 targeted readiness-audit delta, following the ratified `mcp_governance` registration precedent; registration moves the summary rows, the marker-governed in-band total, and Plan-006's prose census in one PR. Tracked plan-side as `Plan-017 §Upstream-Tier Amendments Required` and gated by a named Precondition box on every Plan-017 phase.
+- **Which surface provides the OWN channel's `turns_per_agent` budget.** §Interfaces And Contracts specifies the budget and §Workflow Timeline Integration emits progress at 25 / 50 / 75% of it, but no Spec-016 `ChannelConfig` field, `workflow_channels` column, or Spec-016 default supplies a value — and the "bare-channel 50" comparator has no bare-channel default to compare against. Ratified resolution: Plan-016 owns the field (`ChannelConfig.turnsPerAgent`) and also gains an `InterruptReason` member for workflow-phase-driven interrupts, without which the SA-9 `REQUEST_CANCEL` and `TERMINATE` policies have no mechanism to invoke. Deferred to the Spec-016/Plan-016 restoring readiness-audit delta; gated plan-side on Plan-017 Phase 3, with Phases 4–5 chained behind it.
+- **How a derived `phaseRunId` is rendered into its text form.** §Deterministic identity (SA-21) fixes the preimage and, as of the 2026-08-10 clarification, fixes that the identifier is totally derived — but not the encoding of the digest into the column's stored characters. The obvious candidate, "ULID-shaped so the column type is unchanged," is not self-consistent as usually stated: Crockford base32 carries 5 bits per character, so a 26-character rendering spans 130 bits, and a ULID reaches 26 characters by padding its 128 bits and constraining the leading character — a rendering rule that must be written down rather than assumed. The audit deliberately did **not** choose: picking an encoding is a design decision of the same class as the scope domain, and the identifier is a durable primary key, so the choice is one-way. Deferred to lead ratification and a targeted Spec-017/Plan-017 delta, which must state the digest function's output width, the truncation or padding rule, the alphabet, and whether any leading-character constraint applies. Until it lands, implementation surfaces must describe the column as a derived opaque identifier and must not call it a ULID.
+
 ## Resolved Questions and V1 Scope Decisions
 
 - **V1 scope per [ADR-015 amendment 2026-04-22](../decisions/015-v1-feature-scope-definition.md) (BL-097 resolution).** Full workflow engine ships at V1 (the then-17-feature V1 — workflow promoted from V1.1-deferred to V1; V1 subsequently grew to 23 features per the ADR-015 amendment of 2026-07-02, which does not affect this promotion). Two workflow-scoped V1.1 criterion-gated commitments documented in `ADR-015 §V1.1 Criterion-Gated Commitments`: (1) `BIND` multi-phase channel reuse (3 criteria); (2) `human`-phase default timeout once notification routing ships (1 criterion). (The ADR section gained a third, non-workflow commitment — the automated GDPR erasure endpoint, 2026-07-08 per BL-139 — and a fourth, also non-workflow — direct-first artifact fetch, C4, 2026-07-08 with the cross-node artifact pull-forward; neither affects this spec.)
 - **V1 decision (BL-097 D1, Wave 1 §5.1):** no default timeout on `human` phase. Required typed opt-in `timeout: 'none' | Duration`. Revisit V1.x once notification routing ships. Rationale: three durable-execution engines (Temporal ∞, Argo `{}`, Camunda 8 expression-based) converge on no-default-timeout as modern convention; the `7d+escalate` alternative is illusory at V1 because no paging primitive exists — escalate fires telemetry-only, creating the "telemetry-that-looks-like-protection" silent-failure class (violates C-12).
 - **V1 decision (BL-097 D2, Wave 1 §5.2):** `multi-agent` phase ships `ownership: OWN` only; `BIND` is criterion-gated V1.1. Rationale: modern multi-agent composition (2025–2026) is state-passing (Temporal Child Workflows, LangGraph `Command(goto, state)`, AutoGen `HandoffMessage`), not handle-binding. BIND adds 5 state-machine invariants on top of OWN's 3 (retry↔BIND, abandon↔BIND, gate-scoping lattice, membership snapshot timing, termination authority); Airflow SubDAG's lifecycle bugs took 3+ years to patch before deprecation. OWN-only→V1.1 BIND is additive (non-breaking); OWN+BIND at V1→V1.1 revision is breaking.
-- **V1 decision:** first implementation supports session-scoped and project-scoped workflow definitions only. Global workflow libraries are out of scope.
+- **V1 decision (amended 2026-08-10, Tier-8 plan-readiness audit):** the workflow-definition scope domain is three-valued — `session` \| `project` \| `shared`. `session` binds a definition to its authoring session; `project` spans the sessions of one project; `shared` is the cross-project tier, a definition authored once and reusable by any project on the same daemon. All three resolve out of the same local definition store: no additional table and no synchronization path. Scope identity is carried by a `scope_ref` value alongside `scope`, in the shape `Spec-028 §Unified Inventory` already uses for scope-qualified bindings — the authoring session id at `session`, the canonical repository root at `project`, the empty string at `shared` — and definition dedupe keys on `(scope, scope_ref, contentHash)` so one definition stored at a scope is one record regardless of which session submitted it. Resolution at run start walks the tiers most-specific-first — `session`, then `project`, then `shared` — with **no merging across tiers**: two definitions of the same name at two scopes are two distinct definitions, exactly as two same-named MCP bindings in two scopes are distinct entries. Widening `scope` alone would not be storable: `project` would name no project, and a dedupe key rooted in the authoring session would split a `shared` definition into one record per submitting session. `workflow_definitions.session_id` keeps recording the authoring session at every scope, so provenance survives the widening. `shared` widens **visibility and reuse breadth only** — it is not publication, not a marketplace, and not cross-machine sync; global workflow libraries and any distribution of definitions beyond the storing daemon remain out of scope per §Non-Goals. The `channel` scope value that appeared on the contract doc and the SQLite DDL before this amendment was never specified here and is struck: a channel-scoped definition has no defined visibility semantics and would have collided with the Spec-016 `direct` channel kind, whose audience is server-forced `humans-only`.
 - **V1 decision:** workflow definitions are canonical durable definition records, not canonical artifacts. Artifact publication is allowed only for derivative exports, previews, or summaries.
 - **V1 decision:** one execution model (local) at V1 per C-11. No `local | queued | remote` enum at V1.
 
@@ -393,6 +500,7 @@ Engine implementations violating any of the following are **non-conformant**. Ea
 - [ADR-015 — V1 Feature Scope Definition](../decisions/015-v1-feature-scope-definition.md) (amended 2026-04-22 per BL-097)
 - [ADR-002 — Local Execution Shared Control Plane](../decisions/002-local-execution-shared-control-plane.md)
 - [ADR-018 — Cross-Version Compatibility](../decisions/018-cross-version-compatibility.md)
+- [ADR-026 — Visual Node-Graph Workflow Authoring](../decisions/026-visual-node-graph-workflow-authoring.md) (governs §Visual Workflow Builder)
 
 ### Related specs
 
@@ -402,6 +510,8 @@ Engine implementations violating any of the following are **non-conformant**. Ea
 - [Spec-013 — Live timeline visibility and reasoning surfaces](../specs/013-live-timeline-visibility-and-reasoning-surfaces.md) (phase surfacing, pending-human count)
 - [Spec-014 — Artifacts, files, and attachments](../specs/014-artifacts-files-and-attachments.md) (Plan-014 artifact refs; SHA-256 manifest)
 - [Spec-015 — Persistence, recovery, and replay](../specs/015-persistence-recovery-and-replay.md) (projection-rebuild path; replay corpus)
+- [Spec-005 — Provider driver contract and capabilities](../specs/005-provider-driver-contract-and-capabilities.md) (§Tool Metadata resolves a phase's tool bindings at launch, per SA-34)
+- [Spec-028 — MCP server configuration and governance](../specs/028-mcp-server-configuration-and-governance.md) (owns the scope-qualified binding identity and the governance facets a definition must never carry inline, per SA-34)
 
 ### Primary sources (external)
 

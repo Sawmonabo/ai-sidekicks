@@ -10,10 +10,10 @@ This document covers `WorkflowDefinition`, `WorkflowVersion`, and `WorkflowRun`,
 
 ## Definitions
 
-- `WorkflowDefinition`: a named, durable definition record that describes a reusable sequence of phases. Scoped to a session or channel.
+- `WorkflowDefinition`: a named, durable definition record that describes a reusable sequence of phases. Scoped to one of the three `WorkflowScope` tiers below.
 - `WorkflowVersion`: an immutable snapshot of a workflow definition's phase structure at a point in time. Editing a definition creates a new version rather than mutating an existing one.
 - `WorkflowRun`: a single execution instance of a specific workflow version within a session. Each run tracks phase-level execution state independently.
-- `WorkflowScope`: the boundary within which a workflow definition is visible and executable -- either `session` or `channel`.
+- `WorkflowScope`: the boundary within which a workflow definition is visible and executable — `session` (the authoring session), `project` (the sessions of one project), or `shared` (the daemon's cross-project tier). Scope identity is carried by a companion `scope_ref` value — the authoring session id at `session`, the canonical repository root at `project`, the empty string at `shared` — and definitions dedupe on `(scope, scope_ref, contentHash)`. Amended 2026-08-10 by the Tier-8 plan-readiness audit per `Spec-017 §Resolved Questions and V1 Scope Decisions`; the pre-amendment `channel` value is struck — it was never specified by Spec-017 and had no defined visibility semantics.
 
 ## What This Is
 
@@ -30,7 +30,7 @@ The workflow model is the source of truth for how reusable, multi-phase executio
 
 - A workflow definition has exactly one active version at a time. Previous versions remain immutable and referenceable.
 - A workflow run executes exactly one version. If the definition changes while a run is in progress, the running instance continues on the version it started with.
-- Workflow scope is `session` or `channel`. A definition is visible and executable only within its declared scope.
+- Workflow scope is three-valued: `session`, `project`, or `shared`. A definition is visible and executable only within its declared scope's tier; run-start resolution walks the tiers most-specific-first (`session`, then `project`, then `shared`) with no merging across tiers, and editing a `shared` definition is copy-on-write into the editor's scope — never edit-in-place (`Spec-017 §Definition scope in the builder (SA-36)`).
 - Every workflow run belongs to exactly one session.
 - A workflow definition must contain at least one phase definition.
 - Version immutability is absolute: no mutation of phase definitions within a published version.
@@ -38,7 +38,7 @@ The workflow model is the source of truth for how reusable, multi-phase executio
 ## Relationships To Adjacent Concepts
 
 - `Session` is the containing boundary for workflow definitions and runs.
-- `Channel` is the optional narrower scope for workflow definitions.
+- `Project` and the daemon-wide `shared` tier are the two broader scope tiers above `session`; a channel is never a workflow scope (the pre-amendment `channel` value is struck per `Spec-017 §Resolved Questions and V1 Scope Decisions`).
 - `WorkflowPhaseState` tracks per-phase execution progress within a workflow run. See [Workflow Phase Model](./workflow-phase-model.md).
 - `Run` (from the run state machine) is the execution primitive used by individual phases. Each phase execution routes through `OrchestrationRunCreate` per Spec-016/017 constraints.
 - `Agent` and `Channel` (from agent-channel-and-run model) provide the execution persona and communication surface for phase work.
@@ -79,7 +79,7 @@ Versions are immutable once created. There is no version-level state to manage. 
 ```
 WorkflowDefinition (1)
   └── WorkflowVersion (many, immutable)
-        ├── phase_definitions (JSON array of PhaseDefinition)
+        ├── definition_body (canonical body: name, entry, phase-definitions array)
         └── WorkflowRun (many)
               └── WorkflowPhaseState (one per phase in the version)
 ```

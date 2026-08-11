@@ -5,7 +5,7 @@
 | **Status** | `approved` |
 | **NNN** | `027` |
 | **Slug** | `self-host-secure-defaults` |
-| **Date** | `2026-04-19` (rows 9a/9b amended 2026-06-10, Tier-6 readiness audit — Plan-021 D-021-8) |
+| **Date** | `2026-04-19` (rows 9a/9b amended 2026-06-10, Tier-6 readiness audit — Plan-021 D-021-8; §Acceptance Criteria + §Open Questions reconciled to those rows 2026-08-10, Tier-8 readiness audit — Plan-020 walk) |
 | **Author(s)** | `Sawmon (Principal Engineer)` |
 | **Depends On** | Spec-007, Spec-020, Spec-021, Spec-022, Spec-025, Spec-026; ADR-010, ADR-012, ADR-020; `docs/architecture/deployment-topology.md`, `docs/architecture/security-architecture.md` |
 | **Implementation Plan** | Multiple — see Plan Ownership column in §Required Behavior |
@@ -204,7 +204,7 @@ These are non-normative planning hints; they do not add or weaken requirements.
 - [ ] A release manifest where `previous_manifest_hash` does not match the client's last-seen manifest hash is rejected OR the CLI fetches intermediate manifests to bridge the gap (Plan-007 decides which path; spec requires one).
 - [ ] Daemon notify-only auto-update NEVER swaps the daemon binary while IPC is live. The `auto_update_check_status` gauge reflects poll state.
 - [ ] All TLS surfaces reject connections from TLS 1.2 clients by default. `--legacy-tls12` mode emits the override banner and accepts TLS 1.2.
-- [ ] `/metrics` endpoint exposes all six documented counter families in Prometheus v0.0.4 format when scraped on loopback. Scraping on a non-loopback bind without the bearer token is rejected.
+- [ ] `/metrics` endpoint exposes all five documented row-9a daemon counter families in Prometheus v0.0.4 format when scraped on loopback. Scraping on a non-loopback bind without the configured auth credential — bearer token or client certificate — is rejected. (Reconciled 2026-08-10, Tier-8 readiness audit — Plan-020 walk: since the 2026-06-10 D-021-8 pass, row 9a has listed five daemon families and required auth as bearer-token OR mTLS, while this criterion still said six families and assumed a bearer-only scheme — the same superseded premise §Resolved Questions retires below. Recording an already-ratified decision at a site that missed it is reconciliation, not new design, so Spec-027 stays `approved`. Row 9b's relay families are covered by Plan-025's own criteria.)
 - [ ] First-run banner (row 10) lists TLS mode + fingerprint, bind addresses, backup destination + cadence, admin-token file path, update channel + mode, and any active overrides — all on a single screen.
 - [ ] `docs/operations/self-host-secure-defaults.md` exists, contains one entry per row with operator-facing verify commands, and is cross-linked from `deployment-topology.md` and ADR-020.
 - [ ] The companion doc reads as a declarative description of current behavior — no "recently changed" / "previously was" / amendment phrasing.
@@ -221,9 +221,12 @@ These are non-normative planning hints; they do not add or weaken requirements.
 
 - **Behavior 7a polling cadence**: daily? every daemon restart? on-demand? Owned by Plan-007; spec defers.
 - **Behavior 6 plug-in point shape**: S3 / GCS / custom credential surface. Owned by BL-063 + Plan-001; spec defers.
-- **Behavior 9 `/metrics` auth on non-loopback**: bearer token is assumed; owned by Plan-020; spec requires "auth on non-loopback" but defers the scheme.
 - **Short-lived LE profile (6-day) opt-in**: Plan-025 decides whether to expose `ACME_PROFILE=shortlived` in V1 or defer to V1.1.
 - **OAuth auth method on Postgres 18**: not explicitly required by row 5 (which allows scram-sha-256). If an operator is on PG 18 with `oauth` configured, does that count as "weak"? Spec currently treats it as acceptable; Plan-025 may revisit.
+
+## Resolved Questions and V1 Scope Decisions
+
+- **Behavior 9 `/metrics` auth on non-loopback — resolved 2026-06-10, retired from §Open Questions 2026-08-10.** The scheme is no longer deferred: rows 9a and 9b both require either `METRICS_AUTH=bearer` (rotated token file) or `METRICS_AUTH=mtls` (operator-provided client-cert allow-list) on any non-loopback bind, and missing auth on a non-loopback bind is a config-parse-time error. Plan-020 owns the bind/auth contract for both surfaces; Plan-025 consumes it for the relay endpoint. The answer landed with the 2026-06-10 Tier-6 readiness-audit pass (Plan-021 D-021-8) that rewrote rows 9a/9b; this list simply still carried the superseded "bearer token is assumed" framing. Retiring it against the ratified rows is reconciliation, not new design, so Spec-027 stays `approved` (Tier-8 readiness audit — Plan-020 walk).
 
 ## References
 

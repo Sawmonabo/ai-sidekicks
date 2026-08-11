@@ -85,14 +85,14 @@ Top-level segment boundaries (depth-0): `;` is canonical (cross-namespace, e.g. 
 
 Accepted shapes (each emits one or more anchors with `severity: info|warn`; `severity: error` is rejection-only):
 
-- `Spec-NNN AC-X` — single bare AC. `severity: info` (line-hint recommended).
-- `Spec-NNN AC-X (line YY[ — Subject])` — AC with explicit line + optional identifier-token subject.
-- `Spec-NNN AC-X (descriptor)` — AC with prose descriptor (no identifier-token subject). `severity: info`.
+- `Spec-NNN ACX` — single bare AC, where `X` is the ordinal digits with NO hyphen: `AC8`, never `AC-8` — the parser regex is anchored `^AC(\d+)`, so a hyphenated `AC-1` is an unparseable sub-anchor, not a match (this notation bug cost a Gate-4 halt at the Tier-8 audit; the live example on the segment-boundary line above, `Spec-001 AC8`, has always shown the real shape). `severity: info` (line-hint recommended).
+- `Spec-NNN ACX (line YY[ — Subject])` — AC with explicit line + optional identifier-token subject.
+- `Spec-NNN ACX (descriptor)` — AC with prose descriptor (no identifier-token subject). `severity: info`.
 - `Spec-NNN AC line YY[ (descriptor)]` — acceptance criterion named by the LINE it sits on rather than by ordinal (Plan-011 / Plan-014 / Plan-025 idiom). Emits an `ac-line` anchor, NOT a plain `line` anchor: the verifier additionally requires line YY to sit inside the §Acceptance Criteria line bounds and to be a `- [ ]` / `- [x]` checkbox bullet (`ac-line-out-of-range` / `ac-line-outside-section` / `ac-line-not-bullet`), so the shape is strictly stronger than a bare line cite, never a loosening. A cite that ALSO names a section must have that section CONTAIN line YY (`line-outside-section`): resolving the heading proves only that it exists somewhere, so without containment `§Required Behavior AC line 7` was certified by a bullet sitting under §Acceptance Criteria and a stale qualifier stayed green. Only a section the anchor itself claims — the payload's own `§` prefix — is enforced: `section` is sticky across sub-tokens by design (`§Foo line 10, line 12`) and an `AC line` token can never carry its own `§` (its regex is anchored at `^AC`), so a SIBLING's re-section is recorded on the anchor but not enforced against it. Plan-011's `… line 68 + §Git Hosting Adapter lines 118-152 (…), AC line 175` is the live shape: line 175 is a correct §Acceptance Criteria bullet, and enforcing the sibling's span against it would fail a valid cite.
 - `Spec-NNN line YY[ (Subject)]` — line with optional descriptor.
 - `Spec-NNN §Section line YY[, line ZZ[, line WW]][ (descriptor)]` — comma-separated multi-line under one §Section. Splits into N anchors.
 - `Spec-NNN §Section line YY[ (Subject)]` — single §Section + line + optional descriptor.
-- `Spec-NNN line YY + AC-X[ (Subject)]` — `+`-combined line + AC. Splits into two anchors.
+- `Spec-NNN line YY + ACX[ (Subject)]` — `+`-combined line + AC (same hyphenless `ACX` ordinal form). Splits into two anchors.
 - `Spec-NNN §A line YY, §B line ZZ` — comma-separated re-section sub-anchors. Each `§<Section> line N` token inside a single `Spec-NNN` namespace switches the active section and emits one line anchor.
 - `Spec-NNN §Section` (no line) — bare §-cite. `severity: warn` (line-anchor recommended; non-blocking by design).
 - `Spec-NNN lines YY-ZZ (single-subject descriptor)` — multi-line block with one identifier-token subject in descriptor (e.g., `RateLimitResponse lines 127-133`). One anchor.
