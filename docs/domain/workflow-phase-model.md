@@ -86,7 +86,7 @@ Gate resolution results (event-level, not persisted as gate state):
 
 ## Iteration Model
 
-Retry configuration lives in the `PhaseDefinition` within the `phase_definitions` JSON on `workflow_versions`. There is no dedicated retry-count column in the schema; iteration tracking is through session events (`workflow.phase_started` with iteration metadata).
+Retry configuration lives in the `PhaseDefinition` within the phase-definitions array of the `definition_body` JSON on `workflow_versions`. There is no dedicated retry-count column in the schema; iteration tracking is through session events (`workflow.phase_started` with iteration metadata).
 
 - **Retry target**: the phase that produced the output, or a specific earlier phase (configured per gate via `go-back-to`).
 - **Max retries**: configurable per gate. Default: 3.

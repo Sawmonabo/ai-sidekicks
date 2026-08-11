@@ -79,7 +79,7 @@ Versions are immutable once created. There is no version-level state to manage. 
 ```
 WorkflowDefinition (1)
   └── WorkflowVersion (many, immutable)
-        ├── phase_definitions (JSON array of PhaseDefinition)
+        ├── definition_body (canonical body: name, entry, phase-definitions array)
         └── WorkflowRun (many)
               └── WorkflowPhaseState (one per phase in the version)
 ```

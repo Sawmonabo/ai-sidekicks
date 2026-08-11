@@ -950,12 +950,12 @@ CREATE TABLE workflow_versions (
   parent_version_id    TEXT REFERENCES workflow_versions(id), -- NULL at version_number=1
   parent_content_hash  TEXT,                           -- BLAKE3 of parent definition body; NULL at version 1
   content_hash         TEXT NOT NULL,                  -- BLAKE3 of THIS version's body
-  phase_definitions    TEXT NOT NULL DEFAULT '[]',     -- JSON array of phase configs
+  definition_body      TEXT NOT NULL,                  -- JSON (canonicalized per RFC 8785); THIS version's full definition body — name, entry record, and the phase-definitions array (each phase entry carrying the per-phase dependsOn list and join-phase parallelJoinPolicy when the definition declares explicit topology, Spec-017 §Graph model — nodes, ports, and edges (SA-32)) — the BLAKE3 preimage of content_hash, so a version read serves name/entry/phaseDefinitions parsed from this body and read -> export reproduces the canonical bytes verbatim (PR #318 review round: was phase_definitions, which stored the array alone and left later versions' name/entry unreconstructable against content_hash; not a duplicate of workflow_definitions.definition_body above — that row carries the definition's current author-supplied body, each version row snapshots its own immutable bytes)
   author_note          TEXT,                           -- opt-in changelog message
   created_at           TEXT NOT NULL,
   created_by           TEXT,                           -- participant_id
   UNIQUE(definition_id, version_number),
-  UNIQUE(content_hash)                                 -- dedupe across definitions too
+  UNIQUE(definition_id, content_hash)                  -- per-definition: one definition never stores the same bytes as two versions; copy-on-write and project -> shared promotion reuse a hash under a new definition id by design (Spec-017 §Definition scope in the builder (SA-36))
 );
 
 CREATE INDEX idx_workflow_versions_definition ON workflow_versions(definition_id, version_number DESC);
@@ -1021,7 +1021,7 @@ CREATE TABLE workflow_phase_states (
   -- TEXT under every candidate rendering, so this DDL does not wait on that ruling.
   id                      TEXT PRIMARY KEY,
   workflow_run_id         TEXT NOT NULL REFERENCES workflow_runs(id),
-  phase_id                TEXT NOT NULL,               -- logical phase id from workflow_versions.phase_definitions
+  phase_id                TEXT NOT NULL,               -- logical phase id from the phase-definitions array in workflow_versions.definition_body
   -- The four V1 phase types per Spec-017 §Phase-Type and Gate-Type Taxonomy. Gate
   -- types (`auto-continue`, `quality-checks`, `human-approval`, `done`) live on the
   -- gate column, never here. Corrected 2026-08-10 by the Tier-8 audit: the previous
