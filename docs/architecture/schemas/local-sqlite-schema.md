@@ -702,7 +702,10 @@ CREATE UNIQUE INDEX idx_approval_requests_ask ON approval_requests(run_id, ask_i
 CREATE TABLE approval_resolutions (
   request_id               TEXT PRIMARY KEY REFERENCES approval_requests(id),
                                               -- PK = the durable wire id (approvalRequestId): enforces the 1:1 decision row
-                                              -- and keeps every column event-derivable for peer/replay rebuild (I-012-9)
+                                              -- and keeps every column event-derivable for peer/replay rebuild (I-012-9).
+                                              -- A D-012-19 multi-principal conjunction spans one such row per member
+                                              -- request; the wait-for-all aggregate settles across rows, never as
+                                              -- multiple resolutions on one row
   approver_id              TEXT NOT NULL,     -- participant recorded as approver (D-012-12: node-owner binding on the
                                               -- local socket; verified PASETO sub on authenticated surfaces; Spec-012 line 97)
   decision                 TEXT NOT NULL
