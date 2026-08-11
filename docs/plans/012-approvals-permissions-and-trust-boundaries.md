@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| **Status** | `approved` (restored 2026-08-10 by the cross-user run-control authorization targeted readiness-audit delta — PR #317, §6 node NS-54; closes the 2026-08-03 V1 product-vision reconciliation flip) |
+| **Status** | `approved` |
 | **NNN** | `012` |
 | **Slug** | `approvals-permissions-and-trust-boundaries` |
 | **Date** | `2026-04-14` (Tier-6 readiness audit 2026-06-10) |
