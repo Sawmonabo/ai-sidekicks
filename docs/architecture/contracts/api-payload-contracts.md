@@ -396,6 +396,8 @@ const ProtocolVersionSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
 ## Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3)
 
+> **Amended 2026-08-11 (Spec-002 BL-133 amendment, PR #322):** `InvitePreview` and `ChannelDirectoryPublish` join the registry below — one anonymous non-consuming invite-metadata mutation (resolving the [Spec-023 §Deep-Link Invite Flow](../../specs/023-desktop-shell-and-renderer.md#deep-link-invite-flow) pin) and one daemon-called channel-directory ingest mutation (the consuming half of the [Spec-016 §Interfaces And Contracts](../../specs/016-multi-agent-channels-and-orchestration.md#interfaces-and-contracts) D-016-22 publication). **Known naming skew (flagged, not reconciled by this amendment):** the shipped contracts code names request types **without** the `Request` suffix — `packages/contracts/src/invites.ts` exports `InviteCreate` / `InviteAccept` beside `InviteCreateResponse`-style response types — while this registry's Tier-2 shapes carry the older `Invite*Request` spelling. The shapes are field-identical; the code names are the canonical symbols. A future registry-wide naming pass may reconcile the spelling — this amendment deliberately does not, to keep its diff scoped to the two new methods.
+
 ```ts
 // InviteCreate
 interface InviteCreateRequest {
@@ -421,6 +423,23 @@ interface InviteAcceptResponse {
   participantId: ParticipantId;
   role: MembershipRole;
   state: MembershipState; // the activated membership's state (NOT InviteState)
+}
+
+// InvitePreview (2026-08-11) — anonymous, NON-CONSUMING metadata read for the deep-link
+// confirmation step (Spec-002 Interfaces And Contracts; Spec-023 Deep-Link Invite Flow pin).
+// Registered as a tRPC .mutation() despite being read-only: a query would put the token in a
+// GET ?input= URL (server/proxy logs, browser history) — POST keeps it in the body. Zero
+// writes, never burns the jti; refusal checks run in InviteAccept's exact order, and refusals
+// project per error-contracts §Invite with invite.expired / invite.revoked at HTTP 410 via the
+// contracts-level status-override map (see error-contracts §Error Response Shape).
+interface InvitePreviewRequest {
+  token: string;
+}
+interface InvitePreviewResponse {
+  joinMode: JoinMode;
+  expiresAt: string; // ISO 8601
+  sessionName: string | null; // display metadata only — no raw session / inviter identifiers
+  inviterDisplayName: string | null;
 }
 
 // InviteRevoke
@@ -492,6 +511,29 @@ interface ChannelListResponse {
     state: ChannelState;
     participantCount: number;
   }>;
+}
+
+// ChannelDirectoryPublish (2026-08-11) — DAEMON-called idempotent directory ingest (Spec-002
+// Interfaces And Contracts; the consuming half of Spec-016 D-016-22's producer publication,
+// Plan-016 T2.14 / CP-016-15 <-> Plan-002 CP-002-10). Attach-authenticated daemon channel (the
+// runtimenode.signingkeyregister posture) — participants never call it. The ingest folds into
+// session_channel_directory (deterministic LWW + terminal-state dominance on the state axis;
+// create-once origin-authenticated binding on kind + memberPair) and acknowledges only after
+// the durable upsert commits — the producer's at-least-once retry keys on that acknowledgment.
+interface ChannelDirectoryPublishRequest {
+  sessionId: SessionId;
+  channelId: ChannelId;
+  name?: string;
+  state: ChannelState;
+  kind: string; // Plan-016-owned vocabulary — unrecognized values ingest verbatim, consumers read fail-closed as direct
+  memberPair?: [ParticipantId, ParticipantId]; // direct-kind two-human pair; canonicalized (low < high) at ingest
+  originNodeId: string; // origin daemon's node id — must match the authenticated caller to bind disclosure fields
+  originSeq: number; // origin daemon's monotonic sequence — same-origin comparator
+  originOccurredAt: string; // origin envelope occurredAt (ISO 8601) — cross-origin comparator, with...
+  originEventId: string; // ...origin envelope id as the lexicographic tiebreak
+}
+interface ChannelDirectoryPublishResponse {
+  channelId: ChannelId; // durable-commit acknowledgment
 }
 ```
 

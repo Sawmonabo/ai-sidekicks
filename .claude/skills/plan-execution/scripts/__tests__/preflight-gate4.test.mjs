@@ -3508,7 +3508,12 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // 712/131 -> 713/131 (2026-08-11, channel-directory delta): Plan-016's
     // T2.14 carries a `Verifies invariant:` row (I-016-23) — one more bold
     // resolved reference; the legacy channel is unchanged.
-    bold: { resolved: 713, noneArm: 131, parentResolved: 0 },
+    // 713/131 -> 717/134 (2026-08-11, PR #322 membership delta): Plan-002's
+    // T3.7 (I-002-7, I-002-3) and T3.8 (I-002-6, I-002-7) each carry a
+    // two-id `Verifies invariant:` row — four more bold resolved references —
+    // and T2.6/T2.7/T2.8 each carry a `Verifies invariant: none (...)` row —
+    // three more bold none-arms; the legacy channel is unchanged.
+    bold: { resolved: 717, noneArm: 134, parentResolved: 0 },
     legacy: { resolved: 59, noneArm: 3, parentResolved: 1 },
   });
 });
