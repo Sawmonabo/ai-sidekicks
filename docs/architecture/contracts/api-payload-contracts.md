@@ -3811,7 +3811,10 @@ interface WorkflowVersionReadResponse {
   createdAt: string;
 }
 
-// WorkflowRunStart
+// WorkflowRunStart. Callers: CLI, desktop, the intercepted `/workflow start` command,
+// the composer affordance, and the `workflow_start` callback tool — all one operation;
+// no chat caller mints a start mode (Spec-017 SA-37/SA-38). The handler adjudicates the
+// SA-39 named Cedar operation action per start and refuses `workflow.start_denied`.
 interface WorkflowRunStartRequest {
   // The opaque server-minted version reference — the immutable version row's
   // primary key, returned verbatim by workflow.versionRead,
@@ -3821,6 +3824,14 @@ interface WorkflowRunStartRequest {
   // on the wire.
   workflowVersionId: string;
   sessionId: SessionId;
+  // Additive-OPTIONAL per ADR-018 (2026-08-11 chat-start amendment, ADR-027). The
+  // originating channel of a chat-borne start — provenance and progress-surface binding
+  // only. Not an input to the SA-39 role adjudication, but daemon-VALIDATED before it
+  // binds a surface: the handler requires the daemon-resolved starting participant to
+  // be a member of the named channel and refuses `workflow.start_denied` otherwise, so
+  // a forged value can never surface run progress into (or inject a progress card
+  // into) a channel the starter cannot see. Absent on CLI/desktop non-chat starts.
+  channelId?: ChannelId;
 }
 interface WorkflowRunStartResponse {
   workflowRunId: WorkflowRunId;
@@ -3989,7 +4000,7 @@ interface WorkflowGateChainVerifyResponse {
 | `workflow.definitionRead` | RPC | `WorkflowDefinitionReadRequest` → `WorkflowDefinitionReadResponse` | Latest version unless `version` is supplied |
 | `workflow.definitionList` | RPC | `WorkflowDefinitionListRequest` → `WorkflowDefinitionListResponse` | **NEW at the Tier-8 audit** — the ten pre-audit operations had no enumeration, so a caller could only read a definition whose id it already held; scope-resolved most-specific-first |
 | `workflow.versionRead` | RPC | `WorkflowVersionReadRequest` → `WorkflowVersionReadResponse` | Immutable version body; a running instance stays pinned to its own |
-| `workflow.runStart` | RPC | `WorkflowRunStartRequest` → `WorkflowRunStartResponse` | Binds a run to a pinned version; emits `workflow.started` |
+| `workflow.runStart` | RPC | `WorkflowRunStartRequest` → `WorkflowRunStartResponse` | Binds a run to a pinned version; emits `workflow.started`; adjudicates the SA-39 named action per start and refuses `workflow.start_denied` (ADR-027) |
 | `workflow.runRead` | RPC | `WorkflowRunReadRequest` → `WorkflowRunReadResponse` | Projection read; rebuildable from `session_events` |
 | `workflow.phaseOutputRead` | RPC | `PhaseOutputReadRequest` → `PhaseOutputReadResponse` | Outputs stay addressable after completion; a retry adds rows, never mutates (SA-16) |
 | `workflow.gateResolve` | RPC | `WorkflowGateResolveRequest` → `WorkflowGateResolveResponse` | Appends one chain row plus its `session_events` anchor; emits `workflow.gate_resolved` |
@@ -3998,6 +4009,38 @@ interface WorkflowGateChainVerifyResponse {
 | `workflow.gateChainVerify` | RPC | `WorkflowGateChainVerifyRequest` → `WorkflowGateChainVerifyResponse` | Backs the `sidekicks workflow verify-gate-chain <run_id>` CLI subcommand |
 
 The canonical file form of a definition (`Spec-017 §Definition file form — export and import (C-17)`) is a serialization of these same shapes — the YAML the authoring commitment names, carrying the schema-version marker, whose canonical bytes are the JCS-canonicalized JSON of the parsed document. It is not a second dialect and has no contract types of its own. `layout` is an optional top-level section of that document, outside the hashed body, that no request or response above carries: canvas geometry is client-local at V1 (`Spec-017 §Canvas layout is not definition bytes (SA-35)`). Export is a client-side serialization of `workflow.versionRead`; import is a submission through `workflow.definitionCreate` — which is why the visual-builder amendment mints no operation.
+
+The 2026-08-11 chat-start amendment likewise adds **no** method: the chat surfaces are client-surface sugar over `workflow.runStart` (ADR-027), and `workflow_start` below is a callback tool, not a JSON-RPC method — the eleven-row registry above is unchanged.
+
+```typescript
+// workflow_start — the corpus's first concrete SessionCallbackTool (2026-08-11 chat-start
+// amendment, ADR-027; Spec-017 SA-38/SA-39; Plan-017 T5.9 / CP-017-7). Registered into the
+// Plan-005 callback-tool host registry at session spawn; every invocation routes through
+// the CP-005-7 Cedar seam and lands as tool_activity. Born-withheld: while the
+// approval.requestCreate seam is unregistered the registry is withheld at spawn and a
+// stray invocation answers `denied` — never `completed` without Cedar. The originating
+// channel is never a tool argument (the schema below carries no channel field and refuses
+// a smuggled one): the daemon derives it from the invoking turn's channel context, absent
+// when the turn is not channel-scoped, and runs the SA-38 membership validation on the
+// derived value. The handler resolves the definition most-specific-first
+// (session → project → shared) and issues the same start path as workflow.runStart; a
+// Cedar denial answers `denied` carrying workflow.start_denied. NOT a JSON-RPC method:
+// the eleven-method workflow registry is unchanged.
+const workflowStartCallbackTool: SessionCallbackTool = {
+  name: "workflow_start",
+  description:
+    "Start a workflow run in this session by definition name. Resolution is most-specific-first across the session, project, and shared scopes.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      definitionName: { type: "string" },
+      scope: { enum: ["session", "project", "shared"] }, // optional — pins one tier instead of walking
+    },
+    required: ["definitionName"],
+    additionalProperties: false,
+  },
+};
+```
 
 Error vocabulary: [error-contracts.md](./error-contracts.md) §Workflow. That section defines three codes (`workflow.not_found`, `workflow.invalid_phase`, `workflow.gate_closed`) against a surface with at least fifteen refusal points — chain-break detection, resource-pool admission refusal, `fail-fast` sibling abort, `max_phase_transitions` / `max_duration` / `max_concurrent_phases` breach, human-form optimistic-concurrency conflict, definition content-hash mismatch, expression-parse refusal, and — added by the visual-builder amendment, which mints no code of its own and opens no parallel surface — invalid graph shape (any of the seven refused shapes), scope-ref violation, a tool binding carrying an inline governance facet, and an unknown top-level key in an imported definition file, and — added with the graph-topology closure and the `shared`-scope authorization boundary of `Spec-017 §Core SDK and persistence contracts` — an inconsistent topology spelling (a partially-supplied predecessor set, or a join policy on a phase that is not a join) and the operator-authorization refusal on a `shared`-target `workflow.definitionCreate`. The Tier-8 audit surfaced the gap and did not close it; the extension is owed on that document, and until it lands no workflow handler may mint an unregistered code (`Spec-017 §Loud-errors discipline (C-12)` forbids untyped refusals). Durable events owned by Plan-017: the 23 `workflow.*` types across five categories enumerated in [Spec-017 §Workflow Timeline Integration](../../specs/017-workflow-authoring-and-execution.md#workflow-timeline-integration) — their registration in the Plan-006 registry is an open upstream-tier amendment, so no `workflow` category exists in [Spec-006](../../specs/006-session-event-taxonomy-and-audit-log.md) yet.
 

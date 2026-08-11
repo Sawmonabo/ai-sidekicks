@@ -323,6 +323,9 @@ Chunk-integrity mismatch on relay fetch reuses `artifact.hash_mismatch` (409). T
 | `workflow.not_found` | Workflow definition does not exist | 404 |
 | `workflow.invalid_phase` | Requested phase transition is invalid | 400 |
 | `workflow.gate_closed` | Workflow gate has not been resolved and blocks progression | 409 |
+| `workflow.start_denied` | Workflow run start refused — a matrix-denied principal or unresolvable chat-borne principal under the SA-39 named-action adjudication, or a `channelId` naming a channel the resolved starter is not a member of (SA-38 membership validation); one code, ordered arms with scoped disclosure — the role arm runs first and may carry a role-level message (the matrix is public surface; naming the role leaks nothing), and the SA-38 membership validation runs second, only for a matrix-admitted start, collapsing non-member and nonexistent channel into one byte-identical message (no membership or channel-existence oracle — the `runtimenode.permission_denied` collapse-where-it-leaks shape); Cedar-denial-as-domain-code per the `mcp.governance_denied` precedent (ADR-027) | 403 |
+
+The `workflow.start_denied` row is the first landed entry of the extension the surface already owes (Plan-017 A-017-15 — three legacy codes against a fifteen-refusal-point surface, 2026-08-11 chat-start amendment); the remaining refusal points still await the extension.
 
 ### Driver
 
