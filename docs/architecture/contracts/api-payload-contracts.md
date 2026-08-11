@@ -3300,7 +3300,7 @@ interface ChannelConfig {
   roundRobinOrder?: AgentId[]; // REQUIRED non-empty when turnPolicy === "round-robin" (validation error otherwise)
   moderation?: { preTurnGate?: boolean; postTurnReview?: boolean }; // Spec-016 §Moderation Hooks; both default false (V1 opt-in)
   audience?: ChannelAudience; // D-016-21; default "participants"; on a direct-kind channel the daemon forces "humans-only" and refuses a conflicting supplied value (never caller-settable there)
-  turnsPerAgent?: number; // D-016-23 (2026-08-11): positive integer — per-channel override of the session's per-agent consecutive-turn limit (session_budgets.turn_limit_per_agent, default 50); absent = session value. The OWN-channel budget provider Spec-017 consumes (A-017-07); enforced by the turn-policy arbiter under unchanged D-016-8 counting; refused on the direct kind with the other agent-turn members
+  turnsPerAgent?: number; // D-016-23 (2026-08-11): positive integer — per-channel override of the session's per-agent consecutive-turn limit (session_budgets.turn_limit_per_agent, default 50); absent = session value. The OWN-channel budget provider Spec-017 consumes (A-017-07); enforced by the turn-policy arbiter under unchanged D-016-8 counting; refused on the direct kind with the other agent-turn members. Create-time-fixed like every ChannelConfig member — V1 ships no post-create channel-config mutation, so an overridden channel recovers from its limit by interleave alone (the owner raise via orchestration.budgetUpdate reaches only session-default channels; Spec-016 §Resolved Questions, PR #321 round 1)
 }
 interface OrchestrationRunConfig {
   tokenLimit?: number; // per-run token budget; default 100000 (Spec-016 §Budget Policies)
