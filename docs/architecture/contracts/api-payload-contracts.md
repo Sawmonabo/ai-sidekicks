@@ -2413,7 +2413,11 @@ type RememberedRuleId = string & { readonly __brand: "RememberedRuleId" }; // �
 // path categories (file_write, destructive_git) = normalized-absolute-path
 // prefix containment; network_access = exact host equality (no wildcards in V1);
 // all other categories = exact scope-token equality. Absent pattern =
-// category-wide within the (session, node, kind) boundary.
+// category-wide within the (session, node, participant, kind) boundary — the
+// candidate set additionally requires rule.participant_id = the adjudicating
+// turn's effective principal (D-012-10, cross-user run-control authorization
+// delta 2026-08-10): one participant's remembered grant never authorizes
+// another participant's direction, so the lookup is never actor-blind.
 interface RememberedScope {
   kind: "run" | "session"; // 'run' = remainder of the originating run; 'session' = session-wide (explicit opt-in)
   pattern?: string; // resource-matching pattern within the kind boundary; absent = category-wide
@@ -2535,7 +2539,12 @@ interface PermissionCheckResponse {
   // expired resolution, or fail-closed refusal (the typed `approval.persistence_unavailable`
   // error additionally surfaces on fail-closed paths so audit can distinguish them).
   // Invariants: allowed === (reason ∈ {policy_allow, remembered_rule, approved});
-  approvalRequestId?: ApprovalRequestId; // present iff reason = 'pending_approval'
+  approvalRequestIds?: ApprovalRequestId[]; // present + non-empty iff reason = 'pending_approval':
+  // one request per contributing principal whose evaluation required approval (D-012-19),
+  // each addressed to its own principal per D-012-12. A single-principal turn yields a
+  // one-element set; a mixed-input turn (unanimous conjunction per Spec-012 §Required
+  // Behavior) blocks until the FULL set resolves — wait-for-all barrier, aggregate
+  // approved iff every member approves (first reject/expiry refuses the whole set).
 }
 
 // ApprovalProjectionRead
