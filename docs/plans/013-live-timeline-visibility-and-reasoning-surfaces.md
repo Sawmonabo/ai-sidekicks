@@ -2,14 +2,14 @@
 
 | Field | Value |
 | --- | --- |
-| **Status** | `review` |
+| **Status** | `approved` |
 | **NNN** | `013` |
 | **Slug** | `live-timeline-visibility-and-reasoning-surfaces` |
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-013: Live Timeline Visibility And Reasoning Surfaces](../specs/013-live-timeline-visibility-and-reasoning-surfaces.md) |
 | **Required ADRs** | [ADR-001](../decisions/001-session-is-the-primary-domain-object.md), [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md), [ADR-018](../decisions/018-cross-version-compatibility.md) |
-| **Dependencies** | [Plan-006](./006-session-event-taxonomy-and-audit-log.md) (event taxonomy), [Plan-004](./004-queue-steer-pause-resume.md) (superseded-turn read seam — the exported `supersededTurns(runId)` attribution read, CP-004-13) |
+| **Dependencies** | [Plan-006](./006-session-event-taxonomy-and-audit-log.md) (event taxonomy), [Plan-004](./004-queue-steer-pause-resume.md) (superseded-turn read seam — the exported `supersededTurns(runId)` attribution read, CP-004-13), [Plan-016](./016-multi-agent-channels-and-orchestration.md) (durable child-run events + carrier consumed for timeline summary rows; Plan-016 publishes events only, D-016-14) |
 | **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
 
 ## Goal
@@ -26,11 +26,32 @@ This plan covers timeline projections, live subscribe plus replay recovery, chil
 - Provider-specific reasoning rendering beyond normalized surfaces
 - Full timeline design polish
 
+## Invariants
+
+- **I-013-1** — Every run-scoped timeline row carries the complete attribution triple `runId` + `position` + `epoch`, all-or-none; a partial row fails SDK schema parse rather than being delivered. Grounds in `Spec-013 §Required Behavior`.
+- **I-013-2** — A rolled-back turn is never dropped from the timeline; it is marked superseded and stays renderable. Grounds in `Spec-004 §Required Behavior`.
+- **I-013-3** — The `superseded` marker is single-field (`targetPosition`); run identity and source epoch are read from the containing row, so live marking and replay marking cannot disagree. Grounds in `Spec-013 §Required Behavior`.
+- **I-013-4** — Superseding is epoch-scoped: a re-executed reused ordinal in a later epoch renders current while the earlier epoch's same ordinal stays superseded. Grounds in `Spec-004 §Required Behavior`.
+- **I-013-5** — Every `run.rolled_back` boundary payload validates into the typed `RunRolledBackEvent` shape at projection; no consumer receives an untyped cutoff or performs a cast. Grounds in `Spec-013 §Required Behavior`.
+- **I-013-6** — The rollback boundary is delivered visibility-resolved to every filtered subscription admitting any of the affected run's rows, never keyed on the event's optional `channelId`. Grounds in `Spec-013 §Required Behavior`.
+- **I-013-7** — Reasoning unavailability always produces a visible explanation surface; redaction never renders as absence. Grounds in `Spec-013 §Acceptance Criteria`.
+- **I-013-8** — Detailed-reasoning expiry or compaction never erases the durable summary or the policy marker. Grounds in `Spec-013 §Fallback Behavior`.
+
+## Cross-Plan Obligations
+
+| ID | Direction | Counterparty | Obligation |
+| --- | --- | --- | --- |
+| CP-004-13 | consumes | Plan-004 | Consumes T3.14's exported `supersededTurns(runId)` attribution read to compute each row's `superseded` marker on read, replay, and live append. Ledger row is Plan-004's; this plan mints none. |
+| CP-006-8 | consumes | Plan-006 | Renders compacted superseded rows through Plan-006 T4.8's `<CompactedStubSegment>` audit-stub render contract — consumed, never re-implemented. Bidirectional since 2026-07-20. |
+| D-016-14 | consumes | Plan-016 | Consumes Plan-016's durable child-run events and carrier for timeline child-run summary rows; Plan-016 publishes events only. |
+
 ## Preconditions
 
-- [ ] Paired spec is approved — Spec-013 flipped to `review` by the 2026-07-20 CP-004-13 consumer amendment (superseded-turn rendering; the audit runbook's spec-amendment rule); the Tier-8 readiness audit, or an earlier batch gate, restores `approved`
+- [x] Paired spec is approved — Spec-013 flipped to `review` by the 2026-07-20 CP-004-13 consumer amendment (superseded-turn rendering; the audit runbook's spec-amendment rule). **Delivered 2026-08-10:** the Tier-8 readiness audit (§6 node NS-20) restored Spec-013 `approved`, adjudicating the CP-004-13 legs contract-complete and shape-matched against Plan-004 T3.14's `supersededTurns(runId)` export.
 - [x] Required ADRs are accepted
 - [x] Blocking open questions are resolved or explicitly deferred
+- [x] **Plan-readiness audit complete per [runbook](../operations/plan-implementation-readiness-audit-runbook.md)** — Tier-8 walk, §6 node NS-20 (2026-08-10). Findings: 4 critical / 7 major / 2 minor. Residuals this box does not and cannot clear, each requiring a lead-owned amendment: `Spec-013 §Context Window and Usage Meters` (with its Rate-Limit Display subsection) has no plan coverage; the `ChildRunSummary` incompleteness marker, the `ReasoningSurfaceReadResponse` unavailable-vs-redacted split, and the `ReasoningSurfaceReadRequest` principal are unshaped in [API Payload Contracts](../architecture/contracts/api-payload-contracts.md); and the Plan-007 / Plan-021 / Plan-023 dependency edges are undeclared in both directions.
+- [ ] **Plan-004 Phase 3 merged** — T3.14 provides the `supersededTurns(runId)` read seam CP-004-13 obliges this plan to consume. Phase 2 below carries the matching `external_plan_phase_merged` gate; Plan-004's own Phase-3 §Preconditions boxes remain open, which the NS-49 restoration cleared audit and status gates for but not phase gates.
 
 Target paths below assume the canonical implementation topology defined in [Container Architecture](../architecture/container-architecture.md).
 
@@ -65,6 +86,112 @@ Target paths below assume the canonical implementation topology defined in [Cont
 2. Implement daemon-owned timeline projection and replay-aware subscription delivery from canonical events — consuming Plan-004 T3.14's exported `supersededTurns(runId)` (CP-004-13) to compute each row's `superseded` marker on read and replay windows, stamping each run-scoped row's `runId` + `position` + `epoch` at emission and marking live-appended rows there too (a late pre-rollback straggler appends pre-marked exactly when its stamped attribution ranks above the run's effective lineage-minimum cutoff for its epoch and current when it ranks into the surviving history; a new-epoch row appends unmarked), emitting the typed `run.rolled_back` boundary entry (`TimelineRollbackBoundary` — payload validated into the `RunRolledBackEvent` shape, never delivered untyped) with its rewind cutoff for the client-side rule over already-delivered rows — delivered visibility-resolved to every filtered subscription admitting any of the affected run's rows, never keyed on the event's optional `channelId`, and composing the marker with audit-stub rows over compacted regions — an attributed stub populates the run arm from its stub-preserved keys, while a vacuous-era position-less legacy stub takes the `legacy_stub` arm, rendering the placeholder alone, exempt from marking by construction since its run can never admit a rollback while it exists.
 3. Implement child-run expansion plus summary-first, policy-aware reasoning-surface reads with explicit unavailable-or-compacted states.
 4. Add desktop timeline rendering for live rows, summarized child runs, visible unavailable or redacted reasoning placeholders, and the distinct superseded treatment for rolled-back turns — applied live via the `run.rolled_back` boundary entry's idempotent already-delivered-rows rule and rendered from the row marker on read/replay, never dropping rewound history and never marking a re-executed reused ordinal — a compacted superseded row rendering as Plan-006's `<CompactedStubSegment>` (the CP-006-8 audit-stub render contract, consumed here, never re-implemented) composed with the superseded treatment.
+
+## Implementation Phase Sequence
+
+Plan-013 implementation lands as a sequence of small PRs. Each PR exercises one slice of the plan's vertical and carries a `**Precondition:**` line so the merge order is reviewer-checkable. Phase N corresponds 1:1 to §Implementation Steps step N; the ordering is the one §Rollout Order and §Parallelization Notes already ratify.
+
+### Phase 1 — Timeline Contracts
+
+**Precondition:** Tier-8 plan-readiness audit complete. Implementation Step 1; gates both parallel legs §Parallelization Notes names ("once row schemas are fixed").
+
+<!-- prettier-ignore -->
+```yaml
+preconditions:
+  - { type: audit_status, status: complete, evidence_pr: TIER8PRNUM, baseline_tag: "plan-readiness-audit-tier-8" }
+```
+
+#### Tasks
+
+- **T1.1** — Define the `TimelineRow` discriminated union in `packages/contracts/src/timeline/` — arms `TimelineRollbackBoundary` | `RunScopedTimelineEntry` | `LegacyStubTimelineEntry` | `TimelineEntry`, genuinely discriminated on the literal `kind` field, mirroring [API Payload Contracts](../architecture/contracts/api-payload-contracts.md). `RunScopedTimelineEntry` requires `runId` + `position` + `epoch` all-or-none with the optional single-field `superseded` marker; `LegacyStubTimelineEntry` preserves `runId` with position and epoch structurally absent.
+  - **Spec coverage:** Spec-013 §Timeline Entry Types
+  - **Verifies invariant:** I-013-1, I-013-3
+- **T1.2** — Define `ChildRunSummary` (`runId`, `parentRunId`, `state`, `producingNodeId?`, `eventCount`) in `packages/contracts/src/timeline/`.
+  - **Spec coverage:** Spec-013 §Timeline Entry Types
+  - **Verifies invariant:** none
+- **T1.3** — Define `ReasoningSurfaceReadRequest` / `ReasoningSurfaceReadResponse` carrying the availability flag, the policy reason, and the bounded reasoning entries.
+  - **Spec coverage:** Spec-013 §Interfaces And Contracts
+  - **Verifies invariant:** I-013-7
+- **T1.4** — Register the four timeline method strings — `timeline.read`, `timeline.subscribe`, `timeline.reasoningSurfaceRead`, `timeline.childRunExpand` — in the [Timeline Method-Name Registry](../architecture/contracts/api-payload-contracts.md#timeline-method-name-registry-tier-8-plan-013-t14) and against the daemon IPC `MethodRegistry`, so every operation's method string resolves and not merely its schema name.
+  - **Spec coverage:** Spec-013 §Interfaces And Contracts
+  - **Verifies invariant:** none
+
+### Phase 2 — Projection And Replay-Aware Subscription
+
+**Precondition:** Phase 1 merged; **Plan-004 Phase 3 merged** — T3.14 provides the `supersededTurns(runId)` read seam CP-004-13 obliges this phase to consume. Implementation Step 2.
+
+<!-- prettier-ignore -->
+```yaml
+preconditions:
+  - { type: audit_status, status: complete, evidence_pr: TIER8PRNUM, baseline_tag: "plan-readiness-audit-tier-8" }
+  - { type: plan_phase, plan: 013, phase: 1, status: merged }
+  - { type: external_plan_phase_merged, plan: 004, phase: 3 }
+```
+
+#### Tasks
+
+- **T2.1** — Implement `packages/runtime-daemon/src/timeline/timeline-projector.ts` building ordered rows from canonical events, stamping each run-scoped row's `runId` + `position` + `epoch` at emission, and preserving provenance to canonical event ids, run ids, runtime nodes, and policy-redaction reasons.
+  - **Spec coverage:** Spec-013 §State And Data Implications
+  - **Verifies invariant:** I-013-1
+- **T2.2** — Consume Plan-004 T3.14's `supersededTurns(runId)` (CP-004-13) to compute each row's `superseded` marker on read and replay windows and to mark live appends at emission — a late pre-rollback straggler appending pre-marked exactly when its stamped attribution ranks above the run's effective lineage-minimum cutoff for its epoch, current when it ranks into surviving history, and a new-epoch row appending unmarked. Marker survives projection rebuild.
+  - **Spec coverage:** Spec-013 §Required Behavior
+  - **Verifies invariant:** I-013-2, I-013-3, I-013-4
+- **T2.3** — Emit the typed `run.rolled_back` boundary entry with its rewind cutoff, payload validated into the `RunRolledBackEvent` shape at projection, delivered visibility-resolved to every filtered subscription admitting any of the affected run's rows.
+  - **Spec coverage:** Spec-013 §Timeline Entry Types
+  - **Verifies invariant:** I-013-5, I-013-6
+- **T2.4** — Implement replay-window reads and live subscription delivery over the identical row schema so reconnect recovery needs no projection translation; compose the marker with audit-stub rows over compacted regions, an attributed stub populating the run arm from its stub-preserved keys and a vacuous-era stub taking the `legacy_stub` arm.
+  - **Spec coverage:** Spec-013 §Fallback Behavior
+  - **Verifies invariant:** I-013-1, I-013-3
+
+### Phase 3 — Child-Run Expansion And Reasoning Surfaces
+
+**Precondition:** Phase 1 merged. Implementation Step 3; runs parallel to Phase 2 per §Parallelization Notes.
+
+<!-- prettier-ignore -->
+```yaml
+preconditions:
+  - { type: audit_status, status: complete, evidence_pr: TIER8PRNUM, baseline_tag: "plan-readiness-audit-tier-8" }
+  - { type: plan_phase, plan: 013, phase: 1, status: merged }
+```
+
+#### Tasks
+
+- **T3.1** — Implement `packages/runtime-daemon/src/timeline/child-run-summary-service.ts` producing summary rows and expansion from Plan-016's durable child-run events and carrier (D-016-14).
+  - **Spec coverage:** Spec-013 §Required Behavior
+  - **Verifies invariant:** none
+- **T3.2** — Implement `packages/runtime-daemon/src/timeline/reasoning-surface-service.ts` — summary-first, policy-aware reads with explicit unavailable-or-compacted states, storing durable summaries and policy markers separately from bounded detailed-reasoning diagnostic payloads.
+  - **Spec coverage:** Spec-013 §Required Behavior
+  - **Verifies invariant:** I-013-7, I-013-8
+- **T3.3** — Project the `handoff` timeline entry type and intervention-visibility rows into the timeline surface, with tests proving each renders from canonical events.
+  - **Spec coverage:** Spec-013 §Timeline Entry Types
+  - **Verifies invariant:** none
+- **T3.4** — Implement `packages/client-sdk/src/timelineClient.ts` exposing the four operations, parsing rows into the narrowed `TimelineRow` arm — a run-scoped row missing any attribution field failing its `kind`-selected Zod arm rather than falling through to the general or `legacy_stub` arm.
+  - **Spec coverage:** Spec-013 §Interfaces And Contracts
+  - **Verifies invariant:** I-013-1, I-013-5
+
+### Phase 4 — Desktop Timeline Rendering
+
+**Precondition:** Phase 2 and Phase 3 merged — §Parallelization Notes holds renderer work until replay-catch-up semantics and unavailable-reason payloads stabilize. Implementation Step 4.
+
+<!-- prettier-ignore -->
+```yaml
+preconditions:
+  - { type: audit_status, status: complete, evidence_pr: TIER8PRNUM, baseline_tag: "plan-readiness-audit-tier-8" }
+  - { type: plan_phase, plan: 013, phase: 2, status: merged }
+  - { type: plan_phase, plan: 013, phase: 3, status: merged }
+```
+
+#### Tasks
+
+- **T4.1** — Render live rows, replay-recovered rows, and summarized child runs in `apps/desktop/src/renderer/src/timeline/`, narrowing structurally on `row.kind` and never probing the free-form `type`.
+  - **Spec coverage:** Spec-013 §Required Behavior
+  - **Verifies invariant:** I-013-1
+- **T4.2** — Render the distinct superseded treatment for rolled-back turns — applied live via the boundary entry's idempotent already-delivered-rows rule and from the row marker on read/replay, never dropping rewound history and never marking a re-executed reused ordinal — with a compacted superseded row rendering as Plan-006's `<CompactedStubSegment>` (CP-006-8, consumed never re-implemented) composed with the superseded treatment.
+  - **Spec coverage:** Spec-013 §Fallback Behavior
+  - **Verifies invariant:** I-013-2, I-013-4
+- **T4.3** — Render visible unavailable-or-redacted reasoning placeholders in `apps/desktop/src/renderer/src/reasoning-surfaces/`, and the `handoff` and intervention entries from T3.3.
+  - **Spec coverage:** Spec-013 §Acceptance Criteria
+  - **Verifies invariant:** I-013-7
 
 ## Parallelization Notes
 
@@ -113,6 +240,7 @@ shipped: []
 <!-- Per-PR human commentary (round-trips, learnings, partial-ship details). Append-only. -->
 
 - 2026-07-20 — CP-004-13 consumer registration (campaign B9 follow-up, PR #232): registers the Plan-013 side of Plan-004 T3.14's `supersededTurns(runId)` provide-forward — timeline-projector consumption with at-emission marking for live appends, the run-scoped timeline row's `superseded` marker struct, the `run.rolled_back` boundary-entry client rule, renderer treatment, and tests — with the paired Spec-013 amendment (superseded-turn-rendering Required Behavior + `run.rolled_back` subtype row + compacted composition + acceptance criterion). Spec-013 flips `approved → review` per the audit runbook's spec-amendment rule (Required Behavior, Acceptance Criteria, and Depends On all changed), and Plan-013 flips `approved → review` with it under the Status Flip Rule's behavior-change row: the amendment adds mandatory plan-body behavior (the step-2/step-4 consumer legs) plus a new cross-plan dependency (Plan-004) — the recorded campaign-precedent flip signature — while minting no new CP row (the obligation ledger is Plan-004's CP-004-13). Both restore together at the Tier-8 readiness audit or an earlier batch gate, the Preconditions spec-box staying unchecked until the spec's restore; adjudication surfaced for lead review in the PR body.
+- 2026-08-10 — Tier-8 plan-readiness audit (§6 node NS-20): restores Plan-013 and Spec-013 `approved`, discharging the 2026-07-20 campaign B9 CP-004-13 consumer flip (PR #232). **Scope and method:** full runbook walk — gates G1–G7, the 11 completeness dimensions, the D1–D8 dependency trace, plus targeted adjudication of the CP-004-13 legs. **CP-004-13 adjudication:** ready. Plan-004 T3.14's per-`(epoch, turn)` → source-epoch + `targetPosition` export exactly populates the row-level single-field `superseded` marker keyed on the row's own `runId` + `position` + `epoch`, so the Dimension-11 provider shape matches the consumer need by construction; every amendment leg lands on both the spec and plan sides. **Negative control:** two refutations were seeded and both correctly rejected — that the marker duplicates `runId` + `epoch` and can therefore disagree between live and replay (refuted: the marker is deliberately single-field, reading identity from the containing row, so no duplicated fields exist to disagree) and that the rollback boundary is keyed on the event's `channelId` and can be suppressed by a channel filter (refuted: delivery is visibility-resolved to every subscription admitting any of the affected run's rows). **Findings: 4 critical / 7 major / 2 minor.** **Restoration effected:** Status `review → approved` on both docs; the §Preconditions paired-spec box re-checked with its Delivered record; the missing Gate-2 plan-readiness-audit box added and checked, without which the plan would have restored `approved` and stayed mechanically undispatchable; §Invariants (I-013-1..8) and §Cross-Plan Obligations authored as backfill; `## Implementation Phase Sequence` plus Phases 1–4 authored 1:1 onto the ratified §Implementation Steps, ordered by §Rollout Order and §Parallelization Notes; a Plan-004 Phase 3 gate line added with the matching `external_plan_phase_merged` entry on Phase 2; the Plan-016 dependency edge recorded from this side; the timeline substrate ownership rows and the [Timeline Method-Name Registry](../architecture/contracts/api-payload-contracts.md#timeline-method-name-registry-tier-8-plan-013-t14) land with this tier PR's cross-plan-dependencies and api-payload-contracts legs. **Status stays `approved`:** every edit records an existing relationship, structure, or ownership fact that ratified text already asserts — none invents behavior — so the Status Flip Rule's citation/additive rows govern and this audit's own edits trigger no flip. **Residuals, each requiring a lead-owned amendment and none cleared by this restore:** `Spec-013 §Context Window and Usage Meters` (with its Rate-Limit Display subsection) has no plan coverage; the `ChildRunSummary` incompleteness marker, the `ReasoningSurfaceReadResponse` unavailable-vs-redacted split, and the `ReasoningSurfaceReadRequest` principal are unshaped; and the Plan-007 / Plan-021 / Plan-023 dependency edges are undeclared in both directions. Restoration clears the audit and status gates only — Plan-004 Phase 3 still holds the `supersededTurns` provider.
 
 ## Done Checklist
 

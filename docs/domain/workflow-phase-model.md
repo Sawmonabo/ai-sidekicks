@@ -13,7 +13,7 @@ This document covers `PhaseDefinition` (static), `WorkflowPhaseState` (runtime),
 - `PhaseDefinition`: a static configuration within a workflow version that describes one step in the workflow. Identified by a stable `WorkflowPhaseId`.
 - `WorkflowPhaseState`: the runtime execution record for a specific phase within a specific workflow run. Identified by the combination of `workflow_run_id` and `phase_id`.
 - `WorkflowPhaseId`: a definition-side identifier. It names a phase in the template and remains stable across workflow versions that retain the same phase.
-- `PhaseRunId`: an execution-side identifier. It names a specific run created to execute a phase (with iteration number, status, timestamps). This is a `RunId` from the run state machine.
+- `PhaseRunId`: an execution-side identifier. It names one execution attempt of a phase (with iteration number, status, timestamps), derived deterministically as `BLAKE3(workflowRunId || phaseDefinitionId || attemptNumber)` — every bit a function of that preimage, none from a clock or entropy source, so replay reproduces the identical sequence. It is **not** a `RunId` from the run state machine and not a ULID: a phase execution _creates_ runs through `OrchestrationRunCreate`, each with its own `RunId`, while the `PhaseRunId` names the phase attempt that created them (`Spec-017 §Deterministic identity (SA-21)`, clarified 2026-08-10 by the Tier-8 plan-readiness audit; the digest's concrete text rendering is open per `Spec-017 §Open Questions`).
 - `Gate`: a checkpoint between phases that must resolve before the next phase can start.
 - `GateState`: the runtime state of a phase's gate (`closed`, `open`, `bypassed`).
 - `FailureBehavior`: the configured response when a phase or its gate check fails (`retry`, `go-back-to`, `stop`).
@@ -31,19 +31,14 @@ The workflow phase model is the source of truth for how individual steps within 
 
 ## Phase Types
 
-V1 phase types:
+V1 ships all four phase types per the 2026-04-22 BL-097 / ADR-015 full-engine amendment (`Spec-017 §Phase-Type and Gate-Type Taxonomy`; this table previously deferred `multi-agent` and `human` to V1.1, a claim the amendment reversed):
 
 | Type | Description |
 | --- | --- |
 | `single-agent` | One agent executes the phase autonomously. The phase creates one run in one channel. |
+| `multi-agent` | A phase spawns a phase-owned channel (`ownership: OWN` — the V1 default and only value) where multiple agents deliberate; the channel's conclusion becomes phase output. Retry creates a new channel per iteration. |
 | `automated` | No agent. Executes a script or validation check. |
-
-Deferred to V1.1:
-
-| Type | Description |
-| --- | --- |
-| `multi-agent` | A phase spawns a multi-agent channel where agents discuss before producing output. |
-| `human` | A phase requires direct human contribution rather than agent execution. |
+| `human` | A human participant completes a form (`HumanPhaseConfig` — typed `timeout` required, no field default); the submission becomes phase output. Uses the Spec-012 `human_phase_contribution` approval category. |
 
 ## Phase States
 

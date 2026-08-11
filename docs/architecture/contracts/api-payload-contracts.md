@@ -3081,6 +3081,19 @@ interface ChildRunExpandResponse {
 }
 ```
 
+### Timeline Method-Name Registry (Tier 8, Plan-013 T1.4)
+
+Plan-013's timeline surface is exposed as four `timeline.*` methods, registered by the Tier-8 plan-readiness audit's Plan-013 restore (T1.4 registers the strings against the Plan-007-partial daemon `MethodRegistry` per the §5 substrate-vs-namespace carve-out — the `repo.*` / `approval.*` precedent). These methods ride the **daemon JSON-RPC transport only**: the timeline is a daemon-local projection over the session event log per [ADR-017](../../decisions/017-shared-event-sourcing-scope.md), and no tRPC sibling exists in V1. Method tails are camelCase per the BL-142 convention the Approval Method-Name Registry records.
+
+| Method | Procedure type | Request schema | Response schema |
+| --- | --- | --- | --- |
+| `timeline.read` | `query` | `TimelineReadRequest` | `TimelineReadResponse` |
+| `timeline.subscribe` | `subscription` | `TimelineSubscribeRequest` | `TimelineRow` (stream) |
+| `timeline.reasoningSurfaceRead` | `query` | `ReasoningSurfaceReadRequest` | `ReasoningSurfaceReadResponse` |
+| `timeline.childRunExpand` | `query` | `ChildRunExpandRequest` | `ChildRunExpandResponse` |
+
+The three `query` rows are idempotent reads; `timeline.subscribe` streams the discriminated `TimelineRow` union per emission — including the visibility-resolved `rollback_boundary` fan-out on channel-filtered subscriptions — rather than returning a single response. All request/response shapes are the interfaces defined directly above; the canonical Zod schemas live in `packages/contracts/src/timeline/` (T1.1–T1.3) per the §Source-of-Truth Policy.
+
 ### Plan-019 — Notifications And Attention Model
 
 ```ts
@@ -3141,6 +3154,8 @@ interface NotificationEmitParams {
   metadata?: Record<string, unknown>;
 }
 ```
+
+> **Scope and aggregate carrier (Plan-019 D-019-2).** `runId` is the scope discriminator: an item carrying it is run-scoped, an item omitting it is the session-scoped aggregate that [Spec-019 §Required Behavior](../../specs/019-notifications-and-attention-model.md#required-behavior) requires alongside run scope. There is no separate aggregate type and no aggregate-only field. On an aggregate, `severity` carries the aggregation — `actionable` while **any** unresolved contributor (run-scoped item, pending invite, or participant request) is actionable, `informational` only when every contributor is — per [Spec-019 §Default Behavior](../../specs/019-notifications-and-attention-model.md#default-behavior), while `trigger` and `sourceEventId` are taken from one deterministically selected representative contributor: highest severity first (`actionable` before `informational`), then earliest `createdAt`, then lexicographically smallest `id`. Because the representative is a real contributor rather than a synthesized placeholder, `sourceEventId` always resolves on an aggregate and stays non-optional. Aggregates are read-projection-only: `AttentionProjectionRead` returns them and `NotificationEmit` never carries one — a notification is emitted from the single canonical trigger that caused it, so no aggregate is ever emitted and no per-contributor fan-out is inferred from one. At rest, the queued form of this shape persists `trigger` as the column `attention_trigger` (a keyword-avoidance rename only; the domain is byte-identical) — see [shared-postgres-schema.md §Notification Queue (Plan-019)](../schemas/shared-postgres-schema.md#notification-queue-plan-019). Canonical statement: [Plan-019 §API And Transport Changes](../../plans/019-notifications-and-attention-model.md#api-and-transport-changes) and [Plan-019 §Ratified Design Decisions (Tier-8 audit)](../../plans/019-notifications-and-attention-model.md#ratified-design-decisions-tier-8-audit) D-019-2.
 
 ### Plan-020 — Observability And Failure Recovery
 
@@ -3493,30 +3508,109 @@ Error vocabulary: [error-contracts.md](./error-contracts.md) §Channel / §Orche
 
 ### Plan-017 — Workflow Authoring And Execution
 
+Corrected by the Tier-8 plan-readiness audit (2026-08-10). Three defects closed: the `PhaseDefinition.type` union carried the pre-amendment two-value V1.1-deferred subset while the governing spec ships four phase types; five of the ten declared operations had no shape at all; and `WorkflowGateResolveResponse` carried neither half of the SA-26 dual anchor. The `scope` domain is also re-grounded — see the `WorkflowDefinitionScope` comment below — and gains the `scopeRef` companion the three-value domain needs to be storable at all. One operation is minted: `workflow.definitionList`, because the ten declared operations contained no enumeration. Field additions to already-published shapes are additive-**optional** per [ADR-018](../../decisions/018-cross-version-compatibility.md), marked as such inline, and become required at the next MAJOR; the new shapes below are unconstrained.
+
+Extended the same day by the visual-builder amendment (`Spec-017 §Visual Workflow Builder`, ADR-026): the definition-create request gains the entry record and the copy-on-write parent pointer, `PhaseDefinition` gains reference-only tool bindings and the non-edge `go-back-to` target, and `WorkflowToolBinding` lands as a new shape. The amendment mints **no** operation — promotion to `shared` scope and file import both ride `workflow.definitionCreate` — so the method registry below stays at eleven rows.
+
 ```ts
-// WorkflowDefinitionCreate
+// Workflow-definition scope (Spec-017 §Resolved Questions and V1 Scope Decisions,
+// amended 2026-08-10). Three values: `session` binds the definition to its authoring
+// session, `project` spans a project's sessions, `shared` is the cross-project tier —
+// a definition reusable by any project on the same daemon, out of the same local
+// definition store. `shared` widens visibility/reuse breadth only: no distribution,
+// no marketplace, no cross-machine sync. The pre-audit `channel` value appeared only
+// here and in the DDL, never in the governing spec, and is struck.
+type WorkflowDefinitionScope = "session" | "project" | "shared";
+
+// Scope identity, in the shape Spec-028 already uses for scope-qualified bindings:
+// non-empty for `session` (the authoring session id) and `project` (the canonical
+// symlink-resolved repository root); the empty string for `shared`, which is
+// daemon-wide and refers to nothing narrower. Enforced at the schema layer as a typed
+// validation error, with the DDL CHECK mirroring it as defense in depth — without it,
+// `project` names no project and definition dedupe cannot converge.
+//
+// On requests the field is additive-OPTIONAL per ADR-018 and the daemon derives what
+// it can: absent at `session` means the request's own `sessionId`, absent at `shared`
+// means the empty string. `project` is the one scope with nothing to derive from, so
+// omitting it there is a typed refusal, never a silent default.
+type WorkflowDefinitionScopeRef = string;
+
+// WorkflowDefinitionCreate — workflow.definitionCreate
 interface WorkflowDefinitionCreateRequest {
   sessionId: SessionId;
   name: string;
-  scope: "session" | "channel";
+  scope: WorkflowDefinitionScope;
+  scopeRef?: WorkflowDefinitionScopeRef; // additive-optional; required in practice at `project`
+  // Additive-OPTIONAL per ADR-018 on this already-published shape. A stored definition
+  // always carries exactly one entry record; the request may omit it because `manual` is
+  // the only V1 start mode, so the daemon materializes `{ startMode: "manual" }` when
+  // absent. Required at the next MAJOR, by which point a second start mode may exist.
+  // Spec-017 §Entry node and the V1 trigger surface (SA-37)
+  entry?: WorkflowEntry;
+  // Copy-on-write provenance: the content hash of the `shared` definition this one was
+  // branched from when an author edited a shared definition. Provenance only — it is NOT
+  // part of the hashed body, so a branched definition and a from-scratch definition with
+  // identical bodies hash alike.
+  // Spec-017 §Definition scope in the builder (SA-36)
+  parentContentHash?: string;
   phaseDefinitions: PhaseDefinition[];
+}
+
+// Structurally extensible single-value record — NOT a union. No `schedule`, `event`, or
+// `webhook` arm is declared at V1: Spec-017 §Non-Goals records the C-11 precedent for an
+// enum whose arms outran the engine and had to be break-removed. A firing engine's start
+// mode is an additive-MINOR extension under ADR-018 when one ships.
+interface WorkflowEntry {
+  startMode: "manual";
 }
 interface WorkflowDefinitionCreateResponse {
   definitionId: WorkflowDefinitionId;
   versionNumber: number;
+  // Additive-OPTIONAL per ADR-018 (Tier-8 audit): `WorkflowDefinitionCreateResponse`
+  // is an already-published shape. Present so a caller can pin the version it just
+  // authored without a follow-up read; absent from older daemons.
+  contentHash?: string; // BLAKE3 over RFC 8785 JCS canonicalization
   createdAt: string;
 }
 
 interface PhaseDefinition {
   phaseId: WorkflowPhaseId;
   name: string;
-  type: "single-agent" | "automated"; // V1 scope
+  // The four V1 phase types (Spec-017 §Phase-Type and Gate-Type Taxonomy). The former
+  // two-value union predated the 2026-04-22 full-engine amendment and was still in
+  // force here until the Tier-8 audit; typing to it shipped a two-type engine.
+  type: "single-agent" | "multi-agent" | "automated" | "human";
   gateType: "auto-continue" | "quality-checks" | "human-approval" | "done";
   failureBehavior: "retry" | "go-back-to" | "stop";
+  // Additive-OPTIONAL per ADR-018 (visual-builder amendment). Reference-only tool
+  // bindings for this phase; see WorkflowToolBinding below.
+  toolBindings?: WorkflowToolBinding[];
+  // Additive-OPTIONAL per ADR-018 (visual-builder amendment). The `go-back-to` failure
+  // behavior's target phase. This is a state-reset target, NOT a graph edge — the
+  // definition-create cycle check would reject the cyclic spelling, so the builder
+  // renders it as an annotation on the phase node and never as a drawn connection
+  // (Spec-017 §Graph model — nodes, ports, and edges (SA-32)).
+  goBackTo?: WorkflowPhaseId;
   config?: Record<string, unknown>;
 }
 
-// WorkflowDefinitionRead
+// Reference only. Carries NO `enabled`, `approvalMode`, or `idempotencyClass` facet —
+// those three are node-operator surface owned by Spec-028 §Tool-Level Overrides
+// under Cedar authorization, resolved live at phase launch through the Spec-005
+// tool-metadata layer. A definition carrying one is rejected at parse, not ignored at
+// launch, so an imported or hand-edited definition cannot smuggle a weakened posture
+// onto a machine (Spec-017 §Tool bindings are references, never inline policy (SA-34)).
+// Identity COMPOSES the Plan-028-owned `McpServerBindingRef` discriminated union declared
+// in §Plan-028 below rather than restating its members: Plan-017 consumes that identity and
+// authors none of it (CP-017-6), and re-declaring it flat would admit the non-existent
+// `(codex, local)` combination the union rejects at the schema layer. The binding scope here
+// is Spec-028's config scope, never the workflow-definition scope above.
+interface WorkflowToolBinding {
+  binding: McpServerBindingRef;
+  toolName: string;
+}
+
+// WorkflowDefinitionRead — workflow.definitionRead
 interface WorkflowDefinitionReadRequest {
   definitionId: WorkflowDefinitionId;
   version?: number; // omit for latest
@@ -3524,8 +3618,61 @@ interface WorkflowDefinitionReadRequest {
 interface WorkflowDefinitionReadResponse {
   id: WorkflowDefinitionId;
   name: string;
-  scope: "session" | "channel";
+  scope: WorkflowDefinitionScope;
+  scopeRef?: WorkflowDefinitionScopeRef; // additive-optional per ADR-018; always set by daemons that store it
   versionNumber: number;
+  phaseDefinitions: PhaseDefinition[];
+  createdAt: string;
+}
+
+// WorkflowDefinitionList — workflow.definitionList. NEW at the Tier-8 audit: the ten
+// pre-audit operations contained no enumeration, so neither the CLI `list` subcommand
+// nor any definition picker could name a definition it did not already hold an id for.
+// Enumeration is scope-resolved most-specific-first — a caller in a session sees that
+// session's definitions, its project's, and the daemon's `shared` tier, deduped by
+// `(scope, scopeRef, contentHash)` exactly as the store keys them.
+interface WorkflowDefinitionListRequest {
+  sessionId: SessionId;
+  scope?: WorkflowDefinitionScope; // omit for the resolved union of all visible scopes
+  limit?: number;
+  cursor?: string;
+}
+interface WorkflowDefinitionListResponse {
+  definitions: WorkflowDefinitionSummary[];
+  nextCursor?: string;
+}
+interface WorkflowDefinitionSummary {
+  id: WorkflowDefinitionId;
+  name: string;
+  scope: WorkflowDefinitionScope;
+  scopeRef: WorkflowDefinitionScopeRef;
+  latestVersionNumber: number;
+  // Required here, unlike the optional `contentHash` on WorkflowDefinitionCreateResponse:
+  // this shape is new at the Tier-8 audit, so ADR-018's additive-optional rule for
+  // already-published shapes does not bind it, and an enumeration entry without a hash
+  // cannot be pinned by the caller that just listed it.
+  contentHash: string;
+  // True for the one entry per definition name that most-specific-first resolution
+  // (`session`, then `project`, then `shared`) would actually pick from the caller's
+  // context, so a picker or `sidekicks workflow list` can show which definition a run
+  // would use rather than leaving the caller to re-derive the order
+  // (Spec-017 §Definition scope in the builder (SA-36)). Required: this shape is new
+  // at the Tier-8 audit, so ADR-018's additive-optional rule does not bind it.
+  resolvesAtThisContext: boolean;
+  createdAt: string;
+}
+
+// WorkflowVersionRead — workflow.versionRead. Reads one immutable version body.
+// Versions are content-hashed and never mutated; a definition edit mints a new one.
+interface WorkflowVersionReadRequest {
+  definitionId: WorkflowDefinitionId;
+  versionNumber: number;
+}
+interface WorkflowVersionReadResponse {
+  definitionId: WorkflowDefinitionId;
+  versionNumber: number;
+  contentHash: string;
+  schemaVersion: number; // CHECK-enforced marker (C-8)
   phaseDefinitions: PhaseDefinition[];
   createdAt: string;
 }
@@ -3543,8 +3690,38 @@ interface WorkflowRunStartResponse {
 
 interface PhaseState {
   phaseId: WorkflowPhaseId;
+  // Both fields below are additive-OPTIONAL per ADR-018 — `PhaseState` is an already-
+  // published shape, so the Tier-8 audit could widen it but not make a new field
+  // required. Readers must tolerate their absence.
+  //
+  // The execution instance, and the OWN-channel anchor (SA-6). A derived opaque
+  // identifier per Spec-017 §Deterministic identity (SA-21): every bit is a function of
+  // BLAKE3(workflowRunId || phaseDefinitionId || attemptNumber). NOT a ULID — a ULID's
+  // leading 48 bits are a millisecond timestamp, which that preimage cannot produce.
+  // The digest's text rendering is deliberately unfixed; see Spec-017 §Open Questions.
+  phaseRunId?: string;
+  attemptNumber?: number;
   state: "pending" | "running" | "completed" | "failed" | "skipped";
   gateState: "closed" | "open" | "bypassed";
+}
+
+// WorkflowRunRead — workflow.runRead. Run header plus the per-phase state projection;
+// the projection rebuilds from session_events (Spec-017 §State And Data Implications),
+// so a read never consults request state.
+interface WorkflowRunReadRequest {
+  workflowRunId: WorkflowRunId;
+}
+interface WorkflowRunReadResponse {
+  workflowRunId: WorkflowRunId;
+  sessionId: SessionId;
+  workflowVersionId: string;
+  // Lockstep with the `workflow_runs.status` CHECK per I-017-12 — all six values, in
+  // DDL order. A `gated` run is `suspended` on the wire as on disk.
+  state: "pending" | "running" | "suspended" | "completed" | "failed" | "cancelled";
+  phaseStates: PhaseState[];
+  failureReason?: string; // preserved on any bound breach (SA-1, SA-2)
+  startedAt: string;
+  endedAt?: string;
 }
 
 // PhaseOutputRead
@@ -3556,13 +3733,16 @@ interface PhaseOutputReadResponse {
   phaseId: WorkflowPhaseId;
   state: "completed" | "failed";
   outputs: Array<{
+    // `artifact_ref` outputs point at a Plan-014 manifest; Plan-017 stores the
+    // reference, never the bytes, and adds no second upload path.
+    valueKind: "inline" | "artifact_ref";
     artifactId?: ArtifactId;
     summary: string;
     producedAt: string;
   }>;
 }
 
-// WorkflowGateResolve
+// WorkflowGateResolve — workflow.gateResolve
 interface WorkflowGateResolveRequest {
   workflowRunId: WorkflowRunId;
   phaseId: WorkflowPhaseId;
@@ -3573,8 +3753,85 @@ interface WorkflowGateResolveResponse {
   phaseId: WorkflowPhaseId;
   gateState: "open" | "closed";
   nextPhaseId?: WorkflowPhaseId;
+  // The SA-26 dual anchor, both halves required. Every appended
+  // workflow_gate_resolutions row is paired with a session_events row carrying the
+  // same two values; the pair is written in one Plan-015 writer-worker unit of work,
+  // so a partial pair is unreachable. Payload additions here are additive MINOR
+  // under ADR-018.
+  gateResolutionId: string;
+  rowHash: string; // BLAKE3(prev_hash || JCS-canonical(row_body))
+}
+
+// HumanPhaseFormDraftSave — workflow.humanFormDraftSave.
+// V1.x-RESERVED: declared so the enablement is additive, with no V1 daemon handler.
+// human_phase_form_state ships empty at V1 (Spec-017 §Ship-empty tables (SA-28)) and
+// clients persist drafts in localStorage / IndexedDB. The table and this operation
+// light up together in V1.x.
+interface HumanPhaseFormDraftSaveRequest {
+  workflowRunId: WorkflowRunId;
+  phaseId: WorkflowPhaseId;
+  formState: Record<string, unknown>;
+  expectedRevision?: number;
+}
+interface HumanPhaseFormDraftSaveResponse {
+  revision: number;
+  savedAt: string;
+}
+
+// HumanPhaseFormSubmit — workflow.humanFormSubmit. Optimistic concurrency: a submit
+// carrying a stale `expectedRevision` is refused, never silently overwritten.
+interface HumanPhaseFormSubmitRequest {
+  workflowRunId: WorkflowRunId;
+  phaseId: WorkflowPhaseId;
+  fields: Record<string, unknown>;
+  // Uploads are validated by the Plan-014 OWASP pipeline before this call resolves;
+  // each accepted file becomes an `artifact_ref` phase output (C-16).
+  attachmentArtifactIds?: ArtifactId[];
+  expectedRevision: number;
+}
+interface HumanPhaseFormSubmitResponse {
+  phaseId: WorkflowPhaseId;
+  phaseRunId: string;
+  outputCount: number;
+  submittedAt: string;
+}
+
+// WorkflowGateChainVerify — workflow.gateChainVerify. Operator-triggered, not in the
+// hot path: recomputes each row's BLAKE3 chain link in `sequence` order and
+// cross-checks the paired session_events anchor. Reports the FIRST divergent
+// sequence rather than a bare pass/fail.
+interface WorkflowGateChainVerifyRequest {
+  workflowRunId: WorkflowRunId;
+}
+interface WorkflowGateChainVerifyResponse {
+  workflowRunId: WorkflowRunId;
+  verified: boolean;
+  rowsChecked: number;
+  // Present only when `verified` is false.
+  firstDivergentSequence?: number;
+  divergence?: "row_hash_mismatch" | "sequence_gap" | "missing_event_anchor" | "signature_invalid";
 }
 ```
+
+**Method-string registry — Plan-017** (daemon JSON-RPC; new `workflow` root, root plus camelCase tail per the Plan-016 convention above). Added by the Tier-8 audit: the plan named ten operations in PascalCase with no wire mapping, and no `workflow` root was registered anywhere. Eleven rows follow — the audit also mints `workflow.definitionList`, without which the surface has no enumeration at all.
+
+| Method | Procedure type | Request → Response | Notes |
+| --- | --- | --- | --- |
+| `workflow.definitionCreate` | RPC | `WorkflowDefinitionCreateRequest` → `WorkflowDefinitionCreateResponse` | Content-hashes and persists version 1; cycle-check rejects an invalid DAG at author time |
+| `workflow.definitionRead` | RPC | `WorkflowDefinitionReadRequest` → `WorkflowDefinitionReadResponse` | Latest version unless `version` is supplied |
+| `workflow.definitionList` | RPC | `WorkflowDefinitionListRequest` → `WorkflowDefinitionListResponse` | **NEW at the Tier-8 audit** — the ten pre-audit operations had no enumeration, so a caller could only read a definition whose id it already held; scope-resolved most-specific-first |
+| `workflow.versionRead` | RPC | `WorkflowVersionReadRequest` → `WorkflowVersionReadResponse` | Immutable version body; a running instance stays pinned to its own |
+| `workflow.runStart` | RPC | `WorkflowRunStartRequest` → `WorkflowRunStartResponse` | Binds a run to a pinned version; emits `workflow.started` |
+| `workflow.runRead` | RPC | `WorkflowRunReadRequest` → `WorkflowRunReadResponse` | Projection read; rebuildable from `session_events` |
+| `workflow.phaseOutputRead` | RPC | `PhaseOutputReadRequest` → `PhaseOutputReadResponse` | Outputs stay addressable after completion; a retry adds rows, never mutates (SA-16) |
+| `workflow.gateResolve` | RPC | `WorkflowGateResolveRequest` → `WorkflowGateResolveResponse` | Appends one chain row plus its `session_events` anchor; emits `workflow.gate_resolved` |
+| `workflow.humanFormDraftSave` | RPC | `HumanPhaseFormDraftSaveRequest` → `HumanPhaseFormDraftSaveResponse` | **V1.x-reserved** — declared, no V1 handler (SA-28) |
+| `workflow.humanFormSubmit` | RPC | `HumanPhaseFormSubmitRequest` → `HumanPhaseFormSubmitResponse` | Optimistic-concurrency submit; writes `phase_outputs` |
+| `workflow.gateChainVerify` | RPC | `WorkflowGateChainVerifyRequest` → `WorkflowGateChainVerifyResponse` | Backs the `sidekicks workflow verify-gate-chain <run_id>` CLI subcommand |
+
+The canonical file form of a definition (`Spec-017 §Definition file form — export and import (C-17)`) is a serialization of these same shapes — the YAML the authoring commitment names, carrying the schema-version marker, whose canonical bytes are the JCS-canonicalized JSON of the parsed document. It is not a second dialect and has no contract types of its own. `layout` is an optional top-level section of that document, outside the hashed body, that no request or response above carries: canvas geometry is client-local at V1 (`Spec-017 §Canvas layout is not definition bytes (SA-35)`). Export is a client-side serialization of `workflow.versionRead`; import is a submission through `workflow.definitionCreate` — which is why the visual-builder amendment mints no operation.
+
+Error vocabulary: [error-contracts.md](./error-contracts.md) §Workflow. That section defines three codes (`workflow.not_found`, `workflow.invalid_phase`, `workflow.gate_closed`) against a surface with at least thirteen refusal points — chain-break detection, resource-pool admission refusal, `fail-fast` sibling abort, `max_phase_transitions` / `max_duration` / `max_concurrent_phases` breach, human-form optimistic-concurrency conflict, definition content-hash mismatch, expression-parse refusal, and — added by the visual-builder amendment, which mints no code of its own and opens no parallel surface — invalid graph shape (any of the seven refused shapes), scope-ref violation, a tool binding carrying an inline governance facet, and an unknown top-level key in an imported definition file. The Tier-8 audit surfaced the gap and did not close it; the extension is owed on that document, and until it lands no workflow handler may mint an unregistered code (`Spec-017 §Loud-errors discipline (C-12)` forbids untyped refusals). Durable events owned by Plan-017: the 23 `workflow.*` types across five categories enumerated in [Spec-017 §Workflow Timeline Integration](../../specs/017-workflow-authoring-and-execution.md#workflow-timeline-integration) — their registration in the Plan-006 registry is an open upstream-tier amendment, so no `workflow` category exists in [Spec-006](../../specs/006-session-event-taxonomy-and-audit-log.md) yet.
 
 ---
 

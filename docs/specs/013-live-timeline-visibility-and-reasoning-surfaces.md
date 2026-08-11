@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| **Status** | `review` |
+| **Status** | `approved` |
 | **NNN** | `013` |
 | **Slug** | `live-timeline-visibility-and-reasoning-surfaces` |
 | **Date** | `2026-04-14` |
@@ -10,7 +10,7 @@
 | **Depends On** | [Artifact Diff And Approval Model](../domain/artifact-diff-and-approval-model.md), [Observability Architecture](../architecture/observability-architecture.md), [Session Event Taxonomy And Audit Log](../specs/006-session-event-taxonomy-and-audit-log.md), [Queue Steer Pause Resume](../specs/004-queue-steer-pause-resume.md) |
 | **Implementation Plan** | [Plan-013: Live Timeline Visibility And Reasoning Surfaces](../plans/013-live-timeline-visibility-and-reasoning-surfaces.md) |
 
-> **Amendment (2026-07-20, campaign B9 CP-004-13 consumer registration — flips the previously-`approved` spec to `review` per the audit runbook's spec-amendment rule, since it changes Required Behavior, Acceptance Criteria, and Depends On; the Tier-8 readiness audit, or an earlier batch gate, restores `approved`; Plan-013 flips to `review` with it under the runbook's plan behavior-change row, its Preconditions box tracking the spec's restore).** [Spec-004 §Required Behavior](004-queue-steer-pause-resume.md#required-behavior) already mandates that rolled-back turns stay in the timeline **marked superseded by projection**, and [Spec-004 §Driver-Level Rollback Mechanics](004-queue-steer-pause-resume.md#driver-level-rollback-mechanics) that clients render the rewound history distinctly rather than dropping it. This amendment registers the timeline-surface half of that approved contract on its owning spec: the superseded-turn-rendering Required Behavior bullet (live boundary-entry rule + read/replay marker + attribution-ranked late stragglers), the `run.rolled_back` run-state subtype row, the compacted-stub composition, the provenance rule, and the acceptance criterion — consumed from Plan-004 T3.14's exported `supersededTurns(runId)` read seam (CP-004-13).
+> **Amendment (2026-07-20, campaign B9 CP-004-13 consumer registration — flips the previously-`approved` spec to `review` per the audit runbook's spec-amendment rule, since it changes Required Behavior, Acceptance Criteria, and Depends On; restored `approved` 2026-08-10 by the Tier-8 readiness audit (§6 node NS-20); Plan-013 flipped to `review` with it under the runbook's plan behavior-change row and was restored `approved` by that same audit, its Preconditions box re-checked).** [Spec-004 §Required Behavior](004-queue-steer-pause-resume.md#required-behavior) already mandates that rolled-back turns stay in the timeline **marked superseded by projection**, and [Spec-004 §Driver-Level Rollback Mechanics](004-queue-steer-pause-resume.md#driver-level-rollback-mechanics) that clients render the rewound history distinctly rather than dropping it. This amendment registers the timeline-surface half of that approved contract on its owning spec: the superseded-turn-rendering Required Behavior bullet (live boundary-entry rule + read/replay marker + attribution-ranked late stragglers), the `run.rolled_back` run-state subtype row, the compacted-stub composition, the provenance rule, and the acceptance criterion — consumed from Plan-004 T3.14's exported `supersededTurns(runId)` read seam (CP-004-13).
 
 ## Purpose
 

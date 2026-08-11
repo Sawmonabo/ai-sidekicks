@@ -5,11 +5,11 @@
 | **Status** | `approved` |
 | **NNN** | `019` |
 | **Slug** | `notifications-and-attention-model` |
-| **Date** | `2026-04-14` |
+| **Date** | `2026-04-14` (Tier-8 readiness audit 2026-08-10) |
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-019: Notifications And Attention Model](../specs/019-notifications-and-attention-model.md) |
-| **Required ADRs** | [ADR-001](../decisions/001-session-is-the-primary-domain-object.md), [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md) |
-| **Dependencies** | [Plan-013](./013-live-timeline-visibility-and-reasoning-surfaces.md) (timeline visibility) |
+| **Required ADRs** | [ADR-001](../decisions/001-session-is-the-primary-domain-object.md), [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md), [ADR-014](../decisions/014-trpc-control-plane-api.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md), [ADR-017](../decisions/017-shared-event-sourcing-scope.md) (added by the Tier-8 audit — load-bearing for §Data And Storage Changes' no-event-payload rule, CP-019-1, and D-019-1's runs-are-daemon-local ground) |
+| **Dependencies** | [Plan-013](./013-live-timeline-visibility-and-reasoning-surfaces.md) (timeline visibility), [Plan-008](./008-control-plane-relay-and-session-join.md) (SSE catch-up cursor replay — `Spec-019 §Notification Delivery` routes reconnect catch-up for queued notifications through the Spec-008 EventSource `Last-Event-ID` resumption, so undelivered notifications re-deliver rather than re-derive), [Plan-022](./022-data-retention-and-gdpr.md) (participant-purge shred fan-out for the Plan-019-owned Postgres tables per CP-019-1 ⇄ CP-022-6) — the latter two edges added by the Tier-8 audit (NS-20), mirroring the §3 dependency-graph rows |
 | **Cross-Plan Deps** | [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) |
 
 ## Goal
@@ -31,6 +31,7 @@ This plan covers attention projections, notification preferences, OS-notificatio
 - [x] Paired spec is approved
 - [x] Required ADRs are accepted
 - [x] Blocking open questions are resolved or explicitly deferred
+- [x] **Plan-readiness audit complete per [`docs/operations/plan-implementation-readiness-audit-runbook.md`](../operations/plan-implementation-readiness-audit-runbook.md)** — Tier-8 audit (2026-08-10, PR TIER8PRNUM): six findings adjudicated. Four record EXISTING relationships and add no contract surface — this box (019-F1), the §Implementation Phase Sequence with three phases and per-phase `#### Tasks` (019-F2), the [ADR-014](../decisions/014-trpc-control-plane-api.md) Required-ADRs row that the SSE-subscription delivery path in `Spec-019 §Desktop-to-Desktop Delivery` already depended on (019-F4), and §Invariants I-019-1..4 grounding the four properties §Test And Verification Plan already tested for (019-F5). **Two are new scope.** 019-F3: the durable control-plane `notification_queue` table (§Data And Storage Changes, D-019-1) that `Spec-019 §Cross-Device Delivery` assumes and no plan owned — verified against the corpus rather than assumed, because the alternative reading was that Plan-008 already provides it: Plan-008 owns `session_directory`, `relay_connections`, and `relay_seen_ephemeral_keys` and no durable stream; `Spec-008 §Required Behavior` states that the control plane stores no session events per [ADR-017](../decisions/017-shared-event-sourcing-scope.md); and the resumption Spec-008 does define is the EventSource `Last-Event-ID` header (`Spec-008 §Control-Plane Transport Protocol`), which is transport-level and has no durable backing store to replay from. There is therefore no existing substrate to ride, and the queue is Plan-019-owned. 019-F6: the aggregate-carrier derivation rule (§API And Transport Changes, D-019-2), stated over the existing `AttentionItem` shape. A new table plus the widened CP-019-1 shred reciprocal IS new contract surface, so the plan flipped `approved → review` on 2026-08-10 and this audit's targeted coverage of exactly that growth restores it `approved` in the same swap — flip-and-restore-in-one-swap, the NS-51 / NS-53 precedent. Companion amendments: shared-postgres-schema.md (a new §Notification Queue (Plan-019) section plus the invariant-(1) enumeration it extends), Plan-022 CP-022-6 (the `REFERENCES participants(id)` closure count moves twelve → thirteen).
 
 Target paths below assume the canonical implementation topology defined in [Container Architecture](../architecture/container-architecture.md).
 
@@ -47,18 +48,34 @@ Target paths below assume the canonical implementation topology defined in [Cont
 ## Data And Storage Changes
 
 - Add durable user-level `notification_preferences` storage and replay-derived attention projections keyed to canonical session or run state.
-- Keep delivery-attempt metadata ephemeral where possible while preserving outstanding actionable attention until resolved.
+- **Add the Plan-019-owned durable `notification_queue` control-plane table** ([Shared Postgres Schema §Notification Queue (Plan-019)](../architecture/schemas/shared-postgres-schema.md#notification-queue-plan-019)) — one row per notification owed to a participant with no connected device, read back as a batch on that participant's next connect in `queue_sequence` order from the last delivered position, and purged 7 days after it was queued. **This bullet supersedes the plan's prior "keep delivery-attempt metadata ephemeral where possible" sentence** (D-019-1). `Spec-019 §Cross-Device Delivery` requires the control plane to queue notifications when no device is connected, to replay them from the last cursor on reconnect, and to retain the undelivered ones for 7 days before permanent deletion — three requirements no ephemeral store satisfies across a control-plane restart. What remains ephemeral is what the spec still leaves ephemeral: a delivery to a currently-connected device is pushed and recorded nowhere, and only the offline case reaches the queue. Outstanding actionable attention stays durable until resolved either way, because it lives in the replay-derived attention projection rather than in this queue — losing the whole queue costs missed notifications, never attention state (I-019-2).
+- The queue holds derived notification-rendering fields plus a **reference** to the canonical triggering event, never an event payload, so it is compatible with the shared-schema invariants [ADR-017](../decisions/017-shared-event-sourcing-scope.md) imposes on every control-plane table addition; that compatibility check is recorded in the schema section above rather than asserted here.
 - Maintain both run-scoped attention projections and session-scoped aggregate attention projections so client surfaces do not reconstruct aggregate state ad hoc.
 - See [Shared Postgres Schema](../architecture/schemas/shared-postgres-schema.md) for column definitions.
 
+## Invariants
+
+The following invariants are **load-bearing** and MUST be preserved across all Plan-019 PRs and downstream extensions. Any change that would weaken or remove one requires a coordinated cross-plan amendment (see [cross-plan-dependencies.md](../architecture/cross-plan-dependencies.md)). Each grounds the property the §Test And Verification Plan bullets below already tested for; the Tier-8 audit gave them ids so a task's `Verifies invariant:` field can resolve to an entry rather than to prose.
+
+- **I-019-1 — Attention state is derived from canonical session and run state, never from client heuristics.** Every attention item and every emitted notification traces to a canonical event or canonical run/session state; a transient client observation never mints attention, and a client that has observed nothing derives the same state on replay as one that watched the whole session. **Grounds in:** `Spec-019 §Required Behavior` ("Notification emission must be derived from canonical session or run state, not from client heuristics alone"), `Spec-019 §State And Data Implications` ("Attention state is a derived projection from canonical events"), `Spec-019 §Pitfalls To Avoid` ("Basing notifications only on transient client events"). **Why load-bearing:** it is what makes attention reproducible across devices and reconnects — the property the `notification_queue` catch-up path and the desktop surfaces both assume.
+- **I-019-2 — Notification-delivery failure never removes in-app attention state.** A dropped SSE push, an OS notification the platform denies or suppresses, and a `notification_queue` row that expires unread are all delivery-layer outcomes; none of them clears, resolves, or hides the underlying attention item, which resolves only when the state that produced it resolves. **Grounds in:** `Spec-019 §Fallback Behavior` ("If notification delivery is delayed, the session attention projection must still reflect outstanding actionable items"; "If OS notifications are unavailable or denied, the system must still show in-app badges and attention summaries"), `Spec-019 §Acceptance Criteria` AC-2 ("Notification loss does not remove in-app attention state"). **Why load-bearing:** it is the reason the queue may be treated as a best-effort delivery buffer with a 7-day purge — losing it costs missed notifications, never attention state.
+- **I-019-3 — Muting suppresses informational attention only; approval-required actionable attention still surfaces.** A participant's mute settings filter informational notifications at emit time, but neither the preference filter nor any client surface may suppress, downgrade, or hide actionable approval-required attention. **Grounds in:** `Spec-019 §Fallback Behavior` ("If a participant has muted a session or channel, critical approval-request attention may still surface while informational events remain muted"), `Spec-019 §Implementation Notes` ("suppression must not erase actual blocking session state"), `Spec-019 §Pitfalls To Avoid` ("Letting muted informational noise hide blocking approval state"). **Why load-bearing:** the mute filter runs at the control plane before a row is written or pushed, so a filter defect here is silent — nothing downstream can recover an attention item that was never emitted.
+- **I-019-4 — Session-scoped aggregate attention stays actionable until every contributing actionable item resolves, and clients read it from the canonical projection rather than recomputing it.** The aggregate is `actionable` while any unresolved run-scoped, invite, or participant-request contributor is actionable, and it is served by `AttentionProjectionRead` — no client surface derives its own aggregate from a partial local view. **Grounds in (per leg):** the aggregate-resolution leg grounds in `Spec-019 §Default Behavior` ("session-scoped attention defaults to an aggregate of unresolved run, invite, and participant-request signals") and `Spec-019 §Example Flows` (the two-concurrent-runs flow, whose session aggregate "stays actionable until both are resolved"). The single-source leg and the deterministic representative-contributor selection chain in D-019-2 are **plan-owned**: no Spec-019 clause forbids client-side reconstruction or fixes a tiebreak order — `Spec-019 §Implementation Notes` asks only that the projection be queryable without full timeline replay — so the canonical-projection prohibition and the total tiebreak are enforcement this plan designs on top of the spec's stated behavior. **Why load-bearing:** ad-hoc client aggregation is how a session badge and its run badges drift apart, and a non-total tiebreak lets two readers of one projection state disagree about which contributor an aggregate names.
+
 ## Cross-Plan Obligations
 
-- **CP-019-1 — `notification_preferences` Path-2 crypto-shred reciprocal (⇄ [Plan-022](./022-data-retention-and-gdpr.md) CP-022-6).** On a valid participant purge (`DELETE /participants/{id}/data`), the Plan-019-owned durable `notification_preferences` rows for the purged participant are **hard-DELETEd** in [Plan-022](./022-data-retention-and-gdpr.md)'s Postgres-side shred fan-out (`Spec-022 §Path 2 — Postgres PII rows (hard DELETE)`, §Shred Fan-Out Path 2). Unlike the `session_invites` / `session_memberships` rows (anonymized to preserve referential integrity, `Spec-022 §Postgres (Control Plane) Deletion`), preferences carry no audit-trail or foreign-key obligation, so they are removed outright. Reciprocal of Plan-022 CP-022-6 (encoded fix-in-place at the Tier-5 audit swap, satisfying Plan-022 I-022-19); shred-handler provider: Plan-022 (V1.1, owns the cross-store fan-out).
+- **CP-019-1 — `notification_preferences` + `notification_queue` Path-2 crypto-shred reciprocal (⇄ [Plan-022](./022-data-retention-and-gdpr.md) CP-022-6).** On a valid participant purge (`DELETE /participants/{id}/data`), the Plan-019-owned durable `notification_preferences` rows for the purged participant are **hard-DELETEd** in [Plan-022](./022-data-retention-and-gdpr.md)'s Postgres-side shred fan-out (`Spec-022 §Path 2 — Postgres PII rows (hard DELETE)`, §Shred Fan-Out Path 2). Unlike the `session_invites` / `session_memberships` rows (anonymized to preserve referential integrity, `Spec-022 §Postgres (Control Plane) Deletion`), preferences carry no audit-trail or foreign-key obligation, so they are removed outright. **Widened 2026-08-10 (Tier-8 audit, D-019-1): the new `notification_queue` table is a second Path-2 target under this same obligation, likewise hard-DELETE.** Its `participant_id` is `NOT NULL REFERENCES participants(id)` with the default `NO ACTION`, so it joins the closure Plan-022 CP-022-6 derives from the schema — moving that closure from twelve rows to thirteen — and the purge must delete its rows **before** the `DELETE FROM participants` anchor or the parent delete fails. Hard-DELETE rather than anonymize because a queued row's `summary` is a derived, human-readable render string that can name participants and session content: severing the FK alone would leave personal data behind, and the row carries no audit obligation to preserve (the canonical event it references survives in the emitting daemon's local log per [ADR-017](../decisions/017-shared-event-sourcing-scope.md)). Reciprocal of Plan-022 CP-022-6 (encoded fix-in-place at the Tier-5 audit swap, satisfying Plan-022 I-022-19; the queue half encoded fix-in-place at this Tier-8 swap); shred-handler provider: Plan-022 (V1.1, owns the cross-store fan-out).
 
 ## API And Transport Changes
 
 - Add `AttentionProjectionRead`, `NotificationPreferenceRead`, `NotificationPreferenceUpdate`, and `NotificationEmit` to shared contracts and the typed client SDK.
 - Require emitted notifications to reference the underlying canonical event or derived blocking state that triggered them.
+- Deliver notifications over the existing control-plane SSE subscription rather than a new endpoint, per `Spec-019 §Desktop-to-Desktop Delivery` and [ADR-014](../decisions/014-trpc-control-plane-api.md); `Spec-019 §Cross-Device Delivery` adds no webhook surface in V1.
+- **Aggregate-carrier derivation rule (D-019-2).** `Spec-019 §Required Behavior` requires attention at both run scope and session scope, and the shared `AttentionItem` shape in [api-payload-contracts.md](../architecture/contracts/api-payload-contracts.md) carries a single `trigger`, a single `severity`, and a single `sourceEventId` — leaving it unstated which field carries an aggregate over several unresolved contributors, and where a derived item's `sourceEventId` comes from. This plan fixes the rule; it changes no field shape:
+  - **Scope discriminator, not a second type.** A session-scoped aggregate is an `AttentionItem` whose `runId` is **absent**; a run-scoped item carries `runId`. There is no separate aggregate type and no aggregate-only field.
+  - **`severity` carries the aggregate.** The aggregate is `actionable` if **any** unresolved contributor (run-scoped item, pending invite, or participant request) is actionable, and `informational` only when every unresolved contributor is informational — the direct reading of `Spec-019 §Default Behavior`'s "aggregate of unresolved run, invite, and participant-request signals", and the property `Spec-019 §Example Flows`'s two-concurrent-runs example illustrates. It resolves (leaves the actionable set) only when the last contributing actionable item clears (I-019-4).
+  - **`trigger` and `sourceEventId` come from one deterministically selected representative contributor** — highest severity first (`actionable` before `informational`), then earliest `createdAt`, then lexicographically smallest `id`. The tiebreak chain is total, so two readers of the same projection state derive the same aggregate rather than two that differ only in which contributor they happened to visit first. Selecting a real contributor rather than synthesizing a placeholder is what keeps `sourceEventId` resolvable, so the field stays non-optional and `Spec-019 §Interfaces And Contracts`'s "`NotificationEmit` must reference the underlying canonical event or state trigger" holds for every item the projection returns.
+  - **Aggregates are read-projection-only.** They are returned by `AttentionProjectionRead` and are never the subject of a `NotificationEmit`: a notification is emitted from the single canonical trigger that caused it, so no aggregate is ever emitted and no per-contributor fan-out is inferred from one. This is why the rule needs no contract-shape change — the ambiguity was in the read projection, and it is resolved there.
 
 ## Implementation Steps
 
@@ -76,10 +93,167 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 ## Test And Verification Plan
 
-- Attention-projection tests covering approvals, required input, run completion, failures, invites, and direct participant requests
-- Notification-fallback tests proving lost or denied OS delivery does not erase in-app attention state
-- Preference tests covering mute behavior without hiding critical approval-required attention
-- Projection tests proving session-scoped aggregate attention resolves only when all underlying run-scoped actionable items are cleared
+Each bullet below verifies a numbered invariant from §Invariants; the trailing id is the entry a task's `Verifies invariant:` field resolves to.
+
+- Attention-projection tests covering approvals, required input, run completion, failures, invites, and direct participant requests — each derived from canonical state, none from a transient client observation (**I-019-1**)
+- Notification-fallback tests proving lost or denied OS delivery does not erase in-app attention state (**I-019-2**)
+- Queue tests proving an offline participant's notifications are queued, replayed as one batch in `queue_sequence` order from the last delivered position on reconnect, and purged 7 days after queueing — and that an expired-unread row leaves the underlying attention item intact (**I-019-2**)
+- Preference tests covering mute behavior without hiding critical approval-required attention (**I-019-3**)
+- Projection tests proving session-scoped aggregate attention resolves only when all underlying run-scoped actionable items are cleared, and that the aggregate's representative contributor is selected deterministically under the D-019-2 tiebreak chain (**I-019-4**)
+
+## Implementation Phase Sequence
+
+Plan-019 implementation lands as a sequence of small PRs at Tier 8. Phase 1 fixes the attention contracts and the trigger taxonomy every later layer keys on; Phase 2 lands the durable control-plane stores (preferences plus the `notification_queue`) and the replay-derived projections; Phase 3 lands emission and the delivery surfaces, degraded paths included. Each phase carries a `**Precondition:**` line so the merge order is reviewer-checkable, followed by the machine-readable form preflight Gate 5 reads. The §Implementation Steps numbering above is the same four-step vertical, decomposed here into per-PR tasks by the Tier-8 audit (019-F2); the phases are the §Rollout Order below made dispatchable, not a different plan.
+
+### Phase 1 — Attention Contracts And Trigger Taxonomy
+
+**Precondition:** Tier-8 plan-readiness audit complete (PR TIER8PRNUM); Plan-001 Phase 2 merged — the shared contracts package plus the `SessionId` / `RunId` brands these payloads reference.
+
+<!-- prettier-ignore -->
+```yaml
+preconditions:
+  - { type: audit_status, status: complete, evidence_pr: TIER8PRNUM, baseline_tag: "plan-readiness-audit-tier-8" }
+  - { type: plan_phase, plan: 001, phase: 2, status: merged }
+```
+
+**Goal:** `packages/contracts/src/attention/` exports the attention and notification payload schemas with the trigger and severity domains fixed; no service, storage, or delivery code lands.
+
+#### Tasks
+
+##### T1.1 — `attention/attention.ts`: `AttentionItem` plus the trigger and severity domains
+
+- **Files:** `packages/contracts/src/attention/attention.ts` (new), `packages/contracts/src/attention/__tests__/attention.test.ts` (new), `packages/contracts/src/index.ts` (add re-export).
+- **Step:** Author `AttentionTriggerSchema` as a `z.enum` over the six trigger values and `AttentionSeveritySchema` as a `z.enum` over `actionable` / `informational`, both transcribed from the `AttentionItem` union in [api-payload-contracts.md](../architecture/contracts/api-payload-contracts.md) rather than re-derived. Author `AttentionItemSchema` (`.strict()`) with `id`, `sessionId`, optional `runId`, `trigger`, `severity`, `summary`, `sourceEventId` (required — never optional), `createdAt`, optional `resolvedAt`. `runId` presence is the scope discriminator per D-019-2; do not add an aggregate-only field.
+- **Test:** assert the exported trigger set equals the six-value set exactly (neither superset nor subset), re-derived from the contract doc rather than transcribed from a plan gloss; assert `.strict()` rejects unknown keys; assert an item parses with `runId` absent and with it present; assert a payload omitting `sourceEventId` is rejected.
+- **Spec coverage:** Spec-019 §Required Behavior (the minimum trigger set — pending approval or input, run completion, run failure, invite receipt, mention or direct request); Spec-019 §Default Behavior (the actionable-versus-informational split)
+- **Verifies invariant:** none (contract-schema definition; the derivation behavior is verified in Phase 2)
+
+##### T1.2 — `attention/projection.ts`: `AttentionProjectionRead` run-scope and session-scope shapes
+
+- **Files:** `packages/contracts/src/attention/projection.ts` (new), `packages/contracts/src/attention/__tests__/projection.test.ts` (new).
+- **Step:** Author `AttentionProjectionReadRequestSchema` (`.strict()`: `sessionId`, optional `runId` to narrow to one run) and `AttentionProjectionReadResponseSchema` returning the run-scoped items plus the session-scoped aggregate as `AttentionItem` values — the aggregate carrying no `runId`, per the D-019-2 carrier rule in §API And Transport Changes. The response is the single source of aggregate state; no field invites a client to recompute it.
+- **Test:** assert the response parses with an aggregate item whose `runId` is absent alongside run-scoped items that carry one; assert a response whose "aggregate" carries a `runId` is indistinguishable from a run-scoped item by construction (documenting that scope is read off `runId`, not a flag).
+- **Spec coverage:** Spec-019 §Interfaces And Contracts (`AttentionProjectionRead` exposes actionable and informational state at both run and session scope); Spec-019 §Required Behavior (both run-scoped and session-scoped aggregate attention)
+- **Verifies invariant:** I-019-4 (the shape half — the aggregate is returned by the projection; its resolution behavior is verified at T2.4)
+
+##### T1.3 — `attention/preferences.ts`: `NotificationPreferenceRead` and `NotificationPreferenceUpdate`
+
+- **Files:** `packages/contracts/src/attention/preferences.ts` (new), `packages/contracts/src/attention/__tests__/preferences.test.ts` (new).
+- **Step:** Author the read and update request/response schemas over per-surface preferences keyed by `preference_key`, matching the `notification_preferences` shape in [shared-postgres-schema.md](../architecture/schemas/shared-postgres-schema.md). Preferences are global per participant in V1; author no session-scoping field, so the deferred per-session extension cannot be half-shipped as a dormant column.
+- **Test:** assert `.strict()` rejects a `sessionId` key on either shape (the V1 global-preference decision, asserted rather than assumed); assert mute settings round-trip through the `preference_value` payload.
+- **Spec coverage:** Spec-019 §Interfaces And Contracts (`NotificationPreferenceRead` / `NotificationPreferenceUpdate` support per-surface preferences); Spec-019 §Resolved Questions and V1 Scope Decisions (global preferences in V1; per-session deferred)
+- **Verifies invariant:** none (contract-schema definition; mute behavior is verified at T2.2)
+
+##### T1.4 — `attention/emit.ts`: `NotificationEmit` with a required canonical-trigger reference
+
+- **Files:** `packages/contracts/src/attention/emit.ts` (new), `packages/contracts/src/attention/__tests__/emit.test.ts` (new).
+- **Step:** Author `NotificationEmitParamsSchema` (`.strict()`: `participantId`, `trigger`, `sourceEventId`, `summary`, optional `metadata`), mirroring the shape in [api-payload-contracts.md](../architecture/contracts/api-payload-contracts.md). `sourceEventId` is required at the type level: it is what makes "derived from canonical state" checkable by the compiler rather than by review.
+- **Test:** assert a payload omitting `sourceEventId` fails to parse; assert an out-of-enum `trigger` fails to parse.
+- **Spec coverage:** Spec-019 §Interfaces And Contracts (`NotificationEmit` must reference the underlying canonical event or state trigger)
+- **Verifies invariant:** I-019-1 (the type-level half of canonical derivation — an emission with no canonical reference is unrepresentable)
+
+### Phase 2 — Preference And Queue Storage Plus Replay-Derived Projections
+
+**Precondition:** Phase 1 merged; Plan-001 Phase 4 merged — the control-plane migration runner plus the `participants` and `sessions` tables both new tables reference; Plan-013 Phase 2 merged — the replay-aware projection substrate the attention projector reads canonical events through.
+
+<!-- prettier-ignore -->
+```yaml
+preconditions:
+  - { type: plan_phase, plan: 019, phase: 1, status: merged }
+  - { type: plan_phase, plan: 001, phase: 4, status: merged }
+  - { type: plan_phase, plan: 013, phase: 2, status: merged }
+```
+
+**Goal:** both Plan-019 control-plane tables exist, preference reads and updates work with mute semantics that cannot hide actionable attention, and the run-scoped and session-scoped projections are derived from canonical events. No OS-level or renderer delivery lands.
+
+#### Tasks
+
+##### T2.1 — Control-plane migration: `notification_preferences` plus `notification_queue`
+
+- **Files:** a new migration under `packages/control-plane/src/migrations/`, plus its same-commit registration in the `MIGRATIONS` array in `packages/control-plane/src/sessions/migration-runner.ts`, plus a migration-shape test.
+- **Step:** Inline both `CREATE TABLE` blocks verbatim from the schema doc — [§Notification Preferences (Plan-019)](../architecture/schemas/shared-postgres-schema.md#notification-preferences-plan-019) and [§Notification Queue (Plan-019)](../architecture/schemas/shared-postgres-schema.md#notification-queue-plan-019) — including the `-- Owner:` header and every per-column comment, together with the queue's two indexes. Resolve the migration's version index against the shipped `MIGRATIONS` array at build time; do not hard-code a number ahead of the tier's other migrations.
+- **Test:** assert the applied migration creates both tables with the exact column sets; that `notification_queue.attention_trigger` (the keyword-avoidance rename of the wire field `AttentionItem.trigger`) and `severity` carry their CHECK domains and reject an out-of-domain value, with the admitted domains re-derived from the contract union rather than transcribed; that `CHECK (expires_at > queued_at)` rejects a row born expired; that `idx_notification_queue_undelivered` is partial on `delivered_at IS NULL` and `idx_notification_queue_expiry` exists; and that the migration is idempotent under the runner's version anchor.
+- **Spec coverage:** Spec-019 §Cross-Device Delivery (queued in the control plane when no device is connected; 7-day retention then permanent deletion); shared-postgres-schema.md §Notification Queue (the canonical DDL this migration reproduces)
+- **Verifies invariant:** none (schema substrate; the behavior it carries is verified at T2.5)
+
+##### T2.2 — `notification-preference-service.ts`: global preferences with actionable-safe mute
+
+- **Files:** `packages/control-plane/src/notification-preferences/notification-preference-service.ts` (new) plus co-located tests.
+- **Step:** Implement read and update over `notification_preferences` with global per-participant defaults, and implement the emit-time filter predicate the Phase-3 emit service calls. The filter drops informational notifications a participant has muted and is structurally incapable of dropping an actionable approval-required one: the severity check precedes the preference lookup rather than being a branch inside it, so a preference-shape defect cannot suppress blocking attention.
+- **Test:** assert a muted informational trigger is filtered; assert an actionable `pending_approval` trigger survives every mute configuration including a mute-all payload; assert an unknown `preference_key` neither throws nor silently widens the filter.
+- **Spec coverage:** Spec-019 §Fallback Behavior (a muted session may still surface critical approval-request attention while informational events remain muted); Spec-019 §Pitfalls To Avoid (muted informational noise must not hide blocking approval state)
+- **Verifies invariant:** I-019-3
+
+##### T2.3 — `attention-projector.ts`: run-scoped projection from canonical events
+
+- **Files:** `packages/runtime-daemon/src/attention/attention-projector.ts` (new) plus co-located tests.
+- **Step:** Derive run-scoped `AttentionItem` values by replaying canonical session and run events — approvals, required input, run completion, run failure, invites, mentions and direct requests — mapping each to its trigger and default severity. The projector reads canonical state only; it accepts no client-supplied attention input, so there is no code path by which a client heuristic can mint an item.
+- **Test:** one case per trigger asserting the derived item's trigger, severity, and `sourceEventId`; a replay-equivalence case asserting that projecting the same event log twice, and projecting it from cold, yield identical items; a case asserting an item resolves only when the underlying state resolves.
+- **Spec coverage:** Spec-019 §State And Data Implications (attention state is a derived projection from canonical events); Spec-019 §Required Behavior (emission derived from canonical session or run state, not client heuristics alone)
+- **Verifies invariant:** I-019-1
+
+##### T2.4 — Session-scoped aggregate projection and the D-019-2 carrier rule
+
+- **Files:** `packages/runtime-daemon/src/attention/attention-projector.ts` plus co-located tests.
+- **Step:** Derive the session-scoped aggregate as an `AttentionItem` with `runId` absent, applying the derivation rule in §API And Transport Changes: severity is actionable while any unresolved contributor is actionable; `trigger` and `sourceEventId` come from the representative contributor selected by highest severity, then earliest `createdAt`, then lexicographically smallest `id`. Serve it from `AttentionProjectionRead`; expose no partial input from which a client could assemble its own.
+- **Test:** the two-concurrent-runs case asserting the aggregate stays actionable until both underlying items clear; a case asserting an aggregate over informational-only contributors is informational; a determinism case asserting two projections over the same contributor set in different insertion orders select the same representative, including a tie on severity and a further tie on `createdAt`.
+- **Spec coverage:** Spec-019 §Default Behavior (session-scoped attention is an aggregate of unresolved run, invite, and participant-request signals); Spec-019 §Example Flows (two runs needing action at once — the session aggregate stays actionable until both resolve)
+- **Verifies invariant:** I-019-4
+
+##### T2.5 — Queue enqueue, reconnect batch catch-up, and the 7-day expiry purge
+
+- **Files:** `packages/control-plane/src/notification-preferences/notification-preference-service.ts` sibling queue module under `packages/control-plane/src/notification-preferences/`, plus co-located tests.
+- **Step:** Implement the three queue operations the schema section specifies and nothing beyond them: enqueue on the no-connected-device path; the reconnect read selecting the participant's `delivered_at IS NULL` rows in `queue_sequence` order, pushing them as one batch and stamping `delivered_at` on exactly the rows pushed; and the purge sweep deleting every row past `expires_at`, delivered or not. Add no retry counter, backoff schedule, coalescing key, or per-device state — the spec states none, and the schema section records each omission deliberately.
+- **Test:** assert an offline participant's notifications are queued and replayed as one ordered batch on reconnect, resuming after a partial batch exactly where the previous stamp stopped; assert two rows inserted in one transaction (sharing a single `now()`) still replay in a stable order, the case `queue_sequence` exists for; assert the purge deletes a row 7 days after `queued_at`; assert an expired-unread row leaves the underlying attention item untouched in the projection.
+- **Spec coverage:** Spec-019 §Cross-Device Delivery (queue when no device is connected; batch delivery from the last cursor on reconnect; 7-day retention then permanent deletion)
+- **Verifies invariant:** I-019-2
+
+### Phase 3 — Notification Emission And Delivery Surfaces
+
+**Precondition:** Phase 2 merged; Plan-013 Phase 4 merged — the desktop timeline rendering surface the attention badges and summaries attach to.
+
+<!-- prettier-ignore -->
+```yaml
+preconditions:
+  - { type: plan_phase, plan: 019, phase: 2, status: merged }
+  - { type: plan_phase, plan: 013, phase: 4, status: merged }
+```
+
+**Goal:** notifications are emitted from canonical state through the preference filter, delivered over the existing SSE subscription to connected devices and queued otherwise, surfaced as OS notifications when the platform allows, and surfaced in-app as badges and summaries when it does not.
+
+#### Tasks
+
+##### T3.1 — `notification-emit-service.ts`: canonical emission, preference filter, and queue-on-no-device
+
+- **Files:** `packages/runtime-daemon/src/attention/notification-emit-service.ts` (new) plus co-located tests.
+- **Step:** Emit a notification for each newly actionable or informational attention item, carrying the canonical `sourceEventId` from the item that produced it. Apply the T2.2 preference filter before anything is written or pushed, then route: push over the SSE subscription when the participant has a connected device, otherwise enqueue. Aggregates are never emitted — emission keys on a single canonical trigger, per D-019-2.
+- **Test:** assert an approval-required run emits actionable attention while the participant's app is unfocused; assert a filtered informational notification is neither pushed nor queued; assert a participant with no connected device gets a queue row rather than a dropped push; assert no session-scoped aggregate item is ever passed to the emit path.
+- **Spec coverage:** Spec-019 §Desktop-to-Desktop Delivery (SSE push to connected clients; non-matching events dropped at the control plane before emission); Spec-019 AC1
+- **Verifies invariant:** I-019-1, I-019-3
+
+##### T3.2 — `attentionClient.ts`: typed SDK surface over the projection and preferences
+
+- **Files:** `packages/client-sdk/src/attentionClient.ts` (new) plus co-located tests.
+- **Step:** Expose `AttentionProjectionRead`, `NotificationPreferenceRead`, and `NotificationPreferenceUpdate` through the typed client, and subscribe to the notification stream. The client returns the server's aggregate item as received; it computes no aggregate of its own, and exposes no helper that would let a caller build one from a partial view.
+- **Test:** assert the client surfaces the aggregate item verbatim; assert a caller reading a narrowed single-run projection cannot obtain a session aggregate from it.
+- **Spec coverage:** Spec-019 §Interfaces And Contracts (the four contracts exposed through the typed client SDK)
+- **Verifies invariant:** I-019-4
+
+##### T3.3 — Desktop OS notification delivery with degraded in-app fallback
+
+- **Files:** `apps/desktop/src/main/notifications/` (new) plus co-located tests.
+- **Step:** Deliver actionable attention as an OS notification via the Electron Notification API when the app is unfocused, and in-app first when focused. When OS notifications are unavailable, denied, or fail, fall back to in-app badges and attention summaries — the fallback path must not touch attention state, so a delivery failure is observable only as an undelivered notification.
+- **Test:** assert a denied OS-notification permission still produces the in-app badge and summary; assert a dropped or failed delivery leaves the attention item present and unresolved in the projection; assert focus state selects the surface without changing severity.
+- **Spec coverage:** Spec-019 §Fallback Behavior (in-app badges and summaries when OS notifications are unavailable or denied; the projection still reflects outstanding actionable items when delivery is delayed); Spec-019 AC2
+- **Verifies invariant:** I-019-2
+
+##### T3.4 — Renderer attention surfaces distinguishing actionable from informational
+
+- **Files:** `apps/desktop/src/renderer/src/attention/` (new) plus co-located tests.
+- **Step:** Render run-scoped and session-scoped attention with actionable and informational states visually distinct, reading both from the canonical projection through `attentionClient`. Suppression controls adjust which notifications arrive; they never hide a blocking approval-required item from the in-app surfaces.
+- **Test:** assert actionable and informational items render distinguishably; assert a session badge stays actionable while any contributing run badge is actionable and clears only with the last one; assert a muted session still shows a blocking approval-required item in-app.
+- **Spec coverage:** Spec-019 §Required Behavior (users must distinguish passive informational notifications from actionable blocking attention); Spec-019 AC3
+- **Verifies invariant:** I-019-3, I-019-4
 
 ## Rollout Order
 
@@ -97,6 +271,13 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - Cross-device duplicate delivery can become noisy if canonical attention state and local notification emission are not separated cleanly
 - Aggregate session attention can drift if clients try to reconstruct it locally instead of consuming the canonical derived projection
 
+## Ratified Design Decisions (Tier-8 audit)
+
+The decisions surfaced by the Tier-8 plan-readiness audit are ratified below and folded into the plan body, per the audit runbook's resolved-decision convention.
+
+- **D-019-1 — Plan-019 owns a new durable control-plane `notification_queue` table. Type 2.** `Spec-019 §Cross-Device Delivery` states three behaviors that require durable per-participant storage — notifications are queued in the control plane when no device is connected, they are delivered as a batch from the last cursor on the next connect, and undelivered ones are retained for 7 days before permanent deletion — but names no table, and the plan's prior §Data And Storage Changes bullet pointed the other way ("keep delivery-attempt metadata ephemeral where possible"). The audit weighed two readings. **Reading B** was that the substrate already exists and Plan-019 rides it, since the spec's catch-up sentence cites [Spec-008](../specs/008-control-plane-relay-and-session-join.md). That reading was checked against the corpus rather than assumed, and it has no substrate: Plan-008 owns `session_directory`, `relay_connections`, and `relay_seen_ephemeral_keys` — no durable notification or event stream; `Spec-008 §Required Behavior` states outright that the control plane stores no session events per [ADR-017](../decisions/017-shared-event-sourcing-scope.md); and the resumption Spec-008 actually defines is the EventSource `Last-Event-ID` header (`Spec-008 §Control-Plane Transport Protocol`), which is transport-level reconnect and has no durable backing store to replay from. **Reading A is therefore ratified:** the queue is a new Plan-019-owned table, authored in [shared-postgres-schema.md §Notification Queue (Plan-019)](../architecture/schemas/shared-postgres-schema.md#notification-queue-plan-019) hardened from the three stated behaviors **and nothing more** — no retry counter, no backoff schedule, no coalescing key, no cross-device dedup, no per-device delivery state, and no cursor table (the cursor is derived from `delivered_at` plus the monotonic `queue_sequence`). Each omission is recorded in the schema section as deliberate rather than left to be read as an oversight. Consequences: the new bullet in §Data And Storage Changes supersedes the ephemeral-metadata sentence; CP-019-1 widens to name the queue as a second Path-2 hard-DELETE target; and Plan-022 CP-022-6's schema-derived `REFERENCES participants(id)` closure moves from twelve rows to thirteen. **Type 2** because a shared control-plane table is hard to reverse once it holds rows, which is why the design was held to the spec's stated behaviors and checked against the ADR-017 invariants in the schema doc.
+- **D-019-2 — The session-scoped aggregate is carried by an `AttentionItem` with no `runId`; severity aggregates, and trigger and `sourceEventId` come from a deterministically selected representative contributor. Type 1.** `Spec-019 §Required Behavior` requires attention at both run and session scope, and `Spec-019 §Default Behavior` makes the session view "an aggregate of unresolved run, invite, and participant-request signals" — but the shared `AttentionItem` shape carries exactly one `trigger`, one `severity`, and one `sourceEventId`, leaving unstated which field carries the aggregate and where a derived item's canonical reference comes from. The rule is stated in full in §API And Transport Changes. Two properties are worth naming here. First, the resolution is **contract-shape-neutral**: because the representative is a real contributor rather than a synthesized placeholder, `sourceEventId` always resolves and stays non-optional, so `Spec-019 §Interfaces And Contracts`'s canonical-reference requirement holds without widening the type — no api-payload change rides this decision beyond an explanatory annotation. Second, the severity leg is spec-grounded while the selection chain is **plan-owned**: no Spec-019 clause fixes a tiebreak order, and the total ordering (severity, then `createdAt`, then `id`) is enforcement this plan designs so that two readers of one projection state cannot disagree about which contributor an aggregate names. Aggregates are read-projection-only and are never emitted as notifications, which is what keeps the rule confined to the read path. **Type 1** — a derivation rule over an unchanged shape is reversible by restating it.
+
 ## Progress Log
 
 ### Shipment Manifest
@@ -113,6 +294,9 @@ shipped: []
 ### Notes
 
 <!-- Per-PR human commentary (round-trips, learnings, partial-ship details). Append-only. -->
+
+- **2026-08-10 — Tier-8 plan-readiness audit (PR TIER8PRNUM).** Six findings adjudicated. Structural backfill: the §Preconditions audit checkbox; §Implementation Phase Sequence with three phases and per-phase `#### Tasks`, decomposed from the existing §Rollout Order and §Target Areas so every task traces to a Spec-019 criterion or a numbered invariant; the [ADR-014](../decisions/014-trpc-control-plane-api.md) Required-ADRs row the SSE delivery path already depended on; and §Invariants I-019-1..4, grounding the four properties §Test And Verification Plan already tested for and giving each bullet an id to resolve to. Scope growth: D-019-1 (the `notification_queue` table) and D-019-2 (the aggregate-carrier rule). The plan flipped `approved → review` for the growth and this audit's targeted coverage of exactly that growth restored `approved` in the same swap — flip-and-restore-in-one-swap, the NS-51 / NS-53 precedent; the terminal Status value is unchanged, so the README plan-status census does not move.
+- **Residual recorded, not fixed (Spec-019 stays unedited at this swap).** `Spec-019 §Cross-Device Delivery` cites Spec-008 for an "SSE catch-up mechanism (replay from last cursor)" that Spec-008 does not define — it has no such section, states that the control plane stores no session events per [ADR-017](../decisions/017-shared-event-sourcing-scope.md), and defines only transport-level `Last-Event-ID` reconnect. The `notification_queue` authored at this swap is the actual substrate that sentence needs, so the behavior is now satisfied; what remains is a stale cross-reference in the spec's own prose. Repairing it is a Spec-019 edit and is owed as its own change.
 
 ## Done Checklist
 

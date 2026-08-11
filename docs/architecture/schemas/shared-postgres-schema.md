@@ -10,7 +10,7 @@ Canonical schema for the collaboration control plane's shared Postgres database.
 
 Per [ADR-017: Shared Event-Sourcing Scope](../../decisions/017-shared-event-sourcing-scope.md), this schema declares the following invariants that constrain all downstream table additions:
 
-1. **Coordination records only.** Shared Postgres stores session metadata, memberships, invites, presence history, runtime-node attachments, session-directory entries, relay-connection records, notification preferences, health snapshots, event-log anchors (Merkle-root witnesses, not event payloads), cross-node dispatch coordination rows, session terminal-lease coordination rows (current holder only — the `pty.control_changed` event stream stays daemon-local), daemon signing-key verification-roster rows (session-scoped Ed25519 PUBLIC keys only — the private halves stay sealed in daemon-local SQLite per ADR-004, and the `runtime_node.*` lifecycle event stream stays daemon-local), and artifact-relay blob-store coordination rows (blob metadata + per-participant wrapped CEKs — ciphertext key envelopes and delivery/lease state, never event payloads and never the chunk bytes, which live in the deployment's object store). It does **not** store event payloads.
+1. **Coordination records only.** Shared Postgres stores session metadata, memberships, invites, presence history, runtime-node attachments, session-directory entries, relay-connection records, notification preferences, queued per-participant notification-delivery records (derived notification-rendering fields plus a reference to the canonical triggering event — never the event payload), health snapshots, event-log anchors (Merkle-root witnesses, not event payloads), cross-node dispatch coordination rows, session terminal-lease coordination rows (current holder only — the `pty.control_changed` event stream stays daemon-local), daemon signing-key verification-roster rows (session-scoped Ed25519 PUBLIC keys only — the private halves stay sealed in daemon-local SQLite per ADR-004, and the `runtime_node.*` lifecycle event stream stays daemon-local), and artifact-relay blob-store coordination rows (blob metadata + per-participant wrapped CEKs — ciphertext key envelopes and delivery/lease state, never event payloads and never the chunk bytes, which live in the deployment's object store). It does **not** store event payloads.
 2. **No `session_events_shared`, `session_events_global`, or equivalent cross-participant event table exists in V1.** The absence is intentional, not an oversight. Grepping this file for `session_events_shared` must return this invariant note — never a table definition. Proposals to add one are out of V1 scope.
 3. **Per-daemon local `session_events` is authoritative** per ADR-017 and [local-sqlite-schema.md](./local-sqlite-schema.md). Each daemon owns its own event log with its own monotonic sequence number; cross-participant audit is federated via log export and merge per [Data Architecture §Federated audit model](../data-architecture.md#event-sourcing-scope).
 4. **Supersession gates.** Introducing a shared session-event table requires (a) an ADR superseding ADR-017, and (b) completion of the MLS promotion gates named in [ADR-010 §MLS Promotion Criteria](../../decisions/010-paseto-webauthn-mls-auth.md) — audit visibility, interop tests, and the 4-week soak requirement — because a shared event table is meaningful only if payload-level privacy is carried by group-keyed encryption rather than per-pair PASETO wrapping.
@@ -445,6 +445,64 @@ CREATE TABLE notification_preferences (
   PRIMARY KEY (participant_id, preference_key)
 );
 ```
+
+---
+
+## Notification Queue (Plan-019)
+
+Durable per-participant delivery records for the offline leg of [Spec-019 §Cross-Device Delivery](../../specs/019-notifications-and-attention-model.md#cross-device-delivery): V1 delivers notifications to currently-connected devices over the SSE subscription, and **if no device is connected the notification is queued in the control plane** and delivered as a batch on the participant's next connect, replayed from the last delivered position. This table is that queue — the substrate the spec's catch-up sentence assumes. **Forward-declared:** the additive migration ships with the Plan-019 Phase 2 preference-and-queue-storage leg (`Plan-019 §Implementation Phase Sequence`); the DDL is pinned here so the emit path, the reconnect catch-up read, the expiry sweep, and the migration share one canonical shape.
+
+**Deliberately absent: no cursor table, no per-device delivery state, no delivery-attempt or backoff column, no coalescing or cross-device dedup key.** Each omission tracks a behavior Spec-019 does not state, and columns are not added ahead of the behavior that would write them. The catch-up cursor is derived, not stored (see the delivery model below). Per-device state has no V1 writer: the spec scopes V1 delivery to the participant and defers per-device fan-out — and with it any duplicate-suppression across devices — to the V2 push/digest leg. Redelivery attempts, backoff, and coalescing of related notifications are likewise unstated: a queued row is either pushed once (and stamped) or stays owed until it expires.
+
+```sql
+-- Owner: Plan-019 (Phase 2 ships the additive control-plane migration)
+-- One row per notification owed to one participant while that participant has no connected device.
+-- Coordination/delivery records only: each row carries a REFERENCE to the canonical event that
+-- triggered it (source_event_id) plus the derived notification-rendering fields, never the event
+-- payload -- the invariant-(1) constraint at the top of this file.
+CREATE TABLE notification_queue (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  queue_sequence    BIGSERIAL UNIQUE,            -- monotonic per-table delivery order; the derived catch-up cursor reads it (BIGSERIAL implies NOT NULL)
+  participant_id    UUID NOT NULL REFERENCES participants(id),
+  session_id        UUID NOT NULL REFERENCES sessions(id),
+  run_id            UUID,                        -- NULL for session-scoped triggers (mirrors AttentionItem.runId?);
+                                                 -- deliberately no FK: runs are daemon-local per ADR-017, so no
+                                                 -- shared `runs` table exists to reference.
+  attention_trigger TEXT NOT NULL                -- the wire field is AttentionItem.trigger; qualified here because
+                                                 -- bare TRIGGER is a reserved word in the SQL standard and a DDL
+                                                 -- keyword in Postgres (the local schema's invalidation_trigger is
+                                                 -- the same precedent). The DOMAIN below is byte-identical to the
+                                                 -- contract union; only the column name is qualified.
+                    CHECK(attention_trigger IN ('pending_approval', 'pending_input', 'run_completed',
+                                                'run_failed', 'invite_received', 'mention')),
+  severity          TEXT NOT NULL
+                    CHECK(severity IN ('actionable', 'informational')),
+  summary           TEXT NOT NULL,               -- derived render string (AttentionItem.summary); personal content -- see the erasure note
+  source_event_id   TEXT NOT NULL,               -- canonical triggering event id; deliberately no FK (the event row is daemon-local)
+  queued_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  delivered_at      TIMESTAMPTZ,                 -- NULL = still owed; stamped when the row goes out in a batch
+  expires_at        TIMESTAMPTZ NOT NULL DEFAULT now() + interval '7 days',
+  CHECK (expires_at > queued_at)
+);
+
+-- Reconnect catch-up read: the participant's still-owed rows, already in delivery order.
+CREATE INDEX idx_notification_queue_undelivered
+  ON notification_queue (participant_id, queue_sequence)
+  WHERE delivered_at IS NULL;
+
+-- Expiry purge sweep.
+CREATE INDEX idx_notification_queue_expiry ON notification_queue (expires_at);
+```
+
+The `attention_trigger` and `severity` domains are byte-identical to the `AttentionItem` contract's `trigger` and `severity` unions in [api-payload-contracts.md](../contracts/api-payload-contracts.md), which ground them in [Spec-019 §Required Behavior](../../specs/019-notifications-and-attention-model.md#required-behavior)'s minimum trigger set and [Spec-019 §Default Behavior](../../specs/019-notifications-and-attention-model.md#default-behavior)'s actionable/informational split; the CHECK constraints exist so a queued row cannot carry a trigger the client has no rendering for. The column-name qualification is the only divergence from the wire shape, and it is a keyword-avoidance rename, not a domain change. `summary` is carried rather than re-derived at delivery time because the queue's entire purpose is delivery to a client that was absent when the attention state was derived.
+
+**Delivery model (a cursor without a cursor table).** The catch-up position is the pair (`delivered_at IS NULL`, `queue_sequence`): the reconnect read selects the participant's undelivered rows in `queue_sequence` order, pushes them as one batch over the [Spec-019 §Desktop-to-Desktop Delivery](../../specs/019-notifications-and-attention-model.md#desktop-to-desktop-delivery) SSE subscription, and stamps `delivered_at` on exactly the rows it pushed — so the next connect resumes where this one stopped without a stored per-participant cursor row to keep in sync. `queue_sequence` rather than `queued_at` carries the order because rows inserted in one transaction share a single `now()`: timestamps tie, and a timestamp-keyed resume across a tie can skip or repeat a row. `notification_preferences` filtering happens at emit time, before a row is written ([Spec-019 §Desktop-to-Desktop Delivery](../../specs/019-notifications-and-attention-model.md#desktop-to-desktop-delivery) — non-matching events are dropped at the control plane), so the queue holds only notifications the participant has already opted into and the catch-up read applies no further filter.
+
+**Retention (7 days, then permanent deletion).** `expires_at` defaults to `queued_at + 7 days`, the one retention figure [Spec-019 §Cross-Device Delivery](../../specs/019-notifications-and-attention-model.md#cross-device-delivery) states, and the CHECK keeps it strictly after `queued_at` so a row can never be born expired. The purge sweep deletes every row past `expires_at`, delivered or not: an undelivered row is "expired and permanently deleted" by the spec's own words, and a delivered row has discharged its purpose with no stated longer-retention obligation. Deletion is permanent and leaves no tombstone — this queue is a delivery buffer, not an audit surface; the canonical event each row references stays in the emitting daemon's local log per ADR-017.
+
+**Invariant compatibility (checked against (1)–(4) above, as this file requires of every table addition).** This table engages (1) and (2) and violates neither. It is **per-participant delivery state** — which notifications one participant is owed and whether each has been pushed — not a cross-participant event stream: there is no session-ordered read path, no sequence shared across participants, and no replay semantics (`queue_sequence` orders one participant's pending batch, not a session's history). It stores **no event payload**: `source_event_id` is a reference whose row lives in the emitting daemon's local `session_events`, and `trigger` / `severity` / `summary` are the derived notification-rendering fields of the `AttentionItem` contract, produced by the attention projection rather than copied off an event. A reader of this table learns that a participant was owed a notification; it cannot reconstruct the session. Invariants (3) and (4) are untouched — the daemon-local log stays authoritative and no supersession gate is engaged.
+
+**GDPR erasure (hard-DELETE class).** `notification_queue.participant_id` is `NOT NULL REFERENCES participants(id)` with the default `NO ACTION`, so this table joins the [Spec-022 §Shred Fan-Out](../../specs/022-data-retention-and-gdpr.md#shred-fan-out) Path-2 `REFERENCES participants(id)` closure (Plan-022 CP-022-6 ⇄ Plan-019 CP-019-1) as its thirteenth row, alongside its sibling `notification_preferences`. A participant erasure hard-DELETEs every row for that participant — `DELETE FROM notification_queue WHERE participant_id = :pid;` — and must run **before** the `DELETE FROM participants` anchor, or the `NO ACTION` FK makes that parent `DELETE` fail. Hard-DELETE rather than anonymize: the row carries no audit-trail or referential obligation (the canonical event survives in the daemon-local log), and `summary` is derived personal content, so severing the FK alone would leave personal data behind. The [GDPR Manual Erasure Runbook §Path 2](../../operations/gdpr-manual-erasure-runbook.md#path-2--hard-delete--sever-postgres-rows-control-plane) is the V1 operator procedure.
 
 ---
 
