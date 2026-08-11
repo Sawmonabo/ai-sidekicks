@@ -702,7 +702,10 @@ CREATE UNIQUE INDEX idx_approval_requests_ask ON approval_requests(run_id, ask_i
 CREATE TABLE approval_resolutions (
   request_id               TEXT PRIMARY KEY REFERENCES approval_requests(id),
                                               -- PK = the durable wire id (approvalRequestId): enforces the 1:1 decision row
-                                              -- and keeps every column event-derivable for peer/replay rebuild (I-012-9)
+                                              -- and keeps every column event-derivable for peer/replay rebuild (I-012-9).
+                                              -- A D-012-19 multi-principal conjunction spans one such row per member
+                                              -- request; the wait-for-all aggregate settles across rows, never as
+                                              -- multiple resolutions on one row
   approver_id              TEXT NOT NULL,     -- participant recorded as approver (D-012-12: node-owner binding on the
                                               -- local socket; verified PASETO sub on authenticated surfaces; Spec-012 line 97)
   decision                 TEXT NOT NULL
@@ -720,7 +723,10 @@ CREATE TABLE approval_resolutions (
 CREATE TABLE remembered_approval_rules (
   id                         TEXT PRIMARY KEY,
   session_id                 TEXT NOT NULL,   -- rules are session-scoped (Spec-012 line 82); membership-invalidation key
-  participant_id             TEXT NOT NULL,   -- the GRANTOR (approver who opted in); audit + membership-invalidation key, not a match key (D-012-10)
+  participant_id             TEXT NOT NULL,   -- the GRANTOR (approver who opted in); audit + membership-invalidation key AND the actor-axis
+                                              -- match key: a rule matches only when the adjudicating turn's effective principal equals it, so
+                                              -- one participant's grant never authorizes another's direction (D-012-10; Spec-012 §Required Behavior).
+                                              -- Grantor = beneficiary by construction: the request was addressed to that principal (D-012-12)
   node_id                    TEXT NOT NULL,   -- executing node whose trust envelope the grant rides; node-trust-invalidation key (Spec-012 line 91)
   run_id                     TEXT,            -- originating run; NOT NULL iff scope_kind = 'run' (the Spec-012 line 111 'this run only' binding)
   created_from_request_id    TEXT NOT NULL REFERENCES approval_resolutions(request_id), -- origin decision (Spec-012 line 106 audit history); the durable wire id carried on approval.remembered, so the FK rebuilds byte-equal from events alone (I-012-9)
@@ -733,7 +739,7 @@ CREATE TABLE remembered_approval_rules (
   scope_kind                 TEXT NOT NULL
                              CHECK(scope_kind IN ('run', 'session')),  -- explicit enum, not free-form (Spec-012 line 118)
   scope_pattern              TEXT,            -- resource-matching pattern within the kind boundary; NULL = category-wide within
-                                              -- (session, node, kind); semantics are category-derived (D-012-10)
+                                              -- (session, node, participant, kind); semantics are category-derived (D-012-10)
   granted_at                 TEXT NOT NULL,
   revoked_at                 TEXT,            -- nullable; set when rule is invalidated
   invalidation_trigger       TEXT
