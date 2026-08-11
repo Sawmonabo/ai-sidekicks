@@ -3491,7 +3491,11 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // 588/59 -> 589/59 (2026-08-09, PR #307): the sparse-root capture-closure
     // amendment added Plan-010 Phase 6 / T6.1 with its `Verifies invariant:`
     // I-010-24 row — one more bold resolved reference.
-    bold: { resolved: 589, noneArm: 106, parentResolved: 0 },
+    // 589/106 -> 708/126 (2026-08-11, PR #318): the Tier-8 plan-readiness audit
+    // (NS-20) added audit-derived Tasks blocks across Plans 013/017/019/020/023
+    // — 119 more bold resolved references and 20 more bold none-arms from the
+    // new `Verifies invariant:` rows; the legacy channel is unchanged.
+    bold: { resolved: 708, noneArm: 126, parentResolved: 0 },
     legacy: { resolved: 59, noneArm: 3, parentResolved: 1 },
   });
 });
