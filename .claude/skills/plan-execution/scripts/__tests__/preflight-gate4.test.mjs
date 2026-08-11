@@ -3505,7 +3505,10 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // T5.9, and T5.10 each carry a `Verifies invariant:` row (I-017-17 once,
     // I-017-18 twice) — three more bold resolved references; the legacy
     // channel is unchanged.
-    bold: { resolved: 712, noneArm: 131, parentResolved: 0 },
+    // 712/131 -> 713/131 (2026-08-11, channel-directory delta): Plan-016's
+    // T2.14 carries a `Verifies invariant:` row (I-016-23) — one more bold
+    // resolved reference; the legacy channel is unchanged.
+    bold: { resolved: 713, noneArm: 131, parentResolved: 0 },
     legacy: { resolved: 59, noneArm: 3, parentResolved: 1 },
   });
 });

@@ -1240,7 +1240,7 @@ CREATE TABLE channels (
   name            TEXT,
   state           TEXT NOT NULL DEFAULT 'active'
                   CHECK(state IN ('active', 'muted', 'archived')),
-  config          TEXT NOT NULL DEFAULT '{}', -- JSON: ChannelConfig (packages/contracts/src/orchestration.ts) — {turnPolicy?, roundRobinOrder?, moderation?, audience?}; `audience` needs no column (D-016-21)
+  config          TEXT NOT NULL DEFAULT '{}', -- JSON: ChannelConfig (packages/contracts/src/orchestration.ts) — {turnPolicy?, roundRobinOrder?, moderation?, audience?, turnsPerAgent?}; `audience` needs no column (D-016-21); `turnsPerAgent` likewise rides the JSON (D-016-23, 2026-08-11)
   kind            TEXT NOT NULL DEFAULT 'general'
                   CHECK(kind IN ('general', 'direct')), -- D-016-21 (2026-08-03): 'direct' = two-human channel, audience forced 'humans-only' and immutable
   direct_member_a TEXT,                                 -- D-016-21: participant ids of the immutable pair; fixed arity, so no membership table
@@ -1297,7 +1297,7 @@ CREATE INDEX idx_agents_session ON agents(session_id);
 CREATE TABLE session_budgets (
   session_id                    TEXT PRIMARY KEY,
   cost_limit_cents              INTEGER NOT NULL DEFAULT 1000,  -- Spec-016: $10 per session
-  turn_limit_per_agent          INTEGER NOT NULL DEFAULT 50,    -- Spec-016 §Budget Policies (turn-limit row): max consecutive turns per (channel, agent), reset on interleave (D-016-8) — not a per-session total
+  turn_limit_per_agent          INTEGER NOT NULL DEFAULT 50,    -- Spec-016 §Budget Policies (turn-limit row): max consecutive turns per (channel, agent), reset on interleave (D-016-8) — not a per-session total; the session default a channel's ChannelConfig.turnsPerAgent overrides per channel (D-016-23, 2026-08-11)
   max_executing_channels        INTEGER NOT NULL DEFAULT 5,     -- Spec-016 §Scheduler Limits
   max_queue_depth_per_channel   INTEGER NOT NULL DEFAULT 25,
   max_pending_orchestration_runs INTEGER NOT NULL DEFAULT 10,
