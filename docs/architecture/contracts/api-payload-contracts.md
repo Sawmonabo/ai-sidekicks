@@ -1879,7 +1879,12 @@ interface RunStateChangeEvent {
   completionKind?: "turn" | "task"; // on `run.completed`: whether the completion closes a conversational turn or the whole task — optional in the shared shape only for pre-B1 history; post-B1 emitters MUST set it (Spec-006 §Run Lifecycle run-state payload, 2026-07-02 B1 amendment)
   intendedClose?: true; // daemon-initiated closeSession clean-terminal discriminator: present only on that path, absent on every other terminal; consumers MUST NOT classify such a terminal as a crash (Spec-006 §Run Lifecycle "Intended-close discriminator", 2026-07-02 B1 amendment)
   executionPosture?: ExecutionPosture; // named type in §Plan-005 above (campaign B3 hoist — same shape, now shared with the CreateSessionParams/StartRunParams spawn/turn carriers). Stamped only on run.running — the post-setup-gate spawn-success transition, where the resolved workspace root and effective posture are final (Plan-004 gate seam; a run.starting stamp would be premature) — recording the run's effective sandbox/permission posture for audit (Spec-006 §Run Lifecycle run-state payload, 2026-07-02 B1 amendment item 11; shape owned by Spec-005 per campaign B3, policy semantics per Spec-012 §Required Behavior, campaign B20). Optionality is for pre-B20 history and non-running rows only: once B20's posture semantics land, run.running emitters MUST stamp the complete posture object — including credentialPolicyRef on both sandboxed modes (absent under mode:'trusted').
-  trigger?: "turn_limit" | "budget_exhausted" | "idle_timeout" | "moderation_denied"; // stop-condition provenance (additive per ADR-018): 'turn_limit' rides run.completed at the turn limit (Plan-016 D-016-8 — the value CP-004-10 adds to Plan-004's trigger set); the three InterruptReason values ride run.interrupted on system interrupts (D-016-7). Absent on natural completion and user-initiated paths; the Runs View / timeline stop-condition rendering (Spec-023) reads this field.
+  trigger?:
+    | "turn_limit"
+    | "budget_exhausted"
+    | "idle_timeout"
+    | "moderation_denied"
+    | "workflow_phase_cancelled"; // stop-condition provenance (additive per ADR-018): 'turn_limit' rides run.completed at the turn limit (Plan-016 D-016-8 — the value CP-004-10 adds to Plan-004's trigger set); the four InterruptReason values ride run.interrupted on system interrupts (D-016-7; 'workflow_phase_cancelled' added 2026-08-11, Plan-016 D-016-23 — the Spec-017 SA-9 cascade). Absent on natural completion and user-initiated paths; the Runs View / timeline stop-condition rendering (Spec-023) reads this field.
   // run.queued linkage (orchestration-created runs only): the OrchestrationRunLinkCarrier fields
   // threaded into the durable payload as optional additive fields (CP-004-10; Plan-016 D-016-3 —
   // run_links is a pure events-canonical projection rebuilt from this event alone). Spec-006 §Run Lifecycle (run.queued row).
@@ -3295,19 +3300,24 @@ interface ChannelConfig {
   roundRobinOrder?: AgentId[]; // REQUIRED non-empty when turnPolicy === "round-robin" (validation error otherwise)
   moderation?: { preTurnGate?: boolean; postTurnReview?: boolean }; // Spec-016 §Moderation Hooks; both default false (V1 opt-in)
   audience?: ChannelAudience; // D-016-21; default "participants"; on a direct-kind channel the daemon forces "humans-only" and refuses a conflicting supplied value (never caller-settable there)
+  turnsPerAgent?: number; // D-016-23 (2026-08-11): positive integer — per-channel override of the session's per-agent consecutive-turn limit (session_budgets.turn_limit_per_agent, default 50); absent = session value. The OWN-channel budget provider Spec-017 consumes (A-017-07); enforced by the turn-policy arbiter under unchanged D-016-8 counting; refused on the direct kind with the other agent-turn members. Create-time-fixed like every ChannelConfig member — V1 ships no post-create channel-config mutation, so an overridden channel recovers from its limit by interleave alone (the owner raise via orchestration.budgetUpdate reaches only session-default channels; Spec-016 §Resolved Questions, PR #321 round 1)
 }
 interface OrchestrationRunConfig {
   tokenLimit?: number; // per-run token budget; default 100000 (Spec-016 §Budget Policies)
   idleTimeoutMs?: number; // idle stop condition; default 300000 (Spec-016 §Stop Conditions)
 }
 type LinkType = "spawn" | "delegate" | "handoff"; // D-016-17: spawn = parent-initiated helper returning output to the parent's channel context; delegate = bounded task published to its own target channel; handoff = parent transfers its continuation to the child and completes
-type InterruptReason = "budget_exhausted" | "idle_timeout" | "moderation_denied"; // D-016-8: closed set carried on system-initiated interrupts
+type InterruptReason =
+  | "budget_exhausted"
+  | "idle_timeout"
+  | "moderation_denied"
+  | "workflow_phase_cancelled"; // D-016-8: closed set carried on system-initiated interrupts; the fourth member added 2026-08-11 (D-016-23) — invoked only by the workflow engine's SA-9 phase-termination cascade (Spec-017/Plan-017) through the D-016-7 in-process entrypoint
 
 // ChannelCreate — wire: channel.create (refuses the reserved main name — main is projected, never a row; D-016-15)
 interface ChannelCreateRequest {
   sessionId: SessionId;
   name?: string;
-  kind?: "general" | "direct"; // D-016-21: the two-value channel-kind domain, mirroring the DDL CHECK (local-sqlite-schema.md §Channel and Orchestration Tables); absent = "general" (the DDL DEFAULT — ordinary session-wide channel). On "direct" (two-human channel) the daemon forces audience "humans-only" and refuses turnPolicy / roundRobinOrder / moderation (agent-turn config on a channel that admits no agents)
+  kind?: "general" | "direct"; // D-016-21: the two-value channel-kind domain, mirroring the DDL CHECK (local-sqlite-schema.md §Channel and Orchestration Tables); absent = "general" (the DDL DEFAULT — ordinary session-wide channel). On "direct" (two-human channel) the daemon forces audience "humans-only" and refuses turnPolicy / roundRobinOrder / moderation / turnsPerAgent (agent-turn config on a channel that admits no agents; the fourth member joined the refused set 2026-08-11, D-016-23)
   memberPair?: [ParticipantId, ParticipantId]; // REQUIRED (exactly two DISTINCT human participants) when kind === "direct", refused otherwise; fixed at creation and immutable thereafter. Pair order carries no wire meaning: the daemon canonicalizes to the DDL's single a < b representation BEFORE appending the channel-creation event, so the event payload and the projected row share one representation and replay is deterministic — kind + pair ride that event payload so replay cannot widen audience (Spec-016 §State And Data Implications)
   config?: ChannelConfig;
 }
