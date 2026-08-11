@@ -436,9 +436,13 @@ interface InvitePreviewRequest {
   token: string;
 }
 interface InvitePreviewResponse {
+  sessionId: SessionId; // target-session identity for the Spec-023 deep-link confirmation step — the
+  // same id accept's own response returns to the token holder, so preview discloses nothing accept
+  // does not (restored 2026-08-11, PR #322 Codex round 1: with no session-name producer in V1, an
+  // all-null display pair left the confirmation step nothing to identify the session by)
   joinMode: JoinMode;
   expiresAt: string; // ISO 8601
-  sessionName: string | null; // display metadata only — no raw session / inviter identifiers
+  sessionName: string | null; // null until a session-naming owner exists (sessions has no name column) — no raw inviter identifiers
   inviterDisplayName: string | null;
 }
 
@@ -513,22 +517,27 @@ interface ChannelListResponse {
   }>;
 }
 
-// ChannelDirectoryPublish (2026-08-11) — DAEMON-called idempotent directory ingest (Spec-002
-// Interfaces And Contracts; the consuming half of Spec-016 D-016-22's producer publication,
-// Plan-016 T2.14 / CP-016-15 <-> Plan-002 CP-002-10). Attach-authenticated daemon channel (the
-// runtimenode.signingkeyregister posture) — participants never call it. The ingest folds into
-// session_channel_directory (deterministic LWW + terminal-state dominance on the state axis;
-// create-once origin-authenticated binding on kind + memberPair) and acknowledges only after
-// the durable upsert commits — the producer's at-least-once retry keys on that acknowledgment.
+// ChannelDirectoryPublish (2026-08-11; fold redesigned same day — PR #322 Codex round 1) —
+// DAEMON-called idempotent directory ingest (Spec-002 Interfaces And Contracts; the consuming half
+// of Spec-016 D-016-22's producer publication, Plan-016 T2.14 / CP-016-15 <-> Plan-002 CP-002-10).
+// Attach-authenticated daemon channel (the runtimenode.signingkeyregister posture) — participants
+// never call it. The ingest retains one candidate per origin in session_channel_directory
+// (same-origin: higher originSeq; keyless legacy publications share one envelope-ordered slot),
+// re-resolves visible state from the retained set (archived latches terminally, sticky on the
+// stored row; otherwise the (originOccurredAt, originEventId)-max candidate's state), binds
+// kind + memberPair + name exactly
+// once from the origin-authenticated channel.created publication, and acknowledges only after the
+// durable upsert commits — the producer's at-least-once retry keys on that acknowledgment.
 interface ChannelDirectoryPublishRequest {
   sessionId: SessionId;
   channelId: ChannelId;
+  lifecycleEventKind: string; // the triggering Spec-006 event type ("channel.created" | "channel.muted" | "channel.unmuted" | "channel.archived") — disclosure binds only from an origin-authenticated "channel.created"; an unrecognized value folds the state axis only (fail-closed, existence preserved)
   name?: string;
   state: ChannelState;
   kind: string; // Plan-016-owned vocabulary — unrecognized values ingest verbatim, consumers read fail-closed as direct
   memberPair?: [ParticipantId, ParticipantId]; // direct-kind two-human pair; canonicalized (low < high) at ingest
-  originNodeId: string; // origin daemon's node id — must match the authenticated caller to bind disclosure fields
-  originSeq: number; // origin daemon's monotonic sequence — same-origin comparator
+  originNodeId?: string; // origin daemon's node id — present iff originSeq is (both-or-neither); must match the authenticated caller for the publication to bind disclosure
+  originSeq?: number; // origin daemon's per-(session, origin) monotonic counter — the same-origin comparator; absent only for a publication derived from a pre-extension event whose payload lacks the keys (folds via the legacy slot, never binds disclosure)
   originOccurredAt: string; // origin envelope occurredAt (ISO 8601) — cross-origin comparator, with...
   originEventId: string; // ...origin envelope id as the lexicographic tiebreak
 }
