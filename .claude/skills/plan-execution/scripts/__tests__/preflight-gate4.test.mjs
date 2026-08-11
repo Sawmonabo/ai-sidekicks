@@ -3501,7 +3501,11 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // added the T1.4/T2.10 none-arms; Plan-013 added the T4.4/T4.5 meter
     // none-arms — net +1 resolved, +5 none-arms; the legacy channel is
     // unchanged.
-    bold: { resolved: 709, noneArm: 131, parentResolved: 0 },
+    // 709/131 -> 712/131 (2026-08-11, chat-start amendment): Plan-017's T5.8,
+    // T5.9, and T5.10 each carry a `Verifies invariant:` row (I-017-17 once,
+    // I-017-18 twice) — three more bold resolved references; the legacy
+    // channel is unchanged.
+    bold: { resolved: 712, noneArm: 131, parentResolved: 0 },
     legacy: { resolved: 59, noneArm: 3, parentResolved: 1 },
   });
 });
