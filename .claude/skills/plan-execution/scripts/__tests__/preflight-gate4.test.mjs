@@ -3517,7 +3517,12 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // T-008r-4-14 carries a compact-inline `Verifies invariant:` row naming
     // I-008-13 and I-008-14(b) — two more legacy resolved references; the
     // bold channel is unchanged.
-    bold: { resolved: 717, noneArm: 134, parentResolved: 0 },
+    // 717/134 -> 724/134 (2026-08-12, PR #326 relay-scope delta): Plan-014's
+    // invariant↔task marker-symmetry repair restored I-014-6/7/8/9 across the
+    // Tasks 7–10 `Verifies invariant:` rows (that plan's bold references
+    // 12 → 19) — seven more bold resolved references; the legacy channel is
+    // unchanged.
+    bold: { resolved: 724, noneArm: 134, parentResolved: 0 },
     legacy: { resolved: 61, noneArm: 3, parentResolved: 1 },
   });
 });

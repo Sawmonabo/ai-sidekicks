@@ -2128,7 +2128,11 @@ interface SessionResumeAfterReconnectResponse {
 // Plan-008's R4 backfill task T-008r-4-14, 2026-08-11). On the RELAY these shapes are
 // application-level payloads INSIDE the established pairwise ciphertext envelope (Spec-008
 // §Message Framing — no new frame message type, no SessionKeyBundle change, no control-plane
-// tRPC procedure; the relay forwards opaque ciphertext and learns nothing). They DO cross the
+// tRPC procedure; the relay forwards opaque ciphertext and learns nothing). Because that one
+// envelope carries more than one message family, each payload is tagged with a required `kind`
+// member and demultiplexed through the Plan-008-owned RelayApplicationPayload discriminated
+// union — see the §Envelope-Interior Application-Payload Kind Registry below (CP-008-16,
+// ratified 2026-08-12 as Plan-014 D-014-5); unknown kinds are dropped fail-closed. They DO cross the
 // local client↔daemon boundary: pairwise decryption is client-side (bundle custody) while
 // verification + append are daemon-side, so the decrypted payloads ride the four daemon
 // JSON-RPC bridge methods in the §History-Backfill Bridge Method Registry below (CP-008-14 —
@@ -2140,6 +2144,7 @@ interface SessionResumeAfterReconnectResponse {
 // EVENT_CANONICAL_BYTES_MAX = 32 KiB at append (base64 4/3 expansion + members + AEAD + framing
 // ≈45 KiB worst case — under the ceiling with headroom; no reassembly protocol exists).
 interface HistoryBackfillRequest {
+  kind: "history_backfill_request"; // the RelayApplicationPayload discriminant — see the §Envelope-Interior Application-Payload Kind Registry below (Plan-008 CP-008-16, ratified 2026-08-12 as Plan-014 D-014-5); required, and an absent or unrecognized kind is dropped fail-closed by the coordinator demux rather than dispatched
   sessionId: SessionId; // the only selector — V1 mints no cross-daemon cursor: a source answers with its full origin-signed entitled holdings and the joiner discards duplicates (append is idempotent on the event id)
   correlationId: string; // requester-minted per-request identifier; completion accounting ONLY, never dedup (dedup keys on the event id alone)
 }
@@ -2164,6 +2169,7 @@ interface HistoryBackfillCoveringAnchor {
   anchoredAt: string;
 }
 interface HistoryBackfillChunk {
+  kind: "history_backfill_chunk"; // the RelayApplicationPayload discriminant — see the §Envelope-Interior Application-Payload Kind Registry below (Plan-008 CP-008-16, ratified 2026-08-12 as Plan-014 D-014-5). Inside the responderSignature preimage below (that signature covers this chunk's members EXCLUDING itself), so on a terminal chunk the tag is unstrippable in carriage rather than advisory
   correlationId: string; // echoes the request
   ordinal: number; // 0-based chunk position within this source's response — completion is DECLARED, never inferred: answered = terminal marker received AND every declared ordinal held AND distinct verified entry ids across the response equal the signed totalEntries (2026-08-12, Codex PR #323 round 3: the responder signature covers the terminal members, not the unsigned data chunks, so reconciliation is what makes a dropped-then-duplicate-padded or renumbered stream fail to earn credit; Spec-008 §Peer History Backfill On Join (V1))
   entries: HistoryBackfillEntry[]; // possibly empty — an entitled-empty source answers as a single zero-entry terminal chunk
@@ -2172,6 +2178,15 @@ interface HistoryBackfillChunk {
   servesForOrigins?: NodeId[]; // present iff terminal: the origin NodeIds this response claims to serve for — its own always, a migrated predecessor's only alongside rows/stubs actually verifying under that origin's key (an empty foreign claim is never credited; Spec-008 §Failure honesty). Inside the responder-signed member set below, so a claim list cannot be stripped or padded in carriage
   responderNodeId?: NodeId; // present iff terminal — the responding daemon's own NodeId, the self-claim's subject (2026-08-11, Codex PR #323 round 2)
   responderSignature?: string; // present iff terminal — lowercase hex of 64 bytes (the Plan-006 T2.3 wire convention): Ed25519 under responderNodeId's roster key (the daemon session signing key the source engine holds) over the RFC 8785 canonicalization of this chunk's members EXCLUDING this one. The pairwise envelope authenticates only the sending ParticipantId and the roster carries no participant linkage, so this is the ONLY proof binding the terminal declarations (totalEntries, servesForOrigins) to a node identity — the joiner verifies it via the CP-008-11 roster read before crediting the self-claim, and an unsigned, wrong-key, or forged terminal marker leaves the source outstanding and the self-claim uncredited (fail-closed)
+}
+// The live-relay sibling arm (typed 2026-08-12, Codex PR #326 round 1 — a Zod discriminatedUnion
+// needs an object schema per arm, and this arm had prose only): a tagged wrapper nesting exactly
+// one HistoryBackfillEntry, so the live path consumes the SAME entry type the backfill path
+// consumes — "live receive and backfill share one verification path" is type-level, not aspirational,
+// and the entry's member docs have one home. The entry itself stays tagless (chunk-interior rule).
+interface RelayedSessionEventPayload {
+  kind: "relayed_session_event"; // the RelayApplicationPayload discriminant — see the §Envelope-Interior Application-Payload Kind Registry below
+  entry: HistoryBackfillEntry; // the origin triple verbatim (originNodeId, canonicalBytes, daemonSignature; stub carried for a compaction racing the live send) — forwarded as-is into the CP-008-13 verify-and-append engine by session.relayEventDeliver
 }
 ```
 
@@ -2184,9 +2199,35 @@ The client↔daemon bridge for relay-decrypted payloads (registered 2026-08-11, 
 | `session.historyBackfillStart` | request/response | Joiner-side, coordinator-called at relay admission: the daemon joiner engine mints the `correlationId`, registers the two-axis coverage expectations (member sources excluding self; roster origins), credits the joiner's own origin from the local log, and returns the `HistoryBackfillRequest` the coordinator seals to each **other** current member |
 | `session.historyBackfillServe` | streaming (subscribe-init ack + chunk notifications, the Plan-007 streaming primitive) | Source-side, coordinator-called when a decrypted `HistoryBackfillRequest` arrives, carrying the pairwise-authenticated requester `ParticipantId`: the daemon source engine runs the possession-bound entitlement selection, builds chunks in ordinal order, and signs the terminal marker under its own roster key (the key is daemon-held — the signature can only be produced here); the coordinator seals and publishes each chunk as it streams |
 | `session.historyBackfillDeliver` | request/response | Joiner-side, coordinator-called per decrypted `HistoryBackfillChunk`, carrying the source `ParticipantId`: the daemon joiner engine verifies the terminal responder signature and every entry (roster read, verify-before-append), appends under ADR-017 receive semantics with `received_from_node_id` stamped, updates coverage accounting, and returns the per-chunk disposition (appended / refused / duplicate counts) |
-| `session.relayEventDeliver` | request/response | Joiner-side live sibling (T-008r-4-10 inbound leg): a decrypted live relayed session event — the same origin triple an entry carries (origin `NodeId`, canonical bytes, origin signature) — forwarded into the same verify-and-append engine, so live receive and backfill share one verification path and one append seam (CP-008-13) |
+| `session.relayEventDeliver` | request/response | Joiner-side live sibling (T-008r-4-10 inbound leg): a decrypted `RelayedSessionEventPayload` (the tagged wrapper above) whose nested `HistoryBackfillEntry` is forwarded verbatim into the same verify-and-append engine, so live receive and backfill share one verification path, one entry type, and one append seam (CP-008-13) |
 
 No control-plane procedure is added, and nothing here rides the relay transport itself — these are local IPC registrations on the established daemon surface, the same trust boundary every client-initiated daemon action already crosses.
+
+### Envelope-Interior Application-Payload Kind Registry (Tier 5, Plan-008 T-008r-1-3)
+
+The discriminator that separates the message families riding **inside** one pairwise ciphertext envelope (registered 2026-08-12 — Plan-008 CP-008-16, ratified as Plan-014 D-014-5 by that plan's relay-scope targeted readiness-audit delta). [Spec-008 §Peer History Backfill On Join (V1)](../../specs/008-control-plane-relay-and-session-join.md#peer-history-backfill-on-join-v1) and [Spec-014 §Cross-Node Artifact Relay (V1)](../../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1) each place their payloads in that envelope and each refuses a new frame message type, citing the other's use of the same seam — so without a tag the receiving demultiplexer has no input at all. **Owner: Plan-008**, in `packages/contracts/src/session-join.ts` — one level below the `RelayFrameType` 1-byte frame enum hoisted into the same file by the NS-19 Tier-7 audit (D-025-1): `RelayFrameType` separates frames, this union separates payloads inside one frame's decrypted plaintext. The union is `RelayApplicationPayload`, a Zod `discriminatedUnion` over the required string member **`kind`**, whose vocabulary is the `RelayApplicationPayloadKind` enum. It lands with the codec block at **T-008r-1-3** (the file itself CREATEd at T-008r-1-1) and is consumed by the client coordinator's demux at **T-008r-4-10** and the bridge engines at **T-008r-4-14**.
+
+| `kind` | Payload | Registering plan |
+| --- | --- | --- |
+| `history_backfill_request` | `HistoryBackfillRequest` (above) | Plan-008 (owner) |
+| `history_backfill_chunk` | `HistoryBackfillChunk` (above) | Plan-008 (owner) |
+| `relayed_session_event` | `RelayedSessionEventPayload` (above) — the tagged wrapper nesting one `HistoryBackfillEntry` verbatim, consumed by the §History-Backfill Bridge Method Registry's `session.relayEventDeliver` row (T-008r-4-10's inbound leg) | Plan-008 (owner) |
+| `artifact_key_attestation` | `ArtifactKeyAttestationPayload` (§Plan-014 — Artifacts Files And Attachments below) — the Ed25519-identity-signed artifact-key attestation of [Spec-014 §Cross-Node Artifact Relay (V1)](../../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1) Publish step 3; the runtime schema stays in Plan-014's own `packages/contracts/src/artifacts/` domain and the arm references it (typed 2026-08-12, Codex PR #326 round 2) | Plan-014 (Task 7, CP-014-4) |
+
+**Fail-closed on unknown kinds.** A decrypted payload whose `kind` is absent or is not a registered value is **dropped with a logged refusal** and never dispatched to a bridge method — a forward-compatible peer's unrecognized family is discarded, never mistaken for a registered one. This is the one rule that makes the seam safe to extend.
+
+**Registration seam.** A consuming plan appends its own arm and keeps the payload schema in its own contract domain; Plan-008 owns only the tag, the union, and the exhaustiveness rule. This is the same one-owner-many-registrants shape the `SessionEventSchema` union already uses on the [cross-plan-dependencies.md §2](../cross-plan-dependencies.md#2-package-path-ownership-map) `packages/contracts/src/` row. `HistoryBackfillEntry` and `HistoryBackfillCoveringAnchor` are chunk-interior and carry **no** tag — only the payload sealed directly into the envelope does. On a terminal `HistoryBackfillChunk` the tag sits inside the `responderSignature` preimage, so it is unstrippable in carriage. Everything registered here is additive and unshipped, so no version bump is owed and no plan or spec changes Status.
+
+### Artifact-Attestation Bridge Method Registry (Tier 7, Plan-014 Task 7)
+
+The client↔daemon bridge for the `artifact_key_attestation` arm (registered 2026-08-12, Codex PR #326 round 2 — the kind-registry row above named the arm but no method carried it across the local boundary, and the custody split forces one: the durable X25519 artifact key and the recipient-key cache are daemon-held in `packages/runtime-daemon`, while the pairwise envelope coordinator, decryption, and the injected `Ed25519IdentitySigner` (Plan-008 T-008r-4-2; custody ADR-021 CLI / ADR-010 + Plan-023 desktop — the daemon never holds the identity key) are client-side, and CP-008-14's four methods carry Plan-008's own arms only). Unlike the §History-Backfill registry above this is **not** a `session.*` root extension: the pair registers on the `artifact.*` namespace Plan-014 already owns on the [cross-plan-dependencies.md §2](../cross-plan-dependencies.md#2-package-path-ownership-map) `ipc/` row — a plan-owned registration under Plan-007's `MethodRegistry` substrate, no Plan-008 involvement. Handler files under `packages/runtime-daemon/src/ipc/handlers/`, backed by Task 7's attestation engine.
+
+| Method | Type | Semantics |
+| --- | --- | --- |
+| `artifact.keyAttestationServe` | request/response | Outbound half, coordinator-called when the local node's binding must be published (relay join, Task 7 key provision): the daemon returns the **unsigned** attestation material — `sessionId`, its own `nodeId`, the durable `artifactPublicKey` — and the coordinator signs the literal Spec-014 preimage with the injected `Ed25519IdentitySigner`, assembles `ArtifactKeyAttestationPayload`, and seals it to each pairwise peer. Signing is client-side because identity custody is (ADR-021 / Plan-023); the daemon serves material, never signatures |
+| `artifact.keyAttestationDeliver` | request/response | Inbound half, coordinator-called per decrypted `artifact_key_attestation`: the coordinator verifies `identitySignature` against the **sending participant's** registered identity keys (the pairwise-authenticated envelope sender — verification lives beside the bundle trust layer, client-side, and an unverified payload is refused there, never forwarded) and delivers the verified `{nodeId, artifactPublicKey}` binding plus the attesting `ParticipantId` to the daemon, which derives the key thumbprint and updates its last-received-wins recipient-key cache per [Spec-014 §Cross-Node Artifact Relay (V1)](../../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1) |
+
+As with the History-Backfill registry: no control-plane procedure is added and nothing here rides the relay transport — these are local IPC registrations on the established daemon surface, the same trust boundary every client-initiated daemon action already crosses.
 
 ### Plan-018 — Identity And Participant State
 
@@ -3017,9 +3058,33 @@ interface AttachmentIngestResponse {
 // --- Cross-node artifact relay methods (2026-07-08 ADR-015 amendment): the
 //     ArtifactUploadInit / ArtifactUploadChunk / ArtifactUploadComplete /
 //     ArtifactFetchAuthorize / ArtifactFetchComplete request/response schemas land with Plan-014
-//     Tasks 7-10 after that plan's readiness-audit delta. Spec-014 §Interfaces names the methods;
+//     Tasks 7-10 when tier order reaches them (Plan-014's relay-scope readiness-audit delta landed
+//     2026-08-12 and restored the plan and Spec-014 approved; the gate is now the §5 Tier-7 row —
+//     Plan-008-remainder + Plan-018 at Tier 5, Plan-021 at Tier 6 — plus phase decomposition, not the
+//     delta). Spec-014 §Interfaces names the methods;
 //     Spec-014 §Cross-Node Artifact Relay (V1) is the normative design — ArtifactUploadInit carries the relay-visible lifecycle envelope (digest, size, chunk accounting, retentionTier, wrapped-CEK recipient entries) as authenticated plaintext; ArtifactFetchAuthorizeResponse returns the calling node's relay-held wrapped CEK (thumbprint-selected; CEKs wrap to durable per-(participant, node) artifact-encryption keys, never session-ephemeral keys), ArtifactFetchComplete is the authenticated post-verification ack that alone writes delivered_at (never inferred from a chunk GET); the artifact.published event carries the signed cekCommitment, never wrapped CEKs (Spec-014 Publish steps 1/3/4, Fetch step 6).
 //     Deliberately not typed here yet — no invented shapes. ---
+
+// --- ArtifactKeyAttestationPayload — the `artifact_key_attestation` envelope-interior arm (typed
+//     2026-08-12, Codex PR #326 round 2: the §Envelope-Interior Application-Payload Kind Registry
+//     row named the arm with no named schema, so Plan-008's T-008r-1-3 had no type to build the
+//     discriminatedUnion arm from — the same defect the round-1 RelayedSessionEventPayload fold
+//     fixed for the live-relay arm). Realizes Spec-014 §Cross-Node Artifact Relay (V1) Publish
+//     step 3; the runtime Zod schema lands in packages/contracts/src/artifacts/ (Plan-014 Task 7)
+//     and Plan-008's union references it (CP-014-4 ⇄ CP-008-16).
+//     The attesting PARTICIPANT is never a payload member — it is the pairwise envelope's
+//     authenticated sender, exactly the party whose registered identity keys the verifier resolves
+//     against (Spec-014 binds attestations to participants, not nodes). No timestamp member
+//     either: the ordered pairwise channel is the sequencing authority, and receivers apply
+//     last-received-wins per the same spec section. ---
+interface ArtifactKeyAttestationPayload {
+  kind: "artifact_key_attestation"; // the RelayApplicationPayload discriminant (Plan-008 CP-008-16, ratified as Plan-014 D-014-5)
+  sessionId: SessionId;
+  nodeId: NodeId; // the daemon whose artifact key this attests — inside the signed preimage, so a carrier cannot re-home a key to another node
+  artifactPublicKey: string; // base64 of exactly 32 bytes — the node's durable X25519 artifact-encryption public key (the CEK-wrap recipient key, Spec-014 Publish step 1). The recipient-row key thumbprint is DERIVED from these bytes by the receiver, never carried — a carried copy could only agree or lie
+  identityKeyFingerprint: string; // selector into the attesting participant's registered identity-key set — the verifier resolves it within THAT participant's keys only (an unknown fingerprint refuses; the member can narrow the check, never widen trust across participants)
+  identitySignature: string; // lowercase hex of 64 bytes (the Plan-006 T2.3 wire convention) — Ed25519 by the selected long-term identity key (custody ADR-021 CLI / ADR-010 + Plan-023 desktop; the signing operation is Plan-008's injected Ed25519IdentitySigner, T-008r-4-2) over the LITERAL Spec-014 preimage session_id ‖ node_id ‖ artifact_public_key — UTF-8 id bytes ‖ the raw 32 key bytes, injective without length prefixes because both ids are fixed-length canonical UUID strings; the same literal-concatenation convention as Plan-008's session_id ‖ ephemeral_x25519_public bundle signature, no re-canonicalization the spec doesn't state
+}
 ```
 
 > **Tier-7 audit (NS-19) — ratified design (Plan-014 → `approved`).** The ArtifactPublish/ArtifactRead pair now composes a single named `ArtifactManifest` envelope (`Spec-014 §Interfaces And Contracts`) instead of inlining and duplicating the fields — this is the `ArtifactManifest` shape Plan-014 Task 1 mints, and the envelope Plan-011's `DiffArtifact` (`artifactType: "diff"`) rides per CP-014-1 / CP-011-2 (Plan-011 consumes the envelope **concept**, unchanged, not a flat field layout). `ArtifactPublishResponse` embeds `manifest: ArtifactManifest` per `Spec-014 §Interfaces And Contracts` ("must return artifact id **and manifest metadata**") — this **replaces the prior `manifestUrl` pointer**, which was drift from that "must" clause: the `ArtifactRead` clause grants handle/inline latitude to the **payload** on _Read_ only, never to the manifest, so both responses return the manifest metadata inline (D-014-3 — resolved by aligning the wire to the spec, not an owner decision). `ArtifactReadResponse` is `manifest` + `payloadHandle?`/`payload?` (`Spec-014 §Interfaces And Contracts`). The wire envelope mirrors the `artifact_manifests` row in [Local SQLite Schema](../schemas/local-sqlite-schema.md) 1:1: `digest`/`size` are **required** on the wire because a content-addressed manifest always carries both (I-014-1), and the at-rest `content_hash`/`size_bytes` columns are correspondingly **`NOT NULL`** — each producer (AttachmentIngest, ArtifactPublish) computes the SHA-256 + byte length from its own payload and inserts its manifest with both columns set in the same transaction as the payload-ref, and AttachmentIngest and ArtifactPublish are independent producers (the `artifactId` `AttachmentIngestResponse` returns resolves from the ingest-written manifest, not a later publish), so there is no payload-less manifest to reconcile (D-014-1). `annotations` is a dedicated OCI string→string column (D-014-2; at-rest `NOT NULL DEFAULT '{}'`), required on the wire, never folded into freeform `metadata`. The at-rest `replication_status` column (nullable) surfaces as the optional `replicationStatus?` wire field (A-014-3 — V1 writes `pending_replication` while a shared artifact awaits deferred payload transfer; open set, no closed union, mirroring the at-rest no-CHECK stance). _(2026-07-08: the deferred refinement arrived — the [Spec-014 §Cross-Node Artifact Relay (V1)](../../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1) amendment spec-names `pending_replication | pinned | over_cap | quota_exceeded | expired`, the at-rest column now carries the matching CHECK, and the wire field is the closed union above — the open-set stance in this dated record is superseded; the field stays optional.)_ Producer inputs are closed too (D-014-3): `ArtifactPublishRequest` accepts `subject?` (so a Task-4 I-014-2 derivative names its source at publish) and `annotations?`, while `size`/`digest` stay server-derived from `payload` — otherwise the `annotations` column and derivative `subject` would be write-dead. This wire edit + the `local-sqlite-schema.md` artifact edit + Plan-014 CP-014-1 / Task 3 form one whole-or-not bundle.
