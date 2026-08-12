@@ -1615,7 +1615,7 @@ interface AnchorPayload {
   startSequence: number; // first session_events.sequence in the anchored range (inclusive)
   endSequence: number; // last session_events.sequence in the anchored range (inclusive); >= startSequence, mirroring the table CHECK
   merkleRoot: string; // base64 of exactly 32 bytes — the RFC 9162 §2.1.1 MTH over the range's row_hash entries, BLAKE3 as HASH
-  rootSignature: string; // base64 of exactly 64 bytes — Ed25519 by the emitting daemon's session-scoped key over the ANCHOR CLAIM: the RFC 8785 canonicalization of {endSequence, merkleRoot, nodeId, sessionId, startSequence} per Spec-006 §Anchoring Cadence (2026-08-11 amendment — previously merkleRoot alone; pre-first-release, no production anchors exist, and the shipped T3.3 signer takes the preimage update in the immediate Plan-006 follow-up code PR)
+  rootSignature: string; // base64 of exactly 64 bytes — Ed25519 by the emitting daemon's session-scoped key over the ANCHOR CLAIM: the RFC 8785 canonicalization of {endSequence, merkleRoot, nodeId, sessionId, startSequence} per Spec-006 §Anchoring Cadence (2026-08-11 amendment — previously merkleRoot alone; pre-first-release, no production anchors exist, and the shipped T3.3 signer takes the preimage update in the immediate Plan-006 follow-up code PR — landed 2026-08-12, PR #324)
   anchoredAt: string; // ISO 8601 with offset — the DAEMON's timestamp at anchor computation, not the server's now() default
 }
 type EventAnchorUploadRequest = AnchorPayload;
