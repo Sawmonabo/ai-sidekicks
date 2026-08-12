@@ -1615,7 +1615,7 @@ interface AnchorPayload {
   startSequence: number; // first session_events.sequence in the anchored range (inclusive)
   endSequence: number; // last session_events.sequence in the anchored range (inclusive); >= startSequence, mirroring the table CHECK
   merkleRoot: string; // base64 of exactly 32 bytes — the RFC 9162 §2.1.1 MTH over the range's row_hash entries, BLAKE3 as HASH
-  rootSignature: string; // base64 of exactly 64 bytes — Ed25519 over merkleRoot by the emitting daemon's session-scoped key
+  rootSignature: string; // base64 of exactly 64 bytes — Ed25519 by the emitting daemon's session-scoped key over the ANCHOR CLAIM: the RFC 8785 canonicalization of {endSequence, merkleRoot, nodeId, sessionId, startSequence} per Spec-006 §Anchoring Cadence (2026-08-11 amendment — previously merkleRoot alone; pre-first-release, no production anchors exist, and the shipped T3.3 signer takes the preimage update in the immediate Plan-006 follow-up code PR)
   anchoredAt: string; // ISO 8601 with offset — the DAEMON's timestamp at anchor computation, not the server's now() default
 }
 type EventAnchorUploadRequest = AnchorPayload;
@@ -2125,12 +2125,20 @@ interface SessionResumeAfterReconnectResponse {
 }
 
 // HistoryBackfill (Spec-008 §Peer History Backfill On Join (V1), 2026-08-03 amendment; typed by
-// Plan-008's R4 backfill task T-008r-4-14, 2026-08-11). NOT a method registration on either
-// transport: both shapes are application-level payloads INSIDE the established pairwise relay
-// ciphertext envelope (Spec-008 §Message Framing — no new frame message type, no SessionKeyBundle
-// change, no control-plane tRPC procedure, no daemon JSON-RPC method; the relay forwards opaque
-// ciphertext and learns nothing). A response is split at the application layer before encryption
-// wherever a chunk would exceed the 64 KB frame ceiling; the frame codec is unchanged.
+// Plan-008's R4 backfill task T-008r-4-14, 2026-08-11). On the RELAY these shapes are
+// application-level payloads INSIDE the established pairwise ciphertext envelope (Spec-008
+// §Message Framing — no new frame message type, no SessionKeyBundle change, no control-plane
+// tRPC procedure; the relay forwards opaque ciphertext and learns nothing). They DO cross the
+// local client↔daemon boundary: pairwise decryption is client-side (bundle custody) while
+// verification + append are daemon-side, so the decrypted payloads ride the four daemon
+// JSON-RPC bridge methods in the §History-Backfill Bridge Method Registry below (CP-008-14 —
+// re-scoped 2026-08-11, Codex PR #323 round 2; the prior "no daemon JSON-RPC method" claim held
+// the relay-payload shapes to a rule that would have left the daemon engines with no caller).
+// A response is split at the application layer before encryption wherever a chunk would exceed
+// the 64 KB frame ceiling; the frame codec is unchanged, and no single entry can exceed a frame
+// because Spec-006 §Canonical Serialization Rules bounds canonical bytes at
+// EVENT_CANONICAL_BYTES_MAX = 32 KiB at append (base64 4/3 expansion + members + AEAD + framing
+// ≈45 KiB worst case — under the ceiling with headroom; no reassembly protocol exists).
 interface HistoryBackfillRequest {
   sessionId: SessionId; // the only selector — V1 mints no cross-daemon cursor: a source answers with its full origin-signed entitled holdings and the joiner discards duplicates (append is idempotent on the event id)
   correlationId: string; // requester-minted per-request identifier; completion accounting ONLY, never dedup (dedup keys on the event id alone)
@@ -2152,7 +2160,7 @@ interface HistoryBackfillCoveringAnchor {
   startSequence: number;
   endSequence: number; // coverage test per Spec-006 §Post-Compaction Integrity: startSequence <= stubbed row's sequence <= endSequence (covering is a coverage test, not exact-start)
   merkleRoot: string; // base64 of exactly 32 bytes — the AnchorPayload wire convention above (the EventAnchorUpload block)
-  rootSignature: string; // base64 of exactly 64 bytes — Ed25519 over merkleRoot by the origin daemon's session-scoped key
+  rootSignature: string; // base64 of exactly 64 bytes — Ed25519 by the origin daemon's session-scoped key over the ANCHOR CLAIM: the RFC 8785 canonicalization of {endSequence, merkleRoot, nodeId, sessionId, startSequence} per Spec-006 §Anchoring Cadence (2026-08-11 amendment — coordinates signed, so the coverage test below runs against origin-attested spans; a root-only signature left them carrier-writable, Codex PR #323 round 2)
   anchoredAt: string;
 }
 interface HistoryBackfillChunk {
@@ -2161,9 +2169,24 @@ interface HistoryBackfillChunk {
   entries: HistoryBackfillEntry[]; // possibly empty — an entitled-empty source answers as a single zero-entry terminal chunk
   terminal: boolean; // true on exactly the final chunk of the response…
   totalEntries?: number; // …which declares the total entry count across all chunks (present iff terminal)
-  servesForOrigins?: NodeId[]; // present iff terminal: the origin NodeIds this response claims to serve for — its own always, a migrated predecessor's only alongside rows/stubs actually verifying under that origin's key (an empty foreign claim is never credited; Spec-008 §Failure honesty)
+  servesForOrigins?: NodeId[]; // present iff terminal: the origin NodeIds this response claims to serve for — its own always, a migrated predecessor's only alongside rows/stubs actually verifying under that origin's key (an empty foreign claim is never credited; Spec-008 §Failure honesty). Inside the responder-signed member set below, so a claim list cannot be stripped or padded in carriage
+  responderNodeId?: NodeId; // present iff terminal — the responding daemon's own NodeId, the self-claim's subject (2026-08-11, Codex PR #323 round 2)
+  responderSignature?: string; // present iff terminal — lowercase hex of 64 bytes (the Plan-006 T2.3 wire convention): Ed25519 under responderNodeId's roster key (the daemon session signing key the source engine holds) over the RFC 8785 canonicalization of this chunk's members EXCLUDING this one. The pairwise envelope authenticates only the sending ParticipantId and the roster carries no participant linkage, so this is the ONLY proof binding the terminal declarations (totalEntries, servesForOrigins) to a node identity — the joiner verifies it via the CP-008-11 roster read before crediting the self-claim, and an unsigned, wrong-key, or forged terminal marker leaves the source outstanding and the self-claim uncredited (fail-closed)
 }
 ```
+
+### History-Backfill Bridge Method Registry (Tier 5, Plan-008 T-008r-4-14)
+
+The client↔daemon bridge for relay-decrypted payloads (registered 2026-08-11, Codex PR #323 round 2 — Plan-008 CP-008-14): pairwise decryption is client-side where bundle custody lives, while roster-resolved verification and log append are daemon authority, so the [Spec-008 §Peer History Backfill On Join (V1)](../../specs/008-control-plane-relay-and-session-join.md#peer-history-backfill-on-join-v1) payloads cross the local [Spec-007](../../specs/007-local-ipc-and-daemon-control.md) JSON-RPC boundary through four daemon methods — an EXTEND of the Tier-1 `session.*` namespace root under the [cross-plan-dependencies.md §2](../cross-plan-dependencies.md#2-package-path-ownership-map) root-extension class (the Plan-024 lease-pair / Plan-016 goal-pair precedent), handler files under `packages/runtime-daemon/src/ipc/handlers/`, backed by Plan-008's own `packages/runtime-daemon/src/backfill/` engines. The first three are T-008r-4-14's; the fourth is the live-relay sibling on T-008r-4-10's inbound leg, riding the **same** verify-and-append engine (ADR-017's receive semantics are one path, live or deferred — Spec-008: "backfill is that path deferred, not a second one").
+
+| Method | Type | Semantics |
+| --- | --- | --- |
+| `session.historyBackfillStart` | request/response | Joiner-side, coordinator-called at relay admission: the daemon joiner engine mints the `correlationId`, registers the two-axis coverage expectations (member sources excluding self; roster origins), credits the joiner's own origin from the local log, and returns the `HistoryBackfillRequest` the coordinator seals to each **other** current member |
+| `session.historyBackfillServe` | streaming (subscribe-init ack + chunk notifications, the Plan-007 streaming primitive) | Source-side, coordinator-called when a decrypted `HistoryBackfillRequest` arrives, carrying the pairwise-authenticated requester `ParticipantId`: the daemon source engine runs the possession-bound entitlement selection, builds chunks in ordinal order, and signs the terminal marker under its own roster key (the key is daemon-held — the signature can only be produced here); the coordinator seals and publishes each chunk as it streams |
+| `session.historyBackfillDeliver` | request/response | Joiner-side, coordinator-called per decrypted `HistoryBackfillChunk`, carrying the source `ParticipantId`: the daemon joiner engine verifies the terminal responder signature and every entry (roster read, verify-before-append), appends under ADR-017 receive semantics with `received_from_node_id` stamped, updates coverage accounting, and returns the per-chunk disposition (appended / refused / duplicate counts) |
+| `session.relayEventDeliver` | request/response | Joiner-side live sibling (T-008r-4-10 inbound leg): a decrypted live relayed session event — the same origin triple an entry carries (origin `NodeId`, canonical bytes, origin signature) — forwarded into the same verify-and-append engine, so live receive and backfill share one verification path and one append seam (CP-008-13) |
+
+No control-plane procedure is added, and nothing here rides the relay transport itself — these are local IPC registrations on the established daemon surface, the same trust boundary every client-initiated daemon action already crosses.
 
 ### Plan-018 — Identity And Participant State
 
