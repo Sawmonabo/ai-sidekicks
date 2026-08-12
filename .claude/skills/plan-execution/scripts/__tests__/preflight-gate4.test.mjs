@@ -3522,7 +3522,12 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // Tasks 7–10 `Verifies invariant:` rows (that plan's bold references
     // 12 → 19) — seven more bold resolved references; the legacy channel is
     // unchanged.
-    bold: { resolved: 724, noneArm: 134, parentResolved: 0 },
+    // 724/134 -> 733/134 (2026-08-12, PR #327 dual-scope caller-authorization
+    // delta): Plan-003's new T3.10, T3.11, and T3.12 each carry a three-id
+    // `Verifies invariant:` row (I-003-3 and I-003-6 in all three, plus
+    // I-003-5 twice and I-003-1 once) — nine more bold resolved references;
+    // the legacy channel is unchanged.
+    bold: { resolved: 733, noneArm: 134, parentResolved: 0 },
     legacy: { resolved: 61, noneArm: 3, parentResolved: 1 },
   });
 });
