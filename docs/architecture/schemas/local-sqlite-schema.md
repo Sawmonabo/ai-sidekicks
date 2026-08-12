@@ -300,12 +300,29 @@ The build-metadata rejection above is grounded in the SemVer specification itsel
 -- ceremony is specified anywhere (a different-key registration is refused per
 -- security-architecture.md §Per-Event Daemon Signature); only a future
 -- rotation extension writes it.
+-- Store lineage (Plan-008 EXTEND, CP-008-15 — 2026-08-12, Codex PR #323 round 3):
+-- one row per NodeId this store has ever been registered under, so the
+-- Spec-008 §Peer History Backfill serving selector can durably label
+-- origin-authored (received_from_node_id NULL) rows in a carried-forward
+-- store. At succession the registering daemon stamps the predecessor row's
+-- superseded_at_sequence with the store's highest session_events.sequence
+-- and inserts its own active (NULL-watermark) row: a NULL-marker row's
+-- origin is the lineage row whose watermark window covers its sequence,
+-- the open tail belonging to the active NodeId. The predecessor's
+-- sealed_private_key is dead weight after carry (OS-keystore sealing is
+-- per-machine, deliberately unrecoverable elsewhere); its public_key and
+-- watermark are the durable lineage record. Additive migration: node_id
+-- backfills to the daemon's current NodeId, PK widens (session_id) ->
+-- (session_id, node_id) via SQLite table rebuild.
 CREATE TABLE daemon_signing_keys (
-  session_id          TEXT PRIMARY KEY,
+  session_id          TEXT NOT NULL,
+  node_id             TEXT NOT NULL,         -- NodeId this row's keypair was registered under (CP-008-15)
   public_key          BLOB NOT NULL,         -- Ed25519 32-byte public key
   sealed_private_key  BLOB NOT NULL,         -- Ed25519 private key sealed via OS keystore master key
   created_at          TEXT NOT NULL,
-  rotated_at          TEXT                   -- reserved; see rotation note above
+  rotated_at          TEXT,                  -- reserved; see rotation note above
+  superseded_at_sequence INTEGER,            -- NULL = active row; else the succession watermark (CP-008-15)
+  PRIMARY KEY (session_id, node_id)
 );
 
 -- Owner: Plan-006 | Migration: 0008-pending-anchor-uploads.ts (Tier 4 Phase 3)

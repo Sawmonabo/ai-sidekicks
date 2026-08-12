@@ -2165,7 +2165,7 @@ interface HistoryBackfillCoveringAnchor {
 }
 interface HistoryBackfillChunk {
   correlationId: string; // echoes the request
-  ordinal: number; // 0-based chunk position within this source's response — completion is DECLARED, never inferred: answered = terminal marker received AND every declared ordinal held
+  ordinal: number; // 0-based chunk position within this source's response — completion is DECLARED, never inferred: answered = terminal marker received AND every declared ordinal held AND distinct verified entry ids across the response equal the signed totalEntries (2026-08-12, Codex PR #323 round 3: the responder signature covers the terminal members, not the unsigned data chunks, so reconciliation is what makes a dropped-then-duplicate-padded or renumbered stream fail to earn credit; Spec-008 §Peer History Backfill On Join (V1))
   entries: HistoryBackfillEntry[]; // possibly empty — an entitled-empty source answers as a single zero-entry terminal chunk
   terminal: boolean; // true on exactly the final chunk of the response…
   totalEntries?: number; // …which declares the total entry count across all chunks (present iff terminal)
