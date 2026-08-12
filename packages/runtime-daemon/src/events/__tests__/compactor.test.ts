@@ -44,6 +44,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   DAEMON_SCOPE_SENTINEL_SESSION_ID,
+  EVENT_CANONICAL_BYTES_MAX,
   NodeIdSchema,
   SessionIdSchema,
   type AnchorPayload,
@@ -958,6 +959,88 @@ describe("Compactor — audit-stub projection", () => {
 // ----------------------------------------------------------------------------
 // Terminal-key backstop, POST-COMPACTION — migration 0006 against a stub
 // ----------------------------------------------------------------------------
+
+// ----------------------------------------------------------------------------
+// The stub-projection canonical-bytes bound — `Spec-006 §Compacted Event
+// Format`'s companion to the append-path ceiling
+// ----------------------------------------------------------------------------
+
+describe("Compactor — the stub-projection canonical-bytes bound (Spec-006 §Compacted Event Format)", () => {
+  it("truncates the minted summary until the stored stub sits AT the ceiling, and signs the truncated bytes", async () => {
+    // The append path caps `type` at the wire, so this row models the
+    // out-of-band writer the bound exists for: this module reads SQLite
+    // verbatim, and nothing re-checks the append ceiling on the way out. The
+    // width is chosen so the `type` SCALAR fits the bound on its own while
+    // `summary` — which embeds the type — pushes the projection over: the
+    // truncation arm, not the refusal arm.
+    const oversizedType = "t".repeat(20_000);
+    const target = seed({
+      category: "session_lifecycle",
+      type: oversizedType,
+      payload: { text: "hi" },
+    });
+    seed({ category: "session_lifecycle", type: "session.updated", payload: { text: "yo" } });
+
+    const result: CompactionPassResult = await buildCompactor({ eventCountThreshold: 1 }).tick();
+
+    expect(result.rowsStubbed).toBe(1);
+    const stubbed = readRow(target.id);
+    expect(stubbed.retention_class).toBe(AUDIT_STUB_RETENTION_CLASS);
+
+    // Byte-exact: the loop cuts one-byte code points off an all-ASCII summary,
+    // so the FINAL canonical form lands exactly on the inclusive bound.
+    const storedBytes = new TextEncoder().encode(stubbed.payload);
+    expect(storedBytes.length).toBe(EVENT_CANONICAL_BYTES_MAX);
+
+    // Sign-exact-bytes SURVIVED the truncation: the signature covers the
+    // truncated serialization actually stored, never the pre-truncation one.
+    expect(
+      ed25519.verify(
+        new Uint8Array(stubbed.stub_signature ?? new Uint8Array()),
+        storedBytes,
+        DAEMON_PUBLIC_KEY,
+      ),
+    ).toBe(true);
+
+    // Only the locally-minted summary was shortened — to a strict prefix of
+    // what buildStubSummary produced. The `type` scalar counterpart, which
+    // the verifier's scalar-binding check reads, is untouched.
+    const projection = stubProjection(target.id);
+    expect(projection.type).toBe(oversizedType);
+    const untruncatedSummary =
+      `session_lifecycle/${oversizedType}: original payload discarded at compaction ` +
+      `(1 fields, ${String(JSON.stringify({ text: "hi" }).length)} bytes)`;
+    expect(projection.summary).toBeDefined();
+    expect(projection.summary?.length).toBeLessThan(untruncatedSummary.length);
+    expect(untruncatedSummary.startsWith(projection.summary ?? " ")).toBe(true);
+  });
+
+  it("refuses to stub — and leaves the row live — when the projection stays oversized with the summary emptied", async () => {
+    // `credentialPolicyRef` rides the preserve-when-present loop verbatim, so
+    // a foreign-written row can hand the projection a member no truncation may
+    // shorten: preserved content is signed attribution evidence, not
+    // locally-minted prose. The pass must refuse rather than emit a stub the
+    // Spec-008 backfill seam can never carry — or a corrupt one.
+    const oversizedReference = "r".repeat(EVENT_CANONICAL_BYTES_MAX + 1024);
+    const target = seed({
+      category: "session_lifecycle",
+      type: "session.updated",
+      payload: { credentialPolicyRef: oversizedReference },
+    });
+    seed({ category: "session_lifecycle", type: "session.updated", payload: { text: "yo" } });
+
+    const result: CompactionPassResult = await buildCompactor({ eventCountThreshold: 1 }).tick();
+
+    expect(result.rowsStubbed).toBe(0);
+    expect(result.outcomes[0]?.refusedReason).toContain("EVENT_CANONICAL_BYTES_MAX");
+    // The row is byte-identical live: payload intact, no stub discriminator,
+    // no signature — re-encountered loudly on the next pass.
+    const row = readRow(target.id);
+    expect(row.retention_class).toBeNull();
+    expect(row.stub_signature).toBeNull();
+    expect(JSON.parse(row.payload)).toEqual({ credentialPolicyRef: oversizedReference });
+  });
+});
 
 describe("Compactor — the terminal-key backstop survives compaction", () => {
   it("still refuses a second terminal for a run whose first terminal is now a stub", async () => {

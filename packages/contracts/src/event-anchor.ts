@@ -10,7 +10,11 @@
 //      (`control-plane/src/event-anchors/anchor-router.ts`), which persists it
 //      into `event_log_anchors`;
 //   3. Phase 4's audit reader, which resolves the emitting daemon's Ed25519
-//      public key by `nodeId` and checks `rootSignature` against `merkleRoot`.
+//      public key by `nodeId` and checks `rootSignature` over the RFC 8785
+//      anchor claim — the five coordinate members and the root together
+//      (`Spec-006 §Anchoring Cadence`, 2026-08-11 amendment; the one preimage
+//      builder is `buildAnchorClaimBytes` in the daemon's
+//      `merkle-anchor-service.ts`).
 //
 // The member set is the seven non-generated columns of the canonical
 // `event_log_anchors` DDL in
@@ -148,7 +152,15 @@ export interface AnchorPayload {
   readonly endSequence: number;
   /** Base64 of the 32-byte BLAKE3 Merkle root over the range's `row_hash` leaves. */
   readonly merkleRoot: string;
-  /** Base64 of the 64-byte Ed25519 signature over the raw (decoded) `merkleRoot` bytes. */
+  /**
+   * Base64 of the 64-byte Ed25519 signature over the UTF-8 bytes of the
+   * RFC 8785 canonicalization of the five-member anchor claim —
+   * `{endSequence, merkleRoot (base64), nodeId, sessionId, startSequence}` —
+   * per `Spec-006 §Anchoring Cadence` (2026-08-11 amendment). The coordinates
+   * are inside the signature, so a stored or carried record whose span or log
+   * identity was relabeled fails verification rather than passing a coverage
+   * test on unsigned coordinates.
+   */
   readonly rootSignature: string;
   /** Daemon-local timestamp at anchor computation, RFC 3339 with an explicit offset. */
   readonly anchoredAt: string;
@@ -179,10 +191,12 @@ export const AnchorPayloadSchema: z.ZodType<AnchorPayload, AnchorPayload> = z
     // timezones, and the two stored copies are compared as INSTANTS — an
     // offsetless spelling names no instant at all.
     //
-    // They are NOT byte-comparable, and not signed. `rootSignature` covers
-    // `merkleRoot` alone, and the control plane stores this value as
-    // `timestamptz`, whose round-trip re-spells it. Corroboration here means
-    // parse-then-compare, which is exactly why the offset has to be there.
+    // They are NOT byte-comparable, and not signed. `anchoredAt` sits outside
+    // the anchor claim `rootSignature` covers (`Spec-006 §Anchoring Cadence` —
+    // a receipt timestamp, not an integrity coordinate), and the control plane
+    // stores this value as `timestamptz`, whose round-trip re-spells it.
+    // Corroboration here means parse-then-compare, which is exactly why the
+    // offset has to be there.
     anchoredAt: z.iso.datetime({ offset: true }),
   })
   .strict()

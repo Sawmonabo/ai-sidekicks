@@ -52,9 +52,11 @@ import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
+  DAEMON_EVENT_CANONICAL_BYTES_EXCEEDED_CODE,
   DAEMON_INGEST_HALTED_CODE,
   DAEMON_PII_SPLIT_BYPASS_CODE,
   DAEMON_SCOPE_SENTINEL_SESSION_ID,
+  EVENT_CANONICAL_BYTES_MAX,
   EventEnvelopeVersionSchema,
   JsonRpcErrorCode,
   SessionIdSchema,
@@ -649,6 +651,137 @@ describe("EventLogService — daemon.pii_split_bypass (Spec-006 §Security Event
 // ----------------------------------------------------------------------------
 // The ingest-halt gate — `daemon.ingest_halted`, consulted first, under the lock
 // ----------------------------------------------------------------------------
+
+// ----------------------------------------------------------------------------
+// `daemon.event_canonical_bytes_exceeded` — the `Spec-006 §Canonical
+// Serialization Rules` append ceiling, on BOTH branches of the sign step
+// ----------------------------------------------------------------------------
+
+describe("EventLogService — daemon.event_canonical_bytes_exceeded (Spec-006 §Canonical Serialization Rules)", () => {
+  /**
+   * An envelope whose STORED canonical form is exactly `targetBytes` long.
+   *
+   * Computed from the same storable shape the service canonicalizes — the
+   * input plus `sequence` — and padded with an ASCII filler, so every added
+   * character is exactly one canonical byte and the arithmetic is byte-exact.
+   * `sequence` is a parameter because its DECIMAL WIDTH is inside the
+   * canonical form: a fixture computed at sequence 0 is one byte short of its
+   * target at sequence 10.
+   */
+  function envelopeOfCanonicalSize(
+    targetBytes: number,
+    sequence: number,
+    overrides?: Partial<UnsequencedEventEnvelope>,
+  ): UnsequencedEventEnvelope {
+    const template = makeEnvelope({ ...overrides, payload: { filler: "" } });
+    const storable: EventEnvelope = { ...template, sequence };
+    const emptyFillerLength = canonicalizeEvent(storable).length;
+    return { ...template, payload: { filler: "x".repeat(targetBytes - emptyFillerLength) } };
+  }
+
+  it("admits a row whose canonical form sits exactly AT the ceiling", async () => {
+    const { service } = buildService();
+
+    const receipt = await service.append(envelopeOfCanonicalSize(EVENT_CANONICAL_BYTES_MAX, 0));
+
+    expect(receipt.sequence).toBe(0);
+    const rows = readRawRows(SESSION);
+    expect(rows).toHaveLength(1);
+    const [row] = rows;
+    if (row === undefined) return;
+    // Byte-exact and FROM STORAGE: the stored row re-canonicalizes to exactly
+    // the ceiling and still verifies — the bound is inclusive, and an
+    // off-by-one here is precisely the defect the exact fixture exists to
+    // catch.
+    expect(hydrate(row).canonical.length).toBe(EVENT_CANONICAL_BYTES_MAX);
+    expect(verifyEveryRow(SESSION)).toEqual([{ valid: true }]);
+  });
+
+  it("refuses ONE byte over with the typed 400-equivalent envelope, writing nothing", async () => {
+    const { service } = buildService();
+
+    const mapped = await mappedRefusalOf(
+      service.append(envelopeOfCanonicalSize(EVENT_CANONICAL_BYTES_MAX + 1, 0)),
+    );
+
+    expect(mapped.error.code).toBe(JsonRpcErrorCode.InvalidParams);
+    expect(mapped.error.data?.type).toBe(DAEMON_EVENT_CANONICAL_BYTES_EXCEEDED_CODE);
+    expect(mapped.error.data?.fields).toEqual({
+      canonicalBytes: EVENT_CANONICAL_BYTES_MAX + 1,
+      maxCanonicalBytes: EVENT_CANONICAL_BYTES_MAX,
+    });
+    expect(readRawRows(SESSION)).toHaveLength(0);
+  });
+
+  it("advances no chain head and consumes no sequence on a refused oversized append", async () => {
+    const { service } = buildService();
+    await service.append(makeEnvelope());
+
+    await expect(
+      service.append(envelopeOfCanonicalSize(EVENT_CANONICAL_BYTES_MAX + 1, 1)),
+    ).rejects.toThrow(/EVENT_CANONICAL_BYTES_MAX/);
+
+    // No partial row, and the NEXT admitted append takes sequence 1 rather
+    // than a number the refusal burned.
+    expect(readRawRows(SESSION)).toHaveLength(1);
+    const readmitted = await service.append(makeEnvelope());
+    expect(readmitted.sequence).toBe(1);
+    expect(walkChainLinkage(SESSION)).toBeUndefined();
+  });
+
+  it("holds the PII branch to the DIGEST-BEARING form — the identical envelope plain-appends", async () => {
+    // The PII split embeds the ciphertext digest and the owner stamp into the
+    // canonical member set, so the form THAT branch signs is wider than the
+    // caller's payload. An envelope built to sit exactly at the ceiling
+    // therefore clears the plain branch and exceeds it on the PII branch —
+    // the discriminating fixture: a service that measured the caller's
+    // payload instead of the signed form would admit both.
+    const { service, encryptor } = buildService();
+    const atCeiling = envelopeOfCanonicalSize(EVENT_CANONICAL_BYTES_MAX, 0, {
+      category: "assistant_output",
+      type: "assistant.message",
+    });
+
+    const mapped = await mappedRefusalOf(
+      service.append(atCeiling, {
+        pii: { participantId: PARTICIPANT, piiPayload: { text: "secret prose" } },
+      }),
+    );
+
+    expect(mapped.error.data?.type).toBe(DAEMON_EVENT_CANONICAL_BYTES_EXCEEDED_CODE);
+    const fields = mapped.error.data?.fields as {
+      canonicalBytes: number;
+      maxCanonicalBytes: number;
+    };
+    expect(fields.maxCanonicalBytes).toBe(EVENT_CANONICAL_BYTES_MAX);
+    // Over by the embedded members' width, not by the fixture's arithmetic.
+    expect(fields.canonicalBytes).toBeGreaterThan(EVENT_CANONICAL_BYTES_MAX);
+    // One AEAD seal was spent: the refusal is deliberately POST-encrypt (the
+    // digest-bearing form exists only downstream of the embed — see
+    // `PiiEventWriteResult.canonicalByteLength`) ...
+    expect(encryptor.encryptCallCount).toBe(1);
+    // ... and NOTHING was persisted: no row, no orphaned PII columns.
+    expect(readRawRows(SESSION)).toHaveLength(0);
+
+    // The identical envelope WITHOUT the partition is admissible — its plain
+    // canonical form sits exactly at the bound.
+    const receipt = await service.append(atCeiling);
+    expect(receipt.sequence).toBe(0);
+  });
+
+  it("never echoes the oversized payload into the error envelope", async () => {
+    const { service } = buildService();
+
+    const mapped = await mappedRefusalOf(
+      service.append(envelopeOfCanonicalSize(EVENT_CANONICAL_BYTES_MAX + 1, 0)),
+    );
+
+    // The detail is two SIZES and the message names the id and the bound. The
+    // filler must appear nowhere: an error envelope echoing a 32 KiB payload
+    // would defeat the ceiling at the exact moment it fired.
+    expect(JSON.stringify(mapped)).not.toContain("xxxxxxxx");
+  });
+});
 
 describe("EventLogService — ingest-halt gate (I-006-4-03)", () => {
   it("refuses a halted session with the mapped 409-equivalent envelope", async () => {

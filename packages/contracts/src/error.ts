@@ -126,16 +126,16 @@ export type RuntimeNodeCapabilityUpdateConflictCode = "runtimenode.capabilityupd
 export const RUNTIME_NODE_CAPABILITY_UPDATE_CONFLICT_CODE: RuntimeNodeCapabilityUpdateConflictCode =
   "runtimenode.capabilityupdate_conflict";
 
-// Daemon append-path refusal codes (Plan-006 T3.1). Both are raised by
-// `EventLogService.append` and both carry TYPED details, unlike the
+// Daemon append-path refusal codes (Plan-006 T3.1). All are raised by
+// `EventLogService.append` and all carry TYPED details, unlike the
 // code+message-only runtime-node 409s above: each detail member is a
-// non-secret identifier the caller supplied, so structured details add
-// no info-leak surface. Domain token `daemon` matches the local runtime
+// non-secret identifier or size the caller supplied, so structured details
+// add no info-leak surface. Domain token `daemon` matches the local runtime
 // daemon's own authority — these refusals originate in the machine-local
 // append path, never in a control-plane method. See error-contracts.md
 // §Daemon.
 //
-// The two differ in KIND, which is why they carry different statuses:
+// They differ in KIND, which is why they carry different statuses:
 //
 //   * `daemon.ingest_halted` (409) — a STATE-dependent refusal of an
 //     otherwise-valid write. The write is well-formed; the session's
@@ -151,13 +151,27 @@ export const RUNTIME_NODE_CAPABILITY_UPDATE_CONFLICT_CODE: RuntimeNodeCapability
 //     session state change makes it admissible; the producer must fix
 //     the write.
 //
-// Neither is the `daemon.pii_split_ambiguous` TAXONOMY EVENT — that event
+//   * `daemon.event_canonical_bytes_exceeded` (400) — a STRUCTURAL refusal
+//     of the pii-split-bypass kind: the envelope's RFC 8785 canonical form
+//     exceeds `EVENT_CANONICAL_BYTES_MAX` (event.ts), so the row could never
+//     legally travel the Spec-008 relay seam (one AEAD envelope per 64 KB
+//     frame, no reassembly protocol) and is refused before any row is
+//     written — never truncated, never silently accepted. No session-state
+//     change makes it admissible; the producer moves bulk content behind a
+//     reference (`Spec-006 §Canonical Serialization Rules`, 2026-08-11
+//     amendment — the payload catalog is metadata-shaped by construction, so
+//     an append near the bound is a payload-design defect).
+//
+// None is the `daemon.pii_split_ambiguous` TAXONOMY EVENT — that event
 // signals a SUCCESSFUL containment fallback (an ambiguous record routed
 // wholesale into `pii_payload`), never a failed write.
 export type DaemonIngestHaltedCode = "daemon.ingest_halted";
 export const DAEMON_INGEST_HALTED_CODE: DaemonIngestHaltedCode = "daemon.ingest_halted";
 export type DaemonPiiSplitBypassCode = "daemon.pii_split_bypass";
 export const DAEMON_PII_SPLIT_BYPASS_CODE: DaemonPiiSplitBypassCode = "daemon.pii_split_bypass";
+export type DaemonEventCanonicalBytesExceededCode = "daemon.event_canonical_bytes_exceeded";
+export const DAEMON_EVENT_CANONICAL_BYTES_EXCEEDED_CODE: DaemonEventCanonicalBytesExceededCode =
+  "daemon.event_canonical_bytes_exceeded";
 
 // --------------------------------------------------------------------------
 // Per-field length caps — defense-in-depth bounds (see also event.ts header).
@@ -478,3 +492,29 @@ export const DaemonPiiSplitBypassDetailsSchema: z.ZodType<DaemonPiiSplitBypassDe
     fieldPath: wireFreeFormString(PII_FIELD_PATH_MAX_LEN, "details.fieldPath"),
   })
   .strict();
+
+// --------------------------------------------------------------------------
+// daemon.event_canonical_bytes_exceeded shape (Plan-006 T3.1; 2026-08-11
+// Spec-006 §Canonical Serialization Rules amendment, Codex PR #323 round 2)
+// --------------------------------------------------------------------------
+//
+// The DETAIL CARRIER for the append path's canonical-size ceiling refusal.
+// Both members are SIZES — the measured canonical byte length and the bound
+// it exceeded — never payload content, so the details leak nothing of the
+// oversized write they refuse. Carrying both lets a producer log exactly how
+// far over it was without re-canonicalizing anything.
+
+// Object TYPE ALIAS for the same reason as its siblings above — passed as a
+// `DaemonDomainError.detail`, which demands `Record<string, unknown>`
+// assignability that an `interface` does not provide.
+export type DaemonEventCanonicalBytesExceededDetails = {
+  canonicalBytes: number;
+  maxCanonicalBytes: number;
+};
+export const DaemonEventCanonicalBytesExceededDetailsSchema: z.ZodType<DaemonEventCanonicalBytesExceededDetails> =
+  z
+    .object({
+      canonicalBytes: z.number().int().nonnegative(),
+      maxCanonicalBytes: z.number().int().positive(),
+    })
+    .strict();

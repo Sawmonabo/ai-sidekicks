@@ -417,6 +417,25 @@ export function compareEventEnvelopeVersion(
 // ceiling.
 export const EVENT_ENVELOPE_SEQUENCE_MAX: number = Number.MAX_SAFE_INTEGER;
 
+// Append-time ceiling on `canonical_bytes(row)` — 32 KiB, per `Spec-006
+// §Canonical Serialization Rules` (2026-08-11 amendment, Codex PR #323
+// round 2). A SERVICEABILITY bound, not hygiene: `Spec-008 §Peer History
+// Backfill On Join (V1)` re-publishes canonical bytes base64-encoded inside a
+// chunk riding ONE 64 KB relay frame with no fragmentation or reassembly
+// protocol, so an unbounded canonical form would mint rows that can never
+// legally travel that seam (32 KiB canonical → ≈43.7 KiB base64 + signature,
+// origin, stub, anchor, chunk, and AEAD overhead ≈45 KiB — inside the frame
+// with headroom). Enforced at the sole append path (`event-log-service.ts`,
+// refusing with `daemon.event_canonical_bytes_exceeded`) and at the
+// compactor's stub construction (the projection replaces `payload` after the
+// append check has passed — `Spec-006 §Compacted Event Format`). UNLIKE its
+// neighbor above this IS a policy knob: the payload catalog is metadata-shaped
+// by construction (content lengths, refs, digests — never inline bulk
+// content), so the value is headroom over every cataloged shape, and raising
+// it is a coordinated corpus-first edit (Spec-006, then here, then both
+// enforcement sites), never a lone constant bump.
+export const EVENT_CANONICAL_BYTES_MAX: number = 32768;
+
 /**
  * The daemon-scope sentinel `sessionId` — RFC 9562 §5.10 Max UUID, per
  * `Spec-006 §Daemon-Scope Event Binding And Node-Scope Anchoring`.

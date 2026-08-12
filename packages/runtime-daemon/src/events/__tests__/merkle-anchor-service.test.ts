@@ -51,6 +51,7 @@ import { openDatabase } from "../../session/migration-runner.js";
 import {
   ANCHOR_INTERVAL_EVENTS,
   ANCHOR_INTERVAL_SECONDS,
+  buildAnchorClaimBytes,
   MerkleAnchorService,
   UPLOAD_RETRY_BASE_SECONDS,
   UPLOAD_RETRY_MAX_SECONDS,
@@ -379,7 +380,7 @@ describe("MerkleAnchorService — anchorRange coverage pre-check", () => {
     ).rejects.toThrow(/non-negative integer bounds/);
   });
 
-  it("signs the Merkle root with the session's daemon key", async () => {
+  it("signs the anchor claim — coordinates and root together — with the session's daemon key", async () => {
     seedEvents(4);
     const anchor = await buildService().anchorRange({ sessionId: SESSION, fromSeq: 0, toSeq: 3 });
 
@@ -387,9 +388,58 @@ describe("MerkleAnchorService — anchorRange coverage pre-check", () => {
     const rootSignature = Buffer.from(anchor.rootSignature, "base64");
     expect(merkleRoot).toHaveLength(32);
     expect(rootSignature).toHaveLength(64);
+
+    // GOLDEN PIN on the preimage bytes themselves: RFC 8785 member order and
+    // spellings per `Spec-006 §Anchoring Cadence` — sequences as JSON numbers,
+    // merkleRoot in the upload wire's base64, ids as wire strings. A builder
+    // drift (member added, renamed, re-encoded) fails here byte-for-byte.
+    const claimBytes = buildAnchorClaimBytes({
+      sessionId: anchor.sessionId,
+      nodeId: anchor.nodeId,
+      startSequence: anchor.startSequence,
+      endSequence: anchor.endSequence,
+      merkleRoot: new Uint8Array(merkleRoot),
+    });
+    expect(Buffer.from(claimBytes).toString("utf8")).toBe(
+      `{"endSequence":3,"merkleRoot":"${anchor.merkleRoot}","nodeId":"${NODE}",` +
+        `"sessionId":"${SESSION}","startSequence":0}`,
+    );
+
+    expect(ed25519.verify(new Uint8Array(rootSignature), claimBytes, DAEMON_PUBLIC_KEY)).toBe(true);
+
+    // NEGATIVE CONTROL — the pre-amendment root-only preimage MUST fail. A
+    // signature that also verified over the raw root would mean the claim
+    // members are not actually inside the preimage, and the Spec-008 carried
+    // anchor's relabeling attack is back.
     expect(
       ed25519.verify(new Uint8Array(rootSignature), new Uint8Array(merkleRoot), DAEMON_PUBLIC_KEY),
-    ).toBe(true);
+    ).toBe(false);
+  });
+
+  it("fails verification over a relabeled claim — every coordinate is inside the signature", async () => {
+    seedEvents(4);
+    const anchor = await buildService().anchorRange({ sessionId: SESSION, fromSeq: 0, toSeq: 3 });
+    const merkleRoot = new Uint8Array(Buffer.from(anchor.merkleRoot, "base64"));
+    const rootSignature = new Uint8Array(Buffer.from(anchor.rootSignature, "base64"));
+
+    const identity = {
+      sessionId: anchor.sessionId as string,
+      nodeId: anchor.nodeId as string,
+      startSequence: anchor.startSequence,
+      endSequence: anchor.endSequence,
+      merkleRoot,
+    };
+    const relabelings = [
+      { ...identity, endSequence: anchor.endSequence + 100 }, // widened span
+      { ...identity, startSequence: anchor.startSequence + 1 }, // shifted start
+      { ...identity, nodeId: "node-anchor-mallory" }, // relabeled log identity
+      { ...identity, sessionId: "99999999-3333-4444-8555-666666666666" }, // relabeled session
+    ];
+    for (const relabeled of relabelings) {
+      expect(
+        ed25519.verify(rootSignature, buildAnchorClaimBytes(relabeled), DAEMON_PUBLIC_KEY),
+      ).toBe(false);
+    }
   });
 });
 

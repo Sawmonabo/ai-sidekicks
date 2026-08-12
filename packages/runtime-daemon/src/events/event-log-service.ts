@@ -103,10 +103,13 @@
 // Plan-006 T3.1, I-006-4-03, I-006-2-12.
 
 import {
+  DAEMON_EVENT_CANONICAL_BYTES_EXCEEDED_CODE,
   DAEMON_INGEST_HALTED_CODE,
   DAEMON_PII_SPLIT_BYPASS_CODE,
+  DaemonEventCanonicalBytesExceededDetailsSchema,
   DaemonIngestHaltedDetailsSchema,
   DaemonPiiSplitBypassDetailsSchema,
+  EVENT_CANONICAL_BYTES_MAX,
   EventShreddedPayloadSchema,
   JsonRpcErrorCode,
   type EventEnvelope,
@@ -616,6 +619,19 @@ export class EventLogService {
 
     if (input.pii === undefined) {
       const canonical: CanonicalBytes = canonicalizeEvent(storable);
+      // The `EVENT_CANONICAL_BYTES_MAX` serviceability ceiling (`Spec-006
+      // §Canonical Serialization Rules`, 2026-08-11 amendment): a row whose
+      // canonical form cannot ride one Spec-008 relay frame is refused before
+      // any row is written — never truncated, never silently accepted.
+      // Checked against the very bytes `signRow` is about to cover, not
+      // against the caller's payload. The PII branch below runs the same
+      // check against the codec's measurement of the DIGEST-BEARING form —
+      // the bytes THAT path signs — which can exceed the ceiling even when
+      // the caller's plain payload would not, because the embed step widens
+      // the canonical member set by the digest and the owner stamp.
+      if (canonical.length > EVENT_CANONICAL_BYTES_MAX) {
+        throw eventCanonicalBytesExceeded(canonical.length, storable.id);
+      }
       return {
         envelope: storable,
         signedRow: signRow(canonical, input.prevHash, input.daemonSigningKey),
@@ -665,6 +681,17 @@ export class EventLogService {
       this.#piiEncryptor,
       input.daemonSigningKey,
     );
+
+    // The same ceiling as the plain branch, on the DIGEST-BEARING canonical
+    // form the codec measured at its own step 5 — the exact bytes `written.
+    // signedRow` covers. Post-encrypt by construction (see
+    // `PiiEventWriteResult.canonicalByteLength` for why no earlier point can
+    // measure it), still upstream of the INSERT: a refusal here writes
+    // nothing, and the spent AEAD seal and signature are discarded with the
+    // result.
+    if (written.canonicalByteLength > EVENT_CANONICAL_BYTES_MAX) {
+      throw eventCanonicalBytesExceeded(written.canonicalByteLength, storable.id);
+    }
 
     // PERSIST THESE FOUR AS A UNIT — the codec's caller obligation. Every value
     // below comes from `written`; none is re-derived from the input.
@@ -793,4 +820,41 @@ function piiSplitBypass(fieldPath: string, message: string): DaemonDomainError {
     httpStatus: 400,
     detail: DaemonPiiSplitBypassDetailsSchema.parse({ fieldPath }),
   });
+}
+
+/**
+ * Build the `daemon.event_canonical_bytes_exceeded` refusal — the append
+ * ceiling of `Spec-006 §Canonical Serialization Rules` (2026-08-11 amendment;
+ * error-contracts.md §Daemon, 400). Factored for the same reason as
+ * {@link piiSplitBypass}: both append branches raise it, and a second
+ * hand-built detail object is exactly how sibling refusals drift apart.
+ *
+ * The detail carries the two SIZES and nothing else — never payload content,
+ * which on this code path is precisely the oversized value nothing should
+ * echo into an error envelope.
+ */
+function eventCanonicalBytesExceeded(
+  canonicalByteLength: number,
+  eventId: string,
+): DaemonDomainError {
+  return new DaemonDomainError(
+    `event ${eventId} canonicalizes to ${String(canonicalByteLength)} bytes, over the ` +
+      `${String(EVENT_CANONICAL_BYTES_MAX)}-byte EVENT_CANONICAL_BYTES_MAX ceiling ` +
+      `(Spec-006 §Canonical Serialization Rules): a row this size could never be ` +
+      `re-published inside one 64 KB relay frame on the Spec-008 backfill seam. Refused ` +
+      `with no row written. The event payload catalog is metadata-shaped by design — ` +
+      `move bulk content behind a reference instead of inlining it.`,
+    {
+      code: DAEMON_EVENT_CANONICAL_BYTES_EXCEEDED_CODE,
+      // InvalidParams like its `daemon.pii_split_bypass` sibling, and for the
+      // same reason: STRUCTURAL, so no session state change makes the write
+      // admissible.
+      jsonRpcCode: JsonRpcErrorCode.InvalidParams,
+      httpStatus: 400,
+      detail: DaemonEventCanonicalBytesExceededDetailsSchema.parse({
+        canonicalBytes: canonicalByteLength,
+        maxCanonicalBytes: EVENT_CANONICAL_BYTES_MAX,
+      }),
+    },
+  );
 }

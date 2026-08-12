@@ -86,6 +86,24 @@
 // corpus edit first (schema doc + Spec-006 + security architecture), then this
 // file, then T4.1's verifier, in that order.
 //
+// PREIMAGE AMENDMENT (2026-08-12; Codex PR #323 round 2, landed by that
+// corpus-first order). `root_signature` covers the UTF-8 bytes of the RFC 8785
+// canonicalization of the five-member ANCHOR CLAIM — {endSequence, merkleRoot
+// (base64, the upload wire spelling), nodeId, sessionId, startSequence} — and
+// never the raw root alone. Under the root-only preimage every coordinate that
+// makes a root meaningful (whose log, which span) was writable by whoever
+// stored or carried the record, and `Spec-008 §Peer History Backfill On Join
+// (V1)`'s entry-carried covering anchor made that a live relabeling attack: an
+// authentic root re-presentable over any range. The claim puts the coordinates
+// inside the signature; `anchored_at` stays outside deliberately (a receipt
+// timestamp, not an integrity coordinate), and the claim's member set is
+// disjoint from every event canonical form and stub projection, so no claim
+// byte string doubles as a signed-event or signed-stub byte string. Amended
+// pre-first-release with no production anchors in existence. Canonical text:
+// `Spec-006 §Anchoring Cadence`; {@link buildAnchorClaimBytes} is the one
+// preimage builder, exported so T4.1's verifier consumes it rather than
+// re-deriving the shape.
+//
 // ----------------------------------------------------------------------------
 // Why leaves are read from the DATABASE and never accumulated in memory
 // ----------------------------------------------------------------------------
@@ -181,11 +199,41 @@ import { ed25519 } from "@noble/curves/ed25519.js";
 import { blake3 } from "@noble/hashes/blake3.js";
 import type { Database, Statement } from "better-sqlite3";
 
+import { canonicalizeJson, type CanonicalBytes } from "./canonicalizer.js";
 import {
   assertDpopCredentialMaterial,
   type DaemonCredentialProvider,
 } from "./daemon-credential-provider.js";
 import type { DaemonSigningKeySource } from "./signing-key-source.js";
+
+/**
+ * The Ed25519 preimage of `root_signature` — the RFC 8785 canonicalization of
+ * the five-member anchor claim per `Spec-006 §Anchoring Cadence` (2026-08-11
+ * amendment; see the module header's PREIMAGE AMENDMENT note).
+ *
+ * `merkleRoot` enters the claim in the base64 spelling the upload wire carries
+ * ({@link AnchorPayload}`.merkleRoot`), the sequences as JSON numbers, the ids
+ * as their wire strings. RFC 8785 orders members itself; the literal below is
+ * written pre-sorted for the reader. Exported as the ONE preimage builder so
+ * the T4.1 verifier and the golden tests consume this construction rather than
+ * re-deriving it — a second builder that drifted would mint signatures nothing
+ * can verify.
+ */
+export function buildAnchorClaimBytes(claim: {
+  readonly sessionId: string;
+  readonly nodeId: string;
+  readonly startSequence: number;
+  readonly endSequence: number;
+  readonly merkleRoot: Uint8Array;
+}): CanonicalBytes {
+  return canonicalizeJson({
+    endSequence: claim.endSequence,
+    merkleRoot: Buffer.from(claim.merkleRoot).toString("base64"),
+    nodeId: claim.nodeId,
+    sessionId: claim.sessionId,
+    startSequence: claim.startSequence,
+  });
+}
 
 /**
  * Rows per cadence anchor — `Spec-006 §Anchoring Cadence`
@@ -844,10 +892,17 @@ export class MerkleAnchorService {
 
     const merkleRoot = computeMerkleRoot(leaves);
     const daemonSigningKey = await this.#signingKeySource.read(sessionId);
-    const rootSignature = ed25519.sign(merkleRoot, daemonSigningKey);
+    const anchorClaimBytes = buildAnchorClaimBytes({
+      sessionId,
+      nodeId: this.#nodeId,
+      startSequence: fromSeq,
+      endSequence: toSeq,
+      merkleRoot,
+    });
+    const rootSignature = ed25519.sign(anchorClaimBytes, daemonSigningKey);
     if (rootSignature.length !== ED25519_SIGNATURE_LENGTH) {
       throw new Error(
-        `Ed25519 signature over the Merkle root is ${rootSignature.length} bytes, expected ` +
+        `Ed25519 signature over the anchor claim is ${rootSignature.length} bytes, expected ` +
           `${ED25519_SIGNATURE_LENGTH}.`,
       );
     }
