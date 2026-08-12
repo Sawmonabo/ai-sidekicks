@@ -2140,6 +2140,20 @@ interface HistoryBackfillEntry {
   canonicalBytes: string; // base64 of the ORIGIN's RFC 8785 canonical bytes, verbatim — transport, never authorship: a source never re-signs and never re-canonicalizes what it serves
   daemonSignature: string; // the origin's Ed25519 signature over exactly those bytes (lowercase hex, the Plan-006 T2.3 wire convention); verified against the origin NodeId's roster key BEFORE append — a failed verification refuses the entry and surfaces audit_integrity_failed, never appends
   stub: boolean; // true when the source holds only the post-compaction audit stub — canonicalBytes/daemonSignature then carry the stub and its stub_signature, verified on the Spec-006 anchor-plus-stub path
+  coveringAnchor?: HistoryBackfillCoveringAnchor; // present iff stub: true — the origin's covering anchor record, carried so the joiner can run BOTH halves of the anchor-plus-stub path without racing the anchor's asynchronous control-plane upload; absent or failing → the entry is refused (anchor_missing_for_compacted_range / anchor_signature_invalid), never appended
+}
+// The origin-signed anchor record covering a stubbed row's range — the event_log_anchors row shape
+// (shared-postgres-schema.md §Event Log Anchors) as an application payload. Origin-signed, so an
+// untrusted source can CARRY but not forge it; the joiner verifies rootSignature under the same
+// origin roster key the entry resolves against, then the coverage test, then the stub_signature.
+interface HistoryBackfillCoveringAnchor {
+  sessionId: SessionId;
+  nodeId: NodeId; // MUST equal the entry's originNodeId — the key the rootSignature resolves under
+  startSequence: number;
+  endSequence: number; // coverage test per Spec-006 §Post-Compaction Integrity: startSequence <= stubbed row's sequence <= endSequence (covering is a coverage test, not exact-start)
+  merkleRoot: string; // base64 of exactly 32 bytes — the AnchorPayload wire convention above (the EventAnchorUpload block)
+  rootSignature: string; // base64 of exactly 64 bytes — Ed25519 over merkleRoot by the origin daemon's session-scoped key
+  anchoredAt: string;
 }
 interface HistoryBackfillChunk {
   correlationId: string; // echoes the request
