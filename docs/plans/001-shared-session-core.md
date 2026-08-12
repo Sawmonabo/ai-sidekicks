@@ -40,7 +40,7 @@ Any transaction that touches both `sessions` and `session_memberships` MUST acqu
 
 ### I-001-2 — Sequence is the canonical replay key
 
-Local Runtime Daemon SQLite replay MUST order `session_events` by `sequence ASC`, never by `monotonic_ns`. The `monotonic_ns` column is within-daemon debug data only (per [local-sqlite-schema §session_events](../architecture/schemas/local-sqlite-schema.md#session-events-plan-001-extended-by-plans-006-015)); it can be non-monotonic across rows after clock adjustments and MUST NOT influence replay or projection.
+Local Runtime Daemon SQLite replay MUST order `session_events` by `sequence ASC`, never by `monotonic_ns`. The `monotonic_ns` column is within-daemon debug data only (per [local-sqlite-schema §session_events](../architecture/schemas/local-sqlite-schema.md#session-events-plan-001-extended-by-plans-006-008-015)); it can be non-monotonic across rows after clock adjustments and MUST NOT influence replay or projection.
 
 **Why load-bearing.** Replay determinism is the foundation for [ADR-017](../decisions/017-shared-event-sourcing-scope.md) event-sourcing semantics. Plan-006 (event taxonomy + integrity protocol) and Plan-015 (replay/recovery) build on this invariant.
 
@@ -185,7 +185,7 @@ The TDD test list below is enumerated and ordered by implementation dependency. 
 | --- | --- | --- | --- |
 | D1 | `Single SessionCreated event yields snapshot with owner membership and main channel` | bootstrap projection | AC1 |
 | D2 | `Replay reads events by sequence ASC and reproduces snapshot deterministically` | replay correctness; `sequence` is the canonical ordering key per [ADR-017](../decisions/017-shared-event-sourcing-scope.md) | AC6 |
-| D3 | `Replay uses sequence not monotonic_ns even when monotonic_ns is non-monotonic across rows` | clock-skew defense; `monotonic_ns` is within-daemon debug data, never the replay key (per [local-sqlite-schema §session_events](../architecture/schemas/local-sqlite-schema.md#session-events-plan-001-extended-by-plans-006-015)) | AC6 |
+| D3 | `Replay uses sequence not monotonic_ns even when monotonic_ns is non-monotonic across rows` | clock-skew defense; `monotonic_ns` is within-daemon debug data, never the replay key (per [local-sqlite-schema §session_events](../architecture/schemas/local-sqlite-schema.md#session-events-plan-001-extended-by-plans-006-008-015)) | AC6 |
 | D4 | `Snapshot survives daemon restart and yields identical projection on rehydrate` | durability across restart | AC2, AC6 |
 | D5 | `Migration-shape regression: column set in 0001-initial.ts matches canonical schema docs` | invariant verification — `PRAGMA table_info()` for `session_events`, `session_snapshots`, `participant_keys`, `schema_version` matches canonical-schema-doc snapshot fixture | (no AC; verifies I-001-3) |
 

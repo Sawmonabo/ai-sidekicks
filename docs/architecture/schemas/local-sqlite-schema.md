@@ -15,10 +15,10 @@ PRAGMA busy_timeout = 5000;
 
 ---
 
-## Session Events (Plan-001, extended by Plans 006, 015)
+## Session Events (Plan-001, extended by Plans 006, 008, 015)
 
 ```sql
--- Owner: Plan-001 | Extended by: Plan-006 (event taxonomy + integrity protocol), Plan-015 (replay cursors)
+-- Owner: Plan-001 | Extended by: Plan-006 (event taxonomy + integrity protocol), Plan-008 (received-row provenance marker), Plan-015 (replay cursors)
 CREATE TABLE session_events (
   id                     TEXT PRIMARY KEY,           -- ULID or UUID
   session_id             TEXT NOT NULL,              -- real session ULID/UUID, or a reserved node-scope sentinel for daemon-scope events (no FK; see Spec-006 §Security Events + Plan-022 D-022-8)
@@ -45,6 +45,8 @@ CREATE TABLE session_events (
   -- Compaction (Plan-006 Tier 4 Phase 3): typed retention discriminator + post-compaction stub commitment
   retention_class        TEXT CHECK (retention_class IS NULL OR retention_class = 'audit_stub'), -- NULL = live row (per-row chain-verified); 'audit_stub' = compacted (anchor + stub_signature verified). Column-level CHECK closes the discriminator domain; it is ALTER-ADD-COLUMN-addable (references only this column; NULL-permitting so pre-migration rows pass). Co-presence (audit_stub ⟺ non-NULL stub_signature) is a two-column invariant that cannot be an ALTER-added table-level CHECK without a 12-step table rebuild; it is instead enforced at the verification layer per Spec-006 §Post-Compaction Integrity (NULL stub_signature on an audit_stub row → stub_signature_invalid; surviving scalar columns category/type/actor/occurred_at bound to the signed payload projection → stub_scalar_mismatch on divergence).
   stub_signature         BLOB,                       -- 64 bytes; Ed25519 over canonical_bytes(audit-stub projection); NULL for live rows. Authenticates the post-compaction stub representation per Spec-006 §Post-Compaction Integrity (frozen row_hash/daemon_signature commit only to the now-discarded pre-compaction bytes)
+  -- Received-row provenance (Plan-008 Tier 5 R4 backfill task; Spec-006 §Canonical Serialization Rules, 2026-08-11 amendment)
+  received_from_node_id  TEXT,                       -- Origin NodeId whose roster key verified this row's origin-signed bytes before the local re-sequenced, re-signed append (Spec-008 live relay or peer history backfill). NULL on every origin-authored row. Mirrored into the receiver-signed canonical bytes as the conditional receivedFromNodeId member, so clearing it (to fake origin authorship) or planting it (to dodge the PII binding checks) fails the ordinary signature_mismatch mode — no new verification mode. Doubles as the backfill serving selector (a daemon serves only its received_from_node_id IS NULL rows — Spec-008 possession-scoped serving) and as the origin-row caller scope for the fourteenth + fifteenth PII binding checks, which a received row would otherwise fail structurally (it never held the PII partition).
   UNIQUE(session_id, sequence)
 );
 
@@ -304,28 +306,6 @@ CREATE TABLE daemon_signing_keys (
   sealed_private_key  BLOB NOT NULL,         -- Ed25519 private key sealed via OS keystore master key
   created_at          TEXT NOT NULL,
   rotated_at          TEXT                   -- reserved; see rotation note above
-);
-
--- Owner: Plan-006 | Migration: 0NNN-attachment-deliveries.ts (Tier 4 Phase 4, T4.10)
--- Durable record of the attach response's server-minted attachment binding, delivered
--- by the renderer over event.deliverAttachmentId. Deliberately its OWN table, never
--- columns on daemon_signing_keys (Codex PR #278 round 3, re-designing round 2's
--- column-add): that table's NOT NULL key columns admit no delivery-only row, and key
--- provisioning can await the Spec-022 §Daemon Master Key custody ceremony — coupling
--- delivery durability to it left a crash window between a best-effort handler write
--- and the registrar's post-resolution re-persist. Here the event.deliverAttachmentId
--- handler commits this row BEFORE acknowledging (acked-means-durable; INSERT OR
--- REPLACE, last-write-wins per session — a re-attach mints a new id, so the latest
--- delivery wins, the pair one atomic binding). recordDelivery reads the prior row in
--- the same transaction and returns the comparison: an attachment-id change releases a
--- floor-parked registrar, a differing prior delivered_node_id is logged loudly (round
--- 5). The registrar's attachment-id source hydrates from it at start. Sole write path:
--- events/attachment-delivery-store.ts.
-CREATE TABLE daemon_attachment_deliveries (
-  session_id               TEXT PRIMARY KEY,
-  delivered_node_id        TEXT NOT NULL,
-  delivered_attachment_id  TEXT NOT NULL,
-  delivered_at             TEXT NOT NULL
 );
 
 -- Owner: Plan-006 | Migration: 0008-pending-anchor-uploads.ts (Tier 4 Phase 3)
