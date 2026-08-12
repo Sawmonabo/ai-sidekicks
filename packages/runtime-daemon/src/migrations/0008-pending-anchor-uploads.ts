@@ -117,7 +117,7 @@ CREATE TABLE pending_anchor_uploads (
   start_sequence      INTEGER NOT NULL,
   end_sequence        INTEGER NOT NULL,
   merkle_root         BLOB NOT NULL,         -- BLAKE3 Merkle root over row_hash leaves (RFC 9162 §2.1.1 MTH: split at largest power of two, 0x00/0x01 domain separation)
-  root_signature      BLOB NOT NULL,         -- Ed25519 signature by daemon_signing_keys.sealed_private_key over the RFC 8785 anchor claim (coordinates + base64 root; Spec-006 §Anchoring Cadence, 2026-08-11 amendment)
+  root_signature      BLOB NOT NULL,         -- Ed25519 by daemon_signing_keys.sealed_private_key over the anchor CLAIM ({endSequence, merkleRoot, nodeId, sessionId, startSequence}, RFC 8785) per Spec-006 §Anchoring Cadence (2026-08-11: coordinates signed, not merkle_root alone)
   anchored_at         TEXT NOT NULL,         -- daemon-local timestamp at anchor computation
   uploaded_at         TEXT,                  -- non-NULL once control-plane confirms upload to event_log_anchors
   -- Durable retry/backoff state (partition-anchor queue durability decision, resolved per Plan-006 §Open Authoring Decisions (Category 2 — Audit-Surfaced)): survives daemon

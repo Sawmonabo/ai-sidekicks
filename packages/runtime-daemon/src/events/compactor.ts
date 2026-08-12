@@ -1854,14 +1854,22 @@ function canonicalizeBoundedStubProjection(
   projection: AuditStubProjection,
   eventId: string,
 ): CanonicalBytes {
-  let canonicalStubBytes: CanonicalBytes = canonicalizeJson(projection);
-  while (canonicalStubBytes.length > EVENT_CANONICAL_BYTES_MAX && projection.summary.length > 0) {
+  // Truncation rounds rebuild a fresh object rather than assigning into the
+  // caller's projection: the caller must never observe a summary that differs
+  // from the one the returned bytes canonicalize.
+  let boundedProjection: AuditStubProjection = projection;
+  let canonicalStubBytes: CanonicalBytes = canonicalizeJson(boundedProjection);
+  while (
+    canonicalStubBytes.length > EVENT_CANONICAL_BYTES_MAX &&
+    boundedProjection.summary.length > 0
+  ) {
     const overage: number = canonicalStubBytes.length - EVENT_CANONICAL_BYTES_MAX;
-    const summaryCodePoints: readonly string[] = Array.from(projection.summary);
-    projection.summary = summaryCodePoints
-      .slice(0, Math.max(0, summaryCodePoints.length - overage))
-      .join("");
-    canonicalStubBytes = canonicalizeJson(projection);
+    const summaryCodePoints: readonly string[] = Array.from(boundedProjection.summary);
+    boundedProjection = {
+      ...boundedProjection,
+      summary: summaryCodePoints.slice(0, Math.max(0, summaryCodePoints.length - overage)).join(""),
+    };
+    canonicalStubBytes = canonicalizeJson(boundedProjection);
   }
   if (canonicalStubBytes.length > EVENT_CANONICAL_BYTES_MAX) {
     throw new CompactionRefusal(
