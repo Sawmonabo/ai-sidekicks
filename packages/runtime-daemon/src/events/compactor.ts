@@ -122,6 +122,7 @@
 
 import {
   DAEMON_SCOPE_SENTINEL_SESSION_ID,
+  EVENT_CANONICAL_BYTES_MAX,
   EventCategorySchema,
   EventCompactedPayloadSchema,
   EventEnvelopeVersionSchema,
@@ -1449,9 +1450,10 @@ export class Compactor {
         passInstant,
       );
 
-      // SIGN-EXACT-BYTES. `B` is produced once here; the signature covers `B`
-      // and the very next statement stores the UTF-8 decoding of that same `B`.
-      // Nothing between these three lines may re-serialize the projection.
+      // SIGN-EXACT-BYTES. `B` is the bounded canonicalization's FINAL output —
+      // produced once, the signature covers `B`, and the statement after the
+      // width check stores the UTF-8 decoding of that same `B`. Nothing
+      // downstream of the bounded producer may re-serialize the projection.
       //
       // The decode step is sound because `canonicalizeJson` refuses a projection
       // containing a lone surrogate (`canonicalizer.ts`'s well-formed-strings
@@ -1460,7 +1462,10 @@ export class Compactor {
       // TextDecoder would substitute U+FFFD on the way to the column, and every
       // `stub_signature` written for such a row would fail verification against
       // the bytes actually stored — silently, and only for the affected rows.
-      const canonicalStubBytes: CanonicalBytes = canonicalizeJson(projection);
+      const canonicalStubBytes: CanonicalBytes = canonicalizeBoundedStubProjection(
+        projection,
+        eventId,
+      );
       const stubSignature: Uint8Array = ed25519.sign(canonicalStubBytes, signingKey);
       if (stubSignature.length !== ED25519_SIGNATURE_LENGTH) {
         // Mirrors the check `anchorRange` runs before binding `root_signature`.
@@ -1791,8 +1796,12 @@ function optionalFiniteNumber(value: unknown): number | undefined {
  * count) and never from payload VALUES. A stub carries no PII — `pii_payload`
  * and its owner stamp are cleared in the same UPDATE — so interpolating payload
  * content here would re-introduce, in signed and indefinitely-retained bytes,
- * exactly what the rest of the operation removes. It also keeps the summary
- * bounded without a truncation rule.
+ * exactly what the rest of the operation removes. Shape-composition also keeps
+ * the summary SMALL for every row the ceiling-enforced append path wrote
+ * (`type` is capped at the wire), but smallness here is a property, not the
+ * enforcement: {@link canonicalizeBoundedStubProjection} holds the WHOLE
+ * projection to `EVENT_CANONICAL_BYTES_MAX` at the sign site, and this field
+ * is the one it may truncate to get there.
  */
 function buildStubSummary(
   category: EventCategory,
@@ -1805,6 +1814,66 @@ function buildStubSummary(
     `${category}/${type}: original payload discarded at compaction ` +
     `(${String(fieldCount)} fields, ${String(storedPayloadByteLength)} bytes)`
   );
+}
+
+/**
+ * Canonicalize a stub projection under the append path's
+ * `EVENT_CANONICAL_BYTES_MAX` bound (`Spec-006 §Compacted Event Format`,
+ * 2026-08-12 amendment), truncating the locally-minted `summary` toward the
+ * bound and REFUSING when the projection stays oversized with `summary` gone.
+ *
+ * Why this can fire at all: the append path enforces the same ceiling on
+ * every row it writes, but this module reads rows straight off SQLite — rows
+ * written before the ceiling existed, or outside `EventLogService` entirely —
+ * and the preserve-when-present loop copies payload members into the
+ * projection verbatim. `summary` is the one member minted HERE, locally
+ * generated prose rather than signed origin content, so it is the one member
+ * a bound may lawfully shorten (the same reasoning by which `Spec-006
+ * §Compacted Event Format` names it the truncation target). Everything else
+ * is either a verifier-checked scalar counterpart or preserved attribution
+ * content whose loss would strand a later rollback or entitlement check —
+ * truncating those would trade an unservable stub for a corrupt one — so a
+ * projection still over the bound with an empty summary throws
+ * {@link CompactionRefusal}: the row stays live, the pass reports the
+ * refusal, and the next pass re-encounters it loudly rather than this one
+ * signing a stub the Spec-008 backfill seam can never carry.
+ *
+ * Truncation is measured on CANONICAL BYTES, never on string length: the
+ * overage is a byte figure, and each round cuts at least that many CODE
+ * POINTS off the summary's tail. Every code point serializes to ≥ 1 canonical
+ * byte, so each round removes ≥ the overage and the loop strictly converges
+ * (one round in the common all-ASCII case; a second only when escape
+ * sequences or multi-byte characters made the first cut overshoot
+ * impossible). Cutting by code points via `Array.from` rather than by UTF-16
+ * units is load-bearing, not style: `type` is caller-supplied and embedded in
+ * the summary, and a `.slice` that split a surrogate pair would turn a bound
+ * violation into a hard `canonicalizeJson` refusal (the RFC 8785 §3.2.2.2
+ * well-formed-strings guard) on the very next round.
+ */
+function canonicalizeBoundedStubProjection(
+  projection: AuditStubProjection,
+  eventId: string,
+): CanonicalBytes {
+  let canonicalStubBytes: CanonicalBytes = canonicalizeJson(projection);
+  while (canonicalStubBytes.length > EVENT_CANONICAL_BYTES_MAX && projection.summary.length > 0) {
+    const overage: number = canonicalStubBytes.length - EVENT_CANONICAL_BYTES_MAX;
+    const summaryCodePoints: readonly string[] = Array.from(projection.summary);
+    projection.summary = summaryCodePoints
+      .slice(0, Math.max(0, summaryCodePoints.length - overage))
+      .join("");
+    canonicalStubBytes = canonicalizeJson(projection);
+  }
+  if (canonicalStubBytes.length > EVENT_CANONICAL_BYTES_MAX) {
+    throw new CompactionRefusal(
+      `audit-stub projection for event ${eventId} is ${String(canonicalStubBytes.length)} ` +
+        `canonical bytes with its summary already emptied — over the ` +
+        `${String(EVENT_CANONICAL_BYTES_MAX)}-byte EVENT_CANONICAL_BYTES_MAX bound every ` +
+        `stored payload must satisfy (Spec-006 §Compacted Event Format). Refusing to stub: ` +
+        `every remaining member is a verifier-checked scalar or preserved attribution ` +
+        `content this pass may not shorten.`,
+    );
+  }
+  return canonicalStubBytes;
 }
 
 /**

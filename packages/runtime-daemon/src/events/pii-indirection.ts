@@ -445,6 +445,12 @@ export type RawEventInput = PiiCarryingEventInput | PiiRefusedEventInput;
  * would charge every append for it while only moving the alias to the caller's
  * side. Like T2.2's echo, this is an obligation and not an enforcement: the
  * brands make ORDER a compile error, and this is not that.
+ *
+ * `canonicalByteLength` is the one member that is NOT a persistable — a
+ * measurement of the canonical bytes `signedRow` covers, carried out for the
+ * caller's `EVENT_CANONICAL_BYTES_MAX` ceiling check (its own doc comment has
+ * the why). "These four" above deliberately does not count it: nothing about
+ * it is written to the row.
  */
 export interface PiiEventWriteResult {
   readonly envelope: EventWithPiiDigest;
@@ -514,6 +520,25 @@ export interface PiiEventWriteResult {
   readonly piiParticipantId: string;
   readonly piiPayload: PiiPayloadCiphertext;
   readonly signedRow: SignedRow;
+  /**
+   * Byte length of the RFC 8785 canonical form `signedRow` covers — measured
+   * at step 5, where the bytes exist, and echoed out because this result
+   * carries no other trace of them (nothing persists canonical bytes; a
+   * verifier recomputes them from the stored columns). T3.1 holds this figure
+   * to `EVENT_CANONICAL_BYTES_MAX` (`Spec-006 §Canonical Serialization
+   * Rules`, 2026-08-11 amendment) rather than re-canonicalizing the envelope,
+   * which would stand up a second authority over bytes this module already
+   * produced once.
+   *
+   * On this path the ceiling is measurable only AFTER the encrypt and embed
+   * steps — the digest member exists only downstream of them — so a
+   * ceiling-exceeded append spends one AEAD seal and one signature before the
+   * caller refuses it. Deliberate: the refusal is a rare structural defect
+   * (the payload catalog is metadata-shaped, sitting orders of magnitude
+   * under the bound), and a pre-encrypt estimate would either under-count and
+   * admit unservable rows or duplicate the canonicalizer as an approximation.
+   */
+  readonly canonicalByteLength: number;
 }
 
 /**
@@ -1031,7 +1056,13 @@ export async function writeEventWithPii(
   // could disagree with the signed one. Safe to echo by reference where the
   // ciphertext was not — a `string` is immutable, so there is no aliasing hazard
   // to close.
-  return { envelope, piiParticipantId: input.piiParticipantId, piiPayload, signedRow };
+  return {
+    canonicalByteLength: canonical.length,
+    envelope,
+    piiParticipantId: input.piiParticipantId,
+    piiPayload,
+    signedRow,
+  };
 }
 
 // --------------------------------------------------------------------------
