@@ -3513,8 +3513,12 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // two-id `Verifies invariant:` row — four more bold resolved references —
     // and T2.6/T2.7/T2.8 each carry a `Verifies invariant: none (...)` row —
     // three more bold none-arms; the legacy channel is unchanged.
+    // legacy 59 -> 61 (2026-08-11, PR #323 relay delta): Plan-008's new
+    // T-008r-4-14 carries a compact-inline `Verifies invariant:` row naming
+    // I-008-13 and I-008-14(b) — two more legacy resolved references; the
+    // bold channel is unchanged.
     bold: { resolved: 717, noneArm: 134, parentResolved: 0 },
-    legacy: { resolved: 59, noneArm: 3, parentResolved: 1 },
+    legacy: { resolved: 61, noneArm: 3, parentResolved: 1 },
   });
 });
 
@@ -3965,13 +3969,14 @@ test("the composed detection view is byte-length-identical to its input", () => 
 
 test("CORPUS: every legacy marker's lineNo lands on its own raw line", () => {
   // The alignment the comment on `nearestTaskIdAt` asserts, re-verified under the
-  // composed detection view: 48 of 48 live `Verifies invariant` compact-inline
-  // markers. (That 48 is the LEGACY-MARKER population — unrelated to the fenced
-  // YAML count above, which also read 48 before this change; two different
-  // figures that happened to collide. The fenced count's live value is now
-  // pinned by NO test — it moves on every Shipment-Manifest append, so the arm
-  // above asserts the append-stable partition instead. No surface should quote
-  // the value.)
+  // composed detection view: 49 of 49 live `Verifies invariant` compact-inline
+  // markers (48 -> 49 at PR #323: Plan-008's new T-008r-4-14 row joins the
+  // population). (That figure is the LEGACY-MARKER population — unrelated to
+  // the fenced YAML count above, which also read 48 before this change; two
+  // different figures that happened to collide. The fenced count's live value
+  // is now pinned by NO test — it moves on every Shipment-Manifest append, so
+  // the arm above asserts the append-stable partition instead. No surface
+  // should quote the value.)
   const plansDir = resolve(REPO_ROOT_FOR_TESTS, "docs", "plans");
   let markers = 0;
   const misaligned = [];
@@ -3988,7 +3993,7 @@ test("CORPUS: every legacy marker's lineNo lands on its own raw line", () => {
     }
   }
   assert.deepEqual(misaligned, [], "a marker's lineNo does not index its own raw line");
-  assert.equal(markers, 48, "the legacy marker population moved — re-derive the alignment claim");
+  assert.equal(markers, 49, "the legacy marker population moved — re-derive the alignment claim");
 });
 
 // ---------- Malformed ids in the structured namespace ----------

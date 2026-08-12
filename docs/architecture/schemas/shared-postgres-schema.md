@@ -591,7 +591,7 @@ CREATE TABLE event_log_anchors (
   start_sequence    BIGINT NOT NULL,                  -- first session_events.sequence in anchor range
   end_sequence      BIGINT NOT NULL,                  -- last session_events.sequence in anchor range
   merkle_root       BYTEA NOT NULL,                   -- 32 bytes; BLAKE3 Merkle root over row_hash leaves
-  root_signature    BYTEA NOT NULL,                   -- 64 bytes; Ed25519 signature over merkle_root by emitting daemon
+  root_signature    BYTEA NOT NULL,                   -- 64 bytes; Ed25519 by the emitting daemon over the anchor CLAIM -- the RFC 8785 canonicalization of {endSequence, merkleRoot, nodeId, sessionId, startSequence} per Spec-006 §Anchoring Cadence (2026-08-11: coordinates signed, not merkle_root alone)
   anchored_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   CHECK (end_sequence >= start_sequence),
   -- end_sequence is part of the key (mirrors local pending_anchor_uploads): a cadence anchor [1,1000] and a wider
@@ -605,7 +605,7 @@ CREATE INDEX idx_event_log_anchors_session ON event_log_anchors(session_id, anch
 CREATE INDEX idx_event_log_anchors_node ON event_log_anchors(node_id, anchored_at DESC);
 ```
 
-**Verification**: an audit reader resolves the emitting daemon's Ed25519 public key by `node_id` from the [§Daemon Signing Public Keys](#daemon-signing-public-keys-plan-006--verification-key-roster) verification-key roster below and checks `root_signature` against `merkle_root`. V1 ships no daemon signing-key rotation ceremony — registration is register-once per `(session_id, node_id)` and a different-key registration is refused, per [Security Architecture §Per-Event Daemon Signature](../security-architecture.md#per-event-daemon-signature); validity-window resolution of superseded keys is the V1.1+ extension a specified rotation ceremony would unlock. Anchor cadence defaults (`ANCHOR_INTERVAL_EVENTS = 1000` events or `ANCHOR_INTERVAL_SECONDS = 300` seconds, whichever first) are set in [Spec-006 § Integrity Protocol](../../specs/006-session-event-taxonomy-and-audit-log.md#integrity-protocol).
+**Verification**: an audit reader resolves the emitting daemon's Ed25519 public key by `node_id` from the [§Daemon Signing Public Keys](#daemon-signing-public-keys-plan-006--verification-key-roster) verification-key roster below and checks `root_signature` over the anchor claim — the row's coordinates and root together, per [Spec-006 §Anchoring Cadence](../../specs/006-session-event-taxonomy-and-audit-log.md#anchoring-cadence)'s 2026-08-11 amendment — so a stored row whose span or log identity was relabeled after signing fails verification rather than passing a coverage test on unsigned coordinates. V1 ships no daemon signing-key rotation ceremony — registration is register-once per `(session_id, node_id)` and a different-key registration is refused, per [Security Architecture §Per-Event Daemon Signature](../security-architecture.md#per-event-daemon-signature); validity-window resolution of superseded keys is the V1.1+ extension a specified rotation ceremony would unlock. Anchor cadence defaults (`ANCHOR_INTERVAL_EVENTS = 1000` events or `ANCHOR_INTERVAL_SECONDS = 300` seconds, whichever first) are set in [Spec-006 § Integrity Protocol](../../specs/006-session-event-taxonomy-and-audit-log.md#integrity-protocol).
 
 ---
 
