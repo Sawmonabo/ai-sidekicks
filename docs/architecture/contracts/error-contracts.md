@@ -20,6 +20,8 @@ interface ErrorResponse {
 
 This shape is the **HTTP/control-plane** envelope (tRPC + REST surfaces). Local IPC traffic uses the JSON-RPC wire envelope declared in §JSON-RPC Wire Mapping below — the dotted-namespace `code` from this envelope rides as `data.type` on the JSON-RPC side. The two surfaces share the same project code registry (§Error Codes); only the framing differs.
 
+**HTTP status overrides (2026-08-11, Spec-002 BL-133 amendment).** Most control-plane refusals map to tRPC's default status for their error kind (400/401/403/404/409/429). Where a code **served over control-plane tRPC** has a table row pinning a status the defaults cannot express — at this amendment, the two **410 Gone** invite rows, `invite.expired` and `invite.revoked` — the pin is enforced by a contracts-level map, `AIS_WIRE_HTTP_STATUS_OVERRIDES` (`packages/contracts/src/error.ts`, landing with Plan-002 T2.6): the control-plane `errorFormatter` stamps the mapped status onto `data.httpStatus`, and the tRPC fetch transport lifts it natively via `getHTTPStatusCode` — no `responseMeta` hook, and a mixed-status batch degrades to **207 Multi-Status** per tRPC's own batching rule. The map is the single registration point: a future code whose table row pins a non-default status registers there rather than minting a transport hook (`artifact.relay_expired`'s 410 row joins when Plan-014 Tasks 7–10 build its tRPC surface; `approval.request_expired`'s 410 row joins only if it ever gains a control-plane tRPC surface — its V1 surface is daemon-side JSON-RPC, where §JSON-RPC Wire Mapping applies instead).
+
 ---
 
 ## JSON-RPC Wire Mapping

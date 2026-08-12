@@ -396,6 +396,8 @@ const ProtocolVersionSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
 ## Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3)
 
+> **Amended 2026-08-11 (Spec-002 BL-133 amendment, PR #322):** `InvitePreview` and `ChannelDirectoryPublish` join the registry below — one anonymous non-consuming invite-metadata mutation (resolving the [Spec-023 §Deep-Link Invite Flow](../../specs/023-desktop-shell-and-renderer.md#deep-link-invite-flow) pin) and one daemon-called channel-directory ingest mutation (the consuming half of the [Spec-016 §Interfaces And Contracts](../../specs/016-multi-agent-channels-and-orchestration.md#interfaces-and-contracts) D-016-22 publication). **Known naming skew (flagged, not reconciled by this amendment):** the shipped contracts code names request types **without** the `Request` suffix — `packages/contracts/src/invites.ts` exports `InviteCreate` / `InviteAccept` beside `InviteCreateResponse`-style response types — while this registry's Tier-2 shapes carry the older `Invite*Request` spelling. The shapes are field-identical; the code names are the canonical symbols. A future registry-wide naming pass may reconcile the spelling — this amendment deliberately does not, to keep its diff scoped to the two new methods.
+
 ```ts
 // InviteCreate
 interface InviteCreateRequest {
@@ -421,6 +423,27 @@ interface InviteAcceptResponse {
   participantId: ParticipantId;
   role: MembershipRole;
   state: MembershipState; // the activated membership's state (NOT InviteState)
+}
+
+// InvitePreview (2026-08-11) — anonymous, NON-CONSUMING metadata read for the deep-link
+// confirmation step (Spec-002 Interfaces And Contracts; Spec-023 Deep-Link Invite Flow pin).
+// Registered as a tRPC .mutation() despite being read-only: a query would put the token in a
+// GET ?input= URL (server/proxy logs, browser history) — POST keeps it in the body. Zero
+// writes, never burns the jti; refusal checks run in InviteAccept's exact order, and refusals
+// project per error-contracts §Invite with invite.expired / invite.revoked at HTTP 410 via the
+// contracts-level status-override map (see error-contracts §Error Response Shape).
+interface InvitePreviewRequest {
+  token: string;
+}
+interface InvitePreviewResponse {
+  sessionId: SessionId; // target-session identity for the Spec-023 deep-link confirmation step — the
+  // same id accept's own response returns to the token holder, so preview discloses nothing accept
+  // does not (restored 2026-08-11, PR #322 Codex round 1: with no session-name producer in V1, an
+  // all-null display pair left the confirmation step nothing to identify the session by)
+  joinMode: JoinMode;
+  expiresAt: string; // ISO 8601
+  sessionName: string | null; // null until a session-naming owner exists (sessions has no name column) — no raw inviter identifiers
+  inviterDisplayName: string | null;
 }
 
 // InviteRevoke
@@ -492,6 +515,34 @@ interface ChannelListResponse {
     state: ChannelState;
     participantCount: number;
   }>;
+}
+
+// ChannelDirectoryPublish (2026-08-11; fold redesigned same day — PR #322 Codex round 1) —
+// DAEMON-called idempotent directory ingest (Spec-002 Interfaces And Contracts; the consuming half
+// of Spec-016 D-016-22's producer publication, Plan-016 T2.14 / CP-016-15 <-> Plan-002 CP-002-10).
+// Attach-authenticated daemon channel (the runtimenode.signingkeyregister posture) — participants
+// never call it. The ingest retains one candidate per origin in session_channel_directory
+// (same-origin: higher originSeq; keyless legacy publications share one envelope-ordered slot),
+// re-resolves visible state from the retained set (archived latches terminally, sticky on the
+// stored row; otherwise the (originOccurredAt, originEventId)-max candidate's state), binds
+// kind + memberPair + name exactly
+// once from the origin-authenticated channel.created publication, and acknowledges only after the
+// durable upsert commits — the producer's at-least-once retry keys on that acknowledgment.
+interface ChannelDirectoryPublishRequest {
+  sessionId: SessionId;
+  channelId: ChannelId;
+  lifecycleEventKind: string; // the triggering Spec-006 event type ("channel.created" | "channel.muted" | "channel.unmuted" | "channel.archived") — disclosure binds only from an origin-authenticated "channel.created"; an unrecognized value folds the state axis only (fail-closed, existence preserved)
+  name?: string;
+  state: ChannelState;
+  kind: string; // Plan-016-owned vocabulary — unrecognized values ingest verbatim, consumers read fail-closed as direct
+  memberPair?: [ParticipantId, ParticipantId]; // direct-kind two-human pair; canonicalized (low < high) at ingest
+  originNodeId?: string; // origin daemon's node id — present iff originSeq is (both-or-neither); must match the authenticated caller for the publication to bind disclosure
+  originSeq?: number; // origin daemon's per-(session, origin) monotonic counter — the same-origin comparator; absent only for a publication derived from a pre-extension event whose payload lacks the keys (folds via the legacy slot, never binds disclosure)
+  originOccurredAt: string; // origin envelope occurredAt (ISO 8601) — cross-origin comparator, with...
+  originEventId: string; // ...origin envelope id as the lexicographic tiebreak
+}
+interface ChannelDirectoryPublishResponse {
+  channelId: ChannelId; // durable-commit acknowledgment
 }
 ```
 
