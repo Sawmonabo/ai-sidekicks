@@ -990,6 +990,38 @@ shipped:
       ]
     notes: |
       Full-phase single-PR ship (T3.1-T3.5; 171 test arms at merge, every load-bearing arm negative-controlled with sha256-verified source restoration). Phase D closed at formal round 1: 4 ACTIONABLE + 15 POLISH fixed in one consolidated three-cluster pass. The headline ACTIONABLE: the compactor resolved the SESSION signing key before its row loop but the SENTINEL key only inside the post-loop event.compacted append, so an age-triggered pass could irreversibly destroy every payload in range with no durable record — fixed by probing sentinel-key resolvability at the top of the session pass (before anchorRange), refusing with zero rows mutated; probe-not-hold, no key material reaches any message. Disclosed consequence: compaction is INERT until CP-006-7 provisions the sentinel session's signing key. Two hardened wire-ins beyond the findings' minimum: the compactor consults T3.1's ingest-halt seam (SKIP semantics — stub-signing is attestation under a key the halt declared repudiable; the anchor drain deliberately NOT wired, an anchor signs pre-halt evidence and destroys nothing) and tick() refuses entry from inside a live append-lock hold via the new isWithinSessionAppendLockHold. Capability-writer internals moved onto T3.1's append seam (recorded at Plan-005 §Cross-Plan Amendments; external contract preserved — fails every status-flip prong). Dependency-accuracy doc true-ups landed in-PR (a3facc1-class, no status flips): the pii owner-stamp clauses restated as landed facts across Spec-006 / security-architecture.md, pii_participant_id joined the compaction removal list, and I-006-2-04 / I-006-3-01 evidence clauses now carry the by-construction argument and honest per-layer attribution. Two residuals ride the queued post-merge Plan-006/Spec-006 amendment PR: the bootstrap wiring enumeration (the compactor now a SECOND consumer of the sentinel-key precondition beside T4.2's emitter) and the partition-level <pii-shredded> marker true-up. NS-46 auto-created in the housekeeping PR, which also carried the five-migration 0NNN-to-concrete true-ups (daemon 0006/0007/0008/0009 + control-plane 0004) across the plan, the ownership map, and both schema docs.
+  - phase: 3
+    task: [T3.1, T3.2, T3.3]
+    pr: 324
+    sha: 29addfc
+    merged_at: 2026-08-12
+    files:
+      - docs/architecture/contracts/api-payload-contracts.md
+      - docs/architecture/contracts/error-contracts.md
+      - docs/architecture/cross-plan-dependencies.md
+      - docs/plans/006-session-event-taxonomy-and-audit-log.md
+      - docs/plans/008-control-plane-relay-and-session-join.md
+      - docs/specs/006-session-event-taxonomy-and-audit-log.md
+      - packages/contracts/src/error.ts
+      - packages/contracts/src/event-anchor.ts
+      - packages/contracts/src/event.ts
+      - packages/runtime-daemon/src/events/__tests__/compactor.test.ts
+      - packages/runtime-daemon/src/events/__tests__/event-log-service.test.ts
+      - packages/runtime-daemon/src/events/__tests__/merkle-anchor-service.test.ts
+      - packages/runtime-daemon/src/events/compactor.ts
+      - packages/runtime-daemon/src/events/event-log-service.ts
+      - packages/runtime-daemon/src/events/merkle-anchor-service.ts
+      - packages/runtime-daemon/src/events/pii-indirection.ts
+      - packages/runtime-daemon/src/migrations/0008-pending-anchor-uploads.ts
+    verifies_invariant: []
+    spec_coverage:
+      [
+        "Spec-006 §Canonical Serialization Rules (EVENT_CANONICAL_BYTES_MAX bound — daemon.event_canonical_bytes_exceeded refused at both append branches before any row is written)",
+        "Spec-006 §Compacted Event Format (stub projection held to EVENT_CANONICAL_BYTES_MAX at the sign site — summary truncation plus the fail-closed refusal arm)",
+        "Spec-006 §Anchoring Cadence (root_signature over the five-member anchor claim, RFC 8785)",
+      ]
+    notes: |
+      Remediation ship — the owed follow-up code PR the 2026-08-11 §Notes record dispatched on PR #323's merge, not new phase work: T3.1/T3.2/T3.3 re-listed because the already-shipped surfaces took their amendment-mandated checks. Leg 1 (T3.3): the exported buildAnchorClaimBytes preimage builder with anchorRange signing the five-member claim, a golden byte pin, and per-coordinate relabeling negatives; the 0008 migration's root_signature comment re-mirrored byte-exact from the schema doc its header names as authority. Leg 2 (T3.1 + T3.2): the ceiling enforced at both payload-writing sites — EventLogService refuses typed at both branches (the PII branch checks the codec's digest-bearing canonicalByteLength measurement, which can exceed the ceiling when the plain payload would not), and canonicalizeBoundedStubProjection holds the stub to the bound by code-point summary truncation, refusing with CompactionRefusal when preserved members alone exceed it (the row stays live and the pass reports the refusal). Codex round 1 acked clean; the same PR tense-flipped every corpus "owed follow-up code PR" claim (13 sites) and re-scoped Spec-006 §Compacted Event Format's false only-unbounded-member quantifier with the refusal arm named — a clarification of the existing MUST-hold, no status flip.
 ```
 
 ### Notes
