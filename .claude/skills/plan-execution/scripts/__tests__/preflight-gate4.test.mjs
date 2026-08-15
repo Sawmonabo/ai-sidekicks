@@ -3537,7 +3537,13 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // 22 tasks — 26 resolved references + 3 none-arms) and Plan-027 (six
     // Phases, 12 tasks — 22 resolved references + 1 none-arm); the legacy
     // channel is unchanged.
-    bold: { resolved: 821, noneArm: 149, parentResolved: 0 },
+    // 821/149 -> 831/149 (2026-08-15, Plan-018 NS-62 promotion delta —
+    // PR #334): the promotion pass authored Plan-018 Phase 5 (T5.1–T5.8) —
+    // eight tasks whose bold `Verifies invariant:` rows carry ten id
+    // references (I-018-10 ×4, I-018-12 ×2, I-018-11, I-018-13, I-018-14,
+    // and I-018-8 on the T5.8 relay handlers); the legacy channel is
+    // unchanged.
+    bold: { resolved: 831, noneArm: 149, parentResolved: 0 },
     legacy: { resolved: 61, noneArm: 3, parentResolved: 1 },
   });
 });

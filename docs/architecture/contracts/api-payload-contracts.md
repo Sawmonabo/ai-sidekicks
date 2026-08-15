@@ -2276,6 +2276,44 @@ interface PresenceDetailReadResponse {
   aggregateState: PresenceState;
 }
 
+// ParticipantIdentityKeyRegister (Plan-018 T5.2, 2026-08-15 NS-62 pass)
+// Register-once per (participant, fingerprint); self-only (authenticated sub must
+// equal participantId). Same-key replay → acknowledged idempotent no-op; a different
+// publicKey under an existing fingerprint → participant.identitykeyregister_conflict
+// (409) BEFORE any row mutation (I-018-12; ADR-021 Refuse-On-Rotation, control-plane half).
+interface ParticipantIdentityKeyRegisterRequest {
+  participantId: ParticipantId;
+  keyFingerprint: string; // per-key selector (the Plan-014 identityKeyFingerprint value)
+  publicKey: string; // 64-char lowercase hex Ed25519 public key
+}
+interface ParticipantIdentityKeyRegisterResponse {
+  participantId: ParticipantId;
+  keyFingerprint: string;
+  registeredAt: string; // original registration time — stable across idempotent replays
+}
+
+// ParticipantIdentityKeyRoster (Plan-018 T5.3, 2026-08-15 NS-62 pass)
+// Membership-gated (any active session role); the membership predicate and the row
+// read execute in ONE statement so non-member and nonexistent-session refusals are
+// byte-identical participant.permission_denied 403s (I-018-13). Key bytes never ride
+// ParticipantProjection (I-018-14). Consumers: Plan-027 dispatch intake, Plan-014
+// attestation-delivery fingerprint selection, Plan-008 bundle-admission resolution
+// (CP-018-13 a/b/c).
+interface ParticipantIdentityKeyRosterRequest {
+  sessionId: SessionId;
+  participantId: ParticipantId;
+  keyFingerprint?: string; // omit for the participant's full registered set
+}
+interface ParticipantIdentityKeyRosterResponse {
+  participantId: ParticipantId;
+  keys: ParticipantIdentityKey[];
+}
+interface ParticipantIdentityKey {
+  keyFingerprint: string;
+  publicKey: string; // 64-char lowercase hex Ed25519
+  registeredAt: string;
+}
+
 // RevokeAllTokensForParticipant (BL-070)
 // Backs POST /auth/revoke-all-for-participant. See security-architecture.md
 // §Bulk Revoke All For Participant (BL-070) for auth, side effects, multi-region
@@ -2293,15 +2331,17 @@ interface RevokeAllTokensForParticipantRequest {
 
 ### Participant Method-Name Registry (Tier 5)
 
-Plan-018's identity / participant-state reads and updates are exposed as three `participant.*` methods (Plan-018 CP-018-6). Names are registered here pending the Plan-007 daemon method-name registry merge; the reciprocal `provides` is recorded on [Plan-007](../../plans/007-local-ipc-and-daemon-control.md). Same `dotted-camelCase` `METHOD_NAME_FORMAT` as the other namespaces above.
+Plan-018's identity / participant-state reads and updates are exposed as five `participant.*` methods (Plan-018 CP-018-6 — widened from three at the 2026-08-15 NS-62 promotion pass with the identity-key pair). Names are registered here pending the Plan-007 daemon method-name registry merge; the reciprocal `provides` is recorded on [Plan-007](../../plans/007-local-ipc-and-daemon-control.md). Same `dotted-camelCase` `METHOD_NAME_FORMAT` as the other namespaces above.
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
 | `participant.projectionRead` | `query` | `ParticipantProjectionReadRequest` | `ParticipantProjectionReadResponse` |
 | `participant.stateUpdate` | `mutation` | `ParticipantStateUpdateRequest` | `ParticipantStateUpdateResponse` |
 | `participant.presenceDetail` | `query` | `PresenceDetailReadRequest` | `PresenceDetailReadResponse` |
+| `participant.identityKeyRegister` | `mutation` | `ParticipantIdentityKeyRegisterRequest` | `ParticipantIdentityKeyRegisterResponse` |
+| `participant.identityKeyRoster` | `query` | `ParticipantIdentityKeyRosterRequest` | `ParticipantIdentityKeyRosterResponse` |
 
-`participant.presenceDetail` returns per-device presence fan-out and is **owner/operator-only** (Plan-018 D-018-5 / I-018-6): per-device detail is privacy-sensitive, so the aggregated `presenceState` on `ParticipantProjection` remains the participant-visible default and the device-level breakdown is gated to the session owner / daemon operator (see [Security Architecture §Per-Device Presence Detail Authorization](../security-architecture.md#per-device-presence-detail-authorization)). `participant.stateUpdate` is the only mutation. Canonical Zod schemas live in `packages/contracts/` per the §Source-of-Truth Policy.
+`participant.presenceDetail` returns per-device presence fan-out and is **owner/operator-only** (Plan-018 D-018-5 / I-018-6): per-device detail is privacy-sensitive, so the aggregated `presenceState` on `ParticipantProjection` remains the participant-visible default and the device-level breakdown is gated to the session owner / daemon operator (see [Security Architecture §Per-Device Presence Detail Authorization](../security-architecture.md#per-device-presence-detail-authorization)). `participant.identityKeyRoster` is membership-gated (I-018-13); `participant.identityKeyRegister` is self-only register-once (I-018-12), its production caller held by Plan-018's client-side presenter carrier box. `participant.stateUpdate` and `participant.identityKeyRegister` are the two mutations. Every method's daemon-side responder is authored (T4.6 the first three; T5.8 the identity-key pair) per the D-018-6 no-method-without-responder rule. Canonical Zod schemas live in `packages/contracts/` per the §Source-of-Truth Policy.
 
 ---
 
@@ -3082,7 +3122,7 @@ interface ArtifactKeyAttestationPayload {
   sessionId: SessionId;
   nodeId: NodeId; // the daemon whose artifact key this attests — inside the signed preimage, so a carrier cannot re-home a key to another node
   artifactPublicKey: string; // base64 of exactly 32 bytes — the node's durable X25519 artifact-encryption public key (the CEK-wrap recipient key, Spec-014 Publish step 1). The recipient-row key thumbprint is DERIVED from these bytes by the receiver, never carried — a carried copy could only agree or lie
-  identityKeyFingerprint: string; // selector into the attesting participant's registered identity-key set — the verifier resolves it within THAT participant's keys only (an unknown fingerprint refuses; the member can narrow the check, never widen trust across participants)
+  identityKeyFingerprint: string; // selector into the attesting participant's registered identity-key set — the participant_identity_keys roster read (Plan-018 CP-018-13 consumer b, 2026-08-15); the verifier resolves it within THAT participant's keys only (an unknown fingerprint refuses; the member can narrow the check, never widen trust across participants)
   identitySignature: string; // lowercase hex of 64 bytes (the Plan-006 T2.3 wire convention) — Ed25519 by the selected long-term identity key (custody ADR-021 CLI / ADR-010 + Plan-023 desktop; the signing operation is Plan-008's injected Ed25519IdentitySigner, T-008r-4-2) over the LITERAL Spec-014 preimage session_id ‖ node_id ‖ artifact_public_key — UTF-8 id bytes ‖ the raw 32 key bytes, injective without length prefixes because both ids are fixed-length canonical UUID strings; the same literal-concatenation convention as Plan-008's session_id ‖ ephemeral_x25519_public bundle signature, no re-canonicalization the spec doesn't state
 }
 ```
