@@ -1571,7 +1571,10 @@ export function gateAuditCheckbox(planSource, planFile) {
 // manifest is a cache. Three deliberate narrowings keep the old false-match
 // classes out: (1) `in:title` only — never `in:title,body` (PR bodies cite
 // plans in passing constantly; titles cite the plan they ship for — empirical
-// sweep 2026-07-06: title-search precision was exact across all 27 plans);
+// sweep 2026-07-06: title-search precision was exact across all 27 plans),
+// and the returned titles are re-filtered locally through `hasPlanTitleToken`
+// because GitHub's search tokenizer is looser than a word-boundary match (see
+// that predicate's sync contract);
 // This recall trade IS the enhancement-lane boundary (CONTRIBUTING.md §How Code
 // Lands): lane-2 enhancement and lane-3 tooling PRs deliberately omit the token,
 // so they are invisible to this gate BY DESIGN — only lane-1 plan-task shipments
@@ -1600,6 +1603,55 @@ export const FRESHNESS_FETCH_LIMIT = 100;
 // a deep-equality test in tools/docs-corpus/__tests__/lane-boundary-check.test.ts
 // fails CI on divergence.
 export const MATERIAL_PATH_PREFIXES = ["packages/", "apps/", ".github/", "deploy/"];
+
+// Does `title` carry a genuine `Plan-NNN` token? GitHub's `in:title` search is
+// a TOKENIZER match, not a substring or word-boundary match, so `gh pr list`
+// returns titles the plan is not actually cited in.
+//
+// Sync contract: `rebuild-shipment-manifest.mjs` — the tool Gate 6's own halt
+// text prescribes as the remedy — imports this predicate to decide which
+// merged PRs it will emit manifest entries for. The two MUST agree on the
+// population or the tools DEADLOCK. They did on 2026-08-15: Gate 6 halted
+// Plan-025 naming merged PR #216 `chore(repo): retire Plan-007/025
+// compact-inline cite exemptions` (GitHub tokenized the compound `Plan-007/025`
+// and matched it for `Plan-025 in:title`, though the literal token `Plan-025`
+// never occurs in it), while rebuild's word-boundary test correctly refused to
+// emit an entry — leaving the operator with a halt and no move. Sharing one
+// predicate makes that divergence unrepresentable.
+//
+// A THIRD matcher exists and is deliberately not shared:
+// `tools/docs-corpus/bin/lane-boundary-check.ts` §extractTitlePlanTokens runs
+// pre-merge in CI and EXTRACTS every cited plan from one title (`/\bplan-(\d{3})\b/gi`)
+// rather than testing one plan, so it cannot take a `paddedPlan` argument. It
+// agrees with this predicate by construction — same `\b…\b` boundaries, same
+// case-insensitivity, same 3-digit width — verified 2026-08-15 across the
+// compound, lowercase, 4-digit, `workplan-` and `ADR-024`/`cp-004-12`
+// shapes. That guard left-shifts PART of the class `non_shipment_prs` cleans
+// up after, and it is important not to overstate which part: it fails a
+// tokened material PR only when NEITHER a `<type>/plan-NNN-*` branch NOR a
+// `docs/plans/NNN-*.md` edit is present. PR #216 itself would PASS it — its
+// diff touches `docs/plans/007-*.md` and `docs/plans/025-*.md` alongside one
+// material file, and that plan-doc allowance is presence-only by design (a
+// content check cannot tell an amendment from a prose edit). So the ratified-
+// non-shipment residual is permanent, not a pre-guard legacy: a tooling PR
+// that edits plan docs can still merge with a token and reach this gate.
+//
+// This filter can only REMOVE candidates, so its risk is blinding the gate,
+// not false-halting it. Corpus sweep 2026-08-15 over all 28 plans: 118 of 125
+// tokenizer matches survive this predicate, and of the 7 it rejects only #216
+// touches a material path (the other 6 — `ADR-024`/`cp-004-12`-style numeric
+// collisions — are docs-only and were already invisible via the material-path
+// filter). So the gate loses no shipment it was catching.
+//
+// The predicate is deliberately NOT loosened to cover the residual: `Plan-007`
+// IS a real token in `Plan-007/025` (`/` is a word boundary), yet that PR
+// shipped no Plan-007 task. That class is closed by the manifest's ratified
+// `non_shipment_prs` key — an explicit, reviewable operator assertion — rather
+// than by a matcher heuristic that would silently widen for every plan.
+export function hasPlanTitleToken(title, paddedPlan) {
+  if (typeof title !== "string") return false;
+  return new RegExp(`\\bPlan-${paddedPlan}\\b`, "i").test(title);
+}
 
 export function gateManifestFreshness(planSource, planNumber) {
   const manifest = parseManifestBlock(planSource);
@@ -1641,8 +1693,19 @@ export function gateManifestFreshness(planSource, planNumber) {
       ].join("\n"),
     };
   }
+  // Narrow the tokenizer's population to real title tokens, then subtract the
+  // operator-ratified non-shipments. Both run BEFORE the manifest-membership
+  // check and the per-PR `gh pr view` fetch below, so a removed candidate
+  // costs no API call. Saturation is measured on the RAW fetch above — a
+  // truncated page is untrustworthy however few of its rows survive here.
+  const ratifiedNonShipmentPrs = new Set(manifest.nonShipmentPrs);
+  const candidates = merged.filter(
+    (pullRequest) =>
+      hasPlanTitleToken(pullRequest.title, paddedPlan) &&
+      !ratifiedNonShipmentPrs.has(pullRequest.number),
+  );
   const stale = [];
-  for (const pullRequest of merged) {
+  for (const pullRequest of candidates) {
     if (manifestPrs.has(pullRequest.number)) continue;
     const viewRun = runGh(`gh pr view ${pullRequest.number} --json files,changedFiles`);
     if (!viewRun.ok) return ghUnreachableHalt(paddedPlan, viewRun.error);
@@ -1716,7 +1779,14 @@ export function gateManifestFreshness(planSource, planNumber) {
       "",
       "Inspect the emitted entries, resolve operator-confirmation ambiguities",
       "(phase/task attribution), apply them to the plan file, and land the",
-      "manifest edit through a PR. Emergency bypass (gh outage / offline):",
+      "manifest edit through a PR.",
+      "",
+      "If a listed PR shipped NO task of this plan — a lane-2/lane-3 PR that",
+      "picked up the title token by accident, which rebuild will also decline to",
+      "emit an entry for — ratify it instead by adding its number to the",
+      "manifest's optional `non_shipment_prs: [...]` key, with a comment saying",
+      "why. That is an explicit, reviewed assertion; unratified title-tokened",
+      "material PRs keep halting. Emergency bypass (gh outage / offline):",
       "re-run preflight with --allow-stale-manifest (skip is logged to stderr).",
     ].join("\n"),
   };
@@ -1798,7 +1868,9 @@ export function gatePhaseAuditCheckbox(planSource, phaseSection, planFile, phase
 //   - manifest_unparseable: parseManifestBlock returned !ok. Halt; this is
 //     the loud-failure replacement for the silent-pass behavior Codex
 //     flagged on PR #35 round 7 (a malformed manifest would otherwise
-//     re-open Gate 3 and re-dispatch already-shipped phases).
+//     re-open Gate 3 and re-dispatch already-shipped phases). Carries
+//     `reason`, plus `errors` for the reasons that supply per-value
+//     diagnostics (invalid_non_shipment_prs).
 //   - manifest_invalid_entries: parseManifestBlock returned ok but at least
 //     one shipped[] entry fails validateEntry. Halt; pre-round-8 the
 //     classifier trusted parseManifestBlock and read fields directly, so
@@ -1829,7 +1901,9 @@ export function classifyPhaseShipment(
   { shippedAcrossEveryPhaseKey = false } = {},
 ) {
   const manifest = parseManifestBlock(planSource);
-  if (!manifest.ok) return { kind: "manifest_unparseable", reason: manifest.reason };
+  if (!manifest.ok) {
+    return { kind: "manifest_unparseable", reason: manifest.reason, errors: manifest.errors };
+  }
   if (manifest.version > MANIFEST_SCHEMA_VERSION) {
     return { kind: "manifest_future_schema", version: manifest.version, manifest };
   }
@@ -1903,6 +1977,12 @@ export function gatePhaseUnshipped(planSource, planNumber, phase) {
         "    is absent.",
         "  - missing_shipped: schema-version present but the `shipped:` top-level key is",
         "    absent. Add `shipped: []` for an empty manifest, or list entries under it.",
+        "  - invalid_non_shipment_prs: the optional `non_shipment_prs:` key is present but",
+        "    is not a list of positive integers. Write it as `non_shipment_prs: [216]` (or",
+        "    an indented `- 216` list), or omit the key entirely when there is nothing to",
+        "    ratify — it is parsed strictly so a typo cannot silently widen a Gate 6",
+        "    freshness exemption.",
+        ...(result.errors ?? []).map((message) => `      ${message}`),
       ].join("\n"),
     };
   }
@@ -4190,6 +4270,20 @@ export function resolvePrecondition(
       if (manifest.ok && Array.isArray(manifest.shipped) && manifest.shipped.length > 0) {
         return { ok: true };
       }
+      // Both shapes stay UNMET (fail closed), but they are named apart. An
+      // ABSENT block is the un-decomposed upstream this precondition is
+      // written for — "has not shipped yet" is the true diagnosis. A block
+      // that EXISTS and does not parse is a defect in that plan, and reporting
+      // it as "has not shipped yet" sends the operator to the wrong fix: they
+      // open the plan, see shipped entries, and disbelieve the gate. Mirrors
+      // the external_plan_phase_merged case's `unparseable (reason)` wording.
+      if (!manifest.ok && manifest.reason !== "no_section" && manifest.reason !== "no_yaml_fence") {
+        const detail = (manifest.errors ?? []).length > 0 ? `: ${manifest.errors.join("; ")}` : "";
+        return {
+          ok: false,
+          halt: `${planLabel(entry.plan)} shipment manifest unparseable (${manifest.reason})${detail} — cannot evaluate cross-tier substrate availability`,
+        };
+      }
       return {
         ok: false,
         halt: `${planLabel(entry.plan)} has not shipped yet (no shipment-manifest entries) — cross-tier substrate unavailable`,
@@ -4250,9 +4344,13 @@ export function resolvePrecondition(
       }
       const manifest = parseManifestBlock(source);
       if (!manifest.ok) {
+        // `errors` is populated only for the value-level reasons (today:
+        // invalid_non_shipment_prs); the structural reasons carry none, so the
+        // suffix is empty for them.
+        const detail = (manifest.errors ?? []).length > 0 ? `: ${manifest.errors.join("; ")}` : "";
         return {
           ok: false,
-          halt: `${planLabel(entry.plan)} shipment manifest unparseable (${manifest.reason}) — cannot evaluate Phase ${entry.phase} gate`,
+          halt: `${planLabel(entry.plan)} shipment manifest unparseable (${manifest.reason})${detail} — cannot evaluate Phase ${entry.phase} gate`,
         };
       }
       if (manifest.version > MANIFEST_SCHEMA_VERSION) {

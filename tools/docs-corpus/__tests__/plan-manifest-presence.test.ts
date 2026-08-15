@@ -205,6 +205,51 @@ describe("plan-manifest-presence", () => {
     cleanup();
   });
 
+  it("FORWARDS a value-level parse failure's per-value diagnostics into detail", () => {
+    // `invalid_non_shipment_prs` is a parse FAILURE whose block is present and
+    // structurally fine — only one key's value is wrong. Dropping the parser's
+    // errors would leave the operator with a bare reason plus a remediation
+    // telling them to replace the whole manifest block.
+    const badValue = [
+      "## Progress Log",
+      "",
+      "### Shipment Manifest",
+      "",
+      "```yaml",
+      "manifest_schema_version: 1",
+      'non_shipment_prs: ["216"]',
+      "shipped: []",
+      "```",
+      "",
+      "### Notes",
+    ].join("\n");
+    const { root, cleanup } = setupRepo({
+      "docs/plans/005-foo.md": planWithManifest("approved", badValue),
+    });
+    const hits = runCheck(root);
+    expect(hits).toHaveLength(1);
+    expect(hits[0]).toMatchObject({ status: "approved", reason: "invalid_non_shipment_prs" });
+    expect(hits[0].detail?.[0]).toMatch(/positive integers/);
+    const formatted = formatPlanManifestViolations(hits);
+    expect(formatted).toMatch(/positive integers/);
+    // The remediation must name the fix-in-place path for this reason class.
+    expect(formatted).toMatch(/do not\s+replace the block/);
+    cleanup();
+  });
+
+  it("omits detail entirely for a parse failure that carries no per-value errors", () => {
+    // Negative control for the forwarding above: the structural reasons have no
+    // `errors` array, and the spread must not mint an empty one.
+    const { root, cleanup } = setupRepo({
+      "docs/plans/005-foo.md": plan("approved"),
+    });
+    const hits = runCheck(root);
+    expect(hits).toHaveLength(1);
+    expect(hits[0].reason).toBe("no_section");
+    expect(hits[0].detail).toBeUndefined();
+    cleanup();
+  });
+
   it("FAILS OPEN on an unknown future schema version (mirrors Gate 3 manifest_future_schema)", () => {
     // A manifest whose version exceeds what this guard's parser knows is treated
     // as opaque, not judged by today's entry rules — the one intentional
@@ -263,6 +308,41 @@ describe("plan-manifest-presence", () => {
     if (valid.ok) {
       expect(valid.version).toBe(1);
       expect(valid.shipped).toEqual([]);
+      // `nonShipmentPrs` is declared ALWAYS present on the success branch (`[]`
+      // when the optional key is absent, as here). preflight Gate 6 subtracts it
+      // without a nullish guard, so a runtime that stopped emitting it on the
+      // key-absent path would throw there rather than fail a type check.
+      expect(valid.nonShipmentPrs).toEqual([]);
+    }
+    // The failure branch's optional `errors` array is a shape this gate now
+    // READS (it forwards the messages into `detail`). Pin it: a parser change
+    // that dropped the array would leave the operator with a bare reason plus a
+    // remediation telling them to replace a block that is present and fine, and
+    // — since `errors?:` is optional — tsc would not catch the regression.
+    const badValue = parseManifestBlock(
+      planWithManifest(
+        "approved",
+        [
+          "## Progress Log",
+          "",
+          "### Shipment Manifest",
+          "",
+          "```yaml",
+          "manifest_schema_version: 1",
+          'non_shipment_prs: ["216"]',
+          "shipped: []",
+          "```",
+          "",
+          "### Notes",
+        ].join("\n"),
+      ),
+    );
+    expect(badValue.ok).toBe(false);
+    if (!badValue.ok) {
+      expect(badValue.reason).toBe("invalid_non_shipment_prs");
+      expect(Array.isArray(badValue.errors)).toBe(true);
+      expect(badValue.errors?.length).toBeGreaterThan(0);
+      expect(typeof badValue.errors?.[0]).toBe("string");
     }
     // validateEntry + MANIFEST_SCHEMA_VERSION feed the invalid-entry and
     // future-schema branches above; pin their shapes too.

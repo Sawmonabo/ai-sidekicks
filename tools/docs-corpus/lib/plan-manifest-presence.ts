@@ -30,7 +30,10 @@
 // this package's rootDir and widened the `ok` discriminant so the
 // success/failure union stopped narrowing. The drift test in
 // __tests__ pins the parser's two return branches to its runtime behavior, so
-// the hand-written declaration cannot silently diverge from the `.mjs`.
+// the hand-written declaration cannot silently diverge from the `.mjs`. That
+// pin must cover every field a consumer READS, not just the discriminant: the
+// failure branch's `errors?` is optional in the declaration, so tsc alone would
+// not notice a runtime that stopped emitting it — only the drift test would.
 
 import { execFileSync } from "node:child_process";
 
@@ -62,12 +65,17 @@ export interface PlanManifestViolation {
   file: string;
   status: string;
   // parseManifestBlock failure reason (no_section | no_yaml_fence |
-  // missing_schema_version | missing_shipped), or "invalid_entries" when the
-  // block parses but a shipped[] entry fails validateEntry — mirroring
-  // preflight Gate 3's manifest_invalid_entries halt.
+  // missing_schema_version | missing_shipped | invalid_non_shipment_prs), or
+  // "invalid_entries" when the block parses but a shipped[] entry fails
+  // validateEntry — mirroring preflight Gate 3's manifest_invalid_entries halt.
   reason: string;
-  // Present only for reason === "invalid_entries": one `shipped[i]: <errors>`
-  // line per failing entry, mirroring Gate 3's per-index diagnostic.
+  // Per-failure diagnostics, when the reason carries any. For
+  // "invalid_entries": one `shipped[i]: <errors>` line per failing entry,
+  // mirroring Gate 3's per-index diagnostic. For a parse failure that returns
+  // an `errors` array (today: "invalid_non_shipment_prs"), the parser's own
+  // per-value messages — forwarded rather than dropped, because the generic
+  // "append the block from the template" remediation is actively wrong for a
+  // block that is present and merely has one bad value.
   detail?: string[];
 }
 
@@ -145,7 +153,16 @@ export function checkPlanManifestPresence(): PlanManifestViolation[] {
     if (status !== null && !MANIFEST_REQUIRED_STATUSES.has(status)) continue;
     const result = parseManifestBlock(source);
     if (!result.ok) {
-      violations.push({ file, status: status ?? "unknown", reason: result.reason });
+      // Forward the parser's per-value messages when it produced any. Without
+      // this the operator gets a bare reason plus a remediation telling them to
+      // replace a manifest block that is present and structurally fine.
+      const parseErrors = result.errors ?? [];
+      violations.push({
+        file,
+        status: status ?? "unknown",
+        reason: result.reason,
+        ...(parseErrors.length > 0 ? { detail: parseErrors } : {}),
+      });
       continue;
     }
     // The block parses, but Gate 3 (classifyPhaseShipment) ALSO halts on a
@@ -181,11 +198,14 @@ export function formatPlanManifestViolations(violations: PlanManifestViolation[]
   lines.push("");
   lines.push(
     `plan-manifest-presence: ${violations.length} plan(s) would HALT /plan-execution preflight Gate 3. ` +
-      "For a missing/unparseable block, append the `## Progress Log` / `### Shipment Manifest` " +
+      "For `no_section` / `no_yaml_fence`, append the `## Progress Log` / `### Shipment Manifest` " +
       "block from `docs/plans/000-plan-template.md` (an empty `shipped: []` manifest for a plan " +
       "that has shipped no phases). For `invalid_entries`, fix the listed shipped[] entries — the " +
       "schema is authoritative in " +
-      "`.claude/skills/plan-execution/scripts/lib/manifest.mjs` §validateEntry.",
+      "`.claude/skills/plan-execution/scripts/lib/manifest.mjs` §validateEntry. For the " +
+      "value-level reasons (`missing_schema_version`, `missing_shipped`, " +
+      "`invalid_non_shipment_prs`) the block is PRESENT — fix the named key in place; do not " +
+      "replace the block.",
   );
   return lines.join("\n");
 }

@@ -32,7 +32,14 @@ export interface ManifestEntry {
 /** `parseManifestBlock` failure — the manifest is absent or unparseable. */
 export type ManifestParseFailure = {
   ok: false;
-  reason: "no_section" | "no_yaml_fence" | "missing_schema_version" | "missing_shipped";
+  reason:
+    | "no_section"
+    | "no_yaml_fence"
+    | "missing_schema_version"
+    | "missing_shipped"
+    | "invalid_non_shipment_prs";
+  /** Per-value diagnostics; present only for `invalid_non_shipment_prs`. */
+  errors?: string[];
 };
 
 /** `parseManifestBlock` success — a well-formed manifest block. */
@@ -40,6 +47,14 @@ export type ManifestParseSuccess = {
   ok: true;
   version: number;
   shipped: ManifestEntry[];
+  /**
+   * Merged PRs whose title carries this plan's `Plan-NNN` token but which
+   * shipped none of its tasks — operator-ratified exemptions from preflight
+   * Gate 6 freshness. Always present; `[]` when the optional key is absent.
+   * Guaranteed disjoint from `shipped[].pr`: a manifest asserting both about
+   * one PR fails the parse with `invalid_non_shipment_prs`.
+   */
+  nonShipmentPrs: number[];
 };
 
 export type ManifestParseResult = ManifestParseFailure | ManifestParseSuccess;
@@ -65,3 +80,10 @@ export function appendManifestEntry(planSource: string, entry: ManifestEntry): s
 
 /** Serialize one entry to its YAML lines (write-side helper). */
 export function serializeEntry(entry: ManifestEntry): string[];
+
+/**
+ * Serialize the optional `non_shipment_prs` key to its single YAML line, so a
+ * tool that rewrites a whole manifest block round-trips the key instead of
+ * dropping it (which would silently re-arm the Gate 6 halt it suppresses).
+ */
+export function serializeNonShipmentPrs(nonShipmentPrs: readonly number[]): string;

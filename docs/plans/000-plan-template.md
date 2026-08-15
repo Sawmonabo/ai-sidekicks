@@ -290,6 +290,13 @@ shipped: []
 #   spec_coverage: [Spec-NNN row 4]    # mirrors audit Tasks-block field name
 #   notes: |
 #     Optional free-form context (round-trips, lane, learnings).
+#
+# Optional top-level key (omit unless needed):
+# non_shipment_prs: [216]   # merged PRs whose TITLE carries this plan's
+#                           # Plan-NNN token but which shipped none of its
+#                           # tasks — an operator-ratified exemption from
+#                           # preflight Gate 6 freshness. Add a comment saying
+#                           # why. Never a substitute for a shipped[] entry.
 ```
 
 ### Notes

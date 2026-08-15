@@ -761,6 +761,148 @@ test("rebuildManifest excludes PRs whose title lacks the Plan-NNN token (lane-2 
   }
 });
 
+// ---------- non_shipment_prs (ratified Gate 6 exemptions) ----------
+
+// This tool is the remedy preflight Gate 6's halt prescribes, so the two must
+// agree on the population. When they disagreed the pair DEADLOCKED: on
+// 2026-08-15 the gate halted naming PR #216 while this tool declined to emit an
+// entry for it. Both halves of the fix are pinned here — the shared title-token
+// predicate, and the manifest key that closes the residual it cannot.
+
+const COMPOUND_TITLE_PR = {
+  title: "chore(repo): retire Plan-007/025 compact-inline cite exemptions",
+  body: "Retires the compact-inline cite exemptions.",
+  mergedAt: "2026-07-18T12:00:00Z",
+  mergeCommit: { oid: "216aaaabbbb000" },
+  files: [{ path: ".github/workflows/docs-corpus.yml" }],
+};
+
+test("rebuildManifest agrees with Gate 6: a tokenizer-only match is not a Plan-025 shipment", async () => {
+  // `Plan-025` never occurs literally in `Plan-007/025` — GitHub's tokenizer
+  // returns it anyway, and Gate 6 now drops it. This tool must drop it too (it
+  // always did; the arm pins the imported predicate as the reason).
+  const tmp = mkdtempSync(join(tmpdir(), "rsm-e2e-"));
+  try {
+    const planDir = join(tmp, "docs", "plans");
+    mkdirSync(planDir, { recursive: true });
+    writeFileSync(
+      join(planDir, "025-self-hostable-node-relay.md"),
+      PLAN_TEMPLATE.replace("# Plan-001: Shared Session Core", "# Plan-025: Self-Hostable Relay"),
+    );
+
+    const stdout = makeCaptureStream();
+    const stderr = makeCaptureStream();
+    const r = await rebuildManifest({
+      plan: "025",
+      dryRun: true,
+      force: false,
+      ghRunner: makeGhRunner({ prList: [216], prDetails: { 216: COMPOUND_TITLE_PR } }),
+      plansDir: planDir,
+      stdout,
+      stderr,
+    });
+    assert.equal(r.exitCode, 0);
+    assert.match(stderr.text(), /skipped \(no title token\): PR #216/i);
+    assert.doesNotMatch(stdout.text(), /pr: 216/);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("rebuildManifest skips a ratified non_shipment_prs PR without a gh round-trip", async () => {
+  // For Plan-007 the token IS real (`/` is a word boundary), so only the
+  // ratification can suppress it. The fixture registers NO details for #216 —
+  // makeGhRunner throws on an unfixtured PR, so any fetch fails the test.
+  const tmp = mkdtempSync(join(tmpdir(), "rsm-e2e-"));
+  try {
+    const planDir = join(tmp, "docs", "plans");
+    mkdirSync(planDir, { recursive: true });
+    writeFileSync(
+      join(planDir, "007-local-ipc-and-daemon-control.md"),
+      PLAN_TEMPLATE.replace(
+        "manifest_schema_version: 1",
+        "manifest_schema_version: 1\nnon_shipment_prs: [216]",
+      ),
+    );
+
+    const stdout = makeCaptureStream();
+    const stderr = makeCaptureStream();
+    const r = await rebuildManifest({
+      plan: "007",
+      dryRun: true,
+      force: false,
+      ghRunner: makeGhRunner({ prList: [216], prDetails: {} }),
+      plansDir: planDir,
+      stdout,
+      stderr,
+    });
+    assert.equal(r.exitCode, 0);
+    assert.match(stderr.text(), /skipped \(ratified non-shipment\): PR #216/i);
+    assert.doesNotMatch(stdout.text(), /pr: 216/);
+    // Diagnostics never leak into the redirectable YAML stream.
+    assert.doesNotMatch(stdout.text(), /ratified non-shipment/);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("rebuildManifest round-trips non_shipment_prs into the dry-run YAML stream", async () => {
+  // The operator applies this stream to the plan file. Dropping the key would
+  // silently re-arm every Gate 6 halt it suppresses.
+  const tmp = mkdtempSync(join(tmpdir(), "rsm-e2e-"));
+  try {
+    const planDir = join(tmp, "docs", "plans");
+    mkdirSync(planDir, { recursive: true });
+    writeFileSync(
+      join(planDir, "007-local-ipc-and-daemon-control.md"),
+      PLAN_TEMPLATE.replace(
+        "manifest_schema_version: 1",
+        "manifest_schema_version: 1\nnon_shipment_prs: [216]",
+      ),
+    );
+
+    const stdout = makeCaptureStream();
+    const stderr = makeCaptureStream();
+    const r = await rebuildManifest({
+      plan: "007",
+      dryRun: true,
+      force: false,
+      ghRunner: makeGhRunner({ prList: [216], prDetails: {} }),
+      plansDir: planDir,
+      stdout,
+      stderr,
+    });
+    assert.equal(r.exitCode, 0);
+    assert.match(stdout.text(), /manifest_schema_version: 1\nnon_shipment_prs: \[216\]\nshipped:/);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("rebuildManifest emits no non_shipment_prs line when the plan has none", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "rsm-e2e-"));
+  try {
+    const planDir = join(tmp, "docs", "plans");
+    mkdirSync(planDir, { recursive: true });
+    writeFileSync(join(planDir, "001-shared-session-core.md"), PLAN_TEMPLATE);
+
+    const stdout = makeCaptureStream();
+    const r = await rebuildManifest({
+      plan: "001",
+      dryRun: true,
+      force: false,
+      ghRunner: makeGhRunner({ prList: [30], prDetails: { 30: SAMPLE_DETAILS } }),
+      plansDir: planDir,
+      stdout,
+      stderr: makeCaptureStream(),
+    });
+    assert.equal(r.exitCode, 0);
+    assert.doesNotMatch(stdout.text(), /non_shipment_prs/);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 test("rebuildManifest skips a body-only PR before the truncation-sensitive details fetch", async () => {
   const tmp = mkdtempSync(join(tmpdir(), "rsm-e2e-"));
   try {

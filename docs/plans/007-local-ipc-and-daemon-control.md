@@ -772,6 +772,13 @@ Validation surface widens at Tier 4 alongside the additional bind paths (HTTP, n
 
 ```yaml
 manifest_schema_version: 1
+# Ratified non-shipment 2026-08-15: PR #216 is a tooling-lane PR (docs-corpus
+# cite-exemption retirement) that shipped no Plan-007 task. Its title
+# "retire Plan-007/025 compact-inline cite exemptions" carries a genuine
+# `Plan-007` token — a lane-convention violation (CONTRIBUTING.md §How Code
+# Lands: lane-3 titles omit the token) — so Gate 6 freshness would otherwise
+# demand a shipped[] entry the schema has no honest shape for.
+non_shipment_prs: [216]
 shipped:
   - phase: 1
     task: [T-007p-1-1, T-007p-1-2, T-007p-1-3, T-007p-1-4]

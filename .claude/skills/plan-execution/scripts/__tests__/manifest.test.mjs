@@ -11,6 +11,7 @@ import {
   validateEntry,
   appendManifestEntry,
   serializeEntry,
+  serializeNonShipmentPrs,
 } from "../lib/manifest.mjs";
 
 const EMPTY_PLAN = `# Plan-001: Foo
@@ -268,6 +269,252 @@ shipped:
   assert.equal(r.shipped.length, 1);
   assert.deepEqual(r.shipped[0].spec_coverage, ["Spec-001 rows 4,5", "Spec-001 row 6"]);
   assert.deepEqual(r.shipped[0].verifies_invariant, ["I-001-1", "I-001-2,maybe"]);
+});
+
+// ---------- non_shipment_prs (optional top-level key) ----------
+
+// Operator-ratified exemptions from preflight Gate 6 freshness: merged PRs that
+// carry the plan's `Plan-NNN` title token but shipped none of its tasks (the
+// 2026-08-15 PR #216 class). Additive and optional — it does NOT bump the
+// schema version — and parsed STRICTLY, because a typo that widened the
+// exemption would silently disarm a fail-closed gate.
+
+function planWithNonShipment(literal) {
+  return `### Shipment Manifest
+
+\`\`\`yaml
+manifest_schema_version: 1
+${literal}
+shipped: []
+\`\`\`
+`;
+}
+
+test("non_shipment_prs: absent key yields an empty array (never undefined)", () => {
+  const r = parseManifestBlock(EMPTY_PLAN);
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.nonShipmentPrs, []);
+});
+
+test("non_shipment_prs: inline flow array parses to numbers", () => {
+  const r = parseManifestBlock(planWithNonShipment("non_shipment_prs: [216]"));
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.nonShipmentPrs, [216]);
+});
+
+test("non_shipment_prs: trailing comment and multiple values parse", () => {
+  const r = parseManifestBlock(
+    planWithNonShipment("non_shipment_prs: [216, 217] # ratified 2026-08-15"),
+  );
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.nonShipmentPrs, [216, 217]);
+});
+
+test("non_shipment_prs: indented block-list spelling parses identically", () => {
+  const r = parseManifestBlock(planWithNonShipment("non_shipment_prs:\n  - 216\n  - 217"));
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.nonShipmentPrs, [216, 217]);
+});
+
+test("non_shipment_prs: an explicit empty list is allowed", () => {
+  const r = parseManifestBlock(planWithNonShipment("non_shipment_prs: []"));
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.nonShipmentPrs, []);
+});
+
+test("non_shipment_prs: parses when placed AFTER shipped[] entries", () => {
+  // `shipped:` entry parsing stops at the first column-0 key, so placement is
+  // free. Pin both orders — the corpus writes it above `shipped:`, but a
+  // hand-edit below must not silently parse as nothing.
+  const plan = `### Shipment Manifest
+
+\`\`\`yaml
+manifest_schema_version: 1
+shipped:
+  - phase: 5
+    task: T5.1
+    pr: 30
+    sha: 7e4ae47
+    merged_at: 2026-05-05
+    files: [a.ts]
+non_shipment_prs: [216]
+\`\`\`
+`;
+  const r = parseManifestBlock(plan);
+  assert.equal(r.ok, true);
+  assert.equal(r.shipped.length, 1);
+  assert.deepEqual(r.nonShipmentPrs, [216]);
+});
+
+test("non_shipment_prs: quoted strings are REJECTED (fail closed on a typo)", () => {
+  const r = parseManifestBlock(planWithNonShipment('non_shipment_prs: ["216"]'));
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, "invalid_non_shipment_prs");
+  assert.match(r.errors.join(" "), /positive integers/);
+});
+
+test("non_shipment_prs: negative and zero PR numbers are REJECTED", () => {
+  const negative = parseManifestBlock(planWithNonShipment("non_shipment_prs: [-216]"));
+  assert.equal(negative.ok, false);
+  assert.equal(negative.reason, "invalid_non_shipment_prs");
+  const zero = parseManifestBlock(planWithNonShipment("non_shipment_prs: [0]"));
+  assert.equal(zero.ok, false);
+  assert.equal(zero.reason, "invalid_non_shipment_prs");
+});
+
+test("non_shipment_prs: a bare scalar is REJECTED (not silently wrapped)", () => {
+  const r = parseManifestBlock(planWithNonShipment("non_shipment_prs: 216"));
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, "invalid_non_shipment_prs");
+});
+
+test("non_shipment_prs: a valueless key is REJECTED rather than read as empty", () => {
+  const r = parseManifestBlock(planWithNonShipment("non_shipment_prs:"));
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, "invalid_non_shipment_prs");
+});
+
+test("non_shipment_prs: the structural reasons still win over a bad value", () => {
+  // A block missing `shipped:` is a more fundamental defect; diagnosing the
+  // exemption key first would send the operator down the wrong remediation.
+  const plan = `### Shipment Manifest
+
+\`\`\`yaml
+manifest_schema_version: 1
+non_shipment_prs: ["216"]
+\`\`\`
+`;
+  const r = parseManifestBlock(plan);
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, "missing_shipped");
+});
+
+test("non_shipment_prs: a PR ALSO recorded in shipped[] is REJECTED", () => {
+  // The two keys make opposite assertions about one merge. Unchecked, the
+  // contradiction is not inert: rebuild-shipment-manifest.mjs skips ratified
+  // PRs ahead of its existing-entry reuse path, so #30 would silently vanish
+  // from the --dry-run stream the Gate 6 halt tells the operator to apply back.
+  const plan = `### Shipment Manifest
+
+\`\`\`yaml
+manifest_schema_version: 1
+non_shipment_prs: [30]
+shipped:
+  - phase: 5
+    task: T5.1
+    pr: 30
+    sha: 7e4ae47
+    merged_at: 2026-05-05
+    files: [a.ts]
+\`\`\`
+`;
+  const r = parseManifestBlock(plan);
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, "invalid_non_shipment_prs");
+  assert.match(r.errors.join(" "), /PR #30 is listed in non_shipment_prs AND recorded in shipped/);
+});
+
+test("non_shipment_prs: the shipped[]-overlap check sees the key BELOW shipped too", () => {
+  // Placement-independent by construction — the check runs at the return site,
+  // after the whole block is resolved, not at the key's own line.
+  const plan = `### Shipment Manifest
+
+\`\`\`yaml
+manifest_schema_version: 1
+shipped:
+  - phase: 5
+    task: T5.1
+    pr: 30
+    sha: 7e4ae47
+    merged_at: 2026-05-05
+    files: [a.ts]
+non_shipment_prs: [216, 30]
+\`\`\`
+`;
+  const r = parseManifestBlock(plan);
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, "invalid_non_shipment_prs");
+  // Only the overlapping number is named; #216 is a legitimate ratification.
+  assert.match(r.errors.join(" "), /PR #30 /);
+  assert.doesNotMatch(r.errors.join(" "), /PR #216 /);
+});
+
+test("non_shipment_prs: a DISJOINT key and shipped[] still parse cleanly", () => {
+  // Negative control for the overlap check — it must not reject the normal shape.
+  const plan = `### Shipment Manifest
+
+\`\`\`yaml
+manifest_schema_version: 1
+non_shipment_prs: [216]
+shipped:
+  - phase: 5
+    task: T5.1
+    pr: 30
+    sha: 7e4ae47
+    merged_at: 2026-05-05
+    files: [a.ts]
+\`\`\`
+`;
+  const r = parseManifestBlock(plan);
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.nonShipmentPrs, [216]);
+  assert.deepEqual(
+    r.shipped.map((e) => e.pr),
+    [30],
+  );
+});
+
+test("serializeNonShipmentPrs: emits a parseable inline flow array (round trip)", () => {
+  const line = serializeNonShipmentPrs([216, 217]);
+  assert.equal(line, "non_shipment_prs: [216, 217]");
+  const reparsed = parseManifestBlock(planWithNonShipment(line));
+  assert.equal(reparsed.ok, true);
+  assert.deepEqual(reparsed.nonShipmentPrs, [216, 217]);
+});
+
+test("appendManifestEntry preserves non_shipment_prs above AND below shipped[]", () => {
+  // The append path splices into the existing YAML lines rather than
+  // re-rendering the block, so unrelated top-level keys survive — but only if
+  // the splice point respects them. A dropped key silently re-arms every Gate 6
+  // halt the operator ratified away.
+  const entry = {
+    phase: 1,
+    task: "T1.1",
+    pr: 42,
+    sha: "abc1234",
+    merged_at: "2026-08-15",
+    files: ["packages/x/src/a.ts"],
+  };
+  const above = parseManifestBlock(
+    appendManifestEntry(planWithNonShipment("non_shipment_prs: [216]"), entry),
+  );
+  assert.equal(above.ok, true);
+  assert.deepEqual(above.nonShipmentPrs, [216]);
+  assert.deepEqual(
+    above.shipped.map((e) => e.pr),
+    [42],
+  );
+  const belowSource = `### Shipment Manifest
+
+\`\`\`yaml
+manifest_schema_version: 1
+shipped:
+  - phase: 5
+    task: T5.1
+    pr: 30
+    sha: 7e4ae47
+    merged_at: 2026-05-05
+    files: [a.ts]
+non_shipment_prs: [216]
+\`\`\`
+`;
+  const below = parseManifestBlock(appendManifestEntry(belowSource, entry));
+  assert.equal(below.ok, true);
+  assert.deepEqual(below.nonShipmentPrs, [216]);
+  assert.deepEqual(
+    below.shipped.map((e) => e.pr),
+    [30, 42],
+  );
 });
 
 // ---------- validateEntry ----------
