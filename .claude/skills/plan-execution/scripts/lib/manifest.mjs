@@ -8,6 +8,7 @@
 // ## Schema (version 1)
 //
 //     manifest_schema_version: 1
+//     non_shipment_prs: [216]         # optional — see below
 //     shipped:
 //       - phase: <int>
 //         task: <string | string[]>   # array allowed for legacy multi-task PRs
@@ -19,6 +20,33 @@
 //         spec_coverage: [Spec-NNN row 4, ...]
 //         notes: |
 //           optional free-form text
+//
+// ## Optional top-level key: `non_shipment_prs`
+//
+// An operator-ratified list of merged PR numbers that carry this plan's
+// `Plan-NNN` token in their TITLE but shipped no task of it — so preflight
+// Gate 6 (manifest freshness) must not demand a `shipped[]` entry for them.
+// The key is additive and optional; it does NOT bump the schema version, and
+// `shipped[]` remains the sole record of shipped work.
+//
+// It exists because a lane-2/lane-3 PR can pick up a plan's title token by
+// accident. The 2026-08-15 case: PR #216 `chore(repo): retire Plan-007/025
+// compact-inline cite exemptions` is a tooling-lane PR that shipped no
+// Plan-007 task, yet `Plan-007` is a genuine title token inside the compound
+// `Plan-007/025` (`/` is a word boundary). Gate 6 flagged it as an unrecorded
+// shipment while the manifest schema had no honest entry shape for it — every
+// `shipped[]` entry requires a `phase`/`task` pair that PR does not have.
+//
+// The key is deliberately an EXPLICIT, greppable, reviewable escape rather
+// than a heuristic: an unratified title-tokened material PR still halts the
+// gate. Adding a number here is an operator assertion reviewed like any other
+// diff — never something a tool infers.
+//
+// Values must be positive integers, and none may also appear as a `shipped[]`
+// entry's `pr` (the two keys make opposite assertions about one merge);
+// anything else fails the parse with `reason: "invalid_non_shipment_prs"`. A
+// permissive parse would let a typo silently widen the exemption, which is the
+// one failure mode a fail-closed gate cannot tolerate.
 //
 // ## Schema-version policy
 //
@@ -121,6 +149,8 @@ function parseYaml(yamlSource) {
   let version = null;
   const shipped = [];
   let shippedFound = false;
+  let nonShipmentPrs = [];
+  let nonShipmentFailure = null;
   let i = 0;
   while (i < lines.length) {
     const line = lines[i];
@@ -132,6 +162,22 @@ function parseYaml(yamlSource) {
     if (versionMatch) {
       version = Number(versionMatch[1]);
       i++;
+      continue;
+    }
+    if (/^non_shipment_prs\s*:/.test(line)) {
+      // Reuse the entry-field machinery so both YAML spellings parse: the
+      // inline flow array (`non_shipment_prs: [216]`) and the indented block
+      // list (`non_shipment_prs:` + `  - 216`). fieldIndent 0 makes every
+      // indented line a child of this top-level key.
+      const holder = {};
+      const result = applyField(holder, parseFieldLine(line), lines, i + 1, 0);
+      i = result.next;
+      const validation = validateNonShipmentPrs(holder.non_shipment_prs);
+      // Record the first failure rather than returning here: `version` and
+      // `shipped` are resolved by the whole loop, and the missing-key reasons
+      // below are the more fundamental diagnosis when both are wrong.
+      if (!validation.ok) nonShipmentFailure ??= validation;
+      else nonShipmentPrs = validation.value;
       continue;
     }
     if (/^shipped:\s*\[\s*\]\s*(?:#.*)?$/.test(line)) {
@@ -152,7 +198,59 @@ function parseYaml(yamlSource) {
   }
   if (version === null) return { ok: false, reason: "missing_schema_version" };
   if (!shippedFound) return { ok: false, reason: "missing_shipped" };
-  return { ok: true, version, shipped };
+  if (nonShipmentFailure) {
+    return { ok: false, reason: "invalid_non_shipment_prs", errors: nonShipmentFailure.errors };
+  }
+  // A PR cannot be BOTH a recorded shipment and a ratified non-shipment — the
+  // two keys make opposite assertions about the same merge. Checkable only
+  // here, where both are resolved (`non_shipment_prs` may sit above or below
+  // `shipped:`). It fails closed under the SAME reason rather than a new one:
+  // the diagnosis ("this key is wrong") is identical, and a second reason
+  // string would have to be threaded through the .d.mts union, Gate 3's
+  // enumeration, and the docs-corpus presence guard for a shape no plan has.
+  // Left unchecked it is not inert: `rebuild-shipment-manifest.mjs` skips
+  // ratified PRs AHEAD of its existing-entry reuse path, so a PR in both keys
+  // silently vanishes from the `--dry-run` stream — the stream Gate 6's own
+  // halt text tells the operator to apply back to the plan file.
+  const shippedPrs = new Set(shipped.map((entry) => entry.pr));
+  const contradictions = nonShipmentPrs.filter((pullRequestNumber) =>
+    shippedPrs.has(pullRequestNumber),
+  );
+  if (contradictions.length > 0) {
+    return {
+      ok: false,
+      reason: "invalid_non_shipment_prs",
+      errors: contradictions.map(
+        (pullRequestNumber) =>
+          `PR #${pullRequestNumber} is listed in non_shipment_prs AND recorded in shipped[] — ` +
+          `a PR is one or the other; drop it from whichever key is wrong`,
+      ),
+    };
+  }
+  return { ok: true, version, shipped, nonShipmentPrs };
+}
+
+// `non_shipment_prs` must be a list of positive integers. Fail closed on every
+// other shape — a permissive read (coercing "216", accepting a bare scalar,
+// treating an empty key as an empty list) would let a typo silently widen a
+// Gate 6 exemption, and a silently-widened exemption is invisible in review.
+function validateNonShipmentPrs(value) {
+  if (!Array.isArray(value)) {
+    return {
+      ok: false,
+      errors: [
+        "non_shipment_prs must be an array of positive integers " +
+          "(e.g. `non_shipment_prs: [216]`); omit the key entirely when empty",
+      ],
+    };
+  }
+  const errors = [];
+  for (const pullRequestNumber of value) {
+    if (!Number.isInteger(pullRequestNumber) || pullRequestNumber < 1) {
+      errors.push(`non_shipment_prs entries must be positive integers: ${pullRequestNumber}`);
+    }
+  }
+  return errors.length === 0 ? { ok: true, value } : { ok: false, errors };
 }
 
 function parseShippedEntries(lines, start) {
@@ -494,6 +592,16 @@ export function serializeEntry(entry) {
     }
   }
   return out;
+}
+
+// Emitted as an inline flow array — the form `parseInlineScalar` round-trips
+// and the form the plan corpus uses. A tool that rewrites a whole manifest
+// block must call this for any non-empty `nonShipmentPrs` it parsed: dropping
+// the key would silently re-arm the Gate 6 halt the operator ratified away.
+// `appendManifestEntry` needs no such call — it splices into the existing
+// lines, so unrelated top-level keys survive untouched.
+export function serializeNonShipmentPrs(nonShipmentPrs) {
+  return `non_shipment_prs: [${nonShipmentPrs.join(", ")}]`;
 }
 
 function quoteIfNeeded(s) {

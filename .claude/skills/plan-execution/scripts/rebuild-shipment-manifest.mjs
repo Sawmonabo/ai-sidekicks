@@ -48,9 +48,10 @@ import {
   appendManifestEntry,
   validateEntry,
   serializeEntry,
+  serializeNonShipmentPrs,
 } from "./lib/manifest.mjs";
 import { resolvePlanFile } from "./lib/plan-file.mjs";
-import { MATERIAL_PATH_PREFIXES } from "./preflight.mjs";
+import { MATERIAL_PATH_PREFIXES, hasPlanTitleToken } from "./preflight.mjs";
 // MATERIAL_PATH_PREFIXES is one HALF of the skip predicate: a material
 // path forces synthesis (fail-open toward validation), but its absence
 // alone never justifies a skip — deploy/-only plan tasks exist
@@ -343,18 +344,45 @@ export async function rebuildManifest({
   const existingEntryByPr = new Map(
     preParsed.ok ? preParsed.shipped.map((entry) => [entry.pr, entry]) : [],
   );
+  // PRs the operator has already ratified as NON-shipments (see lib/manifest.mjs
+  // §non_shipment_prs). They are exactly the PRs this tool must NOT propose an
+  // entry for: preflight Gate 6 has stopped demanding one, so emitting a
+  // candidate here would invite the operator to undo their own ratification.
+  //
+  // Same empty-on-unparseable fallback as the entry map above, with one extra
+  // consequence worth naming: an unparseable block loses the ratifications too,
+  // so the `--dry-run` stream both re-proposes entries for them and omits the
+  // `non_shipment_prs:` line — pasting that stream back would silently re-arm
+  // the Gate 6 halt the key suppresses. Acceptable because an unparseable
+  // manifest is itself a hard halt upstream (preflight Gate 3, and the
+  // docs-corpus plan-manifest-presence CI guard): the operator fixes the block
+  // first, then rebuilds against a manifest this tool can actually read.
+  const ratifiedNonShipmentPrs = new Set(preParsed.ok ? preParsed.nonShipmentPrs : []);
 
   const built = [];
   for (const pr of prNumbers) {
+    // Ahead of the title probe: a ratified non-shipment needs no gh round-trip,
+    // and the operator already knows why it is absent — they wrote the reason
+    // into the manifest.
+    if (ratifiedNonShipmentPrs.has(pr)) {
+      stderr.write(
+        `skipped (ratified non-shipment): PR #${pr} — listed in the plan manifest's non_shipment_prs\n`,
+      );
+      continue;
+    }
     // Candidate precision (2026-07-07): the in:title,body search keeps broad
     // recall for the operator, but only TITLE-tokened PRs are the manifest
     // population — G6 freshness is title-only, and lane-2 enhancement PRs
     // (CONTRIBUTING §How Code Lands) carry `Refs: Plan-NNN` in the BODY by
     // design. Synthesizing entries from body-only matches would fabricate
     // shipped[] state and make preflight Gate 3 silently skip unshipped tasks.
-    // "i" flag: GitHub's search (both G6's title-only and this tool's in:title,body)
-    // matches case-insensitively — a lowercase `plan-001` title is G6-visible, so the
-    // rebuild filter must see it too or the two mechanisms disagree on the population.
+    // The predicate is IMPORTED from preflight.mjs rather than re-declared, so
+    // this tool and Gate 6 cannot disagree on the population. They did while it
+    // was a local copy: on 2026-08-15 Gate 6 halted naming PR #216 (a compound
+    // `Plan-007/025` title GitHub's tokenizer matched for Plan-025) while this
+    // tool declined to emit an entry for it — a halt with no remedy. See
+    // preflight.mjs §hasPlanTitleToken for the full sync contract, including
+    // why the "i" flag is load-bearing on both sides.
     // The probe is title-ONLY and runs BEFORE fetchPrDetails: the full fetch
     // halts loudly (exit 7) when files truncate at the 100-file GraphQL page,
     // and a body-only PR outside the manifest population must not be able to
@@ -363,9 +391,8 @@ export async function rebuildManifest({
     // operators redirect and diff (Codex P2 round 3). Two rescue paths keep
     // body-only shipments in: verbatim reuse of an existing on-disk entry,
     // and --include-body-matches for fresh pre-mandate backfills.
-    const titleTokenRe = new RegExp(`\\bPlan-${plan}\\b`, "i");
     const { title } = JSON.parse(ghRunner(`gh pr view ${pr} --json title`));
-    if (!titleTokenRe.test(title ?? "")) {
+    if (!hasPlanTitleToken(title, plan)) {
       const existingEntry = existingEntryByPr.get(pr);
       if (existingEntry) {
         stderr.write(`reused existing manifest entry (body-only title): PR #${pr} — "${title}"\n`);
@@ -494,6 +521,13 @@ export async function rebuildManifest({
   if (dryRun) {
     stdout.write(`# Rebuilt manifest for Plan-${plan} (dry run)\n`);
     stdout.write(`manifest_schema_version: 1\n`);
+    // Round-trip the ratified non-shipments. This stream is what the operator
+    // applies to the plan file, so dropping the key would silently re-arm every
+    // Gate 6 halt it suppresses — and the YAML carries no comments, so re-add
+    // the rationale comment by hand when pasting a whole block back.
+    if (ratifiedNonShipmentPrs.size > 0) {
+      stdout.write(`${serializeNonShipmentPrs([...ratifiedNonShipmentPrs])}\n`);
+    }
     stdout.write(`shipped:\n`);
     for (const { entry } of validated) {
       for (const line of serializeEntry(entry)) stdout.write(`${line}\n`);

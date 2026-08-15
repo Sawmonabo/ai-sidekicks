@@ -1548,6 +1548,43 @@ ${SYNTHETIC_PLAN_INVARIANTS}`,
   assert.equal(r.ok, true);
 });
 
+test("resolvePrecondition plan_unshipped names an UNPARSEABLE manifest apart from an absent one", () => {
+  // Both stay UNMET, but the diagnosis differs. An absent block is the
+  // un-decomposed upstream this precondition is written for; a block that
+  // exists and does not parse is a defect in that plan, and "has not shipped
+  // yet" would send the operator to open a file whose entries are right there.
+  const repo = makeTempRepo();
+  writeFileSync(
+    join(repo, "docs", "plans", "021-test.md"),
+    `# Plan-021
+
+## Progress Log
+
+### Shipment Manifest
+
+\`\`\`yaml
+manifest_schema_version: 1
+non_shipment_prs: ["216"]
+shipped:
+  - phase: 1
+    task: T1.1
+    pr: 5
+    sha: abc1234
+    merged_at: 2026-01-01
+    files: []
+\`\`\`
+
+### Notes
+${SYNTHETIC_PLAN_INVARIANTS}`,
+  );
+  const r = resolvePrecondition({ type: "plan_unshipped", plan: 21 }, { repoRoot: repo });
+  assert.equal(r.ok, false);
+  assert.match(r.halt, /shipment manifest unparseable \(invalid_non_shipment_prs\)/);
+  // The per-value diagnostic rides along so the operator sees WHICH value.
+  assert.match(r.halt, /positive integers/);
+  assert.doesNotMatch(r.halt, /has not shipped yet/);
+});
+
 test("resolvePrecondition plan_unshipped halts when the target plan file is absent", () => {
   const repo = makeTempRepo();
   const r = resolvePrecondition({ type: "plan_unshipped", plan: 88 }, { repoRoot: repo });
