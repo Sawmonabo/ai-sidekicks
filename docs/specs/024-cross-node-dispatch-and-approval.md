@@ -48,9 +48,11 @@ This spec covers:
 - [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
 - [Component Architecture Control Plane](../architecture/component-architecture-control-plane.md)
 - [Security Architecture](../architecture/security-architecture.md)
+- [ADR-004: SQLite Local State And Postgres Control Plane](../decisions/004-sqlite-local-state-and-postgres-control-plane.md)
 - [ADR-007: Collaboration Trust And Permission Model](../decisions/007-collaboration-trust-and-permission-model.md)
 - [ADR-010: PASETO + WebAuthn + MLS Auth](../decisions/010-paseto-webauthn-mls-auth.md)
 - [ADR-012: Cedar Approval Policy Engine](../decisions/012-cedar-approval-policy-engine.md)
+- [ADR-015: V1 Feature Scope Definition](../decisions/015-v1-feature-scope-definition.md)
 - [ADR-017: Shared Event-Sourcing Scope](../decisions/017-shared-event-sourcing-scope.md)
 
 ## Required Behavior

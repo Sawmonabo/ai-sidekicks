@@ -145,7 +145,7 @@ Telemetry opt-in must be presented as a _separate step_ after the three-way choi
 - **Hosted-SaaS sign-up canceled or loopback callback never fires (Option 3).** The flow must time out after 5 minutes, discard the PKCE state, leave `onboarding` unset, and return the user to the three-way choice screen. No partial state persists.
 - **OS keystore unavailable (Option 2, Option 3, or telemetry-choice persistence on platforms that require keystore-backed daemon tokens).** Per `Spec-023 §Fallback Behavior`: refuse to persist long-lived auth material; the session proceeds memory-only with the degradation surfaced; the flow records `onboarding.choice_made` with `keystore_available: false` so ops can diagnose. On Linux, the daemon must distinguish `basic_text` (plaintext fallback) from `gnome_libsecret` / `kwallet*` via `safeStorage.getSelectedStorageBackend()` ([Electron safeStorage docs](https://www.electronjs.org/docs/latest/api/safe-storage)) and refuse the plaintext backend for hosted / self-host tokens.
 - **Conflicting daemon already configured (`config.toml` present but no `[onboarding]`, or `[onboarding]` present on a daemon installation version that predates this spec).** The daemon must migrate at first trigger: if a legacy config field maps to a current choice ID, carry it forward with `resolved_at = now()` and emit `onboarding.choice_made` with `migrated: true`; otherwise treat it as a fresh onboarding.
-- **Headless / no-TTY environments (CI, SSH without pty, containers).** The CLI must detect `!process.stdin.isTTY` and refuse interactive prompting; it must print a machine-readable instruction pointing at the three env-var / flag overrides (`SIDEKICKS_ONBOARDING_CHOICE=free-public-relay`, `--relay-url=…`, `--hosted-token-stdin`) plus exit 2. The env-var path must produce the same persisted state as the interactive path.
+- **Headless / no-TTY environments (CI, SSH without pty, containers).** The CLI must detect `!process.stdin.isTTY` and refuse interactive prompting; it must print a machine-readable instruction pointing at the four env-var / flag overrides (`SIDEKICKS_ONBOARDING_CHOICE=free-public-relay`, `--relay-url=…`, `--hosted-token-stdin`, `SIDEKICKS_TELEMETRY_OPT_IN=false`) plus exit 2. The env-var path must produce the same persisted state as the interactive path — telemetry included, which is why the fourth override exists: the telemetry step admits no silent default in headless environments either.
 - **Resume of a partially-completed first-run.** If the daemon restarts mid-onboarding (crash, SIGTERM, power), the next trigger must resume at the step the user left (choice not yet made vs. choice made but token not yet persisted vs. token persisted but telemetry-opt-in not yet resolved). A partial state file at `$XDG_STATE_HOME/ai-sidekicks/onboarding.partial.json` (or `$HOME/.local/state/ai-sidekicks/onboarding.partial.json` if `XDG_STATE_HOME` is unset, per [XDG Base Directory Specification v0.8](https://specifications.freedesktop.org/basedir-spec/latest/)) must carry just enough to resume without re-presenting resolved steps.
 
 ## Interfaces And Contracts
@@ -229,7 +229,7 @@ Payloads must not contain secret material (no tokens, no SPKI pin raw bytes — 
 
 1. CI job runs `sidekicks invite create` non-interactively.
 2. Daemon triggers onboarding; CLI detects `!process.stdin.isTTY`.
-3. CLI prints the three override env-vars and exits 2.
+3. CLI prints the four override env-vars and exits 2.
 4. CI job re-runs with `SIDEKICKS_ONBOARDING_CHOICE=free-public-relay SIDEKICKS_TELEMETRY_OPT_IN=false`.
 5. Daemon resolves onboarding from the env vars, writes `[onboarding]`, emits `onboarding.choice_made` with the `deferred_validation` flag set only if network is also unreachable.
 
@@ -264,7 +264,7 @@ Payloads must not contain secret material (no tokens, no SPKI pin raw bytes — 
 ## Acceptance Criteria
 
 - [ ] Onboarding flow triggers on first outbound invite or on `sidekicks onboarding start`, and never on install, first launch, or local-only session creation.
-- [ ] CLI flow presents exactly three options, default = `free-public-relay`, uses `@inquirer/prompts`, and supports non-interactive env-var override (`SIDEKICKS_ONBOARDING_CHOICE`, `--relay-url`, `--hosted-token-stdin`) with exit code 2 on headless detection.
+- [ ] CLI flow presents exactly three options, default = `free-public-relay`, uses `@inquirer/prompts`, and supports non-interactive env-var override (`SIDEKICKS_ONBOARDING_CHOICE`, `--relay-url`, `--hosted-token-stdin`, `SIDEKICKS_TELEMETRY_OPT_IN`) with exit code 2 on headless detection.
 - [ ] Desktop flow presents the three options via the `onboarding.presentChoice` preload bridge; secret input (Option 2 token paste, Option 3 callback) never crosses into the renderer address space.
 - [ ] Resolved choice persists at `$XDG_CONFIG_HOME/ai-sidekicks/config.toml` (or `%APPDATA%\ai-sidekicks\config.toml` on Windows) in the `[onboarding]` block with `choice_id`, `resolved_at`, `relay_url`, `telemetry_opt_in`, and (Option 2 only) `self_host_spki_pin`.
 - [ ] Secrets (Option 2 admin token, Option 3 scoped token) are persisted via the Spec-023 keystore surface only; `config.toml` never contains them.

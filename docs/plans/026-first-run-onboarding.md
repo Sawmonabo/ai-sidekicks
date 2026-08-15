@@ -20,7 +20,7 @@ Ship the Spec-026 three-way first-run-choice onboarding flow across both V1 clie
 
 - `packages/runtime-daemon/src/onboarding/` — **new module in the daemon.** Owns the orchestration service, the TOML config store, the partial-state store, the SPKI TLS probe, the loopback HTTP server for the PKCE callback, the keystore-client wrapper, the telemetry-opt-in store, and the event emitters.
 - `packages/contracts/src/onboarding.ts` — **new contract file.** Exports the typed surface shared across daemon, CLI, and desktop: `OnboardingChoiceId`, `OnboardingState`, `OnboardingConfig`, `OnboardingPartialState`, and the five JSON-RPC request/response shapes.
-- `packages/cli/src/commands/onboarding/` — **new CLI subcommand tree.** `start.ts`, `reset.ts`, `status.ts`, plus a top-level `telemetry/set.ts` command. Interactive prompts via `@inquirer/prompts` v8.x (successor to `inquirer` v9 — ESM-native, tree-shakable, active maintenance; see §Risks And Blockers for the ESM constraint).
+- `apps/cli/src/commands/onboarding/` — **new CLI subcommand tree.** `start.ts`, `reset.ts`, `status.ts`, plus a top-level `telemetry/set.ts` command. Interactive prompts via `@inquirer/prompts` v8.x (successor to `inquirer` v9 — ESM-native, tree-shakable, active maintenance; see §Risks And Blockers for the ESM constraint).
 - `apps/desktop/src/preload/onboarding.ts` — **new preload-bridge namespace.** Extends the `window.sidekicks` surface authored by Plan-023 with `onboarding.presentChoice()` and `onboarding.telemetryPrompt()` — both return promises whose resolution flows from main-process modals, not renderer DOM.
 - `apps/desktop/src/main/onboarding/` — **new main-process orchestration.** `modal.ts` (native dialog for token paste — renderer never sees plaintext), `spki-confirm-dialog.ts` (Option 2 fingerprint confirmation), `hosted-browser.ts` (`shell.openExternal()` + loopback wait), `walkthrough-host.ts` (mounts the renderer walkthrough when the modal is non-native).
 - `apps/desktop/src/renderer/src/onboarding/` — **new renderer walkthrough.** VS-Code-walkthrough-patterned step-through UI with left-rail progress + right-pane content per [VS Code walkthroughs UX guideline](https://code.visualstudio.com/api/ux-guidelines/walkthroughs). Three steps, explicit primary CTA per step, non-dismissible until a choice is made.
@@ -30,7 +30,7 @@ Ship the Spec-026 three-way first-run-choice onboarding flow across both V1 clie
 - Keystore writes via the Spec-023 surface: Option 2 writes `ai-sidekicks:self-host-admin-token:<relay_host>`; Option 3 writes `ai-sidekicks:hosted-saas-scoped-token`. Both are keystore-only — never `config.toml`.
 - Option 2 TOFU: a one-shot TLS probe (`tls.connect()` + `getPeerCertificate()`) extracting the SPKI SHA-256 hash base64-encoded for pinning per [OWASP Certificate and Public Key Pinning](https://owasp.org/www-community/controls/Certificate_and_Public_Key_Pinning).
 - Option 3 callback: a loopback HTTP server bound to **`'127.0.0.1'`** (not `'localhost'` — see §Risks And Blockers), ephemeral port, one-shot callback, 5-minute `AbortSignal.timeout(300_000)` ceiling, PKCE S256 via [`oauth4webapi`](https://github.com/panva/oauth4webapi) v3.8.5 (panva's minimal-surface-area primitives — `openid-client` v6.8.3 would also work but carries full OIDC machinery we do not need).
-- Headless environment detection via `!process.stdin.isTTY` (CLI only) + three env-var overrides (`SIDEKICKS_ONBOARDING_CHOICE`, `SIDEKICKS_RELAY_URL`, `SIDEKICKS_HOSTED_TOKEN_STDIN`) producing byte-identical persisted state to the interactive path.
+- Headless environment detection via `!process.stdin.isTTY` (CLI only) + four env-var overrides (`SIDEKICKS_ONBOARDING_CHOICE`, `SIDEKICKS_RELAY_URL`, `SIDEKICKS_HOSTED_TOKEN_STDIN`, `SIDEKICKS_TELEMETRY_OPT_IN`) producing byte-identical persisted state to the interactive path.
 - Event emission for `onboarding.choice_made` / `onboarding.choice_reset` wired into the daemon event bus (already owned by Plan-006); payload shapes per `Spec-026 §Event Taxonomy Additions`. Spec-006 registration landed under BL-086 (completed 2026-04-18) in the `onboarding_lifecycle` category — this plan now consumes that registration rather than forward-declaring it.
 
 ## Non-Goals
@@ -40,7 +40,8 @@ Ship the Spec-026 three-way first-run-choice onboarding flow across both V1 clie
 - **Self-hosted operator first-run.** `docker-compose up` for the Spec-025 relay is a separate operator-facing flow owned by Plan-025. This plan is the _client_-side onboarding.
 - **Hosted-SaaS sign-up web UX.** This plan authors only the daemon-side loopback callback contract; the sign-up page + pricing + billing UI lives in the hosted-product track. No new routes land here; the redirect URL is a build-time constant.
 - **Spec-006 event registration.** The two new `onboarding.*` events are emitted here but were registered under the Spec-006 §Event Taxonomy table by BL-086 (completed 2026-04-18), matching the post-land follow-up pattern BL-084 used for `arbitration.paused` / `arbitration.resumed`.
-- **Enterprise SSO onboarding (OIDC / SAML).** Deferred to V1.1+ per Spec-026 §Out Of Scope and BL-060.
+- **Device Authorization Grant (RFC 8628), DPoP sender-constraining, and refresh-token rotation for the Option-3 hosted-SaaS token.** [ADR-010 §Decision](../decisions/010-paseto-webauthn-mls-auth.md#decision) item 2 names all three for control-plane tokens; the onboarding scoped token is a one-shot bootstrap credential obtained through the RFC 8252 §7.3 loopback path that [ADR-020 §First-Run UX](../decisions/020-v1-deployment-model-and-oss-license.md#first-run-ux) permits, and is exchanged for a control-plane session by Plan-008's join path — which is where the three mechanisms bind. This plan neither implements nor weakens them.
+- **Enterprise SSO onboarding (OIDC / SAML).** Deferred to V1.1+ per `Spec-026 §Scope`'s out-of-scope list and BL-060.
 - **Control-plane API for telemetry collection.** `sidekicks telemetry set {on,off}` flips the local flag; the server-side telemetry ingestion surface is tracked in a separate, unscheduled track.
 - **Prompting on initial install, first daemon start, or first local session.** Single-user local-daemon mode reaches a working session without ever hitting this flow. Implementations that prompt earlier than the first-outbound-invite trigger are a review rejection (`Spec-026 §Pitfalls To Avoid`).
 
@@ -50,12 +51,14 @@ Ship the Spec-026 three-way first-run-choice onboarding flow across both V1 clie
 - [x] ADR-020 (V1 Deployment Model) is accepted — defines the three-way-choice semantics this plan implements.
 - [x] ADR-009 (JSON-RPC IPC Wire Format) is accepted — the transport the five new methods ride.
 - [x] ADR-010 (PASETO + WebAuthn + MLS Auth) is accepted — hosted-SaaS scoped-token persistence target.
+- [x] ADR-015 (V1 Feature Scope Definition) is accepted — fixes onboarding inside V1 scope as the client-side surface of the ADR-020 deployment-model commitment; this plan adds no feature beyond that row.
 - [x] ADR-016 (Electron Desktop Shell) is accepted — preload-bridge pattern this plan extends.
 - [ ] Plan-007 ships the JSON-RPC transport and config-surface IPC the daemon side of this plan uses. Plan-026 is a downstream consumer. If Plan-007 lands without a config-write path, this plan cannot persist `[onboarding]`.
 - [ ] Plan-023 ships the preload bridge (`window.sidekicks`), the keystore surface, the `safeStorage` backend probe, and the main-process modal pattern. Plan-026's desktop surface is a strictly-additive namespace extension (`window.sidekicks.onboarding`). Until Plan-023's main-process scaffold is in, only the CLI path of this plan can ship.
 - [ ] Plan-025 exposes the self-hostable relay's `GET /readyz` endpoint with a TLS-terminated HTTPS listener; Option 2's TOFU probe needs a reachable HTTPS certificate chain to pin.
 - [ ] Plan-008 serves the project-operated hosted relay so the hosted-sign-up redirect URL is a real, served URL. Without Plan-008's deployment, Option 3 can be code-complete but not end-to-end testable.
 - [x] BL-086 `completed` (2026-04-18) registered `onboarding.choice_made` and `onboarding.choice_reset` under Spec-006's `onboarding_lifecycle` category with payload shapes matching this plan's emitter. This plan consumes the registered `EventType` union directly.
+- [x] **Plan-readiness audit complete per [`docs/operations/plan-implementation-readiness-audit-runbook.md`](../operations/plan-implementation-readiness-audit-runbook.md)** — Tier-9 audit (2026-08-12, §6 node NS-21, the tier-audit chain's final entry): 4 critical / 8 major / 6 minor findings adjudicated. Backfilled §Implementation Phase Sequence (6 phases over the 22 committed Implementation Steps), §Invariants (I-026-1..10), §Cross-Plan Obligations (CP-026-1..5), and per-phase `#### Tasks` (22 tasks), transcribing this plan's already-committed body and the counterparties' already-committed obligation text. Corrected twelve `packages/cli` path occurrences across ten lines to the Plan-007-owned `apps/cli`; registered the `apps/cli/src/main.ts` clipanion registration and the Plan-023 renderer-ESLint ban-list extension as §Touched But Not Owned entries seven and eight, then re-derived that section's closed-set quantifier six → eight by counting the post-repair block; minted CP-026-5 as the carrier for the `onboarding.spki_mismatch` crossing into Plan-008; corrected the ADR-016 Node-24 misattribution (ADR-022 owns the two-tier Node target, and the daemon `engines` bump instruction is withdrawn as both unnecessary and tier-breaking), the superseded daemon-auth framing in §API And Transport Changes (the per-restart 256-bit session token is required, and `Spec-021 §Scope` is a rate-limit exclusion rather than an authentication authority), the Plan-023 renderer-ESLint step number (17, not 19), the I-007-9 cite split (dotted-name conformance only; the mandatory schema pair is the `register<P, R>(…)` signature's), and the renderer `password-dialog/` path (struck — the surface is main-process-owned); extended the headless override set three → four so the telemetry step has a headless expression at all; scoped the Option-3 device-grant / DPoP / refresh-rotation gap out in §Non-Goals; and added the ADR-015 acceptance box. Backfill and correction only — no new design — so Plan-026 stays `approved` per the NS-19/NS-20 backfill precedent. Residual this box does not clear, each owned by a document this plan cannot author and none of them a Plan-026 dispatch gate: the ADR-010 Decision-Log row pairing the §Non-Goals Option-3 scope-out; the ADR-020 Decision-Log row recording the CA-bundle → OWASP SPKI-pinning refinement; the Spec-026 override-count re-derivation (three → four); the cross-plan-dependencies §2 rows registering this plan's CLI content ownership and its `apps/cli/src/main.ts` extender entry, plus the strike of its never-carried control-plane redirect-handler extender entry; and Plan-023's declaration of `createTier1Bridge()` as the factory whose per-namespace throwing stubs downstream plans replace — all of which land in this audit's own tier PR, not as open work.
 
 ## Target Areas
 
@@ -87,20 +90,20 @@ Ship the Spec-026 three-way first-run-choice onboarding flow across both V1 clie
 
 ### New CLI surface
 
-- `packages/cli/src/commands/onboarding/` — **created by this plan.**
+- `apps/cli/src/commands/onboarding/` — **created by this plan.**
   - `start.ts` — force-trigger; presents three-way choice + telemetry-opt-in; resumes partial state if present.
   - `reset.ts` — clears `[onboarding]` + keystore + partial state; emits `onboarding.choice_reset`.
   - `status.ts` — prints resolved state (never the plaintext token).
-- `packages/cli/src/commands/telemetry/` — **created by this plan.**
+- `apps/cli/src/commands/telemetry/` — **created by this plan.**
   - `set.ts` — handles `sidekicks telemetry set {on,off}` (post-onboarding flip).
-- `packages/cli/src/prompts/` — **created by this plan.**
+- `apps/cli/src/prompts/` — **created by this plan.**
   - `three-way-choice.ts` — `@inquirer/prompts` `select` driving the three-way choice.
   - `self-host-inputs.ts` — relay URL + admin-token `password`-prompt (no echo on TTY) for Option 2.
   - `spki-confirm.ts` — presents the derived SPKI SHA-256 b64 for out-of-band verification.
   - `telemetry-opt-in.ts` — standalone second-step prompt, default-off.
-- `packages/cli/src/env/` — **created by this plan.**
+- `apps/cli/src/env/` — **created by this plan.**
   - `headless-detect.ts` — detects `!process.stdin.isTTY`; returns the machine-readable instruction payload.
-  - `env-override.ts` — reads `SIDEKICKS_ONBOARDING_CHOICE`, `SIDEKICKS_RELAY_URL`, `SIDEKICKS_HOSTED_TOKEN_STDIN`; produces the same `OnboardingSubmitChoiceRequest` shape the interactive path produces.
+  - `env-override.ts` — reads `SIDEKICKS_ONBOARDING_CHOICE`, `SIDEKICKS_RELAY_URL` (equivalently `--relay-url`), `SIDEKICKS_HOSTED_TOKEN_STDIN` (equivalently `--hosted-token-stdin`), and `SIDEKICKS_TELEMETRY_OPT_IN` — the fourth being required for `Spec-026 §Telemetry Opt-In`'s no-silent-default rule to hold on the headless path, which `Spec-026 §Example Flows` already exercises; produces the same `OnboardingSubmitChoiceRequest` + `OnboardingSubmitTelemetryRequest` pair the interactive path produces.
 
 ### New desktop surface
 
@@ -125,6 +128,8 @@ Ship the Spec-026 three-way first-run-choice onboarding flow across both V1 clie
 - `packages/contracts/src/desktop-bridge.ts` (owned by Plan-023) — add the `onboarding` member to the `SidekicksBridge` interface (the ambient type the renderer compiles against; without it `window.sidekicks.onboarding.presentChoice()` cannot typecheck) **and the matching throwing `onboarding` stub block in `createTier1Bridge()`** — the factory returns `SidekicksBridge` with an every-method-throws contract, so adding the member without the stub stops the contracts package typechecking. Lands together with the preload spread.
 - `apps/desktop/src/main/bridge/onboarding.ts` (owned by Plan-023 — `Plan-023 §Main process`: Plan-023 authors the surface and registers the stubs; Plan-026 implements the flow logic) — replace the stub bodies of `onboarding.presentChoice` / `onboarding.telemetryPrompt` with delegation into this plan's `apps/desktop/src/main/onboarding/` modules. The `bridge/index.ts` handler registration is Plan-023's and is not touched.
 - `packages/contracts/src/index.ts` (owned by Plan-001) — one `export * from "./onboarding.js";` barrel line: the anti-leakage suite pins `index.ts` as the contracts package's only public re-export surface, so daemon/CLI/desktop imports of the new `onboarding.ts` contract file require it (deep imports are unsupported).
+- `apps/cli/src/main.ts` (owned by Plan-007 — Phase R3, T-007r-3-2) — four `.register()` calls binding this plan's `onboarding start|reset|status` and `telemetry set` commands into the clipanion `Cli` instance. clipanion has no auto-discovery, so an unregistered command file is unreachable; the registration follows the Plan-004 / Plan-016 / Plan-017 / Plan-028 extender precedent recorded in [Cross-Plan Dependency Graph §2](../architecture/cross-plan-dependencies.md). No other edit to the entry point.
+- `apps/desktop/eslint.config.mjs` (owned by Plan-023 — step 17, T-023p-1-6; already extended once by T-023r-2-6) — extend the existing renderer `no-restricted-imports` ban list with this plan's token- and SPKI-pin-carrying contract types, so I-026-4 is CI-enforced rather than review-enforced. List entries only; the rule's shape, its `apps/desktop/src/renderer/src/**` scope, and its CI wiring stay Plan-023's.
 
 ## Data And Storage Changes
 
@@ -200,7 +205,7 @@ interface OnboardingSubmitChoiceRequest {
   admin_token?: string; // required for 'self-host'; never logged; zeroed from memory post-persist
   hosted_token?: string; // required for 'hosted-saas' (comes from callback, not the prompt)
   spki_pin?: string; // required for 'self-host' (from the TOFU probe)
-  deferred_validation?: boolean; // set true when offline at first-invite time per Spec-026 §Fallback
+  deferred_validation?: boolean; // set true when offline at first-invite time per Spec-026 §Fallback Behavior
 }
 interface OnboardingSubmitChoiceResponse {
   state: "resolved";
@@ -235,9 +240,9 @@ interface OnboardingReadResponse {
 }
 ```
 
-- All five methods authenticated via the Spec-007 typed-principal model (daemon IPC is trusted by socket reachability per `Spec-021 §Scope`). No new auth primitive.
+- All five methods ride the Plan-007 local IPC surface and introduce no new auth primitive: the caller presents the daemon's per-restart 256-bit session token alongside socket reachability, per [ADR-010 §Decision](../decisions/010-paseto-webauthn-mls-auth.md#decision) item 1 as amended 2026-04-18 and [Security Architecture §Local Daemon Authentication](../architecture/security-architecture.md#local-daemon-authentication-task-51) (CLI token presentation is not optional). An earlier draft of this bullet framed daemon IPC as trusted by socket reachability alone and attributed that framing to `Spec-021 §Scope`; both are corrected here — the token is required, and `Spec-021 §Scope`'s daemon sentence is a rate-limiting exclusion, not an authentication authority.
 - Secrets (`admin_token`, `hosted_token`) appear in request payloads exactly once and are zeroed from memory after the keystore write. Never logged; the service's logger strips these field names via a scrubber.
-- The five wire method names are `onboarding.start` / `onboarding.submitChoice` / `onboarding.submitTelemetry` / `onboarding.reset` / `onboarding.read` — the I-007-9 dotted form (leading segment lowercase; camelCase permitted in later segments). The PascalCase `Onboarding*` names in the block above are the request/response **type** names, never wire names (registering a dotless PascalCase name throws `invalid_method_name` at bootstrap). Registration goes through Plan-007's `MethodRegistry.register(method, paramsSchema, resultSchema, handler, opts?)` (Zod-validated dispatch — the two schemas are mandatory, per I-007-9). `opts.mutating` defaults to `false` and the version-mismatch gate blocks only `mutating: true` methods for incompatible clients, so the four state-touching methods — `onboarding.start` (stale-partial deletion on resume, step 19), `onboarding.submitChoice`, `onboarding.submitTelemetry`, `onboarding.reset` (config/keystore/partial-state writes) — MUST register `mutating: true`; `onboarding.read` is the sole read-only method (its handler uses the partial-state store's non-mutating `peek`: stale partial state reports as `state: 'unresolved'` — observably cleared per Spec-026 — with physical deletion deferred to the next mutating entry point). Plan-026's binders call `register()` from `rpc-handlers.ts`; no registry internals are touched.
+- The five wire method names are `onboarding.start` / `onboarding.submitChoice` / `onboarding.submitTelemetry` / `onboarding.reset` / `onboarding.read` — the I-007-9 dotted form (leading segment lowercase; camelCase permitted in later segments). `Spec-026 §Daemon JSON-RPC Additions` names these five operations in PascalCase (`OnboardingStart` …); those are operation names, and the wire names are the dotted-camelCase forms required by I-007-9 and the canonical `METHOD_NAME_FORMAT` in `packages/contracts/src/jsonrpc-registry.ts` — same five operations, canonical spelling, no divergence. The PascalCase `Onboarding*` names in the block above are the request/response **type** names, never wire names (registering a dotless PascalCase name throws `invalid_method_name` at bootstrap). Registration goes through Plan-007's `MethodRegistry.register(method, paramsSchema, resultSchema, handler, opts?)` (Zod-validated dispatch). The two cited properties come from two different places and must not be merged: I-007-9 carries the **dotted-name conformance** rule only, while the mandatory `paramsSchema` + `resultSchema` pair is carried by the `register<P, R>(…)` interface signature Plan-007 declares in its §Target Areas registry surface. `opts.mutating` defaults to `false` and the version-mismatch gate blocks only `mutating: true` methods for incompatible clients, so the four state-touching methods — `onboarding.start` (stale-partial deletion on resume, step 19), `onboarding.submitChoice`, `onboarding.submitTelemetry`, `onboarding.reset` (config/keystore/partial-state writes) — MUST register `mutating: true`; `onboarding.read` is the sole read-only method (its handler uses the partial-state store's non-mutating `peek`: stale partial state reports as `state: 'unresolved'` — observably cleared per Spec-026 — with physical deletion deferred to the next mutating entry point). Plan-026's binders call `register()` from `rpc-handlers.ts`; no registry internals are touched.
 
 ### Preload bridge additions (Plan-023 consumer)
 
@@ -282,6 +287,55 @@ interface OnboardingChoiceResetPayload {
 
 - No secret material: no `admin_token`, no `hosted_token`, no raw SPKI bytes (the pin is in config, not events — a re-pin does not need to replay via event stream).
 - Events are emitted into the daemon event bus owned by Plan-006; this plan does not author the bus. Registration under Spec-006's §Event Taxonomy table landed under BL-086 (completed 2026-04-18) in the `onboarding_lifecycle` category.
+
+## Invariants
+
+Load-bearing constraints every Plan-026 PR — and every downstream extension — must preserve. Weakening or removing one is a coordinated cross-plan amendment, not a local edit. Every entry below transcribes an already-ratified Spec-026 clause; none is authored here. Each names the governing clause it grounds in, why it is load-bearing, and the task that verifies it.
+
+- **I-026-1 — The flow activates on exactly two triggers and on nothing else.** Onboarding runs on the first **outbound** invite or on explicit activation (`sidekicks onboarding start` / the desktop _Set up collaboration_ entry point). It never runs on install, on first daemon launch, on a health check, on first session creation, on a first local run, or on accepting an **incoming** invite. **Grounds in.** [Spec-026 §Trigger](../specs/026-first-run-onboarding.md#trigger) and [Spec-026 §Pitfalls To Avoid](../specs/026-first-run-onboarding.md#pitfalls-to-avoid) (prompting on install or first session create is a review rejection). **Why load-bearing.** Single-user local-daemon mode must reach a working session without ever meeting this flow; a trigger that fires earlier breaks the offline and single-user paths that ADR-020's deployment model exists to protect, and it does so silently — the flow looks correct to whoever added the extra trigger. **Verification.** T3.1, T3.2.
+- **I-026-2 — Three options, presented as equals, with Option 1 as the default.** The choice surface presents exactly three deployment options; Option 3 is never hidden behind an _Advanced_ affordance and never inlined as a variant of Option 2; Option 1 (`free-public-relay`) is the preselected default. **Grounds in.** [Spec-026 §Three-Way Choice Semantics](../specs/026-first-run-onboarding.md#three-way-choice-semantics), [Spec-026 §Default Behavior](../specs/026-first-run-onboarding.md#default-behavior), and [Spec-026 §Pitfalls To Avoid](../specs/026-first-run-onboarding.md#pitfalls-to-avoid) (treating the three as two plus an escape hatch). **Why load-bearing.** ADR-020 committed to three equal options as a product commitment, not a UI preference; collapsing the presentation redraws that commitment without an ADR, and it does so in the one screen where a user's deployment posture is decided for the life of the install. **Verification.** T3.1, T4.1, T4.2, T5.2.
+- **I-026-3 — Secrets never reach `config.toml`.** The Option-2 admin token and the Option-3 scoped token persist only through the Spec-023 keystore surface. The `[onboarding]` block carries choice metadata and the public SPKI pin and nothing else; a keystore outage refuses the write rather than downgrading to file persistence. **Grounds in.** [Spec-026 §Persistence](../specs/026-first-run-onboarding.md#persistence), [Spec-026 §Fallback Behavior](../specs/026-first-run-onboarding.md#fallback-behavior) (keystore-unavailable refusal), and [Spec-026 §Pitfalls To Avoid](../specs/026-first-run-onboarding.md#pitfalls-to-avoid) (writing secrets to `config.toml`). **Why load-bearing.** `config.toml` is user-readable, backed up, synced, and pasted into issue reports; a token that lands there is disclosed by every one of those ordinary acts, and no later fix retracts it. The refusal path matters as much as the rule — a silent downgrade to plaintext is the failure mode that looks like success. **Verification.** T1.2, T2.4, T6.1, T6.2.
+- **I-026-4 — Secret material never reaches the application renderer.** No token or SPKI-pin-carrying value crosses into `apps/desktop/src/renderer/src/**`. All secret input is orchestrated from the main process; the application renderer is a view-only projection that receives a persisted-or-not boolean, never plaintext. The sole Chromium surface that touches a plaintext token is the dedicated, single-purpose password-input window step 15 authors — main-process-owned assets, locked `webPreferences`, `default-src 'none'` CSP, one `password-entered` channel — which is not the application renderer and shares no address space with it. Enforcement is the renderer `no-restricted-imports` ban-list extension T5.1 lands, not review vigilance. **Grounds in.** [Spec-026 §Desktop Surface](../specs/026-first-run-onboarding.md#desktop-surface) and [Spec-026 §Pitfalls To Avoid](../specs/026-first-run-onboarding.md#pitfalls-to-avoid), which names the forbidden implementation precisely — rendering the admin-token input via `<input type="password">` in React. **Why load-bearing.** The renderer is the untrusted tier of the Spec-023 trust stance; a secret that enters its address space is exposed to every bundled dependency and every XSS path at once, and the leak is invisible in behaviour. **Residual this invariant deliberately does not claim.** It is scoped to the application renderer rather than to every Chromium process, because this plan's own step 15 keeps one isolated window that renders plaintext by design. Whether that window should be replaced by an OS-native credential prompt is an open design question step 15 records as considered-and-rejected; it is not resolved here. **Verification.** T5.1, T5.2, T5.3.
+- **I-026-5 — Telemetry opt-in is a separate, explicit, default-off second step.** It is presented after the three-way choice resolves, never bundled into it; the default is off; and the flow does not proceed past it without an explicit answer, on the interactive path or the headless one. **Grounds in.** [Spec-026 §Telemetry Opt-In](../specs/026-first-run-onboarding.md#telemetry-opt-in) and [Spec-026 §Pitfalls To Avoid](../specs/026-first-run-onboarding.md#pitfalls-to-avoid) (hidden telemetry default), serving the EU ePrivacy Directive Art. 5(3) consent baseline this product applies globally. **Why load-bearing.** Consent bundled into an unrelated choice is not consent; a default-on flag that nobody was shown is the exact pattern the directive prohibits, and the remedy after shipping is retroactive deletion rather than a config change. This invariant is why the headless path needs a fourth override — see §Implementation Steps step 13. **Verification.** T3.1, T4.1.
+- **I-026-6 — Headless refuses to prompt, instructs, and exits 2 — and the override path is state-equivalent.** With `!process.stdin.isTTY` the CLI never prompts: it prints the machine-readable override instruction and exits with code 2. The env-var path produces byte-identical persisted state to the interactive path, including `telemetry_opt_in`. **Grounds in.** [Spec-026 §Fallback Behavior](../specs/026-first-run-onboarding.md#fallback-behavior) and [Spec-026 §Acceptance Criteria](../specs/026-first-run-onboarding.md#acceptance-criteria). **Why load-bearing.** A silent Option-1 selection in CI is a privacy footgun — a caller who intended self-host leaks connection attempts to the public relay and never learns it. Byte-identity is what makes the headless path a real path rather than a second, drifting implementation: without it the two paths diverge one field at a time and only the interactive one is ever tested. **Verification.** T4.3.
+- **I-026-7 — An SPKI mismatch on reconnect refuses, and re-trust requires out-of-band proof.** A subsequent connection whose SPKI differs from the pinned value refuses the connection and surfaces the two recovery paths (`sidekicks onboarding reset`, or explicit `sidekicks relay repin --force` with the new hash pasted). Silent re-trust is forbidden, and so is a re-pin that does not require the operator to supply the hash. **Grounds in.** [Spec-026 §Fallback Behavior](../specs/026-first-run-onboarding.md#fallback-behavior) and [Spec-026 §Pitfalls To Avoid](../specs/026-first-run-onboarding.md#pitfalls-to-avoid) (re-trusting a new fingerprint without operator action). **Why load-bearing.** TOFU's entire security value is the refusal on change; an implementation that re-pins automatically has the ceremony of pinning and none of its protection, and it is indistinguishable from the secure version until the day it matters. **Verification.** T2.1, T6.1.
+- **I-026-8 — Onboarding event payloads carry no secret material and match the registered shapes.** `onboarding.choice_made` and `onboarding.choice_reset` carry no tokens and no raw SPKI bytes, and their fields match the shapes registered under Spec-006's `onboarding_lifecycle` category. Drift between the registered payload and this plan's emitter is resolved before merge on whichever side is wrong — never by emitting an unregistered shape. **Grounds in.** [Spec-026 §Event Taxonomy Additions](../specs/026-first-run-onboarding.md#event-taxonomy-additions) and [Spec-026 §Pitfalls To Avoid](../specs/026-first-run-onboarding.md#pitfalls-to-avoid) (emitting secret payload fields). **Why load-bearing.** The event log is append-only, replicated, and retained; a secret emitted once is a secret retained forever across every replica, and unlike a config write it cannot be deleted in place. **Verification.** T3.3, T3.5.
+- **I-026-9 — Partial state is `0600`, resumes precisely, and clears on every terminal path.** The partial-state file is written mode `0600` on POSIX (current-user ACL on Windows), resumes the flow at the step the user actually left, and is cleared on success, on reset, and on crossing the 24-hour staleness window. A stale file is never observable as live state through any method. **Grounds in.** [Spec-026 §Fallback Behavior](../specs/026-first-run-onboarding.md#fallback-behavior) (resume of a partially-completed first-run) and [Spec-026 §State And Data Implications](../specs/026-first-run-onboarding.md#state-and-data-implications). **Why load-bearing.** The file holds a short-lived PKCE verifier, so lax permissions make it a local-secret disclosure; and a partial-state file that outlives its flow is worse than none, because it silently blocks a fresh onboarding the user is actively asking for. **Verification.** T1.3, T3.1, T6.3.
+- **I-026-10 — Option-3 PKCE is `S256`-only, single-use, and loopback-scoped.** The client sets `code_challenge_method` to `S256` and exposes no code path that can set `plain`; the `state` parameter is one-shot; and the callback listener binds the `'127.0.0.1'` literal only and closes on first use or at the 5-minute `AbortSignal.timeout(300_000)` ceiling, whichever comes first. **Grounds in.** [Spec-026 §Three-Way Choice Semantics](../specs/026-first-run-onboarding.md#three-way-choice-semantics), [Spec-026 §Implementation Notes](../specs/026-first-run-onboarding.md#implementation-notes) (PKCE for hosted sign-up; reject `plain`), and [Spec-026 §Fallback Behavior](../specs/026-first-run-onboarding.md#fallback-behavior) (5-minute ceiling). **Why load-bearing.** Refusing `plain` client-side is what makes a server-side downgrade attack unreachable rather than merely unlikely; a reusable `state` reopens the CSRF hole PKCE was added to close; and binding a name rather than the IPv4 literal reintroduces the dual-stack resolution split §Risks And Blockers documents, which fails intermittently and therefore survives testing. **Verification.** T2.2, T2.3, T6.2.
+
+## Cross-Plan Obligations
+
+Each entry transcribes an obligation already committed in the named counterparty's text, or records a crossing the ratified corpus already sanctions; none is authored here. See [Cross-Plan Dependency Graph](../architecture/cross-plan-dependencies.md) for the graph-level view.
+
+### CP-026-1 — Five `onboarding.*` binders registered through Plan-007's `MethodRegistry`
+
+**Obligation.** This plan consumes [Plan-007 §Cross-Plan Obligations](./007-local-ipc-and-daemon-control.md#cross-plan-obligations) CP-007-3, which names Plan-026 as a registry consumer by name: the `MethodRegistry.register(method, paramsSchema, resultSchema, handler, opts?)` surface, the `ipc/handlers/index.ts` per-handler barrel, and the `bootstrap/index.ts` wiring point where owned-namespace `register*` calls land. Method names conform to I-007-9.
+
+**Resolution.** Live and reciprocal. Plan-026 authors its five binders in its own `onboarding/rpc-handlers.ts`, adds five re-export lines to the barrel and five wiring calls at the bootstrap point (both recorded in §Touched But Not Owned), and touches no registry internals. **Direction:** Consume from [Plan-007](./007-local-ipc-and-daemon-control.md). **Tasks:** T3.2.
+
+### CP-026-2 — `apps/cli/src/main.ts` clipanion registration
+
+**Obligation.** clipanion has no auto-discovery, so this plan's four command files are unreachable without explicit `.register()` calls at Plan-007's CLI entry point (`apps/cli/src/main.ts`, Plan-007 Phase R3 T-007r-3-2). The extender pattern is already established there by Plan-004, Plan-016, Plan-017, and Plan-028.
+
+**Resolution.** Live. Plan-026 joins that extender list with four registrations and no other edit to the entry point; the ownership row and this plan's §Touched But Not Owned entry are the durable record. Without this row the plan promises a working `sidekicks onboarding start` and ships no path by which the binary reaches it. **Direction:** Extend [Plan-007](./007-local-ipc-and-daemon-control.md)'s `apps/cli/src/main.ts`. **Tasks:** T4.2.
+
+### CP-026-3 — Desktop bridge surface consumed from Plan-023
+
+**Obligation.** [Plan-023 §Main process](./023-desktop-shell-and-renderer.md#main-process) authors `apps/desktop/src/main/bridge/onboarding.ts` and registers its stubs; its Tier-8 remainder task T-023r-2-5 states the split explicitly — Plan-023 authors the surface, Plan-026 implements the flow logic.
+
+**Resolution.** Live and reciprocal. Plan-026 replaces the stub bodies, adds the `onboarding` member to `SidekicksBridge` together with its matching throwing stub in `createTier1Bridge()` (the factory's every-method-throws contract means the member and the stub must land together or the contracts package stops typechecking), and spreads the preload namespace — the four bridge-side entries in §Touched But Not Owned. The `bridge/index.ts` handler registration stays Plan-023's. **Direction:** Consume from [Plan-023](./023-desktop-shell-and-renderer.md). **Tasks:** T5.1, T5.2.
+
+### CP-026-4 — `onboarding_lifecycle` event registration consumed from Spec-006 / Plan-006
+
+**Obligation.** Both event types and their payload shapes are already registered under Spec-006's `onboarding_lifecycle` category — BL-086, completed 2026-04-18. Plan-006 owns the event bus, the taxonomy, and the registration; Plan-026 emits.
+
+**Resolution.** Live and one-directional by design. This plan consumes the registered `EventType` union directly and never forward-declares or re-registers; step 22 is the payload-shape cross-check that keeps emitter and registration in agreement, and any drift is resolved on whichever side is wrong before merge (I-026-8). **Direction:** Consume from [Plan-006](./006-session-event-taxonomy-and-audit-log.md). **Tasks:** T3.3, T3.5.
+
+### CP-026-5 — `onboarding.spki_mismatch` (412) minted here, raised by Plan-008
+
+**Obligation.** This plan registers `onboarding.spki_mismatch` in [error-contracts.md](../architecture/contracts/error-contracts.md) but never raises it: the raiser is Plan-008's hosted-relay TOFU verification path. [Spec-026 §Fallback Behavior](../specs/026-first-run-onboarding.md#fallback-behavior) explicitly defers the Spec-008-side event registration for that refusal path rather than omitting it by oversight, so the corpus intends the code to cross the plan boundary — what has been missing is a durable carrier making the crossing auditable at Plan-008's own dispatch. This row is that carrier.
+
+**Resolution.** Registration-only on this side; the return-cite is owed at Plan-008's dispatch, not at this audit. Plan-008 is Tier 5 and already `approved`; nothing here re-opens it and no Tier-5 amendment is requested. A wire-visible error code with a named downstream consumer and no obligation row is invisible to consumer-side dependency checks — the consumer is precisely the party that does not know — which is why the row exists rather than a prose note. **Direction:** Provide to [Plan-008](./008-control-plane-relay-and-session-join.md). **Tasks:** T3.4 (registration only).
 
 ## Implementation Steps
 
@@ -391,20 +445,22 @@ interface OnboardingChoiceResetPayload {
    Each method persists the partial-state delta **before** any network or keystore side effect, so a crash mid-operation resumes cleanly on next call. Ordering: (a) write partial state, (b) run side effect (network / keystore), (c) update partial state / promote to `[onboarding]`, (d) delete partial state on full resolution.
 9. **Wire JSON-RPC handlers.** In `packages/runtime-daemon/src/onboarding/rpc-handlers.ts`, implement five per-method binders (`registerOnboardingStart(registry, deps)` … `registerOnboardingRead(registry, deps)`) registering the `onboarding.*` methods from §API And Transport Changes against Plan-007's `register()` surface (all but `onboarding.read` with `mutating: true`); re-export them through `ipc/handlers/index.ts` and wire the five calls in `bootstrap/index.ts` (per §Touched But Not Owned). Each handler delegates to the service; no business logic in the handler layer.
 10. **Emit events.** In `packages/runtime-daemon/src/onboarding/events.ts`, emit `onboarding.choice_made` on final resolve and `onboarding.choice_reset` on reset into the event bus owned by Plan-006. Payload shapes per `Spec-026 §Event Taxonomy Additions` and §API And Transport Changes above. No secret fields.
-11. **Author CLI prompts.** In `packages/cli/src/prompts/`:
+11. **Author CLI prompts.** In `apps/cli/src/prompts/`:
     - `three-way-choice.ts` uses `@inquirer/prompts` v8.x `select({ message: 'Choose your relay deployment', default: 'free-public-relay', choices: [...] })` per [@inquirer/prompts README](https://github.com/SBoudrias/Inquirer.js). Default is Option 1 per `Spec-026 §Default Behavior`.
     - `self-host-inputs.ts` uses `input({ message: 'Relay URL', validate: (v) => v.startsWith('https://') || 'must start with https://' })` then `password({ message: 'Admin token', mask: '*' })` — `@inquirer/prompts` `password` suppresses TTY echo without us having to touch readline.
     - `spki-confirm.ts` prints the derived SPKI SHA-256 b64 in a fixed-width monospace block, then `confirm({ message: 'Does this fingerprint match what your relay operator posted out-of-band?' })`. Negative answer aborts onboarding cleanly (no partial state written).
     - `telemetry-opt-in.ts` uses `confirm({ message: '...', default: false })` with full disclosure copy. Default-off is load-bearing per EU ePrivacy Directive Art. 5(3) ([EU ePrivacy Directive (consolidated)](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:02002L0058-20091219)); the prompt cannot be skipped, only answered.
-12. **Author CLI commands.** `packages/cli/src/commands/onboarding/start.ts|reset.ts|status.ts` + `packages/cli/src/commands/telemetry/set.ts`. Each command:
+12. **Author CLI commands.** `apps/cli/src/commands/onboarding/start.ts|reset.ts|status.ts` + `apps/cli/src/commands/telemetry/set.ts`. Each command:
     - Calls the daemon JSON-RPC via Plan-007's transport.
     - Drives the appropriate prompt sequence from step 11.
     - Translates daemon error codes (`onboarding.already_resolved`, `onboarding.spki_mismatch`, etc.) to CLI exit codes per the table in §Error Codes below.
-13. **Author headless detection + env-var path.** In `packages/cli/src/env/headless-detect.ts`, test `process.stdin.isTTY`. If false, print a machine-readable instruction listing the three override env-vars (`SIDEKICKS_ONBOARDING_CHOICE`, `SIDEKICKS_RELAY_URL`, `SIDEKICKS_HOSTED_TOKEN_STDIN`) and exit with code 2 per `Spec-026 §Fallback Behavior`. In `packages/cli/src/env/env-override.ts`, read the three env-vars, validate shape, and produce the same `OnboardingSubmitChoiceRequest` shape the interactive path produces. Byte-identical persisted state is an acceptance criterion; integration test verifies it by diffing the `[onboarding]` block between an interactive-path run and an env-var-path run.
-14. **Author desktop preload bridge.** In `apps/desktop/src/preload/onboarding.ts`, define `onboarding.presentChoice|telemetryPrompt` — the two `Spec-026 §Desktop Surface` methods (`reset`/`read` are CLI/daemon surfaces with no desktop consumer and are deliberately not exposed on the preload). Each method `ipcRenderer.invoke('onboarding.<method>', args)`; the corresponding main-process handler lives in Plan-023's `apps/desktop/src/main/bridge/onboarding.ts` (per §Touched But Not Owned) and delegates to step 15's orchestration modules for the native-dialog work. Spread into the existing `window.sidekicks` object via a single-line addition in `apps/desktop/src/preload/index.ts` (the file Plan-023 authors) — the sanctioned edits outside this plan's directories are exactly the six §Touched But Not Owned entries: this spread, the `SidekicksBridge` member + `createTier1Bridge` stub, the `bridge/onboarding.ts` flow bodies, the `handlers/index.ts` re-exports, the `bootstrap/index.ts` wiring calls, and the contracts `index.ts` barrel line.
+    - **Registers itself into the clipanion `Cli` instance.** clipanion has **no auto-discovery**, so an unregistered command file is unreachable no matter how well it is authored: this step also adds four `.register()` calls to `apps/cli/src/main.ts` (owned by Plan-007 — see §Touched But Not Owned), one per command class, following the Plan-004 / Plan-016 / Plan-017 / Plan-028 extender precedent recorded in [Cross-Plan Dependency Graph §2](../architecture/cross-plan-dependencies.md). Without them `sidekicks onboarding start` does not exist at the binary, and `Spec-026 §Acceptance Criteria`'s CLI criteria cannot pass.
+13. **Author headless detection + env-var path.** In `apps/cli/src/env/headless-detect.ts`, test `process.stdin.isTTY`. If false, print a machine-readable instruction listing the four override env-vars — `SIDEKICKS_ONBOARDING_CHOICE`, `SIDEKICKS_RELAY_URL` (equivalently `--relay-url`), `SIDEKICKS_HOSTED_TOKEN_STDIN` (equivalently `--hosted-token-stdin`), and `SIDEKICKS_TELEMETRY_OPT_IN` — and exit with code 2 per `Spec-026 §Fallback Behavior`. In `apps/cli/src/env/env-override.ts`, read the four env-vars, validate shape, and produce the same `OnboardingSubmitChoiceRequest` + `OnboardingSubmitTelemetryRequest` pair the interactive path produces. Byte-identical persisted state is an acceptance criterion; integration test verifies it by diffing the `[onboarding]` block between an interactive-path run and an env-var-path run.
+    - **Why four, not three.** `Spec-026 §Fallback Behavior` and `Spec-026 §Acceptance Criteria` name three overrides and mix env-var with flag spellings; that set cannot express the telemetry choice, so a headless run would either block forever or silently default — both forbidden, the first by `Spec-026 §Fallback Behavior`'s exit-2 rule and the second by `Spec-026 §Telemetry Opt-In`'s "no silent default". `Spec-026 §Example Flows` already reaches for `SIDEKICKS_TELEMETRY_OPT_IN` in its CI example, and `Spec-026 §Acceptance Criteria`'s byte-identical-persisted-state criterion covers `telemetry_opt_in`, so the fourth override is what makes the ratified text self-consistent. This plan implements four and names both spellings for the two that have flag forms; the spec-side count re-derivation (three → four) is routed as an upstream amendment and is not made here.
+14. **Author desktop preload bridge.** In `apps/desktop/src/preload/onboarding.ts`, define `onboarding.presentChoice|telemetryPrompt` — the two `Spec-026 §Desktop Surface` methods (`reset`/`read` are CLI/daemon surfaces with no desktop consumer and are deliberately not exposed on the preload). Each method `ipcRenderer.invoke('onboarding.<method>', args)`; the corresponding main-process handler lives in Plan-023's `apps/desktop/src/main/bridge/onboarding.ts` (per §Touched But Not Owned) and delegates to step 15's orchestration modules for the native-dialog work. Spread into the existing `window.sidekicks` object via a single-line addition in `apps/desktop/src/preload/index.ts` (the file Plan-023 authors) — the sanctioned edits outside this plan's directories are exactly the eight §Touched But Not Owned entries: this spread, the `SidekicksBridge` member + `createTier1Bridge` stub, the `bridge/onboarding.ts` flow bodies, the `handlers/index.ts` re-exports, the `bootstrap/index.ts` wiring calls, the contracts `index.ts` barrel line, the `apps/cli/src/main.ts` command registrations, and the renderer ESLint token-import ban-list entries.
 15. **Author desktop main-process modal orchestration.** In `apps/desktop/src/main/onboarding/modal.ts`, implement the `presentChoice` orchestration invoked by the `bridge/onboarding.ts` handler (no `ipcMain.handle` outside Plan-023's bridge module — the bridge registry owns channel registration) which:
     - Opens a dedicated `BrowserWindow` hosting the renderer walkthrough (step 16) via `apps/desktop/src/main/onboarding/walkthrough-host.ts`. The walkthrough window carries the same locked `webPreferences` as Plan-023's main window.
-    - For Option 2 token paste, uses Electron `dialog.showMessageBoxSync` with a custom input field — actually, since Electron's native `dialog` does not have a password-input variant, we use a **hidden `BrowserWindow` with a dedicated `password-input.html` preload page** whose single purpose is collecting the token via a `<input type="password">` — the page is loaded with CSP `'default-src none'` and runs no JS beyond the preload's `ipcRenderer.send('password-entered', value)` handler. This is the single renderer surface that touches plaintext tokens, and it is isolated by process and by window; the main renderer never sees it. (Alternative considered: OS-native credential-prompt libraries like `node-mac-password-prompt` — rejected because Windows and Linux have no equivalent and shipping three-platform-different secret-entry surfaces has a cost exceeding the isolation we already get from the dedicated-window pattern.)
+    - For Option 2 token paste, uses Electron `dialog.showMessageBoxSync` with a custom input field — actually, since Electron's native `dialog` does not have a password-input variant, we use a **hidden `BrowserWindow` with a dedicated `password-input.html` preload page** whose single purpose is collecting the token via a `<input type="password">` — the page is loaded with CSP `'default-src none'` and runs no JS beyond the preload's `ipcRenderer.send('password-entered', value)` handler. Its HTML and preload assets are authored **under `apps/desktop/src/main/onboarding/`**, alongside the orchestration that owns them — never under `apps/desktop/src/renderer/src/`, which is the application-renderer tree `Spec-026 §Pitfalls To Avoid` names and I-026-4 governs. This dedicated window is a distinct, single-purpose, main-process-owned surface: it is isolated by process and by window, shares no address space with the application renderer, and the application renderer never sees the value. (Alternative considered: OS-native credential-prompt libraries like `node-mac-password-prompt` — rejected because Windows and Linux have no equivalent and shipping three-platform-different secret-entry surfaces has a cost exceeding the isolation we already get from the dedicated-window pattern.)
     - For Option 3, delegates to `hosted-browser.ts` which runs the PKCE flow (step 6, 18).
 16. **Author renderer walkthrough.** In `apps/desktop/src/renderer/src/onboarding/Walkthrough.tsx`, implement a VS-Code-walkthrough-patterned React component per [VS Code walkthroughs UX guideline](https://code.visualstudio.com/api/ux-guidelines/walkthroughs): left rail lists (1) Choose your relay, (2) Connect, (3) Telemetry with progress checkmarks; right pane shows step content + primary CTA. Component calls `window.sidekicks.onboarding.presentChoice()` (step 14) — the component is a view-only projection; the decision data flows through the preload bridge, not via local React state.
 17. **Wire Option 2 TOFU end-to-end.** Service method `submitChoice({ choice_id: 'self-host', relay_url, admin_token })`:
@@ -433,11 +489,293 @@ Added to `docs/architecture/contracts/error-contracts.md` in step 21.
 | --- | --- | --- |
 | `onboarding.already_resolved` | 409 | `onboarding.submitChoice` called when state is already `resolved`. Client should call `onboarding.read` or `onboarding.reset`. |
 | `onboarding.partial_stale` | 410 | Partial state older than 24h; caller should invoke `onboarding.start` fresh. |
-| `onboarding.spki_mismatch` | 412 | Subsequent connection's SPKI differs from pinned value (not raised by this plan's service directly but registered for Spec-008 / Plan-008 consumption). |
+| `onboarding.spki_mismatch` | 412 | Subsequent connection's SPKI differs from pinned value. Registered here, raised by Plan-008 — see **CP-026-5**, the obligation row that carries this crossing; the Spec-008-side event registration is explicitly deferred by `Spec-026 §Fallback Behavior`, so the Plan-008 return-cite is owed at that plan's own dispatch, not at this audit. |
 | `onboarding.keystore_unavailable` | 503 | Keystore probe failed; Option 2 / Option 3 cannot persist. |
 | `onboarding.callback_timeout` | 408 | 5-min loopback callback ceiling elapsed. |
 | `onboarding.pkce_state_mismatch` | 400 | Callback state parameter did not match the one generated at flow start. |
 | `onboarding.headless_required` | 428 | CLI detected `!process.stdin.isTTY` and no env-var override was provided; prompts for the override. |
+
+## Implementation Phase Sequence
+
+Six phases decompose the twenty-two §Implementation Steps above; nothing here is new design. Phase 1 covers Steps 1-3; Phase 2 covers Steps 4-7; Phase 3 covers Steps 8-10 plus the two doc-verification Steps 21-22; Phase 4 covers Steps 11-13; Phase 5 covers Steps 14-16; Phase 6 covers Steps 17-20. The ordering follows §Rollout Order — the CLI surface is shippable one phase ahead of the desktop surface, so a Plan-023 slip delays Phase 5 without stalling Phase 4. Phase-level `**Precondition:**` lines are reviewer-checkable merge gates; the provider-plan gates they name are the same ones §Preconditions carries, restated per phase so a phase is never dispatched against a substrate that has not landed.
+
+Every phase declares `audit_status: complete` against the Tier-9 readiness audit recorded in §Preconditions; the evidence PR is that audit's own tier PR.
+
+### Phase 1 — Contracts and daemon state substrate
+
+**Precondition:** Tier-9 plan-readiness audit complete (§Preconditions). Plan-007 has landed the typed config surface this plan's store writes through. Implementation Steps 1-3; gates every later phase, all of which type against these shapes.
+
+<!-- prettier-ignore -->
+```yaml
+preconditions:
+  - { type: audit_status, status: complete, evidence_pr: 331, baseline_tag: "plan-readiness-audit-tier-9" }
+```
+
+#### Tasks
+
+- **T1.1 — Onboarding contract surface.**
+  - **Files:** `packages/contracts/src/onboarding.ts` (CREATE), `packages/contracts/src/index.ts` (EXTEND — barrel re-export per the existing convention)
+  - Every type from §API And Transport Changes: `OnboardingChoiceId`, `OnboardingState`, `OnboardingConfig`, `OnboardingPartialState`, and the five request/response pairs. Type-only surface with the Zod schemas the registry's mandatory `paramsSchema` / `resultSchema` pair consumes; no runtime behaviour. The barrel line is required because the anti-leakage suite pins `index.ts` as the contracts package's only public re-export surface (deep imports are unsupported), and it is one of the eight §Touched But Not Owned edits.
+  - **Tests:** `packages/contracts/src/__tests__/onboarding.test.ts` (CREATE) — parse-accept one fixture per shape; parse-reject a `choice_id` outside the three arms and a `state` outside the three arms; assert the package-root barrel resolves the module.
+  - **Acceptance:** daemon, CLI, and desktop can all name every onboarding shape from the contracts package alone, with no cross-package deep import.
+  - **Spec coverage:** Spec-026 §Interfaces And Contracts, Spec-026 §Daemon JSON-RPC Additions
+  - **Verifies invariant:** none (contracts-only type surface; the invariants bind at their consuming service seams)
+  - **Consumes:** none (leaf contract module)
+
+- **T1.2 — `[onboarding]` TOML config store.**
+  - **Files:** `packages/runtime-daemon/src/onboarding/config-store.ts` (CREATE), `packages/runtime-daemon/package.json` (EXTEND — explicit `proper-lockfile` v4 dependency; the transitive-dep assumption must not be relied on)
+  - `smol-toml` v1.6.1 `parse()` / `stringify()` over the whole document so non-`[onboarding]` sections survive, behind a `proper-lockfile` advisory lock across the read-modify-write. `ENOENT` returns `null`; a parse error surfaces `TomlError.line` and never falls back to an empty config, because a silent fallback hides user-visible corruption. The block carries choice metadata and the public SPKI pin only — no token field exists in the shape, which is what makes I-026-3 structural rather than procedural.
+  - **Tests:** `packages/runtime-daemon/src/onboarding/__tests__/config-store.test.ts` (CREATE) — round-trip a fixture carrying three non-`[onboarding]` sections and assert byte preservation (comment-free fixtures, per the `smol-toml` round-trip gap in §Risks And Blockers); assert file mode `0600`; assert a malformed document surfaces the line number rather than an empty config.
+  - **Acceptance:** no code path can write a token into `config.toml`, and a concurrent writer cannot interleave a partial document.
+  - **Spec coverage:** Spec-026 §Persistence, Spec-026 §State And Data Implications
+  - **Verifies invariant:** I-026-3
+  - **Consumes:** `OnboardingConfig` ← T1.1 (same phase)
+
+- **T1.3 — Partial-state store with the 24-hour staleness window.**
+  - **Files:** `packages/runtime-daemon/src/onboarding/partial-state-store.ts` (CREATE)
+  - Atomic write-to-tmp-then-rename at mode `0600` so a concurrent reader never observes a half-written file. The mutating read deletes a file older than 24 hours and returns `null`; the non-mutating `peek` applies the same staleness check without deleting, so `onboarding.read` stays side-effect-free while stale state still reports as absent. Physical deletion is deferred to the next mutating entry point — the observable clear-on-staleness semantics hold at the 24-hour boundary either way.
+  - **Tests:** `packages/runtime-daemon/src/onboarding/__tests__/partial-state-store.test.ts` (CREATE) — fake-timer at 23.5 h returns the state, at 24.5 h returns `null` and unlinks; `peek` at 24.5 h reports absent without unlinking; assert `0600`; assert a concurrent reader never observes partial content.
+  - **Acceptance:** a stuck partial-state file cannot block a fresh onboarding, and no read path can surface stale state as live.
+  - **Spec coverage:** Spec-026 §Fallback Behavior, Spec-026 §State And Data Implications
+  - **Verifies invariant:** I-026-9
+  - **Consumes:** `OnboardingPartialState` ← T1.1 (same phase)
+
+### Phase 2 — Trust and credential primitives
+
+**Precondition:** Phase 1 merged. Plan-023 has landed the keystore surface and the `safeStorage` backend probe (T2.4's desktop path); Plan-025 exposes a TLS-terminated `GET /readyz` so T2.1's integration test has a real certificate chain to pin. Implementation Steps 4-7. These four modules are mutually independent and can be built in parallel once contracts land.
+
+<!-- prettier-ignore -->
+```yaml
+preconditions:
+  - { type: audit_status, status: complete, evidence_pr: 331, baseline_tag: "plan-readiness-audit-tier-9" }
+  - { type: plan_phase, plan: 26, phase: 1, status: merged }
+```
+
+#### Tasks
+
+- **T2.1 — One-shot SPKI TLS probe.**
+  - **Files:** `packages/runtime-daemon/src/onboarding/spki-probe.ts` (CREATE)
+  - `tls.connect()` against the operator-supplied relay URL, `getPeerCertificate(true)`, `base64(sha256(cert.pubkey))` as the pin, 10-second socket timeout, socket destroyed on both paths. The pin format is the leaf SPKI SHA-256 the OWASP recommendation calls for — deliberately not the CA-bundle fingerprint ADR-020's prose names; see §Risks And Blockers for the recorded refinement and its rotation consequences.
+  - **Tests:** `packages/runtime-daemon/src/onboarding/__tests__/spki-probe.test.ts` (CREATE) plus `spki-probe.int.test.ts` (CREATE) — unit: known-SPKI test HTTPS server returns the expected base64, and the timeout path rejects; integration: parity against the `openssl` SPKI-DER pipeline, which is what validates the undocumented `PeerCertificate.pubkey` field is in fact the SubjectPublicKeyInfo DER encoding.
+  - **Acceptance:** the derived pin is reproducible outside Node, so an operator can verify it out of band with standard tooling.
+  - **Spec coverage:** Spec-026 §Implementation Notes, Spec-026 §Fallback Behavior
+  - **Verifies invariant:** I-026-7
+  - **Consumes:** none (Node `tls` / `crypto` built-ins only)
+
+- **T2.2 — PKCE verifier, challenge, and state generation.**
+  - **Files:** `packages/runtime-daemon/src/onboarding/pkce-state.ts` (CREATE)
+  - `oauth4webapi` v3.8.5 `generateRandomCodeVerifier()` + `calculatePKCECodeChallenge()` + `generateRandomState()`. `S256` is the only reachable `code_challenge_method`: the module exposes no parameter and no branch that can produce `plain`, so a server-side downgrade attempt has nothing to negotiate with.
+  - **Tests:** `packages/runtime-daemon/src/onboarding/__tests__/pkce-state.test.ts` (CREATE) — verifier matches the RFC 7636 §4.1 character set and 43-128 length bounds; challenge equals `base64url(sha256(verifier))`; state is 128-char URL-safe; assert by inspection of the exported surface that no `plain` path exists.
+  - **Acceptance:** no caller, and no server response, can cause this module to emit a `plain` challenge.
+  - **Spec coverage:** Spec-026 §Implementation Notes, Spec-026 §Three-Way Choice Semantics
+  - **Verifies invariant:** I-026-10
+  - **Consumes:** none (`oauth4webapi` primitives only)
+
+- **T2.3 — Loopback PKCE callback server.**
+  - **Files:** `packages/runtime-daemon/src/onboarding/pkce-callback.ts` (CREATE)
+  - `http.createServer()` bound to the `'127.0.0.1'` literal at `port: 0`, one-shot, with the resolved ephemeral port surfaced from `server.address()` for `redirect_uri` construction. State-parameter equality is checked before the code is read; a mismatch closes the server and rejects `pkce_state_mismatch`. A 5-minute `AbortSignal.timeout(300_000)` closes and rejects `callback_timeout`. Binding the IPv4 literal rather than `'localhost'` is load-bearing, not stylistic — see §Risks And Blockers for the dual-stack resolution split.
+  - **Tests:** `packages/runtime-daemon/src/onboarding/__tests__/pkce-callback.test.ts` (CREATE) — matching state and code resolves; mismatching state rejects `pkce_state_mismatch`; the abort path rejects `callback_timeout`; `server.address().address === '127.0.0.1'` (not `::1`); a second callback after resolution finds no listener.
+  - **Acceptance:** the listener is unreachable from off-host, single-use, and always torn down on every terminal path.
+  - **Spec coverage:** Spec-026 §Implementation Notes, Spec-026 §Fallback Behavior
+  - **Verifies invariant:** I-026-10
+  - **Consumes:** the expected `state` + `verifier` ← T2.2 (same phase)
+
+- **T2.4 — Keystore-client wrapper over the Spec-023 surface.**
+  - **Files:** `packages/runtime-daemon/src/onboarding/keystore-client.ts` (CREATE)
+  - CLI path uses `@napi-rs/keyring` v1.2.0 directly, with the try/catch-on-`getPassword()` existence idiom the library forces (it exposes no `exists()`); desktop path forwards to main-process `safeStorage` through the Plan-023 IPC bridge. On Linux a `getSelectedStorageBackend()` of `basic_text` or `unknown` **refuses** the write rather than downgrading — those backends are plaintext files wearing a keystore's interface. Both paths surface `keystore_available: false` for the event payload so ops can see the degraded posture.
+  - **Tests:** `packages/runtime-daemon/src/onboarding/__tests__/keystore-client.test.ts` (CREATE) — a thrown `not-found` on `getPassword()` yields `null`; `setPassword` / `getPassword` round-trip; a mocked `basic_text` backend refuses the write and emits the degraded flag; assert no refusal path falls through to a file write.
+  - **Acceptance:** there is no code path from a token value to any destination other than the keystore.
+  - **Spec coverage:** Spec-026 §Persistence, Spec-026 §Fallback Behavior
+  - **Verifies invariant:** I-026-3
+  - **Consumes:** the keystore surface + `safeStorage` backend probe ← [Plan-023](./023-desktop-shell-and-renderer.md) (CP-026-3)
+
+### Phase 3 — Daemon service, IPC, and events
+
+**Precondition:** Phase 2 merged. Plan-007 has landed `MethodRegistry.register()`, the `ipc/handlers/index.ts` per-handler barrel, and the `bootstrap/index.ts` wiring point (CP-026-1). Implementation Steps 8-10, 21-22.
+
+<!-- prettier-ignore -->
+```yaml
+preconditions:
+  - { type: audit_status, status: complete, evidence_pr: 331, baseline_tag: "plan-readiness-audit-tier-9" }
+  - { type: plan_phase, plan: 26, phase: 2, status: merged }
+```
+
+#### Tasks
+
+- **T3.1 — `OnboardingService` orchestrator and state machine.**
+  - **Files:** `packages/runtime-daemon/src/onboarding/service.ts` (CREATE)
+  - The `unresolved → partial → resolved` machine plus `resolved → reset → unresolved`, exposing `readState` / `startOrResume` / `submitChoice` / `submitTelemetry` / `reset`. Persistence ordering is fixed: write partial state, run the side effect, update or promote, delete partial state on full resolution — so a crash mid-operation resumes cleanly. The service is the single place the trigger discipline lives (first outbound invite or explicit activation, never install / first launch / incoming invite), the place the three options are presented as equals with Option 1 preselected, and the place telemetry is gated as a separate step that cannot be skipped. Single-flight is enforced by an `activeFlow` promise so two concurrent invites await one flow rather than starting two.
+  - **Tests:** `packages/runtime-daemon/src/onboarding/__tests__/service.test.ts` (CREATE) — transitions with persistence ordering verified via spies; crash-resume mid-`submitChoice` yields `state: 'partial'` at the correct step; every non-trigger entry point (install, first launch, health check, session create, local run, incoming-invite accept) leaves the flow dormant; telemetry cannot resolve without an explicit answer; two concurrent triggers produce one flow.
+  - **Acceptance:** no ordering of crashes, restarts, or concurrent invites produces a resolved config the user did not explicitly choose.
+  - **Spec coverage:** Spec-026 §Trigger, Spec-026 §Three-Way Choice Semantics, Spec-026 §Telemetry Opt-In, Spec-026 §Fallback Behavior
+  - **Verifies invariant:** I-026-1, I-026-2, I-026-5, I-026-9
+  - **Consumes:** the config store ← T1.2, the partial-state store ← T1.3, the trust and credential primitives ← T2.1-T2.4
+
+- **T3.2 — Five `onboarding.*` JSON-RPC binders.**
+  - **Files:** `packages/runtime-daemon/src/onboarding/rpc-handlers.ts` (CREATE), `packages/runtime-daemon/src/ipc/handlers/index.ts` (EXTEND — five side-effect-free re-export lines), `packages/runtime-daemon/src/bootstrap/index.ts` (EXTEND — five `registerOnboarding*(registry, deps)` calls)
+  - Per-method binders registering the five dotted-camelCase wire names against `MethodRegistry.register()` with both schemas supplied. The four state-touching methods register `mutating: true`; `onboarding.read` is the sole read-only method and uses the store's non-mutating `peek`. Handlers delegate to the service and hold no business logic. The barrel and bootstrap edits follow the shipped `session.*` / `presence.*` per-handler convention and are two of the eight §Touched But Not Owned edits; the registry substrate is never touched.
+  - **Tests:** `packages/runtime-daemon/src/onboarding/__tests__/rpc-handlers.test.ts` (CREATE) — each of the five names matches the canonical `METHOD_NAME_FORMAT`; registering a PascalCase name throws `invalid_method_name`; the four mutating methods carry `mutating: true` and `onboarding.read` does not; a request reaching a handler is Zod-validated on both request and response.
+  - **Acceptance:** the daemon's registered method table names exactly these five onboarding wire methods and no others, and the flow is unreachable from any non-trigger entry point.
+  - **Spec coverage:** Spec-026 §Daemon JSON-RPC Additions, Spec-026 §Interfaces And Contracts
+  - **Verifies invariant:** I-026-1
+  - **Consumes:** `MethodRegistry.register(...)`, the handler barrel, and the bootstrap wiring point ← [Plan-007](./007-local-ipc-and-daemon-control.md) (CP-026-1)
+
+- **T3.3 — `onboarding_lifecycle` event emitters.**
+  - **Files:** `packages/runtime-daemon/src/onboarding/events.ts` (CREATE)
+  - Emit `onboarding.choice_made` on final resolve and `onboarding.choice_reset` on reset into the Plan-006-owned event bus, with the payload shapes §API And Transport Changes fixes. The emitter consumes the registered `EventType` union directly rather than forward-declaring; no secret field exists in either payload shape, so exclusion is structural rather than a scrubbing step.
+  - **Tests:** `packages/runtime-daemon/src/onboarding/__tests__/events.test.ts` (CREATE) — both payloads round-trip against the registered shapes; a payload carrying a token or raw SPKI bytes fails to typecheck (negative type test) and is rejected at emission; `keystoreAvailable: false` propagates from the degraded keystore path.
+  - **Acceptance:** nothing a user typed during onboarding can reach the append-only event log.
+  - **Spec coverage:** Spec-026 §Event Taxonomy Additions
+  - **Verifies invariant:** I-026-8
+  - **Consumes:** the registered `EventType` union and the event bus ← [Plan-006](./006-session-event-taxonomy-and-audit-log.md) (CP-026-4)
+
+- **T3.4 — Contract-doc reconciliation: onboarding payloads and error codes.**
+  - **Files:** `docs/architecture/contracts/api-payload-contracts.md` (EXTEND — new §Onboarding APIs section, positioned before §GDPR And Rate Limiting to match the file's rough alphabetic-by-domain ordering), `docs/architecture/contracts/error-contracts.md` (EXTEND — the seven codes from §Error Codes)
+  - Doc-only reconciliation of the shipped shapes. `onboarding.spki_mismatch` is registered here and raised by Plan-008, never by this plan's service — the crossing is carried by CP-026-5, and the Spec-008-side event registration is deferred by `Spec-026 §Fallback Behavior`, so the return-cite is owed at Plan-008's dispatch rather than here.
+  - **Tests:** none (doc-only). Verified by the docs-corpus gate and by review against the shipped contract module.
+  - **Acceptance:** every shape and code this plan ships is discoverable from the contracts docs without reading the plan.
+  - **Spec coverage:** Spec-026 §Interfaces And Contracts
+  - **Verifies invariant:** none (contract-doc reconciliation; no runtime surface)
+  - **Consumes:** the shipped shapes ← T1.1; the code list ← §Error Codes
+
+- **T3.5 — BL-086 registration-landed and payload-shape cross-check.**
+  - **Files:** read-only verification against `docs/specs/006-session-event-taxonomy-and-audit-log.md`; `packages/runtime-daemon/src/onboarding/events.ts` (EXTEND — only if the drift is on this plan's side)
+  - Confirm Spec-006's `onboarding_lifecycle` category carries both event types with the payload shapes BL-086 registered (completed 2026-04-18), and diff those against this plan's emitter output field by field. Drift is review-blocking and is resolved by editing whichever side is wrong **before** merge — never by emitting an unregistered shape.
+  - **Tests:** `packages/runtime-daemon/src/onboarding/__tests__/events.test.ts` (EXTEND) — a fixture per registered payload, asserted field-for-field against the emitter output so future drift fails the suite rather than waiting for the next reader.
+  - **Acceptance:** the registered taxonomy and the emitter agree on every field name and type, and the agreement is pinned by a test rather than by a one-time reading.
+  - **Spec coverage:** Spec-026 §Event Taxonomy Additions
+  - **Verifies invariant:** I-026-8
+  - **Consumes:** the BL-086 registration ← [Plan-006](./006-session-event-taxonomy-and-audit-log.md) (CP-026-4)
+
+### Phase 4 — CLI surface
+
+**Precondition:** Phase 3 merged. Plan-007 has landed the `apps/cli/` workspace scaffold and `apps/cli/src/main.ts` (its Phase R3), which T4.2 extends with four `.register()` calls (CP-026-2). Implementation Steps 11-13. At the end of this phase the CLI-only release is shippable — §Rollout Order tags a preview build here.
+
+<!-- prettier-ignore -->
+```yaml
+preconditions:
+  - { type: audit_status, status: complete, evidence_pr: 331, baseline_tag: "plan-readiness-audit-tier-9" }
+  - { type: plan_phase, plan: 26, phase: 3, status: merged }
+```
+
+#### Tasks
+
+- **T4.1 — CLI prompt modules.**
+  - **Files:** `apps/cli/src/prompts/three-way-choice.ts` (CREATE), `apps/cli/src/prompts/self-host-inputs.ts` (CREATE), `apps/cli/src/prompts/spki-confirm.ts` (CREATE), `apps/cli/src/prompts/telemetry-opt-in.ts` (CREATE)
+  - `@inquirer/prompts` v8.x: a `select` presenting the three options as three peers with `free-public-relay` as `default`; `input` + `password` for the Option-2 relay URL and admin token (the library suppresses TTY echo, so no hand-rolled readline touches secret input); a fixed-width monospace SPKI block followed by a `confirm` whose negative answer aborts cleanly with no partial state written; and a standalone default-off telemetry `confirm` that can be answered but not skipped.
+  - **Tests:** `apps/cli/src/prompts/__tests__/` (CREATE) — the choice prompt renders three peers with no nesting or _Advanced_ grouping and defaults to Option 1; the telemetry prompt defaults to `false` and has no skip path; a rejected SPKI confirmation writes nothing.
+  - **Acceptance:** a user reading the CLI transcript can see three equal options and one explicit, separate telemetry question.
+  - **Spec coverage:** Spec-026 §CLI Surface, Spec-026 §Default Behavior, Spec-026 §Telemetry Opt-In
+  - **Verifies invariant:** I-026-2, I-026-5
+  - **Consumes:** the derived pin ← T2.1; the contract shapes ← T1.1
+
+- **T4.2 — CLI commands and clipanion registration.**
+  - **Files:** `apps/cli/src/commands/onboarding/start.ts` (CREATE), `apps/cli/src/commands/onboarding/reset.ts` (CREATE), `apps/cli/src/commands/onboarding/status.ts` (CREATE), `apps/cli/src/commands/telemetry/set.ts` (CREATE), `apps/cli/src/main.ts` (EXTEND — four `.register()` calls)
+  - Each command calls the daemon over Plan-007's transport, drives the T4.1 prompt sequence, and maps daemon error codes to CLI exit codes per §Error Codes. `status` prints resolved state and never the plaintext token. The four `.register()` calls are what make the commands reachable at all — clipanion has no auto-discovery — and are one of the eight §Touched But Not Owned edits.
+  - **Tests:** `apps/cli/src/commands/__tests__/` (CREATE) — each of the four commands resolves from the built `Cli` instance by its invocation string (the registration regression, which a unit test of the command class alone would miss); `status` output contains no token substring for any of the three options; each mapped error code produces its documented exit code.
+  - **Acceptance:** `sidekicks onboarding start|reset|status` and `sidekicks telemetry set` exist at the binary, not merely in the source tree.
+  - **Spec coverage:** Spec-026 §CLI Surface, Spec-026 §Reset
+  - **Verifies invariant:** I-026-2
+  - **Consumes:** the `apps/cli/` scaffold and `main.ts` entry point ← [Plan-007](./007-local-ipc-and-daemon-control.md) (CP-026-2); the prompts ← T4.1 (same phase)
+
+- **T4.3 — Headless detection and the four-override env-var path.**
+  - **Files:** `apps/cli/src/env/headless-detect.ts` (CREATE), `apps/cli/src/env/env-override.ts` (CREATE)
+  - On `!process.stdin.isTTY` the CLI prints the machine-readable instruction naming all four overrides — including `SIDEKICKS_TELEMETRY_OPT_IN`, without which the telemetry step could only block or silently default — and exits 2. The override reader validates shape and produces the same request pair the interactive path produces, so persisted state is byte-identical rather than merely equivalent.
+  - **Tests:** `apps/cli/integration/onboarding.test.ts` (CREATE) — a no-TTY `sidekicks invite create` exits 2 and prints the four-override instruction; a re-run under `SIDEKICKS_ONBOARDING_CHOICE` + `SIDEKICKS_TELEMETRY_OPT_IN` produces an `[onboarding]` block byte-identical to the PTY-driven interactive run; a headless run with the choice override but no telemetry override exits 2 rather than defaulting.
+  - **Acceptance:** a CI job can complete onboarding non-interactively without any silent default, and its persisted state is indistinguishable from an interactive one.
+  - **Spec coverage:** Spec-026 §Fallback Behavior, Spec-026 §Acceptance Criteria
+  - **Verifies invariant:** I-026-6
+  - **Consumes:** the request shapes ← T1.1; the interactive-path baseline ← T4.1, T4.2 (same phase)
+
+### Phase 5 — Desktop surface
+
+**Precondition:** Phase 3 merged. Plan-023 has landed the preload bridge, the `apps/desktop/src/main/bridge/onboarding.ts` stubs, the main-process modal pattern, and `apps/desktop/eslint.config.mjs` (CP-026-3). Implementation Steps 14-16. Independent of Phase 4 — a Plan-023 slip delays this phase without stalling the CLI track.
+
+<!-- prettier-ignore -->
+```yaml
+preconditions:
+  - { type: audit_status, status: complete, evidence_pr: 331, baseline_tag: "plan-readiness-audit-tier-9" }
+  - { type: plan_phase, plan: 26, phase: 3, status: merged }
+```
+
+#### Tasks
+
+- **T5.1 — Preload namespace, bridge type member, and the renderer import-ban extension.**
+  - **Files:** `apps/desktop/src/preload/onboarding.ts` (CREATE), `apps/desktop/src/preload/index.ts` (EXTEND — one import + spread), `packages/contracts/src/desktop-bridge.ts` (EXTEND — `SidekicksBridge` member plus its matching throwing `createTier1Bridge()` stub), `apps/desktop/eslint.config.mjs` (EXTEND — ban-list entries only)
+  - `presentChoice()` and `telemetryPrompt()` typed narrowly with no `any`, both resolving from main-process modals. `presentChoice()` returns a `hosted_token_persisted` boolean and never a token value, so the renderer has nothing plaintext to receive. The `SidekicksBridge` member and its throwing stub land together — the factory's every-method-throws contract means adding the member alone stops the contracts package typechecking. The ESLint edit extends Plan-023's existing renderer `no-restricted-imports` list with this plan's token- and SPKI-pin-carrying contract types, following the T-023r-2-6 extension precedent; it tightens the rule and exempts nothing.
+  - **Tests:** `packages/contracts/src/desktop-bridge.test-d.ts` (EXTEND) — a negative type test asserting no onboarding bridge method can return a token-typed value; `apps/desktop/e2e/onboarding.spec.ts` (CREATE) — a renderer file importing a banned token type fails lint in CI.
+  - **Acceptance:** the ban is a CI gate rather than review advice, and the bridge's return types make a plaintext leak unrepresentable.
+  - **Spec coverage:** Spec-026 §Desktop Surface, Spec-026 §Pitfalls To Avoid
+  - **Verifies invariant:** I-026-4
+  - **Consumes:** the preload bridge and the ESLint config ← [Plan-023](./023-desktop-shell-and-renderer.md) (CP-026-3)
+
+- **T5.2 — Main-process modal orchestration.**
+  - **Files:** `apps/desktop/src/main/onboarding/modal.ts` (CREATE), `apps/desktop/src/main/onboarding/spki-confirm-dialog.ts` (CREATE), `apps/desktop/src/main/onboarding/hosted-browser.ts` (CREATE), `apps/desktop/src/main/onboarding/walkthrough-host.ts` (CREATE), `apps/desktop/src/main/bridge/onboarding.ts` (EXTEND — replace the Plan-023 stub bodies with delegation)
+  - The `presentChoice` orchestration invoked by the Plan-023 bridge handler: it mounts the walkthrough window with the same locked `webPreferences` as the main window, presents the three options as peers, collects the Option-2 token through the dedicated single-purpose password-input window whose assets live in this directory (never in the renderer tree), and delegates Option 3 to `hosted-browser.ts`. No `ipcMain.handle` call is registered outside Plan-023's bridge module — channel registration stays the bridge registry's.
+  - **Tests:** `apps/desktop/e2e/onboarding.spec.ts` (EXTEND) — Playwright `_electron`: the choice surface shows three peers with no _Advanced_ affordance; the Option-2 password window opens with `contextIsolation` / `sandbox` on and `nodeIntegration` off, and the application renderer observes no token; the SPKI-confirm dialog gates the keystore write.
+  - **Acceptance:** every secret the desktop flow collects is collected outside the application renderer, and the three options reach the user as three.
+  - **Spec coverage:** Spec-026 §Desktop Surface, Spec-026 §Three-Way Choice Semantics
+  - **Verifies invariant:** I-026-2, I-026-4
+  - **Consumes:** the bridge surface ← [Plan-023](./023-desktop-shell-and-renderer.md) (CP-026-3); the callback server ← T2.3; the probe ← T2.1
+
+- **T5.3 — Renderer walkthrough component.**
+  - **Files:** `apps/desktop/src/renderer/src/onboarding/Walkthrough.tsx` (CREATE)
+  - The VS-Code-walkthrough-patterned component: left-rail progress over _Choose your relay_ / _Connect_ / _Telemetry_, right-pane step content, one explicit primary CTA per step, non-dismissible until a choice is made. The component is a view-only projection — every decision flows out through `window.sidekicks.onboarding.*` into main, and no branch of it receives or holds a secret. Minimal landmark roles and focus management ship with it; the full a11y audit is deferred per §Risks And Blockers.
+  - **Tests:** `apps/desktop/e2e/onboarding.spec.ts` (EXTEND) — the walkthrough cannot be dismissed before a choice resolves; an `axe-core` pass under the `_electron` harness; a renderer-scope assertion that no component prop or state field is typed as token-carrying.
+  - **Acceptance:** the richest surface of the flow holds no secret and can be operated from the keyboard.
+  - **Spec coverage:** Spec-026 §Desktop Surface, Spec-026 §Implementation Notes
+  - **Verifies invariant:** I-026-4
+  - **Consumes:** the preload namespace ← T5.1 (same phase)
+
+### Phase 6 — End-to-end option wiring
+
+**Precondition:** Phase 4 and Phase 5 merged (the CLI legs of Steps 17-19 may land with Phase 4 per §Rollout Order steps 5-7; this phase is the point at which every option is wired on both surfaces). Implementation Steps 17-20.
+
+<!-- prettier-ignore -->
+```yaml
+preconditions:
+  - { type: audit_status, status: complete, evidence_pr: 331, baseline_tag: "plan-readiness-audit-tier-9" }
+  - { type: plan_phase, plan: 26, phase: 4, status: merged }
+  - { type: plan_phase, plan: 26, phase: 5, status: merged }
+```
+
+#### Tasks
+
+- **T6.1 — Option-2 TOFU wired end to end.**
+  - **Files:** `packages/runtime-daemon/src/onboarding/service.ts` (EXTEND — the `self-host` branch of `submitChoice`)
+  - Probe, surface the pin for out-of-band confirmation, and only on confirm write the admin token to the keystore, write `[onboarding]` with the pin, emit `onboarding.choice_made`, and clear partial state. On reject, abort cleanly: no keystore write, no config write, no event, and partial state cleared too — a rejected probe is never persisted. A later mismatch refuses the connection and surfaces the reset and `relay repin --force` recovery paths rather than re-trusting.
+  - **Tests:** `apps/cli/integration/onboarding.test.ts` (EXTEND) — against a testcontainer relay: the pin lands in `[onboarding]` and the token in the mocked keyring; a rejected confirmation leaves all three stores untouched; a rotated certificate on reconnect surfaces `onboarding.spki_mismatch` and does not re-pin.
+  - **Acceptance:** no path re-trusts a changed SPKI without an operator pasting the new hash, and no path writes the admin token anywhere but the keystore.
+  - **Spec coverage:** Spec-026 §Three-Way Choice Semantics, Spec-026 §Fallback Behavior
+  - **Verifies invariant:** I-026-3, I-026-7
+  - **Consumes:** the probe ← T2.1; the keystore client ← T2.4; the service machine ← T3.1
+
+- **T6.2 — Option-3 PKCE wired end to end.**
+  - **Files:** `packages/runtime-daemon/src/onboarding/service.ts` (EXTEND — the `hosted-saas` branch of `submitChoice`)
+  - Generate the PKCE triple, persist `{ step: 'choice-made-token-pending', pkce_verifier, pkce_state }`, start the loopback listener and record its resolved port, open the system browser at the sign-up URL with `code_challenge_method=S256` and the `http://127.0.0.1:<port>/callback` redirect, await the callback under the 5-minute ceiling, exchange code plus verifier for the scoped token, write it to the keystore, write `[onboarding]`, emit, and clear. On timeout, clear partial state including the short-lived verifier, log `onboarding.callback_timeout`, and offer retry.
+  - **Tests:** `apps/cli/integration/onboarding.test.ts` (EXTEND) — against a mock hosted endpoint with the browser open intercepted: a simulated callback yields a keystore-resident scoped token and a resolved `[onboarding]`; a timeout leaves no verifier on disk; a callback bearing a mismatched `state` is refused and leaves no persisted state.
+  - **Acceptance:** the verifier exists on disk only between flow start and the first terminal event, and no `plain` challenge is ever emitted.
+  - **Spec coverage:** Spec-026 §Three-Way Choice Semantics, Spec-026 §Implementation Notes
+  - **Verifies invariant:** I-026-3, I-026-10
+  - **Consumes:** the PKCE primitives ← T2.2, T2.3; the keystore client ← T2.4; the service machine ← T3.1
+
+- **T6.3 — Partial-state resume wired into `onboarding.start`.**
+  - **Files:** `packages/runtime-daemon/src/onboarding/service.ts` (EXTEND — `startOrResume`)
+  - A fresh partial state returns `state: 'partial'` with the step the user left, and the CLI and desktop both re-enter there rather than replaying resolved steps. A stale file is deleted and the service returns `unresolved`. Resume reads both the partial-state file and the keystore for the expected entry and resolves to the further-along step when they disagree — the crash-after-keystore-write-before-promote case.
+  - **Tests:** `packages/runtime-daemon/src/onboarding/__tests__/service.test.ts` (EXTEND) — one crash-resume case per step transition; the disagreement case resolves to the further-along step; a stale file resumes as `unresolved` with the file gone.
+  - **Acceptance:** no crash point in the flow leaves a user unable to finish onboarding or forced to re-answer a resolved step.
+  - **Spec coverage:** Spec-026 §Fallback Behavior
+  - **Verifies invariant:** I-026-9
+  - **Consumes:** the partial-state store ← T1.3; the keystore client ← T2.4
+
+- **T6.4 — Config-schema-version migration hook.**
+  - **Files:** `packages/runtime-daemon/src/onboarding/config-store.ts` (EXTEND — `schema_version` read and bump), `packages/runtime-daemon/src/onboarding/service.ts` (EXTEND — the migration branch)
+  - A `config.toml` whose `schema_version` predates this plan is treated as carrying no `[onboarding]` block (or as the explicit legacy-block path if one is found), and the next resolution emits `onboarding.choice_made` with `migrated: true`. The legacy mapping is a no-op today because no legacy onboarding config exists; the hook is wired so a future migration has somewhere to land, and older daemons can detect and refuse rather than misread.
+  - **Tests:** `packages/runtime-daemon/src/onboarding/__tests__/config-store.test.ts` (EXTEND) — an older `schema_version` reads as absent rather than as garbage; the resolution that follows carries `migrated: true`; a newer `schema_version` than this daemon understands is refused rather than partially parsed.
+  - **Acceptance:** a version skew between daemon binary and config file is always detected, never silently misread.
+  - **Spec coverage:** Spec-026 §Fallback Behavior, Spec-026 §Implementation Notes
+  - **Verifies invariant:** none (config-schema-version migration; behaviour re-enters via T3.1)
+  - **Consumes:** the config store ← T1.2; the migration branch's re-entry ← T3.1
 
 ## Parallelization Notes
 
@@ -464,7 +802,7 @@ Added to `docs/architecture/contracts/error-contracts.md` in step 21.
 - `keystore-client.test.ts`: mock `@napi-rs/keyring` throwing a `not-found` error on `getPassword()` → wrapper returns `null`. Mock successful `setPassword` / `getPassword` round-trip. Test Linux `basic_text` refusal by mocking `safeStorage.getSelectedStorageBackend()`.
 - `service.test.ts`: state machine transitions `unresolved → partial → resolved` with persistence ordering verified via spies (partial state written before side effect, deleted after promotion). Crash-resume: simulate an exception mid-`submitChoice` → verify next `onboarding.start` returns `state: 'partial'` with the correct step.
 
-### Integration tests (`packages/cli/integration/onboarding.test.ts`, `apps/desktop/e2e/onboarding.spec.ts`)
+### Integration tests (`apps/cli/integration/onboarding.test.ts`, `apps/desktop/e2e/onboarding.spec.ts`)
 
 - CLI interactive: spawn `sidekicks onboarding start` under a PTY (`node-pty` already in the stack per Plan-024); drive Option 1 → assert `[onboarding]` block written with `choice_id: 'free-public-relay'` and `telemetry_opt_in: false`.
 - CLI headless: run `sidekicks invite create` without a TTY → assert exit code 2 and instruction printout. Re-run with `SIDEKICKS_ONBOARDING_CHOICE=free-public-relay SIDEKICKS_TELEMETRY_OPT_IN=false` → assert `[onboarding]` block is byte-identical to the interactive-path result (this is the Spec-026 acceptance criterion "env-var path produces byte-identical persisted state").
@@ -482,7 +820,7 @@ Added to `docs/architecture/contracts/error-contracts.md` in step 21.
 
 - Fuzz the PKCE callback handler with arbitrary query strings → never persists partial state, never writes to keystore.
 - Fuzz the `smol-toml` parser against malformed `config.toml` → never silently falls back to empty config; always surfaces the parse error with line number.
-- Static check via ESLint rule (added in Plan-023 step 19): no `import` of token or SPKI-pin-carrying types from renderer code. CI fails on violation.
+- Static check via the renderer `no-restricted-imports` ESLint rule Plan-023 authors at its **step 17** (`apps/desktop/eslint.config.mjs`, T-023p-1-6; already extended once at T-023r-2-6) — **not** step 19, which is the CI-gate-scripts step. Plan-023's declared ban list carries no token- or SPKI-typed entry, so this plan extends it with its own token- and SPKI-pin-carrying contract types (T5.1, following the T-023r-2-6 extension precedent): no `import` of them from `apps/desktop/src/renderer/src/**`. CI fails on violation, which is what makes I-026-4 mechanically enforced rather than review-enforced.
 
 ## Rollout Order
 
@@ -509,18 +847,19 @@ Added to `docs/architecture/contracts/error-contracts.md` in step 21.
 
 ## Risks And Blockers
 
-- **`@inquirer/prompts` v8.x ESM-only.** v8 removed CommonJS output in favor of ESM per [Inquirer.js v8 release notes](https://github.com/SBoudrias/Inquirer.js/releases). The `packages/cli` package must be published ESM-only (or dual-publish via `tsup`). If the CLI stack is CommonJS-only, pin to `@inquirer/prompts` v7.x (last CJS-supporting line) and note the downgrade. Preference: ship ESM; Node 24 LTS is ESM-native and we target Node 24 per ADR-016.
+- **`@inquirer/prompts` v8.x ESM-only.** v8 removed CommonJS output in favor of ESM per [Inquirer.js v8 release notes](https://github.com/SBoudrias/Inquirer.js/releases). The `apps/cli` package must be published ESM-only (or dual-publish via `tsup`). If the CLI stack is CommonJS-only, pin to `@inquirer/prompts` v7.x (last CJS-supporting line) and note the downgrade. Preference: ship ESM; Node 24 LTS is ESM-native and the CLI sits on the Node-24 Active-LTS tier per [ADR-022 §Decision](../decisions/022-v1-toolchain-selection.md#decision) — the two-tier target (Node 22 Maintenance LTS for daemon + Electron renderer; Node 24 Active LTS for control plane + CLI). ADR-016 carries no Node-version text; the Node target has always been ADR-022's.
 - **`smol-toml` recency.** `smol-toml` v1.6.1 is actively maintained (last published 2025-Q4 — see [squirrelchat/smol-toml releases](https://github.com/squirrelchat/smol-toml/releases)) but has a smaller user base than the historically-popular `@iarna/toml`. `@iarna/toml` is the traditional choice but has had no publish since 2021, does not claim TOML 1.0.0 conformance, and lacks TOML 1.1.0 support (which we will need for the `schema_version` integer-with-underscore-separator form per TOML 1.1.0). Accepted: `smol-toml` is correct choice despite smaller ecosystem. Mitigation: contract tests against the exact TOML-1.0.0 + 1.1.0 fixtures in the spec's §Persistence table.
 - **`smol-toml` comment preservation gap.** `smol-toml` is a _parser+stringifier_ pair, not a format-preserving round-trip library. Writing back a parsed TOML file loses comments and whitespace. Mitigation: on write, read the existing `[onboarding]` block; if we are only updating fields within that block, use a regex-based in-place replacement that preserves the surrounding document (including comments). Cleaner mitigation in follow-up: adopt `toml-edit`-style format-preserving editor library when one becomes available in the JS ecosystem. For V1, regex-based in-place replacement is acceptable because `[onboarding]` lives in a stable-named block.
 - **`oauth4webapi` minimal surface.** `oauth4webapi` v3.8.5 (panva) exposes primitives, not a prebuilt flow. That's deliberate — we only need verifier+challenge+state generation, not token-endpoint negotiation — because the hosted token endpoint is our own. Alternative: `openid-client` v6.8.3 (same author) bundles full OIDC discovery + token exchange; rejected because OIDC semantics exceed our Option 3 needs and the bundle size penalty hits the CLI startup path (Node ESM cold-start sensitive to dep graph).
+- **TOFU pins the leaf SPKI, deliberately refining ADR-020's CA-bundle wording.** [ADR-020 §First-Run UX](../decisions/020-v1-deployment-model-and-oss-license.md#first-run-ux) names a CA-bundle fingerprint as the trust-on-first-use material; this plan pins the leaf SPKI SHA-256 instead, following the OWASP recommendation `Spec-026 §Implementation Notes` ratifies, so operators can rotate certificates without re-prompting. The two are not interchangeable under rotation — a CA-bundle pin survives any leaf reissued under the same CA, while an SPKI pin survives only a reissue that reuses the key pair — and this plan's §Test And Verification Plan asserts the stricter SPKI mismatch behaviour, so the departure is load-bearing rather than cosmetic. Recording the refinement in ADR-020's Decision Log is routed as an upstream housekeeping item and is not made in this plan.
 - **`'127.0.0.1'` vs `'localhost'` binding.** RFC 8252 §7.3 ("Loopback Interface Redirection") says the client "MAY" use either — but there is a well-documented class of bug where the browser resolves `localhost` to `::1` (IPv6 loopback) while the Node listener bound via `listen(0, 'localhost')` only listens on `127.0.0.1` (or vice versa), producing intermittent `ECONNREFUSED` on the callback. See [Node.js dual-stack localhost issue](https://github.com/nodejs/node/issues/40702) for the long history. Mitigation: bind literally to `'127.0.0.1'` and emit the `redirect_uri` as `http://127.0.0.1:<port>/callback`. IPv6-only systems are out of scope for Option 3 in V1 (documented in `Spec-026 §Open Questions`).
-- **AbortSignal.timeout 5-min ceiling.** Available since Node 17.3 ([Node.js AbortSignal.timeout docs](https://nodejs.org/api/globals.html#abortsignaltimeoutdelay)). We target Node 24 LTS so this is safe. Confirm in the `engines` field of `packages/runtime-daemon/package.json` (add `"node": ">=24.0.0"` if not already present — this is a Plan-007 edit, noted here only for the precondition).
+- **AbortSignal.timeout 5-min ceiling.** Available since Node 17.3 ([Node.js AbortSignal.timeout docs](https://nodejs.org/api/globals.html#abortsignaltimeoutdelay)), so the repo's shipped `">=22.12.0"` daemon floor already carries it and **no `engines` bump is owed**. An earlier draft of this bullet instructed a `"node": ">=24.0.0"` bump in `packages/runtime-daemon/package.json`; that instruction is withdrawn — it was both unnecessary (22.12 already satisfies the API) and wrong, because [ADR-022 §Decision](../decisions/022-v1-toolchain-selection.md#decision) puts the daemon and the Electron renderer on the Node 22 Maintenance-LTS tier (forced by ADR-016's Electron floor) and reserves Node 24 Active LTS for the control plane and the CLI. Raising the daemon floor to 24 would break that tier.
 - **`@napi-rs/keyring` v1.2.0 no existence-check.** `@napi-rs/keyring` v1.2.0 does not expose an `exists()` method per [Brooooooklyn/keyring-node source](https://github.com/Brooooooklyn/keyring-node/blob/main/src/lib.rs). Existence-check idiom is try/catch on `getPassword()` treating `not-found` as `null`. This idiom is stable across napi-rs versions and mirrors what the Rust `keyring` crate does natively. Downside: the library is younger than `node-keytar` (the project's previous choice) — we inherit whatever bugs exist in its macOS Keychain bridge. Plan-023 is the canonical owner of the keystore surface; this plan is a consumer. Any keystore-client library swap would be a Plan-023 edit, not a Plan-026 edit.
 - **Electron `safeStorage` Linux backend refusal.** Spec-023 requires refusing `'basic_text'` and `'unknown'` backends because they are plaintext files masquerading as keystores. Plan-026 implements this refusal on the hosted / self-host token write path. If a barebones Linux install lacks `gnome-keyring` or `kwallet*`, Options 2 and 3 fail at the keystore step — documented in `Spec-026 §Open Questions` as an intentional refusal.
 - **Single-flight trigger discipline.** Two concurrent invite attempts on a fresh install must not both trigger two overlapping onboarding flows. Mitigation: the service holds a single in-flight lock (a `Promise` stored on `OnboardingService.activeFlow`); the second caller awaits the first's completion rather than starting anew. Acceptance test in §Test And Verification Plan covers this.
 - **Partial-state races.** If the daemon crashes after the keystore write but before the `[onboarding]` promote, the next `onboarding.start` must detect "keystore present AND partial state in `token-persisted-telemetry-pending` step" and resume at the telemetry step. Mitigation: the service's resume logic reads both the partial state file AND probes the keystore for the expected entry, resolving to the further-along step if they disagree. Edge case covered by integration test.
 - **Spec-006 registration resolved.** BL-086 (completed 2026-04-18) registered `onboarding.choice_made` / `onboarding.choice_reset` in the Spec-006 `onboarding_lifecycle` category with payload shapes matching this plan's emitter. Plan-026's event emission consumes the registered `EventType` union directly; no generic `DomainEvent` fallback is required.
-- **Renderer plaintext-token leak risk.** The password-dialog isolated-BrowserWindow pattern (step 15) is the one place we render plaintext in the renderer process. A review must verify the password-dialog window carries: `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`, a CSP of `default-src 'none'`, and a preload script whose only import is `ipcRenderer.send` with one channel (`password-entered`) subscribed. Plan-023's restricted-imports CI gate should cover this; Plan-026 adds the specific password-dialog path to the ESLint ignore-list only under the `apps/desktop/src/renderer/src/password-dialog/` subtree.
+- **Plaintext-token entry surface.** The password-dialog isolated-BrowserWindow pattern (step 15) is the one place this plan renders plaintext into any Chromium surface. A review must verify the password-dialog window carries: `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`, a CSP of `default-src 'none'`, and a preload script whose only import is `ipcRenderer.send` with one channel (`password-entered`) subscribed. Its assets live under `apps/desktop/src/main/onboarding/`, so it is outside the `apps/desktop/src/renderer/src/**` scope Plan-023's restricted-imports rule guards and **no ESLint ignore-list entry is owed** — an earlier draft of this bullet asked for one under a renderer `password-dialog/` subtree; that path is withdrawn, since a renderer-tree password input is exactly what `Spec-026 §Pitfalls To Avoid` forbids. What this plan does add to that rule is the token- and SPKI-type ban-list **extension** (T5.1), which tightens the application renderer rather than exempting anything.
 - **Hosted-sign-up redirect URL is a build-time constant.** Option 3's redirect URL is hardcoded in the daemon binary at build time (per `Spec-026 §Open Questions` tentative). If the hosted-SaaS sign-up URL changes, users on older daemons remain pointed at the old URL until they upgrade. Mitigation: ship the URL as a config-overrideable field (`AIS_HOSTED_SIGNUP_URL`) for power users; the happy path uses the build-time constant. Mid-term: adopt well-known discovery at `<hosted-saas-base>/.well-known/onboarding` per `Spec-026 §Open Questions`.
 - **Walkthrough host-window accessibility.** The VS-Code-walkthrough-patterned renderer must expose keyboard navigation and screen-reader labels. Plan-026 does not author the full a11y audit (deferred to the desktop design track), but the walkthrough shell must not ship without minimal landmark roles + focus management or the first-run UX is inaccessible. Acceptance test: `axe-core` pass under Playwright `_electron` harness.
 
@@ -561,6 +900,8 @@ shipped: []
 - [ ] `docs/architecture/contracts/api-payload-contracts.md` has a new §Onboarding APIs section; `docs/architecture/contracts/error-contracts.md` has the seven new error codes from §Error Codes.
 - [ ] BL-086 (completed 2026-04-18) registration of `onboarding.choice_made` / `onboarding.choice_reset` in Spec-006 §Event Taxonomy (`onboarding_lifecycle` category) has been cross-checked against this plan's `events.ts` emitter output; any drift resolved before merge.
 - [ ] All six test scenarios pass (CLI × 3 options, desktop × 3 options); shared contract test suite confirms CLI and desktop produce identical `[onboarding]` state for identical inputs.
+- [ ] Every phase's `#### Tasks` block is complete — each of the 22 tasks landed or explicitly re-staged, with its `Spec coverage:` rows still resolving against Spec-026.
+- [ ] The I-026-1…I-026-10 invariant set holds — every task-declared `Verifies invariant:` assertion is backed by a green test or a recorded verification note, and every §Cross-Plan Obligation (CP-026-1…CP-026-5) is either satisfied with a return-cite from its provider or consumer plan or explicitly staged.
 
 ## Tier Placement
 
@@ -587,6 +928,9 @@ And **strictly upstream** of nothing — it is a leaf-node plan. CLI-first-relea
 - [ADR-016: Electron Desktop Shell](../decisions/016-electron-desktop-shell.md)
 - [ADR-010: PASETO + WebAuthn + MLS Auth](../decisions/010-paseto-webauthn-mls-auth.md)
 - [ADR-009: JSON-RPC IPC Wire Format](../decisions/009-json-rpc-ipc-wire-format.md)
+- [ADR-015: V1 Feature Scope Definition](../decisions/015-v1-feature-scope-definition.md)
+- [ADR-022: V1 Toolchain Selection](../decisions/022-v1-toolchain-selection.md)
+- [Security Architecture](../architecture/security-architecture.md)
 - [Plan-023: Desktop Shell And Renderer](./023-desktop-shell-and-renderer.md)
 - [Plan-007: Local IPC And Daemon Control](./007-local-ipc-and-daemon-control.md)
 - [Plan-025: Self-Hostable Node Relay](./025-self-hostable-node-relay.md)
