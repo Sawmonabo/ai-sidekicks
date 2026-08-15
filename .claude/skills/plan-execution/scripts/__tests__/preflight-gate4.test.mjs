@@ -3543,7 +3543,14 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // references (I-018-10 ×4, I-018-12 ×2, I-018-11, I-018-13, I-018-14,
     // and I-018-8 on the T5.8 relay handlers); the legacy channel is
     // unchanged.
-    bold: { resolved: 831, noneArm: 149, parentResolved: 0 },
+    // 831/149 -> 831/152 (2026-08-15, Tier-7 phases backfill): the backfill
+    // restored marker symmetry on Plan-014's Tasks 1/5/6 — the three NS-19-era
+    // rows that carried no `Verifies invariant:` marker at all (NS-59's repair
+    // covered Tasks 7-10 only) — each an explicit none-arm, matching the
+    // §Invariants cells, which name none of the three; three more bold
+    // none-arms, resolved references unchanged; the legacy channel is
+    // unchanged.
+    bold: { resolved: 831, noneArm: 152, parentResolved: 0 },
     legacy: { resolved: 61, noneArm: 3, parentResolved: 1 },
   });
 });
