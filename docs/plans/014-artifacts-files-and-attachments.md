@@ -93,7 +93,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 ## Implementation Steps
 
 - Contracts: See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed schemas this plan consumes.
-- The audit-ratified `#### Tasks` rows live under §Implementation Phase Sequence below, grouped per phase (row id `T14.N` is the plan's Task N — the vocabulary the corpus's Task-7/Task-8 references use; ids minted 2026-08-15 by the Tier-7 phases backfill, row content unchanged).
+- The audit-ratified `#### Tasks` rows live under §Implementation Phase Sequence below, grouped per phase. Row id `T14.N` is the plan's Task N — the two forms are the same task, and every existing "Task N" reference to this plan (its own §Invariants "verified by" cells and CP-014-1..CP-014-5 bullets, and cross-plan prose such as Plan-008 CP-008-16's "Plan-014's Task 7 attestation leg") denotes the `T14.N` row of the same number. Ids minted 2026-08-15 by the Tier-7 phases backfill (the preflight task-id recognizer requires the `T`-prefixed shape); row content unchanged.
 
 ## Implementation Phase Sequence
 
