@@ -3532,7 +3532,12 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // 43 tasks, each carrying one bold `Verifies invariant:` row (32 resolved
     // arms carrying 40 id references, 11 none-arms); the legacy channel is
     // unchanged.
-    bold: { resolved: 773, noneArm: 145, parentResolved: 0 },
+    // 773/145 -> 821/149 (2026-08-12, Tier-9 plan-readiness audit — PR #331):
+    // the audit backfilled `#### Tasks` blocks across Plan-026 (six Phases,
+    // 22 tasks — 26 resolved references + 3 none-arms) and Plan-027 (six
+    // Phases, 12 tasks — 22 resolved references + 1 none-arm); the legacy
+    // channel is unchanged.
+    bold: { resolved: 821, noneArm: 149, parentResolved: 0 },
     legacy: { resolved: 61, noneArm: 3, parentResolved: 1 },
   });
 });

@@ -361,7 +361,7 @@ preconditions:
 
 - [ ] Plan-009 Phase 3 merged (`repo.*` handlers + SDK; the views' wire strings and shapes are final)
 - [x] `repo.*` method strings ratified — D-009-1
-- [x] `Spec-023 §Preload Bridge Contract` path-display amendment ratified (this audit; co-recorded for the Plan-023 Tier-8 audit NS-21) — display-only path VALUES inside daemon payload data are data, not capabilities; gates the `canonicalRoot`/`fsRoot` display slices of T4.1/T4.2/T4.3
+- [x] `Spec-023 §Preload Bridge Contract` path-display amendment ratified (this audit; co-recorded for the Plan-023 Tier-8 audit NS-20) — display-only path VALUES inside daemon payload data are data, not capabilities; gates the `canonicalRoot`/`fsRoot` display slices of T4.1/T4.2/T4.3
 
 <!-- prettier-ignore -->
 ```yaml

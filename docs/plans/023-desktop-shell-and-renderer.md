@@ -99,7 +99,7 @@ The ADR + Spec preconditions below (including the plan-readiness-audit box) gate
 
 ### Preload
 
-- `apps/desktop/src/preload/index.ts` — **created.** Single `contextBridge.exposeInMainWorld('sidekicks', bridge)` call per Spec-023. The bridge object's type is re-exported from `packages/contracts/src/desktop-bridge.ts`.
+- `apps/desktop/src/preload/index.ts` — **created.** Single `contextBridge.exposeInMainWorld('sidekicks', bridge)` call per Spec-023. The bridge object's type is re-exported from `packages/contracts/src/desktop-bridge.ts`. The concrete object is minted by `createTier1Bridge()`, the factory exported from that same contracts module — its per-namespace `NotImplementedAtTier1Error`-throwing stubs are the named replacement surface downstream plans fill in namespace by namespace as their IPC handlers ship, so a plan wiring a bridge namespace edits that factory rather than re-declaring the bridge shape.
 
 ### Contracts
 
