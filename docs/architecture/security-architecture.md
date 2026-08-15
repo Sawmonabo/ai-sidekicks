@@ -145,6 +145,8 @@ Encrypted with: PASETO v4.local (XChaCha20 stream + BLAKE2b-MAC, encrypt-then-MA
 - **CLI:** Device Authorization Grant (RFC 8628). The CLI displays a URL and user code. The user visits the URL in a browser, enters the code, and authenticates. The CLI polls `/auth/device` until the grant is approved.
 - **WebAuthn/Passkeys:** Added at desktop launch. Uses the PRF extension for E2EE key derivation where available. Not required for V1 CLI.
 
+**Daemon-resident caller credential (Plan-018 Phase 5, 2026-08-15):** the local daemon's own control-plane calls (anchor upload, signing-key registration/roster, lease publication, artifact relay transfer — the CP-006-13 credential seam) authenticate as the node-owner participant with a daemon-scoped access + refresh pair acquired at session establishment: the owner's authenticated client requests the pair with `cnf.jkt` bound to the DAEMON-held proof key (the daemon supplies its thumbprint over local IPC; the private key never leaves the daemon), and the daemon thereafter refreshes on the rotation family above rather than re-running the interactive grant — reuse detection failing the mint closed. Proofs over a presented non-access token (the Plan-014 fetch token) are minted under the same daemon proof key (Plan-018 I-018-11). (Plan-018 T5.4/T5.5/T5.6.)
+
 **DPoP sender-constraining:**
 
 - Client generates an ephemeral Ed25519 key pair at session start
@@ -232,7 +234,7 @@ Per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md), relay E2EE ships as
 
 1. At session start, each participant generates an ephemeral X25519 key pair
 2. Each participant signs its ephemeral X25519 public key with its long-term Ed25519 identity key; the signature and both keys are bound into a `SessionKeyBundle` posted to the control plane
-3. The control plane verifies each `SessionKeyBundle` signature against the participant's registered Ed25519 identity key before distribution
+3. The control plane verifies each `SessionKeyBundle` signature against the participant's registered Ed25519 identity key before distribution — the resolution surface is the `participant_identity_keys` roster ([shared-postgres-schema.md §Participants and Identity](./schemas/shared-postgres-schema.md#participants-and-identity-plan-018); Plan-018 T5.1/T5.3, registered 2026-08-15 — the store Plan-008's bundle-admission `RegisteredIdentityResolver` reads, CP-018-13 consumer c)
 4. Each participant computes `shared = X25519(mySecret, peerPublic)` for every other participant, then derives `sessionKey = HKDF-SHA256(shared, salt=session_id, info="ai-sidekicks/v1/pairwise", length=32)`
 5. On session end, ephemeral X25519 secret keys are zeroed in memory; the control plane discards the `SessionKeyBundle` entries
 

@@ -243,6 +243,15 @@ The `approval.request_expired` / `approval.request_canceled` tokens deliberately
 | `membership.permission_denied` | Actor is not permitted to apply the requested membership change (owner-only) | 403 |
 | `membership.last_owner` | Action would remove the last remaining active owner of the session | 409 |
 
+### Participant
+
+Identity-key surface refusals (Plan-018 Phase 5, registered 2026-08-15 at the NS-62 promotion pass). The `participant` namespace is NEW and deliberately distinct from `presence` — `presence.permission_denied` is presence-detail-scoped (D-018-5's owner/operator gate) and MUST NOT be reused for a `participant.*` identity-key method, whose gate is membership-scoped with a different authorized set.
+
+| Code | Description | HTTP Status |
+| --- | --- | --- |
+| `participant.permission_denied` | Caller is not an active member of the session named in an identity-key roster read (any active role reads; the membership predicate and the roster read are one SQL statement, so a non-member and a nonexistent session are refused byte-identically — no membership or session-existence oracle, and the roster's set size, a participant's workstation count, is never disclosed to non-members; Plan-018 T5.3 / I-018-13, the `runtimenode.permission_denied` roster-arm discipline). Domain authz code, HTTP row per the `membership.permission_denied` convention. | 403 |
+| `participant.identitykeyregister_conflict` | Identity-key registration presented a `public_key` that differs from the stored one for its `(participant_id, key_fingerprint)` pair — register-once, refused before any row write; a same-key replay is an acknowledged idempotent no-op, and silent rotation is prohibited (the control-plane half of ADR-021's Refuse-On-Rotation Invariant; Plan-018 T5.2 / I-018-12 — the participant-tier mirror of `runtimenode.signingkeyregister_conflict`) | 409 |
+
 ### Presence
 
 | Code | Description | HTTP Status |
