@@ -228,7 +228,7 @@ Two gates ride every block. The `audit_status` entry records this audit as the p
 <!-- prettier-ignore -->
 ```yaml
 preconditions:
-  - { type: audit_status, status: complete, evidence_pr: 318, baseline_tag: "plan-readiness-audit-tier-8" }
+  - { type: audit_status, status: complete, evidence_pr: 318, baseline_tag: "plan-readiness-audit-tier-8-complete" }
   - { type: precondition_box_checked, box: "Spec-006 workflow event registration landed" }
   - { type: precondition_box_checked, box: "ADR-026 ratified accepted" }
 ```
@@ -303,7 +303,7 @@ preconditions:
 <!-- prettier-ignore -->
 ```yaml
 preconditions:
-  - { type: audit_status, status: complete, evidence_pr: 318, baseline_tag: "plan-readiness-audit-tier-8" }
+  - { type: audit_status, status: complete, evidence_pr: 318, baseline_tag: "plan-readiness-audit-tier-8-complete" }
   - { type: precondition_box_checked, box: "Spec-006 workflow event registration landed" }
   - { type: plan_phase, plan: 17, phase: 1, status: merged }
 ```
@@ -350,7 +350,7 @@ preconditions:
 <!-- prettier-ignore -->
 ```yaml
 preconditions:
-  - { type: audit_status, status: complete, evidence_pr: 318, baseline_tag: "plan-readiness-audit-tier-8" }
+  - { type: audit_status, status: complete, evidence_pr: 318, baseline_tag: "plan-readiness-audit-tier-8-complete" }
   - { type: precondition_box_checked, box: "Spec-006 workflow event registration landed" }
   - { type: precondition_box_checked, box: "OWN-channel turn budget provider registered" }
   - { type: plan_phase, plan: 17, phase: 2, status: merged }
@@ -391,7 +391,7 @@ preconditions:
 <!-- prettier-ignore -->
 ```yaml
 preconditions:
-  - { type: audit_status, status: complete, evidence_pr: 318, baseline_tag: "plan-readiness-audit-tier-8" }
+  - { type: audit_status, status: complete, evidence_pr: 318, baseline_tag: "plan-readiness-audit-tier-8-complete" }
   - { type: precondition_box_checked, box: "Spec-006 workflow event registration landed" }
   - { type: plan_phase, plan: 17, phase: 3, status: merged }
 ```
@@ -424,7 +424,7 @@ preconditions:
 <!-- prettier-ignore -->
 ```yaml
 preconditions:
-  - { type: audit_status, status: complete, evidence_pr: 318, baseline_tag: "plan-readiness-audit-tier-8" }
+  - { type: audit_status, status: complete, evidence_pr: 318, baseline_tag: "plan-readiness-audit-tier-8-complete" }
   - { type: precondition_box_checked, box: "Spec-006 workflow event registration landed" }
   - { type: precondition_box_checked, box: "ADR-026 ratified accepted" }
   - { type: precondition_box_checked, box: "ADR-027 ratified accepted" }

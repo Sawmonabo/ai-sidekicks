@@ -100,7 +100,7 @@ Plan-013 implementation lands as a sequence of small PRs. Each PR exercises one 
 <!-- prettier-ignore -->
 ```yaml
 preconditions:
-  - { type: audit_status, status: complete, evidence_pr: 318, baseline_tag: "plan-readiness-audit-tier-8" }
+  - { type: audit_status, status: complete, evidence_pr: 318, baseline_tag: "plan-readiness-audit-tier-8-complete" }
 ```
 
 #### Tasks
@@ -126,7 +126,7 @@ preconditions:
 <!-- prettier-ignore -->
 ```yaml
 preconditions:
-  - { type: audit_status, status: complete, evidence_pr: 318, baseline_tag: "plan-readiness-audit-tier-8" }
+  - { type: audit_status, status: complete, evidence_pr: 318, baseline_tag: "plan-readiness-audit-tier-8-complete" }
   - { type: plan_phase, plan: 013, phase: 1, status: merged }
   - { type: external_plan_phase_merged, plan: 004, phase: 3 }
 ```
@@ -153,7 +153,7 @@ preconditions:
 <!-- prettier-ignore -->
 ```yaml
 preconditions:
-  - { type: audit_status, status: complete, evidence_pr: 318, baseline_tag: "plan-readiness-audit-tier-8" }
+  - { type: audit_status, status: complete, evidence_pr: 318, baseline_tag: "plan-readiness-audit-tier-8-complete" }
   - { type: plan_phase, plan: 013, phase: 1, status: merged }
 ```
 
@@ -179,7 +179,7 @@ preconditions:
 <!-- prettier-ignore -->
 ```yaml
 preconditions:
-  - { type: audit_status, status: complete, evidence_pr: 318, baseline_tag: "plan-readiness-audit-tier-8" }
+  - { type: audit_status, status: complete, evidence_pr: 318, baseline_tag: "plan-readiness-audit-tier-8-complete" }
   - { type: plan_phase, plan: 013, phase: 2, status: merged }
   - { type: plan_phase, plan: 013, phase: 3, status: merged }
 ```

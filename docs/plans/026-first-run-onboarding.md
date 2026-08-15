@@ -508,7 +508,7 @@ Every phase declares `audit_status: complete` against the Tier-9 readiness audit
 <!-- prettier-ignore -->
 ```yaml
 preconditions:
-  - { type: audit_status, status: complete, evidence_pr: 331, baseline_tag: "plan-readiness-audit-tier-9" }
+  - { type: audit_status, status: complete, evidence_pr: 331, baseline_tag: "plan-readiness-audit-tier-9-complete" }
 ```
 
 #### Tasks
@@ -547,7 +547,7 @@ preconditions:
 <!-- prettier-ignore -->
 ```yaml
 preconditions:
-  - { type: audit_status, status: complete, evidence_pr: 331, baseline_tag: "plan-readiness-audit-tier-9" }
+  - { type: audit_status, status: complete, evidence_pr: 331, baseline_tag: "plan-readiness-audit-tier-9-complete" }
   - { type: plan_phase, plan: 26, phase: 1, status: merged }
 ```
 
@@ -596,7 +596,7 @@ preconditions:
 <!-- prettier-ignore -->
 ```yaml
 preconditions:
-  - { type: audit_status, status: complete, evidence_pr: 331, baseline_tag: "plan-readiness-audit-tier-9" }
+  - { type: audit_status, status: complete, evidence_pr: 331, baseline_tag: "plan-readiness-audit-tier-9-complete" }
   - { type: plan_phase, plan: 26, phase: 2, status: merged }
 ```
 
@@ -654,7 +654,7 @@ preconditions:
 <!-- prettier-ignore -->
 ```yaml
 preconditions:
-  - { type: audit_status, status: complete, evidence_pr: 331, baseline_tag: "plan-readiness-audit-tier-9" }
+  - { type: audit_status, status: complete, evidence_pr: 331, baseline_tag: "plan-readiness-audit-tier-9-complete" }
   - { type: plan_phase, plan: 26, phase: 3, status: merged }
 ```
 
@@ -694,7 +694,7 @@ preconditions:
 <!-- prettier-ignore -->
 ```yaml
 preconditions:
-  - { type: audit_status, status: complete, evidence_pr: 331, baseline_tag: "plan-readiness-audit-tier-9" }
+  - { type: audit_status, status: complete, evidence_pr: 331, baseline_tag: "plan-readiness-audit-tier-9-complete" }
   - { type: plan_phase, plan: 26, phase: 3, status: merged }
 ```
 
@@ -734,7 +734,7 @@ preconditions:
 <!-- prettier-ignore -->
 ```yaml
 preconditions:
-  - { type: audit_status, status: complete, evidence_pr: 331, baseline_tag: "plan-readiness-audit-tier-9" }
+  - { type: audit_status, status: complete, evidence_pr: 331, baseline_tag: "plan-readiness-audit-tier-9-complete" }
   - { type: plan_phase, plan: 26, phase: 4, status: merged }
   - { type: plan_phase, plan: 26, phase: 5, status: merged }
 ```

@@ -114,7 +114,7 @@ Plan-019 implementation lands as a sequence of small PRs at Tier 8. Phase 1 fixe
 <!-- prettier-ignore -->
 ```yaml
 preconditions:
-  - { type: audit_status, status: complete, evidence_pr: 318, baseline_tag: "plan-readiness-audit-tier-8" }
+  - { type: audit_status, status: complete, evidence_pr: 318, baseline_tag: "plan-readiness-audit-tier-8-complete" }
   - { type: plan_phase, plan: 001, phase: 2, status: merged }
 ```
 
