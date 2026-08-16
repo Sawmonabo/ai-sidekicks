@@ -198,6 +198,7 @@ Recovery behavior for a receipt that was in-flight at daemon restart (Phase 2 st
 - Letting provider-native ids replace canonical ids
 - Treating missing capability declarations as implicitly supported
 - Making the session engine understand transport-specific details such as JSON-RPC framing or stdio protocol
+- Deriving quota or rate-limit refusals by matching provider message text rather than the provider's typed wire signals — `reauth-required` in the closed `RecoveryCondition` set is already detected mid-run from the provider's typed auth-failure signals, and the pinned Codex surface carries rate limits as first-class typed data (`account/rateLimits/read` pull, `account/rateLimits/updated` push), so text-matching is a deliberate downgrade that breaks on provider wording changes and on localization
 
 ## Acceptance Criteria
 

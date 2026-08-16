@@ -78,6 +78,10 @@ The minimal surface: grammar without discoverability. Rejected because a command
 
 Authorization through the Spec-012 category enum and approval pipeline. Rejected per the Antithesis/Synthesis exchange: remembered grants have category width (wrong for per-definition blast radius), the pipeline adds latency and modality to a statically role-answerable question, and the amendment class is wider — both shapes ride the Tier-6 targeted delta the chat-borne carrier forces anyway, but a tenth category would additionally amend the closed nine-member enum, the remember-pipeline semantics, and the approval UI, where the named action is an additive registration in a family Spec-012 already sanctions as open.
 
+### Option E: Agent-mediated start via an appended provider-payload context block (Rejected)
+
+No start surface of the runtime's own — append a context block to the provider payload announcing that a workflow CLI exists, and let the model decide when to invoke it. Rejected because it relocates the start decision into model prose: the model, not the daemon, decides whether a run starts, and the daemon learns of the start only as an already-executed side effect, with no typed call for `Action::"workflow::start"` to adjudicate against — no principal, no definition id, no pre-start refusal point — and no audit row attributing the start to an actor, so Option A's role matrix would bind nothing on the agent path. Discoverability is not the trade here either: a context block is prompt text the model may ignore or paraphrase, where the composer affordance enumerates real definitions. This is exactly the gap the `workflow_start` callback tool closes — it makes the agent path a typed caller of `workflow.runStart` like the human paths, adjudicated by the same named action over all callers and recorded with the same attribution, rather than an unpoliced consequence of what the model was told.
+
 ## Assumptions Audit
 
 - **Provider CLIs dispatch leading-`/` user input as commands.** Live-verified against the reference provider CLI on 2026-08-11 (forwarded slash text errors as an unknown command rather than reaching the model as prose); the headless second provider ignores slash commands entirely, so degrade-honestly parity holds. If a future provider treats slash text as prose, interception remains correct — it is a superset defense.
@@ -163,3 +167,4 @@ The interception rule and the `@`/`/` namespace split are the one-way parts: onc
 ## Decision Log
 
 - **2026-08-11** — Drafted `proposed`; rides the chat-start amendment PR for ratification at review, following the ADR-026 vehicle shape.
+- **2026-08-16** — Recorded Option E (agent-mediated start via an appended provider-payload context block) in §Alternatives Considered, from the campaign's reference-runtime parity survey; the chosen design and its authorization model are unchanged.
