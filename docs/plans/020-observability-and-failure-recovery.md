@@ -175,7 +175,7 @@ Four phases decompose the six §Implementation Steps above; nothing here is new 
 <!-- prettier-ignore -->
 ```yaml
 preconditions:
-  - { type: audit_status, status: complete, evidence_pr: 318, baseline_tag: "plan-readiness-audit-tier-8" }
+  - { type: audit_status, status: complete, evidence_pr: 318, baseline_tag: "plan-readiness-audit-tier-8-complete" }
 ```
 
 #### Tasks
@@ -223,7 +223,7 @@ preconditions:
 <!-- prettier-ignore -->
 ```yaml
 preconditions:
-  - { type: audit_status, status: complete, evidence_pr: 318, baseline_tag: "plan-readiness-audit-tier-8" }
+  - { type: audit_status, status: complete, evidence_pr: 318, baseline_tag: "plan-readiness-audit-tier-8-complete" }
   - { type: plan_phase, plan: 020, phase: 1, status: merged }
 ```
 
@@ -326,7 +326,7 @@ preconditions:
 <!-- prettier-ignore -->
 ```yaml
 preconditions:
-  - { type: audit_status, status: complete, evidence_pr: 318, baseline_tag: "plan-readiness-audit-tier-8" }
+  - { type: audit_status, status: complete, evidence_pr: 318, baseline_tag: "plan-readiness-audit-tier-8-complete" }
   - { type: plan_phase, plan: 020, phase: 2, status: merged }
 ```
 
@@ -375,7 +375,7 @@ preconditions:
 <!-- prettier-ignore -->
 ```yaml
 preconditions:
-  - { type: audit_status, status: complete, evidence_pr: 318, baseline_tag: "plan-readiness-audit-tier-8" }
+  - { type: audit_status, status: complete, evidence_pr: 318, baseline_tag: "plan-readiness-audit-tier-8-complete" }
   - { type: plan_phase, plan: 020, phase: 3, status: merged }
 ```
 
