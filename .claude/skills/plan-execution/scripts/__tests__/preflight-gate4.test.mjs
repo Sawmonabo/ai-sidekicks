@@ -3575,7 +3575,15 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // amendment adds I-016-24 to four existing RESOLVED `Verifies invariant:`
     // rows (T2.5, T3.1, T3.2, T4.1), four more bold resolved id references;
     // no none-arm is added or removed, and the legacy channel is unchanged.
-    bold: { resolved: 848, noneArm: 152, parentResolved: 0 },
+    // 848/152 -> 852/152 (2026-08-17, the Spec-004/Plan-004 rewind-hardening
+    // amendment + its in-swap NS-67 delta): two new tasks, each with a
+    // RESOLVED `Verifies invariant:` arm, carrying four id references in
+    // total — T3.16 (I-004-20), T3.17 (I-004-21, I-004-3, I-004-18). T4.7's
+    // row grows in prose (the --replace-message option) but its single-id set
+    // is unchanged, and I-004-10's Verified-by column gains T4.7, which is a
+    // table cell rather than a marker line and so contributes no delta; no
+    // none-arm is added or removed, and the legacy channel is unchanged.
+    bold: { resolved: 852, noneArm: 152, parentResolved: 0 },
     legacy: { resolved: 61, noneArm: 3, parentResolved: 1 },
   });
 });
