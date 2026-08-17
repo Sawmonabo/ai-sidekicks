@@ -3550,7 +3550,12 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // §Invariants cells, which name none of the three; three more bold
     // none-arms, resolved references unchanged; the legacy channel is
     // unchanged.
-    bold: { resolved: 831, noneArm: 152, parentResolved: 0 },
+    // 831/152 -> 838/152 (2026-08-16, PR #340 repo-identity delta): the
+    // Spec-009/Plan-009 targeted readiness-audit delta authored Phase 2B
+    // (T-009-2B-1..4), whose four bold `Verifies invariant:` rows carry seven
+    // id references (I-009-15 ×2, I-009-16 ×2, I-009-1, I-009-3, I-009-5) —
+    // seven more bold resolved references; the legacy channel is unchanged.
+    bold: { resolved: 838, noneArm: 152, parentResolved: 0 },
     legacy: { resolved: 61, noneArm: 3, parentResolved: 1 },
   });
 });
