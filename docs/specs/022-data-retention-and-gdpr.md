@@ -69,6 +69,7 @@ This spec covers:
 ### Data Export
 
 - The system must support JSON export of all events authored by or mentioning a specific participant.
+- Export must additionally include the decrypted `replacementSend` bodies of `interventions` rows whose `pii_participant_id` stamps the participant (the [Spec-004](004-queue-steer-pause-resume.md) edit-and-resend composite's at-rest copy; added 2026-08-17, PR #344 round-2 fold) — text that exists only on a refused or suppressed intervention row is still the participant's authored content, and the event-scoped selector alone would miss it.
 - Exported events must be decrypted using the participant's key from `participant_keys`.
 - Export must be completable before key deletion to satisfy data subject access request obligations.
 
@@ -94,7 +95,7 @@ This spec covers:
 ## Interfaces And Contracts
 
 - `POST /sessions/{id}/purge` must transition an `archived` session to `purge_requested` and enqueue purge processing.
-- `GET /participants/{id}/export` must return a JSON export of all events associated with the participant, decrypted with their key.
+- `GET /participants/{id}/export` must return a JSON export of all events associated with the participant, decrypted with their key — plus the decrypted intervention-row replacement-send bodies stamped with the participant (the [Spec-004](004-queue-steer-pause-resume.md) at-rest copy per §Data Export).
 - `DELETE /participants/{id}/data` must delete the participant's key from `participant_keys` (crypto-shredding) and hard-delete their Postgres records.
 - All deletion and export endpoints must require authenticated admin or self-service participant authorization.
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
@@ -238,6 +239,7 @@ The data map enumerates **every** PII-carrying path reachable from `DELETE /part
 | Table | Column | PII Type | Retention | Shredding |
 | --- | --- | --- | --- | --- |
 | `session_events` (SQLite) | `pii_payload` | User messages, file paths, code snippets | 90 days (full) / indefinite (audit stub) | Crypto-shred via participant key deletion |
+| `interventions` (SQLite) | `pii_payload` | Rollback replacement-send message body (the [Spec-004](004-queue-steer-pause-resume.md) edit-and-resend composite's at-rest copy; added 2026-08-17, PR #344 round-2 fold) | 90 days (full), then NULLed by the daemon retention pass — a plain NULL-out, not a stub: no digest or anchor binding attaches to this ciphertext, unlike `session_events`; the non-PII intervention audit record is retained for the row's lifetime | Crypto-shred via participant key deletion — same `participant_keys` DEK as `session_events.pii_payload`, so Path 1 shreds both copies identically (`pii_participant_id` is the selector stamp) |
 | `artifact_encryption_keys` (SQLite, daemon-local) | `encrypted_private_key` | Key material — per-`(participant, node)` durable artifact-encryption X25519 private key (master-key-wrapped); unwraps relay-held artifact CEKs | Participant lifetime (active); rotation-retired rows until `retired_at + 30 d + 48 h` | Row DELETE on participant erasure, active + retired together ([§Shred Fan-Out](#shred-fan-out) Path 1; [Spec-014 §Cross-Node Artifact Relay (V1)](014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1) Delete step 9) |
 | `artifact_manifests` (SQLite) | `relay_cek_ciphertext` | Key material — publisher-retained per-artifact CEK (master-key-wrapped); decrypts the relay-pinned ciphertext copy | Artifact lifetime; NULL unless relay-bound (set at the first shareable publish, before any pin) | Dies with the manifest row on artifact deletion, or with daemon master-key destruction ([§Daemon Master Key](#daemon-master-key)); deliberately not a per-participant sweep — see the artifact-payload posture note below |
 | `participants` (PG) | `display_name` | Name | Account lifetime | DELETE row on account deletion |
@@ -296,7 +298,7 @@ In V1, before the automated `gdpr.*` endpoint ships (Plan-022 defers it to V1.1)
 
 **Mechanism.** DELETE the participant's row from `participant_keys`. The per-participant AES-256-GCM key is destroyed; all `pii_payload` ciphertext bytes across every session the participant touched become permanently unrecoverable. **Also DELETE their row from `artifact_encryption_keys`** (Plan-014, 2026-07-09 cross-node relay key model) on every node the participant runs: that row holds the master-key-wrapped private half of their durable artifact-encryption X25519 key, which is what unwraps relay-held CEKs — leaving it behind would preserve the participant's reach to artifact ciphertext their Path-2 `artifact_relay_recipients` deletion was meant to sever ([Spec-014 §Cross-Node Artifact Relay (V1)](./014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1) Delete step 9, CP-014-2). Both deletions are true cryptographic erasure for the same reason: each row's key is random (not credential-derived) and its only persisted copy is the wrapped blob in that row.
 
-**Scope.** Every `session_events` row with a non-NULL `pii_payload` authored by or containing the participant's PII. The SQL selector uses the durable participant-id stamp on the event row, not the ciphertext (which is opaque). Membership-level references in other participants' events remain, but their `pii_payload` columns — if any — are encrypted under a different participant's key and are not affected.
+**Scope.** Every `session_events` row with a non-NULL `pii_payload` authored by or containing the participant's PII — and every `interventions` row whose `pii_participant_id` stamps the participant (the [Spec-004](004-queue-steer-pause-resume.md) replacement-send body encrypts under the same per-participant DEK, so the key deletion shreds both copies in one act; added 2026-08-17, PR #344 round-2 fold). The SQL selector uses the durable participant-id stamp on the row, not the ciphertext (which is opaque). Membership-level references in other participants' events remain, but their `pii_payload` columns — if any — are encrypted under a different participant's key and are not affected.
 
 **Audit artifact.** One `event.shredded` event emitted per `Spec-006 §Event Maintenance (event_maintenance)` carrying `{participantId, affectedSessionIds[], piiPayloadsCleared, shredReason}`. The event's own payload contains no PII; it is retained indefinitely.
 

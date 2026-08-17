@@ -121,14 +121,22 @@ CREATE TABLE queue_items (
                   CHECK(state IN ('queued', 'admitted', 'superseded', 'canceled', 'expired')),
   priority        INTEGER NOT NULL DEFAULT 0, -- higher = more urgent
   payload         TEXT NOT NULL DEFAULT '{}', -- JSON: content, context, metadata
+  target_run_id   TEXT,                       -- run-bound admission arm (Plan-004 T1.4, 2026-08-16
+                                              -- rewind-hardening amendment round-2 fold): NULL on
+                                              -- ordinary follow-up items (admission converts them
+                                              -- into a new run); stamped solely by the edit-and-resend
+                                              -- composite's admission in V1 — the item delivers into
+                                              -- its bound run as its next provider send on run.resume,
+                                              -- never converting into a new run
   created_at      TEXT NOT NULL,
   updated_at      TEXT NOT NULL
 );
 
 CREATE INDEX idx_queue_items_session_state ON queue_items(session_id, state);
+CREATE INDEX idx_queue_items_target_run ON queue_items(target_run_id) WHERE target_run_id IS NOT NULL;
 CREATE INDEX idx_queue_items_channel ON queue_items(channel_id) WHERE channel_id IS NOT NULL;
 
--- Owner: Plan-004 (campaign B9 adds rejection_reason) | Extended by: Spec-005 campaign B3 (client_idempotency_key intervention dedupe); Spec-004 campaign B2 (rollback type — targetPosition rides the payload JSON, no new column)
+-- Owner: Plan-004 (campaign B9 adds rejection_reason; the Spec-004 2026-08-16 rewind-hardening amendment adds the pii_payload / pii_participant_id pair) | Extended by: Spec-005 campaign B3 (client_idempotency_key intervention dedupe); Spec-004 campaign B2 (rollback type — targetPosition rides the payload JSON, no new column)
 CREATE TABLE interventions (
   id                     TEXT PRIMARY KEY,
   target_run_id          TEXT NOT NULL,
@@ -136,15 +144,17 @@ CREATE TABLE interventions (
                          CHECK(type IN ('steer', 'interrupt', 'cancel', 'rollback')),
   state                  TEXT NOT NULL DEFAULT 'requested'
                          CHECK(state IN ('requested', 'accepted', 'applied', 'rejected', 'degraded', 'expired')),
-  payload                TEXT NOT NULL DEFAULT '{}', -- JSON: type-specific fields
+  payload                TEXT NOT NULL DEFAULT '{}', -- JSON: type-specific NON-PII fields only — a rollback's replacementSend body never rides this column (it encrypts into pii_payload; Spec-004 §Required Behavior at-rest split, 2026-08-16 amendment)
   expected_run_version   INTEGER NOT NULL,           -- MANDATORY fail-closed comparand (Spec-004 §Interfaces And Contracts / Plan-004 D-004-2)
   client_idempotency_key TEXT NOT NULL,              -- MANDATORY requester-generated UUID (participant client or daemon system-origination); replay-or-conflict intervention dedupe (Spec-005 §Required Behavior, campaign B3)
+  pii_payload            BLOB,                       -- encrypted per-participant AES-256-GCM via Plan-006's PiiEncryptor (CP-006-1): the rollback replacementSend body (Plan-004 T1.4, Spec-004 2026-08-16 amendment); same-key parity with session_events.pii_payload, so the Plan-022 Path-1 key deletion shreds both copies identically; NULLed by the daemon retention pass past the Spec-022 90-day full-retention bound (Spec-022 §PII Data Map row — no digest binding attaches, unlike session_events)
+  pii_participant_id     TEXT,                       -- PII owner stamp: the requesting participant whose key encrypts pii_payload; NULL on rows carrying no PII leg
   result                 TEXT,                       -- JSON: outcome details
   rejection_reason       TEXT,                       -- machine-readable rejected cause (driver.capability_unsupported foremost) — replay-durable: the wire contract forbids result on rejected, so an idempotent replay reconstructs rejectionReason from this column (Plan-004 T1.4/T3.12, campaign B9)
   initiator_id           TEXT,                       -- participant or system
   created_at             TEXT NOT NULL,
   resolved_at            TEXT,
-  UNIQUE(target_run_id, client_idempotency_key)      -- identical retry replays the recorded outcome; key reuse with a differing payload rejects as intervention.idempotency_conflict — distinct grain from command_receipts.command_id (per-command crash-recovery dedupe)
+  UNIQUE(target_run_id, client_idempotency_key)      -- identical retry replays the recorded outcome; key reuse with a differing payload rejects as intervention.idempotency_conflict — the PII body compared by decrypt-and-compare under the requester's live key, never by ciphertext or persisted digest (Spec-004 §Interfaces And Contracts) — distinct grain from command_receipts.command_id (per-command crash-recovery dedupe)
 );
 
 CREATE INDEX idx_interventions_run ON interventions(target_run_id);

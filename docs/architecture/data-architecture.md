@@ -64,7 +64,7 @@ V1 scopes event-sourcing to per-daemon local event logs. Each daemon owns an aut
 
 ## Privacy and Data Protection
 
-PII fields in session events are stored in a separate encrypted column (`pii_payload`) using per-participant AES-256-GCM keys. This enables crypto-shredding for GDPR deletion: destroying a participant's key renders their PII unrecoverable without affecting the rest of the event log.
+PII fields in session events are stored in a separate encrypted column (`pii_payload`) using per-participant AES-256-GCM keys — a discipline the `interventions` table mirrors for the Spec-004 rollback composite's staged replacement-send body (its own `pii_payload` under the same per-participant key). This enables crypto-shredding for GDPR deletion: destroying a participant's key renders their PII unrecoverable — both copies at once — without affecting the rest of the event log.
 
 ## Schema References
 
