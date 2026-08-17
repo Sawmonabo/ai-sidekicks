@@ -3080,19 +3080,53 @@ interface ArtifactVisibilityUpdateResponse {
   updatedAt: string;
 }
 
-// AttachmentIngest
+// AttachmentIngest — the ONLY interface in this section that accepts caller-supplied bytes, and
+// therefore the one the Spec-014 §Ingest Validation And Payload Bounds (V1) pipeline binds. The other
+// five artifactType families are daemon- or engine-produced and carry no untrusted-upload surface.
+// `mediaType` and `sizeBytes` are ADVISORY INPUT, never trusted facts (2026-08-16 amendment): the daemon
+// derives both from `payload` itself and reconciles. A declared value that CONTRADICTS the derived one is
+// refused with artifact.unsupported_media_type (415) and quarantined — never silently corrected — and the
+// derived values are what reach the manifest, the CAS key, and every downstream consumer. The request is
+// single-payload, so it carries no count to cap: max_attachments_per_carrier binds the ArtifactId[] carrier
+// (see the attachment-reference note below), not this call.
 interface AttachmentIngestRequest {
   sessionId: SessionId;
   runId?: RunId;
-  fileName: string;
-  mediaType: string;
-  sizeBytes: number;
+  fileName: string; // caller-supplied; length/character-bounded before it is recorded, and NEVER a storage path component — CAS addressing keys the payload by its SHA-256 (Spec-014 §Implementation Notes)
+  mediaType: string; // ADVISORY — a hint used only to narrow the expected signature, never to widen acceptance
+  sizeBytes: number; // ADVISORY — the daemon derives the true byte length from `payload`
   payload: Uint8Array;
 }
 interface AttachmentIngestResponse {
   artifactId: ArtifactId;
   contentHash: string;
   normalizedName: string;
+  derivedMediaType: string; // server-derived from the payload signature — this, not the request's `mediaType`, is what the manifest records; returned so a caller that guessed wrong learns the reconciled truth
+  derivedSizeBytes: number; // server-derived byte length of `payload` — likewise authoritative over the declared `sizeBytes`
+}
+
+// ArtifactDelete — Spec-014 §Interfaces And Contracts + §Local Artifact Deletion And CAS Reclaim (V1)
+// (added 2026-08-16; Spec-022's artifact-payload posture already presupposed this mechanism — its retained
+// CEK "dies with the manifest row (artifact deletion)" — while the interface list named only four, so the
+// reference resolved to nothing). Three couplings are resolved by the contract rather than left implicit:
+//   (a) CAS refcount — the payload is reclaimed only when the LAST manifest naming its storage key is gone.
+//       The count is DERIVED from the surviving payload-reference rows, never a stored counter column
+//       (a counter is a second source of truth whose drift deletes bytes another manifest still names).
+//   (b) subject linkage — deleting a manifest that another names as its `subject` is REFUSED, and the
+//       response names the referencing manifests. Nulling the derivative's subject is prohibited: it would
+//       silently turn a derivative into an apparent original and destroy the provenance chain (I-014-2).
+//   (c) live relay pin — the delete PROCEEDS but takes the publisher-retained relay_cek_ciphertext with it,
+//       so re-publish for that artifact becomes impossible and the late-join artifact.no_access_key remedy
+//       is no longer available. The response must surface that rather than deleting silently. Already-pinned
+//       recipients fetch normally until the blob's own refcount-zero or TTL (Spec-014 §Delete step 8).
+interface ArtifactDeleteRequest {
+  artifactId: ArtifactId;
+}
+interface ArtifactDeleteResponse {
+  artifactId: ArtifactId;
+  payloadReclaimed: boolean; // false when another manifest still references the shared CAS payload — the manifest is gone, the bytes stay
+  relayPinLost: boolean; // true when a live relay pin existed: the retained CEK died with the manifest, so this artifact can never be re-published (coupling (c) above)
+  deletedAt: string;
 }
 
 // --- Cross-node artifact relay methods (2026-07-08 ADR-015 amendment): the
@@ -3102,8 +3136,21 @@ interface AttachmentIngestResponse {
 //     2026-08-12 and restored the plan and Spec-014 approved; the gate is now the §5 Tier-7 row —
 //     Plan-008-remainder + Plan-018 at Tier 5, Plan-021 at Tier 6 — plus phase decomposition, not the
 //     delta). Spec-014 §Interfaces names the methods;
-//     Spec-014 §Cross-Node Artifact Relay (V1) is the normative design — ArtifactUploadInit carries the relay-visible lifecycle envelope (digest, size, chunk accounting, retentionTier, wrapped-CEK recipient entries) as authenticated plaintext; ArtifactFetchAuthorizeResponse returns the calling node's relay-held wrapped CEK (thumbprint-selected; CEKs wrap to durable per-(participant, node) artifact-encryption keys, never session-ephemeral keys), ArtifactFetchComplete is the authenticated post-verification ack that alone writes delivered_at (never inferred from a chunk GET); the artifact.published event carries the signed cekCommitment, never wrapped CEKs (Spec-014 Publish steps 1/3/4, Fetch step 6).
+//     Spec-014 §Cross-Node Artifact Relay (V1) is the normative design — ArtifactUploadInit carries the relay-visible lifecycle envelope (digest, size, chunk accounting, retentionTier, wrapped-CEK recipient entries) as authenticated plaintext; ArtifactFetchAuthorize selects the recipient row on the REQUEST path (re-specified 2026-08-16): the caller presents the set of artifact-encryption key THUMBPRINTS it holds, the issuer requires exactly one row matching (ciphertext_digest, participant_id = token sub, key_thumbprint ∈ that set) — zero is artifact.no_access_key 404, two or more is artifact.fetch_unauthorized 403 refused fail-closed — derives node_id FROM the resolved row (never caller input), and corroborates an active-state runtime_node_attachments row in the blob's own session before minting; the response returns that one row's wrapped CEK plus its key_thumbprint so the daemon knows which private key to unwrap with (CEKs wrap to durable per-(participant, node) artifact-encryption keys, never session-ephemeral keys). A thumbprint is a public-key fingerprint, not a credential: it disambiguates among rows the caller already owns and grants nothing, because participant_id is pinned to sub inside the same predicate. ArtifactFetchComplete is the authenticated post-verification ack that alone writes delivered_at (never inferred from a chunk GET); the artifact.published event carries the signed cekCommitment, never wrapped CEKs (Spec-014 Publish steps 1/3/4, Fetch steps 5-6).
 //     Deliberately not typed here yet — no invented shapes. ---
+
+// --- Attachment references on turn-scoped carriers (Spec-014 §Interfaces And Contracts, 2026-08-16).
+//     The element type is ArtifactId — an id into Spec-014's manifest space — carried as an ordered
+//     ArtifactId[], never an untyped element and never an inline byte payload: bytes reach the system
+//     only through AttachmentIngest, which is where the validation pipeline binds. Caller-declared order
+//     is preserved end to end, and an element the turn cannot resolve or deliver surfaces as an explicit
+//     unresolved marker in its declared position naming the cause (deleted / local-only on a remote node /
+//     over-cap) — silently dropping it is prohibited (Spec-014 §Fallback Behavior). The count bound is
+//     max_attachments_per_carrier, enforced here rather than on AttachmentIngest, which is single-payload.
+//     HumanPhaseFormSubmitRequest.attachmentArtifactIds already has this shape. The driver-boundary steer
+//     and intervention arms are still typed `unknown[]` and are DELIBERATELY NOT edited from the Plan-014
+//     side: those wire arms belong to the plans that own the driver boundary, and retyping them is
+//     registered as a Plan-014 cross-plan follow-up obligation so the change lands under its owners. ---
 
 // --- ArtifactKeyAttestationPayload — the `artifact_key_attestation` envelope-interior arm (typed
 //     2026-08-12, Codex PR #326 round 2: the §Envelope-Interior Application-Payload Kind Registry

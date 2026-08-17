@@ -414,6 +414,26 @@ CREATE TABLE artifact_relay_recipients (
 );
 
 CREATE INDEX idx_artifact_relay_recipients_participant ON artifact_relay_recipients(participant_id);
+
+-- Thumbprint→node injectivity within one participant's rows for one blob (2026-08-16 artifact-lifecycle
+-- amendment). This is what makes the Spec-014 Fetch step 5 mint selector resolvable: the caller presents the
+-- key thumbprints it holds, and (ciphertext_digest, participant_id = token sub, key_thumbprint) must select
+-- exactly ONE row, from which node_id is derived — never from caller input. An INDEX, not a table: no census
+-- moves. It composes with the primary key above rather than replacing it — the PK bounds rows per node, this
+-- index bounds rows per key. Satisfiable by construction: each node generates its own artifact-encryption
+-- keypair and no private key is ever shared or copied between nodes (trust-and-identity.md §Edge Cases), so
+-- two of a participant's nodes cannot legitimately carry one thumbprint. The ONE violating state is the
+-- attestation spoof Spec-014 Publish step 3 names as a V1 residual — and this index converts it from a silent
+-- victim-node lockout into a pre-write refusal: the relay validates the declared recipient entries for a
+-- duplicate (participant, thumbprint) BEFORE writing, drops BOTH colliding entries fail-closed (it cannot
+-- adjudicate which node is honest), pins for every non-colliding recipient, and reports the dropped entries to
+-- the publisher. The publish itself never fails — failing it would hand any participant-authorized identity a
+-- denial-of-publish primitive over the whole session. The index is therefore the durable backstop behind a
+-- check the write path already makes. NOTE for the re-pin path: a re-publish to a node that has ROTATED must
+-- UPSERT on the primary key (updating wrapped_cek + key_thumbprint in place), never INSERT — an insert would
+-- violate the PK and a second row per node would break the I-014-7 per-node delivery refcount.
+CREATE UNIQUE INDEX idx_artifact_relay_recipients_thumbprint
+  ON artifact_relay_recipients(ciphertext_digest, participant_id, key_thumbprint);
 ```
 
 ---

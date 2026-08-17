@@ -568,7 +568,7 @@ CREATE INDEX idx_pr_preparations_branch ON pr_preparations(branch_context_id);
 ```sql
 -- Owner: Plan-014
 -- Tier-7 audit (NS-19): + subject, size_bytes, annotations realize the OCI manifest envelope (D-014-1, D-014-2);
---   + replication_status realizes the Spec-014:66 manifest-first replication surface (A-014-3) — nullable;
+--   + replication_status realizes the Spec-014 §Fallback Behavior manifest-first replication surface (A-014-3) — nullable;
 --   the multi-state CHECK the audit deferred (anti-fabrication) arrived 2026-07-08: the cross-node relay
 --   amendment spec-names the full value set (Spec-014 §Cross-Node Artifact Relay (V1)); see note below;
 --   + relay_cek_ciphertext arrived 2026-07-09 (publisher-retained CEK, Spec-014 Publish step 1).
