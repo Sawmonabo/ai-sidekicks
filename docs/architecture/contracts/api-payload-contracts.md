@@ -2405,7 +2405,7 @@ interface RepoDetachResponse {
 interface WorkspaceBindRequest {
   repoMountId: RepoMountId;
   executionMode: ExecutionMode;
-  directory?: string; // mount-root-relative subdirectory; containment re-checked after symlink resolution
+  directory?: string; // relative: subdirectory under the mount canonical root; absolute: names a registered working tree of the mount's repository (Spec-009 trust-envelope two-form rule) — containment re-checked after symlink resolution either way
 }
 interface WorkspaceBindResponse {
   workspaceId: WorkspaceId;

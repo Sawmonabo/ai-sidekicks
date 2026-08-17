@@ -408,7 +408,7 @@ CREATE TABLE repo_mounts (
                   CHECK(state IN ('attached', 'detached', 'archived')),
   attached_at     TEXT NOT NULL,
   updated_at      TEXT NOT NULL,
-  metadata        TEXT NOT NULL DEFAULT '{}' -- JSON
+  metadata        TEXT NOT NULL DEFAULT '{}' -- JSON; commonDir: attach-persisted canonicalized git common directory — the repo-identity anchor bind/run re-derivation must match (Spec-009, PR #340; absent on pre-amendment rows)
 );
 
 CREATE INDEX idx_repo_mounts_session ON repo_mounts(session_id);
@@ -429,7 +429,7 @@ CREATE TABLE workspaces (
   fs_root         TEXT,                       -- resolved filesystem root
   state           TEXT NOT NULL DEFAULT 'provisioning'
                   CHECK(state IN ('provisioning', 'ready', 'busy', 'stale', 'archived')),
-  metadata        TEXT NOT NULL DEFAULT '{}', -- JSON; lastError detail on a failed mode switch (Spec-009)
+  metadata        TEXT NOT NULL DEFAULT '{}', -- JSON; lastError detail on a failed mode switch (Spec-009); boundRoot: admitted bind origin — the branch-mode execution-root carrier, never cleared by reprovision (Spec-009/Spec-010, PR #340; absent on pre-amendment rows falls back to canonical_root)
   created_at      TEXT NOT NULL,
   updated_at      TEXT NOT NULL
 );
