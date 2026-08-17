@@ -3053,11 +3053,12 @@ interface ArtifactPublishRequest {
   runId?: RunId;
   artifactType: ArtifactType; // discriminator — see ArtifactManifest.artifactType (Spec-014 §Interfaces And Contracts; D-014-4)
   visibility: ArtifactVisibility;
-  payload: Uint8Array | string;
+  payload: string; // the artifact bytes — UTF-8 text verbatim, or base64 (RFC 4648 §4) under payloadEncoding "base64"; never a binary field, because the Spec-007 local wire is JSON-only (PR #341 round 2). The daemon decodes per the discriminator BEFORE hashing: content_hash and size_bytes bind the DECODED bytes, so an encoded and an unencoded publish of identical content share one CAS entry. A boundary-crossing publish is single-call, so the encoded member plus envelope must fit the Spec-007 1 MB frame — ≈700 KiB raw ceiling under base64; larger file bytes take the AttachmentIngest trio, and daemon-internal publishes never cross the wire (Spec-014 §Ingest Validation And Payload Bounds (V1))
+  payloadEncoding?: "utf8" | "base64"; // default "utf8" — the request-side encoding discriminator (PR #341 round 2)
   mediaType: string; // MIME type
   // --- producer-supplied OCI envelope inputs (D-014-3). `size`/`digest` are NOT here:
   //     the daemon derives size_bytes + content_hash from `payload`. ---
-  subject?: ArtifactId; // OCI `subject`: set when publishing a derivative (redacted/summarized) form → points to the source manifest (I-014-2, Spec-014 §State And Data Implications); omit for originals
+  subject?: ArtifactId; // OCI `subject`: set when publishing a derivative (redacted/summarized) form → points to the source manifest (I-014-2, Spec-014 §State And Data Implications); omit for originals. Resolution is SESSION-SCOPED (PR #341 round 2): the id must resolve within sessionId's manifest space, and a foreign-session or unknown id refuses artifact.not_found (404) — derivative chains never cross sessions, which is what keeps the Spec-014 session-deletion sweep complete by construction
   annotations?: Record<string, string>; // OCI `annotations` string-map persisted to artifact_manifests.annotations; distinct from freeform `metadata`
   metadata?: Record<string, unknown>;
 }
@@ -3073,7 +3074,8 @@ interface ArtifactReadRequest {
 interface ArtifactReadResponse {
   manifest: ArtifactManifest; // the same envelope ArtifactPublish embeds (Spec-014 §Interfaces And Contracts)
   payloadHandle?: string; // CAS key or URL for deferred retrieval
-  payload?: Uint8Array; // only if includePayload=true and size permits
+  payload?: string; // only if includePayload=true and size permits — where "permits" includes the base64 expansion: the encoded member plus envelope must fit the Spec-007 1 MB frame (PR #341 round 2); UTF-8 text verbatim or base64 per payloadEncoding
+  payloadEncoding?: "utf8" | "base64"; // present when payload is — "utf8" only for byte-exact valid UTF-8 payloads (which JSON round-trips losslessly), "base64" otherwise; callers switch on it, never sniff
 }
 
 // ArtifactVisibilityUpdate
@@ -3104,8 +3106,12 @@ interface ArtifactVisibilityUpdateResponse {
 // content refusals at pipeline steps 3-8). An abandoned stream's spool is reaped by the same
 // mtime-clocked reaper that owns quarantine expiry. `mediaType` and `declaredSizeBytes` are ADVISORY
 // INPUT, never trusted facts: the daemon derives both from the spooled bytes at Complete and
-// reconciles. A declared value that CONTRADICTS the derived one is refused with
-// artifact.unsupported_media_type (415) and quarantined — never silently corrected — and the derived
+// reconciles — with per-field consequences that are deliberately NOT the same (PR #341 round 2
+// corrected this comment's earlier conflation). A declared TYPE that contradicts the derived type is
+// refused with artifact.unsupported_media_type (415) and quarantined — never silently corrected
+// (Spec-014 pipeline step 4). A declared SIZE is never a refusal basis below the cap: the enforced
+// size truth is the spooled running count (artifact.too_large 413 at the cap during spooling), and a
+// below-cap mismatch simply resolves to the derived value in the response. The derived
 // values are what reach the manifest, the CAS key, and every downstream consumer. No call in the trio
 // carries a count to cap: max_attachments_per_carrier binds the ArtifactId[] carrier (see the
 // attachment-reference note below). Distinct surface from the cross-node ArtifactUploadInit/Chunk/
@@ -3124,14 +3130,14 @@ interface AttachmentIngestInitResponse {
 interface AttachmentIngestChunkRequest {
   ingestId: string;
   sequenceNumber: number; // 0-based, strictly consecutive — a gap or repeat terminates the stream and deletes the spool
-  chunk: Uint8Array; // bounded by the transport frame ceiling minus envelope overhead — the ceiling refuses an oversized frame before this field exists
+  chunk: string; // base64 (RFC 4648 §4) of at most max_attachment_chunk_bytes = 512 KiB raw payload (Spec-014 §Bounds, PR #341 round 2) — the Spec-007 wire is JSON with no binary serialization, so bytes ride encoded, sized so the 4/3 expansion plus envelope fits the 1 MB frame ceiling by arithmetic; the spool append decodes, and every byte bound counts the DECODED bytes
 }
 interface AttachmentIngestChunkResponse {
   ingestId: string;
-  receivedBytes: number; // spooled running total after this chunk — the enforced byte bound; exceeding max_attachment_ingest_bytes refuses with artifact.too_large (413) and deletes the spool
+  receivedBytes: number; // spooled running total of DECODED bytes after this chunk — the enforced byte bound; exceeding max_attachment_ingest_bytes refuses with artifact.too_large (413) and deletes the spool
 }
 interface AttachmentIngestCompleteRequest {
-  ingestId: string; // Complete runs pipeline steps 3-8 over the spooled bytes (signature detection reads a bounded leading prefix); step 7's CAS rename admits the payload
+  ingestId: string; // Complete runs pipeline steps 3-8 over the spooled bytes (signature detection reads a bounded leading prefix); step 8's admitting CAS rename commits the payload — admission is the pipeline's final successful act (Spec-014 pipeline step 8, PR #341 round 2)
 }
 interface AttachmentIngestCompleteResponse {
   artifactId: ArtifactId;

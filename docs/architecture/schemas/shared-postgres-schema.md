@@ -431,7 +431,12 @@ CREATE INDEX idx_artifact_relay_recipients_participant ON artifact_relay_recipie
 -- denial-of-publish primitive over the whole session. The index is therefore the durable backstop behind a
 -- check the write path already makes. NOTE for the re-pin path: a re-publish to a node that has ROTATED must
 -- UPSERT on the primary key (updating wrapped_cek + key_thumbprint in place), never INSERT — an insert would
--- violate the PK and a second row per node would break the I-014-7 per-node delivery refcount.
+-- violate the PK and a second row per node would break the I-014-7 per-node delivery refcount. The screen
+-- covers SURVIVING rows as well as the submitted set (Spec-014 Publish step 3; 2026-08-17, PR #341 round 2):
+-- an incoming entry — a re-pin UPSERT included — whose (participant, thumbprint) collides with a surviving
+-- row for a DIFFERENT node is rejected per-entry with the surviving row untouched (a standing grant is never
+-- deleted on the strength of a new publish — that would be a revocation primitive), the publish never fails,
+-- and a write-time violation of this index that outruns the screen resolves to the same per-entry rejection.
 CREATE UNIQUE INDEX idx_artifact_relay_recipients_thumbprint
   ON artifact_relay_recipients(ciphertext_digest, participant_id, key_thumbprint);
 ```
