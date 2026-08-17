@@ -3797,7 +3797,9 @@ interface OrchestrationBudgetState {
   // both identities above still hold; replay key: the persisted usage.budget_warning with reason
   // 'unpriced-model' carrying the interrupted run's runId — required on that emission path by
   // Spec-016 §Cost Figure Display Consistency; an admission-time family block stamps no runId
-  // and is never residue), else 'unpriced'. Supplied by the wire so no client derives
+  // and is never residue, and the once-per-family latch re-arms when the owner lifts a family's
+  // block, so a repaired-then-lost family still writes its run-stamped row), else 'unpriced'.
+  // Supplied by the wire so no client derives
   // provenance (Plan-016 I-016-19 zero
   // client derivation / I-016-16 SDK marshals-never-derives). Observability ONLY — enforcement
   // reads committedSpendCents and MUST NOT branch on this, per the no-dual-trust-regimes rule.
