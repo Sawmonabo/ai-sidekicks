@@ -3583,7 +3583,15 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // is unchanged, and I-004-10's Verified-by column gains T4.7, which is a
     // table cell rather than a marker line and so contributes no delta; no
     // none-arm is added or removed, and the legacy channel is unchanged.
-    bold: { resolved: 852, noneArm: 152, parentResolved: 0 },
+    // 852/152 -> 855/152 (2026-08-17, the rewind-hardening PR's Codex round-2
+    // fold): no new task — the two-point boundary classification and the
+    // run-bound drain add I-004-20 + I-004-21 to T3.5's RESOLVED `Verifies
+    // invariant:` row and I-004-20 to T3.13's, three more bold resolved id
+    // references, with the matching Verified-by cells grown symmetrically
+    // (table cells, no marker delta). T3.16/T3.17's rows grow in prose but
+    // their id sets are unchanged; no none-arm is added or removed, and the
+    // legacy channel is unchanged.
+    bold: { resolved: 855, noneArm: 152, parentResolved: 0 },
     legacy: { resolved: 61, noneArm: 3, parentResolved: 1 },
   });
 });

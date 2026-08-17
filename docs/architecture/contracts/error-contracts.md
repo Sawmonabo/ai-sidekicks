@@ -147,6 +147,7 @@ expect(caught).toMatchObject({
 | `run.limit_exceeded` | Concurrent run limit exceeded | 429 |
 | `run.recovery_failed` | Run recovery failed due to an internal error | 500 |
 | `run.execution_root_released` | `run.resume` against a rolled-back run re-opened conversation-only whose execution context is released with no existing root (a disposed ephemeral clone / a retired worktree — nothing recreates it); run state unchanged. Plan-004 rollback extension; distinct from the setup-time `workspace.execution_root_unresolved` | 409 |
+| `run.compaction_boundary_diverged` | `run.resume` against a run whose current position sits strictly below its newest current `usage.context_compacted` boundary (a boundary-diverged run — reachable only through a rewind settled before the boundary's late delivery); run state unchanged, non-resumable in V1. Plan-004 rewind-hardening extension (the two-point classification's resume backstop, Spec-004 §Required Behavior); same standing-refusal family as `run.execution_root_released` | 409 |
 
 ### Queue
 
