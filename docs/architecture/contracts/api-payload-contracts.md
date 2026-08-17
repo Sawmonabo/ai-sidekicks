@@ -3028,6 +3028,7 @@ interface ArtifactManifest {
   id: ArtifactId;
   sessionId: SessionId;
   runId?: RunId;
+  createdBy?: ParticipantId; // = SQLite `created_by` — the publishing caller; absent when the daemon itself produced the artifact with no attributable caller. The permission-matrix Delete own-artifacts scope evaluates the at-rest column this mirrors FAIL-CLOSED: NULL matches no collaborator, so owner-only (PR #341 round 2)
   artifactType: ArtifactType; // discriminator — Spec-014 §Interfaces And Contracts (D-014-4: file|diff|summary|log|design|workflow_output)
   digest: string; // OCI `digest` (SHA-256) = SQLite content_hash — required: a content-addressed manifest always has one (I-014-1)
   size: number; // OCI manifest-descriptor `size` (payload byte length) = SQLite size_bytes — server-derived, always present
@@ -3041,16 +3042,23 @@ interface ArtifactManifest {
 }
 
 // ArtifactPublish — Spec-014 §Interfaces And Contracts: "must return artifact id and manifest metadata."
+// Trust-boundary rule (2026-08-17, Spec-014 §Ingest Validation And Payload Bounds (V1)): the ingest
+// pipeline binds to the TRUST BOUNDARY, not to a method name. A publish arriving from across the local
+// client↔daemon boundary runs the same validation pipeline over `payload`, and one declaring
+// `artifactType: "file"` is refused outright and directed to AttachmentIngest — the file family reaches
+// the manifest space only through the validated ingest path. Daemon- and engine-produced publishes
+// (the common case for the other five families) originate inside the boundary and are not re-validated.
 interface ArtifactPublishRequest {
   sessionId: SessionId;
   runId?: RunId;
   artifactType: ArtifactType; // discriminator — see ArtifactManifest.artifactType (Spec-014 §Interfaces And Contracts; D-014-4)
   visibility: ArtifactVisibility;
-  payload: Uint8Array | string;
+  payload: string; // the artifact bytes — UTF-8 text verbatim, or base64 (RFC 4648 §4) under payloadEncoding "base64"; never a binary field, because the Spec-007 local wire is JSON-only (PR #341 round 2). The daemon decodes per the discriminator BEFORE hashing: content_hash and size_bytes bind the DECODED bytes, so an encoded and an unencoded publish of identical content share one CAS entry. A boundary-crossing publish is single-call and the 1 MB frame ceiling binds the SERIALIZED frame (PR #341 round 4): base64's fixed 4/3 expansion gives the predictable ≈700 KiB raw ceiling, while a utf8 payload's JSON-escaped size is content-dependent (quotes/backslashes/control characters expand 2–6× under JSON.stringify), so near-ceiling callers publish base64; larger file bytes take the AttachmentIngest trio, and daemon-internal publishes never cross the wire (Spec-014 §Ingest Validation And Payload Bounds (V1))
+  payloadEncoding?: "utf8" | "base64"; // default "utf8" — the request-side encoding discriminator (PR #341 round 2)
   mediaType: string; // MIME type
   // --- producer-supplied OCI envelope inputs (D-014-3). `size`/`digest` are NOT here:
   //     the daemon derives size_bytes + content_hash from `payload`. ---
-  subject?: ArtifactId; // OCI `subject`: set when publishing a derivative (redacted/summarized) form → points to the source manifest (I-014-2, Spec-014 §State And Data Implications); omit for originals
+  subject?: ArtifactId; // OCI `subject`: set when publishing a derivative (redacted/summarized) form → points to the source manifest (I-014-2, Spec-014 §State And Data Implications); omit for originals. Resolution is SESSION-SCOPED (PR #341 round 2): the id must resolve within sessionId's manifest space, and a foreign-session or unknown id refuses artifact.not_found (404) — derivative chains never cross sessions, which is what keeps the Spec-014 session-deletion sweep complete by construction
   annotations?: Record<string, string>; // OCI `annotations` string-map persisted to artifact_manifests.annotations; distinct from freeform `metadata`
   metadata?: Record<string, unknown>;
 }
@@ -3066,7 +3074,8 @@ interface ArtifactReadRequest {
 interface ArtifactReadResponse {
   manifest: ArtifactManifest; // the same envelope ArtifactPublish embeds (Spec-014 §Interfaces And Contracts)
   payloadHandle?: string; // CAS key or URL for deferred retrieval
-  payload?: Uint8Array; // only if includePayload=true and size permits
+  payload?: string; // only if includePayload=true and size permits — where "permits" includes the base64 expansion: the encoded member plus envelope must fit the Spec-007 1 MB frame (PR #341 round 2); UTF-8 text verbatim or base64 per payloadEncoding
+  payloadEncoding?: "utf8" | "base64"; // present when payload is — "utf8" only for byte-exact valid UTF-8 payloads (which JSON round-trips losslessly), "base64" otherwise; callers switch on it, never sniff
 }
 
 // ArtifactVisibilityUpdate
@@ -3080,19 +3089,108 @@ interface ArtifactVisibilityUpdateResponse {
   updatedAt: string;
 }
 
-// AttachmentIngest
-interface AttachmentIngestRequest {
+// AttachmentIngest — the interface family purpose-built for untrusted caller-supplied bytes, and the
+// primary surface the Spec-014 §Ingest Validation And Payload Bounds (V1) pipeline binds (the pipeline
+// binds to the trust boundary, not to a method name — see the ArtifactPublish note above for the
+// boundary-crossing publish arm). The other five artifactType families are daemon- or engine-produced
+// in the common case and carry no untrusted-upload surface. Ingest is a THREE-CALL STREAM, not a
+// single payload-bearing call (2026-08-17, Spec-014 §Ingest Validation And Payload Bounds (V1),
+// transport binding): the local IPC transport enforces a hard 1 MB per-frame ceiling on the declared
+// Content-Length BEFORE buffering the body (MAX_MESSAGE_BYTES in
+// packages/runtime-daemon/src/ipc/local-ipc-gateway.ts, Spec-007 §Wire Format), so a payload anywhere
+// near max_attachment_ingest_bytes cannot cross one frame and a single-call shape would be
+// un-implementable on this wire. Chunks spool to a daemon-held temporary file OUTSIDE the CAS until
+// Complete; the byte bound binds three times — the transport frame ceiling, Init's declared total, and
+// the spooled running count at every Chunk, whose first breach terminates the stream and deletes the
+// spool (an over-cap stream is refused garbage, not a classified threat — quarantine is reserved for
+// content refusals at pipeline steps 3-8). An abandoned stream's spool is reaped by the same
+// mtime-clocked reaper that owns quarantine expiry. The stream is a PROTOCOL, not a loose call
+// sequence (PR #341 round 4, Spec-014 stream protocol): Init is refused
+// artifact.ingest_capacity_exhausted (429 — transient, retry later, no stream state created) at
+// max_active_ingest_streams or when the aggregate of open streams' declared totals would breach
+// ingest_spool_max_bytes; sequencing is replay-idempotent with violations terminal
+// (artifact.ingest_stream_invalid, 409 — restart from Init); and a stream's tenure is wall-clock-
+// bounded by max_ingest_stream_lifetime from Init, because the mtime reaper cannot see a hostile
+// trickle that keeps its spool young. `mediaType` and `declaredSizeBytes` are ADVISORY
+// INPUT, never trusted facts: the daemon derives both from the spooled bytes at Complete and
+// reconciles — with per-field consequences that are deliberately NOT the same (PR #341 round 2
+// corrected this comment's earlier conflation). A declared TYPE that contradicts the derived type is
+// refused with artifact.unsupported_media_type (415) and quarantined — never silently corrected
+// (Spec-014 pipeline step 4). A declared SIZE below the cap is never refused at Init and a below-cap
+// mismatch resolves to the derived value in the response — but the declaration is also the stream's
+// spool RESERVATION and per-stream ceiling (PR #341 round 4): the running decoded count exceeding it
+// refuses artifact.too_large (413) and deletes the spool, because the aggregate admission budget
+// counts declared bytes and an unenforced declaration would make it gameable. The derived
+// values are what reach the manifest, the CAS key, and every downstream consumer. No call in the trio
+// carries a count to cap: max_attachments_per_carrier binds the ArtifactId[] carrier (see the
+// attachment-reference note below). Distinct surface from the cross-node ArtifactUploadInit/Chunk/
+// Complete relay methods (below) — the same streaming shape applied to a different boundary and
+// payload (relay-bound ciphertext chunks there; cleartext local bytes under validation here).
+interface AttachmentIngestInitRequest {
   sessionId: SessionId;
   runId?: RunId;
-  fileName: string;
-  mediaType: string;
-  sizeBytes: number;
-  payload: Uint8Array;
+  fileName: string; // caller-supplied; length/character-bounded before it is recorded, and NEVER a storage path component — CAS addressing keys the payload by its SHA-256 (Spec-014 §Implementation Notes)
+  mediaType?: string; // ADVISORY and OPTIONAL — a hint used only to narrow the expected signature, never to widen acceptance; absent is a first-class state (Spec-014 pipeline step 4: "a declared type absent altogether is fine; the derived value stands"). One consequence is normative: an undetermined-signature payload with NO declaration has nothing to admit under the step-6 signature-exempt branch and is refused
+  declaredSizeBytes: number; // ADVISORY as metadata, BINDING as a reservation (PR #341 round 4): refused with artifact.too_large (413) up front when it exceeds max_attachment_ingest_bytes, counted against ingest_spool_max_bytes at admission, and enforced as the stream's per-stream spool ceiling — the running decoded count may not exceed it; a smaller actual size reconciles downward at Complete without refusal
 }
-interface AttachmentIngestResponse {
+interface AttachmentIngestInitResponse {
+  ingestId: string; // opaque single-use stream handle, session-bound and wall-clock-bounded by max_ingest_stream_lifetime from Init; scopes every subsequent Chunk/Complete call — each refused artifact.ingest_stream_invalid (409) once the stream is terminated, completed, expired, or unknown (PR #341 round 4)
+}
+interface AttachmentIngestChunkRequest {
+  ingestId: string;
+  sequenceNumber: number; // 0-based, strictly consecutive. The daemon retains the last acknowledged sequence + the last appended chunk's SHA-256 (PR #341 round 4): an exact replay — same sequence, same bytes, the ordinary retry after a lost Chunk response — is acknowledged idempotently WITHOUT re-appending, so client retries are always safe; a same-sequence chunk with different bytes, a gap, or a regression terminates the stream (spool deleted) and refuses artifact.ingest_stream_invalid (409) — restart from Init
+  chunk: string; // base64 (RFC 4648 §4) of at most max_attachment_chunk_bytes = 512 KiB raw payload (Spec-014 §Bounds, PR #341 round 2) — the Spec-007 wire is JSON with no binary serialization, so bytes ride encoded, sized so the 4/3 expansion plus envelope fits the 1 MB frame ceiling by arithmetic; the spool append decodes, and every byte bound counts the DECODED bytes
+}
+interface AttachmentIngestChunkResponse {
+  ingestId: string;
+  receivedBytes: number; // spooled running total of DECODED bytes after this chunk — the enforced byte bound; exceeding max_attachment_ingest_bytes refuses with artifact.too_large (413) and deletes the spool
+}
+interface AttachmentIngestCompleteRequest {
+  ingestId: string; // Complete runs pipeline steps 3-8 over the spooled bytes (signature detection reads a bounded leading prefix); step 8's admitting CAS rename commits the payload — admission is the pipeline's final successful act (Spec-014 pipeline step 8, PR #341 round 2)
+}
+interface AttachmentIngestCompleteResponse {
   artifactId: ArtifactId;
   contentHash: string;
   normalizedName: string;
+  derivedMediaType: string; // server-derived from the payload signature — this, not Init's `mediaType`, is what the manifest records (for a signature-exempt type: the DECLARED subtype, admitted under the exemption after the UTF-8 well-formedness check — never a subtype invented from the bytes); returned so a caller that guessed wrong learns the reconciled truth
+  derivedSizeBytes: number; // server-derived byte length of the spooled payload — likewise authoritative over Init's declared bound
+}
+
+// ArtifactDelete — Spec-014 §Interfaces And Contracts + §Local Artifact Deletion And CAS Reclaim (V1)
+// (added 2026-08-16; Spec-022's artifact-payload posture already presupposed this mechanism — its retained
+// CEK "dies with the manifest row (artifact deletion)" — while the interface list named only four, so the
+// reference resolved to nothing). Three couplings are resolved by the contract rather than left implicit:
+//   (a) CAS refcount — the payload is reclaimed only when the LAST manifest naming its storage key is gone.
+//       The count is DERIVED from the surviving payload-reference rows, never a stored counter column
+//       (a counter is a second source of truth whose drift deletes bytes another manifest still names).
+//   (b) subject linkage — deleting a manifest that another names as its `subject` is REFUSED, and the
+//       response names the referencing manifests. Nulling the derivative's subject is prohibited: it would
+//       silently turn a derivative into an apparent original and destroy the provenance chain (I-014-2).
+//   (c) retained relay CEK — the delete PROCEEDS but takes the publisher-retained relay_cek_ciphertext with
+//       it, so re-publish for that artifact becomes impossible and the late-join artifact.no_access_key
+//       remedy is no longer available. The response must surface that rather than deleting silently — and
+//       the signal is grounded in LOCAL state alone (PR #341 round 3): the daemon reports the destroyed
+//       retained CEK (rePublishForeclosed), never a "pin lost" claim, because whether the relay still holds
+//       the blob is the relay's own refcount/TTL lifecycle, neither tracked after publish nor queried at
+//       delete time. Any still-pinned recipients fetch normally until the blob's own refcount-zero or TTL
+//       (Spec-014 §Delete step 8).
+interface ArtifactDeleteRequest {
+  artifactId: ArtifactId;
+}
+// Carried as ErrorResponse.details when the call refuses with artifact.delete_blocked (409) — the
+// code-specific details shape the typed SDK consumes (2026-08-17, PR #341 round 2; without it, the
+// "names the referencing manifests" requirement had no field name or value type). The generic
+// Record<string, unknown> stays the ErrorResponse-level type; this shape is the artifact.delete_blocked
+// contract for what that record contains.
+interface ArtifactDeleteBlockedDetails {
+  referencingArtifactIds: ArtifactId[]; // manifests naming the target as their `subject` — delete these derivatives first, or keep the source. BOUNDED (PR #341 round 3): at most the first 50, ascending by artifact id — deterministic across retries and always frame-fitting, because an unboundedly-derived source must not make its own 409 undeliverable; the full set is enumerable via the read path
+  referencingArtifactTotal: number; // total count of referencing manifests — may exceed referencingArtifactIds.length when the list is capped
+}
+interface ArtifactDeleteResponse {
+  artifactId: ArtifactId;
+  payloadDisposition: "reclaimed" | "reclaim_pending" | "retained_by_references"; // reclaimed = the CAS bytes are unlinked; retained_by_references = another manifest still names the shared payload, so the bytes deliberately stay; reclaim_pending = the post-commit unlink failed non-ENOENT (EACCES/EIO) and the periodic orphan sweep owns the retry — the zero-reference predicate over surviving rows is the durable reclaim record (PR #341 round 4; replaces the earlier payloadReclaimed boolean, which could not report the pending state truthfully)
+  rePublishForeclosed: boolean; // true when the deleted manifest carried a publisher-retained relay_cek_ciphertext, destroyed with the row: re-publish is permanently impossible for this artifact and the late-join artifact.no_access_key remedy is gone. Grounded in the destroyed LOCAL CEK alone — never a relay-liveness claim (PR #341 round 3; replaces the earlier relayPinLost spelling, whose truth value the daemon cannot derive once the relay has GC'd or expired the blob)
+  deletedAt: string;
 }
 
 // --- Cross-node artifact relay methods (2026-07-08 ADR-015 amendment): the
@@ -3102,8 +3200,26 @@ interface AttachmentIngestResponse {
 //     2026-08-12 and restored the plan and Spec-014 approved; the gate is now the §5 Tier-7 row —
 //     Plan-008-remainder + Plan-018 at Tier 5, Plan-021 at Tier 6 — plus phase decomposition, not the
 //     delta). Spec-014 §Interfaces names the methods;
-//     Spec-014 §Cross-Node Artifact Relay (V1) is the normative design — ArtifactUploadInit carries the relay-visible lifecycle envelope (digest, size, chunk accounting, retentionTier, wrapped-CEK recipient entries) as authenticated plaintext; ArtifactFetchAuthorizeResponse returns the calling node's relay-held wrapped CEK (thumbprint-selected; CEKs wrap to durable per-(participant, node) artifact-encryption keys, never session-ephemeral keys), ArtifactFetchComplete is the authenticated post-verification ack that alone writes delivered_at (never inferred from a chunk GET); the artifact.published event carries the signed cekCommitment, never wrapped CEKs (Spec-014 Publish steps 1/3/4, Fetch step 6).
+//     Spec-014 §Cross-Node Artifact Relay (V1) is the normative design — ArtifactUploadInit carries the relay-visible lifecycle envelope (digest, size, chunk accounting, retentionTier, wrapped-CEK recipient entries) as authenticated plaintext; ArtifactFetchAuthorize selects the recipient row on the REQUEST path (re-specified 2026-08-16): the caller presents the set of artifact-encryption key THUMBPRINTS it holds, the issuer requires exactly one row matching (ciphertext_digest, participant_id = token sub, key_thumbprint ∈ that set) — zero is artifact.no_access_key 404, two or more is artifact.fetch_unauthorized 403 refused fail-closed — derives node_id FROM the resolved row (never caller input), and corroborates an active-state runtime_node_attachments row for that node_id AND participant_id = the authenticated sub in the blob's own session before minting (the participant leg added 2026-08-17, PR #341 round 2 — a recipient row whose attested node_id names another participant's node fails corroboration rather than minting claims that describe no real attachment of the caller); the response returns that one row's wrapped CEK plus its key_thumbprint so the daemon knows which private key to unwrap with (CEKs wrap to durable per-(participant, node) artifact-encryption keys, never session-ephemeral keys). A thumbprint is a public-key fingerprint, not a credential: it disambiguates among rows the caller already owns and grants nothing, because participant_id is pinned to sub inside the same predicate. ArtifactFetchComplete is the authenticated post-verification ack that alone writes delivered_at (never inferred from a chunk GET); the artifact.published event carries the signed cekCommitment, never wrapped CEKs (Spec-014 Publish steps 1/3/4, Fetch steps 5-6).
 //     Deliberately not typed here yet — no invented shapes. ---
+
+// --- Attachment references on turn-scoped carriers (Spec-014 §Interfaces And Contracts, 2026-08-16).
+//     The element type is ArtifactId — an id into Spec-014's manifest space — carried as an ordered
+//     ArtifactId[], never an untyped element and never an inline byte payload: a carrier references
+//     artifacts by id only, and caller bytes enter through the boundary-validated ingest paths — the
+//     AttachmentIngest trio, or a boundary-crossing ArtifactPublish payload, both of which run the
+//     Spec-014 validation pipeline before anything is admitted. Caller-declared order
+//     is preserved end to end, and an element the turn cannot resolve or deliver surfaces as an explicit
+//     unresolved marker in its declared position naming the cause from the closed union — deleted,
+//     local_only_remote, or the manifest's own non-pinned replication status carried verbatim
+//     (pending_replication / over_cap / quota_exceeded / expired; PR #341 round 3) — silently dropping it
+//     is prohibited (Spec-014 §Fallback Behavior). The count bound is
+//     max_attachments_per_carrier, enforced here rather than on AttachmentIngest, whose Init/Chunk/Complete
+//     stream carries exactly one payload and has no count to cap.
+//     HumanPhaseFormSubmitRequest.attachmentArtifactIds already has this shape. The driver-boundary steer
+//     and intervention arms are still typed `unknown[]` and are DELIBERATELY NOT edited from the Plan-014
+//     side: those wire arms belong to the plans that own the driver boundary, and retyping them is
+//     registered as a Plan-014 cross-plan follow-up obligation so the change lands under its owners. ---
 
 // --- ArtifactKeyAttestationPayload — the `artifact_key_attestation` envelope-interior arm (typed
 //     2026-08-12, Codex PR #326 round 2: the §Envelope-Interior Application-Payload Kind Registry
@@ -3127,7 +3243,7 @@ interface ArtifactKeyAttestationPayload {
 }
 ```
 
-> **Tier-7 audit (NS-19) — ratified design (Plan-014 → `approved`).** The ArtifactPublish/ArtifactRead pair now composes a single named `ArtifactManifest` envelope (`Spec-014 §Interfaces And Contracts`) instead of inlining and duplicating the fields — this is the `ArtifactManifest` shape Plan-014 Task 1 mints, and the envelope Plan-011's `DiffArtifact` (`artifactType: "diff"`) rides per CP-014-1 / CP-011-2 (Plan-011 consumes the envelope **concept**, unchanged, not a flat field layout). `ArtifactPublishResponse` embeds `manifest: ArtifactManifest` per `Spec-014 §Interfaces And Contracts` ("must return artifact id **and manifest metadata**") — this **replaces the prior `manifestUrl` pointer**, which was drift from that "must" clause: the `ArtifactRead` clause grants handle/inline latitude to the **payload** on _Read_ only, never to the manifest, so both responses return the manifest metadata inline (D-014-3 — resolved by aligning the wire to the spec, not an owner decision). `ArtifactReadResponse` is `manifest` + `payloadHandle?`/`payload?` (`Spec-014 §Interfaces And Contracts`). The wire envelope mirrors the `artifact_manifests` row in [Local SQLite Schema](../schemas/local-sqlite-schema.md) 1:1: `digest`/`size` are **required** on the wire because a content-addressed manifest always carries both (I-014-1), and the at-rest `content_hash`/`size_bytes` columns are correspondingly **`NOT NULL`** — each producer (AttachmentIngest, ArtifactPublish) computes the SHA-256 + byte length from its own payload and inserts its manifest with both columns set in the same transaction as the payload-ref, and AttachmentIngest and ArtifactPublish are independent producers (the `artifactId` `AttachmentIngestResponse` returns resolves from the ingest-written manifest, not a later publish), so there is no payload-less manifest to reconcile (D-014-1). `annotations` is a dedicated OCI string→string column (D-014-2; at-rest `NOT NULL DEFAULT '{}'`), required on the wire, never folded into freeform `metadata`. The at-rest `replication_status` column (nullable) surfaces as the optional `replicationStatus?` wire field (A-014-3 — V1 writes `pending_replication` while a shared artifact awaits deferred payload transfer; open set, no closed union, mirroring the at-rest no-CHECK stance). _(2026-07-08: the deferred refinement arrived — the [Spec-014 §Cross-Node Artifact Relay (V1)](../../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1) amendment spec-names `pending_replication | pinned | over_cap | quota_exceeded | expired`, the at-rest column now carries the matching CHECK, and the wire field is the closed union above — the open-set stance in this dated record is superseded; the field stays optional.)_ Producer inputs are closed too (D-014-3): `ArtifactPublishRequest` accepts `subject?` (so a Task-4 I-014-2 derivative names its source at publish) and `annotations?`, while `size`/`digest` stay server-derived from `payload` — otherwise the `annotations` column and derivative `subject` would be write-dead. This wire edit + the `local-sqlite-schema.md` artifact edit + Plan-014 CP-014-1 / Task 3 form one whole-or-not bundle.
+> **Tier-7 audit (NS-19) — ratified design (Plan-014 → `approved`).** The ArtifactPublish/ArtifactRead pair now composes a single named `ArtifactManifest` envelope (`Spec-014 §Interfaces And Contracts`) instead of inlining and duplicating the fields — this is the `ArtifactManifest` shape Plan-014 Task 1 mints, and the envelope Plan-011's `DiffArtifact` (`artifactType: "diff"`) rides per CP-014-1 / CP-011-2 (Plan-011 consumes the envelope **concept**, unchanged, not a flat field layout). `ArtifactPublishResponse` embeds `manifest: ArtifactManifest` per `Spec-014 §Interfaces And Contracts` ("must return artifact id **and manifest metadata**") — this **replaces the prior `manifestUrl` pointer**, which was drift from that "must" clause: the `ArtifactRead` clause grants handle/inline latitude to the **payload** on _Read_ only, never to the manifest, so both responses return the manifest metadata inline (D-014-3 — resolved by aligning the wire to the spec, not an owner decision). `ArtifactReadResponse` is `manifest` + `payloadHandle?`/`payload?` (`Spec-014 §Interfaces And Contracts`). The wire envelope mirrors the `artifact_manifests` row in [Local SQLite Schema](../schemas/local-sqlite-schema.md) 1:1: `digest`/`size` are **required** on the wire because a content-addressed manifest always carries both (I-014-1), and the at-rest `content_hash`/`size_bytes` columns are correspondingly **`NOT NULL`** — each producer (AttachmentIngest, ArtifactPublish) computes the SHA-256 + byte length from its own payload and inserts its manifest with both columns set in the same transaction as the payload-ref, and AttachmentIngest and ArtifactPublish are independent producers (the `artifactId` `AttachmentIngestResponse` returns resolves from the ingest-written manifest, not a later publish), so there is no payload-less manifest to reconcile (D-014-1). _(2026-08-17: `AttachmentIngest` is now carried as the `AttachmentIngestInit`/`AttachmentIngestChunk`/`AttachmentIngestComplete` trio — the resolving response in this dated record is today's `AttachmentIngestCompleteResponse`; the producer-independence design is unchanged.)_ `annotations` is a dedicated OCI string→string column (D-014-2; at-rest `NOT NULL DEFAULT '{}'`), required on the wire, never folded into freeform `metadata`. The at-rest `replication_status` column (nullable) surfaces as the optional `replicationStatus?` wire field (A-014-3 — V1 writes `pending_replication` while a shared artifact awaits deferred payload transfer; open set, no closed union, mirroring the at-rest no-CHECK stance). _(2026-07-08: the deferred refinement arrived — the [Spec-014 §Cross-Node Artifact Relay (V1)](../../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1) amendment spec-names `pending_replication | pinned | over_cap | quota_exceeded | expired`, the at-rest column now carries the matching CHECK, and the wire field is the closed union above — the open-set stance in this dated record is superseded; the field stays optional.)_ Producer inputs are closed too (D-014-3): `ArtifactPublishRequest` accepts `subject?` (so a Task-4 I-014-2 derivative names its source at publish) and `annotations?`, while `size`/`digest` stay server-derived from `payload` — otherwise the `annotations` column and derivative `subject` would be write-dead. This wire edit + the `local-sqlite-schema.md` artifact edit + Plan-014 CP-014-1 / Task 3 form one whole-or-not bundle.
 
 ### Plan-015 — Persistence Recovery And Replay
 

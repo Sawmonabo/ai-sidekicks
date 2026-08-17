@@ -568,7 +568,7 @@ CREATE INDEX idx_pr_preparations_branch ON pr_preparations(branch_context_id);
 ```sql
 -- Owner: Plan-014
 -- Tier-7 audit (NS-19): + subject, size_bytes, annotations realize the OCI manifest envelope (D-014-1, D-014-2);
---   + replication_status realizes the Spec-014:66 manifest-first replication surface (A-014-3) — nullable;
+--   + replication_status realizes the Spec-014 §Fallback Behavior manifest-first replication surface (A-014-3) — nullable;
 --   the multi-state CHECK the audit deferred (anti-fabrication) arrived 2026-07-08: the cross-node relay
 --   amendment spec-names the full value set (Spec-014 §Cross-Node Artifact Relay (V1)); see note below;
 --   + relay_cek_ciphertext arrived 2026-07-09 (publisher-retained CEK, Spec-014 Publish step 1).
@@ -576,6 +576,7 @@ CREATE TABLE artifact_manifests (
   id                 TEXT PRIMARY KEY,
   session_id         TEXT NOT NULL,
   run_id             TEXT,
+  created_by         TEXT,                       -- participant_id of the publishing caller; NULL for a daemon-produced artifact with no attributable caller. The permission-matrix Delete own-artifacts scope evaluates this column FAIL-CLOSED: NULL matches no collaborator, so only the owner role deletes it (PR #341 round 2 — a rule the store carries no data to evaluate is prose, not policy)
   artifact_type      TEXT NOT NULL              -- Spec-014 §Interfaces And Contracts discriminator (D-014-4)
                      CHECK(artifact_type IN ('file', 'diff', 'summary', 'log', 'design', 'workflow_output')),
   subject            TEXT REFERENCES artifact_manifests(id),  -- OCI `subject`: NULL for originals; a derivative (redacted/summarized shareable form) points to its source manifest, never an in-place UPDATE of the original (I-014-2, Spec-014 §State And Data Implications, A-014-4)
@@ -610,6 +611,10 @@ CREATE TABLE artifact_payload_refs (
 );
 
 CREATE INDEX idx_artifact_payload_refs_manifest ON artifact_payload_refs(manifest_id);
+-- 2026-08-17 (PR #341 round 2): the derived-refcount lookup key — ArtifactDelete and the session sweep
+-- count surviving references by storage_path on every reclaim decision (Spec-014 §Local Artifact
+-- Deletion And CAS Reclaim (V1)), and an unindexed lookup would full-scan the table each time.
+CREATE INDEX idx_artifact_payload_refs_storage_path ON artifact_payload_refs(storage_path);
 
 -- Owner: Plan-014 (2026-07-09 cross-node relay amendment)
 -- The daemon-local durable artifact-encryption keypair — one row per participant on this node

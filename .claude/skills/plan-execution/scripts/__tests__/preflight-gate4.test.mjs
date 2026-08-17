@@ -3557,7 +3557,14 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // and the PR's Codex round-1 run-boundary repair added I-009-3 to the
     // T-009-2B-4 row — eight more bold resolved references in total; the
     // legacy channel is unchanged.
-    bold: { resolved: 839, noneArm: 152, parentResolved: 0 },
+    // 839/152 -> 843/152 (2026-08-16/17, Plan-014 artifact-lifecycle amendment
+    // + its in-swap NS-64 delta): three new tasks, each with a RESOLVED
+    // `Verifies invariant:` arm carrying four id references in total —
+    // T14.11 (I-014-11), T14.12 (I-014-12, I-014-2), T14.13 (I-014-13).
+    // T14.8's row is rewritten in prose but its six-id set is unchanged, so
+    // it contributes no delta; no none-arm is added or removed, and the
+    // legacy channel is unchanged.
+    bold: { resolved: 843, noneArm: 152, parentResolved: 0 },
     legacy: { resolved: 61, noneArm: 3, parentResolved: 1 },
   });
 });
