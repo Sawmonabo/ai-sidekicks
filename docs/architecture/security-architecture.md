@@ -318,6 +318,7 @@ Candidate implementations under evaluation include OpenMLS (Rust, MIT) and mls-r
 | Resolve approval requests | Yes | Yes (own scope) | No | No |
 | **Artifacts and workspace** |  |  |  |  |
 | Publish artifacts | Yes | Yes | No | No |
+| Delete artifacts (`ArtifactDelete`, local manifest + CAS reclaim per `Spec-014 §Local Artifact Deletion And CAS Reclaim (V1)`; an unauthorized caller is refused `artifact.delete_forbidden` (403) before any mutation, and an authorized one is still refused `artifact.delete_blocked` (409) while another manifest names the target as its `subject`) | Yes | Yes (own artifacts, by `artifact_manifests.created_by`; a NULL stamp — daemon-produced — matches no collaborator, so owner-only) | No | No |
 | Attach repositories | Yes | Yes | No | No |
 | **Read access** |  |  |  |  |
 | Read timeline | Yes | Yes | Yes (own node) | Yes |

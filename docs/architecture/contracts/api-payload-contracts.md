@@ -3028,6 +3028,7 @@ interface ArtifactManifest {
   id: ArtifactId;
   sessionId: SessionId;
   runId?: RunId;
+  createdBy?: ParticipantId; // = SQLite `created_by` — the publishing caller; absent when the daemon itself produced the artifact with no attributable caller. The permission-matrix Delete own-artifacts scope evaluates the at-rest column this mirrors FAIL-CLOSED: NULL matches no collaborator, so owner-only (PR #341 round 2)
   artifactType: ArtifactType; // discriminator — Spec-014 §Interfaces And Contracts (D-014-4: file|diff|summary|log|design|workflow_output)
   digest: string; // OCI `digest` (SHA-256) = SQLite content_hash — required: a content-addressed manifest always has one (I-014-1)
   size: number; // OCI manifest-descriptor `size` (payload byte length) = SQLite size_bytes — server-derived, always present
@@ -3114,7 +3115,7 @@ interface AttachmentIngestInitRequest {
   sessionId: SessionId;
   runId?: RunId;
   fileName: string; // caller-supplied; length/character-bounded before it is recorded, and NEVER a storage path component — CAS addressing keys the payload by its SHA-256 (Spec-014 §Implementation Notes)
-  mediaType: string; // ADVISORY — a hint used only to narrow the expected signature, never to widen acceptance
+  mediaType?: string; // ADVISORY and OPTIONAL — a hint used only to narrow the expected signature, never to widen acceptance; absent is a first-class state (Spec-014 pipeline step 4: "a declared type absent altogether is fine; the derived value stands"). One consequence is normative: an undetermined-signature payload with NO declaration has nothing to admit under the step-6 signature-exempt branch and is refused
   declaredSizeBytes: number; // ADVISORY total — refused with artifact.too_large (413) up front when it exceeds max_attachment_ingest_bytes; the spooled running count is the enforced truth
 }
 interface AttachmentIngestInitResponse {
@@ -3157,6 +3158,14 @@ interface AttachmentIngestCompleteResponse {
 interface ArtifactDeleteRequest {
   artifactId: ArtifactId;
 }
+// Carried as ErrorResponse.details when the call refuses with artifact.delete_blocked (409) — the
+// code-specific details shape the typed SDK consumes (2026-08-17, PR #341 round 2; without it, the
+// "names the referencing manifests" requirement had no field name or value type). The generic
+// Record<string, unknown> stays the ErrorResponse-level type; this shape is the artifact.delete_blocked
+// contract for what that record contains.
+interface ArtifactDeleteBlockedDetails {
+  referencingArtifactIds: ArtifactId[]; // every manifest naming the target as its `subject` — delete these derivatives first, or keep the source
+}
 interface ArtifactDeleteResponse {
   artifactId: ArtifactId;
   payloadReclaimed: boolean; // false when another manifest still references the shared CAS payload — the manifest is gone, the bytes stay
@@ -3171,7 +3180,7 @@ interface ArtifactDeleteResponse {
 //     2026-08-12 and restored the plan and Spec-014 approved; the gate is now the §5 Tier-7 row —
 //     Plan-008-remainder + Plan-018 at Tier 5, Plan-021 at Tier 6 — plus phase decomposition, not the
 //     delta). Spec-014 §Interfaces names the methods;
-//     Spec-014 §Cross-Node Artifact Relay (V1) is the normative design — ArtifactUploadInit carries the relay-visible lifecycle envelope (digest, size, chunk accounting, retentionTier, wrapped-CEK recipient entries) as authenticated plaintext; ArtifactFetchAuthorize selects the recipient row on the REQUEST path (re-specified 2026-08-16): the caller presents the set of artifact-encryption key THUMBPRINTS it holds, the issuer requires exactly one row matching (ciphertext_digest, participant_id = token sub, key_thumbprint ∈ that set) — zero is artifact.no_access_key 404, two or more is artifact.fetch_unauthorized 403 refused fail-closed — derives node_id FROM the resolved row (never caller input), and corroborates an active-state runtime_node_attachments row in the blob's own session before minting; the response returns that one row's wrapped CEK plus its key_thumbprint so the daemon knows which private key to unwrap with (CEKs wrap to durable per-(participant, node) artifact-encryption keys, never session-ephemeral keys). A thumbprint is a public-key fingerprint, not a credential: it disambiguates among rows the caller already owns and grants nothing, because participant_id is pinned to sub inside the same predicate. ArtifactFetchComplete is the authenticated post-verification ack that alone writes delivered_at (never inferred from a chunk GET); the artifact.published event carries the signed cekCommitment, never wrapped CEKs (Spec-014 Publish steps 1/3/4, Fetch steps 5-6).
+//     Spec-014 §Cross-Node Artifact Relay (V1) is the normative design — ArtifactUploadInit carries the relay-visible lifecycle envelope (digest, size, chunk accounting, retentionTier, wrapped-CEK recipient entries) as authenticated plaintext; ArtifactFetchAuthorize selects the recipient row on the REQUEST path (re-specified 2026-08-16): the caller presents the set of artifact-encryption key THUMBPRINTS it holds, the issuer requires exactly one row matching (ciphertext_digest, participant_id = token sub, key_thumbprint ∈ that set) — zero is artifact.no_access_key 404, two or more is artifact.fetch_unauthorized 403 refused fail-closed — derives node_id FROM the resolved row (never caller input), and corroborates an active-state runtime_node_attachments row for that node_id AND participant_id = the authenticated sub in the blob's own session before minting (the participant leg added 2026-08-17, PR #341 round 2 — a recipient row whose attested node_id names another participant's node fails corroboration rather than minting claims that describe no real attachment of the caller); the response returns that one row's wrapped CEK plus its key_thumbprint so the daemon knows which private key to unwrap with (CEKs wrap to durable per-(participant, node) artifact-encryption keys, never session-ephemeral keys). A thumbprint is a public-key fingerprint, not a credential: it disambiguates among rows the caller already owns and grants nothing, because participant_id is pinned to sub inside the same predicate. ArtifactFetchComplete is the authenticated post-verification ack that alone writes delivered_at (never inferred from a chunk GET); the artifact.published event carries the signed cekCommitment, never wrapped CEKs (Spec-014 Publish steps 1/3/4, Fetch steps 5-6).
 //     Deliberately not typed here yet — no invented shapes. ---
 
 // --- Attachment references on turn-scoped carriers (Spec-014 §Interfaces And Contracts, 2026-08-16).
