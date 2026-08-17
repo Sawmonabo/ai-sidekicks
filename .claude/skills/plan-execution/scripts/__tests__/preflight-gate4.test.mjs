@@ -3564,7 +3564,13 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // T14.8's row is rewritten in prose but its six-id set is unchanged, so
     // it contributes no delta; no none-arm is added or removed, and the
     // legacy channel is unchanged.
-    bold: { resolved: 843, noneArm: 152, parentResolved: 0 },
+    // 843/152 -> 844/152 (2026-08-17, Spec-009/Plan-009 carried-findings
+    // adjudication + its in-swap NS-65 delta): one new task with a RESOLVED
+    // `Verifies invariant:` arm carrying one id reference — T-009-2B-5
+    // (I-009-17). The four existing Phase-2B rows grow in prose but their
+    // id sets are unchanged, so they contribute no delta; no none-arm is
+    // added or removed, and the legacy channel is unchanged.
+    bold: { resolved: 844, noneArm: 152, parentResolved: 0 },
     legacy: { resolved: 61, noneArm: 3, parentResolved: 1 },
   });
 });

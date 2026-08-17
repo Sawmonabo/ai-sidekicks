@@ -2353,9 +2353,13 @@ Plan-018's identity / participant-state reads and updates are exposed as five `p
 // Plan-009 shared shapes (Tier-6 audit, D-009-2 / D-009-4) — canonical origin
 // packages/contracts/src/repo.ts; Plan-010 imports these per Plan-009 CP-009-1.
 type VcsType = "git" | "none";
-// Derived projection, never persisted — Spec-009 §Repo Mount Health (V1 Definition)
+// Derived projection, never persisted — Spec-009 §Repo Mount Health (V1 Definition).
+// "identity_mismatch": root reachable but the re-derived common directory no longer
+// equals the attach-persisted anchor (repo_mounts.metadata.commonDir); "unreachable"
+// takes precedence; re-attach is the recovery (2026-08-17 carried-findings
+// adjudication — additive-on-unshipped: widened before any Phase-3 wire consumer).
 interface RepoMountHealth {
-  status: "healthy" | "unreachable";
+  status: "healthy" | "unreachable" | "identity_mismatch";
   checkedAt: string; // ISO-8601 instant of the probe that produced the verdict
 }
 
@@ -2409,7 +2413,7 @@ interface WorkspaceBindRequest {
 }
 interface WorkspaceBindResponse {
   workspaceId: WorkspaceId;
-  fsRoot?: string; // absent while state = 'provisioning' (writable binds — Plan-010 fills the root at provisioning completion); present for read-only binds (the mount canonical root)
+  fsRoot?: string; // absent while state = 'provisioning' (writable binds — Plan-010 fills the root at provisioning completion); present for read-only binds (the EXACT ADMITTED RESOLVED DIRECTORY the bind requested — `directory` resolved against the mount canonical root for the relative form, taken as supplied for the absolute form, symlink-resolved and admitted by containment within an admitted root; equal to a containing root only when the bind names the root itself; 2026-08-17 carried-findings adjudication)
   executionMode: ExecutionMode;
   state: WorkspaceState;
 }
