@@ -885,7 +885,7 @@ Full workflow-engine V1 schema. Nine tables implement the 10-state phase machine
 
 The normalized-table-over-blob shape, the per-run hash-chained gate-resolution audit trail, and the rebuildable-projection split align with industry persistence precedents: durable-execution engines persist normalized state per run rather than monolithic blobs ([Restate — What is Durable Execution](https://restate.dev/what-is-durable-execution), fetched 2026-04-26); large-engine persistence tiers separate hot live state from cold archive ([Argo Workflows — Workflow Archive](https://argo-workflows.readthedocs.io/en/latest/workflow-archive/), fetched 2026-04-25); and append-only hash-chained audit trails are the canonical academic precedent for tamper-evident logging (_"a tamper-evident log... uses a hash chain to detect tampering with high probability"_ — [Crosby & Wallach, Efficient Data Structures for Tamper-Evident Logging, USENIX Security 2009](https://static.usenix.org/event/sec09/tech/full_papers/crosby.pdf), fetched 2026-04-25). `Spec-017 §References` > Persistence + hash-chain enumerates the full primary-source corpus.
 
-`workflow_definitions` stores no canvas geometry, at this table or any other. Canvas layout is client-local per `Spec-017 §Canvas layout is not definition bytes (SA-35)` — the same tier as `human_phase_form_state` drafts — because a mutable per-author geometry is neither immutable truth nor a projection rebuildable from `session_events`, and the SA-25 hierarchy defines no third durable tier. Layout travels between machines only inside the definition file form, outside the hashed body. **The nine-table census is unchanged by the visual-builder amendment: no table is added or removed.**
+`workflow_definitions` stores no canvas geometry, at this table or any other. Canvas layout is client-local per `Spec-017 §Canvas layout is not definition bytes (SA-35)` — the same tier as `human_phase_form_state` drafts — because a mutable per-author geometry is neither immutable truth nor a projection rebuildable from `session_events`, and the SA-25 hierarchy defines no third durable tier. Layout travels between machines only inside the definition file form, outside the hashed body. **The nine-table census is unchanged by every amendment since — the visual-builder amendment and the 2026-08-16 workflow-hardening amendment both add columns to tables that already exist: no table is added or removed.** The hardening amendment's growth is four park-and-resume projection columns across tables 3 and 4 plus two partial indexes; its always-on engine event record lands on the Plan-020-owned bounded-retention diagnostic tier (`Spec-017 §Engine event record (SA-43)`), whose bucket registration — including the fifth bucket's storage shape and any table-census move it implies, the existing four buckets being SQLite tables of this schema — is Plan-020's to record at its registration amendment (Plan-017 CP-017-9); no bucket for it exists in this schema today and the hardening amendment adds none.
 
 ```sql
 -- ========================================================================
@@ -1063,11 +1063,84 @@ CREATE TABLE workflow_phase_states (
   cancellation_reason     TEXT
                           CHECK(cancellation_reason IS NULL
                                 OR cancellation_reason IN ('sibling_failure','deadline_exceeded','user_cancel','gate_rejected')),
+  -- Park state (Spec-017 §Park integrity and cancellability (SA-42) + §Provider-limit
+  -- pacing and durable resumption (SA-40); added 2026-08-16, workflow-hardening
+  -- amendment). Four columns, all carried by the `workflow.phase_suspended` payload
+  -- and projected from it — so a rebuild from session_events reconstructs all four
+  -- byte-equal and none needs a special case in SA-25 — split RECORD versus LIVE,
+  -- and the asymmetry is the contract: park_reason / park_cause are the RECORD of a
+  -- park and survive resume and cancellation untouched, because rewriting them at
+  -- cancel would erase the only account of why a human was ever asked, while
+  -- auto_resume_at / park_attention_key are LIVE state and clear on every exit from
+  -- the park (SA-40 rule 5; the CHECK below). All four are per-phase, not per-run:
+  -- two parallel branches of one run may park concurrently against different
+  -- provider accounts with different reset boundaries (Spec-017 §Graph model —
+  -- nodes, ports, and edges (SA-32)), and a run-level schedule or fold key could
+  -- hold only one of them. A phase is parked iff `state = 'suspended'` and its
+  -- run's status is non-terminal; do not read the presence of a park reason as a
+  -- phase still waiting.
+  --
+  -- Closed two-value union, in domain lockstep with the contract union per Plan-017
+  -- I-017-12. Widening it is an additive MINOR bump under ADR-018 that moves this
+  -- CHECK and the contract union together — never a comment. `waiting-human` here is
+  -- the PARK reason and is a third distinct axis from the gate-result status of the
+  -- same spelling (Spec-017 §Phase-Type and Gate-Type Taxonomy) and from the
+  -- `workflow.phase_suspended` payload `reason` this column is projected from: one
+  -- word, three domains, deliberately not merged (the SA-17 late-rename cost in
+  -- miniature).
+  park_reason             TEXT
+                          CHECK(park_reason IS NULL
+                                OR park_reason IN ('waiting-human','provider-usage-limited')),
+  -- The engine's own sentence about why this run is waiting and, where a schedule is
+  -- armed, the instant it holds — read from the same value auto_resume_at below is
+  -- written from, so the time named in the cause and the time the
+  -- schedule holds are one value from one place and cannot drift. Bounded at 8 KiB,
+  -- truncated at a UTF-8 code-point boundary with a visible truncation marker: a
+  -- durable, operator-facing, engine-authored string with no bound is an unbounded
+  -- write on the projection tier. NEVER written into a phase output, an artifact, or
+  -- an agent-visible context — engine prose arriving through a model-output channel
+  -- is read as something a model said, and phase outputs are immutable truth (SA-16),
+  -- so the sentence would be unretractable.
+  park_cause              TEXT,
+  -- The armed resume instant (SA-40) — durable by construction, never an in-memory
+  -- timeout, so a park outlives daemon restart and the phase resumes itself. Armed
+  -- ONLY where the typed provider refusal carried a reset boundary the driver
+  -- stamped provider-reported; NULL where that provenance was a driver default, a
+  -- driver estimate, or absent, because an unscheduled park is a first-class state
+  -- and a boundary the driver called a guess is not a wall-clock instant to hold a
+  -- run against. Never armed at or past the run's deadline_at: the SA-2 wall-clock
+  -- deadline stays authoritative, and a phase that would wake after it parks
+  -- unscheduled and the run hard-fails at the deadline instead. Moved here from
+  -- workflow_runs 2026-08-17 (the workflow-hardening amendment's review round):
+  -- parallel branches park independently, so the schedule is phase state.
+  auto_resume_at          TEXT,                        -- RFC 3339 UTC; NULL unless a schedule is armed
+  -- The outage fold key (SA-40): provider + account identity + the credential
+  -- generation held stable across the refusing dispatch. Parked phases sharing a
+  -- non-null key present as ONE attention record, so one spent account refusing
+  -- many concurrent runs surfaces once. Correlation for presentation only — no
+  -- start, resume, retry, or schedule fire consults it, so it can never become an
+  -- availability lock (Plan-017 I-017-23).
+  park_attention_key      TEXT,
   -- Pool reservation (transient; for crash recovery decision)
   pool_reservation        TEXT,                        -- JSON {pty_slots: n, agent_memory_mb: n}; NULL after release
   -- Resume metadata
   resume_cursor           TEXT,                        -- opaque; for driver adapter; see Plan-015 recovery
   last_event_sequence     INTEGER,                     -- session_events.sequence projected from at rebuild
+  -- The LIVE half of SA-40's clear-on-exit rule, structural where SQLite can see
+  -- it: an armed instant or a fold key exists only on a phase sitting in the park.
+  -- SQLite enforces CHECKs per statement, so the same UPDATE that moves state out
+  -- of 'suspended' must null both live columns — the phase-exit half of rule 5 is
+  -- DDL-enforced, not a code convention, and it is STRONGER than the terminal-half
+  -- form the columns' original workflow_runs placement could express, because the
+  -- two cases that blocked a suspended-scoped CHECK there evaporate per-phase: a
+  -- parallel sibling's park is its own row, and a schedule fire that re-checked
+  -- and failed to transition leaves the phase 'suspended', where an armed value is
+  -- exactly legal. The run-cancel half cannot be DDL-enforced — run status lives
+  -- in workflow_runs and a CHECK cannot cross tables — so SA-42's cancel clears
+  -- these two columns in the cancel's own unit of work (code-enforced,
+  -- failure-injection-tested at Plan-017 T5.11) while park_reason / park_cause
+  -- above survive as the record.
+  CHECK(state = 'suspended' OR (auto_resume_at IS NULL AND park_attention_key IS NULL)),
   UNIQUE(workflow_run_id, phase_id, attempt_number)    -- retry creates new attempt row per C-9
 );
 
@@ -1076,6 +1149,18 @@ CREATE INDEX idx_workflow_phase_states_active ON workflow_phase_states(workflow_
   WHERE state IN ('admitted','waiting_on_pool','started','progressed','suspended','cancelling');
 CREATE INDEX idx_workflow_phase_states_parallel ON workflow_phase_states(parallel_join_id)
   WHERE parallel_join_id IS NOT NULL;
+-- Backs the boot sweep that re-arms every durable schedule after projection rebuild
+-- (SA-40 rule 4) and the attention fold's read of the parked phases one outage
+-- affected. Both predicates are the bare non-null form: the columns are non-null
+-- only across a park (the CHECK above confines them to `state = 'suspended'`), so
+-- a state predicate would narrow nothing. The sweep and the fold both join to
+-- workflow_runs.status and skip phases of terminal runs — the run-cancel clear is
+-- code-enforced rather than structural, so the read-side join is the belt to that
+-- suspender.
+CREATE INDEX idx_workflow_phase_states_auto_resume ON workflow_phase_states(auto_resume_at)
+  WHERE auto_resume_at IS NOT NULL;
+CREATE INDEX idx_workflow_phase_states_park_attention ON workflow_phase_states(park_attention_key)
+  WHERE park_attention_key IS NOT NULL;
 
 -- ========================================================================
 -- 5. phase_outputs — immutable per C-9; retry creates new output identity

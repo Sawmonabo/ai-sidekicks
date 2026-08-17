@@ -208,4 +208,15 @@ The items below were surfaced by the [plan-readiness-audit Tier 1](./operations/
 
 ---
 
+### BL-151: Workflow run-recovery wire surface (run-cancel / manual resume / re-pin)
+
+- Status: `todo`
+- Priority: `P1`
+- Owner: `unassigned`
+- References: [Spec-017 §Park integrity and cancellability (SA-42)](./specs/017-workflow-authoring-and-execution.md#park-integrity-and-cancellability-sa-42) (the recorded residual this item converts to tracked work); [Spec-017 §Frozen-definition repair (SA-41)](./specs/017-workflow-authoring-and-execution.md#frozen-definition-repair-sa-41) (the repair this surface requests); [Spec-017 §Provider-limit pacing and durable resumption (SA-40)](./specs/017-workflow-authoring-and-execution.md#provider-limit-pacing-and-durable-resumption-sa-40) (the unscheduled park this surface resumes); [Plan-017](./plans/017-workflow-authoring-and-execution.md) (T5.11/T5.12 ship the engine rules this surface invokes)
+- Summary: SA-40…SA-42 ship park cancellability, resumption semantics, and the audited re-pin as engine state-machine rules, but the wire registry carries no run-cancel, run-resume, or re-pin operation and the event taxonomy no run-cancelled lifecycle type — so an unscheduled park (a typed refusal carrying no provider-reported reset boundary) and the SA-41 repair have no reachable operator caller, and the `cancelled` run status has no named producer. The surface lands as one deliberate Spec-017 amendment, and the operation set (cancel; resume, carrying the optional explicit re-pin request) and the run-cancelled lifecycle event MUST mint together: a cancellation that moved run status without a canonical event would break the SA-25 rebuild — replay would restore the last suspension payload's schedule and attention key and resurrect a run the operator cancelled.
+- Exit Criteria: (1) a Spec-017 amendment registers the operation set and the run-cancelled lifecycle event together, with the wire-registry and event-taxonomy censuses moved and swept in that PR; (2) Plan-017 grows the handler task(s) wiring the operations onto the T5.11/T5.12 engine rules, with a projection-rebuild test proving a cancelled run's status and cleared live park columns are a function of the log; (3) the Spec-017 SA-42 residual paragraph and the Plan-017 §Risks And Blockers residual bullet are updated to point at the landed surface.
+
+---
+
 _Closed items live in [Backlog Archive](./archive/backlog-archive.md)._

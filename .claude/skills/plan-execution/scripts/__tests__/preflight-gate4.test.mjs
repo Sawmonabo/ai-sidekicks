@@ -3591,7 +3591,13 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // (table cells, no marker delta). T3.16/T3.17's rows grow in prose but
     // their id sets are unchanged; no none-arm is added or removed, and the
     // legacy channel is unchanged.
-    bold: { resolved: 855, noneArm: 152, parentResolved: 0 },
+    // 855/152 -> 863/152 (2026-08-17, the Spec-017/Plan-017 workflow-hardening
+    // amendment + its in-swap NS-68 delta): six new tasks, each with a
+    // RESOLVED `Verifies invariant:` arm, carrying eight id references in
+    // total — T1.9 (I-017-12), T2.5 (I-017-19, I-017-23), T2.6 (I-017-20),
+    // T5.11 (I-017-21), T5.12 (I-017-24), T5.13 (I-017-4, I-017-22); no
+    // none-arm is added or removed, and the legacy channel is unchanged.
+    bold: { resolved: 863, noneArm: 152, parentResolved: 0 },
     legacy: { resolved: 61, noneArm: 3, parentResolved: 1 },
   });
 });
