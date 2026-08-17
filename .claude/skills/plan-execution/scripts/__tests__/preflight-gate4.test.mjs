@@ -3570,7 +3570,12 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // (I-009-17). The four existing Phase-2B rows grow in prose but their
     // id sets are unchanged, so they contribute no delta; no none-arm is
     // added or removed, and the legacy channel is unchanged.
-    bold: { resolved: 844, noneArm: 152, parentResolved: 0 },
+    // 844/152 -> 848/152 (2026-08-17, Spec-016/Plan-016 cost display-
+    // consistency amendment + its in-swap NS-66 delta): no new task — the
+    // amendment adds I-016-24 to four existing RESOLVED `Verifies invariant:`
+    // rows (T2.5, T3.1, T3.2, T4.1), four more bold resolved id references;
+    // no none-arm is added or removed, and the legacy channel is unchanged.
+    bold: { resolved: 848, noneArm: 152, parentResolved: 0 },
     legacy: { resolved: 61, noneArm: 3, parentResolved: 1 },
   });
 });

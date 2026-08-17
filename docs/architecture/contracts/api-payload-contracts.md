@@ -3777,6 +3777,25 @@ interface OrchestrationBudgetState {
   // reservations + debits from run.queued records alone — native-cap ordinary runs included
   // (Spec-016 §Cost Derivation And Absent-Cost Semantics, campaign B6)
   reservedCostCents: number;
+  // ── Cost display consistency (Spec-016 §Cost Figure Display Consistency, 2026-08-17, D-016-24) ──
+  // A DECOMPOSITION of the number this response already reported, not new arithmetic: the two
+  // observed legs below are exactly the TWO folds observedCostCents is rebuilt from (see above),
+  // so they are replay-stable for the same reason it is. Identities hold at every fold state
+  // (asserted in Plan-016 T2.5, which also asserts the cross-surface equality with the
+  // observedValue the daemon stamps on a SESSION-COST usage.budget_warning at the same fold
+  // state — budgetType: 'session_cost' only; the run_tokens and agent_turns members of that
+  // union carry token and turn counts, not cents, and are outside the equality):
+  //   observedPricedCostCents + observedUnpricedDebitCents === observedCostCents
+  //   observedCostCents + reservedCostCents === committedSpendCents
+  observedPricedCostCents: number; // exact leg — Σ persisted usage.cost_update.costCents (priced-at-zero rows contribute 0)
+  observedUnpricedDebitCents: number; // worst-case leg — Σ run.queued.admittedUnpricedCapCents over TERMINAL native-cap runs
+  committedSpendCents: number; // the ENFORCED number — what admission compares against costLimitCents; a surfaced session cost figure is this value, never a sum over a visible run list (Spec-016 §Cost Figure Display Consistency clause (a); Plan-016 I-016-24)
+  // AGGREGATE reuse of the row-level Spec-006 §Usage Telemetry vocabulary, semantics defined at the
+  // Spec-016 subsection: 'priced' iff observedUnpricedDebitCents === 0 && reservedCostCents === 0,
+  // else 'unpriced'. Supplied by the wire so no client derives provenance (Plan-016 I-016-19 zero
+  // client derivation / I-016-16 SDK marshals-never-derives). Observability ONLY — enforcement
+  // reads committedSpendCents and MUST NOT branch on this, per the no-dual-trust-regimes rule.
+  costStatus: "priced" | "unpriced";
 }
 type OrchestrationBudgetReadResponse = OrchestrationBudgetState;
 interface OrchestrationBudgetUpdateRequest {
@@ -3793,6 +3812,12 @@ interface OrchestrationBudgetUpdateRequest {
   // fail-closed escape for unpriced families on native-cap legs (Spec-016, campaign B6)
   unpricedFamilyCaps?: { modelFamily: string; hardCapUsdCents: number }[]; // replace-set keyed by modelFamily: one entry per family, duplicates rejected at validation
 }
+// Same state type as the read response — so the cost-display members above (including
+// committedSpendCents) are REQUIRED here too, and are served from the one BudgetAccountant
+// committed-spend accessor exactly as the read is: a budgetUpdate reply reports the new limits
+// alongside committed spend at that post-write fold state, never a binder-assembled total
+// (Spec-016 §Cost Figure Display Consistency clauses (a)+(c); Plan-016 I-016-24, T3.1 serving,
+// T2.5 accessor). An update reply and an immediately following read carry an identical decomposition.
 type OrchestrationBudgetUpdateResponse = OrchestrationBudgetState;
 
 interface SessionGoal {
