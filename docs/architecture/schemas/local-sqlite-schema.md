@@ -128,7 +128,7 @@ CREATE TABLE queue_items (
 CREATE INDEX idx_queue_items_session_state ON queue_items(session_id, state);
 CREATE INDEX idx_queue_items_channel ON queue_items(channel_id) WHERE channel_id IS NOT NULL;
 
--- Owner: Plan-004 (campaign B9 adds rejection_reason) | Extended by: Spec-005 campaign B3 (client_idempotency_key intervention dedupe); Spec-004 campaign B2 (rollback type — targetPosition rides the payload JSON, no new column)
+-- Owner: Plan-004 (campaign B9 adds rejection_reason; the Spec-004 2026-08-16 rewind-hardening amendment adds the pii_payload / pii_participant_id pair) | Extended by: Spec-005 campaign B3 (client_idempotency_key intervention dedupe); Spec-004 campaign B2 (rollback type — targetPosition rides the payload JSON, no new column)
 CREATE TABLE interventions (
   id                     TEXT PRIMARY KEY,
   target_run_id          TEXT NOT NULL,
@@ -136,9 +136,11 @@ CREATE TABLE interventions (
                          CHECK(type IN ('steer', 'interrupt', 'cancel', 'rollback')),
   state                  TEXT NOT NULL DEFAULT 'requested'
                          CHECK(state IN ('requested', 'accepted', 'applied', 'rejected', 'degraded', 'expired')),
-  payload                TEXT NOT NULL DEFAULT '{}', -- JSON: type-specific fields
+  payload                TEXT NOT NULL DEFAULT '{}', -- JSON: type-specific NON-PII fields only — a rollback's replacementSend body never rides this column (it encrypts into pii_payload; Spec-004 §Required Behavior at-rest split, 2026-08-16 amendment)
   expected_run_version   INTEGER NOT NULL,           -- MANDATORY fail-closed comparand (Spec-004 §Interfaces And Contracts / Plan-004 D-004-2)
   client_idempotency_key TEXT NOT NULL,              -- MANDATORY requester-generated UUID (participant client or daemon system-origination); replay-or-conflict intervention dedupe (Spec-005 §Required Behavior, campaign B3)
+  pii_payload            BLOB,                       -- encrypted per-participant AES-256-GCM via Plan-006's PiiEncryptor (CP-006-1): the rollback replacementSend body (Spec-004 2026-08-16 amendment); same-key parity with session_events.pii_payload, so the Plan-022 Path-1 key deletion shreds both copies identically
+  pii_participant_id     TEXT,                       -- PII owner stamp: the requesting participant whose key encrypts pii_payload; NULL on rows carrying no PII leg
   result                 TEXT,                       -- JSON: outcome details
   rejection_reason       TEXT,                       -- machine-readable rejected cause (driver.capability_unsupported foremost) — replay-durable: the wire contract forbids result on rejected, so an idempotent replay reconstructs rejectionReason from this column (Plan-004 T1.4/T3.12, campaign B9)
   initiator_id           TEXT,                       -- participant or system
