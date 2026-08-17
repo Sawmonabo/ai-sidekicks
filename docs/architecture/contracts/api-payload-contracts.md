@@ -3791,8 +3791,14 @@ interface OrchestrationBudgetState {
   observedUnpricedDebitCents: number; // worst-case leg — Σ run.queued.admittedUnpricedCapCents over TERMINAL native-cap runs
   committedSpendCents: number; // the ENFORCED number — what admission compares against costLimitCents; a surfaced session cost figure is this value, never a sum over a visible run list (Spec-016 §Cost Figure Display Consistency clause (a); Plan-016 I-016-24)
   // AGGREGATE reuse of the row-level Spec-006 §Usage Telemetry vocabulary, semantics defined at the
-  // Spec-016 subsection: 'priced' iff observedUnpricedDebitCents === 0 && reservedCostCents === 0,
-  // else 'unpriced'. Supplied by the wire so no client derives provenance (Plan-016 I-016-19 zero
+  // Spec-016 subsection: 'priced' iff observedUnpricedDebitCents === 0 && reservedCostCents === 0
+  // && no mid-run tier-(c) coverage-loss classification is recorded in the session's persisted
+  // history (that class's in-flight unpriced usage is unobservable and enters no fold leg, so
+  // both identities above still hold; replay key: the persisted usage.budget_warning with reason
+  // 'unpriced-model' carrying the interrupted run's runId — required on that emission path by
+  // Spec-016 §Cost Figure Display Consistency; an admission-time family block stamps no runId
+  // and is never residue), else 'unpriced'. Supplied by the wire so no client derives
+  // provenance (Plan-016 I-016-19 zero
   // client derivation / I-016-16 SDK marshals-never-derives). Observability ONLY — enforcement
   // reads committedSpendCents and MUST NOT branch on this, per the no-dual-trust-regimes rule.
   costStatus: "priced" | "unpriced";
