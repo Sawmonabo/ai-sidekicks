@@ -303,6 +303,7 @@ preconditions:
 - Satisfies §Invariants I-009-15 and I-009-16; re-verifies the amended I-009-1 and I-009-3
 - Sourced from `Spec-009 §Repo Identity And Common-Directory Keying (V1 Definition)`, the amended `Spec-009 §Local Trust Envelope (V1 Definition)` registered-working-tree admission rule, and acceptance criteria 4 and 5 — all landed by the 2026-08-16 repo-identity amendment (AC5's fifth refusal shape, the failed bidirectional root verification, added in the same PR's Codex round; the derivation-first arm order, the at-path-and-strictly-between unusable-metadata screen, the persisted-identity match, and the CP-009-9 branch-mode leg added in its round 2)
 - Mints **no** wire contract change: `RepoAttachRequest` / `RepoAttachResponse` / `WorkspaceBind*` / `WorkspaceList*` are untouched, `RepoRootResolutionError`'s five-member reason union is untouched (the new refusals map onto `path_not_found`, `vcs_error`, and `root_mismatch`), no error code is added to error-contracts.md §Repo, and no migration lands — `repo_mounts.canonical_root` and `workspaces.fs_root` keep their DDL and change only in which value the daemon computes for them, while the round-2 persistence legs ride the existing metadata JSON columns (`repo_mounts.metadata.commonDir`, `workspaces.metadata.boundRoot` — schema-doc comment rows updated, no DDL, and absent keys degrade to the pre-amendment reading so no backfill is needed)
+- **Carried-forward review obligations:** the eleven PR #340 Codex round-3/4 findings enumerated in this plan's §Progress Log entry of 2026-08-17 are triaged inside this phase's implementation PR — each implemented, refuted with recorded reasoning, or re-routed to the plan that owns its surface — before this phase's manifest entry lands
 
 #### Tasks
 
@@ -722,6 +723,28 @@ One documentation-only rider corrected a file this plan does not own. The Plan-0
 **Cross-plan touch rationale (Housekeeping Exception, [cross-plan-dependencies.md §Ownership Rule](../architecture/cross-plan-dependencies.md#ownership-rule)):** (a) comment-only — zero runtime or behavioral change, strictly inside the exception's structural-only bound; (b) first discoverable via this plan's composition — T2.2's `workspace-event-emitter.ts` mirrors the shipped emitter pattern per its T2.2 Note, and the T2.5 review round's audit of the mirrored comment against the actual field declarations is what falsified the claim, in the copy and its origin alike; (c) 3 changed comment lines, one sub-day dispatch; (d) one-time correction — Plan-003 retains ownership of its emitter, and Plan-009 claims no ongoing edit rights. This block is the criterion-(e) disclosure.
 
 **Refs:** Plan-003 Phase 2 (`node-event-emitter.ts` original ship, NS-31 / PR #137).
+
+**PR #340 follow-up (2026-08-17) — durable carrier for the eleven Codex findings carried forward from review rounds 3+4.**
+
+PR #340's Codex review rounds 3 and 4 raised eleven findings that were answered on the PR's threads but deliberately not folded into the amendment diff — each reply records the docs-round scoping and promises implementation-time triage. A reply on a resolved thread of a merged PR is not a durable carrier: nothing on the dependency DAG or in this plan's body would otherwise surface those findings to the Phase 2B implementer. This entry is the carrier. The Phase 2B implementation PR MUST triage every item below — implement it, refute it with recorded reasoning, or re-route it to the plan that owns the surface — before Phase 2B's manifest entry lands; the Phase 2B head carries the matching pointer bullet. Thread anchors resolve against the PR page as `https://github.com/Sawmonabo/ai-sidekicks/pull/340#<anchor>`.
+
+The eleven, by review title, priority badge, and thread anchor:
+
+1. Revalidate the target root before branch reprovision (P1, `discussion_r3793963408`)
+2. Define a health outcome for identity mismatches (P2, `discussion_r3793963415`)
+3. Reconcile AC4 with the separate-git-dir refusal (P2, `discussion_r3793963421`)
+4. Preserve repository-wide snapshots for nested branch binds (P1, `discussion_r3793963426`)
+5. Key active-mount uniqueness on the common directory (P1, `discussion_r3794009994`)
+6. Expand the envelope definition to include registered roots (P1, `discussion_r3794009995`)
+7. Cite the Git discovery behavior that drives the scanner (P1, `discussion_r3794009996`)
+8. Recheck nested worktrees before canonical-root admission (P1, `discussion_r3794009997`)
+9. Case-fold the common-directory basename check (P2, `discussion_r3794010000`)
+10. Describe the resolved read-only root in the response (P2, `discussion_r3794010002`)
+11. Extend branch-mode immutability to the bound checkout (P2, `discussion_r3794010005`)
+
+Status adjudication under the [runbook §Status Flip Rule](../operations/plan-implementation-readiness-audit-runbook.md#status-flip-rule): stays `approved` — this entry and the Phase 2B pointer bullet mint no task, invariant, CP row, phase, or Required ADR; they record review obligations already publicly answered on the merged PR, the same class as PR #297's practice of writing phase-facing obligations into the phase Goal rather than silently deferring them. No census moves.
+
+**Refs:** PR #340 (the Spec-009/Plan-009 repo-identity amendment, §6 node NS-63), Phase 2B — Repo Identity Keying And Resolution Hardening (this plan's §Implementation Phase Sequence).
 
 ## Done Checklist
 
