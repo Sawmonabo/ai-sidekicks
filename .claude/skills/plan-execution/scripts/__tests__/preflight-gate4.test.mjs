@@ -3613,7 +3613,15 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // more bold resolved id references. Both ids are declared by the same
     // amendment, so every reference resolves; no none-arm is added or removed,
     // and the legacy channel is unchanged.
-    bold: { resolved: 876, noneArm: 152, parentResolved: 0 },
+    // 876/152 -> 877/152 (2026-08-18, the Plan-004/Plan-013 desktop
+    // edit-affordance placement amendment + its in-swap NS-73 delta, landing
+    // after NS-72 above): one new task, Plan-004 T4.8, with a RESOLVED
+    // `Verifies invariant:` arm carrying a single id reference (I-004-24).
+    // Plan-013 T4.2 grows in prose and gains Files/Provides/Tests bullets but
+    // its `Verifies invariant:` line is untouched; I-004-24's Verified-by cell
+    // names T4.8 symmetrically (a table cell, no marker delta). No none-arm is
+    // added or removed, and the legacy channel is unchanged.
+    bold: { resolved: 877, noneArm: 152, parentResolved: 0 },
     legacy: { resolved: 61, noneArm: 3, parentResolved: 1 },
   });
 });
