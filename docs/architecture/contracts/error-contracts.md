@@ -375,6 +375,20 @@ The `workflow.start_denied` row landed as the first entry of the extension the s
 | `driver.cli_version_below_floor` | The provider CLI's reported version parsed cleanly but is below the configured per-driver minimum floor; capability attach/refresh fails closed until the provider install is upgraded (`Spec-005 §Required Behavior`, campaign B3 — distinct from `version.floor_exceeded`, which is scoped to client/event-envelope contract floors, not provider CLI installs) | 409 |
 | `driver.not_authenticated` | The zero-turn `probeAuth` did not report `authenticated` (`unauthenticated`, or `indeterminate` treated fail-closed); run admission is refused before any billed turn — remediation is re-authenticating the provider CLI on the runtime node (`Spec-005 §Required Behavior`, campaign B3). Mid-run credential expiry is the separate `reauth-required` `RecoveryCondition`, not this code | 409 |
 
+### Provider Account
+
+Refusals on the node-local provider-account plane ([Spec-029](../../specs/029-provider-accounts-and-credential-homes.md)). Every one of these is **fail-closed**: the daemon refuses the run rather than falling back to ambient credentials, to a different account, or to an unvalidated home. A silent fallback here would execute against an account the operator did not choose and bill spend to a party that never authorized it, so there is deliberately no permissive path.
+
+| Code | Description | HTTP Status |
+| --- | --- | --- |
+| `provideraccount.not_registered` | No account is registered for the requested provider; a provider run cannot be admitted. The remedy is registration, not a default — there is nothing to default to | 400 |
+| `provideraccount.no_default` | Accounts exist for the provider but none is marked default and the request supplied no per-run override, so resolution is ambiguous and refuses rather than picking one | 400 |
+| `provideraccount.unknown` | The referenced `providerAccountId` is not present in the registry (never registered, or removed after the reference was taken) | 404 |
+| `provideraccount.credential_home_unavailable` | The account's credential home is missing, unreadable, or structurally unusable; the run is refused rather than rebound to another account's home (I-029-8) | 503 |
+| `provideraccount.not_authenticated` | Pre-spawn validation did not report `authenticated` — including the `indeterminate` probe result, which is treated as not-authenticated rather than assumed healthy (I-029-3) | 401 |
+| `provideraccount.permission_denied` | The caller lacks node-operator authority for a mutating registry verb, or the per-run account override is denied by policy; a relayed mutation is refused on the same code (I-029-1) | 403 |
+| `provideraccount.default_conflict` | A concurrent set-default lost the partial-unique-index race; the database refused the second writer rather than leaving two defaults for one provider (I-029-5) | 409 |
+
 ### MCP Governance
 
 | Code | Description | HTTP Status |

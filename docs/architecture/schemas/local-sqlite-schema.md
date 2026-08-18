@@ -289,7 +289,7 @@ CREATE TABLE driver_capabilities (
 -- Owner: Plan-005
 -- Per-tool metadata for the daemon's two-phase command-receipt protocol at
 -- crash-recovery dispatch time (idempotency_class lookup without round-tripping
--- the driver per Spec-005:178-180). Normalized per-tool rows mirror the
+-- the driver per Spec-005 §Recovery Consequences). Normalized per-tool rows mirror the
 -- per-flag-row shape of driver_capabilities.
 CREATE TABLE driver_tools (
   driver_name        TEXT NOT NULL,
@@ -308,7 +308,7 @@ CREATE TABLE driver_tools (
 -- (driver_capabilities + driver_tools are per-driver children); this parent row holds the
 -- single per-driver contract_version so cold-start hydration can reconstruct
 -- GetCapabilitiesResult = { capabilities: { flags, contractVersion }, tools } WITHOUT
--- round-tripping the driver (Spec-005:178-180 cache-as-source-of-truth). Distinct from
+-- round-tripping the driver (Spec-005 §Recovery Consequences cache-as-source-of-truth). Distinct from
 -- runtime_bindings.contract_version, which records the version bound to a specific run.
 -- Provider-output defense-in-depth CHECK (Plan-005 T2.1): `contract_version`
 -- mirrors the `runtime_bindings.contract_version` bound (length + NUL-rejection,
@@ -1701,6 +1701,41 @@ CREATE TABLE mcp_mutation_receipts (
 Receipts are **two-phase** because the provider config write is an external side effect no SQLite transaction can span. The `'pending'` intent row (key, operation, digest) commits in its **own transaction before** the provider leg runs; finalization — `status = 'committed'` plus the recorded response — commits in the **same transaction** as the mutation's governance-store writes and `EventLogService` append, making acknowledgment, audit event, and replay evidence atomic. That closes both crash windows: crash before the provider leg leaves a pending intent with no provider effect (startup reconciliation expires it — the caller retries fresh); crash after a durable provider write but before finalization leaves a pending intent whose provider state startup reconciliation verifies, completing the store writes and appending the event set **exactly once, late**, then finalizing. An identical-key retry that meets a pending row first drives that reconciliation, then replays the finalized response; a lost IPC response after commit can re-drive only the provider leg (safe by construction — sanctioned provider writes are upserts, full-set replacements, or version-guarded), never a second acknowledgment or a duplicate governance event. Receipts are deliberately **not** part of the audit trail (events are) and carry no config values — the digest is a keyed canonical-request hash used solely for equality, never served back by any code path (the `mcp.idempotency_conflict` refusal names the key, not the digests).
 
 ---
+
+## Provider Account Tables (Plan-029)
+
+Node-local registry of the provider accounts this runtime node may execute against, for [Spec-029](../../specs/029-provider-accounts-and-credential-homes.md). One row per registered account. The table stores **no credential material of any kind** — no token, no refresh token, no cookie, no keychain payload. Credentials live inside the per-account credential home, owned and written by the provider's own tooling; the daemon brokers refresh without ever holding the values, so there is no credential column here to leak, log, or shred. What is stored is the identity of an account, where its home lives, and how it bills.
+
+`account_id` is daemon-minted, opaque, and immutable. It is deliberately **not** derived from credential material, an email address, or any provider-side subject identifier: those rotate, and an identity that rotates cannot key historical spend. `credential_generation` is a monotonic integer bumped at every credential-home lifecycle transition (initial authentication, re-authentication, revocation, home rebuild). The pair `(account_id, credential_generation)` is the account-plane key — a quota reading or usage-limit signal taken under one generation must not be read as current after a re-authentication, which is exactly what the generation makes detectable.
+
+```sql
+-- Owner: Plan-029
+CREATE TABLE provider_accounts (
+  account_id            TEXT PRIMARY KEY,  -- daemon-minted opaque immutable identity; never derived from credential material (Spec-029 §Account identity and credential generation)
+  provider              TEXT NOT NULL
+                        CHECK(provider IN ('claude', 'codex')),  -- the same closed driver-id union the MCP governance tables use
+  display_label         TEXT NOT NULL,  -- operator-chosen label for disambiguation in the UI; free text, treated as participant-adjacent PII (Spec-022 §PII Data Map)
+  credential_home_path  TEXT NOT NULL,  -- absolute path to this account's isolated credential home; the daemon constructs the spawn environment from it and never inherits ambient provider credentials (I-029-4)
+  credential_generation INTEGER NOT NULL DEFAULT 1,  -- monotonic, starts at 1; bumped at every credential-home lifecycle transition (I-029-2)
+  billing_mode          TEXT NOT NULL
+                        CHECK(billing_mode IN ('subscription', 'metered', 'unknown')),  -- how this account is charged; `unknown` is the honest-absence arm, never a synonym for metered; drives cost labeling, never cost derivation (Spec-029 §Billing mode)
+  is_default            INTEGER NOT NULL DEFAULT 0
+                        CHECK(is_default IN (0, 1)),  -- exactly one default per provider, enforced by the partial unique index below
+  created_at            TEXT NOT NULL,
+  updated_at            TEXT NOT NULL
+);
+
+-- Exactly one default account per provider (I-029-5). A partial unique index rather than
+-- application-level enforcement: two concurrent set-default calls racing on the same provider
+-- would both read "no other default" and both write one, and the resulting ambiguity would be
+-- resolved silently at the next spawn by whichever row sorted first — binding a run, and its
+-- spend, to an account the operator did not choose. The database refuses the second writer instead.
+CREATE UNIQUE INDEX provider_accounts_one_default_per_provider
+  ON provider_accounts(provider)
+  WHERE is_default = 1;
+```
+
+Spend is joined to an account without duplicating account identity onto every usage row. A provider run carries the server-stamped `admittedProviderAccountId` on its `run.queued` admission record, so priced usage rows join to an account **through the run**. The one usage kind that carries account identity directly is `usage.rate_limit_update`, because provider quota is account-scoped and has no run to join through — the asymmetry is deliberate, and it also keeps participant identity off every usage row.
 
 ## Schema Version Table
 

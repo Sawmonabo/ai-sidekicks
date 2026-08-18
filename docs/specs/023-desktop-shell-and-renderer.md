@@ -355,7 +355,7 @@ Update signature verification must use an Ed25519 or ECDSA-P256 signing key pinn
 
 ## Signature Feature Composition Sketches
 
-Each V1 Signature Feature view must compose daemon and control-plane state via the preload bridge. The owning plan listed in parentheses is the canonical source of feature behavior; the renderer is a read-and-steer projection of that behavior, not the source of truth.
+Each V1 Signature Feature view must compose daemon and control-plane state via the preload bridge. The owning plan listed in parentheses is the canonical source of feature behavior; the renderer is a read-and-steer projection of that behavior, not the source of truth. The section also carries operator-plane views that compose under the identical rule without themselves being Signature Features; each such view says so in its own `Note`, so the Signature Feature enumerations elsewhere in this spec continue to name exactly the features they always did.
 
 ### Timeline View — the "everything happens here" surface (→ Plan-013 Live Timeline And Reasoning Surfaces)
 
@@ -394,6 +394,15 @@ Each V1 Signature Feature view must compose daemon and control-plane state via t
 - Interactions: create channel (name + create-time `ChannelConfig`); mute / unmute / archive channel via the `channel.*` lifecycle methods (one wire mutation per explicit user action). The pre-audit "mute participant" and "pause channel" interactions are struck — no such wire surface exists in V1 (participant-level mute has no method; arbitration pause is daemon-initiated, not user-initiated); "intervene" on runs belongs to the Plan-004 run-controls surface. The V1 desktop ships **no** `OrchestrationRunCreate` affordance — child runs are created via SDK/CLI and (at Tier 8) Plan-017 workflows; the desktop renders linkage and refusal records (D-016-18)
 - Owning plan: Plan-016
 - Note: superseded-sketch disposition ratified by the Tier-6 plan-readiness audit (Plan-016 walk, D-016-18) — this view binds to the finalized Spec-016 surface as registered in api-payload-contracts.md §Plan-016.
+
+### Provider Accounts And Cost View (→ Plan-029 Provider Accounts And Credential Homes)
+
+- Data sources: the node-local `providerAccount` wire namespace through `bridge.daemon.call(…)` for the registry read, default selection, and per-account authentication probe result, and the session cost receipt read surface for spend — concrete method names for both are registered in api-payload-contracts.md per [Spec-029 §Interfaces And Contracts](029-provider-accounts-and-credential-homes.md#interfaces-and-contracts) and [Spec-016 §Session Cost Receipt](016-multi-agent-channels-and-orchestration.md#session-cost-receipt)
+- Renders: a settings-level account registry, one row per registered account (operator label, provider, billing mode, default marker, last authentication probe result — never credential-home contents, which the renderer neither reads nor receives); a run-start account selector pre-set to that provider's default account; and a per-user cost page covering the operator's sessions, listing each session's own receipt figure broken down per account, every figure carrying its account's billing-mode label per [Spec-029 §Billing mode](029-provider-accounts-and-credential-homes.md#billing-mode)
+- Interactions: register an account, remove an account, and set a provider's default, each forwarded to the daemon registry as one wire mutation per explicit user action; at run start the view sends an account override **only** when the operator moves the selector off the default, so an untouched selector produces no override member and the daemon's own default resolution stands ([Spec-029 §Selection at run start](029-provider-accounts-and-credential-homes.md#selection-at-run-start))
+- State handling: every rendered figure is wire-verbatim — no client-side derivation, re-summing, or parallel per-account tally, including on the cross-session page, which renders each session's receipt as its own figure. Until a cross-session read surface is registered in api-payload-contracts.md there is **no** session-spanning total on this page: the renderer does not assemble one from per-session receipts, which is the client-side re-aggregation [Spec-016 §Cost Figure Display Consistency](016-multi-agent-channels-and-orchestration.md#cost-figure-display-consistency) forbids, and no spend table exists for it to read ([Spec-029 §State And Data Implications](029-provider-accounts-and-credential-homes.md#state-and-data-implications)). Should such a surface be registered, its total renders wire-verbatim like every other figure; account-scoped state (authentication probe result, provider quota) is held per account rather than once per provider, and a reading observed under a superseded credential generation is re-read rather than rendered as current
+- Owning plan: Plan-029
+- Note: an operator-plane view, not a V1 Signature Feature — it composes through the same preload bridge under the same read-and-steer rule, and its addition leaves the Signature Feature enumerations in §Scope and §Acceptance Criteria naming exactly the features they already named.
 
 ## Implementation Notes
 
@@ -694,6 +703,7 @@ A dedicated current-state research pass (Electron version / cadence, security ha
 - [Spec-002: Invite, Membership, Presence](./002-invite-membership-and-presence.md) — Invites view composition target
 - [Spec-004: Queue, Steer, Pause, Resume](./004-queue-steer-pause-resume.md) — Runs view composition target
 - [Spec-026: First-Run Onboarding](./026-first-run-onboarding.md) — first-run relay choice surfaced by the shell (to be authored per BL-081)
+- [Spec-029: Provider Accounts And Credential Homes](./029-provider-accounts-and-credential-homes.md) — Provider Accounts And Cost view composition target
 
 ### Related ADRs
 

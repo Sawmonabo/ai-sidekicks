@@ -7,10 +7,12 @@
 | **Slug** | `live-timeline-visibility-and-reasoning-surfaces` |
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
-| **Depends On** | [Artifact Diff And Approval Model](../domain/artifact-diff-and-approval-model.md), [Observability Architecture](../architecture/observability-architecture.md), [Session Event Taxonomy And Audit Log](../specs/006-session-event-taxonomy-and-audit-log.md), [Queue Steer Pause Resume](../specs/004-queue-steer-pause-resume.md) |
+| **Depends On** | [Artifact Diff And Approval Model](../domain/artifact-diff-and-approval-model.md), [Observability Architecture](../architecture/observability-architecture.md), [Session Event Taxonomy And Audit Log](../specs/006-session-event-taxonomy-and-audit-log.md), [Queue Steer Pause Resume](../specs/004-queue-steer-pause-resume.md), [Provider Accounts And Credential Homes](../specs/029-provider-accounts-and-credential-homes.md) |
 | **Implementation Plan** | [Plan-013: Live Timeline Visibility And Reasoning Surfaces](../plans/013-live-timeline-visibility-and-reasoning-surfaces.md) |
 
 > **Amendment (2026-07-20, campaign B9 CP-004-13 consumer registration — flips the previously-`approved` spec to `review` per the audit runbook's spec-amendment rule, since it changes Required Behavior, Acceptance Criteria, and Depends On; restored `approved` 2026-08-10 by the Tier-8 readiness audit (§6 node NS-20); Plan-013 flipped to `review` with it under the runbook's plan behavior-change row and was restored `approved` by that same audit, its Preconditions box re-checked).** [Spec-004 §Required Behavior](004-queue-steer-pause-resume.md#required-behavior) already mandates that rolled-back turns stay in the timeline **marked superseded by projection**, and [Spec-004 §Driver-Level Rollback Mechanics](004-queue-steer-pause-resume.md#driver-level-rollback-mechanics) that clients render the rewound history distinctly rather than dropping it. This amendment registers the timeline-surface half of that approved contract on its owning spec: the superseded-turn-rendering Required Behavior bullet (live boundary-entry rule + read/replay marker + attribution-ranked late stragglers), the `run.rolled_back` run-state subtype row, the compacted-stub composition, the provenance rule, and the acceptance criterion — consumed from Plan-004 T3.14's exported `supersededTurns(runId)` read seam (CP-004-13).
+
+> **Amendment (2026-08-18, provider-account plane — the account-scoped quota-display leg. Flips the previously-`approved` spec to `review` per the audit runbook's spec-amendment rule, since it replaces normative display behavior in §Rate-Limit Display and adds Spec-029 to Depends On; restored `approved` in this same swap by the paired plan's targeted readiness-audit delta, which rides this diff together with the `- [x]` flip of Plan-013's born-unchecked rate-limit-carrier box — the whole amendment-class swap taken at once rather than split across diffs.)** Provider quota is an **account-plane** fact, not a session's: [Spec-029 §Provider quota is account-scoped](029-provider-accounts-and-credential-homes.md#provider-quota-is-account-scoped) keys it on `(accountId, credentialGeneration)` and carries it on the `usage.rate_limit_update` event ([Spec-006 §Usage Telemetry](006-session-event-taxonomy-and-audit-log.md#usage-telemetry-usage_telemetry)), which is where a client reads it. §Rate-Limit Display previously described a control-plane-header-sourced, session-framed figure built from absolute `remaining` / `limit` counts — a shape no carrier in this corpus emits and no client surface observes, and one that would present a single node-wide meter for a node that may hold several independently-billed accounts per provider. That section is replaced here with the event-sourced, account-scoped, node-local contract the registered carrier actually supports, including the honest statement of where it diverges from the session-wide cost receipt. The heading text is unchanged, so every `Spec-013 §Rate-Limit Display` cite still resolves.
 
 ## Purpose
 
@@ -104,19 +106,26 @@ The session composer area must always display a context-window meter reflecting 
 
 ### Rate-Limit Display
 
-A rate-limit indicator shows the remaining API quota for the current session.
+A rate-limit indicator shows the remaining provider quota **of one named provider account**. The figure is an account-plane fact, never a session-level or per-run one, and it must never be rendered as either.
 
-- **Fields**:
-  - `remaining`: number of requests remaining in the current rate-limit window.
-  - `limit`: total requests permitted in the current window.
-  - `resetAt`: ISO-8601 timestamp when the rate-limit window resets (sourced from `RateLimitResponse` headers).
-- **Threshold coloring**:
+- **Source**: the indicator reads the `usage.rate_limit_update` event from the canonical event stream ([Spec-006 §Usage Telemetry](006-session-event-taxonomy-and-audit-log.md#usage-telemetry-usage_telemetry)). It is not extracted from any control-plane HTTP response header — the control plane's own rate limiting meters this product's API, which is a different quota from the provider's and must not be displayed in its place.
+- **Fields** (as carried by the event, plus the account identity added by [Spec-029 §Provider quota is account-scoped](029-provider-accounts-and-credential-homes.md#provider-quota-is-account-scoped)):
+  - `provider`: the provider whose quota window this reading describes.
+  - `providerAccountId` and the credential generation observed with it: together the `(accountId, credentialGeneration)` account-plane key of the account the reading belongs to (see [Spec-029 §Account identity and credential generation](029-provider-accounts-and-credential-homes.md#account-identity-and-credential-generation)).
+  - `windowMins`: the length of the provider quota window this reading describes.
+  - `usedPercent` (0-100): the fraction of that window's quota consumed.
+  - `resetsAt` (optional): ISO-8601 timestamp when the window resets, present only when the provider supplied one.
+- **No absolute counts**: the carrier reports a percentage, not request or token counts. The surface must render the percentage it was given and must not synthesize a `remaining` or `limit` figure, which is not derivable from a percentage alone.
+- **No run to join through**: the event carries no `runId`. Quota is consumed by an account across every run and every session that account executes, so there is no run whose row could supply the account — which is exactly why the event carries the account identity directly rather than leaving it to a join.
+- **Account labeling is mandatory**: every rendered quota figure must be labeled with the account it describes, using that account's operator-chosen display label ([Spec-029 §The account registry](029-provider-accounts-and-credential-homes.md#the-account-registry)). A node may hold several accounts for one provider, and each has its own independent quota; an unlabeled or merged meter would show an operator a healthy quota while the account actually executing their run is exhausted. Readings for different accounts are never summed, averaged, or otherwise collapsed into one figure.
+- **Threshold coloring**, computed from the remaining share (`100 - usedPercent`) of the account's window:
   - Green: >50% remaining.
   - Yellow: 20-50% remaining.
   - Red: <20% remaining.
-- **Reset timing**: when the indicator is visible, it displays a countdown to the `resetAt` time.
-- **Visibility**: the rate-limit indicator is shown when remaining quota is below 50% of the limit. It is hidden when quota is healthy (above 50%).
-- **Update mechanism**: rate-limit fields are extracted from response headers returned by control-plane API calls. The indicator updates on each response.
+- **Reset timing**: when the indicator is visible and the reading carried a `resetsAt`, it displays a countdown to that time. A reset time is never estimated or fabricated when the provider did not supply one.
+- **Visibility**: the indicator is shown for an account whose remaining quota is below 50%, and hidden while that account's quota is healthy. Absence of an indicator means no constraining reading is held for that account — it is never presented as an affirmative statement that quota is healthy.
+- **Update mechanism**: readings are keyed by `(providerAccountId, windowMins)`, exactly as the event registers them ([Spec-006 §Event Type Summary](006-session-event-taxonomy-and-audit-log.md#event-type-summary) — re-keyed 2026-08-18 from `(provider, windowMins)`, which collided across two registered accounts of one provider), so a reading is held per account rather than once per node and is updated as later readings for that same account and window arrive. A reading observed under a credential generation that the account has since moved past is stale and must not be shown as the account's current quota.
+- **Node-local, and deliberately not symmetric with the session cost receipt**: the quota event binds to the reserved node-scope sentinel rather than to a session, and is excluded from control-plane anchor upload and from peer history backfill ([Spec-006 §Daemon-Scope Event Binding And Node-Scope Anchoring](006-session-event-taxonomy-and-audit-log.md#daemon-scope-event-binding-and-node-scope-anchoring)). A participant therefore sees quota only for accounts registered on their own node, and never for the accounts of a peer executing in the same session. This does **not** generalize to spend: the session cost receipt ([Spec-016 §Session Cost Receipt](016-multi-agent-channels-and-orchestration.md#session-cost-receipt)) is session-wide, because the usage events it folds are session-scoped and relay to peers normally. A reader must not assume the two surfaces share a reach — one meters an account on this machine, the other meters a session across every machine in it.
 
 ## Interfaces And Contracts
 
@@ -179,3 +188,5 @@ A rate-limit indicator shows the remaining API quota for the current session.
 - [Observability Architecture](../architecture/observability-architecture.md)
 - [Session Event Taxonomy And Audit Log](../specs/006-session-event-taxonomy-and-audit-log.md)
 - [Queue Steer Pause Resume](../specs/004-queue-steer-pause-resume.md)
+- [Multi-Agent Channels And Orchestration](../specs/016-multi-agent-channels-and-orchestration.md)
+- [Provider Accounts And Credential Homes](../specs/029-provider-accounts-and-credential-homes.md)

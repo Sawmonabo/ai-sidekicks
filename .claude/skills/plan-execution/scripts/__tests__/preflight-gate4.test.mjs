@@ -3621,7 +3621,18 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // its `Verifies invariant:` line is untouched; I-004-24's Verified-by cell
     // names T4.8 symmetrically (a table cell, no marker delta). No none-arm is
     // added or removed, and the legacy channel is unchanged.
-    bold: { resolved: 877, noneArm: 152, parentResolved: 0 },
+    // 877/152 -> 901/158 (2026-08-18, the Spec-029/Plan-029 provider-account
+    // package + the Spec-016/Plan-016 session cost receipt + the Spec-005/
+    // Plan-005 account-seam amendment, all in one swap — §6 node NS-74, landing
+    // after NS-73 above): Plan-029 is a NEW plan contributing sixteen tasks
+    // across Phases 1-4 and the 4B supplement, several carrying two id
+    // references (T3.4 I-029-6 + I-029-2, T3.5 I-029-7 + I-029-8), plus five
+    // none arms (T2.3, T4.1, T4.2, T4.3, T4.4); Plan-016 adds T2.15 (I-016-24),
+    // T3.9 (I-016-16, I-016-24), and T4.6 (I-016-19, I-016-24) in its new Phase
+    // 4B; Plan-005 adds T3.16 (I-005-6) and T3.17 (none) in its new Phase 3B.
+    // The none-arm delta is exactly +6 and matches the six new `none` markers
+    // one-for-one; the legacy channel is unchanged.
+    bold: { resolved: 901, noneArm: 158, parentResolved: 0 },
     legacy: { resolved: 61, noneArm: 3, parentResolved: 1 },
   });
 });
