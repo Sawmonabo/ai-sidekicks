@@ -112,7 +112,8 @@ CREATE INDEX idx_session_snapshots_session ON session_snapshots(session_id, as_o
 ## Queue and Intervention Tables (Plan-004)
 
 ```sql
--- Owner: Plan-004
+-- Owner: Plan-004 (the Spec-004 2026-08-18 admitting-principal + queue-PII amendment adds the
+-- pii_payload / pii_participant_id pair and admitting_intervention_id)
 CREATE TABLE queue_items (
   id              TEXT PRIMARY KEY,
   session_id      TEXT NOT NULL,
@@ -120,7 +121,31 @@ CREATE TABLE queue_items (
   state           TEXT NOT NULL DEFAULT 'queued'
                   CHECK(state IN ('queued', 'admitted', 'superseded', 'canceled', 'expired')),
   priority        INTEGER NOT NULL DEFAULT 0, -- higher = more urgent
-  payload         TEXT NOT NULL DEFAULT '{}', -- JSON: content, context, metadata
+  payload         TEXT NOT NULL DEFAULT '{}', -- JSON: NON-PII members only — context, metadata, and the
+                                              -- non-PII identifiers. A participant-authored send's body
+                                              -- never rides this column (it encrypts into pii_payload;
+                                              -- Spec-004 §Required Behavior at-rest split, 2026-08-18
+                                              -- amendment). Orchestration-authored content (a workflow
+                                              -- phase input, an orchestrated child-run prompt) is session
+                                              -- work product, not participant PII, and stays here in
+                                              -- plaintext with both PII columns NULL — the system arm has
+                                              -- no participant DEK to encrypt under (CP-004-10's
+                                              -- NULL-for-system actor). Every drain-selection field is its
+                                              -- own column (state, priority, target_run_id, channel_id,
+                                              -- session_id), so the split costs no queryability.
+  pii_payload     BLOB,                       -- encrypted per-participant AES-256-GCM via Plan-006's
+                                              -- PiiEncryptor (CP-006-1): the participant-authored send
+                                              -- body (Plan-004 T1.4, Spec-004 2026-08-18 amendment).
+                                              -- Same-key parity with session_events.pii_payload and
+                                              -- interventions.pii_payload, so one Plan-022 Path-1 key
+                                              -- deletion shreds every copy of the same send identically
+                                              -- (Spec-022 §PII Data Map row). NULL on rows carrying no
+                                              -- participant-authored body.
+  pii_participant_id TEXT,                    -- PII owner stamp: the authoring participant whose key
+                                              -- encrypts pii_payload — the erasure/export selector this
+                                              -- table otherwise lacks entirely (no other column names a
+                                              -- participant, so without it the GDPR fan-out cannot address
+                                              -- these rows); NULL on rows carrying no PII leg
   target_run_id   TEXT,                       -- run-bound admission arm (Plan-004 T1.4, 2026-08-16
                                               -- rewind-hardening amendment round-2 fold): NULL on
                                               -- ordinary follow-up items (admission converts them
@@ -128,6 +153,14 @@ CREATE TABLE queue_items (
                                               -- composite's admission in V1 — the item delivers into
                                               -- its bound run as its next provider send on run.resume,
                                               -- never converting into a new run
+  admitting_intervention_id TEXT,             -- row-anchored linkage to the interventions row whose
+                                              -- admission created this item (Plan-004 T1.4, Spec-004
+                                              -- 2026-08-18 amendment): NULL on ordinary participant sends,
+                                              -- stamped beside target_run_id in T3.17's single durable
+                                              -- transaction. T3.5's drain reads it to resolve the drained
+                                              -- turn's admitting principal — a run accumulates
+                                              -- interventions over its life, so the resolution is durable
+                                              -- on the row and never inferred from run history
   created_at      TEXT NOT NULL,
   updated_at      TEXT NOT NULL
 );
@@ -135,8 +168,11 @@ CREATE TABLE queue_items (
 CREATE INDEX idx_queue_items_session_state ON queue_items(session_id, state);
 CREATE INDEX idx_queue_items_target_run ON queue_items(target_run_id) WHERE target_run_id IS NOT NULL;
 CREATE INDEX idx_queue_items_channel ON queue_items(channel_id) WHERE channel_id IS NOT NULL;
+-- No index on pii_participant_id, matching the interventions.pii_participant_id sibling: the Plan-022
+-- Path-1 erasure/export selector is a V1.1 maintenance scan, never a hot path, and both tables carry the
+-- stamp unindexed for the same reason.
 
--- Owner: Plan-004 (campaign B9 adds rejection_reason; the Spec-004 2026-08-16 rewind-hardening amendment adds the pii_payload / pii_participant_id pair) | Extended by: Spec-005 campaign B3 (client_idempotency_key intervention dedupe); Spec-004 campaign B2 (rollback type — targetPosition rides the payload JSON, no new column)
+-- Owner: Plan-004 (campaign B9 adds rejection_reason; the Spec-004 2026-08-16 rewind-hardening amendment adds the pii_payload / pii_participant_id pair; the Spec-004/Spec-012 2026-08-18 admitting-principal amendment adds origin + admitting_principal_id) | Extended by: Spec-005 campaign B3 (client_idempotency_key intervention dedupe); Spec-004 campaign B2 (rollback type — targetPosition rides the payload JSON, no new column)
 CREATE TABLE interventions (
   id                     TEXT PRIMARY KEY,
   target_run_id          TEXT NOT NULL,
@@ -144,17 +180,23 @@ CREATE TABLE interventions (
                          CHECK(type IN ('steer', 'interrupt', 'cancel', 'rollback')),
   state                  TEXT NOT NULL DEFAULT 'requested'
                          CHECK(state IN ('requested', 'accepted', 'applied', 'rejected', 'degraded', 'expired')),
-  payload                TEXT NOT NULL DEFAULT '{}', -- JSON: type-specific NON-PII fields only — a rollback's replacementSend body never rides this column (it encrypts into pii_payload; Spec-004 §Required Behavior at-rest split, 2026-08-16 amendment)
+  payload                TEXT NOT NULL DEFAULT '{}', -- JSON: type-specific NON-PII fields only — neither a rollback's replacementSend body nor a steer's directive text rides this column (both encrypt into pii_payload; Spec-004 §Required Behavior at-rest split, 2026-08-16 amendment as widened to steer content 2026-08-18)
   expected_run_version   INTEGER NOT NULL,           -- MANDATORY fail-closed comparand (Spec-004 §Interfaces And Contracts / Plan-004 D-004-2)
   client_idempotency_key TEXT NOT NULL,              -- MANDATORY requester-generated UUID (participant client or daemon system-origination); replay-or-conflict intervention dedupe (Spec-005 §Required Behavior, campaign B3)
-  pii_payload            BLOB,                       -- encrypted per-participant AES-256-GCM via Plan-006's PiiEncryptor (CP-006-1): the rollback replacementSend body (Plan-004 T1.4, Spec-004 2026-08-16 amendment); same-key parity with session_events.pii_payload, so the Plan-022 Path-1 key deletion shreds both copies identically; NULLed by the daemon retention pass past the Spec-022 90-day full-retention bound (Spec-022 §PII Data Map row — no digest binding attaches, unlike session_events)
+  pii_payload            BLOB,                       -- encrypted per-participant AES-256-GCM via Plan-006's PiiEncryptor (CP-006-1): the participant-authored intervention body — the rollback replacementSend body (Plan-004 T1.4, Spec-004 2026-08-16 amendment) and, from the 2026-08-18 amendment, the steer directive text; same-key parity with session_events.pii_payload, so the Plan-022 Path-1 key deletion shreds every copy identically; NULLed by the daemon retention pass past the Spec-022 90-day full-retention bound (Spec-022 §PII Data Map row — no digest binding attaches, unlike session_events)
   pii_participant_id     TEXT,                       -- PII owner stamp: the requesting participant whose key encrypts pii_payload; NULL on rows carrying no PII leg
+  origin                 TEXT NOT NULL               -- daemon-resolved admission-path discriminator (D-004-4 / D-012-20, 2026-08-18): 'participant' for a request admitted over an identity-carrying transport, 'system' for the in-process orchestration entrypoint below the wire authz boundary (CP-004-10's budget / idle / moderation interventions). NO DEFAULT by design — a default would fail OPEN for the system path, so every insert site declares. Deliberately NOT inferred from initiator_id IS NULL: initiator_id is client-supplied and informational (ADR-011; api-payload-contracts §Authenticated Principal And Authorization Model), so its absence proves nothing about how the request was admitted
+                         CHECK(origin IN ('participant', 'system')),
+  admitting_principal_id TEXT,                       -- participant recorded as the intervention's admitting principal, daemon-resolved at acceptance (D-004-4: node-owner binding on the local socket; verified PASETO sub on authenticated surfaces; caller_token.sub on the Spec-024 cross-node arm — the approval_resolutions.approver_id resolution semantics, D-012-12). NEVER read from the wire: a body-supplied actor disagreeing with the verified identity refuses as auth.principal_mismatch (the existing error row — no duplicate is minted). Read by Plan-012's turn-scoped effective-principal resolution (CP-012-12)
   result                 TEXT,                       -- JSON: outcome details
   rejection_reason       TEXT,                       -- machine-readable rejected cause (driver.capability_unsupported foremost) — replay-durable: the wire contract forbids result on rejected, so an idempotent replay reconstructs rejectionReason from this column (Plan-004 T1.4/T3.12, campaign B9)
-  initiator_id           TEXT,                       -- participant or system
+  initiator_id           TEXT,                       -- participant or system — routing/audit metadata only, never an authorization input (see admitting_principal_id)
   created_at             TEXT NOT NULL,
   resolved_at            TEXT,
-  UNIQUE(target_run_id, client_idempotency_key)      -- identical retry replays the recorded outcome; key reuse with a differing payload rejects as intervention.idempotency_conflict — the PII body compared by decrypt-and-compare under the requester's live key, never by ciphertext or persisted digest (Spec-004 §Interfaces And Contracts) — distinct grain from command_receipts.command_id (per-command crash-recovery dedupe)
+  UNIQUE(target_run_id, client_idempotency_key),     -- identical retry replays the recorded outcome; key reuse with a differing payload rejects as intervention.idempotency_conflict — the PII body compared by decrypt-and-compare under the requester's live key, never by ciphertext or persisted digest (Spec-004 §Interfaces And Contracts) — distinct grain from command_receipts.command_id (per-command crash-recovery dedupe)
+  CHECK((origin = 'participant' AND admitting_principal_id IS NOT NULL)
+        OR (origin = 'system' AND admitting_principal_id IS NULL))
+                                                     -- principal required iff participant-origin (D-004-4): the participant arm can never persist without its verified identity, and the system arm can never smuggle one in. Enforced by the engine, not by convention
 );
 
 CREATE INDEX idx_interventions_run ON interventions(target_run_id);
