@@ -749,7 +749,7 @@ interface RuntimeNodeSigningKeyRosterResponse {
 // `McpServerStatusEmission` (each built from provider wire output before the daemon-injected
 // seam sees it, campaign B10).
 // `resumeSession` returns the `DriverResumeResult` discriminated union (defined below)
-// to make silent-replacement structurally inexpressible per Spec-005:69.
+// to make silent-replacement structurally inexpressible per Spec-005 §Fallback Behavior.
 // `getCapabilities` returns the `GetCapabilitiesResult` wrapper (defined below) so the
 // per-tool `ProviderToolMetadata[]` rides alongside the flag matrix in a single
 // round-trip per Plan-005 Phase 4 ratified design.
@@ -1184,9 +1184,9 @@ type IdempotencyClass = "idempotent" | "compensable" | "manual_reconcile_only";
 // INGRESS shape — what a provider driver DECLARES via `getCapabilities()`. `idempotency_class`
 // is OPTIONAL: a driver MAY omit it and an undeclared class is NOT a contract violation. Were the
 // field required here, Zod would reject a conformant-but-silent driver at ingress BEFORE the
-// default could apply — defeating Spec-005:174. The daemon's capability-normalization seam
+// default could apply — defeating Spec-005 §idempotency_class. The daemon's capability-normalization seam
 // (Plan-005 T2.4 hydration) resolves an omitted class to `manual_reconcile_only` (the conservative
-// default per Spec-005:174), producing a `NormalizedProviderToolMetadata`.
+// default per Spec-005 §idempotency_class), producing a `NormalizedProviderToolMetadata`.
 interface ProviderToolMetadata {
   name: string;
   idempotency_class?: IdempotencyClass;
@@ -1916,7 +1916,7 @@ type InterventionRequestResponse =
 
 // RunStateChange (event, not request/response). The `run.failed` variant carries the
 // `providerFailureDetail` surface that mirrors the `failed`-variant `providerFailureDetail` of `DriverResumeResult`
-// (§Plan-005 above) — Spec-005:69 requires resume-failure detail to reach the canonical audit
+// (§Plan-005 above) — Spec-005 §Fallback Behavior requires resume-failure detail to reach the canonical audit
 // log so Plan-015's recovery dispatcher and Plan-013's timeline can render the operator-actionable
 // reason for the failure without re-querying the driver. Plan-005 CP-005-5; Plan-006 Phase 3 audit.
 interface RunStateChangeEvent {
@@ -3959,6 +3959,60 @@ interface OrchestrationRunLinkCarrier {
 
 Error vocabulary: [error-contracts.md](./error-contracts.md) §Channel / §Orchestration / §Agent (D-016-16) plus the §Session `session.goal_delivery_failed` (502) and `session.goal_mutation_in_flight` (409) mappings for the live goal-delivery RPCs (campaign B6). Durable events owned by Plan-016 (Spec-006 registrations): `channel.created` / `channel.muted` / `channel.unmuted` / `channel.archived`, `agent.attached` / `agent.detached` / `agent.config_updated`, `arbitration.paused` / `arbitration.resumed`, `orchestration.rejected`, `usage.budget_warning`, `moderation.review_flagged`, `session.goal_updated` / `session.goal_cleared` (campaign B6 — emitted by the goal RPCs above) — see [Spec-006 §Event Type Registry](../../specs/006-session-event-taxonomy-and-audit-log.md).
 
+**Session cost receipt (2026-08-18, Plan-016 D-016-25).** One new read pair, `orchestration.costReceiptRead`, taking the wire-method registry for this plan from fifteen pairs to sixteen. The reply is a **decomposition of the committed-spend fold**, not a second computation: every figure below is served from the same accountant accessor that answers `orchestration.budgetRead`, so a divergence between the two is a bug in exactly one place. Read-only — no receipt member is accepted on any request, so a caller can never assert an attribution or a total.
+
+```ts
+interface SessionCostReceiptRequest {
+  sessionId: SessionId;
+}
+
+// The two partition identities below are the contract, not commentary. Each unit of
+// committed spend appears in EXACTLY ONE row of each axis, so both axes total to the
+// same session figure:
+//   sum(runs[].costCents)      === sessionTotal.committedSpendCents
+//   sum(causedBy[].costCents)  === sessionTotal.committedSpendCents
+// A consumer asserting either identity is asserting that no row was double-counted or
+// dropped. `byAccount` is a third partition over the same spend and totals identically.
+interface SessionCostReceipt {
+  sessionTotal: OrchestrationBudgetState; // the SAME shape the budget read/update replies carry — one type, one accessor
+  runs: SessionCostReceiptRunRow[];
+  causedBy: SessionCostReceiptCausedByRow[];
+  byAccount: SessionCostReceiptAccountRow[];
+}
+
+interface SessionCostReceiptRunRow {
+  runId: RunId;
+  costCents: number;
+  costStatus: CostStatus; // served by the daemon; enforcement MUST NOT branch on it (I-016-24)
+  aggregationScope: "run-only"; // REQUIRED and closed at this single literal — the receipt is the one
+  // V1 surface emitting run-scoped cost figures, and `Spec-016 §Cost Figure Display Consistency`
+  // clause (b) is verified POSITIVELY by every row carrying this declaration.
+}
+
+interface SessionCostReceiptCausedByRow {
+  party: SessionCostReceiptParty; // a participant, or the `system` arm
+  costCents: number;
+  costStatus: CostStatus;
+}
+
+// Spend no participant caused — scheduled sweeps, idle-timeout settlements, daemon-initiated
+// recovery turns — lands on the `system` arm rather than being distributed across participants
+// or silently dropped. An unattributable turn is NOT guessed.
+type SessionCostReceiptParty =
+  | { kind: "participant"; participantId: ParticipantId }
+  | { kind: "system" };
+
+interface SessionCostReceiptAccountRow {
+  providerAccountId: ProviderAccountId;
+  displayLabel: string;
+  billingMode: "subscription" | "metered" | "unknown"; // labels the figure; never changes how it is derived. `unknown` labels the figure as unlabelled-by-the-operator, and is never presented as billed dollars
+  costCents: number;
+  costStatus: CostStatus;
+}
+```
+
+No new event type, no new error code, and no new table: the receipt is a decomposition of an existing in-memory fold, so `usage.cost_update`, `usage.budget_warning`, and `session_budgets` are all unchanged. Two of the three axes are **supplied rather than minted here** — the paying account arrives as the `run.queued` server stamp `admittedProviderAccountId` plus the registry's billing mode ([Plan-029](../../plans/029-provider-accounts-and-credential-homes.md), CP-029-3), and the caused-by axis keys on the turn-scoped effective principal — and this plan reads both without widening either.
+
 ### Plan-017 — Workflow Authoring And Execution
 
 Corrected by the Tier-8 plan-readiness audit (2026-08-10). Three defects closed: the `PhaseDefinition.type` union carried the pre-amendment two-value V1.1-deferred subset while the governing spec ships four phase types; five of the ten declared operations had no shape at all; and `WorkflowGateResolveResponse` carried neither half of the SA-26 dual anchor. The `scope` domain is also re-grounded — see the `WorkflowDefinitionScope` comment below — and gains the `scopeRef` companion the three-value domain needs to be storable at all. One operation is minted: `workflow.definitionList`, because the ten declared operations contained no enumeration. Field additions to already-published shapes are additive-**optional** per [ADR-018](../../decisions/018-cross-version-compatibility.md), marked as such inline, and become required at the next MAJOR; the new shapes below are unconstrained.
@@ -4952,3 +5006,114 @@ type McpServerOauthCompletedPayload = McpServerBindingAuditRef & {
   initiatingSessionId?: SessionId;
 };
 ```
+
+## Plan-029 — Provider Accounts And Credential Homes
+
+Wire surfaces for [Spec-029](../../specs/029-provider-accounts-and-credential-homes.md). The `providerAccount.*` namespace is node-local operator administration: every mutating verb is gated on node-operator authority, and a relayed mutation is refused rather than applied (I-029-1).
+
+The namespace has exactly seven verbs, each carrying the payload pair named below: `providerAccount.list` (read), and the six mutating verbs `providerAccount.register`, `providerAccount.update`, `providerAccount.remove`, `providerAccount.setDefault`, `providerAccount.probe`, and `providerAccount.resetCredentialHome`. `providerAccount.probe` is grouped with the mutating verbs **not** because it writes registry rows — it writes none, and it is not one of I-029-2's generation-bumping lifecycle transitions, so a probe leaves `credentialGeneration` unchanged — but because it reaches into a credential home and drives provider-side credential I/O. That is operator-authority work, so it takes the node-operator gate rather than the laxer read gate.
+
+**The identifier is opaque everywhere.** `ProviderAccountId` is daemon-minted and immutable. No client, driver, or renderer parses it, decomposes it, or uses it to locate credential material — it selects a credential environment and nothing else. It is deliberately not derived from an email, a provider subject id, or any credential value, because those rotate and an identity that rotates cannot key historical spend.
+
+```ts
+type ProviderAccountId = Brand<string, "ProviderAccountId">;
+type BillingMode = "subscription" | "metered" | "unknown"; // `unknown` is the honest-absence arm (Spec-029 §Billing mode) — never rendered as metered
+
+interface ProviderAccount {
+  accountId: ProviderAccountId;
+  provider: "claude" | "codex";
+  displayLabel: string; // operator-chosen; participant-adjacent PII (Spec-022 §PII Data Map)
+  credentialGeneration: number; // monotonic; bumps at every credential-home lifecycle transition (I-029-2)
+  billingMode: BillingMode;
+  isDefault: boolean; // exactly one per provider, enforced by a partial unique index (I-029-5)
+  healthState: ProviderAccountHealthState;
+}
+
+// NOTE: no credential material appears on this wire surface, in any shape, ever. Tokens live
+// in the per-account credential home written by the provider's own tooling; the daemon brokers
+// refresh without holding values. There is no token field to omit here — there is no token.
+type ProviderAccountHealthState =
+  | "authenticated"
+  | "reauth_required"
+  | "home_missing"
+  | "indeterminate"; // probe could not decide — treated as NOT authenticated (fail-closed, I-029-3)
+
+interface ProviderAccountListRequest {
+  provider?: "claude" | "codex";
+}
+interface ProviderAccountListResponse {
+  accounts: ProviderAccount[];
+}
+
+interface ProviderAccountRegisterRequest {
+  provider: "claude" | "codex";
+  displayLabel: string;
+  billingMode: BillingMode;
+  makeDefault?: boolean;
+}
+interface ProviderAccountRegisterResponse {
+  account: ProviderAccount;
+}
+
+// The two operator-authored descriptive fields are correctable in place. This verb exists because
+// the alternative — remove and re-register — is barred by the identity model: `accountId` is
+// immutable and deliberately not re-derivable, so re-registering to fix a typo'd label or a
+// mis-declared billing mode would mint a NEW identity and orphan the spend history keyed to the
+// old one. A correctable typo must not cost an account its history.
+interface ProviderAccountUpdateRequest {
+  accountId: ProviderAccountId;
+  displayLabel?: string; // omitted = unchanged
+  billingMode?: BillingMode; // omitted = unchanged; this is how `unknown` is resolved to a declared mode
+}
+interface ProviderAccountUpdateResponse {
+  account: ProviderAccount;
+}
+// NOT updatable, by omission from the request and enforced on write: `accountId` (immutable
+// identity), `provider` (an account does not change vendor), `credentialHomePath` (rebinding a
+// registration to a different home would silently re-point historical spend at other credentials),
+// and `credentialGeneration` (daemon-owned, bumped only by the lifecycle transitions in I-029-2 —
+// never by an operator edit, since a descriptive correction is not a credential event).
+// `isDefault` is not updatable here either: it has its own verb, whose partial-unique-index race
+// semantics this verb must not duplicate.
+
+interface ProviderAccountRemoveRequest {
+  accountId: ProviderAccountId;
+}
+interface ProviderAccountRemoveResponse {
+  accountId: ProviderAccountId;
+  removed: true;
+}
+
+interface ProviderAccountSetDefaultRequest {
+  accountId: ProviderAccountId;
+}
+interface ProviderAccountSetDefaultResponse {
+  account: ProviderAccount;
+}
+
+// Rebuilds this account's credential home from empty so the operator can authenticate into it
+// again — the remedy the provider-failure runbook issues when a home is absent or husked (present
+// but holding no usable credential). It is a credential-home lifecycle transition under I-029-2,
+// so it BUMPS `credentialGeneration`; the generation is never reset by it, which is what lets a
+// stale consumer still order two readings across the rebuild. Identity survives untouched:
+// `accountId` is the same afterward, so the account keeps its spend history.
+interface ProviderAccountResetCredentialHomeRequest {
+  accountId: ProviderAccountId;
+}
+interface ProviderAccountResetCredentialHomeResponse {
+  accountId: ProviderAccountId;
+  credentialGeneration: number; // the post-reset generation; strictly greater than the pre-reset value
+  healthState: ProviderAccountHealthState; // expected `reauth_required` until the operator authenticates
+}
+
+interface ProviderAccountProbeRequest {
+  accountId: ProviderAccountId;
+}
+interface ProviderAccountProbeResponse {
+  accountId: ProviderAccountId;
+  healthState: ProviderAccountHealthState;
+  credentialGeneration: number; // the generation the probe observed; a later bump invalidates this reading
+}
+```
+
+**Run-start selection.** The per-run override rides the existing session-creation and resume parameter shapes as an additive-optional `providerAccountId` (`Spec-005 §Interfaces And Contracts`). It is an **input to resolution, never the recorded outcome**: the daemon resolves exactly one account — the override if authorized, otherwise the provider default — and stamps the result server-side as `admittedProviderAccountId` on the run's admission record. A client-supplied stamp is ignored. Resume rebinds to the account the run was admitted against rather than re-resolving the current default, so changing a default mid-session cannot silently move an in-flight run's billing.

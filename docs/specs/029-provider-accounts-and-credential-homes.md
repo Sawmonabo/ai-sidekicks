@@ -1,0 +1,263 @@
+# Spec-029: Provider Accounts And Credential Homes
+
+| Field | Value |
+| --- | --- |
+| **Status** | `approved` |
+| **NNN** | `029` |
+| **Slug** | `provider-accounts-and-credential-homes` |
+| **Date** | `2026-08-18` |
+| **Author(s)** | `Sawmon Abo` |
+| **Depends On** | [Spec-005](005-provider-driver-contract-and-capabilities.md), [Spec-012](012-approvals-permissions-and-trust-boundaries.md), [Spec-016](016-multi-agent-channels-and-orchestration.md), [Spec-028](028-mcp-server-configuration-and-governance.md), [ADR-012](../decisions/012-cedar-approval-policy-engine.md), [ADR-006](../decisions/006-worktree-first-execution-mode.md) |
+| **Implementation Plan** | [Plan-029](../plans/029-provider-accounts-and-credential-homes.md) |
+
+## Purpose
+
+An operator drives provider CLIs from more than one paid account: a personal subscription and a work seat, two organizations, a metered API key beside a plan-included subscription. V1 must let a runtime node hold several accounts per provider, choose which one pays for a given run, keep each account's credential material in its own isolated home so the accounts cannot corrupt one another, and report spend per account so that plan-included usage is never silently added to billed dollars.
+
+This spec defines the **provider account** as a first-class node-local entity: how it is registered, how it is identified, how its credential home is constructed and validated, how a run selects one, and what the rest of the corpus may assume about it. Two surfaces elsewhere in the corpus already presuppose an account axis without defining it — the account-scoped provider-quota snapshot (`usage.rate_limit_update`, [Spec-006 §Usage Telemetry](006-session-event-taxonomy-and-audit-log.md#usage-telemetry-usage_telemetry)) and the per-phase park schedule that exists because "two parallel branches of one run may park concurrently against different provider accounts" ([Spec-017 §Provider-limit pacing and durable resumption (SA-40)](017-workflow-authoring-and-execution.md#provider-limit-pacing-and-durable-resumption-sa-40)). This spec is the canonical home those surfaces resolve against.
+
+## Scope
+
+- The provider-account registry: registration, listing, default selection, removal, and the account's durable fields.
+- **Account identity** and **credential generation** — the two derivations other specs consume by name.
+- Per-account isolated credential homes: construction, the environment discipline that reaches the provider child, validation at spawn, and the fail-closed refusal when a home is missing or husked.
+- Per-provider default account plus per-run override, and the authorization posture of each.
+- **Billing mode** (`subscription` / `metered` / `unknown`) as a recorded, displayed property.
+- The concurrency posture for simultaneous runs on two accounts of one provider, specified through the parity triad with a named verification obligation and a degrade-honestly floor.
+- Brokering the provider-initiated credential-refresh request within the corpus's no-token-custody posture.
+
+## Non-Goals
+
+- **No token custody.** This spec inherits [Spec-028 §Non-Goals](028-mcp-server-configuration-and-governance.md#non-goals) verbatim in posture: OAuth tokens, bearer tokens, and API keys live where each provider stores them. The daemon never persists, logs, relays, or serves credential material, and no event or error payload carries it. What this spec adds is a **location** discipline (which home a provider process reads and writes) and never a **custody** claim.
+- **No provider config-file ownership.** [Spec-028 §Non-Goals](028-mcp-server-configuration-and-governance.md#non-goals) keeps provider config files provider-owned and mutated only through each provider's sanctioned write mechanism. Choosing which home a provider process uses is a spawn-time environment decision and is **not** a write into a provider config file; this spec issues no such write and claims no ownership over the bytes inside a home.
+- **No account provisioning or billing integration.** The daemon does not create provider accounts, purchase plans, read invoices, or call any vendor billing API. Billing mode is operator-declared or provider-observed, never fetched.
+- **No control-plane account records.** Accounts and their spend are node-local. Nothing about a provider account is written to the control plane; the shared schema's permitted row classes do not admit them and this spec does not widen that set.
+- **No first-run onboarding surface.** Surfacing provider authentication during first-run setup ([Spec-026](026-first-run-onboarding.md)) is a real and currently-unmet obligation, deliberately left to a separate amendment — see §Open Questions.
+- **No control-plane rate-limit policy.** Provider-side throttling is expressly a Non-Goal of [Spec-021](021-rate-limiting-policy.md); this spec's provider-quota surfaces do not belong there and do not amend it.
+
+## Domain Dependencies
+
+- [Glossary](../domain/glossary.md) — provider, driver, runtime node, operator terminology. **Note the false friend:** [Runtime Node Model](../domain/runtime-node-model.md) uses "account identity" for _participant_ identity in the control-plane sense. A provider account as defined here is unrelated to it, shares no identifier space with it, and is never a substitute for it.
+- [Session model](../domain/session-model.md) — a run belongs to a session; the account that pays for a run is node-local state and is not a session membership fact.
+
+## Architectural Dependencies
+
+- [ADR-012 — Cedar Approval Policy Engine](../decisions/012-cedar-approval-policy-engine.md) — the authorization posture split in §Authorization Posture.
+- [ADR-006 — Worktree-First Execution Mode](../decisions/006-worktree-first-execution-mode.md) — a credential home is daemon-owned state outside any repo working tree.
+- [Local SQLite Schema](../architecture/schemas/local-sqlite-schema.md) — the `provider_accounts` table.
+- [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) and [Error Contracts](../architecture/contracts/error-contracts.md) — the wire surface and refusal codes.
+- [Provider Wire Reference](../reference/provider-wire/README.md) — the version-pinned provider surfaces this spec cites rather than transcribing, and the TRUST / PROVENANCE vocabulary used below.
+
+## Preconditions
+
+- [x] All declared `Depends On` specs are at `approved` status
+- [x] All declared `Depends On` ADRs are at `accepted` status
+- [x] Blocking open questions are resolved or explicitly deferred
+- [x] **Spec-status promotion gate cleared per [`docs/operations/plan-implementation-readiness-audit-runbook.md#spec-status-promotion-gate`](../operations/plan-implementation-readiness-audit-runbook.md#spec-status-promotion-gate)**
+
+## Required Behavior
+
+### The account registry
+
+- A runtime node holds zero or more **provider accounts** per provider. Each is registered by the node operator with a provider, an operator-chosen display label, and a credential home; the daemon mints the account's identity and records the registration durably.
+- Registration is **node-local operator authority** — the caller-owns-the-node model, the same authority class [Spec-028 §Non-Goals](028-mcp-server-configuration-and-governance.md#non-goals) uses for MCP governance. A control-plane-relayed registration, removal, or default change is **denied, never queued**.
+- Exactly one account per provider MAY be marked the **default**. Where a provider has accounts registered but none marked default, run admission for that provider refuses rather than guessing (§Fallback Behavior).
+- Removing an account MUST NOT delete its credential home, and MUST NOT be permitted while a run bound to that account is live. The home is operator-owned material; deregistration forgets the registry row, not the operator's credentials.
+
+### Account identity and credential generation
+
+Two derivations are defined here because other specs consume them by name and none of them defines either.
+
+- **Account identity** is the daemon-minted, opaque, immutable `accountId` recorded at registration. It is stable across credential rotation, re-authentication, relabeling, and default changes — it names _which account_, never _which credential_. It is never derived from a credential, an email address, a subscription identifier, or any path, so nothing about it leaks account material, and it is never reused after removal.
+- **Credential generation** is a monotonically increasing integer stamped on the account row, starting at 1 at registration and incremented by the daemon at **every credential-home lifecycle transition it performs or observes**: a completed re-authentication, an operator-initiated home reset, and a transition of the account's probe result into or out of `authenticated`. It names _which credential era_, so a consumer can tell "the same account, re-authenticated" from "the same account, unchanged" without inspecting credential material.
+
+The pair `(accountId, credentialGeneration)` is the corpus's account-plane key. [Spec-017 §Provider-limit pacing and durable resumption (SA-40)](017-workflow-authoring-and-execution.md#provider-limit-pacing-and-durable-resumption-sa-40) composes its attention key from the provider, the account identity, and the credential generation held stable across the refusing dispatch — those two components are **these** derivations, and a re-authentication that bumps the generation therefore ends the old attention epoch rather than folding a repaired account's fresh refusals into the stale one. The account-scoped quota display (§Provider Quota Is Account-Scoped) and the cost receipt's paying-account column ([Spec-016 §Session Cost Receipt](016-multi-agent-channels-and-orchestration.md#session-cost-receipt)) consume the same `accountId`.
+
+### Credential homes and the constructed environment
+
+Each account owns an **isolated credential home** — a daemon-managed directory holding exactly that account's provider credential material, distinct from every other account's home and from the operator's own ambient provider configuration.
+
+Isolation is the mechanism, and it exists for a specific failure: provider credential files are rewritten in place on token refresh, so two concurrent processes sharing one home can interleave writes and destroy a refresh token that only one of them holds the successor to. Separate homes give each account its own credential file and its own lock scope, so a refresh on one account cannot corrupt another. This is why homes are per-account and not per-provider.
+
+The home reaches the provider child **inside the existing constructed-environment discipline** and never beside it. [Plan-005 §Phase 3 — Codex + Claude driver implementations](../plans/005-provider-driver-contract-and-capabilities.md#phase-3--codex--claude-driver-implementations) already requires that a provider child environment is **constructed, never inherited** — the child receives exactly the curated base plus the run-provisioned variables, with the effective credential policy's denied variables stripped at construction. This spec adds normative content to that regime rather than contradicting it:
+
+- The provider **credential-home variables are a named, closed subset of the run-provisioned variables**, set by the daemon at spawn from the selected account's home and from nothing else. They are **reserved to the daemon**: the daemon is their sole writer, an inherited or caller-supplied value of a reserved name is discarded at construction rather than merged, and no session, run, workflow, execution posture, or MCP configuration surface may set one. Reserving these names is new normative content established here; it was not previously stated anywhere in the corpus.
+- The Claude leg's existing rule — strip the provider's ambient variable family, supply configuration through the explicit settings flag rather than the operator's home — is **unchanged in kind**. The strip is of _inherited ambient_ values; the daemon then sets the reserved credential-home variable as a run-provisioned value. Stripping and provisioning are two stages of one construction, not a contradiction.
+- The Codex leg's native environment policy, which inherits nothing and takes an explicit set, carries the reserved variable in that explicit set.
+- The reserved set is **per-provider and asymmetric**, and the asymmetry is a design constraint rather than an inconvenience to abstract away. Codex co-locates account identity and tokens in a single file under one platform-uniform home directory, relocated by one documented variable (`CODEX_HOME`). Claude Code splits the tuple across two stores — account identity in its own configuration file, tokens in a platform-dependent store (an OS keychain on macOS; a credentials file on Linux) — relocated by different variables with different scoping rules (`CLAUDE_CONFIG_DIR`, documented for its credential-file effect on Linux and Windows only, and a separate secure-storage variable that is undocumented). **No symmetric cross-provider abstraction is available**, and a design that assumes one will be correct on at most one provider. Each provider's concrete reserved set is pinned in the provider-wire reference and **re-verified against the pinned binary at implementation time**, per the reference family's regenerate-don't-transcribe and re-verify-at-authoring-time rules ([Provider Wire Reference §Versioning and pinning policy](../reference/provider-wire/README.md#versioning-and-pinning-policy)) — variable names move, and one of the two Claude variables has no vendor documentation to move with it.
+
+- **The daemon sets a reserved variable to an absolute path or does not set it at all.** An empty-string value is not a permitted spelling of "unset". On the Claude leg an empty value is known to behave as unset _and_ to suppress the companion variable, collapsing a home partition that would otherwise have held — a failure that is both fail-open and silent. The daemon therefore never emits an empty reserved variable, and treats an empty value observed in a constructed environment as a construction defect rather than a default.
+
+**Authentication must survive the constructed environment.** A provider process that reaches a home holding no usable credential is not authenticated, however well-formed its environment is. Two known hazards bound the design and are named rather than assumed:
+
+- Provider minimal-startup modes can bypass the credential machinery entirely — the pinned Claude reference records that the minimal mode strips OAuth and keychain access ([Provider Wire Reference §Gaps recorded](../reference/provider-wire/claude.md#gaps-recorded), a **Provisional**-trust, design-census-sourced claim). A driver leg MUST NOT select such a mode for an account-bound spawn, and this constraint is a version floor/ceiling risk to re-check at each pin bump, not a routine flag choice.
+- On platforms where provider credentials are held in an OS keychain rather than in the home directory, the keychain entry a provider addresses may be a function of its configured home. Where that holds, per-account homes give per-account keychain entries and isolation is preserved; where it does not, the home is not by itself an isolation boundary on that platform. **The daemon treats the keychain entry as opaque**: it never computes, derives, predicts, or addresses a provider's keychain entry name, and it never asserts partitioning by construction. Isolation on such a platform is established **empirically, by the capability probe** (§Concurrency Posture) observing that two accounts' homes yield independent authentication states — never by reasoning about how an entry name is built. The vendor documentation for the one provider that uses a keychain scopes its home variable's credential effect to the _other_ platforms, so a spec that asserted keychain partitioning would be asserting precisely what its source declines to say; and the entry-naming scheme, where it can be observed at all, is undocumented, version-fragile, and sensitive to inputs outside the daemon's control. Until the probe resolves, the degrade-honestly floor applies.
+
+### Credential-refresh brokering
+
+The pinned Codex surface includes a server request the provider sends **to the daemon** to refresh its authentication tokens (`account/chatgptAuthTokens/refresh`, [Provider Wire Reference §Server-requests](../reference/provider-wire/codex.md#server-requests--the-callback--interactive--approval-surface-codex--daemon)). No governance document has previously acknowledged it. The daemon's answer is defined here and is constrained by the no-token-custody posture:
+
+- The daemon answers the request **for the account bound to the requesting run's binding**, resolved from that binding and never from ambient state.
+- The daemon **brokers, never stores**: it does not read the refreshed material into its own persistence, does not log it, does not place it on any event or error payload, and does not serve it to any client. The credential lives in the account's home; the daemon's role is to identify which home the request belongs to and to let the provider's own mechanism write there.
+- A refresh the daemon observes to have completed **bumps that account's credential generation** (§Account identity and credential generation), which is what lets the attention-key fold and the quota display distinguish a repaired account from an unchanged one.
+- A refresh request arriving on a binding whose account is no longer registered, or whose home is missing, is **refused rather than redirected** — answering it against a different home would write one account's credential into another's, the exact corruption per-account homes exist to prevent.
+
+### Selection at run start
+
+- Every provider run resolves exactly one account **before spawn**: the per-run override where the caller supplied one, otherwise that provider's default account.
+- The resolved account is **run-bound and immutable for the run's lifetime**. It is stamped on the run's admission record as a path-independent server stamp (`admittedProviderAccountId`, [Spec-006 §Run Lifecycle](006-session-event-taxonomy-and-audit-log.md#run-lifecycle-run_lifecycle)) — never client-suppliable — and persisted through the binding's spawn-bound configuration record so that a resume or crash-relaunch re-realizes **the same account**. A resume MUST NOT silently rebind to a different account; where the original account can no longer be realized, the resume refuses fail-closed rather than paying from an account the caller never chose.
+- Account identity is **spawn-bound state**, so it travels the same data-leg path as the rest of the spawn-bound surface and is re-injected from the durable record on resume rather than re-requested from the client.
+
+### Validation at spawn — fail-closed
+
+- Before a provider process is spawned against an account, the daemon MUST validate that the account is registered, that its credential home exists, and that the driver's authentication probe reports `authenticated` for that home.
+- Any other outcome **refuses the run before spawn**. A missing or husked home, an unregistered account, and an `indeterminate` probe are all refusals, never fallbacks: falling back to the default account, to the ambient operator configuration, or to an unauthenticated spawn would silently bill the wrong account or start work that cannot complete.
+- This reuses the driver contract's existing authentication machinery rather than minting a parallel one. The probe is **required of every driver and is not capability-gated** — that posture is preserved exactly, and this spec adds no authentication capability flag. What it adds is the **scope** of the probe and of the daemon's cached authentication state: both become per-`(driver, account)` rather than per-driver, because a node with two accounts on one provider has two independent authentication states and a single per-driver record cannot represent them.
+
+### Billing mode
+
+- Every account records a **billing mode**: `subscription` (usage is included in a plan the operator already pays for), `metered` (usage accrues billed charges per token), or `unknown`.
+- Billing mode is operator-declared at registration and may be corrected later; the daemon does not infer it from spend and does not fetch it from a vendor.
+- **Every surfaced cost figure attributable to an account carries that account's billing mode.** Subscription-mode usage MUST NOT be presented as billed dollars without the label, and MUST NOT be silently summed with metered spend into a single unlabeled currency total. A total spanning more than one mode states that it does.
+- **`unknown` is the honest-absence arm and is never resolved by guessing.** It means the operator has not declared how this account bills — not that the account is metered, and not that the figure is zero. A figure attributable to an `unknown`-mode account is labeled as undeclared and is subject to the same prohibition as a subscription figure: it is never presented as billed dollars, and never folded unlabeled into a currency total. The remedy is for the operator to correct the mode on the registration, which is why the mode is editable after registration rather than fixed at it.
+
+  This rule is not a stylistic preference; it is the posture the provider itself publishes about its own figure. Anthropic's cost documentation states that the CLI's session cost block "is intended for API users", that subscribers "have usage included in their subscription, so the session cost figure isn't relevant for billing purposes", and — on the provenance of the number — that the figure is computed locally "from token counts priced at standard list rates", does not reflect promotional or contracted pricing, and "may differ from your actual bill" ([Claude Code costs](https://code.claude.com/docs/en/costs), accessed 2026-08-18; **Documented**). A locally-derived, list-rate figure presented as a subscriber's bill is wrong in the way the vendor explicitly warns about, and this spec's labeling requirement is what keeps that presentation from occurring. The same provenance caveat is why a cost figure is a **spend estimate for this node's usage**, never a statement about an operator's invoice, on either billing mode.
+
+- Billing mode is **presentation and labeling only**. It is never an input to budget enforcement: the committed-spend fold ([Spec-016 §Cost Figure Display Consistency](016-multi-agent-channels-and-orchestration.md#cost-figure-display-consistency)) enforces the same ceiling arithmetic regardless of mode, for the same reason enforcement must not branch on cost provenance — one ceiling, no dual trust regimes.
+
+### Provider quota is account-scoped
+
+- A provider quota snapshot describes **an account's** standing with its provider, not a session's and not the node's. It spans every session that account's runs touch.
+- The account-scoped quota event therefore **carries the account it describes** (`providerAccountId`, plus the credential generation observed with it). Before this spec the event was documented as account-scoped while carrying no account identifier, which left every consumer unable to attribute a snapshot to an account on a multi-account node; that gap is closed here.
+- The typed provider-limit signal the drivers normalize refusals into ([Spec-005 §Fallback Behavior](005-provider-driver-contract-and-capabilities.md#fallback-behavior)) is likewise account-scoped, and its consumers key on `(accountId, credentialGeneration)`.
+
+## Default Behavior
+
+- With exactly one account registered for a provider, that account is the default.
+- With no per-run override supplied, the provider's default account pays.
+- Billing mode defaults to `unknown`, and `unknown` is displayed as `unknown` rather than assumed to be either mode.
+- A newly registered account's credential generation is 1.
+- Account selection is not a session-visible act: the default path emits no approval and no prompt.
+
+## Fallback Behavior
+
+- **No account registered for the provider.** Run admission refuses with a typed refusal naming the provider. V1 does not fall back to ambient operator credentials — an ambient fallback would make the paying account unknowable and would defeat the receipt.
+- **Accounts registered, none marked default, no override supplied.** Refuse. Choosing arbitrarily would bill an account the operator did not choose, and the set is not orderable in a way the operator would recognize as a choice.
+- **Selected account's home missing or husked.** Refuse fail-closed (§Validation at spawn). The operator's remedy is re-authentication against that home; the operator procedure is [Provider Failure Runbook §Provider Re-Authentication (Per Account)](../operations/provider-failure-runbook.md#provider-re-authentication-per-account).
+- **Concurrent cross-account execution unavailable at the pinned binaries.** Serialize per provider account (§Concurrency Posture) rather than degrading to a shared home. A shared home is not a permitted fallback under any condition: it is the corruption case the isolation exists to prevent.
+- **Provider reports a usage limit.** The run parks on the typed signal rather than consuming a retry ladder, per [Spec-017 §Provider-limit pacing and durable resumption (SA-40)](017-workflow-authoring-and-execution.md#provider-limit-pacing-and-durable-resumption-sa-40); the operator procedure is [Provider Failure Runbook §Provider Usage-Limit Outage](../operations/provider-failure-runbook.md#provider-usage-limit-outage).
+
+## Concurrency Posture
+
+Running two accounts of one provider **at the same time** is the design intent, and the mechanism that would make it work already exists in the corpus: one provider process per run, and per-account isolated credential homes so those processes never share a credential file or a lock. Nothing in this spec's own machinery prevents it.
+
+It is nevertheless a **hypothesis about the provider binaries, not a verified property of them**, and this spec declines to assert it as fact. The corpus's parity triad governs the gap:
+
+- **Normalize — the normative contract.** Per-run account selection, run-bound immutability, and per-account isolated homes are normative and unconditional. They hold whether or not concurrent cross-account execution is available, and no consumer of account identity depends on concurrency.
+- **Verify — a named obligation, not an assumption.** [Plan-029 §Phase 3 — Credential homes and spawn binding](../plans/029-provider-accounts-and-credential-homes.md#phase-3--credential-homes-and-spawn-binding) carries a capability-probe task that establishes, against the pinned provider binaries, whether two accounts of one provider can execute concurrently with isolated homes without credential-file corruption, keychain collision, or single-flight refusal at the provider. Its outcome is recorded on the driver's declared capability surface, so the daemon reads a probed fact rather than a documented hope.
+- **Degrade honestly — the floor.** Where the probe does not establish concurrency, the daemon **serializes per provider account**: runs bound to the same account queue behind one another, and runs bound to different accounts of the same provider serialize as well until the probe lifts them. Serialization is visible in run state rather than presented as slowness, and it is never relaxed by sharing a home.
+
+Three engineering constraints are recorded as the reasons this is a probe rather than a deduction, each carried at its honest trust grade and attributed to the vendor that actually states it:
+
+- **Credential-file refresh races — one vendor states the rule, the other is silent, and this spec does not launder the difference.** Codex publishes an imperative prohibition on sharing a credential file across concurrent execution and directs one file per runner or per serialized stream, and documents that a successful refresh writes new tokens back to that file, so a stale copy is superseded ([OpenAI Codex CI/CD authentication](https://learn.chatgpt.com/docs/auth/ci-cd-auth), accessed 2026-08-18; **Documented**). That is a citable, vendor-stated constraint and it is the direct basis for per-account isolation on the Codex leg. **Anthropic publishes no equivalent statement** — no rotation, locking, or concurrency rule appears in the Claude Code authentication or environment-variable references. The identical isolation requirement on the Claude leg is therefore **this project's conservative default**, adopted because the failure it prevents is unrecoverable and the vendor's silence is not evidence of safety. Neither vendor documents a file-locking mechanism; the documented safety model on the one leg that has one is exclusive access, not locking. Isolated homes remove the shared writer, which is the design's whole basis for expecting concurrency to work — but "no shared file" is a necessary condition, not a demonstrated sufficient one, which is exactly why the probe exists.
+- **Config-home environment variables.** The reserved variables are the only channel by which a process is pointed at a home. If a provider resolves any credential state from a path that ignores that variable — or if a variable's documented effect is scoped to platforms other than the one in use — isolation is incomplete on that leg, and only a probe against the binary can tell.
+- **Keychain entry derivation.** Where credentials live in an OS keychain, isolation holds only if the entry a provider addresses varies with its configured home, and that is a property to observe rather than to compute (§Credential homes and the constructed environment).
+
+Neither vendor ships first-class multi-account support at the pinned versions. Codex's own issue tracker records that the CLI assumes a single account and that swapping the home directory is the acknowledged manual workaround, characterized there as tedious rather than as unsupported ([openai/codex#4432](https://github.com/openai/codex/issues/4432), open, accessed 2026-08-18; **Verified** as to the issue's text and state). That is corroboration for the mechanism this spec builds on — relocating the home is how the ecosystem does multi-account today — and simultaneously the reason the daemon must own the mechanism carefully rather than assume the provider will grow into it.
+
+## Authorization Posture
+
+Account operations split across two authority models, and the split is deliberate.
+
+- **Registry mutation is node-operator authority, outside the session-role matrix.** Registering an account, removing one, changing a default, and resetting a credential home are node-local operator acts in the same class [Spec-028](028-mcp-server-configuration-and-governance.md) places MCP governance in: the caller who owns the node is authorized, a control-plane-relayed attempt is denied rather than queued, and no session role grants any of them. No Cedar action is minted for these, and that absence is the deliberate answer rather than an omission — a session-role Cedar action would imply a remote session participant could reconfigure the node operator's paid accounts.
+- **Per-run account selection is session-facing and Cedar-authorized.** Choosing which account pays for a run is an act inside a session by a session participant, with a direct financial consequence for the node operator, so it is authorized like every other consequential in-session act — through the policy engine, under a named action in an additive `providerAccount` action family, evaluated against the same effective principal that authorizes the run itself ([ADR-012](../decisions/012-cedar-approval-policy-engine.md)). Taking the default account is not a selection and requires no authorization; supplying an override is.
+
+This split means the node operator alone decides which accounts exist, while policy decides who may spend from which of them.
+
+## Interfaces And Contracts
+
+- A node-local `providerAccount` wire namespace carries registry read and mutation, default selection, and the per-account authentication probe. Concrete method names, payload shapes, and the account-selection member on run creation are registered in [API Payload Contracts](../architecture/contracts/api-payload-contracts.md).
+- **The two operator-authored descriptive fields — the display label and the billing mode — are correctable in place, and nothing else on the row is.** A correction is a plain registry write: it does not touch the credential home, is not a credential-home lifecycle transition, and therefore does not bump `credentialGeneration`. Account identity, the account's provider, and its credential-home path are **not** correctable, because each of those is what historical spend is keyed to or resolved through. This is required rather than convenient: since account identity is immutable and never re-derivable, an operator who could not correct a typo'd label or a mis-declared billing mode would have to remove and re-register, minting a new identity and orphaning that account's spend history — so the absence of a correction path would silently push operators into destroying their own cost record. It is also the mechanism the `unknown` billing mode is resolved through, and the mechanism by which a label naming a person is renamed under [Spec-022 §PII Data Map](022-data-retention-and-gdpr.md#pii-data-map).
+- Run admission gains an optional account-override input and stamps the resolved account on the run's admission record ([Spec-006 §Run Lifecycle](006-session-event-taxonomy-and-audit-log.md#run-lifecycle-run_lifecycle)).
+- The account-scoped quota event carries account identity and credential generation ([Spec-006 §Usage Telemetry](006-session-event-taxonomy-and-audit-log.md#usage-telemetry-usage_telemetry)).
+- The driver contract gains account-scoped authentication state and the typed provider-limit signal ([Spec-005 §Fallback Behavior](005-provider-driver-contract-and-capabilities.md#fallback-behavior)).
+- Refusal codes for the fail-closed paths are registered in [Error Contracts](../architecture/contracts/error-contracts.md).
+
+## State And Data Implications
+
+- One new node-local table, `provider_accounts`, holds the registry: account identity, provider, operator label, credential-home path, billing mode, credential generation, default flag, and the last observed authentication probe result. DDL and constraints live in [Local SQLite Schema §Provider Account Tables (Plan-029)](../architecture/schemas/local-sqlite-schema.md#provider-account-tables-plan-029).
+- **No control-plane table.** Provider accounts and their spend are node-local; nothing about them is written to the shared schema.
+- **No spend table.** Cost accounting remains the in-memory, replay-rebuilt fold it already is; the account axis rides existing event payloads rather than a parallel ledger, so no second accountant is created.
+- The operator label is operator-authored free text and is treated as potentially personal data; its retention and erasure obligations are recorded in [Spec-022 §PII Data Map](022-data-retention-and-gdpr.md#pii-data-map). The credential-home path is a filesystem location, not credential material; no credential material is stored in this table or in any other.
+- Credential generation is durable and monotonic per account; it is never reset, including across a home reset, so a stale consumer can always order two generations.
+
+## Example Flows
+
+- `Example: An operator registers a personal subscription account and a work metered account for one provider, marks the personal one default, and starts a run with no override — the personal account pays, and the run's admission record carries its account identity.`
+- `Example: A run is started with an explicit override naming the work account. Policy authorizes the selection, the daemon validates the work account's home, probes it authenticated, spawns against that home, and the session cost receipt attributes the run's spend to the work account labeled metered.`
+- `Example: The daemon crashes mid-run. On relaunch the binding's durable spawn-bound record re-realizes the same account; the home has since been logged out, the probe returns unauthenticated, and the resume refuses fail-closed rather than continuing on the default account.`
+- `Example: Codex sends the daemon a token-refresh server request on a run bound to the work account. The daemon resolves the binding's account, lets the provider's own mechanism write into that account's home, stores nothing, and bumps the account's credential generation — ending the prior attention epoch for that account.`
+- `Example: The provider reports a usage limit on the work account. The typed signal parks the phase with the account's identity and generation on the attention key; the personal account's runs are unaffected, because the fold key is account-scoped.`
+
+## Implementation Notes
+
+- The registry is small and node-local; a read-through cache is fine, but the authentication probe result is time-sensitive and must not be served stale past the driver contract's refresh cadence.
+- The default flag is best enforced as a partial unique index rather than in application code, so two defaults for one provider are impossible by construction rather than by discipline.
+- Credential-home paths must be validated as daemon-owned locations outside any repo working tree before they are written to the registry; a home inside a worktree would be captured by workspace lifecycle operations that have no business touching credentials.
+- The reserved-variable set is the daemon's alone. The cleanest enforcement is to apply the reservation at the same construction site that already strips denied variables, so there is exactly one place where the child environment is assembled and exactly one place to audit.
+
+## Pitfalls To Avoid
+
+- **Do not treat the credential home as custody.** Pointing a provider at a directory is not storing its tokens. A design that reads, copies, caches, or transports the material inside a home violates the no-token-custody posture even if it never persists it.
+- **Do not let an account fall back.** Every fallback in the account plane is a silent mis-billing. Refuse instead.
+- **Do not key the account plane on the credential.** A rotated credential is the same account; an identity derived from credential material would fragment an account's history at every refresh and would leak account material into every payload carrying it.
+- **Do not conflate the two "account identity" terms.** The control-plane participant sense in the domain model is unrelated to this one.
+- **Do not sum subscription and metered usage into an unlabeled dollar figure.** That is the single most misleading thing a multi-account cost surface can do.
+- **Do not emit an empty reserved variable, and do not read one as a default.** On at least one provider leg an empty value behaves as unset and suppresses the companion variable, silently returning the process to the shared credential entry — a partition that appears configured and is not. Absent means absent; empty means defective.
+- **Do not compute a provider's keychain entry name.** It is undocumented, version-fragile, and depends on inputs the daemon does not control. Observe isolation; never derive it.
+- **Do not generalize one vendor's documented rule to the other.** Only one of the two providers publishes a concurrency constraint on its credential file. Adopting the same discipline on both is correct; attributing it to both is not.
+- **Do not assume concurrency before the probe.** Shipping the concurrent path on the strength of the design's plausibility is exactly the failure the parity triad's verify leg exists to prevent.
+- **Do not widen the driver capability set with an authentication flag.** The authentication probe is required of every driver by design; a flag would make it optional.
+
+## Acceptance Criteria
+
+- [ ] AC-1 — A node registers two accounts for one provider with distinct labels and homes; both are listed, exactly one is default, and a second default for the same provider is rejected by the schema.
+- [ ] AC-2 — Account identity is stable across re-authentication, relabeling, and default changes; credential generation strictly increases at each credential-home lifecycle transition and never resets.
+- [ ] AC-3 — A run with no override binds the provider's default account; a run with an override binds the named account only after policy authorizes the selection.
+- [ ] AC-4 — The bound account is stamped on the run's admission record, is not client-suppliable, and is re-realized identically on resume from the durable spawn-bound record.
+- [ ] AC-5 — A spawn against a missing home, a husked home, an unregistered account, or an `indeterminate` probe refuses before spawn with a typed refusal, and no provider process is created.
+- [ ] AC-6 — The child environment for an account-bound spawn carries the reserved credential-home variable set by the daemon; a caller-supplied or inherited value of a reserved name is discarded rather than merged.
+- [ ] AC-7 — A provider token-refresh server request is answered against the requesting binding's account, stores nothing, and bumps that account's credential generation; the same request on an unregistered or missing-home binding is refused.
+- [ ] AC-8 — The account-scoped quota event carries account identity and credential generation, and a two-account node attributes each snapshot to the correct account.
+- [ ] AC-9 — Every surfaced account-attributable cost figure carries its account's billing mode across all three values, and a total spanning more than one mode states that it does; a figure from a `subscription` or `unknown` account is never presented as billed dollars.
+- [ ] AC-10 — With the capability probe unresolved or negative, runs bound to accounts of the same provider serialize, and no execution path shares a credential home.
+
+## ADR Triggers
+
+- Making provider accounts control-plane entities (shared across nodes, or synchronized) would cross the node-local boundary this spec asserts and require an ADR against the shared-schema invariant.
+- Taking custody of provider credential material — storing, relaying, or serving it — would reverse the inherited no-token-custody posture and requires an ADR, not an amendment.
+- Adopting a shared credential home with application-level locking instead of per-account isolation would replace the mechanism this spec's concurrency posture rests on.
+
+## Open Questions
+
+- **First-run provider authentication surfacing is unresolved and out of scope here.** [Spec-026](026-first-run-onboarding.md) does not surface provider authentication at all, so a fresh install can complete onboarding with no provider account registered and discover it only at the first run's refusal. This spec makes the refusal typed and the remedy documented, which bounds the harm, but the onboarding surface itself is a separable amendment against Spec-026/Plan-026 and is deliberately not authored here. Tracked as [BL-154](../backlog.md).
+
+## References
+
+- [Spec-005 — Provider Driver Contract And Capabilities](005-provider-driver-contract-and-capabilities.md) — the driver contract, the authentication probe, and the typed provider-limit signal.
+- [Spec-016 — Multi-Agent Channels And Orchestration](016-multi-agent-channels-and-orchestration.md) — the committed-spend fold and the session cost receipt.
+- [Spec-017 — Workflow Authoring And Execution](017-workflow-authoring-and-execution.md) — the attention key that consumes account identity and credential generation.
+- [Spec-022 — Data Retention And GDPR](022-data-retention-and-gdpr.md) — the PII map row for the operator label.
+- [Spec-028 — MCP Server Configuration And Governance](028-mcp-server-configuration-and-governance.md) — the inherited no-token-custody and provider-owned-config postures.
+- [ADR-012 — Cedar Approval Policy Engine](../decisions/012-cedar-approval-policy-engine.md) — the authorization model for per-run selection.
+- [Provider Wire Reference](../reference/provider-wire/README.md) — the version-pinned provider surfaces, and the TRUST / PROVENANCE grades this spec carries for provider claims: [claude.md](../reference/provider-wire/claude.md) (pinned `2.1.198`; the minimal-mode credential hazard is Provisional-trust, design-census-sourced) and [codex.md](../reference/provider-wire/codex.md) (pinned `codex-cli 0.141.0`; the token-refresh server request and the account-scoped rate-limit methods are Verified at that pin from the binary's own generated schema).
+
+Upstream primary sources for the credential-home and billing claims above, each fetched 2026-08-18 and carried at the trust grade stated where it is used. Per the reference family's re-verify-at-authoring-time rule, a later consumer re-checks these rather than trusting this date.
+
+- [Claude Code — Authentication](https://code.claude.com/docs/en/authentication) — credential storage locations per platform, and the config-home variable's credential effect (documented for Linux and Windows only).
+- [Claude Code — Environment variables](https://code.claude.com/docs/en/env-vars) — cited for a **negative** result: the config-home variable does not appear on this reference page, which is why this spec pins variable names at implementation time instead of treating them as stable published surface.
+- [Claude Code — Costs](https://code.claude.com/docs/en/costs) — the subscription-versus-API distinction and the local-list-rate provenance caveat that ground §Billing mode.
+- [OpenAI Codex — Authentication](https://learn.chatgpt.com/docs/auth.md) — the credential file, and automatic token refresh (upstream hedge "usually" preserved).
+- [OpenAI Codex — CI/CD authentication](https://learn.chatgpt.com/docs/auth/ci-cd-auth) — the imperative concurrency prohibition and the refresh write-back, the citable basis for per-account isolation on the Codex leg.
+- [OpenAI Codex — Environment variables](https://learn.chatgpt.com/docs/config-file/environment-variables) — the Codex home variable. Note the Codex documentation host moved during this authoring pass (the former developer-site paths now permanently redirect here); cite the current host.
+- [openai/codex#4432](https://github.com/openai/codex/issues/4432) — the upstream record that the CLI assumes a single account and that home-directory swapping is the acknowledged multi-account workaround.
