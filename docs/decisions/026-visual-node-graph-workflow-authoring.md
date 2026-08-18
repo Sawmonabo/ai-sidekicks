@@ -2,12 +2,12 @@
 
 | Field | Value |
 | --- | --- |
-| **Status** | `proposed` |
+| **Status** | `accepted` |
 | **Type** | `Type 2 (one-way door)` |
 | **Domain** | `Workflow / Authoring UX` |
 | **Date** | `2026-08-10` |
 | **Author(s)** | `Claude (AI-assisted)` |
-| **Reviewers** | `Proposed — rides the Tier-8 audit PR alongside the Spec-017 visual-builder amendment for ratification at review` |
+| **Reviewers** | `Codex — PR #318 review round (2026-08-11), whose two mechanism-naming findings landed in the paired Spec-017 visual-builder amendment (the SA-32 topology persistence spelling and the SA-36 operator-boundary enforcement); user ratification 2026-08-18 (the ADR-026 / ADR-027 promotion closure)` |
 
 ## Context
 
@@ -144,17 +144,19 @@ The layout cost is real and is bounded by the file form: geometry travels with a
 
 ### Pre-Implementation Checklist
 
-- [ ] All unvalidated assumptions have a validation plan (§Assumptions Audit rows 2 and 4 are flagged and carry theirs)
-- [ ] At least one alternative was seriously considered and steel-manned (Options B, C, and D)
-- [ ] Antithesis was reviewed by someone other than the author — the ratification this ADR's `proposed → accepted` promotion requires
-- [ ] Failure modes have detection mechanisms (every §Failure Mode Analysis row names one)
-- [ ] Point of no return is identified and communicated (the first user-authored definition)
-- [ ] The graph-to-phase mapping is a pure function over shared-contract types, importing nothing from the rendering library
-- [ ] A typed split makes it structurally impossible for the canonicalizer to read geometry
-- [ ] The node palette enumerates exactly the phase-type domain plus the entry node, sourced from the contract union rather than hand-listed
-- [ ] `go-back-to` has no drawable spelling anywhere in the connection layer
-- [ ] The binding type declares no governance facet, and each facet name is rejected at parse
-- [ ] The builder subtree passes the renderer import-boundary lint with no exceptions
+The first five rows are the decision-quality gates the `proposed → accepted` promotion discharges; all five resolved 2026-08-18. The six rows below them are **build-time** obligations this ADR imposes on the implementation, each carried by a named Plan-017 task — they resolve when that code lands, not at promotion, and are deliberately left open here rather than pre-checked.
+
+- [x] All unvalidated assumptions have a validation plan (§Assumptions Audit rows 2 and 4 are flagged and carry theirs)
+- [x] At least one alternative was seriously considered and steel-manned (Options B, C, and D)
+- [x] Antithesis was reviewed by someone other than the author — Codex at the PR #318 review round (2026-08-11), which folded two mechanism-naming findings into the paired Spec-017 amendment rather than into this ADR, and user ratification 2026-08-18, the ratification this ADR's `proposed → accepted` promotion requires
+- [x] Failure modes have detection mechanisms (every §Failure Mode Analysis row names one)
+- [x] Point of no return is identified and communicated (the first user-authored definition)
+- [ ] The graph-to-phase mapping is a pure function over shared-contract types, importing nothing from the rendering library (build-time; Plan-017 T1.7)
+- [ ] A typed split makes it structurally impossible for the canonicalizer to read geometry (build-time; Plan-017 T1.7)
+- [ ] The node palette enumerates exactly the phase-type domain plus the entry node, sourced from the contract union rather than hand-listed (build-time; Plan-017 T5.5)
+- [ ] `go-back-to` has no drawable spelling anywhere in the connection layer (build-time; Plan-017 T5.5)
+- [ ] The binding type declares no governance facet, and each facet name is rejected at parse (build-time; Plan-017 T1.8)
+- [ ] The builder subtree passes the renderer import-boundary lint with no exceptions (build-time; Plan-017 T5.6)
 - [ ] Every CLI verb resolves to a named SDK operation; none is client-derived
 - [ ] The dependency resolves under the workspace's minimum-release-age and sub-dependency policies and needs no build-allowlist entry
 
@@ -200,3 +202,4 @@ Measurement is by named Plan-017 test rather than by calendar date: this decisio
 | Date | Event | Notes |
 | --- | --- | --- |
 | 2026-08-10 | Proposed | Drafted alongside the Spec-017 visual-builder amendment and its Plan-017 task set. Lands `proposed`; Plan-017's `ADR-026 ratified accepted` §Preconditions box holds T1.7 / T1.8 / T5.5 / T5.6 / T5.7 until it is accepted. |
+| 2026-08-18 | Ratified — `proposed → accepted` | Promoted by the park-surface + operator-controls amendment PR (cross-plan §6 node NS-72), which closes the two ADR promotions Plan-017 has carried as born-unchecked §Preconditions boxes since 2026-08-10 and 2026-08-11. Nothing in the decision changes: Option A (a first-class node-graph builder over the shared contract types) stands as drafted, the three counter-arguments of §Antithesis are answered in §Synthesis as recorded, and Options B–D stay steel-manned in §Alternatives Considered. The pre-promotion sweep found **no committed campaign plan scheduling an amendment against this ADR** (`docs/superpowers/plans/` carries no ADR-026 reference), so no scheduled work vetoes the promotion. Five decision-quality Pre-Implementation Checklist rows resolved; the six build-time rows stay open by design, each annotated with the Plan-017 task that closes it. Consequential same-PR edits: Plan-017's `ADR-026 ratified accepted` box checked with its Delivered record, the Phase-1 precondition corrected from its "for T1.7 and T1.8 only" reading to the phase-wide Gate-5 truth, the box narrative's stale claim that `## Rollout Order` sequences this promotion corrected (it sequences code items; the Gate-5 `precondition_box_checked` entries are what held Phases 1 and 5), and the README ADR census re-derived 24 → 26 `accepted`. The full-phase Gate-5 hold on Phases 1 and 5 is released. |

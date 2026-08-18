@@ -116,7 +116,7 @@ When retries are exhausted (iteration count exceeds `max_retries`), the phase tr
 - `Channel` receives phase output. Each phase defaults to one primary target channel.
 - `Artifact` stores phase outputs with `artifactType: 'workflow_output'`. Each phase produces `{artifacts: ArtifactId[], summary: string, metadata: Record<string, unknown>}`.
 - `Approval` (from Plan-012) is used by `human-approval` gates. The approval request uses `category: 'gate'`.
-- `SessionEvent` timeline captures phase events: `workflow.phase_started`, `workflow.phase_completed`, `workflow.phase_failed`, `workflow.gate_resolved`.
+- `SessionEvent` timeline captures phase events: `workflow.phase_started`, `workflow.phase_completed`, `workflow.phase_failed`, `workflow.phase_suspended`, `workflow.gate_resolved`. The list is illustrative, not the registry: the authoritative set is the 24 `workflow.*` types across five categories enumerated in `Spec-017 §Workflow Timeline Integration`.
 
 ## Example Flows
 
@@ -129,7 +129,8 @@ When retries are exhausted (iteration count exceeds `max_retries`), the phase tr
 
 - A phase may fail from `running` if the underlying run fails and the configured failure behavior is `stop` with no retries remaining.
 - A `skipped` phase produces no outputs and no artifacts. Its gate transitions to `bypassed`.
-- If a workflow is `canceled` while a phase is `running`, the phase's underlying run is interrupted (per run state machine child-run behavior) and the phase transitions to `failed`.
+- If a workflow is `cancelled` while a phase is `running`, the phase's underlying run is interrupted (per run state machine child-run behavior) and the phase transitions to `failed`.
+- If a workflow is `cancelled` while a phase is parked, there is nothing to interrupt — a parked phase holds no live process and no pool reservation — so the cancel completes immediately, preserving the phase's recorded park reason and cause while clearing its live resume schedule and attention key in the same unit of work (`Spec-017 §Park integrity and cancellability (SA-42)`).
 - An `automated` phase with no agent still creates a run record for provenance and timeline visibility, even though no agent persona executes.
 - Retry iterations appear as sub-entries within the phase section of the session timeline. Each iteration is a distinct event, not a state mutation on a prior event.
 - Phase execution is sequential by default. Parallel execution requires explicit marking in the definition and is bounded.

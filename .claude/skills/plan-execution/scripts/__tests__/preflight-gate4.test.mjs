@@ -3606,7 +3606,14 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // matching Verified-by cells grown symmetrically (table cells, no marker
     // delta); no none-arm is added or removed, and the legacy channel is
     // unchanged.
-    bold: { resolved: 873, noneArm: 152, parentResolved: 0 },
+    // 873/152 -> 876/152 (2026-08-18, the Spec-017/Plan-017 park-surface +
+    // operator-controls amendment and its in-swap NS-72 delta, landing after
+    // NS-71 above): two new tasks, each carrying a RESOLVED `Verifies
+    // invariant:` arm — T5.14 (I-017-25, I-017-26) and T5.15 (I-017-26) — three
+    // more bold resolved id references. Both ids are declared by the same
+    // amendment, so every reference resolves; no none-arm is added or removed,
+    // and the legacy channel is unchanged.
+    bold: { resolved: 876, noneArm: 152, parentResolved: 0 },
     legacy: { resolved: 61, noneArm: 3, parentResolved: 1 },
   });
 });
