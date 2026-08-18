@@ -219,4 +219,16 @@ The items below were surfaced by the [plan-readiness-audit Tier 1](./operations/
 
 ---
 
+### BL-152: Relay TTL-sweep blob-row disposition (retain-at-`expired` vs delete)
+
+- Status: `todo`
+- Priority: `P2`
+- Owner: `unassigned`
+- References: [Spec-014 §Fetch (authenticated; relay-served in V1)](./specs/014-artifacts-files-and-attachments.md#fetch-authenticated-relay-served-in-v1) (the flag site — the unobtainable-payload write-back's fact-keying is what makes the gap non-load-bearing there); [Spec-014 §Delete (refcount + TTL + crypto-shred)](./specs/014-artifacts-files-and-attachments.md#delete-refcount--ttl--crypto-shred) (step 8's "GC'd at … TTL expiry" is the delete reading's basis); [Shared Postgres Schema §Artifact Relay Blob Store (Plan-014)](./architecture/schemas/shared-postgres-schema.md#artifact-relay-blob-store-plan-014) (the blob-state set whose `expired` value is the retain reading's basis); [Plan-014](./plans/014-artifacts-files-and-attachments.md) (T14.9 implements the hourly sweep and currently presumes the retained-row reading for its 410 assertion arm)
+- Summary: Spec-014's relay lifecycle leaves the hourly TTL sweep's blob-row disposition unpinned — flagged, deliberately unsettled, by the 2026-08-17 ingest-protocol hardening amendment (§6 node NS-70). Under the **retain** reading the sweep leaves the blob row at `state = 'expired'` (why that value exists in the blob-state set, and what lets the mid-fetch failure-mode row promise `artifact.relay_expired` (410) rather than a bare 404); under the **delete** reading it removes the blob row like refcount-zero delete and watermark eviction, the recipient rows cascade away, and a post-TTL fetch resolves zero rows — `artifact.no_access_key` (404). The two readings put a post-TTL fetch on different refusal codes. Nothing in-tree is broken while the gap stands: the NS-70 `pinned` → `expired` manifest write-back is deliberately fact-keyed (either code drives it), and T14.9's assertion set covers both arms. But the relay's contracted post-sweep serving behavior differs between the readings, so the sweep cannot be implemented without silently picking one — which is exactly what this item exists to prevent.
+- Exit Criteria: (1) a Spec-014 amendment pins the disposition — the blob-state set, §Fetch's flag paragraph, §Delete step 8, and the mid-fetch failure-mode row swept to one reading in the same PR; (2) Plan-014 T14.9's sweep deliverable and its presumes-the-retained-row assertion arm re-derived against the pinned reading; (3) the two flag-site BL-152 cites (Spec-014 §Fetch, the Plan-014 §Preconditions box) updated to point at the resolution.
+- Revisit Trigger: before Plan-014 Phase 6 (T14.9) code dispatch — the dominant trigger, since implementing the sweep forces the choice; OR any Spec-014 amendment touching the relay lifecycle sections re-encounters the gap.
+
+---
+
 _Closed items live in [Backlog Archive](./archive/backlog-archive.md)._

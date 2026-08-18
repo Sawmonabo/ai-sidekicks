@@ -3040,7 +3040,7 @@ interface ArtifactManifest {
   subject?: ArtifactId; // OCI `subject`: present only on a derivative (redacted/summarized) manifest → source manifest (I-014-2, Spec-014 §State And Data Implications)
   visibility: ArtifactVisibility;
   state: ArtifactState;
-  replicationStatus?: "pending_replication" | "pinned" | "over_cap" | "quota_exceeded" | "expired"; // = SQLite `replication_status` (A-014-3; value set spec-named by the 2026-07-08 relay amendment — Spec-014 §Fallback Behavior grants the `pending_replication` fallback; the full set is spec-named in [Spec-014 §Wire-format additivity](../../specs/014-artifacts-files-and-attachments.md#wire-format-additivity) and mirrors the at-rest CHECK column). Absent = local-only artifact.
+  replicationStatus?: "pending_replication" | "pinned" | "over_cap" | "quota_exceeded" | "expired"; // = SQLite `replication_status` (A-014-3; value set spec-named by the 2026-07-08 relay amendment — Spec-014 §Fallback Behavior grants the `pending_replication` fallback; the full set is spec-named in [Spec-014 §Wire-format additivity](../../specs/014-artifacts-files-and-attachments.md#wire-format-additivity) and mirrors the at-rest CHECK column). Absent = local-only artifact. Consumers read the PERSISTED value and never recompute it from live relay state — which is what lets the unresolved-attachment marker carry a non-`pinned` status verbatim as its cause. `expired` is written on the FETCHING node by its own fetch-refusal handling — on `artifact.relay_expired` (410) and equally on a zero-row `artifact.no_access_key` (404), since a GC path that removes the blob row cascades its recipient rows away and puts the later fetch on the 404 instead ([Spec-014 §Fetch (authenticated; relay-served in V1)](../../specs/014-artifacts-files-and-attachments.md#fetch-authenticated-relay-served-in-v1), the recipient-side writer added 2026-08-17 by the ingest-protocol hardening amendment); read it as "payload not obtainable from the relay, remedy is a re-publish" rather than narrowly as "TTL elapsed". The other three are publish-path values reaching recipients through manifest-first replication.
   metadata: Record<string, unknown>; // freeform daemon-side provenance/media-type — distinct from the OCI `annotations` map above
   createdAt: string;
 }
@@ -3130,6 +3130,15 @@ interface ArtifactVisibilityUpdateResponse {
 // attachment-reference note below). Distinct surface from the cross-node ArtifactUploadInit/Chunk/
 // Complete relay methods (below) — the same streaming shape applied to a different boundary and
 // payload (relay-bound ciphertext chunks there; cleartext local bytes under validation here).
+// EVERY call of the trio is retry-safe against a lost response, and no member of these shapes carries
+// idempotency state (2026-08-17 ingest-protocol hardening amendment): a replayed Chunk is acknowledged
+// without re-appending, and a replayed Complete replays its original response verbatim from a
+// completion record the daemon holds on the stream's own registry entry. Calls on one ingestId are
+// additionally SINGLE-FLIGHT — sequence validation, spool append, running-count and digest advance,
+// and acknowledgement run as one critical section per stream — so an original racing its own retry
+// takes the replay path rather than double-appending; concurrent calls on DIFFERENT streams never
+// contend. Admission is likewise a serialized reserve-then-install ledger over the open-stream count
+// and the reservation total, so two concurrent Inits cannot both pass one remaining slot's bound.
 interface AttachmentIngestInitRequest {
   sessionId: SessionId;
   runId?: RunId;
@@ -3138,7 +3147,7 @@ interface AttachmentIngestInitRequest {
   declaredSizeBytes: number; // ADVISORY as metadata, BINDING as a reservation (PR #341 round 4): refused with artifact.too_large (413) up front when it exceeds max_attachment_ingest_bytes, counted against ingest_spool_max_bytes at admission, and enforced as the stream's per-stream spool ceiling — the running decoded count may not exceed it; a smaller actual size reconciles downward at Complete without refusal
 }
 interface AttachmentIngestInitResponse {
-  ingestId: string; // opaque single-use stream handle, session-bound and wall-clock-bounded by max_ingest_stream_lifetime from Init; scopes every subsequent Chunk/Complete call — each refused artifact.ingest_stream_invalid (409) once the stream is terminated, completed, expired, or unknown (PR #341 round 4)
+  ingestId: string; // opaque single-use stream handle, session-bound and wall-clock-bounded by max_ingest_stream_lifetime from Init; scopes every subsequent Chunk/Complete call — each refused artifact.ingest_stream_invalid (409) once the stream is terminated, expired, or unknown, and every Chunk once it is completed (PR #341 round 4). ONE carved exception: a replayed Complete on a completed stream whose completion record still lives replays the original response verbatim (2026-08-17 ingest-protocol hardening amendment) — see AttachmentIngestCompleteRequest
 }
 interface AttachmentIngestChunkRequest {
   ingestId: string;
@@ -3150,7 +3159,7 @@ interface AttachmentIngestChunkResponse {
   receivedBytes: number; // spooled running total of DECODED bytes after this chunk — the enforced byte bound; exceeding max_attachment_ingest_bytes refuses with artifact.too_large (413) and deletes the spool
 }
 interface AttachmentIngestCompleteRequest {
-  ingestId: string; // Complete runs pipeline steps 3-8 over the spooled bytes (signature detection reads a bounded leading prefix); step 8's admitting CAS rename commits the payload — admission is the pipeline's final successful act (Spec-014 pipeline step 8, PR #341 round 2)
+  ingestId: string; // the request's ONLY member — Complete runs pipeline steps 3-8 over the spooled bytes (signature detection reads a bounded leading prefix); step 8's admitting CAS rename commits the payload — admission is the pipeline's final successful act (Spec-014 pipeline step 8, PR #341 round 2). IDEMPOTENT within the stream's lifetime (2026-08-17 ingest-protocol hardening amendment): the response is recorded on the stream's registry entry, stamped with the committed digest, so a retry after a lost response replays that response VERBATIM — same artifactId, same contentHash — re-running no gate and inserting no second manifest row. Because this request carries no member beyond the ingestId, a "divergent" Complete has no wire form; the digest stamp is a fail-closed defence-in-depth check against a state a daemon-minted single-use handle makes unreachable, not a caller-supplied discriminator. The record shares the entry's in-memory lifetime, so past max_ingest_stream_lifetime the retry receives artifact.ingest_stream_invalid (409) and a re-ingest costs a second manifest row over one deduplicated CAS payload — the named residual, never duplicated bytes
 }
 interface AttachmentIngestCompleteResponse {
   artifactId: ArtifactId;
