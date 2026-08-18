@@ -3597,7 +3597,16 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // total — T1.9 (I-017-12), T2.5 (I-017-19, I-017-23), T2.6 (I-017-20),
     // T5.11 (I-017-21), T5.12 (I-017-24), T5.13 (I-017-4, I-017-22); no
     // none-arm is added or removed, and the legacy channel is unchanged.
-    bold: { resolved: 863, noneArm: 152, parentResolved: 0 },
+    // 863/152 -> 873/152 (2026-08-18, the admitting-principal carrier +
+    // queue-PII envelope amendment and its in-swap NS-71 delta): no new task —
+    // I-004-22 and I-004-23 join five existing Plan-004 RESOLVED `Verifies
+    // invariant:` rows (T1.4 both, T2.4 I-004-22, T2.9 I-004-23, T3.5 both,
+    // T3.17 both = 8 references) and I-012-25 joins two Plan-012 rows (T2.2,
+    // T2.7 = 2 references), ten more bold resolved id references, with the
+    // matching Verified-by cells grown symmetrically (table cells, no marker
+    // delta); no none-arm is added or removed, and the legacy channel is
+    // unchanged.
+    bold: { resolved: 873, noneArm: 152, parentResolved: 0 },
     legacy: { resolved: 61, noneArm: 3, parentResolved: 1 },
   });
 });

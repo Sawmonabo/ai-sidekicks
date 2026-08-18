@@ -29,6 +29,7 @@ This model defines how the system stores follow-up work, prioritizes it, and rec
 - Queue items are persisted by the runtime, not only by the client.
 - Every queue item belongs to exactly one session and targets a defined execution context.
 - Every intervention has an initiator, a target, a timestamp, and an outcome.
+- Every intervention records the **origin** it was admitted through — `participant` or `system` — and, on the `participant` arm only, the **admitting principal**: the identity the daemon itself resolved from the transport at acceptance. The initiator is routing and audit metadata supplied by the caller; the admitting principal is the daemon's own finding and is the sole identity any later authorization decision may read (2026-08-18 amendment; [Spec-004 §Required Behavior](../specs/004-queue-steer-pause-resume.md#required-behavior)). The two arms are exhaustive and mutually exclusive, so a system-originated intervention carries no principal and can never be mistaken for a participant's act.
 - Queue admission and intervention effects must be visible in the session timeline.
 - A failed or downgraded intervention must still be recorded as an outcome.
 
@@ -113,6 +114,8 @@ The following field inventory maps each intervention payload to the canonical so
 | `attachments` | no | `InterventionRequestPayload` (optional) | `SteerPayload.attachments` (optional) |
 | `expectedTurnId` | no | `InterventionRequestPayload` (optional) | `SteerPayload.expectedTurnId` (optional) |
 
+At-rest routing (2026-08-18 amendment): `content` is participant-authored directive text, so it rests on the durable intervention row inside the participant-keyed PII envelope (`interventions.pii_payload`) rather than in the plaintext `payload` column — the same at-rest split `replacementSend` takes, for the same reason ([Spec-004 §Required Behavior](../specs/004-queue-steer-pause-resume.md#required-behavior)). This changes neither the wire shape above nor what the driver receives: the split happens daemon-side at persist, and the driver leg is handed the decrypted text as before. `attachments` are references, not bodies, and are unaffected.
+
 **`interrupt` payload:**
 
 | Field | Required | Source: API Contracts | Source: Spec-005 `ApplyInterventionParams` |
@@ -139,7 +142,7 @@ The following field inventory maps each intervention payload to the canonical so
 | `expectedRunVersion` | yes | `InterventionRequestPayload` | daemon-enforced pre-dispatch (Plan-004 D-004-2); never forwarded to the driver |
 | `clientIdempotencyKey` | yes | `InterventionRequestPayload` | daemon-enforced replay-or-conflict; never forwarded to the driver |
 | `targetPosition` | yes | `InterventionRequestPayload` | `RollbackToParams.position` |
-| `replacementSend` | no (2026-08-16 amendment) | `InterventionRequestPayload` | daemon-only — the body persisted on the durable intervention row before dispatch through the participant-keyed PII envelope (`interventions.pii_payload`, never plaintext `payload` — Spec-004 §Required Behavior at-rest split), then **enqueued run-bound** as a queue item (persisted queue-state `queued`; the run-bound arm of `admitted` is reached only when the `run.resume` drain delivers it) through the ordinary participant-send path in the same durable transaction that settles the intervention after the confirmed rewind (the run still lands `paused`; no auto-resume, no second driver call); never forwarded to the driver's `rollbackTo` leg |
+| `replacementSend` | no (2026-08-16 amendment) | `InterventionRequestPayload` | daemon-only — the body persisted on the durable intervention row before dispatch through the participant-keyed PII envelope (`interventions.pii_payload`, never plaintext `payload` — Spec-004 §Required Behavior at-rest split), then **enqueued run-bound** as a queue item (persisted queue-state `queued`; the run-bound arm of `admitted` is reached only when the `run.resume` drain delivers it; that queue row carries its own copy of the body under the same participant-keyed envelope in `queue_items.pii_payload`, 2026-08-18 amendment — one send, two durable rows, both shredded by the one key deletion) through the ordinary participant-send path in the same durable transaction that settles the intervention after the confirmed rewind (the run still lands `paused`; no auto-resume, no second driver call); never forwarded to the driver's `rollbackTo` leg |
 
 Note: The `ApplyInterventionParams` interface in Spec-005 splits the payload into `targetRunId`, `expectedRunVersion`, and `clientIdempotencyKey` at the top level and routes the remaining type-specific fields through `SteerPayload`, `InterruptPayload`, or `CancelPayload`. The `InterventionRequestPayload` in the API contracts flattens all fields into a single discriminated union. Both representations carry the same field set per intervention type. The `DriverInterventionResult` returned by the driver uses `status: 'applied' | 'degraded'` — the orchestration layer maps this to the full 6-state lifecycle per the normative table below.
 
