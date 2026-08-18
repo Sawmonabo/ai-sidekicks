@@ -44,7 +44,7 @@ The workflow model is the source of truth for how reusable, multi-phase executio
 - `Agent` and `Channel` (from agent-channel-and-run model) provide the execution persona and communication surface for phase work.
 - `Artifact` stores phase outputs with `artifactType: 'workflow_output'`. Artifacts are outputs of runs created during phase execution, not of the workflow run itself.
 - `Approval` primitives from Plan-012 are used by `human-approval` gates within phases.
-- `SessionEvent` timeline captures workflow lifecycle events (`workflow.phase_started`, `workflow.phase_completed`, `workflow.phase_failed`, `workflow.gate_resolved`).
+- `SessionEvent` timeline captures workflow lifecycle events (`workflow.phase_started`, `workflow.phase_completed`, `workflow.phase_failed`, `workflow.phase_suspended`, `workflow.resumed`, `workflow.cancelled`, `workflow.gate_resolved`). The list is illustrative, not the registry: the authoritative set is the 24 `workflow.*` types across five categories enumerated in `Spec-017 §Workflow Timeline Integration`.
 
 ## State Model
 
@@ -54,17 +54,21 @@ The workflow model is the source of truth for how reusable, multi-phase executio
 | --- | --- |
 | `pending` | The workflow run has been created but phase execution has not started. |
 | `running` | At least one phase is actively executing or the workflow is advancing between phases. |
+| `suspended` | A phase of the run is parked — awaiting a human, or waiting out a provider usage limit — and the run is neither progressing nor finished. The park's cause, and the resume instant where one was armed, are per-phase state (`Spec-017 §Park integrity and cancellability (SA-42)`). |
 | `completed` | All phases have reached terminal states and the workflow finished successfully. |
 | `failed` | The workflow ended because a phase failed and the configured failure behavior resulted in a stop. |
-| `canceled` | The workflow was explicitly canceled by a participant or system action. |
+| `cancelled` | The workflow was explicitly cancelled by a participant or system action, through `workflow.runCancel` (`Spec-017 §Operator run control (SA-45)`). |
 
 Allowed transitions:
 
 - `pending -> running` (first phase starts)
 - `running -> completed` (final phase completes successfully and terminal gate resolves)
 - `running -> failed` (phase failure with `stop` behavior, or retry exhaustion)
-- `running -> canceled` (explicit cancellation)
-- `pending -> canceled` (canceled before execution begins)
+- `running -> suspended` (a phase parks awaiting a human or a provider usage-limit reset)
+- `suspended -> running` (resume: operator-requested, or a durable auto-resume schedule firing)
+- `running -> cancelled` (explicit cancellation)
+- `suspended -> cancelled` (a parked run is cancellable from every suspended or waiting state, without precondition)
+- `pending -> cancelled` (cancelled before execution begins)
 
 ### Workflow Definition (no state machine)
 
@@ -92,7 +96,7 @@ WorkflowDefinition (1)
 
 ## Edge Cases
 
-- A workflow run may be `canceled` even if some phases have already `completed`. Completed phase outputs remain addressable.
+- A workflow run may be `cancelled` even if some phases have already `completed`. Completed phase outputs remain addressable, and a cancelled run preserves each parked phase's recorded park reason and cause while clearing its live schedule and attention key.
 - A workflow definition with a single phase is valid. The phase's gate type determines whether the workflow completes immediately (`auto-continue` or `done`) or blocks for approval.
 - A workflow run survives daemon restart or client reconnect. Phase state is persisted in `workflow_phase_states` and is recoverable.
 - If a workflow version's phase definitions reference capabilities unavailable at runtime, the workflow pauses in a blocked state rather than silently skipping phases.

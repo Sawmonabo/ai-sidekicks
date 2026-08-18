@@ -2,12 +2,12 @@
 
 | Field | Value |
 | --- | --- |
-| **Status** | `proposed` |
+| **Status** | `accepted` |
 | **Type** | `Type 2 (one-way door)` |
 | **Domain** | `Workflow / Invocation UX + Authorization` |
 | **Date** | `2026-08-11` |
 | **Author(s)** | `Claude (AI-assisted)` |
-| **Reviewers** | `Proposed — rides the chat-start amendment PR alongside the Spec-017 §Chat-Invoked Start amendment for ratification at review` |
+| **Reviewers** | `Codex — PR #319 chat-start amendment vehicle and the PR #320 restoring readiness-audit delta (NS-55), which audited the C-18 grammar across its four surfaces and the SA-39 refusal ordering across its five; user ratification 2026-08-18 (the ADR-026 / ADR-027 promotion closure)` |
 
 ## Context
 
@@ -128,10 +128,17 @@ The interception rule and the `@`/`/` namespace split are the one-way parts: onc
 
 ### Pre-Implementation Checklist
 
-- [ ] `workflow.start_denied` registered in `error-contracts.md §Workflow` before any handler mints it (C-12).
-- [ ] ADR-027 promoted `accepted` before T5.8/T5.9/T5.10 dispatch (named Plan-017 §Preconditions box).
-- [ ] The Spec-012/Plan-012 targeted delta registering `Action::"workflow::start"` and the chat-borne participant carrier is queued with a named vehicle before any chat-borne non-node-owner start is claimed as supported.
-- [ ] The `workflow_start` tool's registration is conditional on the callback-tool host's fail-closed contract — no bypass, no direct dispatch.
+The five template rows below were backfilled 2026-08-18 at promotion — the drafted checklist carried only this ADR's four surface-specific rows and omitted the decision-quality gates the `proposed → accepted` promotion is supposed to discharge, so the promotion had nothing standard to resolve against. All five hold against the ADR as drafted; none required a content change.
+
+- [x] All unvalidated assumptions have a validation plan (§Assumptions Audit; the two load-bearing ones — that the composer owns command interception and that no shipped provider path consumes leading-slash text — are validated by Plan-017 T5.8's grammar tests and by BL-148's named gate respectively)
+- [x] At least one alternative was seriously considered and steel-manned (§Alternatives Considered Options A–E, Option E added 2026-08-16 from the reference-runtime parity survey)
+- [x] Antithesis was reviewed by someone other than the author — Codex across the PR #319 vehicle and the PR #320 restoring delta (NS-55); user ratification 2026-08-18. Each of the three counter-arguments ("a tenth approval category buys the whole approvals apparatus for free", "prose intent beats grammar", "the reserved prefix takes a real character") is answered in §Synthesis, and the third is answered by _bounding_ rather than dismissing it — the `//` escape plus BL-148's named gate.
+- [x] Failure modes have detection mechanisms (§Failure Mode Analysis; every entry names either a typed refusal the caller observes — `workflow.start_denied` for the forged-`channelId` and unresolvable-principal arms — or a structural inertness argument that a test can assert, and the one residual it cannot detect in-product is named and tracked as BL-148 rather than absorbed)
+- [x] Point of no return is identified and communicated to the team — §Reversibility Assessment: the leading-`/` interception rule and the `@`/`/` namespace split, one-way once users rely on either behavior; the verb set, command roster, and named action are all additive
+- [x] `workflow.start_denied` registered in `error-contracts.md §Workflow` before any handler mints it (C-12) — registered 2026-08-11 by the chat-start amendment as the A-017-15 owed extension's first landed entry; verified present at promotion.
+- [x] ADR-027 promoted `accepted` before T5.8/T5.9/T5.10 dispatch (named Plan-017 §Preconditions box) — this promotion; the box is checked in the same PR and no Phase-5 code has dispatched.
+- [x] The Spec-012/Plan-012 targeted delta registering `Action::"workflow::start"` and the chat-borne participant carrier is queued with a named vehicle before any chat-borne non-node-owner start is claimed as supported — the vehicle is named in `Plan-017 §Upstream-Tier Amendments Required` and held by the born-unchecked `Chat-borne participant carrier + workflow::start action registered` box; until it lands, T5.8–T5.10 ship the fail-closed I-017-18 state and no such support is claimed.
+- [ ] The `workflow_start` tool's registration is conditional on the callback-tool host's fail-closed contract — no bypass, no direct dispatch (build-time; Plan-017 T5.10 — resolves when that code lands, not at promotion)
 
 ### Success Criteria
 
@@ -168,3 +175,4 @@ The interception rule and the `@`/`/` namespace split are the one-way parts: onc
 
 - **2026-08-11** — Drafted `proposed`; rides the chat-start amendment PR for ratification at review, following the ADR-026 vehicle shape.
 - **2026-08-16** — Recorded Option E (agent-mediated start via an appended provider-payload context block) in §Alternatives Considered, from the campaign's reference-runtime parity survey; the chosen design and its authorization model are unchanged.
+- **2026-08-18** — Ratified `proposed → accepted` by the park-surface + operator-controls amendment PR (cross-plan §6 node NS-72), alongside ADR-026. The decision is unchanged: the reserved-`/` interception rule with its `//` channel-message escape, the `@`-vs-`/` namespace split, per-start authorization as the named Cedar operation action `Action::"workflow::start"` rather than a tenth approval category, and the daemon-resolved chat-borne principal all stand as drafted. The pre-promotion sweep found **no committed campaign plan scheduling an amendment against this ADR** (`docs/superpowers/plans/` carries no ADR-027 reference; `docs/backlog.md`'s only hit is BL-148's References row citing it as background, not as scheduled work), so nothing vetoes the promotion. §Pre-Implementation Checklist backfilled with the five omitted template rows and all five resolved; three of the four surface-specific rows resolved against verified in-tree state and the fourth left open as a build-time obligation on Plan-017 T5.10. Consequential same-PR edits: Plan-017's `ADR-027 ratified accepted` box checked with its Delivered record, that box's stale `## Rollout Order` sequencing claim corrected to name the Gate-5 `precondition_box_checked` entry that actually held Phase 5, and the README ADR census re-derived 24 → 26 `accepted`. The full-phase Gate-5 hold on Phase 5 is released; the separate chat-borne participant carrier box still gates collaborator chat-borne starts.

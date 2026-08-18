@@ -4256,6 +4256,43 @@ interface PhaseState {
   // (Spec-017 §Ship-empty tables (SA-28)). Emitted for `human` phases by daemons at
   // this contract revision; absent from older daemons and on non-`human` phases.
   formRevision?: number;
+  // --- Park surface (added 2026-08-18 by the park-surface + operator-controls
+  // amendment; four additive-OPTIONAL members under the same ADR-018 rule as the
+  // three above — readers must tolerate their absence). They mirror the four
+  // per-phase park columns of local-sqlite-schema.md §Workflow Tables (Plan-017).
+  //
+  // LIVE, NOT RECORD — the one producer rule that makes these readable. The
+  // projection COLUMNS are a durable record that survives resume and cancellation;
+  // these WIRE MEMBERS are a live view of it. A daemon emits all four (subject to
+  // each member's own presence rule below) for exactly those phases that are parked
+  // at the moment the response is built, and emits NONE of them for a phase that is
+  // not — a phase that parked earlier in the run and has since resumed reads with no
+  // park members even though its columns still hold the record. Presence of
+  // `parkReason` is therefore the park's wire discriminator, which is what lets one
+  // workflow.runRead render a parked phase without a timeline replay
+  // (Spec-017 §Park surfacing on the read model). This is deliberately a stronger
+  // guarantee than the columns give: the coarse five-value `state` union above
+  // carries no `suspended` arm, so without the liveness rule a reader could not
+  // separate a phase still waiting on a human form from one that already resumed
+  // past that wait. The union is NOT widened — it stays in lockstep with
+  // Spec-017 §Phase-Type and Gate-Type Taxonomy's five phase-run statuses.
+  //
+  // Present whenever the phase is parked; the closed two-value union of
+  // Spec-017 §Park integrity and cancellability (SA-42), in DDL order.
+  parkReason?: "waiting-human" | "provider-usage-limited";
+  // The bounded engine-authored cause. Present whenever `parkReason` is — SA-42
+  // requires a parked phase to always carry one — 8 KiB, truncated on a UTF-8
+  // boundary, never reaching a phase output, artifact, or agent-visible context
+  // (I-017-21).
+  parkCause?: string;
+  // RFC 3339 UTC. Present only where the park armed a durable schedule — an SA-40
+  // usage-limit park whose provider reported a reset boundary. Its absence narrows
+  // the park (unscheduled, operator-resumable) rather than denying it.
+  autoResumeAt?: string;
+  // The provider-account attention key the SA-40 fold groups concurrently parked
+  // phases by. Same presence rule as `autoResumeAt`: armed by the park, cleared on
+  // exit, and confined by the phase-row CHECK to the suspended state.
+  parkAttentionKey?: string;
 }
 
 // WorkflowRunRead — workflow.runRead. Run header plus the per-phase state projection;
@@ -4271,10 +4308,88 @@ interface WorkflowRunReadResponse {
   // Lockstep with the `workflow_runs.status` CHECK per I-017-12 — all six values, in
   // DDL order. A `gated` run is `suspended` on the wire as on disk.
   state: "pending" | "running" | "suspended" | "completed" | "failed" | "cancelled";
+  // The park surface rides here and nowhere else: a `suspended` run's parked phases
+  // carry the four live park members of PhaseState above, so one workflow.runRead is
+  // sufficient to render why the run is parked, per branch, with no timeline replay
+  // (Spec-017 §Park surfacing on the read model). SA-32 branches park independently
+  // against different provider accounts, which is why the members are per-phase and
+  // this response grows none of its own.
   phaseStates: PhaseState[];
-  failureReason?: string; // preserved on any bound breach (SA-1, SA-2)
+  failureReason?: string; // preserved on any bound breach (SA-1, SA-2); also carries
+  // the cancellation reason when `state` is `cancelled`, mirroring the
+  // `workflow_runs.failure_reason` / `failure_detail` split
   startedAt: string;
   endedAt?: string;
+}
+
+// WorkflowRunCancel — workflow.runCancel. NEW at the 2026-08-18 park-surface +
+// operator-controls amendment (BL-151, now archived). Until it landed, the `cancelled` run status
+// had no named producer from the day it was declared, and Plan-017 T5.11's engine
+// cancellability rule had no reachable caller. This operation and the
+// workflow.cancelled event type mint TOGETHER — a cancellation that moved run status
+// without appending its canonical event would break the SA-25 rebuild, because a
+// replay would restore the last suspension payload's schedule and attention key and
+// resurrect a run the operator cancelled (I-017-25).
+interface WorkflowRunCancelRequest {
+  workflowRunId: WorkflowRunId;
+  // Operator-supplied cause, recorded on the run and carried in the
+  // workflow.cancelled payload. Bounded exactly as `parkCause` is — 8 KiB, truncated
+  // on a UTF-8 boundary — and never reaching a phase output, artifact, or
+  // agent-visible context.
+  reason?: string;
+}
+interface WorkflowRunCancelResponse {
+  workflowRunId: WorkflowRunId;
+  // A literal rather than the six-value run union: a successful cancel has exactly
+  // one outcome, and narrowing here keeps callers from switching on states this
+  // operation cannot produce.
+  state: "cancelled";
+  // The `session_events.id` of the workflow.cancelled event this call appended, in
+  // the same unit of work as the status write (I-017-25). Returned so a caller can
+  // correlate without a timeline read.
+  cancelledEventId: string;
+  // True when the run was ALREADY `cancelled` and this call was an idempotent
+  // replay: no second status write, no second event, and `cancelledEventId` names
+  // the original. Deliberately NOT how a terminal-outcome run answers — a cancel
+  // against `completed` or `failed` refuses `workflow.run_not_cancellable`, because
+  // reporting success for a run that ran to completion would misinform the operator
+  // about what their action did.
+  alreadyCancelled: boolean;
+}
+
+// WorkflowRunResume — workflow.runResume. NEW at the same amendment. Resumes a parked
+// run and carries the OPTIONAL explicit re-pin of
+// Spec-017 §Frozen-definition repair (SA-41). The re-pin is a member of this request
+// rather than a thirteenth method by design: SA-41 defines the repair only as an
+// action ON a resume, so a separate method would admit the re-pin-without-resume
+// shape that spec refuses.
+interface WorkflowRunResumeRequest {
+  workflowRunId: WorkflowRunId;
+  // Omit for an ordinary resume, which continues on the frozen pinned version.
+  // Supplying it requests the SA-41 repair EXPLICITLY — no timer, no armed schedule,
+  // and no ordinary resume ever re-pins.
+  versionRepin?: {
+    // The version the caller intends to join. REQUIRED within this member: a repair
+    // that resolved "latest" server-side would race the definition's own edits and
+    // leave the audited from/to pair unverifiable against what the operator saw.
+    targetWorkflowVersionId: string;
+  };
+}
+interface WorkflowRunResumeResponse {
+  workflowRunId: WorkflowRunId;
+  // `running` in the ordinary case. `suspended` where the engine immediately
+  // re-parked — an SA-40 usage-limit park whose account is still spent re-parks on
+  // the next dispatch. That is a legal outcome rather than a refusal, and the
+  // re-park emits its own workflow.phase_suspended, which is how the operator sees
+  // what happened. Resuming ahead of an armed `autoResumeAt` is therefore permitted
+  // and needs no override flag: the machine's own schedule was advisory pacing, and
+  // the worst case is one observable re-park.
+  state: "running" | "suspended";
+  // Present only on an ACCEPTED re-pin: the version the run left and the one it
+  // joined — the same pair the audited additive-optional workflow.resumed payload
+  // member carries, so the projected run row stays a function of the log.
+  repinnedFromWorkflowVersionId?: string;
+  repinnedToWorkflowVersionId?: string;
 }
 
 // PhaseOutputRead
@@ -4385,7 +4500,7 @@ interface WorkflowGateChainVerifyResponse {
 }
 ```
 
-**Method-string registry — Plan-017** (daemon JSON-RPC; new `workflow` root, root plus camelCase tail per the Plan-016 convention above). Added by the Tier-8 audit: the plan named ten operations in PascalCase with no wire mapping, and no `workflow` root was registered anywhere. Eleven rows follow — the audit also mints `workflow.definitionList`, without which the surface has no enumeration at all.
+**Method-string registry — Plan-017** (daemon JSON-RPC; new `workflow` root, root plus camelCase tail per the Plan-016 convention above). Added by the Tier-8 audit: the plan named ten operations in PascalCase with no wire mapping, and no `workflow` root was registered anywhere. **Thirteen rows follow** (re-derived 2026-08-18, not carried forward: eleven at the Tier-8 audit — the audit itself mints `workflow.definitionList`, without which the surface has no enumeration at all — plus the two operator-recovery operations of the park-surface + operator-controls amendment, `workflow.runCancel` and `workflow.runResume`).
 
 | Method | Procedure type | Request → Response | Notes |
 | --- | --- | --- | --- |
@@ -4394,7 +4509,9 @@ interface WorkflowGateChainVerifyResponse {
 | `workflow.definitionList` | RPC | `WorkflowDefinitionListRequest` → `WorkflowDefinitionListResponse` | **NEW at the Tier-8 audit** — the ten pre-audit operations had no enumeration, so a caller could only read a definition whose id it already held; scope-resolved most-specific-first |
 | `workflow.versionRead` | RPC | `WorkflowVersionReadRequest` → `WorkflowVersionReadResponse` | Immutable version body; a running instance stays pinned to its own |
 | `workflow.runStart` | RPC | `WorkflowRunStartRequest` → `WorkflowRunStartResponse` | Binds a run to a pinned version; emits `workflow.started`; adjudicates the SA-39 named action per start and refuses `workflow.start_denied` (ADR-027) |
-| `workflow.runRead` | RPC | `WorkflowRunReadRequest` → `WorkflowRunReadResponse` | Projection read; rebuildable from `session_events` |
+| `workflow.runRead` | RPC | `WorkflowRunReadRequest` → `WorkflowRunReadResponse` | Projection read; rebuildable from `session_events`. Carries the four live park members on each parked `PhaseState`, so a parked run renders from this one call (Spec-017 §Park surfacing on the read model) |
+| `workflow.runCancel` | RPC | `WorkflowRunCancelRequest` → `WorkflowRunCancelResponse` | **NEW 2026-08-18 (BL-151)** — the named producer of the `cancelled` run status, which had none since it was declared; emits `workflow.cancelled` in the same unit of work as the status write (I-017-25); adjudicates `Action::"workflow::cancel"` and refuses `workflow.control_denied`, or `workflow.run_not_cancellable` against a `completed` / `failed` run (an already-`cancelled` run replays idempotently) |
+| `workflow.runResume` | RPC | `WorkflowRunResumeRequest` → `WorkflowRunResumeResponse` | **NEW 2026-08-18 (BL-151)** — operator resumption of a parked run, carrying the optional explicit SA-41 re-pin as a request member rather than a method of its own; emits `workflow.resumed` (with the audited re-pin member on an accepted repair); adjudicates `Action::"workflow::resume"` and refuses `workflow.control_denied`, `workflow.resume_not_parked`, or one of the three existing `workflow.repair_*` codes on the re-pin leg |
 | `workflow.phaseOutputRead` | RPC | `PhaseOutputReadRequest` → `PhaseOutputReadResponse` | Outputs stay addressable after completion; a retry adds rows, never mutates (SA-16) |
 | `workflow.gateResolve` | RPC | `WorkflowGateResolveRequest` → `WorkflowGateResolveResponse` | Appends one chain row plus its `session_events` anchor; emits `workflow.gate_resolved` |
 | `workflow.humanFormDraftSave` | RPC | `HumanPhaseFormDraftSaveRequest` → `HumanPhaseFormDraftSaveResponse` | **V1.x-reserved** — declared, no V1 handler (SA-28) |
@@ -4403,7 +4520,7 @@ interface WorkflowGateChainVerifyResponse {
 
 The canonical file form of a definition (`Spec-017 §Definition file form — export and import (C-17)`) is a serialization of these same shapes — the YAML the authoring commitment names, carrying the schema-version marker, whose canonical bytes are the JCS-canonicalized JSON of the parsed document. It is not a second dialect and has no contract types of its own. `layout` is an optional top-level section of that document, outside the hashed body, that no request or response above carries: canvas geometry is client-local at V1 (`Spec-017 §Canvas layout is not definition bytes (SA-35)`). Export is a client-side serialization of `workflow.versionRead`; import is a submission through `workflow.definitionCreate` — which is why the visual-builder amendment mints no operation.
 
-The 2026-08-11 chat-start amendment likewise adds **no** method: the chat surfaces are client-surface sugar over `workflow.runStart` (ADR-027), and `workflow_start` below is a callback tool, not a JSON-RPC method — the eleven-row registry above is unchanged.
+The 2026-08-11 chat-start amendment likewise adds **no** method: the chat surfaces are client-surface sugar over `workflow.runStart` (ADR-027), and `workflow_start` below is a callback tool, not a JSON-RPC method — that amendment left the registry at the eleven rows it then held (the table above stands at thirteen since the 2026-08-18 park-surface + operator-controls amendment added the two operator-recovery operations).
 
 ```typescript
 // workflow_start — the corpus's first concrete SessionCallbackTool (2026-08-11 chat-start
@@ -4418,7 +4535,8 @@ The 2026-08-11 chat-start amendment likewise adds **no** method: the chat surfac
 // derived value. The handler resolves the definition most-specific-first
 // (session → project → shared) and issues the same start path as workflow.runStart; a
 // Cedar denial answers `denied` carrying workflow.start_denied. NOT a JSON-RPC method:
-// the eleven-method workflow registry is unchanged.
+// the chat-start amendment added no registry row, leaving the registry at the eleven
+// it then held (thirteen since the 2026-08-18 operator-recovery operations).
 const workflowStartCallbackTool: SessionCallbackTool = {
   name: "workflow_start",
   description:
@@ -4435,7 +4553,7 @@ const workflowStartCallbackTool: SessionCallbackTool = {
 };
 ```
 
-Error vocabulary: [error-contracts.md](./error-contracts.md) §Workflow. That section defines seven codes (`workflow.not_found`, `workflow.invalid_phase`, `workflow.gate_closed`, `workflow.start_denied`, and the three SA-41 repair refusals `workflow.repair_not_parked` / `workflow.repair_attempt_in_flight` / `workflow.repair_version_unaccountable` — the four landed entries of the owed extension, `workflow.start_denied` by the chat-start amendment and the repair codes at the workflow-hardening amendment's 2026-08-17 review round) against a surface with at least nineteen refusal points — chain-break detection, resource-pool admission refusal, `fail-fast` sibling abort, `max_phase_transitions` / `max_duration` / `max_concurrent_phases` breach, human-form optimistic-concurrency conflict, definition content-hash mismatch, expression-parse refusal, and — added by the visual-builder amendment, which mints no code of its own and opens no parallel surface — invalid graph shape (any of the seven refused shapes), scope-ref violation, a tool binding carrying an inline governance facet, and an unknown top-level key in an imported definition file, and — added with the graph-topology closure and the `shared`-scope authorization boundary of `Spec-017 §Core SDK and persistence contracts` — an inconsistent topology spelling (a partially-supplied predecessor set, or a join policy on a phase that is not a join) and the operator-authorization refusal on a `shared`-target `workflow.definitionCreate`, and — added by the 2026-08-11 chat-start amendment — the start refusal `workflow.start_denied` already covers, and — added by the 2026-08-16 workflow-hardening amendment, whose park, pacing, and cancellability rules mint no code of their own — the three refusals of the `Spec-017 §Frozen-definition repair (SA-41)` path, each now carrying its registered `workflow.repair_*` code above: a re-pin against a run that is not parked, one requested while any of the run's attempts is still in flight (the resuming phase continuing one rather than entering fresh, or a parked parallel sibling holding one — SA-41's run-wide boundary), and one whose target version cannot account for the phases the run already completed — the omitted phase id and the unreachable topology counting as one refusal point, since SA-41 states they are the same failure. The Tier-8 audit surfaced the gap; four of the nineteen points now carry registered codes, the extension covering the remaining fifteen is still owed on that document, and until it lands no workflow handler may mint an unregistered code (`Spec-017 §Loud-errors discipline (C-12)` forbids untyped refusals). Durable events owned by Plan-017: the 23 `workflow.*` types across five categories enumerated in [Spec-017 §Workflow Timeline Integration](../../specs/017-workflow-authoring-and-execution.md#workflow-timeline-integration) — their registration in the Plan-006 registry is an open upstream-tier amendment, so no `workflow` category exists in [Spec-006](../../specs/006-session-event-taxonomy-and-audit-log.md) yet.
+Error vocabulary: [error-contracts.md](./error-contracts.md) §Workflow. That section defines ten codes (`workflow.not_found`, `workflow.invalid_phase`, `workflow.gate_closed`, `workflow.start_denied`, the three SA-41 repair refusals `workflow.repair_not_parked` / `workflow.repair_attempt_in_flight` / `workflow.repair_version_unaccountable`, and the three operator-recovery refusals `workflow.control_denied` / `workflow.run_not_cancellable` / `workflow.resume_not_parked` — the seven landed entries of the owed extension: `workflow.start_denied` by the chat-start amendment, the repair codes at the workflow-hardening amendment's 2026-08-17 review round, and the recovery codes at the 2026-08-18 park-surface + operator-controls amendment) against a surface with at least twenty-two refusal points — chain-break detection, resource-pool admission refusal, `fail-fast` sibling abort, `max_phase_transitions` / `max_duration` / `max_concurrent_phases` breach, human-form optimistic-concurrency conflict, definition content-hash mismatch, expression-parse refusal, and — added by the visual-builder amendment, which mints no code of its own and opens no parallel surface — invalid graph shape (any of the seven refused shapes), scope-ref violation, a tool binding carrying an inline governance facet, and an unknown top-level key in an imported definition file, and — added with the graph-topology closure and the `shared`-scope authorization boundary of `Spec-017 §Core SDK and persistence contracts` — an inconsistent topology spelling (a partially-supplied predecessor set, or a join policy on a phase that is not a join) and the operator-authorization refusal on a `shared`-target `workflow.definitionCreate`, and — added by the 2026-08-11 chat-start amendment — the start refusal `workflow.start_denied` already covers, and — added by the 2026-08-16 workflow-hardening amendment, whose park, pacing, and cancellability rules mint no code of their own — the three refusals of the `Spec-017 §Frozen-definition repair (SA-41)` path, each now carrying its registered `workflow.repair_*` code above: a re-pin against a run that is not parked, one requested while any of the run's attempts is still in flight (the resuming phase continuing one rather than entering fresh, or a parked parallel sibling holding one — SA-41's run-wide boundary), and one whose target version cannot account for the phases the run already completed — the omitted phase id and the unreachable topology counting as one refusal point, since SA-41 states they are the same failure — and, added by the 2026-08-18 park-surface + operator-controls amendment, the three the operator-recovery operations contribute, each minting its code in the same diff so no unregistered refusal ever ships: an authorization denial on either operation (one point with two ordered arms, one code, the `workflow.start_denied` shape), a cancel against a run that already reached `completed` or `failed`, and a resume against a run that is not parked. The re-pin leg of `workflow.runResume` adds **no** point — its three refusals are the SA-41 points already counted above. **Census arithmetic (re-derived 2026-08-18, not carried forward):** nineteen at the workflow-hardening amendment's 2026-08-17 review round, plus the three operator-recovery points = twenty-two. The Tier-8 audit surfaced the gap; seven of the twenty-two points now carry registered codes, the extension covering the remaining fifteen is still owed on that document — unmoved, because every point added since has landed with its code — and until it lands no workflow handler may mint an unregistered code (`Spec-017 §Loud-errors discipline (C-12)` forbids untyped refusals). Durable events owned by Plan-017: the 24 `workflow.*` types across five categories enumerated in [Spec-017 §Workflow Timeline Integration](../../specs/017-workflow-authoring-and-execution.md#workflow-timeline-integration) — 23 through the workflow-hardening amendment, plus `workflow.cancelled`, minted 2026-08-18 together with the operation that produces it — their registration in the Plan-006 registry is an open upstream-tier amendment, so no `workflow` category exists in [Spec-006](../../specs/006-session-event-taxonomy-and-audit-log.md) yet.
 
 ---
 
