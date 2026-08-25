@@ -21,7 +21,7 @@ The campaign simultaneously repairs the **phantom-reference class** a full-corpu
 ### 1.2 Non-goals (carve-out boundary)
 
 - **Bucket-2 enhancement code (R9).** Except the bucket-1 prerequisite code (W4/B23), every code change enumerated here ships through its owning plan's own reviewed `/plan-execution` run at its natural slot — the campaign amends the governing docs those runs execute from, so each item is fully specified where it will be built.
-- **Adjacent dormant backlog items.** [BL-144](../../backlog.md) (Plan-008 SSE concurrency cap) and [BL-145](../../backlog.md) (Plan-012 approval rate-limit wiring) sit next to campaign targets but are outside the 34-item corpus; the campaign's Plan-008/Plan-012 bundles stay disjoint from their scopes.
+- **Adjacent dormant backlog items.** [BL-144](../../backlog.md) (Plan-008 SSE concurrency cap) and [BL-145](../../archive/backlog-archive.md#bl-145-approvalresolve-rate-limit-wiring-plan-012--plan-021-within-tier-ordering) (Plan-012 approval rate-limit wiring) sit next to campaign targets but are outside the 34-item corpus; the campaign's Plan-008/Plan-012 bundles stay disjoint from their scopes.
 - **Plan-024 Phases 4–5.** CI cross-compile, signing, and the Windows default-flip remain procurement-bound ([BL-108](../../backlog.md), §6 nodes NS-09/NS-10). The campaign's new Phase 3B (§4, B16) is deliberately independent of them.
 - **Re-litigating corpus rulings.** The enhancement corpus's accuracy-reviewed rulings are adopted as-is except where this campaign's own verification passes surfaced factual corrections (§3.2) or the user issued explicit course corrections (§1.3). Each such refinement is recorded with its evidence.
 
