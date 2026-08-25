@@ -22,7 +22,8 @@
     "test:renderer": {
       "dependsOn": ["^build"],
       "inputs": ["src/renderer/**", "vitest.config.*", "tsconfig*.json", "package.json"],
-      "outputs": []
+      "outputs": [],
+      "cache": false
     },
     "test:coverage": {
       "dependsOn": ["^build"],
@@ -33,7 +34,8 @@
     "test:smoke": {
       "dependsOn": ["build:smoke"],
       "inputs": ["test/**", "vitest.config.*", "tsconfig*.json", "package.json"],
-      "outputs": []
+      "outputs": [],
+      "cache": false
     },
     "test": {
       "dependsOn": ["build:smoke"],

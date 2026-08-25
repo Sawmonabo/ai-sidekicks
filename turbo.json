@@ -1,6 +1,9 @@
 {
   "$schema": "./node_modules/turbo/schema.json",
   "ui": "stream",
+  "remoteCache": {
+    "signature": true
+  },
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
@@ -19,7 +22,8 @@
     "test": {
       "dependsOn": ["^build"],
       "inputs": ["src/**", "test/**", "vitest.config.*", "tsconfig*.json", "package.json"],
-      "outputs": []
+      "outputs": [],
+      "cache": false
     },
     "test:coverage": {
       "dependsOn": ["^build"],

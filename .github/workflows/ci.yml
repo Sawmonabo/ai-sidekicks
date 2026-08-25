@@ -43,6 +43,22 @@ jobs:
   test-node22:
     name: test (${{ matrix.os }} / node ${{ matrix.node }})
     runs-on: ${{ matrix.os }}
+    # Turborepo remote cache (BL-122 experiment — see ADR-023 §Axis 1 + §Decision
+    # Log 2026-08-25). `permissions:` and `env:` are job-scoped and BOTH are
+    # load-bearing:
+    #   - A job-level `permissions:` map REPLACES the workflow-level one, so
+    #     `contents: read` must be restated or `actions/checkout` loses its
+    #     grant. `actions: write` is what the GitHub Actions cache backend needs.
+    #   - The signature key is consumed at run time by the `pnpm turbo run …`
+    #     steps, not by the caching action, so it must sit at job scope; a
+    #     step-level `env:` would silently disable artifact signing. Until an
+    #     owner sets the secret it interpolates to the empty string and the
+    #     cache degrades inertly.
+    permissions:
+      contents: read
+      actions: write
+    env:
+      TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
     strategy:
       fail-fast: false
       matrix:
@@ -71,6 +87,20 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # Backs Turborepo's remote cache with the GitHub Actions cache (no
+      # third-party service, no spend). SHA-pinned per ADR-023 §Axis 4.
+      #
+      # Threat model, stated honestly: the controls that keep a fork PR from
+      # poisoning this cache are GitHub withholding secrets from fork-originated
+      # workflows, the read-only `GITHUB_TOKEN` on `pull_request`, and the
+      # `--cache=local:rw,remote:r` switch appended to every turbo invocation
+      # below on PR events. `remoteCache.signature` is NOT one of them —
+      # Turborepo documents it as artifact-integrity verification and states it
+      # "is not a security feature". ADR-023 §Axis 1's "HMAC >=32 bytes"
+      # requirement is still met; only the rationale is corrected.
+      - name: Turborepo remote cache (GitHub Actions cache backend)
+        uses: rharkor/caching-for-turbo@2238fae6eb9a9936f92356f54cb3660200d105e7 # v2.5.1
 
       # Electron 41 on Ubuntu 24.04 GitHub Actions runners requires the
       # SUID sandbox helper (`chrome-sandbox`) to be owned by root and have
@@ -106,7 +136,7 @@ jobs:
         run: pnpm -w exec prettier --check .
 
       - name: Build (Node 22 tier — excluding control-plane)
-        run: pnpm turbo run build --filter='!@ai-sidekicks/control-plane'
+        run: pnpm turbo run build --filter='!@ai-sidekicks/control-plane' ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
       # Production-safety check: the test-machinery probe paths in
       # apps/desktop/src/main/index.ts (the smoke probe and the GC-reachability
@@ -144,13 +174,13 @@ jobs:
           echo "ok: release bundle excludes test-machinery markers"
 
       - name: Typecheck (Node 22 tier — excluding control-plane)
-        run: pnpm turbo run typecheck --filter='!@ai-sidekicks/control-plane'
+        run: pnpm turbo run typecheck --filter='!@ai-sidekicks/control-plane' ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
       - name: Lint per-package (Node 22 tier — excluding control-plane)
-        run: pnpm turbo run lint --filter='!@ai-sidekicks/control-plane'
+        run: pnpm turbo run lint --filter='!@ai-sidekicks/control-plane' ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
       - name: Test (Node 22 tier — excluding control-plane)
-        run: pnpm turbo run test --filter='!@ai-sidekicks/control-plane'
+        run: pnpm turbo run test --filter='!@ai-sidekicks/control-plane' ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
       # Public-surface validation for the workspace libraries. Two complementary
       # linters run against the *packed* tarball (not the source tree), so they
@@ -247,6 +277,22 @@ jobs:
   test-node24:
     name: test (${{ matrix.os }} / node ${{ matrix.node }} / control-plane)
     runs-on: ${{ matrix.os }}
+    # Turborepo remote cache (BL-122 experiment — see ADR-023 §Axis 1 + §Decision
+    # Log 2026-08-25). `permissions:` and `env:` are job-scoped and BOTH are
+    # load-bearing:
+    #   - A job-level `permissions:` map REPLACES the workflow-level one, so
+    #     `contents: read` must be restated or `actions/checkout` loses its
+    #     grant. `actions: write` is what the GitHub Actions cache backend needs.
+    #   - The signature key is consumed at run time by the `pnpm turbo run …`
+    #     steps, not by the caching action, so it must sit at job scope; a
+    #     step-level `env:` would silently disable artifact signing. Until an
+    #     owner sets the secret it interpolates to the empty string and the
+    #     cache degrades inertly.
+    permissions:
+      contents: read
+      actions: write
+    env:
+      TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
     strategy:
       fail-fast: false
       matrix:
@@ -273,17 +319,31 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Backs Turborepo's remote cache with the GitHub Actions cache (no
+      # third-party service, no spend). SHA-pinned per ADR-023 §Axis 4.
+      #
+      # Threat model, stated honestly: the controls that keep a fork PR from
+      # poisoning this cache are GitHub withholding secrets from fork-originated
+      # workflows, the read-only `GITHUB_TOKEN` on `pull_request`, and the
+      # `--cache=local:rw,remote:r` switch appended to every turbo invocation
+      # below on PR events. `remoteCache.signature` is NOT one of them —
+      # Turborepo documents it as artifact-integrity verification and states it
+      # "is not a security feature". ADR-023 §Axis 1's "HMAC >=32 bytes"
+      # requirement is still met; only the rationale is corrected.
+      - name: Turborepo remote cache (GitHub Actions cache backend)
+        uses: rharkor/caching-for-turbo@2238fae6eb9a9936f92356f54cb3660200d105e7 # v2.5.1
+
       - name: Build (control-plane only)
-        run: pnpm turbo run build --filter='@ai-sidekicks/control-plane...'
+        run: pnpm turbo run build --filter='@ai-sidekicks/control-plane...' ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
       - name: Typecheck (control-plane only)
-        run: pnpm turbo run typecheck --filter='@ai-sidekicks/control-plane...'
+        run: pnpm turbo run typecheck --filter='@ai-sidekicks/control-plane...' ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
       - name: Lint (control-plane only)
-        run: pnpm turbo run lint --filter='@ai-sidekicks/control-plane...'
+        run: pnpm turbo run lint --filter='@ai-sidekicks/control-plane...' ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
       - name: Test (control-plane only)
-        run: pnpm turbo run test --filter='@ai-sidekicks/control-plane...'
+        run: pnpm turbo run test --filter='@ai-sidekicks/control-plane...' ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
       # Same publint + attw public-surface validation as the Node 22 tier above
       # (see that step's comment for the esm-only-profile + fflate-pin rationale,
