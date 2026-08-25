@@ -893,6 +893,7 @@ interface CancelPayload {
 interface DriverInterventionResult {
   status: "applied" | "degraded"; // the complete driver-level vocabulary — `rejected` / `expired` are orchestration-layer verdicts rendered around driver dispatch, never driver-returned (Spec-005 §Required Behavior; normative mapping in queue-and-intervention-model.md §Driver Result To Lifecycle Mapping, campaign B3)
   fallbackAction?: string; // e.g. 'queue_and_interrupt' for degraded steer
+  refusalCode?: "driver.text_neutralization_failed"; // additive-optional, 2026-08-25 provider-bound text-neutrality amendment (Spec-005 §Required Behavior; authored by Plan-005 T3.18, consumed by Plan-004 T2.6 under CP-004-1). A CLOSED literal union, not a free-form string: the envelope parses untrusted provider output, and a daemon-selected code from a fixed set carries no provider-composed text, so this member is deliberately absent from the wireFreeFormString-bounded list above. `.strict()` is retained — it rejects UNKNOWN keys, and a declared optional key is not unknown.
 }
 
 // Driver-level conversation rollback (campaign B3). `position` is the normalized monotonic

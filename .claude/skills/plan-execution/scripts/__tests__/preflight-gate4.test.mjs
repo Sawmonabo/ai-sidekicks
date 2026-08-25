@@ -3681,7 +3681,17 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // rather than reconciled by arithmetic against any predecessor; NS-75 moved
     // no invariant reference, so it happens to agree with 917 + 10, and it is
     // pinned on the strength of the count and not of that agreement.
-    bold: { resolved: 927, noneArm: 159, parentResolved: 0 },
+    // 927/159 -> 928/159 bold, legacy unchanged at 64 (2026-08-25, the
+    // Spec-005/Plan-005 provider-bound text-neutrality amendment + its in-swap
+    // NS-76 delta, landing after NS-77 above; the legacy baseline is invariant
+    // under this amendment — it moves no legacy reference): one new task,
+    // Plan-005 T3.18, in the existing Phase 3, with a RESOLVED `Verifies
+    // invariant:` arm carrying a single id reference (I-005-7). No existing
+    // row's id set changes and no none-arm is added or removed, so the +1 bold
+    // delta matches the one new marker one-for-one. Read off a live
+    // `preflight.mjs --survey` run on the rebased tree, never reconciled by
+    // arithmetic against a predecessor bullet.
+    bold: { resolved: 928, noneArm: 159, parentResolved: 0 },
     legacy: { resolved: 64, noneArm: 3, parentResolved: 1 },
   });
 });
