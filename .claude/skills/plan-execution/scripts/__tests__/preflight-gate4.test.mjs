@@ -3650,8 +3650,25 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // unchanged; no none-arm is added or removed, and the legacy channel is
     // unchanged. The figure is read off a live survey run on the rebased tree,
     // not reconciled by arithmetic against a predecessor.
-    bold: { resolved: 914, noneArm: 158, parentResolved: 0 },
-    legacy: { resolved: 61, noneArm: 3, parentResolved: 1 },
+    // 914/158 -> 917/159 bold, legacy 61 -> 64 (2026-08-25, the rate-limit
+    // wiring amendment — §6 node NS-80, landing after NS-81 and NS-78 above;
+    // the bold baseline is stated post-rebase because both merged first, while
+    // the legacy baseline is invariant under both — neither moved a legacy
+    // reference. Both figures are read off a live survey run on the rebased
+    // tree, never reconciled by arithmetic against a predecessor bullet):
+    // Plan-014's
+    // new T14.14 and T14.15 each carry a bold RESOLVED `Verifies invariant:`
+    // row naming I-014-14, and T14.9's existing row gains I-014-14 beside its
+    // three — three more bold resolved references. Plan-002's new T4.3 carries
+    // a bold `none` arm (the cap is Plan-021 substrate consumption; the
+    // lock-order clause is I-002-4's, already verified elsewhere) — one more
+    // bold none-arm. Plan-008's new Phase R5 adds three compact-inline task
+    // rows (T-008r-5-1 naming I-008-15(a)+(c)+(d), T-008r-5-2 naming
+    // I-008-15(b), T-008r-5-3 naming I-008-15(c)) — three more LEGACY resolved
+    // references, which is also what moves the legacy-marker population 49 ->
+    // 52 in the alignment arm below.
+    bold: { resolved: 917, noneArm: 159, parentResolved: 0 },
+    legacy: { resolved: 64, noneArm: 3, parentResolved: 1 },
   });
 });
 
@@ -4102,9 +4119,10 @@ test("the composed detection view is byte-length-identical to its input", () => 
 
 test("CORPUS: every legacy marker's lineNo lands on its own raw line", () => {
   // The alignment the comment on `nearestTaskIdAt` asserts, re-verified under the
-  // composed detection view: 49 of 49 live `Verifies invariant` compact-inline
+  // composed detection view: 52 of 52 live `Verifies invariant` compact-inline
   // markers (48 -> 49 at PR #323: Plan-008's new T-008r-4-14 row joins the
-  // population). (That figure is the LEGACY-MARKER population — unrelated to
+  // population; 49 -> 52 at the 2026-08-25 rate-limit wiring amendment, §6 node
+  // NS-80: Plan-008's Phase R5 rows T-008r-5-1/2/3 join it). (That figure is the LEGACY-MARKER population — unrelated to
   // the fenced YAML count above, which also read 48 before this change; two
   // different figures that happened to collide. The fenced count's live value
   // is now pinned by NO test — it moves on every Shipment-Manifest append, so
@@ -4126,7 +4144,7 @@ test("CORPUS: every legacy marker's lineNo lands on its own raw line", () => {
     }
   }
   assert.deepEqual(misaligned, [], "a marker's lineNo does not index its own raw line");
-  assert.equal(markers, 49, "the legacy marker population moved — re-derive the alignment claim");
+  assert.equal(markers, 52, "the legacy marker population moved — re-derive the alignment claim");
 });
 
 // ---------- Malformed ids in the structured namespace ----------
