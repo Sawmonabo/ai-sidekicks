@@ -24,6 +24,12 @@
       "inputs": ["src/renderer/**", "vitest.config.*", "tsconfig*.json", "package.json"],
       "outputs": []
     },
+    "test:coverage": {
+      "dependsOn": ["^build"],
+      "inputs": ["src/renderer/**", "vitest.config.*", "tsconfig*.json", "package.json"],
+      "outputs": ["coverage/**"],
+      "cache": false
+    },
     "test:smoke": {
       "dependsOn": ["build:smoke"],
       "inputs": ["test/**", "vitest.config.*", "tsconfig*.json", "package.json"],

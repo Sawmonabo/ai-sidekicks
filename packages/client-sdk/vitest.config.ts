@@ -13,12 +13,19 @@
 // need.
 import { defineConfig } from "vitest/config";
 
+import { sharedCoverageOptions } from "../../vitest.shared";
+
 export default defineConfig({
   test: {
     include: ["src/**/__tests__/**/*.test.ts", "test/**/*.test.ts"],
     environment: "node",
     passWithNoTests: false,
     reporters: ["default"],
+    // BL-123 Stage 1 measurement substrate. Options live in the repo-root
+    // factory so all seven test surfaces share one definition; see
+    // `vitest.shared.ts` for why coverage cannot be hoisted into a single
+    // root config.
+    coverage: sharedCoverageOptions(),
     // Mirrors `packages/control-plane/vitest.config.ts`: the integration
     // tests under `test/` boot a fresh PGlite per test, and the first
     // `beforeEach` in a worker pays the cold WASM compile + migrations.

@@ -23,7 +23,8 @@
     "build": "tsc -b",
     "typecheck": "tsc -b && tsc -p tsconfig.test.json",
     "lint": "eslint src",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@ai-sidekicks/contracts": "workspace:*",
@@ -33,6 +34,7 @@
     "@ai-sidekicks/control-plane": "workspace:*",
     "@electric-sql/pglite": "^0.4.4",
     "@trpc/server": "^11.17.0",
+    "@vitest/coverage-v8": "catalog:testing",
     "vitest": "catalog:testing"
   }
 }

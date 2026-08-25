@@ -69,4 +69,11 @@ allowBuilds:
 # runner first; expand on demand). Consumers reference via `"vitest": "catalog:testing"`.
 catalogs:
   testing:
-    vitest: ^4.1.5
+    # Exact pins, moved in lockstep. `@vitest/coverage-v8` declares an EXACT peer
+    # on its runner (`peerDependencies: { vitest: "4.1.5" }`, verified 2026-08-25
+    # against the published manifest) rather than a range, so a caret on either
+    # entry lets the two drift apart on the next resolution and the install fails
+    # with an unmet peer. The catalog is the one place they move together; a
+    # runner bump is its own PR that edits both lines.
+    vitest: 4.1.5
+    "@vitest/coverage-v8": 4.1.5

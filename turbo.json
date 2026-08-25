@@ -21,6 +21,12 @@
       "inputs": ["src/**", "test/**", "vitest.config.*", "tsconfig*.json", "package.json"],
       "outputs": []
     },
+    "test:coverage": {
+      "dependsOn": ["^build"],
+      "inputs": ["src/**", "test/**", "vitest.config.*", "tsconfig*.json", "package.json"],
+      "outputs": ["coverage/**"],
+      "cache": false
+    },
     "dev": {
       "cache": false,
       "persistent": true

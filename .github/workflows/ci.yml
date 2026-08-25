@@ -339,6 +339,91 @@ jobs:
       - name: Run hook guard tests
         run: node tools/run-node-tests.mjs '.claude/hooks/__tests__/**/*.test.mjs'
 
+  # ADVISORY job — deliberately absent from `ci-gate`'s `needs` list below, so a
+  # coverage regression never blocks a merge. BL-123 Stage 1 is measurement
+  # substrate only: exit criteria (b)-(d) require the per-package floors to be
+  # derived from a >=5-PR sample before any number gates anything, and ADR-023
+  # §Axis 1's "branch protection requires only `ci-gate`" posture is unchanged.
+  #
+  # One job rather than a matrix. `tools/coverage-report.mjs` is fail-closed on a
+  # root that declares `test:coverage` but produced no report, which only reads
+  # as a signal if every root is measured in the same workspace. The Node tier
+  # split from the required jobs is preserved by switching the runtime mid-job
+  # (control-plane declares `engines.node: ">=24.0.0"`), not by splitting the
+  # measurement across legs that would each see a partial set. Only
+  # `@ai-sidekicks/control-plane` runs on the second runtime and it is
+  # WASM-backed (PGlite), so no native binding is asked to cross an ABI.
+  #
+  # `tools/docs-corpus` has no package.json and is not a workspace member, so
+  # turbo cannot fan out to it; it is invoked directly, in the same shape
+  # .github/workflows/docs-corpus.yml already uses to run those tests.
+  coverage:
+    name: coverage (informational)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        # SHA-pinned per ADR-023 §Axis 4 supply-chain hygiene; Renovate's
+        # helpers:pinGitHubActionDigests preset (renovate.json5) keeps this current.
+        uses: pnpm/action-setup@8b2eead6074fefa43a68bf4c9e0f03ea4126b5ba # v6.0.3
+        with:
+          version: 10.33.2
+          run_install: false
+
+      - name: Setup Node.js 22.12
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22.12"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Coverage (Node 22 tier — excluding control-plane)
+        run: pnpm turbo run test:coverage --filter='!@ai-sidekicks/control-plane'
+
+      - name: Coverage (doc-corpus tooling)
+        run: pnpm exec vitest run --root tools/docs-corpus --coverage
+
+      - name: Setup Node.js 24 (control-plane tier)
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          # Dependencies are already installed under the 22.12 step above; this
+          # step only swaps the runtime, so re-priming the pnpm store cache here
+          # would be wasted work.
+          package-manager-cache: false
+
+      - name: Coverage (Node 24 tier — control-plane only)
+        run: pnpm turbo run test:coverage --filter='@ai-sidekicks/control-plane'
+
+      # Renders one markdown table into the job summary. Writing the numbers to
+      # the summary rather than a PR comment keeps this workflow's token grant at
+      # `contents: read` and keeps third-party code out of the workflow that
+      # carries the required `ci-gate` — see the script header for the full
+      # rationale and the named upgrade path.
+      - name: Render coverage summary
+        run: node tools/coverage-report.mjs
+
+      # The durable pointers BL-123 exit criterion (b) asks for: lcov + json
+      # reports retained per run, so the >=5-PR baseline sample cites artifacts
+      # rather than a scrollback number.
+      - name: Upload coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports
+          path: |
+            packages/*/coverage/
+            apps/*/coverage/
+            tools/docs-corpus/coverage/
+          retention-days: 30
+          if-no-files-found: error
+
   ci-gate:
     name: ci-gate
     runs-on: ubuntu-latest

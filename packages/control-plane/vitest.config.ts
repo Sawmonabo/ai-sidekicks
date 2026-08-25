@@ -7,12 +7,19 @@
 // environment.
 import { defineConfig } from "vitest/config";
 
+import { sharedCoverageOptions } from "../../vitest.shared";
+
 export default defineConfig({
   test: {
     include: ["src/**/__tests__/**/*.test.ts"],
     environment: "node",
     passWithNoTests: false,
     reporters: ["default"],
+    // BL-123 Stage 1 measurement substrate. Options live in the repo-root
+    // factory so all seven test surfaces share one definition; see
+    // `vitest.shared.ts` for why coverage cannot be hoisted into a single
+    // root config.
+    coverage: sharedCoverageOptions(),
     // `@electric-sql/pglite` is WASM-backed in-process Postgres (the package
     // header above). Under the Node-24 CI matrix leg these in-process DB tests
     // run near vitest's bare 5000ms default — observed ~2.0-3.4s per test, with
