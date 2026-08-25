@@ -25,7 +25,7 @@ Deliver V1 feature #18: the daemon's MCP governance layer per [Spec-028](../spec
 
 ## Non-Goals
 
-- Everything Spec-028 §Non-Goals excludes: no MCP protocol implementation or proxying, no token custody, no provider-config-store ownership, no server registry/marketplace, no remote governance mutation ([BL-141](../backlog.md) model is V1.1), no session-role matrix extension, no Codex project-local config writes.
+- Everything Spec-028 §Non-Goals excludes: no MCP protocol implementation or proxying, no token custody, no provider-config-store ownership, no server registry/marketplace, no remote governance mutation (the relayed-caller authorization model is a V1.1 ADR trigger per `Spec-028 §ADR Triggers`), no session-role matrix extension, no Codex project-local config writes.
 - No new `ApprovalCategory` value — governance mutations are direct Cedar decisions, not interactive approvals.
 - No emitter code for any non-`mcp.*` event literal minted by the Spec-006 B18 amendment (`session.*` / `run.*` / `usage.*` / `user.message` emitters belong to Plan-004 / Plan-005 per [Plan-006 §Event Taxonomy Coverage](./006-session-event-taxonomy-and-audit-log.md#event-taxonomy-coverage)).
 
@@ -584,6 +584,7 @@ shipped: []
 
 - **2026-08-12 — Targeted readiness audit (PR #329, [cross-plan-dependencies.md](../architecture/cross-plan-dependencies.md) §6 node NS-61).** The `draft → review` promotion gate ran per §Preconditions' audit box: 14 findings — 2 critical (F-028-01, no `#### Tasks` block at any Phase; F-028-02, the CP-028-2(b) effective-binding carrier unowned by any upstream plan), 5 major, 7 minor — every one repaired in the same swap. The five audit-grade Tasks blocks (43 tasks, T28.1.1–T28.5.8) landed under §Implementation Phase Sequence; the born-unchecked §Preconditions carrier box holds T28.4.9 alone. Status moved `draft → review`; the `review → approved` promotion remains its own PR citing this audit's REVIEW.md, which rides the audit PR's body per the targeted-delta convention (PR #326/#327 precedent), per §Rollout Order step 2.
 - **2026-08-14 — `review → approved` promotion (PR #330).** The §Rollout Order step-2 promotion PR: review notes addressed — the audit's 14 findings were repaired in the audit swap itself, and PR #329 merged with no further reviewer notes — so Status moves `review → approved` citing the NS-61 audit's REVIEW.md (the PR #329 body). Both promotions the §Preconditions audit box requires are complete; code dispatch now rides tier order and this plan's §Preconditions — the born-unchecked carrier box still holds T28.4.9 alone, and every other task is dispatch-eligible in phase order behind Tiers 1–6 execution.
+- **2026-08-25 — BL-141 pointer restatement (no Status flip).** §Non-Goals now cites `Spec-028 §ADR Triggers` for the V1.1 relayed-caller authorization model instead of BL-141, which is withdrawn to the backlog archive as a duplicate tracking surface; ADR-025 decides the `runtimenode.*` procedures only and never covered relayed governance mutation, so the trigger stays this spec's own. No task, invariant, or scope change.
 
 ## Done Checklist
 
