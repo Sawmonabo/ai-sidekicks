@@ -164,16 +164,6 @@ The items below were surfaced by the [plan-readiness-audit Tier 1](./operations/
 
 ---
 
-### BL-153: Rollback replacement-send wire-arm registration (api-payload §Plan-004)
-
-- Status: `todo`
-- Priority: `P2`
-- Owner: `unassigned`
-- References: [Plan-004 §Preconditions](./plans/004-queue-steer-pause-resume.md#preconditions) (the born-unchecked "Rollback replacement-send wire arm registered" box — the box this item discharges; it names a follow-up registration PR as producer); [Plan-004](./plans/004-queue-steer-pause-resume.md) (T4.8 authors the affordance and its eligibility predicate; I-004-24 governs it; CP-004-15 hands it to Plan-013); [Plan-013](./plans/013-live-timeline-visibility-and-reasoning-surfaces.md) (T4.2 exposes the row-footer composition point and mounts the component); [Spec-023 §Signature Feature Composition Sketches](./specs/023-desktop-shell-and-renderer.md#signature-feature-composition-sketches) (the Timeline View placement bullet); [Spec-004 §Required Behavior](./specs/004-queue-steer-pause-resume.md#required-behavior) (the composite admits run-bound and does not dispatch — the behavior the affordance's copy must state)
-- Summary: The 2026-08-16 rewind-hardening amendment (§6 node NS-67) added the optional `replacementSend` leg to the `rollback` intervention in `Spec-004 §Interfaces And Contracts`, and the 2026-08-18 placement amendment (NS-73) assigned its desktop entry point to Plan-004 T4.8 with Plan-013 T4.2 as host. The wire registration in `api-payload-contracts.md §Plan-004 — Queue Steer Pause Resume` — the `replacementSend` payload member, the two `RollbackDegradedResult` members, and `resendDisposition` — has not landed, and **no plan task owns it**: the Plan-004 §Preconditions box names a follow-up registration PR as its producer. This item is that unowned registration and nothing else. Non-blocking context, owned elsewhere and not exit criteria here: the affordance is Plan-004 T4.8 under I-004-24; its mount is Plan-013 T4.2 under CP-004-15; its activation rides Plan-004 Phase 3B beside the T3.12 handler and the T3.17 composite. Until the registration lands the composite is unreachable on the wire in every client, so the desktop surface is unreachable-by-omission rather than fail-open.
-- Exit Criteria: the `api-payload-contracts.md §Plan-004 — Queue Steer Pause Resume` registration of the `replacementSend` payload member (with the `RollbackDegradedResult` and `resendDisposition` widenings the box names) has landed mirroring `Spec-004 §Interfaces And Contracts`, and the Plan-004 §Preconditions box is checked with its discharge record.
-- Revisit Trigger: before Plan-004 Phase 4 code dispatch (T4.8 is the first task that reads this gate).
-
 ### BL-154: First-run provider-authentication surfacing (fresh install meets a refusal, not a prompt)
 
 - Status: `todo`
