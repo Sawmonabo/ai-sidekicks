@@ -544,9 +544,9 @@ export function NodeRoster({ sessionId }: NodeRosterProps): React.JSX.Element {
     //     (I-003-1: the below-floor node is VISIBLE, not ejected).
     // No `.filter(...)` — every node the read returned is rendered
     // (admit-not-eject). `data-node-state` / `data-health-state` /
-    // `data-read-only` expose the facets for the T5.4 manual smoke (and future
-    // automated coverage per BL-131) to assert distinguishability without
-    // scraping prose. `data-health-state` is ABSENT exactly when the wire
+    // `data-read-only` expose the facets for the T5.4 manual smoke and for the
+    // BL-131 component suite in `__tests__/NodeRoster.test.tsx` to assert
+    // distinguishability without scraping prose. `data-health-state` is ABSENT exactly when the wire
     // value is `null` (React omits null-valued attributes) — the DOM mirrors
     // the LEFT-JOIN nullability verbatim rather than inventing a fourth enum
     // token.

@@ -206,6 +206,22 @@ describe("AttachFlow (Plan-003 Phase 5 T5.1)", () => {
       );
     });
 
+    it("issues the attach call ALONE, coupling no membership mutation to it (I-003-3)", () => {
+      // Attach and membership acceptance are distinct actions. The renderer
+      // leg of that invariant is that attaching reaches the control plane
+      // EXACTLY once, on the attach procedure — a surface that also mutated
+      // `session_memberships` would have to make a second call from here, and
+      // the call-count assertion is what forbids it.
+      const controlPlaneCall = vi.fn().mockResolvedValue(READ_WRITE_ATTACH_RESPONSE);
+      installMockBridge(controlPlaneCall);
+
+      render(<AttachFlow sessionId={TARGET_SESSION_ID} attachDraft={ATTACH_DRAFT} />);
+      clickAttach();
+
+      expect(controlPlaneCall.mock.calls).toHaveLength(1);
+      expect(controlPlaneCall).toHaveBeenCalledWith("runtimenode.attach", expect.anything());
+    });
+
     it("renders the pending state with no clickable control while in flight", () => {
       // The double-fire guard is STRUCTURAL: the pending branch renders no
       // button at all, so a second attach cannot be dispatched by clicking.

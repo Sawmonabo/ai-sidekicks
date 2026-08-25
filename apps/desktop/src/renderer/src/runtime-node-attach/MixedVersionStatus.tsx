@@ -187,8 +187,9 @@ export interface MixedVersionStatusProps {
 // The four-token access verdict — the AC4 three-way distinction (read-only /
 // read-write / detached) plus the honest `revoked` fourth (see the header's
 // revoked-vs-detached note). These are the machine tokens the
-// `data-access-status` facet carries for the T5.4 manual smoke (and future
-// BL-131 automated coverage).
+// `data-access-status` facet carries for the T5.4 manual smoke and for the
+// BL-131 component suite in `__tests__/MixedVersionStatus.test.tsx`, which
+// asserts all four.
 type NodeAccessStatus = "read-write" | "read-only" | "detached" | "revoked";
 
 // Human labels per verdict. The two ATTACHED labels are byte-identical to the

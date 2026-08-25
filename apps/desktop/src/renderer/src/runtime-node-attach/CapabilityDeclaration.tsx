@@ -134,7 +134,8 @@ export function CapabilityDeclaration({
 
   if (capabilityEntries.length === 0) {
     // `data-capability-count={0}` keeps the empty state machine-assertable
-    // for the T5.4 manual smoke (and future BL-131 automated coverage).
+    // for the T5.4 manual smoke and for the BL-131 component suite in
+    // `__tests__/CapabilityDeclaration.test.tsx`, which asserts it.
     return (
       <section aria-label="capability-declaration-empty" data-capability-count={0}>
         <p>No capabilities declared — nothing on this node is schedulable.</p>
