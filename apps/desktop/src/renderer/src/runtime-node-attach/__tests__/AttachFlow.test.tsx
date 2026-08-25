@@ -169,7 +169,7 @@ describe("AttachFlow (Plan-003 Phase 5 T5.1)", () => {
   });
 
   describe("attach request", () => {
-    it("sends the draft composed with the session prop as the attach input", () => {
+    it("sends the draft composed with the session prop as the attach input", async () => {
       const controlPlaneCall = vi.fn().mockResolvedValue(READ_WRITE_ATTACH_RESPONSE);
       installMockBridge(controlPlaneCall);
 
@@ -181,9 +181,13 @@ describe("AttachFlow (Plan-003 Phase 5 T5.1)", () => {
         ...ATTACH_DRAFT,
         sessionId: TARGET_SESSION_ID,
       });
+      // The mocked reply resolves, so the view transitions out of `pending`
+      // after this body would otherwise end. Awaiting the settled arm keeps
+      // that update inside act and asserts the dispatch actually completes.
+      await screen.findByLabelText("runtime-node-attach-resolved");
     });
 
-    it("lets the session PROP win over a stale sessionId carried on the draft", () => {
+    it("lets the session PROP win over a stale sessionId carried on the draft", async () => {
       // The draft type omits `sessionId` precisely so the prop is the single
       // source of truth, but a rogue field can still arrive at runtime (a
       // caller spreading a full `RuntimeNodeAttachRequest` into the draft slot).
@@ -204,9 +208,13 @@ describe("AttachFlow (Plan-003 Phase 5 T5.1)", () => {
         "runtimenode.attach",
         expect.objectContaining({ sessionId: TARGET_SESSION_ID }),
       );
+      // The mocked reply resolves, so the view transitions out of `pending`
+      // after this body would otherwise end. Awaiting the settled arm keeps
+      // that update inside act and asserts the dispatch actually completes.
+      await screen.findByLabelText("runtime-node-attach-resolved");
     });
 
-    it("issues the attach call ALONE, coupling no membership mutation to it (I-003-3)", () => {
+    it("issues the attach call ALONE, coupling no membership mutation to it (I-003-3)", async () => {
       // Attach and membership acceptance are distinct actions. The renderer
       // leg of that invariant is that attaching reaches the control plane
       // EXACTLY once, on the attach procedure — a surface that also mutated
@@ -220,6 +228,10 @@ describe("AttachFlow (Plan-003 Phase 5 T5.1)", () => {
 
       expect(controlPlaneCall.mock.calls).toHaveLength(1);
       expect(controlPlaneCall).toHaveBeenCalledWith("runtimenode.attach", expect.anything());
+      // The mocked reply resolves, so the view transitions out of `pending`
+      // after this body would otherwise end. Awaiting the settled arm keeps
+      // that update inside act and asserts the dispatch actually completes.
+      await screen.findByLabelText("runtime-node-attach-resolved");
     });
 
     it("renders the pending state with no clickable control while in flight", () => {
