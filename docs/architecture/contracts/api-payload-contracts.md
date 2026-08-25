@@ -5141,11 +5141,40 @@ type ProviderAccountHealthState =
   | "home_missing"
   | "indeterminate"; // probe could not decide — treated as NOT authenticated (fail-closed, I-029-3)
 
+// NOTE: no credential-home path appears on this wire surface either. The operator's remedy names
+// the home in operator-facing MESSAGE text only — never on a payload, an event, or a log line
+// (Spec-029 §Node provider readiness and the sign-in handoff, on the `mcp.config_scope_unsupported`
+// disclosure discipline). `credential_home_path` names a column, not a wire member.
+
+// Readiness is the pre-computed answer to the question run admission will ask, derived by the SAME
+// resolution the daemon performs at spawn (Spec-029 §Validation at spawn — fail-closed) and served
+// from the account row's STORED last-probe result — a list call spawns no provider process, so a
+// surface may poll it; `providerAccount.probe` is the deliberate refresh. It AUTHORIZES NOTHING:
+// admission re-validates unconditionally and refuses on its own reading. Enumerated in full rather
+// than aliased off `ProviderAccountHealthState` so a later health arm cannot silently widen this
+// client-facing union: it widens ONLY in lockstep with that union, and a new health arm requires an
+// explicit readiness arm added here.
+type ProviderReadinessState =
+  | "authenticated" // the resolved account's stored probe said so — necessary, NOT sufficient
+  | "reauth_required" // resolved account's home is present but holds no usable credential
+  | "home_missing" // resolved account's credential home is absent or unreadable
+  | "indeterminate" // probe could not decide, or none taken yet — NOT authenticated, NOT a failure
+  | "no_account" // nothing registered for this provider; mirrors `provideraccount.not_registered`
+  | "no_default"; // accounts exist, none is default; mirrors `provideraccount.no_default`
+
+interface ProviderReadiness {
+  provider: "claude" | "codex";
+  state: ProviderReadinessState;
+  resolvedAccountId?: ProviderAccountId; // present iff resolution reached exactly one account
+  observedAt?: string; // RFC 3339 UTC of the STORED observation; absent iff no probe has been taken
+}
+
 interface ProviderAccountListRequest {
   provider?: "claude" | "codex";
 }
 interface ProviderAccountListResponse {
   accounts: ProviderAccount[];
+  readiness: ProviderReadiness[]; // exactly one entry per provider the request selects: never zero, never two
 }
 
 interface ProviderAccountRegisterRequest {
@@ -5218,5 +5247,7 @@ interface ProviderAccountProbeResponse {
   credentialGeneration: number; // the generation the probe observed; a later bump invalidates this reading
 }
 ```
+
+**Provider readiness.** `providerAccount.list` answers the registry question and the admissibility question in one reply, because a client that had to ask them separately would be free to combine them differently from admission. `readiness` is a **derivation**, not a stored second opinion: resolve the provider's default account, then report that account's stored health verbatim, with the two registry-shape arms standing in where resolution never reaches an account. No client re-derives it from `accounts` — a surface that recomputes readiness from account fields is the defect this member exists to remove, since the recomputed answer is the one nothing enforces. `authenticated` is a statement about the last observation and not a grant: a run bound to an `authenticated`-reading account still refuses at spawn if the home has since been signed out, and `indeterminate` is rendered as undetermined rather than as a sign-in failure.
 
 **Run-start selection.** The per-run override rides the existing session-creation and resume parameter shapes as an additive-optional `providerAccountId` (`Spec-005 §Interfaces And Contracts`). It is an **input to resolution, never the recorded outcome**: the daemon resolves exactly one account — the override if authorized, otherwise the provider default — and stamps the result server-side as `admittedProviderAccountId` on the run's admission record. A client-supplied stamp is ignored. Resume rebinds to the account the run was admitted against rather than re-resolving the current default, so changing a default mid-session cannot silently move an in-flight run's billing.
