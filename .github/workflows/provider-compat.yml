@@ -297,21 +297,49 @@ jobs:
             | sed 's/^PROVIDER_COMPAT_DRIFT //' >> "$RUNNER_TEMP/leg/drift.txt" || true
 
       - name: Probe argument acceptance (exit codes, not --help)
+        env:
+          CHANNEL: ${{ matrix.channel }}
         run: |
           set -euo pipefail
           # `--help` text is not a drift detector — it is stable across releases
           # that moved real behavior. Argument ACCEPTANCE is: `codex exec
           # --full-auto` exits 0 at 0.141.0 and exits 2 with "unexpected
-          # argument" at 0.149.1. Record the observation; do not fail on it,
-          # because withdrawal above the pin is a degrade, not a break.
+          # argument" at 0.149.1. That is compared per channel below; the leg
+          # still never FAILS on it, because a mismatch is recorded as drift
+          # and the report decides what drift on this channel means.
           set +e
           "$CODEX_BIN" exec --full-auto --help >/dev/null 2>"$RUNNER_TEMP/full-auto.err"
           full_auto_exit=$?
           set -e
+          # docs/reference/provider-wire/codex.md records this as a Verified
+          # binary probe with an exact per-channel expectation: the flag is
+          # ACCEPTED at the 0.141.0 floor and REJECTED at the 0.149.1 pin. So
+          # the observation is only meaningful against the channel's expected
+          # value -- recording it without comparing made a floor that stopped
+          # accepting `--full-auto` (a real break in the oldest SUPPORTED CLI)
+          # invisible: summary-only, leg still `success`, no alert, no failure.
+          #
+          # `latest` has no expected value. Whether the flag is present above
+          # the pin is exactly the kind of movement the b1 policy tolerates.
+          case "$CHANNEL" in
+            floor) expected_accept=yes ;;
+            pin) expected_accept=no ;;
+            *) expected_accept=unknown ;;
+          esac
           if [ "$full_auto_exit" -eq 0 ]; then
-            echo "  - \`codex exec --full-auto\`: ACCEPTED (exit 0)" >> "$GITHUB_STEP_SUMMARY"
+            observed=ACCEPTED
           else
-            echo "  - \`codex exec --full-auto\`: REJECTED (exit $full_auto_exit)" >> "$GITHUB_STEP_SUMMARY"
+            observed=REJECTED
+          fi
+          echo "  - \`codex exec --full-auto\`: $observed (exit $full_auto_exit)" \
+            >> "$GITHUB_STEP_SUMMARY"
+          mkdir -p "$RUNNER_TEMP/leg"
+          if [ "$expected_accept" = yes ] && [ "$observed" != ACCEPTED ]; then
+            printf 'codex --full-auto is no longer accepted at the %s (exit %s)\n' \
+              "$CHANNEL" "$full_auto_exit" >> "$RUNNER_TEMP/leg/drift.txt"
+          elif [ "$expected_accept" = no ] && [ "$observed" != REJECTED ]; then
+            printf 'codex --full-auto is accepted again at the %s (exit %s)\n' \
+              "$CHANNEL" "$full_auto_exit" >> "$RUNNER_TEMP/leg/drift.txt"
           fi
           # Negative control: prove the detector can see a rejection at all.
           set +e
@@ -606,6 +634,10 @@ jobs:
   # ---------------------------------------------------------------------------
   claude-authenticated-smoke:
     name: Claude authenticated smoke (pin)
+    outputs:
+      # `broken` (could not run) vs `drift` (ran, wire looked wrong). The
+      # report needs the distinction; a bare job result cannot carry it.
+      smoke-outcome: ${{ steps.smoke.outputs.smoke_outcome }}
     runs-on: ubuntu-latest
     needs: secret-gate
     if: needs.secret-gate.outputs.claude-token-present == 'true'
@@ -636,6 +668,7 @@ jobs:
           echo "CLAUDE_BIN=$install_dir/node_modules/.bin/claude" >> "$GITHUB_ENV"
 
       - name: One-turn print-mode probe
+        id: smoke
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           CLAUDE_CONFIG_DIR: ${{ runner.temp }}/claude-smoke-config
@@ -647,14 +680,31 @@ jobs:
           # A scratch config home, an empty tool allow-list, and one bounded turn.
           # The token reaches the child only through the environment; it is never
           # written to disk, echoed, or passed on a command line.
+          # Two failure kinds, and this job must not conflate them. An
+          # EXECUTION failure (expired or missing token, install failure,
+          # exhausted quota, transient network) says nothing about the wire
+          # surface; reporting it as drift would open the provider-drift
+          # tracker on evidence never collected. Only a turn that RAN and
+          # came back empty is a protocol observation.
+          set +e
           answer="$("$CLAUDE_BIN" -p 'Reply with the single word: ok' \
             --max-turns 1 \
             --allowed-tools '' \
-            --output-format text </dev/null)"
-          if [ -z "$answer" ]; then
-            echo "FAIL: authenticated one-turn probe produced no output" >&2
+            --output-format text </dev/null 2>"$RUNNER_TEMP/smoke.err")"
+          smoke_exit=$?
+          set -e
+          if [ "$smoke_exit" -ne 0 ]; then
+            # Never echo the captured stderr: it can quote the invocation.
+            echo "BROKEN: the authenticated one-turn probe could not run (exit $smoke_exit)" >&2
+            echo "smoke_outcome=broken" >> "$GITHUB_OUTPUT"
             exit 1
           fi
+          if [ -z "$answer" ]; then
+            echo "DRIFT: the authenticated one-turn probe ran but produced no output" >&2
+            echo "smoke_outcome=drift" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "smoke_outcome=success" >> "$GITHUB_OUTPUT"
           echo "- Claude authenticated smoke (pin \`2.1.245\`): **PASS** — one turn completed" \
             >> "$GITHUB_STEP_SUMMARY"
 
@@ -685,6 +735,7 @@ jobs:
         id: classify
         env:
           SMOKE_RESULT: ${{ needs.claude-authenticated-smoke.result }}
+          SMOKE_OUTCOME: ${{ needs.claude-authenticated-smoke.outputs.smoke-outcome }}
           GATE_RESULT: ${{ needs.secret-gate.result }}
           TOKEN_PRESENT: ${{ needs.secret-gate.outputs.claude-token-present }}
         run: |
@@ -709,7 +760,16 @@ jobs:
             fatal=true
           else
             if [ "$SMOKE_RESULT" != "success" ] && [ "$SMOKE_RESULT" != "skipped" ]; then
-              drift=true
+              # Only a turn that RAN and came back wrong is provider drift.
+              # Everything else -- an expired token, a failed install, an
+              # exhausted quota, a transient network error, or a job that
+              # died before publishing any outcome at all -- is `broken`, so
+              # a bad token can never overwrite the drift tracker.
+              if [ "${SMOKE_OUTCOME:-}" = "drift" ]; then
+                drift=true
+              else
+                broken=true
+              fi
               fatal=true
             fi
           fi
@@ -776,7 +836,7 @@ jobs:
             echo "| Supporting leg | Result |"
             echo "| --- | --- |"
             echo "| Secret presence gate | \`$GATE_RESULT\` |"
-            echo "| Claude authenticated smoke | \`$SMOKE_RESULT\` (secret present: \`$TOKEN_PRESENT\`) |"
+            echo "| Claude authenticated smoke | \`$SMOKE_RESULT\`/\`${SMOKE_OUTCOME:-n/a}\` (secret present: \`$TOKEN_PRESENT\`) |"
             echo
             echo "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
             echo
