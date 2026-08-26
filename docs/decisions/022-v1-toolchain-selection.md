@@ -247,7 +247,7 @@ The toolchain is locked for V1 but not frozen forever. Each of the following eve
 | Turborepo MIT license | Primary source | License confirmed MIT as of 2026-04-26 (not MPL); self-host posture is durable | <https://github.com/vercel/turborepo/blob/main/LICENSE> |
 | Turborepo remote caching | Documentation | Open HTTP API; `TURBO_REMOTE_CACHE_SIGNATURE_KEY` for HMAC-SHA256 signed artifacts | <https://turborepo.dev/docs/core-concepts/remote-caching> |
 | Turborepo telemetry | Documentation | On by default; opt-out via `TURBO_TELEMETRY_DISABLED=1` or `DO_NOT_TRACK=1` | <https://turborepo.dev/docs/telemetry> |
-| `ducktors/turborepo-remote-cache` | Self-host implementation | Open-source S3-backed Turbo cache server | <https://github.com/ducktors/turborepo-remote-cache> |
+| `ducktors/turborepo-remote-cache` | Self-host implementation | Open-source S3-backed Turbo cache server. **Superseded 2026-08-25** — row 2 no longer self-hosts; see §Decision Log | <https://github.com/ducktors/turborepo-remote-cache> |
 | Nx Powerpack announcement | Vendor announcement | Confirms Nx self-hosted caching is explicitly free; Nx Cloud paid features are distributed-execution + AI-CI, not core caching | <https://nx.dev/blog/introducing-nx-powerpack> |
 | TypeScript project references | Documentation | `composite: true` + `tsc -b` for incremental builds; canonical types-emit path | <https://www.typescriptlang.org/docs/handbook/project-references.html> |
 | TypeScript native preview announcement | Vendor announcement | tsgo `@typescript/native-preview` is preview, not stable; targeted across 2026 | <https://devblogs.microsoft.com/typescript/announcing-typescript-native-previews/> |

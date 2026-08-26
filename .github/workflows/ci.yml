@@ -48,15 +48,20 @@ jobs:
     # load-bearing:
     #   - A job-level `permissions:` map REPLACES the workflow-level one, so
     #     `contents: read` must be restated or `actions/checkout` loses its
-    #     grant. `actions: write` is what the GitHub Actions cache backend needs.
+    #     grant. No `actions:` grant is added, and that is deliberate: the cache
+    #     backend authenticates with the runner-injected `ACTIONS_RUNTIME_TOKEN`
+    #     (`@actions/cache`'s `getRuntimeToken()`), never with `GITHUB_TOKEN`,
+    #     so `actions: write` buys the cache nothing while handing PR-authored
+    #     code repo-wide Actions-API writes — deleting caches on any ref,
+    #     cancelling runs — which cache ref-scoping does NOT contain. Corrected
+    #     2026-08-25; see the Decision Log row.
     #   - The signature key is consumed at run time by the `pnpm turbo run …`
     #     steps, not by the caching action, so it must sit at job scope; a
-    #     step-level `env:` would silently disable artifact signing. Until an
-    #     owner sets the secret it interpolates to the empty string and the
-    #     cache degrades inertly.
+    #     step-level `env:` would silently disable artifact signing. The
+    #     repository secret is set, so signing is live; were it ever unset the
+    #     value would interpolate empty and the cache would degrade inertly.
     permissions:
       contents: read
-      actions: write
     env:
       TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
     strategy:
@@ -282,15 +287,20 @@ jobs:
     # load-bearing:
     #   - A job-level `permissions:` map REPLACES the workflow-level one, so
     #     `contents: read` must be restated or `actions/checkout` loses its
-    #     grant. `actions: write` is what the GitHub Actions cache backend needs.
+    #     grant. No `actions:` grant is added, and that is deliberate: the cache
+    #     backend authenticates with the runner-injected `ACTIONS_RUNTIME_TOKEN`
+    #     (`@actions/cache`'s `getRuntimeToken()`), never with `GITHUB_TOKEN`,
+    #     so `actions: write` buys the cache nothing while handing PR-authored
+    #     code repo-wide Actions-API writes — deleting caches on any ref,
+    #     cancelling runs — which cache ref-scoping does NOT contain. Corrected
+    #     2026-08-25; see the Decision Log row.
     #   - The signature key is consumed at run time by the `pnpm turbo run …`
     #     steps, not by the caching action, so it must sit at job scope; a
-    #     step-level `env:` would silently disable artifact signing. Until an
-    #     owner sets the secret it interpolates to the empty string and the
-    #     cache degrades inertly.
+    #     step-level `env:` would silently disable artifact signing. The
+    #     repository secret is set, so signing is live; were it ever unset the
+    #     value would interpolate empty and the cache would degrade inertly.
     permissions:
       contents: read
-      actions: write
     env:
       TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
     strategy:
