@@ -1936,6 +1936,10 @@ type RollbackDegradedResult = // partial / zero-effect dispositions — legal ON
       // silent"). On the conversation-only branch both are empty because no file leg ran; that is the
       // same reading two empty arrays already have on `files-restored`, and whether the run has a file
       // leg at all is a property of its execution mode the caller knows independently of this response.
+      // Producer naming matches the two carrier arms above: T3.17 composes these two fields onto this
+      // arm — where the file leg ran, from the same T3.13 restore result the displaced `files-restored`
+      // outcome would have carried; on the conversation-only branch as two empty arrays, no restore
+      // result existing to read — and T4.7's degraded render surfaces them (exit code unchanged).
       disposition: "resend-unapplied";
       resendDisposition: "unapplied";
       overwrittenIgnoredPaths: string[];
