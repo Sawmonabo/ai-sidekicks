@@ -5131,6 +5131,14 @@ interface ProviderAccount {
   displayLabel: string; // operator-chosen; participant-adjacent PII (Spec-022 §PII Data Map)
   credentialGeneration: number; // monotonic; bumps at every credential-home lifecycle transition (I-029-2)
   billingMode: BillingMode;
+  // Provider-REPORTED identity, present only where a health observation surfaced it, each member
+  // independently optional because a provider may report any subset. Participant-adjacent PII
+  // (Spec-022 §PII Data Map, `provider_accounts` row): a later observation replaces these, and they
+  // are never logged, evented, or carried on an error. Never operator-typed — the operator's own
+  // name for the account is `displayLabel`.
+  observedAccountEmail?: string;
+  observedAccountOrgId?: string;
+  observedAccountOrgName?: string;
   isDefault: boolean; // exactly one per provider, enforced by a partial unique index (I-029-5)
   healthState: ProviderAccountHealthState;
   // The four members below land with the 2026-08-26 sign-in amendment. Each is nullable-by-absence
@@ -5295,6 +5303,13 @@ interface ProviderAccountListRequest {
 }
 interface ProviderAccountListResponse {
   accounts: ProviderAccount[];
+  // The durable quota rows, delivered on the READ because the subscription is a live tail and not a
+  // snapshot replay — without this a client opened after a reading, or after a daemon restart, could
+  // not reach `provider_account_usage_windows` until another probe or run happened to produce an
+  // update. Entries carry the provenance they were OBSERVED under, so a stored window may legitimately
+  // carry `source: "run"`; provenance is a property of the reading, never of the transport that
+  // delivers it, and a consumer must accept both values here rather than assuming `"probe"`.
+  usageWindows: ProviderAccountUsageWindow[];
   // Required, not additive-optional: `ProviderAccountListResponse` is registered here and has not
   // shipped, so ADR-018's additive-optional rule for already-published shapes does not bind it — the
   // same reading the Tier-8 audit's new shapes carry. A reply that could omit readiness would push
@@ -5310,6 +5325,15 @@ interface ProviderAccountRegisterRequest {
   displayLabel: string;
   billingMode: BillingMode;
   makeDefault?: boolean;
+  // RE-SUPPLY, not a second credential-accepting verb. Supplied, this means "replace the sealed
+  // token on THIS account" and `provider` must match the stored row; omitted, this is an ordinary
+  // registration and the daemon mints a new identity. It exists because the terminal
+  // `reauth_required` remedy is to mint a fresh token and re-supply it, and deregister-then-register
+  // would daemon-mint a NEW immutable identity — discarding the spend, quota, and attention history
+  // keyed to the account the operator is trying to repair. A successful replacement bumps
+  // `credentialGeneration` and re-runs the registration-time observation. The credential-accepting
+  // input census is unmoved at exactly one: this adds a selector, not a second credential input.
+  accountId?: ProviderAccountId;
   // THE ONE CREDENTIAL-ACCEPTING INPUT ON THIS WIRE (ADR-028 D2; Spec-029 §Non-interactive token
   // registration). Optional: omitted is the ordinary registration, and the account authenticates
   // through `providerAccount.login` or the operator's own out-of-band sign-in.
@@ -5350,6 +5374,11 @@ interface ProviderAccountUpdateRequest {
   accountId: ProviderAccountId;
   displayLabel?: string; // omitted = unchanged
   billingMode?: BillingMode; // omitted = unchanged; this is how `unknown` is resolved to a declared mode
+  // The durable per-account opt-out AC-19 requires. Carried on the existing update verb rather than
+  // as a dedicated verb: it is an ordinary mutable account preference, and minting a verb for it
+  // would move the namespace census for a boolean. Omitted = unchanged; the column default is
+  // enabled, so silence never silences an observer.
+  probeEnabled?: boolean;
 }
 interface ProviderAccountUpdateResponse {
   account: ProviderAccount;

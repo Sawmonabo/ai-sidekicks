@@ -1728,6 +1728,17 @@ CREATE TABLE provider_accounts (
                         CHECK(observed_auth_mode IS NULL OR observed_auth_mode IN ('oauth_subscription', 'oauth_token', 'api_key', 'external', 'none', 'unknown')),  -- the authentication mode the provider's OWN status surface reports for this home, OBSERVED and never assumed (Spec-029 §Non-interactive token registration). NULL until observed; `unknown` is the distinct arm for "observed, but the provider named a mode this daemon does not recognize" — a tolerant arm so a vendor adding a mode does not fail an observation closed. `oauth_token` is the ADR-028 D2 class and is what admits a token-mode account; the token VALUE is not here and is in no column of any table (Spec-029 §State And Data Implications).
   last_refresh_observed_at TEXT,  -- RFC 3339 UTC of the most recent credential refresh the daemon has OBSERVED to have completed for this home, read from the provider's own durable marker where it publishes one. NULL = not observed, never "fine". Drives the freshness reading; the daemon never CAUSES a refresh to produce it (Spec-029 §Credential-home health observation).
   logged_in_at          TEXT,  -- RFC 3339 UTC of the sign-in this home's credential came from: stamped on a brokered sign-in's observed completion AND on a token-mode registration, since the token class arrives through `register` and has a horizon that must be measured from somewhere. NULL for a home imported by a registration that neither signed in nor supplied a token. The re-login horizon derived from it is MODE-DISPATCHED and is an ESTIMATE, never a fact: the interval belongs to the provider's issuance policy, which the daemon does not control and cannot verify.
+  -- Provider-REPORTED account identity, surfaced by a health observation and stored so the
+  -- management page can tell two accounts of the same provider apart by something truer than the
+  -- operator's own label. Nullable and independently so: a provider may report any subset, and an
+  -- absent value stays absent rather than defaulting. A later observation REPLACES these values
+  -- (Spec-022 §PII Data Map, `provider_accounts` row); they are never logged, never evented, and
+  -- never carried on an error. Carriers for the render Spec-023 requires and the retention rule
+  -- Spec-022 already governs — added 2026-08-26 at the Codex round, which found the rule and the
+  -- render both citing a column that did not exist.
+  observed_account_email     TEXT,
+  observed_account_org_id    TEXT,
+  observed_account_org_name  TEXT,
   probe_enabled         INTEGER NOT NULL DEFAULT 1
                         CHECK(probe_enabled IN (0, 1)),  -- per-account opt-out for the background health observer (Spec-029 §Credential-home health observation). Default-on, because an account nobody observes is an account whose stored reading silently ages; durable rather than in-memory, so a restart does not resume observing an account the operator silenced. Opting out suppresses the OBSERVER only: the deliberate probe verb and spawn validation still write the pair, because both are acts the operator or a run explicitly asked for.
   created_at            TEXT NOT NULL,
