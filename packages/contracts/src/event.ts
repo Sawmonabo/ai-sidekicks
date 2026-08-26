@@ -2485,8 +2485,9 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
 // categories; this union deliberately registers the post-B18 156 until
 // Plan-016 T1.13 widens it by two under CP-016-3 (`agent.provider_switched`
 // and `agent.provider_switch_failed`, 2026-08-26 D-016-26) — the
-// registry-leads-code lag that spec records in the same row. Every count below is therefore code truth at 156, not a
-// restatement of the spec census. The fifteen minted by the 2026-07-22
+// registry-leads-code lag that spec records in the same row. Every count
+// below is therefore code truth at 156, not a restatement of the spec
+// census. The fifteen minted by the 2026-07-22
 // B18 amendment — three provider-surface `session.*`, three forward,
 // non-state `run.*`, three `usage.*`, `user.message`, and the five `mcp.*`
 // under the `mcp_governance` category — were registered here by T1.10.
