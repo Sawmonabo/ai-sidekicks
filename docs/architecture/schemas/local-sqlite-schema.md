@@ -1443,8 +1443,16 @@ CREATE TABLE agents (
                                                         -- model's driver-reported `effortLevels` rather than a schema CHECK --
                                                         -- the valid set is per-model and provider-owned, so a CHECK here would
                                                         -- go stale against the provider rather than protect anything
-  pending_switch  TEXT,                                 -- 2026-08-26 (D-016-26): JSON {switchId, appliesAt: 'turn_boundary'|'run_boundary',
-                                                        -- axes: {driverName?, providerAccountId?, modelId?, effort?}} -- the ONE switch
+  pending_switch  TEXT,                                 -- 2026-08-26 (D-016-26): the JSON AgentProviderSwitchPending shape, status literal
+                                                        -- included so the stored blob is self-identifying rather than a wire artifact
+                                                        -- reproduced in a column: a row read in isolation names what it is -- {status:
+                                                        -- 'pending', switchId, appliesAt: 'turn_boundary'|'run_boundary', pendingAxes:
+                                                        -- {driverName?, providerAccountId?, modelId?, effort?}, replacedSwitchId?} -- one
+                                                        -- shape shared with the mutation reply and the agent.config_updated payload, so
+                                                        -- what a client was told, what the log records, and what a restart re-arms from
+                                                        -- are the same record. pendingAxes carries TARGET VALUES and not axis names: at
+                                                        -- the boundary the caller's request is gone, so the row must be sufficient to
+                                                        -- apply the switch by itself. This is the ONE switch
                                                         -- acknowledged to a caller but not yet applied at its boundary; NULL = none.
                                                         -- Durable because the acknowledgment is a promise a restart must keep: startup
                                                         -- re-arms from this column instead of dropping the intent. A single nullable

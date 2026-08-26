@@ -81,7 +81,7 @@ The synthesis above is only checkable if "capability-gated optimization with a n
 | --- | --- | --- |
 | Continue an existing session | `resume` | Replay the canonical transcript into a fresh provider session |
 | Unwind to an earlier point | `rollback`, plus Spec-004's declared boundary-crossing rewind semantics where the target crosses a compaction boundary | Replay the canonical transcript **prefix** into a fresh session |
-| Branch a session | **none registered in V1** — deliberately. Both vendors ship a fork verb (Codex `thread/fork`, non-experimental at `0.149.1`; Claude `--fork-session`, Verified in the `2.1.245` census), but no V1 capability branches a session, so a flag declared for one would be a gate nothing consults — and an unconsultable capability flag is the failure mode [Spec-005 §Capability discovery](../specs/005-provider-driver-contract-and-capabilities.md#capability-discovery) exists to prevent. A V1.1 branching capability registers the flag with its consumer, in one amendment | Replay the canonical transcript into a **second** fresh session, leaving the first untouched |
+| Branch a session | **none registered in V1** — deliberately. Both vendors ship a fork verb (Codex `thread/fork`, non-experimental at `0.149.1`; Claude `--fork-session`, Verified in the `2.1.245` census), but no V1 capability branches a session, so a flag declared for one would be a gate nothing consults — and a flag minted ahead of its reader is exactly what [Spec-005 §Capability discovery](../specs/005-provider-driver-contract-and-capabilities.md#capability-discovery) forbids. A V1.1 branching capability registers the flag with its consumer, in one amendment | Replay the canonical transcript into a **second** fresh session, leaving the first untouched |
 | Continue under a different provider | none exists, by construction | Replay only — the case this decision was triggered by |
 | Replay itself | `transcript_replay` | The **memo projection**: a bounded prose rendering of the canonical transcript, rebuilt every turn, with the operation reported `degraded` and the losses declared |
 
@@ -202,7 +202,7 @@ Both declines are properties of the consuming capability, not of this decision, 
 
 | Metric | Target | Measurement Method | Check Date |
 | --- | --- | --- | --- |
-| Continuity capabilities with a named daemon-side fallback | 5 of 5 rows in §Enumerated Gates And Fallbacks | Direct count against the Spec-005 capability matrix | At Plan-005 Phase 3 merge |
+| Continuity capabilities with a named daemon-side fallback | 5 of 5 rows in §Enumerated Gates And Fallbacks | Direct count against §Enumerated Gates And Fallbacks itself; a row whose gate cell names no flag is verified against its fallback cell alone. Deliberately not a count against the Spec-005 capability matrix: two of the five rows register no flag there — one by withdrawal, one by construction — so a matrix-scoped count could reach at most three and would report a table that is complete as incomplete | At Plan-005 Phase 3 merge |
 | Replay operations reporting `applied` on a false capability gate | 0 | The post-replay assertion is the only admissible evidence; a gate-false path reports `degraded` | At Plan-005 Phase 3 merge |
 | Switch operations that drop a fact without declaring it | 0 | Every switch carries `declaredLosses[]`; an empty list asserts nothing was dropped | At Plan-016 Phase 2 merge |
 

@@ -785,6 +785,65 @@ interface ProviderDriver {
   listModes(): Promise<ProviderMode[]>;
   getCapabilities(): Promise<GetCapabilitiesResult>;
   probeAuth(): Promise<DriverAuthProbeResult>;
+  // Render the run's canonical transcript into this provider's replay frames (2026-08-26,
+  // ADR-029; Spec-005 §Canonical Transcript Export And Replay). Pure with respect to session
+  // state: it mutates nothing, writes nothing, and starts no turn.
+  exportTranscript(params: ExportTranscriptParams): Promise<DriverTranscriptExportResult>;
+  // Reconstitute a conversation into a FRESH provider session from exported frames. Gated on the
+  // `transcript_replay` flag and never writes to the SOURCE session; returns only after the
+  // post-replay assertion passes. A driver whose provider refuses prior-turn content declares the
+  // flag `false`, and the daemon falls back to the memo projection instead of calling this.
+  replayTranscript(params: ReplayTranscriptParams): Promise<DriverTranscriptReplayResult>;
+}
+
+// Transcript export/replay shapes (2026-08-26, ADR-029). The canonical transcript is a PROJECTION
+// the daemon rebuilds per call and caches nowhere, so it is passed IN rather than fetched by the
+// driver: a driver holding a transcript handle would be holding a second record of the log, which
+// is the divergence ADR-029 exists to eliminate.
+// The daemon-side fold of a run's normalized events into ordered turns (Spec-005 §The canonical
+// transcript is a projection, never a store). It never crosses a wire and is never persisted, so
+// only its IDENTITY is mirrored here: the per-turn element shape is authored by Plan-005 T3.19 in
+// `packages/contracts/src/provider-driver.ts` and is bounded by the Spec-006 normalized taxonomy,
+// which is what makes "anything that never became an event is not in the transcript" true by
+// construction rather than by discipline.
+interface CanonicalTranscriptProjection {
+  sessionId: SessionId;
+  runId: RunId;
+  // The log position this fold was taken at. Two folds at the same position render identically and
+  // one taken after an appended event does not — the projection-not-a-store property, asserted.
+  builtAtPosition: number;
+  turns: readonly CanonicalTranscriptTurn[]; // element shape owned by Plan-005 T3.19, above
+}
+
+interface ExportTranscriptParams {
+  sessionId: SessionId;
+  // The daemon-supplied canonical projection, folded from normalized events. Its content is
+  // bounded by the Spec-006 taxonomy — anything a provider held that never became an event is by
+  // construction absent, which is what the declared-loss list exists to surface.
+  transcript: CanonicalTranscriptProjection;
+  // Export up to and including this normalized session position — the same position vocabulary
+  // `RollbackToParams.position` uses.
+  boundary: number;
+}
+interface DriverTranscriptExportResult {
+  // Provider-shaped replay frames, deliberately untyped at this boundary: the pinned Codex
+  // injection surface takes an untyped array and validates neither shape nor tool-call pairing, so
+  // the DAEMON owns both and a type here would be a false assurance.
+  frames: unknown[];
+  // What steps 3 and 4 of the ordered pipeline stripped or repaired, by class. An empty array is
+  // the positive assertion that nothing was dropped (Spec-016 §Same-Agent Provider Switch).
+  declaredLosses: DeclaredLossKind[];
+}
+interface ReplayTranscriptParams {
+  // A FRESH session handle. Replay never writes to the session the transcript came from.
+  target: ProviderSessionHandle;
+  frames: unknown[];
+}
+interface DriverTranscriptReplayResult {
+  // "degraded" is the memo floor having stood in: the conversation moved and the losses say what
+  // came along. It is not a failure result — a target that cannot be reached at all throws.
+  status: "applied" | "degraded";
+  declaredLosses: DeclaredLossKind[];
 }
 
 interface CreateSessionParams {
@@ -1259,7 +1318,7 @@ interface GetCapabilitiesResult {
 // CapabilityDetails — wrapper shape carried by `runtime_node.capability_declared` and
 // `runtime_node.capability_updated` event payloads (Spec-006 §Runtime Node Lifecycle, the capability rows). Bound to the same
 // three surfaces a driver advertises via `ProviderDriver.getCapabilities()` (GetCapabilitiesResult
-// above): the thirteen-flag matrix, the declared contract version, and the per-tool metadata —
+// above): the fourteen-flag matrix, the declared contract version, and the per-tool metadata —
 // here as `NormalizedProviderToolMetadata` (post-default), since these payloads cross the event
 // boundary and must never carry an un-normalized `idempotency_class`. `GetCapabilitiesResult.cliVersion`
 // is intentionally NOT mirrored here — the CLI-version floor is an attach-time fail-closed gate, not a
@@ -4013,7 +4072,10 @@ interface AgentConfigUpdateRequest {
   // intervention first and then switches — an entry point into a control the corpus already has,
   // not a sixth run control, so Spec-004's V1 control set stays closed. The interrupt is
   // authorized as Action::"intervene" on the target run, and a refused interrupt refuses the
-  // switch rather than leaving the agent half-moved.
+  // switch rather than leaving the agent half-moved. This arm HOLDS THE REQUEST OPEN across the
+  // boundary — which is what lets its response carry the settlement below — and still writes the
+  // durable pending intent BEFORE dispatching the interrupt, so a crash in between costs the
+  // caller its answer and not the switch.
   interruptAndSwitch?: boolean;
 }
 interface AgentConfigUpdateResponse {
@@ -4028,8 +4090,9 @@ interface AgentConfigUpdateResponse {
 // Mutation and application are TWO MOMENTS (Spec-016 §Same-Agent Provider Switch), so what the
 // mutation returns is a discriminated union and not a settlement. "pending" is the ordinary
 // answer; "applied" is reachable only on the interruptAndSwitch arm, which collapses the two
-// moments into one. A caller that reads `switch.continuity` without discriminating is reading a
-// member that is absent on the common path.
+// moments into one by holding its request open until the switch settles (Plan-016 T2.16 is that
+// arm's only producer). A caller that reads `switch.continuity` without discriminating is reading
+// a member that is absent on the common path.
 type AgentProviderSwitchDisposition =
   | AgentProviderSwitchPending
   | ({ status: "applied" } & AgentProviderSwitchOutcome);
@@ -4043,9 +4106,14 @@ interface AgentProviderSwitchPending {
   // The boundary this switch will apply at — resolved against the TARGET driver's declared
   // vocabulary, never assumed, and the widest of the mutated axes' individual boundaries.
   appliesAt: "turn_boundary" | "run_boundary";
-  // The axes this update actually moved, so the caller can see which of them forced the boundary
-  // above without re-deriving the classification.
-  pendingAxes: AgentProviderAxis[];
+  // The axes this update moved AND the value each is moving TO. The present keys are exactly the
+  // moved axes, so the boundary above stays re-derivable from it, and a client that did not issue
+  // the mutation can render what the agent is switching to rather than only that it is switching.
+  // Carrying the targets rather than only the axis names is load-bearing for durability: this same
+  // object is what the `agents.pending_switch` slot stores and what `agent.config_updated` carries
+  // (Spec-006 §Channel and Agent Lifecycle), and an intent recording only WHICH axes moved could
+  // not be applied at the boundary once the caller's request is gone.
+  pendingAxes: AgentProviderSwitchTarget;
   // Present when this update REPLACED an earlier still-pending switch on the same agent: at most
   // one switch is pending per agent, and a later provider-axis update supersedes rather than
   // queues (Spec-016 §Same-Agent Provider Switch). The superseded id never reaches a terminal
@@ -4053,7 +4121,24 @@ interface AgentProviderSwitchPending {
   replacedSwitchId?: string;
 }
 
-type AgentProviderAxis = "driverName" | "providerAccountId" | "modelId" | "effort";
+// The four provider axes as a partial record: an omitted key is an axis this switch does not
+// move. One shape serves three surfaces — the wire acknowledgment above, the durable
+// `agents.pending_switch` slot, and the `agent.config_updated` payload's `pendingSwitch` member —
+// so a client, a projector, and a restarted daemon all read the same record of the same intent.
+// The record is deliberately TWO-STATE and not the `defaultNodeId?: NodeId | null` tri-state
+// above: no V1 operation clears a provider axis back to a driver default, so an omitted key is an
+// axis not moving and there is no third meaning to encode. `driverName` and `modelId` cannot be
+// cleared at all (an agent always has both), and clearing `providerAccountId` or `effort` is not
+// an operation `AgentConfigUpdate` offers, whose omitted members are uniformly "unchanged, never
+// reset". Minting the clear would widen this record to the tri-state in the same amendment.
+interface AgentProviderSwitchTarget {
+  driverName?: string;
+  providerAccountId?: ProviderAccountId;
+  modelId?: string;
+  effort?: string;
+}
+
+type AgentProviderAxis = keyof AgentProviderSwitchTarget;
 
 // The settlement of a provider switch, mirrored onto the `agent.provider_switched` event payload.
 interface AgentProviderSwitchOutcome {
@@ -4143,6 +4228,7 @@ interface OrchestrationRunLinkCarrier {
 | `orchestration.runCreate` | RPC | `OrchestrationRunCreateRequest` → `OrchestrationRunCreateResponse` | Admission pipeline; composes with Plan-004 queue admission in-process |
 | `orchestration.childRunLinkRead` | RPC | `ChildRunLinkReadRequest` → `ChildRunLinkReadResponse` | run_links projection + event-folded `rejectedCreates` (zero-residue refusals, I-016-8) |
 | `orchestration.budgetRead` | RPC | `OrchestrationBudgetReadRequest` → `OrchestrationBudgetReadResponse` |  |
+| `orchestration.costReceiptRead` | RPC | `SessionCostReceiptRequest` → `SessionCostReceiptResponse` | Read-only decomposition of the committed-spend fold (2026-08-18, D-016-25 — shapes below); served from the same accountant accessor as `orchestration.budgetRead`, so the two can never disagree |
 | `orchestration.budgetUpdate` | RPC | `OrchestrationBudgetUpdateRequest` → `OrchestrationBudgetUpdateResponse` | Session-owner-only (wire-boundary authorization) |
 | `session.goalUpdate` | RPC | `SessionGoalUpdateRequest` → `SessionGoalUpdateResponse` | Owner/collaborator — viewers + runtime contributors read-only, per the Security Architecture role matrix ([Spec-016 §Session Goals](../../specs/016-multi-agent-channels-and-orchestration.md#session-goals), campaign B6); an accepted update emits `session.goal_updated` carrying the same canonical `goal` |
 | `session.goalClear` | RPC | `SessionGoalClearRequest` → `SessionGoalClearResponse` | Owner/collaborator; an accepted clear emits `session.goal_cleared` (clearing is the distinct operation — an update without a goal is malformed) |
@@ -4151,7 +4237,7 @@ interface OrchestrationRunLinkCarrier {
 | `agent.configUpdate` | RPC | `AgentConfigUpdateRequest` → `AgentConfigUpdateResponse` | Emits `agent.config_updated` |
 | `agent.list` | RPC | `AgentListRequest` → `AgentListResponse` | agents-table projection |
 
-Error vocabulary: [error-contracts.md](./error-contracts.md) §Channel / §Orchestration / §Agent (D-016-16) plus the §Session `session.goal_delivery_failed` (502) and `session.goal_mutation_in_flight` (409) mappings for the live goal-delivery RPCs (campaign B6). Durable events owned by Plan-016 (Spec-006 registrations): `channel.created` / `channel.muted` / `channel.unmuted` / `channel.archived`, `agent.attached` / `agent.detached` / `agent.config_updated`, `arbitration.paused` / `arbitration.resumed`, `orchestration.rejected`, `usage.budget_warning`, `moderation.review_flagged`, `session.goal_updated` / `session.goal_cleared` (campaign B6 — emitted by the goal RPCs above) — see [Spec-006 §Event Type Registry](../../specs/006-session-event-taxonomy-and-audit-log.md).
+Error vocabulary: [error-contracts.md](./error-contracts.md) §Channel / §Orchestration / §Agent (D-016-16) plus the §Session `session.goal_delivery_failed` (502) and `session.goal_mutation_in_flight` (409) mappings for the live goal-delivery RPCs (campaign B6). Durable events owned by Plan-016 (Spec-006 registrations): `channel.created` / `channel.muted` / `channel.unmuted` / `channel.archived`, `agent.attached` / `agent.detached` / `agent.config_updated` / `agent.provider_switched` / `agent.provider_switch_failed`, `arbitration.paused` / `arbitration.resumed`, `orchestration.rejected`, `usage.budget_warning`, `moderation.review_flagged`, `session.goal_updated` / `session.goal_cleared` (campaign B6 — emitted by the goal RPCs above) — see [Spec-006 §Event Type Registry](../../specs/006-session-event-taxonomy-and-audit-log.md).
 
 **Session cost receipt (2026-08-18, Plan-016 D-016-25).** One new read pair, `orchestration.costReceiptRead`, taking the wire-method registry for this plan from fifteen pairs to sixteen. The reply is a **decomposition of the committed-spend fold**, not a second computation: every figure below is served from the same accountant accessor that answers `orchestration.budgetRead`, so a divergence between the two is a bug in exactly one place. Read-only — no receipt member is accepted on any request, so a caller can never assert an attribution or a total.
 
