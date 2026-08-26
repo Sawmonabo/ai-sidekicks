@@ -3739,7 +3739,23 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // resolved id references. No existing row's id set changes, nothing moves
     // on or off the `none` arm, and the legacy compact-inline channel is
     // untouched — so noneArm holds at 158 while resolved alone moves.
-    bold: { resolved: 951, noneArm: 158, parentResolved: 0 },
+    // 951/158 -> 980/162 bold, legacy unchanged (NS-86 round-2 fold added I-030-12)
+    // at 64 (2026-08-26, the sidekick-definitions and peer-invocation
+    // amendment — §6 node NS-86, landing after NS-85 above; the baseline is
+    // stated post-rebase and the figure is read off a live
+    // `preflight.mjs --survey` run on the rebased tree, never reconciled by
+    // arithmetic against a predecessor bullet). Plan-030 is minted with
+    // sixteen tasks, each its own marker block, carrying resolved id
+    // references to I-030-1..11 plus four `none` arms (T2.3 CLI operator
+    // surface, T4.4 consuming Plan-016-owned receipt behavior, T5.1
+    // presentation, T5.3 transport). Plan-028 gains T28.4.11 (I-028-5,
+    // I-028-6) and its existing T28.4.4 block gains I-028-6 beside I-028-2,
+    // adding a resolved reference without adding a marker block. Plan-016
+    // gains T3.21 on the `none` arm — the wire member is Plan-016-owned but
+    // the invariants it exercises are Plan-030's, so the reference resolves
+    // nowhere in Plan-016's own declared set and is asserted rather than
+    // verified. The legacy compact-inline channel is untouched.
+    bold: { resolved: 980, noneArm: 162, parentResolved: 0 },
     legacy: { resolved: 64, noneArm: 3, parentResolved: 1 },
   });
 });
@@ -4243,7 +4259,7 @@ test("the screen is scoped by SHAPE — a prose descriptor is not a malformed id
   // Scoped by semantic shape, not by call site. Every parse failure in a
   // `Verifies invariant` field reaches `consumeFailure`; only the ones in the
   // structured invariant namespace are references this screen was ever supposed
-  // to resolve. `substrate boots` (Plan-023:275) is formatting debt on an exempt
+  // to resolve. `substrate boots` (Plan-023 T-023p-1-7) is formatting debt on an exempt
   // plan, and firing a non-divertable finding at it would gate on a defect this
   // change was not asked to adjudicate.
   const root = makeInvariantRepoRoot({ "100-a.md": "## Invariants\n\n### I-100-1 — a\n" });
@@ -4255,7 +4271,7 @@ test("the screen is scoped by SHAPE — a prose descriptor is not a malformed id
 });
 
 test("CORPUS: Plan-023's three Spec-§ invariant fields produce no gating finding", () => {
-  // Plan-023:271/:272/:274 spell `Verifies invariant: Spec-023 §Security
+  // Plan-023 T-023p-1-3 / T-023p-1-4 / T-023p-1-6 spell `Verifies invariant: Spec-023 §Security
   // Hardening Baseline …` — a SPEC clause in an invariant field. Whether the
   // field may name a spec at all is a field-CONTENT question under separate
   // adjudication; it is a different defect class from "an invariant id that

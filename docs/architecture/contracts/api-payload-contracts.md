@@ -224,6 +224,14 @@ interface SessionReadRequest {
 }
 interface SessionReadResponse {
   session: SessionSnapshot;
+  // 2026-08-26 (CP-030-8), additive-optional: the projected sidekick peer-invocation opt-in. A
+  // DERIVATION of the `session.peer_invocation_set` fold, never a second source of truth and never a
+  // stored column — the event log stays the durable home. Present as a read path because the
+  // `sidekick.*` surface exposes only the mutating verb, and without it a reopening renderer could
+  // learn the current value only by replaying and folding raw events client-side. Absent ⇒ the
+  // responder predates this member, which a client renders as unknown rather than as disabled:
+  // defaulting an unknown capability grant to "off" would misreport an enabled session as safe.
+  peerInvocationEnabled?: boolean;
   timelineCursors: { earliest?: EventCursor; latest: EventCursor; acknowledged?: EventCursor }; // earliest?: the position immediately BEFORE the oldest surviving row (Plan-006 T4.3), a directly resumable cursor — V1-constant encode(-1) (compaction stubs rows in place, never deletes; a future retention pass deleting through N-1 moves it to encode(N-1)). Consumer: resume from acknowledged ?? earliest; gap detection decode(acknowledged) < decode(earliest) ⇒ events lost ⇒ reset projection + resume from earliest. Optional for version skew: new daemons always set it; absent ⇒ responder predates the whole Plan-006 Phase-4 read surface; the consumer discovers the absence from this very session.read response and refuses the resume cycle SDK-locally before any projection reset or subsequent replay/subscribe wire call (`Plan-008 §I-008-12 — Client event-stream resume is floor-checked, gap-safe, and at-most-once-applied` clause (d), campaign B12 — the earlier resume-from-start sketch is unreachable through the surface it names); required at next MAJOR per ADR-018.
 }
 
@@ -1462,10 +1470,11 @@ type EventCategory =
   // Extended per Spec-006 §Runtime Node Lifecycle, §Recovery Events, §Participant Lifecycle,
   // §Audit Integrity, §Security Events, §Event Maintenance, §Policy Events,
   // §Channel Arbitration, §Onboarding Lifecycle, §Cross-Node Dispatch, §MCP Governance (20 categories
-  // total per Spec-006 §Event Type Summary; 158 event types (140 per the 2026-07-02 B1 amendment,
+  // total per Spec-006 §Event Type Summary; 159 event types (140 per the 2026-07-02 B1 amendment,
   // +1 `pty.control_changed` per the 2026-07-06 B4 amendment, +15 per the 2026-07-22 B18 amendment —
-  // incl. the five `mcp_governance` types — and +2 (`agent.provider_switched`,
-  // `agent.provider_switch_failed`) per the 2026-08-26 D-016-26 amendment) — the Tier-5
+  // incl. the five `mcp_governance` types — +2 (`agent.provider_switched`,
+  // `agent.provider_switch_failed`) per the 2026-08-26 D-016-26 amendment, and +1
+  // (`session.peer_invocation_set`) per the 2026-08-26 Spec-030 peer-invocation amendment) — the Tier-5
   // readiness-audit swap registered daemon.master_key_source + daemon.pii_split_ambiguous
   // under the existing security_events category, Plan-022 D-022-5, and the Tier-6 swap
   // added approval.canceled (D-012-8) plus four Plan-016 types (A-016-6, D-016-10/11/12),
@@ -4054,11 +4063,9 @@ type SessionGoalClearResponse = { sessionId: SessionId };
 // on the agent.* event payloads so the agents projection is deterministic from the log alone.
 // wire: agent.attach / agent.detach / agent.configUpdate / agent.list
 type AgentState = "configured" | "ready" | "disabled" | "archived";
-interface AgentAttachRequest {
+interface AgentAttachRequestBase {
   sessionId: SessionId;
   name: string;
-  driverName: string; // Plan-005 provider-driver key
-  modelId: string;
   defaultNodeId?: NodeId;
   config?: Record<string, unknown>; // driver-scoped, opaque to this contract
   // 2026-08-26 (D-016-26), additive-optional: the provider axis an agent may be born with.
@@ -4066,10 +4073,46 @@ interface AgentAttachRequest {
   effort?: string; // validated against the target model's driver-reported `effortLevels`, NOT a
   // corpus-wide enum: the vocabulary is per-model and provider-owned
 }
+// The inline arm: every core axis spelled out, exactly as before this member existed.
+interface AgentAttachInlineRequest extends AgentAttachRequestBase {
+  definitionId?: never;
+  driverName: string; // Plan-005 provider-driver key
+  modelId: string;
+}
+// 2026-08-26 (CP-016-18 ⇄ CP-030-1) the definition arm: the reference supplies the core axes, and an
+// explicitly-present member overrides that axis ALONE. `driverName` / `modelId` are optional HERE and
+// required THERE — a two-arm union rather than two bare optionals on one interface, because bare
+// optionals would silently admit a request naming neither a definition nor a driver/model pair, which is
+// the one shape nothing can resolve. Attaching by reference without respelling the axes is the point of
+// the member; leaving them required would have made every definition attach restate what it references.
+interface AgentAttachFromDefinitionRequest extends AgentAttachRequestBase {
+  definitionId: SidekickDefinitionId; // read ONCE at attach and copied onto the agent record — no live
+  // linkage and no foreign key, so editing or deleting the definition afterwards cannot reach this agent
+  driverName?: string;
+  modelId?: string;
+}
+type AgentAttachRequest = AgentAttachInlineRequest | AgentAttachFromDefinitionRequest;
 interface AgentAttachResponse {
   agentId: AgentId;
   state: AgentState; // "ready" | "configured" at attach
   createdAt: string;
+  // 2026-08-26 (CP-016-18 ⇄ CP-030-1), present iff the request carried `definitionId`: the echo lets a
+  // client render what it actually got instead of re-reading the registry and assuming it has not moved.
+  resolvedFromDefinitionId?: SidekickDefinitionId;
+  // Every axis AS APPLIED, `instructions` and `goal` included: without them a caller cannot tell which
+  // prompt and goal the attached agent actually received except by re-reading a registry row that may
+  // already have moved — which is exactly the live-view read I-030-2 forbids.
+  resolvedConfiguration?: Pick<
+    SidekickDefinition,
+    | "driverName"
+    | "modelId"
+    | "providerAccountId"
+    | "effort"
+    | "executionPostureMode"
+    | "toolAllowlist"
+    | "instructions"
+    | "goal"
+  >;
 }
 interface AgentDetachRequest {
   agentId: AgentId;
@@ -4385,7 +4428,10 @@ type SessionCostReceiptParty = EffectivePrincipal;
 // The turn-scoped effective principal: the party whose causation a unit of work is attributed to.
 // Daemon-resolved and NEVER wire- or driver-supplied — the run engine maintains it from the
 // `interventions` admitting-principal rows (the intervener for a steered or edited-and-resent
-// turn, otherwise the participant who started the run), and the driver's usage normalizer stamps
+// turn; for a run created by a peer-invocation tool call, the effective principal of the
+// invoking TURN — the one that issued the call, already resolved and stamped at that moment,
+// so a later steer of the asking run never re-attributes an already-created child — chained
+// through the parent/child run link; otherwise the participant who started the run), and the driver's usage normalizer stamps
 // it at emission. Registered as instance (4) of the §Authenticated Principal class rule, whose
 // two shape deviations that section states explicitly.
 //
@@ -5190,6 +5236,37 @@ type McpServerBindingAuditRef =
   | { provider: McpProvider; scope: "project"; scopeRefDigest: string; serverName: string }
   | { provider: "claude"; scope: "local"; scopeRefDigest: string; serverName: string };
 
+// Effective-binding derivation output (Plan-028 T28.4.11; registered 2026-08-26 at the NS-86
+// effective-binding discharge). NOT a carrier threaded in from another plan — Plan-028 derives this
+// in-plan from the post-drift composed-config snapshot it already builds at T28.4.6, which is what
+// discharged its §Preconditions carrier box. `null` is a first-class answer meaning the tool
+// resolved from NO governed binding: a provider built-in, or a tool served by the daemon's own
+// ephemeral callback-tool host (Spec-005 §Required Behavior), which sits outside Spec-028 governance
+// entirely (Spec-028 §Non-Goals) and is never trusted, drift-evaluated, or override-governed.
+// NEVER derived by parsing the delivered wire tool name: provider-side `mcp__<server>__<tool>`
+// prefixing and collision-suffixing are provider defaults rather than wire invariants, so the
+// mapping runs off the daemon's own registration identity.
+type McpEffectiveBinding = McpServerBindingRef | null;
+
+// Binding-identity digest, stamped onto `command_receipts.mcp_binding_digest` at receipt write so
+// crash recovery never re-resolves an override it has no session to resolve against (Plan-028
+// I-028-6; the column, its partial index, and the receipt-write argument are owned by Plan-028
+// T28.4.12). Because the digest is KEYED, key availability is part of the guarantee: a revocation
+// matches receipts by RECOMPUTING this value, so if the binding-identity subkey is unavailable the
+// daemon cannot tell which stamped rows a revocation covers, and I-028-6 then requires neutralizing
+// every non-terminal digest-bearing receipt to the manual_reconcile_only floor and refusing to stamp
+// new digests — unmatchable is treated as revoked, never as untouched.
+// "b3:"-prefixed keyed BLAKE3 — key = the binding-identity subkey of the daemon-held
+// node-local MCP governance master key, the same derivation family as configHash and scopeRefDigest
+// — over the RFC 8785 JCS canonicalization of the full McpServerBindingRef tuple: the scopeRefDigest
+// discipline widened from the scopeRef alone to the whole tuple, so no raw filesystem path reaches a
+// durable row and the digest is not brute-forceable from a database copy. DELIBERATELY EXCLUDES the
+// config hash — a binding's config drifts while its identity does not, and a drift-triggered
+// revocation must still match receipts stamped before that drift. Stable for the binding's life;
+// written from the same Plan-028 resolution output that supplies idempotencyClass, so the receipt
+// write gains no new seam.
+type McpBindingIdentityDigest = string; // `b3:${string}`
+
 // mcp.upsertServer config input — the normalized governed surface, discriminated on transport.
 // Env-var and header VALUES are write-only credential-adjacent material: accepted here, passed only
 // to the sanctioned provider write path, NEVER round-tripped in inventory reads or event payloads
@@ -5414,7 +5491,7 @@ The namespace has exactly ten verbs, each carrying the payload pair named below:
 **The identifier is opaque everywhere.** `ProviderAccountId` is daemon-minted and immutable. No client, driver, or renderer parses it, decomposes it, or uses it to locate credential material — it selects a credential environment and nothing else. It is deliberately not derived from an email, a provider subject id, or any credential value, because those rotate and an identity that rotates cannot key historical spend.
 
 ```ts
-type ProviderAccountId = Brand<string, "ProviderAccountId">;
+type ProviderAccountId = string & { readonly __brand: "ProviderAccountId" };
 type BillingMode = "subscription" | "metered" | "unknown"; // `unknown` is the honest-absence arm (Spec-029 §Billing mode) — never rendered as metered
 
 interface ProviderAccount {
@@ -5839,3 +5916,196 @@ interface ProviderAccountUsageWindow {
 **Provider readiness.** `providerAccount.list` answers the registry question and the admissibility question in one reply, because a client that had to ask them separately would be free to combine them differently from admission. `readiness` is a **derivation**, not a stored second opinion: resolve the provider's default account, then report that account's stored health verbatim, with the two registry-shape arms standing in where resolution never reaches an account. No client re-derives it from `accounts` — a surface that recomputes readiness from account fields is the defect this member exists to remove, since the recomputed answer is the one nothing enforces. `authenticated` is a statement about the last observation and not a grant: a run bound to an `authenticated`-reading account still refuses at spawn if the home has since been signed out, and `indeterminate` is rendered as undetermined rather than as a sign-in failure.
 
 **Run-start selection.** The per-run override rides the existing session-creation and resume parameter shapes as an additive-optional `providerAccountId` (`Spec-005 §Interfaces And Contracts`). It is an **input to resolution, never the recorded outcome**: the daemon resolves exactly one account — the override if authorized, otherwise the provider default — and stamps the result server-side as `admittedProviderAccountId` on the run's admission record. A client-supplied stamp is ignored. Resume rebinds to the account the run was admitted against rather than re-resolving the current default, so changing a default mid-session cannot silently move an in-flight run's billing.
+
+---
+
+## Plan-030 — Sidekick Definitions And Peer Invocation
+
+Registered 2026-08-26 ([Spec-030](../../specs/030-sidekick-definitions-and-peer-invocation.md); [cross-plan-dependencies.md](../cross-plan-dependencies.md) §6 node NS-86). The five `sidekick.*` operations register against the Plan-007 `MethodRegistry` at Plan-030's tier — the CP-007-3 late-namespace pattern. Authorization is the two named Cedar operation actions of [Spec-012 §Implementation Notes](../../specs/012-approvals-permissions-and-trust-boundaries.md#implementation-notes): `Action::"sidekick::manage"` for every definition mutation and for turning peer invocation on, `Action::"sidekick::invoke"` for each peer-invocation call. **Each action names its own resource descriptor**, because the two planes are scoped differently: definition mutation is node-global — the four CRUD operations carry no `sessionId`, and none is invented for authorization — so `sidekick::manage` evaluates against a **node-scoped** descriptor naming this runtime node, while that same action on `sidekick.peerInvocationSet` evaluates against the **session** the request names. Two descriptors under one action rather than two actions, so Spec-012's enumeration stays at exactly the two registered here. No `ApprovalCategory` value is added — these are named-operation authorizations that do not traverse the approval pipeline — and none of them mints a `remembered_approval_rules` row: that table closes `category` over the approval-pipeline categories and requires `created_from_request_id` to reference an `approval_resolutions` row, neither of which a named-operation action produces, so a grant row here is not merely unnecessary but unrepresentable. Refusals: [error-contracts.md §Sidekick Definitions](./error-contracts.md#sidekick-definitions). **Exactly one event type is minted, and not on the definition plane**: definition mutation is node-local configuration rather than session history, and every session-visible consequence of a peer invocation is already carried by the existing tool-activity and run-lifecycle events. The mint is `session.peer_invocation_set` (taxonomy census 158 → 159), which carries the per-session opt-in because that is session state, not node configuration. Definitions never leave the node — no relay, control-plane, or export surface carries one.
+
+```ts
+// A daemon-minted opaque immutable identifier. NEVER the definition's name: the name is a mutable
+// human label, and a rename must not orphan an audit row or a stored reference. Same discipline as
+// ProviderAccountId (Plan-029) — identity and label are separate axes on purpose.
+type SidekickDefinitionId = string & { readonly __brand: "SidekickDefinitionId" };
+
+// A saved, node-local sidekick configuration. Configuration, not session state: not events-canonical,
+// not replayed, not rebuilt from the event log. Every axis below is the SAME axis the inline attach
+// surface already carries — this shape composes existing axes into a reusable named bundle and mints
+// no new configuration dimension.
+interface SidekickDefinition {
+  definitionId: SidekickDefinitionId;
+  name: string; // mutable label; unique per node under full Unicode case folding, arbitrated by the unique
+  // index over the stored `name_folded` key (I-030-7); the service pre-check is a legibility affordance
+  description: string; // may be empty; operator-authored
+  driverName: string; // provider driver key, matching the agent surface's driver axis
+  modelId: string;
+  providerAccountId: ProviderAccountId | null; // null = resolve the provider's default account AT ATTACH TIME. Deliberately not a foreign key: a definition may name an account that is later removed, and that must surface as a typed resolution refusal the operator can act on, not as a delete-time cascade that silently rewrites the definition
+  effort: string | null; // null = the driver's default. Validated at RESOLUTION against the target model's driver-reported `effortLevels` — never against a hardcoded list, the same rule the inline `effort?: string` axis already follows
+  executionPostureMode: "trusted" | "workspace-sandboxed" | "readonly-sandboxed" | null; // null = the session default. A posture MODE only, never a composed ExecutionPosture: writableRoots and credentialPolicyRef are properties of a live run's workspace, so storing them here would freeze a path set that outlives the workspace it described
+  instructions: string; // may be empty; operator-authored system-prompt content
+  goal: string | null;
+  toolAllowlist: string[] | null; // THREE-state and deliberately not two: null = the driver's defaults, [] = no tools at all, populated = exactly these. Collapsing null and [] would make "I did not choose" indistinguishable from "I chose nothing"
+  createdAt: string; // ISO-8601
+  updatedAt: string;
+}
+
+// sidekick.definitionList — node-local and unfiltered. The request carries no members, declared as an
+// explicit empty interface rather than omitted, so every operation in this namespace has both halves of
+// its pair and no handler signature special-cases a missing request type (the
+// DiagnosticRedactionPolicyReadRequest / ProviderAccountSubscribeRequest precedent).
+interface SidekickDefinitionListRequest {}
+interface SidekickDefinitionListResponse {
+  definitions: SidekickDefinition[];
+}
+
+// sidekick.definitionCreate — every axis except name is optional; omitted axes store as the null
+// ("inherit / default") state rather than a materialized value, so a definition never silently
+// pins today's default forever.
+interface SidekickDefinitionCreateRequest {
+  name: string;
+  description?: string;
+  driverName: string;
+  modelId: string;
+  providerAccountId?: ProviderAccountId | null;
+  effort?: string | null;
+  executionPostureMode?: SidekickDefinition["executionPostureMode"];
+  instructions?: string;
+  goal?: string | null;
+  toolAllowlist?: string[] | null;
+}
+interface SidekickDefinitionCreateResponse {
+  definition: SidekickDefinition;
+}
+
+// sidekick.definitionUpdate — a partial patch. An ABSENT key leaves the stored value alone; an
+// explicit null CLEARS it back to the inherit state. That distinction is why the nullable axes are
+// `field?: T | null` rather than `field?: T`: without it there is no wire way to say "stop pinning
+// this", and an operator could set an account or an effort but never unset one.
+interface SidekickDefinitionUpdateRequest {
+  definitionId: SidekickDefinitionId;
+  name?: string;
+  description?: string;
+  driverName?: string;
+  modelId?: string;
+  providerAccountId?: ProviderAccountId | null;
+  effort?: string | null;
+  executionPostureMode?: SidekickDefinition["executionPostureMode"];
+  instructions?: string;
+  goal?: string | null;
+  toolAllowlist?: string[] | null;
+}
+interface SidekickDefinitionUpdateResponse {
+  definition: SidekickDefinition; // the full post-update row, so a client never reconstructs it by merging its own patch
+}
+
+// sidekick.definitionDelete — deleting a definition NEVER touches an agent that was attached from
+// it: attach copies, so there is nothing to cascade (Spec-030 §State And Data Implications).
+interface SidekickDefinitionDeleteRequest {
+  definitionId: SidekickDefinitionId;
+}
+interface SidekickDefinitionDeleteResponse {
+  deleted: true;
+}
+
+// sidekick.peerInvocationSet — the per-session opt-in. It is SESSION STATE, not a remembered approval
+// rule: `remembered_approval_rules` closes `category` over the approval-pipeline categories and requires
+// `created_from_request_id` to reference an approval resolution, and a named-operation action produces
+// neither — so a grant row for this is unrepresentable, not merely redundant. Enablement is recorded as
+// `session.peer_invocation_set` in Spec-006's `session_lifecycle` category, the same shape the session goal already
+// uses: session-scoped mutable configuration whose durable home is the event log, replayed rather than
+// projected into a local table (the corpus has no session-config projection — session_goal_dispatch_intents
+// is a crash-consistency intent row, not the goal's home). The projected flag is a Cedar CONTEXT input on
+// every Action::"sidekick::invoke" evaluation, which is exactly the context = session state mapping of
+// `Spec-012 §Implementation Notes`. That is why a withdrawal takes effect on the NEXT INVOCATION with no
+// registry rebuild: the tools stay registered and adjudication is per call.
+interface SidekickPeerInvocationSetRequest {
+  sessionId: SessionId;
+  enabled: boolean;
+}
+interface SidekickPeerInvocationSetResponse {
+  enabled: boolean; // the post-set state, read back from the PROJECTED flag rather than echoed from the
+  // request, so the reply reflects what the appended event actually produced
+}
+
+// ---- Peer-invocation callback tools (Plan-030 T4.1) ----
+// Registered as ordinary SessionCallbackTool entries through the existing callback-tool dispatch seam
+// (Spec-005 §Required Behavior) — the daemon-hosted host, which sits OUTSIDE the Spec-028 MCP
+// governance model (Spec-028 §Non-Goals) and is never trusted, drift-evaluated, or override-governed.
+// Both tools are registered at spawn UNCONDITIONALLY and adjudicated per invocation, exactly as
+// `workflow_start` is: a session without the opt-in answers every call `denied` naming the action,
+// rather than hiding the tool. Grant-gated registration was specified first and withdrawn — it made
+// enablement invisible until the next spawn, because `callbackTools` rides only CreateSessionParams /
+// ResumeSessionParams and no live-registry mutation seam exists, so an operator who enabled peer
+// invocation mid-session would have seen nothing change until the leg respawned. Per-call adjudication
+// needs no such seam. One withholding is inherited rather than invented: while Plan-012's
+// approval.requestCreate seam is unregistered, Spec-005's fail-closed availability rule withholds the
+// WHOLE callbackTools registry at spawn, and these two go with it.
+// A definition's `toolAllowlist` filters this registry like any other tool source (I-030-10): an agent
+// attached from a definition whose allowlist is `[]` receives NO peer tools, and one naming an explicit
+// set receives them only if it names them — an allowlist that did not bind the daemon's own curated
+// tools would report a restriction that is not in force.
+// Outcomes map onto the EXISTING CallbackToolResult arms; no result arm is added.
+
+// The target is a SIDEKICK, never a provider, model, account, or node — either a live agent in this
+// session or a saved definition attached on demand. A closed discriminated union rather than a
+// free-form string, so "ask claude" cannot parse as a target.
+type SidekickInvocationTarget =
+  | { kind: "agent"; agentId: AgentId }
+  | { kind: "definition"; definitionId: SidekickDefinitionId };
+
+// ask_sidekick — link type `spawn` (D-016-17). Waits for the peer's answer, and is therefore the one
+// tool here that can outlive its own child: admission succeeding does not guarantee an answer ever comes.
+// Every TERMINAL state of the child settles the waiting call — a child that fails, is cancelled, or is
+// interrupted answers `failed` naming the terminal state, and a child that completes without producing an
+// answer answers `failed` rather than `completed` with empty output. The child's run id does not exist
+// before admission, so the waiter captures the run-lifecycle stream cursor BEFORE admitting, then
+// subscribes and replays forward from that captured cursor, settling from whichever source presents the
+// terminal first and deduping by `(runId, runVersion)`. Subscribing merely before the tool returns is
+// insufficient — a live subscription opened after admission never replays the terminal that landed in
+// between. No invocation is left unanswered (the Spec-005 dispatch-seam rule).
+interface AskSidekickArguments {
+  target: SidekickInvocationTarget;
+  message: string;
+}
+
+// delegate_to_sidekick — link type `delegate` (D-016-17). Returns once the child run is ADMITTED,
+// not once it completes, which is exactly why admission (the orchestration.depth_exceeded check
+// included) is evaluated synchronously inside the creation call: a deferred check would let this
+// tool answer `completed` with the identity of a run that then died at admission.
+interface DelegateToSidekickArguments {
+  target: SidekickInvocationTarget;
+  task: string;
+}
+
+// ---- Attach-by-reference (owned by Plan-016 T3.21 in its Phase 3B supplement; CP-016-18 ⇄ CP-030-1) ----
+// The members live ON the `AgentAttachRequest` union / `AgentAttachResponse` above — attach-by-reference
+// splits the existing call into two arms over a shared base rather than introducing a second parameter
+// object a caller could pass instead, and a standalone helper interface would have composed with nothing
+// (composition here is `extends` + a union, which is a different thing), since TypeScript does not
+// merge two differently-named shapes — which is why the reference is carried by ARMS of the request
+// itself rather than by a helper passed beside it. Precisely: `definitionId` is REQUIRED on the
+// `AgentAttachFromDefinitionRequest` arm and `never` on the inline arm, so from a caller's side the union
+// accepts a request with or without it — additive-optional in effect — while the type still refuses the
+// one shape nothing can resolve, naming neither a definition nor a driver/model pair. It is deliberately
+// NOT mutually exclusive with the explicit per-axis members: `Spec-030 §Required Behavior` merges per field — an explicitly-present
+// request member overrides the definition's value for that field only, and the response echo reports every
+// field as actually applied, so the merge is never silent and no caller is left guessing which side won.
+// A precedence-refusal was considered and rejected: it would force every caller to know the definition's
+// contents before composing a request.
+
+// ---- Invoking-principal carrier (Plan-016-owned `run_links`, EXTEND; CP-030-4) ----
+// A peer-invoked child run is created by a TOOL CALL, so it has neither an intervention row nor a
+// participant who "started" it — the two arms `EffectivePrincipal` resolves through. Chaining to the
+// parent RUN does not answer it either: a run accumulates turns from potentially several principals, and
+// recency is not a correct answer to which one issued this call. The invoking turn's already-resolved
+// effective principal is therefore STAMPED at child-run creation on the run link itself
+// (`run_links.invoking_principal_id`), the same durable-recording discipline NS-71 established for
+// `interventions.admitting_principal_id`. It is daemon-resolved and never client-supplied; a child run
+// whose creation cannot resolve one is refused rather than created unattributed.
+interface RunLinkInvokingPrincipal {
+  invokingPrincipalId?: ParticipantId; // present iff the link was created by a peer-invocation tool call
+}
+```
+
+**Why no receipt growth.** A peer-invoked child's spend lands on the **child's own** `SessionCostReceiptRunRow` under the target sidekick's paying account — an ordinary value of the per-paying-account axis the session cost receipt already has. Causation rides the existing `run_links` edge (`parentRunId` + `linkType`), not a receipt roll-up — and the per-caused-by attribution reads `invoking_principal_id` on that same edge, which is why the principal is stamped at creation rather than derived at report time: the receipt is a projection of a recorded fact, not a reconstruction. Growing the receipt to carry a caused-by roll-up would have weakened `aggregationScope`, which is REQUIRED and closed at the single literal `"run-only"` and verified positively by every row, so both receipt partition identities keep summing to the session total unchanged.

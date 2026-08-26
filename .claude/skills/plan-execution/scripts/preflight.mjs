@@ -5900,9 +5900,9 @@ export function verifyInvariantReferences(
   // SCOPED BY SHAPE, NOT BY CALL SITE, and deliberately narrower than "every
   // parse failure in a Verifies-invariant field". Measured across the corpus, the
   // field carries exactly three parse-failure instances beyond the one live facet:
-  // two `unparseable-cite` prose descriptors (`substrate boots` at Plan-023:275,
+  // two `unparseable-cite` prose descriptors (`substrate boots` at Plan-023 T-023p-1-7,
   // `substrate - the audited primitive libraries …` at Plan-008 task T-008r-4-1), and the
-  // field also carries three Spec-§ references (Plan-023:271/:272/:274) that parse
+  // field also carries three Spec-§ references (Plan-023 T-023p-1-3 / T-023p-1-4 / T-023p-1-6) that parse
   // cleanly as spec anchors. Whether the field may name a spec clause at all is a
   // FIELD-CONTENT question under separate adjudication; answering it here would
   // emit non-divertable findings against formatting debt on exempt plans. So the
