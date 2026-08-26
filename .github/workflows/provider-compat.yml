@@ -1,0 +1,1064 @@
+# Nightly provider-CLI compatibility check.
+#
+# Keeps `docs/reference/provider-wire/` honest. Those files pin the Codex and
+# Claude Code wire surfaces to exact CLI versions and name a supported floor;
+# both vendors ship often enough that a pin written by hand rots within weeks.
+# This workflow re-probes the shapes those files assert, on a schedule, and
+# reports drift by opening or updating ONE tracking issue rather than passing
+# quietly.
+#
+# The policy it enforces (see ADR-023 §Decision Log and the provider-wire
+# README §Versioning and pinning policy):
+#   - ABOVE the pin: warn and keep going. A newer CLI that moved a surface
+#     degrades that one capability; it does not refuse a session. A failing
+#     `latest` leg is a re-pin signal, not a build break.
+#   - BELOW the floor: refuse. A failing `floor` leg is the serious one — the
+#     oldest supported CLI can no longer do what the driver assumes.
+#
+# Security posture:
+#   - No `pull_request` trigger. Nothing here runs on untrusted contributor input.
+#   - Workflow-default `contents: read`; only the reporting job gets `issues: write`.
+#   - No repository checkout in the probe jobs; nothing persists credentials.
+#   - The one credentialed job never echoes its token, runs no `set -x`, and
+#     exists only when the repository secret is present.
+#   - Every provider CLI is installed into a throwaway directory under
+#     RUNNER_TEMP. Nothing is installed globally, and no real credential home
+#     (Keychain, ~/.codex, ~/.claude) is read, written, or seeded.
+#
+# NOTE ON REACHABILITY: GitHub runs `schedule` and `workflow_dispatch` only from
+# the DEFAULT branch (`main`). Landing on `develop` therefore stages this check;
+# it starts firing at the next `develop` -> `main` release promotion.
+
+name: Provider CLI Compatibility
+
+on:
+  schedule:
+    # 06:17 UTC daily. Off the hour to avoid the top-of-hour scheduling crush.
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One run at a time; never cancel an in-flight probe, since a partial matrix
+# produces a misleading drift report.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  # Disable the vendor auto-updaters. Both are presence-style gates in practice;
+  # `1` is the documented value. Without this a probe can measure a different
+  # build than the one it installed.
+  DISABLE_AUTOUPDATER: "1"
+  DISABLE_UPDATES: "1"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Is the optional authenticated smoke probe possible at all?
+  #
+  # `if: secrets.X != ''` is not reliable as a job-level condition, so the
+  # presence test happens here in a step, where the secret is a masked env var,
+  # and the answer is published as a job output. A missing secret is a SKIP with
+  # an explicit notice — never a failure.
+  # ---------------------------------------------------------------------------
+  secret-gate:
+    name: Auth secret gate
+    runs-on: ubuntu-latest
+    # GitHub's default job timeout is 360 minutes. Nothing here needs
+    # minutes at all, and this workflow's concurrency group does not
+    # cancel in progress, so a stalled job would block later probes.
+    timeout-minutes: 5
+    outputs:
+      claude-token-present: ${{ steps.probe.outputs.present }}
+    steps:
+      - name: Detect CLAUDE_CODE_OAUTH_TOKEN
+        id: probe
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Length/emptiness only. The value is never printed, compared against a
+          # literal, or written anywhere.
+          if [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+            echo "Authenticated Claude smoke probe: ENABLED (secret present)." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "### Authenticated Claude smoke probe: SKIPPED"
+              echo
+              echo "Repository secret \`CLAUDE_CODE_OAUTH_TOKEN\` is not set, so the one-turn"
+              echo "\`claude -p\` probe cannot run. This is a deliberate skip, not a failure —"
+              echo "the authless legs below still ran."
+              echo
+              echo "To enable it: run \`claude setup-token\` locally and store the value as the"
+              echo "repository secret \`CLAUDE_CODE_OAUTH_TOKEN\`."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  # ---------------------------------------------------------------------------
+  # Codex: a real, credential-free protocol handshake.
+  #
+  # `codex app-server` answers `initialize` and `account/read` against a scratch
+  # CODEX_HOME with no account configured, so this leg observes the actual wire
+  # rather than inferring from a version string.
+  # ---------------------------------------------------------------------------
+  codex-protocol:
+    name: Codex ${{ matrix.channel }} (${{ matrix.version }})
+    runs-on: ubuntu-latest
+    # GitHub's default job timeout is 360 minutes. Nothing here needs
+    # minutes at all, and this workflow's concurrency group does not
+    # cancel in progress, so a stalled job would block later probes.
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Keep these three in step with docs/reference/provider-wire/codex.md.
+          - channel: floor
+            version: "0.141.0"
+          - channel: pin
+            version: "0.149.1"
+          - channel: latest
+            version: "latest"
+    steps:
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+
+      - uses: pnpm/action-setup@8b2eead6074fefa43a68bf4c9e0f03ea4126b5ba # v6.0.3
+        with:
+          version: "10"
+
+      - name: Install codex-cli into a throwaway prefix
+        env:
+          CODEX_VERSION: ${{ matrix.version }}
+        run: |
+          set -euo pipefail
+          install_dir="$RUNNER_TEMP/codex-probe"
+          mkdir -p "$install_dir"
+          printf '%s\n' '{"name":"provider-compat-probe","version":"0.0.0","private":true}' \
+            > "$install_dir/package.json"
+          cd "$install_dir"
+          # --ignore-workspace keeps this install fully outside the repo workspace.
+          pnpm add --ignore-workspace "@openai/codex@${CODEX_VERSION}"
+          echo "CODEX_BIN=$install_dir/node_modules/.bin/codex" >> "$GITHUB_ENV"
+
+      - name: Report the resolved version
+        env:
+          CHANNEL: ${{ matrix.channel }}
+          REQUESTED: ${{ matrix.version }}
+        run: |
+          set -euo pipefail
+          resolved="$("$CODEX_BIN" --version)"
+          echo "RESOLVED_CODEX=$resolved" >> "$GITHUB_ENV"
+          # A `latest` leg is unreadable in a drift report without this line.
+          echo "- Codex **$CHANNEL** — requested \`$REQUESTED\`, resolved \`$resolved\`" \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Probe the app-server protocol (authless, scratch CODEX_HOME)
+        env:
+          # A scratch home, created empty. Never seeded with a credential, and
+          # never pointed at ~/.codex.
+          CODEX_HOME: ${{ runner.temp }}/codex-scratch-home
+        run: |
+          set -euo pipefail
+          mkdir -p "$CODEX_HOME"
+          cat > "$RUNNER_TEMP/codex-probe.mjs" <<'PROBE'
+          import { spawn } from 'node:child_process';
+          import process from 'node:process';
+
+          const codexBinary = process.argv[2];
+          const child = spawn(codexBinary, ['app-server'], { stdio: ['pipe', 'pipe', 'inherit'] });
+          // The child EXITING before it answers is an execution failure, not
+          // provider drift: nothing about the wire was established. Without
+          // watching for it the loop below simply waits out its full deadline
+          // and then reports "no response" as drift.
+          let childExit = null;
+          let spawnError = null;
+          child.on('exit', (code, signal) => { childExit = { code, signal }; });
+          child.on('error', (error) => { spawnError = error; });
+          const responsesById = new Map();
+          let stdoutBuffer = '';
+          child.stdout.on('data', (chunk) => {
+            stdoutBuffer += chunk.toString('utf8');
+            let newlineIndex;
+            while ((newlineIndex = stdoutBuffer.indexOf('\n')) !== -1) {
+              const line = stdoutBuffer.slice(0, newlineIndex).trim();
+              stdoutBuffer = stdoutBuffer.slice(newlineIndex + 1);
+              if (!line) continue;
+              try {
+                const message = JSON.parse(line);
+                if (message.id !== undefined) responsesById.set(message.id, message);
+              } catch {
+                // Non-JSON diagnostic line; the transport emits tracing on stderr,
+                // but tolerate a stray one here rather than aborting the probe.
+              }
+            }
+          });
+
+          const send = (payload) => child.stdin.write(`${JSON.stringify(payload)}\n`);
+          send({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'initialize',
+            params: {
+              clientInfo: { name: 'ai-sidekicks-provider-compat', title: null, version: '0.0.0' },
+              // Deliberately NOT experimentalApi: this probe measures the
+              // DEFAULT (non-experimental) generation, which is the counting
+              // basis docs/reference/provider-wire/codex.md pins its census
+              // on, so the two stay comparable.
+              //
+              // It is NOT what the driver ships as. codex.md records that
+              // `item/tool/requestUserInput` is experimental and that the
+              // Plan-005 interactive-request leg must set experimentalApi at
+              // `initialize`. Drift on that opted-in surface is therefore a
+              // NAMED GAP in this check, not something it covers. Closing it
+              // needs a second opted-in handshake asserting the experimental
+              // methods the driver actually enables — which is Plan-005's to
+              // specify, since no driver code names that set yet.
+              capabilities: { experimentalApi: false, requestAttestation: false },
+            },
+          });
+          send({ jsonrpc: '2.0', method: 'initialized', params: {} });
+          send({
+            jsonrpc: '2.0',
+            id: 2,
+            method: 'account/read',
+            // false: never ask the server to touch a refresh token.
+            params: { refreshToken: false },
+          });
+
+          const deadlineMs = Date.now() + 90_000;
+          const answered = () => responsesById.has(1) && responsesById.has(2);
+          while (Date.now() < deadlineMs && !answered() && childExit === null && spawnError === null) {
+            await new Promise((resolve) => setTimeout(resolve, 200));
+          }
+          child.stdin.end();
+          child.kill('SIGTERM');
+
+          // BROKEN, not drift, and exits nonzero so the shell wrapper routes
+          // it to broken.txt. Checked before the assertions below, because a
+          // child that died has no wire behavior to assert about.
+          if (spawnError !== null) {
+            console.error(`BROKEN codex protocol probe: could not spawn app-server (${spawnError.message})`);
+            process.exit(1);
+          }
+          if (!answered() && childExit !== null) {
+            const how = childExit.signal ? `signal ${childExit.signal}` : `exit ${childExit.code}`;
+            console.error(`BROKEN codex protocol probe: app-server exited (${how}) before answering`);
+            process.exit(1);
+          }
+
+          const failures = [];
+          const initializeResponse = responsesById.get(1);
+          if (!initializeResponse) {
+            failures.push('initialize: no response within 90s');
+          } else if (!initializeResponse.result) {
+            failures.push(`initialize: answered with an error, not a result (code ${initializeResponse.error?.code})`);
+          } else if (typeof initializeResponse.result.codexHome !== 'string') {
+            failures.push('initialize: result is missing the string field `codexHome`');
+          }
+
+          const accountResponse = responsesById.get(2);
+          if (!accountResponse) {
+            failures.push('account/read: no response within 90s');
+          } else if (accountResponse.error) {
+            // Two JSON-RPC standard codes mean the METHOD moved, and both are
+            // drift. -32601 ("method not found") means it was withdrawn.
+            // -32602 ("invalid params") means it still exists but no longer
+            // accepts the request this probe sends — a params-shape change is
+            // exactly the drift this check is for, and it must not pass as a
+            // legitimate authless refusal. Every other code is an
+            // application-level answer (unauthenticated, no account
+            // configured) that an authless run is expected to produce.
+            //
+            // Verified against codex-cli 0.149.0 with an empty scratch
+            // CODEX_HOME: the authless answer is not an error at all, it is a
+            // SUCCESS result `{"account":null,"requiresOpenaiAuth":true}`.
+            // So neither code below is on the normal no-credential path and
+            // treating both as drift cannot cry wolf on an authless runner.
+            const methodDriftCodes = new Map([
+              [-32601, 'method not found (-32601) — the method was withdrawn'],
+              [-32602, 'invalid params (-32602) — the request shape this probe sends is no longer accepted'],
+            ]);
+            const drift = methodDriftCodes.get(accountResponse.error.code);
+            if (drift) {
+              failures.push(`account/read: ${drift}`);
+            }
+          } else if (!('account' in (accountResponse.result ?? {}))) {
+            failures.push('account/read: result is missing the `account` key');
+          }
+
+          // Assertions only. Raw payloads carry an installation id and the
+          // runner hostname, and this output can end up in a public issue.
+          // Drift is REPORTED, not thrown. Exiting nonzero here would fail
+          // this leg's job, and a failed job reddens the whole workflow run no
+          // matter what the report job later classifies -- which is precisely
+          // the "warn and keep going above the pin" violation this check
+          // exists to prevent. A nonzero exit is therefore reserved for the
+          // probe being broken (a crash), which the shell wrapper detects.
+          if (failures.length > 0) {
+            console.error(`DRIFT codex protocol probe:\n  - ${failures.join('\n  - ')}`);
+            for (const reason of failures) {
+              console.log(`PROVIDER_COMPAT_DRIFT codex protocol: ${reason}`);
+            }
+            process.exit(0);
+          }
+          console.log('PASS codex protocol probe: initialize + account/read answered with the expected shapes');
+          PROBE
+          mkdir -p "$RUNNER_TEMP/leg"
+          # PIPESTATUS[0], never `$?`: the pipeline's exit status is tee's.
+          set +e
+          node "$RUNNER_TEMP/codex-probe.mjs" "$CODEX_BIN" | tee "$RUNNER_TEMP/codex-probe.out"
+          probe_status=${PIPESTATUS[0]}
+          set -e
+          # A nonzero exit means the probe itself failed to run. That is not
+          # channel drift and must not be softened by channel: a blind probe
+          # reports clean, so it fails the leg on every channel.
+          if [ "$probe_status" -ne 0 ]; then
+            echo "FAIL: the codex protocol probe crashed (exit $probe_status)" >&2
+            printf 'codex protocol probe crashed (exit %s)\n' "$probe_status" \
+              >> "$RUNNER_TEMP/leg/broken.txt"
+            exit 1
+          fi
+          grep '^PROVIDER_COMPAT_DRIFT ' "$RUNNER_TEMP/codex-probe.out" \
+            | sed 's/^PROVIDER_COMPAT_DRIFT //' >> "$RUNNER_TEMP/leg/drift.txt" || true
+
+      - name: Probe argument acceptance (exit codes, not --help)
+        env:
+          CHANNEL: ${{ matrix.channel }}
+        run: |
+          set -euo pipefail
+          # `--help` text is not a drift detector — it is stable across releases
+          # that moved real behavior. Argument ACCEPTANCE is: `codex exec
+          # --full-auto` exits 0 at 0.141.0 and exits 2 with "unexpected
+          # argument" at 0.149.1. That is compared per channel below; the leg
+          # still never FAILS on it, because a mismatch is recorded as drift
+          # and the report decides what drift on this channel means.
+          set +e
+          "$CODEX_BIN" exec --full-auto --help >/dev/null 2>"$RUNNER_TEMP/full-auto.err"
+          full_auto_exit=$?
+          set -e
+          # docs/reference/provider-wire/codex.md records this as a Verified
+          # binary probe with an exact per-channel expectation: the flag is
+          # ACCEPTED at the 0.141.0 floor and REJECTED at the 0.149.1 pin. So
+          # the observation is only meaningful against the channel's expected
+          # value -- recording it without comparing made a floor that stopped
+          # accepting `--full-auto` (a real break in the oldest SUPPORTED CLI)
+          # invisible: summary-only, leg still `success`, no alert, no failure.
+          #
+          # `latest` inherits the PIN's expectation. Saying it expects
+          # nothing meant a release above the pin that RESTORED `--full-auto`
+          # produced no drift and no re-pin signal -- but "the withdrawn flag
+          # came back" is exactly the movement the reference would need to
+          # re-record. It is still only a `latest` observation, so the report
+          # warns without failing the run, per the above-pin policy.
+          case "$CHANNEL" in
+            floor) expected_accept=yes ;;
+            pin | latest) expected_accept=no ;;
+            *) expected_accept=unknown ;;
+          esac
+          if [ "$full_auto_exit" -eq 0 ]; then
+            observed=ACCEPTED
+          else
+            observed=REJECTED
+          fi
+          echo "  - \`codex exec --full-auto\`: $observed (exit $full_auto_exit)" \
+            >> "$GITHUB_STEP_SUMMARY"
+          mkdir -p "$RUNNER_TEMP/leg"
+          if [ "$expected_accept" = yes ] && [ "$observed" != ACCEPTED ]; then
+            printf 'codex --full-auto is no longer accepted at the %s (exit %s)\n' \
+              "$CHANNEL" "$full_auto_exit" >> "$RUNNER_TEMP/leg/drift.txt"
+          elif [ "$expected_accept" = no ] && [ "$observed" != REJECTED ]; then
+            printf 'codex --full-auto is accepted again at the %s (exit %s) — withdrawn at the pin, so this is a re-pin signal\n' \
+              "$CHANNEL" "$full_auto_exit" >> "$RUNNER_TEMP/leg/drift.txt"
+          fi
+          # Negative control: prove the detector can see a rejection at all.
+          set +e
+          "$CODEX_BIN" exec --provider-compat-negative-control >/dev/null 2>&1
+          control_exit=$?
+          set -e
+          if [ "$control_exit" -eq 0 ]; then
+            echo "FAIL: negative control was accepted — this probe cannot detect a rejected argument" >&2
+            mkdir -p "$RUNNER_TEMP/leg"
+            echo 'codex argument probe is blind (negative control accepted)' \
+              >> "$RUNNER_TEMP/leg/broken.txt"
+            exit 1
+          fi
+
+      # Per-channel outcome, recorded because a matrix job collapses all of its
+      # legs into ONE `result`. Without this the report cannot tell a `latest`
+      # failure from a `floor` failure, and the check cannot honour the policy
+      # it exists to enforce: above the pin warn and keep going, below the
+      # floor refuse. `always()` so a FAILED leg still reports its outcome.
+      - name: Record this leg's outcome
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/leg"
+          # The verdict comes from what the probes RECORDED, not from
+          # `job.status`. Two reasons. (1) A drifted leg no longer fails its
+          # job, so `job.status` would read `success` on real drift. (2) The
+          # recorded files are unambiguous about which kind of failure it was:
+          # `drift.txt` is a moved channel (the report decides whether that is
+          # fatal), `broken.txt` is a probe that cannot see (always fatal).
+          # `job.status` is still consulted as a third signal, and it is
+          # unambiguous here because this workflow sets `continue-on-error`
+          # nowhere -- so it cannot be masked. It catches the case the two
+          # record files cannot: an INSTALL or setup step failing before any
+          # probe ran, which would otherwise leave both files empty and report
+          # a clean leg.
+          # THREE outcomes, not two. `broken` must not collapse into `drift`:
+          # a probe that could not run is not evidence that the provider moved,
+          # and reporting it as drift would tell operators the floor or the
+          # wire surface changed when nothing was measured at all.
+          status=success
+          if [ -s "$RUNNER_TEMP/leg/broken.txt" ] || [ '${{ job.status }}' != 'success' ]; then
+            status=broken
+          elif [ -s "$RUNNER_TEMP/leg/drift.txt" ]; then
+            status=drift
+          fi
+          printf '%s %s %s\n' 'codex' '${{ matrix.channel }}' "$status" \
+            > "$RUNNER_TEMP/leg/outcome.txt"
+
+      - name: Upload this leg's outcome
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: leg-codex-${{ matrix.channel }}
+          # The whole leg directory, not just outcome.txt. drift.txt and
+          # broken.txt hold the actionable reason -- which flag, method,
+          # shape, or step failed -- and without them the tracking issue
+          # decays to a provider/channel/status row whose evidence lives only
+          # in run logs that expire.
+          path: ${{ runner.temp }}/leg/
+          # `error`, not the default `warn`. The report compares the
+          # artifacts it downloads against the expected channel set, so a
+          # silently-empty upload would present as a missing channel anyway --
+          # failing loudly here names the leg that lost its own verdict.
+          if-no-files-found: error
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # Claude Code: version, argument acceptance, and the control-request registry.
+  #
+  # There is no authless handshake to observe here — `claude -p` needs
+  # credentials to reach one. This leg therefore measures exactly what it can
+  # measure without a token, and says so.
+  # ---------------------------------------------------------------------------
+  claude-surface:
+    name: Claude ${{ matrix.channel }} (${{ matrix.version }})
+    runs-on: ubuntu-latest
+    # GitHub's default job timeout is 360 minutes. Nothing here needs
+    # minutes at all, and this workflow's concurrency group does not
+    # cancel in progress, so a stalled job would block later probes.
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Keep these three in step with docs/reference/provider-wire/claude.md.
+          # `floor` tracks a CANDIDATE floor, ahead of the floor Spec-005
+          # still mandates. Nothing here ratifies it: raising the floor is a
+          # Spec-005 Required Behavior change, and this leg exists to supply
+          # evidence for that amendment -- it answers "would the candidate
+          # hold?" and files drift if it would not. If the amendment settles
+          # on a different number, this leg follows the spec. See ADR-023
+          # §Decision Log for the sequencing.
+          - channel: floor
+            version: "2.1.234"
+          - channel: pin
+            version: "2.1.245"
+          - channel: latest
+            version: "latest"
+    steps:
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+
+      - uses: pnpm/action-setup@8b2eead6074fefa43a68bf4c9e0f03ea4126b5ba # v6.0.3
+        with:
+          version: "10"
+
+      - name: Install Claude Code into a throwaway prefix
+        env:
+          CLAUDE_VERSION: ${{ matrix.version }}
+        run: |
+          set -euo pipefail
+          install_dir="$RUNNER_TEMP/claude-probe"
+          mkdir -p "$install_dir"
+          # `@anthropic-ai/claude-code` is a WRAPPER: the executable arrives as a
+          # platform-specific optional dependency fetched by its postinstall.
+          # pnpm 10 blocks build scripts by default, and a blocked install yields
+          # a wrapper that cannot even report its version — so the package is
+          # allow-listed explicitly rather than by disabling the protection
+          # wholesale.
+          cat > "$install_dir/package.json" <<'PKG'
+          {
+            "name": "provider-compat-probe",
+            "version": "0.0.0",
+            "private": true,
+            "pnpm": { "onlyBuiltDependencies": ["@anthropic-ai/claude-code"] }
+          }
+          PKG
+          cd "$install_dir"
+          pnpm add --ignore-workspace "@anthropic-ai/claude-code@${CLAUDE_VERSION}"
+          echo "CLAUDE_BIN=$install_dir/node_modules/.bin/claude" >> "$GITHUB_ENV"
+          echo "CLAUDE_INSTALL_DIR=$install_dir" >> "$GITHUB_ENV"
+
+      - name: Report the resolved version
+        env:
+          CHANNEL: ${{ matrix.channel }}
+          REQUESTED: ${{ matrix.version }}
+        run: |
+          set -euo pipefail
+          resolved="$("$CLAUDE_BIN" --version)"
+          echo "RESOLVED_CLAUDE=$resolved" >> "$GITHUB_ENV"
+          echo "- Claude **$CHANNEL** — requested \`$REQUESTED\`, resolved \`$resolved\`" \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Probe argument acceptance (exit codes, not --help)
+        env:
+          # Scratch config home so the probe cannot read or write the runner's
+          # default Claude state.
+          CLAUDE_CONFIG_DIR: ${{ runner.temp }}/claude-scratch-config
+        run: |
+          set -euo pipefail
+          mkdir -p "$CLAUDE_CONFIG_DIR"
+          # An unrecognized flag produces `error: unknown option '--x'`. A
+          # recognized-but-misused flag produces something else. That difference
+          # is the acceptance test, and it needs no credentials.
+          probe_flag() {
+            local flag="$1"
+            local output
+            set +e
+            output="$("$CLAUDE_BIN" "$flag" -p provider-compat-probe </dev/null 2>&1)"
+            set -e
+            if printf '%s' "$output" | grep -qF "unknown option '$flag'"; then
+              return 1
+            fi
+            return 0
+          }
+          missing=""
+          for flag in --resume-session-at --rewind-files --fork-session --replay-user-messages --max-turns; do
+            if probe_flag "$flag"; then
+              echo "  - \`$flag\`: ACCEPTED" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "  - \`$flag\`: **UNKNOWN OPTION**" >> "$GITHUB_STEP_SUMMARY"
+              missing="$missing $flag"
+            fi
+          done
+          # Negative control: a flag that certainly does not exist MUST be
+          # reported unknown. Without this, a probe that silently stopped
+          # working would report a clean run.
+          mkdir -p "$RUNNER_TEMP/leg"
+          if probe_flag --provider-compat-negative-control; then
+            echo "FAIL: negative control was accepted — this probe cannot detect an unknown option" >&2
+            echo 'claude flag probe is blind (negative control accepted)' \
+              >> "$RUNNER_TEMP/leg/broken.txt"
+            exit 1
+          fi
+          # Recorded, not thrown -- see the codex protocol probe for why a
+          # drifted leg must not fail its own job.
+          if [ -n "$missing" ]; then
+            echo "DRIFT: flags no longer accepted:$missing" >&2
+            printf 'claude flags no longer accepted:%s\n' "$missing" \
+              >> "$RUNNER_TEMP/leg/drift.txt"
+          fi
+
+      - name: Census the control-request registry
+        run: |
+          set -euo pipefail
+          # The executable is the platform-native single-file build with the
+          # CLI's JavaScript bundle embedded, so the control-request subtype
+          # literals are greppable out of it.
+          #
+          # What this census can and cannot assert. It fails on ABSENCE only,
+          # which is the sound direction: a subtype that was removed or
+          # renamed no longer appears and is caught. Presence is necessary but
+          # NOT sufficient — a string can outlive the registry entry it names.
+          # docs/reference/provider-wire/claude.md records the precedent:
+          # `--enable-auto-mode` still matches in the bundle several releases
+          # after it was withdrawn. So a pass here means "nothing documented
+          # has vanished", never "every subtype is still dispatchable".
+          # Establishing membership needs a live control exchange, which is
+          # deliberately not attempted: on macOS the Claude credential store
+          # is Keychain-backed and user-scoped rather than HOME-scoped, so a
+          # scratch-HOME handshake is not reliably credential-free. The
+          # sufficient check therefore belongs to the authenticated smoke leg.
+          binary="$(find "$CLAUDE_INSTALL_DIR/node_modules/.pnpm" -type f -name claude -size +50M | head -n 1)"
+          mkdir -p "$RUNNER_TEMP/leg"
+          if [ -z "$binary" ]; then
+            echo "FAIL: could not locate the native Claude binary under the probe prefix" >&2
+            echo 'claude census is blind (native binary not found under the probe prefix)' \
+              >> "$RUNNER_TEMP/leg/broken.txt"
+            exit 1
+          fi
+          missing=""
+          for subtype in interrupt set_permission_mode can_use_tool set_model get_usage \
+                         get_context_usage get_session_cost list_models get_binary_version \
+                         apply_flag_settings rewind_files hook_callback elicitation \
+                         request_user_dialog mcp_message; do
+            if ! grep -q -a -F "\"$subtype\"" "$binary"; then
+              missing="$missing $subtype"
+            fi
+          done
+          for literal in rate_limits_available interrupt_receipt_v1 CLAUDE_SECURESTORAGE_CONFIG_DIR; do
+            if ! grep -q -a -F "$literal" "$binary"; then
+              missing="$missing $literal"
+            fi
+          done
+          # Negative control: a literal that cannot be present must not be found,
+          # so a census that started matching everything is caught.
+          if grep -q -a -F '__provider_compat_negative_control__' "$binary"; then
+            echo "FAIL: negative control matched — this census cannot distinguish absence" >&2
+            echo 'claude census is blind (negative control matched)' \
+              >> "$RUNNER_TEMP/leg/broken.txt"
+            exit 1
+          fi
+          # Recorded, not thrown -- see the codex protocol probe.
+          if [ -n "$missing" ]; then
+            echo "DRIFT: literals absent from the control-request census:$missing" >&2
+            printf 'claude census literals absent:%s\n' "$missing" \
+              >> "$RUNNER_TEMP/leg/drift.txt"
+          fi
+          if [ -z "$missing" ]; then
+            echo "  - control-request registry census: all 15 subtypes present" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # See the codex-protocol job for why the per-channel outcome is recorded.
+      - name: Record this leg's outcome
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/leg"
+          # The verdict comes from what the probes RECORDED, not from
+          # `job.status`. Two reasons. (1) A drifted leg no longer fails its
+          # job, so `job.status` would read `success` on real drift. (2) The
+          # recorded files are unambiguous about which kind of failure it was:
+          # `drift.txt` is a moved channel (the report decides whether that is
+          # fatal), `broken.txt` is a probe that cannot see (always fatal).
+          # `job.status` is still consulted as a third signal, and it is
+          # unambiguous here because this workflow sets `continue-on-error`
+          # nowhere -- so it cannot be masked. It catches the case the two
+          # record files cannot: an INSTALL or setup step failing before any
+          # probe ran, which would otherwise leave both files empty and report
+          # a clean leg.
+          # THREE outcomes, not two. `broken` must not collapse into `drift`:
+          # a probe that could not run is not evidence that the provider moved,
+          # and reporting it as drift would tell operators the floor or the
+          # wire surface changed when nothing was measured at all.
+          status=success
+          if [ -s "$RUNNER_TEMP/leg/broken.txt" ] || [ '${{ job.status }}' != 'success' ]; then
+            status=broken
+          elif [ -s "$RUNNER_TEMP/leg/drift.txt" ]; then
+            status=drift
+          fi
+          printf '%s %s %s\n' 'claude' '${{ matrix.channel }}' "$status" \
+            > "$RUNNER_TEMP/leg/outcome.txt"
+
+      - name: Upload this leg's outcome
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: leg-claude-${{ matrix.channel }}
+          # The whole leg directory, not just outcome.txt. drift.txt and
+          # broken.txt hold the actionable reason -- which flag, method,
+          # shape, or step failed -- and without them the tracking issue
+          # decays to a provider/channel/status row whose evidence lives only
+          # in run logs that expire.
+          path: ${{ runner.temp }}/leg/
+          # `error`, not the default `warn`. The report compares the
+          # artifacts it downloads against the expected channel set, so a
+          # silently-empty upload would present as a missing channel anyway --
+          # failing loudly here names the leg that lost its own verdict.
+          if-no-files-found: error
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # One real turn, under the operator's own subscription, only when the secret
+  # exists. This is the only leg that reaches a live handshake.
+  # ---------------------------------------------------------------------------
+  claude-authenticated-smoke:
+    name: Claude authenticated smoke (pin)
+    outputs:
+      # `broken` (could not run) vs `drift` (ran, wire looked wrong). The
+      # report needs the distinction; a bare job result cannot carry it.
+      smoke-outcome: ${{ steps.smoke.outputs.smoke_outcome }}
+    runs-on: ubuntu-latest
+    # GitHub's default job timeout is 360 minutes. Nothing here needs
+    # minutes at all, and this workflow's concurrency group does not
+    # cancel in progress, so a stalled job would block later probes.
+    timeout-minutes: 15
+    needs: secret-gate
+    if: needs.secret-gate.outputs.claude-token-present == 'true'
+    steps:
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+
+      - uses: pnpm/action-setup@8b2eead6074fefa43a68bf4c9e0f03ea4126b5ba # v6.0.3
+        with:
+          version: "10"
+
+      - name: Install Claude Code at the pin
+        run: |
+          set -euo pipefail
+          install_dir="$RUNNER_TEMP/claude-smoke"
+          mkdir -p "$install_dir"
+          cat > "$install_dir/package.json" <<'PKG'
+          {
+            "name": "provider-compat-smoke",
+            "version": "0.0.0",
+            "private": true,
+            "pnpm": { "onlyBuiltDependencies": ["@anthropic-ai/claude-code"] }
+          }
+          PKG
+          cd "$install_dir"
+          pnpm add --ignore-workspace "@anthropic-ai/claude-code@2.1.245"
+          echo "CLAUDE_BIN=$install_dir/node_modules/.bin/claude" >> "$GITHUB_ENV"
+
+      - name: One-turn print-mode probe
+        id: smoke
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CLAUDE_CONFIG_DIR: ${{ runner.temp }}/claude-smoke-config
+          # Secure storage relocates under its OWN key -- CLAUDE_CONFIG_DIR
+          # does not cover it. docs/reference/provider-wire/claude.md records
+          # the literal, and the control-request census asserts it is still
+          # present in the binary. Without this the one token-bearing
+          # invocation in the workflow could still read or write the runner's
+          # default secure-storage location.
+          CLAUDE_SECURESTORAGE_CONFIG_DIR: ${{ runner.temp }}/claude-smoke-securestorage
+        run: |
+          # No `set -x` anywhere in this job: tracing would echo the environment.
+          set -euo pipefail
+          echo "::add-mask::${CLAUDE_CODE_OAUTH_TOKEN}"
+          mkdir -p "$CLAUDE_CONFIG_DIR" "$CLAUDE_SECURESTORAGE_CONFIG_DIR"
+          # A scratch config home, an empty tool allow-list, and one bounded turn.
+          # The token reaches the child only through the environment; it is never
+          # written to disk, echoed, or passed on a command line.
+          # Two failure kinds, and this job must not conflate them. An
+          # EXECUTION failure (expired or missing token, install failure,
+          # exhausted quota, transient network) says nothing about the wire
+          # surface; reporting it as drift would open the provider-drift
+          # tracker on evidence never collected. Only a turn that RAN and
+          # came back empty is a protocol observation.
+          set +e
+          # `--max-turns 1` bounds TURNS, not wall time: a stalled request
+          # hangs indefinitely. `timeout` bounds the invocation itself, and
+          # its 124 exit is a stall -- an execution failure, so it lands on
+          # the `broken` arm below rather than being read as wire drift.
+          answer="$(timeout 300 "$CLAUDE_BIN" -p 'Reply with the single word: ok' \
+            --max-turns 1 \
+            --allowed-tools '' \
+            --output-format text </dev/null 2>"$RUNNER_TEMP/smoke.err")"
+          smoke_exit=$?
+          set -e
+          if [ "$smoke_exit" -ne 0 ]; then
+            # Never echo the captured stderr: it can quote the invocation.
+            echo "BROKEN: the authenticated one-turn probe could not run (exit $smoke_exit)" >&2
+            echo "smoke_outcome=broken" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          if [ -z "$answer" ]; then
+            echo "DRIFT: the authenticated one-turn probe ran but produced no output" >&2
+            echo "smoke_outcome=drift" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "smoke_outcome=success" >> "$GITHUB_OUTPUT"
+          echo "- Claude authenticated smoke (pin \`2.1.245\`): **PASS** — one turn completed" \
+            >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  # Single tracking issue. Opened on the first drift, updated in place on every
+  # subsequent one, closed when everything goes green again.
+  # ---------------------------------------------------------------------------
+  report:
+    name: Report drift
+    runs-on: ubuntu-latest
+    # GitHub's default job timeout is 360 minutes. Nothing here needs
+    # minutes at all, and this workflow's concurrency group does not
+    # cancel in progress, so a stalled job would block later probes.
+    timeout-minutes: 10
+    needs: [secret-gate, codex-protocol, claude-surface, claude-authenticated-smoke]
+    if: always()
+    permissions:
+      # Scoped to this job only; the workflow default stays `contents: read`.
+      issues: write
+    env:
+      # TWO trackers, because they carry different claims and must not
+      # overwrite each other. The drift tracker asserts the provider surface
+      # MOVED. The broken tracker asserts we could not measure it. A run that
+      # only failed to measure must never rewrite the body of the issue that
+      # holds real drift evidence.
+      TRACKING_ISSUE_TITLE: "Provider CLI compatibility drift"
+      BROKEN_ISSUE_TITLE: "Provider CLI compatibility check is not measuring"
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Download the per-leg outcomes
+        if: always()
+        uses: actions/download-artifact@v4
+        with:
+          pattern: leg-*
+          path: ${{ runner.temp }}/legs
+
+      - name: Classify the run
+        id: classify
+        env:
+          SMOKE_RESULT: ${{ needs.claude-authenticated-smoke.result }}
+          SMOKE_OUTCOME: ${{ needs.claude-authenticated-smoke.outputs.smoke-outcome }}
+          GATE_RESULT: ${{ needs.secret-gate.result }}
+          TOKEN_PRESENT: ${{ needs.secret-gate.outputs.claude-token-present }}
+        run: |
+          set -euo pipefail
+          # Two verdicts, deliberately distinct:
+          #   drift — something moved; open or update the tracking issue.
+          #   fatal — a SUPPORTED channel moved; additionally fail the run.
+          # Collapsing them would make every routine upstream release a red
+          # nightly, contradicting the policy this check enforces: above the
+          # pin warn and keep going, below the floor refuse.
+          drift=false
+          broken=false
+          fatal=false
+
+          # secret-gate is judged first and on its own. A skipped smoke job is
+          # only the documented no-secret path when the gate actually RAN and
+          # published a verdict; if the gate itself failed, the smoke job also
+          # skips, and reading that skip as "no secret configured" would let a
+          # broken gate silently close a real drift issue.
+          if [ "$GATE_RESULT" != "success" ]; then
+            broken=true
+            fatal=true
+          else
+            if [ "$SMOKE_RESULT" != "success" ] && [ "$SMOKE_RESULT" != "skipped" ]; then
+              # Only a turn that RAN and came back wrong is provider drift.
+              # Everything else -- an expired token, a failed install, an
+              # exhausted quota, a transient network error, or a job that
+              # died before publishing any outcome at all -- is `broken`, so
+              # a bad token can never overwrite the drift tracker.
+              if [ "${SMOKE_OUTCOME:-}" = "drift" ]; then
+                drift=true
+              else
+                broken=true
+              fi
+              fatal=true
+            fi
+          fi
+
+          # Per-channel verdicts. The EXPECTED SET below is the authority,
+          # not the set of artifacts that happen to arrive. Every pair must be
+          # accounted for; a pair with no artifact is UNKNOWN, and unknown is
+          # classified as supported-channel drift, because the alternative is
+          # reading missing data as "nothing failed".
+          #
+          # This replaces an earlier backstop that keyed on failure COUNTS,
+          # which was unsound in both directions: if one leg vanished while a
+          # sibling reported a failure, the counter was already nonzero and
+          # the missing leg went unnoticed entirely.
+          rows=""
+          reasons=""
+          for expected in "codex floor" "codex pin" "codex latest" \
+                          "claude floor" "claude pin" "claude latest"; do
+            # shellcheck disable=SC2086 # deliberate split of a known pair
+            set -- $expected
+            provider="$1"
+            channel="$2"
+            outcome_file="$RUNNER_TEMP/legs/leg-${provider}-${channel}/outcome.txt"
+            if [ ! -f "$outcome_file" ]; then
+              rows="${rows}| \`${provider}\` | \`${channel}\` | \`(no outcome reported)\` |"$'\n'
+              # Unmeasured, not moved -- the same distinction as `broken`.
+              broken=true
+              fatal=true
+              continue
+            fi
+            read -r _provider _channel status < "$outcome_file"
+            rows="${rows}| \`${provider}\` | \`${channel}\` | \`${status}\` |"$'\n'
+            leg_dir="$RUNNER_TEMP/legs/leg-${provider}-${channel}"
+            for reason_file in "$leg_dir/drift.txt" "$leg_dir/broken.txt"; do
+              [ -s "$reason_file" ] || continue
+              while IFS= read -r reason; do
+                [ -n "$reason" ] || continue
+                reasons="${reasons}- \`${provider}\` **${channel}**: ${reason}"$'\n'
+              done < "$reason_file"
+            done
+            case "$status" in
+              success) ;;
+              drift)
+                drift=true
+                # `latest` is expected to move. Only floor and pin are
+                # supported, so only they turn a moved channel into a
+                # failed run.
+                if [ "$channel" != "latest" ]; then fatal=true; fi
+                ;;
+              *)
+                # `broken`, or any status this classifier does not recognise.
+                # Neither is provider drift, and both are fatal on EVERY
+                # channel: a leg that cannot measure reports clean, so
+                # softening it by channel is the actual hazard.
+                broken=true
+                fatal=true
+                ;;
+            esac
+          done
+
+          {
+            echo "drift=$drift"
+            echo "broken=$broken"
+            echo "fatal=$fatal"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "## Provider CLI compatibility — run summary"
+            echo
+            echo "| Provider | Channel | Result |"
+            echo "| --- | --- | --- |"
+            printf '%s' "$rows"
+            echo
+            if [ -n "$reasons" ]; then
+              echo "### What moved"
+              echo
+              printf '%s' "$reasons"
+              echo
+            fi
+            echo "| Supporting leg | Result |"
+            echo "| --- | --- |"
+            echo "| Secret presence gate | \`$GATE_RESULT\` |"
+            echo "| Claude authenticated smoke | \`$SMOKE_RESULT\`/\`${SMOKE_OUTCOME:-n/a}\` (secret present: \`$TOKEN_PRESENT\`) |"
+            echo
+            echo "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo
+            echo "A \`drift\` leg means the provider surface MOVED. On **latest** that is a re-pin signal for"
+            echo "\`docs/reference/provider-wire/\` and does **not** fail this run; on **floor** it means the oldest"
+            echo "supported CLI has moved and the floor itself must be raised."
+            echo
+            echo "A \`broken\` leg or one reported as \`(no outcome reported)\` means that channel was **not measured**"
+            echo "-- the probe could not run, or its verdict never arrived. That is NOT evidence the provider changed,"
+            echo "and it is fatal on every channel including \`latest\`, because an unmeasured leg reports clean."
+          } > "$RUNNER_TEMP/report.md"
+          cat "$RUNNER_TEMP/report.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Find the existing tracking issue
+        id: existing
+        run: |
+          set -euo pipefail
+          # `--state all`, not `--state open`. This job CLOSES the tracker on
+          # recovery, so a search restricted to open issues finds nothing when
+          # drift later returns -- and a second tracker gets created,
+          # fragmenting the single tracker this job exists to maintain.
+          #
+          # `--search` narrows SERVER-side. Without it `--limit` caps the
+          # general listing ("maximum number of issues to fetch"), so once the
+          # tracker falls outside the most recent N issues the client-side
+          # filter can no longer see it -- a failure mode that `--state all`
+          # makes strictly more likely, because closed issues now count toward
+          # the cap. The exact-title check below stays as the precision guard,
+          # since the search qualifier matches loosely.
+          # Returns "<number> <state>" so the steps below can act only when
+          # they would actually change something. `gh issue close` on an
+          # already-closed issue is a no-op that returns nil (verified in
+          # cli/cli pkg/cmd/issue/close/close.go), so this is not about exit
+          # codes -- it is about not posting a "closing" comment on every
+          # clean nightly for the rest of time.
+          find_issue() {
+            gh issue list \
+              --repo "$GITHUB_REPOSITORY" \
+              --state all \
+              --search "in:title \"$1\"" \
+              --limit 100 \
+              --json number,title,state \
+              --jq "[.[] | select(.title == \"$1\")] | first | \"\(.number // \"\") \(.state // \"\")\""
+          }
+          read -r drift_number drift_state <<< "$(find_issue "$TRACKING_ISSUE_TITLE")"
+          read -r broken_number broken_state <<< "$(find_issue "$BROKEN_ISSUE_TITLE")"
+          {
+            echo "number=${drift_number}"
+            echo "state=${drift_state}"
+            echo "broken_number=${broken_number}"
+            echo "broken_state=${broken_state}"
+          } >> "$GITHUB_OUTPUT"
+
+      # `create-issue-from-file` calls `issues.update` with `title` and
+      # `body` only -- it passes no `state`, verified in that action's
+      # src/main.ts at the SHA pinned below. Updating a CLOSED tracker
+      # therefore leaves it closed and the returning drift is announced
+      # nowhere. Reopen explicitly first.
+      - name: Reopen the drift tracker when drift returns
+        if: steps.classify.outputs.drift == 'true' && steps.existing.outputs.state == 'CLOSED'
+        run: |
+          set -euo pipefail
+          gh issue reopen "$EXISTING_ISSUE" \
+            --repo "$GITHUB_REPOSITORY" \
+            --comment "Provider-CLI compatibility drift returned on run ${GITHUB_RUN_ID}."
+
+        env:
+          EXISTING_ISSUE: ${{ steps.existing.outputs.number }}
+
+      - name: Reopen the not-measuring tracker when it recurs
+        if: steps.classify.outputs.broken == 'true' && steps.existing.outputs.broken_state == 'CLOSED'
+        run: |
+          set -euo pipefail
+          gh issue reopen "$EXISTING_ISSUE" \
+            --repo "$GITHUB_REPOSITORY" \
+            --comment "The provider-CLI compatibility check stopped measuring again on run ${GITHUB_RUN_ID}."
+
+        env:
+          EXISTING_ISSUE: ${{ steps.existing.outputs.broken_number }}
+
+      # Gated on `drift` ALONE. A run that merely could not measure must not
+      # rewrite this issue's body: it holds the evidence that the provider
+      # surface moved, and a report showing no drift would erase it.
+      - name: Open or update the drift tracker
+        if: steps.classify.outputs.drift == 'true'
+        # SHA-pinned per ADR-023 §Axis 4 supply-chain hygiene, matching the
+        # gitleaks-action pin convention. `issue-number` makes this an in-place
+        # update, which is what keeps the tracker to a single issue.
+        uses: peter-evans/create-issue-from-file@fca9117c27cdc29c6c4db3b86c48e4115a786710 # v6.0.0
+        with:
+          title: ${{ env.TRACKING_ISSUE_TITLE }}
+          content-filepath: ${{ runner.temp }}/report.md
+          issue-number: ${{ steps.existing.outputs.number }}
+
+      - name: Open or update the not-measuring tracker
+        if: steps.classify.outputs.broken == 'true'
+        uses: peter-evans/create-issue-from-file@fca9117c27cdc29c6c4db3b86c48e4115a786710 # v6.0.0
+        with:
+          title: ${{ env.BROKEN_ISSUE_TITLE }}
+          content-filepath: ${{ runner.temp }}/report.md
+          issue-number: ${{ steps.existing.outputs.broken_number }}
+
+      # Each tracker closes on ITS OWN verdict. A run with drift but no
+      # broken legs is exactly when the not-measuring tracker should close,
+      # and vice versa -- gating either on both would strand one open.
+      # Requires a FULLY MEASURED run. `drift=false` on a run with a broken
+      # or missing leg is not evidence of recovery -- it is the absence of
+      # evidence, and closing prior drift on it discards a real finding. The
+      # not-measuring tracker below closes on its own verdict, so nothing is
+      # stranded: the broken run is still reported, just not as recovery.
+      - name: Close the drift tracker on recovery
+        if: steps.classify.outputs.drift == 'false' && steps.classify.outputs.broken == 'false' && steps.existing.outputs.state == 'OPEN'
+        run: |
+          set -euo pipefail
+          gh issue close "${{ steps.existing.outputs.number }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --comment "No provider-CLI compatibility drift on run ${GITHUB_RUN_ID}. Closing; the nightly check will reopen this issue if drift returns."
+
+      - name: Close the not-measuring tracker on recovery
+        if: steps.classify.outputs.broken == 'false' && steps.existing.outputs.broken_state == 'OPEN'
+        run: |
+          set -euo pipefail
+          gh issue close "${{ steps.existing.outputs.broken_number }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --comment "Every leg reported a verdict on run ${GITHUB_RUN_ID}. Closing; the nightly check will reopen this issue if it stops measuring again."
+
+      # Only a SUPPORTED channel (floor or pin) fails the run. A `latest` leg
+      # that moved has already opened or updated the tracking issue above,
+      # which is the whole reporting mechanism; failing here as well would
+      # make every routine upstream release a red nightly and contradict the
+      # above-pin "warn and keep going" policy recorded in ADR-023.
+      - name: Fail the run on supported-channel drift
+        if: steps.classify.outputs.fatal == 'true'
+        run: |
+          echo "Provider-CLI compatibility check failed on a supported channel; see the tracking issue(s)." >&2
+          exit 1
