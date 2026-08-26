@@ -75,6 +75,30 @@ function getRegistryPath(repoRoot: string): string {
   return resolve(repoRoot, "tools/docs-corpus/canonical-paths.json");
 }
 
+const VALID_MATCHERS = ["literal", "regex"] as const;
+
+function validateRegistry(reg: RegistryFile, registryPath: string): void {
+  // Fail closed on an unrecognized `matcher`. `loadRegistry` only CASTS the
+  // parsed JSON, so a typo (`"regexp"`) or a value from stale documentation
+  // (`"boundary"`) survives the cast, and a permissive `matcher === "regex"`
+  // test downstream would treat every other string as the `-F` default. That
+  // silently converts a boundary-aware regex needle into an inert fixed
+  // string — the pattern's own metacharacters make it match nothing — and the
+  // gate then reports clean over an axis it never checked. A gate reporting
+  // clean over work it did not do is the failure this registry exists to
+  // prevent, so an unknown value must refuse rather than degrade.
+  for (const [index, entry] of reg.paths.entries()) {
+    if (entry.matcher === undefined) continue;
+    if ((VALID_MATCHERS as readonly string[]).includes(entry.matcher)) continue;
+    throw new Error(
+      `path-canonical-ripple: entry ${index} ("${entry.canonical}") in ${registryPath} declares ` +
+        `matcher "${entry.matcher}", which is not one of ${VALID_MATCHERS.map((m) => `"${m}"`).join(" | ")}. ` +
+        `Refusing rather than defaulting to literal: a regex needle matched as a fixed string finds nothing ` +
+        `and the gate would report clean over an unchecked axis.`,
+    );
+  }
+}
+
 function loadRegistry(repoRoot: string): RegistryFile {
   const registryPath = getRegistryPath(repoRoot);
   if (!existsSync(registryPath)) {
@@ -86,7 +110,9 @@ function loadRegistry(repoRoot: string): RegistryFile {
     throw new Error(`path-canonical-ripple: registry missing at ${registryPath}`);
   }
   const text = readFileSync(registryPath, "utf8");
-  return JSON.parse(text) as RegistryFile;
+  const registry = JSON.parse(text) as RegistryFile;
+  validateRegistry(registry, registryPath);
+  return registry;
 }
 
 function gitGrep(
@@ -104,7 +130,23 @@ function gitGrep(
   // the correct semantics for a pre-commit gate. In CI the working tree
   // matches HEAD after checkout, so the two modes produce identical results
   // there; the switch is purely additive.
-  const args = ["grep", "--cached", matcher === "regex" ? "-nE" : "-nF", "--", needle];
+  // Exhaustive by construction: `validateRegistry` has already refused any
+  // value outside the union, so this switch cannot silently fall through to
+  // the fixed-string arm for an unrecognized matcher.
+  let modeFlag: string;
+  switch (matcher) {
+    case "regex":
+      modeFlag = "-nE";
+      break;
+    case "literal":
+      modeFlag = "-nF";
+      break;
+    default: {
+      const unreachable: never = matcher;
+      throw new Error(`path-canonical-ripple: unhandled matcher ${String(unreachable)}`);
+    }
+  }
+  const args = ["grep", "--cached", modeFlag, "--", needle];
   for (const s of scope) args.push(":(glob)" + s);
   for (const e of exclude) args.push(":(exclude,glob)" + e);
 

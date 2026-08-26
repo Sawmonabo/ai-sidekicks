@@ -334,6 +334,85 @@ describe("path-canonical-ripple", () => {
     }
   });
 
+  it("REFUSES an unknown matcher instead of silently downgrading to literal", () => {
+    // `loadRegistry` only CASTS the parsed JSON, so a typo or a value from
+    // stale documentation survives the cast. If the consuming branch were
+    // permissive (anything-but-"regex" -> -F), a boundary-aware needle would
+    // be matched as a fixed string, find nothing because its own
+    // metacharacters are inert, and the gate would report CLEAN over an axis
+    // it never checked — this catalog's CAT-10 shape. The refusal must
+    // therefore fire at load, before any grep runs.
+    const { root, cleanup } = setupRepo(
+      { "docs/a.md": "ai-sidekicks daemon status\n" },
+      {
+        paths: [
+          {
+            canonical: "sidekicks",
+            matcher: "boundary",
+            deprecated: ["(^|[^[:alnum:]@/_-])ai-sidekicks[[:space:]]+daemon"],
+            scope: ["docs/**/*.md"],
+          },
+        ],
+      },
+    );
+    const prevCwd = process.cwd();
+    const prevRegistry = process.env.DOCS_CORPUS_REGISTRY;
+    try {
+      process.chdir(root);
+      process.env.DOCS_CORPUS_REGISTRY = "registry.json";
+      expect(() => checkPathCanonicalRipple()).toThrow(/matcher "boundary".*not one of/is);
+    } finally {
+      process.chdir(prevCwd);
+      if (prevRegistry === undefined) delete process.env.DOCS_CORPUS_REGISTRY;
+      else process.env.DOCS_CORPUS_REGISTRY = prevRegistry;
+      cleanup();
+    }
+  });
+
+  it("REAL REGISTRY: every shipped needle matches its intended form", () => {
+    // Drives ALL needles of BOTH shipped `sidekicks` entries — the two
+    // regex-entry fixtures above cover the verb / JSON-key / flag-first
+    // patterns, and this one closes the remainder so no shipped pattern can
+    // rot behind a green suite: the prose `bin` shorthand, the deep-link
+    // scheme, and the source-scoped protocol-call needle (which lives on a
+    // separate entry with a source-only scope, so it needs a source fixture).
+    //
+    // Asserted as a needle-level SET EQUALITY, not a count: every needle in
+    // both entries must fire exactly once. A new needle added to the registry
+    // without a fixture here fails this test rather than riding along unproven.
+    const registryPath = resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      "..",
+      "canonical-paths.json",
+    );
+    const registry = JSON.parse(readFileSync(registryPath, "utf8")) as { paths: PathEntry[] };
+    const entries = registry.paths.filter((e) => e.canonical === "sidekicks");
+    expect(entries).toHaveLength(2);
+
+    const { root, cleanup } = setupRepo(
+      {
+        // Exercises the docs-scoped entry: verb, flag-first, JSON key,
+        // prose `bin` shorthand, deep-link scheme.
+        "docs/plans/007.md": [
+          "Run `ai-sidekicks  daemon status` after install.",
+          "Global flags: ai-sidekicks --version",
+          'Manifest: {"bin":{"ai-sidekicks" : "./dist/main.js"}}',
+          'Prose restatement: bin: "ai-sidekicks" points at the bundle.',
+          "Deep link: ai-sidekicks://invite/abc",
+        ].join("\n"),
+        // Exercises the source-scoped entry, which carries no docs glob.
+        "apps/desktop/src/main/protocol.ts": "app.setAsDefaultProtocolClient(`ai-sidekicks`);\n",
+      },
+      { paths: entries.map((e) => ({ ...e, exclude: [] })) },
+    );
+    const { hits } = runCheck(root);
+    const fired = new Set(hits.map((h) => h.deprecated));
+    const shipped = new Set(entries.flatMap((e) => e.deprecated));
+    expect(fired).toEqual(shipped);
+    for (const hit of hits) expect(hit.occurrences).toHaveLength(1);
+    cleanup();
+  });
+
   it("REGISTRY SHAPE: no deprecated entry ends with '/' (substring-match contract)", () => {
     // Codex review on PR #27 commit c09ce2f: a deprecated entry like
     // `apps/desktop/shell/` (with trailing slash) only catches the
