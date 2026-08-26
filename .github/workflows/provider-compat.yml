@@ -189,8 +189,19 @@ jobs:
             method: 'initialize',
             params: {
               clientInfo: { name: 'ai-sidekicks-provider-compat', title: null, version: '0.0.0' },
-              // Deliberately NOT experimentalApi: this probe measures what a
-              // default connection sees, which is what the driver ships as.
+              // Deliberately NOT experimentalApi: this probe measures the
+              // DEFAULT (non-experimental) generation, which is the counting
+              // basis docs/reference/provider-wire/codex.md pins its census
+              // on, so the two stay comparable.
+              //
+              // It is NOT what the driver ships as. codex.md records that
+              // `item/tool/requestUserInput` is experimental and that the
+              // Plan-005 interactive-request leg must set experimentalApi at
+              // `initialize`. Drift on that opted-in surface is therefore a
+              // NAMED GAP in this check, not something it covers. Closing it
+              // needs a second opted-in handshake asserting the experimental
+              // methods the driver actually enables — which is Plan-005's to
+              // specify, since no driver code names that set yet.
               capabilities: { experimentalApi: false, requestAttestation: false },
             },
           });
@@ -286,6 +297,27 @@ jobs:
             echo "FAIL: negative control was accepted — this probe cannot detect a rejected argument" >&2
             exit 1
           fi
+
+      # Per-channel outcome, recorded because a matrix job collapses all of its
+      # legs into ONE `result`. Without this the report cannot tell a `latest`
+      # failure from a `floor` failure, and the check cannot honour the policy
+      # it exists to enforce: above the pin warn and keep going, below the
+      # floor refuse. `always()` so a FAILED leg still reports its outcome.
+      - name: Record this leg's outcome
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/leg"
+          printf 'codex %s %s\n' '${{ matrix.channel }}' '${{ job.status }}' \
+            > "$RUNNER_TEMP/leg/outcome.txt"
+
+      - name: Upload this leg's outcome
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: leg-codex-${{ matrix.channel }}
+          path: ${{ runner.temp }}/leg/outcome.txt
+          retention-days: 7
 
   # ---------------------------------------------------------------------------
   # Claude Code: version, argument acceptance, and the control-request registry.
@@ -454,6 +486,23 @@ jobs:
           fi
           echo "  - control-request registry census: all 15 subtypes present" >> "$GITHUB_STEP_SUMMARY"
 
+      # See the codex-protocol job for why the per-channel outcome is recorded.
+      - name: Record this leg's outcome
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/leg"
+          printf 'claude %s %s\n' '${{ matrix.channel }}' '${{ job.status }}' \
+            > "$RUNNER_TEMP/leg/outcome.txt"
+
+      - name: Upload this leg's outcome
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: leg-claude-${{ matrix.channel }}
+          path: ${{ runner.temp }}/leg/outcome.txt
+          retention-days: 7
+
   # ---------------------------------------------------------------------------
   # One real turn, under the operator's own subscription, only when the secret
   # exists. This is the only leg that reaches a live handshake.
@@ -528,6 +577,13 @@ jobs:
       TRACKING_ISSUE_TITLE: "Provider CLI compatibility drift"
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
+      - name: Download the per-leg outcomes
+        if: always()
+        uses: actions/download-artifact@v4
+        with:
+          pattern: leg-*
+          path: ${{ runner.temp }}/legs
+
       - name: Classify the run
         id: classify
         env:
@@ -538,35 +594,80 @@ jobs:
           TOKEN_PRESENT: ${{ needs.secret-gate.outputs.claude-token-present }}
         run: |
           set -euo pipefail
+          # Two verdicts, deliberately distinct:
+          #   drift — something moved; open or update the tracking issue.
+          #   fatal — a SUPPORTED channel moved; additionally fail the run.
+          # Collapsing them would make every routine upstream release a red
+          # nightly, contradicting the policy this check enforces: above the
+          # pin warn and keep going, below the floor refuse.
           drift=false
+          fatal=false
+
           # secret-gate is judged first and on its own. A skipped smoke job is
           # only the documented no-secret path when the gate actually RAN and
           # published a verdict; if the gate itself failed, the smoke job also
           # skips, and reading that skip as "no secret configured" would let a
           # broken gate silently close a real drift issue.
-          for result in "$CODEX_RESULT" "$CLAUDE_RESULT" "$GATE_RESULT"; do
-            if [ "$result" != "success" ]; then drift=true; fi
-          done
-          if [ "$GATE_RESULT" = "success" ]; then
-            # A skipped smoke job is the documented no-secret path, not drift.
+          if [ "$GATE_RESULT" != "success" ]; then
+            drift=true
+            fatal=true
+          else
             if [ "$SMOKE_RESULT" != "success" ] && [ "$SMOKE_RESULT" != "skipped" ]; then
               drift=true
+              fatal=true
             fi
           fi
+
+          # Per-channel verdicts, from the artifacts each matrix leg uploaded.
+          rows=""
+          codex_legs=0
+          claude_legs=0
+          while IFS= read -r outcome_file; do
+            [ -n "$outcome_file" ] || continue
+            read -r provider channel status < "$outcome_file"
+            rows="${rows}| \`${provider}\` | \`${channel}\` | \`${status}\` |"$'\n'
+            if [ "$provider" = "codex" ]; then
+              codex_legs=$((codex_legs + 1))
+            else
+              claude_legs=$((claude_legs + 1))
+            fi
+            if [ "$status" != "success" ]; then
+              drift=true
+              # `latest` is expected to move. Only floor and pin are supported.
+              if [ "$channel" != "latest" ]; then fatal=true; fi
+            fi
+          done < <(find "$RUNNER_TEMP/legs" -name outcome.txt -type f 2>/dev/null | sort)
+
+          # Backstop: a matrix job that died before its always() upload step
+          # reports no legs at all, and must not read as "nothing failed".
+          if [ "$CODEX_RESULT" != "success" ] && [ "$codex_legs" -eq 0 ]; then
+            rows="${rows}| \`codex\` | (no legs reported) | \`${CODEX_RESULT}\` |"$'\n'
+            drift=true
+            fatal=true
+          fi
+          if [ "$CLAUDE_RESULT" != "success" ] && [ "$claude_legs" -eq 0 ]; then
+            rows="${rows}| \`claude\` | (no legs reported) | \`${CLAUDE_RESULT}\` |"$'\n'
+            drift=true
+            fatal=true
+          fi
+
           echo "drift=$drift" >> "$GITHUB_OUTPUT"
+          echo "fatal=$fatal" >> "$GITHUB_OUTPUT"
           {
             echo "## Provider CLI compatibility — run summary"
             echo
-            echo "| Leg | Result |"
+            echo "| Provider | Channel | Result |"
+            echo "| --- | --- | --- |"
+            printf '%s' "$rows"
+            echo
+            echo "| Supporting leg | Result |"
             echo "| --- | --- |"
             echo "| Secret presence gate | \`$GATE_RESULT\` |"
-            echo "| Codex protocol probes | \`$CODEX_RESULT\` |"
-            echo "| Claude surface probes | \`$CLAUDE_RESULT\` |"
             echo "| Claude authenticated smoke | \`$SMOKE_RESULT\` (secret present: \`$TOKEN_PRESENT\`) |"
             echo
             echo "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
             echo
-            echo "A failing **latest** leg is a re-pin signal for \`docs/reference/provider-wire/\`."
+            echo "A failing **latest** leg is a re-pin signal for \`docs/reference/provider-wire/\`, and does **not** fail this run."
             echo "A failing **floor** leg means the oldest supported CLI has moved and the floor itself must be raised."
           } > "$RUNNER_TEMP/report.md"
           cat "$RUNNER_TEMP/report.md" >> "$GITHUB_STEP_SUMMARY"
@@ -602,8 +703,13 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --comment "All provider-CLI compatibility legs passed on run ${GITHUB_RUN_ID}. Closing; the nightly check will reopen this issue if drift returns."
 
-      - name: Fail the run on drift
-        if: steps.classify.outputs.drift == 'true'
+      # Only a SUPPORTED channel (floor or pin) fails the run. A `latest` leg
+      # that moved has already opened or updated the tracking issue above,
+      # which is the whole reporting mechanism; failing here as well would
+      # make every routine upstream release a red nightly and contradict the
+      # above-pin "warn and keep going" policy recorded in ADR-023.
+      - name: Fail the run on supported-channel drift
+        if: steps.classify.outputs.fatal == 'true'
         run: |
-          echo "Provider-CLI compatibility drift detected; see the tracking issue." >&2
+          echo "Provider-CLI compatibility drift on a supported channel; see the tracking issue." >&2
           exit 1
