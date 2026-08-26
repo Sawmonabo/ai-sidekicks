@@ -224,11 +224,27 @@ jobs:
           if (!accountResponse) {
             failures.push('account/read: no response within 90s');
           } else if (accountResponse.error) {
-            // -32601 is JSON-RPC "method not found" — the one error that means
-            // the method itself is gone. Any other error is a legitimate
-            // authless answer and is not drift.
-            if (accountResponse.error.code === -32601) {
-              failures.push('account/read: method not found (-32601) — the method was withdrawn');
+            // Two JSON-RPC standard codes mean the METHOD moved, and both are
+            // drift. -32601 ("method not found") means it was withdrawn.
+            // -32602 ("invalid params") means it still exists but no longer
+            // accepts the request this probe sends — a params-shape change is
+            // exactly the drift this check is for, and it must not pass as a
+            // legitimate authless refusal. Every other code is an
+            // application-level answer (unauthenticated, no account
+            // configured) that an authless run is expected to produce.
+            //
+            // Verified against codex-cli 0.149.0 with an empty scratch
+            // CODEX_HOME: the authless answer is not an error at all, it is a
+            // SUCCESS result `{"account":null,"requiresOpenaiAuth":true}`.
+            // So neither code below is on the normal no-credential path and
+            // treating both as drift cannot cry wolf on an authless runner.
+            const methodDriftCodes = new Map([
+              [-32601, 'method not found (-32601) — the method was withdrawn'],
+              [-32602, 'invalid params (-32602) — the request shape this probe sends is no longer accepted'],
+            ]);
+            const drift = methodDriftCodes.get(accountResponse.error.code);
+            if (drift) {
+              failures.push(`account/read: ${drift}`);
             }
           } else if (!('account' in (accountResponse.result ?? {}))) {
             failures.push('account/read: result is missing the `account` key');
@@ -286,6 +302,12 @@ jobs:
       matrix:
         include:
           # Keep these three in step with docs/reference/provider-wire/claude.md.
+          # `floor` tracks the RATIFIED floor (2026-08-25), which is ahead of
+          # the floor Spec-005 still states normatively. That spec sentence is
+          # stale pending its own amendment; this matrix deliberately does not
+          # test the superseded value, because the ratified decision is to stop
+          # supporting it. When the spec is amended the two agree and this note
+          # comes out. See ADR-023 §Decision Log for the sequencing.
           - channel: floor
             version: "2.1.234"
           - channel: pin
@@ -386,8 +408,21 @@ jobs:
           set -euo pipefail
           # The executable is the platform-native single-file build with the
           # CLI's JavaScript bundle embedded, so the control-request subtype
-          # literals are greppable out of it. This is the same census
-          # docs/reference/provider-wire/claude.md pins.
+          # literals are greppable out of it.
+          #
+          # What this census can and cannot assert. It fails on ABSENCE only,
+          # which is the sound direction: a subtype that was removed or
+          # renamed no longer appears and is caught. Presence is necessary but
+          # NOT sufficient — a string can outlive the registry entry it names.
+          # docs/reference/provider-wire/claude.md records the precedent:
+          # `--enable-auto-mode` still matches in the bundle several releases
+          # after it was withdrawn. So a pass here means "nothing documented
+          # has vanished", never "every subtype is still dispatchable".
+          # Establishing membership needs a live control exchange, which is
+          # deliberately not attempted: on macOS the Claude credential store
+          # is Keychain-backed and user-scoped rather than HOME-scoped, so a
+          # scratch-HOME handshake is not reliably credential-free. The
+          # sufficient check therefore belongs to the authenticated smoke leg.
           binary="$(find "$CLAUDE_INSTALL_DIR/node_modules/.pnpm" -type f -name claude -size +50M | head -n 1)"
           if [ -z "$binary" ]; then
             echo "FAIL: could not locate the native Claude binary under the probe prefix" >&2
@@ -499,16 +534,24 @@ jobs:
           CODEX_RESULT: ${{ needs.codex-protocol.result }}
           CLAUDE_RESULT: ${{ needs.claude-surface.result }}
           SMOKE_RESULT: ${{ needs.claude-authenticated-smoke.result }}
+          GATE_RESULT: ${{ needs.secret-gate.result }}
           TOKEN_PRESENT: ${{ needs.secret-gate.outputs.claude-token-present }}
         run: |
           set -euo pipefail
           drift=false
-          for result in "$CODEX_RESULT" "$CLAUDE_RESULT"; do
+          # secret-gate is judged first and on its own. A skipped smoke job is
+          # only the documented no-secret path when the gate actually RAN and
+          # published a verdict; if the gate itself failed, the smoke job also
+          # skips, and reading that skip as "no secret configured" would let a
+          # broken gate silently close a real drift issue.
+          for result in "$CODEX_RESULT" "$CLAUDE_RESULT" "$GATE_RESULT"; do
             if [ "$result" != "success" ]; then drift=true; fi
           done
-          # A skipped smoke job is the documented no-secret path, not drift.
-          if [ "$SMOKE_RESULT" != "success" ] && [ "$SMOKE_RESULT" != "skipped" ]; then
-            drift=true
+          if [ "$GATE_RESULT" = "success" ]; then
+            # A skipped smoke job is the documented no-secret path, not drift.
+            if [ "$SMOKE_RESULT" != "success" ] && [ "$SMOKE_RESULT" != "skipped" ]; then
+              drift=true
+            fi
           fi
           echo "drift=$drift" >> "$GITHUB_OUTPUT"
           {
@@ -516,6 +559,7 @@ jobs:
             echo
             echo "| Leg | Result |"
             echo "| --- | --- |"
+            echo "| Secret presence gate | \`$GATE_RESULT\` |"
             echo "| Codex protocol probes | \`$CODEX_RESULT\` |"
             echo "| Claude surface probes | \`$CLAUDE_RESULT\` |"
             echo "| Claude authenticated smoke | \`$SMOKE_RESULT\` (secret present: \`$TOKEN_PRESENT\`) |"
