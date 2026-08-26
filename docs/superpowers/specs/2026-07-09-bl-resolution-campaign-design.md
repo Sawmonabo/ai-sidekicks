@@ -253,7 +253,7 @@ Per §3.5: `turbo.json` gains `"remoteCache": { "signature": true }`; both `ci.y
 | PR-B1 | Unit B docs (Spec-002, api-payload, Spec-021, cross-plan-deps, Spec-023 pointer, Plan-002 tasks + CP-002-9, Plan-008 I-008-4 + scope bullet, error-contracts mechanism note) | governance docs | Spec-002 + Spec-021 + Plan-002 flip; delta evidence; census ripple (serialize census edits vs PR-A1 at merge) |
 | PR-B1p | Spec-002 + Spec-021 + Plan-002 re-promotion | governance docs (micro) | gate citation; census restore |
 | PR-B2 | Unit B code + BL-133 archive move | lane 1 under Plan-002 (Tier 2, in-execution) | `Plan-002` title token; plan-scoped branch `feat/plan-002-*`; preflight; housekeeping manifest entry |
-| PR-C | Unit C tests + BL-131 rewrite + BL-134 annotation + Plan-003 note updates | **lane 2** | **no** plan token in title; **non**-plan-scoped branch (the lane-boundary job fails a material diff on a `*/plan-003-*` branch whose title lacks the token); `Refs: Plan-003` footer |
+| PR-C | Unit C tests + BL-131 rewrite + ~~BL-134 annotation~~ (retired 2026-08-26, unexecuted — see §1.2) + Plan-003 note updates | **lane 2** | **no** plan token in title; **non**-plan-scoped branch (the lane-boundary job fails a material diff on a `*/plan-003-*` branch whose title lacks the token); `Refs: Plan-003` footer |
 | PR-D | Unit D substrate + BL-123 update + ADR-023 coverage-job entry + failure-modes pointer fix | **lane 3** | plain conventional PR; no plan relationship; ADR edit rides under docs-corpus-gate |
 | PR-E | Unit E wiring + BL-122/ADR-023 doc fixes | **lane 3** | plain conventional PR; ADR/BL edits ride under docs-corpus-gate |
 
@@ -270,7 +270,7 @@ Per §3.5: `turbo.json` gains `"remoteCache": { "signature": true }`; both `ci.y
 | BL-131 | Tests half done; item **rewritten in place** to the gated E2E remainder with corrected rationale + completion note | Stays active (slim); archives when Tier 8 lands the E2E |
 | BL-123 | Substrate live; flips `in_progress` with the baseline protocol + artifact pointers recorded | Archives at the V1.1 threshold ADR (exit (c)/(d)) |
 | BL-122 | Wiring live; measurement window open; keep-or-revert on the data | Archives at the keep-or-revert verdict |
-| BL-134 | Dormancy annotation only | ~~Stays blocked (upstream-gated)~~ — **archived 2026-08-25** as premise-void by the clipanion terminal-pin amendment; the decision moved into `Plan-007 §Decision Log` |
+| BL-134 | ~~Dormancy annotation only~~ — **nothing: the annotation leg was retired unexecuted** (2026-08-26; no live `backlog.md` row remains to annotate) | ~~Stays blocked (upstream-gated)~~ — **archived 2026-08-25** as premise-void by the clipanion terminal-pin amendment; the decision moved into `Plan-007 §Decision Log` |
 
 ## 7. Campaign-closure corpus scan (R4)
 
