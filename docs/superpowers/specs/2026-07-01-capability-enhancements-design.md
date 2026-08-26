@@ -21,7 +21,7 @@ The campaign simultaneously repairs the **phantom-reference class** a full-corpu
 ### 1.2 Non-goals (carve-out boundary)
 
 - **Bucket-2 enhancement code (R9).** Except the bucket-1 prerequisite code (W4/B23), every code change enumerated here ships through its owning plan's own reviewed `/plan-execution` run at its natural slot — the campaign amends the governing docs those runs execute from, so each item is fully specified where it will be built.
-- **Adjacent dormant backlog items.** [BL-144](../../backlog.md) (Plan-008 SSE concurrency cap) and [BL-145](../../archive/backlog-archive.md#bl-145-approvalresolve-rate-limit-wiring-plan-012--plan-021-within-tier-ordering) (Plan-012 approval rate-limit wiring) sit next to campaign targets but are outside the 34-item corpus; the campaign's Plan-008/Plan-012 bundles stay disjoint from their scopes.
+- **Adjacent dormant backlog items.** [BL-144](../../archive/backlog-archive.md#bl-144-eventsubscribe-sse-concurrency-cap-enforcement-5-concurrentparticipant) (Plan-008 SSE concurrency cap) and [BL-145](../../archive/backlog-archive.md#bl-145-approvalresolve-rate-limit-wiring-plan-012--plan-021-within-tier-ordering) (Plan-012 approval rate-limit wiring) sit next to campaign targets but are outside the 34-item corpus; the campaign's Plan-008/Plan-012 bundles stay disjoint from their scopes.
 - **Plan-024 Phases 4–5.** CI cross-compile, signing, and the Windows default-flip remain procurement-bound ([BL-108](../../backlog.md), §6 nodes NS-09/NS-10). The campaign's new Phase 3B (§4, B16) is deliberately independent of them.
 - **Re-litigating corpus rulings.** The enhancement corpus's accuracy-reviewed rulings are adopted as-is except where this campaign's own verification passes surfaced factual corrections (§3.2) or the user issued explicit course corrections (§1.3). Each such refinement is recorded with its evidence.
 
@@ -95,7 +95,7 @@ Four parallel verification passes (phantom hunt across all 27 plans + ownership 
 
 - Plans in `review` today: 004, 008, 017, 018, 022, 025 (README census, corroborated twice; snapshot 2026-07-01 — Plan-022 promoted `review` → `approved` 2026-07-08). Plans `approved` + unshipped among targets: 006, 012, 015, 016, 027. Plan-005 `approved` with Phases 1–2 shipped. Plan-024 `approved` with Phases 1–3 shipped (manifest sealed through T-024-3-5; the I-024-1/I-024-2 kill wire-through was a documented follow-up).
 - `CP-005-7` and `CP-016-9` reciprocal-obligation tags exist in the plan files and their relationships are **already represented** in dep-map §3 — the :154 Plan-012 row names the `interactive_request` feed into the CP-012-6 normalizer (CP-005-7's reciprocal) and the :160 Plan-016 row names the `usage_telemetry` feed into the BudgetAccountant (CP-016-9). The campaign **enriches those row annotations with the explicit CP tags** (B10, B15); no new edges are minted — a provider-side Plan-005→Plan-012 edge would be a wrong-direction Tier-4→Tier-6 back-edge (adversarial corpus pass, 2026-07-02).
-- Open backlog adjacency: BL-108 (procurement; gates NS-09/NS-10 only — **not** the new Phase 3B), BL-144, BL-145 (disjoint, §1.2).
+- Open backlog adjacency: BL-108 (procurement; gates NS-09/NS-10 only — **not** the new Phase 3B), BL-144, BL-145 (disjoint, §1.2) (Census dated 2026-07-01: BL-145 was archived 2026-08-25 as a duplicate tracking surface and BL-144 the same day by the rate-limit wiring amendment, §6 node NS-80; of the three, only BL-108 is still open.)
 
 ### 3.4 CLI-surface currency audit (2026-07-02)
 
