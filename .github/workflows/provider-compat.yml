@@ -460,13 +460,14 @@ jobs:
       matrix:
         include:
           # Keep these three in step with docs/reference/provider-wire/claude.md.
-          # `floor` tracks a CANDIDATE floor, ahead of the floor Spec-005
-          # still mandates. Nothing here ratifies it: raising the floor is a
-          # Spec-005 Required Behavior change, and this leg exists to supply
-          # evidence for that amendment -- it answers "would the candidate
-          # hold?" and files drift if it would not. If the amendment settles
-          # on a different number, this leg follows the spec. See ADR-023
-          # §Decision Log for the sequencing.
+          # `floor` is the RATIFIED floor: the 2026-08-26 Spec-005 provider-CLI
+          # version-tolerance amendment raised the mandated floor to 2.1.234.
+          # This leg is REGRESSION EVIDENCE for that release, not enforcement
+          # of the floor: it installs 2.1.234 and checks its provider surfaces
+          # still answer. It runs no daemon code and has no below-floor arm --
+          # admission is enforced at spawn by the driver gate (Plan-005 T3.23).
+          # Spec-005 §Required Behavior remains the normative home of the
+          # value; this leg follows it. See ADR-023 §Decision Log.
           - channel: floor
             version: "2.1.234"
           - channel: pin
