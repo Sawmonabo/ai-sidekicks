@@ -220,6 +220,9 @@ describe("path-canonical-ripple", () => {
           "Continued: ai-sidekicks \\",
           "  daemon status",
           "/usr/local/bin/ai-sidekicks daemon status",
+          "/usr/local/bin/ai-sidekicks --help",
+          "./ai-sidekicks \\",
+          "  session list",
         ].join("\n"),
       },
       { paths: [{ ...entry, exclude: [] }] },
@@ -230,10 +233,17 @@ describe("path-canonical-ripple", () => {
     // so the needle that catches it matches the trailing-backslash signature
     // rather than the invocation spanning two lines. Line 6 (the verb on its
     // own line) is correctly NOT flagged: it carries no executable name.
-    // Line 7 is the path-qualified invocation. It is invisible to the verb
-    // needle, whose prefix guard must reject a leading `/` so that repo-slug
-    // prose does not fire; the path-anchored needle is the one that sees it.
-    expect(new Set(flagged)).toEqual(new Set([1, 2, 3, 4, 5, 7]));
+    // Lines 7, 8 and 9 are the three path-qualified spellings: verb,
+    // global-flag, and continuation. All three carry a leading `/`, the one
+    // character the prefix guard's plain arm must reject so that repo-slug
+    // prose does not fire — they are seen because that guard has a SECOND,
+    // path-anchored arm, and because every invocation needle shares the same
+    // guard. An earlier design put the path anchor on its own needle carrying
+    // only the verb alternation, which passed this test with line 7 alone
+    // while lines 8 and 9 ran green and unmatched. They are asserted here so
+    // that regression cannot recur silently. Line 10 is the continuation's
+    // second line and is correctly NOT flagged: it carries no executable.
+    expect(new Set(flagged)).toEqual(new Set([1, 2, 3, 4, 5, 7, 8, 9]));
     cleanup();
   });
 
@@ -267,6 +277,31 @@ describe("path-canonical-ripple", () => {
           // bare slash.
           "The owner/ai-sidekicks config lives in the repo.",
           "See github.com/owner/ai-sidekicks run history for details.",
+          // The same slug behind a URL scheme. The guard's path arm readmits
+          // a slash behind a filesystem anchor, and `https://github.com/...`
+          // presents one: the `//` after the scheme. Excluding `:` from the
+          // arm's own boundary class is what rejects these two — without it
+          // the arm turns every repo URL followed by a verb into a hit.
+          "See https://github.com/Sawmonabo/ai-sidekicks run history.",
+          "Clone from https://github.com/owner/ai-sidekicks config branch.",
+          // A scoped package path. The `@` is excluded from the path arm's
+          // boundary class for the same reason it is excluded from the plain
+          // arm: an npm scope is not an executable.
+          "See ./node_modules/@ai-sidekicks/cli run notes.",
+          // PLACEHOLDER slugs. These are the forms that broke a first draft of
+          // the path arm: written as "any non-word character then a slash",
+          // the `>` of `<owner>/` and the `}` of `{owner}/` both qualified as
+          // the anchor's boundary, so documentation that spells a slug with a
+          // placeholder — which this corpus does, in a package-registry
+          // command and in this gate's own write-ups — became a hit. The arm
+          // now enumerates the characters that may PRECEDE a path (start of
+          // line, whitespace, quote, backtick, open paren, `=`, `[`) rather
+          // than subtracting the ones that may not: a closing bracket is not
+          // one of them, and an open-ended exclusion can never enumerate
+          // every punctuation mark a future author will use.
+          "npm trust github pkg --repository <owner>/ai-sidekicks --environment production",
+          "The doc covered <path>/ai-sidekicks --help and its siblings.",
+          "Template prose: {owner}/ai-sidekicks run history is the URL shape.",
           // Object-, array-, and identifier-valued keys spelling the
           // unchanged project name. Key position alone flagged all three;
           // the bin-map needle requires a STRING value for exactly this.
@@ -422,9 +457,10 @@ describe("path-canonical-ripple", () => {
 
     const { root, cleanup } = setupRepo(
       {
-        // Exercises the docs-scoped entry: verb, flag-first, JSON key,
-        // prose `bin` shorthand, deep-link scheme, line continuation, and the
-        // path-qualified invocation.
+        // Exercises the docs-scoped entry in its BARE spelling: verb,
+        // flag-first, JSON key, prose `bin` shorthand, deep-link scheme, and
+        // line continuation. The path-qualified spellings live in the sibling
+        // file below.
         "docs/plans/007.md": [
           "Run `ai-sidekicks  daemon status` after install.",
           "Global flags: ai-sidekicks --version",
@@ -433,7 +469,17 @@ describe("path-canonical-ripple", () => {
           "Deep link: ai-sidekicks://invite/abc",
           "Continued invocation: ai-sidekicks \\",
           "  daemon status",
-          "Path-qualified: /usr/local/bin/ai-sidekicks daemon status",
+        ].join("\n"),
+        // Path-qualified spellings of the SAME three invocation signatures.
+        // They live in their own file so the per-hit `toHaveLength(1)`
+        // assertion below stays meaningful: a needle firing on both the bare
+        // and the path form legitimately produces two occurrences, and one
+        // occurrence per FILE is the property worth pinning.
+        "docs/plans/007-paths.md": [
+          "Path verb: /usr/local/bin/ai-sidekicks daemon status",
+          "Path flag: ~/bin/ai-sidekicks --version",
+          "Path continuation: ./ai-sidekicks \\",
+          "  session list",
         ].join("\n"),
         // Exercises the source-scoped entry, which carries no docs glob.
         "apps/desktop/src/main/protocol.ts": "app.setAsDefaultProtocolClient(`ai-sidekicks`);\n",
@@ -455,7 +501,16 @@ describe("path-canonical-ripple", () => {
     const fired = new Set(hits.map((h) => h.deprecated));
     const shipped = new Set(entries.flatMap((e) => e.deprecated));
     expect(fired).toEqual(shipped);
-    for (const hit of hits) expect(hit.occurrences).toHaveLength(1);
+    // Each needle fires exactly once per file. The three guard-carrying
+    // invocation needles each hit twice overall — once on the bare fixture,
+    // once on the path-qualified one — which is the point of the second file.
+    for (const hit of hits) {
+      const perFile = new Map<string, number>();
+      for (const occurrence of hit.occurrences) {
+        perFile.set(occurrence.file, (perFile.get(occurrence.file) ?? 0) + 1);
+      }
+      for (const count of perFile.values()) expect(count).toBe(1);
+    }
     cleanup();
   });
 
