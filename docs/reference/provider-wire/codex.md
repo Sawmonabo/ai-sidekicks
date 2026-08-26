@@ -14,7 +14,7 @@ Pinned wire reference for the Codex `app-server` JSON-RPC protocol as driven by 
 
 **Trust framing (read before citing any shape below).** Every shape in this file is **Verified** trust **at `0.149.1`**, on **Generated schema** provenance unless a claim says otherwise. Unlike the previous pin, this one _is_ the current `latest` — so there is no newer stable to read it against today, and the Provisional-beyond-the-pin caveat attaches to whatever release lands next rather than to one that already exists. Codex ships a minor every 1–2 weeks plus near-daily alphas (the `alpha` dist-tag stood at `0.150.0-alpha.11` at authoring), so a consumer re-verifies its load-bearing shapes against the then-installed binary rather than trusting this pin.
 
-**Additive-only across the floor.** Measured by set difference between the `0.141.0` and `0.149.1` default generations, both installed from the npm registry at their exact versions and generated into scratch `CODEX_HOME`s: `ClientRequest` 88 → 98 methods (**+10, none removed**), `ServerNotification` 67 → 77 (**+10, none removed**), `ServerRequest` 10 → 10, `ClientNotification` 1 → 1. No method string the floor speaks was withdrawn. The breaks over that span are **type-level, not method-level** — see [Breaking type changes across the floor](#breaking-type-changes-across-the-floor). Counting basis is the one the family README fixes: default (non-experimental) generation, one entry per arm of the generated union root.
+**Additive-only across the floor.** Measured by set difference between the `0.141.0` and `0.149.1` default generations, both installed from the npm registry at their exact versions and generated into scratch `CODEX_HOME`s: `ClientRequest` 85 → 95 methods (**+10, none removed**), `ServerNotification` 66 → 75 (**+9, none removed**), `ServerRequest` 10 → 10, `ClientNotification` 1 → 1. No method string the floor speaks was withdrawn. The breaks over that span are **type-level, not method-level** — see [Breaking type changes across the floor](#breaking-type-changes-across-the-floor). Counting basis is the one the family README fixes: default (non-experimental) generation, one entry per arm of the generated union root.
 
 ## Regeneration
 
@@ -34,7 +34,7 @@ The wire has two coexisting method-naming styles at `0.149.1` (the shapes below 
 - **Legacy — bare camelCase, no slash.** A small residual set: client requests `initialize`, `fuzzyFileSearch`; server requests `execCommandApproval`, `applyPatchApproval`; the client notification `initialized`; server notifications `error`, `warning`, `configWarning`, `deprecationNotice`, `guardianWarning`.
 - **Modern — slash-namespaced paths** (their generated types live under `v2/`). This is where the capability surface this project drives lives: `thread/*`, `turn/*`, `account/*`, `config/*`, `mcpServer*/*`, `permissionProfile/*`, `review/start`. Note the paths are slash-namespaced method strings (e.g. `thread/rollback`); they are **not** prefixed with a literal `v2/` on the wire — the `v2/` is the generated-file layout, not a method-string segment.
 
-`ClientRequest` at `0.149.1` unions 98 client-request methods across both styles.
+`ClientRequest` at `0.149.1` unions 95 client-request methods across both styles.
 
 ## The experimental gate — a runtime filter, not a schema filter
 
@@ -44,18 +44,22 @@ The wire has two coexisting method-naming styles at `0.149.1` (the shapes below 
 
 | Union root | Default generation | `--experimental` generation | Difference |
 | --- | --- | --- | --- |
-| `ClientRequest` | 98 | 153 | **+55**, including all six `thread/realtime/*` client requests |
+| `ClientRequest` | 95 | 150 | **+55**, including all six `thread/realtime/*` client requests |
 | `ServerRequest` | 10 | 11 | +1 (`currentTime/read`) |
-| `ServerNotification` | 77 | 77 | **none — the two sets are identical** |
+| `ServerNotification` | 75 | 75 | **none — the two sets are identical** |
 | `ClientNotification` | 1 | 1 | none |
+
+The same comparison at the **floor** shows the identical asymmetry — `ClientRequest` 85 vs 119 experimental (+34), `ServerNotification` 66 vs 66 **identical** — so this is the mechanism's steady behavior across the supported range, not an artifact of one release.
 
 So for **requests**, the default schema is honest: what it omits, a default connection genuinely cannot call. For **notifications**, the default schema tells you nothing — every experimental notification is in it. The gate for notifications therefore has to live at runtime, and it does.
 
 `initialize` carries `capabilities: InitializeCapabilities | null`, whose first field is `experimentalApi: boolean` ("Opt into receiving experimental API methods and fields", verbatim from the generated `InitializeCapabilities.ts`). The upstream source at `rust-v0.149.1` shows what that flag gates on the outbound path (Upstream source provenance, Verified — `codex-rs/app-server/src/transport.rs`, `should_skip_notification_for_connection`): the function returns `true` — skip — when `envelope.notification.experimental_reason().is_some()` and the connection's `experimental_api_enabled` is unset. The notification is dropped silently, with no error, no `deprecationNotice`, and no signal of any kind that the client is missing events.
 
-At `0.149.1`, **19 of the 77 default-generated server notifications are gated**: all eight `thread/realtime/*` (see below), plus `thread/reverted`, `thread/queue/changed`, `project/changed`, `thread/project/updated`, `thread/environment/connected`, `thread/environment/disconnected`, `thread/settings/updated`, `autoApprovalReview/strictReviewRequired`, `process/outputDelta`, `process/exited`, and `turn/moderationMetadata`. A driver that reads the generated `ServerNotification` union as its delivery contract will therefore expect roughly a quarter of the notification surface it never receives.
+At `0.149.1`, **19 of the 75 default-generated server notifications are gated**: all eight `thread/realtime/*` (see below), plus `thread/reverted`, `thread/queue/changed`, `project/changed`, `thread/project/updated`, `thread/environment/connected`, `thread/environment/disconnected`, `thread/settings/updated`, `autoApprovalReview/strictReviewRequired`, `process/outputDelta`, `process/exited`, and `turn/moderationMetadata`. A driver that reads the generated `ServerNotification` union as its delivery contract will therefore expect roughly a quarter of the notification surface it never receives.
 
 **Why 19 is a total and not a floor.** `experimental_reason()` has two sources, and both were checked. A variant may carry an explicit `#[experimental(…)]` marker in the `server_notification_definitions!` block — 19 do, enumerated above. Failing that, `experimental_reason_expr!` falls through to the **params type's** own `ExperimentalApi` implementation, so a variant with no marker of its own is still gated if its params type is. At this pin that fallthrough contributes nothing: of the 30 types deriving `ExperimentalApi` across `app-server-protocol/src/protocol/v2/`, **none is a notification params type** (they are request params, responses, and config structs — `TurnStartParams` among them). Re-verifying this count means re-running both checks, not just grepping for the attribute.
+
+**Source declares 77; the binary generates 75 — count the generated schema.** The `server_notification_definitions!` invocation at `rust-v0.149.1` lists 77 variants, but the `0.149.1` binary's own default generation emits 75 arms. The two that do not reach the schema are `rawResponse/completed` and `rawResponseItem/completed`; **neither carries an experimental marker**, so the numerator above is unaffected and the denominator is the generated 75, per this family's counting basis. Anyone re-deriving 19-of-N from the source block alone will get the wrong denominator.
 
 `InitializeCapabilities` also carries `optOutNotificationMethods?: Array<string> | null` — "Exact notification method names that should be suppressed for this connection" — evaluated by the same function. Suppression is thus **two-sourced**: the experimental marker, and the client's own opt-out list.
 
