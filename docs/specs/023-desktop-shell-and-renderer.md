@@ -163,7 +163,7 @@ interface SidekicksBridge {
     ): Unsubscribe;
   };
 
-  // control-plane RPC — request/response over tRPC; presence/collaboration events over WebSocket JSON-RPC 2.0 (relay traffic rides Spec-008's binary wire frames, not JSON-RPC). Session-timeline / run-output streams are tRPC SSE per Spec-008 — this bridge does not yet expose them; a typed `subscribe` surface lands with the plan wiring renderer control-plane subscriptions (the contracts bridge shape in `packages/contracts` is verbatim-bound to this block)
+  // control-plane RPC — request/response over tRPC; presence/collaboration events over WebSocket JSON-RPC 2.0 (relay traffic rides Spec-008's binary wire frames, not JSON-RPC). Session-timeline / run-output streams are tRPC SSE per Spec-008 — this bridge does not yet expose them; a typed `subscribe` surface lands with the plan wiring renderer control-plane subscriptions (the contracts bridge shape in `packages/contracts` is verbatim-bound to this block; that binding fixes the **Tier-1** shape, and a Tier-8 namespace joins it only where a spec section names its owner — `invite` above, delegated by §Deep-Link Invite Flow to Plan-023, and `onboarding`, delegated by `Spec-026 §Desktop Surface` to Plan-023 for the surface and Plan-026 for the flow body. A namespace with no such named delegation is drift)
   controlPlane: {
     call<P extends CpProcedure>(procedure: P, input: CpInput<P>): Promise<CpOutput<P>>;
     subscribeRelay(sessionId: SessionId, handler: RelayEventHandler): Unsubscribe;
@@ -194,6 +194,16 @@ interface SidekicksBridge {
     subscribe(handler: (state: UpdateState) => void): Unsubscribe;
     requestCheck(): Promise<void>;
     requestRestart(): Promise<void>;
+  };
+
+  // deep-link invite confirmation — main confines the token and hands the renderer
+  //   an opaque, single-use, TTL-bounded reference; see §Deep-Link Invite Flow
+  invite: {
+    subscribePending(handler: (state: PendingInviteState) => void): Unsubscribe;
+    subscribeOutcome(handler: (outcome: InviteOutcome) => void): Unsubscribe;
+    confirmPending(reference: PendingInviteRef): Promise<void>;
+    retryPending(attempt: InviteAttemptRef): Promise<void>;
+    dismissPending(reference: PendingInviteRef): Promise<void>;
   };
 
   // app meta — read-only
