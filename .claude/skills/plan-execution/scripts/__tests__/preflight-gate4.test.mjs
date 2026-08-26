@@ -3692,7 +3692,19 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // fact, while the absolute figure is re-read from a live `preflight.mjs
     // --survey` on the rebased tree at every rebase, never reconciled by
     // arithmetic against a predecessor bullet.
-    bold: { resolved: 928, noneArm: 159, parentResolved: 0 },
+    // 928/159 -> 930/159 bold, legacy unchanged at 64 (2026-08-26, the relay
+    // TTL-sweep disposition amendment — §6 node NS-82, landing after NS-76
+    // above; the baseline is stated post-rebase and the figure is read off a
+    // live survey run on the rebased tree, never reconciled by arithmetic
+    // against a predecessor bullet): no new task. Plan-014's T14.8 gains a
+    // relay-side liveness leg and its existing bold RESOLVED `Verifies
+    // invariant:` row grows I-014-3, I-014-4, I-014-6, I-014-8, I-014-9,
+    // I-014-10 -> that set plus I-014-5, and T14.9's row grows its four ids by
+    // the newly minted I-014-15 — two more bold resolved id references. Both
+    // legs land as single marker blocks on their tasks' last continuation
+    // paragraph (the pre-existing T14.8 shape), so no marker block is added or
+    // removed, no none-arm moves, and the legacy channel is untouched.
+    bold: { resolved: 930, noneArm: 159, parentResolved: 0 },
     legacy: { resolved: 64, noneArm: 3, parentResolved: 1 },
   });
 });
