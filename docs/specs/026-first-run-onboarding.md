@@ -241,7 +241,7 @@ This spec's two onboarding events are registered in [Spec-006](./006-session-eve
 
 Payloads must not contain secret material (no tokens, no SPKI pin raw bytes — the pin is stored in config, not events).
 
-**The provider-authentication step group emits no event, and this spec's `onboarding_lifecycle` category does not grow.** The provider-account registry is node-local, non-evented daemon configuration ([Spec-029 §State And Data Implications](029-provider-accounts-and-credential-homes.md#state-and-data-implications)), and the seen-and-settled marker is config. Emitting a provider-setup event would place node-local account facts into a session-scoped, relayed, durable log they are deliberately excluded from. The two existing `onboarding.*` events are unchanged in name, payload, and category.
+**The provider-authentication step group emits no event, and this spec's `onboarding_lifecycle` category does not grow.** The provider-account registry is node-local, non-evented daemon configuration ([Spec-029 §State And Data Implications](029-provider-accounts-and-credential-homes.md#state-and-data-implications)), and Group B writes nothing of its own beside it — no config key, no marker, no partial-state entry (§Provider Authentication (Group B), §State And Data Implications). Emitting a provider-setup event would place node-local account facts into a session-scoped, relayed, durable log they are deliberately excluded from. The two existing `onboarding.*` events are unchanged in name, payload, and category.
 
 ## State And Data Implications
 

@@ -5176,7 +5176,14 @@ interface ProviderReadiness {
   provider: "claude" | "codex";
   state: ProviderReadinessState;
   resolvedAccountId?: ProviderAccountId; // present iff resolution reached exactly one account
-  observedAt?: string; // RFC 3339 UTC of the STORED observation; absent iff no probe has been taken
+  // RFC 3339 UTC of the STORED observation this entry's state was read from. Absent in exactly two
+  // cases, both about THIS resolution rather than about the node's probe history: resolution reached
+  // no account (`no_account`, `no_default`), so there is no row to have observed — on `no_default`
+  // the candidates may well have been probed, and their timestamps are deliberately not summarized
+  // into one here, since averaging or picking among them would report an observation of an account
+  // this reply did not resolve — or resolution reached an account whose observation pair is still
+  // unset. Absence therefore never means "no probe has ever been taken on this node".
+  observedAt?: string;
   // Schema-optional, PRODUCER-OBLIGATED on the `resendDisposition` precedent (Spec-004 §Required
   // Behavior): the daemon populates it on every non-authenticated arm and omits it on
   // `authenticated`. Optional at parse because the state alone does not make requiredness
@@ -5191,9 +5198,11 @@ interface ProviderReadiness {
 // Operator-facing guidance that happens to travel structured. The disclosure rule (Spec-029 §Node
 // provider readiness and the sign-in handoff) governs it UNCHANGED and binds the READER: these
 // values reach an operator's screen and NEVER an event payload, a relayed payload, a log line, or a
-// refusal envelope. `providerAccount.list` is node-local and node-operator-authorized, which is the
-// only reason a daemon-owned path may cross it at all — this shape must not be reused on any
-// surface reachable by a session participant.
+// refusal envelope. `providerAccount.list` is node-local and takes the SAME node-operator gate as
+// the mutating verbs — not the laxer read gate a list verb would otherwise get — and that gate is
+// the only reason a daemon-owned path may cross this reply at all (Spec-029 §Authorization Posture;
+// enforced and tested by Plan-029 T2.5, the task that makes the reply disclose one). This shape
+// must not be reused on any surface reachable by a session participant.
 //
 // A UNION rather than one shape, because the remedy is "the operator's next action" and the three
 // non-authenticated classes have three different next actions with three different producible
@@ -5235,6 +5244,17 @@ interface ProviderSignInRemedy {
 
 interface ProviderAccountListRequest {
   provider?: "claude" | "codex";
+  // Scopes the readiness derivation to ONE account instead of the provider's default. It exists for
+  // a single caller: a run refused on the account plane while bound to a per-run account override
+  // (Spec-029 §Node provider readiness and the sign-in handoff). Without it the post-refusal remedy
+  // would necessarily describe the provider DEFAULT — a different account from the one that failed,
+  // whose home and sign-in state may be entirely healthy — and the operator would be handed a
+  // remedy for something that is not broken. When present, resolution is pinned to this account:
+  // the two registry-shape arms cannot occur (an account was named), and the reply's single
+  // readiness entry carries that account's stored reading. An unknown or removed id refuses with
+  // the already-registered `provideraccount.unknown` rather than silently falling back to the
+  // default, which would re-introduce exactly the wrong-account remedy this member removes.
+  accountId?: ProviderAccountId;
 }
 interface ProviderAccountListResponse {
   accounts: ProviderAccount[];
@@ -5242,7 +5262,10 @@ interface ProviderAccountListResponse {
   // shipped, so ADR-018's additive-optional rule for already-published shapes does not bind it — the
   // same reading the Tier-8 audit's new shapes carry. A reply that could omit readiness would push
   // every client back into deriving it locally, which I-029-9 exists to prevent.
-  readiness: ProviderReadiness[]; // exactly one entry per provider the request selects: never zero, never two
+  // Exactly one entry per provider the request selects: never zero, never two. With `accountId`
+  // supplied the selection is that account's provider, so the reply still carries exactly one entry
+  // — derived against the named account rather than the provider default.
+  readiness: ProviderReadiness[];
 }
 
 interface ProviderAccountRegisterRequest {
