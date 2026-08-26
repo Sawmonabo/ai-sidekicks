@@ -457,9 +457,16 @@ jobs:
         run: pnpm turbo run test:coverage --filter='!@ai-sidekicks/control-plane'
 
       - name: Coverage (doc-corpus tooling)
+        # `!cancelled()` (not the default success condition) so a red suite in an
+        # earlier tier still yields this tier's report. vitest is configured with
+        # `reportOnFailure: true`, which only pays off if the step actually runs.
+        if: ${{ !cancelled() }}
         run: pnpm exec vitest run --root tools/docs-corpus --coverage
 
       - name: Setup Node.js 24 (control-plane tier)
+        # Must carry the same condition as the tier it sets up: if this were
+        # skipped while the tier below ran, control-plane would measure on Node 22.
+        if: ${{ !cancelled() }}
         uses: actions/setup-node@v5
         with:
           node-version: "24"
@@ -469,6 +476,7 @@ jobs:
           package-manager-cache: false
 
       - name: Coverage (Node 24 tier — control-plane only)
+        if: ${{ !cancelled() }}
         run: pnpm turbo run test:coverage --filter='@ai-sidekicks/control-plane'
 
       # Renders one markdown table into the job summary. Writing the numbers to
@@ -477,6 +485,10 @@ jobs:
       # carries the required `ci-gate` — see the script header for the full
       # rationale and the named upgrade path.
       - name: Render coverage summary
+        # The renderer is fail-closed on a root that declares `test:coverage` and
+        # produced no report, so on a red run it reports the real partial state
+        # rather than being skipped into silence.
+        if: ${{ !cancelled() }}
         run: node tools/coverage-report.mjs
 
       # The durable pointers BL-123 exit criterion (b) asks for: lcov + json
@@ -491,7 +503,10 @@ jobs:
             packages/*/coverage/
             apps/*/coverage/
             tools/docs-corpus/coverage/
-          retention-days: 30
+          # 90, not the 30-day default: BL-123 exit (b) calls these artifacts the
+          # durable pointer for a >=5-PR sampling window, and that window can
+          # outlive 30 days. 90 is the ceiling for a private repo's default plan.
+          retention-days: 90
           if-no-files-found: error
 
   ci-gate:
