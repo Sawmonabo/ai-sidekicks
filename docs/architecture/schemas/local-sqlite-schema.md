@@ -1721,8 +1721,16 @@ CREATE TABLE provider_accounts (
                         CHECK(billing_mode IN ('subscription', 'metered', 'unknown')),  -- how this account is charged; `unknown` is the honest-absence arm, never a synonym for metered; drives cost labeling, never cost derivation (Spec-029 §Billing mode)
   is_default            INTEGER NOT NULL DEFAULT 0
                         CHECK(is_default IN (0, 1)),  -- exactly one default per provider, enforced by the partial unique index below
+  health_state          TEXT
+                        CHECK(health_state IS NULL OR health_state IN ('authenticated', 'reauth_required', 'home_missing', 'indeterminate')),  -- the STORED outcome of the last validation of this account: the driver's authentication probe reading together with the credential-home observation taken at that same moment. NULL until a probe has ever been taken, which the wire renders as `indeterminate` — NOT as a failure and never as authenticated (I-029-9, I-029-10). This is the column the readiness projection reads; a registry read never re-derives it, so a read spawns no provider process and opens no credential file (Spec-029 §Node provider readiness and the sign-in handoff).
+  health_observed_at    TEXT,  -- RFC 3339 UTC of the observation `health_state` records, written by the same act. NULL exactly when `health_state` is NULL, so the pair is set and cleared together; surfaced as `ProviderReadiness.observedAt` so a caller can apply its own age test. Deliberately NOT `updated_at`, which is NOT NULL and moves on any row mutation — a relabel would report an operator's display-label edit as a fresh authentication observation.
   created_at            TEXT NOT NULL,
-  updated_at            TEXT NOT NULL
+  updated_at            TEXT NOT NULL,
+  -- The stored observation is a PAIR, and the pair is enforced rather than asserted: a reading with
+  -- no observation time cannot answer `observedAt`, and an observation time with no reading is a
+  -- timestamp for nothing. Either half-populated row would make the readiness projection serve an
+  -- incoherent observation, so the database refuses both instead of leaving it to every writer.
+  CHECK ((health_state IS NULL) = (health_observed_at IS NULL))
 );
 
 -- Exactly one default account per provider (I-029-5). A partial unique index rather than
