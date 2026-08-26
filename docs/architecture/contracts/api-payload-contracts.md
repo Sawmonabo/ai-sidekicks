@@ -963,8 +963,11 @@ interface DriverInterventionResult {
 // session position (the same turn/event ordinal vocabulary `DriverResumeResult.sessionPosition`
 // reports); the intervention-layer `targetPosition` (Spec-004 rollback content, campaign B2 —
 // a named merge prerequisite before any rollback emitter exists) maps onto this driver ordinal.
-// Codex leg: `thread/rollback` (drop-N-turns — the driver computes the drop count from the
-// ordinal delta); Claude leg: `--resume-session-at <message-uuid>` + `--fork-session` composed.
+// Codex leg: `thread/fork` at an inclusive `lastTurnId` — the driver resolves `position` to the
+// boundary turn id, never to a drop count, so a re-dispatch names the same boundary rather than
+// recomputing a delta (rebound 2026-08-26: `thread/rollback` is deprecated in the generated
+// Codex type; Spec-005 §Parity Capability Mechanism Grades is the mechanism's home). Claude leg:
+// `--resume-session-at <message-uuid>` + `--fork-session` composed.
 // Conversation state ONLY: file-state restore is the daemon's turn-snapshot git leg (Plan-010),
 // never the driver's — the Codex protocol schema itself notes rollback does not revert local
 // file changes.
@@ -977,7 +980,7 @@ interface RollbackToParams {
 type DriverRollbackResult =
   // A successful rollback without a confirmed floor is structurally inexpressible (mirrors
   // `DriverResumeResult`): position-compares consume it per Spec-015 via campaign B5/B14.
-  | { status: "applied"; sessionPosition: number; bindingId?: string } // sessionPosition: REQUIRED driver-confirmed post-rollback position — the new authoritative recovery floor. Untrusted driver output: the daemon domain-validates it like the request target (integer ≥ 0, recorded boundary, strictly below the pre-rollback position) before trusting it — an invalid or no-op report is a no-rewind failure, never a run.rolled_back — with the file-leg recovery carve-out excepted: on a recovery-admitted current-position target the driver's convergence no-op (sessionPosition == targetPosition, no movement) IS the confirmed floor and the composite proceeds to the fixpoint restore (Spec-004 §Required Behavior). bindingId (campaign B2): present iff the mechanism minted a new provider binding for the same run (Claude fork-composed leg) — the store-minted surrogate of a binding row already registered (provider resume_handle + runtime metadata) through the relaunch pattern's write seam before the result returned, never itself a resume handle; the daemon repoints the run's live binding on receipt; absent on an in-place rollback (Codex thread/rollback); runtime-bounded (length + non-whitespace + NUL-rejection) like `DriverResumeResult.bindingId` — the trust-boundary header's twelve-string enumeration above
+  | { status: "applied"; sessionPosition: number; bindingId?: string } // sessionPosition: REQUIRED driver-confirmed post-rollback position — the new authoritative recovery floor. Untrusted driver output: the daemon domain-validates it like the request target (integer ≥ 0, recorded boundary, strictly below the pre-rollback position) before trusting it — an invalid or no-op report is a no-rewind failure, never a run.rolled_back — with the file-leg recovery carve-out excepted: on a recovery-admitted current-position target the driver's convergence no-op (sessionPosition == targetPosition, no movement) IS the confirmed floor and the composite proceeds to the fixpoint restore (Spec-004 §Required Behavior). bindingId (campaign B2): present iff the mechanism minted a new provider binding for the same run — the store-minted surrogate of a binding row already registered (provider resume_handle + runtime metadata) through the relaunch pattern's write seam before the result returned, never itself a resume handle; the daemon repoints the run's live binding on receipt. Under the 2026-08-26 Codex rebinding **both V1 legs mint one** — Claude `--resume-session-at` + `--fork-session`, and Codex `thread/fork`, which mints a new thread and repoints the run's live binding in the same operation — so a V1 driver reporting `applied` without it is reporting an unrecorded binding. The member stays optional for a future in-place mechanism, not for either shipped leg; runtime-bounded (length + non-whitespace + NUL-rejection) like `DriverResumeResult.bindingId` — the trust-boundary header's twelve-string enumeration above
   | { status: "degraded"; fallbackAction?: string };
 
 // Session-goal injection (campaign B3). `goalText` is the daemon-rendered textual form of the
@@ -1272,8 +1275,11 @@ interface NormalizedProviderToolMetadata {
 // string (untrusted provider output on the nominal `GetCapabilitiesResult` return — bounded at
 // the Plan-005 write seam like `contractVersion`, not the Zod trust boundary); `semver` is the
 // driver-parsed normalized MAJOR.MINOR.PATCH the daemon compares against its configured
-// per-driver floor (mechanical enforcement at attach/refresh; V1 shipped floors: Claude Code
-// 2.1.198, codex-cli 0.141.0 — the 2026-07-02 CLI-currency audit pair). `semver` is REQUIRED,
+// per-driver floor (mechanical enforcement at attach/refresh; V1 floors: Claude Code 2.1.234,
+// codex-cli 0.141.0 — set by Spec-005 §Required Behavior, which is also where the raise from
+// 2.1.198 to 2.1.234 is recorded; a floor is stated by that spec, a pin is cited from the
+// provider-wire reference family, and neither is restated here). Both values are read from
+// the version the SPAWNED process reports in-band, not from a launcher symlink. `semver` is REQUIRED,
 // so an unparseable version is unrepresentable in this shape — the driver fails the report
 // fail-closed and attach refuses as `driver.cli_version_unparseable`; a parseable version
 // below the configured floor refuses as `driver.cli_version_below_floor` (Spec-005 §Required
@@ -1307,7 +1313,26 @@ interface GetCapabilitiesResult {
   capabilities: DriverCapabilities;
   tools: ProviderToolMetadata[];
   cliVersion: DriverCliVersionReport;
+  // Per-flag provenance of the reading above (2026-08-26 provider-CLI version-tolerance
+  // amendment, Spec-005 §Required Behavior). `probed` means decided against the installed
+  // build by a zero-turn probe whose negative control still refused; `static` means declared
+  // from the driver's own per-driver table, which Spec-005 admits only where the flag has no
+  // ADMISSIBLE probe -- zero-turn, non-mutating, and decisive at the consumed granularity --
+  // and requires the mechanism table to name the conjunct that fails. Sibling of `cliVersion` for the same reason `cliVersion` is
+  // one: it is a property of THIS reading, not of a capability, so `DriverCapabilities` stays
+  // pure (flags + contractVersion). ADDITIVE-OPTIONAL and LIVE-SCOPED, not required — present
+  // and TOTAL over the flag set whenever the wrapper is a live driver read; absent exactly
+  // when it was reconstructed by `DriverCapabilitiesWriter.hydrate()` from the durable cache,
+  // which persists flag VALUES for change detection and NOT provenance (so no column is
+  // minted, and a required member would be unsatisfiable on that path). Absence therefore
+  // reads as "cache reconstruction", never as "unknown provenance" — a consumer that needs
+  // provenance re-reads the driver. Driver-side only: deliberately NOT mirrored into
+  // `CapabilityDetails` (same carve-out as `cliVersion`) and NOT carried on the client-facing
+  // `driver.listCapabilities` payload, which is unwidened.
+  detectionSource?: Record<DriverCapabilityFlag, CapabilityDetectionSource>;
 }
+
+type CapabilityDetectionSource = "static" | "probed";
 ```
 
 ### Plan-006 — Session Event Taxonomy

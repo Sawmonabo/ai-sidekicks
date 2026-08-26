@@ -3729,7 +3729,17 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // ninth, Plan-013 T4.9, is a renderer-only consumer leg that asserts on
     // the `none` arm, for +1 none-arm marker. The legacy compact-inline
     // channel is untouched.
-    bold: { resolved: 948, noneArm: 158, parentResolved: 0 },
+    // 948/158 -> 951/158 bold, legacy unchanged at 64 (2026-08-26, the
+    // provider-CLI version-tolerance amendment — §6 node NS-85, landing after
+    // NS-84 above; the baseline is stated post-rebase and the figure is read
+    // off a live `preflight.mjs --survey` run on the rebased tree, never
+    // reconciled by arithmetic against a predecessor bullet): three new
+    // Plan-005 Phase-3 tasks (T3.23/T3.24/T3.25), each its own marker block
+    // carrying a RESOLVED single-id arm on the new I-005-10, for +3 bold
+    // resolved id references. No existing row's id set changes, nothing moves
+    // on or off the `none` arm, and the legacy compact-inline channel is
+    // untouched — so noneArm holds at 158 while resolved alone moves.
+    bold: { resolved: 951, noneArm: 158, parentResolved: 0 },
     legacy: { resolved: 64, noneArm: 3, parentResolved: 1 },
   });
 });
