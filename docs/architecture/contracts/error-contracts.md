@@ -366,7 +366,7 @@ The `workflow.start_denied` row landed as the first entry of the extension the s
 
 ### Driver
 
-Driver codes ride the daemon JSON-RPC wire with notional HTTP statuses, with **one exception recorded here rather than only in its row**: `driver.text_neutralization_failed` rides no **error** envelope on any path. It lands as the leading token of `providerFailureDetail` on the run's `run.failed` event, and — on the intervention path only, where a caller exists — additionally as the closed-literal `DriverInterventionResult.refusalCode` on that caller's ordinary result (`Spec-005 §Required Behavior`). Its status column is therefore notional in place of _any_ error response, not merely in place of an HTTP one.
+Driver codes ride the daemon JSON-RPC wire with notional HTTP statuses, with **one exception recorded here rather than only in its row**: `driver.text_neutralization_failed` rides no **error** envelope on any path. It lands as the leading token of `providerFailureDetail` on the run's `run.failed` event, and — on the intervention path only, where a caller exists — additionally, **best-effort** when the trip is classified before that call resolves, as the closed-literal `DriverInterventionResult.refusalCode` on the caller's ordinary result (`Spec-005 §Required Behavior`). Its status column is therefore notional in place of _any_ error response, not merely in place of an HTTP one.
 
 | Code | Description | HTTP Status |
 | --- | --- | --- |

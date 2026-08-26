@@ -3688,8 +3688,9 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // Plan-005 T3.18, in the existing Phase 3, with a RESOLVED `Verifies
     // invariant:` arm carrying a single id reference (I-005-7). No existing
     // row's id set changes and no none-arm is added or removed, so the +1 bold
-    // delta matches the one new marker one-for-one. Read off a live
-    // `preflight.mjs --survey` run on the rebased tree, never reconciled by
+    // delta matches the one new marker one-for-one — that delta is the durable
+    // fact, while the absolute figure is re-read from a live `preflight.mjs
+    // --survey` on the rebased tree at every rebase, never reconciled by
     // arithmetic against a predecessor bullet.
     bold: { resolved: 928, noneArm: 159, parentResolved: 0 },
     legacy: { resolved: 64, noneArm: 3, parentResolved: 1 },
