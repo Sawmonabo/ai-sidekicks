@@ -34,6 +34,20 @@
 // `Pick<SidekicksBridge[...], "...">`, so renaming or removing a bridge member
 // upstream fails THIS file's typecheck instead of silently leaving the mock
 // describing a bridge that no longer exists.
+//
+// The two arms differ in what they can enforce, and the difference is measured
+// (PR #355 Codex round 1), not assumed:
+//   • `daemon.subscribe` returns a CONCRETE `Unsubscribe`, so the typed arm
+//     genuinely carries return-type drift — a changed return fails here.
+//   • `controlPlane.call` returns `Promise<CpOutput<P>>`, and `CpOutput<P>` is
+//     the deferred conditional `P extends CpProcedure ? unknown : never`, i.e.
+//     `unknown`. NO typing of that arm can constrain what the call resolves to:
+//     `vi.fn<Arm["call"]>()` is not even assignable to the generic signature
+//     (TS2322), and a typed mock resolving `{ bogus: true }` compiles clean.
+//     Roster-response drift is caught by the annotated RESPONSE FIXTURES below
+//     plus the `expectTypeOf` tripwire beside them, which makes that protection
+//     structural rather than incidental. Verified by mutation: a new required
+//     member on the response interface fails this file at the fixture lines.
 
 import { act, render, screen } from "@testing-library/react";
 import type { Mock } from "vitest";
@@ -177,6 +191,16 @@ const SECOND_SNAPSHOT: RuntimeNodeRosterResponse = {
 const SECOND_SESSION_SNAPSHOT: RuntimeNodeRosterResponse = {
   nodes: [buildRosterEntry({ nodeId: SECOND_SESSION_NODE_ID })],
 };
+
+// The drift tripwire, asserted rather than merely annotated — see the header.
+// `toEqualTypeOf` is invariant, so widening `RuntimeNodeRosterResponse` or
+// loosening a fixture annotation fails HERE, naming this contract.
+expectTypeOf(FIRST_SNAPSHOT).toEqualTypeOf<RuntimeNodeRosterResponse>();
+expectTypeOf(SECOND_SNAPSHOT).toEqualTypeOf<RuntimeNodeRosterResponse>();
+expectTypeOf(SECOND_SESSION_SNAPSHOT).toEqualTypeOf<RuntimeNodeRosterResponse>();
+expectTypeOf(
+  buildRosterEntry({ nodeId: AT_FLOOR_NODE_ID }),
+).toEqualTypeOf<RuntimeNodeRosterEntry>();
 
 const FLOOR_REFUSAL_MESSAGE = "client version 1.0 is below the session floor 2.0";
 const FLOOR_REFUSAL_ENVELOPE: VersionFloorExceededError = {

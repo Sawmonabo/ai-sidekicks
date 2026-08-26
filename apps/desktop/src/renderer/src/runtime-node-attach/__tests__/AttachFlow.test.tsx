@@ -32,6 +32,22 @@
 // surface is `controlPlane.call` ALONE, narrower than NodeRoster's. The arm
 // SHAPE is not hand-rolled: it is `Pick<SidekicksBridge["controlPlane"], "call">`,
 // so renaming or removing that member fails THIS file's typecheck.
+//
+// WHERE RETURN-TYPE DRIFT IS ACTUALLY CAUGHT — and where it is NOT (PR #355
+// Codex round 1). The bridge declares
+// `call<P extends CpProcedure>(procedure, input): Promise<CpOutput<P>>`, and
+// `CpOutput<P>` is the deferred conditional `P extends CpProcedure ? unknown
+// : never`, i.e. `unknown`. So NO typing of the mock arm can constrain what
+// the call resolves to — measured, not assumed: `vi.fn<Arm["call"]>()` is not
+// even assignable to that generic signature (TS2322), and a typed mock
+// resolving `{ bogus: true }` compiles clean. Drift is caught instead by the
+// RESPONSE FIXTURES below, each annotated with its shipped contract type, so
+// a changed `RuntimeNodeAttachResponse` fails this file at the fixture line.
+// Verified by mutation: adding a required member to that interface in
+// `packages/contracts/src/runtime-node.ts` fails this file with TS2741 at both
+// fixtures. The `expectTypeOf` assertion beside them makes that protection
+// STRUCTURAL rather than incidental — a future edit that loosens a fixture
+// annotation to satisfy some other constraint re-fails here.
 
 import { fireEvent, render, screen } from "@testing-library/react";
 
@@ -107,6 +123,13 @@ const READ_ONLY_ATTACH_RESPONSE: RuntimeNodeAttachResponse = {
   readOnly: true,
   attachedAt: "2026-06-10T10:01:00.000Z",
 };
+
+// The drift tripwire, asserted rather than merely annotated. `toEqualTypeOf`
+// is invariant, so widening `RuntimeNodeAttachResponse` (a new required
+// member) OR loosening either fixture's annotation fails HERE, at typecheck,
+// naming this contract — not somewhere downstream with an opaque message.
+expectTypeOf(READ_WRITE_ATTACH_RESPONSE).toEqualTypeOf<RuntimeNodeAttachResponse>();
+expectTypeOf(READ_ONLY_ATTACH_RESPONSE).toEqualTypeOf<RuntimeNodeAttachResponse>();
 
 function clickAttach(): void {
   fireEvent.click(screen.getByRole("button", { name: "Attach runtime node" }));
