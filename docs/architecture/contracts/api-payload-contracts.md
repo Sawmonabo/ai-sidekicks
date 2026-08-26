@@ -5357,8 +5357,15 @@ interface ProviderAccountRegisterRequest {
   // Where the ladder refuses, registration refuses with `provideraccount.credential_seal_refused`
   // rather than degrading. It is NOT written into the credential home: daemon-owned bytes in
   // provider-owned space are indistinguishable to every later reader, the provider's own tooling
-  // included. It reaches the provider only as an environment variable on the child process of a
-  // run bound to this account.
+  // included. It reaches the provider only as an environment variable, and only on the two
+  // invocations ADR-028 D2 enumerates: the registration-time status observation, and the child
+  // process of a run bound to this account. The second is gated on ADR-028 CONDITION 5 — a run
+  // child executes model-directed tools, so any command the model issues can read that child's
+  // environment. A provider leg with no RECORDED first-party observation that it strips the
+  // variable from its tool, shell, and subagent subprocess environments does not admit the class
+  // at all: `register` refuses there rather than sealing an account that would store
+  // `authenticated`, report READY, and then refuse every run. Documentation asserting the strip
+  // is not an observation.
   nonInteractiveToken?: string;
 }
 interface ProviderAccountRegisterResponse {
@@ -5458,7 +5465,7 @@ interface ProviderAccountLoginResponse {
   attemptId: string; // opaque, daemon-minted, single-use; the correlation key for cancel and for completion
   verificationUri: string; // where the operator completes the flow — the provider's own URL, verbatim
   userCode?: string; // present on a device-code arm; the operator types it at `verificationUri`
-  expiresAt?: string; // RFC 3339 UTC, where the provider bounds the attempt; null/absent = the provider published no bound
+  expiresAt?: string; // RFC 3339 UTC, where the provider bounds the attempt; null/absent = the provider published no bound. The FOURTH whitelisted field (Spec-029 §Brokered interactive sign-in), admitted under the same parse-and-validate rule as the other three: parsed to an RFC 3339 instant, required to be in the future and within the provider's documented attempt ceiling, and OMITTED rather than surfaced where it fails either test. It is a bound on an attempt, not provider state — it carries no OAuth, PKCE, or credential field.
 }
 
 // Cancellation is a FIRST-CLASS OUTCOME, not an abandonment: a broker that could only be abandoned
@@ -5519,6 +5526,13 @@ type ProviderAccountNotification =
 // provider publishing one window needs no special case and the pre-amendment single-window shape
 // stays valid as the degenerate case.
 interface ProviderAccountUsageWindow {
+  // Which account this window describes. Required, and NOT inferable from position: the read
+  // returns one flat array across every registered account, and two accounts of one provider can
+  // publish the same `limitId`, so without this a reconnecting client cannot associate a durable
+  // window with its account and would be free to render one account's quota under another's name.
+  // The live `usage_window_updated` notification already carries it; the snapshot carries the same
+  // member so both paths key alike.
+  accountId: ProviderAccountId;
   limitId: string; // untrusted provider-adjacent string, `wireFreeFormString`-bounded; NOT a closed union — the provider's limit vocabulary is open and versioned
   windowMins: number;
   label?: string; // the provider's own display label where it publishes one; display-only, never parsed, never a key
