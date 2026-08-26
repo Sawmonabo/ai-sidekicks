@@ -620,33 +620,39 @@ jobs:
 
           # Per-channel verdicts, from the artifacts each matrix leg uploaded.
           rows=""
-          codex_legs=0
-          claude_legs=0
+          codex_failures=0
+          claude_failures=0
           while IFS= read -r outcome_file; do
             [ -n "$outcome_file" ] || continue
             read -r provider channel status < "$outcome_file"
             rows="${rows}| \`${provider}\` | \`${channel}\` | \`${status}\` |"$'\n'
-            if [ "$provider" = "codex" ]; then
-              codex_legs=$((codex_legs + 1))
-            else
-              claude_legs=$((claude_legs + 1))
-            fi
             if [ "$status" != "success" ]; then
               drift=true
+              if [ "$provider" = "codex" ]; then
+                codex_failures=$((codex_failures + 1))
+              else
+                claude_failures=$((claude_failures + 1))
+              fi
               # `latest` is expected to move. Only floor and pin are supported.
               if [ "$channel" != "latest" ]; then fatal=true; fi
             fi
           done < <(find "$RUNNER_TEMP/legs" -name outcome.txt -type f 2>/dev/null | sort)
 
-          # Backstop: a matrix job that died before its always() upload step
-          # reports no legs at all, and must not read as "nothing failed".
-          if [ "$CODEX_RESULT" != "success" ] && [ "$codex_legs" -eq 0 ]; then
-            rows="${rows}| \`codex\` | (no legs reported) | \`${CODEX_RESULT}\` |"$'\n'
+          # Backstop for MISSING evidence, not merely for zero legs. If a
+          # matrix job reports failure, at least one of its legs must show a
+          # non-success status; when none does, a leg died before its
+          # always() upload (or the upload itself failed) and its channel is
+          # unknown. Unknown is treated as supported-channel drift, because
+          # the alternative is reading missing data as "nothing failed".
+          # Keying on zero legs alone would miss the partial case, where one
+          # leg vanishes while its siblings upload normally.
+          if [ "$CODEX_RESULT" != "success" ] && [ "$codex_failures" -eq 0 ]; then
+            rows="${rows}| \`codex\` | (unreported leg) | \`${CODEX_RESULT}\` |"$'\n'
             drift=true
             fatal=true
           fi
-          if [ "$CLAUDE_RESULT" != "success" ] && [ "$claude_legs" -eq 0 ]; then
-            rows="${rows}| \`claude\` | (no legs reported) | \`${CLAUDE_RESULT}\` |"$'\n'
+          if [ "$CLAUDE_RESULT" != "success" ] && [ "$claude_failures" -eq 0 ]; then
+            rows="${rows}| \`claude\` | (unreported leg) | \`${CLAUDE_RESULT}\` |"$'\n'
             drift=true
             fatal=true
           fi
