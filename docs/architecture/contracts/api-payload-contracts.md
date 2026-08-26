@@ -5141,10 +5141,14 @@ type ProviderAccountHealthState =
   | "home_missing"
   | "indeterminate"; // probe could not decide — treated as NOT authenticated (fail-closed, I-029-3)
 
-// NOTE: no credential-home path appears on this wire surface either. The operator's remedy names
-// the home in operator-facing MESSAGE text only — never on a payload, an event, or a log line
+// NOTE: no credential-home path appears on `ProviderAccount`. The one wire member that carries a
+// home is `ProviderSignInRemedy.credentialHomePath` below, on the node-local, node-operator-
+// authorized readiness reply, and it is operator-facing message text that travels structured. The
+// prohibition it lives under is unchanged and is about the READER, not the encoding: the home
+// reaches an operator's screen and never an event payload, a relayed payload, or a log line
 // (Spec-029 §Node provider readiness and the sign-in handoff, on the `mcp.config_scope_unsupported`
-// disclosure discipline). `credential_home_path` names a column, not a wire member.
+// disclosure discipline). On every surface a session participant can reach — the whole relayed
+// plane included — `credential_home_path` names a column and nothing else.
 
 // Readiness is the pre-computed answer to the question run admission will ask, derived by the SAME
 // resolution the daemon performs at spawn (Spec-029 §Validation at spawn — fail-closed) and served
@@ -5170,6 +5174,29 @@ interface ProviderReadiness {
   state: ProviderReadinessState;
   resolvedAccountId?: ProviderAccountId; // present iff resolution reached exactly one account
   observedAt?: string; // RFC 3339 UTC of the STORED observation; absent iff no probe has been taken
+  // Schema-optional, PRODUCER-OBLIGATED on the `resendDisposition` precedent (Spec-004 §Required
+  // Behavior): the daemon populates it on every non-authenticated arm and omits it on
+  // `authenticated`. Optional at parse because the state alone does not make requiredness
+  // expressible to a strict parser without splitting this interface per arm; the obligation is the
+  // producer's and is tested per arm. It exists because the spec REQUIRES every non-authenticated
+  // surface to display the remedy, and no client can compose one — only the daemon knows which
+  // account resolution reached and which home it holds. Composed at read time, never stored, so it
+  // cannot go stale against the row it describes.
+  remedy?: ProviderSignInRemedy;
+}
+
+// Operator-facing message text that happens to travel structured. The message-text-only disclosure
+// rule (Spec-029 §Node provider readiness and the sign-in handoff) governs it UNCHANGED: these
+// values reach an operator's screen and NEVER an event payload, a relayed payload, a log line, or a
+// refusal envelope. `providerAccount.list` is node-local and node-operator-authorized, which is the
+// only reason a daemon-owned path may cross it at all — this shape must not be reused on any
+// surface reachable by a session participant.
+interface ProviderSignInRemedy {
+  accountId?: ProviderAccountId; // absent on the two registry-shape arms, where no account resolved
+  signInInvocation: string; // the provider's OWN first-party sign-in command, for DISPLAY — the
+  // daemon never executes it, and this is not a shell string a client
+  // is invited to run on the operator's behalf
+  credentialHomePath: string; // the home that invocation authenticates INTO; display-only
 }
 
 interface ProviderAccountListRequest {
