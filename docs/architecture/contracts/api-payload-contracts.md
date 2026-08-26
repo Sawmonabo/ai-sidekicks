@@ -5155,9 +5155,12 @@ type ProviderAccountHealthState =
 // client-facing union: it widens ONLY in lockstep with that union, and a new health arm requires an
 // explicit readiness arm added here.
 type ProviderReadinessState =
-  | "authenticated" // the resolved account's stored probe said so — necessary, NOT sufficient
-  | "reauth_required" // resolved account's home is present but holds no usable credential
-  | "home_missing" // resolved account's credential home is absent or unreadable
+  // The first four arms are the resolved account's STORED health state, verbatim. That stored
+  // value is the outcome of the last validation — probe reading plus home observation taken at the
+  // same moment — so `home_missing` is a recorded observation, never a live stat() at read time.
+  | "authenticated" // last validation said so — necessary, NOT sufficient (see I-029-9)
+  | "reauth_required" // home was present but held no usable credential
+  | "home_missing" // credential home was absent or unreadable when last observed
   | "indeterminate" // probe could not decide, or none taken yet — NOT authenticated, NOT a failure
   | "no_account" // nothing registered for this provider; mirrors `provideraccount.not_registered`
   | "no_default"; // accounts exist, none is default; mirrors `provideraccount.no_default`
@@ -5174,6 +5177,10 @@ interface ProviderAccountListRequest {
 }
 interface ProviderAccountListResponse {
   accounts: ProviderAccount[];
+  // Required, not additive-optional: `ProviderAccountListResponse` is registered here and has not
+  // shipped, so ADR-018's additive-optional rule for already-published shapes does not bind it — the
+  // same reading the Tier-8 audit's new shapes carry. A reply that could omit readiness would push
+  // every client back into deriving it locally, which I-029-9 exists to prevent.
   readiness: ProviderReadiness[]; // exactly one entry per provider the request selects: never zero, never two
 }
 
