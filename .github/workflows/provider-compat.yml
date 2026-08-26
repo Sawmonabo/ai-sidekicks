@@ -721,7 +721,13 @@ jobs:
       # Scoped to this job only; the workflow default stays `contents: read`.
       issues: write
     env:
+      # TWO trackers, because they carry different claims and must not
+      # overwrite each other. The drift tracker asserts the provider surface
+      # MOVED. The broken tracker asserts we could not measure it. A run that
+      # only failed to measure must never rewrite the body of the issue that
+      # holds real drift evidence.
       TRACKING_ISSUE_TITLE: "Provider CLI compatibility drift"
+      BROKEN_ISSUE_TITLE: "Provider CLI compatibility check is not measuring"
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Download the per-leg outcomes
@@ -866,22 +872,27 @@ jobs:
           # makes strictly more likely, because closed issues now count toward
           # the cap. The exact-title check below stays as the precision guard,
           # since the search qualifier matches loosely.
-          number="$(gh issue list \
-            --repo "$GITHUB_REPOSITORY" \
-            --state all \
-            --search "in:title \"$TRACKING_ISSUE_TITLE\"" \
-            --limit 100 \
-            --json number,title \
-            --jq "[.[] | select(.title == \"$TRACKING_ISSUE_TITLE\")] | first | .number // empty")"
-          echo "number=${number}" >> "$GITHUB_OUTPUT"
+          find_issue() {
+            gh issue list \
+              --repo "$GITHUB_REPOSITORY" \
+              --state all \
+              --search "in:title \"$1\"" \
+              --limit 100 \
+              --json number,title \
+              --jq "[.[] | select(.title == \"$1\")] | first | .number // empty"
+          }
+          {
+            echo "number=$(find_issue "$TRACKING_ISSUE_TITLE")"
+            echo "broken_number=$(find_issue "$BROKEN_ISSUE_TITLE")"
+          } >> "$GITHUB_OUTPUT"
 
       # `create-issue-from-file` calls `issues.update` with `title` and
       # `body` only -- it passes no `state`, verified in that action's
       # src/main.ts at the SHA pinned below. Updating a CLOSED tracker
       # therefore leaves it closed and the returning drift is announced
       # nowhere. Reopen explicitly first.
-      - name: Reopen the tracking issue when drift returns
-        if: (steps.classify.outputs.drift == 'true' || steps.classify.outputs.broken == 'true') && steps.existing.outputs.number != ''
+      - name: Reopen the drift tracker when drift returns
+        if: steps.classify.outputs.drift == 'true' && steps.existing.outputs.number != ''
         run: |
           set -euo pipefail
           state="$(gh issue view "$EXISTING_ISSUE" \
@@ -894,8 +905,25 @@ jobs:
         env:
           EXISTING_ISSUE: ${{ steps.existing.outputs.number }}
 
-      - name: Open or update the tracking issue
-        if: steps.classify.outputs.drift == 'true' || steps.classify.outputs.broken == 'true'
+      - name: Reopen the not-measuring tracker when it recurs
+        if: steps.classify.outputs.broken == 'true' && steps.existing.outputs.broken_number != ''
+        run: |
+          set -euo pipefail
+          state="$(gh issue view "$EXISTING_ISSUE" \
+            --repo "$GITHUB_REPOSITORY" --json state --jq .state)"
+          if [ "$state" = "CLOSED" ]; then
+            gh issue reopen "$EXISTING_ISSUE" \
+              --repo "$GITHUB_REPOSITORY" \
+              --comment "The provider-CLI compatibility check stopped measuring again on run ${GITHUB_RUN_ID}."
+          fi
+        env:
+          EXISTING_ISSUE: ${{ steps.existing.outputs.broken_number }}
+
+      # Gated on `drift` ALONE. A run that merely could not measure must not
+      # rewrite this issue's body: it holds the evidence that the provider
+      # surface moved, and a report showing no drift would erase it.
+      - name: Open or update the drift tracker
+        if: steps.classify.outputs.drift == 'true'
         # SHA-pinned per ADR-023 §Axis 4 supply-chain hygiene, matching the
         # gitleaks-action pin convention. `issue-number` makes this an in-place
         # update, which is what keeps the tracker to a single issue.
@@ -905,13 +933,32 @@ jobs:
           content-filepath: ${{ runner.temp }}/report.md
           issue-number: ${{ steps.existing.outputs.number }}
 
-      - name: Close the tracking issue on recovery
-        if: steps.classify.outputs.drift == 'false' && steps.classify.outputs.broken == 'false' && steps.existing.outputs.number != ''
+      - name: Open or update the not-measuring tracker
+        if: steps.classify.outputs.broken == 'true'
+        uses: peter-evans/create-issue-from-file@fca9117c27cdc29c6c4db3b86c48e4115a786710 # v6.0.0
+        with:
+          title: ${{ env.BROKEN_ISSUE_TITLE }}
+          content-filepath: ${{ runner.temp }}/report.md
+          issue-number: ${{ steps.existing.outputs.broken_number }}
+
+      # Each tracker closes on ITS OWN verdict. A run with drift but no
+      # broken legs is exactly when the not-measuring tracker should close,
+      # and vice versa -- gating either on both would strand one open.
+      - name: Close the drift tracker on recovery
+        if: steps.classify.outputs.drift == 'false' && steps.existing.outputs.number != ''
         run: |
           set -euo pipefail
           gh issue close "${{ steps.existing.outputs.number }}" \
             --repo "$GITHUB_REPOSITORY" \
-            --comment "All provider-CLI compatibility legs passed on run ${GITHUB_RUN_ID}. Closing; the nightly check will reopen this issue if drift returns."
+            --comment "No provider-CLI compatibility drift on run ${GITHUB_RUN_ID}. Closing; the nightly check will reopen this issue if drift returns."
+
+      - name: Close the not-measuring tracker on recovery
+        if: steps.classify.outputs.broken == 'false' && steps.existing.outputs.broken_number != ''
+        run: |
+          set -euo pipefail
+          gh issue close "${{ steps.existing.outputs.broken_number }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --comment "Every leg reported a verdict on run ${GITHUB_RUN_ID}. Closing; the nightly check will reopen this issue if it stops measuring again."
 
       # Only a SUPPORTED channel (floor or pin) fails the run. A `latest` leg
       # that moved has already opened or updated the tracking issue above,
@@ -921,5 +968,5 @@ jobs:
       - name: Fail the run on supported-channel drift
         if: steps.classify.outputs.fatal == 'true'
         run: |
-          echo "Provider-CLI compatibility drift on a supported channel; see the tracking issue." >&2
+          echo "Provider-CLI compatibility check failed on a supported channel; see the tracking issue(s)." >&2
           exit 1
