@@ -263,13 +263,38 @@ jobs:
 
           // Assertions only. Raw payloads carry an installation id and the
           // runner hostname, and this output can end up in a public issue.
+          // Drift is REPORTED, not thrown. Exiting nonzero here would fail
+          // this leg's job, and a failed job reddens the whole workflow run no
+          // matter what the report job later classifies -- which is precisely
+          // the "warn and keep going above the pin" violation this check
+          // exists to prevent. A nonzero exit is therefore reserved for the
+          // probe being broken (a crash), which the shell wrapper detects.
           if (failures.length > 0) {
-            console.error(`FAIL codex protocol probe:\n  - ${failures.join('\n  - ')}`);
-            process.exit(1);
+            console.error(`DRIFT codex protocol probe:\n  - ${failures.join('\n  - ')}`);
+            for (const reason of failures) {
+              console.log(`PROVIDER_COMPAT_DRIFT codex protocol: ${reason}`);
+            }
+            process.exit(0);
           }
           console.log('PASS codex protocol probe: initialize + account/read answered with the expected shapes');
           PROBE
-          node "$RUNNER_TEMP/codex-probe.mjs" "$CODEX_BIN"
+          mkdir -p "$RUNNER_TEMP/leg"
+          # PIPESTATUS[0], never `$?`: the pipeline's exit status is tee's.
+          set +e
+          node "$RUNNER_TEMP/codex-probe.mjs" "$CODEX_BIN" | tee "$RUNNER_TEMP/codex-probe.out"
+          probe_status=${PIPESTATUS[0]}
+          set -e
+          # A nonzero exit means the probe itself failed to run. That is not
+          # channel drift and must not be softened by channel: a blind probe
+          # reports clean, so it fails the leg on every channel.
+          if [ "$probe_status" -ne 0 ]; then
+            echo "FAIL: the codex protocol probe crashed (exit $probe_status)" >&2
+            printf 'codex protocol probe crashed (exit %s)\n' "$probe_status" \
+              >> "$RUNNER_TEMP/leg/broken.txt"
+            exit 1
+          fi
+          grep '^PROVIDER_COMPAT_DRIFT ' "$RUNNER_TEMP/codex-probe.out" \
+            | sed 's/^PROVIDER_COMPAT_DRIFT //' >> "$RUNNER_TEMP/leg/drift.txt" || true
 
       - name: Probe argument acceptance (exit codes, not --help)
         run: |
@@ -295,6 +320,9 @@ jobs:
           set -e
           if [ "$control_exit" -eq 0 ]; then
             echo "FAIL: negative control was accepted — this probe cannot detect a rejected argument" >&2
+            mkdir -p "$RUNNER_TEMP/leg"
+            echo 'codex argument probe is blind (negative control accepted)' \
+              >> "$RUNNER_TEMP/leg/broken.txt"
             exit 1
           fi
 
@@ -308,7 +336,25 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/leg"
-          printf 'codex %s %s\n' '${{ matrix.channel }}' '${{ job.status }}' \
+          # The verdict comes from what the probes RECORDED, not from
+          # `job.status`. Two reasons. (1) A drifted leg no longer fails its
+          # job, so `job.status` would read `success` on real drift. (2) The
+          # recorded files are unambiguous about which kind of failure it was:
+          # `drift.txt` is a moved channel (the report decides whether that is
+          # fatal), `broken.txt` is a probe that cannot see (always fatal).
+          # `job.status` is still consulted as a third signal, and it is
+          # unambiguous here because this workflow sets `continue-on-error`
+          # nowhere -- so it cannot be masked. It catches the case the two
+          # record files cannot: an INSTALL or setup step failing before any
+          # probe ran, which would otherwise leave both files empty and report
+          # a clean leg.
+          status=success
+          if [ -s "$RUNNER_TEMP/leg/drift.txt" ] \
+            || [ -s "$RUNNER_TEMP/leg/broken.txt" ] \
+            || [ '${{ job.status }}' != 'success' ]; then
+            status=failure
+          fi
+          printf '%s %s %s\n' 'codex' '${{ matrix.channel }}' "$status" \
             > "$RUNNER_TEMP/leg/outcome.txt"
 
       - name: Upload this leg's outcome
@@ -317,10 +363,10 @@ jobs:
         with:
           name: leg-codex-${{ matrix.channel }}
           path: ${{ runner.temp }}/leg/outcome.txt
-          # `error`, not the default `warn`. The report's backstop keys on a
-          # job reporting failure; if a missing outcome file only warned, the
-          # leg would stay green, no backstop would fire, and the run would
-          # read as clean while one channel reported nothing at all.
+          # `error`, not the default `warn`. The report compares the
+          # artifacts it downloads against the expected channel set, so a
+          # silently-empty upload would present as a missing channel anyway --
+          # failing loudly here names the leg that lost its own verdict.
           if-no-files-found: error
           retention-days: 7
 
@@ -431,13 +477,19 @@ jobs:
           # Negative control: a flag that certainly does not exist MUST be
           # reported unknown. Without this, a probe that silently stopped
           # working would report a clean run.
+          mkdir -p "$RUNNER_TEMP/leg"
           if probe_flag --provider-compat-negative-control; then
             echo "FAIL: negative control was accepted — this probe cannot detect an unknown option" >&2
+            echo 'claude flag probe is blind (negative control accepted)' \
+              >> "$RUNNER_TEMP/leg/broken.txt"
             exit 1
           fi
+          # Recorded, not thrown -- see the codex protocol probe for why a
+          # drifted leg must not fail its own job.
           if [ -n "$missing" ]; then
             echo "DRIFT: flags no longer accepted:$missing" >&2
-            exit 1
+            printf 'claude flags no longer accepted:%s\n' "$missing" \
+              >> "$RUNNER_TEMP/leg/drift.txt"
           fi
 
       - name: Census the control-request registry
@@ -461,8 +513,11 @@ jobs:
           # scratch-HOME handshake is not reliably credential-free. The
           # sufficient check therefore belongs to the authenticated smoke leg.
           binary="$(find "$CLAUDE_INSTALL_DIR/node_modules/.pnpm" -type f -name claude -size +50M | head -n 1)"
+          mkdir -p "$RUNNER_TEMP/leg"
           if [ -z "$binary" ]; then
             echo "FAIL: could not locate the native Claude binary under the probe prefix" >&2
+            echo 'claude census is blind (native binary not found under the probe prefix)' \
+              >> "$RUNNER_TEMP/leg/broken.txt"
             exit 1
           fi
           missing=""
@@ -483,11 +538,15 @@ jobs:
           # so a census that started matching everything is caught.
           if grep -q -a -F '__provider_compat_negative_control__' "$binary"; then
             echo "FAIL: negative control matched — this census cannot distinguish absence" >&2
+            echo 'claude census is blind (negative control matched)' \
+              >> "$RUNNER_TEMP/leg/broken.txt"
             exit 1
           fi
+          # Recorded, not thrown -- see the codex protocol probe.
           if [ -n "$missing" ]; then
             echo "DRIFT: literals absent from the control-request census:$missing" >&2
-            exit 1
+            printf 'claude census literals absent:%s\n' "$missing" \
+              >> "$RUNNER_TEMP/leg/drift.txt"
           fi
           echo "  - control-request registry census: all 15 subtypes present" >> "$GITHUB_STEP_SUMMARY"
 
@@ -497,7 +556,25 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/leg"
-          printf 'claude %s %s\n' '${{ matrix.channel }}' '${{ job.status }}' \
+          # The verdict comes from what the probes RECORDED, not from
+          # `job.status`. Two reasons. (1) A drifted leg no longer fails its
+          # job, so `job.status` would read `success` on real drift. (2) The
+          # recorded files are unambiguous about which kind of failure it was:
+          # `drift.txt` is a moved channel (the report decides whether that is
+          # fatal), `broken.txt` is a probe that cannot see (always fatal).
+          # `job.status` is still consulted as a third signal, and it is
+          # unambiguous here because this workflow sets `continue-on-error`
+          # nowhere -- so it cannot be masked. It catches the case the two
+          # record files cannot: an INSTALL or setup step failing before any
+          # probe ran, which would otherwise leave both files empty and report
+          # a clean leg.
+          status=success
+          if [ -s "$RUNNER_TEMP/leg/drift.txt" ] \
+            || [ -s "$RUNNER_TEMP/leg/broken.txt" ] \
+            || [ '${{ job.status }}' != 'success' ]; then
+            status=failure
+          fi
+          printf '%s %s %s\n' 'claude' '${{ matrix.channel }}' "$status" \
             > "$RUNNER_TEMP/leg/outcome.txt"
 
       - name: Upload this leg's outcome
@@ -506,10 +583,10 @@ jobs:
         with:
           name: leg-claude-${{ matrix.channel }}
           path: ${{ runner.temp }}/leg/outcome.txt
-          # `error`, not the default `warn`. The report's backstop keys on a
-          # job reporting failure; if a missing outcome file only warned, the
-          # leg would stay green, no backstop would fire, and the run would
-          # read as clean while one channel reported nothing at all.
+          # `error`, not the default `warn`. The report compares the
+          # artifacts it downloads against the expected channel set, so a
+          # silently-empty upload would present as a missing channel anyway --
+          # failing loudly here names the leg that lost its own verdict.
           if-no-files-found: error
           retention-days: 7
 
@@ -597,8 +674,6 @@ jobs:
       - name: Classify the run
         id: classify
         env:
-          CODEX_RESULT: ${{ needs.codex-protocol.result }}
-          CLAUDE_RESULT: ${{ needs.claude-surface.result }}
           SMOKE_RESULT: ${{ needs.claude-authenticated-smoke.result }}
           GATE_RESULT: ${{ needs.secret-gate.result }}
           TOKEN_PRESENT: ${{ needs.secret-gate.outputs.claude-token-present }}
@@ -628,44 +703,39 @@ jobs:
             fi
           fi
 
-          # Per-channel verdicts, from the artifacts each matrix leg uploaded.
+          # Per-channel verdicts. The EXPECTED SET below is the authority,
+          # not the set of artifacts that happen to arrive. Every pair must be
+          # accounted for; a pair with no artifact is UNKNOWN, and unknown is
+          # classified as supported-channel drift, because the alternative is
+          # reading missing data as "nothing failed".
+          #
+          # This replaces an earlier backstop that keyed on failure COUNTS,
+          # which was unsound in both directions: if one leg vanished while a
+          # sibling reported a failure, the counter was already nonzero and
+          # the missing leg went unnoticed entirely.
           rows=""
-          codex_failures=0
-          claude_failures=0
-          while IFS= read -r outcome_file; do
-            [ -n "$outcome_file" ] || continue
-            read -r provider channel status < "$outcome_file"
+          for expected in "codex floor" "codex pin" "codex latest" \
+                          "claude floor" "claude pin" "claude latest"; do
+            # shellcheck disable=SC2086 # deliberate split of a known pair
+            set -- $expected
+            provider="$1"
+            channel="$2"
+            outcome_file="$RUNNER_TEMP/legs/leg-${provider}-${channel}/outcome.txt"
+            if [ ! -f "$outcome_file" ]; then
+              rows="${rows}| \`${provider}\` | \`${channel}\` | \`(no outcome reported)\` |"$'\n'
+              drift=true
+              fatal=true
+              continue
+            fi
+            read -r _provider _channel status < "$outcome_file"
             rows="${rows}| \`${provider}\` | \`${channel}\` | \`${status}\` |"$'\n'
             if [ "$status" != "success" ]; then
               drift=true
-              if [ "$provider" = "codex" ]; then
-                codex_failures=$((codex_failures + 1))
-              else
-                claude_failures=$((claude_failures + 1))
-              fi
-              # `latest` is expected to move. Only floor and pin are supported.
+              # `latest` is expected to move. Only floor and pin are supported,
+              # so only they turn a moved channel into a failed run.
               if [ "$channel" != "latest" ]; then fatal=true; fi
             fi
-          done < <(find "$RUNNER_TEMP/legs" -name outcome.txt -type f 2>/dev/null | sort)
-
-          # Backstop for MISSING evidence, not merely for zero legs. If a
-          # matrix job reports failure, at least one of its legs must show a
-          # non-success status; when none does, a leg died before its
-          # always() upload (or the upload itself failed) and its channel is
-          # unknown. Unknown is treated as supported-channel drift, because
-          # the alternative is reading missing data as "nothing failed".
-          # Keying on zero legs alone would miss the partial case, where one
-          # leg vanishes while its siblings upload normally.
-          if [ "$CODEX_RESULT" != "success" ] && [ "$codex_failures" -eq 0 ]; then
-            rows="${rows}| \`codex\` | (unreported leg) | \`${CODEX_RESULT}\` |"$'\n'
-            drift=true
-            fatal=true
-          fi
-          if [ "$CLAUDE_RESULT" != "success" ] && [ "$claude_failures" -eq 0 ]; then
-            rows="${rows}| \`claude\` | (unreported leg) | \`${CLAUDE_RESULT}\` |"$'\n'
-            drift=true
-            fatal=true
-          fi
+          done
 
           echo "drift=$drift" >> "$GITHUB_OUTPUT"
           echo "fatal=$fatal" >> "$GITHUB_OUTPUT"
@@ -692,13 +762,36 @@ jobs:
         id: existing
         run: |
           set -euo pipefail
+          # `--state all`, not `--state open`. This job CLOSES the tracker on
+          # recovery, so a search restricted to open issues finds nothing when
+          # drift later returns -- and a second tracker gets created,
+          # fragmenting the single tracker this job exists to maintain.
           number="$(gh issue list \
             --repo "$GITHUB_REPOSITORY" \
-            --state open \
+            --state all \
             --limit 100 \
             --json number,title \
             --jq "[.[] | select(.title == \"$TRACKING_ISSUE_TITLE\")] | first | .number // empty")"
           echo "number=${number}" >> "$GITHUB_OUTPUT"
+
+      # `create-issue-from-file` calls `issues.update` with `title` and
+      # `body` only -- it passes no `state`, verified in that action's
+      # src/main.ts at the SHA pinned below. Updating a CLOSED tracker
+      # therefore leaves it closed and the returning drift is announced
+      # nowhere. Reopen explicitly first.
+      - name: Reopen the tracking issue when drift returns
+        if: steps.classify.outputs.drift == 'true' && steps.existing.outputs.number != ''
+        run: |
+          set -euo pipefail
+          state="$(gh issue view "$EXISTING_ISSUE" \
+            --repo "$GITHUB_REPOSITORY" --json state --jq .state)"
+          if [ "$state" = "CLOSED" ]; then
+            gh issue reopen "$EXISTING_ISSUE" \
+              --repo "$GITHUB_REPOSITORY" \
+              --comment "Provider-CLI compatibility drift returned on run ${GITHUB_RUN_ID}."
+          fi
+        env:
+          EXISTING_ISSUE: ${{ steps.existing.outputs.number }}
 
       - name: Open or update the tracking issue
         if: steps.classify.outputs.drift == 'true'
