@@ -207,6 +207,8 @@ sidekicks telemetry set {on,off}     # toggle telemetry post-onboarding
 
 Interactive prompts are served via [`@inquirer/prompts` v8.x](https://github.com/SBoudrias/Inquirer.js) (the 2026 TTY-prompt standard for Node.js CLIs). Non-interactive mode is selected via flags or env vars as above.
 
+The same commands are reachable through the short alias `sk`, which [Plan-007](../plans/007-local-ipc-and-daemon-control.md) registers beside `sidekicks` in one `bin` map; the long form above stays the unambiguous spelling, because an unrelated `sk` already on the user's `PATH` wins or loses on `PATH` order alone (`which -a sk` reports which).
+
 ### Desktop Surface
 
 Desktop composes the flow through two bridges exposed by the Spec-023 preload contract:

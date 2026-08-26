@@ -156,6 +156,8 @@ Agent execution stays on your machine. The collaboration control plane handles a
 
 The CLI (`sidekicks`) is the first client delivery track — it proves the typed SDK and IPC contract before the desktop UI ships.
 
+A short alias `sk` installs alongside it; if an unrelated `sk` is already on your `PATH` (Homebrew ships one), `PATH` order alone decides which runs — check with `which -a sk`, and use `sidekicks` when you need certainty.
+
 <p align="center">
   <img src="assets/hero/cli-terminal-hero.png" alt="AI Sidekicks CLI" width="720" />
 </p>
