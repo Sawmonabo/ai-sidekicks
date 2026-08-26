@@ -348,11 +348,15 @@ jobs:
           # record files cannot: an INSTALL or setup step failing before any
           # probe ran, which would otherwise leave both files empty and report
           # a clean leg.
+          # THREE outcomes, not two. `broken` must not collapse into `drift`:
+          # a probe that could not run is not evidence that the provider moved,
+          # and reporting it as drift would tell operators the floor or the
+          # wire surface changed when nothing was measured at all.
           status=success
-          if [ -s "$RUNNER_TEMP/leg/drift.txt" ] \
-            || [ -s "$RUNNER_TEMP/leg/broken.txt" ] \
-            || [ '${{ job.status }}' != 'success' ]; then
-            status=failure
+          if [ -s "$RUNNER_TEMP/leg/broken.txt" ] || [ '${{ job.status }}' != 'success' ]; then
+            status=broken
+          elif [ -s "$RUNNER_TEMP/leg/drift.txt" ]; then
+            status=drift
           fi
           printf '%s %s %s\n' 'codex' '${{ matrix.channel }}' "$status" \
             > "$RUNNER_TEMP/leg/outcome.txt"
@@ -548,7 +552,9 @@ jobs:
             printf 'claude census literals absent:%s\n' "$missing" \
               >> "$RUNNER_TEMP/leg/drift.txt"
           fi
-          echo "  - control-request registry census: all 15 subtypes present" >> "$GITHUB_STEP_SUMMARY"
+          if [ -z "$missing" ]; then
+            echo "  - control-request registry census: all 15 subtypes present" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       # See the codex-protocol job for why the per-channel outcome is recorded.
       - name: Record this leg's outcome
@@ -568,11 +574,15 @@ jobs:
           # record files cannot: an INSTALL or setup step failing before any
           # probe ran, which would otherwise leave both files empty and report
           # a clean leg.
+          # THREE outcomes, not two. `broken` must not collapse into `drift`:
+          # a probe that could not run is not evidence that the provider moved,
+          # and reporting it as drift would tell operators the floor or the
+          # wire surface changed when nothing was measured at all.
           status=success
-          if [ -s "$RUNNER_TEMP/leg/drift.txt" ] \
-            || [ -s "$RUNNER_TEMP/leg/broken.txt" ] \
-            || [ '${{ job.status }}' != 'success' ]; then
-            status=failure
+          if [ -s "$RUNNER_TEMP/leg/broken.txt" ] || [ '${{ job.status }}' != 'success' ]; then
+            status=broken
+          elif [ -s "$RUNNER_TEMP/leg/drift.txt" ]; then
+            status=drift
           fi
           printf '%s %s %s\n' 'claude' '${{ matrix.channel }}' "$status" \
             > "$RUNNER_TEMP/leg/outcome.txt"
@@ -686,6 +696,7 @@ jobs:
           # nightly, contradicting the policy this check enforces: above the
           # pin warn and keep going, below the floor refuse.
           drift=false
+          broken=false
           fatal=false
 
           # secret-gate is judged first and on its own. A skipped smoke job is
@@ -694,7 +705,7 @@ jobs:
           # skips, and reading that skip as "no secret configured" would let a
           # broken gate silently close a real drift issue.
           if [ "$GATE_RESULT" != "success" ]; then
-            drift=true
+            broken=true
             fatal=true
           else
             if [ "$SMOKE_RESULT" != "success" ] && [ "$SMOKE_RESULT" != "skipped" ]; then
@@ -723,22 +734,38 @@ jobs:
             outcome_file="$RUNNER_TEMP/legs/leg-${provider}-${channel}/outcome.txt"
             if [ ! -f "$outcome_file" ]; then
               rows="${rows}| \`${provider}\` | \`${channel}\` | \`(no outcome reported)\` |"$'\n'
-              drift=true
+              # Unmeasured, not moved -- the same distinction as `broken`.
+              broken=true
               fatal=true
               continue
             fi
             read -r _provider _channel status < "$outcome_file"
             rows="${rows}| \`${provider}\` | \`${channel}\` | \`${status}\` |"$'\n'
-            if [ "$status" != "success" ]; then
-              drift=true
-              # `latest` is expected to move. Only floor and pin are supported,
-              # so only they turn a moved channel into a failed run.
-              if [ "$channel" != "latest" ]; then fatal=true; fi
-            fi
+            case "$status" in
+              success) ;;
+              drift)
+                drift=true
+                # `latest` is expected to move. Only floor and pin are
+                # supported, so only they turn a moved channel into a
+                # failed run.
+                if [ "$channel" != "latest" ]; then fatal=true; fi
+                ;;
+              *)
+                # `broken`, or any status this classifier does not recognise.
+                # Neither is provider drift, and both are fatal on EVERY
+                # channel: a leg that cannot measure reports clean, so
+                # softening it by channel is the actual hazard.
+                broken=true
+                fatal=true
+                ;;
+            esac
           done
 
-          echo "drift=$drift" >> "$GITHUB_OUTPUT"
-          echo "fatal=$fatal" >> "$GITHUB_OUTPUT"
+          {
+            echo "drift=$drift"
+            echo "broken=$broken"
+            echo "fatal=$fatal"
+          } >> "$GITHUB_OUTPUT"
           {
             echo "## Provider CLI compatibility — run summary"
             echo
@@ -753,8 +780,13 @@ jobs:
             echo
             echo "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
             echo
-            echo "A failing **latest** leg is a re-pin signal for \`docs/reference/provider-wire/\`, and does **not** fail this run."
-            echo "A failing **floor** leg means the oldest supported CLI has moved and the floor itself must be raised."
+            echo "A \`drift\` leg means the provider surface MOVED. On **latest** that is a re-pin signal for"
+            echo "\`docs/reference/provider-wire/\` and does **not** fail this run; on **floor** it means the oldest"
+            echo "supported CLI has moved and the floor itself must be raised."
+            echo
+            echo "A \`broken\` leg or one reported as \`(no outcome reported)\` means that channel was **not measured**"
+            echo "-- the probe could not run, or its verdict never arrived. That is NOT evidence the provider changed,"
+            echo "and it is fatal on every channel including \`latest\`, because an unmeasured leg reports clean."
           } > "$RUNNER_TEMP/report.md"
           cat "$RUNNER_TEMP/report.md" >> "$GITHUB_STEP_SUMMARY"
 
@@ -766,9 +798,18 @@ jobs:
           # recovery, so a search restricted to open issues finds nothing when
           # drift later returns -- and a second tracker gets created,
           # fragmenting the single tracker this job exists to maintain.
+          #
+          # `--search` narrows SERVER-side. Without it `--limit` caps the
+          # general listing ("maximum number of issues to fetch"), so once the
+          # tracker falls outside the most recent N issues the client-side
+          # filter can no longer see it -- a failure mode that `--state all`
+          # makes strictly more likely, because closed issues now count toward
+          # the cap. The exact-title check below stays as the precision guard,
+          # since the search qualifier matches loosely.
           number="$(gh issue list \
             --repo "$GITHUB_REPOSITORY" \
             --state all \
+            --search "in:title \"$TRACKING_ISSUE_TITLE\"" \
             --limit 100 \
             --json number,title \
             --jq "[.[] | select(.title == \"$TRACKING_ISSUE_TITLE\")] | first | .number // empty")"
@@ -780,7 +821,7 @@ jobs:
       # therefore leaves it closed and the returning drift is announced
       # nowhere. Reopen explicitly first.
       - name: Reopen the tracking issue when drift returns
-        if: steps.classify.outputs.drift == 'true' && steps.existing.outputs.number != ''
+        if: (steps.classify.outputs.drift == 'true' || steps.classify.outputs.broken == 'true') && steps.existing.outputs.number != ''
         run: |
           set -euo pipefail
           state="$(gh issue view "$EXISTING_ISSUE" \
@@ -794,7 +835,7 @@ jobs:
           EXISTING_ISSUE: ${{ steps.existing.outputs.number }}
 
       - name: Open or update the tracking issue
-        if: steps.classify.outputs.drift == 'true'
+        if: steps.classify.outputs.drift == 'true' || steps.classify.outputs.broken == 'true'
         # SHA-pinned per ADR-023 §Axis 4 supply-chain hygiene, matching the
         # gitleaks-action pin convention. `issue-number` makes this an in-place
         # update, which is what keeps the tracker to a single issue.
@@ -805,7 +846,7 @@ jobs:
           issue-number: ${{ steps.existing.outputs.number }}
 
       - name: Close the tracking issue on recovery
-        if: steps.classify.outputs.drift == 'false' && steps.existing.outputs.number != ''
+        if: steps.classify.outputs.drift == 'false' && steps.classify.outputs.broken == 'false' && steps.existing.outputs.number != ''
         run: |
           set -euo pipefail
           gh issue close "${{ steps.existing.outputs.number }}" \
