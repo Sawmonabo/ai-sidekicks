@@ -11,6 +11,9 @@
 // longer-term form is a root-level `vitest.config.ts` with `projects: [...]`;
 // until that lands the per-package configs carry the discovery globs they
 // need.
+// The coverage half of that root-projects shape is foreclosed under Vitest 4,
+// which resolves `coverage` root-only once `projects` exist — see the header
+// of `vitest.shared.ts`. Discovery is unaffected; only coverage is.
 import { defineConfig } from "vitest/config";
 
 import { sharedCoverageOptions } from "../../vitest.shared";

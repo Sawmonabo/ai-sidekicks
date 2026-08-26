@@ -5,6 +5,9 @@
 // Tests run under Node — `@electric-sql/pglite` is pure WASM bundled into
 // the package (no native binding, no browser-only API) so Node is the right
 // environment.
+// The coverage half of that root-projects shape is foreclosed under Vitest 4,
+// which resolves `coverage` root-only once `projects` exist — see the header
+// of `vitest.shared.ts`. Discovery is unaffected; only coverage is.
 import { defineConfig } from "vitest/config";
 
 import { sharedCoverageOptions } from "../../vitest.shared";

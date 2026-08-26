@@ -413,15 +413,21 @@ function collectSourceFiles(directory, collected) {
 }
 
 // Negative control on the scan, expressed PER ROOT. One global threshold is
-// carried by whichever root is largest, and here that is `packages/` (211 of
-// the 297 files) which holds ZERO guarded CLIs — so losing `tools/` outright, 4
-// of the 9 guards including `pre-commit-runner.ts`, still left a large majority
-// of the walk and sailed past a global count check. The floor was guarding the
-// root that mattered least.
+// carried by whichever root is largest, and here that is `packages/`, which
+// holds ZERO guarded CLIs — so losing `tools/` outright, 4 of the 9 guards
+// including `pre-commit-runner.ts`, still left a large majority of the walk and
+// sailed past a global count check. The floor was guarding the root that
+// mattered least.
 //
-// Each floor sits well below today's count (tools 28, .claude 29, packages 211,
-// apps 29) so routine deletions do not trip it, and far enough above zero that
-// a root which stops resolving does.
+// Each floor sits well below today's count and far enough above zero that a
+// root which stops resolving does trip it. Re-derived 2026-08-25 against the
+// tracked tree: tools 38, .claude 30, packages 266, apps 26. The figures
+// carried here before that date (tools 28, .claude 29, packages 211, apps 29)
+// had drifted well past any one change. Do not treat these as assertions —
+// `apps` in particular is build-state dependent, because `apps/desktop/out/` is
+// gitignored but is NOT in SKIPPED_DIRECTORY_NAMES, so a walk after a build
+// counts roughly twenty more files there than a clean checkout does. The floors
+// below are the only enforced numbers.
 const SEARCH_ROOT_FLOORS = { tools: 12, ".claude": 12, packages: 90, apps: 12 };
 
 test("the list is complete — every guarded CLI in the tree is spawned above", () => {

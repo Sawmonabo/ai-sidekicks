@@ -4,6 +4,9 @@
 // is a root-level vitest.config.ts with `projects: [...]`). Tests run
 // under Node — `better-sqlite3` is a native binding and must not run in
 // a browser-like environment.
+// The coverage half of that root-projects shape is foreclosed under Vitest 4,
+// which resolves `coverage` root-only once `projects` exist — see the header
+// of `vitest.shared.ts`. Discovery is unaffected; only coverage is.
 import { defineConfig } from "vitest/config";
 
 import { sharedCoverageOptions } from "../../vitest.shared";
