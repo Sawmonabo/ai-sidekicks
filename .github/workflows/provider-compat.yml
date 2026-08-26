@@ -65,6 +65,10 @@ jobs:
   secret-gate:
     name: Auth secret gate
     runs-on: ubuntu-latest
+    # GitHub's default job timeout is 360 minutes. Nothing here needs
+    # minutes at all, and this workflow's concurrency group does not
+    # cancel in progress, so a stalled job would block later probes.
+    timeout-minutes: 5
     outputs:
       claude-token-present: ${{ steps.probe.outputs.present }}
     steps:
@@ -103,6 +107,10 @@ jobs:
   codex-protocol:
     name: Codex ${{ matrix.channel }} (${{ matrix.version }})
     runs-on: ubuntu-latest
+    # GitHub's default job timeout is 360 minutes. Nothing here needs
+    # minutes at all, and this workflow's concurrency group does not
+    # cancel in progress, so a stalled job would block later probes.
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -163,6 +171,14 @@ jobs:
 
           const codexBinary = process.argv[2];
           const child = spawn(codexBinary, ['app-server'], { stdio: ['pipe', 'pipe', 'inherit'] });
+          // The child EXITING before it answers is an execution failure, not
+          // provider drift: nothing about the wire was established. Without
+          // watching for it the loop below simply waits out its full deadline
+          // and then reports "no response" as drift.
+          let childExit = null;
+          let spawnError = null;
+          child.on('exit', (code, signal) => { childExit = { code, signal }; });
+          child.on('error', (error) => { spawnError = error; });
           const responsesById = new Map();
           let stdoutBuffer = '';
           child.stdout.on('data', (chunk) => {
@@ -215,11 +231,25 @@ jobs:
           });
 
           const deadlineMs = Date.now() + 90_000;
-          while (Date.now() < deadlineMs && !(responsesById.has(1) && responsesById.has(2))) {
+          const answered = () => responsesById.has(1) && responsesById.has(2);
+          while (Date.now() < deadlineMs && !answered() && childExit === null && spawnError === null) {
             await new Promise((resolve) => setTimeout(resolve, 200));
           }
           child.stdin.end();
           child.kill('SIGTERM');
+
+          // BROKEN, not drift, and exits nonzero so the shell wrapper routes
+          // it to broken.txt. Checked before the assertions below, because a
+          // child that died has no wire behavior to assert about.
+          if (spawnError !== null) {
+            console.error(`BROKEN codex protocol probe: could not spawn app-server (${spawnError.message})`);
+            process.exit(1);
+          }
+          if (!answered() && childExit !== null) {
+            const how = childExit.signal ? `signal ${childExit.signal}` : `exit ${childExit.code}`;
+            console.error(`BROKEN codex protocol probe: app-server exited (${how}) before answering`);
+            process.exit(1);
+          }
 
           const failures = [];
           const initializeResponse = responsesById.get(1);
@@ -412,6 +442,10 @@ jobs:
   claude-surface:
     name: Claude ${{ matrix.channel }} (${{ matrix.version }})
     runs-on: ubuntu-latest
+    # GitHub's default job timeout is 360 minutes. Nothing here needs
+    # minutes at all, and this workflow's concurrency group does not
+    # cancel in progress, so a stalled job would block later probes.
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -639,6 +673,10 @@ jobs:
       # report needs the distinction; a bare job result cannot carry it.
       smoke-outcome: ${{ steps.smoke.outputs.smoke_outcome }}
     runs-on: ubuntu-latest
+    # GitHub's default job timeout is 360 minutes. Nothing here needs
+    # minutes at all, and this workflow's concurrency group does not
+    # cancel in progress, so a stalled job would block later probes.
+    timeout-minutes: 15
     needs: secret-gate
     if: needs.secret-gate.outputs.claude-token-present == 'true'
     steps:
@@ -687,7 +725,11 @@ jobs:
           # tracker on evidence never collected. Only a turn that RAN and
           # came back empty is a protocol observation.
           set +e
-          answer="$("$CLAUDE_BIN" -p 'Reply with the single word: ok' \
+          # `--max-turns 1` bounds TURNS, not wall time: a stalled request
+          # hangs indefinitely. `timeout` bounds the invocation itself, and
+          # its 124 exit is a stall -- an execution failure, so it lands on
+          # the `broken` arm below rather than being read as wire drift.
+          answer="$(timeout 300 "$CLAUDE_BIN" -p 'Reply with the single word: ok' \
             --max-turns 1 \
             --allowed-tools '' \
             --output-format text </dev/null 2>"$RUNNER_TEMP/smoke.err")"
@@ -715,6 +757,10 @@ jobs:
   report:
     name: Report drift
     runs-on: ubuntu-latest
+    # GitHub's default job timeout is 360 minutes. Nothing here needs
+    # minutes at all, and this workflow's concurrency group does not
+    # cancel in progress, so a stalled job would block later probes.
+    timeout-minutes: 10
     needs: [secret-gate, codex-protocol, claude-surface, claude-authenticated-smoke]
     if: always()
     permissions:
@@ -944,8 +990,13 @@ jobs:
       # Each tracker closes on ITS OWN verdict. A run with drift but no
       # broken legs is exactly when the not-measuring tracker should close,
       # and vice versa -- gating either on both would strand one open.
+      # Requires a FULLY MEASURED run. `drift=false` on a run with a broken
+      # or missing leg is not evidence of recovery -- it is the absence of
+      # evidence, and closing prior drift on it discards a real finding. The
+      # not-measuring tracker below closes on its own verdict, so nothing is
+      # stranded: the broken run is still reported, just not as recovery.
       - name: Close the drift tracker on recovery
-        if: steps.classify.outputs.drift == 'false' && steps.existing.outputs.number != ''
+        if: steps.classify.outputs.drift == 'false' && steps.classify.outputs.broken == 'false' && steps.existing.outputs.number != ''
         run: |
           set -euo pipefail
           gh issue close "${{ steps.existing.outputs.number }}" \
