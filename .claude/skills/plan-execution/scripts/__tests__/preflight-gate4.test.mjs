@@ -3632,7 +3632,17 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // 4B; Plan-005 adds T3.16 (I-005-6) and T3.17 (none) in its new Phase 3B.
     // The none-arm delta is exactly +6 and matches the six new `none` markers
     // one-for-one; the legacy channel is unchanged.
-    bold: { resolved: 901, noneArm: 158, parentResolved: 0 },
+    // 901/158 -> 912/158 (2026-08-25, the Spec-023/Plan-023 deep-link
+    // invite-confirmation amendment — §6 node NS-81, landing after NS-74
+    // above): three NEW tasks carry RESOLVED `Verifies invariant:` arms —
+    // T-023r-5-5 (I-023-9, I-023-10, I-023-5), T-023r-6-3 (I-023-9,
+    // I-023-10), and T-023r-8-5 (I-023-9, I-023-10) — and three existing
+    // rows widen onto the two new invariants: T-023r-2-5 (+I-023-10),
+    // T-023r-5-3 (+I-023-9), and the T-023r-8-1 E2E row (+I-023-9,
+    // +I-023-10). Exactly +11 bold resolved references, every one in
+    // Plan-023. No none arm moves — all three new tasks carry ids rather
+    // than `none` — and the legacy channel is unchanged.
+    bold: { resolved: 912, noneArm: 158, parentResolved: 0 },
     legacy: { resolved: 61, noneArm: 3, parentResolved: 1 },
   });
 });
