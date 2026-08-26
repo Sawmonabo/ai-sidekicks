@@ -317,6 +317,11 @@ jobs:
         with:
           name: leg-codex-${{ matrix.channel }}
           path: ${{ runner.temp }}/leg/outcome.txt
+          # `error`, not the default `warn`. The report's backstop keys on a
+          # job reporting failure; if a missing outcome file only warned, the
+          # leg would stay green, no backstop would fire, and the run would
+          # read as clean while one channel reported nothing at all.
+          if-no-files-found: error
           retention-days: 7
 
   # ---------------------------------------------------------------------------
@@ -501,6 +506,11 @@ jobs:
         with:
           name: leg-claude-${{ matrix.channel }}
           path: ${{ runner.temp }}/leg/outcome.txt
+          # `error`, not the default `warn`. The report's backstop keys on a
+          # job reporting failure; if a missing outcome file only warned, the
+          # leg would stay green, no backstop would fire, and the run would
+          # read as clean while one channel reported nothing at all.
+          if-no-files-found: error
           retention-days: 7
 
   # ---------------------------------------------------------------------------
