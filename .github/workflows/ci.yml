@@ -112,11 +112,13 @@ jobs:
       # mode 4755 for the renderer's Linux namespace sandbox to initialize.
       # pnpm install cannot run the Electron post-install step under root,
       # so we chown/chmod the binary here. This preserves `webPreferences.sandbox: true`
-      # (Spec-023 §Security Hardening Baseline lines 104-116) — running
-      # Electron with `--no-sandbox` would defeat the very invariant
-      # apps/desktop/test/launch.smoke.test.ts asserts (the three-globals
-      # set: window.require / process / global all undefined per Spec-023
-      # §Acceptance Criteria line 602).
+      # (`Spec-023 §Security Hardening Baseline` — the mandatory webPreferences
+      # block: contextIsolation, sandbox and webSecurity true, nodeIntegration
+      # false) — running Electron with `--no-sandbox` would defeat the very
+      # invariant apps/desktop/test/launch.smoke.test.ts asserts (the
+      # three-globals set, per `Spec-023 §Acceptance Criteria`: "Renderer
+      # attempts to access `require`, `process`, or `global` return
+      # `undefined`").
       #
       # The `find -print -quit` form returns the first match without
       # walking the whole tree; the guard fails fast if the binary is

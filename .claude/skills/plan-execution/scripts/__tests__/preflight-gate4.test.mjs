@@ -3704,7 +3704,19 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // legs land as single marker blocks on their tasks' last continuation
     // paragraph (the pre-existing T14.8 shape), so no marker block is added or
     // removed, no none-arm moves, and the legacy channel is untouched.
-    bold: { resolved: 930, noneArm: 159, parentResolved: 0 },
+    // 930/159 -> 940/157 (2026-08-26, the NS-83 provider-account sign-in,
+    // health-observation, and per-limit-quota amendment, landing after NS-82
+    // above; baseline stated post-rebase and the figure read off a live
+    // `preflight.mjs --survey` on the rebased tree, never reconciled by
+    // arithmetic against a predecessor bullet): four new Plan-029 tasks (T1.4,
+    // T2.6, T2.7, T3.6) carry ten bold resolved references to the three new
+    // invariants I-029-11/12/13 plus I-029-10, AND T4.3/T4.4 are converted OFF
+    // the `none` arm onto real invariants. The two counts therefore move in
+    // OPPOSITE directions — resolved +10, noneArm -2 — which is precisely the
+    // case a single combined pin would hide: it would net to +8, and the
+    // conversion of two asserted-not-verified rows into verified ones would
+    // leave no trace.
+    bold: { resolved: 940, noneArm: 157, parentResolved: 0 },
     legacy: { resolved: 64, noneArm: 3, parentResolved: 1 },
   });
 });

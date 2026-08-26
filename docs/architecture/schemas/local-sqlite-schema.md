@@ -58,7 +58,7 @@ CREATE INDEX idx_session_events_live ON session_events(session_id, sequence) WHE
 CREATE UNIQUE INDEX idx_session_events_run_terminal_once ON session_events(json_extract(payload, '$.runId'), json_extract(payload, '$.runVersion')) WHERE category = 'run_lifecycle' AND type IN ('run.completed', 'run.failed', 'run.interrupted');
 
 -- Projection-level terminal-key CHECK (Spec-006 at-most-once terminal emission; assigned to the campaign B11
--- schema work). SQLite has no ALTER TABLE ... ADD CHECK on an existing table (sqlite.org/lang_altertable.html), so a
+-- schema work). SQLite has no ALTER TABLE ... ADD CHECK on an existing table (sqlite.org/`lang_altertable`.html), so a
 -- trigger trio is the idiomatic equivalent: abort any terminal run_lifecycle write whose runId/runVersion key is NULL
 -- OR the wrong storage class (json_type: runId 'text', runVersion 'integer' — a type-drifted "7"-vs-7 key bypasses the
 -- UNIQUE index, which keys by storage class). The BEFORE UPDATE leg keys off OLD (the row WAS terminal) and additionally aborts a value-changing key rewrite (NEW key IS NOT OLD, null-safe) or a category/type de-scope — either frees the index slot for a duplicate terminal — enforcing stub-preservation against the compactor (key + category + type kept for the row's whole retention life). The promote leg rejects re-typing any non-terminal row INTO the guarded set (terminal rows are INSERT-only): an OLD-keyed guard alone would let a null-keyed promotion slip both legs and the NULL-distinct UNIQUE index.
@@ -556,7 +556,7 @@ CREATE UNIQUE INDEX idx_branch_contexts_worktree_workspace ON branch_contexts(wo
 -- Migration lineage: the block below is the table's FINAL shape, not the content of any single migration. Every
 -- column except checkout_root shipped in the version-4 four-table CREATE (Plan-010 T1.3, PR #253); checkout_root
 -- lands via the Phase-3 table-rebuild migration (create successor -> copy omitting the column -> drop -> rename ->
--- recreate the index; lang_altertable §8 — Plan-010 T3.2, its only writer; 2026-08-17 amendment, shape corrected at
+-- recreate the index; `lang_altertable` §8 — Plan-010 T3.2, its only writer; 2026-08-17 amendment, shape corrected at
 -- the NS-69 PR's round-1 fold), after which PRAGMA table_info order matches this block exactly.
 CREATE TABLE run_execution_contexts (
   run_id             TEXT PRIMARY KEY,
@@ -1724,6 +1724,25 @@ CREATE TABLE provider_accounts (
   health_state          TEXT
                         CHECK(health_state IS NULL OR health_state IN ('authenticated', 'reauth_required', 'home_missing', 'indeterminate')),  -- the STORED outcome of the last validation of this account: the driver's authentication probe reading together with the credential-home observation taken at that same moment. NULL until a probe has ever been taken, which the wire renders as `indeterminate` — NOT as a failure and never as authenticated (I-029-9, I-029-10). This is the column the readiness projection reads; a registry read never re-derives it, so a read spawns no provider process and opens no credential file (Spec-029 §Node provider readiness and the sign-in handoff).
   health_observed_at    TEXT,  -- RFC 3339 UTC of the observation `health_state` records, written by the same act. NULL exactly when `health_state` is NULL, so the pair is set and cleared together; surfaced as `ProviderReadiness.observedAt` so a caller can apply its own age test. Deliberately NOT `updated_at`, which is NOT NULL and moves on any row mutation — a relabel would report an operator's display-label edit as a fresh authentication observation.
+  observed_auth_mode    TEXT
+                        CHECK(observed_auth_mode IS NULL OR observed_auth_mode IN ('oauth_subscription', 'oauth_token', 'api_key', 'external', 'none', 'unknown')),  -- the authentication mode the provider's OWN status surface reports for this home, OBSERVED and never assumed (Spec-029 §Non-interactive token registration). NULL until observed; `unknown` is the distinct arm for "observed, but the provider named a mode this daemon does not recognize" — a tolerant arm so a vendor adding a mode does not fail an observation closed. `oauth_token` is the ADR-028 D2 class and is what admits a token-mode account; the token VALUE is not here and is in no column of any table (Spec-029 §State And Data Implications).
+  last_refresh_observed_at TEXT,  -- RFC 3339 UTC of the most recent credential refresh the daemon has OBSERVED to have completed for this home, read from the provider's own durable marker where it publishes one. NULL = not observed, never "fine". Drives the freshness reading; the daemon never CAUSES a refresh to produce it (Spec-029 §Credential-home health observation).
+  logged_in_at          TEXT,  -- RFC 3339 UTC of the moment this home's credential was ISSUED. On a brokered sign-in that is the observed completion, which the daemon witnessed. On a token-mode registration it is the token's ISSUANCE time — read from the provider's own status surface where it publishes one, else supplied explicitly by the operator — and is NOT the registration time: a token is minted out of band and may be registered months later, so anchoring here to registration would shift the horizon forward by the token's pre-registration age and could report a credential as good after it had expired. Where no issuance anchor exists the column stays NULL and the estimate renders as unknown; it is never defaulted to `created_at`. NULL also for a home imported by a registration that neither signed in nor supplied a token. The re-login horizon derived from it is MODE-DISPATCHED and is an ESTIMATE, never a fact: the interval belongs to the provider's issuance policy, which the daemon does not control and cannot verify.
+  -- Provider-REPORTED account identity, surfaced by a health observation and stored so the
+  -- management page can tell two accounts of the same provider apart by something truer than the
+  -- operator's own label. Nullable and independently so: a provider may report any subset, and an
+  -- absent value stays absent rather than defaulting. A later observation REPLACES these values
+  -- (Spec-022 §PII Data Map, `provider_accounts` row); they are never logged, never evented, and
+  -- never carried on an error. Carriers for the render Spec-023 requires and the retention rule
+  -- Spec-022 already governs — added 2026-08-26 at the Codex round, which found the rule and the
+  -- render both citing a column that did not exist.
+  observed_account_email     TEXT,
+  observed_account_org_id    TEXT,
+  observed_account_org_name  TEXT,
+  removal_intent        INTEGER NOT NULL DEFAULT 0
+                        CHECK(removal_intent IN (0, 1)),  -- the durable half of the cross-store removal protocol (Spec-029 §Non-interactive token registration). The registry row and the sealed token are SEPARATE DURABILITY DOMAINS — SQLite and the OS keystore commit independently — so removal marks intent here FIRST, then destroys the secret, then deletes the row. A crash mid-sequence therefore strands a row already marked unusable rather than a live credential nobody can see. Admission REFUSES any account whose row is intent-marked, and daemon-start reconciliation completes every marked row and destroys every sealed value matching no row. Not a status enum: the row's other states are already carried by `health_state`, and folding removal into that column would let an observation overwrite an in-flight removal.
+  probe_enabled         INTEGER NOT NULL DEFAULT 1
+                        CHECK(probe_enabled IN (0, 1)),  -- per-account opt-out for the background health observer (Spec-029 §Credential-home health observation). Default-on, because an account nobody observes is an account whose stored reading silently ages; durable rather than in-memory, so a restart does not resume observing an account the operator silenced. Opting out suppresses the OBSERVER only: the deliberate probe verb and spawn validation still write the pair, because both are acts the operator or a run explicitly asked for.
   created_at            TEXT NOT NULL,
   updated_at            TEXT NOT NULL,
   -- The stored observation is a PAIR, and the pair is enforced rather than asserted: a reading with
@@ -1741,6 +1760,27 @@ CREATE TABLE provider_accounts (
 CREATE UNIQUE INDEX provider_accounts_one_default_per_provider
   ON provider_accounts(provider)
   WHERE is_default = 1;
+```
+
+The newest quota reading per account and limit. A provider's quota standing is **not one window**: the pinned Claude surface publishes five limit identifiers, **three of which share a 10080-minute window**, so a key of `(account, window length)` cannot hold them — two of the three would overwrite the third and the survivor would depend on arrival order. The limit identifier is therefore the key and the window length is an attribute of the reading, not part of its identity. Holding the newest reading durably is what lets a client that connects after a reading was taken render quota standing without waiting for the next one.
+
+```sql
+-- Owner: Plan-029
+CREATE TABLE provider_account_usage_windows (
+  account_id    TEXT NOT NULL
+                REFERENCES provider_accounts(account_id) ON DELETE CASCADE,  -- a window reading has no meaning without its account; deregistering an account takes its readings with it
+  limit_id      TEXT NOT NULL,  -- the provider's own limit identifier, carried verbatim as an untrusted provider-adjacent string. A reading that names no limit takes the reserved value 'default', so a provider publishing a single window needs no special case and the pre-Spec-029 single-window shape stays valid as the degenerate case (Spec-029 §Per-limit provider quota). NOT enumerated by a CHECK: the provider's limit set is an open, versioned vocabulary and a closed CHECK would fail a reading closed the moment a vendor adds a window.
+  window_mins   INTEGER NOT NULL,  -- the reading's window length in minutes. An ATTRIBUTE, not part of the key: within one provider the limit identifier determines the length, so keying on both would admit two rows for one limit with different lengths — the same incoherence the health-pair CHECK above exists to refuse.
+  label         TEXT,  -- the provider's own display label for this window where it publishes one; NULL where it does not. Display-only, never parsed, never a key.
+  used_percent  REAL NOT NULL
+                CHECK(used_percent >= 0),  -- utilization at `observed_at`. NOT capped at 100: a provider may report over-consumption against a soft limit, and clamping would silently misreport it. The renderer clamps for display; the store records what was observed.
+  resets_at     TEXT,  -- RFC 3339 UTC when this window resets, where the provider supplies it; NULL where it does not. NULL means unknown, never "now" and never "never".
+  observed_at   TEXT NOT NULL,  -- RFC 3339 UTC of the reading. This is the ordering key: where two readings key alike the later `observed_at` is current, and `source` breaks only exact ties. Ordering by arrival or by a source preference would let a stale reading mask real consumption.
+  observed_credential_generation INTEGER NOT NULL,  -- the account's `credential_generation` when this reading was taken, mirroring the member the account-scoped quota event already carries. A credential-home rebuild does NOT delete these rows — a quota window describes the provider-side allowance, which keeps running while a home sits empty — so this stamp is what lets a consumer render a pre-rebuild reading as stale rather than as current (Spec-029 §Per-limit provider quota). Contrast the health pair on the parent row, which a generation bump invalidates outright, because that pair describes the home itself.
+  source        TEXT NOT NULL
+                CHECK(source IN ('probe', 'run')),  -- which sanctioned source produced the reading: the deliberate probe verb, or the account-scoped quota event emitted from real traffic. The background health observer is NOT a source and no third value exists, because reading quota on one pinned provider leg traverses a path documented to refresh proactively — which Spec-029 §Credential-home health observation forbids the observer to do.
+  PRIMARY KEY (account_id, limit_id)
+);
 ```
 
 Spend is joined to an account without duplicating account identity onto every usage row. A provider run carries the server-stamped `admittedProviderAccountId` on its `run.queued` admission record, so priced usage rows join to an account **through the run**. The one usage kind that carries account identity directly is `usage.rate_limit_update`, because provider quota is account-scoped and has no run to join through — the asymmetry is deliberate, and it also keeps participant identity off every usage row.

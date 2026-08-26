@@ -712,7 +712,7 @@ shipped:
         "Spec-003 line 85",
         "Spec-003 line 84",
         "Spec-003 line 86",
-        "Spec-006 lines 407-413",
+        "Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle) (the seven runtime_node.* rows: registered, online, degraded, offline, revoked, capability_declared, capability_updated)",
         "Spec-003 AC4 line 134",
         "Spec-003 line 102",
       ]
@@ -746,7 +746,7 @@ shipped:
         "Spec-003 line 103",
         "Spec-003 line 120",
         "Spec-003 line 126",
-        "Spec-006 lines 407, 408, 410, 412, 413",
+        "Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle) (runtime_node.registered, runtime_node.online, runtime_node.offline, runtime_node.capability_declared, runtime_node.capability_updated \u2014 five of the block's seven rows; degraded and revoked are not covered by this task)",
         "api-payload-contracts.md §Plan-006 capability payload typing",
       ]
   - phase: 3

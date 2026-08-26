@@ -5115,9 +5115,9 @@ type McpServerOauthCompletedPayload = McpServerBindingAuditRef & {
 
 Wire surfaces for [Spec-029](../../specs/029-provider-accounts-and-credential-homes.md). The `providerAccount.*` namespace is node-local operator administration: every mutating verb is gated on node-operator authority, and a relayed mutation is refused rather than applied (I-029-1).
 
-The namespace has exactly seven verbs, each carrying the payload pair named below: `providerAccount.list` (read), and the six mutating verbs `providerAccount.register`, `providerAccount.update`, `providerAccount.remove`, `providerAccount.setDefault`, `providerAccount.probe`, and `providerAccount.resetCredentialHome`. `providerAccount.probe` is grouped with the mutating verbs for two reasons, and the weaker one is the row write: it writes back the observed health state and its observation timestamp to the probed account's row, and — **atomically with that write** — applies I-029-2's generation rule, which names "a transition of the account's probe result into or out of `authenticated`" as a lifecycle transition. So a probe that observes the same authenticated-ness as the stored row leaves `credentialGeneration` untouched, while one that observes a **crossing** of the authenticated boundary bumps it in the same transaction as the health write. Both directions bump: a repaired credential must end the old attention epoch (`Spec-017 §Provider-limit pacing and durable resumption (SA-40)` keys on `(accountId, credentialGeneration)`, so parked work resumes against a generation that is genuinely new), and a destroyed one must not leave consumers holding a generation that still reads as usable. The verb mints and removes no account. The load-bearing reason for the gate is that it reaches into a credential home and drives provider-side credential I/O. That is operator-authority work, so it takes the node-operator gate rather than the laxer read gate.
+The namespace has exactly ten verbs, each carrying the payload pair named below: the two read verbs `providerAccount.list` and `providerAccount.subscribe`, and the eight mutating verbs `providerAccount.register`, `providerAccount.update`, `providerAccount.remove`, `providerAccount.setDefault`, `providerAccount.probe`, `providerAccount.resetCredentialHome`, `providerAccount.login`, and `providerAccount.loginCancel` (the last three moving the census seven → ten and six → eight at the 2026-08-26 sign-in amendment, §6 node NS-83). `providerAccount.subscribe` is grouped with the reads: it mutates nothing and takes the same node-operator gate its sibling read does, for the same disclosure reason. `providerAccount.probe` is grouped with the mutating verbs for two reasons, and the weaker one is the row write: it writes back the observed health state and its observation timestamp to the probed account's row, and — **atomically with that write** — applies I-029-2's generation rule, which names "a transition of the account's probe result into or out of `authenticated`" as a lifecycle transition. So a probe that observes the same authenticated-ness as the stored row leaves `credentialGeneration` untouched, while one that observes a **crossing** of the authenticated boundary bumps it in the same transaction as the health write. Both directions bump: a repaired credential must end the old attention epoch (`Spec-017 §Provider-limit pacing and durable resumption (SA-40)` keys on `(accountId, credentialGeneration)`, so parked work resumes against a generation that is genuinely new), and a destroyed one must not leave consumers holding a generation that still reads as usable. The verb mints and removes no account. The load-bearing reason for the gate is that it reaches into a credential home and drives provider-side credential I/O. That is operator-authority work, so it takes the node-operator gate rather than the laxer read gate.
 
-**The probe verb is not the only writer of the stored pair.** Every validation that actually observes an account's authentication state writes it back under the same rule — the deliberate probe above, and the fail-closed validation the spawn path performs (Spec-029 §Validation at spawn — fail-closed). Anything else would make the stored reading a record of _explicit probes_ rather than of _the last validation_, which is what the readiness derivation reads and what `observedAt` claims: a node whose first run succeeded would otherwise keep serving `indeterminate` indefinitely while every run started fine. Spawn validation is a read-path caller in every other respect — it takes no operator gate and mints nothing — but its observation is an observation, and the row records observations.
+**The probe verb is not the only writer of the stored pair.** Every validation that actually observes an account's authentication state writes it back under the same rule — the deliberate probe above, the fail-closed validation the spawn path performs (Spec-029 §Validation at spawn — fail-closed), and, from the 2026-08-26 amendment, the **background health observer** (Spec-029 §Credential-home health observation), which is the third writer and joins the set rather than replacing it. **The generation-bump authority is deliberately NOT widened with it.** `credentialGeneration` still bumps only on I-029-2's credential-home lifecycle transitions, and a background observation is not one: `Spec-017 §Provider-limit pacing and durable resumption (SA-40)` keys parked work on `(accountId, credentialGeneration)`, so an observer that bumped on a transient fault would end a parked-work attention epoch for nothing — the precise harm the both-directions bump rule above exists to produce **only** when the boundary is genuinely crossed by an act that changed the home. The observer is also constrained in what it may do to take its reading: it never requests a refresh, never calls a provider path documented to refresh proactively, and never reaches a first-party authentication endpoint, because both pinned providers rotate refresh tokens single-use and a poll that refreshes burns a rotation every tick. Anything else would make the stored reading a record of _explicit probes_ rather than of _the last validation_, which is what the readiness derivation reads and what `observedAt` claims: a node whose first run succeeded would otherwise keep serving `indeterminate` indefinitely while every run started fine. Spawn validation is a read-path caller in every other respect — it takes no operator gate and mints nothing — but its observation is an observation, and the row records observations.
 
 **The identifier is opaque everywhere.** `ProviderAccountId` is daemon-minted and immutable. No client, driver, or renderer parses it, decomposes it, or uses it to locate credential material — it selects a credential environment and nothing else. It is deliberately not derived from an email, a provider subject id, or any credential value, because those rotate and an identity that rotates cannot key historical spend.
 
@@ -5131,13 +5131,57 @@ interface ProviderAccount {
   displayLabel: string; // operator-chosen; participant-adjacent PII (Spec-022 §PII Data Map)
   credentialGeneration: number; // monotonic; bumps at every credential-home lifecycle transition (I-029-2)
   billingMode: BillingMode;
+  // Provider-REPORTED identity, present only where a health observation surfaced it, each member
+  // independently optional because a provider may report any subset. Participant-adjacent PII
+  // (Spec-022 §PII Data Map, `provider_accounts` row): a later observation replaces these, and they
+  // are never logged, evented, or carried on an error. Never operator-typed — the operator's own
+  // name for the account is `displayLabel`.
+  observedAccountEmail?: string;
+  observedAccountOrgId?: string;
+  observedAccountOrgName?: string;
   isDefault: boolean; // exactly one per provider, enforced by a partial unique index (I-029-5)
   healthState: ProviderAccountHealthState;
+  // The four members below land with the 2026-08-26 sign-in amendment. Each is nullable-by-absence
+  // rather than defaulted: an unobserved fact is reported as unobserved, never as a value the
+  // daemon has not seen. `ProviderAccount` has not shipped, so these are required-shape additions
+  // in the same reading the readiness member took, not ADR-018 additive-optional retrofits.
+  observedAuthMode: ProviderAuthMode | null; // = `provider_accounts.observed_auth_mode`; null until observed
+  loggedInAt: string | null; // RFC 3339 UTC of the sign-in this credential came from; null where neither a brokered sign-in nor a token registration produced it
+  // ESTIMATE, and the wire says so in its name. Mode-dispatched from `loggedInAt` by the provider's
+  // published issuance interval for that mode; null whenever `loggedInAt` or `observedAuthMode` is
+  // null, because an estimate with no anchor is a fabrication. A renderer MUST present it as an
+  // approximation ("about N days after sign-in"), never as a deadline the daemon can vouch for —
+  // the interval belongs to the provider's issuance policy, which the daemon cannot verify, and at
+  // least one pinned leg's horizon is server-rewritable on any refresh.
+  expectedReloginAtEstimate: string | null;
+  probeEnabled: boolean; // false = the operator silenced the background observer for this account; the deliberate probe verb and spawn validation still write the stored pair
 }
 
-// NOTE: no credential material appears on this wire surface, in any shape, ever. Tokens live
-// in the per-account credential home written by the provider's own tooling; the daemon brokers
-// refresh without holding values. There is no token field to omit here — there is no token.
+// The authentication mode the provider's OWN status surface reports for a home — OBSERVED, never
+// assumed, and never derived by the daemon from the shape of a credential file. `unknown` is the
+// tolerant arm for "observed, and the provider named a mode this build does not recognize": a
+// vendor adding a mode must not fail an observation closed, so the union accepts and records it as
+// unknown rather than refusing the observation. `oauth_token` is the ADR-028 D2 class and is the
+// mode under which a token-mode account is admitted; the token VALUE is not on this wire.
+type ProviderAuthMode =
+  | "oauth_subscription"
+  | "oauth_token"
+  | "api_key"
+  | "external"
+  | "none"
+  | "unknown";
+
+// NOTE (amended 2026-08-26, ADR-028 D2 — this note previously stated an absolute; the ADR is
+// what authorizes replacing it, and the replacement is deliberately as mechanically checkable as
+// the absolute was). Credential material appears on EXACTLY ONE input on this wire surface and on
+// NO output: `ProviderAccountRegisterRequest.nonInteractiveToken` below. It is write-only — it is
+// on no reply, no event, no error, no notification, no metric, and no log line, and no reply type
+// in this section carries a token-shaped member of any name. The census claim a reviewer can
+// check: one credential-accepting input, named above, and zero credential-bearing outputs.
+// `ProviderAccount` itself still carries none — tokens for interactively-authenticated accounts
+// live in the per-account credential home written by the provider's own tooling, the daemon
+// brokers refresh without holding values, and the ADR-028 D2 token is sealed through the ADR-021
+// ladder in daemon-owned state rather than in any column or on any payload here.
 type ProviderAccountHealthState =
   | "authenticated"
   | "reauth_required"
@@ -5259,6 +5303,13 @@ interface ProviderAccountListRequest {
 }
 interface ProviderAccountListResponse {
   accounts: ProviderAccount[];
+  // The durable quota rows, delivered on the READ because the subscription is a live tail and not a
+  // snapshot replay — without this a client opened after a reading, or after a daemon restart, could
+  // not reach `provider_account_usage_windows` until another probe or run happened to produce an
+  // update. Entries carry the provenance they were OBSERVED under, so a stored window may legitimately
+  // carry `source: "run"`; provenance is a property of the reading, never of the transport that
+  // delivers it, and a consumer must accept both values here rather than assuming `"probe"`.
+  usageWindows: ProviderAccountUsageWindow[];
   // Required, not additive-optional: `ProviderAccountListResponse` is registered here and has not
   // shipped, so ADR-018's additive-optional rule for already-published shapes does not bind it — the
   // same reading the Tier-8 audit's new shapes carry. A reply that could omit readiness would push
@@ -5274,6 +5325,48 @@ interface ProviderAccountRegisterRequest {
   displayLabel: string;
   billingMode: BillingMode;
   makeDefault?: boolean;
+  // RE-SUPPLY, not a second credential-accepting verb. Supplied, this means "replace the sealed
+  // token on THIS account" and `provider` must match the stored row; omitted, this is an ordinary
+  // registration and the daemon mints a new identity. It exists because the terminal
+  // `reauth_required` remedy is to mint a fresh token and re-supply it, and deregister-then-register
+  // would daemon-mint a NEW immutable identity — discarding the spend, quota, and attention history
+  // keyed to the account the operator is trying to repair. A successful replacement bumps
+  // `credentialGeneration` and re-runs the registration-time observation. The credential-accepting
+  // input census is unmoved at exactly one: this adds a selector, not a second credential input.
+  accountId?: ProviderAccountId;
+  // THE ONE CREDENTIAL-ACCEPTING INPUT ON THIS WIRE (ADR-028 D2; Spec-029 §Non-interactive token
+  // registration). Optional: omitted is the ordinary registration, and the account authenticates
+  // through `providerAccount.login` or the operator's own out-of-band sign-in.
+  //
+  // WRITE-ONLY, and the rule is absolute in the direction that matters: this value is never
+  // returned on this verb's response or any other, never logged, never echoed to a terminal, never
+  // rendered, never placed in an error message or a diagnostic dump, and never carried in an
+  // argument vector (an argv is readable by any process running as the same user). A transport
+  // that logs request bodies MUST redact this member by name.
+  //
+  // Admitted only under ADR-028's FOUR CONJUNCTIVE conditions, and refused with
+  // `provideraccount.token_class_refused` on any failure: (1) minted by the provider's own tooling
+  // through a subcommand the provider documents for non-interactive use — the daemon never mints,
+  // exchanges, refreshes, or derives credential material and never speaks a provider token
+  // endpoint; (2) consumed through a variable the provider documents; (3) carrying no refresh
+  // token, so possession mints no successors and a leak expires on the provider's own fixed
+  // horizon; (4) supplied deliberately on this member, which exists for this and nothing else.
+  //
+  // Sealed through the ADR-021 ladder (OS keystore verified by write-probe-read-delete, then an
+  // Argon2id-encrypted daemon-owned file, then a LOUD REFUSAL — never a silent plaintext write).
+  // Where the ladder refuses, registration refuses with `provideraccount.credential_seal_refused`
+  // rather than degrading. It is NOT written into the credential home: daemon-owned bytes in
+  // provider-owned space are indistinguishable to every later reader, the provider's own tooling
+  // included. It reaches the provider only as an environment variable, and only on the two
+  // invocations ADR-028 D2 enumerates: the registration-time status observation, and the child
+  // process of a run bound to this account. The second is gated on ADR-028 CONDITION 5 — a run
+  // child executes model-directed tools, so any command the model issues can read that child's
+  // environment. A provider leg with no RECORDED first-party observation that it strips the
+  // variable from its tool, shell, and subagent subprocess environments does not admit the class
+  // at all: `register` refuses there rather than sealing an account that would store
+  // `authenticated`, report READY, and then refuse every run. Documentation asserting the strip
+  // is not an observation.
+  nonInteractiveToken?: string;
 }
 interface ProviderAccountRegisterResponse {
   account: ProviderAccount;
@@ -5288,6 +5381,11 @@ interface ProviderAccountUpdateRequest {
   accountId: ProviderAccountId;
   displayLabel?: string; // omitted = unchanged
   billingMode?: BillingMode; // omitted = unchanged; this is how `unknown` is resolved to a declared mode
+  // The durable per-account opt-out AC-19 requires. Carried on the existing update verb rather than
+  // as a dedicated verb: it is an ordinary mutable account preference, and minting a verb for it
+  // would move the namespace census for a boolean. Omitted = unchanged; the column default is
+  // enabled, so silence never silences an observer.
+  probeEnabled?: boolean;
 }
 interface ProviderAccountUpdateResponse {
   account: ProviderAccount;
@@ -5320,7 +5418,11 @@ interface ProviderAccountSetDefaultResponse {
 // but holding no usable credential). It is a credential-home lifecycle transition under I-029-2,
 // so it BUMPS `credentialGeneration`; the generation is never reset by it, which is what lets a
 // stale consumer still order two readings across the rebuild. Identity survives untouched:
-// `accountId` is the same afterward, so the account keeps its spend history.
+// `accountId` is the same afterward, so the account keeps its spend history. Its stored quota
+// readings are kept for the same reason and are NOT cleared — the provider-side allowance kept
+// running while the home was empty — but each carries the generation it was observed under, so a
+// consumer renders a pre-rebuild reading as stale. The stored health pair is the opposite case:
+// the bump invalidates it, which is why `healthState` is returned here.
 interface ProviderAccountResetCredentialHomeRequest {
   accountId: ProviderAccountId;
 }
@@ -5337,6 +5439,108 @@ interface ProviderAccountProbeResponse {
   accountId: ProviderAccountId;
   healthState: ProviderAccountHealthState;
   credentialGeneration: number; // the generation the probe observed; a later bump invalidates this reading
+}
+
+// Brokered interactive sign-in (ADR-028 D1; Spec-029 §Brokered interactive sign-in). The daemon
+// constructs the invocation, spawns the provider's UNMODIFIED binary with this account's home
+// pinned, and reads nothing the flow writes. What returns is what the provider emits for the
+// OPERATOR to act on, plus an opaque daemon-minted attempt id. It is deliberately NOT a shell
+// string: `ProviderSignInRemedy.signInInvocation` remains display-only and no client-supplied
+// string is ever executed — the daemon authors this invocation itself, which is a different act
+// with a different trust story, and the 2026-08-25 note that reasoned the display-only remedy is
+// untouched for the surface it governs.
+//
+// SHAPE MIRRORS THE PROVIDER'S OWN, deliberately: the pinned Codex login-start returns either an
+// authorization URL or a device code with its verification URL, and the pinned Claude flow prints
+// a URL and accepts a pasted code. A provider arm emitting neither cannot be brokered and is
+// refused `provideraccount.signin_unsupported` rather than spawning a flow the operator cannot
+// finish. A second start against an account with one in flight is refused
+// `provideraccount.signin_in_flight` — at least one pinned provider holds exactly ONE active login
+// slot and SILENTLY DROPS the previous attempt, which would strand an operator mid-flow on another
+// device with no signal that their code had stopped working.
+interface ProviderAccountLoginRequest {
+  accountId: ProviderAccountId;
+}
+interface ProviderAccountLoginResponse {
+  attemptId: string; // opaque, daemon-minted, single-use; the correlation key for cancel and for completion
+  verificationUri: string; // where the operator completes the flow — the provider's own URL, verbatim
+  userCode?: string; // present on a device-code arm; the operator types it at `verificationUri`
+  expiresAt?: string; // RFC 3339 UTC, where the provider bounds the attempt; null/absent = the provider published no bound. The FOURTH whitelisted field (Spec-029 §Brokered interactive sign-in), admitted under the same parse-and-validate rule as the other three: parsed to an RFC 3339 instant, required to be in the future and within the provider's documented attempt ceiling, and OMITTED rather than surfaced where it fails either test. It is a bound on an attempt, not provider state — it carries no OAuth, PKCE, or credential field.
+}
+
+// Cancellation is a FIRST-CLASS OUTCOME, not an abandonment: a broker that could only be abandoned
+// would leave a provider-side login slot occupied until it timed out. `notFound` is the honest arm
+// for an attempt that already completed, already cancelled, or never existed — it is NOT an error,
+// because a client racing a completion should not see a refusal for having lost the race.
+interface ProviderAccountLoginCancelRequest {
+  attemptId: string;
+}
+interface ProviderAccountLoginCancelResponse {
+  status: "cancelled" | "notFound";
+}
+
+// Read-shaped live tail of registry changes for this node (Plan-007 streaming primitive, the
+// `session.subscribe` consumer shape). It carries a WIRE-ONLY notification and NEVER an
+// `EventEnvelope`: the provider-account registry is un-evented by design (Spec-029 §State And Data
+// Implications), because a node-local operator act on a node-local registry has no session to
+// belong to and minting a session event type for it would put node administration into a session's
+// audit timeline. So no Spec-006 event type is minted here and the taxonomy census does not move.
+//
+// This is where a brokered sign-in's completion arrives. Ordering matches `mcp.subscribe`'s: a
+// client opens the subscription BEFORE calling `providerAccount.login`, so registration is live
+// before the flow starts and a completion concurrent with the call arrives on the stream rather
+// than falling between them. Re-observation is harmless — every notification is a re-entrant state
+// update, not a delta.
+interface ProviderAccountSubscribeRequest {}
+type ProviderAccountSubscribeStream = AsyncIterable<ProviderAccountNotification>;
+
+type ProviderAccountNotification =
+  | { kind: "account_changed"; account: ProviderAccount } // registered, corrected, default moved, or a stored reading rewritten by ANY of its three writers
+  | { kind: "account_removed"; accountId: ProviderAccountId }
+  // Correlated on `attemptId`. `succeeded` is a report FROM THE PROVIDER that its flow finished —
+  // it is NOT itself a reading that the account is authenticated. The daemon takes an ordinary
+  // health observation next and publishes the result as `account_changed`; a client that treats
+  // this notification as the authentication verdict will render an account as ready that a spawn
+  // would refuse. `failureReason` is operator-facing message text and carries NO credential
+  // material, no provider error body verbatim, and no home path.
+  | {
+      kind: "login_completed";
+      attemptId: string;
+      accountId: ProviderAccountId;
+      outcome: "succeeded" | "failed" | "cancelled";
+      failureReason?: string;
+    }
+  | {
+      kind: "usage_window_updated";
+      accountId: ProviderAccountId;
+      window: ProviderAccountUsageWindow;
+    };
+
+// The newest quota reading for one `(accountId, limitId)` pair — the wire mirror of
+// `provider_account_usage_windows` (Spec-029 §Per-limit provider quota).
+//
+// `limitId` IS THE KEY, and `windowMins` is an attribute of the reading rather than part of its
+// identity: the pinned Claude surface publishes five limit identifiers of which THREE share a
+// 10080-minute window, so a `(account, windowMins)` key silently collapses them and the survivor
+// depends on arrival order. A reading naming no limit takes the reserved id `default`, so a
+// provider publishing one window needs no special case and the pre-amendment single-window shape
+// stays valid as the degenerate case.
+interface ProviderAccountUsageWindow {
+  // Which account this window describes. Required, and NOT inferable from position: the read
+  // returns one flat array across every registered account, and two accounts of one provider can
+  // publish the same `limitId`, so without this a reconnecting client cannot associate a durable
+  // window with its account and would be free to render one account's quota under another's name.
+  // The live `usage_window_updated` notification already carries it; the snapshot carries the same
+  // member so both paths key alike.
+  accountId: ProviderAccountId;
+  limitId: string; // untrusted provider-adjacent string, `wireFreeFormString`-bounded; NOT a closed union — the provider's limit vocabulary is open and versioned
+  windowMins: number;
+  label?: string; // the provider's own display label where it publishes one; display-only, never parsed, never a key
+  usedPercent: number; // NOT clamped to 100 on the wire: a provider may report over-consumption against a soft limit and clamping would misreport it. Renderers clamp for display.
+  resetsAt?: string; // RFC 3339 UTC where the provider supplies it; absent = unknown, never "now" and never "never"
+  observedAt: string; // RFC 3339 UTC. THE ORDERING KEY: newest `observedAt` wins per `(accountId, limitId)`, and `source` breaks ONLY exact ties. Ordering by arrival, or by preferring one source, would let a stale reading mask real consumption.
+  observedCredentialGeneration: number; // the account's `credentialGeneration` when this reading was taken — the same member `usage.rate_limit_update` carries. A credential-home rebuild does NOT clear stored readings (the provider-side allowance keeps running while the home is empty), so a renderer compares this against `ProviderAccount.credentialGeneration` and renders a behind-generation reading as STALE rather than current. The stored health pair is the opposite case: a bump invalidates it outright.
+  source: "probe" | "run"; // the deliberate probe verb, or the account-scoped quota event from real traffic. The background health observer is NOT a source and no third value exists — reading quota on one pinned leg traverses a path documented to refresh proactively, which Spec-029 forbids the observer to do.
 }
 ```
 
