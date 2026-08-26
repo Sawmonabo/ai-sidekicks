@@ -87,7 +87,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 | ID | Obligation | Direction | Tasks |
 | --- | --- | --- | --- |
-| **CP-004-1** | Driver capability flags + `DriverInterventionResult` (`applied` / `degraded`) | **Consume** from [Plan-005](./005-provider-driver-contract-and-capabilities.md) | T2.6, T2.7 |
+| **CP-004-1** | Driver capability flags + `DriverInterventionResult` (`applied` / `degraded`, plus the additive-optional closed-literal `refusalCode` added 2026-08-25 by Plan-005 T3.18 — T2.6's mapper surfaces it on the intervention response; no shipped field changes type) | **Consume** from [Plan-005](./005-provider-driver-contract-and-capabilities.md) | T2.6, T2.7 |
 | **CP-004-2** | `command_receipts` table — Plan-004 CREATEs the forward-declared table shell; Plan-015 OWNS its column semantics + read model | **Provide shell** to [Plan-015](./015-persistence-recovery-and-replay.md) | T1.5 |
 | **CP-004-3** | `packages/contracts/src/runControl.ts` — new contract surface, no prior owner (verified against the ownership map) | **Create** | T1.1–T1.3, T1.6, T1.7 |
 | **CP-004-4** | `run.*` method-name namespace (`run.queueList` / `run.queueCreate` / `run.queueCancel` / `run.intervene` / `run.pause` / `run.resume` / `run.subscribeState` / `run.subscribeQueue`) — wire contract registered in `api-payload-contracts.md §Method-Name Registry`. **The eight concrete strings are ratified (D-004-3).** | **Register** with [Plan-007](./007-local-ipc-and-daemon-control.md) | T4.1, T4.4 |

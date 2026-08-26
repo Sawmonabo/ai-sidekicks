@@ -154,7 +154,7 @@ Plan-005 owns the provider-driver tree and the spawn-bound configuration record.
 
 The typed provider usage-limit signal is a Plan-005-owned driver-contract surface (a sibling axis beside the recovery-condition set, never a widening of it). Plan-029 consumes it: the signal's account scoping keys on this plan's `accountId` and `credentialGeneration`.
 
-**Resolution.** Plan-005 Phase 3B, task T3.18, in the same amendment. Plan-029's consumption is read-only and adds no member to the signal.
+**Resolution.** Plan-005 Phase 3B, task T3.16, in the same amendment. Plan-029's consumption is read-only and adds no member to the signal.
 
 ### CP-029-3 — Plan-016 consumes the account axis on the session cost receipt
 
