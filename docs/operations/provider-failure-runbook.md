@@ -15,7 +15,7 @@ Diagnose and contain driver-level provider failures that affect run execution or
 
 - Read `HealthStatusRead` and `FailureDetailRead` for the affected run or RuntimeNode.
 - Inspect driver capability refresh status and the latest `RuntimeBindingRead` for affected recovery handles.
-- Compare canonical failure events with driver logs for startup failure, transport failure, capability refresh failure, or resume failure.
+- Compare canonical failure events with driver logs for startup failure, transport failure, capability refresh failure, resume failure, or an outbound-frame neutralization trip (a `providerFailureDetail` whose leading token is `driver.text_neutralization_failed` — [Spec-005 §Required Behavior](../specs/005-provider-driver-contract-and-capabilities.md#required-behavior)).
 
 ## Preconditions
 
@@ -27,7 +27,7 @@ Diagnose and contain driver-level provider failures that affect run execution or
 
 1. Identify whether the failure is startup, active-run, capability-refresh, or resume-related.
 2. Stop routing new work to the affected driver until health is understood.
-3. If the failure is recovery-related, issue one bounded `RecoveryActionRequest` for driver health refresh and resume-handle adoption or resume.
+3. If the failure is recovery-related, issue one bounded `RecoveryActionRequest` for driver health refresh and resume-handle adoption or resume. A neutralization trip is **not** recovery-related: it disposes the run's live provider binding by design, so the provider process is gone and no resume or resume-handle adoption is available. The remedy is a fresh spawn after confirming the provider's command-parsing behavior, and that driver's `Spec-005 §Parity Capability Mechanism Grades` row may need re-grading.
 4. If resume is impossible or the bounded recovery action fails, mark affected runs as `failed` with `provider failure` detail and visible `recovery-needed` condition rather than silently recreating sessions.
 5. Re-enable scheduling only after a known-good test run starts, streams events, and reaches a terminal or valid blocking state normally.
 

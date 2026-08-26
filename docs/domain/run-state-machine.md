@@ -168,7 +168,7 @@ The canonical run lifecycle has one failure terminal state: `failed`. Additional
 | Signal Or Category | Meaning | Classification |
 | --- | --- | --- |
 | `stuck-suspected` | The run appears active but has exceeded progress thresholds without reaching a valid blocking or terminal state. | Derived run-health signal, not `RunState` |
-| `recovery-needed` | Automatic recovery did not return the run to safe progress and operator or participant action is required. | Recovery condition, not `RunState` |
+| `recovery-needed` | Automatic recovery did not return the run to safe progress — or a driver-side integrity trip ended the run outright with the provider's client-side state possibly mutated ([Spec-005 §Required Behavior](../specs/005-provider-driver-contract-and-capabilities.md#required-behavior), the outbound-frame neutralization tripwire, 2026-08-25) — and operator or participant action is required. | Recovery condition, not `RunState` |
 | `reauth-required` | Provider credentials or the provider session expired mid-run or during resume; re-authentication on the runtime node is required before recovery proceeds ([Spec-005 §Fallback Behavior](../specs/005-provider-driver-contract-and-capabilities.md#fallback-behavior) `RecoveryCondition`, campaign B3). | Recovery condition, not `RunState` |
 | `provider failure` | The provider or driver could not safely start, continue, or resume the run. | Failure category, not `RunState` |
 | `transport failure` | A required transport path failed independently of provider semantics. | Failure category, not `RunState` |
