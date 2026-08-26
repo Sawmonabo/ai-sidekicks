@@ -6079,11 +6079,16 @@ interface DelegateToSidekickArguments {
 }
 
 // ---- Attach-by-reference (owned by Plan-016 T3.21 in its Phase 3B supplement; CP-016-18 ⇄ CP-030-1) ----
-// The members live ON `AgentAttachRequest` / `AgentAttachResponse` above — attach-by-reference adds fields
-// to the existing call rather than introducing a second parameter object a caller could pass instead, and
-// a standalone helper interface would have composed with nothing, since TypeScript does not merge two
-// differently-named shapes. `definitionId` is additive-optional and deliberately NOT mutually exclusive
-// with the explicit per-axis members: `Spec-030 §Required Behavior` merges per field — an explicitly-present
+// The members live ON the `AgentAttachRequest` union / `AgentAttachResponse` above — attach-by-reference
+// splits the existing call into two arms over a shared base rather than introducing a second parameter
+// object a caller could pass instead, and a standalone helper interface would have composed with nothing
+// (composition here is `extends` + a union, which is a different thing), since TypeScript does not
+// merge two differently-named shapes — which is why the reference is carried by ARMS of the request
+// itself rather than by a helper passed beside it. Precisely: `definitionId` is REQUIRED on the
+// `AgentAttachFromDefinitionRequest` arm and `never` on the inline arm, so from a caller's side the union
+// accepts a request with or without it — additive-optional in effect — while the type still refuses the
+// one shape nothing can resolve, naming neither a definition nor a driver/model pair. It is deliberately
+// NOT mutually exclusive with the explicit per-axis members: `Spec-030 §Required Behavior` merges per field — an explicitly-present
 // request member overrides the definition's value for that field only, and the response echo reports every
 // field as actually applied, so the merge is never silent and no caller is left guessing which side won.
 // A precedence-refusal was considered and rejected: it would force every caller to know the definition's
