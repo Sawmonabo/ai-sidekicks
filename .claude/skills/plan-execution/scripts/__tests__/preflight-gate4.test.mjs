@@ -3668,18 +3668,19 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // references, which is also what moves the legacy-marker population 49 ->
     // 52 in the alignment arm below.
     // 917/159 -> 927/159 (2026-08-25, the first-run provider-authentication
-    // surfacing amendment and its in-swap NS-77 delta, landing after NS-80
+    // surfacing amendment and its in-swap NS-77 delta, landing after NS-75
     // above): five new tasks, every one carrying a RESOLVED `Verifies
     // invariant:` arm with two id references — Plan-026's new Phase 7 adds T7.1
     // (I-026-11, I-026-13), T7.2 (I-026-12, I-026-13), T7.3 (I-026-12,
     // I-026-13), and T7.4 (I-026-11, I-026-12), and Plan-029 Phase 2 adds T2.5
     // (I-029-9, I-029-10) — ten more bold resolved id references. All five ids
     // are declared by the same amendment, so every reference resolves; no
-    // none-arm is added or removed, and the legacy channel is unchanged. Four
-    // 2026-08-25 amendments (NS-81, NS-78, NS-80, NS-77) land in one develop,
-    // so this figure is READ OFF a live survey run on the rebased tree rather
-    // than reconciled by arithmetic against any predecessor; it happens to
-    // agree with 917 + 10 and is pinned on the strength of the count.
+    // none-arm is added or removed, and the legacy channel is unchanged. Five
+    // 2026-08-25 amendments (NS-81, NS-78, NS-80, NS-75, NS-77) land in one
+    // develop, so this figure is READ OFF a live survey run on the rebased tree
+    // rather than reconciled by arithmetic against any predecessor; NS-75 moved
+    // no invariant reference, so it happens to agree with 917 + 10, and it is
+    // pinned on the strength of the count and not of that agreement.
     bold: { resolved: 927, noneArm: 159, parentResolved: 0 },
     legacy: { resolved: 64, noneArm: 3, parentResolved: 1 },
   });
