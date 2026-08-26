@@ -42,7 +42,7 @@ Every task inherits all of these. Values copied verbatim from the Design and the
 | 5 | PR-B1 — Unit B docs | governance | 1 (merge-serialize census vs Task 2) |
 | 6 | PR-B1p — Spec-002 + Spec-021 + Plan-002 re-promotion | governance | 5 |
 | 7 | PR-B2 — Unit B code + BL-133 archive | lane 1 | 6 |
-| 8 | PR-C — Unit C tests + BL-131 rewrite + BL-134 note | lane 2 | 1 |
+| 8 | PR-C — Unit C tests + BL-131 rewrite + ~~BL-134 note~~ _(retired 2026-08-26, unexecuted — see Task 8's closure note)_ | lane 2 | 1 |
 | 9 | PR-D — Unit D coverage substrate + BL-123 update | lane 3 | 1 |
 | 10 | PR-E — Unit E cache + BL-122/ADR-023 fixes | lane 3 | 1 |
 | 11 | Closure — whole-corpus coherence scan | governance | 2–10 |
@@ -1097,7 +1097,7 @@ it("renders the version.floor_exceeded write-refusal arm", () => {
 - [ ] **Step 7:** Full `pnpm typecheck && pnpm lint && pnpm test`.
 - [ ] **Step 8: Rewrite BL-131** in `backlog.md`: correct the Summary rationale (the harness shipped via Plan-001 T5.2 + Plan-002 T6.3, not Plan-023); mark exit (b) + (d) DONE this PR with a completion note; exit (a)-IPC-clause + (c) stay gated on Plan-023 Tier 8 (zero `ipcMain` handlers). Update Status to reflect the slim remainder. Annotate BL-134: rc.4 = latest + npm `latest`, 22 months since upstream push, Yarn ships `^4.0.0-rc.2` in production — recalibrate the "within one week of stable" trigger. **Retired 2026-08-26, unexecuted:** those three facts were instead used by PR #356 to close BL-134 as premise-void and ratify the pin as terminal, so the recalibration this clause asks for has no target. This step's BL-131 half did land (PR #355); the box stays unticked because its BL-134 half never will.
 - [ ] **Step 9: Update all seven Plan-003 BL-131 mentions** (lines 225/588/596/604/612/616/847 — §3.3 of the Design enumerates them): the four T5 Test-field notes (~588/596/604/612) + the two §Verification restatements (~225/616) record the component-test half shipped; line ~847's Shipment-Manifest note narrows "automated renderer component/E2E coverage backfills per BL-131" → "…E2E coverage…" (the component half now ships). Cite this PR by `Refs:` footer convention, not an in-doc ephemeral ref; the E2E half stays BL-131-gated. Note-level edits — no behavior row changes, so no status flip (declare in the PR body). `grep -n "BL-131" docs/plans/003-runtime-node-attach.md` → confirm exactly seven, all handled.
-- [ ] **Step 10:** SPP-3 (docs gates on the `.md` edits + code gates on the tests) / SPP-4 / SPP-5 / SPP-6. Subject `test(desktop): runtime-node renderer component tests (bl-131 split)`; body declares lane 2 (no plan token; `Refs: Plan-003, BL-131, BL-134` footer). Branch is NON-plan-scoped and the title carries NO `Plan-NNN` token (lane-boundary compliance).
+- [ ] **Step 10:** SPP-3 (docs gates on the `.md` edits + code gates on the tests) / SPP-4 / SPP-5 / SPP-6. Subject `test(desktop): runtime-node renderer component tests (bl-131 split)`; body declares lane 2 (no plan token; `Refs: Plan-003, BL-131, BL-134` footer). Branch is NON-plan-scoped and the title carries NO `Plan-NNN` token (lane-boundary compliance). **`Refs:` trailer corrected 2026-08-26:** the `BL-134` token is retired with that leg (see this task's closure note), so the trailer this step calls for is `Refs: Plan-003, BL-131`. The trailer as drafted is the last surviving BL-134 instruction in this task; nothing downstream should re-derive the token from it.
 
 ---
 
