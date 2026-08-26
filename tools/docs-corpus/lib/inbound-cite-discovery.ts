@@ -27,7 +27,6 @@ import { spawnSync } from "node:child_process";
 
 import { extractCites, type FileContentReader } from "./cite-target-existence.ts";
 
-// is empty has no staged-only files to preserve.
 // Node's spawnSync defaults maxBuffer to 1 MiB and, on overflow, KILLS the
 // child with SIGTERM and returns `status: null` with TRUNCATED stdout — it
 // does not throw. A caller that only checks `status !== 0` therefore sees a
@@ -248,10 +247,11 @@ export function makeCommitSnapshotReader(
 // not a repository): callers degrade to worktree-only classification, which
 // is exactly right for non-repo invocations (ad-hoc probes, test fixtures in
 // bare temp directories). An empty SET is a real answer: a repo whose index
+// is empty has no staged-only files to preserve.
 export function listGitIndexPaths(repoRoot: string): Set<string> | null {
   const lsFiles = spawnSync("git", ["-C", repoRoot, "ls-files", "-z", "--cached"], {
     encoding: "utf8",
-    maxBuffer: 64 * 1024 * 1024,
+    maxBuffer: GIT_OUTPUT_MAX_BUFFER,
   });
   if (lsFiles.status !== 0) return null;
   const indexPaths = new Set<string>();

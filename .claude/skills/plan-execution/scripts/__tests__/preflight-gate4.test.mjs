@@ -3716,7 +3716,20 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // case a single combined pin would hide: it would net to +8, and the
     // conversion of two asserted-not-verified rows into verified ones would
     // leave no trace.
-    bold: { resolved: 940, noneArm: 157, parentResolved: 0 },
+    // 940/157 -> 948/158 bold, legacy unchanged at 64 (2026-08-26, the
+    // canonical-transcript-authority and same-agent provider-switch amendment
+    // — §6 node NS-84, landing after NS-83 above; the baseline is stated
+    // post-rebase and the figure is read off a live `preflight.mjs --survey`
+    // run on the rebased tree, never reconciled by arithmetic against a
+    // predecessor bullet): nine new tasks across four plans, each landing as
+    // its own marker block, so no existing row's id set changes. Eight carry a
+    // RESOLVED single-id arm — Plan-005 T3.19/T3.20 (I-005-8) and T3.21/T3.22
+    // (I-005-9), Plan-016 T1.13 (I-016-1) and T2.16/T3.20 (I-016-25), and
+    // Plan-004 T3.19 (I-004-25) — for +8 bold resolved id references, and the
+    // ninth, Plan-013 T4.9, is a renderer-only consumer leg that asserts on
+    // the `none` arm, for +1 none-arm marker. The legacy compact-inline
+    // channel is untouched.
+    bold: { resolved: 948, noneArm: 158, parentResolved: 0 },
     legacy: { resolved: 64, noneArm: 3, parentResolved: 1 },
   });
 });

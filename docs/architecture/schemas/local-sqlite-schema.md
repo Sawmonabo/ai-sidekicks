@@ -276,12 +276,15 @@ CREATE TABLE driver_capabilities (
                       'resume', 'steer', 'interactive_requests', 'mcp',
                       'tool_calls', 'reasoning_stream', 'model_mutation',
                       'structured_output', 'rollback', 'session_goals',
-                      'callback_tools', 'subagents', 'cost_cap'
+                      'callback_tools', 'subagents', 'cost_cap',
+                      'transcript_replay'
                     )),
   supported         INTEGER NOT NULL DEFAULT 0, -- boolean: 0 or 1
                     -- Campaign-B3/B6 widening note: the catch-up migration that widens the CHECK above MUST
-                    -- backfill the six new flags (five B3 + B6's cost_cap) as supported=0 for every existing driver_name (undeclared =
-                    -- unsupported, I-005-2); a pre-B3 seven-row cache would otherwise break the hydrator's exact-cardinality guard before any refresh could heal it.
+                    -- widen the CHECK to all fourteen values at once — a CHECK is a whitelist, so admitting a value before any
+                    -- row uses it costs nothing and spares a second migration — and MUST backfill supported=0 rows for every existing driver_name (undeclared =
+                    -- unsupported, I-005-2), since a cache whose row count differs from the union's breaks the hydrator's exact-cardinality guard before any refresh could heal it. The rows land in two waves
+                    -- matching the two union widenings: the thirteen campaign flags at Plan-005 T1.7, and transcript_replay when T3.19 widens the union (2026-08-26).
   refreshed_at      TEXT NOT NULL,
   PRIMARY KEY (driver_name, capability_flag)
 );
@@ -1432,6 +1435,51 @@ CREATE TABLE agents (
   state           TEXT NOT NULL DEFAULT 'ready'
                   CHECK(state IN ('configured', 'ready', 'disabled', 'archived')),
   config          TEXT NOT NULL DEFAULT '{}',           -- JSON: agent-scoped driver config (opaque to the schema)
+  provider_account_id TEXT,                             -- 2026-08-26 (D-016-26): the Plan-029 `provider_accounts.account_id` this agent
+                                                        -- spawns under; NULL = the provider's registered default. Not inside
+                                                        -- `config` because the Spec-029 spawn gate reads it, and `config` is
+                                                        -- opaque to everything outside the driver
+  effort          TEXT,                                 -- 2026-08-26 (D-016-26): reasoning effort, validated against the target
+                                                        -- model's driver-reported `effortLevels` rather than a schema CHECK --
+                                                        -- the valid set is per-model and provider-owned, so a CHECK here would
+                                                        -- go stale against the provider rather than protect anything
+  pending_switch  TEXT,                                 -- 2026-08-26 (D-016-26): the JSON AgentProviderSwitchPending shape, status literal
+                                                        -- included so the stored blob is self-identifying rather than a wire artifact
+                                                        -- reproduced in a column: a row read in isolation names what it is -- {status:
+                                                        -- 'pending', switchId, appliesAt: 'turn_boundary'|'run_boundary',
+                                                        -- interruptRequested, pendingAxes: {driverName?, providerAccountId?, modelId?,
+                                                        -- effort?}, replacedSwitchId?} -- shared with the mutation reply and the
+                                                        -- agent.config_updated payload, so what a client was told, what the log records,
+                                                        -- and what a restart re-arms from are the same record. What is stored here is a
+                                                        -- SUPERSET of that shared shape: it additionally carries admittingPrincipalId
+                                                        -- and, on the immediate arm, interruptDispatch ('requested' | 'dispatched'),
+                                                        -- neither of which is ever returned to a caller or appended to a payload. Both
+                                                        -- are members of THIS JSON blob and not columns of their own -- no column is
+                                                        -- minted and no census moves; the agents CREATE is unchanged apart from this
+                                                        -- comment. The
+                                                        -- principal is recorded under the api-payload-contracts.md Authenticated
+                                                        -- Principal class rule -- a pending switch is an admitting write, both terminals
+                                                        -- require an actor, and a switch settling after a restart has no request left to
+                                                        -- resolve one from; the class binds a durable home, which a mutation reply is
+                                                        -- not. interruptDispatch is two-state rather than boolean because recovery must
+                                                        -- separate 'crashed before the interrupt went out, so dispatch it' from 'crashed
+                                                        -- after it landed, so reconcile' -- redispatching in the second case would fire a
+                                                        -- second interrupt at a run that already took one -- and it advances by its own
+                                                        -- durable write, so a crash between the two costs one idempotent redispatch and
+                                                        -- never the switch. interruptRequested is stored rather than derived because
+                                                        -- appliesAt does not imply it: a deferred switch and an interrupted one can both
+                                                        -- read 'turn_boundary'. pendingAxes carries TARGET VALUES and not axis names: at
+                                                        -- the boundary the caller's request is gone, so the row must be sufficient to
+                                                        -- apply the switch by itself. This is the ONE switch
+                                                        -- acknowledged to a caller but not yet applied at its boundary; NULL = none.
+                                                        -- Durable because the acknowledgment is a promise a restart must keep: startup
+                                                        -- re-arms from this column instead of dropping the intent. A single nullable
+                                                        -- slot is what makes one-pending-per-agent structural -- a later provider-axis
+                                                        -- update overwrites it (supersession, last writer wins) under the same row lock,
+                                                        -- so a queue of half-wanted switches is unrepresentable. Holds the PENDING
+                                                        -- binding only; the effective binding stays in the columns above and moves
+                                                        -- there at application. Cleared by whichever terminal event settles the switch
+                                                        -- (agent.provider_switched / agent.provider_switch_failed) and by supersession
   created_at      TEXT NOT NULL,
   updated_at      TEXT NOT NULL
 );
