@@ -4089,13 +4089,25 @@ interface AgentConfigUpdateResponse {
 
 // Mutation and application are TWO MOMENTS (Spec-016 §Same-Agent Provider Switch), so what the
 // mutation returns is a discriminated union and not a settlement. "pending" is the ordinary
-// answer; "applied" is reachable only on the interruptAndSwitch arm, which collapses the two
-// moments into one by holding its request open until the switch settles (Plan-016 T2.16 is that
-// arm's only producer). A caller that reads `switch.continuity` without discriminating is reading
-// a member that is absent on the common path.
+// answer; the three SETTLED arms are reachable only on the interruptAndSwitch arm, which collapses
+// the two moments into one by holding its request open until the switch settles (Plan-016 T2.16 is
+// that arm's only producer). A caller that reads `switch.continuity` without discriminating is
+// reading a member that is absent on both the common path and the "failed" arm.
+//
+// FOUR arms, because holding a request open until settlement means every settlement the boundary
+// can reach must be expressible to a caller still waiting for one. "applied" and "degraded" split
+// the outcome by a TOTAL and stated mapping — `degraded` iff `continuity` is "memo", `applied` iff
+// it is "in_place" or "replayed" — so the honest-degrade rule Spec-006 states for the terminal
+// event ("the first two are `applied` and only the last is `degraded`") is carried by the wire's
+// own discriminator rather than left to each client to re-derive from `continuity`. "failed" is
+// the immediate arm's share of the `agent.provider_switch_failed` terminal: an accepted switch
+// that cannot be applied settles the held-open request instead of stranding it, and reuses that
+// event's already-closed six-member `reason` vocabulary verbatim rather than minting a second one.
 type AgentProviderSwitchDisposition =
   | AgentProviderSwitchPending
-  | ({ status: "applied" } & AgentProviderSwitchOutcome);
+  | ({ status: "applied" } & AgentProviderSwitchOutcome)
+  | ({ status: "degraded" } & AgentProviderSwitchOutcome)
+  | AgentProviderSwitchFailed;
 
 interface AgentProviderSwitchPending {
   status: "pending";
@@ -4106,6 +4118,12 @@ interface AgentProviderSwitchPending {
   // The boundary this switch will apply at — resolved against the TARGET driver's declared
   // vocabulary, never assumed, and the widest of the mutated axes' individual boundaries.
   appliesAt: "turn_boundary" | "run_boundary";
+  // TRUE on the interruptAndSwitch arm, FALSE on the deferred one. The boundary above says WHEN
+  // the switch applies; this says whether REACHING that boundary requires an interrupt the daemon
+  // must dispatch. The two are independent — a deferred switch and an interrupted one can both
+  // read "turn_boundary" — so neither a client nor a restarted daemon can re-derive the owed
+  // interrupt from `appliesAt`, and the record has to carry it.
+  interruptRequested: boolean;
   // The axes this update moved AND the value each is moving TO. The present keys are exactly the
   // moved axes, so the boundary above stays re-derivable from it, and a client that did not issue
   // the mutation can render what the agent is switching to rather than only that it is switching.
@@ -4119,6 +4137,49 @@ interface AgentProviderSwitchPending {
   // queues (Spec-016 §Same-Agent Provider Switch). The superseded id never reaches a terminal
   // event, so surfacing it here is the only record a caller gets.
   replacedSwitchId?: string;
+}
+
+// The DURABLE SLOT IS A SUPERSET OF THE WIRE SHAPE. `agents.pending_switch` stores the
+// `AgentProviderSwitchPending` record above PLUS two members that are never returned to a caller
+// and never appended to an event payload:
+//
+//   admittingPrincipalId — the daemon-resolved, transport-authenticated principal that admitted
+//     this switch, recorded under the §Authenticated Principal And Authorization Model class rule
+//     above. A pending switch IS an admitting write: its acceptance authorizes work the original
+//     request no longer accompanies — the application itself, and every turn the new binding then
+//     executes. Both terminals require an `actor`, and a switch settling after a restart has no
+//     request left to resolve one from.
+//   interruptDispatch — "requested" | "dispatched", present exactly when `interruptRequested` is
+//     true. Deliberately NOT a boolean and not folded into `interruptRequested`, because recovery
+//     must separate "crashed before the interrupt went out, so dispatch it" from "crashed after it
+//     landed, so reconcile": redispatching in the second case fires a second interrupt at a run
+//     that already took one. The advance to "dispatched" is its OWN durable write, made once the
+//     interrupt is accepted; a crash between the two costs one idempotent redispatch, never a lost
+//     switch.
+//
+// Both are recovery inputs rather than session-observable facts, and the class rule binds a
+// DURABLE HOME — a projection column or a canonical event payload — never a mutation reply.
+// Echoing a resolved principal back to its own caller would invite a client to read it as
+// authority; keeping the slot a superset is what lets the wire shape stay exactly the intent a
+// client is entitled to see.
+
+// The immediate arm's failure settlement, carrying the SAME closed six-member vocabulary as the
+// `agent.provider_switch_failed` event (Spec-006 §Channel and Agent Lifecycle) — one vocabulary
+// across two surfaces, so a held-open refusal and the terminal event render the same reason set.
+// This is a RESULT, not a JSON-RPC error: the switch was accepted, a `switchId` was minted, and
+// `agent.config_updated` was already appended, so the mutation succeeded and only the application
+// did not. Refusals that happen BEFORE acceptance — an unknown axis, an invalid value — are the
+// synchronous `agent.provider_axis_invalid` error instead, and mint no `switchId` and no event.
+interface AgentProviderSwitchFailed {
+  status: "failed";
+  switchId: string;
+  reason:
+    | "driver_unavailable"
+    | "model_unavailable"
+    | "effort_unavailable"
+    | "account_unavailable"
+    | "interrupt_refused"
+    | "target_unstartable";
 }
 
 // The four provider axes as a partial record: an omitted key is an axis this switch does not
@@ -4147,7 +4208,10 @@ interface AgentProviderSwitchOutcome {
   // nothing was respawned and nothing was replayed. "replayed" = the canonical transcript reached
   // a fresh target session. "memo" = it could not and the bounded prose projection stood in.
   // A "memo" settlement is rendered `degraded` by both clients and is never presented as an
-  // ordinary success; "in_place" and "replayed" are both `applied`.
+  // ordinary success; "in_place" and "replayed" are both `applied`. On the held-open arm that
+  // mapping is carried by the disposition's own `status` discriminator above (`degraded` iff
+  // "memo"), so a client never re-derives it; on the terminal event it is carried by this member
+  // alone, the event having no status.
   continuity: "in_place" | "replayed" | "memo";
   // REQUIRED, and an EMPTY ARRAY IS A CLAIM: it asserts that nothing was dropped. A driver that
   // does not know what it lost may not emit one. Closed vocabulary — a new loss kind is an
