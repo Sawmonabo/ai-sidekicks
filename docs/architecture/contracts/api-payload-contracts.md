@@ -1787,6 +1787,10 @@ type InterventionRequestPayload =
       expectedRunVersion: number;
       clientIdempotencyKey: string;
       targetPosition: number; // normalized session position (RollbackToParams.position vocabulary), domain-validated fail-closed at admission: an integer ≥ 0 (Zod int + nonnegative at parse) naming a recorded turn boundary of the target run strictly below its current position — daemon boundary-existence check, Spec-004 §Required Behavior; current-position targets admissible solely as the file-leg recovery carve-out. Serializes onto run.rolled_back identically on the confirmed path; a confirmed-floor mismatch degrade records the driver-confirmed position instead (the event never lies about the landing position)
+      // 2026-08-16 rewind-hardening amendment (Spec-004 §Required Behavior's atomic edit-and-resend bullet; Plan-004 I-004-21, mirrored by T1.2). OPTIONAL and PRESENCE-DISCRIMINATING: presence alone selects the atomic edit-and-resend composite — still ONE intervention on the SAME wire method, minting no new intervention type, method name, event type, error code, or table — and turns on that composite's four additional structural refusal guards (no active turn; no earlier pending send; a participant-authored `user.message` boundary of the target run; a resumable target), each fail-closed at admission, pre-dispatch, and whole-intervention. Absence is an ordinary bare rollback, which is why an unregistered member fails closed rather than open. REQUEST-SIDE ONLY — the result never echoes it, which is exactly why `resendDisposition` below parses schema-optional. The body is persisted on the write-ahead intervention row through the participant-keyed PII envelope (`interventions.pii_payload` + `pii_participant_id`) BEFORE dispatch and never lands in plaintext `interventions.payload` (Spec-004 §Required Behavior; Spec-022 §PII Data Map).
+      replacementSend?: {
+        content: string; // the corrected message body — the `steer` arm's `content` vocabulary above, non-empty at parse (Zod `.min(1)`). No attachment member in V1: the leg replaces a participant `user.message` body and nothing else, so widening it is a named future amendment rather than an unregistered field the daemon might silently drop.
+      };
     };
 
 // On an idempotent replay (same clientIdempotencyKey, identical payload) this response is
@@ -1799,11 +1803,14 @@ type InterventionRequestPayload =
 // degradations. Carried ONLY on a `rollback` result (the `applied` / `degraded` states); every
 // non-rollback intervention omits it. Since round 5 the disposition class is ENCODED in the arm types:
 // `applied` admits exactly RollbackAppliedResult (`files-restored` / `conversation-only`) and `degraded`
-// exactly RollbackDegradedResult (the other five) — the per-disposition `(applied)` / `(degraded)`
+// exactly RollbackDegradedResult (the other seven) — the per-disposition `(applied)` / `(degraded)`
 // annotations below are that normative mapping, and it is ORTHOGONAL to the rewind grouping (the
-// CONFIRMED-REWIND group spans both states). Two groups, split by whether the conversation leg confirmed
-// a rewind (Codex round 4 — `position-mismatch` belongs to the CONFIRMED group: its rewind DID happen,
-// at the confirmed floor) —
+// CONFIRMED-REWIND group spans both states). The `resendDisposition` member (the class-scoped resend
+// fragments below) is a SEPARATE AXIS from both: it is not a disposition, it rides both terminal arms by
+// intersection, and it reports the replacement leg's outcome, not an earliest-failing leg — though its
+// V1 VALUE is state-determined, which the fragments encode rather than merely assert.
+// Two groups, split by whether the conversation leg confirmed a rewind (Codex round 4 —
+// `position-mismatch` belongs to the CONFIRMED group: its rewind DID happen, at the confirmed floor) —
 //   CONFIRMED-REWIND (the conversation leg confirmed a rewind — the forward `run.rolled_back` is
 //   emitted at the confirmed position and the execution epoch ADVANCES, Plan-004 T3.13):
 //     `files-restored`           restore ran to the fixpoint (`applied`)
@@ -1821,6 +1828,34 @@ type InterventionRequestPayload =
 //                                one), the file leg is skipped fail-closed, and the forward event records
 //                                the confirmed position — carries `requestedPosition` +
 //                                `confirmedPosition` (`degraded`)
+//     `boundary-diverged`        2026-08-16 rewind-hardening amendment (I-004-20): the SETTLEMENT-time
+//                                reclassification found the driver-confirmed floor strictly below the
+//                                then-newest `usage.context_compacted` boundary. The rewind DID happen —
+//                                the file leg is skipped fail-closed, a staged `replacementSend` is
+//                                suppressed, the run follows conversation truth `paused` at the confirmed
+//                                floor, and the forward event records the confirmed position with the
+//                                divergence cause on the durable row. Carries `confirmedPosition` +
+//                                `newestBoundaryPosition`, the latter NULL exactly when the conclusion
+//                                rests on a position-less compaction row (Spec-004: such a row "classifies
+//                                as crossing for EVERY target of that run"). The run is NON-RESUMABLE in
+//                                V1: `run.resume`
+//                                refuses fail-closed with the registered `run.compaction_boundary_diverged`
+//                                (Error Contracts §Run), the backstop for the one late-delivery window
+//                                settlement cannot see (`degraded`)
+//     `resend-unapplied`         2026-08-16 rewind-hardening amendment (I-004-21), COMPOSITE-ONLY: the
+//                                rewind was fully successful — confirmed floor EQUAL to the target,
+//                                boundary-clear at settlement, file leg complete or legitimately
+//                                conversation-only — and the `replacementSend` ADMISSION ITSELF failed.
+//                                Reserved for exactly that arm: an admission-condition SUPPRESSION names
+//                                the earlier-failing leg instead (precedence in leg order —
+//                                `boundary-diverged`, then `position-mismatch`, then the file-leg arms).
+//                                Carries the REQUIRED `resendDisposition: "unapplied"` its composite-only
+//                                reachability makes expressible, plus `files-restored`'s two
+//                                enumerations — this arm DISPLACES that outcome, so dropping them would
+//                                silence a restore that did mutate the tree. It carries no locator for
+//                                the caller's text, which stays recoverable under the requester's
+//                                participant key on the durable intervention row that
+//                                `InterventionResponseBase.interventionId` already names (`degraded`)
 //   NO-REWIND (the conversation leg did NOT confirm a rewind — no `run.rolled_back`, the execution
 //   epoch is UNCHANGED, and no file leg ran):
 //     `pause-only`               conversation-leg failure from a `running` source: the internal pause
@@ -1866,8 +1901,74 @@ type RollbackDegradedResult = // partial / zero-effect dispositions — legal ON
   | { disposition: "files-unrestored" }
   | { disposition: "pause-only" }
   | { disposition: "nothing-applied" }
-  | { disposition: "position-mismatch"; requestedPosition: number; confirmedPosition: number };
-type RollbackInterventionResult = RollbackAppliedResult | RollbackDegradedResult;
+  | { disposition: "position-mismatch"; requestedPosition: number; confirmedPosition: number }
+  | {
+      // Settlement-time boundary reclassification (2026-08-16 rewind-hardening amendment; Plan-004
+      // I-004-20, produced by T3.16). BOTH members REQUIRED — never absent, so the caller renders WHERE
+      // the run landed and WHY the resume refusal that follows is the class's terminal shape rather than
+      // a transient failure. The comparand is NULLABLE rather than optional because Spec-004 §Required
+      // Behavior routes a second cause into this same disposition: "a position-less compaction row
+      // classifies as crossing for EVERY target of that run" — a current `usage.context_compacted` row
+      // with no stamp, no operation linkage, and no recoverable timeline slot. Admission refuses that
+      // run outright, but the row can arrive between admission and the `rollbackTo` confirmation, and
+      // settlement cannot un-rewind, so the class settles `degraded` with no position to name. An
+      // absent member could not distinguish that from a producer that forgot to populate it; an
+      // explicit `null` states the cause.
+      disposition: "boundary-diverged";
+      confirmedPosition: number; // the driver-confirmed floor the conversation leg actually rewound to — the position the forward `run.rolled_back` records
+      newestBoundaryPosition: number | null; // the newest `usage.context_compacted` boundary in the SETTLEMENT-time set, strictly above `confirmedPosition` — the comparand that concluded divergence, so the caller can state the gap rather than assert an unexplained refusal. `null` EXACTLY when the crossing conclusion rests on a position-less compaction row, which has no position to compare against and is treated as sitting above every target
+    }
+  | {
+      // Committed-then-failed composite arm (I-004-21). It carries no locator for the caller's staged
+      // text — `InterventionResponseBase.interventionId` already names the durable intervention row that
+      // text is recoverable from, so a second wire-side locator would be a redundant second source of
+      // truth. `resendDisposition` is REQUIRED here and nowhere else: this arm is COMPOSITE-ONLY, so
+      // unlike every other rollback outcome its result does identify its request as composite, and
+      // requiredness IS expressible. It is also the ONLY disposition that STANDS IN FOR a completed file
+      // leg — its reachability condition is a fully-successful rewind whose restore ran to the fixpoint
+      // or whose run legitimately took the conversation-only branch — so it displaces the
+      // `files-restored` outcome the settlement would otherwise have recorded and MUST carry that arm's
+      // two enumerations, on the same REQUIRED + empty-when-none contract (Codex round 7). Every other
+      // degraded arm applied no file effects: `files-unrestored` refuses at execution time pre-mutation,
+      // and `position-mismatch` / `boundary-diverged` skip the file leg fail-closed. Dropping them here
+      // would make an overwritten ignored path or a divergent gitlink silent in exactly the case where
+      // the restore DID mutate the tree, which Spec-010 §Turn-Boundary Snapshots forbids ("never
+      // silent"). On the conversation-only branch both are empty because no file leg ran; that is the
+      // same reading two empty arrays already have on `files-restored`, and whether the run has a file
+      // leg at all is a property of its execution mode the caller knows independently of this response.
+      // Producer naming matches the two carrier arms above: T3.17 composes these two fields onto this
+      // arm — where the file leg ran, from the same T3.13 restore result the displaced `files-restored`
+      // outcome would have carried; on the conversation-only branch as two empty arrays, no restore
+      // result existing to read — and T4.7's degraded render surfaces them (exit code unchanged).
+      disposition: "resend-unapplied";
+      resendDisposition: "unapplied";
+      overwrittenIgnoredPaths: string[];
+      divergentGitlinks: string[];
+    };
+// SCHEMA-OPTIONAL, PRODUCER-OBLIGATED (2026-08-16 rewind-hardening amendment; Plan-004 T1.3, produced and
+// asserted by T3.17). PRESENCE is not expressible as required: no member of a rollback result identifies
+// its request as composite (`replacementSend` is request-side and is never echoed) except the
+// composite-only `resend-unapplied` arm, which therefore REQUIRES it. Everywhere else the schema parses
+// the member optional, and the daemon's tested obligation is that a composite settlement ALWAYS populates
+// it while a bare rollback settlement NEVER does — presence reports a composite settlement without being
+// a parse-time discriminator. The VALUE, by contrast, IS expressible, and the fragment is split by
+// terminal state so the contract stops admitting shapes Spec-004 §Required Behavior declares invalid
+// (Codex round 6): in V1 the value is state-determined — `applied` ⇒ `"admitted"`, every `degraded` arm ⇒
+// `"unapplied"` — so the applied class admits only the first literal and the degraded class only the
+// second, on the round-5 precedent that encodes a normative mapping in the arm types instead of leaving
+// it to prose. It stays a SEPARATE AXIS from the disposition (it names no leg and reports the replacement
+// leg's outcome, not the earliest-failing one) and from the rewind grouping; widening it — an `applied`
+// composite whose resend was unapplied — is a named future amendment, never an unregistered shape the
+// daemon might emit silently.
+interface RollbackAppliedResendOutcome {
+  resendDisposition?: "admitted";
+}
+interface RollbackDegradedResendOutcome {
+  resendDisposition?: "unapplied";
+}
+type RollbackInterventionResult =
+  | (RollbackAppliedResult & RollbackAppliedResendOutcome)
+  | (RollbackDegradedResult & RollbackDegradedResendOutcome);
 // The response is discriminated on `interventionType` (campaign B9, Codex round 2) so the SDK-seam +
 // daemon Zod schema parse `result` STRICTLY per type: a `rollback` response validates `result` as
 // RollbackInterventionResult and a malformed rollback result FAILS validation — it never falls through a
@@ -1875,8 +1976,10 @@ type RollbackInterventionResult = RollbackAppliedResult | RollbackDegradedResult
 // arm is additionally split by lifecycle state (Codex round 3) and state-scoped per disposition class
 // (Codex round 5): a TERMINAL rollback outcome REQUIRES the recorded disposition — Spec-004 needs it for
 // rendering and the same-position file-leg-recovery carve-out reads the recorded outcome — and `applied`
-// admits ONLY RollbackAppliedResult while `degraded` admits ONLY RollbackDegradedResult, so a
-// disposition-less terminal response fails parse and so does a state/disposition mismatch (`applied` +
+// admits ONLY RollbackAppliedResult while `degraded` admits ONLY RollbackDegradedResult — each intersected
+// with its OWN class-scoped resend fragment, which adds no disposition and narrows no disposition class,
+// but does bind the resend literal to the terminal state (round 6) — so a
+// disposition-less terminal response fails parse, and so does a state/disposition mismatch (`applied` +
 // `files-unrestored` would otherwise exit-map 0 while rendering a failed restore, since the CLI derives
 // the POSIX code from `state`). `rejected` REQUIRES `rejectionReason` (round 5 — every refusal family of
 // Queue And Intervention Model §Intervention State Transition Table carries its machine-readable cause);
@@ -1891,12 +1994,12 @@ type InterventionRequestResponse =
   | (InterventionResponseBase & {
       interventionType: "rollback";
       state: "applied"; // full-effect terminal — MANDATORY applied-class disposition (round 5)
-      result: RollbackAppliedResult;
+      result: RollbackAppliedResult & RollbackAppliedResendOutcome;
     })
   | (InterventionResponseBase & {
       interventionType: "rollback";
       state: "degraded"; // partial / zero-effect terminal — MANDATORY degraded-class disposition (round 5)
-      result: RollbackDegradedResult;
+      result: RollbackDegradedResult & RollbackDegradedResendOutcome;
     })
   | (InterventionResponseBase & {
       interventionType: "rollback";
