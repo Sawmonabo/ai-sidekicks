@@ -148,11 +148,20 @@ export function makeIndexAwareReader(
             const relPath = toRepoRelative(repoRoot, absolutePath);
             const result = spawnSync("git", ["-C", repoRoot, "show", `:${relPath}`], {
               encoding: "utf8",
+              // The governance corpus already holds a doc past 1 MB
+              // (cross-plan-dependencies.md), and spawnSync's default maxBuffer is exactly
+              // 1 MB. Overflow returns status null with an EMPTY stderr, so the gate died
+              // with an unreadable message instead of reading the file — and any staged set
+              // that reached this index path rather than the staged-file path crashed the
+              // whole runner. Same ceiling listGitIndexPaths uses below.
+              maxBuffer: 64 * 1024 * 1024,
             });
             if (result.status !== 0) {
-              throw new Error(
-                `git show :${relPath} failed (status ${result.status}): ${result.stderr.trim()}`,
-              );
+              // A null status means the child never exited normally (signal, spawn failure,
+              // or an maxBuffer overflow), and in those cases stderr is empty while
+              // result.error carries the only description of what happened.
+              const detail = result.error?.message ?? result.stderr.trim();
+              throw new Error(`git show :${relPath} failed (status ${result.status}): ${detail}`);
             }
             return result.stdout;
           })();

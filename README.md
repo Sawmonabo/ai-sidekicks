@@ -169,7 +169,7 @@ The CLI (`sidekicks`) is the first client delivery track — it proves the typed
 | Language | TypeScript (daemon, CLI, desktop, contracts) |
 | Desktop Shell | Electron |
 | Desktop UI | React + Vite |
-| Local Database | SQLite (WAL mode, 56 tables) |
+| Local Database | SQLite (WAL mode, 57 tables) |
 | Shared Database | Postgres (26 tables) |
 | Auth | PASETO v4 (access + refresh), WebAuthn, DPoP |
 | Relay Encryption | X25519 + XChaCha20-Poly1305 (V1), MLS RFC 9420 (V2) |
@@ -269,7 +269,7 @@ Current documentation corpus:
 - **12 domain models** (run state machine, intervention model, participant model, workflow model, etc.)
 - **16 architecture documents** (schemas, contracts, security, deployment, dependencies)
 - **11 operations runbooks** (CLI commands, SLOs, on-call routing, self-host secure defaults)
-- **26 accepted ADRs** recording key design decisions (ADR-013 reserved-skipped; no ADR is now `proposed`) — ADR-025 (runtime-node control-plane caller authorization) landed `accepted` 2026-08-12, filling the reserved `025` gap, and ADR-026 (visual node-graph workflow authoring) + ADR-027 (chat-invoked workflow start) were promoted `proposed → accepted` 2026-08-18 by the Spec-017/Plan-017 park-surface + operator-controls amendment (§6 node NS-72), which also checked the two born-unchecked Plan-017 §Preconditions boxes those promotions gated — releasing the full-phase Gate-5 holds on Plan-017 Phases 1 and 5
+- **27 accepted ADRs** recording key design decisions (ADR-013 reserved-skipped; no ADR is now `proposed`) — ADR-025 (runtime-node control-plane caller authorization) landed `accepted` 2026-08-12, filling the reserved `025` gap, and ADR-026 (visual node-graph workflow authoring) + ADR-027 (chat-invoked workflow start) were promoted `proposed → accepted` 2026-08-18 by the Spec-017/Plan-017 park-surface + operator-controls amendment (§6 node NS-72), which also checked the two born-unchecked Plan-017 §Preconditions boxes those promotions gated — releasing the full-phase Gate-5 holds on Plan-017 Phases 1 and 5; ADR-028 (provider credential custody posture) landed `accepted` 2026-08-26 in the same swap as the Spec/Plan-029 provider-account sign-in amendment (§6 node NS-83) — a Type 2 record replacing the corpus's absolute no-token-custody posture with two bounded rules (brokered sign-in, which takes no custody, and one class of vendor-minted non-interactive token, which does), required rather than optional because `Spec-029 §ADR Triggers` named that reversal as needing an ADR and not an amendment
 
 ---
 
@@ -278,8 +278,8 @@ Current documentation corpus:
 | Area | Path | Description |
 | --- | --- | --- |
 | Vision | [`docs/vision.md`](docs/vision.md) | Product thesis and architectural position |
-| Specs | [`docs/specs/`](docs/specs/) | Feature specifications (001-027) |
-| Plans | [`docs/plans/`](docs/plans/) | Implementation plans (001-027) |
+| Specs | [`docs/specs/`](docs/specs/) | Feature specifications (the census above is the authoritative list) |
+| Plans | [`docs/plans/`](docs/plans/) | Implementation plans (the census above is the authoritative list) |
 | Architecture | [`docs/architecture/`](docs/architecture/) | Schemas, contracts, security, deployment |
 | Domain Models | [`docs/domain/`](docs/domain/) | State machines, glossary, entity models |
 | ADRs | [`docs/decisions/`](docs/decisions/) | Architectural decision records |
