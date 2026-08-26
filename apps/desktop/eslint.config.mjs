@@ -37,11 +37,26 @@
 // inert. It is asserted against the REAL rule — not a reimplementation — by
 // `src/renderer/src/runtime-node-attach/__tests__/renderer-import-boundary.test.ts`.
 //
-// This config extends the repo-root `eslint.config.mjs` (which provides the
-// `@eslint/js` recommended baseline + `typescript-eslint` recommended +
-// repo-wide ignores + the Plan-008 control-plane `no-restricted-imports`
-// block). The disjoint `files` selectors mean there is no merge conflict
-// between this block and the Plan-008 block.
+// This config spreads the repo-root `eslint.config.mjs` first, so this package
+// inherits its `@eslint/js` recommended baseline, `typescript-eslint`
+// recommended, the repo-wide `ignores`, and the shared `languageOptions`. It
+// inherits NO `no-restricted-imports`: the root's two blocks are path-scoped to
+// files under `packages/control-plane/src/sessions/` and `packages/contracts/src/`,
+// so neither selector matches a file in this app (verified against the resolved
+// config — for a renderer file the root's `pg` entry and its Buffer
+// `no-restricted-globals` entry are both absent). Every import restriction that
+// applies here is declared below, in full.
+//
+// Flat-config resolution, since the two blocks below configure the same rule:
+// for a given file ESLint applies the LAST config object in the array whose
+// `files` match, and an object that supplies rule OPTIONS replaces the earlier
+// options wholesale — no deep merge, no union of `paths` / `patterns`. A
+// `files` selector decides only WHETHER an object matches; its narrowness or
+// breadth has no bearing on how options combine, and there is no such thing as
+// a "merge conflict" between two selectors. Each block below is therefore
+// self-contained by necessity. The replace-not-merge semantics are pinned
+// against the real engine by `renderer-import-boundary.test.ts` ("a later
+// config object's rule options replace, never merge").
 import root from "../../eslint.config.mjs";
 
 export default [
@@ -171,9 +186,13 @@ export default [
   // CP-003-3 workspace-package boundary is NOT. No renderer test has any
   // reason to import the daemon or control-plane package, and leaving the
   // exclusion total would hand test files a hole in the very boundary the
-  // sibling `renderer-import-boundary.test.ts` exists to enforce. Narrower
-  // `files` selector, so this block merges with — rather than replaces — the
-  // repo-root baseline.
+  // sibling `renderer-import-boundary.test.ts` exists to enforce. This block
+  // RESTATES the two CP-003-3 entries rather than inheriting them, because
+  // nothing is inherited: the block above `ignores` `__tests__/**` and so does
+  // not match these files at all, and even where two objects did both match,
+  // the later one's options would replace the earlier one's wholesale (see the
+  // header note on flat-config resolution). Drop either entry from this block
+  // and that half of the boundary silently disappears for test files.
   {
     files: ["src/renderer/src/**/__tests__/**/*.{ts,tsx}"],
     rules: {

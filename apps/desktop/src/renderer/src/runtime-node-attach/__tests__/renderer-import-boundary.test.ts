@@ -38,7 +38,9 @@
 // `__tests__/**` from the builtin ban and re-applies the CP-003-3 workspace-
 // package half to tests in a second block — so this file may import
 // `node:path`, but no renderer test may import the daemon or control-plane
-// package. That asymmetry is itself covered by a case below.
+// package. That asymmetry is itself covered by a case below — as is the
+// flat-config resolution rule that forces the second block to RESTATE the
+// CP-003-3 entries instead of inheriting them.
 //
 // Refs: docs/plans/003-runtime-node-attach.md §Cross-Plan Obligations CP-003-3,
 //       docs/specs/023-desktop-shell-and-renderer.md §Trust Stance.
@@ -173,6 +175,51 @@ describe("renderer import boundary (Plan-003 CP-003-3)", () => {
       },
     );
     expect(restrictedImportMessages(results)).toHaveLength(0);
+  });
+
+  it("a later config object's rule options replace, never merge", async () => {
+    // The config's two `no-restricted-imports` blocks are each self-contained
+    // because a later flat-config object that supplies rule OPTIONS replaces the
+    // earlier options wholesale — no deep merge, no union of `paths` — no matter
+    // how narrow its `files` selector is. That is load-bearing: it is the reason
+    // the `__tests__/**` block restates the CP-003-3 entries rather than relying
+    // on the block above, and the config's header comment now says so.
+    //
+    // No file in the shipped config is matched by two `no-restricted-imports`
+    // objects, so the semantics are unobservable from it alone. This case makes
+    // them observable by appending one STRICTLY NARROWER block through
+    // `overrideConfig` (ESLint appends it to the end of the config array) and
+    // watching the shipped ban disappear. Under merge semantics both bans would
+    // fire; under replace semantics only the appended one does.
+    const linter = new ESLint({
+      cwd: DESKTOP_PACKAGE_ROOT,
+      overrideConfig: {
+        // Strictly narrower than the shipped block's
+        // `src/renderer/src/**/__tests__/**/*.{ts,tsx}`.
+        files: ["src/renderer/src/**/__tests__/**/replace-semantics-probe.test.ts"],
+        rules: {
+          "no-restricted-imports": [
+            "error",
+            { paths: [{ name: "sentinel-package", message: "SENTINEL" }] },
+          ],
+        },
+      },
+    });
+    const results = await linter.lintText(
+      [
+        `import "sentinel-package";`,
+        `import { x } from "@ai-sidekicks/control-plane";`,
+        `export const a = x;`,
+        ``,
+      ].join("\n"),
+      { filePath: packageRelativePath("./replace-semantics-probe.test.ts") },
+    );
+    const messages = restrictedImportMessages(results).join("\n");
+    // Both halves are load-bearing: without the first the case passes vacuously
+    // when the appended block fails to match; without the second it says nothing
+    // about merge-vs-replace.
+    expect(messages).toContain("SENTINEL");
+    expect(messages).not.toContain("CP-003-3");
   });
 
   it("the live renderer tree is clean", async () => {
