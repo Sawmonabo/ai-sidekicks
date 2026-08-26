@@ -168,7 +168,7 @@ These rules apply in order. The first matching rule wins. Rule numbers are globa
 ### Phase A — Plan analyst
 
 1. **Plan-analyst `BLOCKED`** → halt; surface to user with the contradiction.
-2. **Plan-analyst `NEEDS_CONTEXT`** → halt; surface gaps to user (do NOT auto-fill — see CLAUDE.md doc-first discipline).
+2. **Plan-analyst `NEEDS_CONTEXT`** → halt; surface gaps to user (do NOT auto-fill — see AGENTS.md §Doc-First Discipline).
 3. **Plan-analyst `DONE` or `DONE_WITH_CONCERNS`** → validate the DAG against the rules in SKILL.md Phase A. If validation fails, re-dispatch the analyst with the specific failures. If validates, write DAG to PR body and proceed to Phase B.
 
 ### Phase B / C — Per-task implementer + reviewer pipeline

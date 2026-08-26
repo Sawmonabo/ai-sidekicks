@@ -23,8 +23,24 @@
 // runtime in this test surface.
 import { defineConfig } from "vitest/config";
 
+import { sharedCoverageOptions } from "../../vitest.shared";
+
 export default defineConfig({
   test: {
+    // BL-123 Stage 1 measurement substrate. Vitest 4 resolves `coverage`
+    // root-only when `projects` are declared, so this block sits beside
+    // `projects`, not inside one.
+    //
+    // The denominator is deliberately the renderer sub-tree alone. The `main`
+    // project's one test spawns a real Electron binary as a child process
+    // (test/launch.smoke.test.ts); v8 coverage instruments this process, not
+    // that one, so `src/main/**` and `src/preload/**` would report ~0% and drag
+    // the package number toward a figure that measures the harness rather than
+    // the code. Widening this include is the correct move only once the main
+    // process is exercised in-process — see BL-131's renderer/E2E leg.
+    coverage: sharedCoverageOptions({
+      include: ["src/renderer/**/*.{ts,tsx}"],
+    }),
     projects: [
       {
         test: {

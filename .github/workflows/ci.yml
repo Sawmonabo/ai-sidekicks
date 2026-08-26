@@ -43,6 +43,27 @@ jobs:
   test-node22:
     name: test (${{ matrix.os }} / node ${{ matrix.node }})
     runs-on: ${{ matrix.os }}
+    # Turborepo remote cache (BL-122 experiment — see ADR-023 §Axis 1 + §Decision
+    # Log 2026-08-25). `permissions:` and `env:` are job-scoped and BOTH are
+    # load-bearing:
+    #   - A job-level `permissions:` map REPLACES the workflow-level one, so
+    #     `contents: read` must be restated or `actions/checkout` loses its
+    #     grant. No `actions:` grant is added, and that is deliberate: the cache
+    #     backend authenticates with the runner-injected `ACTIONS_RUNTIME_TOKEN`
+    #     (`@actions/cache`'s `getRuntimeToken()`), never with `GITHUB_TOKEN`,
+    #     so `actions: write` buys the cache nothing while handing PR-authored
+    #     code repo-wide Actions-API writes — deleting caches on any ref,
+    #     cancelling runs — which cache ref-scoping does NOT contain. Corrected
+    #     2026-08-25; see the Decision Log row.
+    #   - The signature key is consumed at run time by the `pnpm turbo run …`
+    #     steps, not by the caching action, so it must sit at job scope; a
+    #     step-level `env:` would silently disable artifact signing. The
+    #     repository secret is set, so signing is live; were it ever unset the
+    #     value would interpolate empty and the cache would degrade inertly.
+    permissions:
+      contents: read
+    env:
+      TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
     strategy:
       fail-fast: false
       matrix:
@@ -71,6 +92,20 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # Backs Turborepo's remote cache with the GitHub Actions cache (no
+      # third-party service, no spend). SHA-pinned per ADR-023 §Axis 4.
+      #
+      # Threat model, stated honestly: the controls that keep a fork PR from
+      # poisoning this cache are GitHub withholding secrets from fork-originated
+      # workflows, the read-only `GITHUB_TOKEN` on `pull_request`, and the
+      # `--cache=local:rw,remote:r` switch appended to every turbo invocation
+      # below on PR events. `remoteCache.signature` is NOT one of them —
+      # Turborepo documents it as artifact-integrity verification and states it
+      # "is not a security feature". ADR-023 §Axis 1's "HMAC >=32 bytes"
+      # requirement is still met; only the rationale is corrected.
+      - name: Turborepo remote cache (GitHub Actions cache backend)
+        uses: rharkor/caching-for-turbo@2238fae6eb9a9936f92356f54cb3660200d105e7 # v2.5.1
 
       # Electron 41 on Ubuntu 24.04 GitHub Actions runners requires the
       # SUID sandbox helper (`chrome-sandbox`) to be owned by root and have
@@ -106,7 +141,7 @@ jobs:
         run: pnpm -w exec prettier --check .
 
       - name: Build (Node 22 tier — excluding control-plane)
-        run: pnpm turbo run build --filter='!@ai-sidekicks/control-plane'
+        run: pnpm turbo run build --filter='!@ai-sidekicks/control-plane' ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
       # Production-safety check: the test-machinery probe paths in
       # apps/desktop/src/main/index.ts (the smoke probe and the GC-reachability
@@ -144,13 +179,13 @@ jobs:
           echo "ok: release bundle excludes test-machinery markers"
 
       - name: Typecheck (Node 22 tier — excluding control-plane)
-        run: pnpm turbo run typecheck --filter='!@ai-sidekicks/control-plane'
+        run: pnpm turbo run typecheck --filter='!@ai-sidekicks/control-plane' ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
       - name: Lint per-package (Node 22 tier — excluding control-plane)
-        run: pnpm turbo run lint --filter='!@ai-sidekicks/control-plane'
+        run: pnpm turbo run lint --filter='!@ai-sidekicks/control-plane' ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
       - name: Test (Node 22 tier — excluding control-plane)
-        run: pnpm turbo run test --filter='!@ai-sidekicks/control-plane'
+        run: pnpm turbo run test --filter='!@ai-sidekicks/control-plane' ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
       # Public-surface validation for the workspace libraries. Two complementary
       # linters run against the *packed* tarball (not the source tree), so they
@@ -247,6 +282,27 @@ jobs:
   test-node24:
     name: test (${{ matrix.os }} / node ${{ matrix.node }} / control-plane)
     runs-on: ${{ matrix.os }}
+    # Turborepo remote cache (BL-122 experiment — see ADR-023 §Axis 1 + §Decision
+    # Log 2026-08-25). `permissions:` and `env:` are job-scoped and BOTH are
+    # load-bearing:
+    #   - A job-level `permissions:` map REPLACES the workflow-level one, so
+    #     `contents: read` must be restated or `actions/checkout` loses its
+    #     grant. No `actions:` grant is added, and that is deliberate: the cache
+    #     backend authenticates with the runner-injected `ACTIONS_RUNTIME_TOKEN`
+    #     (`@actions/cache`'s `getRuntimeToken()`), never with `GITHUB_TOKEN`,
+    #     so `actions: write` buys the cache nothing while handing PR-authored
+    #     code repo-wide Actions-API writes — deleting caches on any ref,
+    #     cancelling runs — which cache ref-scoping does NOT contain. Corrected
+    #     2026-08-25; see the Decision Log row.
+    #   - The signature key is consumed at run time by the `pnpm turbo run …`
+    #     steps, not by the caching action, so it must sit at job scope; a
+    #     step-level `env:` would silently disable artifact signing. The
+    #     repository secret is set, so signing is live; were it ever unset the
+    #     value would interpolate empty and the cache would degrade inertly.
+    permissions:
+      contents: read
+    env:
+      TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
     strategy:
       fail-fast: false
       matrix:
@@ -273,17 +329,31 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Backs Turborepo's remote cache with the GitHub Actions cache (no
+      # third-party service, no spend). SHA-pinned per ADR-023 §Axis 4.
+      #
+      # Threat model, stated honestly: the controls that keep a fork PR from
+      # poisoning this cache are GitHub withholding secrets from fork-originated
+      # workflows, the read-only `GITHUB_TOKEN` on `pull_request`, and the
+      # `--cache=local:rw,remote:r` switch appended to every turbo invocation
+      # below on PR events. `remoteCache.signature` is NOT one of them —
+      # Turborepo documents it as artifact-integrity verification and states it
+      # "is not a security feature". ADR-023 §Axis 1's "HMAC >=32 bytes"
+      # requirement is still met; only the rationale is corrected.
+      - name: Turborepo remote cache (GitHub Actions cache backend)
+        uses: rharkor/caching-for-turbo@2238fae6eb9a9936f92356f54cb3660200d105e7 # v2.5.1
+
       - name: Build (control-plane only)
-        run: pnpm turbo run build --filter='@ai-sidekicks/control-plane...'
+        run: pnpm turbo run build --filter='@ai-sidekicks/control-plane...' ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
       - name: Typecheck (control-plane only)
-        run: pnpm turbo run typecheck --filter='@ai-sidekicks/control-plane...'
+        run: pnpm turbo run typecheck --filter='@ai-sidekicks/control-plane...' ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
       - name: Lint (control-plane only)
-        run: pnpm turbo run lint --filter='@ai-sidekicks/control-plane...'
+        run: pnpm turbo run lint --filter='@ai-sidekicks/control-plane...' ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
       - name: Test (control-plane only)
-        run: pnpm turbo run test --filter='@ai-sidekicks/control-plane...'
+        run: pnpm turbo run test --filter='@ai-sidekicks/control-plane...' ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
       # Same publint + attw public-surface validation as the Node 22 tier above
       # (see that step's comment for the esm-only-profile + fflate-pin rationale,
@@ -338,6 +408,106 @@ jobs:
 
       - name: Run hook guard tests
         run: node tools/run-node-tests.mjs '.claude/hooks/__tests__/**/*.test.mjs'
+
+  # ADVISORY job — deliberately absent from `ci-gate`'s `needs` list below, so a
+  # coverage regression never blocks a merge. BL-123 Stage 1 is measurement
+  # substrate only: exit criteria (b)-(d) require the per-package floors to be
+  # derived from a >=5-PR sample before any number gates anything, and ADR-023
+  # §Axis 1's "branch protection requires only `ci-gate`" posture is unchanged.
+  #
+  # One job rather than a matrix. `tools/coverage-report.mjs` is fail-closed on a
+  # root that declares `test:coverage` but produced no report, which only reads
+  # as a signal if every root is measured in the same workspace. The Node tier
+  # split from the required jobs is preserved by switching the runtime mid-job
+  # (control-plane declares `engines.node: ">=24.0.0"`), not by splitting the
+  # measurement across legs that would each see a partial set. Only
+  # `@ai-sidekicks/control-plane` runs on the second runtime and it is
+  # WASM-backed (PGlite), so no native binding is asked to cross an ABI.
+  #
+  # `tools/docs-corpus` has no package.json and is not a workspace member, so
+  # turbo cannot fan out to it; it is invoked directly, in the same shape
+  # .github/workflows/docs-corpus.yml already uses to run those tests.
+  coverage:
+    name: coverage (informational)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        # SHA-pinned per ADR-023 §Axis 4 supply-chain hygiene; Renovate's
+        # helpers:pinGitHubActionDigests preset (renovate.json5) keeps this current.
+        uses: pnpm/action-setup@8b2eead6074fefa43a68bf4c9e0f03ea4126b5ba # v6.0.3
+        with:
+          version: 10.33.2
+          run_install: false
+
+      - name: Setup Node.js 22.12
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22.12"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Coverage (Node 22 tier — excluding control-plane)
+        run: pnpm turbo run test:coverage --filter='!@ai-sidekicks/control-plane'
+
+      - name: Coverage (doc-corpus tooling)
+        # `!cancelled()` (not the default success condition) so a red suite in an
+        # earlier tier still yields this tier's report. vitest is configured with
+        # `reportOnFailure: true`, which only pays off if the step actually runs.
+        if: ${{ !cancelled() }}
+        run: pnpm exec vitest run --root tools/docs-corpus --coverage
+
+      - name: Setup Node.js 24 (control-plane tier)
+        # Must carry the same condition as the tier it sets up: if this were
+        # skipped while the tier below ran, control-plane would measure on Node 22.
+        if: ${{ !cancelled() }}
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          # Dependencies are already installed under the 22.12 step above; this
+          # step only swaps the runtime, so re-priming the pnpm store cache here
+          # would be wasted work.
+          package-manager-cache: false
+
+      - name: Coverage (Node 24 tier — control-plane only)
+        if: ${{ !cancelled() }}
+        run: pnpm turbo run test:coverage --filter='@ai-sidekicks/control-plane'
+
+      # Renders one markdown table into the job summary. Writing the numbers to
+      # the summary rather than a PR comment keeps this workflow's token grant at
+      # `contents: read` and keeps third-party code out of the workflow that
+      # carries the required `ci-gate` — see the script header for the full
+      # rationale and the named upgrade path.
+      - name: Render coverage summary
+        # The renderer is fail-closed on a root that declares `test:coverage` and
+        # produced no report, so on a red run it reports the real partial state
+        # rather than being skipped into silence.
+        if: ${{ !cancelled() }}
+        run: node tools/coverage-report.mjs
+
+      # The durable pointers BL-123 exit criterion (b) asks for: lcov + json
+      # reports retained per run, so the >=5-PR baseline sample cites artifacts
+      # rather than a scrollback number.
+      - name: Upload coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports
+          path: |
+            packages/*/coverage/
+            apps/*/coverage/
+            tools/docs-corpus/coverage/
+          # 90, not the 30-day default: BL-123 exit (b) calls these artifacts the
+          # durable pointer for a >=5-PR sampling window, and that window can
+          # outlive 30 days. 90 is the ceiling for a private repo's default plan.
+          retention-days: 90
+          if-no-files-found: error
 
   ci-gate:
     name: ci-gate

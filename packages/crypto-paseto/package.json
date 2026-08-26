@@ -23,7 +23,8 @@
     "build": "tsc -b",
     "typecheck": "tsc -b && tsc -p tsconfig.test.json",
     "lint": "eslint src",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@noble/curves": "^2",
@@ -31,6 +32,7 @@
     "@noble/hashes": "^2"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "catalog:testing",
     "vitest": "catalog:testing"
   }
 }

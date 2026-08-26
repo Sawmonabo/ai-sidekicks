@@ -11,7 +11,12 @@
 // longer-term form is a root-level `vitest.config.ts` with `projects: [...]`;
 // until that lands the per-package configs carry the discovery globs they
 // need.
+// The coverage half of that root-projects shape is foreclosed under Vitest 4,
+// which resolves `coverage` root-only once `projects` exist — see the header
+// of `vitest.shared.ts`. Discovery is unaffected; only coverage is.
 import { defineConfig } from "vitest/config";
+
+import { sharedCoverageOptions } from "../../vitest.shared";
 
 export default defineConfig({
   test: {
@@ -19,6 +24,11 @@ export default defineConfig({
     environment: "node",
     passWithNoTests: false,
     reporters: ["default"],
+    // BL-123 Stage 1 measurement substrate. Options live in the repo-root
+    // factory so all seven test surfaces share one definition; see
+    // `vitest.shared.ts` for why coverage cannot be hoisted into a single
+    // root config.
+    coverage: sharedCoverageOptions(),
     // Mirrors `packages/control-plane/vitest.config.ts`: the integration
     // tests under `test/` boot a fresh PGlite per test, and the first
     // `beforeEach` in a worker pays the cold WASM compile + migrations.

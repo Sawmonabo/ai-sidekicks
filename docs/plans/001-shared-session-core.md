@@ -107,7 +107,7 @@ Workspace topology is authoritative in [Container Architecture](../architecture/
 
 - `package.json` — workspace root with `"private": true`, `packageManager` and `engines.node` constraints per [ADR-022](../decisions/022-v1-toolchain-selection.md)
 - `pnpm-workspace.yaml` — declares `packages/*` and `apps/*`
-- `turbo.json` — `build`, `test`, `lint`, `typecheck`, and `dev` task pipelines
+- `turbo.json` — `build`, `test`, `lint`, `typecheck`, and `dev` task pipelines at scaffold time; later tasks are added by the work that owns them (`test:coverage`, 2026-08-25)
 - `tsconfig.base.json` — strict + `isolatedDeclarations: true` + ESM-only; per-package `tsconfig.json` extends base
 - `.npmrc` — `node-linker=isolated` (required by [ADR-022](../decisions/022-v1-toolchain-selection.md) two-ABI native binding constraint)
 - `.nvmrc` — pins the lower-tier Node target per [ADR-022](../decisions/022-v1-toolchain-selection.md)
