@@ -219,6 +219,7 @@ describe("path-canonical-ripple", () => {
           "Flag-first: ai-sidekicks --help",
           "Continued: ai-sidekicks \\",
           "  daemon status",
+          "/usr/local/bin/ai-sidekicks daemon status",
         ].join("\n"),
       },
       { paths: [{ ...entry, exclude: [] }] },
@@ -229,7 +230,10 @@ describe("path-canonical-ripple", () => {
     // so the needle that catches it matches the trailing-backslash signature
     // rather than the invocation spanning two lines. Line 6 (the verb on its
     // own line) is correctly NOT flagged: it carries no executable name.
-    expect(new Set(flagged)).toEqual(new Set([1, 2, 3, 4, 5]));
+    // Line 7 is the path-qualified invocation. It is invisible to the verb
+    // needle, whose prefix guard must reject a leading `/` so that repo-slug
+    // prose does not fire; the path-anchored needle is the one that sees it.
+    expect(new Set(flagged)).toEqual(new Set([1, 2, 3, 4, 5, 7]));
     cleanup();
   });
 
@@ -252,6 +256,23 @@ describe("path-canonical-ripple", () => {
           // continuation needle must not confuse a wrapped sentence for a
           // continued command.
           "A sentence that simply ends in ai-sidekicks",
+          // A Windows config directory ending the line. The backslash before
+          // the name satisfies the prefix guard and the separator after it
+          // satisfies the trailing backslash, so the continuation needle
+          // matched this until it was made to require whitespace.
+          "Config path: %APPDATA%\\ai-sidekicks\\",
+          // Repo-slug prose whose next word IS a first-level verb. This is
+          // the false-positive class the path-qualified needle would open if
+          // its filesystem anchor (`/`, `./`, `../`, `~/`) were relaxed to a
+          // bare slash.
+          "The owner/ai-sidekicks config lives in the repo.",
+          "See github.com/owner/ai-sidekicks run history for details.",
+          // Object-, array-, and identifier-valued keys spelling the
+          // unchanged project name. Key position alone flagged all three;
+          // the bin-map needle requires a STRING value for exactly this.
+          'Registry: const repositories = { "ai-sidekicks": config };',
+          'Config example: {"ai-sidekicks": {"version": "1.0"}}',
+          'Workspace map: { "ai-sidekicks": ["apps/*"] }',
         ].join("\n"),
       },
       { paths: [{ ...entry, exclude: [] }] },
@@ -402,7 +423,8 @@ describe("path-canonical-ripple", () => {
     const { root, cleanup } = setupRepo(
       {
         // Exercises the docs-scoped entry: verb, flag-first, JSON key,
-        // prose `bin` shorthand, deep-link scheme.
+        // prose `bin` shorthand, deep-link scheme, line continuation, and the
+        // path-qualified invocation.
         "docs/plans/007.md": [
           "Run `ai-sidekicks  daemon status` after install.",
           "Global flags: ai-sidekicks --version",
@@ -411,6 +433,7 @@ describe("path-canonical-ripple", () => {
           "Deep link: ai-sidekicks://invite/abc",
           "Continued invocation: ai-sidekicks \\",
           "  daemon status",
+          "Path-qualified: /usr/local/bin/ai-sidekicks daemon status",
         ].join("\n"),
         // Exercises the source-scoped entry, which carries no docs glob.
         "apps/desktop/src/main/protocol.ts": "app.setAsDefaultProtocolClient(`ai-sidekicks`);\n",
