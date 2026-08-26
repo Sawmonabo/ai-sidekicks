@@ -187,7 +187,7 @@ Total: 50-byte header + 48-byte AEAD body = 98 bytes per envelope (matches [ADR-
 - Wipe events:
   - **Idle wipe**: default 15 minutes without a `participant_keys` read or write. Configurable via `daemon.master_key.idle_wipe_seconds` (minimum 60, no maximum). Re-unwrap via keystore + PRF assertion (desktop) or passphrase prompt (CLI) on next access.
   - **Shutdown wipe**: on `SIGTERM`, `SIGINT`, or orderly daemon shutdown. Wipe happens before closing SQLite handles so no encryption operation can execute during teardown.
-  - **Lock wipe**: when the participant explicitly locks the daemon (`ai-sidekicks daemon lock`).
+  - **Lock wipe**: when the participant explicitly locks the daemon (`sidekicks daemon lock`).
 
 **Rotation policy**:
 

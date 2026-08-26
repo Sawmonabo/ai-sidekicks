@@ -1655,7 +1655,7 @@ interface DaemonStatusReadResult {
   uptimeMs: number;
 }
 
-// DaemonStop / DaemonRestart (no DaemonStart: daemon cold-boot is the CLI process-spawn path — `ai-sidekicks daemon start` — not an IPC method; see Plan-007 T-007r-3-4)
+// DaemonStop / DaemonRestart (no DaemonStart: daemon cold-boot is the CLI process-spawn path — `sidekicks daemon start` — not an IPC method; see Plan-007 T-007r-3-4)
 // Separate per-method request schemas (NOT a shared `action` discriminator): each carries the idle-drain
 // deadline that I-007-12 self-swap refusal + I-007-15 quiesce depend on. The 5000ms default is applied by
 // the Zod schema (Plan-007 T-007r-1-2), so the field is input-optional but always present post-parse.

@@ -53,7 +53,7 @@ The daemon master key that wraps all `participant_keys.encrypted_key_blob` entri
 
 **Validation**:
 
-- After a successful restore, run `ai-sidekicks daemon diagnose master-key` to verify:
+- After a successful restore, run `sidekicks daemon diagnose master-key` to verify:
   - Tier 1 and tier 2 blobs are present and byte-identical.
   - The master key unwraps under the current credential.
   - A sample decrypt of one `participant_keys` row succeeds.

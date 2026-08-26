@@ -17,6 +17,23 @@ import { dirname, resolve } from "node:path";
 export interface PathEntry {
   canonical: string;
   deprecated: string[];
+  /**
+   * How `deprecated[]` entries are matched. `"literal"` (the default) greps
+   * with `-F`, a fixed-string SUBSTRING match with no boundaries — the founding
+   * `apps/desktop/` entry depends on exactly that, since the no-trailing-slash
+   * form is what catches the executable/CLI shape (`--filter=apps/desktop/shell`)
+   * that PR #24 missed. `"regex"` greps with `-E` (POSIX ERE) so an entry whose
+   * deprecated forms are multi-token COMMAND INVOCATIONS can express boundaries
+   * and whitespace tolerance, which a fixed string cannot.
+   *
+   * Opt-in per entry, never a global flip: boundary-wrapping every entry would
+   * silently narrow the substring semantics entry 1 relies on.
+   *
+   * ERE only — no `\b`, no lookaround. `git grep -E` compiles through the
+   * platform's regex engine, and the GNU extensions are not portable to the CI
+   * matrix. Use `(^|[^[:alnum:]@/_-])` / `([^[:alnum:]_-]|$)` for boundaries.
+   */
+  matcher?: "literal" | "regex";
   introduced?: string;
   refs?: string[];
   scope?: string[];
@@ -74,6 +91,7 @@ function loadRegistry(repoRoot: string): RegistryFile {
 
 function gitGrep(
   needle: string,
+  matcher: "literal" | "regex",
   scope: string[],
   exclude: string[],
   cwd: string,
@@ -86,7 +104,7 @@ function gitGrep(
   // the correct semantics for a pre-commit gate. In CI the working tree
   // matches HEAD after checkout, so the two modes produce identical results
   // there; the switch is purely additive.
-  const args = ["grep", "--cached", "-nF", "--", needle];
+  const args = ["grep", "--cached", matcher === "regex" ? "-nE" : "-nF", "--", needle];
   for (const s of scope) args.push(":(glob)" + s);
   for (const e of exclude) args.push(":(exclude,glob)" + e);
 
@@ -106,6 +124,10 @@ function gitGrep(
   } catch (err) {
     const e = err as { status?: number; stdout?: string };
     // `git grep` exits 1 for "no matches" — the clean outcome, not a fault.
+    // Every other status is a fault and must throw: exit 128 is how a
+    // malformed `-E` pattern surfaces, and swallowing it would turn an
+    // uncompilable needle into a permanently green gate — the CAT-10 shape
+    // this registry exists to avoid.
     if (e.status === 1) return [];
     throw new Error(
       `path-canonical-ripple: git grep --cached failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -134,8 +156,9 @@ export function checkPathCanonicalRipple(): PathRippleViolation[] {
   for (const entry of reg.paths) {
     const scope = entry.scope ?? ["**/*.md"];
     const exclude = entry.exclude ?? [];
+    const matcher = entry.matcher ?? "literal";
     for (const dep of entry.deprecated) {
-      const found = gitGrep(dep, scope, exclude, repoRoot);
+      const found = gitGrep(dep, matcher, scope, exclude, repoRoot);
       if (found.length > 0) {
         hits.push({ entry, deprecated: dep, occurrences: found });
       }
@@ -150,7 +173,8 @@ export function formatPathRippleViolations(hits: PathRippleViolation[]): string 
   lines.push("path-canonical-ripple: surviving deprecated path occurrences");
   lines.push("");
   for (const h of hits) {
-    lines.push(`  deprecated "${h.deprecated}" — canonical is "${h.entry.canonical}"`);
+    const how = h.entry.matcher === "regex" ? " (regex)" : "";
+    lines.push(`  deprecated "${h.deprecated}"${how} — canonical is "${h.entry.canonical}"`);
     for (const occ of h.occurrences) {
       lines.push(`    ${occ.file}:${occ.line}: ${occ.text.trim()}`);
     }
