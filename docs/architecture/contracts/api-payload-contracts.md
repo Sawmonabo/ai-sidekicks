@@ -5114,7 +5114,9 @@ type McpServerOauthCompletedPayload = McpServerBindingAuditRef & {
 
 Wire surfaces for [Spec-029](../../specs/029-provider-accounts-and-credential-homes.md). The `providerAccount.*` namespace is node-local operator administration: every mutating verb is gated on node-operator authority, and a relayed mutation is refused rather than applied (I-029-1).
 
-The namespace has exactly seven verbs, each carrying the payload pair named below: `providerAccount.list` (read), and the six mutating verbs `providerAccount.register`, `providerAccount.update`, `providerAccount.remove`, `providerAccount.setDefault`, `providerAccount.probe`, and `providerAccount.resetCredentialHome`. `providerAccount.probe` is grouped with the mutating verbs for two reasons, and the weaker one is the row write: it writes back the observed health state and its observation timestamp to the probed account's row and nothing else — it mints and removes no account, and it is not one of I-029-2's generation-bumping lifecycle transitions, so a probe leaves `credentialGeneration` unchanged. The load-bearing reason is that it reaches into a credential home and drives provider-side credential I/O. That is operator-authority work, so it takes the node-operator gate rather than the laxer read gate.
+The namespace has exactly seven verbs, each carrying the payload pair named below: `providerAccount.list` (read), and the six mutating verbs `providerAccount.register`, `providerAccount.update`, `providerAccount.remove`, `providerAccount.setDefault`, `providerAccount.probe`, and `providerAccount.resetCredentialHome`. `providerAccount.probe` is grouped with the mutating verbs for two reasons, and the weaker one is the row write: it writes back the observed health state and its observation timestamp to the probed account's row, and — **atomically with that write** — applies I-029-2's generation rule, which names "a transition of the account's probe result into or out of `authenticated`" as a lifecycle transition. So a probe that observes the same authenticated-ness as the stored row leaves `credentialGeneration` untouched, while one that observes a **crossing** of the authenticated boundary bumps it in the same transaction as the health write. Both directions bump: a repaired credential must end the old attention epoch (`Spec-017 §Provider-limit pacing and durable resumption (SA-40)` keys on `(accountId, credentialGeneration)`, so parked work resumes against a generation that is genuinely new), and a destroyed one must not leave consumers holding a generation that still reads as usable. The verb mints and removes no account. The load-bearing reason for the gate is that it reaches into a credential home and drives provider-side credential I/O. That is operator-authority work, so it takes the node-operator gate rather than the laxer read gate.
+
+**The probe verb is not the only writer of the stored pair.** Every validation that actually observes an account's authentication state writes it back under the same rule — the deliberate probe above, and the fail-closed validation the spawn path performs (Spec-029 §Validation at spawn — fail-closed). Anything else would make the stored reading a record of _explicit probes_ rather than of _the last validation_, which is what the readiness derivation reads and what `observedAt` claims: a node whose first run succeeded would otherwise keep serving `indeterminate` indefinitely while every run started fine. Spawn validation is a read-path caller in every other respect — it takes no operator gate and mints nothing — but its observation is an observation, and the row records observations.
 
 **The identifier is opaque everywhere.** `ProviderAccountId` is daemon-minted and immutable. No client, driver, or renderer parses it, decomposes it, or uses it to locate credential material — it selects a credential environment and nothing else. It is deliberately not derived from an email, a provider subject id, or any credential value, because those rotate and an identity that rotates cannot key historical spend.
 
@@ -5142,7 +5144,8 @@ type ProviderAccountHealthState =
   | "indeterminate"; // probe could not decide — treated as NOT authenticated (fail-closed, I-029-3)
 
 // NOTE: no credential-home path appears on `ProviderAccount`. The one wire member that carries a
-// home is `ProviderSignInRemedy.credentialHomePath` below, on the node-local, node-operator-
+// home is `ProviderSignInRemedy.credentialHomePath` below — the sign-in arm alone, the two
+// registry-shape arms having no resolved home to name — on the node-local, node-operator-
 // authorized readiness reply, and it is operator-facing message text that travels structured. The
 // prohibition it lives under is unchanged and is about the READER, not the encoding: the home
 // reaches an operator's screen and never an event payload, a relayed payload, or a log line
@@ -5179,20 +5182,51 @@ interface ProviderReadiness {
   // `authenticated`. Optional at parse because the state alone does not make requiredness
   // expressible to a strict parser without splitting this interface per arm; the obligation is the
   // producer's and is tested per arm. It exists because the spec REQUIRES every non-authenticated
-  // surface to display the remedy, and no client can compose one — only the daemon knows which
+  // surface to display the next action, and no client can compose one — only the daemon knows which
   // account resolution reached and which home it holds. Composed at read time, never stored, so it
   // cannot go stale against the row it describes.
-  remedy?: ProviderSignInRemedy;
+  remedy?: ProviderRemedy;
 }
 
-// Operator-facing message text that happens to travel structured. The message-text-only disclosure
-// rule (Spec-029 §Node provider readiness and the sign-in handoff) governs it UNCHANGED: these
+// Operator-facing guidance that happens to travel structured. The disclosure rule (Spec-029 §Node
+// provider readiness and the sign-in handoff) governs it UNCHANGED and binds the READER: these
 // values reach an operator's screen and NEVER an event payload, a relayed payload, a log line, or a
 // refusal envelope. `providerAccount.list` is node-local and node-operator-authorized, which is the
 // only reason a daemon-owned path may cross it at all — this shape must not be reused on any
 // surface reachable by a session participant.
+//
+// A UNION rather than one shape, because the remedy is "the operator's next action" and the three
+// non-authenticated classes have three different next actions with three different producible
+// field sets. A single sign-in shape was unproducible on two of them: `no_account` has no
+// credential home to name at all, and `no_default` deliberately resolved to none of several homes,
+// so composing either reply would have required inventing a path or arbitrarily picking an account
+// — precisely the arbitrary selection I-029-5's single-default rule exists to prevent. The
+// discriminant is `kind`, and it is NOT redundant with `state`: `reauth_required`, `home_missing`,
+// and `indeterminate` all map to `sign_in`, so the mapping is many-to-one and a client renders off
+// `kind` without re-deriving it.
+type ProviderRemedy = ProviderRegisterRemedy | ProviderChooseDefaultRemedy | ProviderSignInRemedy;
+
+// `state: "no_account"` — nothing is registered, so there is nothing to sign into yet.
+interface ProviderRegisterRemedy {
+  kind: "register";
+  provider: "claude" | "codex";
+}
+
+// `state: "no_default"` — accounts exist and none is default. Resolution reached no account BY
+// DESIGN, so the daemon names the candidates and refuses to choose: picking one here would bind a
+// run's spend to an account the operator never selected.
+interface ProviderChooseDefaultRemedy {
+  kind: "choose_default";
+  candidateAccountIds: ProviderAccountId[]; // at least two — a one-account no-default state is
+  // still `no_default`, but the daemon lists whatever exists
+  // and never elects one
+}
+
+// `state: "reauth_required" | "home_missing" | "indeterminate"` — resolution reached exactly one
+// account, so both the account and its home are known and the next action is the vendor's own flow.
 interface ProviderSignInRemedy {
-  accountId?: ProviderAccountId; // absent on the two registry-shape arms, where no account resolved
+  kind: "sign_in";
+  accountId: ProviderAccountId; // REQUIRED on this arm: it is the arm where an account resolved
   signInInvocation: string; // the provider's OWN first-party sign-in command, for DISPLAY — the
   // daemon never executes it, and this is not a shell string a client
   // is invited to run on the operator's behalf
