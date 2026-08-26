@@ -9,7 +9,7 @@ These are **non-governance** reference docs (the `docs/reference/` tree): no sta
 | File                   | Provider                       | Pinned version      | Supported floor | Anchor                                                   |
 | ---------------------- | ------------------------------ | ------------------- | --------------- | -------------------------------------------------------- |
 | [`codex.md`](codex.md) | Codex CLI (`codex app-server`) | `codex-cli 0.149.1` | `0.141.0`       | the binary's own generated schema + the tagged upstream source |
-| [`claude.md`](claude.md) | Claude Code headless CLI     | `2.1.245`           | `2.1.234`       | a string census of the pinned binary + the official docs census |
+| [`claude.md`](claude.md) | Claude Code headless CLI     | `2.1.245`           | `2.1.234` (cand.) | a string census of the pinned binary + the official docs census |
 
 ## The two axes: TRUST and PROVENANCE
 

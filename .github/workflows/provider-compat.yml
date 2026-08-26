@@ -349,11 +349,15 @@ jobs:
           # accepting `--full-auto` (a real break in the oldest SUPPORTED CLI)
           # invisible: summary-only, leg still `success`, no alert, no failure.
           #
-          # `latest` has no expected value. Whether the flag is present above
-          # the pin is exactly the kind of movement the b1 policy tolerates.
+          # `latest` inherits the PIN's expectation. Saying it expects
+          # nothing meant a release above the pin that RESTORED `--full-auto`
+          # produced no drift and no re-pin signal -- but "the withdrawn flag
+          # came back" is exactly the movement the reference would need to
+          # re-record. It is still only a `latest` observation, so the report
+          # warns without failing the run, per the above-pin policy.
           case "$CHANNEL" in
             floor) expected_accept=yes ;;
-            pin) expected_accept=no ;;
+            pin | latest) expected_accept=no ;;
             *) expected_accept=unknown ;;
           esac
           if [ "$full_auto_exit" -eq 0 ]; then
@@ -368,7 +372,7 @@ jobs:
             printf 'codex --full-auto is no longer accepted at the %s (exit %s)\n' \
               "$CHANNEL" "$full_auto_exit" >> "$RUNNER_TEMP/leg/drift.txt"
           elif [ "$expected_accept" = no ] && [ "$observed" != REJECTED ]; then
-            printf 'codex --full-auto is accepted again at the %s (exit %s)\n' \
+            printf 'codex --full-auto is accepted again at the %s (exit %s) — withdrawn at the pin, so this is a re-pin signal\n' \
               "$CHANNEL" "$full_auto_exit" >> "$RUNNER_TEMP/leg/drift.txt"
           fi
           # Negative control: prove the detector can see a rejection at all.
@@ -424,7 +428,12 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: leg-codex-${{ matrix.channel }}
-          path: ${{ runner.temp }}/leg/outcome.txt
+          # The whole leg directory, not just outcome.txt. drift.txt and
+          # broken.txt hold the actionable reason -- which flag, method,
+          # shape, or step failed -- and without them the tracking issue
+          # decays to a provider/channel/status row whose evidence lives only
+          # in run logs that expire.
+          path: ${{ runner.temp }}/leg/
           # `error`, not the default `warn`. The report compares the
           # artifacts it downloads against the expected channel set, so a
           # silently-empty upload would present as a missing channel anyway --
@@ -451,12 +460,13 @@ jobs:
       matrix:
         include:
           # Keep these three in step with docs/reference/provider-wire/claude.md.
-          # `floor` tracks the RATIFIED floor (2026-08-25), which is ahead of
-          # the floor Spec-005 still states normatively. That spec sentence is
-          # stale pending its own amendment; this matrix deliberately does not
-          # test the superseded value, because the ratified decision is to stop
-          # supporting it. When the spec is amended the two agree and this note
-          # comes out. See ADR-023 §Decision Log for the sequencing.
+          # `floor` tracks a CANDIDATE floor, ahead of the floor Spec-005
+          # still mandates. Nothing here ratifies it: raising the floor is a
+          # Spec-005 Required Behavior change, and this leg exists to supply
+          # evidence for that amendment -- it answers "would the candidate
+          # hold?" and files drift if it would not. If the amendment settles
+          # on a different number, this leg follows the spec. See ADR-023
+          # §Decision Log for the sequencing.
           - channel: floor
             version: "2.1.234"
           - channel: pin
@@ -654,7 +664,12 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: leg-claude-${{ matrix.channel }}
-          path: ${{ runner.temp }}/leg/outcome.txt
+          # The whole leg directory, not just outcome.txt. drift.txt and
+          # broken.txt hold the actionable reason -- which flag, method,
+          # shape, or step failed -- and without them the tracking issue
+          # decays to a provider/channel/status row whose evidence lives only
+          # in run logs that expire.
+          path: ${{ runner.temp }}/leg/
           # `error`, not the default `warn`. The report compares the
           # artifacts it downloads against the expected channel set, so a
           # silently-empty upload would present as a missing channel anyway --
@@ -710,11 +725,18 @@ jobs:
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           CLAUDE_CONFIG_DIR: ${{ runner.temp }}/claude-smoke-config
+          # Secure storage relocates under its OWN key -- CLAUDE_CONFIG_DIR
+          # does not cover it. docs/reference/provider-wire/claude.md records
+          # the literal, and the control-request census asserts it is still
+          # present in the binary. Without this the one token-bearing
+          # invocation in the workflow could still read or write the runner's
+          # default secure-storage location.
+          CLAUDE_SECURESTORAGE_CONFIG_DIR: ${{ runner.temp }}/claude-smoke-securestorage
         run: |
           # No `set -x` anywhere in this job: tracing would echo the environment.
           set -euo pipefail
           echo "::add-mask::${CLAUDE_CODE_OAUTH_TOKEN}"
-          mkdir -p "$CLAUDE_CONFIG_DIR"
+          mkdir -p "$CLAUDE_CONFIG_DIR" "$CLAUDE_SECURESTORAGE_CONFIG_DIR"
           # A scratch config home, an empty tool allow-list, and one bounded turn.
           # The token reaches the child only through the environment; it is never
           # written to disk, echoed, or passed on a command line.
@@ -837,6 +859,7 @@ jobs:
           # sibling reported a failure, the counter was already nonzero and
           # the missing leg went unnoticed entirely.
           rows=""
+          reasons=""
           for expected in "codex floor" "codex pin" "codex latest" \
                           "claude floor" "claude pin" "claude latest"; do
             # shellcheck disable=SC2086 # deliberate split of a known pair
@@ -853,6 +876,14 @@ jobs:
             fi
             read -r _provider _channel status < "$outcome_file"
             rows="${rows}| \`${provider}\` | \`${channel}\` | \`${status}\` |"$'\n'
+            leg_dir="$RUNNER_TEMP/legs/leg-${provider}-${channel}"
+            for reason_file in "$leg_dir/drift.txt" "$leg_dir/broken.txt"; do
+              [ -s "$reason_file" ] || continue
+              while IFS= read -r reason; do
+                [ -n "$reason" ] || continue
+                reasons="${reasons}- \`${provider}\` **${channel}**: ${reason}"$'\n'
+              done < "$reason_file"
+            done
             case "$status" in
               success) ;;
               drift)
@@ -885,6 +916,12 @@ jobs:
             echo "| --- | --- | --- |"
             printf '%s' "$rows"
             echo
+            if [ -n "$reasons" ]; then
+              echo "### What moved"
+              echo
+              printf '%s' "$reasons"
+              echo
+            fi
             echo "| Supporting leg | Result |"
             echo "| --- | --- |"
             echo "| Secret presence gate | \`$GATE_RESULT\` |"
@@ -918,18 +955,28 @@ jobs:
           # makes strictly more likely, because closed issues now count toward
           # the cap. The exact-title check below stays as the precision guard,
           # since the search qualifier matches loosely.
+          # Returns "<number> <state>" so the steps below can act only when
+          # they would actually change something. `gh issue close` on an
+          # already-closed issue is a no-op that returns nil (verified in
+          # cli/cli pkg/cmd/issue/close/close.go), so this is not about exit
+          # codes -- it is about not posting a "closing" comment on every
+          # clean nightly for the rest of time.
           find_issue() {
             gh issue list \
               --repo "$GITHUB_REPOSITORY" \
               --state all \
               --search "in:title \"$1\"" \
               --limit 100 \
-              --json number,title \
-              --jq "[.[] | select(.title == \"$1\")] | first | .number // empty"
+              --json number,title,state \
+              --jq "[.[] | select(.title == \"$1\")] | first | \"\(.number // \"\") \(.state // \"\")\""
           }
+          read -r drift_number drift_state <<< "$(find_issue "$TRACKING_ISSUE_TITLE")"
+          read -r broken_number broken_state <<< "$(find_issue "$BROKEN_ISSUE_TITLE")"
           {
-            echo "number=$(find_issue "$TRACKING_ISSUE_TITLE")"
-            echo "broken_number=$(find_issue "$BROKEN_ISSUE_TITLE")"
+            echo "number=${drift_number}"
+            echo "state=${drift_state}"
+            echo "broken_number=${broken_number}"
+            echo "broken_state=${broken_state}"
           } >> "$GITHUB_OUTPUT"
 
       # `create-issue-from-file` calls `issues.update` with `title` and
@@ -938,30 +985,24 @@ jobs:
       # therefore leaves it closed and the returning drift is announced
       # nowhere. Reopen explicitly first.
       - name: Reopen the drift tracker when drift returns
-        if: steps.classify.outputs.drift == 'true' && steps.existing.outputs.number != ''
+        if: steps.classify.outputs.drift == 'true' && steps.existing.outputs.state == 'CLOSED'
         run: |
           set -euo pipefail
-          state="$(gh issue view "$EXISTING_ISSUE" \
-            --repo "$GITHUB_REPOSITORY" --json state --jq .state)"
-          if [ "$state" = "CLOSED" ]; then
-            gh issue reopen "$EXISTING_ISSUE" \
-              --repo "$GITHUB_REPOSITORY" \
-              --comment "Provider-CLI compatibility drift returned on run ${GITHUB_RUN_ID}."
-          fi
+          gh issue reopen "$EXISTING_ISSUE" \
+            --repo "$GITHUB_REPOSITORY" \
+            --comment "Provider-CLI compatibility drift returned on run ${GITHUB_RUN_ID}."
+
         env:
           EXISTING_ISSUE: ${{ steps.existing.outputs.number }}
 
       - name: Reopen the not-measuring tracker when it recurs
-        if: steps.classify.outputs.broken == 'true' && steps.existing.outputs.broken_number != ''
+        if: steps.classify.outputs.broken == 'true' && steps.existing.outputs.broken_state == 'CLOSED'
         run: |
           set -euo pipefail
-          state="$(gh issue view "$EXISTING_ISSUE" \
-            --repo "$GITHUB_REPOSITORY" --json state --jq .state)"
-          if [ "$state" = "CLOSED" ]; then
-            gh issue reopen "$EXISTING_ISSUE" \
-              --repo "$GITHUB_REPOSITORY" \
-              --comment "The provider-CLI compatibility check stopped measuring again on run ${GITHUB_RUN_ID}."
-          fi
+          gh issue reopen "$EXISTING_ISSUE" \
+            --repo "$GITHUB_REPOSITORY" \
+            --comment "The provider-CLI compatibility check stopped measuring again on run ${GITHUB_RUN_ID}."
+
         env:
           EXISTING_ISSUE: ${{ steps.existing.outputs.broken_number }}
 
@@ -996,7 +1037,7 @@ jobs:
       # not-measuring tracker below closes on its own verdict, so nothing is
       # stranded: the broken run is still reported, just not as recovery.
       - name: Close the drift tracker on recovery
-        if: steps.classify.outputs.drift == 'false' && steps.classify.outputs.broken == 'false' && steps.existing.outputs.number != ''
+        if: steps.classify.outputs.drift == 'false' && steps.classify.outputs.broken == 'false' && steps.existing.outputs.state == 'OPEN'
         run: |
           set -euo pipefail
           gh issue close "${{ steps.existing.outputs.number }}" \
@@ -1004,7 +1045,7 @@ jobs:
             --comment "No provider-CLI compatibility drift on run ${GITHUB_RUN_ID}. Closing; the nightly check will reopen this issue if drift returns."
 
       - name: Close the not-measuring tracker on recovery
-        if: steps.classify.outputs.broken == 'false' && steps.existing.outputs.broken_number != ''
+        if: steps.classify.outputs.broken == 'false' && steps.existing.outputs.broken_state == 'OPEN'
         run: |
           set -euo pipefail
           gh issue close "${{ steps.existing.outputs.broken_number }}" \
