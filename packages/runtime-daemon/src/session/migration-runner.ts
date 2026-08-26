@@ -18,7 +18,8 @@
 // `migrations/0007-pii-participant-id.ts`,
 // `migrations/0008-pending-anchor-uploads.ts`,
 // `migrations/0009-retention-class-and-stub-signature.ts`); version 10 by
-// Plan-009 (`migrations/0010-repo-workspaces.ts`). Subsequent plans
+// Plan-009 (`migrations/0010-repo-workspaces.ts`); version 11 by Plan-005
+// (`migrations/0011-driver-capability-currency.ts`). Subsequent plans
 // (015, 022...) — and Plan-006's own remaining migrations — register their
 // version as a further guarded block of the same shape and bump
 // `schema_version`.
@@ -44,6 +45,17 @@
 // What version 10 changes is the failure class of an INSERT into those
 // version-4 columns: `SQLITE_ERROR: no such table` before it, an ordinary
 // `FOREIGN KEY constraint failed` after.
+//
+// Version 11 requires version 3 and nothing else: all three tables it touches
+// (`driver_capabilities`, `runtime_bindings`, `driver_contract_meta`) are
+// version-3 tables, and versions 2 and 4 through 10 touch none of them. It is
+// the first version to DROP and RENAME a table, and the first to BACKFILL rows
+// — both forced by SQLite's refusal to alter a column CHECK in place, which
+// makes widening the `capability_flag` enum a documented twelve-step table
+// rebuild. See the 0011 file header for which legs of that procedure are
+// omitted and why each omission is safe (the `PRAGMA foreign_keys` legs are
+// both impossible inside this runner's transaction and unnecessary for a table
+// that participates in no foreign key in either direction).
 //
 // SQL is sourced as a TypeScript string constant (not a sibling .sql file)
 // because `tsc -b` does not copy non-TS assets into `dist/` and `package.json`
@@ -71,6 +83,7 @@ import { PII_PARTICIPANT_ID_MIGRATION_SQL } from "../migrations/0007-pii-partici
 import { PENDING_ANCHOR_UPLOADS_MIGRATION_SQL } from "../migrations/0008-pending-anchor-uploads.js";
 import { RETENTION_CLASS_AND_STUB_SIGNATURE_MIGRATION_SQL } from "../migrations/0009-retention-class-and-stub-signature.js";
 import { REPO_WORKSPACES_MIGRATION_SQL } from "../migrations/0010-repo-workspaces.js";
+import { DRIVER_CAPABILITY_CURRENCY_MIGRATION_SQL } from "../migrations/0011-driver-capability-currency.js";
 
 /**
  * Apply pragmas to an open Database handle. MUST be called on every
@@ -261,6 +274,28 @@ export function applyMigrations(db: DatabaseType): void {
     db.transaction(() => {
       if (!hasMigrationApplied(db, 10)) {
         db.exec(REPO_WORKSPACES_MIGRATION_SQL);
+      }
+    }).immediate();
+  }
+
+  if (!hasMigrationApplied(db, 11)) {
+    // Version 11 (Plan-005) — driver-capability currency: the fourteen-value
+    // `driver_capabilities.capability_flag` CHECK (a twelve-step table rebuild,
+    // since SQLite cannot alter a column CHECK in place) with its thirteen-flag
+    // `supported = 0` backfill, plus the `cli_version_raw` /
+    // `cli_version_semver` pair on `runtime_bindings` and
+    // `driver_contract_meta` and `runtime_bindings.spawn_config`. Atomicity is
+    // load-bearing in two ways no earlier version's was: a torn apply could
+    // leave `driver_capabilities_new` present with `driver_capabilities`
+    // dropped — every capability read failing as `no such table` — or land the
+    // widened CHECK without its backfill rows, leaving a cache whose row count
+    // differs from the declared union and so tripping the hydrator's
+    // exact-cardinality guard on the first read after boot. Like versions 9 and
+    // 10, it also cannot be re-applied by hand (no `ADD COLUMN IF NOT EXISTS`
+    // in SQLite; the rebuild's CREATE would throw "table already exists").
+    db.transaction(() => {
+      if (!hasMigrationApplied(db, 11)) {
+        db.exec(DRIVER_CAPABILITY_CURRENCY_MIGRATION_SQL);
       }
     }).immediate();
   }
