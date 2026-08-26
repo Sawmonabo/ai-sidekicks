@@ -14,7 +14,7 @@ Pinned wire reference for the Codex `app-server` JSON-RPC protocol as driven by 
 
 **Trust framing (read before citing any shape below).** Every shape in this file is **Verified** trust **at `0.149.1`**, on **Generated schema** provenance unless a claim says otherwise. Unlike the previous pin, this one _is_ the current `latest` — so there is no newer stable to read it against today, and the Provisional-beyond-the-pin caveat attaches to whatever release lands next rather than to one that already exists. Codex ships a minor every 1–2 weeks plus near-daily alphas (the `alpha` dist-tag stood at `0.150.0-alpha.11` at authoring), so a consumer re-verifies its load-bearing shapes against the then-installed binary rather than trusting this pin.
 
-**Additive-only across the floor.** Measured directly between the `0.141.0` and `0.149.1` default generations: `ClientRequest` 85 → 95 methods (**+10, none removed**), `ServerNotification` 66 → 75 (**+9, none removed**), `ServerRequest` 10 → 10, `ClientNotification` 1 → 1. No method string the floor speaks was withdrawn. The breaks over that span are **type-level, not method-level** — see [Breaking type changes across the floor](#breaking-type-changes-across-the-floor). Counting basis is the one the family README fixes: default (non-experimental) generation, one entry per arm of the generated union root.
+**Additive-only across the floor.** Measured by set difference between the `0.141.0` and `0.149.1` default generations, both installed from the npm registry at their exact versions and generated into scratch `CODEX_HOME`s: `ClientRequest` 88 → 98 methods (**+10, none removed**), `ServerNotification` 67 → 77 (**+10, none removed**), `ServerRequest` 10 → 10, `ClientNotification` 1 → 1. No method string the floor speaks was withdrawn. The breaks over that span are **type-level, not method-level** — see [Breaking type changes across the floor](#breaking-type-changes-across-the-floor). Counting basis is the one the family README fixes: default (non-experimental) generation, one entry per arm of the generated union root.
 
 ## Regeneration
 
@@ -34,15 +34,28 @@ The wire has two coexisting method-naming styles at `0.149.1` (the shapes below 
 - **Legacy — bare camelCase, no slash.** A small residual set: client requests `initialize`, `fuzzyFileSearch`; server requests `execCommandApproval`, `applyPatchApproval`; the client notification `initialized`; server notifications `error`, `warning`, `configWarning`, `deprecationNotice`, `guardianWarning`.
 - **Modern — slash-namespaced paths** (their generated types live under `v2/`). This is where the capability surface this project drives lives: `thread/*`, `turn/*`, `account/*`, `config/*`, `mcpServer*/*`, `permissionProfile/*`, `review/start`. Note the paths are slash-namespaced method strings (e.g. `thread/rollback`); they are **not** prefixed with a literal `v2/` on the wire — the `v2/` is the generated-file layout, not a method-string segment.
 
-`ClientRequest` at `0.149.1` unions 95 client-request methods across both styles.
+`ClientRequest` at `0.149.1` unions 98 client-request methods across both styles.
 
 ## The experimental gate — a runtime filter, not a schema filter
 
 **This is the highest-consequence correction at this pin, and the generated schema alone cannot show it.** Presence of a method or notification in the default-generated schema does **not** mean a default connection receives it.
 
-`initialize` carries `capabilities: InitializeCapabilities | null`, whose first field is `experimentalApi: boolean` ("Opt into receiving experimental API methods and fields", verbatim from the generated `InitializeCapabilities.ts`). The upstream source at `rust-v0.149.1` shows what that flag actually gates on the outbound path (Upstream source provenance, Verified — `codex-rs/app-server/src/transport.rs`, `should_skip_notification_for_connection`): a notification whose protocol entry carries an `#[experimental(…)]` marker is **skipped for any connection that did not set `experimentalApi`** — dropped silently, with no error, no `deprecationNotice`, and no signal of any kind that the client is missing events.
+**The generator gates requests but not notifications — measured.** `generate-ts` takes an `--experimental` flag ("Include experimental methods and fields in the generated output"). Running both generations from the same `0.149.1` binary and differencing them shows the filter is applied asymmetrically:
 
-At `0.149.1`, **19 of the 75 default-generated server notifications carry that marker**: all eight `thread/realtime/*` (see below), plus `thread/reverted`, `thread/queue/changed`, `project/changed`, `thread/project/updated`, `thread/environment/connected`, `thread/environment/disconnected`, `thread/settings/updated`, `autoApprovalReview/strictReviewRequired`, `process/outputDelta`, `process/exited`, and `turn/moderationMetadata`. A driver that reads the generated `ServerNotification` union as its delivery contract will therefore expect roughly a quarter of the notification surface it never receives.
+| Union root | Default generation | `--experimental` generation | Difference |
+| --- | --- | --- | --- |
+| `ClientRequest` | 98 | 153 | **+55**, including all six `thread/realtime/*` client requests |
+| `ServerRequest` | 10 | 11 | +1 (`currentTime/read`) |
+| `ServerNotification` | 77 | 77 | **none — the two sets are identical** |
+| `ClientNotification` | 1 | 1 | none |
+
+So for **requests**, the default schema is honest: what it omits, a default connection genuinely cannot call. For **notifications**, the default schema tells you nothing — every experimental notification is in it. The gate for notifications therefore has to live at runtime, and it does.
+
+`initialize` carries `capabilities: InitializeCapabilities | null`, whose first field is `experimentalApi: boolean` ("Opt into receiving experimental API methods and fields", verbatim from the generated `InitializeCapabilities.ts`). The upstream source at `rust-v0.149.1` shows what that flag gates on the outbound path (Upstream source provenance, Verified — `codex-rs/app-server/src/transport.rs`, `should_skip_notification_for_connection`): the function returns `true` — skip — when `envelope.notification.experimental_reason().is_some()` and the connection's `experimental_api_enabled` is unset. The notification is dropped silently, with no error, no `deprecationNotice`, and no signal of any kind that the client is missing events.
+
+At `0.149.1`, **19 of the 77 default-generated server notifications are gated**: all eight `thread/realtime/*` (see below), plus `thread/reverted`, `thread/queue/changed`, `project/changed`, `thread/project/updated`, `thread/environment/connected`, `thread/environment/disconnected`, `thread/settings/updated`, `autoApprovalReview/strictReviewRequired`, `process/outputDelta`, `process/exited`, and `turn/moderationMetadata`. A driver that reads the generated `ServerNotification` union as its delivery contract will therefore expect roughly a quarter of the notification surface it never receives.
+
+**Why 19 is a total and not a floor.** `experimental_reason()` has two sources, and both were checked. A variant may carry an explicit `#[experimental(…)]` marker in the `server_notification_definitions!` block — 19 do, enumerated above. Failing that, `experimental_reason_expr!` falls through to the **params type's** own `ExperimentalApi` implementation, so a variant with no marker of its own is still gated if its params type is. At this pin that fallthrough contributes nothing: of the 30 types deriving `ExperimentalApi` across `app-server-protocol/src/protocol/v2/`, **none is a notification params type** (they are request params, responses, and config structs — `TurnStartParams` among them). Re-verifying this count means re-running both checks, not just grepping for the attribute.
 
 `InitializeCapabilities` also carries `optOutNotificationMethods?: Array<string> | null` — "Exact notification method names that should be suppressed for this connection" — evaluated by the same function. Suppression is thus **two-sourced**: the experimental marker, and the client's own opt-out list.
 
@@ -100,7 +113,7 @@ Codex accepts per-turn overrides where several Claude equivalents are per-sessio
 
 The posture caveat from the floor still holds and is now stated on the method's own README entry at `rust-v0.149.1`, verbatim: "Prefer experimental `permissions` profile selection by id for permission overrides; the legacy `sandboxPolicy` field is still accepted but cannot be combined with `permissions`."
 
-**Read that together with the generated shape, because they say different things.** The preferred field, `permissions`, is **not present in the default-generated `TurnStartParams` at all** — it is experimental, and reaching it requires the `experimentalApi` opt-in. So at the pin the only per-turn posture override a default connection can send is the one the vendor calls legacy. Posture realization should still prefer named permission profiles where it can opt in, and must treat `sandboxPolicy` as the live compatibility path rather than a removed one. `permissionProfile/list` is labelled **beta** in the same README.
+**Read that together with the generated shape, because they say different things.** The preferred field, `permissions`, is **not present in the default-generated `TurnStartParams` at all** — it appears only under `--experimental`, where its own doc comment reads: "Select a named permissions profile id for this turn and subsequent turns. Cannot be combined with `sandboxPolicy`." This is **field-level** gating on a method that is not itself experimental: `TurnStartParams` is one of the 30 types deriving `ExperimentalApi`, so the method stays in the default surface while individual fields are stripped from it. So at the pin the only per-turn posture override a default connection can send is the one the vendor calls legacy — and the two are mutually exclusive, so a caller does not get to derive both. Posture realization should still prefer named permission profiles where it can opt in, and must treat `sandboxPolicy` as the live compatibility path rather than a removed one. `permissionProfile/list` is labelled **beta** in the same README.
 
 The presence of `approvalsReviewer` here is why the driver pins it explicitly (see below).
 
@@ -127,6 +140,17 @@ The realtime family is **gated on both directions of the wire at `0.149.1`**, an
 
 **Trust: Provisional.** The upstream realtime feature is under active development and gated OFF by default in both directions. Notification types being present at the pin does not make the capability available. No emulation is claimed on this leg.
 
+### Adjacent currency facts (Verified from the same generation)
+
+- `account/rateLimits/read` (pull) + `account/rateLimits/updated` (push) — rate limits are first-class. The pull's README entry at this pin also names an optional effective monthly credit limit, a spend-control-reached flag, and earned rate-limit resets; reset-credit data is snapshot-only.
+- `account/read` — "fetch current account info; optionally refresh tokens" (README, verbatim). Its params carry `refreshToken: bool`, whose generated doc comment reads: "When `true`, requests a proactive token refresh before returning. In managed auth mode this triggers the normal refresh-token flow. In external auth mode this flag is ignored." **The refresh outcome is not surfaced** — a permanently-dead refresh token does not fail this RPC, so `account/read` succeeding is not evidence that credentials are usable. This is the method the nightly compatibility check uses as its authless liveness probe precisely because it answers without credentials.
+- The `account/*` family grew across the floor: `account/usage/read`, `account/workspaceMessages/read`, `account/rateLimitResetCredit/consume`, `account/sendAddCreditsNudgeEmail`, `account/logout`, `account/login/start`, `account/login/cancel` all present at the pin.
+- `thread/compact/start` + `thread/compacted` — compaction is controllable.
+- `config/batchWrite`, `config/value/write`, `config/mcpServer/reload` — a wire-first config-write surface (the modern path for MCP-server config edits). `config/batchWrite` applies edits atomically with optional `reloadUserConfig: true`.
+- `permissionProfile/list` — named sandbox/permission profiles; **beta** per the pinned README.
+- Guardian routing: `guardianWarning`, `item/autoApprovalReview/started`, `item/autoApprovalReview/completed`, `thread/approveGuardianDeniedAction`.
+- New at the pin and worth knowing about: the `threadSection/*` family (`create` / `delete` / `list` / `update`) plus `thread/section/move`, the `externalAgentConfig/import/*` pair, `app/read` + `app/installed`, and the notifications `model/safetyBuffering/updated` and `thread/queue/changed`.
+
 ## Breaking type changes across the floor
 
 No method string was removed between `0.141.0` and `0.149.1`, but four shapes changed in ways that break a client written against the floor. All four are **Verified** from the two generations, with the fourth additionally **Binary probe**.
@@ -139,17 +163,6 @@ No method string was removed between `0.141.0` and `0.149.1`, but four shapes ch
 | `codex exec --full-auto` withdrawn | `codex exec --full-auto --help` exits **0** | the same invocation exits **2** with `error: unexpected argument '--full-auto' found` | An `exec`-path invocation built at the floor fails at the pin as a CLI-parse error, not as a protocol error — so it surfaces as a spawn failure rather than a typed refusal unless the driver classifies exit-2-with-`unexpected argument`. |
 
 These are exactly the class the [family README](README.md#versioning-and-pinning-policy)'s degrade-per-capability rule exists for: none of them is a reason to refuse a session, and each one is a reason to refuse or emulate one capability.
-
-### Adjacent currency facts (Verified from the same generation)
-
-- `account/rateLimits/read` (pull) + `account/rateLimits/updated` (push) — rate limits are first-class. The pull's README entry at this pin also names an optional effective monthly credit limit, a spend-control-reached flag, and earned rate-limit resets; reset-credit data is snapshot-only.
-- `account/read` — "fetch current account info; optionally refresh tokens" (README, verbatim). Its params carry `refreshToken: bool`, whose generated doc comment reads: "When `true`, requests a proactive token refresh before returning. In managed auth mode this triggers the normal refresh-token flow. In external auth mode this flag is ignored." **The refresh outcome is not surfaced** — a permanently-dead refresh token does not fail this RPC, so `account/read` succeeding is not evidence that credentials are usable. This is the method the nightly compatibility check uses as its authless liveness probe precisely because it answers without credentials.
-- The `account/*` family grew across the floor: `account/usage/read`, `account/workspaceMessages/read`, `account/rateLimitResetCredit/consume`, `account/sendAddCreditsNudgeEmail`, `account/logout`, `account/login/start`, `account/login/cancel` all present at the pin.
-- `thread/compact/start` + `thread/compacted` — compaction is controllable.
-- `config/batchWrite`, `config/value/write`, `config/mcpServer/reload` — a wire-first config-write surface (the modern path for MCP-server config edits). `config/batchWrite` applies edits atomically with optional `reloadUserConfig: true`.
-- `permissionProfile/list` — named sandbox/permission profiles; **beta** per the pinned README.
-- Guardian routing: `guardianWarning`, `item/autoApprovalReview/started`, `item/autoApprovalReview/completed`, `thread/approveGuardianDeniedAction`.
-- New at the pin and worth knowing about: the `threadSection/*` family (`create` / `delete` / `list` / `update`) plus `thread/section/move`, the `externalAgentConfig/import/*` pair, `app/read` + `app/installed`, and the notifications `model/safetyBuffering/updated` and `thread/queue/changed`.
 
 ## Driver fixtures
 
