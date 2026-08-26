@@ -24,6 +24,19 @@
 // `@sentry/electron`) lands at Plan-023 Tier 8 remainder — those modules do
 // not yet exist in the workspace, so banning them now would be inert.
 //
+// BL-131 addition (2026-08-25, PR #355 Codex round 1): the two server-side
+// workspace packages, `@ai-sidekicks/runtime-daemon` and
+// `@ai-sidekicks/control-plane`. `Plan-003 §Cross-Plan Obligations` CP-003-3
+// requires the renderer to reach both ONLY through the bridge, but nothing
+// enforced it — the Plan-003 renderer suites scanned each component's own
+// source text, which cannot see a violation reached through a local helper
+// (component → `./helper.js` → `@ai-sidekicks/control-plane` scans clean).
+// Lint traverses every renderer file, so it catches the transitive shape the
+// per-component scan structurally cannot. Both packages exist in the
+// workspace today, so unlike the Tier-8 list above this ban is live, not
+// inert. It is asserted against the REAL rule — not a reimplementation — by
+// `src/renderer/src/runtime-node-attach/__tests__/renderer-import-boundary.test.ts`.
+//
 // This config extends the repo-root `eslint.config.mjs` (which provides the
 // `@eslint/js` recommended baseline + `typescript-eslint` recommended +
 // repo-wide ignores + the Plan-008 control-plane `no-restricted-imports`
@@ -35,6 +48,17 @@ export default [
   ...root,
   {
     files: ["src/renderer/src/**/*.{ts,tsx}"],
+    // Scope is the SHIPPED renderer surface. `__tests__/**` is excluded here
+    // and re-covered by the narrower block below, mirroring the repo-root
+    // `packages/contracts` isomorphism block, which excludes its own tests for
+    // the same reason: the ban exists to keep Node/Electron capability out of
+    // the renderer BUNDLE, and test files are never bundled — they run under
+    // vitest, where a Node builtin is legitimate (this package's own
+    // `renderer-import-boundary.test.ts` lints the tree via the ESLint Node
+    // API and so must import `node:path`). The renderer-untrusted guarantee
+    // for shipped code is unaffected: every non-test renderer file is still
+    // matched by this block.
+    ignores: ["src/renderer/src/**/__tests__/**"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -75,6 +99,16 @@ export default [
               message:
                 "Spec-023 §Trust Stance: renderer is untrusted — Node built-in `process` is forbidden in renderer source. Route through the preload bridge.",
             },
+            {
+              name: "@ai-sidekicks/runtime-daemon",
+              message:
+                "Plan-003 CP-003-3 / Spec-023 §Trust Stance: renderer is untrusted — the daemon package must NEVER be imported from renderer source (directly or through a local helper). Route through the preload bridge (`window.sidekicks.daemon`).",
+            },
+            {
+              name: "@ai-sidekicks/control-plane",
+              message:
+                "Plan-003 CP-003-3 / Spec-023 §Trust Stance: renderer is untrusted — the control-plane package must NEVER be imported from renderer source (directly or through a local helper). Route through the preload bridge (`window.sidekicks.controlPlane`).",
+            },
           ],
           patterns: [
             {
@@ -106,6 +140,16 @@ export default [
                 "Spec-023 §Trust Stance: renderer is untrusted — `node:*` protocol imports (and their subpaths, e.g. `node:fs/promises`) are forbidden in renderer source. Route through the preload bridge.",
             },
             {
+              // Subpath entrypoints of the two banned workspace packages.
+              // `no-restricted-imports` treats a bare specifier and its
+              // subpaths as distinct, so the `paths` entries above do NOT
+              // cover `@ai-sidekicks/control-plane/router` et al. Same
+              // gitignore-style `**` semantics as the `electron/**` group.
+              group: ["@ai-sidekicks/runtime-daemon/**", "@ai-sidekicks/control-plane/**"],
+              message:
+                "Plan-003 CP-003-3 / Spec-023 §Trust Stance: renderer is untrusted — daemon / control-plane package subpaths are forbidden in renderer source. Route through the preload bridge (`window.sidekicks`).",
+            },
+            {
               // Relative-path escape into the main/preload subtrees. `**`
               // matches zero-or-more path segments so this catches any
               // depth: `../main/x`, `../../main/x`, `../../../main/x`, etc.,
@@ -116,6 +160,43 @@ export default [
               group: ["**/main/**", "**/preload/**"],
               message:
                 "Spec-023 §Trust Stance: renderer is untrusted — relative-path imports into `main/**` or `preload/**` are forbidden. The renderer's only cross-process surface is the `window.sidekicks` bridge.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  // Renderer TEST files: the Node/Electron builtin ban above is deliberately
+  // lifted (they are not bundled — see that block's comment), but the
+  // CP-003-3 workspace-package boundary is NOT. No renderer test has any
+  // reason to import the daemon or control-plane package, and leaving the
+  // exclusion total would hand test files a hole in the very boundary the
+  // sibling `renderer-import-boundary.test.ts` exists to enforce. Narrower
+  // `files` selector, so this block merges with — rather than replaces — the
+  // repo-root baseline.
+  {
+    files: ["src/renderer/src/**/__tests__/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "@ai-sidekicks/runtime-daemon",
+              message:
+                "Plan-003 CP-003-3: the daemon package is forbidden in renderer source, tests included — assert against the bridge contract (`@ai-sidekicks/contracts`) instead.",
+            },
+            {
+              name: "@ai-sidekicks/control-plane",
+              message:
+                "Plan-003 CP-003-3: the control-plane package is forbidden in renderer source, tests included — assert against the bridge contract (`@ai-sidekicks/contracts`) instead.",
+            },
+          ],
+          patterns: [
+            {
+              group: ["@ai-sidekicks/runtime-daemon/**", "@ai-sidekicks/control-plane/**"],
+              message:
+                "Plan-003 CP-003-3: daemon / control-plane subpaths are forbidden in renderer source, tests included.",
             },
           ],
         },
