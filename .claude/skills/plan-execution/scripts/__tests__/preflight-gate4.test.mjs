@@ -3642,7 +3642,15 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // +I-023-10). Exactly +11 bold resolved references, every one in
     // Plan-023. No none arm moves — all three new tasks carry ids rather
     // than `none` — and the legacy channel is unchanged.
-    bold: { resolved: 912, noneArm: 158, parentResolved: 0 },
+    // 912/158 -> 914/158 (2026-08-25, the Plan-007 clipanion terminal-pin
+    // amendment + its in-swap NS-78 delta, landing after NS-81 above): no new
+    // task — I-007-20 joins two existing Plan-007 RESOLVED `Verifies
+    // invariant:` rows (T-007r-3-1 and T-007r-3-2), two more bold resolved id
+    // references. T-007r-3-3's row grows in prose but its single-id set is
+    // unchanged; no none-arm is added or removed, and the legacy channel is
+    // unchanged. The figure is read off a live survey run on the rebased tree,
+    // not reconciled by arithmetic against a predecessor.
+    bold: { resolved: 914, noneArm: 158, parentResolved: 0 },
     legacy: { resolved: 61, noneArm: 3, parentResolved: 1 },
   });
 });
