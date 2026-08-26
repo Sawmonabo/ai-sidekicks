@@ -1,4 +1,4 @@
-# ADR-028: The Canonical Transcript Is Authoritative For Provider Sessions
+# ADR-029: The Canonical Transcript Is Authoritative For Provider Sessions
 
 | Field | Value |
 | --- | --- |
