@@ -7,6 +7,7 @@ import { execSync } from "node:child_process";
 import {
   checkPathCanonicalRipple,
   formatPathRippleViolations,
+  type PathEntry,
 } from "../lib/path-canonical-ripple.ts";
 
 function setupRepo(
@@ -178,6 +179,341 @@ describe("path-canonical-ripple", () => {
     }
   });
 
+  // ---------------------------------------------------------------------
+  // matcher: "regex" — opt-in boundary-aware matching for entries whose
+  // deprecated forms are multi-token COMMAND INVOCATIONS rather than paths.
+  //
+  // These drive the REAL needles out of the shipped canonical-paths.json
+  // against planted fixtures, rather than restating patterns inline. A test
+  // that re-spells the needles proves only that the test author can write a
+  // regex; it would keep passing while the registry's own needle rotted.
+  // ---------------------------------------------------------------------
+
+  function cliEntryFromRealRegistry(): PathEntry {
+    const registryPath = resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      "..",
+      "canonical-paths.json",
+    );
+    const registry = JSON.parse(readFileSync(registryPath, "utf8")) as { paths: PathEntry[] };
+    // The CLI-invocation entry is the `sidekicks` entry scoped over docs — the
+    // sibling `sidekicks` entry is source-scoped and carries no docs glob.
+    const entry = registry.paths.find(
+      (e) => e.canonical === "sidekicks" && (e.scope ?? []).includes("docs/**/*.md"),
+    );
+    if (!entry) throw new Error("CLI invocation entry not found in canonical-paths.json");
+    return entry;
+  }
+
+  it("REGEX MATCHER catches whitespace variants a fixed string misses", () => {
+    // The under-match half. `git grep -F` needles carry exactly one literal
+    // space, so an invocation written with a run of spaces or a tab silently
+    // passed the gate. Each line here is a real regression that must fail.
+    const entry = cliEntryFromRealRegistry();
+    const { root, cleanup } = setupRepo(
+      {
+        "docs/operations/runbook.md": [
+          "Run `ai-sidekicks  daemon status` with two spaces.",
+          "Run `ai-sidekicks\tdaemon status` with a tab.",
+          'Bin map: {"bin":{"ai-sidekicks" : "./dist/main.js"}} with spaced colon.',
+          "Flag-first: ai-sidekicks --help",
+          "Continued: ai-sidekicks \\",
+          "  daemon status",
+          "/usr/local/bin/ai-sidekicks daemon status",
+          "/usr/local/bin/ai-sidekicks --help",
+          "./ai-sidekicks \\",
+          "  session list",
+        ].join("\n"),
+      },
+      { paths: [{ ...entry, exclude: [] }] },
+    );
+    const { hits } = runCheck(root);
+    const flagged = hits.flatMap((h) => h.occurrences.map((o) => o.line));
+    // Line 5 is the continuation's FIRST line — `git grep` is line-oriented,
+    // so the needle that catches it matches the trailing-backslash signature
+    // rather than the invocation spanning two lines. Line 6 (the verb on its
+    // own line) is correctly NOT flagged: it carries no executable name.
+    // Lines 7, 8 and 9 are the three path-qualified spellings: verb,
+    // global-flag, and continuation. All three carry a leading `/`, the one
+    // character the prefix guard's plain arm must reject so that repo-slug
+    // prose does not fire — they are seen because that guard has a SECOND,
+    // path-anchored arm, and because every invocation needle shares the same
+    // guard. An earlier design put the path anchor on its own needle carrying
+    // only the verb alternation, which passed this test with line 7 alone
+    // while lines 8 and 9 ran green and unmatched. They are asserted here so
+    // that regression cannot recur silently. Line 10 is the continuation's
+    // second line and is correctly NOT flagged: it carries no executable.
+    expect(new Set(flagged)).toEqual(new Set([1, 2, 3, 4, 5, 7, 8, 9]));
+    cleanup();
+  });
+
+  it("REGEX MATCHER does not fire on legitimate unchanged project-name prose", () => {
+    // The over-match half, and the more corrosive one: a false CI failure
+    // pressures authors toward broad `exclude` entries that weaken the gate.
+    // Line 1 is the exact prose that failed CI on this entry's own PR.
+    // Lines 2-5 are the deliberately-unchanged surfaces the entry's `note`
+    // enumerates — every one contains the project name as a substring.
+    const entry = cliEntryFromRealRegistry();
+    const { root, cleanup } = setupRepo(
+      {
+        "docs/backlog.md": [
+          "npm trust github pkg --repository owner/ai-sidekicks --environment production",
+          "The ai-sidekicks configuration directory holds the key-ring.",
+          "While ai-sidekicks runs locally the daemon owns the socket.",
+          'Root manifest: {"name": "ai-sidekicks"} and scope @ai-sidekicks/contracts.',
+          "Keystore prefix ai-sidekicks:paseto-refresh-token is unchanged.",
+          // Ends the line with the bare project name and no backslash — the
+          // continuation needle must not confuse a wrapped sentence for a
+          // continued command.
+          "A sentence that simply ends in ai-sidekicks",
+          // A Windows config directory ending the line. The backslash before
+          // the name satisfies the prefix guard and the separator after it
+          // satisfies the trailing backslash, so the continuation needle
+          // matched this until it was made to require whitespace.
+          "Config path: %APPDATA%\\ai-sidekicks\\",
+          // Repo-slug prose whose next word IS a first-level verb. This is
+          // the false-positive class the path-qualified needle would open if
+          // its filesystem anchor (`/`, `./`, `../`, `~/`) were relaxed to a
+          // bare slash.
+          "The owner/ai-sidekicks config lives in the repo.",
+          "See github.com/owner/ai-sidekicks run history for details.",
+          // The same slug behind a URL scheme. The guard's path arm readmits
+          // a slash behind a filesystem anchor, and `https://github.com/...`
+          // presents one: the `//` after the scheme. Excluding `:` from the
+          // arm's own boundary class is what rejects these two — without it
+          // the arm turns every repo URL followed by a verb into a hit.
+          "See https://github.com/Sawmonabo/ai-sidekicks run history.",
+          "Clone from https://github.com/owner/ai-sidekicks config branch.",
+          // A scoped package path. The `@` is excluded from the path arm's
+          // boundary class for the same reason it is excluded from the plain
+          // arm: an npm scope is not an executable.
+          "See ./node_modules/@ai-sidekicks/cli run notes.",
+          // PLACEHOLDER slugs. These are the forms that broke a first draft of
+          // the path arm: written as "any non-word character then a slash",
+          // the `>` of `<owner>/` and the `}` of `{owner}/` both qualified as
+          // the anchor's boundary, so documentation that spells a slug with a
+          // placeholder — which this corpus does, in a package-registry
+          // command and in this gate's own write-ups — became a hit. The arm
+          // now enumerates the characters that may PRECEDE a path (start of
+          // line, whitespace, quote, backtick, open paren, `=`, `[`) rather
+          // than subtracting the ones that may not: a closing bracket is not
+          // one of them, and an open-ended exclusion can never enumerate
+          // every punctuation mark a future author will use.
+          "npm trust github pkg --repository <owner>/ai-sidekicks --environment production",
+          "The doc covered <path>/ai-sidekicks --help and its siblings.",
+          "Template prose: {owner}/ai-sidekicks run history is the URL shape.",
+          // Object-, array-, and identifier-valued keys spelling the
+          // unchanged project name. Key position alone flagged all three;
+          // the bin-map needle requires a STRING value for exactly this.
+          'Registry: const repositories = { "ai-sidekicks": config };',
+          'Config example: {"ai-sidekicks": {"version": "1.0"}}',
+          'Workspace map: { "ai-sidekicks": ["apps/*"] }',
+        ].join("\n"),
+      },
+      { paths: [{ ...entry, exclude: [] }] },
+    );
+    const { hits } = runCheck(root);
+    expect(hits).toEqual([]);
+    cleanup();
+  });
+
+  it("REGEX MATCHER is opt-in — entries without it keep substring semantics", () => {
+    // Entry 1 (`apps/desktop/`) DEPENDS on unbounded substring matching: the
+    // no-trailing-slash form is what catches the executable shape
+    // `--filter=apps/desktop/shell` that PR #24 missed. If `matcher` ever
+    // defaulted to regex, or the default silently boundary-wrapped, this
+    // registry's founding instance would narrow without a single test failing.
+    const { root, cleanup } = setupRepo(
+      { "docs/a.md": "pnpm rebuild --filter=apps/desktop/shell better-sqlite3\n" },
+      {
+        paths: [
+          {
+            canonical: "apps/desktop/",
+            deprecated: ["apps/desktop/shell"],
+            scope: ["docs/**/*.md"],
+          },
+        ],
+      },
+    );
+    const { hits } = runCheck(root);
+    expect(hits).toHaveLength(1);
+    expect(hits[0].occurrences).toHaveLength(1);
+    cleanup();
+  });
+
+  it("REGEX MATCHER treats regex metacharacters as syntax, literal does not", () => {
+    // Proves the two modes actually reach different git flags, rather than
+    // both landing on -F and the regex entries passing by luck. The same
+    // needle is a wildcard under -E and an inert literal under -F.
+    const files = { "docs/a.md": "apps/desktopXshell\n" };
+    const asRegex = setupRepo(files, {
+      paths: [
+        {
+          canonical: "apps/desktop/",
+          matcher: "regex",
+          deprecated: ["apps/desktop.shell"],
+          scope: ["docs/**/*.md"],
+        },
+      ],
+    });
+    expect(runCheck(asRegex.root).hits).toHaveLength(1);
+    asRegex.cleanup();
+
+    const asLiteral = setupRepo(files, {
+      paths: [
+        { canonical: "apps/desktop/", deprecated: ["apps/desktop.shell"], scope: ["docs/**/*.md"] },
+      ],
+    });
+    expect(runCheck(asLiteral.root).hits).toEqual([]);
+    asLiteral.cleanup();
+  });
+
+  it("FAILS CLOSED on an uncompilable regex needle", () => {
+    // `git grep` exits 128 on a malformed pattern. Only exit 1 means "no
+    // matches"; if any other status were swallowed as clean, an uncompilable
+    // needle would render the gate permanently green — the CAT-10 shape of a
+    // gate reporting clean over work it never did.
+    const { root, cleanup } = setupRepo(
+      { "docs/a.md": "anything\n" },
+      {
+        paths: [
+          {
+            canonical: "x",
+            matcher: "regex",
+            deprecated: ["a[unterminated"],
+            scope: ["docs/**/*.md"],
+          },
+        ],
+      },
+    );
+    const prevCwd = process.cwd();
+    const prevRegistry = process.env.DOCS_CORPUS_REGISTRY;
+    try {
+      process.chdir(root);
+      process.env.DOCS_CORPUS_REGISTRY = "registry.json";
+      expect(() => checkPathCanonicalRipple()).toThrow(/git grep --cached failed/i);
+    } finally {
+      process.chdir(prevCwd);
+      if (prevRegistry === undefined) delete process.env.DOCS_CORPUS_REGISTRY;
+      else process.env.DOCS_CORPUS_REGISTRY = prevRegistry;
+      cleanup();
+    }
+  });
+
+  it("REFUSES an unknown matcher instead of silently downgrading to literal", () => {
+    // `loadRegistry` only CASTS the parsed JSON, so a typo or a value from
+    // stale documentation survives the cast. If the consuming branch were
+    // permissive (anything-but-"regex" -> -F), a boundary-aware needle would
+    // be matched as a fixed string, find nothing because its own
+    // metacharacters are inert, and the gate would report CLEAN over an axis
+    // it never checked — this catalog's CAT-10 shape. The refusal must
+    // therefore fire at load, before any grep runs.
+    const { root, cleanup } = setupRepo(
+      { "docs/a.md": "ai-sidekicks daemon status\n" },
+      {
+        paths: [
+          {
+            canonical: "sidekicks",
+            matcher: "boundary",
+            deprecated: ["(^|[^[:alnum:]@/_-])ai-sidekicks[[:space:]]+daemon"],
+            scope: ["docs/**/*.md"],
+          },
+        ],
+      },
+    );
+    const prevCwd = process.cwd();
+    const prevRegistry = process.env.DOCS_CORPUS_REGISTRY;
+    try {
+      process.chdir(root);
+      process.env.DOCS_CORPUS_REGISTRY = "registry.json";
+      expect(() => checkPathCanonicalRipple()).toThrow(/matcher "boundary".*not one of/is);
+    } finally {
+      process.chdir(prevCwd);
+      if (prevRegistry === undefined) delete process.env.DOCS_CORPUS_REGISTRY;
+      else process.env.DOCS_CORPUS_REGISTRY = prevRegistry;
+      cleanup();
+    }
+  });
+
+  it("REAL REGISTRY: every shipped needle matches its intended form", () => {
+    // Drives ALL needles of BOTH shipped `sidekicks` entries — the two
+    // regex-entry fixtures above cover the verb / JSON-key / flag-first
+    // patterns, and this one closes the remainder so no shipped pattern can
+    // rot behind a green suite: the prose `bin` shorthand, the deep-link
+    // scheme, and the source-scoped protocol-call needle (which lives on a
+    // separate entry with a source-only scope, so it needs a source fixture).
+    //
+    // Asserted as a needle-level SET EQUALITY, not a count: every needle in
+    // both entries must fire exactly once. A new needle added to the registry
+    // without a fixture here fails this test rather than riding along unproven.
+    const registryPath = resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      "..",
+      "canonical-paths.json",
+    );
+    const registry = JSON.parse(readFileSync(registryPath, "utf8")) as { paths: PathEntry[] };
+    const entries = registry.paths.filter((e) => e.canonical === "sidekicks");
+    expect(entries).toHaveLength(2);
+
+    const { root, cleanup } = setupRepo(
+      {
+        // Exercises the docs-scoped entry in its BARE spelling: verb,
+        // flag-first, JSON key, prose `bin` shorthand, deep-link scheme, and
+        // line continuation. The path-qualified spellings live in the sibling
+        // file below.
+        "docs/plans/007.md": [
+          "Run `ai-sidekicks  daemon status` after install.",
+          "Global flags: ai-sidekicks --version",
+          'Manifest: {"bin":{"ai-sidekicks" : "./dist/main.js"}}',
+          'Prose restatement: bin: "ai-sidekicks" points at the bundle.',
+          "Deep link: ai-sidekicks://invite/abc",
+          "Continued invocation: ai-sidekicks \\",
+          "  daemon status",
+        ].join("\n"),
+        // Path-qualified spellings of the SAME three invocation signatures.
+        // They live in their own file so the per-hit `toHaveLength(1)`
+        // assertion below stays meaningful: a needle firing on both the bare
+        // and the path form legitimately produces two occurrences, and one
+        // occurrence per FILE is the property worth pinning.
+        "docs/plans/007-paths.md": [
+          "Path verb: /usr/local/bin/ai-sidekicks daemon status",
+          "Path flag: ~/bin/ai-sidekicks --version",
+          "Path continuation: ./ai-sidekicks \\",
+          "  session list",
+        ].join("\n"),
+        // Exercises the source-scoped entry, which carries no docs glob.
+        "apps/desktop/src/main/protocol.ts": "app.setAsDefaultProtocolClient(`ai-sidekicks`);\n",
+        // NEGATIVE control for that same entry, and it must live in a SOURCE
+        // file — the protocol entry is source-scoped, so a docs fixture would
+        // never exercise it and the anchor would look guarded while untested.
+        // These are legitimate single-argument calls whose value is the
+        // deliberately-unchanged project name. They stay green only because
+        // the needle is anchored on the function name; drop that anchor and
+        // the per-hit occurrence assertion below fails.
+        "packages/contracts/src/__probe.ts": [
+          'export const check = (packageName: string) => expect(packageName).toBe("ai-sidekicks");',
+          "export const filterArg = () => run('ai-sidekicks');",
+        ].join("\n"),
+      },
+      { paths: entries.map((e) => ({ ...e, exclude: [] })) },
+    );
+    const { hits } = runCheck(root);
+    const fired = new Set(hits.map((h) => h.deprecated));
+    const shipped = new Set(entries.flatMap((e) => e.deprecated));
+    expect(fired).toEqual(shipped);
+    // Each needle fires exactly once per file. The three guard-carrying
+    // invocation needles each hit twice overall — once on the bare fixture,
+    // once on the path-qualified one — which is the point of the second file.
+    for (const hit of hits) {
+      const perFile = new Map<string, number>();
+      for (const occurrence of hit.occurrences) {
+        perFile.set(occurrence.file, (perFile.get(occurrence.file) ?? 0) + 1);
+      }
+      for (const count of perFile.values()) expect(count).toBe(1);
+    }
+    cleanup();
+  });
+
   it("REGISTRY SHAPE: no deprecated entry ends with '/' (substring-match contract)", () => {
     // Codex review on PR #27 commit c09ce2f: a deprecated entry like
     // `apps/desktop/shell/` (with trailing slash) only catches the
@@ -191,6 +527,45 @@ describe("path-canonical-ripple", () => {
     // re-emerge. If a slash IS load-bearing for a future entry (e.g. when
     // the substring would false-positive), document the rationale in the
     // entry's `note` field and add an explicit allowlist exception here.
+    //
+    // Allowlist, keyed `${canonical}::${deprecated}`. Exactly one entry: the
+    // `sidekicks` CLI entry's deep-link-scheme needle. Its trailing `//` is the
+    // URL-scheme delimiter and is load-bearing against a false positive, not a
+    // directory slash. Trimming it to one slash still ends in a slash, and
+    // trimming further to the bare `ai-sidekicks:` prefix would match the
+    // deliberately-unchanged keystore key prefix (`ai-sidekicks:*`, e.g. the
+    // `paseto-refresh-token` key in Plan-023). There is no CLI / executable
+    // form of a URL scheme, so the blind spot this rule guards does not exist
+    // for this needle. Rationale mirrored in the entry's `note` per the
+    // instruction above.
+    //
+    // The key is DERIVED from the registry rather than written out, so this
+    // test is not the one place a dead executable form survives in-tree, and a
+    // change to the scheme spelling does not need a literal updated in step.
+    //
+    // Derivation ALONE is too permissive, though: "whichever needle currently
+    // ends in a slash" would automatically exempt an ACCIDENTAL path-like
+    // needle that happened to be the only slash-terminated one, so the test
+    // would stay green in exactly the future-edit scenario it exists to catch.
+    // The candidate is therefore derived AND its construct asserted before it
+    // is allowlisted: it must be a URL scheme — ending in the scheme
+    // delimiter, a colon followed by two slashes — not a bare directory
+    // slash. A needle ending `.../foo/` fails that assertion and is never
+    // exempted.
+    const cliEntry = JSON.parse(
+      readFileSync(
+        resolve(dirname(fileURLToPath(import.meta.url)), "..", "canonical-paths.json"),
+        "utf8",
+      ),
+    ) as { paths: { canonical: string; deprecated: string[] }[] };
+    const schemeNeedles = cliEntry.paths
+      .filter((e) => e.canonical === "sidekicks")
+      .flatMap((e) => e.deprecated)
+      .filter((d) => d.endsWith("/"));
+    expect(schemeNeedles).toHaveLength(1);
+    const SCHEME_DELIMITER = ":" + "/".repeat(2);
+    expect(schemeNeedles[0].endsWith(SCHEME_DELIMITER)).toBe(true);
+    const SLASH_ALLOWLIST = new Set([`sidekicks::${schemeNeedles[0]}`]);
     const here = dirname(fileURLToPath(import.meta.url));
     const registryPath = resolve(here, "..", "canonical-paths.json");
     const registry = JSON.parse(readFileSync(registryPath, "utf8")) as {
@@ -199,7 +574,9 @@ describe("path-canonical-ripple", () => {
     const slashy: { canonical: string; deprecated: string }[] = [];
     for (const entry of registry.paths) {
       for (const dep of entry.deprecated) {
-        if (dep.endsWith("/")) slashy.push({ canonical: entry.canonical, deprecated: dep });
+        if (!dep.endsWith("/")) continue;
+        if (SLASH_ALLOWLIST.has(`${entry.canonical}::${dep}`)) continue;
+        slashy.push({ canonical: entry.canonical, deprecated: dep });
       }
     }
     expect(slashy).toEqual([]);

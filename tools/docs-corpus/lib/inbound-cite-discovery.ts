@@ -27,6 +27,19 @@ import { spawnSync } from "node:child_process";
 
 import { extractCites, type FileContentReader } from "./cite-target-existence.ts";
 
+// is empty has no staged-only files to preserve.
+// Node's spawnSync defaults maxBuffer to 1 MiB and, on overflow, KILLS the
+// child with SIGTERM and returns `status: null` with TRUNCATED stdout — it
+// does not throw. A caller that only checks `status !== 0` therefore sees a
+// generic failure, and a caller that reads stdout without checking sees a
+// silently truncated file. Both are reachable here: this repo's own
+// cross-plan-dependencies.md passed 1 MiB in 2026-08, so `git show :<path>`
+// on it began failing for every consumer of the runner. Every subprocess in
+// this module reads repo-scale content (a whole file, a whole ls-files
+// listing, a whole grep result), so all of them take the same explicit bound
+// rather than the 1 MiB default that no call site here can satisfy for long.
+const GIT_OUTPUT_MAX_BUFFER = 64 * 1024 * 1024;
+
 const GOVERNANCE_CORPUS_DIRS = [
   "docs/plans",
   "docs/specs",
@@ -89,6 +102,7 @@ function enumerateGovernanceCorpus(repoRoot: string, stagedNeedles: string[]): s
   // exits 1 on "no matches" (not an error); treat 0 and 1 as success.
   const lsFiles = spawnSync("git", ["-C", repoRoot, "ls-files", "--", ...GOVERNANCE_CORPUS_DIRS], {
     encoding: "utf8",
+    maxBuffer: GIT_OUTPUT_MAX_BUFFER,
   });
   if (lsFiles.status !== 0) return [];
   const allTracked = lsFiles.stdout.split("\n").filter((line) => line.endsWith(".md"));
@@ -97,7 +111,10 @@ function enumerateGovernanceCorpus(repoRoot: string, stagedNeedles: string[]): s
   const grepArgs = ["-C", repoRoot, "grep", "--cached", "-l", "-F"];
   for (const b of stagedNeedles) grepArgs.push("-e", b);
   grepArgs.push("--", ...GOVERNANCE_CORPUS_DIRS);
-  const grep = spawnSync("git", grepArgs, { encoding: "utf8" });
+  const grep = spawnSync("git", grepArgs, {
+    encoding: "utf8",
+    maxBuffer: GIT_OUTPUT_MAX_BUFFER,
+  });
   // git grep status: 0 = matches, 1 = no matches, 128 = error.
   if (grep.status !== 0 && grep.status !== 1) {
     return allTracked.map((line) => resolve(repoRoot, line));
@@ -154,14 +171,25 @@ export function makeIndexAwareReader(
               // with an unreadable message instead of reading the file — and any staged set
               // that reached this index path rather than the staged-file path crashed the
               // whole runner. Same ceiling listGitIndexPaths uses below.
-              maxBuffer: 64 * 1024 * 1024,
+              maxBuffer: GIT_OUTPUT_MAX_BUFFER,
             });
             if (result.status !== 0) {
-              // A null status means the child never exited normally (signal, spawn failure,
-              // or an maxBuffer overflow), and in those cases stderr is empty while
-              // result.error carries the only description of what happened.
-              const detail = result.error?.message ?? result.stderr.trim();
-              throw new Error(`git show :${relPath} failed (status ${result.status}): ${detail}`);
+              // Name the overflow explicitly. On maxBuffer overflow spawnSync
+              // reports `status: null` + `signal: "SIGTERM"` + an ENOBUFS
+              // error, which reads as an opaque "status null" failure and sent
+              // the first reader of this message hunting a corrupt index.
+              const overflowed =
+                result.error !== undefined &&
+                (result.error as NodeJS.ErrnoException).code === "ENOBUFS";
+              // Do NOT interpolate GIT_OUTPUT_MAX_BUFFER here: the bound that
+              // was actually exceeded is whatever the call site passed, and
+              // naming the module constant would misreport it for any call
+              // that did not pass one (Node's own 1 MiB default). Report the
+              // observable facts and let the reader look up the call site.
+              const detail = overflowed
+                ? `output exceeded the subprocess maxBuffer and the child was killed with ${result.signal} — the file is larger than the bound this call passed`
+                : `status ${result.status}: ${result.stderr.trim()}`;
+              throw new Error(`git show :${relPath} failed (${detail})`);
             }
             return result.stdout;
           })();
@@ -220,7 +248,6 @@ export function makeCommitSnapshotReader(
 // not a repository): callers degrade to worktree-only classification, which
 // is exactly right for non-repo invocations (ad-hoc probes, test fixtures in
 // bare temp directories). An empty SET is a real answer: a repo whose index
-// is empty has no staged-only files to preserve.
 export function listGitIndexPaths(repoRoot: string): Set<string> | null {
   const lsFiles = spawnSync("git", ["-C", repoRoot, "ls-files", "-z", "--cached"], {
     encoding: "utf8",
