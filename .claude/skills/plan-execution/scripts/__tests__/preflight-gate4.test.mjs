@@ -3739,7 +3739,7 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // resolved id references. No existing row's id set changes, nothing moves
     // on or off the `none` arm, and the legacy compact-inline channel is
     // untouched — so noneArm holds at 158 while resolved alone moves.
-    // 951/158 -> 979/162 bold, legacy unchanged
+    // 951/158 -> 980/162 bold, legacy unchanged (NS-86 round-2 fold added I-030-12)
     // at 64 (2026-08-26, the sidekick-definitions and peer-invocation
     // amendment — §6 node NS-86, landing after NS-85 above; the baseline is
     // stated post-rebase and the figure is read off a live
@@ -3755,7 +3755,7 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // the invariants it exercises are Plan-030's, so the reference resolves
     // nowhere in Plan-016's own declared set and is asserted rather than
     // verified. The legacy compact-inline channel is untouched.
-    bold: { resolved: 979, noneArm: 162, parentResolved: 0 },
+    bold: { resolved: 980, noneArm: 162, parentResolved: 0 },
     legacy: { resolved: 64, noneArm: 3, parentResolved: 1 },
   });
 });

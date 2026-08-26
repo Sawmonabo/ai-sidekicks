@@ -142,6 +142,16 @@ Child-run creation stamps the effective principal of the turn that issued the in
 
 **Verification.** T4.4 asserting the stamped principal equals the invoking turn's effective principal and differs from the parent run's initiator when a second participant issued the call, and that an unresolvable principal refuses creation; T4.3 settlement rows for each child terminal — failed, cancelled, interrupted, and completed-without-answer — each answering `failed` naming the terminal state, plus a race row landing the terminal between admission and subscription.
 
+### I-030-12 — Every daemon-consumed resolved axis has a durable, non-opaque home
+
+Each axis the daemon itself reads — posture mode, tool allowlist, instructions, and goal — is stored in a typed `agents` column, never inside the opaque `config` blob and never re-read from the definition it came from.
+
+**Grounds in.** `Spec-030 §Required Behavior` — the attach-time snapshot rule.
+
+**Why load-bearing.** I-030-2 promises the attached agent is a snapshot, and a snapshot that cannot be read back is not one. `config` is documented opaque to everything outside the driver, so an axis parked there is unreadable by the two paths that need it — registry composition and prompt construction. Without typed homes, deleting the definition and restarting the daemon would leave those paths with nowhere to read the promised configuration, and the only way to reconstruct it would be the deleted row. This is the same reason `provider_account_id` was carved out of `config` rather than folded into it.
+
+**Verification.** T3.2's durability row — attach, delete the definition, restart, and reconstruct every axis from the `agents` row alone, with a static check that neither consuming path reads `config` for them.
+
 ## Cross-Plan Obligations
 
 Plan-030 declares the following obligations on adjacent plans (or inherits obligations declared by them). Implementation cannot proceed (or must defer specific surfaces) without these being satisfied or explicitly staged.
@@ -182,12 +192,37 @@ Peer invocation and definition management are authorized as the named operation 
 
 **Why surfaced here.** Without it the taxonomy census would move to 159 with no task declaring the 159th literal, and this plan's Phase 4 would gate on a registration no plan owned.
 
+### CP-030-6 — Named-action dispatch route in the Plan-005 callback-tool host
+
+`packages/runtime-daemon/src/provider/callback-tool-host.ts` is Plan-005-owned, and its documented contract routes **every** callback invocation through Plan-012's evaluation seam on `approval.requestCreate`-shaped inputs. Those inputs are keyed by `ApprovalCategory`. `sidekick::invoke` is a named operation action that deliberately adds no `ApprovalCategory` (D-030-4), so a peer-invocation call is **not expressible** in the input shape the host builds — the defect is not that the host would prompt, but that it cannot represent the call at all.
+
+**Resolution.** The host gains a named-action dispatch route: a callback tool declared as named-action-authorized is adjudicated by the handler's own Cedar check and its outcome answered directly, without an `approval.requestCreate`-shaped evaluation and without minting an approval row, still landing as an ordinary `tool_activity` row. Plan-005 owns that route; this plan owns the declaration marker its tools carry and the Cedar check in T4.3. Registered one-sided, on the CP-007-15 precedent that an obligation may ride the owning plan's surface without a reciprocal minted into it — Plan-005 may register its own reciprocal in a later swap without this obligation changing. **That registering swap also owes a quantifier narrowing on two sites, named here because otherwise it has no owner:** `Spec-005 §Scope` states that _every_ callback invocation flows through the daemon's approval pipeline, and `Plan-005` T3.15 leg 3 states that the host routes _every_ invocation through Plan-012's evaluation seam. Both universals are true today — no named-action route exists yet — and both narrow by one clause when the route lands. Deliberately not narrowed here: nothing in this plan ships until the box below is checked, so flipping Spec-005/Plan-005 for a contract neither doc yet implements would move two Statuses ahead of the change they describe.
+
+**Why surfaced here.** Without the route, an enabled session's peer tools reach a host that can neither authorize nor represent them, and the fail-closed backstop answers `denied` — the feature would ship inert while every doc claimed it worked.
+
+### CP-030-7 — Durable agent-snapshot columns owed to [Plan-016](./016-multi-agent-channels-and-orchestration.md)
+
+`agents` is Plan-016-owned. Four resolved axes the daemon reads — `execution_posture_mode`, `tool_allowlist`, `instructions`, `goal` — have no typed column today, and `config` cannot host them: it is documented opaque to everything outside the driver, while these are read by registry composition, prompt construction, and the spawn gate.
+
+**Resolution.** Four additive-nullable columns land on Plan-016's own `CREATE`, the same shape and the same argument as the `provider_account_id` carve-out that plan already carries (D-016-26). Registered **reciprocally**, on the CP-030-4 ⇄ CP-016-19 shape — Plan-016 mints **CP-016-20**, under which its own T2.1 `agent-service.ts` insert stamps the four columns from the resolution T3.2 supplies, and its `agent.attached` emission carries them. The reciprocity is load-bearing rather than ceremonial: T3.2's Ownership note forbids it from editing any Plan-016-owned file, and the `agents` insert lives in one, so a one-sided registration would have left these columns with **no writer at all** — the plan permitted to write them barred from the file, and the plan owning the file owed nothing. Because the axes are attach-time only (`agent.configUpdate` carries no such member), `agent.attached` is the sole carrier and `agent.config_updated` needs no growth. No table census moves.
+
+**Why surfaced here.** I-030-2's snapshot guarantee and I-030-12 both rest on these columns existing.
+
+### CP-030-8 — Session-read projection of the enablement flag owed to Plan-007-partial
+
+`packages/runtime-daemon/src/ipc/handlers/session-read.ts` is Plan-007-partial-owned. The enablement flag's durable home is the event log, and the five-pair `sidekick.*` surface exposes only the **mutating** verb, so a renderer reopening a session has no read path to the current value short of replaying and folding raw events client-side — which is the live-fold this plan's own read model exists to avoid.
+
+**Resolution.** `SessionReadResponse` carries the projected flag as an additive-optional member, populated by a **sanctioned field-population edit** inside the Plan-007-partial-owned handler — not ownership — exactly the class the [cross-plan-dependencies.md §2 map](../architecture/cross-plan-dependencies.md#2-package-path-ownership-map) already records for Plan-006 T4.3's `timelineCursors.earliest` line in that same file. No sixth `sidekick.*` verb is minted, so the five-pair census does not move.
+
+**Why surfaced here.** T5.2's mount test reads the current flag; without this it would have no contract to read it from.
+
 ## Preconditions
 
 - [x] Paired spec is approved
 - [x] Required ADRs are accepted
 - [x] Blocking open questions are resolved or explicitly deferred
-- [x] **Plan-readiness audit complete per [`docs/operations/plan-implementation-readiness-audit-runbook.md`](../operations/plan-implementation-readiness-audit-runbook.md)** — first-time targeted readiness audit taken 2026-08-26 (§6 node NS-86) riding the same diff that mints this plan, the in-swap shape the [Plan-029](./029-provider-accounts-and-credential-homes.md) mint established. The audit walked all four gates over the five phases and sixteen tasks authored here, the eleven invariants, and the five cross-plan obligations; it minted **no** born-unchecked box. Code dispatch rides tier order (Tier 6, ordered last within the tier behind Plans 012 / 016 / 029) and the per-phase gates below.
+- [ ] **Named-action callback dispatch route registered (CP-030-6)** — born unchecked 2026-08-26 at the round-2 review fold. Holds **T4.1 and T4.3 directly** and, transitively, the whole of Phase 5, which gates on `plan_phase 4 status: merged` and so cannot dispatch while two Phase-4 tasks are held. T1.x–T3.x and the remaining Phase-4 tasks (T4.2, T4.4) dispatch on tier order and their phase gates. Stated with the transitive set spelled out because a reader scheduling off a bare "only" would mis-plan the Phase-5 work. The Plan-005 callback-tool host builds `approval.requestCreate`-shaped evaluation inputs keyed by `ApprovalCategory`, and `sidekick::invoke` deliberately has none (D-030-4), so a peer-invocation call cannot be represented in that input shape — not a prompting nuisance but an unrepresentable call. Checked when Plan-005 registers the named-action route CP-030-6 describes, in its own swap. Deliberately a box rather than a machine-checkable `external_plan_phase_merged` gate: the blocker is a contract Plan-005 has not yet authored, not a phase awaiting merge.
+- [x] **Plan-readiness audit complete per [`docs/operations/plan-implementation-readiness-audit-runbook.md`](../operations/plan-implementation-readiness-audit-runbook.md)** — first-time targeted readiness audit taken 2026-08-26 (§6 node NS-86) riding the same diff that mints this plan, the in-swap shape the [Plan-029](./029-provider-accounts-and-credential-homes.md) mint established. The audit walked all four gates over the five phases and sixteen tasks authored here, the twelve invariants, and the eight cross-plan obligations. Quantifiers re-derived by counting at the round-2 review fold, which folded nine findings into this plan and its contracts: the task count is unmoved at sixteen because the client-SDK task moved phase (T5.3 → T2.4) rather than being added, while invariants moved eleven → twelve (I-030-12) and obligations five → eight (CP-030-6/7/8). It mints **one** born-unchecked box, below. Code dispatch rides tier order (Tier 6, ordered last within the tier behind Plans 012 / 016 / 029) and the per-phase gates below.
 
 <!-- Cite durable forms per AGENTS.md §Durable-Cite Rule: `path#exportedSymbol` for code,
      `Spec-NNN §Heading` for specs/plans/ADRs; raw :NNN only for frozen/archive content. -->
@@ -199,6 +234,7 @@ Peer invocation and definition management are authorized as the named operation 
 - `packages/runtime-daemon/src/migrations/` (EXTEND) — the `sidekick_definitions` migration and its runner registration.
 - `apps/cli/src/commands/sidekick-definition-*.ts` (NEW) — the CLI definition commands, each extending the shared base command class per CP-007-15.
 - `packages/client-sdk/src/` (EXTEND) — `sidekickClient.ts` (NEW), the typed client for the five `sidekick.*` pairs, plus one barrel export line in the Plan-001-owned `index.ts`.
+- `packages/runtime-daemon/src/ipc/handlers/` (EXTEND) — the `sidekick.*` namespace handler files (T2.2), plus the single `peerInvocationEnabled` population line in the Plan-007-partial-owned `session-read.ts` under CP-030-8 (T4.2) — a **sanctioned field-population edit, not ownership**, the same class as Plan-006 T4.3's `timelineCursors.earliest` line in that same file.
 - `apps/desktop/src/renderer/src/sidekick-definitions/` (NEW) — the editor subtree handed to Plan-023's mount under CP-030-2.
 
 ## Data And Storage Changes
@@ -207,7 +243,9 @@ Peer invocation and definition management are authorized as the named operation 
 - **No foreign key** binds `provider_account_id` to `provider_accounts`. See D-030-1 — the row must survive its account's removal so resolution can refuse legibly.
 - **No foreign key** binds any agent to the definition it was resolved from, because I-030-2 makes the agent independent of it after resolution.
 - One added column on Plan-016's `run_links`, `invoking_principal_id` (CP-030-4 ⇄ CP-016-19) — authored on Plan-016's own `CREATE` because Plan-016 Phase 2 merges before this plan's Phase 4, so it consumes no migration ordinal of its own.
-- `sidekick_definitions` carries `name_folded`, the stored full-Unicode case fold that the uniqueness index arbitrates (I-030-7). Both columns move no table census.
+- `sidekick_definitions` carries `name_folded`, the stored full-Unicode case fold that the uniqueness index arbitrates (I-030-7).
+- `agents` gains four attach-time snapshot columns — `execution_posture_mode`, `tool_allowlist`, `instructions`, `goal` — on Plan-016's own `CREATE` under CP-030-7 ⇄ the reciprocal CP-016-20, stamped by that plan's T2.1 from the resolution T3.2 supplies and carried on its `agent.attached` payload so the projection stays replay-complete (I-030-12; a column the log cannot rebuild would falsify `Plan-016 I-016-4`).
+- **All six columns** move no table census.
 - No control-plane table, no relay surface, no export surface.
 
 ## API And Transport Changes
@@ -215,6 +253,7 @@ Peer invocation and definition management are authorized as the named operation 
 - Five daemon JSON-RPC pairs under the new `sidekick` root: `sidekick.definitionCreate`, `sidekick.definitionUpdate`, `sidekick.definitionDelete`, `sidekick.definitionList`, and `sidekick.peerInvocationSet`. There is no separate read verb — `definitionList` returns full records, matching the `providerAccount.list` shape.
 - One additive-optional member and one response echo on Plan-016's existing `agent.attach` pair (CP-030-1). No new `agent.*` verb.
 - Two `SessionCallbackTool` registrations served through Plan-005's existing callback-tool dispatch seam. These are tool registrations, not wire methods: the `sidekick` namespace stays at five pairs.
+- One additive-optional member, `peerInvocationEnabled`, on the existing Plan-007-partial-owned `SessionReadResponse` (CP-030-8) — the read path for the projected opt-in, so no sixth `sidekick.*` verb is minted and the namespace stays at five pairs. Populated by a sanctioned field-population edit, never ownership.
 - **One new event type**, `session.peer_invocation_set` in the existing `session_lifecycle` category ([Spec-006 §Session Lifecycle](../specs/006-session-event-taxonomy-and-audit-log.md#session-lifecycle-session_lifecycle); taxonomy census 158 → 159), the durable home of the per-session peer-invocation opt-in — see D-030-10. Five registered `sidekick.*` refusal codes on the definition and attach paths, and none on the peer-invocation path, which rides the callback-tool result arms.
 
 ## Implementation Steps
@@ -231,7 +270,7 @@ Peer invocation and definition management are authorized as the named operation 
 - Phase 1's three tasks are sequential: the conformance suite exists to pin the other two together.
 - Phase 2's store and handlers are sequential; the CLI commands (T2.3) can run in parallel with Phase 3 once the handlers land.
 - Phase 3 and Phase 4 are sequential — peer invocation resolves targets through the same resolver attach-by-reference uses.
-- Phase 5 follows Phase 4: its editor (T5.1) and SDK surface (T5.3) need only Phase 3, but the enablement toggle (T5.2) is presentation over the enablement leg T4.2 authors, and phase gates dispatch a phase as a whole.
+- Phase 5 follows Phase 4: its editor (T5.1) needs only Phase 3, but the enablement toggle (T5.2) is presentation over the enablement leg T4.2 authors, and phase gates dispatch a phase as a whole. The SDK surface is no longer among Phase 5's tasks — it moved to T2.4 at the round-2 review fold so it lands with its first consumer, the Phase-2 CLI.
 
 ## Test And Verification Plan
 
@@ -282,7 +321,7 @@ preconditions:
   - **Verifies invariant:** I-030-8, I-030-7.
   - **Tests:** the suite is the test — one row per pinned pair (documented-pin ≠ enforced-pin discipline).
 
-### Phase 2 — Registry service, authorization, and CLI
+### Phase 2 — Registry service, authorization, CLI, and client SDK
 
 **Precondition:** Phase 1 merged; Plan-012 Phase 2 merged; Plan-007 Phase R3 merged.
 
@@ -294,7 +333,7 @@ preconditions:
   - { type: external_plan_phase_merged, plan: 7, phase: R3 }
 ```
 
-**Goal:** definitions can be created, listed, updated, renamed, and deleted from the CLI, under Cedar authorization, with uniqueness enforced in storage.
+**Goal:** definitions can be created, listed, updated, renamed, and deleted from the CLI — through the typed client SDK that surface consumes — under Cedar authorization, with uniqueness enforced in storage.
 
 #### Tasks
 
@@ -315,10 +354,19 @@ preconditions:
 - **T2.3 — CLI definition commands.**
   - **Files:** `apps/cli/src/commands/sidekick-definition-list.ts`, `sidekick-definition-create.ts`, `sidekick-definition-edit.ts`, `sidekick-definition-delete.ts` (all NEW), `apps/cli/src/main.ts` (EXTEND — `.register()` calls only, per the Plan-026 CP-026-2 precedent).
   - **Provides:** the operator-facing definition surface over the T2.2 handlers, each command extending the shared base command class from `apps/cli/src/base-command.ts` per CP-007-15, writing results to the injected stdout and diagnostics to the injected stderr.
-  - **Consumes:** T2.2; Plan-007 base command class (Phase R3) and client SDK transport.
+  - **Consumes:** T2.2; **T2.4** — the typed client this command surface calls, which is why the SDK is authored in this phase rather than in Phase 5; Plan-007 base command class (Phase R3) and client SDK transport.
   - **Spec coverage:** Spec-030 §Scope.
   - **Verifies invariant:** none — operator surface over already-verified handlers.
   - **Tests:** one regression assertion per command that a thrown error routes to stderr with stdout byte-empty under the mapped exit code; a list rendering golden.
+
+- **T2.4 — Client SDK surface.**
+  - **Files:** `packages/client-sdk/src/sidekickClient.ts` (NEW), `packages/client-sdk/src/index.ts` (EXTEND — barrel export only).
+  - **Provides:** typed client methods for the five `sidekick.*` pairs, consumed by the CLI commands here in Phase 2 and by the desktop subtree in Phase 5. **Authored in this phase and not with the desktop surface:** its first consumer is T2.3, and Phase 5 sits behind Phases 3 and 4, so an SDK homed there would leave the Phase-2 CLI importing a client that does not yet exist or permanently bypassing the typed surface it is required to consume.
+  - **Consumes:** T2.2; Plan-001 client SDK transport (shipped).
+  - **Spec coverage:** Spec-030 §Interfaces And Contracts.
+  - **Verifies invariant:** none — transport surface over already-verified handlers.
+  - **Tests:** one round-trip per pair against a stub transport; the barrel export asserted present.
+  - **Ownership note:** `packages/client-sdk/src/index.ts` is Owner=Plan-001. This task appends one export line and edits nothing else in that file.
 
 ### Phase 3 — Resolution and attach-by-reference
 
@@ -345,11 +393,11 @@ preconditions:
   - **Tests:** refusal rows for absent account, absent model, unsupported effort, and unrealizable allowlist — one per closed `reason` arm — each carrying the matching arm and naming the unresolved input, the allowlist row asserting **both** of its arm's naming fields (the unrealizable tools and the driver's supported set), since either alone leaves the operator unable to tell what to edit; a row proving a registered-but-unauthenticated account resolves successfully here and is refused later by the spawn gate, so the resolver never second-guesses I-029-3; a negative-control row proving the resolver fails on a known-bad account rather than passing vacuously; absent-optional rows resolving to the documented defaults.
 - **T3.2 — Attach-by-reference integration.**
   - **Files:** `packages/runtime-daemon/src/sidekicks/attach-resolution.ts` (NEW — the seam Plan-016's attach handler calls).
-  - **Provides:** the resolver call Plan-016's `agent.attach` makes before writing the `agents` row; the per-field override of resolved values by explicitly-present request members; the effective-resolved-configuration echo; and the zero-residue refusal path, raising `sidekick.definition_not_found` for a `definitionId` naming no row and `sidekick.definition_unreadable` when the registry cannot be read.
+  - **Provides:** the resolver call Plan-016's `agent.attach` makes before writing the `agents` row; the per-field override of resolved values by explicitly-present request members; the effective-resolved-configuration echo; the resolved axis set handed to Plan-016's insert for stamping into its **typed** `agents` columns and onto its `agent.attached` payload under CP-030-7 ⇄ CP-016-20 (this task supplies the values; the owning plan performs the write, since the `agents` insert is a Plan-016-owned file) — posture mode, tool allowlist, instructions, and goal, which have no durable home today and cannot take one inside `config`, that column being opaque to everything outside the driver while these four are read by registry composition, prompt construction, and the spawn gate (the `provider_account_id` carve-out precedent, taken out of `config` for exactly this reason); and the zero-residue refusal path, raising `sidekick.definition_not_found` for a `definitionId` naming no row and `sidekick.definition_unreadable` when the registry cannot be read.
   - **Consumes:** T3.1; Plan-016 `agent.attach` handler (Phase 3) per CP-030-1.
   - **Spec coverage:** Spec-030 §Required Behavior.
-  - **Verifies invariant:** I-030-3.
-  - **Tests:** attach with a definition producing matching configuration; explicit request member overriding for that field only; the echo reporting the merged result; a refused attach leaving no agent row, no partial configuration, and no run.
+  - **Verifies invariant:** I-030-3, I-030-12.
+  - **Tests:** attach with a definition producing matching configuration; explicit request member overriding for that field only; the echo reporting the merged result — `instructions` and `goal` included, so the caller learns the applied prompt without re-reading the registry; a refused attach leaving no agent row, no partial configuration, and no run; **the durability row that makes the snapshot real** — attach, delete the definition, restart the daemon, and assert registry composition and prompt construction still reconstruct every resolved axis from the `agents` row alone, with a static check that neither path reads `config` for them.
   - **Ownership note:** `AgentAttachRequest` and the attach handler are Owner=Plan-016. This task authors the resolution seam that handler calls; it MUST NOT edit any Plan-016-owned file.
 - **T3.3 — Snapshot-isolation regression suite.**
   - **Files:** `packages/runtime-daemon/src/sidekicks/__tests__/snapshot-isolation.test.ts` (NEW).
@@ -380,7 +428,7 @@ preconditions:
 - **T4.1 — Tool definitions and unconditional, allowlist-filtered registration.**
   - **Files:** `packages/runtime-daemon/src/sidekicks/peer-invocation-tools.ts` (NEW).
   - **Provides:** the `ask_sidekick` and `delegate_to_sidekick` `SessionCallbackTool` declarations — name, description, and JSON-Schema arguments accepting a sidekick target as either a session agent id or a `definitionId` — and the spawn-time registry contribution, which yields both tools **unconditionally with respect to enablement** (the `workflow_start` shape) and applies exactly one filter: the resolved agent's tool allowlist. An empty allowlist yields neither tool, a populated one yields only the tools it names, and an absent one leaves the driver-default composition unchanged (I-030-10). Enablement is not consulted here at all — it is a per-call Cedar context input in T4.3.
-  - **Consumes:** the resolved allowlist ← T3.1; Plan-005 callback-tool registry (published, Phase 3).
+  - **Consumes:** the resolved allowlist ← T3.1; Plan-005 callback-tool registry (published, Phase 3); the Plan-005 named-action dispatch route under CP-030-6 — **the box below holds this task and T4.3 until that route is registered**, because the host as documented cannot represent a named-action invocation at all.
   - **Spec coverage:** Spec-030 §Required Behavior (the registration rule and the allowlist-filters-the-registry rule); Spec-030 §Default Behavior.
   - **Verifies invariant:** I-030-5, I-030-10.
   - **Tests:** both tools present in a registry composed for a session with enablement off; the four allowlist compositions of I-030-10 (empty → neither, populated-naming-neither → neither, populated-naming-both → both, absent → driver default unchanged); the argument schema rejecting a target naming a provider, a model, an account, or a node; a static check that this module reads no enablement state.
@@ -390,10 +438,10 @@ preconditions:
   - **Consumes:** T4.1; T2.2 method registration; Plan-006 event registry (Phase 1) for the type literal and payload schema.
   - **Spec coverage:** Spec-030 §Required Behavior (the enablement rule).
   - **Verifies invariant:** I-030-5.
-  - **Tests:** enable then disable, asserting one event appended per transition with `actor` populated from the authenticated caller; a client-supplied `actor` ignored; the projected flag rebuilt correctly by replaying the event log alone with no local row; a withdrawal asserting the very next invocation on an already-running leg answers `denied` **without a respawn**; re-enablement restoring service on the next call; an unauthenticated or unauthorizable caller refused `sidekick.permission_denied` with no event appended.
+  - **Tests:** enable then disable, asserting one event appended per transition with `actor` populated from the authenticated caller; a client-supplied `actor` **rejected at intake** by T1.1's strict unknown-key schema rather than accepted-and-ignored — a request cannot both fail a strict parse and reach a handler that ignores it, and the reject arm is the one that keeps the principal boundary legible, since silently dropping a smuggled principal teaches a caller the field is merely inert; the stamped `actor` still comes from the authenticated caller; the projected flag rebuilt correctly by replaying the event log alone with no local row; a withdrawal asserting the very next invocation on an already-running leg answers `denied` **without a respawn**; re-enablement restoring service on the next call; an unauthenticated or unauthorizable caller refused `sidekick.permission_denied` with no event appended.
 - **T4.3 — Invocation handler.**
   - **Files:** `packages/runtime-daemon/src/sidekicks/peer-invocation-handler.ts` (EXTEND — invocation leg).
-  - **Provides:** target resolution (session agent, or definition attached on demand through T3.2), the per-call Cedar check — `Action::"sidekick::invoke"` with the T4.2-projected enablement flag supplied as context, so a disabled session answers `denied` on a tool that is nonetheless present — child-run creation through Plan-016's orchestration admission with link type `spawn` for `ask_sidekick` and `delegate` for `delegate_to_sidekick`, the invoking turn's effective principal supplied to that admission call for stamping under CP-030-4, and the mapping of every outcome onto the callback-tool result arms. **`ask_sidekick` settlement:** the handler subscribes to the child's run-lifecycle terminal **before returning**, so a terminal landing between admission and subscription is still observed, and every terminal settles the waiting call — a child that fails, is cancelled, or is interrupted answers `failed` naming the terminal state, and one that completes without producing an answer answers `failed` rather than `completed` with empty output. No invocation is left unanswered. **Admission — the depth check included — is evaluated synchronously inside the creation call this handler makes, before the tool returns.** This matters asymmetrically: `ask_sidekick` waits for the peer's answer anyway, but `delegate_to_sidekick` returns as soon as the run is admitted, so if the depth check were deferred to a later dispatch step the tool would answer `completed` with the identity of a run that then died at admission — a success the asking model would act on. `delegate_to_sidekick` therefore returns `completed` only on the far side of a successful admission, and never returns a run identity for a run admission would refuse — the peer's answer or the delegated run's identity on `completed`, an authorization or admission refusal on `denied` carrying its reason, an unknown target or invalid arguments on `failed`.
+  - **Provides:** target resolution (session agent, or definition attached on demand through T3.2), the per-call Cedar check — `Action::"sidekick::invoke"` with the T4.2-projected enablement flag supplied as context, so a disabled session answers `denied` on a tool that is nonetheless present — child-run creation through Plan-016's orchestration admission with link type `spawn` for `ask_sidekick` and `delegate` for `delegate_to_sidekick`, the invoking turn's effective principal supplied to that admission call for stamping under CP-030-4, and the mapping of every outcome onto the callback-tool result arms. **`ask_sidekick` settlement:** the child's run id does not exist before admission, so a subscription cannot be opened ahead of it and "subscribe before returning" would leave exactly one unobservable window — a terminal landing between the creation call and the subscription, which a live subscription never replays. The ordering is therefore **capture-cursor → admit → subscribe → replay-from-captured-cursor**: the handler reads the session's current event cursor **before** the creation call, admits, subscribes, then replays from that captured cursor forward over Plan-006's `event.readAfterCursor` read surface, settling from whichever source presents the terminal first and discarding the duplicate by `(runId, runVersion)`. The captured cursor is what makes the window closed rather than merely narrow — it predates the run's own creation, so no terminal can fall before it — and this is the same subscribe-then-replay-from-a-held-cursor discipline Plan-008's resume path uses, consumed here rather than reinvented. Every terminal settles the waiting call — a child that fails, is cancelled, or is interrupted answers `failed` naming the terminal state, and one that completes without producing an answer answers `failed` rather than `completed` with empty output. No invocation is left unanswered. **Admission — the depth check included — is evaluated synchronously inside the creation call this handler makes, before the tool returns.** This matters asymmetrically: `ask_sidekick` waits for the peer's answer anyway, but `delegate_to_sidekick` returns as soon as the run is admitted, so if the depth check were deferred to a later dispatch step the tool would answer `completed` with the identity of a run that then died at admission — a success the asking model would act on. `delegate_to_sidekick` therefore returns `completed` only on the far side of a successful admission, and never returns a run identity for a run admission would refuse — the peer's answer or the delegated run's identity on `completed`, an authorization or admission refusal on `denied` carrying its reason, an unknown target or invalid arguments on `failed`.
   - **Consumes:** T4.1, T4.2, T3.2; Plan-016 orchestration admission (Phase 2) and run-link projection.
   - **Spec coverage:** Spec-030 §Required Behavior; Spec-030 §Fallback Behavior.
   - **Verifies invariant:** I-030-6, I-030-5, I-030-11.
@@ -433,23 +481,15 @@ preconditions:
 - **T5.2 — Peer-invocation enablement control.**
   - **Files:** `apps/desktop/src/renderer/src/sidekick-definitions/PeerInvocationToggle.tsx` (NEW).
   - **Provides:** the session-scoped enable / disable control over `sidekick.peerInvocationSet`, stating that enabling grants automatic peer invocation for the remainder of the session and that disabling takes effect on the next invocation on every leg, including legs already running.
-  - **Consumes:** T5.1; T4.2 — the enablement leg this control is presentation over, which is why Phase 5 gates on Phase 4.
+  - **Consumes:** T5.1; T4.2 — the enablement leg this control is presentation over, which is why Phase 5 gates on Phase 4; the `SessionReadResponse` enablement projection under CP-030-8, which is how the control learns the current value on mount rather than folding raw events client-side.
   - **Spec coverage:** Spec-030 §Required Behavior (the enablement rule).
   - **Verifies invariant:** none — presentation over an already-verified handler.
   - **Tests:** the control reflecting the current projected enablement flag on mount; the disable path's stated timing matching T4.2's behavior (effective on the next call, no respawn).
-- **T5.3 — Client SDK surface.**
-  - **Files:** `packages/client-sdk/src/sidekickClient.ts` (NEW), `packages/client-sdk/src/index.ts` (EXTEND — barrel export only).
-  - **Provides:** typed client methods for the five `sidekick.*` pairs, consumed by both the CLI commands and the desktop subtree.
-  - **Consumes:** T2.2; Plan-001 client SDK transport (shipped).
-  - **Spec coverage:** Spec-030 §Interfaces And Contracts.
-  - **Verifies invariant:** none — transport surface over already-verified handlers.
-  - **Tests:** one round-trip per pair against a stub transport; the barrel export asserted present.
-  - **Ownership note:** `packages/client-sdk/src/index.ts` is Owner=Plan-001. This task appends one export line and edits nothing else in that file.
 
 ## Rollout Order
 
 1. Phase 1 — contracts, migration, conformance.
-2. Phase 2 — store, handlers, CLI.
+2. Phase 2 — store, handlers, CLI, client SDK.
 3. Phase 3 — resolver and attach-by-reference.
 4. Phase 4 — peer invocation.
 5. Phase 5 — desktop surfaces.

@@ -1476,6 +1476,25 @@ CREATE TABLE agents (
                                                         -- model's driver-reported `effortLevels` rather than a schema CHECK --
                                                         -- the valid set is per-model and provider-owned, so a CHECK here would
                                                         -- go stale against the provider rather than protect anything
+  execution_posture_mode TEXT
+                  CHECK(execution_posture_mode IS NULL OR execution_posture_mode IN
+                        ('trusted','workspace-sandboxed','readonly-sandboxed')),
+                                                        -- 2026-08-26 (CP-030-7): the resolved posture MODE snapshotted at attach.
+                                                        -- NULL = the session default. A mode only, never a composed
+                                                        -- ExecutionPosture: writableRoots and credentialPolicyRef belong to a live
+                                                        -- run's workspace and would freeze a path set that outlives it. CHECKable
+                                                        -- here, unlike `effort` above, because this vocabulary is corpus-owned
+                                                        -- rather than provider-reported, so it cannot go stale behind a vendor
+  tool_allowlist  TEXT,                                 -- 2026-08-26 (CP-030-7): JSON array, THREE-state like its wire axis —
+                                                        -- SQL NULL = driver defaults, '[]' = no tools, populated = exactly these.
+                                                        -- Outside `config` because the daemon composes the callback registry from
+                                                        -- it (I-030-10), and `config` is opaque to everything outside the driver
+  instructions    TEXT,                                 -- 2026-08-26 (CP-030-7): the system-prompt content AS APPLIED at attach
+  goal            TEXT,                                 -- 2026-08-26 (CP-030-7): the agent goal as applied; NULL = none
+                                                        -- Both are read by prompt construction, which is why they are typed
+                                                        -- columns rather than `config` keys: after the source definition is
+                                                        -- deleted the row itself must still answer what the agent was given
+                                                        -- (I-030-12), and an opaque blob cannot be read back by that path
   pending_switch  TEXT,                                 -- 2026-08-26 (D-016-26): the JSON AgentProviderSwitchPending shape, status literal
                                                         -- included so the stored blob is self-identifying rather than a wire artifact
                                                         -- reproduced in a column: a row read in isolation names what it is -- {status:

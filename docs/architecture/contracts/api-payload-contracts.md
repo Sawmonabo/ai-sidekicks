@@ -224,6 +224,14 @@ interface SessionReadRequest {
 }
 interface SessionReadResponse {
   session: SessionSnapshot;
+  // 2026-08-26 (CP-030-8), additive-optional: the projected sidekick peer-invocation opt-in. A
+  // DERIVATION of the `session.peer_invocation_set` fold, never a second source of truth and never a
+  // stored column — the event log stays the durable home. Present as a read path because the
+  // `sidekick.*` surface exposes only the mutating verb, and without it a reopening renderer could
+  // learn the current value only by replaying and folding raw events client-side. Absent ⇒ the
+  // responder predates this member, which a client renders as unknown rather than as disabled:
+  // defaulting an unknown capability grant to "off" would misreport an enabled session as safe.
+  peerInvocationEnabled?: boolean;
   timelineCursors: { earliest?: EventCursor; latest: EventCursor; acknowledged?: EventCursor }; // earliest?: the position immediately BEFORE the oldest surviving row (Plan-006 T4.3), a directly resumable cursor — V1-constant encode(-1) (compaction stubs rows in place, never deletes; a future retention pass deleting through N-1 moves it to encode(N-1)). Consumer: resume from acknowledged ?? earliest; gap detection decode(acknowledged) < decode(earliest) ⇒ events lost ⇒ reset projection + resume from earliest. Optional for version skew: new daemons always set it; absent ⇒ responder predates the whole Plan-006 Phase-4 read surface; the consumer discovers the absence from this very session.read response and refuses the resume cycle SDK-locally before any projection reset or subsequent replay/subscribe wire call (`Plan-008 §I-008-12 — Client event-stream resume is floor-checked, gap-safe, and at-most-once-applied` clause (d), campaign B12 — the earlier resume-from-start sketch is unreachable through the surface it names); required at next MAJOR per ADR-018.
 }
 
@@ -4055,21 +4063,35 @@ type SessionGoalClearResponse = { sessionId: SessionId };
 // on the agent.* event payloads so the agents projection is deterministic from the log alone.
 // wire: agent.attach / agent.detach / agent.configUpdate / agent.list
 type AgentState = "configured" | "ready" | "disabled" | "archived";
-interface AgentAttachRequest {
+interface AgentAttachRequestBase {
   sessionId: SessionId;
   name: string;
-  driverName: string; // Plan-005 provider-driver key
-  modelId: string;
   defaultNodeId?: NodeId;
   config?: Record<string, unknown>; // driver-scoped, opaque to this contract
   // 2026-08-26 (D-016-26), additive-optional: the provider axis an agent may be born with.
   providerAccountId?: ProviderAccountId; // omitted = the provider's registered default account
   effort?: string; // validated against the target model's driver-reported `effortLevels`, NOT a
   // corpus-wide enum: the vocabulary is per-model and provider-owned
-  // 2026-08-26 (CP-016-18 ⇄ CP-030-1), additive-optional: attach from a saved sidekick definition.
-  definitionId?: SidekickDefinitionId; // read ONCE at attach and copied onto the agent record — no live
-  // linkage and no foreign key, so editing or deleting the definition afterwards cannot reach this agent
 }
+// The inline arm: every core axis spelled out, exactly as before this member existed.
+interface AgentAttachInlineRequest extends AgentAttachRequestBase {
+  definitionId?: never;
+  driverName: string; // Plan-005 provider-driver key
+  modelId: string;
+}
+// 2026-08-26 (CP-016-18 ⇄ CP-030-1) the definition arm: the reference supplies the core axes, and an
+// explicitly-present member overrides that axis ALONE. `driverName` / `modelId` are optional HERE and
+// required THERE — a two-arm union rather than two bare optionals on one interface, because bare
+// optionals would silently admit a request naming neither a definition nor a driver/model pair, which is
+// the one shape nothing can resolve. Attaching by reference without respelling the axes is the point of
+// the member; leaving them required would have made every definition attach restate what it references.
+interface AgentAttachFromDefinitionRequest extends AgentAttachRequestBase {
+  definitionId: SidekickDefinitionId; // read ONCE at attach and copied onto the agent record — no live
+  // linkage and no foreign key, so editing or deleting the definition afterwards cannot reach this agent
+  driverName?: string;
+  modelId?: string;
+}
+type AgentAttachRequest = AgentAttachInlineRequest | AgentAttachFromDefinitionRequest;
 interface AgentAttachResponse {
   agentId: AgentId;
   state: AgentState; // "ready" | "configured" at attach
@@ -4077,6 +4099,9 @@ interface AgentAttachResponse {
   // 2026-08-26 (CP-016-18 ⇄ CP-030-1), present iff the request carried `definitionId`: the echo lets a
   // client render what it actually got instead of re-reading the registry and assuming it has not moved.
   resolvedFromDefinitionId?: SidekickDefinitionId;
+  // Every axis AS APPLIED, `instructions` and `goal` included: without them a caller cannot tell which
+  // prompt and goal the attached agent actually received except by re-reading a registry row that may
+  // already have moved — which is exactly the live-view read I-030-2 forbids.
   resolvedConfiguration?: Pick<
     SidekickDefinition,
     | "driverName"
@@ -4085,6 +4110,8 @@ interface AgentAttachResponse {
     | "effort"
     | "executionPostureMode"
     | "toolAllowlist"
+    | "instructions"
+    | "goal"
   >;
 }
 interface AgentDetachRequest {
@@ -6031,9 +6058,12 @@ type SidekickInvocationTarget =
 // tool here that can outlive its own child: admission succeeding does not guarantee an answer ever comes.
 // Every TERMINAL state of the child settles the waiting call — a child that fails, is cancelled, or is
 // interrupted answers `failed` naming the terminal state, and a child that completes without producing an
-// answer answers `failed` rather than `completed` with empty output. The waiter subscribes to the child's
-// run-lifecycle terminal before the tool returns, so a terminal that lands between admission and
-// subscription is still observed. No invocation is left unanswered (the Spec-005 dispatch-seam rule).
+// answer answers `failed` rather than `completed` with empty output. The child's run id does not exist
+// before admission, so the waiter captures the run-lifecycle stream cursor BEFORE admitting, then
+// subscribes and replays forward from that captured cursor, settling from whichever source presents the
+// terminal first and deduping by `(runId, runVersion)`. Subscribing merely before the tool returns is
+// insufficient — a live subscription opened after admission never replays the terminal that landed in
+// between. No invocation is left unanswered (the Spec-005 dispatch-seam rule).
 interface AskSidekickArguments {
   target: SidekickInvocationTarget;
   message: string;
