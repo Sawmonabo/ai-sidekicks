@@ -18,7 +18,9 @@ Every control-plane endpoint defined in this document is implicitly scoped to th
 - **Run-control resource context (2026-08-03 cross-user run-control authorization amendment).** For run-control adjudication — the Cedar `Action::"intervene"` evaluation on the target `Run` resource, covering interventions and the orchestration-layer `run.pause` / `run.resume` verbs identically — the target run's **hosting node** is a controlling request-context input, resolved daemon-side from the target run and never from a client-supplied field (the informational-body-fields rule above applies unchanged; the durable per-run hosting-node carrier this resolution reads is a named [Plan-004 §Preconditions](../../plans/004-queue-steer-pause-resume.md#preconditions) prerequisite — no shipped run accessor or schema column carries the node today): authorization evaluates against session membership role, never run authorship, and a non-local hosting node **adds** the target-node-owner approval requirement (an approval in the `tool_execution` category per [Spec-024 Cross-Node Dispatch And Approval](../../specs/024-cross-node-dispatch-and-approval.md)) rather than substituting for the role check. The principal is transport-verified on both run-control paths: on the daemon's local socket — which admits only the node owner's own clients under the layered socket-reachability + session-token model and carries no PASETO token (the Local-daemon endpoints bullet below; [security-architecture.md §Local Daemon Authentication](../security-architecture.md#local-daemon-authentication-task-51)) — the daemon binds the Cedar principal to its **node-owner participant identity** — the daemon's standing control-plane-authentication posture ([component-architecture-local-daemon.md §Responsibilities](../component-architecture-local-daemon.md#responsibilities)) — resolved through the Plan-018-gated credential/identity provider seam the §Signing-Key Registration Method Registry below already rides (the CP-006-13 constructor-injected credential-provider and `resolveCurrentParticipantId` pattern; `runtimenode.attach` is client-driven and hands the daemon no principal, so no attach hook supplies the value), daemon-resolved, never read from a body actor field, and failing closed while the provider is unwired — the run-control registration of that provider is a named [Plan-004 §Preconditions](../../plans/004-queue-steer-pause-resume.md#preconditions) prerequisite; a cross-user caller reaches run-control only over identity-carrying paths — a cross-node intervention arrives via Spec-024 dispatch, where the target binds the principal to the verified `caller_token.sub` after checking the token's signature and its `req_hash` body binding (the Cross-node dispatch bullet below): the envelope's request-hash-bound signed token is that transport's sender-constraining mechanism, and no separate DPoP proof rides the relay leg. Contract text: [Spec-004 §Interfaces And Contracts](../../specs/004-queue-steer-pause-resume.md#interfaces-and-contracts); rule owner: [Spec-012 §Required Behavior](../../specs/012-approvals-permissions-and-trust-boundaries.md#required-behavior).
 - **Local-daemon endpoints.** Endpoints reachable only over the daemon's local IPC socket (JSON-RPC 2.0 per [ADR-009 JSON-RPC IPC Wire Format](../../decisions/009-json-rpc-ipc-wire-format.md)) are authorized by socket reachability plus a required 256-bit session token presented by the Desktop Shell or CLI client (per BL-056 reconciliation on 2026-04-18; see [security-architecture.md §Local Daemon Authentication](../security-architecture.md#local-daemon-authentication-task-51)); they do not require a PASETO access token. The renderer is not a direct daemon client — renderer-originated requests are brokered by the shell via the preload bridge. When a local-daemon request is later forwarded cross-node via dispatch, the target daemon verifies the dispatch envelope's `caller_token` — signature plus the `req_hash` body binding per [Spec-024 Cross-Node Dispatch And Approval](../../specs/024-cross-node-dispatch-and-approval.md) — before Cedar runs: the request-hash-bound signed token is that path's sender-constraining, and no separate DPoP proof is carried on the relay leg (the Cross-node dispatch bullet below).
 - **Cross-node dispatch.** Cross-node approval envelopes follow [Spec-024 Cross-Node Dispatch And Approval](../../specs/024-cross-node-dispatch-and-approval.md): the Cedar `principal` on the target side is bound only to `caller_token.sub`; `approver_token.sub` is carried for audit and replay-binding via the shared `bound_jti` + `request_body_hash` and does **not** become a second principal.
-- **Durable principal recording on admitting writes (2026-08-18 admitting-principal carrier amendment).** The four bullets above govern how a principal is _resolved_ for one request. This bullet governs how it is _retained_. **Every admitting write records the daemon-resolved transport-authenticated principal on its own durable row.** An admitting write is one whose acceptance authorizes later work that the original request no longer accompanies — a subsequent turn, a drained queue item, a remembered grant — so the identity must survive the request that carried it. The recorded value is resolved by exactly the mechanisms above (node-owner binding on the local socket, the verified PASETO `sub` on authenticated surfaces, `caller_token.sub` on the cross-node arm), never read from a body actor field; a body-supplied actor disagreeing with the verified identity refuses as the existing `auth.principal_mismatch` error rather than being trusted or silently normalized. Recording it on the row it admits — rather than deriving it later from event history — is what makes the identity **replay-stable**: an accumulating history offers no single answer to "under whose authority was _this_ unit of work admitted", and the informational-body-fields rule above already forbids the only wire-carried candidate. Where the row can also be written by a non-participant path, a daemon-resolved origin discriminator on the same row carries which admission path produced it, with the principal required exactly on the participant arm and forbidden on the system arm — enforced by the storage engine, so the participant arm cannot persist unidentified and the system arm cannot smuggle an identity in. Instances, one column per owning surface under [cross-plan-dependencies.md §2](../cross-plan-dependencies.md#2-package-path-ownership-map) one-writer discipline: **(1)** `approval_resolutions.approver_id` — the shipped instance ([Spec-012 §Required Behavior](../../specs/012-approvals-permissions-and-trust-boundaries.md#required-behavior), Plan-012 D-012-12), the approver whose decision a remembered grant later re-applies; **(2)** `interventions.admitting_principal_id` beside its `origin` discriminator — the intervention caller whose principal a steer-opened or replacement-send-opened turn executes under ([Spec-004 §Required Behavior](../../specs/004-queue-steer-pause-resume.md#required-behavior), Plan-004 D-004-4; consumed by Plan-012's turn-scoped resolution, CP-004-14 ⇄ CP-012-12); **(3)** the chat-borne workflow start's authoring participant, adjudicated as `Action::"workflow::start"` ([Spec-017 §Start authorization (SA-39)](../../specs/017-workflow-authoring-and-execution.md#start-authorization-sa-39)) — [Plan-017](../../plans/017-workflow-authoring-and-execution.md) instantiates its own column on its own surface when that surface lands, since the rule is a class and not a shared column.
+- **Durable principal recording on admitting writes (2026-08-18 admitting-principal carrier amendment).** The four bullets above govern how a principal is _resolved_ for one request. This bullet governs how it is _retained_. **Every admitting write records the daemon-resolved transport-authenticated principal on its own durable row.** An admitting write is one whose acceptance authorizes later work that the original request no longer accompanies — a subsequent turn, a drained queue item, a remembered grant — so the identity must survive the request that carried it. The recorded value is resolved by exactly the mechanisms above (node-owner binding on the local socket, the verified PASETO `sub` on authenticated surfaces, `caller_token.sub` on the cross-node arm), never read from a body actor field; a body-supplied actor disagreeing with the verified identity refuses as the existing `auth.principal_mismatch` error rather than being trusted or silently normalized. Recording it on the row it admits — rather than deriving it later from event history — is what makes the identity **replay-stable**: an accumulating history offers no single answer to "under whose authority was _this_ unit of work admitted", and the informational-body-fields rule above already forbids the only wire-carried candidate. Where the row can also be written by a non-participant path, a daemon-resolved origin discriminator on the same row carries which admission path produced it, with the principal required exactly on the participant arm and forbidden on the system arm — enforced by the storage engine wherever the carrier is a table row, and by the recorded value's own closed shape where it is not, so the participant arm cannot persist unidentified and the system arm cannot smuggle an identity in. Instances — **(1)**-**(3)** each one column per owning surface under [cross-plan-dependencies.md §2](../cross-plan-dependencies.md#2-package-path-ownership-map) one-writer discipline, **(4)** a payload member for the reason the shape-deviation paragraph below gives: **(1)** `approval_resolutions.approver_id` — the shipped instance ([Spec-012 §Required Behavior](../../specs/012-approvals-permissions-and-trust-boundaries.md#required-behavior), Plan-012 D-012-12), the approver whose decision a remembered grant later re-applies; **(2)** `interventions.admitting_principal_id` beside its `origin` discriminator — the intervention caller whose principal a steer-opened or replacement-send-opened turn executes under ([Spec-004 §Required Behavior](../../specs/004-queue-steer-pause-resume.md#required-behavior), Plan-004 D-004-4; consumed by Plan-012's turn-scoped resolution, CP-004-14 ⇄ CP-012-12); **(3)** the chat-borne workflow start's authoring participant, adjudicated as `Action::"workflow::start"` ([Spec-017 §Start authorization (SA-39)](../../specs/017-workflow-authoring-and-execution.md#start-authorization-sa-39)) — [Plan-017](../../plans/017-workflow-authoring-and-execution.md) instantiates its own column on its own surface when that surface lands, since the rule is a class and not a shared column; **(4)** the turn-scoped effective principal on `usage.cost_update`'s payload — the party whose causation a unit of metered spend is attributed to ([Spec-006 §Usage Telemetry](../../specs/006-session-event-taxonomy-and-audit-log.md#usage-telemetry-usage_telemetry), 2026-08-26; produced by [Plan-004](../../plans/004-queue-steer-pause-resume.md) under CP-004-16 and consumed by [Spec-016 §Session Cost Receipt](../../specs/016-multi-agent-channels-and-orchestration.md#session-cost-receipt)).
+
+  Instance (4) differs from the first three in **two** deliberate ways, and neither is an exception to the rule. First, it is not itself an admitting write: it is the **carrier by which an admitting write's principal reaches a downstream fold**, resolved daemon-side from instance (2)'s rows. The retention discipline binds it for the same reason it binds the others — a fold that had to find the principal by ordering a metered row against turn-boundary events would be "deriving it later from event history", which is precisely what this bullet forbids, and that derivation would additionally rest on an event type the corpus types as forward and non-state. Second, its durable home is a **canonical event payload rather than a projection column**, because the unit it must attach to is a metered turn and no per-turn table exists — minting one to hold a single derived identity would add a second record of boundaries the log already orders, which [ADR-028](../../decisions/028-canonical-transcript-is-authoritative.md) rejects on its own terms. The `session_events` row is durable, replay-stable, and integrity-chained, and a typed event's fields live in its payload, so the class's requirement — recorded on the row, never re-derived — is met exactly. The origin discriminator the paragraph above requires is carried by the value's own closed two-arm shape (`EffectivePrincipal`, §Plan-016): the participant reference is required on the participant arm and absent on the system arm, enforced by the union rather than by a table CHECK, since a wire payload has no table to constrain.
 
 **See also:** [Security Architecture §Permission Matrix](../security-architecture.md#permission-matrix-task-54), [ADR-010 PASETO + WebAuthn + MLS Auth](../../decisions/010-paseto-webauthn-mls-auth.md), [Cedar terminology — principal, action, resource, context](https://docs.cedarpolicy.com/overview/terminology.html).
 
@@ -187,13 +189,16 @@ type DriverCapabilityFlag =
   | "session_goals" // setSessionGoal / clearSessionGoal (campaign B3)
   | "callback_tools" // daemon-curated callback-tool registry (campaign B3)
   | "subagents" // provider-native in-session subagents under subagentPolicy (campaign B3)
+  | "transcript_replay" // accepts a canonical transcript replayed into a fresh session via replayTranscript (2026-08-26, ADR-028; the Claude cell is probe-declared, not statically true — Spec-005 §Per-Driver Capability Matrix)
+  | "session_fork" // branches a session without disturbing the original (2026-08-26; an optimization over replay-into-a-second-session, never a dependency)
   | "cost_cap"; // realizes a daemon-supplied hard cost cap natively at spawn — Claude --max-budget-usd; gates the Spec-016 native-cap unpriced admission (campaign B6)
 // Code-mirror gate (campaign B3/B6): the shipped executable union
 // (packages/contracts/src/provider-driver.ts) still exports the seven pre-B3 flags, and the
 // shipped assertValidCapabilityFlags rejects any snapshot whose key count differs — so a driver
-// MUST NOT declare the six campaign flags against the shipped validator. Union + validator +
+// MUST NOT declare the eight doc-registered flags against the shipped validator. Union + validator +
 // driver_capabilities migration backfill + conformance tests widen together as ONE change via
-// the campaign's Plan-005 bundle; cost_cap-gated admission code (Plan-016 T2.3) dispatch-gates
+// the campaign's Plan-005 bundle for the first six and via Plan-005 T3.19 for transcript_replay +
+// session_fork (2026-08-26), which extends the same union rather than opening a second seam; cost_cap-gated admission code (Plan-016 T2.3) dispatch-gates
 // on that bundle (same named-bundle gate as the goal driver mirror).
 ```
 
@@ -3972,6 +3977,10 @@ interface AgentAttachRequest {
   modelId: string;
   defaultNodeId?: NodeId;
   config?: Record<string, unknown>; // driver-scoped, opaque to this contract
+  // 2026-08-26 (D-016-26), additive-optional: the provider axis an agent may be born with.
+  providerAccountId?: ProviderAccountId; // omitted = the provider's registered default account
+  effort?: string; // validated against the target model's driver-reported `effortLevels`, NOT a
+  // corpus-wide enum: the vocabulary is per-model and provider-owned
 }
 interface AgentAttachResponse {
   agentId: AgentId;
@@ -3991,12 +4000,43 @@ interface AgentConfigUpdateRequest {
   modelId?: string;
   defaultNodeId?: NodeId | null; // tri-state: absent = leave unchanged; null = clear the pin (table NULL = any local attached node); value = rebind — rebinding/clearing may flip "configured" <-> "ready"
   config?: Record<string, unknown>;
+  // 2026-08-26 (D-016-26) — the provider axis (`Spec-016 §Same-Agent Provider Switch`). Every
+  // member is additive-optional and an omitted member is UNCHANGED, never reset.
+  driverName?: string; // moving this is the provider switch; continuity is canonical-transcript replay
+  providerAccountId?: ProviderAccountId;
+  effort?: string;
+  // Applies at the next turn boundary by default. `true` dispatches the EXISTING `interrupt`
+  // intervention first and then switches — an entry point into a control the corpus already has,
+  // not a sixth run control, so Spec-004's V1 control set stays closed. The interrupt is
+  // authorized as Action::"intervene" on the target run, and a refused interrupt refuses the
+  // switch rather than leaving the agent half-moved.
+  interruptAndSwitch?: boolean;
 }
 interface AgentConfigUpdateResponse {
   agentId: AgentId;
   state: AgentState; // post-update state (rebind may have changed it)
   updatedAt: string;
+  // Present exactly when this update moved the provider axis (2026-08-26, D-016-26). Absent on a
+  // pure rename or node rebind, so its presence is the wire's switch discriminator.
+  switch?: AgentProviderSwitchOutcome;
 }
+
+// The settlement of a provider switch, mirrored onto the `agent.provider_switched` event payload.
+interface AgentProviderSwitchOutcome {
+  // "replayed" = the canonical transcript reached the target; "memo" = it could not and the
+  // bounded prose projection stood in. A "memo" settlement is rendered `degraded` by both clients
+  // and is never presented as an ordinary success.
+  continuity: "replayed" | "memo";
+  // REQUIRED, and an EMPTY ARRAY IS A CLAIM: it asserts that nothing was dropped. A driver that
+  // does not know what it lost may not emit one. Closed vocabulary — a new loss kind is an
+  // amendment, never a free string.
+  declaredLosses: DeclaredLossKind[];
+}
+
+type DeclaredLossKind =
+  | "provider_private_reasoning" // non-portable by both vendors' stated rules; never translated
+  | "context_truncated" // the memo budget evicted older exchanges (whole exchanges only, never halves)
+  | "tool_call_history_repaired"; // an unpaired call took a synthetic error result rather than being dropped
 interface AgentListRequest {
   sessionId: SessionId;
 }
@@ -4102,7 +4142,27 @@ interface SessionCostReceiptCausedByRow {
 // Spend no participant caused — scheduled sweeps, idle-timeout settlements, daemon-initiated
 // recovery turns — lands on the `system` arm rather than being distributed across participants
 // or silently dropped. An unattributable turn is NOT guessed.
-type SessionCostReceiptParty =
+//
+// 2026-08-26: this is now an ALIAS of the value each metered row carries, not a parallel shape.
+// The receipt's per-caused-by group key IS the `effectivePrincipal` stamped on the
+// `usage.cost_update` rows being folded, carried verbatim — so the axis is a partition BY
+// CONSTRUCTION (every unit of spend carries exactly one key) rather than by argument, and the two
+// shapes cannot drift apart into a mismatched group key.
+type SessionCostReceiptParty = EffectivePrincipal;
+
+// The turn-scoped effective principal: the party whose causation a unit of work is attributed to.
+// Daemon-resolved and NEVER wire- or driver-supplied — the run engine maintains it from the
+// `interventions` admitting-principal rows (the intervener for a steered or edited-and-resent
+// turn, otherwise the participant who started the run), and the driver's usage normalizer stamps
+// it at emission. Registered as instance (4) of the §Authenticated Principal class rule, whose
+// two shape deviations that section states explicitly.
+//
+// The two arms are closed, and the participant reference is required on the participant arm and
+// ABSENT on the system arm — the same discriminator discipline the `interventions.origin` CHECK
+// enforces in storage, expressed here by the union's shape because a wire payload has no table to
+// constrain. A single nullable participant id was rejected for the reason NS-71 rejected it on the
+// column: an unstamped value and a deliberately-unattributed one would be indistinguishable.
+type EffectivePrincipal =
   | { kind: "participant"; participantId: ParticipantId }
   | { kind: "system" };
 
@@ -4115,7 +4175,7 @@ interface SessionCostReceiptAccountRow {
 }
 ```
 
-No new event type, no new error code, and no new table: the receipt is a decomposition of an existing in-memory fold, so `usage.cost_update`, `usage.budget_warning`, and `session_budgets` are all unchanged. Two of the three axes are **supplied rather than minted here** — the paying account arrives as the `run.queued` server stamp `admittedProviderAccountId` plus the registry's billing mode ([Plan-029](../../plans/029-provider-accounts-and-credential-homes.md), CP-029-3), and the caused-by axis keys on the turn-scoped effective principal — and this plan reads both without widening either.
+No new event type, no new error code, and no new table: the receipt is a decomposition of an existing in-memory fold, so `usage.budget_warning` and `session_budgets` are unchanged and `usage.cost_update` was unchanged **by this amendment** — the 2026-08-26 turn-scoped effective-principal carrier (instance (4) of §Authenticated Principal And Authorization Model) is what later added the `effectivePrincipal` member the per-caused-by axis reads. Two of the three axes are **supplied rather than minted here** — the paying account arrives as the `run.queued` server stamp `admittedProviderAccountId` plus the registry's billing mode ([Plan-029](../../plans/029-provider-accounts-and-credential-homes.md), CP-029-3), and the caused-by axis keys on the turn-scoped effective principal, which since 2026-08-26 arrives as the `effectivePrincipal` member stamped on each `usage.cost_update` row it folds ([Spec-006 §Usage Telemetry](../../specs/006-session-event-taxonomy-and-audit-log.md#usage-telemetry-usage_telemetry)) — and this plan reads both without widening either.
 
 ### Plan-017 — Workflow Authoring And Execution
 

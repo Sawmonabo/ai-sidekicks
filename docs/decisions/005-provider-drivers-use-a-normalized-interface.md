@@ -146,8 +146,9 @@ Leaky abstraction is a manageable risk if the driver contract is intentionally s
 
 ## Decision Log
 
-| Date       | Event        | Notes                                                           |
-| ---------- | ------------ | --------------------------------------------------------------- |
-| 2026-04-14 | Proposed     | Initial draft                                                   |
+| Date | Event | Notes |
+| --- | --- | --- |
+| 2026-04-14 | Proposed | Initial draft |
 | 2026-04-14 | Re-baselined | Reviewer assignment and acceptance validation remain incomplete |
-| 2026-04-15 | Accepted     | ADR accepted                                                    |
+| 2026-04-15 | Accepted | ADR accepted |
+| 2026-08-26 | Extended — replay contract added to the driver boundary | [ADR-028](./028-canonical-transcript-is-authoritative.md) rules the daemon's canonical transcript authoritative for the content of a provider session. The normalized interface this ADR established is what makes such a transcript derivable at all; ADR-028 adds one clause to this boundary's price of admission — a driver must accept a canonical transcript replayed into a fresh session, or declare that it cannot and run on the memo projection floor. The `exportTranscript` / `replayTranscript` operations and the `transcript_replay` / `session_fork` capability flags land in [Spec-005](../specs/005-provider-driver-contract-and-capabilities.md); the normalized-interface decision itself is unchanged and this ADR stays `accepted`. |

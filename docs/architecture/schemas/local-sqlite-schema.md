@@ -276,12 +276,15 @@ CREATE TABLE driver_capabilities (
                       'resume', 'steer', 'interactive_requests', 'mcp',
                       'tool_calls', 'reasoning_stream', 'model_mutation',
                       'structured_output', 'rollback', 'session_goals',
-                      'callback_tools', 'subagents', 'cost_cap'
+                      'callback_tools', 'subagents', 'cost_cap',
+                      'transcript_replay', 'session_fork'
                     )),
   supported         INTEGER NOT NULL DEFAULT 0, -- boolean: 0 or 1
                     -- Campaign-B3/B6 widening note: the catch-up migration that widens the CHECK above MUST
-                    -- backfill the six new flags (five B3 + B6's cost_cap) as supported=0 for every existing driver_name (undeclared =
-                    -- unsupported, I-005-2); a pre-B3 seven-row cache would otherwise break the hydrator's exact-cardinality guard before any refresh could heal it.
+                    -- widen the CHECK to all fifteen values at once — a CHECK is a whitelist, so admitting a value before any
+                    -- row uses it costs nothing and spares a second migration — and MUST backfill supported=0 rows for every existing driver_name (undeclared =
+                    -- unsupported, I-005-2), since a cache whose row count differs from the union's breaks the hydrator's exact-cardinality guard before any refresh could heal it. The rows land in two waves
+                    -- matching the two union widenings: the thirteen campaign flags at Plan-005 T1.7, and transcript_replay + session_fork when T3.19 widens the union (2026-08-26).
   refreshed_at      TEXT NOT NULL,
   PRIMARY KEY (driver_name, capability_flag)
 );
@@ -1432,6 +1435,14 @@ CREATE TABLE agents (
   state           TEXT NOT NULL DEFAULT 'ready'
                   CHECK(state IN ('configured', 'ready', 'disabled', 'archived')),
   config          TEXT NOT NULL DEFAULT '{}',           -- JSON: agent-scoped driver config (opaque to the schema)
+  provider_account_id TEXT,                             -- 2026-08-26 (D-016-26): the Plan-029 `provider_accounts.account_id` this agent
+                                                        -- spawns under; NULL = the provider's registered default. Not inside
+                                                        -- `config` because the Spec-029 spawn gate reads it, and `config` is
+                                                        -- opaque to everything outside the driver
+  effort          TEXT,                                 -- 2026-08-26 (D-016-26): reasoning effort, validated against the target
+                                                        -- model's driver-reported `effortLevels` rather than a schema CHECK --
+                                                        -- the valid set is per-model and provider-owned, so a CHECK here would
+                                                        -- go stale against the provider rather than protect anything
   created_at      TEXT NOT NULL,
   updated_at      TEXT NOT NULL
 );
