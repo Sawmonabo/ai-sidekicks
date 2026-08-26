@@ -362,16 +362,46 @@ Coordination state for the [Spec-014 §Cross-Node Artifact Relay (V1)](../../spe
 ```sql
 -- Owner: Plan-014
 -- Blob lifecycle: state 'pending_replication' at upload-init → 'pinned' when every chunk is
--- relay-acknowledged AND the finalize has re-hashed the assembled ciphertext to equal ciphertext_digest — the CAS key is verified, never trusted; a re-pin re-verifies the stored copy, so re-publish repairs at-rest corruption (the offline-availability guarantee attaches ONLY to 'pinned');
--- 'expired' records TTL/eviction. Value set = the storage-lifecycle SUBSET of the Spec-014 replicationStatus wire enum:
+-- relay-acknowledged AND the finalize has re-hashed the assembled ciphertext to equal ciphertext_digest — the CAS key is verified, never trusted; a re-pin re-verifies the stored copy, so re-publish repairs at-rest corruption
+-- (the offline-availability guarantee attaches ONLY to a LIVE pin: state = 'pinned' AND expires_at > now(). Read paths evaluate that
+--  predicate rather than trusting state alone, because the sweep is hourly and a row can sit past its TTL until it runs — Spec-014
+--  §TTL sweep disposition (V1), 2026-08-26);
+-- 'expired' records a TTL sweep. Value set = the storage-lifecycle SUBSET of the Spec-014 replicationStatus wire enum:
 -- the degradation states ('over_cap' / 'quota_exceeded') mean NO relay upload happened (Spec-014 failure table), so
 -- they never create a blob row — they live only on the artifact manifest (SQLite replication_status + the wire field).
--- Deletion triggers: refcount-zero (all intended recipients fetched) OR expires_at, whichever
+-- Byte-destruction triggers: refcount-zero (all intended recipients fetched) OR expires_at, whichever
 -- first; hourly async sweep + 90% node-storage watermark eviction (delivered/nearest-TTL first).
+-- ROW disposition differs by trigger (Spec-014 §TTL sweep disposition (V1), settled 2026-08-26, BL-152):
+--   refcount-zero delete and watermark eviction DELETE this row (reclaiming the object FIRST — the mirror of
+--   the TTL order below, safe because their trigger already establishes no fetch is owed); recipients cascade.
+--   the TTL sweep RETAINS it as a TOMBSTONE at state='expired' — payload-free once its reclaim confirms — so
+--   a later fetch can be told 410 (was pinned, retention elapsed, re-publish restores) instead of a zero-row
+--   404 (no grant). One INTENT transaction hard-DELETEs every recipient row for the digest (the wrapped-CEK
+--   crypto-shred) and sets state='expired'; the object-store bytes are reclaimed strictly after; a CONFIRMING
+--   transaction then stamps bytes_reclaimed_at and NULLs publisher_participant_id together (timing corrected
+--   2026-08-26, PR #364 round 1). That order is mandatory: this row is the ONLY index into the stored object,
+--   so deleting it first would orphan bytes on a crash. The tombstone is purged once bytes_reclaimed_at +
+--   relay_tombstone_grace (30 d default) has passed. A re-publish UPSERT re-anchors expires_at, returns state
+--   to 'pending_replication', and CLEARS bytes_reclaimed_at — but ONLY on a tombstone whose reclaim has
+--   confirmed: arriving while bytes_reclaimed_at IS NULL it is refused 429 + Retry-After, because the reclaim
+--   it would race commits outside this transaction and would delete the bytes the re-pin just wrote. Stages 2-3
+--   also run under a session-level advisory lock on the digest, so two passes cannot delete one key concurrently.
+-- The due-pin and purge stages are both driven off idx_artifact_relay_blobs_expires — due pins by expires_at,
+-- purgeable tombstones by expires_at < now() - grace (a superset, since bytes_reclaimed_at >= expires_at
+-- always) — so neither needs an index of its own. The RECLAIM-RETRY pass does (added 2026-08-26, PR #364
+-- round 1): it must find tombstones whose object-store delete has not confirmed, and bytes_reclaimed_at IS NULL
+-- is not a prefix of that index, so the pass would scan the whole grace-window population — which grows every
+-- hour and is dominated by rows already reclaimed. The partial index below isolates exactly the retry set,
+-- and stays small by construction because every row leaves it as soon as its reclaim confirms.
 CREATE TABLE artifact_relay_blobs (
   ciphertext_digest        TEXT PRIMARY KEY,   -- multihash-prefixed (sha256:…) whole-ciphertext digest; CAS key, one row per stored blob
   session_id               UUID NOT NULL REFERENCES sessions(id),
-  publisher_participant_id UUID REFERENCES participants(id) ON DELETE SET NULL,  -- anonymize-class (CP-022-6); NULL after publisher erasure
+  publisher_participant_id UUID REFERENCES participants(id) ON DELETE SET NULL,  -- anonymize-class (CP-022-6); NULL after publisher erasure.
+                           -- Second, lifecycle-driven writer (2026-08-26): the TTL sweep NULLs it — but in the
+                           -- transaction that stamps bytes_reclaimed_at, NOT at the sweep's intent, so bytes still
+                           -- in the object store stay attributable to the publisher whose quota they spend
+                           -- (Spec-014 §TTL sweep disposition (V1)). An unreclaimed tombstone therefore still names
+                           -- its publisher, and is covered by this same ON DELETE SET NULL if erasure arrives first.
   size_bytes               BIGINT NOT NULL,
   chunk_size_bytes         INTEGER NOT NULL,   -- fixed 8 MiB in V1 (Spec-014 artifact_relay_chunk_bytes)
   chunk_count              INTEGER NOT NULL,
@@ -380,11 +410,22 @@ CREATE TABLE artifact_relay_blobs (
   state                    TEXT NOT NULL DEFAULT 'pending_replication'
                            CHECK(state IN ('pending_replication', 'pinned', 'expired')),
   expires_at               TIMESTAMPTZ NOT NULL,          -- tier-derived TTL deletion trigger; re-anchored to now + tier TTL on every successful re-pin (Spec-014 Publish steps 3-4: a re-pin is a fresh grant of the same bytes)
+  bytes_reclaimed_at       TIMESTAMPTZ,        -- NULL until the sweep confirms the object-store bytes are gone; the
+                                               -- confirming UPDATE stamps this AND NULLs publisher_participant_id in
+                                               -- ONE transaction (the two stop together — see that column). Then the
+                                               -- relay_tombstone_grace purge clock, and the predicate byte-quota accounting
+                                               -- filters on (a tombstone spends no session/participant budget). A tombstone
+                                               -- left with NULL here is a reclaim owed a retry on the next sweep pass; the
+                                               -- retry is safe because the relay holds no content refcount (ciphertext_digest
+                                               -- is the PK and per-artifact CEKs preclude cross-publication dedup), so the
+                                               -- reclaim is a plain idempotent object-store delete. Added 2026-08-26.
   created_at               TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX idx_artifact_relay_blobs_session ON artifact_relay_blobs(session_id);
 CREATE INDEX idx_artifact_relay_blobs_expires ON artifact_relay_blobs(expires_at);
+CREATE INDEX idx_artifact_relay_blobs_unreclaimed ON artifact_relay_blobs(expires_at)
+  WHERE state = 'expired' AND bytes_reclaimed_at IS NULL;   -- reclaim-retry queue only; an INDEX, not a table, so no census moves
 
 -- Owner: Plan-014
 -- One row per (blob, intended recipient node): carries the wrapped CEK for one attested (participant, node) — encrypted to that node's DURABLE artifact-encryption X25519 key (Spec-014 Publish step 3; never the ADR-010 session-ephemeral keys, which are zeroed at session end and would orphan the CEK on restart), thumbprint-tagged so the fetching daemon selects the right private key after restart/rotation — the relay cannot unwrap;
@@ -395,10 +436,17 @@ CREATE INDEX idx_artifact_relay_blobs_expires ON artifact_relay_blobs(expires_at
 -- never inferred from the last chunk GET — Spec-014 Fetch step 6; the acked row is resolved from the
 -- fetch token's own (participant, node) DPoP-bound claims, never a caller-supplied node_id, so a node presenting a token minted for itself cannot mark a sibling delivered; mint-time authorization is participant-granular (Spec-014 Fetch step 5, scoped 2026-08-08) and this ack proves no CEK unwrap, so a COMPROMISED
 -- same-participant node CAN still forge this write, clear the blob's last outstanding row, and destroy the blob at refcount-zero GC with no remedy while the publisher is offline — the named V1 availability residual, not a closed case; and the write is idempotent), and the in-flight fetch grace lease
--- (GC must not evict the blob while a lease is live). Hard-DELETE class in the CP-022-6 closure:
--- deleting a participant's rows IS the crypto-shred (their reach to the CEK is destroyed) and
+-- (GC must not evict the blob while a lease is live — a bound on DISCRETIONARY watermark eviction only; it does
+--  NOT extend the contracted TTL, so a fetch crossing an expiry boundary is refused rather than carried past
+--  the retention bound. Spec-014 §TTL sweep disposition (V1), 2026-08-26). Hard-DELETE class in the CP-022-6
+-- closure: deleting a participant's rows IS the crypto-shred (their reach to the CEK is destroyed) and
 -- simultaneously removes them from the intended-recipient set, keeping refcount semantics
--- consistent after erasure. Backup honesty (Spec-014 §State And Data Implications): Postgres
+-- consistent after erasure. The SAME hard delete has a second, lifecycle-driven trigger (2026-08-26): the TTL
+-- sweep drops every row for the digest in its own transaction, so the wrapped CEKs are shredded on the ordinary
+-- retention path and not only on an erasure request. The disposition is unchanged — only when it fires is wider
+-- — and the blob tombstone the sweep leaves behind names no participant once its reclaim confirms, while its one
+-- pre-reclaim reference (publisher_participant_id) is already an enumerated anonymize-class FK, so it joins
+-- neither the Spec-022 PII data map nor the CP-022-6 closure at either stage. Backup honesty (Spec-014 §State And Data Implications): Postgres
 -- PITR/WAL archiving is database-wide — rows cannot be excluded — so either the backup/PITR
 -- window is bounded ≤ the erasure SLA (30 d relay-TTL ceiling), or wrapped_cek is stored under a
 -- separately-destroyable KEK (Spec-022 §Daemon Master Key precedent); otherwise shred is incomplete.

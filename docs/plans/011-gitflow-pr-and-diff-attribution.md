@@ -64,7 +64,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 ## Cross-Plan Obligations
 
 - **CP-011-1 (consumes)** — Imports `BranchContextId` and reads/extends the `branch_contexts` row owned by Plan-010 (cross-plan-dependencies §1; Plan-010 CP-010-6). Plan-011 extends via ALTER + service access, never by editing Plan-010's git/ module.
-- **CP-011-2 (consumes)** — Uses `artifact_manifests` + the OCI envelope and the `artifacts/` module owned by Plan-014 (cross-plan-dependencies §2 line 88; `Spec-014 §State And Data Implications`). DiffArtifact rides as artifactType `"diff"` under that envelope.
+- **CP-011-2 (consumes)** — Uses `artifact_manifests` + the OCI envelope and the `artifacts/` module owned by Plan-014 ([cross-plan-dependencies §2 Package Path Ownership Map](../architecture/cross-plan-dependencies.md#2-package-path-ownership-map), the `packages/runtime-daemon/src/artifacts/` row; `Spec-014 §State And Data Implications`). DiffArtifact rides as artifactType `"diff"` under that envelope.
 
 ## Implementation Steps
 
