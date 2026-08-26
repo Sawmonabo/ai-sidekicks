@@ -1131,7 +1131,7 @@ it("renders the version.floor_exceeded write-refusal arm", () => {
 
 - Modify: `turbo.json` (add `"remoteCache": { "signature": true }`; `"cache": false` on `test` and `test:coverage`).
 - Modify: `apps/desktop/turbo.json` (`"cache": false` on `test:renderer` and `test:smoke`).
-- Modify: `.github/workflows/ci.yml` (SHA-pinned `rharkor/caching-for-turbo` step in both test jobs; `TURBO_REMOTE_CACHE_SIGNATURE_KEY` at job-level `env:` from secret; `--cache=local:rw,remote:r` appended to **all eight** turbo invocations on `pull_request`; job-scoped `permissions: { contents: read, actions: write }`).
+- Modify: `.github/workflows/ci.yml` (SHA-pinned `rharkor/caching-for-turbo` step in both test jobs; `TURBO_REMOTE_CACHE_SIGNATURE_KEY` at job-level `env:` from secret; `--cache=local:rw,remote:r` appended to **all eight** turbo invocations in the two cache-enabled jobs on `pull_request` — the advisory `coverage` job's two carry no switch and need none, having no caching action and no `TURBO_API`; job-scoped `permissions: { contents: read, actions: write }`).
 - Modify: `docs/backlog.md` (BL-122 References + Summary §Axis 2 → §Axis 1; exit (a) secret name; persisted baseline; measurement window).
 - Modify: `docs/decisions/023-v1-ci-cd-and-release-automation.md` (§Axis 1 + §Reversibility + F-8 + §Re-Evaluation Triggers corrections; §Decision Log entry).
 
@@ -1180,7 +1180,7 @@ it("renders the version.floor_exceeded write-refusal arm", () => {
 | runtime-daemon | — (invite IPC handlers deferred to Plan-008 Tier-5, Design §4.B decision 6) | — |
 | client-sdk | — | `test/runtimeNodeClient.integration.test.ts` + `src/runtimeNodeClient.ts` comment sweep (Unit A roster-membership ripple; `membershipClient.preview` is Plan-008 Tier-5) |
 | desktop | `renderer/src/runtime-node-attach/__tests__/*.test.tsx` (×4) | — |
-| CI/tooling | — | `turbo.json`, `.github/workflows/ci.yml`, `pnpm-workspace.yaml`, per-package `vitest.config.ts` + `package.json`, `.claude/skills/plan-execution/references/failure-modes.md` |
+| CI/tooling | `vitest.shared.ts`, `tools/coverage-report.mjs` | `turbo.json`, `apps/desktop/turbo.json`, `.github/workflows/ci.yml`, `pnpm-workspace.yaml`, per-package `vitest.config.ts` + `package.json`, `tools/docs-corpus/vitest.config.ts`, `tools/__tests__/entry-guard.test.mjs`, `.claude/skills/plan-execution/references/failure-modes.md` |
 | Backlog | — | `backlog.md` (remove BL-141/BL-133; rewrite BL-131; update BL-123/BL-122; annotate BL-134), `archive/backlog-archive.md` (add BL-141, BL-133) |
 | README | — | plan-status census (×4 flips + restores) |
 

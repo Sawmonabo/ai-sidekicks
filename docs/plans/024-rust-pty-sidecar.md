@@ -429,7 +429,7 @@ preconditions:
   # round 1 corrected this delta's first pass, which recorded this half as
   # having no Gate-5 form: `bl_closed` exists and fails closed on every
   # non-`completed` state, so the procurement gate is encodable - and encoded.
-  # Expect preflight to HALT here while BL-108 is `todo`; that halt IS the gate.
+  # Expect preflight to HALT here while BL-108 is not `completed`; that halt IS the gate.
   # PHASE-level granularity is deliberate: this transcribes NS-09's declared
   # Upstream edge (`NS-07 + BL-108`), which four sibling surfaces already assert —
   # CLAUDE.md's "only hard-blocked code lanes", the dependency-map Tier-1 row's

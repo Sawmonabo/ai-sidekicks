@@ -4,6 +4,12 @@
   "remoteCache": {
     "signature": true
   },
+  "globalDependencies": [
+    "tsconfig.base.json",
+    "tsconfig.node22.json",
+    "tsconfig.node24.json",
+    "eslint.config.mjs"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
