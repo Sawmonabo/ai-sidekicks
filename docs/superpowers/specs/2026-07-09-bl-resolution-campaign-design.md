@@ -18,7 +18,7 @@ Resolve the five build-now items from the 2026-07-09 backlog deep investigation 
 
 - **BL-108 / BL-112 / BL-124** — purchase-gated or human-ceremony-gated procurement items; not resolved by this campaign. Status words, exit criteria, and the corpus claims that cite them are corrected by the Task-9 corpus-corrections step; no purchase and no registration ceremony is performed.
 - **BL-120 / BL-144 / BL-145 / BL-146** — correctly gated on Plan-021 (Tier 6) / Plan-012 / Plan-014 substrate that does not exist and whose creation those plans own. The gate is §5 tier order binding lane-1 work; the work-classification lanes exempt only enhancements to existing code (lane 2) and tooling (lane 3) — they do not unlock net-new plan-owned substrate. Building these now would require a deliberate owner decision to pull Plan-021 forward out of tier order; not taken here.
-- **BL-134** — clipanion `4.0.0-rc.4` (2024-09-06) is simultaneously the newest release AND the npm `latest` dist-tag; there is nothing to bump to. The item stays blocked; this campaign only annotates its dormancy evidence (22 months since the last upstream push; Yarn ships `clipanion: "^4.0.0-rc.2"` in its production CLI) so the "file the bump PR within one week of stable" expectation is recalibrated.
+- **BL-134** — clipanion `4.0.0-rc.4` (2024-09-06) is simultaneously the newest release AND the npm `latest` dist-tag; there is nothing to bump to. The item stays blocked; this campaign only annotates its dormancy evidence (22 months since the last upstream push; Yarn ships `clipanion: "^4.0.0-rc.2"` in its production CLI) so the "file the bump PR within one week of stable" expectation is recalibrated. _Superseded 2026-08-25:_ the clipanion terminal-pin amendment ratified the RC as a terminal pin in `Plan-007 §Decision Log` — with five named re-evaluation triggers replacing the never-firing release watch — and archived BL-134 as premise-void, so the annotation leg described here is discharged rather than pending.
 - **Two-client E2E for the runtime-node renderer** — genuinely gated: zero `ipcMain` handlers exist anywhere in `apps/desktop/src/` (verified 2026-07-09); needs Plan-023 Tier 8.
 - **Rate-limit enforcement wiring** — `rateLimitProcedure` does not exist; Plan-021 (Tier 6) owns its creation. This campaign records the `invite.preview` registry row so Tier-6 wiring is mechanical.
 - **Coverage thresholds** — deliberately absent in this campaign; data-gated on the ≥5-PR baseline the substrate starts collecting (BL-123 exit (c)/(d) stay criterion-gated V1.1).
@@ -270,7 +270,7 @@ Per §3.5: `turbo.json` gains `"remoteCache": { "signature": true }`; both `ci.y
 | BL-131 | Tests half done; item **rewritten in place** to the gated E2E remainder with corrected rationale + completion note | Stays active (slim); archives when Tier 8 lands the E2E |
 | BL-123 | Substrate live; flips `in_progress` with the baseline protocol + artifact pointers recorded | Archives at the V1.1 threshold ADR (exit (c)/(d)) |
 | BL-122 | Wiring live; measurement window open; keep-or-revert on the data | Archives at the keep-or-revert verdict |
-| BL-134 | Dormancy annotation only | Stays blocked (upstream-gated) |
+| BL-134 | Dormancy annotation only | ~~Stays blocked (upstream-gated)~~ — **archived 2026-08-25** as premise-void by the clipanion terminal-pin amendment; the decision moved into `Plan-007 §Decision Log` |
 
 ## 7. Campaign-closure corpus scan (R4)
 
