@@ -202,7 +202,7 @@ CREATE TABLE interventions (
 CREATE INDEX idx_interventions_run ON interventions(target_run_id);
 CREATE INDEX idx_interventions_state ON interventions(state) WHERE state IN ('requested', 'accepted');
 
--- Owner: Plan-004 | Extended by: Plan-015 (recovery + two-phase idempotency protocol, BL-051); Plan-005 (additive nullable mcp_task_id — MCP Tasks durable recovery handle, campaign B10; own Plan-005 migration, never a Plan-004 migration edit)
+-- Owner: Plan-004 | Extended by: Plan-015 (recovery + two-phase idempotency protocol, BL-051); Plan-005 (additive nullable mcp_task_id — MCP Tasks durable recovery handle, campaign B10; own Plan-005 migration, never a Plan-004 migration edit); Plan-028 (additive nullable mcp_binding_digest — governed-binding provenance for the durable trust-revocation neutralization, CP-028-7; own Plan-028 migration, never a Plan-004 migration edit)
 CREATE TABLE command_receipts (
   id                TEXT PRIMARY KEY,
   command_id        TEXT NOT NULL UNIQUE,         -- idempotency key (client-supplied)
@@ -226,6 +226,26 @@ CREATE TABLE command_receipts (
   -- CHECK bounds the SQLite-expressible part and the T5.1 write seam mirrors the same 256 literal.
   mcp_task_id       TEXT                          -- NULL default; MCP Tasks durable recovery handle
                     CHECK (mcp_task_id IS NULL OR (length(mcp_task_id) > 0 AND length(mcp_task_id) <= 256 AND instr(mcp_task_id, char(0)) = 0)),
+  -- Plan-028 EXTEND (additive nullable, own Plan-028 migration): the governed MCP binding this
+  -- receipt's tool resolved from, as the path-free keyed digest -- "b3:"-prefixed keyed BLAKE3
+  -- (key = the binding-identity subkey, derived from the daemon-held node-local master key that
+  -- never enters the database) over the RFC 8785 JCS canonicalization of the McpServerBindingRef
+  -- tuple. The raw scopeRef is a user-specific filesystem path (a Spec-022 durable-tier PII class),
+  -- so it never lands here, and the non-colocated key keeps the digest non-brute-forceable even
+  -- from a database copy -- the McpServerBindingAuditRef.scopeRefDigest discipline, applied to the
+  -- whole binding tuple rather than the scopeRef alone (api-payload-contracts.md §Plan-028).
+  -- Deliberately EXCLUDES the config hash: a binding's config drifts while its identity does not,
+  -- and a revocation triggered BY drift must still match receipts stamped before it, so the digest
+  -- is stable for the binding's life. NULL means the tool resolved from no governed binding at all
+  -- (a provider built-in, or a daemon-hosted callback tool) -- those rows are never neutralization
+  -- candidates. Written from the same Plan-028 resolution output that supplies idempotency_class,
+  -- so no new write seam is introduced (I-028-6, CP-028-7; Plan-028 T28.4.4 + T28.4.11, the column and
+  -- its index created and populated by T28.4.12). The digest is KEYED, so key availability is part of
+  -- the guarantee: if the binding-identity subkey is unavailable, a revocation cannot recompute which
+  -- rows it covers, and every non-terminal digest-bearing row is neutralized to the floor rather than
+  -- left dispatching under an authority the daemon can no longer identify (I-028-6).
+  mcp_binding_digest TEXT                         -- NULL default; governed-binding provenance
+                    CHECK (mcp_binding_digest IS NULL OR mcp_binding_digest GLOB 'b3:*'),
   created_at        TEXT NOT NULL
 );
 
@@ -233,6 +253,12 @@ CREATE INDEX idx_command_receipts_run ON command_receipts(run_id) WHERE run_id I
 -- Recovery sweep index: find in-flight receipts needing idempotency-class-based handling
 CREATE INDEX idx_command_receipts_inflight ON command_receipts(run_id)
   WHERE started_at IS NOT NULL AND completed_at IS NULL;
+-- Plan-028 neutralization lookup: on trust revocation, find every non-terminal receipt stamped with
+-- the revoked binding so its stamped idempotency_class can be rewritten to the manual_reconcile_only
+-- floor inside the revocation's own transaction (I-028-6). Partial on completed_at IS NULL because a
+-- terminal receipt is never re-dispatched, so it is not a candidate.
+CREATE INDEX idx_command_receipts_mcp_binding ON command_receipts(mcp_binding_digest)
+  WHERE mcp_binding_digest IS NOT NULL AND completed_at IS NULL;
 ```
 
 ---
@@ -1411,6 +1437,13 @@ CREATE TABLE run_links (
   internal_helper   INTEGER NOT NULL DEFAULT 0
                     CHECK(internal_helper IN (0, 1)),   -- durable home of the internal-helper flag (I-016-10)
   producing_node_id TEXT NOT NULL,                      -- runtime node that admitted the child run (reachability projection input)
+  invoking_principal_id TEXT,                           -- 2026-08-26 (CP-030-4 ⇄ CP-016-19): the effective principal of the TURN that
+                                                        -- issued a peer-invocation tool call, stamped daemon-side at child-run creation.
+                                                        -- NULL for links created by any other path (a workflow-spawned child, a handoff).
+                                                        -- A peer-invoked child run has no intervention row and no participant who "started"
+                                                        -- it, and chaining to the parent RUN cannot answer which turn called: a run
+                                                        -- accumulates turns from several principals and recency is not a correct answer.
+                                                        -- Daemon-resolved, never client-supplied (the NS-71 durable-recording discipline).
   created_at        TEXT NOT NULL,
   PRIMARY KEY (child_run_id),                       -- single-parent: a child run links to exactly one parent (one-shot run.queued linkage D-016-3; depth-1 model)
   CHECK (parent_run_id <> child_run_id)             -- a run never parents itself
@@ -1832,6 +1865,60 @@ CREATE TABLE provider_account_usage_windows (
 ```
 
 Spend is joined to an account without duplicating account identity onto every usage row. A provider run carries the server-stamped `admittedProviderAccountId` on its `run.queued` admission record, so priced usage rows join to an account **through the run**. The one usage kind that carries account identity directly is `usage.rate_limit_update`, because provider quota is account-scoped and has no run to join through — the asymmetry is deliberate, and it also keeps participant identity off every usage row.
+
+---
+
+## Sidekick Definition Tables (Plan-030)
+
+Node-local registry of saved sidekick configurations, for [Spec-030](../../specs/030-sidekick-definitions-and-peer-invocation.md). One row per definition. This is **configuration, not session state**: it is not events-canonical, is never replayed, is never rebuilt from the event log, and never leaves the node (I-030-9).
+
+`id` is daemon-minted, opaque, and immutable, and is stable across a rename — `name` is a mutable human label and is never an identity key (I-030-1). An agent attached from a definition holds a **snapshot** of it: no foreign key binds an agent to this table, and no read path serving a running agent consults it, so editing or deleting a definition can never widen an already-attached sidekick's authority (I-030-2).
+
+`provider_account_id` deliberately carries **no foreign key** to `provider_accounts` (D-030-1). `ON DELETE CASCADE` would discard operator-authored configuration when an account is removed; `ON DELETE SET NULL` would silently convert a pinned account into "the provider's default account", which is exactly the substitution the fail-closed resolution rule forbids; `ON DELETE RESTRICT` would make account removal fail because an unrelated definition names it. The reference is therefore unenforced at the schema layer and checked at attach time, which is the only point at which the answer matters.
+
+`tool_allowlist` is three-state and the three states are **not** interchangeable (I-030-4): `NULL` means the driver's default tool set, the JSON array `'[]'` means no tools at all, and a populated array means exactly those tools. Representing "no tools" as an absent value would make the most restrictive choice unexpressible.
+
+`execution_posture_mode` stores the posture **mode literal only** (I-030-8). A composed `ExecutionPosture` carries a content-addressed `credentialPolicyRef` meaningful only against the session that composed it, so persisting one would let a stale definition re-grant a superseded trust decision, or dangle outright; the session composes the full posture at attach time from this mode.
+
+```sql
+-- Owner: Plan-030
+CREATE TABLE sidekick_definitions (
+  id                     TEXT PRIMARY KEY,  -- daemon-minted opaque immutable definitionId; stable across a rename (I-030-1)
+  name                   TEXT NOT NULL  -- mutable human label; NEVER an identity key on any wire request, stored reference, or audit row
+                         CHECK(length(name) > 0 AND length(name) <= 128 AND instr(name, char(0)) = 0),
+  name_folded            TEXT NOT NULL,  -- full-Unicode case fold of `name`, computed by the store on every write (I-030-7).
+                                         -- Stored rather than derived because SQLite has no Unicode-aware collation to index on:
+                                         -- this column is what the uniqueness index arbitrates, so the DATABASE enforces folded
+                                         -- uniqueness and no concurrent pair of non-ASCII case variants can both commit.
+  description            TEXT NOT NULL DEFAULT ''
+                         CHECK(length(description) <= 1024 AND instr(description, char(0)) = 0),
+  driver_name            TEXT NOT NULL,  -- provider driver key (Plan-005 capability surface), matching agents.driver_name
+  model_id               TEXT NOT NULL,
+  provider_account_id    TEXT,  -- NULL = the provider's default account resolved at attach time. Deliberately NO foreign key (D-030-1) — the row must outlive its account so resolution can refuse legibly instead of substituting
+  effort                 TEXT,  -- NULL = the driver's default. Validated at resolution against the target model's driver-reported effortLevels, NOT against a corpus-wide enum, so no CHECK list appears here
+  execution_posture_mode TEXT  -- NULL = the session default posture. Mode literal ONLY — no credentialPolicyRef, writableRoots, or network member is ever persisted here (I-030-8)
+                         CHECK(execution_posture_mode IS NULL OR execution_posture_mode IN (
+                           'trusted', 'workspace-sandboxed', 'readonly-sandboxed'
+                         )),
+  instructions           TEXT NOT NULL DEFAULT ''  -- the system-prompt text the sidekick runs under; operator-authored node-local configuration, never emitted into an event payload
+                         CHECK(length(instructions) <= 32768 AND instr(instructions, char(0)) = 0),
+  goal                   TEXT
+                         CHECK(goal IS NULL OR (length(goal) > 0 AND length(goal) <= 4096 AND instr(goal, char(0)) = 0)),
+  tool_allowlist         TEXT  -- three-state (I-030-4): NULL = driver defaults, '[]' = no tools, populated = exactly those. The array-shape CHECK admits '[]' and rejects a scalar or object
+                         CHECK(tool_allowlist IS NULL OR (json_valid(tool_allowlist) AND json_type(tool_allowlist) = 'array')),
+  created_at             TEXT NOT NULL,
+  updated_at             TEXT NOT NULL
+);
+
+-- Case-insensitive name uniqueness (I-030-7): two definitions differing only in letter case are
+-- one handle to a human reading a picker, and a service-layer-only check races under concurrent
+-- creates from the desktop and CLI clients at once. The index arbitrates the STORED FOLD KEY, so the
+-- guarantee is the full-Unicode one and not an ASCII subset of it.
+CREATE UNIQUE INDEX idx_sidekick_definitions_name_folded
+  ON sidekick_definitions(name_folded);
+```
+
+**Why a stored fold key rather than `COLLATE NOCASE`.** SQLite's built-in `NOCASE` collation folds only the 26 ASCII letters — [SQLite datatype documentation](https://sqlite.org/datatype3.html#collating_sequences), accessed 2026-08-26 — so an index built on it collides `Reviewer` with `reviewer` but admits a pair differing only in a non-ASCII case mapping. An earlier revision paired that ASCII index with a full-Unicode check in the definition store and called the index a concurrency backstop; that arrangement does not hold, because the layer performing the real fold is the layer that cannot be atomic. Two concurrent creates of `Ärger` and `ärger` each pass the service precheck, and the ASCII index then accepts both — the exact race the backstop was there to close. Persisting the fold (`name_folded`, written by the store on every insert and update) moves the full-Unicode comparison into the unique index itself, so uniqueness is decided once, by the database, under the same folding the service uses. The store still performs the fold — it owns the Unicode algorithm — but it is no longer the correctness boundary, only the producer of the key. `name` continues to hold the operator's original casing for display.
 
 ## Schema Version Table
 
