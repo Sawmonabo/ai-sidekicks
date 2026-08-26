@@ -35,8 +35,8 @@
 //
 // The discriminated-union `SessionEvent` discriminates on the wire `type`
 // string. Adding a new variant later is additive per ADR-018 §Decision #8
-// (new event types allowed under a MINOR version bump). The full taxonomy
-// from Spec-006 §Event Type Enumeration is registered below at the post-B18
+// (new event types allowed under a MINOR version bump). The taxonomy from
+// Spec-006 §Event Type Enumeration is registered below at the post-B18
 // census (Plan-006 T1.2, closed by T1.10): `SessionEventType` (156 literals),
 // the per-category `*_EVENT_TYPES` arrays, and `SESSION_EVENT_CATEGORY_BY_TYPE`
 // (20 categories). Payload variants remain intentionally a strict subset, and
@@ -2480,9 +2480,13 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
 // SessionEventType — the canonical event-type census (Plan-006 T1.2).
 // --------------------------------------------------------------------------
 //
-// Every wire `type` string from Spec-006 §Event Type Enumeration is
-// registered below. The post-B18 census in `Spec-006 §Event Type Summary`
-// is 156 types across 20 categories. The fifteen minted by the 2026-07-22
+// Every wire `type` string registered below comes from Spec-006 §Event Type
+// Enumeration. `Spec-006 §Event Type Summary` reads 157 types across 20
+// categories; this union deliberately registers the post-B18 156 until
+// Plan-016 T1.13 widens it under CP-016-3 (`agent.provider_switched`,
+// 2026-08-26 D-016-26) — the registry-leads-code lag that spec records in
+// the same row. Every count below is therefore code truth at 156, not a
+// restatement of the spec census. The fifteen minted by the 2026-07-22
 // B18 amendment — three provider-surface `session.*`, three forward,
 // non-state `run.*`, three `usage.*`, `user.message`, and the five `mcp.*`
 // under the `mcp_governance` category — were registered here by T1.10.

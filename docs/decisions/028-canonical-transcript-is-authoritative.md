@@ -79,13 +79,22 @@ The synthesis above is only checkable if "capability-gated optimization with a n
 
 | Provider-native shortcut | Capability gate ([Spec-005 §Per-Driver Capability Matrix](../specs/005-provider-driver-contract-and-capabilities.md#per-driver-capability-matrix)) | Daemon-side fallback when the gate is false or the call refuses |
 | --- | --- | --- |
-| Continue an existing session | `session_resume` | Replay the canonical transcript into a fresh provider session |
-| Unwind to an earlier point | `rollback_to`, plus Spec-004's declared boundary-crossing rewind semantics where the target crosses a compaction boundary | Replay the canonical transcript **prefix** into a fresh session |
+| Continue an existing session | `resume` | Replay the canonical transcript into a fresh provider session |
+| Unwind to an earlier point | `rollback`, plus Spec-004's declared boundary-crossing rewind semantics where the target crosses a compaction boundary | Replay the canonical transcript **prefix** into a fresh session |
 | Branch a session | `session_fork` | Replay the canonical transcript into a **second** fresh session, leaving the first untouched |
 | Continue under a different provider | none exists, by construction | Replay only — the case this decision was triggered by |
 | Replay itself | `transcript_replay` | The **memo projection**: a bounded prose rendering of the canonical transcript, rebuilt every turn, with the operation reported `degraded` and the losses declared |
 
 The last row is what keeps the decision from resting on Assumption 1. A provider whose input surface will not accept prior-turn content declares `transcript_replay: false`, and the runtime still functions — visibly diminished, never silently wrong.
+
+#### Where a consuming spec declines the fallback
+
+A fallback being **available** is not the same as a capability being **obliged** to take it. Two of the five rows above have a consuming spec that deliberately declines the substitution in V1, and both declines are named here rather than left to be inferred from the consuming spec's silence — the count is five rows, of which two carry a decline:
+
+- **Row 1, recovery.** [Spec-015 §Fallback Behavior](../specs/015-persistence-recovery-and-replay.md#fallback-behavior) transitions an unresumable run to `failed` rather than replaying it into a fresh session. The reason is this decision's own boundary: the canonical transcript is authoritative for the **conversation** and never for the **world**. A crashed run's in-flight turn may have executed tool calls whose effects are on disk, and replaying the conversation that requested them reconstructs the request, not the result — file-state restore is the daemon's turn-snapshot leg, never the driver's ([Spec-005 §Per-Driver Capability Matrix](../specs/005-provider-driver-contract-and-capabilities.md#per-driver-capability-matrix), the `rollback` row). Declining here is what keeps a recovered run from asserting a world state nothing produced.
+- **Row 2, boundary-crossing rewind.** [Spec-004 §Required Behavior](../specs/004-queue-steer-pause-resume.md#required-behavior) refuses a rewind target above a provider compaction boundary rather than substituting a prefix replay. The fallback would reach the pre-compaction context, but the operation asked for is a rewind of a **run** — its file leg, its binding, its normalized-position vocabulary, and its recorded `usage.context_compacted` row — and a fresh-session substitution moves the binding and the position vocabulary under a row the rewind has already marked undone. The refusal is fail-closed against that disagreement, not a claim that the prefix is unreachable.
+
+Both declines are properties of the consuming capability, not of this decision, and either becomes a plain amendment of its own spec the day its named reason stops holding. What this decision forbids is the third option: a capability that silently depends on a provider-native verb and has no answer at all when the verb is absent.
 
 ---
 
