@@ -226,12 +226,13 @@ describe("AttachFlow (Plan-003 Phase 5 T5.1)", () => {
       render(<AttachFlow sessionId={TARGET_SESSION_ID} attachDraft={ATTACH_DRAFT} />);
       clickAttach();
 
+      // The count is asserted only AFTER the attach settles. The violation this
+      // forbids — a coupled membership mutation — would most plausibly be
+      // chained off attach success, so a count taken while the promise is
+      // still pending would be blind to exactly the shape it exists to catch.
+      await screen.findByLabelText("runtime-node-attach-resolved");
       expect(controlPlaneCall.mock.calls).toHaveLength(1);
       expect(controlPlaneCall).toHaveBeenCalledWith("runtimenode.attach", expect.anything());
-      // The mocked reply resolves, so the view transitions out of `pending`
-      // after this body would otherwise end. Awaiting the settled arm keeps
-      // that update inside act and asserts the dispatch actually completes.
-      await screen.findByLabelText("runtime-node-attach-resolved");
     });
 
     it("renders the pending state with no clickable control while in flight", () => {
