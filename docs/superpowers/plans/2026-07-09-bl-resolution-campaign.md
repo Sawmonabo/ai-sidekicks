@@ -42,7 +42,7 @@ Every task inherits all of these. Values copied verbatim from the Design and the
 | 5 | PR-B1 — Unit B docs | governance | 1 (merge-serialize census vs Task 2) |
 | 6 | PR-B1p — Spec-002 + Spec-021 + Plan-002 re-promotion | governance | 5 |
 | 7 | PR-B2 — Unit B code + BL-133 archive | lane 1 | 6 |
-| 8 | PR-C — Unit C tests + BL-131 rewrite + BL-134 note | lane 2 | 1 |
+| 8 | PR-C — Unit C tests + BL-131 rewrite + ~~BL-134 note~~ _(retired 2026-08-26, unexecuted — see Task 8's closure note)_ | lane 2 | 1 |
 | 9 | PR-D — Unit D coverage substrate + BL-123 update | lane 3 | 1 |
 | 10 | PR-E — Unit E cache + BL-122/ADR-023 fixes | lane 3 | 1 |
 | 11 | Closure — whole-corpus coherence scan | governance | 2–10 |
@@ -1053,12 +1053,16 @@ In `host.ts`: `t.mergeRouters(createSessionRouter(deps), createRuntimeNodeRouter
 
 ### Task 8: PR-C — Unit C tests + BL-131 rewrite + BL-134 note (lane 2)
 
+> **BL-134 leg closed 2026-08-26 — premise-void, never executed, no successor.** The third clause of this task (the `+ BL-134 note` in the heading and DAG row, the "annotate BL-134 dormancy" Files bullet, the second half of Step 8, the `BL-134` token in Step 10's drafted `Refs:` trailer, and the `annotate BL-134` clause in the §File-structure ledger) is retired rather than done. PR #356 ratified `clipanion@4.0.0-rc.4` as a **terminal** pin rather than a provisional one — folding the audited rc.4 defects into `Plan-007 §Phase R3 — Client Delivery (Tier 4)` as normative task text (§6 node NS-78) — and archived BL-134 outright as premise-void with five named re-evaluation triggers ([`backlog-archive.md` §BL-134](../../archive/backlog-archive.md#bl-134-clipanion-stable-v4-upgrade--lockfile-bump-for-plan-007-r3-pr-a-cli)). There is no live entry left to annotate and no "within one week of stable" trigger left to recalibrate: the watch surface this task assumed (an upstream stable-v4 tag) is the very premise the archive record falsifies. Step 8's checkbox stays **unticked** deliberately — its BL-131 half was executed, its BL-134 half never will be, and a tick would assert both. The design's counterpart surfaces are swept in the same diff: its §4.C `Ride-along` clause, its §5 PR-C row, and its §6 end-state cell for BL-134 (whose archive-action cell PR #356 corrected on its own, as it did §1.2's premise bullet) — so Task 11 Step 1's per-BL sweep, which reads Design §6 end states as its oracle, no longer reports a dormancy annotation this campaign owes.
+>
+> **Not settled here:** Task 8's remaining steps shipped 2026-08-25 as PR #355 (`test(desktop): runtime-node renderer component coverage`), which did not touch this file, so this task still carries no execution record for them. Writing that record is the campaign lead's bookkeeping, not this chore vehicle's.
+
 **Design contract:** §4.C; §3.3 ground truth.
 
 **Files:**
 
 - Create: `apps/desktop/src/renderer/src/runtime-node-attach/__tests__/NodeRoster.test.tsx` / `AttachFlow.test.tsx` / `CapabilityDeclaration.test.tsx` / `MixedVersionStatus.test.tsx`.
-- Modify: `docs/backlog.md` (rewrite BL-131 to the gated remainder; annotate BL-134 dormancy).
+- Modify: `docs/backlog.md` (rewrite BL-131 to the gated remainder; annotate BL-134 dormancy). _(2026-08-26: the BL-134 half is void — PR #356 archived the entry, so there is no `backlog.md` row to annotate.)_
 - Modify: `docs/plans/003-runtime-node-attach.md` (all **seven** BL-131 mentions — the four T5 Test-field notes + two §Verification restatements record the component-test half shipped; line 847's Shipment-Manifest note narrows "component/E2E" → "E2E"; note-level, no status flip).
 
 **Interfaces:** Consumes `SidekicksBridge` (`@ai-sidekicks/contracts`), the `installMockBridge` cast pattern (`session-members/__tests__/participant-roster.test.tsx`), the four shipped components. Produces no exported symbols (test files only).
@@ -1091,9 +1095,9 @@ it("renders the version.floor_exceeded write-refusal arm", () => {
 - [ ] **Step 5: `AttachFlow.test.tsx`** — mock `{controlPlane: {call}}`; assert idle/pending/resolved/rejected + `readOnly` verbatim surfacing. Run → PASS.
 - [ ] **Step 6: Add the bridge-only import-scan** (reuse the CP-002-5 `import.meta.glob(…, {query:"?raw"})` pattern from `participant-roster.test.tsx`) asserting no `node:*`/`electron`/`@ai-sidekicks/runtime-daemon`/`control-plane` imports in the four component sources. Run → PASS.
 - [ ] **Step 7:** Full `pnpm typecheck && pnpm lint && pnpm test`.
-- [ ] **Step 8: Rewrite BL-131** in `backlog.md`: correct the Summary rationale (the harness shipped via Plan-001 T5.2 + Plan-002 T6.3, not Plan-023); mark exit (b) + (d) DONE this PR with a completion note; exit (a)-IPC-clause + (c) stay gated on Plan-023 Tier 8 (zero `ipcMain` handlers). Update Status to reflect the slim remainder. Annotate BL-134: rc.4 = latest + npm `latest`, 22 months since upstream push, Yarn ships `^4.0.0-rc.2` in production — recalibrate the "within one week of stable" trigger.
+- [ ] **Step 8: Rewrite BL-131** in `backlog.md`: correct the Summary rationale (the harness shipped via Plan-001 T5.2 + Plan-002 T6.3, not Plan-023); mark exit (b) + (d) DONE this PR with a completion note; exit (a)-IPC-clause + (c) stay gated on Plan-023 Tier 8 (zero `ipcMain` handlers). Update Status to reflect the slim remainder. Annotate BL-134: rc.4 = latest + npm `latest`, 22 months since upstream push, Yarn ships `^4.0.0-rc.2` in production — recalibrate the "within one week of stable" trigger. **Retired 2026-08-26, unexecuted:** those three facts were instead used by PR #356 to close BL-134 as premise-void and ratify the pin as terminal, so the recalibration this clause asks for has no target. This step's BL-131 half did land (PR #355); the box stays unticked because its BL-134 half never will.
 - [ ] **Step 9: Update all seven Plan-003 BL-131 mentions** (lines 225/588/596/604/612/616/847 — §3.3 of the Design enumerates them): the four T5 Test-field notes (~588/596/604/612) + the two §Verification restatements (~225/616) record the component-test half shipped; line ~847's Shipment-Manifest note narrows "automated renderer component/E2E coverage backfills per BL-131" → "…E2E coverage…" (the component half now ships). Cite this PR by `Refs:` footer convention, not an in-doc ephemeral ref; the E2E half stays BL-131-gated. Note-level edits — no behavior row changes, so no status flip (declare in the PR body). `grep -n "BL-131" docs/plans/003-runtime-node-attach.md` → confirm exactly seven, all handled.
-- [ ] **Step 10:** SPP-3 (docs gates on the `.md` edits + code gates on the tests) / SPP-4 / SPP-5 / SPP-6. Subject `test(desktop): runtime-node renderer component tests (bl-131 split)`; body declares lane 2 (no plan token; `Refs: Plan-003, BL-131, BL-134` footer). Branch is NON-plan-scoped and the title carries NO `Plan-NNN` token (lane-boundary compliance).
+- [ ] **Step 10:** SPP-3 (docs gates on the `.md` edits + code gates on the tests) / SPP-4 / SPP-5 / SPP-6. Subject `test(desktop): runtime-node renderer component tests (bl-131 split)`; body declares lane 2 (no plan token; `Refs: Plan-003, BL-131, BL-134` footer). Branch is NON-plan-scoped and the title carries NO `Plan-NNN` token (lane-boundary compliance). **`Refs:` trailer corrected 2026-08-26:** the `BL-134` token is retired with that leg (see this task's closure note), so the trailer this step calls for is `Refs: Plan-003, BL-131`. The trailer as drafted is the last surviving BL-134 instruction in this task; nothing downstream should re-derive the token from it.
 
 ---
 
@@ -1181,7 +1185,7 @@ it("renders the version.floor_exceeded write-refusal arm", () => {
 | client-sdk | — | `test/runtimeNodeClient.integration.test.ts` + `src/runtimeNodeClient.ts` comment sweep (Unit A roster-membership ripple; `membershipClient.preview` is Plan-008 Tier-5) |
 | desktop | `renderer/src/runtime-node-attach/__tests__/*.test.tsx` (×4) | — |
 | CI/tooling | `vitest.shared.ts`, `tools/coverage-report.mjs` | `turbo.json`, `apps/desktop/turbo.json`, `.github/workflows/ci.yml`, `pnpm-workspace.yaml`, per-package `vitest.config.ts` + `package.json`, `tools/docs-corpus/vitest.config.ts`, `tools/__tests__/entry-guard.test.mjs`, `.claude/skills/plan-execution/references/failure-modes.md` |
-| Backlog | — | `backlog.md` (remove BL-141/BL-133; rewrite BL-131; update BL-123/BL-122; annotate BL-134), `archive/backlog-archive.md` (add BL-141, BL-133) |
+| Backlog | — | `backlog.md` (remove BL-141/BL-133; rewrite BL-131; update BL-123/BL-122; ~~annotate BL-134~~ _(2026-08-26: retired unexecuted — PR #356 archived the entry, so no `backlog.md` row remains to annotate; see Task 8's closure note)_), `archive/backlog-archive.md` (add BL-141, BL-133) |
 | README | — | plan-status census (×4 flips + restores) |
 
 ## Self-review (writing-plans checklist)
