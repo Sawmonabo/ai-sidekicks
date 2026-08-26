@@ -277,14 +277,14 @@ CREATE TABLE driver_capabilities (
                       'tool_calls', 'reasoning_stream', 'model_mutation',
                       'structured_output', 'rollback', 'session_goals',
                       'callback_tools', 'subagents', 'cost_cap',
-                      'transcript_replay', 'session_fork'
+                      'transcript_replay'
                     )),
   supported         INTEGER NOT NULL DEFAULT 0, -- boolean: 0 or 1
                     -- Campaign-B3/B6 widening note: the catch-up migration that widens the CHECK above MUST
-                    -- widen the CHECK to all fifteen values at once — a CHECK is a whitelist, so admitting a value before any
+                    -- widen the CHECK to all fourteen values at once — a CHECK is a whitelist, so admitting a value before any
                     -- row uses it costs nothing and spares a second migration — and MUST backfill supported=0 rows for every existing driver_name (undeclared =
                     -- unsupported, I-005-2), since a cache whose row count differs from the union's breaks the hydrator's exact-cardinality guard before any refresh could heal it. The rows land in two waves
-                    -- matching the two union widenings: the thirteen campaign flags at Plan-005 T1.7, and transcript_replay + session_fork when T3.19 widens the union (2026-08-26).
+                    -- matching the two union widenings: the thirteen campaign flags at Plan-005 T1.7, and transcript_replay when T3.19 widens the union (2026-08-26).
   refreshed_at      TEXT NOT NULL,
   PRIMARY KEY (driver_name, capability_flag)
 );
@@ -1443,6 +1443,17 @@ CREATE TABLE agents (
                                                         -- model's driver-reported `effortLevels` rather than a schema CHECK --
                                                         -- the valid set is per-model and provider-owned, so a CHECK here would
                                                         -- go stale against the provider rather than protect anything
+  pending_switch  TEXT,                                 -- 2026-08-26 (D-016-26): JSON {switchId, appliesAt: 'turn_boundary'|'run_boundary',
+                                                        -- axes: {driverName?, providerAccountId?, modelId?, effort?}} -- the ONE switch
+                                                        -- acknowledged to a caller but not yet applied at its boundary; NULL = none.
+                                                        -- Durable because the acknowledgment is a promise a restart must keep: startup
+                                                        -- re-arms from this column instead of dropping the intent. A single nullable
+                                                        -- slot is what makes one-pending-per-agent structural -- a later provider-axis
+                                                        -- update overwrites it (supersession, last writer wins) under the same row lock,
+                                                        -- so a queue of half-wanted switches is unrepresentable. Holds the PENDING
+                                                        -- binding only; the effective binding stays in the columns above and moves
+                                                        -- there at application. Cleared by whichever terminal event settles the switch
+                                                        -- (agent.provider_switched / agent.provider_switch_failed) and by supersession
   created_at      TEXT NOT NULL,
   updated_at      TEXT NOT NULL
 );

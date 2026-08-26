@@ -81,7 +81,7 @@ The synthesis above is only checkable if "capability-gated optimization with a n
 | --- | --- | --- |
 | Continue an existing session | `resume` | Replay the canonical transcript into a fresh provider session |
 | Unwind to an earlier point | `rollback`, plus Spec-004's declared boundary-crossing rewind semantics where the target crosses a compaction boundary | Replay the canonical transcript **prefix** into a fresh session |
-| Branch a session | `session_fork` | Replay the canonical transcript into a **second** fresh session, leaving the first untouched |
+| Branch a session | **none registered in V1** — deliberately. Both vendors ship a fork verb (Codex `thread/fork`, non-experimental at `0.149.1`; Claude `--fork-session`, Verified in the `2.1.245` census), but no V1 capability branches a session, so a flag declared for one would be a gate nothing consults — and an unconsultable capability flag is the failure mode [Spec-005 §Capability discovery](../specs/005-provider-driver-contract-and-capabilities.md#capability-discovery) exists to prevent. A V1.1 branching capability registers the flag with its consumer, in one amendment | Replay the canonical transcript into a **second** fresh session, leaving the first untouched |
 | Continue under a different provider | none exists, by construction | Replay only — the case this decision was triggered by |
 | Replay itself | `transcript_replay` | The **memo projection**: a bounded prose rendering of the canonical transcript, rebuilt every turn, with the operation reported `degraded` and the losses declared |
 

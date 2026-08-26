@@ -190,15 +190,14 @@ type DriverCapabilityFlag =
   | "callback_tools" // daemon-curated callback-tool registry (campaign B3)
   | "subagents" // provider-native in-session subagents under subagentPolicy (campaign B3)
   | "transcript_replay" // accepts a canonical transcript replayed into a fresh session via replayTranscript (2026-08-26, ADR-029; the Claude cell is probe-declared, not statically true — Spec-005 §Per-Driver Capability Matrix)
-  | "session_fork" // branches a session without disturbing the original (2026-08-26; an optimization over replay-into-a-second-session, never a dependency)
   | "cost_cap"; // realizes a daemon-supplied hard cost cap natively at spawn — Claude --max-budget-usd; gates the Spec-016 native-cap unpriced admission (campaign B6)
 // Code-mirror gate (campaign B3/B6): the shipped executable union
 // (packages/contracts/src/provider-driver.ts) still exports the seven pre-B3 flags, and the
 // shipped assertValidCapabilityFlags rejects any snapshot whose key count differs — so a driver
-// MUST NOT declare the eight doc-registered flags against the shipped validator. Union + validator +
+// MUST NOT declare the seven doc-registered flags against the shipped validator. Union + validator +
 // driver_capabilities migration backfill + conformance tests widen together as ONE change via
-// the campaign's Plan-005 bundle for the first six and via Plan-005 T3.19 for transcript_replay +
-// session_fork (2026-08-26), which extends the same union rather than opening a second seam; cost_cap-gated admission code (Plan-016 T2.3) dispatch-gates
+// the campaign's Plan-005 bundle for the first six and via Plan-005 T3.19 for transcript_replay
+// (2026-08-26), which extends the same union rather than opening a second seam; cost_cap-gated admission code (Plan-016 T2.3) dispatch-gates
 // on that bundle (same named-bundle gate as the goal driver mirror).
 ```
 
@@ -1379,10 +1378,10 @@ type EventCategory =
   // Extended per Spec-006 §Runtime Node Lifecycle, §Recovery Events, §Participant Lifecycle,
   // §Audit Integrity, §Security Events, §Event Maintenance, §Policy Events,
   // §Channel Arbitration, §Onboarding Lifecycle, §Cross-Node Dispatch, §MCP Governance (20 categories
-  // total per Spec-006 §Event Type Summary; 157 event types (140 per the 2026-07-02 B1 amendment,
+  // total per Spec-006 §Event Type Summary; 158 event types (140 per the 2026-07-02 B1 amendment,
   // +1 `pty.control_changed` per the 2026-07-06 B4 amendment, +15 per the 2026-07-22 B18 amendment —
-  // incl. the five `mcp_governance` types — and +1 `agent.provider_switched` per the 2026-08-26
-  // D-016-26 amendment) — the Tier-5
+  // incl. the five `mcp_governance` types — and +2 (`agent.provider_switched`,
+  // `agent.provider_switch_failed`) per the 2026-08-26 D-016-26 amendment) — the Tier-5
   // readiness-audit swap registered daemon.master_key_source + daemon.pii_split_ambiguous
   // under the existing security_events category, Plan-022 D-022-5, and the Tier-6 swap
   // added approval.canceled (D-012-8) plus four Plan-016 types (A-016-6, D-016-10/11/12),
@@ -4006,7 +4005,11 @@ interface AgentConfigUpdateRequest {
   driverName?: string; // moving this is the provider switch; continuity is canonical-transcript replay
   providerAccountId?: ProviderAccountId;
   effort?: string;
-  // Applies at the next turn boundary by default. `true` dispatches the EXISTING `interrupt`
+  // Applies at the next boundary the TARGET AXIS permits, never at a fixed one: a turn boundary
+  // for an axis the target driver takes as a per-turn override, a run boundary for a spawn-bound
+  // one (`driverName` and `providerAccountId` always, since Spec-029 binds a run's account for
+  // the run's lifetime). A multi-axis update takes the WIDEST of its axes' boundaries, so no axis
+  // applies earlier than its own rule allows. `true` dispatches the EXISTING `interrupt`
   // intervention first and then switches — an entry point into a control the corpus already has,
   // not a sixth run control, so Spec-004's V1 control set stays closed. The interrupt is
   // authorized as Action::"intervene" on the target run, and a refused interrupt refuses the
@@ -4019,25 +4022,62 @@ interface AgentConfigUpdateResponse {
   updatedAt: string;
   // Present exactly when this update moved the provider axis (2026-08-26, D-016-26). Absent on a
   // pure rename or node rebind, so its presence is the wire's switch discriminator.
-  switch?: AgentProviderSwitchOutcome;
+  switch?: AgentProviderSwitchDisposition;
 }
+
+// Mutation and application are TWO MOMENTS (Spec-016 §Same-Agent Provider Switch), so what the
+// mutation returns is a discriminated union and not a settlement. "pending" is the ordinary
+// answer; "applied" is reachable only on the interruptAndSwitch arm, which collapses the two
+// moments into one. A caller that reads `switch.continuity` without discriminating is reading a
+// member that is absent on the common path.
+type AgentProviderSwitchDisposition =
+  | AgentProviderSwitchPending
+  | ({ status: "applied" } & AgentProviderSwitchOutcome);
+
+interface AgentProviderSwitchPending {
+  status: "pending";
+  // Daemon-minted, durable on the agent row, and the correlator between this acknowledgment and
+  // the terminal `agent.provider_switched` / `agent.provider_switch_failed` event. A caller never
+  // supplies it.
+  switchId: string;
+  // The boundary this switch will apply at — resolved against the TARGET driver's declared
+  // vocabulary, never assumed, and the widest of the mutated axes' individual boundaries.
+  appliesAt: "turn_boundary" | "run_boundary";
+  // The axes this update actually moved, so the caller can see which of them forced the boundary
+  // above without re-deriving the classification.
+  pendingAxes: AgentProviderAxis[];
+  // Present when this update REPLACED an earlier still-pending switch on the same agent: at most
+  // one switch is pending per agent, and a later provider-axis update supersedes rather than
+  // queues (Spec-016 §Same-Agent Provider Switch). The superseded id never reaches a terminal
+  // event, so surfacing it here is the only record a caller gets.
+  replacedSwitchId?: string;
+}
+
+type AgentProviderAxis = "driverName" | "providerAccountId" | "modelId" | "effort";
 
 // The settlement of a provider switch, mirrored onto the `agent.provider_switched` event payload.
 interface AgentProviderSwitchOutcome {
-  // "replayed" = the canonical transcript reached the target; "memo" = it could not and the
-  // bounded prose projection stood in. A "memo" settlement is rendered `degraded` by both clients
-  // and is never presented as an ordinary success.
-  continuity: "replayed" | "memo";
+  switchId: string; // correlates with the pending acknowledgment above
+  // "in_place" = a per-turn-override axis carried into the next turn on the RUNNING process:
+  // nothing was respawned and nothing was replayed. "replayed" = the canonical transcript reached
+  // a fresh target session. "memo" = it could not and the bounded prose projection stood in.
+  // A "memo" settlement is rendered `degraded` by both clients and is never presented as an
+  // ordinary success; "in_place" and "replayed" are both `applied`.
+  continuity: "in_place" | "replayed" | "memo";
   // REQUIRED, and an EMPTY ARRAY IS A CLAIM: it asserts that nothing was dropped. A driver that
   // does not know what it lost may not emit one. Closed vocabulary — a new loss kind is an
-  // amendment, never a free string.
+  // amendment, never a free string. Requiredness is scoped to the continuity arm: "in_place"
+  // MUST carry the empty array (no replay happened, so no loss could), "memo" MUST be non-empty
+  // and MUST include "conversation_history_summarized", and "replayed" MAY be empty — that
+  // emptiness being the positive assertion above.
   declaredLosses: DeclaredLossKind[];
 }
 
 type DeclaredLossKind =
   | "provider_private_reasoning" // non-portable by both vendors' stated rules; never translated
   | "context_truncated" // the memo budget evicted older exchanges (whole exchanges only, never halves)
-  | "tool_call_history_repaired"; // an unpaired call took a synthetic error result rather than being dropped
+  | "tool_call_history_repaired" // an unpaired call took a synthetic error result rather than being dropped
+  | "conversation_history_summarized"; // the memo floor: verbatim exchanges replaced by a bounded prose rendering
 interface AgentListRequest {
   sessionId: SessionId;
 }
@@ -4050,6 +4090,15 @@ interface AgentListResponse {
     defaultNodeId?: NodeId;
     config: Record<string, unknown>; // driver-scoped persona config (Spec-016 A-016-2); {} when never supplied (agents.config NOT NULL DEFAULT '{}')
     state: AgentState;
+    // 2026-08-26 (D-016-26): the agent's EFFECTIVE provider axis — the binding it runs under now,
+    // never the pending one. Absent `providerAccountId` = the provider's registered default;
+    // absent `effort` = the driver's own default for the model.
+    providerAccountId?: ProviderAccountId;
+    effort?: string;
+    // Present exactly while a switch is pending on this agent, so the deferred intent is readable
+    // rather than inferable — including after a daemon restart, which re-arms it from the durable
+    // agent row. A list read is how a caller that was not the mutator learns a switch is queued.
+    pendingSwitch?: AgentProviderSwitchPending;
     createdAt: string;
   }>;
 }
