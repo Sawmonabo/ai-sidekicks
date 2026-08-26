@@ -746,7 +746,7 @@ shipped:
         "Spec-003 line 103",
         "Spec-003 line 120",
         "Spec-003 line 126",
-        "Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle) (runtime_node.registered, runtime_node.online, runtime_node.offline, runtime_node.capability_declared, runtime_node.capability_updated \u2014 degraded and revoked land with the Phase-3 health surface)",
+        "Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle) (runtime_node.registered, runtime_node.online, runtime_node.offline, runtime_node.capability_declared, runtime_node.capability_updated \u2014 five of the block's seven rows; degraded and revoked are not covered by this task)",
         "api-payload-contracts.md §Plan-006 capability payload typing",
       ]
   - phase: 3

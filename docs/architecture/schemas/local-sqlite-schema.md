@@ -58,7 +58,7 @@ CREATE INDEX idx_session_events_live ON session_events(session_id, sequence) WHE
 CREATE UNIQUE INDEX idx_session_events_run_terminal_once ON session_events(json_extract(payload, '$.runId'), json_extract(payload, '$.runVersion')) WHERE category = 'run_lifecycle' AND type IN ('run.completed', 'run.failed', 'run.interrupted');
 
 -- Projection-level terminal-key CHECK (Spec-006 at-most-once terminal emission; assigned to the campaign B11
--- schema work). SQLite has no ALTER TABLE ... ADD CHECK on an existing table (sqlite.org/lang_altertable.html), so a
+-- schema work). SQLite has no ALTER TABLE ... ADD CHECK on an existing table (sqlite.org/`lang_altertable`.html), so a
 -- trigger trio is the idiomatic equivalent: abort any terminal run_lifecycle write whose runId/runVersion key is NULL
 -- OR the wrong storage class (json_type: runId 'text', runVersion 'integer' — a type-drifted "7"-vs-7 key bypasses the
 -- UNIQUE index, which keys by storage class). The BEFORE UPDATE leg keys off OLD (the row WAS terminal) and additionally aborts a value-changing key rewrite (NEW key IS NOT OLD, null-safe) or a category/type de-scope — either frees the index slot for a duplicate terminal — enforcing stub-preservation against the compactor (key + category + type kept for the row's whole retention life). The promote leg rejects re-typing any non-terminal row INTO the guarded set (terminal rows are INSERT-only): an OLD-keyed guard alone would let a null-keyed promotion slip both legs and the NULL-distinct UNIQUE index.
@@ -556,7 +556,7 @@ CREATE UNIQUE INDEX idx_branch_contexts_worktree_workspace ON branch_contexts(wo
 -- Migration lineage: the block below is the table's FINAL shape, not the content of any single migration. Every
 -- column except checkout_root shipped in the version-4 four-table CREATE (Plan-010 T1.3, PR #253); checkout_root
 -- lands via the Phase-3 table-rebuild migration (create successor -> copy omitting the column -> drop -> rename ->
--- recreate the index; lang_altertable §8 — Plan-010 T3.2, its only writer; 2026-08-17 amendment, shape corrected at
+-- recreate the index; `lang_altertable` §8 — Plan-010 T3.2, its only writer; 2026-08-17 amendment, shape corrected at
 -- the NS-69 PR's round-1 fold), after which PRAGMA table_info order matches this block exactly.
 CREATE TABLE run_execution_contexts (
   run_id             TEXT PRIMARY KEY,
