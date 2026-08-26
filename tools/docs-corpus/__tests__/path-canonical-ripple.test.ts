@@ -217,13 +217,19 @@ describe("path-canonical-ripple", () => {
           "Run `ai-sidekicks\tdaemon status` with a tab.",
           'Bin map: {"bin":{"ai-sidekicks" : "./dist/main.js"}} with spaced colon.',
           "Flag-first: ai-sidekicks --help",
+          "Continued: ai-sidekicks \\",
+          "  daemon status",
         ].join("\n"),
       },
       { paths: [{ ...entry, exclude: [] }] },
     );
     const { hits } = runCheck(root);
     const flagged = hits.flatMap((h) => h.occurrences.map((o) => o.line));
-    expect(new Set(flagged)).toEqual(new Set([1, 2, 3, 4]));
+    // Line 5 is the continuation's FIRST line — `git grep` is line-oriented,
+    // so the needle that catches it matches the trailing-backslash signature
+    // rather than the invocation spanning two lines. Line 6 (the verb on its
+    // own line) is correctly NOT flagged: it carries no executable name.
+    expect(new Set(flagged)).toEqual(new Set([1, 2, 3, 4, 5]));
     cleanup();
   });
 
@@ -242,6 +248,10 @@ describe("path-canonical-ripple", () => {
           "While ai-sidekicks runs locally the daemon owns the socket.",
           'Root manifest: {"name": "ai-sidekicks"} and scope @ai-sidekicks/contracts.',
           "Keystore prefix ai-sidekicks:paseto-refresh-token is unchanged.",
+          // Ends the line with the bare project name and no backslash — the
+          // continuation needle must not confuse a wrapped sentence for a
+          // continued command.
+          "A sentence that simply ends in ai-sidekicks",
         ].join("\n"),
       },
       { paths: [{ ...entry, exclude: [] }] },
@@ -399,9 +409,22 @@ describe("path-canonical-ripple", () => {
           'Manifest: {"bin":{"ai-sidekicks" : "./dist/main.js"}}',
           'Prose restatement: bin: "ai-sidekicks" points at the bundle.',
           "Deep link: ai-sidekicks://invite/abc",
+          "Continued invocation: ai-sidekicks \\",
+          "  daemon status",
         ].join("\n"),
         // Exercises the source-scoped entry, which carries no docs glob.
         "apps/desktop/src/main/protocol.ts": "app.setAsDefaultProtocolClient(`ai-sidekicks`);\n",
+        // NEGATIVE control for that same entry, and it must live in a SOURCE
+        // file — the protocol entry is source-scoped, so a docs fixture would
+        // never exercise it and the anchor would look guarded while untested.
+        // These are legitimate single-argument calls whose value is the
+        // deliberately-unchanged project name. They stay green only because
+        // the needle is anchored on the function name; drop that anchor and
+        // the per-hit occurrence assertion below fails.
+        "packages/contracts/src/__probe.ts": [
+          'export const check = (packageName: string) => expect(packageName).toBe("ai-sidekicks");',
+          "export const filterArg = () => run('ai-sidekicks');",
+        ].join("\n"),
       },
       { paths: entries.map((e) => ({ ...e, exclude: [] })) },
     );
@@ -438,11 +461,19 @@ describe("path-canonical-ripple", () => {
     // for this needle. Rationale mirrored in the entry's `note` per the
     // instruction above.
     //
-    // The key is DERIVED from the registry rather than written out, so the
-    // allowlist cannot silently widen: it resolves only if the entry still has
-    // exactly one slash-terminated needle. Spelling it as a literal would make
-    // this test the one place a dead executable form survives in-tree, and
-    // would re-approve a DIFFERENT needle if the scheme spelling ever changed.
+    // The key is DERIVED from the registry rather than written out, so this
+    // test is not the one place a dead executable form survives in-tree, and a
+    // change to the scheme spelling does not need a literal updated in step.
+    //
+    // Derivation ALONE is too permissive, though: "whichever needle currently
+    // ends in a slash" would automatically exempt an ACCIDENTAL path-like
+    // needle that happened to be the only slash-terminated one, so the test
+    // would stay green in exactly the future-edit scenario it exists to catch.
+    // The candidate is therefore derived AND its construct asserted before it
+    // is allowlisted: it must be a URL scheme — ending in the scheme
+    // delimiter, a colon followed by two slashes — not a bare directory
+    // slash. A needle ending `.../foo/` fails that assertion and is never
+    // exempted.
     const cliEntry = JSON.parse(
       readFileSync(
         resolve(dirname(fileURLToPath(import.meta.url)), "..", "canonical-paths.json"),
@@ -454,6 +485,8 @@ describe("path-canonical-ripple", () => {
       .flatMap((e) => e.deprecated)
       .filter((d) => d.endsWith("/"));
     expect(schemeNeedles).toHaveLength(1);
+    const SCHEME_DELIMITER = ":" + "/".repeat(2);
+    expect(schemeNeedles[0].endsWith(SCHEME_DELIMITER)).toBe(true);
     const SLASH_ALLOWLIST = new Set([`sidekicks::${schemeNeedles[0]}`]);
     const here = dirname(fileURLToPath(import.meta.url));
     const registryPath = resolve(here, "..", "canonical-paths.json");

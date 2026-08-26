@@ -487,6 +487,35 @@ describe("expandToInboundCiteCorpus — section-cite citers (extraCiteTargets)",
 //   throws unconditionally ................... fails INDEX and PROBE
 //   catch-all disk fallback (the round-3 bug) . fails DELETION and UNTRACKED
 //   index-only, no probe escape (over-strict) . fails PROBE
+describe("inbound-cite-discovery — subprocess output bounds", () => {
+  it("reads an index blob LARGER than Node's 1 MiB spawnSync default", () => {
+    // Regression: Node's spawnSync defaults maxBuffer to 1 MiB and, on
+    // overflow, KILLS the child with SIGTERM and returns `status: null` with
+    // TRUNCATED stdout rather than throwing. The index-aware reader's
+    // `git show :<path>` carried no explicit bound, so the moment a real
+    // governance file crossed 1 MiB (this repo's own
+    // cross-plan-dependencies.md did, in 2026-08) EVERY invocation of the
+    // pre-commit runner that touched it died with an opaque "status null".
+    //
+    // The fixture is deliberately over the default: a file that fits proves
+    // nothing, since the unbounded call read those correctly for two years.
+    const ONE_MIB = 1024 * 1024;
+    const big = "x".repeat(ONE_MIB + 64 * 1024) + "\n";
+    const { root, cleanup } = setupRepo({ "docs/plans/900-big.md": big });
+    try {
+      // NOT in the staged-argv set, so the reader takes the `git show :`
+      // path rather than reading the working tree — that is the path with
+      // the bound, and a working-tree read would bypass what is under test.
+      const reader = makeIndexAwareReader(root, new Set());
+      const content = reader(resolve(root, "docs/plans/900-big.md"));
+      expect(content.length).toBe(big.length);
+      expect(content.endsWith("x\n")).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
 describe("inbound-cite-discovery — makeCommitSnapshotReader commit-snapshot rule", () => {
   it("INDEX: reads the staged bytes, not the worktree's", () => {
     // Sources the index specifically. A reader that fell through to disk would
