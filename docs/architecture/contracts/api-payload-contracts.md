@@ -4148,7 +4148,14 @@ interface AgentProviderSwitchPending {
 //     above. A pending switch IS an admitting write: its acceptance authorizes work the original
 //     request no longer accompanies — the application itself, and every turn the new binding then
 //     executes. Both terminals require an `actor`, and a switch settling after a restart has no
-//     request left to resolve one from.
+//     request left to resolve one from. No `origin` discriminator accompanies it: the class rule
+//     makes that member conditional on a row having a non-participant writer, and this slot has
+//     none — `agent.configUpdate` is its only producer, so every pending switch is a participant
+//     admission and the principal is unconditionally required. The absence is recorded here rather
+//     than left silent because under that rule it is a claim, not an omission. Were a system-
+//     initiated switch ever specified, the rule would oblige the discriminator AND oblige that it
+//     be enforced by the recorded value's own closed shape: this carrier is a JSON blob, which no
+//     table-level CHECK constrains.
 //   interruptDispatch — "requested" | "dispatched", present exactly when `interruptRequested` is
 //     true. Deliberately NOT a boolean and not folded into `interruptRequested`, because recovery
 //     must separate "crashed before the interrupt went out, so dispatch it" from "crashed after it
