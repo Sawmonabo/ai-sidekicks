@@ -14,13 +14,23 @@
 //   `driver_contract_meta.contract_version` (T2.4). Centralizing the bounds +
 //   the assert functions here means the const↔Zod↔SQL-CHECK coherence is
 //   asserted in ONE place and reused, rather than drifting across two call
-//   sites.
+//   sites. The `cli_version_raw` / `cli_version_semver` pair added by migration
+//   `0011-driver-capability-currency.ts` has exactly the same two-table shape
+//   (`runtime_bindings` at T2.6, `driver_contract_meta` at the capability-writer
+//   widening), so `assertValidCliVersionReport` lands here for the same reason.
 //
 // Spec coverage: `Spec-005 §Required Behavior` (resume_handle is a provider-owned opaque handle,
-// bounded at the write seam).
+// bounded at the write seam) and `Spec-005 §State And Data Implications` (the binding record
+// stores the provider's reported CLI version, so the pair is bounded at this same seam).
 //
-// Refs: Plan-005 §Phase 2 / T2.2 + T2.4, `Spec-005 §Required Behavior`.
+// Refs: Plan-005 §Phase 2 / T2.2 + T2.4 + T2.6, `Spec-005 §Required Behavior`,
+// `Spec-005 §State And Data Implications`.
 
+// No `DriverCliVersionReport` type import: `assertValidCliVersionReport` takes
+// `unknown` on purpose (see its docstring), so this module has no TYPE-level
+// dependency on the contract shape — only the two member schemas that mirror
+// it. The docstrings still name the contract type in prose, which is where the
+// tie belongs when the runtime guard is the thing doing the work.
 import { DRIVER_CAPABILITY_FLAGS, wireFreeFormString } from "@ai-sidekicks/contracts";
 import semver from "semver";
 
@@ -53,6 +63,37 @@ export const CONTRACT_VERSION_MAX_LEN = 64;
  */
 export const RESUME_HANDLE_MAX_LEN = 4096;
 
+/**
+ * Maximum length of the verbatim provider-reported CLI version
+ * (`DriverCliVersionReport.raw`).
+ *
+ * MUST stay in lockstep with the `length(cli_version_raw) <= 128` SQL CHECK
+ * literal in `migrations/0011-driver-capability-currency.ts` on BOTH
+ * `runtime_bindings.cli_version_raw` AND `driver_contract_meta.cli_version_raw`.
+ * Enforced end-to-end by the boundary tests (same mechanism as
+ * `CONTRACT_VERSION_MAX_LEN` above).
+ *
+ * "Length" here is CHARACTERS, not bytes — SQLite's `length(TEXT)` counts
+ * characters. The Zod layer's `.max()` counts UTF-16 code units, so the two
+ * layers diverge on astral-plane input (one astral character is two code
+ * units). That divergence is deliberately tolerated because it is FAIL-CLOSED:
+ * Zod is the stricter of the two, so anything the Zod layer admits the DB CHECK
+ * also admits. Do not restate this as the two layers sharing one unit.
+ */
+export const CLI_VERSION_RAW_MAX_LEN = 128;
+
+/**
+ * Maximum length of the parsed floor-compare form
+ * (`DriverCliVersionReport.semver`).
+ *
+ * MUST stay in lockstep with the `length(cli_version_semver) <= 64` SQL CHECK
+ * literal in `migrations/0011-driver-capability-currency.ts` on BOTH
+ * `runtime_bindings.cli_version_semver` AND
+ * `driver_contract_meta.cli_version_semver`. Same character-unit note as
+ * `CLI_VERSION_RAW_MAX_LEN`.
+ */
+export const CLI_VERSION_SEMVER_MAX_LEN = 64;
+
 // --------------------------------------------------------------------------
 // Typed error
 // --------------------------------------------------------------------------
@@ -66,10 +107,14 @@ export const RESUME_HANDLE_MAX_LEN = 4096;
  * carrying STRUCTURED throw-site detail — `{ field, reason }`.
  *
  * Deliberately leak-safe: the message is a short stable sentence and the
- * `fields` carry only `field` (which column) + `reason` (a human label). We do
- * NOT embed raw `ZodError` internals, stack traces, or the offending value's
- * full contents — the offending value is provider-supplied and may be large or
- * sensitive (an opaque resume handle), so it never enters the error surface.
+ * `fields` carry only `field` (which column), `reason` (a human label), and —
+ * where the throw site knows it — `driverName`. `driverName` is admissible in a
+ * leak-safe surface precisely because it is NOT provider output: it is the
+ * daemon's own driver-registry key, a closed set of daemon-authored identifiers
+ * the operator already sees in every run record. We do NOT embed raw `ZodError`
+ * internals, stack traces, or the offending value's full contents — the
+ * offending value is provider-supplied and may be large or sensitive (an opaque
+ * resume handle), so it never enters the error surface.
  */
 export class ProviderOutputValidationError extends Error {
   readonly code = "driver.provider_output_invalid" as const;
@@ -133,6 +178,35 @@ const contractVersionSchema = wireFreeFormString(
 // accept it, but it can never be a meaningful provider handle).
 const resumeHandleSchema = wireFreeFormString(RESUME_HANDLE_MAX_LEN, "resume_handle");
 
+// The CLI-version pair. Both members are PROVIDER-DECLARED (the handshake
+// report the spawned process answers with), so they belong at this seam beside
+// `contract_version` / `resume_handle` — and both carry a SQL CHECK in
+// `0011-driver-capability-currency.ts` whose SQLite-expressible part (non-empty
+// + length + NUL-rejection) these schemas mirror, with `wireFreeFormString`'s
+// `/\S/` adding the same all-whitespace hardening the handles already get.
+//
+// `semver` additionally carries the SAME canonical-identity refinement as
+// `contractVersionSchema` (`semver.valid(v) === v`) — the one semver predicate
+// this module has, so the seam and the floor gate cannot disagree about what
+// parses. This is defense in depth, not the first line: the driver's own
+// handshake refusal (`driver.cli_version_unparseable`) remains the parse
+// authority for a provider's version string, and every well-behaved driver
+// derives `semver` canonically by construction. What this refinement closes is
+// the seam accepting a bounded-but-unparseable string from ANY caller and
+// persisting it, where it would poison the T3.23 floor comparison at a call
+// site far from the row that produced it (Codex PR #372 round 1). The DDL
+// CHECK on this pair stays bounds-only — the shipped `0011` migration is
+// frozen — so Zod is deliberately the tighter gate, the module-wide pattern.
+const cliVersionRawSchema = wireFreeFormString(CLI_VERSION_RAW_MAX_LEN, "cli_version_raw");
+const cliVersionSemverSchema = wireFreeFormString(
+  CLI_VERSION_SEMVER_MAX_LEN,
+  "cli_version_semver",
+).refine((value) => semver.valid(value) === value, {
+  message:
+    "cli_version_semver must be a canonical semver string within length bounds " +
+    "(the exact form `semver.valid` returns)",
+});
+
 // --------------------------------------------------------------------------
 // Assert functions
 // --------------------------------------------------------------------------
@@ -169,6 +243,60 @@ export function assertValidResumeHandle(value: string): void {
     throw new ProviderOutputValidationError("Invalid provider resume_handle.", {
       field: "resume_handle",
       reason: "must be a non-empty, non-whitespace, NUL-free string within length bounds",
+    });
+  }
+}
+
+/**
+ * Validate a provider-declared `DriverCliVersionReport` at the write seam.
+ * Throws `ProviderOutputValidationError` on failure.
+ *
+ * The report is the provider's answer to the version handshake, so it is
+ * PROVIDER INPUT and rejected input surfaces the same leak-safe typed error as
+ * every other member of this module — never a raw `ZodError`, never a
+ * `SqliteError` from the DB CHECK. `driverName` is DAEMON-CONTROLLED (the
+ * registry key, not provider output), so it is safe to carry in `fields` and is
+ * the one piece of context that makes a rejection actionable: WHICH driver
+ * answered badly. The offending VALUES never enter the error surface (a raw CLI
+ * version string can carry an installation path in some provider builds).
+ *
+ * Both members are validated, and the CALLER supplies the pair or neither —
+ * this function is invoked only when a report is present, mirroring the
+ * `(cli_version_semver IS NULL) = (cli_version_raw IS NULL)` both-or-neither
+ * DDL CHECK structurally at the type level (`cliVersion?: DriverCliVersionReport`
+ * is a SINGLE optional member, so a half-pair is unrepresentable).
+ *
+ * The param is `unknown` (not `DriverCliVersionReport`) DELIBERATELY, exactly
+ * as `assertValidCapabilityFlags` and `assertValidGetCapabilitiesResultShape`
+ * are: the static type is ERASED at runtime, so a malformed driver can ship the
+ * report as null/array/primitive or omit it entirely. Typing the parameter
+ * `unknown` stops the type system from masking that runtime risk and forces the
+ * non-null-object guard below — without which `report.raw` would raw-throw a
+ * `TypeError` and escape this module's leak-safe doctrine. Callers pass a
+ * `DriverCliVersionReport`-shaped value; this function is what makes that shape
+ * a checked fact rather than a static assumption.
+ */
+export function assertValidCliVersionReport(driverName: string, report: unknown): void {
+  if (typeof report !== "object" || report === null || Array.isArray(report)) {
+    throw new ProviderOutputValidationError("Invalid provider cli_version report.", {
+      driverName,
+      field: "cliVersion",
+      reason: "report must be an object carrying both `raw` and `semver`",
+    });
+  }
+  const reportRecord = report as Record<string, unknown>;
+  if (!cliVersionRawSchema.safeParse(reportRecord["raw"]).success) {
+    throw new ProviderOutputValidationError("Invalid provider cli_version report.", {
+      driverName,
+      field: "cli_version_raw",
+      reason: "must be a non-empty, non-whitespace, NUL-free string within length bounds",
+    });
+  }
+  if (!cliVersionSemverSchema.safeParse(reportRecord["semver"]).success) {
+    throw new ProviderOutputValidationError("Invalid provider cli_version report.", {
+      driverName,
+      field: "cli_version_semver",
+      reason: "must be a canonical, NUL-free semver string within length bounds",
     });
   }
 }

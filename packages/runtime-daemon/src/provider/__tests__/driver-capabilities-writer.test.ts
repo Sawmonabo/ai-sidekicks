@@ -16,12 +16,15 @@
 //   * `Spec-005 §Default Behavior` (declarations required at attach time, refreshed on provider
 //     state change): the declare → refresh paths (declared / updated / noop).
 //   * `Spec-005 §Recovery Consequences` (cache-as-source-of-truth; cold-start hydration without
-//     round-tripping the driver): `hydrate` reconstructs the nested
-//     `HydratedDriverCapabilities` — `GetCapabilitiesResult` MINUS the
-//     live-reading-only `cliVersion` — from the three tables.
+//     round-tripping the driver): `hydrate` reconstructs the COMPLETE nested
+//     `GetCapabilitiesResult` — `cliVersion` included, from the
+//     `driver_contract_meta` currency pair T2.6 persists — from the three tables,
+//     and reports a typed MISS (with its cause) rather than fabricating a version
+//     it does not hold.
 //   * I-005-2 (the capability cache is the durable mirror the in-memory registry
 //     reads): the flat snapshot persists and reconstructs faithfully; the emitted
-//     event carries the FLAT `CapabilityDetails`.
+//     event carries the FLAT `CapabilityDetails` — and deliberately NOT the
+//     currency pair, which is cache currency rather than a capability.
 //   * Atomicity / write-then-emit ordering: a throwing emit rolls back all three
 //     table writes (no rows for that driver after the failed declare).
 //
@@ -49,8 +52,15 @@ import type { DaemonSigningKeySource } from "../../events/signing-key-source.js"
 import { RuntimeNodeEventEmitter } from "../../node/node-event-emitter.js";
 import { openDatabase } from "../../session/migration-runner.js";
 import { SessionService, UnsignedPlaceholderAppendToken } from "../../session/session-service.js";
-import { DriverCapabilitiesWriter } from "../driver-capabilities-writer.js";
-import { ProviderOutputValidationError } from "../provider-output-validation.js";
+import {
+  DriverCapabilitiesWriter,
+  type DriverCapabilityHydrationResult,
+} from "../driver-capabilities-writer.js";
+import {
+  CLI_VERSION_RAW_MAX_LEN,
+  CLI_VERSION_SEMVER_MAX_LEN,
+  ProviderOutputValidationError,
+} from "../provider-output-validation.js";
 
 /**
  * Fixed-key {@link DaemonSigningKeySource} — this suite is about the producer's
@@ -122,6 +132,18 @@ class ParkingDaemonSigningKeySource implements DaemonSigningKeySource {
     return this.#gateAt(index).reached;
   }
 
+  /**
+   * How many key reads have happened — i.e. how many ATTEMPTS `declare` made.
+   * `declare` re-runs read-decide-emit from the top on the divergence sentinel
+   * and each attempt reads the signing key exactly once, so this counter is the
+   * only way a test can tell "committed on the first attempt" from "diverged,
+   * retried, and then committed" — two outcomes that are otherwise identical in
+   * both the returned result and the durable rows.
+   */
+  get attemptCount(): number {
+    return this.#readCount;
+  }
+
   /** Lets read #`index` (0-based) leave its park. */
   releaseAt(index: number): void {
     this.#gateAt(index).release();
@@ -179,13 +201,21 @@ function makeFlags(
 }
 
 // The REQUIRED `cliVersion` reading (T1.8) every advertised snapshot carries. It
-// describes the LIVE READING, not a capability, so this writer neither persists
-// nor emits it and `hydrate()` cannot reproduce it — which is why the hydration
-// assertions below expect `HydratedDriverCapabilities` (no `cliVersion` member)
-// rather than a fabricated one. T2.6 owns the durable version-pair leg.
+// describes the LIVE READING rather than a capability, which is why T2.6 PERSISTS
+// it (into `driver_contract_meta.cli_version_raw` / `cli_version_semver`, so
+// `hydrate()` can return the complete `GetCapabilitiesResult`) while deliberately
+// keeping it OUT of change-detection and out of every event payload.
 const CLI_VERSION_REPORT: DriverCliVersionReport = {
   raw: "mock-provider-cli 2.1.234 (build 7)",
   semver: "2.1.234",
+};
+
+// A SECOND, structurally distinct reading of the same driver — a provider
+// upgrade. Used by the version-only arms, where the capability snapshot must be
+// byte-identical and ONLY the version moves.
+const UPGRADED_CLI_VERSION_REPORT: DriverCliVersionReport = {
+  raw: "mock-provider-cli 2.9.001 (build 12)",
+  semver: "2.9.1",
 };
 
 function makeResult(overrides: Partial<GetCapabilitiesResult> = {}): GetCapabilitiesResult {
@@ -311,6 +341,51 @@ function readContractVersion(driverName: string): string | undefined {
   return row?.contract_version;
 }
 
+interface RawCliVersionPair {
+  readonly cli_version_raw: string | null;
+  readonly cli_version_semver: string | null;
+}
+
+/**
+ * The DURABLE currency pair, read by DIRECT SELECT off the raw columns rather
+ * than through `hydrate()`. That is the point: routing this assertion through
+ * the writer's own reader would let a symmetric bug (write the wrong thing, read
+ * it back) pass. The raw columns are the contract with `docs/architecture/schemas/local-sqlite-schema.md`.
+ */
+function readCliVersionPair(driverName: string): RawCliVersionPair | undefined {
+  return db
+    .prepare(
+      `SELECT cli_version_raw, cli_version_semver
+         FROM driver_contract_meta
+        WHERE driver_name = ?`,
+    )
+    .get(driverName) as RawCliVersionPair | undefined;
+}
+
+/**
+ * `driver_contract_meta.refreshed_at` — the witness that makes "zero-write noop"
+ * a NON-VACUOUS claim. The suite's clock advances on every read, so a noop that
+ * touched the row would move this stamp.
+ */
+function readContractMetaRefreshedAt(driverName: string): string | undefined {
+  const row = db
+    .prepare(`SELECT refreshed_at FROM driver_contract_meta WHERE driver_name = ?`)
+    .get(driverName) as { readonly refreshed_at: string } | undefined;
+  return row?.refreshed_at;
+}
+
+/**
+ * Narrow a {@link DriverCapabilityHydrationResult} to its HIT arm, failing the
+ * test on a miss (and NAMING the miss reason, so a regression reads as "expected
+ * a hit, got cli_version_missing" rather than as an opaque undefined deref).
+ */
+function expectHydrationHit(hydrated: DriverCapabilityHydrationResult): GetCapabilitiesResult {
+  if (!hydrated.hit) {
+    throw new Error(`expected a hydration HIT; got a miss with reason "${hydrated.reason}"`);
+  }
+  return hydrated.result;
+}
+
 // ----------------------------------------------------------------------------
 // First declare — writes all three tables + emits capability_declared
 // ----------------------------------------------------------------------------
@@ -331,7 +406,7 @@ describe("DriverCapabilitiesWriter — first declare", () => {
       driverName: DRIVER_NAME,
       result,
     });
-    expect(outcome).toEqual({ emitted: "declared" });
+    expect(outcome).toEqual({ emitted: "declared", cliVersionRefreshed: true });
 
     // Durable side: one row per canonical flag, 2 tool rows, 1 meta row.
     expect(countCapabilityRows(DRIVER_NAME)).toBe(DRIVER_CAPABILITY_FLAGS.length);
@@ -385,7 +460,7 @@ describe("DriverCapabilitiesWriter — identical re-declare", () => {
         driverName: DRIVER_NAME,
         result,
       }),
-    ).toEqual({ emitted: "declared" });
+    ).toEqual({ emitted: "declared", cliVersionRefreshed: true });
 
     // Re-declare the SAME snapshot — idempotent no-op.
     const outcome = await writer.declare({
@@ -394,7 +469,7 @@ describe("DriverCapabilitiesWriter — identical re-declare", () => {
       driverName: DRIVER_NAME,
       result: makeResult({ tools: [{ name: "search", idempotency_class: "idempotent" }] }),
     });
-    expect(outcome).toEqual({ emitted: "noop" });
+    expect(outcome).toEqual({ emitted: "noop", cliVersionRefreshed: false });
 
     // Still exactly one event (no spurious capability_updated).
     expect(readEventRows(SESSION_ID)).toHaveLength(1);
@@ -430,7 +505,7 @@ describe("DriverCapabilitiesWriter — changed declare (flag flip)", () => {
         },
       }),
     });
-    expect(outcome).toEqual({ emitted: "updated" });
+    expect(outcome).toEqual({ emitted: "updated", cliVersionRefreshed: false });
 
     const events = readEventRows(SESSION_ID);
     expect(events.map((event) => event.type)).toEqual([
@@ -473,13 +548,387 @@ describe("DriverCapabilitiesWriter — contractVersion-only bump", () => {
         },
       }),
     });
-    expect(outcome).toEqual({ emitted: "updated" });
+    expect(outcome).toEqual({ emitted: "updated", cliVersionRefreshed: false });
 
     // The durable meta row carries the new version.
     const meta = db
       .prepare(`SELECT contract_version FROM driver_contract_meta WHERE driver_name = ?`)
       .get(DRIVER_NAME) as { readonly contract_version: string };
     expect(meta.contract_version).toBe("2.0.0");
+  });
+});
+
+// ----------------------------------------------------------------------------
+// cli_version currency pair (T2.6) — persisted on every mutating declare,
+// refreshed side-band on a version-only re-declare, NEVER evented
+// ----------------------------------------------------------------------------
+
+describe("DriverCapabilitiesWriter — cli_version pair persistence", () => {
+  it("a THROWING accessor on the report surfaces as the typed leak-safe refusal, before any txn", async () => {
+    // Codex PR #372 round 1: the property reads at step (0b) are inside the
+    // same getter/Proxy threat model as the swap case below — a throwing
+    // accessor must surface as `ProviderOutputValidationError`, never as the
+    // provider object's own exception text, and must open no transaction.
+    // Built literally for the same `makeResult`-spread reason as below.
+    const throwingReport: DriverCliVersionReport = {
+      get raw(): string {
+        throw new Error("PROVIDER-CONTROLLED-SECRET-TEXT");
+      },
+      semver: CLI_VERSION_REPORT.semver,
+    } as DriverCliVersionReport;
+    const result: GetCapabilitiesResult = {
+      capabilities: { flags: makeFlags(), contractVersion: CONTRACT_VERSION },
+      tools: [],
+      cliVersion: throwingReport,
+    };
+
+    const { writer } = makeWriter();
+    let thrown: unknown;
+    try {
+      await writer.declare({
+        sessionId: SESSION_ID,
+        nodeId: NODE_ID,
+        driverName: DRIVER_NAME,
+        result,
+      });
+    } catch (e) {
+      thrown = e;
+    }
+    expect(thrown).toBeInstanceOf(ProviderOutputValidationError);
+    expect((thrown as Error).message).not.toContain("PROVIDER-CONTROLLED-SECRET-TEXT");
+    expect((thrown as ProviderOutputValidationError).fields?.["field"]).toBe("cliVersion");
+    const metaCount = db
+      .prepare(`SELECT COUNT(*) AS n FROM driver_contract_meta WHERE driver_name = ?`)
+      .get(DRIVER_NAME) as { readonly n: number };
+    expect(metaCount.n).toBe(0);
+  });
+
+  it("validates and persists ONE snapshot of the report — a getter cannot swap the value after validation", async () => {
+    // The write-side twin of the RuntimeBindingStore case. `declare` copies the
+    // reading into a plain object at step (0b), BEFORE validating it, and every
+    // later use — the assert, the `cliVersionRefreshed` comparison, the durable
+    // upsert — reads that copy. A re-read after validation would persist this
+    // fixture's SECOND value, which no validator saw.
+    //
+    // The result is built literally rather than through `makeResult`, whose
+    // `...overrides` spread would itself evaluate the getter and hand `declare`
+    // a plain object — the fixture would then pass no matter what `declare` did.
+    let rawReads: number = 0;
+    const mutatingReport: DriverCliVersionReport = {
+      get raw(): string {
+        rawReads += 1;
+        return rawReads === 1 ? CLI_VERSION_REPORT.raw : "swapped-after-validation";
+      },
+      get semver(): string {
+        return CLI_VERSION_REPORT.semver;
+      },
+    };
+    const result: GetCapabilitiesResult = {
+      capabilities: { flags: makeFlags(), contractVersion: CONTRACT_VERSION },
+      tools: [],
+      cliVersion: mutatingReport,
+    };
+
+    const { writer } = makeWriter();
+    const outcome = await writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result,
+    });
+
+    expect(outcome).toEqual({ emitted: "declared", cliVersionRefreshed: true });
+    // The mechanism: exactly ONE read of the provider's member…
+    expect(rawReads).toBe(1);
+    // …and the durable row carries the value that was validated.
+    expect(readCliVersionPair(DRIVER_NAME)).toEqual({
+      cli_version_raw: CLI_VERSION_REPORT.raw,
+      cli_version_semver: CLI_VERSION_REPORT.semver,
+    });
+  });
+
+  it("writes cli_version_raw / cli_version_semver on the FIRST declare and reports cliVersionRefreshed:true", async () => {
+    const { writer } = makeWriter();
+
+    const outcome = await writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult({ tools: [{ name: "search", idempotency_class: "idempotent" }] }),
+    });
+    expect(outcome).toEqual({ emitted: "declared", cliVersionRefreshed: true });
+
+    // Read the RAW columns by direct SELECT — the contract with
+    // `docs/architecture/schemas/local-sqlite-schema.md`, not the writer's own reader.
+    expect(readCliVersionPair(DRIVER_NAME)).toEqual({
+      cli_version_raw: CLI_VERSION_REPORT.raw,
+      cli_version_semver: CLI_VERSION_REPORT.semver,
+    });
+  });
+
+  it("updates the pair on a CAPABILITY-changing declare that also carries a new reading", async () => {
+    const { writer } = makeWriter();
+    await writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult(),
+    });
+
+    // A provider upgrade that ALSO flipped a capability — the pair rides the
+    // ordinary mutating upsert, so both move in one transaction.
+    const outcome = await writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult({
+        capabilities: { flags: makeFlags({ steer: true }), contractVersion: CONTRACT_VERSION },
+        cliVersion: UPGRADED_CLI_VERSION_REPORT,
+      }),
+    });
+    expect(outcome).toEqual({ emitted: "updated", cliVersionRefreshed: true });
+    expect(readCliVersionPair(DRIVER_NAME)).toEqual({
+      cli_version_raw: UPGRADED_CLI_VERSION_REPORT.raw,
+      cli_version_semver: UPGRADED_CLI_VERSION_REPORT.semver,
+    });
+  });
+
+  it("reports cliVersionRefreshed:false on a capability-changing declare from the SAME build (the flag is about the ROW, not about whether a statement ran)", async () => {
+    // The discriminator against the naive implementation ("the upsert wrote the
+    // pair, therefore true"). The upsert DOES restate the pair here; the durable
+    // value is unchanged, so the flag must read `false`.
+    const { writer } = makeWriter();
+    await writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult(),
+    });
+
+    const outcome = await writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult({
+        capabilities: { flags: makeFlags({ steer: true }), contractVersion: CONTRACT_VERSION },
+      }),
+    });
+    expect(outcome).toEqual({ emitted: "updated", cliVersionRefreshed: false });
+    expect(readCliVersionPair(DRIVER_NAME)).toEqual({
+      cli_version_raw: CLI_VERSION_REPORT.raw,
+      cli_version_semver: CLI_VERSION_REPORT.semver,
+    });
+  });
+
+  it("VERSION-ONLY change: emits NO event, refreshes the pair side-band, and reports emitted:'noop' + cliVersionRefreshed:true", async () => {
+    // THE SUBTLE ARM. Change-detection runs on the canonical capability snapshot
+    // (flags / contractVersion / tools) and deliberately EXCLUDES `cliVersion` —
+    // version metadata is cache currency, not a capability, so
+    // `runtime_node.capability_updated` carrying two byte-identical snapshots
+    // would be a false record of a capability change. But the mutating upsert is
+    // the only OTHER writer of the pair, so without the side-write a provider
+    // upgrade that changed no capability would strand the OLD version forever.
+    const { writer } = makeWriter();
+    await writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult({ tools: [{ name: "search", idempotency_class: "idempotent" }] }),
+    });
+    expect(readEventRows(SESSION_ID)).toHaveLength(1);
+    const refreshedAtBefore: string | undefined = readContractMetaRefreshedAt(DRIVER_NAME);
+    expect(refreshedAtBefore).toBeDefined();
+
+    // IDENTICAL capabilities / contractVersion / tools; ONLY the reading moves.
+    const outcome = await writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult({
+        tools: [{ name: "search", idempotency_class: "idempotent" }],
+        cliVersion: UPGRADED_CLI_VERSION_REPORT,
+      }),
+    });
+
+    // (a) The emission discriminant stays `"noop"` — the side-write is NOT a
+    // fourth discriminant value, because nothing was emitted.
+    expect(outcome).toEqual({ emitted: "noop", cliVersionRefreshed: true });
+
+    // (b) NO event row was appended. Asserted on the session's whole event
+    // stream, so a `capability_updated` carrying identical snapshots would fail
+    // here rather than pass as "an update happened".
+    expect(readEventRows(SESSION_ID)).toHaveLength(1);
+    expect(readEventRows(SESSION_ID)[0]?.type).toBe("runtime_node.capability_declared");
+
+    // (c) The RAW columns carry the NEW pair — the side-write actually landed.
+    expect(readCliVersionPair(DRIVER_NAME)).toEqual({
+      cli_version_raw: UPGRADED_CLI_VERSION_REPORT.raw,
+      cli_version_semver: UPGRADED_CLI_VERSION_REPORT.semver,
+    });
+    // (d) …and `refreshed_at` ADVANCED, which is what makes (c) a WRITE rather
+    // than a row that happened to already hold those bytes. The mirror of the
+    // zero-write assertion in the identical-declare arm below.
+    expect(readContractMetaRefreshedAt(DRIVER_NAME)).not.toBe(refreshedAtBefore);
+
+    // (e) The capability rows are untouched by a version-only refresh — the
+    // side-write is scoped to the parent row's two version columns plus its
+    // stamp, never the three-table write set.
+    expect(countCapabilityRows(DRIVER_NAME)).toBe(DRIVER_CAPABILITY_FLAGS.length);
+    expect(readToolNames(DRIVER_NAME)).toEqual(["search"]);
+    expect(readContractVersion(DRIVER_NAME)).toBe(CONTRACT_VERSION);
+  });
+
+  it("IDENTICAL declare (same snapshot, same reading) writes NOTHING — refreshed_at is unmoved and cliVersionRefreshed is false", async () => {
+    // The zero-write noop, made NON-VACUOUS by the advancing clock: if the noop
+    // branch ran its side-write unconditionally, `refreshed_at` would move to a
+    // later stamp and this assertion would go red.
+    const { writer } = makeWriter();
+    await writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult({ tools: [{ name: "search", idempotency_class: "idempotent" }] }),
+    });
+    const refreshedAtBefore: string | undefined = readContractMetaRefreshedAt(DRIVER_NAME);
+    expect(refreshedAtBefore).toBeDefined();
+
+    const outcome = await writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult({ tools: [{ name: "search", idempotency_class: "idempotent" }] }),
+    });
+    expect(outcome).toEqual({ emitted: "noop", cliVersionRefreshed: false });
+
+    expect(readContractMetaRefreshedAt(DRIVER_NAME)).toBe(refreshedAtBefore);
+    expect(readCliVersionPair(DRIVER_NAME)).toEqual({
+      cli_version_raw: CLI_VERSION_REPORT.raw,
+      cli_version_semver: CLI_VERSION_REPORT.semver,
+    });
+    expect(readEventRows(SESSION_ID)).toHaveLength(1);
+  });
+
+  it("keeps the cli_version pair OUT of every event payload (it is cache currency, not a capability)", async () => {
+    // The Spec-005 detection-source precedent applied to the version pair: it is
+    // a property of the READING, not of a capability, so it is deliberately not
+    // mirrored onto the canonical `CapabilityDetails` event payload. Asserted on
+    // the raw serialized bytes of BOTH event kinds, so a later widening that
+    // folded the version into the payload goes red rather than silently changing
+    // what a `runtime_node.capability_*` row means.
+    const { writer } = makeWriter();
+    await writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult(),
+    });
+    await writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult({
+        capabilities: { flags: makeFlags({ steer: true }), contractVersion: CONTRACT_VERSION },
+        cliVersion: UPGRADED_CLI_VERSION_REPORT,
+      }),
+    });
+
+    const events = readEventRows(SESSION_ID);
+    expect(events.map((event) => event.type)).toEqual([
+      "runtime_node.capability_declared",
+      "runtime_node.capability_updated",
+    ]);
+    for (const event of events) {
+      expect(event.payload).not.toContain("cliVersion");
+      expect(event.payload).not.toContain(CLI_VERSION_REPORT.raw);
+      expect(event.payload).not.toContain(UPGRADED_CLI_VERSION_REPORT.raw);
+      expect(event.payload).not.toContain(UPGRADED_CLI_VERSION_REPORT.semver);
+    }
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Invalid cliVersion — leak-safe typed error, pre-txn (tables untouched) (T2.6)
+// ----------------------------------------------------------------------------
+
+describe("DriverCapabilitiesWriter — invalid cliVersion report", () => {
+  // Each case is rejected by `assertValidCliVersionReport` in the PRE-TXN ladder,
+  // so the three driver tables stay untouched and no event is emitted — the same
+  // "a rejected input never opens a transaction" doctrine the contract_version
+  // and tool-metadata arms assert.
+  async function expectCliVersionReject(cliVersion: unknown, expectedField: string): Promise<void> {
+    const { writer } = makeWriter();
+    let thrown: unknown;
+    try {
+      await writer.declare({
+        sessionId: SESSION_ID,
+        nodeId: NODE_ID,
+        driverName: DRIVER_NAME,
+        result: makeResult({ cliVersion: cliVersion as DriverCliVersionReport }),
+      });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(ProviderOutputValidationError);
+    expect((thrown as ProviderOutputValidationError).code).toBe("driver.provider_output_invalid");
+    expect((thrown as ProviderOutputValidationError).fields?.["field"]).toBe(expectedField);
+
+    // No txn ever opened — all three driver tables untouched + no event emitted.
+    expect(countCapabilityRows(DRIVER_NAME)).toBe(0);
+    expect(readToolNames(DRIVER_NAME)).toEqual([]);
+    expect(countContractMetaRows(DRIVER_NAME)).toBe(0);
+    expect(readEventRows(SESSION_ID)).toHaveLength(0);
+  }
+
+  it("rejects an EMPTY raw + writes NO rows", async () => {
+    await expectCliVersionReject({ raw: "", semver: "2.1.234" }, "cli_version_raw");
+  });
+
+  it("rejects an EMPTY semver + writes NO rows", async () => {
+    await expectCliVersionReject({ raw: CLI_VERSION_REPORT.raw, semver: "" }, "cli_version_semver");
+  });
+
+  it("rejects an OVERSIZE raw (one byte past the 128-char CHECK literal) + writes NO rows", async () => {
+    // DEFENSE-IN-DEPTH, not a tautology: the length is derived from
+    // `CLI_VERSION_RAW_MAX_LEN`, which is documented in lockstep with the
+    // `length(cli_version_raw) <= 128` SQL CHECK. Delete the pre-txn guard and
+    // this value reaches the DB, raising a raw `SqliteError` from INSIDE the
+    // append's transaction — a different error type AND a violated doctrine.
+    await expectCliVersionReject(
+      { raw: "v".repeat(CLI_VERSION_RAW_MAX_LEN + 1), semver: "2.1.234" },
+      "cli_version_raw",
+    );
+  });
+
+  it("rejects an OVERSIZE semver (one byte past the 64-char CHECK literal) + writes NO rows", async () => {
+    await expectCliVersionReject(
+      { raw: CLI_VERSION_REPORT.raw, semver: "9".repeat(CLI_VERSION_SEMVER_MAX_LEN + 1) },
+      "cli_version_semver",
+    );
+  });
+
+  it("rejects a NUL-bearing raw + writes NO rows", async () => {
+    // An embedded NUL is the class the SQL CHECK's `instr(..., char(0)) = 0`
+    // clause exists for; the pre-txn guard must catch it FIRST so the failure is
+    // a typed refusal rather than a constraint violation mid-transaction. Written
+    // as the `\u0000` ESCAPE rather than a literal control byte so the fixture is
+    // greppable and survives every editor/formatter round-trip.
+    await expectCliVersionReject(
+      { raw: "mock-provider-cli \u00002.1.234", semver: "2.1.234" },
+      "cli_version_raw",
+    );
+  });
+
+  it("rejects an ABSENT cliVersion as the leak-safe typed error (not a raw TypeError)", async () => {
+    // The static type forbids this, so it is cast through `unknown` — the
+    // boundary an untyped provider actually hits. The bounded shape guard
+    // (`assertValidGetCapabilitiesResultShape`) does NOT reach `cliVersion`, so
+    // this arm is what proves the presence/type check is genuinely performed by
+    // the imported validator rather than assumed.
+    await expectCliVersionReject(undefined, "cliVersion");
+  });
+
+  it("rejects a NULL cliVersion as the leak-safe typed error (not a raw TypeError)", async () => {
+    await expectCliVersionReject(null, "cliVersion");
   });
 });
 
@@ -510,7 +959,7 @@ describe("DriverCapabilitiesWriter — tool removed on refresh", () => {
       driverName: DRIVER_NAME,
       result: makeResult({ tools: [{ name: "search", idempotency_class: "idempotent" }] }),
     });
-    expect(outcome).toEqual({ emitted: "updated" });
+    expect(outcome).toEqual({ emitted: "updated", cliVersionRefreshed: false });
     expect(readToolNames(DRIVER_NAME)).toEqual(["search"]);
   });
 });
@@ -565,7 +1014,7 @@ describe("DriverCapabilitiesWriter — canonical tool ordering", () => {
         ],
       }),
     });
-    expect(outcome).toEqual({ emitted: "noop" });
+    expect(outcome).toEqual({ emitted: "noop", cliVersionRefreshed: false });
     // No spurious second event.
     expect(readEventRows(SESSION_ID)).toHaveLength(1);
   });
@@ -604,13 +1053,13 @@ describe("DriverCapabilitiesWriter — canonical tool ordering", () => {
         ],
       }),
     });
-    expect(outcome).toEqual({ emitted: "noop" });
+    expect(outcome).toEqual({ emitted: "noop", cliVersionRefreshed: false });
     expect(readEventRows(SESSION_ID)).toHaveLength(1);
 
     // hydrate returns tools in the reader's BINARY order — `"Search"` BEFORE
     // `"add"` — proving write-side and read-side collation coincide.
-    const hydrated = writer.hydrate(DRIVER_NAME);
-    expect(hydrated?.tools.map((tool) => tool.name)).toEqual(["Search", "add"]);
+    const hydrated = expectHydrationHit(writer.hydrate(DRIVER_NAME));
+    expect(hydrated.tools.map((tool) => tool.name)).toEqual(["Search", "add"]);
   });
 
   it("sorts by UTF-8 BYTES (not JS UTF-16 code units): a supplementary-plane name re-declares as a no-op + hydrates in reader order (FINDING A)", async () => {
@@ -659,15 +1108,15 @@ describe("DriverCapabilitiesWriter — canonical tool ordering", () => {
         ],
       }),
     });
-    expect(outcome).toEqual({ emitted: "noop" });
+    expect(outcome).toEqual({ emitted: "noop", cliVersionRefreshed: false });
     // No spurious second event (under the old comparator this would be 2).
     expect(readEventRows(SESSION_ID)).toHaveLength(1);
 
     // hydrate returns tools in the reader's BINARY (UTF-8 byte) order — the
     // high-BMP 0xEE name BEFORE the supplementary-plane 0xF0 name — matching the
     // write-side sort.
-    const hydrated = writer.hydrate(DRIVER_NAME);
-    expect(hydrated?.tools.map((tool) => tool.name)).toEqual([highBmpName, supplementaryName]);
+    const hydrated = expectHydrationHit(writer.hydrate(DRIVER_NAME));
+    expect(hydrated.tools.map((tool) => tool.name)).toEqual([highBmpName, supplementaryName]);
   });
 });
 
@@ -954,7 +1403,7 @@ describe("DriverCapabilitiesWriter — toJSON-tainted flags (defensive snapshot 
         },
       }),
     });
-    expect(outcome).toEqual({ emitted: "declared" });
+    expect(outcome).toEqual({ emitted: "declared", cliVersionRefreshed: true });
 
     // (a) The three-table write carries the TRUE boolean values. `steer` + `mcp`
     // are the true pair (alongside the makeFlags baseline `resume` + `tool_calls`);
@@ -1009,7 +1458,7 @@ describe("DriverCapabilitiesWriter — toJSON-tainted flags (defensive snapshot 
         },
       }),
     });
-    expect(secondOutcome).toEqual({ emitted: "noop" });
+    expect(secondOutcome).toEqual({ emitted: "noop", cliVersionRefreshed: false });
     // Still exactly one event (no spurious capability_updated).
     expect(readEventRows(SESSION_ID)).toHaveLength(1);
   });
@@ -1114,7 +1563,7 @@ describe("DriverCapabilitiesWriter — no-description tool round-trip", () => {
       driverName: DRIVER_NAME,
       result: makeResult({ tools: [{ name: "search", idempotency_class: "idempotent" }] }),
     });
-    expect(outcome).toEqual({ emitted: "noop" });
+    expect(outcome).toEqual({ emitted: "noop", cliVersionRefreshed: false });
     expect(readEventRows(SESSION_ID)).toHaveLength(1);
   });
 });
@@ -1163,14 +1612,23 @@ describe("DriverCapabilitiesWriter — multi-driver isolation", () => {
     expect(readToolNames("codex")).toEqual(["codex_tool"]);
     expect(readToolNames("claude")).toEqual(["claude_tool"]);
 
-    // (iii) hydrate returns each driver's own snapshot.
+    // (iii) hydrate returns each driver's own snapshot, each carrying its own
+    // cached `cliVersion` off its own `driver_contract_meta` row.
     expect(writer.hydrate("codex")).toEqual({
-      capabilities: { flags: makeFlags({ steer: true }), contractVersion: "1.0.0" },
-      tools: [{ name: "codex_tool", idempotency_class: "idempotent" }],
+      hit: true,
+      result: {
+        capabilities: { flags: makeFlags({ steer: true }), contractVersion: "1.0.0" },
+        tools: [{ name: "codex_tool", idempotency_class: "idempotent" }],
+        cliVersion: CLI_VERSION_REPORT,
+      },
     });
     expect(writer.hydrate("claude")).toEqual({
-      capabilities: { flags: makeFlags({ mcp: true }), contractVersion: "2.0.0" },
-      tools: [{ name: "claude_tool", idempotency_class: "compensable" }],
+      hit: true,
+      result: {
+        capabilities: { flags: makeFlags({ mcp: true }), contractVersion: "2.0.0" },
+        tools: [{ name: "claude_tool", idempotency_class: "compensable" }],
+        cliVersion: CLI_VERSION_REPORT,
+      },
     });
   });
 });
@@ -1242,7 +1700,7 @@ describe("DriverCapabilitiesWriter — #snapshot row-set invariant", () => {
 // ----------------------------------------------------------------------------
 
 describe("DriverCapabilitiesWriter — hydrate (cold-start cache read)", () => {
-  it("round-trips a declared driver into the nested GetCapabilitiesResult (canonical tool order)", async () => {
+  it("round-trips a declared driver into the COMPLETE nested GetCapabilitiesResult (canonical tool order + cached cliVersion)", async () => {
     const { writer } = makeWriter();
     const result: GetCapabilitiesResult = makeResult({
       tools: [
@@ -1259,22 +1717,39 @@ describe("DriverCapabilitiesWriter — hydrate (cold-start cache read)", () => {
 
     const hydrated = writer.hydrate(DRIVER_NAME);
     expect(hydrated).toEqual({
-      capabilities: {
-        flags: makeFlags(),
-        contractVersion: CONTRACT_VERSION,
+      hit: true,
+      result: {
+        capabilities: {
+          flags: makeFlags(),
+          contractVersion: CONTRACT_VERSION,
+        },
+        // Canonical (name-ascending) order — search before write_file — regardless
+        // of the declared array order.
+        tools: [
+          { name: "search", idempotency_class: "idempotent" },
+          { name: "write_file", idempotency_class: "compensable", description: "write a file" },
+        ],
+        // The whole point of the T2.6 re-widening: `cliVersion` comes BACK from
+        // the cache, so the return is the complete `GetCapabilitiesResult` a
+        // caller can hand straight to the attach-time floor gate.
+        cliVersion: CLI_VERSION_REPORT,
       },
-      // Canonical (name-ascending) order — search before write_file — regardless
-      // of the declared array order.
-      tools: [
-        { name: "search", idempotency_class: "idempotent" },
-        { name: "write_file", idempotency_class: "compensable", description: "write a file" },
-      ],
     });
+    // `detectionSource` is naturally ABSENT — it is not declared on
+    // `GetCapabilitiesResult` (T3.24 owns it), and `Spec-005 §Interfaces And
+    // Contracts` specifies its absence as reading "reconstructed from cache",
+    // which is exactly what this return is. Asserted so a later widening that
+    // fabricated a provenance value here goes red.
+    expect(Object.keys(expectHydrationHit(hydrated))).not.toContain("detectionSource");
   });
 
-  it("returns undefined for a driver that was never written", () => {
+  it("returns a MISS with reason 'never_written' for a driver that was never written", () => {
     const { writer } = makeWriter();
-    expect(writer.hydrate("never-seen")).toBeUndefined();
+    // The REASON, not just `hit: false` — the two miss causes demand the same
+    // caller behavior (refresh from the driver) but stay distinguishable, so a
+    // regression collapsing them into one reason must go red HERE as well as on
+    // the NULL-pair arm below.
+    expect(writer.hydrate("never-seen")).toEqual({ hit: false, reason: "never_written" });
   });
 
   // FIX 4 regression: hydrate routes its three-SELECT `#snapshot` read through the
@@ -1307,13 +1782,101 @@ describe("DriverCapabilitiesWriter — hydrate (cold-start cache read)", () => {
     // (name-ascending) order.
     const hydrated = writer.hydrate(DRIVER_NAME);
     expect(hydrated).toEqual({
-      capabilities: { flags: makeFlags({ steer: true, mcp: true }), contractVersion: "3.1.4" },
-      tools: [
-        { name: "add", idempotency_class: "idempotent" },
-        { name: "search", idempotency_class: "manual_reconcile_only" },
-        { name: "write_file", idempotency_class: "compensable", description: "write a file" },
-      ],
+      hit: true,
+      result: {
+        capabilities: { flags: makeFlags({ steer: true, mcp: true }), contractVersion: "3.1.4" },
+        tools: [
+          { name: "add", idempotency_class: "idempotent" },
+          { name: "search", idempotency_class: "manual_reconcile_only" },
+          { name: "write_file", idempotency_class: "compensable", description: "write a file" },
+        ],
+        cliVersion: CLI_VERSION_REPORT,
+      },
     });
+  });
+
+  // --------------------------------------------------------------------------
+  // NULL currency pair — a cache MISS, never a fabricated version (T2.6)
+  // --------------------------------------------------------------------------
+
+  it("returns a MISS with reason 'cli_version_missing' when the stored pair is NULL (a pre-T1.7 row) — the version is NEVER fabricated", async () => {
+    // THE NEGATIVE CONTROL FOR THE NULL-PAIR BRANCH. `docs/architecture/schemas/local-sqlite-schema.md`
+    // states the rule outright on the `cli_version_semver` column: "cold-start
+    // hydration MUST treat a NULL pair as a cache miss and refresh from the
+    // driver — the required `GetCapabilitiesResult.cliVersion` is never
+    // fabricated from cache". Delete the branch that implements it and this test
+    // goes red three ways at once: the assertion is on `{ hit: false, reason }`
+    // as a WHOLE, so a hit arm carrying `{ raw: null, semver: null }`, a hit arm
+    // carrying `{ raw: "", semver: "" }`, and a miss reporting the OTHER reason
+    // (`"never_written"`) all fail. The `reason` VALUE is what closes the last
+    // of those — `expect(hydrated.hit).toBe(false)` alone would pass a branch
+    // that returned the wrong cause.
+    const { writer } = makeWriter();
+    await writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult(),
+    });
+    // Sanity: the pair IS populated by the declare, so the NULL-ing below is a
+    // real state change rather than a no-op that would make this arm vacuous.
+    expect(readCliVersionPair(DRIVER_NAME)).toEqual({
+      cli_version_raw: CLI_VERSION_REPORT.raw,
+      cli_version_semver: CLI_VERSION_REPORT.semver,
+    });
+
+    // The pre-T1.7 row shape, reproduced out-of-band: the parent row EXISTS (so
+    // the existence gate passes and `#snapshot` reconstructs a full, valid
+    // capability matrix) but the currency pair is NULL. Both columns together —
+    // the table's both-or-neither CHECK rejects NULL-ing just one.
+    db.prepare(
+      `UPDATE driver_contract_meta
+          SET cli_version_raw = NULL, cli_version_semver = NULL
+        WHERE driver_name = ?`,
+    ).run(DRIVER_NAME);
+
+    expect(writer.hydrate(DRIVER_NAME)).toEqual({
+      hit: false,
+      reason: "cli_version_missing",
+    });
+    // And the miss is about the VERSION, not about the capability rows — those
+    // are all still present and reconstructible. Asserting this is what keeps
+    // the two miss reasons from being read as interchangeable.
+    expect(countCapabilityRows(DRIVER_NAME)).toBe(DRIVER_CAPABILITY_FLAGS.length);
+    expect(countContractMetaRows(DRIVER_NAME)).toBe(1);
+  });
+
+  it("self-heals a NULL-pair row on the next declare: the miss becomes a hit and cliVersionRefreshed reports the repair", async () => {
+    // The complement of the arm above. A NULL pair is a MISS, and the caller's
+    // prescribed remedy is to refresh from the driver — which lands back here as
+    // a declare. That declare's capability snapshot is IDENTICAL, so it takes
+    // the noop branch; without the noop-branch side-write the row would stay
+    // NULL forever and the driver would be permanently un-hydratable.
+    const { writer } = makeWriter();
+    await writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult(),
+    });
+    db.prepare(
+      `UPDATE driver_contract_meta
+          SET cli_version_raw = NULL, cli_version_semver = NULL
+        WHERE driver_name = ?`,
+    ).run(DRIVER_NAME);
+    expect(writer.hydrate(DRIVER_NAME)).toEqual({ hit: false, reason: "cli_version_missing" });
+
+    // The remedy: re-declare the SAME capability snapshot with a live reading.
+    const outcome = await writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult(),
+    });
+    // No event (the capabilities did not change), but the pair WAS repaired.
+    expect(outcome).toEqual({ emitted: "noop", cliVersionRefreshed: true });
+    expect(readEventRows(SESSION_ID)).toHaveLength(1);
+    expect(expectHydrationHit(writer.hydrate(DRIVER_NAME)).cliVersion).toEqual(CLI_VERSION_REPORT);
   });
 });
 
@@ -1560,6 +2123,97 @@ describe("DriverCapabilitiesWriter — concurrent declares under DIFFERENT sessi
     // And `newState` is the loser's own snapshot, now correctly framed as a change.
     expect(updated.newState?.contractVersion).toBe(CONTRACT_VERSION);
     expect(updated.newState?.tools?.map((tool) => tool.name)).toEqual(["loser_tool"]);
+  });
+
+  it("does NOT treat a racer's VERSION-ONLY refresh as a diverged snapshot — the parked declare commits on its FIRST attempt", async () => {
+    // THE ARM THAT PINS T2.6'S LOAD-BEARING SCOPING DECISION. The divergence
+    // sentinel exists to keep an EVENT's payload honest — it must fire when the
+    // CAPABILITY snapshot moved under a parked declare. `cliVersion` is not a
+    // capability, so the in-prelude re-check reads the snapshot WITHOUT the
+    // currency pair (`#snapshot` is deliberately not widened; only `#cachedRead`
+    // carries the pair).
+    //
+    // Fold the pair into `#snapshot` and this arm goes red: the re-check would
+    // see the racer's refreshed version, call it divergence, abort a perfectly
+    // valid declare, and pay a full retry — a fresh signing-key unseal that can
+    // block on a human — over a field no event carries. No other arm in this
+    // suite can catch that, because every other racer reuses one version fixture.
+    //
+    // ATTEMPT COUNT is the discriminator, not the outcome: a single lost race is
+    // survivable, so a widened `#snapshot` would still END at `updated` with the
+    // same rows. Only the key-read count separates "committed first try" from
+    // "diverged, retried, then committed".
+    const parkedKeySource = new ParkingDaemonSigningKeySource();
+    const { writer: parkedWriter } = makeWriter(makeAdvancingClock(), parkedKeySource, "parked");
+    const { writer: racingWriter } = makeWriter(makeAdvancingClock(), undefined, "racer");
+    const seedTools: ProviderToolMetadata[] = [{ name: "search", idempotency_class: "idempotent" }];
+
+    // Seed the driver so the parked declare takes the `updated` (not first-
+    // declare) branch and therefore actually reaches the in-prelude re-check.
+    await racingWriter.declare({
+      sessionId: SECOND_SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult({ tools: seedTools }),
+    });
+
+    // The parked declare carries a REAL capability change and stalls in the key
+    // unseal, holding only session 1's lock.
+    const parkedDeclare = parkedWriter.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult({
+        capabilities: { flags: makeFlags({ steer: true }), contractVersion: CONTRACT_VERSION },
+        tools: seedTools,
+      }),
+    });
+    await parkedKeySource.parkReachedAt(0);
+
+    // The racer changes ONLY the version — same flags, same contractVersion,
+    // same tools — so it takes the noop branch and its side-write moves the
+    // durable pair under the parked declare's feet.
+    const racerOutcome = await racingWriter.declare({
+      sessionId: SECOND_SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult({ tools: seedTools, cliVersion: UPGRADED_CLI_VERSION_REPORT }),
+    });
+    expect(racerOutcome).toEqual({ emitted: "noop", cliVersionRefreshed: true });
+    expect(readCliVersionPair(DRIVER_NAME)?.cli_version_semver).toBe(
+      UPGRADED_CLI_VERSION_REPORT.semver,
+    );
+
+    parkedKeySource.releaseAt(0);
+    const parkedOutcome = await parkedDeclare;
+
+    // (a) It committed as an ordinary update — no divergence, no retry.
+    expect(parkedOutcome.emitted).toBe("updated");
+    // (b) EXACTLY ONE attempt. This is the assertion a widened `#snapshot`
+    // fails.
+    expect(parkedKeySource.attemptCount).toBe(1);
+
+    // (c) The pair is LAST-WRITER-WINS: the parked declare's own upsert restated
+    // its own (older) reading over the racer's. Documented and accepted — both
+    // writers persisted a then-current reading of the same installed build, and
+    // the next declare re-converges. Asserted rather than left implicit so the
+    // trade-off stays visible if anyone revisits it.
+    expect(readCliVersionPair(DRIVER_NAME)).toEqual({
+      cli_version_raw: CLI_VERSION_REPORT.raw,
+      cli_version_semver: CLI_VERSION_REPORT.semver,
+    });
+    // (d) …and `cliVersionRefreshed` reports the comparison THIS attempt made
+    // against the state it decided on (pre-race: same reading ⇒ `false`), which
+    // is exactly the scope the result type documents — a claim about this call's
+    // own write, never a global ordering claim.
+    expect(parkedOutcome.cliVersionRefreshed).toBe(false);
+
+    // (e) Two capability events across both sessions — the seed and the parked
+    // update. The racer's version-only refresh added none.
+    expect(readCapabilityEventsAcrossSessions().map((row) => row.type)).toEqual([
+      "runtime_node.capability_declared",
+      "runtime_node.capability_updated",
+    ]);
   });
 
   it("exhausts the retry budget loudly, writing nothing, when EVERY attempt loses", async () => {

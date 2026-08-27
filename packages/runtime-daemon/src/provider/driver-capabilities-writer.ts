@@ -7,8 +7,8 @@
 // SQLite tables (migration `0003`) AND emits the matching
 // `runtime_node.capability_*` session event, ATOMICALLY, on driver
 // registration + capability refresh. It also exposes a cold-start hydration
-// read that reconstructs the cache-backed part of that wrapper
-// (`HydratedDriverCapabilities` — everything but `cliVersion`) from those
+// read that reconstructs the WHOLE `GetCapabilitiesResult` — `cliVersion`
+// INCLUDED, since T2.6 makes `driver_contract_meta` cache that pair — from those
 // same three tables WITHOUT round-tripping the driver (`Spec-005 §Recovery Consequences`,
 // the cache-as-source-of-truth). This is the durable cache that the in-memory
 // `ProviderRegistry` (T2.3) mirrors; together they complete the capability
@@ -19,6 +19,10 @@
 //   * driver_contract_meta — the single per-driver `contract_version` parent row
 //                            (PK driver_name); its PRESENCE is the existence gate
 //                            for hydration ("has this driver ever been written?").
+//                            It ALSO carries the `cli_version_raw` /
+//                            `cli_version_semver` currency pair (T1.7's migration),
+//                            written on every mutating declare and refreshed
+//                            side-band on a version-only re-declare (see below).
 //
 // All three tables are keyed by `driver_name` and carry NO session column — the
 // capability cache is a DRIVER property, not a session one. `sessionId` /
@@ -40,14 +44,34 @@
 // validating these events. Carrying the NESTED `GetCapabilitiesResult` in the
 // event would miss the canonical arm at BOTH layers — accepted forever via the
 // tolerant record arm, never canonically typed. By contrast `hydrate()` returns
-// the NESTED `HydratedDriverCapabilities` — `{ capabilities: { flags,
-// contractVersion }, tools }`, i.e. `GetCapabilitiesResult` MINUS the
-// live-reading-only `cliVersion` (see that type's own comment — T2.6 owns the
-// re-widening) — whose `capabilities` member is exactly what
-// `ProviderRegistry.register` consumes (`result.capabilities`). A single private
-// `#snapshot(driverName)` reader produces the FLAT form, which is the one source
-// for BOTH change-detection and event contents; `hydrate()` wraps that flat
-// snapshot into the nested form.
+// the NESTED, now-COMPLETE `GetCapabilitiesResult` — `{ capabilities: { flags,
+// contractVersion }, tools, cliVersion }` — wrapped in the
+// `DriverCapabilityHydrationResult` hit/miss discriminant, whose `capabilities`
+// member is exactly what `ProviderRegistry.register` consumes
+// (`result.capabilities`). A single private `#snapshot(driverName)` reader
+// produces the FLAT form, which is the one source for BOTH change-detection and
+// event contents; `hydrate()` wraps that flat snapshot into the nested form and
+// pairs it with the stored `cliVersion`.
+//
+// The cli_version PAIR: cache currency, not a capability
+// --------------------------------------------------------------------------
+// `cliVersion` is a reading of the INSTALLED BUILD, not a capability, so it sits
+// OUTSIDE change-detection on purpose (the `Spec-005 §Interfaces And Contracts`
+// detection-source precedent: "provenance is not a per-snapshot capability
+// property"). Three consequences, each deliberate:
+//
+//   1. The pair rides EVERY mutating upsert — the durable row always carries the
+//      reading from the declare that last wrote it.
+//   2. The pair is NEVER in an event payload. A version bump with an identical
+//      capability snapshot is not a capability change, and
+//      `runtime_node.capability_updated` would be the wrong record of it.
+//   3. Because of (1) + (2), a version-only re-declare would otherwise strand a
+//      STALE pair forever — change-detection says "noop", so the upsert that
+//      would have refreshed the pair never runs. The noop branch therefore does
+//      a single autocommit `UPDATE` of the pair (+ `refreshed_at`) when, and
+//      ONLY when, the stored pair actually differs from the validated incoming
+//      report. The common case — same version, same snapshot — still writes
+//      NOTHING. See `#declareOnce`.
 //
 // Capability key — `"provider-driver-<driverName>"` (CP-005-5)
 // --------------------------------------------------------------------------
@@ -186,6 +210,7 @@ import {
   SessionIdSchema,
   type CapabilityDetails,
   type DriverCapabilityFlag,
+  type DriverCliVersionReport,
   type GetCapabilitiesResult,
   type NormalizedProviderToolMetadata,
   type SessionId,
@@ -196,6 +221,7 @@ import { withSessionAppendLock } from "../events/session-append-lock.js";
 import type { RuntimeNodeEventEmitter } from "../node/node-event-emitter.js";
 import {
   assertValidCapabilityFlags,
+  assertValidCliVersionReport,
   assertValidContractVersion,
   assertValidGetCapabilitiesResultShape,
   ProviderOutputValidationError,
@@ -288,10 +314,12 @@ function providerDriverCapabilityKey(driverName: string): string {
  * stored in the driver-keyed tables — those carry no session column).
  * `driverName` is the cache key for all three tables. `result` is the driver's
  * advertised `GetCapabilitiesResult` (`{ capabilities: { flags, contractVersion },
- * tools, cliVersion }`); its `cliVersion` is NOT persisted by this seam — T2.6
- * owns that leg (`driver_contract_meta.cli_version_raw` / `cli_version_semver`,
- * added by T1.7's currency migration). `actor` defaults to `null` (system actor)
- * at the emit when omitted.
+ * tools, cliVersion }`). Its `cliVersion` IS persisted by this seam (T2.6) into
+ * `driver_contract_meta.cli_version_raw` / `cli_version_semver` — the pair T1.7's
+ * currency migration added — on every mutating declare, and side-band on a
+ * version-only re-declare; it is deliberately NOT carried in any event payload
+ * (see the file header's cli_version section). `actor` defaults to `null` (system
+ * actor) at the emit when omitted.
  */
 export interface DeclareDriverCapabilitiesInput {
   // Threaded to the emit only — the event's per-session partition/sequence key.
@@ -307,37 +335,80 @@ export interface DeclareDriverCapabilitiesInput {
 }
 
 /**
- * `declare` return — a small discriminant callers (and T2.5) assert on:
+ * `declare` return.
+ *
+ * `emitted` is the EMISSION discriminant callers (and T2.5) assert on:
  *   * `"declared"` — first write for this driver; emitted `capability_declared`.
  *   * `"updated"`  — the snapshot CHANGED; emitted `capability_updated`.
- *   * `"noop"`     — identical re-declare; NO write, NO event (idempotent).
+ *   * `"noop"`     — the capability snapshot was identical; NO event emitted.
+ *
+ * `cliVersionRefreshed` is an ORTHOGONAL fact, deliberately NOT a fourth
+ * discriminant value: `emitted` describes what was EMITTED, and the
+ * version-refresh side-write on the `"noop"` branch emits nothing. Adding a
+ * `"cli-version-refreshed"` member would make a caller that switches on
+ * emission suddenly miss the no-event case it already handles.
+ *
+ * It is `true` iff THIS call wrote a `cli_version_raw` / `cli_version_semver`
+ * pair DIFFERING from the pair its own deciding read observed — a fact about
+ * the row this attempt changed, not about whether a statement ran, and not a
+ * claim about the pair's final value once concurrent writers settle:
+ *   * `"declared"` — always `true` (an absent row has no pair; any report differs).
+ *   * `"updated"`  — `true` only when the incoming report differs from the pair
+ *                    read before the write. A capability change re-declared with
+ *                    the SAME provider build reports `false`, even though the
+ *                    upsert restated the pair.
+ *   * `"noop"`     — `true` only when the side-band pair refresh actually ran.
+ *
+ * Computed against the snapshot read that DECIDED this attempt, so a retry
+ * reports its own attempt's comparison rather than a discarded one. Under a
+ * cross-session race the pair is last-writer-wins (see `#declareOnce`), so this
+ * flag describes the write this call made, not a global ordering claim.
  */
 export interface DeclareDriverCapabilitiesResult {
   readonly emitted: "declared" | "updated" | "noop";
+  readonly cliVersionRefreshed: boolean;
 }
 
 /**
- * What cold-start hydration can HONESTLY reconstruct: the whole
- * `GetCapabilitiesResult` EXCEPT `cliVersion`.
+ * `hydrate` return — an explicit HIT/MISS discriminant over the durable cache.
  *
- * `cliVersion` (`DriverCliVersionReport { raw, semver }`) is REQUIRED on the
- * contract and is a property of a LIVE READING of the installed provider build,
- * not of the three-table capability cache — which carries no version column at
- * all until T1.7's currency migration adds
- * `driver_contract_meta.cli_version_raw` / `cli_version_semver`. **T2.6** owns
- * the leg that reads that pair back and re-widens this return to the full
- * `GetCapabilitiesResult`, under the canonical NULL-pair rule (a NULL pair is a
- * cache MISS — hydration refreshes from the driver rather than reporting a
- * version it does not have; `docs/architecture/schemas/local-sqlite-schema.md §Driver and Runtime Binding Tables (Plan-005)`).
+ * The hit arm carries the WHOLE `GetCapabilitiesResult`, `cliVersion` included:
+ * T2.6 caches the `driver_contract_meta.cli_version_raw` / `cli_version_semver`
+ * pair on every mutating declare, so cold-start hydration no longer has to hand
+ * back a narrowed shape.
  *
- * Until that leg lands, this `Omit` is what keeps the seam honest: fabricating a
- * report here (`{ raw: "", semver: "" }`, or a reading copied from an unrelated
- * driver) would feed a FALSE version into the attach-time floor gate, which is
- * fail-closed precisely because an unknown version must not pass. The type makes
- * that unrepresentable and forces a caller that needs `cliVersion` to take it
- * from the driver's own `getCapabilities()` report.
+ * The miss arm names its CAUSE, and keeping the two causes distinguishable is a
+ * deliberate cost:
+ *   * `"never_written"`      — no `driver_contract_meta` row: this driver has
+ *                              never been declared on this node.
+ *   * `"cli_version_missing"` — the row exists but its version pair is NULL (a
+ *                              pre-T1.7 row). The canonical rule
+ *                              (`docs/architecture/schemas/local-sqlite-schema.md §Driver and Runtime Binding Tables (Plan-005)`)
+ *                              is that a NULL pair is a cache MISS — hydration
+ *                              refreshes from the driver rather than reporting a
+ *                              version it does not hold, because the REQUIRED
+ *                              `GetCapabilitiesResult.cliVersion` is never
+ *                              fabricated from cache. Fabricating one
+ *                              (`{ raw: "", semver: "" }`, or a reading copied
+ *                              from an unrelated driver) would feed a FALSE
+ *                              version into the attach-time floor gate, which is
+ *                              fail-closed precisely because an unknown version
+ *                              must not pass.
+ *
+ * BOTH causes demand the same caller behavior — refresh from the driver — so
+ * collapsing them into one `undefined` was the cheap option available and is
+ * deliberately not taken: T3.23's spawn-floor gate and the cache-health
+ * telemetry both need "we have never seen this driver" separated from "we have a
+ * capability cache whose currency reading predates the version columns".
+ *
+ * The FLAG-MATRIX corruption case is NOT a miss and is not represented here — a
+ * `driver_contract_meta` row present with a wrong flag key set THROWS from
+ * `#snapshot`'s key-set proof, because handing back a silently-wrong capability
+ * matrix is worse than failing loud.
  */
-export type HydratedDriverCapabilities = Omit<GetCapabilitiesResult, "cliVersion">;
+export type DriverCapabilityHydrationResult =
+  | { readonly hit: true; readonly result: GetCapabilitiesResult }
+  | { readonly hit: false; readonly reason: "never_written" | "cli_version_missing" };
 
 // Private row shapes (snake_case, raw DB shape).
 interface DriverCapabilityRow {
@@ -353,6 +424,47 @@ interface DriverToolRow {
 
 interface DriverContractMetaRow {
   readonly contract_version: string;
+  // The currency pair is BOTH-OR-NEITHER at the DB level (the
+  // `(cli_version_semver IS NULL) = (cli_version_raw IS NULL)` CHECK), so a row
+  // can only ever present both or neither — never a half-populated version.
+  readonly cli_version_raw: string | null;
+  readonly cli_version_semver: string | null;
+}
+
+/**
+ * The composite cache read: the flat capability snapshot PLUS the stored
+ * currency pair, from ONE consistent read.
+ *
+ * `snapshot === undefined` ⇒ the driver was never written (no
+ * `driver_contract_meta` row). `snapshot` present with
+ * `storedCliVersion === undefined` ⇒ the row exists but its pair is NULL. Those
+ * two states are what `hydrate`'s two miss reasons are read off, so ROW presence
+ * has to stay separable from PAIR presence here — a single `undefined` for both
+ * would collapse the reasons at the source.
+ */
+interface CachedDriverCapabilityRead {
+  readonly snapshot: CapabilityDetails | undefined;
+  readonly storedCliVersion: DriverCliVersionReport | undefined;
+}
+
+/**
+ * Structural equality for two possibly-absent `cliVersion` readings — the ONE
+ * comparison the `cliVersionRefreshed` computation and the noop branch's
+ * side-write condition share, so the returned flag and the write it describes
+ * can never disagree.
+ *
+ * Absent-vs-present is a difference (a NULL stored pair is refreshed by any
+ * incoming report), which is what makes the pre-T1.7 row self-heal on the next
+ * declare rather than staying a permanent hydration miss.
+ */
+function cliVersionReportsEqual(
+  left: DriverCliVersionReport | undefined,
+  right: DriverCliVersionReport | undefined,
+): boolean {
+  if (left === undefined || right === undefined) {
+    return left === right;
+  }
+  return left.raw === right.raw && left.semver === right.semver;
 }
 
 // --------------------------------------------------------------------------
@@ -375,6 +487,12 @@ export class DriverCapabilitiesWriter {
   readonly #deleteToolsStmt: Statement;
   readonly #insertToolStmt: Statement;
   readonly #upsertContractMetaStmt: Statement;
+  // The version-only side-write (the noop branch). SEPARATE from the upsert
+  // above because it must NOT touch `contract_version`, must not INSERT (the
+  // branch only runs when the parent row already exists), and — crucially —
+  // must not drag the three-table write set along: a version bump with an
+  // identical capability snapshot is not a capability change.
+  readonly #refreshCliVersionPairStmt: Statement;
   // DEFERRED read-transaction wrapper for the snapshot read. `#snapshot`
   // runs THREE separate SELECTs; outside a transaction (autocommit) each takes its
   // own read snapshot, so under the multi-connection model this writer designs for
@@ -385,8 +503,11 @@ export class DriverCapabilitiesWriter {
   // never upgrades to a write, so it must NOT take a writer-intent lock.) BOTH
   // paths use it now — `hydrate` and `declare`'s change-detection alike — since
   // the write transaction no longer contains a read for `declare` to piggyback
-  // on (see the file header).
-  readonly #readTxn: Transaction<(driverName: string) => CapabilityDetails | undefined>;
+  // on (see the file header). It returns the COMPOSITE read (snapshot + stored
+  // currency pair) because both `hydrate`'s two miss reasons and `declare`'s
+  // `cliVersionRefreshed` need the pair from the SAME consistent read as the
+  // snapshot they are reported alongside.
+  readonly #readTxn: Transaction<(driverName: string) => CachedDriverCapabilityRead>;
   // The emission seam. REQUIRED (not optional): capability declarations always
   // occur at attach time with a live session/node (`Spec-005 §Default Behavior`). The
   // `writeDriverTables` prelude closure is built around it on each declare attempt.
@@ -421,8 +542,12 @@ export class DriverCapabilitiesWriter {
     );
     // driver_contract_meta: the single parent row. Its PRESENCE is the existence
     // gate — no row ⇒ driver never written ⇒ `#snapshot` returns `undefined`.
+    // The currency pair is selected on the SAME row read: it lives on this row,
+    // so reading it costs no extra statement, and taking it from the same read
+    // is what keeps "row present / pair NULL" distinguishable from "no row" for
+    // `hydrate`'s two miss reasons.
     this.#selectContractMetaStmt = db.prepare(
-      `SELECT contract_version
+      `SELECT contract_version, cli_version_raw, cli_version_semver
          FROM driver_contract_meta
         WHERE driver_name = ?`,
     );
@@ -448,22 +573,38 @@ export class DriverCapabilitiesWriter {
       `INSERT INTO driver_tools (driver_name, tool_name, idempotency_class, description, refreshed_at)
        VALUES (@driver_name, @tool_name, @idempotency_class, @description, @refreshed_at)`,
     );
-    // driver_contract_meta UPSERT — the single PK row.
+    // driver_contract_meta UPSERT — the single PK row. The currency pair rides
+    // EVERY mutating branch (declared and updated alike): the row always carries
+    // the reading from the declare that last wrote it, so the pair can never lag
+    // a capability write.
     this.#upsertContractMetaStmt = db.prepare(
-      `INSERT INTO driver_contract_meta (driver_name, contract_version, refreshed_at)
-       VALUES (@driver_name, @contract_version, @refreshed_at)
+      `INSERT INTO driver_contract_meta (driver_name, contract_version, cli_version_raw, cli_version_semver, refreshed_at)
+       VALUES (@driver_name, @contract_version, @cli_version_raw, @cli_version_semver, @refreshed_at)
        ON CONFLICT(driver_name)
-         DO UPDATE SET contract_version = excluded.contract_version,
-                       refreshed_at     = excluded.refreshed_at`,
+         DO UPDATE SET contract_version   = excluded.contract_version,
+                       cli_version_raw    = excluded.cli_version_raw,
+                       cli_version_semver = excluded.cli_version_semver,
+                       refreshed_at       = excluded.refreshed_at`,
+    );
+    // The noop-branch currency refresh. Both pair columns are written together,
+    // never one at a time — the table's both-or-neither CHECK makes a
+    // half-populated pair unrepresentable, and this statement honors that shape
+    // rather than relying on the CHECK to catch a mistake.
+    this.#refreshCliVersionPairStmt = db.prepare(
+      `UPDATE driver_contract_meta
+          SET cli_version_raw    = @cli_version_raw,
+              cli_version_semver = @cli_version_semver,
+              refreshed_at       = @refreshed_at
+        WHERE driver_name = @driver_name`,
     );
 
     // Prepare the DEFERRED read transaction once. BOTH `hydrate` and `declare`'s
-    // change-detection route their three-SELECT `#snapshot` read through here so
-    // the SELECTs share ONE consistent read snapshot — closing the torn-read
-    // hazard a concurrent refresh would otherwise open between the autocommit
-    // SELECTs (see the `#readTxn` field comment).
-    this.#readTxn = db.transaction((driverName: string): CapabilityDetails | undefined =>
-      this.#snapshot(driverName),
+    // change-detection route their composite `#snapshot` + currency-pair read
+    // through here so the SELECTs share ONE consistent read snapshot — closing
+    // the torn-read hazard a concurrent refresh would otherwise open between the
+    // autocommit SELECTs (see the `#readTxn` field comment).
+    this.#readTxn = db.transaction(
+      (driverName: string): CachedDriverCapabilityRead => this.#cachedRead(driverName),
     );
   }
 
@@ -499,6 +640,63 @@ export class DriverCapabilitiesWriter {
     // full re-parse of the result (value-normalization stays the Phase-3 driver
     // adapter's job per provider-output-validation.ts's boundary comment).
     assertValidGetCapabilitiesResultShape(input.result);
+
+    // (0b) Validate the REQUIRED `cliVersion` reading, immediately after the
+    // structural guard and still before any txn opens — the same
+    // defense-in-depth position the `contract_version` assert holds, and for the
+    // same reason: T2.6 persists this pair into two CHECK-constrained columns
+    // (`length(cli_version_raw) <= 128`, `length(cli_version_semver) <= 64`,
+    // NUL-free, non-empty), so an unvalidated report would trip a raw
+    // `SqliteError` from INSIDE the append's transaction — breaking both the
+    // "a rejected input never opens a transaction" and the "leak-safe
+    // `ProviderOutputValidationError`, never a raw error" doctrines.
+    //
+    // The PRESENCE/TYPE guard is this validator's, not an inline one here. The
+    // shape assert above is deliberately bounded to the three accesses `declare`
+    // makes and does NOT reach `cliVersion`, so a driver can ship it absent or
+    // primitive; duplicating a guard here would make the validator's own check
+    // dead code and create a second source of truth for the same rule.
+    //
+    // SNAPSHOT FIRST, THEN VALIDATE — and from here on the snapshot is the ONLY
+    // copy this method reads. Each member is taken off the provider's object
+    // EXACTLY ONCE, into a fresh plain two-member object; that object is what
+    // the assert below judges, what the `cliVersionRefreshed` comparison uses,
+    // and what the durable write binds. Re-reading `input.result.cliVersion`
+    // after the assert would reopen a TOCTOU window: the report is untrusted
+    // provider input, so a getter (or a Proxy) re-evaluated between validation
+    // and the write could persist a string that never passed validation,
+    // leaving the DDL CHECK's length+NUL bounds as the only remaining guard.
+    // Two plain strings sever getters, `toJSON` hooks, and prototype tricks
+    // alike — the same defensive-copy doctrine the `flags` record follows at
+    // step (5).
+    //
+    // A NON-object report is passed through UNCOPIED, deliberately: this copy
+    // makes no admission decision — it only decides what is read once — so the
+    // validator remains the SOLE owner of the accept/reject judgement and still
+    // refuses an absent/null/primitive report on its own terms (`cliVersion`).
+    // The property reads themselves are part of the getter/Proxy threat model:
+    // a throwing accessor would otherwise escape as the provider's OWN
+    // exception — provider-controlled text, untyped — before the assert below
+    // could produce the leak-safe refusal (Codex PR #372 round 1). Translate
+    // any accessor throw into the same typed refusal, discarding the thrown
+    // value entirely so nothing provider-controlled reaches the message.
+    let declaredCliVersion: DriverCliVersionReport;
+    try {
+      const reportedCliVersion: DriverCliVersionReport = input.result.cliVersion;
+      declaredCliVersion =
+        typeof reportedCliVersion === "object" &&
+        reportedCliVersion !== null &&
+        !Array.isArray(reportedCliVersion)
+          ? { raw: reportedCliVersion.raw, semver: reportedCliVersion.semver }
+          : reportedCliVersion;
+    } catch {
+      throw new ProviderOutputValidationError("Invalid provider cli_version report.", {
+        driverName: input.driverName,
+        field: "cliVersion",
+        reason: "a property accessor on the report threw during the defensive copy",
+      });
+    }
+    assertValidCliVersionReport(input.driverName, declaredCliVersion);
 
     // (1) Validate the provider-declared contract_version at the write seam
     // (defense-in-depth on top of the SQL CHECK — reuses the same assert as
@@ -608,6 +806,13 @@ export class DriverCapabilitiesWriter {
       tools: normalizedTools,
     };
 
+    // (5b) The `cliVersion` reading is deliberately NOT part of `newSnapshot`:
+    // `CapabilityDetails` is the canonical EVENT payload shape, and the version
+    // is absent from it by design (file header, cli_version section). Threading
+    // it separately as `declaredCliVersion` — the defensive copy taken at step
+    // (0b), before validation, and never re-read from the provider's object
+    // since — is what keeps it out of change-detection and out of every emit.
+
     // (6) Read-decide under the append lock, re-check inside the write
     // transaction, retry on divergence.
     //
@@ -619,7 +824,7 @@ export class DriverCapabilitiesWriter {
 
     for (let attempt: number = 1; ; attempt += 1) {
       try {
-        return { emitted: await this.#declareOnce(input, sessionId, newSnapshot) };
+        return await this.#declareOnce(input, sessionId, newSnapshot, declaredCliVersion);
       } catch (error: unknown) {
         // ONLY the divergence sentinel is retryable. Every other failure — a
         // constraint violation, a signing-key refusal, a halted session —
@@ -640,29 +845,81 @@ export class DriverCapabilitiesWriter {
 
   /**
    * ONE attempt of the read-decide-emit sequence, under the session's append
-   * lock. Returns the emitted-event classification, or throws
+   * lock. Returns the full {@link DeclareDriverCapabilitiesResult}, or throws
    * {@link DriverCapabilitySnapshotDivergedError} when the durable snapshot
    * moved between the decision and the write.
    *
    * Factored out of `declare` so each retry re-reads a genuinely FRESH
    * snapshot: a loop wrapped around the lock body alone would keep closing over
-   * the first attempt's `priorSnapshot` and diverge forever.
+   * the first attempt's `priorSnapshot` and diverge forever. `cliVersionRefreshed`
+   * is computed HERE, from THIS attempt's own read, for the same reason —
+   * hoisting it into `declare` would report attempt 1's comparison after attempt
+   * 2 is what actually committed.
    */
   async #declareOnce(
     input: DeclareDriverCapabilitiesInput,
     sessionId: SessionId,
     newSnapshot: CapabilityDetails,
-  ): Promise<"declared" | "updated" | "noop"> {
+    declaredCliVersion: DriverCliVersionReport,
+  ): Promise<DeclareDriverCapabilitiesResult> {
     return withSessionAppendLock(sessionId, async () => {
       // ONE consistent DEFERRED read snapshot feeds BOTH the change-detect
       // (noop) and the declare-vs-update branch pick, so those two decisions
-      // can never disagree with each other about what the prior state was.
-      const priorSnapshot: CapabilityDetails | undefined = this.#readTxn.deferred(input.driverName);
+      // can never disagree with each other about what the prior state was. The
+      // stored currency pair rides the SAME read, so the version comparison is
+      // against the state the branch was picked on.
+      const priorRead: CachedDriverCapabilityRead = this.#readTxn.deferred(input.driverName);
+      const priorSnapshot: CapabilityDetails | undefined = priorRead.snapshot;
+      // "Did the durable pair CHANGE", not "did a statement run" — the semantics
+      // `DeclareDriverCapabilitiesResult.cliVersionRefreshed` documents. A
+      // capability change re-declared from the SAME provider build reports
+      // `false` even though the upsert restates the pair.
+      const cliVersionRefreshed: boolean = !cliVersionReportsEqual(
+        priorRead.storedCliVersion,
+        declaredCliVersion,
+      );
 
-      // (6a) CHANGE-DETECTION. An identical re-declare is an idempotent no-op
-      // — no write, no event.
+      // (6a) CHANGE-DETECTION. An identical re-declare emits nothing.
       if (snapshotsEqual(priorSnapshot, newSnapshot)) {
-        return "noop";
+        // (6a-i) THE VERSION-ONLY REFRESH. Change-detection ignores `cliVersion`
+        // on purpose (it is cache currency, not a capability), which means the
+        // mutating upsert — the only other writer of the pair — never runs on
+        // this branch. Without this side-write a provider upgrade that changed
+        // no capability would strand the OLD version in the cache indefinitely,
+        // and every later hydration would hand a stale reading to the
+        // attach-time floor gate.
+        //
+        // Deliberately NOT the dual-write machinery: no event, no
+        // `transactionalPrelude`, no append. A version bump with an identical
+        // capability snapshot is not a capability change, and
+        // `runtime_node.capability_updated` carrying two byte-identical
+        // snapshots would be a false record of one.
+        //
+        // A single autocommit `UPDATE`, run AFTER `#readTxn.deferred` has
+        // returned — never inside it. better-sqlite3 rejects a nested
+        // transaction, and upgrading that DEFERRED read to a write is exactly
+        // the read-then-upgrade `SQLITE_BUSY_SNAPSHOT` hazard the file header
+        // designs against. One statement in autocommit needs neither.
+        //
+        // LAST-WRITER-WINS against a concurrent declare, accepted: both writers
+        // are persisting a THEN-CURRENT reading of the same installed build, so
+        // whichever lands second is a reading no less true than the first. This
+        // branch takes no divergence re-check for the same reason — the
+        // re-check exists to keep an EVENT's payload honest, and this branch
+        // emits none.
+        //
+        // The common case — same version, same snapshot — writes NOTHING: the
+        // guard is the comparison, so the zero-write noop is preserved and
+        // `refreshed_at` does not move.
+        if (cliVersionRefreshed) {
+          this.#refreshCliVersionPairStmt.run({
+            driver_name: input.driverName,
+            cli_version_raw: declaredCliVersion.raw,
+            cli_version_semver: declaredCliVersion.semver,
+            refreshed_at: this.#now(),
+          });
+        }
+        return { emitted: "noop", cliVersionRefreshed };
       }
 
       // (6b) The durable half of the dual-write. Runs inside the append's
@@ -723,10 +980,17 @@ export class DriverCapabilitiesWriter {
           });
         }
 
-        // WRITE driver_contract_meta — the single PK row.
+        // WRITE driver_contract_meta — the single PK row, carrying the current
+        // currency pair alongside the contract version. The pair rides the
+        // upsert unconditionally rather than only when it changed: this is the
+        // row's authoritative write, and restating an unchanged pair costs one
+        // column assignment while a conditional would need a second prepared
+        // statement to express the same row state.
         this.#upsertContractMetaStmt.run({
           driver_name: input.driverName,
           contract_version: newSnapshot.contractVersion,
+          cli_version_raw: declaredCliVersion.raw,
+          cli_version_semver: declaredCliVersion.semver,
           refreshed_at: refreshedAt,
         });
       };
@@ -744,7 +1008,11 @@ export class DriverCapabilitiesWriter {
           capabilityDetails: newSnapshot,
           transactionalPrelude: writeDriverTables,
         });
-        return "declared";
+        // Always `true` on this branch by construction: an absent row carries no
+        // pair, so any validated report differs from it. Returned from the same
+        // comparison as every other branch rather than hardcoded, so the fact
+        // stays derived from the row rather than asserted about it.
+        return { emitted: "declared", cliVersionRefreshed };
       }
       await this.#emitter.emitCapabilityUpdated({
         sessionId,
@@ -755,53 +1023,100 @@ export class DriverCapabilitiesWriter {
         newState: newSnapshot,
         transactionalPrelude: writeDriverTables,
       });
-      return "updated";
+      return { emitted: "updated", cliVersionRefreshed };
     });
   }
 
   /**
    * Cold-start hydration: reconstruct a driver's advertised capability snapshot
-   * from the durable cache WITHOUT round-tripping the driver (`Spec-005 §Recovery Consequences`). Pure READ (no write, no emit); the three SELECTs
-   * run inside ONE `BEGIN DEFERRED` read transaction so they share a consistent
-   * snapshot — see the `#readTxn` field comment. Returns `undefined` when the
-   * driver has never been written.
+   * from the durable cache WITHOUT round-tripping the driver (`Spec-005 §Recovery Consequences`). Pure READ (no write, no emit); the SELECTs run
+   * inside ONE `BEGIN DEFERRED` read transaction so they share a consistent
+   * snapshot — see the `#readTxn` field comment.
    *
-   * Returns the NESTED `HydratedDriverCapabilities` (`{ capabilities: { flags,
-   * contractVersion }, tools }`) — whose `capabilities` member is what
-   * `ProviderRegistry.register` consumes — NOT the flat `CapabilityDetails` the
-   * events carry (see the file header for the flat-vs-nested distinction).
-   * `tools` is in canonical order. `cliVersion` is deliberately ABSENT: it is a
-   * live reading this cache does not yet hold, and T2.6 owns re-widening the
-   * return to the full `GetCapabilitiesResult` (see `HydratedDriverCapabilities`).
+   * Returns the {@link DriverCapabilityHydrationResult} hit/miss discriminant.
+   * The HIT arm carries the NESTED, COMPLETE `GetCapabilitiesResult`
+   * (`{ capabilities: { flags, contractVersion }, tools, cliVersion }`) — whose
+   * `capabilities` member is what `ProviderRegistry.register` consumes — NOT the
+   * flat `CapabilityDetails` the events carry (see the file header for the
+   * flat-vs-nested distinction). `tools` is in canonical order.
+   *
+   * A NULL version pair is a MISS (`"cli_version_missing"`), not a hit with a
+   * blank version: the required `GetCapabilitiesResult.cliVersion` is never
+   * fabricated from cache (`docs/architecture/schemas/local-sqlite-schema.md §Driver and Runtime Binding Tables (Plan-005)`), and
+   * the caller refreshes from the driver. A never-written driver is the OTHER
+   * miss (`"never_written"`); see the result type for why the two stay
+   * distinguishable.
+   *
+   * `detectionSource` is naturally absent from the hit arm — it is not declared
+   * on `GetCapabilitiesResult` at all (T3.24 owns that member), and its absence
+   * is specified to read as CACHE RECONSTRUCTION rather than unknown provenance
+   * (`Spec-005 §Interfaces And Contracts`), which is exactly what this return is.
    */
-  hydrate(driverName: string): HydratedDriverCapabilities | undefined {
-    // Route the three-SELECT `#snapshot` read through a DEFERRED read transaction
-    // so the SELECTs share ONE consistent snapshot — a concurrent refresh
-    // committing between them cannot yield a torn read (`.deferred(...)`; see the
+  hydrate(driverName: string): DriverCapabilityHydrationResult {
+    // Route the composite read through a DEFERRED read transaction so the
+    // SELECTs share ONE consistent snapshot — a concurrent refresh committing
+    // between them cannot yield a torn read (`.deferred(...)`; see the
     // `#readTxn` field comment). The write path reaches `#snapshot` twice and
     // needs this wrapper for NEITHER call, for two different reasons: the
     // decision-time read in `#declareOnce` routes through this same `#readTxn`
     // already, and the in-prelude re-check calls `#snapshot` DIRECTLY because it
     // runs inside the append's own transaction — which supplies the consistency
     // and would reject a nested one. So only `hydrate` has to open its own.
-    const snapshot: CapabilityDetails | undefined = this.#readTxn.deferred(driverName);
-    if (snapshot === undefined) {
-      return undefined;
+    const cached: CachedDriverCapabilityRead = this.#readTxn.deferred(driverName);
+    if (cached.snapshot === undefined) {
+      return { hit: false, reason: "never_written" };
+    }
+    if (cached.storedCliVersion === undefined) {
+      return { hit: false, reason: "cli_version_missing" };
     }
     return {
-      capabilities: {
-        flags: snapshot.flags,
-        contractVersion: snapshot.contractVersion,
+      hit: true,
+      result: {
+        capabilities: {
+          flags: cached.snapshot.flags,
+          contractVersion: cached.snapshot.contractVersion,
+        },
+        // Copied: contracts' `CapabilityDetails.tools` is readonly; the nested
+        // `GetCapabilitiesResult.tools` ingress field is mutable.
+        tools: [...cached.snapshot.tools],
+        cliVersion: cached.storedCliVersion,
       },
-      // Copied: contracts' `CapabilityDetails.tools` is readonly; the nested
-      // `GetCapabilitiesResult.tools` ingress field is mutable.
-      tools: [...snapshot.tools],
     };
   }
 
   // ------------------------------------------------------------------------
   // Internal
   // ------------------------------------------------------------------------
+
+  /**
+   * The COMPOSITE cache read: the flat snapshot plus the stored currency pair,
+   * off ONE `driver_contract_meta` row read. The body of `#readTxn`, so both
+   * halves come from the same consistent read snapshot.
+   *
+   * Row presence and pair presence are surfaced SEPARATELY (see
+   * {@link CachedDriverCapabilityRead}) — collapsing them here would erase the
+   * distinction `hydrate`'s two miss reasons are built on before either caller
+   * could see it.
+   */
+  #cachedRead(driverName: string): CachedDriverCapabilityRead {
+    const contractMeta: DriverContractMetaRow | undefined = this.#selectContractMetaStmt.get(
+      driverName,
+    ) as DriverContractMetaRow | undefined;
+    if (contractMeta === undefined) {
+      return { snapshot: undefined, storedCliVersion: undefined };
+    }
+    return {
+      snapshot: this.#snapshotFromContractMeta(driverName, contractMeta),
+      // Both columns or neither — the table's both-or-neither CHECK guarantees
+      // it, and the `&&` reads the guarantee rather than assuming it, so a
+      // half-populated row (only reachable by out-of-band corruption predating
+      // the CHECK) degrades to a cache MISS rather than to a half-built report.
+      storedCliVersion:
+        contractMeta.cli_version_raw !== null && contractMeta.cli_version_semver !== null
+          ? { raw: contractMeta.cli_version_raw, semver: contractMeta.cli_version_semver }
+          : undefined,
+    };
+  }
 
   /**
    * Reconstruct the FLAT `CapabilityDetails` snapshot for a driver from the
@@ -813,6 +1128,13 @@ export class DriverCapabilitiesWriter {
    * we return `undefined` BEFORE reading the child tables. `tools` come back in
    * canonical (`name`-ascending) order via the `ORDER BY tool_name` reader, so
    * the read side matches the write side's sort.
+   *
+   * Its return DELIBERATELY excludes the currency pair, even though this reader
+   * has the row in hand. The in-prelude divergence re-check compares two of
+   * these, and a version-bearing snapshot would make a racer's version-only
+   * refresh look like a diverged CAPABILITY snapshot — aborting a legitimate
+   * declare and burning the retry budget over a field that is not a capability.
+   * The pair reaches its consumers through `#cachedRead` instead.
    */
   #snapshot(driverName: string): CapabilityDetails | undefined {
     const contractMeta: DriverContractMetaRow | undefined = this.#selectContractMetaStmt.get(
@@ -822,7 +1144,19 @@ export class DriverCapabilitiesWriter {
       // No parent row ⇒ driver never written ⇒ no snapshot.
       return undefined;
     }
+    return this.#snapshotFromContractMeta(driverName, contractMeta);
+  }
 
+  /**
+   * The child-table half of the snapshot reconstruction, given an
+   * already-fetched parent row. Split out of {@link #snapshot} so
+   * {@link #cachedRead} reuses the SAME `driver_contract_meta` read rather than
+   * issuing a second SELECT for a row it already holds.
+   */
+  #snapshotFromContractMeta(
+    driverName: string,
+    contractMeta: DriverContractMetaRow,
+  ): CapabilityDetails {
     // Reconstruct the flag matrix. `supported === 1` → `true`. The Record is
     // keyed by `capability_flag`, but the column's CHECK is a SUPERSET
     // whitelist, not an exact guarantee: version 11 widened it to all FOURTEEN
@@ -850,8 +1184,8 @@ export class DriverCapabilitiesWriter {
     // set unreachable through this writer, so a violation here means
     // out-of-band corruption (a manual DELETE or UPDATE, a future migration
     // bug); fail LOUD rather than reconstruct a silently-wrong flag matrix.
-    // Reached only AFTER the `contractMeta === undefined` early-return, so a
-    // never-written driver never trips it. A plain internal-invariant `Error`
+    // Reached only with a parent row already in hand (both callers gate on it),
+    // so a never-written driver never trips it. A plain internal-invariant `Error`
     // (NOT `ProviderOutputValidationError` — this is a corrupt cache, not
     // provider input) — and unlike that deliberately leak-safe write-seam
     // guard it NAMES the offending keys, because these are our own stored rows
