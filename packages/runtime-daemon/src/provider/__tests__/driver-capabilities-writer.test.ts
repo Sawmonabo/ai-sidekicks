@@ -564,6 +564,50 @@ describe("DriverCapabilitiesWriter — contractVersion-only bump", () => {
 // ----------------------------------------------------------------------------
 
 describe("DriverCapabilitiesWriter — cli_version pair persistence", () => {
+  it("validates and persists ONE snapshot of the report — a getter cannot swap the value after validation", async () => {
+    // The write-side twin of the RuntimeBindingStore case. `declare` copies the
+    // reading into a plain object at step (0b), BEFORE validating it, and every
+    // later use — the assert, the `cliVersionRefreshed` comparison, the durable
+    // upsert — reads that copy. A re-read after validation would persist this
+    // fixture's SECOND value, which no validator saw.
+    //
+    // The result is built literally rather than through `makeResult`, whose
+    // `...overrides` spread would itself evaluate the getter and hand `declare`
+    // a plain object — the fixture would then pass no matter what `declare` did.
+    let rawReads: number = 0;
+    const mutatingReport: DriverCliVersionReport = {
+      get raw(): string {
+        rawReads += 1;
+        return rawReads === 1 ? CLI_VERSION_REPORT.raw : "swapped-after-validation";
+      },
+      get semver(): string {
+        return CLI_VERSION_REPORT.semver;
+      },
+    };
+    const result: GetCapabilitiesResult = {
+      capabilities: { flags: makeFlags(), contractVersion: CONTRACT_VERSION },
+      tools: [],
+      cliVersion: mutatingReport,
+    };
+
+    const { writer } = makeWriter();
+    const outcome = await writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result,
+    });
+
+    expect(outcome).toEqual({ emitted: "declared", cliVersionRefreshed: true });
+    // The mechanism: exactly ONE read of the provider's member…
+    expect(rawReads).toBe(1);
+    // …and the durable row carries the value that was validated.
+    expect(readCliVersionPair(DRIVER_NAME)).toEqual({
+      cli_version_raw: CLI_VERSION_REPORT.raw,
+      cli_version_semver: CLI_VERSION_REPORT.semver,
+    });
+  });
+
   it("writes cli_version_raw / cli_version_semver on the FIRST declare and reports cliVersionRefreshed:true", async () => {
     const { writer } = makeWriter();
 

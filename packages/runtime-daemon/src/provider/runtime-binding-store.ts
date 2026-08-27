@@ -126,7 +126,7 @@ export interface RuntimeBindingSpawnConfig {
   // spawn. A run's paying account is bound for the run's LIFETIME, so a resume
   // that re-resolved "whichever account is default now" would silently re-bill.
   readonly providerAccountId?: string | undefined;
-  // Owner: Plan-005 T3.16 — `Spec-005 §Required Behavior`: the RESOLVED
+  // Owner: Plan-005 T3.23 — `Spec-005 §Required Behavior`: the RESOLVED
   // executable path rides this carrier, so a resumed leg re-spawns the same
   // binary the original spawn resolved rather than re-resolving against a PATH
   // that may have changed underneath it.
@@ -144,9 +144,13 @@ export interface RuntimeBinding {
   readonly driverName: string;
   readonly contractVersion: string;
   // The provider handshake version pair, or `null` when the row carries neither
-  // (pre-B3 rows). Never half-present — the DDL CHECK enforces both-or-neither
-  // at the column layer and the single optional `cliVersion` create member makes
-  // a half-pair unrepresentable at the seam.
+  // — pre-B3 rows AND creates that omitted the report (the write path stores the
+  // pair or neither, so an omitted report leaves both columns NULL). Never
+  // half-present through this seam: the DDL CHECK enforces both-or-neither at
+  // the column layer and the single optional `cliVersion` create member makes a
+  // half-pair unrepresentable at the write seam. A half-present ROW is reachable
+  // only by out-of-band corruption, and the read fold reports it as `null`
+  // rather than fabricating the missing member (see `#rowToDomain`).
   readonly cliVersion: DriverCliVersionReport | null;
   readonly resumeHandle: string | null;
   readonly spawnConfig: RuntimeBindingSpawnConfig;
@@ -223,12 +227,33 @@ interface RuntimeBindingRow {
   readonly updated_at: string;
 }
 
+/**
+ * `#updateTxn`'s return: the updated raw row PLUS the `spawn_config` record
+ * parsed INSIDE the transaction.
+ *
+ * The parse is a PRECONDITION OF THE COMMIT (see `#updateTxn`), so carrying its
+ * result out is what keeps `update()` from parsing the same JSON a second time
+ * to build its return value — and guarantees the record it returns is the one
+ * the commit was gated on, not a re-derivation of it.
+ */
+interface UpdatedRuntimeBindingRow {
+  readonly row: RuntimeBindingRow;
+  readonly spawnConfig: RuntimeBindingSpawnConfig;
+}
+
 // --------------------------------------------------------------------------
 // `spawn_config` closed-key-set parse table
 // --------------------------------------------------------------------------
 
-/** A non-null, non-array object (the JSON "plain object" test). */
-function isPlainObject(value: unknown): boolean {
+/**
+ * A non-null, non-array object (the JSON "plain object" test).
+ *
+ * Declared as a TYPE PREDICATE, not a bare `boolean`: a caller that has narrowed
+ * a value through this guard can then index it directly, so the seam does not
+ * need an `as Record<string, unknown>` cast re-stating at the use site exactly
+ * what the guard just proved.
+ */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -244,8 +269,25 @@ function isPlainObject(value: unknown): boolean {
  * written as, and that a member added by a future task cannot be silently
  * dropped on the floor by a reader that predates it (an unknown key is a LOUD
  * failure here, not a shrug).
+ *
+ * DEPTH LIMIT, stated so no consumer over-reads it: this table proves the key
+ * set is closed and each present member's shape ONE LEVEL DEEP. It proves
+ * NOTHING about a member's INNER shape — an `executionPosture` stored as `{}`
+ * passes `isPlainObject` and reads back as a posture object with no `mode`, no
+ * `networkAccess`, and no `writableRoots`. The recovery consumer (T3.14 /
+ * Plan-015) must therefore guard the inner shape itself before spawning from
+ * it; a posture-shaped hole is not a posture, and this table will not catch it.
+ *
+ * Typed by `satisfies Readonly<Record<keyof RuntimeBindingSpawnConfig, …>>`
+ * rather than by a `Record<string, …>` ANNOTATION: the `satisfies` form keys
+ * the table to the domain type, so adding a member to
+ * `RuntimeBindingSpawnConfig` without adding its check here is a COMPILE error
+ * rather than a runtime "unknown member" refusal discovered on the read that
+ * recovery performs. It also keeps the literal key type (an annotation would
+ * widen it to `string`), which is what lets the parse loop index the table with
+ * a narrowed key instead of a possibly-`undefined` lookup.
  */
-const SPAWN_CONFIG_MEMBER_CHECKS: Readonly<Record<string, (value: unknown) => boolean>> = {
+const SPAWN_CONFIG_MEMBER_CHECKS = {
   executionPosture: isPlainObject,
   callbackTools: (value) => Array.isArray(value),
   subagentPolicy: isPlainObject,
@@ -255,7 +297,7 @@ const SPAWN_CONFIG_MEMBER_CHECKS: Readonly<Record<string, (value: unknown) => bo
   admittedCostCapCents: (value) => typeof value === "number",
   providerAccountId: (value) => typeof value === "string",
   resolvedExecutablePath: (value) => typeof value === "string",
-};
+} satisfies Readonly<Record<keyof RuntimeBindingSpawnConfig, (value: unknown) => boolean>>;
 
 // --------------------------------------------------------------------------
 // RuntimeBindingStore
@@ -296,7 +338,7 @@ export class RuntimeBindingStore {
   // safety, so it must be IMMEDIATE. Typed as `Transaction<F>` (not the erased
   // bare callable) precisely so `.immediate(...)` is reachable.
   readonly #updateTxn: Transaction<
-    (id: string, patch: UpdateRuntimeBindingPatch) => RuntimeBindingRow | undefined
+    (id: string, patch: UpdateRuntimeBindingPatch) => UpdatedRuntimeBindingRow | undefined
   >;
   // Injected wall-clock + id sources for deterministic tests.
   readonly #now: () => string;
@@ -375,15 +417,38 @@ export class RuntimeBindingStore {
     // between the read and the write. It is invoked via `.immediate(...)` in
     // `update()` (BEGIN IMMEDIATE) because the body is read-first — see the
     // `#updateTxn` field comment for the `SQLITE_BUSY_SNAPSHOT`-under-WAL
-    // rationale. Validation runs OUTSIDE this txn (in `update`) so a rejected
-    // patch never opens a transaction at all — which is what makes "a rejected
-    // update leaves the row unchanged" hold without relying on rollback.
+    // rationale.
+    //
+    // TWO REFUSAL CLASSES, deliberately split across the transaction boundary:
+    //   * The PATCH-SHAPE asserts run OUTSIDE this txn (in `update`), so a
+    //     malformed patch never opens a transaction at all — "a rejected patch
+    //     leaves the row unchanged" holds WITHOUT relying on rollback.
+    //   * The STORED-RECORD parse runs INSIDE, because it reads the row this
+    //     txn has just selected and cannot be hoisted above it. That one DOES
+    //     rely on rollback (better-sqlite3 rolls a `db.transaction(...)` back
+    //     when its body throws), and that is the point: a record this store
+    //     cannot read back must not have a patch committed onto it, mirroring
+    //     `create()`'s pre-INSERT parse from the read side.
     this.#updateTxn = db.transaction(
-      (id: string, patch: UpdateRuntimeBindingPatch): RuntimeBindingRow | undefined => {
+      (id: string, patch: UpdateRuntimeBindingPatch): UpdatedRuntimeBindingRow | undefined => {
         const existing = this.#selectByIdStmt.get(id) as RuntimeBindingRow | undefined;
         if (existing === undefined) {
           return undefined;
         }
+        // Round-trip the STORED record through the SAME closed-key-set parser
+        // the read path uses, BEFORE anything commits — the read-side twin of
+        // `create()`'s pre-INSERT parse. A row whose `spawn_config` this store
+        // cannot read is corrupt storage, and committing a patch onto it would
+        // produce a record that is newer, still unreadable, and now carries an
+        // `updated_at` implying this daemon wrote it — hiding the corruption
+        // behind a fresh timestamp for the recovery read that eventually trips
+        // over it. The throw aborts the transaction, so the UPDATE below never
+        // lands. The parsed record travels out with the row (see
+        // {@link UpdatedRuntimeBindingRow}) so `update()` re-parses nothing.
+        const parsedSpawnConfig: RuntimeBindingSpawnConfig = this.#parseSpawnConfig(
+          existing.id,
+          existing.spawn_config,
+        );
         // Presence-detect each patch key. Under `exactOptionalPropertyTypes` an
         // explicit `undefined` is not assignable, so `!== undefined` is a safe
         // "is this column being patched" test. An absent key keeps the existing
@@ -409,11 +474,14 @@ export class RuntimeBindingStore {
         });
 
         return {
-          ...existing,
-          contract_version: mergedContractVersion,
-          resume_handle: mergedResumeHandle,
-          runtime_metadata: mergedRuntimeMetadata,
-          updated_at: updatedAt,
+          row: {
+            ...existing,
+            contract_version: mergedContractVersion,
+            resume_handle: mergedResumeHandle,
+            runtime_metadata: mergedRuntimeMetadata,
+            updated_at: updatedAt,
+          },
+          spawnConfig: parsedSpawnConfig,
         };
       },
     );
@@ -438,7 +506,24 @@ export class RuntimeBindingStore {
     // `ProviderOutputValidationError` and lands no row, rather than tripping the
     // DDL CHECK as a raw `SqliteError` (or, worse, landing a row whose recorded
     // version is a lie).
-    const cliVersion: DriverCliVersionReport | null = input.cliVersion ?? null;
+    //
+    // SNAPSHOT FIRST, THEN VALIDATE. Each member is read off the caller's object
+    // EXACTLY ONCE, into a fresh plain two-member object, and that ONE snapshot
+    // is what is validated, what is BOUND to the INSERT, and what is RETURNED.
+    // Re-reading `input.cliVersion.raw` at bind time would be a TOCTOU window:
+    // the report is provider-shaped input, so a getter (or a Proxy) re-evaluated
+    // between the assert and the write could persist a string that never passed
+    // validation, leaving the DDL CHECK's length+NUL bounds as the only thing
+    // between a hostile driver and a stored lie about which build answered.
+    //
+    // A NON-object report is passed through UNCOPIED, deliberately: this copy
+    // makes no admission decision — it only decides what is read once — so the
+    // validator stays the SOLE owner of the accept/reject judgement and still
+    // sees (and refuses) exactly the value the caller supplied.
+    const reportedCliVersion: DriverCliVersionReport | null = input.cliVersion ?? null;
+    const cliVersion: DriverCliVersionReport | null = isPlainObject(reportedCliVersion)
+      ? { raw: reportedCliVersion.raw, semver: reportedCliVersion.semver }
+      : reportedCliVersion;
     if (cliVersion !== null) {
       assertValidCliVersionReport(input.driverName, cliVersion);
     }
@@ -492,12 +577,13 @@ export class RuntimeBindingStore {
       runId: input.runId,
       driverName: input.driverName,
       contractVersion: input.contractVersion,
-      // Rebuilt as a fresh two-member object rather than echoing the caller's:
-      // the row stores exactly these two columns, so `findById()` reconstructs
-      // exactly this shape. Echoing an input object carrying extra keys would
-      // make `create()` and `findById()` disagree — the same DB-as-source-of-
-      // truth reasoning as the round-tripped `runtimeMetadata` below.
-      cliVersion: cliVersion === null ? null : { raw: cliVersion.raw, semver: cliVersion.semver },
+      // The VALIDATED SNAPSHOT itself — never a re-read of the caller's object
+      // (see the TOCTOU note above). It is already the fresh two-member shape
+      // the row stores, so `findById()` reconstructs exactly this object;
+      // echoing an input carrying extra keys would make the two accessors
+      // disagree, the same DB-as-source-of-truth reasoning as the round-tripped
+      // `runtimeMetadata` below.
+      cliVersion,
       resumeHandle,
       // The parser's output (computed above, pre-INSERT) — never the caller's
       // object, for the same DB-as-source-of-truth reason as `runtimeMetadata`.
@@ -556,6 +642,13 @@ export class RuntimeBindingStore {
    * Empty input short-circuits to `[]` WITHOUT executing the statement — an
    * empty `IN` set can only ever match nothing, so the round-trip has no
    * possible outcome to report.
+   *
+   * REFUSES THE WHOLE LIST if any matched row's `spawn_config` is unreadable
+   * (see `#parseSpawnConfig` for why skipping the row instead would be worse
+   * HERE specifically: a silently dropped binding UNDER-COUNTS the ack barrier
+   * Plan-016 T2.10 gates its fan-out on, and that barrier is fail-open — it
+   * proceeds when it believes nothing is outstanding). Reachable only by
+   * out-of-band corruption: both write seams parse before they commit.
    */
   findByRuns(runIds: readonly string[]): RuntimeBinding[] {
     if (runIds.length === 0) {
@@ -580,6 +673,14 @@ export class RuntimeBindingStore {
    * a real caller bug), whereas `update(absentId, validPatch)` returns
    * `undefined`. The `runtime-binding-store.test.ts` "absent-id with invalid
    * patch" case pins this ordering as an enforced contract.
+   *
+   * REFUSES A CORRUPT TARGET. Inside the transaction, the row's stored
+   * `spawn_config` is round-tripped through the same closed-key-set parser the
+   * read path uses BEFORE the UPDATE commits, so a patch is never written onto
+   * a record this store cannot read back (the throw rolls the transaction back,
+   * leaving every column — the patched ones and `updated_at` alike — untouched).
+   * That refusal is a plain internal-invariant `Error`, not a
+   * `ProviderOutputValidationError`: the record is daemon-written local state.
    */
   update(id: string, patch: UpdateRuntimeBindingPatch): RuntimeBinding | undefined {
     if (patch.contractVersion !== undefined) {
@@ -591,8 +692,14 @@ export class RuntimeBindingStore {
 
     // `.immediate(...)` → BEGIN IMMEDIATE (read-first transaction; see the
     // `#updateTxn` field comment for the WAL `SQLITE_BUSY_SNAPSHOT` rationale).
-    const row = this.#updateTxn.immediate(id, patch);
-    return row === undefined ? undefined : this.#rowToDomain(row);
+    const updated = this.#updateTxn.immediate(id, patch);
+    if (updated === undefined) {
+      return undefined;
+    }
+    // Reuses the `spawn_config` record the commit was gated on (see
+    // {@link UpdatedRuntimeBindingRow}) rather than re-parsing the column, so
+    // the returned binding cannot disagree with what the transaction admitted.
+    return this.#rowToDomain(updated.row, updated.spawnConfig);
   }
 
   /**
@@ -611,6 +718,13 @@ export class RuntimeBindingStore {
    * `recovery_checkpoints` table to surface only bindings that actually NEED
    * recovery — but the binding-level "has a handle to resume from" semantic
    * ships FUNCTIONAL now (this is a working query, not a throw-stub).
+   *
+   * REFUSES THE WHOLE LIST if any resumable row's `spawn_config` is unreadable
+   * (see `#parseSpawnConfig`): silently dropping the row would hand the
+   * recovery dispatcher a SHORTER list of resumable bindings than the database
+   * holds, which reads as "nothing to recover" rather than as a failure.
+   * Reachable only by out-of-band corruption: both write seams parse before
+   * they commit.
    */
   findResumableBindings(): RuntimeBinding[] {
     const rows = this.#selectResumableStmt.all() as RuntimeBindingRow[];
@@ -627,23 +741,38 @@ export class RuntimeBindingStore {
    * folding the CLI-version columns back into a single pair. Snake_case rows and
    * raw JSON never leak to callers.
    *
-   * The pair is folded on `cli_version_raw`: the DDL CHECK makes both-or-neither
-   * a stored fact, so testing one column is sufficient and the `?? ""` fallback
-   * on the sibling is unreachable in practice — it exists only so the mapping is
-   * total without a non-null assertion.
+   * The pair folds only when BOTH columns are non-null — the same posture
+   * `DriverCapabilitiesWriter.#cachedRead` takes on its own copy of this pair.
+   * The DDL CHECK makes both-or-neither a stored fact, and this fold READS that
+   * guarantee rather than assuming it: a half-present row (reachable only by
+   * out-of-band corruption, e.g. a writer running under
+   * `PRAGMA ignore_check_constraints`) reports `cliVersion: null` instead of
+   * fabricating the missing member. Defaulting the sibling to `""` would have
+   * manufactured a version report the provider never gave — and an empty
+   * `semver` is exactly the value the floor gate cannot compare, so the
+   * fabrication would travel as a real reading rather than as an absent one.
+   *
+   * `parsedSpawnConfig` is an OPTIONAL pre-parsed record for the one caller that
+   * already holds it: `update()`, whose transaction parsed the stored column as
+   * a precondition of committing. Passing it through avoids parsing the same
+   * JSON twice and makes the returned record provably the one the commit was
+   * gated on. Every other caller omits it and this method parses.
    */
-  #rowToDomain(row: RuntimeBindingRow): RuntimeBinding {
+  #rowToDomain(
+    row: RuntimeBindingRow,
+    parsedSpawnConfig?: RuntimeBindingSpawnConfig,
+  ): RuntimeBinding {
     return {
       id: row.id,
       runId: row.run_id,
       driverName: row.driver_name,
       contractVersion: row.contract_version,
       cliVersion:
-        row.cli_version_raw === null
-          ? null
-          : { raw: row.cli_version_raw, semver: row.cli_version_semver ?? "" },
+        row.cli_version_raw !== null && row.cli_version_semver !== null
+          ? { raw: row.cli_version_raw, semver: row.cli_version_semver }
+          : null,
       resumeHandle: row.resume_handle,
-      spawnConfig: this.#parseSpawnConfig(row.id, row.spawn_config),
+      spawnConfig: parsedSpawnConfig ?? this.#parseSpawnConfig(row.id, row.spawn_config),
       runtimeMetadata: JSON.parse(row.runtime_metadata) as Record<string, unknown>,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -666,6 +795,28 @@ export class RuntimeBindingStore {
    * degradation here converts local data corruption into a sandbox escape, so
    * the only safe reading of a record we cannot read is a refusal.
    *
+   * ACCEPTED CONSEQUENCE — one unreadable row REFUSES THE WHOLE LIST at the
+   * enumeration seams (`findByRun`, `findByRuns`, `findResumableBindings`,
+   * `findById`), because the throw propagates out of the `.map`. That is
+   * deliberate, not an oversight: the alternative (skip the row, return the
+   * rest) is SILENT UNDER-COUNTING, and both enumerations feed consumers that
+   * read a short list as good news — `findByRuns` feeds the Plan-016 T2.10 ack
+   * barrier, which is FAIL-OPEN (it proceeds when nothing appears outstanding),
+   * and `findResumableBindings` feeds the recovery dispatcher, where a dropped
+   * row reads as "nothing to recover". A loud refusal costs an operator a
+   * diagnosis; a silent skip costs a barrier that never fired. The exposure is
+   * bounded to OUT-OF-BAND corruption in any case: both write seams (`create`
+   * pre-INSERT, `update` pre-commit) parse the record before it lands, so this
+   * store cannot itself produce a row it later refuses to read.
+   *
+   * DEPTH LIMIT (see `SPAWN_CONFIG_MEMBER_CHECKS`): this parse proves the key
+   * set is CLOSED and each present member's shape ONE LEVEL DEEP. It proves
+   * nothing about a member's INNER shape — `{"executionPosture":{}}` parses
+   * clean and yields a posture object with no `mode`, no `networkAccess`, and
+   * no `writableRoots`. The recovery consumer (T3.14 / Plan-015) owns that
+   * guard; a posture-shaped hole is not a posture, and this parser will not
+   * catch it.
+   *
    * NOT a `ProviderOutputValidationError`: that type is the leak-safe envelope
    * for rejected PROVIDER input crossing the write seam. This value is
    * DAEMON-WRITTEN local state, so a malformation is corrupt storage — an
@@ -680,7 +831,7 @@ export class RuntimeBindingStore {
    * DEFAULT — parses as. That leaves ONE ambiguity, named here rather than
    * papered over: a genuinely-empty live record and a pre-B10 default row are
    * indistinguishable BY VALUE. It is inert in practice because Phase-3 spawn
-   * writers always record `resolvedExecutablePath` (T3.16), so a live-written
+   * writers always record `resolvedExecutablePath` (T3.23), so a live-written
    * record is never empty — but a reader that must be certain has to look at
    * `created_at` against the migration, not at this value.
    */
@@ -698,18 +849,21 @@ export class RuntimeBindingStore {
         `runtime_bindings.spawn_config is not a JSON object (binding id ${bindingId}).`,
       );
     }
-    const record = parsed as Record<string, unknown>;
+    // Already narrowed to `Record<string, unknown>` by the `isPlainObject`
+    // predicate above — no cast re-stating what the guard just proved.
+    const record = parsed;
     for (const key of Object.keys(record)) {
       // Own-key basis on BOTH sides (`Object.keys` above, `hasOwnProperty` here)
-      // — the mixed-basis hazard `assertValidCapabilityFlags` documents.
-      const check = Object.prototype.hasOwnProperty.call(SPAWN_CONFIG_MEMBER_CHECKS, key)
-        ? SPAWN_CONFIG_MEMBER_CHECKS[key]
-        : undefined;
-      if (check === undefined) {
+      // — the mixed-basis hazard `assertValidCapabilityFlags` documents. The
+      // guard IS the unknown-key refusal rather than a feeder into one: past it
+      // the key is a member of the closed table, so the lookup below is total
+      // and the narrowed index needs no second `undefined` test.
+      if (!Object.prototype.hasOwnProperty.call(SPAWN_CONFIG_MEMBER_CHECKS, key)) {
         throw new Error(
           `runtime_bindings.spawn_config carries unknown member "${key}" (binding id ${bindingId}).`,
         );
       }
+      const check = SPAWN_CONFIG_MEMBER_CHECKS[key as keyof typeof SPAWN_CONFIG_MEMBER_CHECKS];
       if (!check(record[key])) {
         throw new Error(
           `runtime_bindings.spawn_config member "${key}" has the wrong shape (binding id ${bindingId}).`,

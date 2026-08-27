@@ -26,11 +26,12 @@
 // Refs: Plan-005 §Phase 2 / T2.2 + T2.4 + T2.6, `Spec-005 §Required Behavior`,
 // `Spec-005 §State And Data Implications`.
 
-import {
-  DRIVER_CAPABILITY_FLAGS,
-  wireFreeFormString,
-  type DriverCliVersionReport,
-} from "@ai-sidekicks/contracts";
+// No `DriverCliVersionReport` type import: `assertValidCliVersionReport` takes
+// `unknown` on purpose (see its docstring), so this module has no TYPE-level
+// dependency on the contract shape — only the two member schemas that mirror
+// it. The docstrings still name the contract type in prose, which is where the
+// tie belongs when the runtime guard is the thing doing the work.
+import { DRIVER_CAPABILITY_FLAGS, wireFreeFormString } from "@ai-sidekicks/contracts";
 import semver from "semver";
 
 // --------------------------------------------------------------------------
@@ -258,25 +259,25 @@ export function assertValidResumeHandle(value: string): void {
  * DDL CHECK structurally at the type level (`cliVersion?: DriverCliVersionReport`
  * is a SINGLE optional member, so a half-pair is unrepresentable).
  *
- * The parameter is statically typed but the type is ERASED at runtime, so the
- * value is re-read through an `unknown` alias and shape-guarded before member
- * access — a malformed driver shipping `null` would otherwise raw-throw a
- * `TypeError` on `report.raw` and escape this module's leak-safe doctrine (the
- * same reasoning as `assertValidCapabilityFlags`' `unknown` parameter).
+ * The param is `unknown` (not `DriverCliVersionReport`) DELIBERATELY, exactly
+ * as `assertValidCapabilityFlags` and `assertValidGetCapabilitiesResultShape`
+ * are: the static type is ERASED at runtime, so a malformed driver can ship the
+ * report as null/array/primitive or omit it entirely. Typing the parameter
+ * `unknown` stops the type system from masking that runtime risk and forces the
+ * non-null-object guard below — without which `report.raw` would raw-throw a
+ * `TypeError` and escape this module's leak-safe doctrine. Callers pass a
+ * `DriverCliVersionReport`-shaped value; this function is what makes that shape
+ * a checked fact rather than a static assumption.
  */
-export function assertValidCliVersionReport(
-  driverName: string,
-  report: DriverCliVersionReport,
-): void {
-  const candidate: unknown = report;
-  if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) {
+export function assertValidCliVersionReport(driverName: string, report: unknown): void {
+  if (typeof report !== "object" || report === null || Array.isArray(report)) {
     throw new ProviderOutputValidationError("Invalid provider cli_version report.", {
       driverName,
       field: "cliVersion",
       reason: "report must be an object carrying both `raw` and `semver`",
     });
   }
-  const reportRecord = candidate as Record<string, unknown>;
+  const reportRecord = report as Record<string, unknown>;
   if (!cliVersionRawSchema.safeParse(reportRecord["raw"]).success) {
     throw new ProviderOutputValidationError("Invalid provider cli_version report.", {
       driverName,

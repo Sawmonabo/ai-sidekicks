@@ -656,7 +656,32 @@ export class DriverCapabilitiesWriter {
     // makes and does NOT reach `cliVersion`, so a driver can ship it absent or
     // primitive; duplicating a guard here would make the validator's own check
     // dead code and create a second source of truth for the same rule.
-    assertValidCliVersionReport(input.driverName, input.result.cliVersion);
+    //
+    // SNAPSHOT FIRST, THEN VALIDATE — and from here on the snapshot is the ONLY
+    // copy this method reads. Each member is taken off the provider's object
+    // EXACTLY ONCE, into a fresh plain two-member object; that object is what
+    // the assert below judges, what the `cliVersionRefreshed` comparison uses,
+    // and what the durable write binds. Re-reading `input.result.cliVersion`
+    // after the assert would reopen a TOCTOU window: the report is untrusted
+    // provider input, so a getter (or a Proxy) re-evaluated between validation
+    // and the write could persist a string that never passed validation,
+    // leaving the DDL CHECK's length+NUL bounds as the only remaining guard.
+    // Two plain strings sever getters, `toJSON` hooks, and prototype tricks
+    // alike — the same defensive-copy doctrine the `flags` record follows at
+    // step (5).
+    //
+    // A NON-object report is passed through UNCOPIED, deliberately: this copy
+    // makes no admission decision — it only decides what is read once — so the
+    // validator remains the SOLE owner of the accept/reject judgement and still
+    // refuses an absent/null/primitive report on its own terms (`cliVersion`).
+    const reportedCliVersion: DriverCliVersionReport = input.result.cliVersion;
+    const declaredCliVersion: DriverCliVersionReport =
+      typeof reportedCliVersion === "object" &&
+      reportedCliVersion !== null &&
+      !Array.isArray(reportedCliVersion)
+        ? { raw: reportedCliVersion.raw, semver: reportedCliVersion.semver }
+        : reportedCliVersion;
+    assertValidCliVersionReport(input.driverName, declaredCliVersion);
 
     // (1) Validate the provider-declared contract_version at the write seam
     // (defense-in-depth on top of the SQL CHECK — reuses the same assert as
@@ -766,20 +791,12 @@ export class DriverCapabilitiesWriter {
       tools: normalizedTools,
     };
 
-    // (5b) Copy the validated `cliVersion` reading into a fresh plain object for
-    // the same reason the flags record is rebuilt above: the provider's object
-    // is untrusted, and a getter re-evaluated between the `cliVersionRefreshed`
-    // comparison and the durable write could persist a DIFFERENT value than the
-    // one that was validated and compared. Two plain strings sever that.
-    //
-    // NOT part of `newSnapshot`: `CapabilityDetails` is the canonical EVENT
-    // payload shape, and the version is deliberately absent from it (file
-    // header, cli_version section). Threading it separately is what keeps it out
-    // of change-detection and out of every emit.
-    const declaredCliVersion: DriverCliVersionReport = {
-      raw: input.result.cliVersion.raw,
-      semver: input.result.cliVersion.semver,
-    };
+    // (5b) The `cliVersion` reading is deliberately NOT part of `newSnapshot`:
+    // `CapabilityDetails` is the canonical EVENT payload shape, and the version
+    // is absent from it by design (file header, cli_version section). Threading
+    // it separately as `declaredCliVersion` — the defensive copy taken at step
+    // (0b), before validation, and never re-read from the provider's object
+    // since — is what keeps it out of change-detection and out of every emit.
 
     // (6) Read-decide under the append lock, re-check inside the write
     // transaction, retry on divergence.

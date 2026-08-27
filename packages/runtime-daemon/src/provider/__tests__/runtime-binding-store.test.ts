@@ -24,11 +24,15 @@
 //     closed-key-set parser, so the resume assembly can rebuild
 //     `ResumeSessionParams`' data legs from the row rather than from a client
 //     request recovery does not have. A malformed record FAILS LOUD — a
-//     silently-empty posture would relaunch UNSANDBOXED.
+//     silently-empty posture would relaunch UNSANDBOXED — on the read paths AND
+//     on `update()`, whose in-transaction parse refuses to commit a patch onto a
+//     record this store cannot read back.
 //   * T2.6 `cli_version_raw` / `cli_version_semver` (`Spec-005 §State And Data
 //     Implications`): the binding record stores the handshake report as a PAIR;
-//     the both-or-neither DDL CHECK is exercised directly, and an invalid report
-//     is refused at the write seam as a TYPED error before any row lands.
+//     the both-or-neither DDL CHECK is exercised directly, an invalid report is
+//     refused at the write seam as a TYPED error before any row lands, and a
+//     half-present row staged out-of-band reads back as `null` rather than as a
+//     fabricated member.
 //   * T2.6 `findByRuns` (the Plan-016 T2.10 ack-barrier input): batch lookup is
 //     synchronous, order-deterministic, duplicate-tolerant, and returns
 //     superseded history unfiltered — the caller owns the liveness intersection.
@@ -156,6 +160,38 @@ function insertRawBinding(overrides: {
   return id;
 }
 
+// Stage a HALF-PRESENT CLI-version pair — a row the DDL CHECK makes unreachable
+// through EVERY ordinary write path (the CHECK test below pins exactly that), so
+// the read fold's both-columns requirement can only be exercised from here.
+// `PRAGMA ignore_check_constraints` is connection-scoped and is turned back OFF
+// in the same call, so no other statement in the test ever runs unchecked — the
+// pragma stages corrupt storage, it does not relax the suite.
+function insertHalfPairBindingOutOfBand(overrides: {
+  id?: string;
+  runId?: string;
+  cliVersionRaw?: string | null;
+  cliVersionSemver?: string | null;
+}): string {
+  db.pragma("ignore_check_constraints = ON");
+  try {
+    return insertRawBinding(overrides);
+  } finally {
+    db.pragma("ignore_check_constraints = OFF");
+  }
+}
+
+// Corrupt a LANDED row's `spawn_config` behind the store's back. Both write
+// seams parse before they commit, so this is the only way to produce the state
+// the update path must refuse: a record already durable and already unreadable.
+function corruptSpawnConfigOutOfBand(id: string, rawSpawnConfig: string): void {
+  const info = db
+    .prepare(`UPDATE runtime_bindings SET spawn_config = ? WHERE id = ?`)
+    .run(rawSpawnConfig, id);
+  if (info.changes !== 1) {
+    throw new Error(`no runtime_bindings row for id ${id}`);
+  }
+}
+
 // Raw column reads — the store's own accessors parse, so proving what actually
 // landed in the column needs a read that does not go through them.
 function readRawSpawnConfig(id: string): string {
@@ -175,6 +211,33 @@ function readRawCliVersion(id: string): {
   const row = db
     .prepare(`SELECT cli_version_raw, cli_version_semver FROM runtime_bindings WHERE id = ?`)
     .get(id) as { cli_version_raw: string | null; cli_version_semver: string | null } | undefined;
+  if (row === undefined) {
+    throw new Error(`no runtime_bindings row for id ${id}`);
+  }
+  return row;
+}
+
+// The mutable columns `update()` writes, read raw — required for the corrupt-row
+// case, where the store's own accessors refuse the row and so cannot report what
+// (if anything) the refused transaction left behind.
+function readRawMutableColumns(id: string): {
+  contract_version: string;
+  resume_handle: string | null;
+  runtime_metadata: string;
+  updated_at: string;
+} {
+  const row = db
+    .prepare(
+      `SELECT contract_version, resume_handle, runtime_metadata, updated_at FROM runtime_bindings WHERE id = ?`,
+    )
+    .get(id) as
+    | {
+        contract_version: string;
+        resume_handle: string | null;
+        runtime_metadata: string;
+        updated_at: string;
+      }
+    | undefined;
   if (row === undefined) {
     throw new Error(`no runtime_bindings row for id ${id}`);
   }
@@ -660,6 +723,51 @@ describe("RuntimeBindingStore — update revalidation", () => {
     expect(after?.updatedAt).toBe(created.updatedAt);
   });
 
+  it("REFUSES an update onto a row whose stored spawn_config is unreadable, and commits NOTHING", () => {
+    // The read-side twin of the create seam's pre-INSERT parse. Committing a
+    // patch onto an unreadable record would make it newer, still unreadable, and
+    // now stamped with an `updated_at` implying this daemon wrote it — hiding
+    // the corruption from the recovery read that eventually trips over it. The
+    // parse therefore runs INSIDE the transaction, before the UPDATE, and its
+    // throw rolls the whole thing back.
+    const store = makeStore();
+    const created = store.create({
+      runId: RUN_ID,
+      driverName: DRIVER_NAME,
+      contractVersion: "1.0.0",
+      resumeHandle: "handle-before",
+      spawnConfig: FULL_SPAWN_CONFIG,
+      runtimeMetadata: { attempt: 1 },
+    });
+    corruptSpawnConfigOutOfBand(created.id, "{not json at all");
+
+    let thrown: unknown;
+    try {
+      store.update(created.id, { contractVersion: "1.0.1", resumeHandle: "handle-after" });
+    } catch (error) {
+      thrown = error;
+    }
+
+    // A plain internal-invariant Error naming the row — corrupt DAEMON-WRITTEN
+    // storage, not provider input to reject at a trust boundary.
+    expect(thrown).toBeInstanceOf(Error);
+    expect(thrown).not.toBeInstanceOf(ProviderOutputValidationError);
+    expect((thrown as Error).message).toContain(created.id);
+    expect((thrown as Error).message).toContain("spawn_config");
+
+    // Nothing committed — read RAW, because the store's own accessors refuse
+    // this row and so could not distinguish "rolled back" from "unreadable".
+    const raw = readRawMutableColumns(created.id);
+    expect(raw.contract_version).toBe("1.0.0");
+    expect(raw.resume_handle).toBe("handle-before");
+    expect(raw.runtime_metadata).toBe(JSON.stringify({ attempt: 1 }));
+    // `updated_at` is the sharpest witness: the merge computed a fresh stamp
+    // from the advancing clock, so an UPDATE that reached the DB would have
+    // moved it even where the other three columns happened to match.
+    expect(raw.updated_at).toBe(created.updatedAt);
+    expect(readRawSpawnConfig(created.id)).toBe("{not json at all");
+  });
+
   it("validates the patch BEFORE the existence check: absent id + invalid patch THROWS", () => {
     // Precedence contract: the patch-shape asserts are an unconditional
     // precondition on the argument and run before the existence lookup. So an
@@ -1066,6 +1174,87 @@ describe("RuntimeBindingStore — cliVersion pair", () => {
     expect(countBindings()).toBe(0);
   });
 
+  it("validates and persists ONE snapshot of the report — a getter cannot swap the value after validation", () => {
+    // TOCTOU. The report is PROVIDER-shaped input, so nothing stops its members
+    // being getters (or a Proxy). The seam therefore reads each member exactly
+    // once, into a plain object, BEFORE validating — and validates, binds, and
+    // returns that same object. A second read at bind time would let this
+    // fixture persist its SECOND value, which no validator ever saw: the DDL
+    // CHECK's length+NUL bounds would be all that stood between a hostile
+    // driver and a stored lie about which build answered the handshake.
+    let rawReads: number = 0;
+    const mutatingReport: DriverCliVersionReport = {
+      get raw(): string {
+        rawReads += 1;
+        return rawReads === 1 ? CLI_VERSION.raw : "swapped-after-validation";
+      },
+      get semver(): string {
+        return CLI_VERSION.semver;
+      },
+    };
+
+    const store = makeStore();
+    const created = store.create({
+      runId: RUN_ID,
+      driverName: DRIVER_NAME,
+      contractVersion: CONTRACT_VERSION,
+      cliVersion: mutatingReport,
+      spawnConfig: {},
+    });
+
+    // The mechanism: exactly ONE read of the provider's member.
+    expect(rawReads).toBe(1);
+    // …and its consequences, at all three surfaces the snapshot feeds.
+    expect(readRawCliVersion(created.id)).toEqual({
+      cli_version_raw: CLI_VERSION.raw,
+      cli_version_semver: CLI_VERSION.semver,
+    });
+    expect(created.cliVersion).toStrictEqual(CLI_VERSION);
+    expect(store.findById(created.id)?.cliVersion).toStrictEqual(CLI_VERSION);
+  });
+
+  it("reads a HALF-PRESENT stored pair as null — never a fabricated member", () => {
+    // Only reachable by out-of-band corruption (the CHECK test above pins that),
+    // which is exactly why the fold READS the both-or-neither guarantee instead
+    // of assuming it. Defaulting the absent sibling to `""` would manufacture a
+    // report the provider never gave — and an empty `semver` is precisely the
+    // value the floor gate cannot compare, so the fabrication would travel as a
+    // real reading rather than as an absent one. Both directions, because a fold
+    // keyed on one column alone passes one of them by accident.
+    const store = makeStore();
+    const rawOnlyId = insertHalfPairBindingOutOfBand({
+      id: "half-pair-raw-only",
+      cliVersionRaw: CLI_VERSION.raw,
+      cliVersionSemver: null,
+    });
+    const semverOnlyId = insertHalfPairBindingOutOfBand({
+      id: "half-pair-semver-only",
+      runId: OTHER_RUN_ID,
+      cliVersionRaw: null,
+      cliVersionSemver: CLI_VERSION.semver,
+    });
+
+    // The staging really did land half-present rows (a pragma that silently
+    // failed would make the assertions below vacuous).
+    expect(readRawCliVersion(rawOnlyId)).toEqual({
+      cli_version_raw: CLI_VERSION.raw,
+      cli_version_semver: null,
+    });
+    expect(readRawCliVersion(semverOnlyId)).toEqual({
+      cli_version_raw: null,
+      cli_version_semver: CLI_VERSION.semver,
+    });
+
+    expect(store.findById(rawOnlyId)?.cliVersion).toBeNull();
+    expect(store.findById(semverOnlyId)?.cliVersion).toBeNull();
+    // …through every read path, since all four share one `#rowToDomain`.
+    expect(store.findByRun(RUN_ID)[0]?.cliVersion).toBeNull();
+    expect(store.findByRuns([RUN_ID, OTHER_RUN_ID]).map((binding) => binding.cliVersion)).toEqual([
+      null,
+      null,
+    ]);
+  });
+
   it("the two-column CHECK survives an UPDATE that names neither column", () => {
     // SQLite re-evaluates every CHECK on the row for EVERY write to it, not only
     // for writes that name the constrained column — the hazard migration 0011's
@@ -1197,12 +1386,15 @@ describe("RuntimeBindingStore — cliVersion pair", () => {
   it("refuses a structurally malformed report object (runtime type erasure)", () => {
     // Reachable only from an untyped caller — which is exactly the case the
     // guard exists for: the static type is erased at runtime, so a malformed
-    // driver can ship `null` where the report belongs. Asserted here rather than
-    // in a validator-local module because this package has no dedicated
-    // `provider-output-validation` test file.
+    // driver can ship `null` where the report belongs. `null` is passed
+    // DIRECTLY (no cast through `unknown`): the guard's parameter IS `unknown`,
+    // deliberately, so that a malformed report is a runtime judgement rather
+    // than a static assumption. Asserted here rather than in a validator-local
+    // module because this package has no dedicated `provider-output-validation`
+    // test file.
     let thrown: unknown;
     try {
-      assertValidCliVersionReport(DRIVER_NAME, null as unknown as DriverCliVersionReport);
+      assertValidCliVersionReport(DRIVER_NAME, null);
     } catch (error) {
       thrown = error;
     }
