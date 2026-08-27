@@ -2899,11 +2899,41 @@ describe("0011-driver-capability-currency migration shape", () => {
     expect(() => {
       insertContractMetaWithCliVersion("gemini", null, "0.149.1");
     }).toThrow(/CHECK constraint failed/i);
+
+    // Empty strings: the pair is "absent or meaningful", never "present and
+    // blank".
+    expect(() => {
+      insertContractMetaWithCliVersion("gemini", "", "");
+    }).toThrow(/CHECK constraint failed/i);
+
+    // ACCEPT edges, pinning both ceilings so a `<= N` → `< N` off-by-one is
+    // caught. Without these arms the reject edges below pass against a CHECK
+    // that is one char too tight, and the mirror claim would go unfalsified on
+    // exactly the bound it exists to assert. Fresh `driver_name` values per arm:
+    // the PK is `driver_name`, and a collision would raise UNIQUE rather than
+    // the CHECK the sibling reject arms below are asserting.
+    expect(() => {
+      insertContractMetaWithCliVersion("meta-cli-raw-128", "9".repeat(128), "1.0.0");
+    }).not.toThrow();
+    expect(() => {
+      insertContractMetaWithCliVersion("meta-cli-semver-64", "1.0.0", "9".repeat(64));
+    }).not.toThrow();
+
+    // REJECT edges, one char past each ceiling.
     expect(() => {
       insertContractMetaWithCliVersion("gemini", "9".repeat(129), "1.0.0");
     }).toThrow(/CHECK constraint failed/i);
     expect(() => {
       insertContractMetaWithCliVersion("gemini", "1.0.0", "9".repeat(65));
+    }).toThrow(/CHECK constraint failed/i);
+
+    // Embedded NUL, on each half independently — the provider-string
+    // defense-in-depth bound the other Plan-005 text columns already carry.
+    expect(() => {
+      insertContractMetaWithCliVersion("gemini", `0.149.1${String.fromCharCode(0)}x`, "1.0.0");
+    }).toThrow(/CHECK constraint failed/i);
+    expect(() => {
+      insertContractMetaWithCliVersion("gemini", "0.149.1", `1.0.0${String.fromCharCode(0)}x`);
     }).toThrow(/CHECK constraint failed/i);
   });
 
@@ -3091,11 +3121,12 @@ describe("0011-driver-capability-currency migration shape", () => {
       expect(
         backfilledFlags,
         "the backfilled row set must equal DRIVER_CAPABILITY_FLAGS exactly — " +
-          "`provider/driver-capabilities-writer.ts` compares these two cardinalities " +
-          "directly on every cold-start hydration, and a mismatch throws before any refresh " +
-          "can heal it. This arm is RED until the sibling T1.7 contracts-half widening lands: " +
-          "in this tree the const still carries its seven version-3 values, against the " +
-          "thirteen this migration backfills.",
+          "`provider/driver-capabilities-writer.ts` proves exactly this key set on every " +
+          "cold-start hydration (naming both the missing and the unexpected keys), and a " +
+          "mismatch throws before any refresh can heal it. The const and the backfilled row " +
+          "set move in LOCKSTEP: Plan-005 T3.19 lands the fourteenth `transcript_replay` row " +
+          "and the fourteenth union member in the SAME migration ordinal. A red arm here " +
+          "means the two diverged — widen whichever half lags, never this assertion.",
       ).toEqual([...DRIVER_CAPABILITY_FLAGS].sort());
     } finally {
       isolatedDb.close();

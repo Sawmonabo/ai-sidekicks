@@ -1176,10 +1176,10 @@ describe("DriverCapabilitiesWriter — multi-driver isolation", () => {
 });
 
 // ----------------------------------------------------------------------------
-// #snapshot cardinality invariant — corrupt cache (a deleted flag row) throws
+// #snapshot row-set invariant — corrupt cache (a wrong flag KEY SET) throws
 // ----------------------------------------------------------------------------
 
-describe("DriverCapabilitiesWriter — #snapshot cardinality invariant", () => {
+describe("DriverCapabilitiesWriter — #snapshot row-set invariant", () => {
   it("throws on a corrupt cache (a flag row deleted out-of-band)", async () => {
     const { writer } = makeWriter();
     await writer.declare({
@@ -1195,7 +1195,45 @@ describe("DriverCapabilitiesWriter — #snapshot cardinality invariant", () => {
       `DELETE FROM driver_capabilities WHERE driver_name = ? AND capability_flag = 'mcp'`,
     ).run(DRIVER_NAME);
 
-    expect(() => writer.hydrate(DRIVER_NAME)).toThrow(/cardinality invariant/);
+    expect(() => writer.hydrate(DRIVER_NAME)).toThrow(/row-set invariant/);
+    expect(() => writer.hydrate(DRIVER_NAME)).toThrow(/missing \[mcp\]/);
+  });
+
+  it("throws on a SAME-COUNT corrupt cache (`transcript_replay` swapped in for `mcp`)", async () => {
+    // THE NEGATIVE CONTROL FOR THE COUNT-ONLY GUARD. The version-11 CHECK is a
+    // superset whitelist — it admits all FOURTEEN canonical values while the
+    // union declares THIRTEEN — so an out-of-band UPDATE can rename a canonical
+    // row to `transcript_replay` and still satisfy both the CHECK and the row
+    // COUNT. A guard comparing `flagRows.length` to
+    // `DRIVER_CAPABILITY_FLAGS.length` passes this cache and hands back a flag
+    // matrix with `mcp` silently absent; only the key-set proof catches it, and
+    // it names BOTH directions so the operator sees which key vanished and which
+    // one displaced it.
+    const { writer } = makeWriter();
+    await writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult(),
+    });
+
+    // The out-of-band corruption a count-only guard cannot see: rename one
+    // canonical row rather than deleting it. `transcript_replay` is admitted by
+    // the version-11 CHECK (it is the fourteenth canonical value), so the UPDATE
+    // commits.
+    db.prepare(
+      `UPDATE driver_capabilities
+          SET capability_flag = 'transcript_replay'
+        WHERE driver_name = ? AND capability_flag = 'mcp'`,
+    ).run(DRIVER_NAME);
+
+    // The count is UNMOVED — asserted, so this test cannot pass for the wrong
+    // reason (an UPDATE that silently no-op'd, or one that left a short row set).
+    expect(countCapabilityRows(DRIVER_NAME)).toBe(DRIVER_CAPABILITY_FLAGS.length);
+
+    expect(() => writer.hydrate(DRIVER_NAME)).toThrow(/row-set invariant/);
+    expect(() => writer.hydrate(DRIVER_NAME)).toThrow(/missing \[mcp\]/);
+    expect(() => writer.hydrate(DRIVER_NAME)).toThrow(/unexpected \[transcript_replay\]/);
   });
 });
 

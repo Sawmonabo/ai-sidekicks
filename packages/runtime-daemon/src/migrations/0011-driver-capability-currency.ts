@@ -119,12 +119,32 @@
 // backfilled rows are `supported = 0`: a driver that never answered a flag does
 // not support it. Without the backfill, a cache written before this migration
 // would hold seven rows per driver against a thirteen-member union, and the
-// exact-cardinality guard in `provider/driver-capabilities-writer.ts` would throw
+// hydration key-set guard in `provider/driver-capabilities-writer.ts` would throw
 // on the first cold-start hydration — before any refresh could heal it. That
 // guard has a write-side twin — `assertValidCapabilityFlags` in
 // `provider/provider-output-validation.ts`, which rejects a refresh declaring
 // anything other than exactly the union's flags — and neither announces itself
 // at its call site. The backfilled row set has to satisfy both.
+//
+// One honest consequence of that same `ON CONFLICT ... DO NOTHING` backfill: on
+// a pre-v11 database it does not only ADD the six never-cached flags, it also
+// TOPS UP any canonical row that had been deleted out of band, writing it back
+// as `supported = 0`. So a PARTIALLY deleted pre-migration cache — one that
+// still carries at least one row — is silently healed into a fail-CLOSED state
+// instead of failing loud on the next hydration: the recovered flag reads as
+// unsupported until the next real refresh, which is the safe direction but is a
+// repair rather than a detection. This migration cannot tell the two cases apart
+// (a deleted row and a never-written one are the same absence), and refusing to
+// backfill would strand every genuinely pre-v11 cache. The healing is bounded on
+// both sides, though. A TOTALLY deleted flag set stays loud: the `cached_driver`
+// subquery below groups over `driver_capabilities` itself, so a driver with zero
+// rows forms no group, receives no backfill at all, and still fails hydration
+// with all thirteen keys missing — its `driver_contract_meta` parent row is
+// what makes that driver reach the guard at all, and this migration only
+// ADD COLUMNs that table, so the parent survives. And on the other side,
+// the hydration key-set guard remains the loud detector for any corruption
+// occurring AFTER this migration applies, which is every database from version
+// 11 onward.
 //
 // Four details of the backfill statement are load-bearing:
 //   * It runs AFTER the rename. Against the superseded seven-value CHECK the six
@@ -184,7 +204,7 @@
 // torn apply could otherwise leave `driver_capabilities_new` present with
 // `driver_capabilities` gone — every capability read failing as `no such table` —
 // or a widened CHECK with no backfill rows, which trips the hydrator's
-// exact-cardinality guard on the first read after boot. Neither is reachable:
+// key-set guard on the first read after boot. Neither is reachable:
 // the whole script commits or none of it does.
 //
 // Version ORDER: this migration requires version 3 (the three tables it alters)

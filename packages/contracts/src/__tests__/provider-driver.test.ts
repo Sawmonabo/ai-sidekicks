@@ -146,7 +146,7 @@ const CHANNEL_ID = CHANNEL_UUID as ChannelId;
 // a label token: the contract types it as a plain `string`, but the value the
 // daemon dedupes on is a caller-minted UUID, and a fixture that looked like a
 // slug would quietly normalize the reader's expectation of what callers send.
-const CLIENT_IDEMPOTENCY_KEY = "6f9619ff-8b86-d011-b42d-00cf4fc964ff";
+const CLIENT_IDEMPOTENCY_KEY = "6f9619ff-8b86-4011-b42d-00cf4fc964ff";
 
 // ===========================================================================
 // AC1 (`Spec-005 §Acceptance Criteria`) — a mock fully implementing `ProviderDriver` compiles.
@@ -1262,11 +1262,21 @@ describe("DRIVER_CAPABILITY_FLAGS — T1.7 thirteen-flag currency", () => {
   });
 
   it("re-derives the DriverCapabilityFlag union from the runtime const (single source)", () => {
-    // If the union were hand-maintained beside the array, this binding would
-    // still compile while the two drifted. It compiles BECAUSE the union is
-    // `(typeof DRIVER_CAPABILITY_FLAGS)[number]`.
+    // The binding below is a COMPILE-time assertion, and it catches exactly ONE
+    // drift direction: a hand-written union that DROPPED a member would fail to
+    // accept the const, because the const's element type would then carry a
+    // literal the union lacks. The OPPOSITE direction — a union carrying a
+    // member the const does not — still compiles here, and is caught instead by
+    // the AC2 totality literals ABOVE, whose hand-written thirteen-key
+    // `Record<DriverCapabilityFlag, boolean>` fails as INCOMPLETE the moment the
+    // union outgrows the const. It compiles today BECAUSE the union is
+    // `(typeof DRIVER_CAPABILITY_FLAGS)[number]` rather than a second listing.
     const flags: readonly DriverCapabilityFlag[] = DRIVER_CAPABILITY_FLAGS;
-    expect(flags).toBe(DRIVER_CAPABILITY_FLAGS);
+    // A DELIBERATE runtime anchor, not a redundant identity check: the
+    // assertion this test makes is the compile above, so the executing
+    // expectation restates the cardinality the union is derived from rather
+    // than `toBe`-ing the const against itself, which would hold for any value.
+    expect(flags).toHaveLength(13);
   });
 });
 

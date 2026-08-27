@@ -824,32 +824,63 @@ export class DriverCapabilitiesWriter {
     }
 
     // Reconstruct the flag matrix. `supported === 1` → `true`. The Record is
-    // keyed by `capability_flag`; the column's CHECK constraint guarantees each
-    // value is one of the `DriverCapabilityFlag` literals, so the cast is sound.
+    // keyed by `capability_flag`, but the column's CHECK is a SUPERSET
+    // whitelist, not an exact guarantee: version 11 widened it to all FOURTEEN
+    // canonical values while this contract version's union declares THIRTEEN
+    // (`transcript_replay` is admitted by the CHECK and given no row until
+    // Plan-005 T3.19), so a stored value passing the CHECK is NOT by itself a
+    // `DriverCapabilityFlag`. The key-set assertion below is what makes the
+    // `Record<DriverCapabilityFlag, boolean>` typing sound — only canonical
+    // keys are ever assigned, and every canonical key is proven present before
+    // the record is handed out.
     const flagRows: DriverCapabilityRow[] = this.#selectCapabilityFlagsStmt.all(
       driverName,
     ) as DriverCapabilityRow[];
     // Belt-and-suspenders corrupt-cache guard: a written driver (parent row
-    // present) MUST have exactly the canonical flag-row cardinality. The
-    // `assertValidCapabilityFlags` write-seam guard + the atomic dual-write make a
-    // partial row-set unreachable through this writer, so a mismatch here means
-    // out-of-band corruption (a manual DELETE, a future migration bug); fail LOUD
-    // rather than reconstruct a silently-incomplete flag matrix. Reached only
-    // AFTER the `contractMeta === undefined` early-return, so a never-written
-    // driver never trips it. A plain internal-invariant `Error` (NOT
-    // `ProviderOutputValidationError` — this is a corrupt cache, not provider input).
-    if (flagRows.length !== DRIVER_CAPABILITY_FLAGS.length) {
-      throw new Error(
-        `driver_capabilities cardinality invariant violated for "${driverName}": ` +
-          `expected ${DRIVER_CAPABILITY_FLAGS.length.toString()} flag rows, found ${flagRows.length.toString()}.`,
-      );
-    }
+    // present) MUST carry EXACTLY the canonical flag key set — no more, no
+    // fewer. This is a KEY-SET proof rather than a row COUNT, and the
+    // difference is load-bearing now that the CHECK admits a fourteenth value
+    // the union does not declare: an out-of-band row that swapped `mcp` for
+    // `transcript_replay` keeps the count at thirteen while silently dropping a
+    // real flag key, and a count-only guard would hand that cache out as a
+    // complete flag matrix. It is the read-side twin of the write-seam
+    // `assertValidCapabilityFlags` (own-key count + own-key presence ⇒
+    // pigeonhole), reaching the same exactness by naming both directions
+    // outright. That write-seam guard + the atomic dual-write make a wrong key
+    // set unreachable through this writer, so a violation here means
+    // out-of-band corruption (a manual DELETE or UPDATE, a future migration
+    // bug); fail LOUD rather than reconstruct a silently-wrong flag matrix.
+    // Reached only AFTER the `contractMeta === undefined` early-return, so a
+    // never-written driver never trips it. A plain internal-invariant `Error`
+    // (NOT `ProviderOutputValidationError` — this is a corrupt cache, not
+    // provider input) — and unlike that deliberately leak-safe write-seam
+    // guard it NAMES the offending keys, because these are our own stored rows
+    // rather than untrusted provider input.
     const flags: Record<DriverCapabilityFlag, boolean> = {} as Record<
       DriverCapabilityFlag,
       boolean
     >;
+    const unexpectedFlags: string[] = [];
     for (const row of flagRows) {
-      flags[row.capability_flag as DriverCapabilityFlag] = row.supported === 1;
+      if ((DRIVER_CAPABILITY_FLAGS as readonly string[]).includes(row.capability_flag)) {
+        flags[row.capability_flag as DriverCapabilityFlag] = row.supported === 1;
+      } else {
+        // Collected, never assigned — a non-canonical row never becomes a key,
+        // so "no extra key survived" holds by construction rather than by a
+        // second sweep over the record.
+        unexpectedFlags.push(row.capability_flag);
+      }
+    }
+    const missingFlags: DriverCapabilityFlag[] = DRIVER_CAPABILITY_FLAGS.filter(
+      (flag) => !Object.hasOwn(flags, flag),
+    );
+    if (missingFlags.length > 0 || unexpectedFlags.length > 0) {
+      throw new Error(
+        `driver_capabilities row-set invariant violated for "${driverName}": ` +
+          `expected exactly the ${DRIVER_CAPABILITY_FLAGS.length.toString()} canonical ` +
+          `capability flags; missing [${missingFlags.join(", ")}], ` +
+          `unexpected [${unexpectedFlags.join(", ")}].`,
+      );
     }
 
     // Reconstruct the canonical-order tool list. DB `description` NULL maps back

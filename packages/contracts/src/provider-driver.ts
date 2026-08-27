@@ -45,8 +45,10 @@
 //   2. ZOD-VALIDATED HERE in Phase 1: the FIVE driver RESULT envelopes
 //      (`DriverInterventionResultSchema`, `DriverResumeResultSchema`, plus the
 //      three T1.8 adds — `DriverRollbackResultSchema`, `DriverGoalResultSchema`,
-//      `DriverAuthProbeResultSchema`, one for each operation T1.8 added that
-//      returns a value), the provider-DECLARED tool metadata
+//      `DriverAuthProbeResultSchema`, one per RESULT TYPE rather than one per
+//      operation: T1.8 added FOUR value-returning operations, but
+//      `setSessionGoal` and `clearSessionGoal` SHARE `DriverGoalResult`, so the
+//      four collapse to three envelopes), the provider-DECLARED tool metadata
 //      (`ProviderToolMetadataSchema`), and the two driver-NORMALIZED seam shapes
 //      (`CallbackToolInvocationSchema`, `McpServerStatusEmissionSchema`), each
 //      built from provider wire output BEFORE the daemon-injected
@@ -423,7 +425,12 @@ export type IdempotencyClass = "idempotent" | "compensable" | "manual_reconcile_
 // exactly the canonical doc's twelve-string enumeration, all of which this file
 // now realizes.
 //
-//   • DRIVER_TOOL_NAME_MAX_LEN (128) — tool `name` (a name/label tier token).
+//   • DRIVER_TOOL_NAME_MAX_LEN (128) — the tool `name` on BOTH surfaces that
+//     carry one (`ProviderToolMetadata.name`, the provider-DECLARED tool, and
+//     `CallbackToolInvocation.toolName`, the driver-NORMALIZED invocation that
+//     names it back); a name/label tier token. Same-category reuse — the
+//     invocation's name is resolved against the declaration's, so a cap that
+//     let the two diverge would make an unresolvable name representable.
 //   • DRIVER_TOOL_DESCRIPTION_MAX_LEN (16384) — tool `description`; prose/message
 //     tier. MCP-style descriptions can embed parameter-schema docs that exceed
 //     8 KiB, and the helper REJECTS on overlength (no truncation), so this is
@@ -993,6 +1000,18 @@ export const DriverGoalResultSchema: z.ZodType<DriverGoalResult, DriverGoalResul
 // `RecoveryCondition`'s `reauth-required`.
 export interface DriverAuthProbeResult {
   status: "authenticated" | "unauthenticated" | "indeterminate";
+  // Knowingly PII-BEARING: a provider-reported account/plan descriptor whose
+  // observed shape is a plan name plus a seat EMAIL. Scope is therefore
+  // transient, operator-facing diagnostics ONLY — it MUST NOT be persisted
+  // durably, nor carried on any event, without a Spec-022 PII classification
+  // and the erasure reciprocals that classification obliges. The consumer is
+  // the probeAuth admission leg (`Spec-005 §Required Behavior` — run admission
+  // against a driver not probing `authenticated` refuses `driver.not_authenticated`
+  // before a turn is spent), which reads `status` for the decision and this
+  // field only to tell an operator WHY; no single Plan-005 task owns that
+  // refusal today, so the spec clause is the citation rather than a task id.
+  // `status` alone carries the fail-closed decision, so dropping this field
+  // loses diagnostics and never correctness.
   detail?: string | undefined;
 }
 export const DriverAuthProbeResultSchema: z.ZodType<DriverAuthProbeResult, DriverAuthProbeResult> =
