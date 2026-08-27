@@ -131,6 +131,26 @@ export const CODEX_APP_SERVER_SHELL_PRELUDE: string =
 export const CODEX_DEFAULT_EXECUTABLE_PATH: string = "codex";
 
 /**
+ * Hard ceiling on a single unterminated inbound line, in UTF-16 code units.
+ *
+ * The read buffer is fed from a sink the PROVIDER controls, and a newline is the
+ * only thing that ever drains it. Without a ceiling, any peer that never emits
+ * one grows the buffer until the daemon dies — and the least-guarded window is
+ * before the prelude sentinel, where a refused `stty` leaves shell diagnostics
+ * accumulating against a tty nobody configured. That is a liveness hazard for
+ * the whole node, not merely for one session (`Spec-005 §Pitfalls To Avoid`).
+ *
+ * The unit is code units rather than bytes ON PURPOSE. Measuring UTF-8 bytes of
+ * the retained tail means re-scanning the whole tail on every chunk, which is
+ * quadratic in exactly the case the ceiling exists to survive. A code unit costs
+ * a fixed two bytes of retained memory whatever it encodes, so this bound is a
+ * direct bound on the hazard; and since a UTF-8 encoding is never SHORTER than
+ * the code-unit count, a line that trips this ceiling has always exceeded the
+ * same figure in bytes too.
+ */
+export const CODEX_MAX_LINE_LENGTH: number = 32 * 1024 * 1024;
+
+/**
  * The ten server-initiated REQUEST methods of the pinned protocol, read from the
  * generated `ServerRequest` union at `codex-cli 0.149.1` (regenerate, never
  * transcribe — `docs/reference/provider-wire/codex.md §Regeneration`).
@@ -199,6 +219,30 @@ export class CodexTransportError extends Error {
   }
 }
 
+/**
+ * A single inbound line exceeded `CODEX_MAX_LINE_LENGTH` before terminating.
+ *
+ * A SUBCLASS rather than a peer: the condition is a transport death, so it
+ * inherits the already-registered `driver.unavailable` code and mints no new
+ * error-contract row, while staying independently catchable by the diagnostics
+ * and classification legs that come later.
+ *
+ * Framing is unrecoverable once this fires. The retained tail is a fragment of a
+ * frame whose remainder is now unbounded, so it can never complete validly, and
+ * every subsequent byte on the connection is offset against a boundary the
+ * driver can no longer locate. The connection is torn down rather than resynced.
+ */
+export class CodexLineTooLongError extends CodexTransportError {
+  constructor(retainedLength: number, limit: number) {
+    super(
+      `The Codex app-server sent ${retainedLength} characters with no line terminator, ` +
+        `exceeding the ${limit}-character framing limit.`,
+      { retainedLength: String(retainedLength), limit: String(limit) },
+    );
+    this.name = "CodexLineTooLongError";
+  }
+}
+
 /** A request outlived its deadline. Registered as `driver.timeout` (504). */
 export class CodexRequestTimeoutError extends Error {
   readonly code = "driver.timeout" as const;
@@ -217,17 +261,34 @@ export class CodexRequestTimeoutError extends Error {
  * Deliberately carries NO dotted `code`: mapping provider-reported failures onto
  * the daemon's typed vocabulary is T3.14/T3.22's classification leg, and this
  * task must not mint an unregistered error-contract row. The provider's own
- * numeric code and message are preserved so that leg has something to classify.
+ * numeric code, message, and `data` member are preserved so that leg has
+ * something to classify.
+ *
+ * `providerErrorData` is carried VERBATIM and is deliberately typed `unknown`:
+ * the JSON-RPC `error.data` member is where the pinned provider puts its
+ * structured refusal detail (steer, revert, and thread-usage refusals all
+ * answer with it), and dropping it here is irreversible — no later task can
+ * recover a member the transport never kept. Parsing or narrowing it is the
+ * classification leg's decision, not this one's, so nothing is read off it.
+ * This restores the symmetry the notification path already has, which hands
+ * `params` on whole.
  */
 export class CodexProviderRequestError extends Error {
   readonly providerErrorCode: number;
   readonly method: string;
+  readonly providerErrorData: unknown;
 
-  constructor(method: string, providerErrorCode: number, providerMessage: string) {
+  constructor(
+    method: string,
+    providerErrorCode: number,
+    providerMessage: string,
+    providerErrorData: unknown = undefined,
+  ) {
     super(`Codex app-server rejected "${method}": ${providerMessage}`);
     this.name = "CodexProviderRequestError";
     this.providerErrorCode = providerErrorCode;
     this.method = method;
+    this.providerErrorData = providerErrorData;
   }
 }
 
@@ -283,6 +344,7 @@ export type CodexScheduleTimeout = (callback: () => void, delayMs: number) => ()
  */
 export type CodexTransportDiagnostic =
   | { kind: "unparsable-line"; line: string }
+  | { kind: "line-too-long"; retainedLength: number; limit: number }
   | { kind: "unknown-response-id"; responseId: string }
   | { kind: "echoed-client-frame"; method: string }
   | { kind: "unhandled-server-request"; method: string }
@@ -719,16 +781,85 @@ export class CodexAppServerConnection {
   }
 
   #ingest(chunk: Uint8Array): void {
+    // A released transport keeps no buffer. Data can still arrive between the
+    // synchronous decision to tear down and the host's acknowledgement of it,
+    // and appending it would re-grow the very buffer teardown just abandoned.
+    if (this.#ptyClosed) {
+      return;
+    }
     // `stream: true` so a multi-byte character split across chunks is not mangled.
     this.#readBuffer += this.#decoder.decode(chunk, { stream: true });
     let newlineIndex = this.#readBuffer.indexOf("\n");
     while (newlineIndex !== -1) {
+      // Measured BEFORE the slice. A line that crosses the ceiling and then
+      // terminates inside the same chunk leaves a short tail behind, so the
+      // post-loop check below would never see it — and by then it would already
+      // have been parsed and dispatched. The ceiling is a property of the LINE,
+      // so it is enforced where lines are cut.
+      if (newlineIndex > CODEX_MAX_LINE_LENGTH) {
+        this.#failFraming(newlineIndex);
+        return;
+      }
       const line = this.#readBuffer.slice(0, newlineIndex);
       this.#readBuffer = this.#readBuffer.slice(newlineIndex + 1);
       // Output post-processing is left on, so server lines arrive CRLF-terminated.
       this.#handleLine(line.endsWith("\r") ? line.slice(0, -1) : line);
       newlineIndex = this.#readBuffer.indexOf("\n");
     }
+    // The other half: an UNTERMINATED tail, which the loop above never sees
+    // because it has no line to cut. That tail is the quantity that grows
+    // without bound; a stream of ordinary frames larger than the ceiling in
+    // aggregate is not a breach, and is not treated as one.
+    if (this.#readBuffer.length > CODEX_MAX_LINE_LENGTH) {
+      this.#failFraming(this.#readBuffer.length);
+    }
+  }
+
+  /**
+   * Abandons an over-long line and the connection carrying it.
+   *
+   * The tail is DISCARDED UNPARSED rather than truncated: handing a prefix of a
+   * frame to the line handler would either fail to parse (reporting a fabricated
+   * `unparsable-line` for a frame the provider never sent) or, worse, parse as a
+   * valid but incomplete object and be dispatched as if the provider had meant
+   * it. Neither is a thing a caller can be told apart from the truth.
+   *
+   * In-flight callers are failed with the typed error BEFORE the release path
+   * runs, so they learn why the transport died rather than receiving the generic
+   * closed-connection error; the startup waiter is failed by the same act, which
+   * is what bounds the pre-sentinel window (a prelude that never emits a newline
+   * would otherwise hold `open()` until the startup deadline while growing the
+   * buffer the whole time).
+   */
+  #failFraming(retainedLength: number): void {
+    const error = new CodexLineTooLongError(retainedLength, CODEX_MAX_LINE_LENGTH);
+    this.#readBuffer = "";
+    this.#reportDiagnostic({
+      kind: "line-too-long",
+      retainedLength,
+      limit: CODEX_MAX_LINE_LENGTH,
+    });
+    this.#rejectAllPending(error);
+    this.#onReadyFailed?.(error);
+    // Signalled explicitly, then released. `PtyHost.close` is specified as
+    // "tear down the session and release all per-session resources" and does
+    // NOT promise to signal the child -- `shutdown()` documents the graceful
+    // per-session kill as a separate dispatch -- so `close()` alone could leave
+    // a still-running process writing into a PTY nobody reads.
+    //
+    // `SIGKILL` rather than `SIGTERM` for this condition specifically: there is
+    // no protocol left to negotiate an orderly stop over, and a peer already
+    // emitting an unbounded line is the last peer to give a shutdown window to.
+    // The graceful path stays where it belongs, on `closeSession`.
+    const ptySessionId = this.#ptySessionId;
+    if (ptySessionId !== null) {
+      void this.#ptyHost.kill(ptySessionId, "SIGKILL").catch(() => {
+        /* already reaped, or the host lost it; `close()` still owes the release */
+      });
+    }
+    void this.close().catch(() => {
+      /* teardown of an already-doomed transport changes nothing here */
+    });
   }
 
   #handleLine(line: string): void {
@@ -818,7 +949,13 @@ export class CodexAppServerConnection {
       const providerMessage =
         typeof errorRecord["message"] === "string" ? (errorRecord["message"] as string) : "";
       pending.reject(
-        new CodexProviderRequestError(pending.method, providerErrorCode, providerMessage),
+        new CodexProviderRequestError(
+          pending.method,
+          providerErrorCode,
+          providerMessage,
+          // Read with no shape assumption and no narrowing: absent stays absent.
+          errorRecord["data"],
+        ),
       );
       return;
     }

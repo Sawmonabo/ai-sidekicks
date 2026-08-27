@@ -41,11 +41,14 @@ import {
 
 import {
   CodexDriver,
+  CodexLineTooLongError,
+  CodexProviderRequestError,
   CodexRequestTimeoutError,
   CodexTransportError,
   CODEX_APP_SERVER_BIN_ENV_VAR,
   CODEX_APP_SERVER_READY_SENTINEL,
   CODEX_APP_SERVER_SHELL_PRELUDE,
+  CODEX_MAX_LINE_LENGTH,
   normalizeProviderFailureDetail,
   parseCodexRunConfig,
   parseCodexSessionConfig,
@@ -62,7 +65,9 @@ import {
 
 interface JsonRpcAnswer {
   result?: unknown;
-  error?: { code: number; message: string };
+  // `data` is optional on the wire and carries the pinned provider's structured
+  // refusal detail. Modelled here so the fake can emit a realistic refusal.
+  error?: { code: number; message: string; data?: unknown };
 }
 
 type MethodHandler = (params: unknown) => JsonRpcAnswer;
@@ -946,6 +951,214 @@ describe("CodexAppServerConnection transport", () => {
 // --------------------------------------------------------------------------
 // Config parsing + detail normalization
 // --------------------------------------------------------------------------
+
+// --------------------------------------------------------------------------
+// Framing bounds — the read buffer is fed from provider-controlled input
+// --------------------------------------------------------------------------
+
+describe("CodexAppServerConnection framing bounds (Spec-005 §Pitfalls To Avoid)", () => {
+  // A well-formed frame PREFIX. If the tail were ever truncated and handed on,
+  // this would surface as a diagnostic for a frame the provider never sent.
+  const FRAME_PREFIX = '{"jsonrpc":"2.0","method":"item/started","params":{"text":"';
+  const OVERLONG_RETAINED_LENGTH = FRAME_PREFIX.length + CODEX_MAX_LINE_LENGTH;
+
+  /** The prefix padded past the ceiling, with no line terminator anywhere. */
+  function overlongFramePrefix(): Uint8Array {
+    return new TextEncoder().encode(FRAME_PREFIX + "x".repeat(CODEX_MAX_LINE_LENGTH));
+  }
+
+  function diagnosticKinds(harness: Harness): string[] {
+    return harness.diagnostics.map((diagnostic) => diagnostic.kind);
+  }
+
+  it("fails in-flight callers with the typed error and releases the process", async () => {
+    const harness = createHarness();
+    await createdSession(harness);
+    // No `turn/start` handler is registered, so the request stays in flight and
+    // the typed error has a caller to reach.
+    const pending = harness.driver.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "go" },
+    });
+
+    harness.server.emitRaw(overlongFramePrefix());
+
+    await expect(pending).rejects.toBeInstanceOf(CodexLineTooLongError);
+    // Still a transport death by `code`, so no unregistered error-contract row
+    // is minted and existing transport handling keeps working unchanged.
+    await expect(pending).rejects.toBeInstanceOf(CodexTransportError);
+    await expect(pending).rejects.toMatchObject({ code: "driver.unavailable" });
+    expect(harness.server.closedSessions).toEqual(["pty-session-1"]);
+  });
+
+  it("reports the breach with the limit that produced it", async () => {
+    const harness = createHarness();
+    await createdSession(harness);
+
+    harness.server.emitRaw(overlongFramePrefix());
+    await Promise.resolve();
+
+    expect(harness.diagnostics).toContainEqual({
+      kind: "line-too-long",
+      retainedLength: OVERLONG_RETAINED_LENGTH,
+      limit: CODEX_MAX_LINE_LENGTH,
+    });
+  });
+
+  it("discards the over-long tail unparsed rather than delivering a partial frame", async () => {
+    const harness = createHarness();
+    await createdSession(harness);
+
+    harness.server.emitRaw(overlongFramePrefix());
+    await Promise.resolve();
+
+    // Truncating would hand a frame prefix to the line handler, which would then
+    // report an `unparsable-line` the provider never sent. Its absence is the
+    // proof that nothing was truncated-and-parsed.
+    expect(diagnosticKinds(harness)).not.toContain("unparsable-line");
+  });
+
+  it("tears down on an over-long line that TERMINATES inside the same chunk", async () => {
+    const harness = createHarness();
+    await createdSession(harness);
+    const pending = harness.driver.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "go" },
+    });
+
+    // Crosses the ceiling and then terminates, so the retained tail is EMPTY.
+    // A ceiling enforced only on the tail would parse and dispatch this frame.
+    harness.server.emitRaw(
+      new TextEncoder().encode(`${FRAME_PREFIX + "x".repeat(CODEX_MAX_LINE_LENGTH)}"}}\r\n`),
+    );
+
+    await expect(pending).rejects.toBeInstanceOf(CodexLineTooLongError);
+    expect(diagnosticKinds(harness)).toContain("line-too-long");
+    expect(harness.server.closedSessions).toEqual(["pty-session-1"]);
+  });
+
+  it("signals the child rather than trusting release alone to stop it", async () => {
+    const harness = createHarness();
+    await createdSession(harness);
+
+    harness.server.emitRaw(overlongFramePrefix());
+    await Promise.resolve();
+
+    // `PtyHost.close` promises resource release, not child termination, and the
+    // peer producing the unbounded line is exactly the one that keeps writing.
+    expect(harness.server.killedSessions).toEqual([
+      { sessionId: "pty-session-1", signal: "SIGKILL" },
+    ]);
+  });
+
+  it("keeps accepting a line that reaches the ceiling without crossing it", async () => {
+    const harness = createHarness();
+    await createdSession(harness);
+    const pending = harness.driver.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "go" },
+    });
+    await Promise.resolve();
+    const written = harness.server.writtenFrames();
+    const requestId = written[written.length - 1]?.["id"];
+
+    const skeleton = JSON.stringify({
+      jsonrpc: "2.0",
+      id: requestId,
+      result: { turn: { id: TURN_ID }, padding: "" },
+    });
+    // One short of the ceiling, because the server terminates with CRLF and the
+    // CR is part of the raw line the buffer holds: the line measured by the
+    // driver is therefore exactly `CODEX_MAX_LINE_LENGTH`.
+    const atCeiling = JSON.stringify({
+      jsonrpc: "2.0",
+      id: requestId,
+      result: {
+        turn: { id: TURN_ID },
+        padding: "x".repeat(CODEX_MAX_LINE_LENGTH - skeleton.length - 1),
+      },
+    });
+    expect(atCeiling).toHaveLength(CODEX_MAX_LINE_LENGTH - 1);
+    harness.server.emitLine(atCeiling);
+
+    await expect(pending).resolves.toBeUndefined();
+    expect(diagnosticKinds(harness)).not.toContain("line-too-long");
+  });
+
+  it("bounds the pre-sentinel window instead of holding open() to the deadline", async () => {
+    const harness = createHarness();
+    // The window a refused `stty` leaves open: the prelude never reaches its
+    // `printf`, and whatever the tty emits has no line terminator to drain it.
+    harness.server.emitSentinelOnSubscribe = false;
+    const pending = harness.driver.createSession({
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    harness.server.emitRaw(overlongFramePrefix());
+
+    await expect(pending).rejects.toBeInstanceOf(CodexLineTooLongError);
+    // Failed through the readiness waiter, not by outliving the startup timer:
+    // a leftover deadline here would mean the buffer grew for the whole window.
+    expect(harness.scheduler.pendingCount()).toBe(0);
+    expect(harness.server.closedSessions).toEqual(["pty-session-1"]);
+  });
+});
+
+// --------------------------------------------------------------------------
+// Provider refusal detail
+// --------------------------------------------------------------------------
+
+describe("CodexProviderRequestError (Spec-005 §Required Behavior)", () => {
+  it("carries the JSON-RPC error data member verbatim", async () => {
+    const harness = createHarness();
+    await createdSession(harness);
+    // The shape the pinned provider answers a refused steer with. Carried whole
+    // and unparsed: classification is a later leg, but the loss would be
+    // irreversible, so the transport keeps what it was given.
+    const codexErrorInfo = {
+      codexErrorInfo: { kind: "turn_not_interruptible", detail: ["no active turn"] },
+    };
+    harness.server.on("turn/interrupt", () => ({
+      error: { code: -32602, message: "cannot interrupt", data: codexErrorInfo },
+    }));
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.driver.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "go" },
+    });
+
+    await expect(harness.driver.interruptRun({ runId: RUN_ID })).rejects.toMatchObject({
+      providerErrorCode: -32602,
+      providerErrorData: codexErrorInfo,
+    });
+  });
+
+  it("leaves the data member absent when the provider sent none", async () => {
+    const harness = createHarness();
+    await createdSession(harness);
+    harness.server.on("turn/start", () => ({
+      error: { code: -32600, message: "thread is busy" },
+    }));
+
+    const rejection = await harness.driver
+      .startRun({
+        runId: RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "go" },
+      })
+      .catch((cause: unknown) => cause);
+
+    expect(rejection).toBeInstanceOf(CodexProviderRequestError);
+    expect((rejection as CodexProviderRequestError).providerErrorData).toBeUndefined();
+  });
+});
 
 describe("Codex driver config read-shapes", () => {
   it("accepts a well-formed session config", () => {
