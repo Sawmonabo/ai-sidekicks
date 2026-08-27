@@ -14,9 +14,11 @@
 // Fixture discipline: the two `__fixtures__/` modules are METHOD census
 // vectors derived from `docs/reference/provider-wire/codex.md` at pin
 // `codex-cli 0.149.1`. The reference reproduces no inbound PAYLOAD body
-// verbatim, so frames it describes without showing — the Plan-006 delta-family
-// members `turn/diff` and `turn/plan` — are exercised through typed
-// constructors in this file rather than through a manufactured golden file.
+// verbatim, so frames the reference does not census — the delta-family members
+// `turn/diff/updated` and `turn/plan/updated`, whose wire names come from the
+// pinned binary's own `codex app-server generate-json-schema` output at
+// codex-cli 0.149.1 — are exercised through typed constructors in this file
+// rather than through a manufactured golden file.
 
 import {
   EVENT_DISPOSITION_BY_KIND,
@@ -36,6 +38,7 @@ import {
   CODEX_SERVER_REQUEST_METHOD_COUNT_AT_PIN,
   CODEX_SERVER_REQUEST_METHOD_VECTORS,
 } from "../__fixtures__/server-request-methods.js";
+import { CODEX_NEGOTIATION_GATED_METHODS } from "../event-normalizer.js";
 import {
   CODEX_FRAME_NORMALIZATION_BY_METHOD,
   CODEX_INBOUND_FRAME_METHODS,
@@ -293,10 +296,12 @@ const EXPECTED_NORMALIZED_ROWS: ReadonlyMap<CodexInboundFrameMethod, ExpectedNor
         normalizedKind: "codex_exec_result",
       },
     ],
-    // `turn/diff` | `turn/plan` (Plan-006 delta row; described by the corpus,
-    // not shown by codex.md — typed constructors, no golden file).
+    // `turn/diff/updated` | `turn/plan/updated` — disposition from the Plan-006
+    // delta row, wire names from the binary's generator at codex-cli 0.149.1
+    // (the delta row itself carries truncated forms pending its correction).
+    // Not censused by codex.md, so typed constructors, no golden file.
     [
-      "turn/diff",
+      "turn/diff/updated",
       {
         transport: "server-notification",
         family: "tool_activity",
@@ -305,7 +310,7 @@ const EXPECTED_NORMALIZED_ROWS: ReadonlyMap<CodexInboundFrameMethod, ExpectedNor
       },
     ],
     [
-      "turn/plan",
+      "turn/plan/updated",
       {
         transport: "server-notification",
         family: "assistant_output",
@@ -461,11 +466,13 @@ describe("Codex event normalizer — every fixture frame normalizes as expected"
   });
 
   it("normalizes the two corpus-described delta frames through typed constructors", () => {
-    // codex.md does not show `turn/diff` / `turn/plan`; they are named by
-    // `Plan-006 §Event-Kind Disposition Table (surveyed-runtime normalized census)`'s Codex delta row. So they are
-    // exercised as typed values, not as manufactured golden files.
-    const diffFrame: CodexInboundFrameMethod = "turn/diff";
-    const planFrame: CodexInboundFrameMethod = "turn/plan";
+    // codex.md censuses neither name. Their DISPOSITION comes from
+    // `Plan-006 §Event-Kind Disposition Table (surveyed-runtime normalized census)`'s Codex delta row and their WIRE
+    // NAMES from the pinned binary's own generator output at codex-cli
+    // 0.149.1 (the delta row spells both truncated; its correction is queued).
+    // So they are exercised as typed values, not as manufactured golden files.
+    const diffFrame: CodexInboundFrameMethod = "turn/diff/updated";
+    const planFrame: CodexInboundFrameMethod = "turn/plan/updated";
 
     expect(normalizeCodexInboundFrame(diffFrame)).toMatchObject({
       disposition: "normalized",
@@ -510,7 +517,7 @@ describe("Codex event normalizer — normalized-family coverage", () => {
     // `run_lifecycle`, `assistant_output`, `tool_activity`,
     // `interactive_request`, `approval_flow`, `usage_telemetry` and
     // `session_lifecycle` as target categories and never that one, and the
-    // Codex `turn/diff` delta row is routed to `tool_activity` (`diff`, row
+    // Codex `turn/diff/updated` delta row is routed to `tool_activity` (`diff`, row
     // 32) rather than to `diff.created`. Artifact events are daemon-emitted
     // (Plan-011 / Plan-014), not provider-normalized. Should a Codex frame
     // ever gain an artifact-publication mapping, this assertion fires and the
@@ -855,5 +862,158 @@ describe("Codex event normalizer — tool-keyed methods bind to the tools.ts nam
 
   it("freezes the bound-method census against consumer mutation", () => {
     expect(Object.isFrozen(CODEX_TOOL_KEYED_APPROVAL_METHODS)).toBe(true);
+  });
+});
+
+// --------------------------------------------------------------------------
+// Negotiation-gated methods — the dormant-but-mapped declaration.
+// --------------------------------------------------------------------------
+//
+// The driver ships `experimentalApi: false`, so every census member the pin
+// marks experimental is unreachable today. The production module DECLARES that
+// set rather than deriving it, because the gate state is in neither of its
+// inputs: the generated schema does not encode it for notifications, and
+// `tools.ts` knows nothing about negotiation. These tests are what keep the
+// declaration honest — they pin it to the `__fixtures__/` gate tags, which are
+// the transcription of codex.md §The experimental gate, across BOTH transports.
+
+describe("Codex event normalizer — negotiation-gated methods are declared, not assumed", () => {
+  /** Census members the fixtures tag experimental-gated, on either transport. */
+  const fixtureGatedCensusMethods = (): readonly string[] => {
+    const censusMethods = new Set<string>(CODEX_INBOUND_FRAME_METHODS);
+    return [
+      ...CODEX_SERVER_REQUEST_METHOD_VECTORS.filter((vector) => vector.experimentalGatedAtPin).map(
+        (vector) => vector.method,
+      ),
+      ...CODEX_SERVER_NOTIFICATION_METHOD_VECTORS.filter(
+        (vector) => vector.experimentalGatedAtPin,
+      ).map((vector) => vector.method),
+    ].filter((method) => censusMethods.has(method));
+  };
+
+  it("declares exactly the census members the fixtures tag gated", () => {
+    // Set equality in BOTH directions. A census edit that adds a gated method
+    // without declaring it fails here; so does a declaration naming a method
+    // the fixtures do not tag.
+    expect([...CODEX_NEGOTIATION_GATED_METHODS].sort()).toEqual(
+      [...fixtureGatedCensusMethods()].sort(),
+    );
+  });
+
+  it("covers both transports — the gate is not a notification-only concern", () => {
+    // The regression this guards: reading codex.md's transport-level filter
+    // (`should_skip_notification_for_connection`) and concluding only
+    // notifications are gated. `item/tool/requestUserInput` is a REQUEST and
+    // is the one EXPERIMENTAL-marked arm of the pinned binary's ten.
+    const gatedTransports = new Set(
+      CODEX_NEGOTIATION_GATED_METHODS.map((method) => {
+        const normalization = CODEX_FRAME_NORMALIZATION_BY_METHOD.get(method);
+        expect(
+          normalization,
+          `${method} is declared gated but absent from the census`,
+        ).toBeDefined();
+        return normalization?.transport;
+      }),
+    );
+    expect(gatedTransports).toEqual(new Set(["server-request", "server-notification"]));
+    expect(CODEX_NEGOTIATION_GATED_METHODS).toContain("item/tool/requestUserInput");
+  });
+
+  it("keeps every declared gated method mapped rather than deleted", () => {
+    // The point of the declaration: these rows stay in the census so a posture
+    // flip or a pin bump inherits their disposition instead of routing twelve
+    // settled frames into the T3.11 diagnostic at once.
+    for (const gatedMethod of CODEX_NEGOTIATION_GATED_METHODS) {
+      expect(CODEX_INBOUND_FRAME_METHODS).toContain(gatedMethod);
+      expect(() => normalizeCodexInboundFrame(gatedMethod)).not.toThrow();
+    }
+  });
+
+  it("excludes the realtime methods, which are suppressed rather than dormant", () => {
+    // Two different exclusions with two different reasons, and conflating them
+    // would be the bug: realtime frames are opted out BY NAME at the source and
+    // target a family with no V1 emitter, so they are absent from the census
+    // entirely; gated frames are settled dispositions awaiting delivery.
+    for (const realtimeMethod of EXCLUDED_REALTIME_METHODS) {
+      expect(CODEX_NEGOTIATION_GATED_METHODS).not.toContain(realtimeMethod);
+      expect(CODEX_INBOUND_FRAME_METHODS).not.toContain(realtimeMethod);
+    }
+  });
+
+  it("leaves the ungated remainder of the census reachable at the shipped posture", () => {
+    // Non-vacuity: if this ever hit zero, the suite above would be asserting a
+    // property of an empty set while the driver received nothing at all.
+    const reachable = CODEX_INBOUND_FRAME_METHODS.filter(
+      (method) => !CODEX_NEGOTIATION_GATED_METHODS.includes(method),
+    );
+    expect(reachable.length).toBeGreaterThan(0);
+    expect(reachable.length + CODEX_NEGOTIATION_GATED_METHODS.length).toBe(
+      CODEX_INBOUND_FRAME_METHODS.length,
+    );
+  });
+
+  it("freezes the declaration against consumer mutation", () => {
+    expect(Object.isFrozen(CODEX_NEGOTIATION_GATED_METHODS)).toBe(true);
+  });
+
+  it("pins the transport split the declaration comment states", () => {
+    // The comment on CODEX_NEGOTIATION_GATED_METHODS claims "1 of 10" requests
+    // and "11 of this census's 25" notifications. A prose count that no test
+    // reads is a count that drifts -- this one was wrong (24) on first write
+    // and was caught by measuring rather than by re-reading.
+    const rows = [...CODEX_FRAME_NORMALIZATION_BY_METHOD.values()];
+    expect(rows.filter((row) => row.transport === "server-request")).toHaveLength(10);
+    expect(rows.filter((row) => row.transport === "server-notification")).toHaveLength(25);
+
+    const gatedByTransport = CODEX_NEGOTIATION_GATED_METHODS.map(
+      (method) => CODEX_FRAME_NORMALIZATION_BY_METHOD.get(method)?.transport,
+    );
+    expect(gatedByTransport.filter((transport) => transport === "server-request")).toHaveLength(1);
+    expect(
+      gatedByTransport.filter((transport) => transport === "server-notification"),
+    ).toHaveLength(11);
+  });
+});
+
+// --------------------------------------------------------------------------
+// Truncated delta-family names — a standing regression guard.
+// --------------------------------------------------------------------------
+
+describe("Codex event normalizer — the truncated delta names stay off the census", () => {
+  it("refuses the Plan-006 delta row's truncated wire names", () => {
+    // `Plan-006 §Event-Kind Disposition Table (surveyed-runtime normalized census)`
+    // spells this family "`turn/diff` | `turn/plan` | `turn/moderationMetadata`".
+    // Regenerating the protocol schema from the
+    // pinned binary (`codex app-server generate-json-schema` at codex-cli
+    // 0.149.1) emits `turn/diff/updated` and `turn/plan/updated`; the bare
+    // forms appear nowhere in its 75-arm `ServerNotification` root.
+    //
+    // This guard exists because the doc correction is queued but not landed:
+    // until it lands, the delta table remains a live invitation to "restore"
+    // the truncated names. Doing so must fail here rather than silently route
+    // real frames to the unknown seam.
+    for (const truncatedName of ["turn/diff", "turn/plan"]) {
+      expect(CODEX_INBOUND_FRAME_METHODS).not.toContain(truncatedName);
+      expect(() => normalizeCodexInboundFrame(truncatedName)).toThrow(
+        UnknownCodexInboundFrameError,
+      );
+    }
+  });
+
+  it("maps the generator-verified names, and only those", () => {
+    for (const generatedName of ["turn/diff/updated", "turn/plan/updated"]) {
+      expect(CODEX_INBOUND_FRAME_METHODS).toContain(generatedName);
+      expect(normalizeCodexInboundFrame(generatedName)).toMatchObject({
+        disposition: "normalized",
+        transport: "server-notification",
+      });
+    }
+  });
+
+  it("keeps turn/moderationMetadata bare — only two of the three were wrong", () => {
+    // The pinned binary emits this one unsuffixed. Renaming it "for
+    // consistency" with its two siblings would break a name that is correct.
+    expect(CODEX_INBOUND_FRAME_METHODS).toContain("turn/moderationMetadata");
+    expect(CODEX_INBOUND_FRAME_METHODS).not.toContain("turn/moderationMetadata/updated");
   });
 });

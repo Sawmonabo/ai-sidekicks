@@ -92,6 +92,22 @@
 //     inbound frame, so its plumbing belongs to the request path, not here.
 //
 // ---------------------------------------------------------------------------
+// What IS in the union but cannot arrive today
+// ---------------------------------------------------------------------------
+//
+// Excluded and dormant are different states, and collapsing them would be a
+// bug in both directions. Twelve census members — one `ServerRequest` and
+// eleven `ServerNotification`s — are experimental-gated at the pin and so
+// unreachable while the driver negotiates `experimentalApi: false`. They are
+// mapped anyway, and named in {@link CODEX_NEGOTIATION_GATED_METHODS} with the
+// full reasoning. The short version: their dispositions are already settled by
+// the corpus, so keeping the rows makes a posture flip or a pin bump free,
+// whereas deleting them would route twelve settled frames into the T3.11
+// diagnostic at once. The realtime eight above are the opposite case — opted
+// out by name at the source AND targeting a family with no V1 emitter, so no
+// corpus row supplies a disposition to keep.
+//
+// ---------------------------------------------------------------------------
 // The T3.11 seam
 // ---------------------------------------------------------------------------
 //
@@ -203,9 +219,11 @@ export type CodexInboundFrameMethod =
   | "item/autoApprovalReview/completed"
   | "model/safetyBuffering/updated"
   // ServerNotification — experimental-gated at the pin (codex.md §The
-  // experimental gate), delivered once the driver negotiates
-  // `initialize.capabilities.experimentalApi` (which it must, for
-  // `item/tool/requestUserInput`).
+  // experimental gate). Delivered only to a connection that negotiated
+  // `initialize.capabilities.experimentalApi`, which this driver does NOT:
+  // the shipped `lifecycle.ts` sends `experimentalApi: false`. They are
+  // mapped anyway and declared dormant — see
+  // {@link CODEX_NEGOTIATION_GATED_METHODS}.
   | "process/outputDelta"
   | "process/exited"
   | "turn/moderationMetadata"
@@ -217,14 +235,92 @@ export type CodexInboundFrameMethod =
   | "thread/environment/connected"
   | "thread/environment/disconnected"
   | "thread/settings/updated"
-  // ServerNotification — Codex current-wire delta family named by
-  // `Plan-006 §Event-Kind Disposition Table (surveyed-runtime normalized census)` ("`turn/diff` | `turn/plan` |
-  // `turn/moderationMetadata`") rather than by codex.md's own generation.
-  // Mapped here because the corpus settles their disposition; NOT carried in
-  // `__fixtures__/`, because a golden vector must be derivable from the
-  // version-pinned reference and these two are not in it.
-  | "turn/diff"
-  | "turn/plan";
+  // ServerNotification — Codex current-wire delta family whose DISPOSITION is
+  // settled by `Plan-006 §Event-Kind Disposition Table (surveyed-runtime normalized census)`
+  // but whose WIRE NAMES are taken from the binary.
+  //
+  // The Plan-006 delta row spells this family "`turn/diff` | `turn/plan` |
+  // `turn/moderationMetadata`". Two of those three names do not exist on the
+  // wire: regenerating the protocol schema from the pinned binary itself
+  // (`codex app-server generate-json-schema --out <dir>` at codex-cli
+  // 0.149.1) emits `turn/diff/updated` and `turn/plan/updated`. Only
+  // `turn/moderationMetadata` is genuinely bare, and it is mapped above with
+  // the other gated notifications. The generator output is canonical over
+  // prose under the regenerate-don't-transcribe rule, so the generated names
+  // are used here; the Plan-006 delta-table row still carries the truncated
+  // forms and its correction is queued separately.
+  //
+  // NOT carried in `__fixtures__/`: a golden vector must be derivable from the
+  // version-pinned reference doc, and the committed codex.md censuses neither
+  // name (that reference-doc gap is queued with the Plan-006 correction).
+  | "turn/diff/updated"
+  | "turn/plan/updated";
+
+// --------------------------------------------------------------------------
+// Negotiation-gated methods — mapped, but dormant at the shipped posture.
+// --------------------------------------------------------------------------
+
+/**
+ * The census methods that CANNOT arrive while the driver negotiates
+ * `initialize.capabilities.experimentalApi: false` — the posture
+ * `lifecycle.ts` ships, and the one Plan-005 T3.23 ratifies by building V1's
+ * capability realization so it never needs the flag.
+ *
+ * Two different provider mechanisms produce the same unreachability, and the
+ * distinction matters to whoever changes the posture:
+ *
+ *   * **Notifications (11)** are dropped by the transport itself.
+ *     codex.md §The experimental gate records
+ *     `should_skip_notification_for_connection` returning "skip" for any
+ *     notification carrying an experimental reason on a connection that did
+ *     not set the flag — "silently, with no error, no `deprecationNotice`, and
+ *     no signal of any kind that the client is missing events."
+ *   * **Requests (1)** — `item/tool/requestUserInput`, which the pinned
+ *     binary's generated `ServerRequest` schema marks as the only EXPERIMENTAL
+ *     arm of its ten. codex.md states plainly that "a default app-server
+ *     session never delivers this method."
+ *
+ * WHY THEY STAY MAPPED. Deleting them would trade a dormant row for a live
+ * hazard: the moment the posture flips (or a pin bump makes a gated surface
+ * non-experimental), every one of these frames would reach the T3.11
+ * default-branch diagnostic at once — a diagnostic flood standing in for
+ * twelve dispositions the corpus has already settled. Keeping the mapping
+ * makes that change free. This is the same reasoning that keeps the eight
+ * `thread/realtime/*` methods OUT: those are suppressed by name at the source
+ * and route to a family with no V1 emitter, so mapping them would assert a
+ * disposition no corpus row supplies. Dormant-but-settled is mapped;
+ * suppressed-and-unsettled is excluded.
+ *
+ * This set is DECLARED rather than derived because the gate state lives in
+ * neither of this module's inputs: the generated schema does not encode it
+ * for notifications (the generator has no notification-side experimental
+ * exclusion — regenerating at codex-cli 0.149.1 leaves 74 of 75
+ * `ServerNotification` arms unmarked), and `tools.ts` knows nothing about
+ * negotiation. The corpus source is codex.md §The experimental gate, which the
+ * `__fixtures__/` gate tags transcribe; the test suite asserts this set equals
+ * exactly the census members those fixtures tag gated, on BOTH transports, so
+ * a census edit that changes gate state fails rather than drifts.
+ *
+ * The `CodexInboundFrameMethod` element type is load-bearing: a member renamed
+ * or dropped from the union is a compile error here, not a silently stale
+ * entry.
+ */
+export const CODEX_NEGOTIATION_GATED_METHODS: readonly CodexInboundFrameMethod[] = Object.freeze([
+  // ServerRequest — 1 of 10 (the only EXPERIMENTAL-marked request arm).
+  "item/tool/requestUserInput",
+  // ServerNotification — 11 of this census's 25.
+  "process/outputDelta",
+  "process/exited",
+  "turn/moderationMetadata",
+  "autoApprovalReview/strictReviewRequired",
+  "thread/reverted",
+  "thread/queue/changed",
+  "project/changed",
+  "thread/project/updated",
+  "thread/environment/connected",
+  "thread/environment/disconnected",
+  "thread/settings/updated",
+]);
 
 // --------------------------------------------------------------------------
 // Tool-identity binding — the T3.4 (`tools.ts`) namespace seam.
@@ -508,9 +604,12 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
   // Structured input asks. codex.md §Server-requests marks
   // `item/tool/requestUserInput` EXPERIMENTAL — "a default app-server session
   // never delivers this method, so the Plan-005 interactive-request leg must
-  // opt in at `initialize`" — which is precisely why the driver negotiates
-  // `experimentalApi`, and why the gated notifications further down are
-  // mapped rather than treated as unreachable.
+  // opt in at `initialize`" — and the pinned binary's own generated
+  // `ServerRequest` schema confirms it as the ONE of ten request arms carrying
+  // that marker. The shipped driver does not opt in (`experimentalApi: false`),
+  // so this row is dormant at the current posture; it is declared as such in
+  // {@link CODEX_NEGOTIATION_GATED_METHODS} rather than deleted, because the
+  // gate decides DELIVERY and this table decides DISPOSITION.
   "item/tool/requestUserInput": {
     disposition: "normalized",
     nativeMethod: "item/tool/requestUserInput",
@@ -731,9 +830,10 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
   },
 
   // ------------------------------------------------------------------
-  // ServerNotification — experimental-gated at the pin. These arrive because
-  // the driver negotiates `experimentalApi` for `item/tool/requestUserInput`;
-  // gating decides delivery, not disposition.
+  // ServerNotification — experimental-gated at the pin, and therefore dormant
+  // at the shipped `experimentalApi: false` posture. Mapped deliberately;
+  // gating decides delivery, not disposition. See
+  // {@link CODEX_NEGOTIATION_GATED_METHODS}.
   // ------------------------------------------------------------------
 
   // Plan-006 delta row: `process/*` adopts into `tool_activity` (the
@@ -836,27 +936,37 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
   },
 
   // ------------------------------------------------------------------
-  // Corpus delta-family members named by Plan-006 rather than by codex.md's
-  // own generation. No golden fixture is minted for these two (see header).
+  // Delta-family members whose disposition Plan-006 settles and whose wire
+  // names come from the pinned binary's generator. No golden fixture is
+  // minted for these two (see header).
   // ------------------------------------------------------------------
 
-  // Plan-006 delta row: "`turn/diff` ... -> `diff` -> persisted (32)". Row 32
-  // puts the `diff` census kind in `tool_activity` / `tool.result` — NOT in
-  // `artifact_publication`. That is the corpus's call and it is followed here
-  // verbatim; see the artifact_publication note in this module's header.
-  "turn/diff": {
+  // Wire name from the binary's own `codex app-server generate-json-schema`
+  // output at codex-cli 0.149.1; the Plan-006 delta-table row carries the
+  // truncated `turn/diff` pending its queued correction.
+  //
+  // Disposition from that same delta row: "`turn/diff` ... -> `diff` ->
+  // persisted (32)". Row 32 puts the `diff` census kind in `tool_activity` /
+  // `tool.result` — NOT in `artifact_publication`. That is the corpus's call
+  // and it is followed here verbatim; see the artifact_publication note in
+  // this module's header.
+  "turn/diff/updated": {
     disposition: "normalized",
-    nativeMethod: "turn/diff",
+    nativeMethod: "turn/diff/updated",
     transport: "server-notification",
     family: "tool_activity",
     eventType: "tool.result",
     normalizedKind: "diff",
   },
-  // Plan-006 delta row: "`plan` -> `proposed_plan` (35)"; row 35 puts
-  // `proposed_plan` in `assistant_output` / `assistant.message`.
-  "turn/plan": {
+  // Wire name from the binary's own `codex app-server generate-json-schema`
+  // output at codex-cli 0.149.1; the Plan-006 delta-table row carries the
+  // truncated `turn/plan` pending its queued correction.
+  //
+  // Disposition from that same delta row: "`plan` -> `proposed_plan` (35)";
+  // row 35 puts `proposed_plan` in `assistant_output` / `assistant.message`.
+  "turn/plan/updated": {
     disposition: "normalized",
-    nativeMethod: "turn/plan",
+    nativeMethod: "turn/plan/updated",
     transport: "server-notification",
     family: "assistant_output",
     eventType: "assistant.message",
