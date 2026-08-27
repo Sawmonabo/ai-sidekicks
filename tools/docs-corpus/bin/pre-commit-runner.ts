@@ -11,9 +11,10 @@
 // disk — see `runChecks`): staged `.md` governance docs (mermaid + table
 // checks + cite) and staged `packages/**`+`apps/**` TypeScript (the label-cite
 // floor).
-// path-canonical-ripple and plan-manifest-presence run unconditionally (each
-// does its own whole-repo enumeration — path-ripple greps the registry `scope`
-// globs, manifest-presence walks `git ls-files docs/plans/`).
+// path-canonical-ripple, plan-manifest-presence, and plan-status-readability
+// run unconditionally (each does its own whole-repo enumeration — path-ripple
+// greps the registry `scope` globs, and the two plan checks share
+// `git ls-files docs/plans/`).
 //
 // Optional `--min-md=N` / `--min-code=N` arm a per-lane floor (see
 // `parseRunnerArguments`). Off by default, which is the pre-commit posture;
@@ -78,7 +79,12 @@ import {
 import {
   checkPlanManifestPresence,
   formatPlanManifestViolations,
+  readPlanCorpus,
 } from "../lib/plan-manifest-presence.ts";
+import {
+  checkPlanStatusReadability,
+  formatPlanStatusViolations,
+} from "../lib/plan-status-readability.ts";
 import { checkTableArity, formatTableArityViolations } from "../lib/table-arity.ts";
 import {
   checkTableTotalCoherence,
@@ -282,9 +288,27 @@ export function runChecks(args: string[], floors: LaneFloors = {}): RunChecksRes
   // Manifest on every dispatchable plan regardless of which files are staged, so
   // a plan can never reach review/approved/completed without one (preflight
   // Gate 3 would otherwise HALT mid-run).
-  const manifestHits = checkPlanManifestPresence();
+  //
+  // ONE pass over the plan corpus, shared by both plan-scoped checks below.
+  // Each plan costs a `git show` spawn, so letting them read independently
+  // doubled the plan scan for no added coverage. Named for the pair, since a
+  // failure here is neither check's alone.
+  const planCorpus = readPlanCorpus(repoRoot, "docs-corpus plan checks");
+
+  const manifestHits = checkPlanManifestPresence(planCorpus);
   if (manifestHits.length > 0) {
     messages.push(formatPlanManifestViolations(manifestHits));
+    exitCode = 1;
+  }
+
+  // Whole-repo for the same reason, and paired with the manifest check by
+  // design: both read every plan's header table from the index, and this one
+  // covers the cell the other one silently tolerates. Flags ONLY an unreadable
+  // Status row (preflight Gate 7's fail-closed branch), never an un-promoted
+  // one — `draft` / `review` are legitimate authoring states.
+  const statusHits = checkPlanStatusReadability(planCorpus);
+  if (statusHits.length > 0) {
+    messages.push(formatPlanStatusViolations(statusHits));
     exitCode = 1;
   }
 
