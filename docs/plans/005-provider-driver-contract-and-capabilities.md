@@ -150,7 +150,7 @@ See [Local SQLite Schema §Driver and Runtime Binding Tables](../architecture/sc
   - Estimate: 1 PR (combined with T1.4 since both author Zod-validated result discriminated unions)
 
 - **T1.7 — Widen the capability-flag surface to the thirteen-flag union + regenerate the shared flag source (EXTENDs T1.2 + T2.4, campaign B10).**
-  - Files: `packages/contracts/src/provider-driver.ts` (EXTEND T1.2); a new additive migration `packages/runtime-daemon/src/migrations/000N-driver-capability-currency.ts` (+ its `migration-runner.ts` guarded-block registration); `docs/architecture/schemas/local-sqlite-schema.md` (the canonical widened CHECK + `cli_version_raw` / `cli_version_semver` columns already landed via B3 — the migration matches them)
+  - Files: `packages/contracts/src/provider-driver.ts` (EXTEND T1.2); a new additive migration `packages/runtime-daemon/src/migrations/0011-driver-capability-currency.ts` (+ its `migration-runner.ts` guarded-block registration) — ordinal resolved from the `000N` next-free-at-branch-time placeholder by the allocation rule below and shipped at `0011` (schema version 11) on 2026-08-26 via PR #369, the chain having reached `0010-repo-workspaces.ts` in the interim; `docs/architecture/schemas/local-sqlite-schema.md` (the canonical widened CHECK + `cli_version_raw` / `cli_version_semver` columns already landed via B3 — the migration matches them)
   - **Spec coverage:** Spec-005 §Per-Driver Capability Matrix (thirteen declared flags); Spec-005 §Required Behavior (undeclared capability = unsupported)
   - **Verifies invariant:** I-005-2
   - Extends `DriverCapabilityFlag` from seven to thirteen — adds `structured_output`, `rollback`, `session_goals`, `callback_tools`, `subagents`, `cost_cap` (five B3 + B6's `cost_cap`) — and hoists it to the runtime `DRIVER_CAPABILITY_FLAGS` `as const` (union re-derived via `(typeof DRIVER_CAPABILITY_FLAGS)[number]`) so the write-seam guard, the `driver_capabilities.capability_flag` CHECK, and driver fixtures share one flag source (the T2.4 code-side re-derivation the plan forward-notes). The catch-up migration widens the CHECK to **all fourteen** canonical values at once — thirteen it ships rows for plus `transcript_replay`, which T3.19 adds a row for later — because a CHECK is a whitelist and admitting a value ahead of its first row costs nothing while a second CHECK-widening migration costs an ordinal; its **row backfill** covers only the thirteen flags this task declares, the row set being the leg that must track the union's exact cardinality (T3.19 lands the fourteenth row in the same ordinal that widens the union). It also adds the `cli_version_raw` / `cli_version_semver` pair to `runtime_bindings` + `driver_contract_meta`, and adds the `runtime_bindings.spawn_config` JSON column (`TEXT NOT NULL DEFAULT '{}'` — the daemon-owned per-binding record of the spawn-bound configuration realized at process spawn: `executionPosture` / `callbackTools` / `subagentPolicy` / `outputSchema` + the admitted cap; written at every spawn through T2.6's store write seam, it is the durable source recovery re-reads to reconstruct `ResumeSessionParams`' data legs without the original client request, Codex rounds 3–5 — the function legs are re-injected fresh, never stored); hydration treats a NULL pair as a cache miss and refreshes from the driver — the now-required `GetCapabilitiesResult.cliVersion` is never fabricated. Contract-preserving type-companion refactor of an already-shipped union — byte-equivalent, not a provider-output Zod schema.
@@ -869,6 +869,36 @@ shipped:
       ]
     notes: |
       Phase-1 tasks T1.1-T1.6 shipped as one contracts-only PR (no daemon/SDK; Phases 2-4 follow). AC1+AC2 verified; AC3 (recovery-needed, Spec-005 §Acceptance Criteria) deferred to Phase 3/4 per the Plan-005 Acceptance Mapping. The two no-contract-invariant provider-output fields (DriverCapabilities.contractVersion, ProviderSessionHandle.resumeHandle) are bounded at the Phase-2 write seam (T2.1), not the contract layer. verifies_invariant records only the invariant canonically verified in Phase 1 — I-005-3 (omitted idempotency_class -> manual_reconcile_only at ingress, exercised by the T1.5 contract test). The Phase-1 surface also ships type/schema-level contributions toward I-005-1/2/4/5 (the @ts-expect-error enum-exhaustiveness and discriminated-union narrowing proofs), but their canonical Invariants Test lands later (I-005-1 cross-phase integration; I-005-2 + I-005-4 at T4.6; I-005-5 at T4.7), so each is recorded against its own phase.
+  - phase: 1
+    task: [T1.7, T1.8]
+    pr: 369
+    sha: ae194e2e
+    merged_at: 2026-08-26
+    files:
+      - docs/architecture/contracts/api-payload-contracts.md
+      - packages/contracts/src/__tests__/provider-driver.test.ts
+      - packages/contracts/src/provider-driver.ts
+      - packages/runtime-daemon/src/migrations/0011-driver-capability-currency.ts
+      - packages/runtime-daemon/src/provider/__tests__/driver-capabilities-writer.test.ts
+      - packages/runtime-daemon/src/provider/__tests__/phase-2-integration.test.ts
+      - packages/runtime-daemon/src/provider/__tests__/provider-registry.test.ts
+      - packages/runtime-daemon/src/provider/driver-capabilities-writer.ts
+      - packages/runtime-daemon/src/provider/provider-output-validation.ts
+      - packages/runtime-daemon/src/session/__tests__/migration-shape.test.ts
+      - packages/runtime-daemon/src/session/__tests__/session-service.test.ts
+      - packages/runtime-daemon/src/session/migration-runner.ts
+    verifies_invariant: [I-005-2]
+    spec_coverage:
+      [
+        "Spec-005 §Per-Driver Capability Matrix (the thirteen declared flags T1.7 realizes on the hoisted DRIVER_CAPABILITY_FLAGS const; the matrix itself stands at fourteen since NS-84 added transcript_replay, which the CHECK admits and T3.19 rows)",
+        "Spec-005 §Required Behavior (undeclared capability = unsupported — the rule that makes a supported = 0 backfill row semantically identical to no row; capability-gated parity-op static/dynamic gating; probeAuth zero-turn with indeterminate fail-closed for admission)",
+        "Spec-005 §Interfaces And Contracts (the four R8 parity operations rollbackTo / setSessionGoal / clearSessionGoal / probeAuth, the spawn/turn parameter surfaces, and the two injected callback seams)",
+        "Spec-005 §Capability discovery (GetCapabilitiesResult.cliVersion becomes REQUIRED)",
+      ]
+    notes: |
+      Phase-1 tasks T1.7-T1.8 shipped as one contracts+migration PR — the campaign-B10 catch-up rows that had left the phase partially_shipped since PR #157 declared T1.1-T1.8 and shipped T1.1-T1.6. The phase's declared set now closes, so preflight resolves it merged under declared-⊆-shipped and the four Gate-5 { plan: 005, phase: 1, status: merged } entries re-resolve MET (Plan-004 Phases 1 and 3; Plan-005 Phases 3 and 4). Plan-004 Phase 1 is thereby unblocked outright — its only other precondition, the "Rollback replacement-send wire arm registered" box, was checked at NS-75 on 2026-08-25.
+      verifies_invariant records only what canonically verifies in this shipment: I-005-2, on the multi-layer convention this plan's own Phase-2 entry already invokes (cf. Plan-003 I-003-2 in two phases, Plan-002 I-002-3 in two phases) — T1.7 single-sources the flag vocabulary through DRIVER_CAPABILITY_FLAGS and the fourteen-literal CHECK, and T1.8's three capability-gated parity ops refuse statically on an undeclared flag at the contract layer. I-005-4 (unsupported => degraded), which T1.8's audit marker also cites, is deliberately NOT recorded: it is a runtime outcome of an invoked driver reporting its fallback, and a contracts-and-migration shipment cannot demonstrate it — it stays canonically at T4.6, exactly as the Phase-1 entry's own note projected.
+      The daemon consumer legs rode this PR rather than a follow-up because the widened union does not typecheck against the shipped hydration path: hydrate() narrows to HydratedDriverCapabilities (T2.6 still owns the cliVersion readback) and the hydration corrupt-cache guard hardens from a row-count check to a key-set proof, since a count admits a cache holding thirteen rows for the wrong thirteen flags. Migration 0011 rebuilds driver_capabilities in place under the documented lang_altertable shape and creates no table, so the local SQLite census stays 58; no wire method, error code, or event type is minted. api-payload-contracts.md's two code-mirror discharge gates were restated to the landed state at zero net line shift, so no inbound cite into that file moved. Review: one consolidated 3-reviewer round folded nine findings; Codex round 1 clean.
   - phase: 2
     task: [T2.1, T2.2, T2.3, T2.4, T2.5]
     pr: 159
@@ -924,7 +954,7 @@ shipped:
 
 ## Done Checklist
 
-- [ ] Phase 1 — Driver contract + capability schema + idempotency_class (T1.1-T1.6; + campaign B10 T1.7-T1.8)
+- [x] Phase 1 — Driver contract + capability schema + idempotency_class (T1.1-T1.6; + campaign B10 T1.7-T1.8) — T1.1-T1.6 via PR #157 (squash `a81821e`), merged 2026-06-15; T1.7-T1.8 via PR #369 (squash `ae194e2e`), merged 2026-08-26 ([§6 node NS-87](../architecture/cross-plan-dependencies.md#6-active-next-steps-dag)). The phase's declared set T1.1-T1.8 is complete, so preflight resolves it `merged` under declared-⊆-shipped and the four Gate-5 `{ plan: 005, phase: 1 }` entries re-resolve MET.
 - [ ] Phase 2 — Provider registry + runtime-binding store + SQLite (T2.1-T2.5; + campaign B10 T2.6)
 - [ ] Phase 3 — Codex driver (T3.1-T3.5) + Claude driver (T3.6-T3.10) + campaign B10 driver enrichment (T3.11-T3.15) + provider-bound text neutralization (T3.18) + canonical transcript export and replay (T3.19-T3.22) + provider-CLI version tolerance (T3.23-T3.25)
 - [ ] Phase 3B — Provider-account seam + typed usage-limit signal (T3.16-T3.17; machine-gated on this plan's Phase 3)
