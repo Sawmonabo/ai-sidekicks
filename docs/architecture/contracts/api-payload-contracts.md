@@ -150,7 +150,7 @@ type RunFailureCategory =
   | "projection failure";
 
 type QueueItemState = "queued" | "admitted" | "superseded" | "canceled" | "expired";
-type InterventionType = "steer" | "interrupt" | "cancel" | "rollback"; // rollback: campaign B2 (Spec-004 §Required Behavior). Code-mirror gate: the shipped provider-driver.ts union stays three-membered until the campaign's Plan-005 bundle widens union + consumers together (same gate pattern as DriverCapabilityFlag below)
+type InterventionType = "steer" | "interrupt" | "cancel" | "rollback"; // rollback: campaign B2 (Spec-004 §Required Behavior). Code-mirror gate DISCHARGED — the shipped provider-driver.ts union is four-membered (Plan-005 T1.8); ApplyInterventionParams deliberately stays three-armed, because rollback dispatches through the capability-gated rollbackTo parity operation, not through applyIntervention
 type InterventionState = "requested" | "accepted" | "applied" | "rejected" | "degraded" | "expired";
 
 type ApprovalCategory =
@@ -192,13 +192,13 @@ type DriverCapabilityFlag =
   | "transcript_replay" // accepts a canonical transcript replayed into a fresh session via replayTranscript (2026-08-26, ADR-029; the Claude cell is probe-declared, not statically true — Spec-005 §Per-Driver Capability Matrix)
   | "cost_cap"; // realizes a daemon-supplied hard cost cap natively at spawn — Claude --max-budget-usd; gates the Spec-016 native-cap unpriced admission (campaign B6)
 // Code-mirror gate (campaign B3/B6): the shipped executable union
-// (packages/contracts/src/provider-driver.ts) still exports the seven pre-B3 flags, and the
-// shipped assertValidCapabilityFlags rejects any snapshot whose key count differs — so a driver
-// MUST NOT declare the seven doc-registered flags against the shipped validator. Union + validator +
-// driver_capabilities migration backfill + conformance tests widen together as ONE change via
-// the campaign's Plan-005 bundle for the first six and via Plan-005 T3.19 for transcript_replay
-// (2026-08-26), which extends the same union rather than opening a second seam; cost_cap-gated admission code (Plan-016 T2.3) dispatch-gates
-// on that bundle (same named-bundle gate as the goal driver mirror).
+// (packages/contracts/src/provider-driver.ts) now exports THIRTEEN of these — every member above
+// except transcript_replay — and the shipped assertValidCapabilityFlags rejects any snapshot whose key
+// count differs, so a driver MUST NOT declare transcript_replay against the shipped validator. Union +
+// validator + driver_capabilities migration backfill + conformance tests widened together as ONE change
+// via the campaign's Plan-005 bundle for the first six; Plan-005 T3.19 (2026-08-26) lands the fourteenth
+// by extending that same union rather than opening a second seam; cost_cap-gated admission code
+// (Plan-016 T2.3) dispatch-gates on that bundle (same named-bundle gate as the goal driver mirror).
 ```
 
 ---

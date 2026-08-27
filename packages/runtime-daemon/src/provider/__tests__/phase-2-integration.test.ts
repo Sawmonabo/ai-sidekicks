@@ -52,6 +52,7 @@ import {
   DRIVER_CAPABILITY_FLAGS,
   type ApplyInterventionParams,
   type DriverCapabilityFlag,
+  type DriverCliVersionReport,
   type DriverInterventionResult,
   type GetCapabilitiesResult,
   type ProviderDriver,
@@ -111,10 +112,10 @@ const CAPABILITY_KEY: string = "provider-driver-claude";
 
 // ----------------------------------------------------------------------------
 // Flag + result fixtures (sourced from the canonical DRIVER_CAPABILITY_FLAGS —
-// NO hardcoded copy of the 7-flag set)
+// NO hardcoded copy of the flag set)
 // ----------------------------------------------------------------------------
 
-// The full 7-flag matrix every snapshot must answer (Record<DriverCapabilityFlag>
+// The full flag matrix every snapshot must answer (Record<DriverCapabilityFlag>
 // — un-omittable by the contract type). Every flag defaults false, then the
 // baseline-true pair (`resume`, `tool_calls`), then per-test overrides.
 function makeFlags(
@@ -127,6 +128,16 @@ function makeFlags(
   return { ...base, resume: true, tool_calls: true, ...overrides };
 }
 
+// The REQUIRED `cliVersion` reading (T1.8) every advertised snapshot carries. It
+// is a property of the LIVE READING, not of the capability cache: the writer
+// persists no version pair yet, so `hydrate()` cannot reproduce it and the
+// cold-start re-seeds below re-attach it from the driver rather than inventing
+// one (see `HydratedDriverCapabilities`; T2.6 owns the durable leg).
+const CLI_VERSION_REPORT: DriverCliVersionReport = {
+  raw: "mock-provider-cli 2.1.234 (build 7)",
+  semver: "2.1.234",
+};
+
 // The driver's advertised snapshot. Tools are declared already in canonical
 // (name-ascending) order WITH an explicit `idempotency_class`, so the declared
 // input is byte-identical to the `hydrate()` output — the AC2 round-trip is then
@@ -138,6 +149,7 @@ function makeResult(overrides: Partial<GetCapabilitiesResult> = {}): GetCapabili
       contractVersion: CONTRACT_VERSION,
     },
     tools: [{ name: "search", idempotency_class: "idempotent", description: "search the web" }],
+    cliVersion: CLI_VERSION_REPORT,
     ...overrides,
   };
 }
@@ -159,7 +171,7 @@ interface MockProviderDriver extends ProviderDriver {
 // registry caches `getCapabilities()` once per registration, so a distinct
 // result per registration is what drives the gate to behave differently.
 //
-// The 8 methods this suite does not exercise are throwing stubs (typed
+// The 12 methods this suite does not exercise are throwing stubs (typed
 // `Promise<never>`, assignable to every declared return) — a call to one is a
 // test bug, not a silent no-op. `getCapabilities` + `applyIntervention` carry
 // REAL behavior.
@@ -189,8 +201,17 @@ function makeMockDriver(capabilitiesResult: GetCapabilitiesResult): MockProvider
     interruptRun(): Promise<never> {
       return Promise.reject(new Error("interruptRun not exercised in this integration suite"));
     },
+    rollbackTo(): Promise<never> {
+      return Promise.reject(new Error("rollbackTo not exercised in this integration suite"));
+    },
     respondToRequest(): Promise<never> {
       return Promise.reject(new Error("respondToRequest not exercised in this integration suite"));
+    },
+    setSessionGoal(): Promise<never> {
+      return Promise.reject(new Error("setSessionGoal not exercised in this integration suite"));
+    },
+    clearSessionGoal(): Promise<never> {
+      return Promise.reject(new Error("clearSessionGoal not exercised in this integration suite"));
     },
     closeSession(): Promise<never> {
       return Promise.reject(new Error("closeSession not exercised in this integration suite"));
@@ -200,6 +221,9 @@ function makeMockDriver(capabilitiesResult: GetCapabilitiesResult): MockProvider
     },
     listModes(): Promise<never> {
       return Promise.reject(new Error("listModes not exercised in this integration suite"));
+    },
+    probeAuth(): Promise<never> {
+      return Promise.reject(new Error("probeAuth not exercised in this integration suite"));
     },
   };
 }
@@ -343,7 +367,13 @@ describe("Phase 2 integration — AC2 capability round-trip + cold-start re-seed
     // driver). It must gate IDENTICALLY to registry-A — the AC2 round-trip proof
     // that the persisted cache reconstitutes the gating set across a restart. ---
     const registryB: ProviderRegistry = new ProviderRegistry();
-    await registryB.register(DRIVER_NAME, makeMockDriver(hydrated));
+    // The hydrated snapshot is `HydratedDriverCapabilities` — the cache holds no
+    // version pair, so the driver's own `cliVersion` reading is re-attached here
+    // rather than fabricated from the cache (T2.6 owns the durable leg).
+    await registryB.register(
+      DRIVER_NAME,
+      makeMockDriver({ ...hydrated, cliVersion: CLI_VERSION_REPORT }),
+    );
     expect(registryB.checkCapability(DRIVER_NAME, "resume")).toBeUndefined();
     try {
       registryB.checkCapability(DRIVER_NAME, "steer");
@@ -432,6 +462,12 @@ describe("Phase 2 integration — gate scope: applyIntervention is NOT pre-gated
       type: "steer",
       targetRunId: "run-1" as RunId,
       expectedRunVersion: 1,
+      // The requester-generated dedupe key the contract makes mandatory on every
+      // dispatch arm. Carried honestly (a real UUID, the shape a caller mints)
+      // rather than stubbed, so this fixture stays a legitimate steer dispatch —
+      // the gate-scope claim is about what the registry does NOT block, and a
+      // malformed param would muddy which layer let the call through.
+      clientIdempotencyKey: "00000000-0000-4000-8000-000000000001",
       payload: { content: "please change direction" },
     };
     const result = await resolved.applyIntervention(steerParams);
@@ -554,7 +590,10 @@ describe("Phase 2 integration — refresh seam coherence (updated → re-hydrate
     expect(refreshed.capabilities.flags["steer"]).toBe(true);
 
     const refreshedRegistry: ProviderRegistry = new ProviderRegistry();
-    await refreshedRegistry.register(DRIVER_NAME, makeMockDriver(refreshed));
+    await refreshedRegistry.register(
+      DRIVER_NAME,
+      makeMockDriver({ ...refreshed, cliVersion: CLI_VERSION_REPORT }),
+    );
     expect(refreshedRegistry.checkCapability(DRIVER_NAME, "steer")).toBeUndefined();
   });
 });

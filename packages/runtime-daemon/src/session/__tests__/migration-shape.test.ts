@@ -17,6 +17,7 @@
 // `participant_signature`) ship in Plan-001 per §Cross-Plan Forward-Declared
 // Schema with semantics owned by Plan-006 / Plan-022.
 
+import { DRIVER_CAPABILITY_FLAGS } from "@ai-sidekicks/contracts";
 import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -25,6 +26,12 @@ import { INITIAL_MIGRATION_SQL } from "../../migrations/0001-initial.js";
 import { RUNTIME_NODE_MIGRATION_SQL } from "../../migrations/0002-runtime-node.js";
 import { RUNTIME_BINDINGS_MIGRATION_SQL } from "../../migrations/0003-runtime-bindings.js";
 import { WORKTREE_LIFECYCLE_MIGRATION_SQL } from "../../migrations/0004-worktree-lifecycle.js";
+import { DAEMON_SIGNING_KEYS_MIGRATION_SQL } from "../../migrations/0005-daemon-signing-keys.js";
+import { RUN_LIFECYCLE_TERMINAL_BACKSTOP_MIGRATION_SQL } from "../../migrations/0006-run-lifecycle-terminal-backstop-index.js";
+import { PII_PARTICIPANT_ID_MIGRATION_SQL } from "../../migrations/0007-pii-participant-id.js";
+import { PENDING_ANCHOR_UPLOADS_MIGRATION_SQL } from "../../migrations/0008-pending-anchor-uploads.js";
+import { RETENTION_CLASS_AND_STUB_SIGNATURE_MIGRATION_SQL } from "../../migrations/0009-retention-class-and-stub-signature.js";
+import { REPO_WORKSPACES_MIGRATION_SQL } from "../../migrations/0010-repo-workspaces.js";
 import { applyMigrations, applyPragmas, openDatabase } from "../migration-runner.js";
 
 // Bound to exported identifiers so `Plan-010 §References` can anchor at the
@@ -58,6 +65,10 @@ const PLAN_001_TABLES: ReadonlyArray<string> = [
 // version-3 tables + Plan-010 version-4 tables + the two Plan-006 tables —
 // version-5 `daemon_signing_keys` and version-8 `pending_anchor_uploads` —
 // plus the two Plan-009 version-10 tables `repo_mounts` and `workspaces`).
+// Version 11 (Plan-005) moves this census by ZERO: it rebuilds
+// `driver_capabilities` in place to widen a column CHECK, and the transient
+// `driver_capabilities_new` is renamed over the original within the same
+// script — a leftover transient would show up here as a nineteenth table.
 // Alphabetical by SQLite's `ORDER BY name` — BINARY collation, so
 // `_` (0x5F) sorts before every lowercase letter and
 // `run_execution_contexts` precedes `runtime_bindings`, while `workspaces`
@@ -123,14 +134,18 @@ describe("0001-initial migration shape", () => {
     const rows = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
       .all() as ReadonlyArray<{ name: string }>;
-    // After version-10 (Plan-009) the DB holds the full eighteen-table set:
+    // After version-11 (Plan-005, which adds no table) the DB holds the full
+    // eighteen-table set:
     // the four Plan-001 tables, the two Plan-003 tables (node_capabilities,
     // node_trust_state), the four Plan-005 tables (runtime_bindings,
     // driver_capabilities, driver_tools, driver_contract_meta), the four
     // Plan-010 tables (worktrees, ephemeral_clones, branch_contexts,
     // run_execution_contexts), the two Plan-006 tables
     // (daemon_signing_keys at v5, pending_anchor_uploads at v8), and the two
-    // Plan-009 tables (repo_mounts, workspaces at v10).
+    // Plan-009 tables (repo_mounts, workspaces at v10). Version 11 rebuilds
+    // driver_capabilities rather than adding anything, so this list is also
+    // the assertion that its transient `driver_capabilities_new` did not
+    // survive the rename.
     expect(rows.map((r) => r.name)).toEqual(ALL_EXPECTED_TABLES);
   });
 
@@ -177,21 +192,21 @@ describe("0001-initial migration shape", () => {
     expect(byName.get("monotonic_ns")?.notnull).toBe(1);
   });
 
-  it("anchors schema_version rows at versions [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]", () => {
+  it("anchors schema_version rows at versions [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]", () => {
     // The `ORDER BY version` is load-bearing: without it the row order is
     // insertion-order luck and the assertion would silently stop pinning
     // which versions landed.
     const versionRows = db
       .prepare("SELECT version FROM schema_version ORDER BY version")
       .all() as ReadonlyArray<{ version: number }>;
-    expect(versionRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(versionRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
   });
 
   it("is idempotent when applyMigrations runs twice", () => {
     // Second invocation must be a no-op (the migration runner short-
     // circuits via hasMigrationApplied per version). Re-running must not
     // throw, must not double-insert any schema_version anchor row, must
-    // not duplicate tables. Ten DISTINCT versions [1..10] is not
+    // not duplicate tables. Eleven DISTINCT versions [1..11] is not
     // duplication.
     //
     // Version 7 makes this arm strictly load-bearing rather than a
@@ -201,13 +216,17 @@ describe("0001-initial migration shape", () => {
     // is the same story for `CREATE INDEX` / `CREATE TRIGGER`, versions 8
     // and 10 for `CREATE TABLE` (no `IF NOT EXISTS` in the transcribed DDL
     // either), and version 9 for BOTH at once (two ADD COLUMNs plus a
-    // CREATE INDEX).
+    // CREATE INDEX). Version 11 raises the stakes again: a guard regression
+    // there re-runs a table REBUILD, whose first statement (`CREATE TABLE
+    // driver_capabilities_new`) throws "table already exists" only because the
+    // rename that consumed it happened inside the SAME script — and whose
+    // ALTERs would otherwise throw "duplicate column name" like version 7's.
     applyMigrations(db);
     const versionRows = db
       .prepare("SELECT version FROM schema_version ORDER BY version")
       .all() as ReadonlyArray<{ version: number }>;
-    expect(versionRows).toHaveLength(10);
-    expect(versionRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(versionRows).toHaveLength(11);
+    expect(versionRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
   });
 });
 
@@ -338,7 +357,15 @@ describe("0003-runtime-bindings migration shape", () => {
       .prepare("PRAGMA table_info(runtime_bindings)")
       .all() as ReadonlyArray<PragmaColumn>;
 
-    // Columns in CID (creation) order — fixed by the CREATE TABLE DDL.
+    // Columns in CID (creation) order — fixed by the CREATE TABLE DDL, then
+    // EXTENDED at CID-last by version 11's three `ALTER TABLE ... ADD COLUMN`
+    // statements. The schema doc declares `cli_version_raw` /
+    // `cli_version_semver` beside `contract_version` and `spawn_config` beside
+    // `runtime_metadata` — their LOGICAL positions — while ADD COLUMN can only
+    // append, the same `retention_class`-style divergence version 9 produced on
+    // `session_events`. Physical order is what PRAGMA reports, so physical
+    // order is what this pin records; no Plan-005 read or write depends on it
+    // (every statement names its columns).
     expect(columns.map((c) => c.name)).toEqual([
       "id",
       "run_id",
@@ -348,6 +375,9 @@ describe("0003-runtime-bindings migration shape", () => {
       "runtime_metadata",
       "created_at",
       "updated_at",
+      "cli_version_raw",
+      "cli_version_semver",
+      "spawn_config",
     ]);
 
     const byName = new Map(columns.map((c) => [c.name, c]));
@@ -362,6 +392,9 @@ describe("0003-runtime-bindings migration shape", () => {
       "runtime_metadata",
       "created_at",
       "updated_at",
+      "cli_version_raw",
+      "cli_version_semver",
+      "spawn_config",
     ]) {
       expect(byName.get(other)?.pk).toBe(0);
     }
@@ -392,6 +425,16 @@ describe("0003-runtime-bindings migration shape", () => {
 
     // runtime_metadata carries the JSON default `'{}'`.
     expect(byName.get("runtime_metadata")?.dflt_value).toBe("'{}'");
+
+    // The version-11 columns in summary; their constraint behaviour is pinned
+    // in the `0011-driver-capability-currency migration shape` block below.
+    // `spawn_config` is the one NOT NULL addition, and it is NOT NULL only
+    // because it carries a DEFAULT — `ADD COLUMN ... NOT NULL` with no default
+    // is refused outright by SQLite.
+    expect(byName.get("cli_version_raw")?.notnull).toBe(0);
+    expect(byName.get("cli_version_semver")?.notnull).toBe(0);
+    expect(byName.get("spawn_config")?.notnull).toBe(1);
+    expect(byName.get("spawn_config")?.dflt_value).toBe("'{}'");
   });
 
   it("creates the `idx_runtime_bindings_run` index on run_id", () => {
@@ -531,7 +574,11 @@ describe("0003-runtime-bindings migration shape", () => {
          VALUES (?, ?, 1, ?)`,
       ).run("claude", flag, "2026-06-15T00:00:00.000Z");
     };
-    // All seven canonical flags are accepted.
+    // The seven version-3 flags remain accepted after the version-11 widening
+    // — a CHECK that was widened by REPLACING the table could have dropped one
+    // of them, and this loop is what would notice. The other seven admitted
+    // values, and the thirteen the backfill covers, are pinned by the
+    // `0011-driver-capability-currency migration shape` block below.
     for (const flag of [
       "resume",
       "steer",
@@ -604,13 +651,23 @@ describe("0003-runtime-bindings migration shape", () => {
       .prepare("PRAGMA table_info(driver_contract_meta)")
       .all() as ReadonlyArray<PragmaColumn>;
 
-    expect(columns.map((c) => c.name)).toEqual(["driver_name", "contract_version", "refreshed_at"]);
+    // The last two are version-11 additions, appended at CID-last by ALTER
+    // TABLE (the schema doc declares them beside `contract_version`).
+    expect(columns.map((c) => c.name)).toEqual([
+      "driver_name",
+      "contract_version",
+      "refreshed_at",
+      "cli_version_raw",
+      "cli_version_semver",
+    ]);
 
     const byName = new Map(columns.map((c) => [c.name, c]));
     // Single-column PK on driver_name (per-driver parent row).
     expect(byName.get("driver_name")?.pk).toBe(1);
     expect(byName.get("contract_version")?.pk).toBe(0);
     expect(byName.get("refreshed_at")?.pk).toBe(0);
+    expect(byName.get("cli_version_raw")?.pk).toBe(0);
+    expect(byName.get("cli_version_semver")?.pk).toBe(0);
 
     // contract_version + refreshed_at are NOT NULL. `driver_name` is the PK
     // column declared `driver_name TEXT PRIMARY KEY` (no explicit NOT NULL),
@@ -621,6 +678,12 @@ describe("0003-runtime-bindings migration shape", () => {
     expect(byName.get("driver_name")?.notnull).toBe(0);
     expect(byName.get("contract_version")?.notnull).toBe(1);
     expect(byName.get("refreshed_at")?.notnull).toBe(1);
+
+    // The version-11 pair is NULLABLE by design: a NULL pair is the cache-MISS
+    // signal cold-start hydration refreshes from the driver rather than
+    // fabricating a `cliVersion` from cache.
+    expect(byName.get("cli_version_raw")?.notnull).toBe(0);
+    expect(byName.get("cli_version_semver")?.notnull).toBe(0);
   });
 
   it("enforces the contract_version CHECK on `driver_contract_meta` (mirrors runtime_bindings)", () => {
@@ -2506,5 +2569,567 @@ describe("0009-retention-class-and-stub-signature migration shape", () => {
       "Compaction retention discriminator + post-compaction stub commitment " +
         "(session_events.retention_class, session_events.stub_signature, idx_session_events_live)",
     );
+  });
+});
+
+// Plan-005 T1.7 — version-11 migration-shape coverage.
+//
+// Pins the four legs of `migrations/0011-driver-capability-currency.ts`: the
+// fourteen-value `driver_capabilities.capability_flag` CHECK (reached by a
+// twelve-step table rebuild, since SQLite cannot alter a column CHECK in
+// place), the thirteen-flag `supported = 0` backfill, the
+// `cli_version_raw` / `cli_version_semver` pair on `runtime_bindings` +
+// `driver_contract_meta`, and `runtime_bindings.spawn_config`. Schema
+// source-of-truth is `docs/architecture/schemas/local-sqlite-schema.md`
+// §"Driver and Runtime Binding Tables (Plan-005)".
+//
+// The physical column shape of the three tables is pinned by the
+// `0003-runtime-bindings migration shape` block above (those pins run on a
+// fully-migrated handle, so they already describe the post-version-11 shape,
+// version-11 columns included). What this block adds is everything the shape
+// pins cannot see: CHECK BEHAVIOUR on the new columns, the rebuild's effect on
+// rows that already existed, and the backfill's cardinality.
+//
+// Two arms therefore run on an ISOLATED handle carrying versions 1 through 10
+// and nothing later — the only state in which "before the migration" is a
+// state that exists. `applyMigrations` offers no version ceiling, so the
+// SHIPPED migration constants are exec'd in chain order, the same construction
+// (and for the same anti-drift reason) as the 0004 block's
+// `openDatabaseMigratedThroughVersionFour`.
+//
+// Shape-checkable spec/invariant cites:
+//   * I-005-2 — an undeclared capability is UNSUPPORTED: the backfill writes
+//     `supported = 0`, never 1, and never overwrites a declared row.
+//   * `Spec-005 §Required Behavior` — the `cliVersion` report is persisted as a
+//     both-or-neither pair (verbatim + parsed), and a NULL pair on
+//     `driver_contract_meta` is the cache MISS that forces a refresh rather
+//     than a fabricated version.
+describe("0011-driver-capability-currency migration shape", () => {
+  let db: DatabaseType;
+
+  const FIXTURE_TIMESTAMP: string = "2026-08-20T00:00:00.000Z";
+
+  // The fourteen values the widened CHECK ADMITS. Hardcoded here rather than
+  // derived from `DRIVER_CAPABILITY_FLAGS`, because the CHECK is deliberately
+  // one value WIDER than the union this tree declares: it admits
+  // `transcript_replay` ahead of that flag's own union widening at T3.19, so a
+  // const-derived list could never express the gap. The const-versus-rows
+  // lockstep is asserted separately, on the BACKFILLED ROW SET, by the final
+  // test in this block.
+  const FOURTEEN_ADMITTED_CAPABILITY_FLAGS: ReadonlyArray<string> = [
+    "resume",
+    "steer",
+    "interactive_requests",
+    "mcp",
+    "tool_calls",
+    "reasoning_stream",
+    "model_mutation",
+    "structured_output",
+    "rollback",
+    "session_goals",
+    "callback_tools",
+    "subagents",
+    "cost_cap",
+    "transcript_replay",
+  ];
+
+  // The thirteen the BACKFILL covers — the fourteen minus `transcript_replay`.
+  const THIRTEEN_BACKFILLED_CAPABILITY_FLAGS: ReadonlyArray<string> =
+    FOURTEEN_ADMITTED_CAPABILITY_FLAGS.filter((flag) => flag !== "transcript_replay");
+
+  /**
+   * A handle carrying versions 1 through 10 and NOTHING later — the
+   * pre-migration state the rebuild-preservation and backfill arms need, and
+   * the state in which `driver_capabilities` still enforces the frozen
+   * seven-value version-3 CHECK.
+   *
+   * Order is load-bearing: each script carries its own
+   * `INSERT INTO schema_version`, and version 1 is what creates the table those
+   * inserts target. A subsequent `applyMigrations` on this handle therefore
+   * short-circuits versions 1 through 10 on their guards and runs ONLY
+   * version 11 — which is exactly the upgrade path being asserted.
+   */
+  function openDatabaseMigratedThroughVersionTen(): DatabaseType {
+    const isolatedDb: DatabaseType = new Database(":memory:");
+    applyPragmas(isolatedDb);
+    isolatedDb.exec(INITIAL_MIGRATION_SQL);
+    isolatedDb.exec(RUNTIME_NODE_MIGRATION_SQL);
+    isolatedDb.exec(RUNTIME_BINDINGS_MIGRATION_SQL);
+    isolatedDb.exec(WORKTREE_LIFECYCLE_MIGRATION_SQL);
+    isolatedDb.exec(DAEMON_SIGNING_KEYS_MIGRATION_SQL);
+    isolatedDb.exec(RUN_LIFECYCLE_TERMINAL_BACKSTOP_MIGRATION_SQL);
+    isolatedDb.exec(PII_PARTICIPANT_ID_MIGRATION_SQL);
+    isolatedDb.exec(PENDING_ANCHOR_UPLOADS_MIGRATION_SQL);
+    isolatedDb.exec(RETENTION_CLASS_AND_STUB_SIGNATURE_MIGRATION_SQL);
+    isolatedDb.exec(REPO_WORKSPACES_MIGRATION_SQL);
+    return isolatedDb;
+  }
+
+  /** One `driver_capabilities` cache row, on whichever handle is passed. */
+  function insertCapabilityRow(
+    target: DatabaseType,
+    driverName: string,
+    capabilityFlag: string,
+    supported: 0 | 1,
+    refreshedAt: string,
+  ): void {
+    target
+      .prepare(
+        `INSERT INTO driver_capabilities (driver_name, capability_flag, supported, refreshed_at)
+         VALUES (?, ?, ?, ?)`,
+      )
+      .run(driverName, capabilityFlag, supported, refreshedAt);
+  }
+
+  /**
+   * One `runtime_bindings` row with an explicit CLI-version pair. Every arm
+   * that expects a throw must still supply a UNIQUE `id`: a PK collision would
+   * raise the wrong constraint and make the CHECK assertion unfalsifiable.
+   */
+  function insertBindingWithCliVersion(
+    id: string,
+    cliVersionRaw: string | null,
+    cliVersionSemver: string | null,
+  ): void {
+    db.prepare(
+      `INSERT INTO runtime_bindings
+         (id, run_id, driver_name, contract_version, created_at, updated_at,
+          cli_version_raw, cli_version_semver)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      id,
+      "run-cli-version",
+      "claude",
+      "1.0.0",
+      FIXTURE_TIMESTAMP,
+      FIXTURE_TIMESTAMP,
+      cliVersionRaw,
+      cliVersionSemver,
+    );
+  }
+
+  /** The `driver_contract_meta` mirror of the helper above (PK is driver_name). */
+  function insertContractMetaWithCliVersion(
+    driverName: string,
+    cliVersionRaw: string | null,
+    cliVersionSemver: string | null,
+  ): void {
+    db.prepare(
+      `INSERT INTO driver_contract_meta
+         (driver_name, contract_version, refreshed_at, cli_version_raw, cli_version_semver)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run(driverName, "1.0.0", FIXTURE_TIMESTAMP, cliVersionRaw, cliVersionSemver);
+  }
+
+  beforeEach(() => {
+    // Canonical factory — applyPragmas → applyMigrations, now reaching
+    // version 11.
+    db = openDatabase(":memory:");
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  it("admits all fourteen canonical capability flags and still rejects anything else", () => {
+    // THE ACCEPTANCE SWEEP, one row per flag (the composite PK is
+    // (driver_name, capability_flag), so a single driver can carry all
+    // fourteen). Without it the rejection arms below are unfalsifiable.
+    for (const capabilityFlag of FOURTEEN_ADMITTED_CAPABILITY_FLAGS) {
+      expect(() => {
+        insertCapabilityRow(db, "claude", capabilityFlag, 1, FIXTURE_TIMESTAMP);
+      }).not.toThrow();
+    }
+    expect(db.prepare("SELECT COUNT(*) AS total FROM driver_capabilities").get()).toEqual({
+      total: 14,
+    });
+
+    // `pause` is the canonical EXCLUDED flag per `Spec-005 §Required Behavior`
+    // + ADR-011 — widening the CHECK must not have widened it to everything.
+    expect(() => {
+      insertCapabilityRow(db, "claude", "pause", 1, FIXTURE_TIMESTAMP);
+    }).toThrow(/CHECK constraint failed/i);
+
+    // Casing and near-misses count: the writer emits the exact literals, and a
+    // near-miss row would be a capability nothing ever reads.
+    expect(() => {
+      insertCapabilityRow(db, "claude", "COST_CAP", 1, FIXTURE_TIMESTAMP);
+    }).toThrow(/CHECK constraint failed/i);
+    expect(() => {
+      insertCapabilityRow(db, "claude", "transcript_replays", 1, FIXTURE_TIMESTAMP);
+    }).toThrow(/CHECK constraint failed/i);
+
+    // And an UPDATE cannot smuggle an undeclared flag past a row that entered
+    // clean — the CHECK travels with the column, not with the INSERT path.
+    expect(() =>
+      db
+        .prepare("UPDATE driver_capabilities SET capability_flag = ? WHERE capability_flag = ?")
+        .run("pause", "resume"),
+    ).toThrow(/CHECK constraint failed/i);
+  });
+
+  it("re-creates the composite PRIMARY KEY and its implicit autoindex through the rebuild", () => {
+    // Step 3/8 of the twelve-step rebuild is "remember, then re-create, the
+    // table's indexes". `driver_capabilities` has exactly one — the implicit PK
+    // autoindex — and it comes back only because the successor table re-declares
+    // the same `PRIMARY KEY (driver_name, capability_flag)`. Losing it would
+    // turn the cache's uniqueness guarantee off silently, and the backfill's
+    // `ON CONFLICT` target would stop resolving.
+    const indexes = db.prepare("PRAGMA index_list(driver_capabilities)").all() as ReadonlyArray<{
+      name: string;
+      unique: 0 | 1;
+      origin: string;
+    }>;
+    const primaryKeyIndex = indexes.find((index) => index.origin === "pk");
+    expect(primaryKeyIndex).toBeDefined();
+    expect(primaryKeyIndex?.unique).toBe(1);
+
+    const keyColumns = db
+      .prepare(`PRAGMA index_info(${primaryKeyIndex?.name ?? ""})`)
+      .all() as ReadonlyArray<{ name: string }>;
+    expect(keyColumns.map((column) => column.name)).toEqual(["driver_name", "capability_flag"]);
+
+    // Behavioral half: a duplicate (driver_name, capability_flag) is refused.
+    insertCapabilityRow(db, "claude", "resume", 1, FIXTURE_TIMESTAMP);
+    expect(() => {
+      insertCapabilityRow(db, "claude", "resume", 0, FIXTURE_TIMESTAMP);
+    }).toThrow(/UNIQUE constraint failed/i);
+  });
+
+  it("leaves no transient rebuild table behind", () => {
+    // The rebuild's successor is named `driver_capabilities_new` until the
+    // rename consumes it. A torn or mis-ordered script would strand it here,
+    // and a `_new` table that outlived the migration is a schema that lies
+    // about which table the writers are talking to.
+    const strandedTables = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE '%\\_new' ESCAPE '\\'",
+      )
+      .all() as ReadonlyArray<{ name: string }>;
+    expect(strandedTables).toEqual([]);
+  });
+
+  it("enforces the both-or-neither cli-version pair CHECK on `runtime_bindings`", () => {
+    // Both ACCEPTANCE arms first: the pair is the only two states the write
+    // path may produce.
+    expect(() => {
+      insertBindingWithCliVersion("binding-cli-absent", null, null);
+    }).not.toThrow();
+    expect(() => {
+      insertBindingWithCliVersion("binding-cli-present", "2.1.245 (Claude Code)", "2.1.245");
+    }).not.toThrow();
+
+    // A parsed form without its verbatim source, and a verbatim source without
+    // its parsed form, are BOTH refused — the half-written pair is the state
+    // the floor gate could never re-derive after the fact.
+    expect(() => {
+      insertBindingWithCliVersion("binding-cli-raw-only", "2.1.245", null);
+    }).toThrow(/CHECK constraint failed/i);
+    expect(() => {
+      insertBindingWithCliVersion("binding-cli-semver-only", null, "2.1.245");
+    }).toThrow(/CHECK constraint failed/i);
+
+    // And an UPDATE cannot tear the pair apart afterwards. SQLite evaluates
+    // every CHECK on every write to the row, not only on writes that name the
+    // constrained column — which is what makes a single column-level CHECK
+    // able to police both halves.
+    expect(() =>
+      db
+        .prepare("UPDATE runtime_bindings SET cli_version_raw = NULL WHERE id = ?")
+        .run("binding-cli-present"),
+    ).toThrow(/CHECK constraint failed/i);
+  });
+
+  it("bounds the `runtime_bindings` cli-version pair at 128 / 64 chars and rejects NUL", () => {
+    // Empty strings: the pair is "absent or meaningful", never "present and
+    // blank".
+    expect(() => {
+      insertBindingWithCliVersion("binding-cli-empty", "", "");
+    }).toThrow(/CHECK constraint failed/i);
+
+    // ACCEPT edges, pinning both ceilings so a `<= N` → `< N` off-by-one is
+    // caught (the resume_handle 4096-accept precedent in the 0003 block).
+    expect(() => {
+      insertBindingWithCliVersion("binding-cli-raw-128", "9".repeat(128), "1.0.0");
+    }).not.toThrow();
+    expect(() => {
+      insertBindingWithCliVersion("binding-cli-semver-64", "1.0.0", "9".repeat(64));
+    }).not.toThrow();
+
+    // REJECT edges, one char past each ceiling.
+    expect(() => {
+      insertBindingWithCliVersion("binding-cli-raw-129", "9".repeat(129), "1.0.0");
+    }).toThrow(/CHECK constraint failed/i);
+    expect(() => {
+      insertBindingWithCliVersion("binding-cli-semver-65", "1.0.0", "9".repeat(65));
+    }).toThrow(/CHECK constraint failed/i);
+
+    // Embedded NUL, on each half independently — the provider-string
+    // defense-in-depth bound the other Plan-005 text columns already carry.
+    expect(() => {
+      insertBindingWithCliVersion(
+        "binding-cli-raw-nul",
+        `2.1.245${String.fromCharCode(0)}x`,
+        "1.0.0",
+      );
+    }).toThrow(/CHECK constraint failed/i);
+    expect(() => {
+      insertBindingWithCliVersion(
+        "binding-cli-semver-nul",
+        "2.1.245",
+        `1.0.0${String.fromCharCode(0)}x`,
+      );
+    }).toThrow(/CHECK constraint failed/i);
+  });
+
+  it("enforces the same pair CHECK and bounds on `driver_contract_meta`", () => {
+    // The two tables carry the SAME pair with the SAME bounds by design (the
+    // cache row and the binding row describe one provider CLI), so the mirror
+    // is asserted rather than assumed.
+    expect(() => {
+      insertContractMetaWithCliVersion("claude", null, null);
+    }).not.toThrow();
+    expect(() => {
+      insertContractMetaWithCliVersion("codex", "0.149.1", "0.149.1");
+    }).not.toThrow();
+
+    expect(() => {
+      insertContractMetaWithCliVersion("gemini", "0.149.1", null);
+    }).toThrow(/CHECK constraint failed/i);
+    expect(() => {
+      insertContractMetaWithCliVersion("gemini", null, "0.149.1");
+    }).toThrow(/CHECK constraint failed/i);
+
+    // Empty strings: the pair is "absent or meaningful", never "present and
+    // blank".
+    expect(() => {
+      insertContractMetaWithCliVersion("gemini", "", "");
+    }).toThrow(/CHECK constraint failed/i);
+
+    // ACCEPT edges, pinning both ceilings so a `<= N` → `< N` off-by-one is
+    // caught. Without these arms the reject edges below pass against a CHECK
+    // that is one char too tight, and the mirror claim would go unfalsified on
+    // exactly the bound it exists to assert. Fresh `driver_name` values per arm:
+    // the PK is `driver_name`, and a collision would raise UNIQUE rather than
+    // the CHECK the sibling reject arms below are asserting.
+    expect(() => {
+      insertContractMetaWithCliVersion("meta-cli-raw-128", "9".repeat(128), "1.0.0");
+    }).not.toThrow();
+    expect(() => {
+      insertContractMetaWithCliVersion("meta-cli-semver-64", "1.0.0", "9".repeat(64));
+    }).not.toThrow();
+
+    // REJECT edges, one char past each ceiling.
+    expect(() => {
+      insertContractMetaWithCliVersion("gemini", "9".repeat(129), "1.0.0");
+    }).toThrow(/CHECK constraint failed/i);
+    expect(() => {
+      insertContractMetaWithCliVersion("gemini", "1.0.0", "9".repeat(65));
+    }).toThrow(/CHECK constraint failed/i);
+
+    // Embedded NUL, on each half independently — the provider-string
+    // defense-in-depth bound the other Plan-005 text columns already carry.
+    expect(() => {
+      insertContractMetaWithCliVersion("gemini", `0.149.1${String.fromCharCode(0)}x`, "1.0.0");
+    }).toThrow(/CHECK constraint failed/i);
+    expect(() => {
+      insertContractMetaWithCliVersion("gemini", "0.149.1", `1.0.0${String.fromCharCode(0)}x`);
+    }).toThrow(/CHECK constraint failed/i);
+  });
+
+  it("carries version-10 rows through the rebuild and backfills exactly thirteen flags per driver", () => {
+    const isolatedDb = openDatabaseMigratedThroughVersionTen();
+    try {
+      // A pre-migration cache: two drivers, DISTINCT refreshed_at instants, and
+      // `supported = 1` on every declared row so a backfill that blanket-wrote
+      // zeros would be visible rather than indistinguishable.
+      insertCapabilityRow(isolatedDb, "claude", "resume", 1, "2026-08-01T00:00:00.000Z");
+      insertCapabilityRow(isolatedDb, "claude", "steer", 1, "2026-08-02T00:00:00.000Z");
+      insertCapabilityRow(isolatedDb, "codex", "mcp", 1, "2026-07-01T00:00:00.000Z");
+
+      applyMigrations(isolatedDb);
+
+      // CARDINALITY. Thirteen per driver, no more and no fewer — this is the
+      // number `provider/driver-capabilities-writer.ts` compares against
+      // `DRIVER_CAPABILITY_FLAGS.length` on every cold-start hydration, and
+      // `provider/provider-output-validation.ts` against every refresh.
+      const flagsFor = (driverName: string): ReadonlyArray<string> =>
+        (
+          isolatedDb
+            .prepare(
+              "SELECT capability_flag FROM driver_capabilities WHERE driver_name = ? ORDER BY capability_flag",
+            )
+            .all(driverName) as ReadonlyArray<{ capability_flag: string }>
+        ).map((row) => row.capability_flag);
+      expect(flagsFor("claude")).toEqual([...THIRTEEN_BACKFILLED_CAPABILITY_FLAGS].sort());
+      expect(flagsFor("codex")).toEqual([...THIRTEEN_BACKFILLED_CAPABILITY_FLAGS].sort());
+
+      // `transcript_replay` is ADMITTED by the CHECK but gets NO row here: the
+      // row set tracks the declared union, and T3.19 lands the fourteenth row in
+      // the same ordinal that widens it.
+      expect(
+        isolatedDb
+          .prepare(
+            "SELECT COUNT(*) AS total FROM driver_capabilities WHERE capability_flag = 'transcript_replay'",
+          )
+          .get(),
+      ).toEqual({ total: 0 });
+
+      // PRESERVATION. The three pre-migration rows survive the DROP/RENAME with
+      // their `supported` and `refreshed_at` values untouched — the backfill's
+      // `ON CONFLICT ... DO NOTHING` must not have overwritten them.
+      expect(
+        isolatedDb
+          .prepare(
+            "SELECT supported, refreshed_at FROM driver_capabilities WHERE driver_name = ? AND capability_flag = ?",
+          )
+          .get("claude", "resume"),
+      ).toEqual({ supported: 1, refreshed_at: "2026-08-01T00:00:00.000Z" });
+      expect(
+        isolatedDb
+          .prepare(
+            "SELECT supported, refreshed_at FROM driver_capabilities WHERE driver_name = ? AND capability_flag = ?",
+          )
+          .get("codex", "mcp"),
+      ).toEqual({ supported: 1, refreshed_at: "2026-07-01T00:00:00.000Z" });
+
+      // I-005-2: every BACKFILLED row is `supported = 0`. An undeclared
+      // capability is unsupported, and nothing in a migration may declare one.
+      const backfilledSupportedValues = isolatedDb
+        .prepare(
+          "SELECT DISTINCT supported FROM driver_capabilities WHERE capability_flag NOT IN ('resume', 'steer', 'mcp')",
+        )
+        .all() as ReadonlyArray<{ supported: number }>;
+      expect(backfilledSupportedValues).toEqual([{ supported: 0 }]);
+
+      // PER-DRIVER refreshed_at, never a global MAX and never the migration's
+      // wall clock: claude's backfilled rows carry claude's newest instant
+      // (2026-08-02) and codex's carry codex's (2026-07-01). A global aggregate
+      // would have stamped BOTH with 2026-08-02, making codex's cache read as
+      // five weeks fresher than the last answer codex ever gave.
+      expect(
+        isolatedDb
+          .prepare(
+            "SELECT DISTINCT refreshed_at FROM driver_capabilities WHERE driver_name = ? AND capability_flag = ?",
+          )
+          .get("claude", "rollback"),
+      ).toEqual({ refreshed_at: "2026-08-02T00:00:00.000Z" });
+      expect(
+        isolatedDb
+          .prepare(
+            "SELECT DISTINCT refreshed_at FROM driver_capabilities WHERE driver_name = ? AND capability_flag = ?",
+          )
+          .get("codex", "rollback"),
+      ).toEqual({ refreshed_at: "2026-07-01T00:00:00.000Z" });
+    } finally {
+      isolatedDb.close();
+    }
+  });
+
+  it("gives pre-migration rows the spawn_config default and a NULL cli-version pair", () => {
+    const isolatedDb = openDatabaseMigratedThroughVersionTen();
+    try {
+      // A binding and a contract-meta row written under the version-3 shape,
+      // which has no notion of either new column.
+      isolatedDb
+        .prepare(
+          `INSERT INTO runtime_bindings
+             (id, run_id, driver_name, contract_version, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          "binding-legacy",
+          "run-legacy",
+          "claude",
+          "1.0.0",
+          FIXTURE_TIMESTAMP,
+          FIXTURE_TIMESTAMP,
+        );
+      isolatedDb
+        .prepare(
+          `INSERT INTO driver_contract_meta (driver_name, contract_version, refreshed_at)
+           VALUES (?, ?, ?)`,
+        )
+        .run("claude", "1.0.0", FIXTURE_TIMESTAMP);
+
+      applyMigrations(isolatedDb);
+
+      // `spawn_config` is NOT NULL, so the existing row could only survive the
+      // ALTER by taking the DEFAULT — which is exactly why the column ships
+      // with one rather than through a table rebuild.
+      expect(
+        isolatedDb
+          .prepare(
+            "SELECT spawn_config, cli_version_raw, cli_version_semver FROM runtime_bindings WHERE id = ?",
+          )
+          .get("binding-legacy"),
+      ).toEqual({ spawn_config: "{}", cli_version_raw: null, cli_version_semver: null });
+
+      // The NULL pair on the cache row is the MISS signal, not an empty
+      // reading: hydration refreshes from the driver rather than reporting a
+      // version nobody asked the CLI for.
+      expect(
+        isolatedDb
+          .prepare(
+            "SELECT cli_version_raw, cli_version_semver FROM driver_contract_meta WHERE driver_name = ?",
+          )
+          .get("claude"),
+      ).toEqual({ cli_version_raw: null, cli_version_semver: null });
+    } finally {
+      isolatedDb.close();
+    }
+  });
+
+  it("anchors the version-11 schema_version row with its Plan-005 description", () => {
+    const versionRows = db
+      .prepare("SELECT description FROM schema_version WHERE version = 11")
+      .all() as ReadonlyArray<{ description: string }>;
+    expect(versionRows).toHaveLength(1);
+    expect(versionRows[0]?.description).toBe(
+      "Driver capability currency (fourteen-value driver_capabilities.capability_flag CHECK " +
+        "+ thirteen-flag backfill, runtime_bindings/driver_contract_meta cli_version_raw " +
+        "+ cli_version_semver, runtime_bindings.spawn_config)",
+    );
+  });
+
+  it("keeps the backfilled row set in exact lockstep with DRIVER_CAPABILITY_FLAGS", () => {
+    // THE UNION-PARITY TRIPWIRE. The migration hardcodes its flag literals on
+    // purpose (a migration is a frozen point-in-time copy of the schema — the
+    // 0003 precedent), so nothing structural ties the backfill to the contract
+    // const. This test is that tie, asserted behaviorally through live rows:
+    // it is the Plan-005 analogue of the I-010-2 DDL-conformance tripwire, and
+    // it fails the moment either side moves without the other.
+    //
+    // Compared as SORTED sets, deliberately. Row order without an ORDER BY is
+    // undefined, and the two canonical corpus listings of these fourteen values
+    // (`api-payload-contracts.md` §Shared Enums and the local-SQLite schema doc)
+    // already disagree on the order of the last two — vocabulary is the claim,
+    // ordering is not.
+    const isolatedDb = openDatabaseMigratedThroughVersionTen();
+    try {
+      insertCapabilityRow(isolatedDb, "claude", "resume", 1, FIXTURE_TIMESTAMP);
+      applyMigrations(isolatedDb);
+
+      const backfilledFlags = (
+        isolatedDb
+          .prepare(
+            "SELECT capability_flag FROM driver_capabilities WHERE driver_name = ? ORDER BY capability_flag",
+          )
+          .all("claude") as ReadonlyArray<{ capability_flag: string }>
+      ).map((row) => row.capability_flag);
+
+      expect(
+        backfilledFlags,
+        "the backfilled row set must equal DRIVER_CAPABILITY_FLAGS exactly — " +
+          "`provider/driver-capabilities-writer.ts` proves exactly this key set on every " +
+          "cold-start hydration (naming both the missing and the unexpected keys), and a " +
+          "mismatch throws before any refresh can heal it. The const and the backfilled row " +
+          "set move in LOCKSTEP: Plan-005 T3.19 lands the fourteenth `transcript_replay` row " +
+          "and the fourteenth union member in the SAME migration ordinal. A red arm here " +
+          "means the two diverged — widen whichever half lags, never this assertion.",
+      ).toEqual([...DRIVER_CAPABILITY_FLAGS].sort());
+    } finally {
+      isolatedDb.close();
+    }
   });
 });

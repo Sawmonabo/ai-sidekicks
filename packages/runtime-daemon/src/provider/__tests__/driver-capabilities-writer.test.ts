@@ -11,13 +11,14 @@
 //
 // Coverage map (cites are the authoritative contract, not just the ACs):
 //   * `Spec-005 §Required Behavior` (undeclared capabilities are unsupported — the cache the gate
-//     reads): the 7-flag matrix round-trips through `driver_capabilities` and
+//     reads): the flag matrix round-trips through `driver_capabilities` and
 //     `hydrate`, so a `false`/absent flag is faithfully reconstructed.
 //   * `Spec-005 §Default Behavior` (declarations required at attach time, refreshed on provider
 //     state change): the declare → refresh paths (declared / updated / noop).
 //   * `Spec-005 §Recovery Consequences` (cache-as-source-of-truth; cold-start hydration without
 //     round-tripping the driver): `hydrate` reconstructs the nested
-//     `GetCapabilitiesResult` from the three tables.
+//     `HydratedDriverCapabilities` — `GetCapabilitiesResult` MINUS the
+//     live-reading-only `cliVersion` — from the three tables.
 //   * I-005-2 (the capability cache is the durable mirror the in-memory registry
 //     reads): the flat snapshot persists and reconstructs faithfully; the emitted
 //     event carries the FLAT `CapabilityDetails`.
@@ -35,6 +36,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   DRIVER_CAPABILITY_FLAGS,
   type DriverCapabilityFlag,
+  type DriverCliVersionReport,
   type GetCapabilitiesResult,
   type ProviderToolMetadata,
   type SessionId,
@@ -162,7 +164,7 @@ const NODE_ID: string = "node-01J0ND0000NN5J5J5J5J5J5J";
 const DRIVER_NAME: string = "claude";
 const CONTRACT_VERSION: string = "1.2.3";
 
-// The full 7-flag matrix every snapshot must answer (Record<DriverCapabilityFlag>
+// The full flag matrix every snapshot must answer (Record<DriverCapabilityFlag>
 // — un-omittable by the contract type). Sourced from the canonical
 // `DRIVER_CAPABILITY_FLAGS` array (no 4th hardcoded copy): every flag defaults
 // false, then `resume` + `tool_calls` are the baseline-true pair, then overrides.
@@ -176,6 +178,16 @@ function makeFlags(
   return { ...base, resume: true, tool_calls: true, ...overrides };
 }
 
+// The REQUIRED `cliVersion` reading (T1.8) every advertised snapshot carries. It
+// describes the LIVE READING, not a capability, so this writer neither persists
+// nor emits it and `hydrate()` cannot reproduce it — which is why the hydration
+// assertions below expect `HydratedDriverCapabilities` (no `cliVersion` member)
+// rather than a fabricated one. T2.6 owns the durable version-pair leg.
+const CLI_VERSION_REPORT: DriverCliVersionReport = {
+  raw: "mock-provider-cli 2.1.234 (build 7)",
+  semver: "2.1.234",
+};
+
 function makeResult(overrides: Partial<GetCapabilitiesResult> = {}): GetCapabilitiesResult {
   return {
     capabilities: {
@@ -183,6 +195,7 @@ function makeResult(overrides: Partial<GetCapabilitiesResult> = {}): GetCapabili
       contractVersion: CONTRACT_VERSION,
     },
     tools: [],
+    cliVersion: CLI_VERSION_REPORT,
     ...overrides,
   };
 }
@@ -303,7 +316,7 @@ function readContractVersion(driverName: string): string | undefined {
 // ----------------------------------------------------------------------------
 
 describe("DriverCapabilitiesWriter — first declare", () => {
-  it("returns {emitted:'declared'}, writes 7 capability rows + N tool rows + 1 meta row, emits capability_declared with the FLAT snapshot", async () => {
+  it("returns {emitted:'declared'}, writes one capability row per flag + N tool rows + 1 meta row, emits capability_declared with the FLAT snapshot", async () => {
     const { writer } = makeWriter();
     const result: GetCapabilitiesResult = makeResult({
       tools: [
@@ -320,8 +333,8 @@ describe("DriverCapabilitiesWriter — first declare", () => {
     });
     expect(outcome).toEqual({ emitted: "declared" });
 
-    // Durable side: 7 flag rows, 2 tool rows, 1 meta row.
-    expect(countCapabilityRows(DRIVER_NAME)).toBe(7);
+    // Durable side: one row per canonical flag, 2 tool rows, 1 meta row.
+    expect(countCapabilityRows(DRIVER_NAME)).toBe(DRIVER_CAPABILITY_FLAGS.length);
     expect(readToolNames(DRIVER_NAME)).toEqual(["search", "write_file"]);
     expect(countContractMetaRows(DRIVER_NAME)).toBe(1);
 
@@ -386,7 +399,7 @@ describe("DriverCapabilitiesWriter — identical re-declare", () => {
     // Still exactly one event (no spurious capability_updated).
     expect(readEventRows(SESSION_ID)).toHaveLength(1);
     // Rows unchanged.
-    expect(countCapabilityRows(DRIVER_NAME)).toBe(7);
+    expect(countCapabilityRows(DRIVER_NAME)).toBe(DRIVER_CAPABILITY_FLAGS.length);
     expect(readToolNames(DRIVER_NAME)).toEqual(["search"]);
   });
 });
@@ -693,11 +706,13 @@ describe("DriverCapabilitiesWriter — invalid contract_version", () => {
 // ----------------------------------------------------------------------------
 
 describe("DriverCapabilitiesWriter — invalid flags key-set", () => {
-  it("throws ProviderOutputValidationError on an EXTRA (8th bogus) flag + writes NO rows + NO event", async () => {
+  it("throws ProviderOutputValidationError on an EXTRA (bogus) flag + writes NO rows + NO event", async () => {
     const { writer } = makeWriter();
     // The nominal `Record<DriverCapabilityFlag, boolean>` forbids an unknown key,
-    // so build an 8-key flags object and widen through `unknown` to reach the
-    // write-seam cardinality guard (the boundary an untyped provider would hit).
+    // so build the canonical set PLUS one bogus key and widen through `unknown` to
+    // reach the write-seam cardinality guard (the boundary an untyped provider
+    // would hit). Derived from `makeFlags()`, so this stays an OVER-cardinality
+    // case for whatever the canonical set currently is.
     const extraFlags = { ...makeFlags(), nonsense_flag: true } as unknown as Record<
       DriverCapabilityFlag,
       boolean
@@ -721,7 +736,7 @@ describe("DriverCapabilitiesWriter — invalid flags key-set", () => {
   it("throws ProviderOutputValidationError on a MISSING flag + writes NO rows + NO event", async () => {
     const { writer } = makeWriter();
     const missingFlags = makeFlags();
-    // Drop a canonical flag — the guard catches the <7 cardinality. Bracket
+    // Drop a canonical flag — the guard catches the SHORT cardinality. Bracket
     // access because the `Record<string, boolean>` widening goes through an index
     // signature (`noPropertyAccessFromIndexSignature`).
     delete (missingFlags as Record<string, boolean>)["mcp"];
@@ -741,11 +756,12 @@ describe("DriverCapabilitiesWriter — invalid flags key-set", () => {
     expect(readEventRows(SESSION_ID)).toHaveLength(0);
   });
 
-  it("throws ProviderOutputValidationError on a SAME-cardinality wrong-key set (7 keys, one non-canonical) + writes NO rows + NO event", async () => {
+  it("throws ProviderOutputValidationError on a SAME-cardinality wrong-key set (right key COUNT, one non-canonical) + writes NO rows + NO event", async () => {
     const { writer } = makeWriter();
-    // 7 keys but `mcp` swapped for a bogus name — cardinality (===7) passes, so
-    // the per-flag own-key loop is the guard that must reject (canonical `mcp`
-    // absent as an own key). This is the same-cardinality wrong-key case the loop
+    // The canonical key COUNT, but `mcp` swapped for a bogus name — the cardinality
+    // check passes, so the per-flag own-key loop is the guard that must reject
+    // (canonical `mcp` absent as an own key). Delete-then-add off `makeFlags()`
+    // keeps the count matching whatever the canonical set currently is. This is the same-cardinality wrong-key case the loop
     // exists for; the extra/missing tests trip the cardinality guard first.
     const wrongKeyFlags = makeFlags();
     delete (wrongKeyFlags as Record<string, boolean>)["mcp"];
@@ -909,9 +925,10 @@ describe("DriverCapabilitiesWriter — toJSON-tainted flags (defensive snapshot 
   it("clones flags into a fresh plain record so serialized consumers see real booleans (not toJSON output) and an identical re-declare no-ops", async () => {
     const { writer } = makeWriter();
 
-    // All 7 canonical boolean flags, PLUS a NON-ENUMERABLE `toJSON` — so the
+    // All canonical boolean flags, PLUS a NON-ENUMERABLE `toJSON` — so the
     // `assertValidCapabilityFlags` cardinality check (`Object.keys`, own ENUMERABLE
-    // keys) still sees EXACTLY 7 and passes, but `JSON.stringify(snapshot)` would
+    // keys) still sees EXACTLY the canonical set and passes, but
+    // `JSON.stringify(snapshot)` would
     // (pre-fix, when flags is stored by reference) invoke `toJSON` and serialize
     // `{poisoned:true}` instead of the real flag booleans — tainting BOTH the
     // change-detection JSON round-trip AND the emitted event payload, while the raw
@@ -922,7 +939,7 @@ describe("DriverCapabilitiesWriter — toJSON-tainted flags (defensive snapshot 
       value: () => ({ poisoned: true }),
       enumerable: false,
     });
-    // Sanity: the own-ENUMERABLE key-set is still exactly the 7 canonical flags
+    // Sanity: the own-ENUMERABLE key-set is still exactly the canonical flags
     // (the non-enumerable toJSON does not inflate cardinality).
     expect(Object.keys(taintedFlags).sort()).toEqual([...DRIVER_CAPABILITY_FLAGS].sort());
 
@@ -943,7 +960,7 @@ describe("DriverCapabilitiesWriter — toJSON-tainted flags (defensive snapshot 
     // are the true pair (alongside the makeFlags baseline `resume` + `tool_calls`);
     // the rest are false. (This passes pre-fix too — the write loop never serializes
     // — so it is a coherence check, NOT the class-closing discriminator.)
-    expect(countCapabilityRows(DRIVER_NAME)).toBe(7);
+    expect(countCapabilityRows(DRIVER_NAME)).toBe(DRIVER_CAPABILITY_FLAGS.length);
     const supportedByFlag = Object.fromEntries(
       (
         db
@@ -953,15 +970,11 @@ describe("DriverCapabilitiesWriter — toJSON-tainted flags (defensive snapshot 
           .all(DRIVER_NAME) as ReadonlyArray<{ capability_flag: string; supported: number }>
       ).map((row) => [row.capability_flag, row.supported === 1]),
     );
-    expect(supportedByFlag).toEqual({
-      resume: true,
-      tool_calls: true,
-      steer: true,
-      mcp: true,
-      interactive_requests: false,
-      reasoning_stream: false,
-      model_mutation: false,
-    });
+    // Derived from the SAME builder that produced the declared input, so widening
+    // the flag union cannot leave a stale hand-written record asserting a subset.
+    // It still closes the class: the poisoned form is `{poisoned:true}`, which no
+    // canonical record equals.
+    expect(supportedByFlag).toEqual(makeFlags({ steer: true, mcp: true }));
 
     // (b) CLASS-CLOSING DISCRIMINATOR: the SERIALIZED event payload carries the real
     // flag record, NOT `{poisoned:true}`. The DB-read path round-trips through
@@ -972,15 +985,7 @@ describe("DriverCapabilitiesWriter — toJSON-tainted flags (defensive snapshot 
     const payload = JSON.parse(declaredEvent.payload) as {
       capabilityDetails: { flags: Record<string, boolean> };
     };
-    expect(payload.capabilityDetails.flags).toEqual({
-      resume: true,
-      tool_calls: true,
-      steer: true,
-      mcp: true,
-      interactive_requests: false,
-      reasoning_stream: false,
-      model_mutation: false,
-    });
+    expect(payload.capabilityDetails.flags).toEqual(makeFlags({ steer: true, mcp: true }));
     // Belt-and-suspenders on the raw serialized bytes: the real flag keys are
     // present and the toJSON marker is absent.
     const flagsJson = JSON.stringify(payload.capabilityDetails.flags);
@@ -1152,9 +1157,9 @@ describe("DriverCapabilitiesWriter — multi-driver isolation", () => {
     );
     expect(capabilityKeys).toEqual(["provider-driver-codex", "provider-driver-claude"]);
 
-    // (ii) no row bleed — each driver has its own 7 flag rows + its own tools.
-    expect(countCapabilityRows("codex")).toBe(7);
-    expect(countCapabilityRows("claude")).toBe(7);
+    // (ii) no row bleed — each driver has its own full flag-row set + own tools.
+    expect(countCapabilityRows("codex")).toBe(DRIVER_CAPABILITY_FLAGS.length);
+    expect(countCapabilityRows("claude")).toBe(DRIVER_CAPABILITY_FLAGS.length);
     expect(readToolNames("codex")).toEqual(["codex_tool"]);
     expect(readToolNames("claude")).toEqual(["claude_tool"]);
 
@@ -1171,10 +1176,10 @@ describe("DriverCapabilitiesWriter — multi-driver isolation", () => {
 });
 
 // ----------------------------------------------------------------------------
-// #snapshot cardinality invariant — corrupt cache (a deleted flag row) throws
+// #snapshot row-set invariant — corrupt cache (a wrong flag KEY SET) throws
 // ----------------------------------------------------------------------------
 
-describe("DriverCapabilitiesWriter — #snapshot cardinality invariant", () => {
+describe("DriverCapabilitiesWriter — #snapshot row-set invariant", () => {
   it("throws on a corrupt cache (a flag row deleted out-of-band)", async () => {
     const { writer } = makeWriter();
     await writer.declare({
@@ -1190,7 +1195,45 @@ describe("DriverCapabilitiesWriter — #snapshot cardinality invariant", () => {
       `DELETE FROM driver_capabilities WHERE driver_name = ? AND capability_flag = 'mcp'`,
     ).run(DRIVER_NAME);
 
-    expect(() => writer.hydrate(DRIVER_NAME)).toThrow(/cardinality invariant/);
+    expect(() => writer.hydrate(DRIVER_NAME)).toThrow(/row-set invariant/);
+    expect(() => writer.hydrate(DRIVER_NAME)).toThrow(/missing \[mcp\]/);
+  });
+
+  it("throws on a SAME-COUNT corrupt cache (`transcript_replay` swapped in for `mcp`)", async () => {
+    // THE NEGATIVE CONTROL FOR THE COUNT-ONLY GUARD. The version-11 CHECK is a
+    // superset whitelist — it admits all FOURTEEN canonical values while the
+    // union declares THIRTEEN — so an out-of-band UPDATE can rename a canonical
+    // row to `transcript_replay` and still satisfy both the CHECK and the row
+    // COUNT. A guard comparing `flagRows.length` to
+    // `DRIVER_CAPABILITY_FLAGS.length` passes this cache and hands back a flag
+    // matrix with `mcp` silently absent; only the key-set proof catches it, and
+    // it names BOTH directions so the operator sees which key vanished and which
+    // one displaced it.
+    const { writer } = makeWriter();
+    await writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult(),
+    });
+
+    // The out-of-band corruption a count-only guard cannot see: rename one
+    // canonical row rather than deleting it. `transcript_replay` is admitted by
+    // the version-11 CHECK (it is the fourteenth canonical value), so the UPDATE
+    // commits.
+    db.prepare(
+      `UPDATE driver_capabilities
+          SET capability_flag = 'transcript_replay'
+        WHERE driver_name = ? AND capability_flag = 'mcp'`,
+    ).run(DRIVER_NAME);
+
+    // The count is UNMOVED — asserted, so this test cannot pass for the wrong
+    // reason (an UPDATE that silently no-op'd, or one that left a short row set).
+    expect(countCapabilityRows(DRIVER_NAME)).toBe(DRIVER_CAPABILITY_FLAGS.length);
+
+    expect(() => writer.hydrate(DRIVER_NAME)).toThrow(/row-set invariant/);
+    expect(() => writer.hydrate(DRIVER_NAME)).toThrow(/missing \[mcp\]/);
+    expect(() => writer.hydrate(DRIVER_NAME)).toThrow(/unexpected \[transcript_replay\]/);
   });
 });
 
@@ -1465,7 +1508,7 @@ describe("DriverCapabilitiesWriter — concurrent declares under DIFFERENT sessi
     expect(events).toHaveLength(1);
     expect(events[0]?.type).toBe("runtime_node.capability_declared");
     // And the durable side stayed single-declaration.
-    expect(countCapabilityRows(DRIVER_NAME)).toBe(7);
+    expect(countCapabilityRows(DRIVER_NAME)).toBe(DRIVER_CAPABILITY_FLAGS.length);
     expect(readToolNames(DRIVER_NAME)).toEqual(["search"]);
     expect(countContractMetaRows(DRIVER_NAME)).toBe(1);
   });
@@ -1567,7 +1610,7 @@ describe("DriverCapabilitiesWriter — concurrent declares under DIFFERENT sessi
     // racer's LAST snapshot and nothing of the loser's: a partial apply here
     // would be flags from one declare, tools from another, and a contract
     // version from a third — a snapshot no `getCapabilities` ever returned.
-    expect(countCapabilityRows(DRIVER_NAME)).toBe(7);
+    expect(countCapabilityRows(DRIVER_NAME)).toBe(DRIVER_CAPABILITY_FLAGS.length);
     expect(readToolNames(DRIVER_NAME)).toEqual([
       `racer_tool_${String(DECLARE_ATTEMPT_BUDGET - 1)}`,
     ]);
