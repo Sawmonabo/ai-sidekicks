@@ -396,7 +396,7 @@ preconditions:
   - Estimate: 1 PR
 
 - **T3.20 — `replayTranscript` + the post-replay assertion, both drivers (2026-08-26).**
-  - Files: `packages/runtime-daemon/src/provider/drivers/codex/lifecycle.ts` (**EXTEND T3.1** — the Codex replay leg over its seeding surface); `packages/runtime-daemon/src/provider/drivers/claude/lifecycle.ts` (**EXTEND T3.6** — the Claude replay leg); `packages/runtime-daemon/src/provider/transcript/replay-assertion.ts` (new)
+  - Files: `packages/runtime-daemon/src/provider/drivers/codex/lifecycle.ts` (**EXTEND T3.1** — the Codex replay leg over its seeding surface); `packages/runtime-daemon/src/provider/drivers/claude/lifecycle.ts` (**EXTEND T3.6** — the Claude replay leg); `packages/runtime-daemon/src/provider/transcript/replay-assertion.ts` (new); `packages/runtime-daemon/src/provider/drivers/codex/capabilities.ts` (**EXTEND T3.3** — flipping the declared `transcript_replay: true` off T3.19's false backfill); `packages/runtime-daemon/src/provider/drivers/claude/capabilities.ts` (**EXTEND T3.8** — the probe-derived declaration), so the declaration and the probe have an owned landing surface
   - **Spec coverage:** Spec-005 §Required Behavior (a replay is verified by what the session answers, never by what the call returned); Spec-005 §Canonical Transcript Export And Replay (capability discovery; the probe-valued Claude cell); Spec-005 §Per-Driver Capability Matrix (`transcript_replay`)
   - **Verifies invariant:** I-005-8
   - Consumes: T3.19's exported frames; T3.3 / T3.8 capability declaration
@@ -415,12 +415,12 @@ preconditions:
   - Estimate: 1 PR
 
 - **T3.22 — Permanent structural-refusal classification (2026-08-26).**
-  - Files: `packages/runtime-daemon/src/provider/transcript/failure-mapping.ts` (new — the permanent-vs-transient refusal classifier, homed in `transcript/` per the ownership map's T3.19-T3.22 registration so the `drivers/` row's 13-file enumeration stays exact)
+  - Files: `packages/runtime-daemon/src/provider/transcript/failure-mapping.ts` (new — the permanent-vs-transient refusal classifier, homed in `transcript/` per the ownership map's T3.19-T3.22 registration so the `drivers/` row's 13-file enumeration stays exact); `packages/runtime-daemon/src/provider/drivers/codex/lifecycle.ts` (**EXTEND T3.20** — wiring the classifier at the Codex replay call site); `packages/runtime-daemon/src/provider/drivers/claude/lifecycle.ts` (**EXTEND T3.20** — the Claude call site), so the classifier is reachable from the request path rather than left a standalone helper
   - **Spec coverage:** Spec-005 §Required Behavior (a structurally invalid history is a permanent refusal, never a retry); Spec-005 §Fallback Behavior
   - **Verifies invariant:** I-005-9
-  - Consumes: T3.14 P3-3's resume-failure taxonomy (the transient classes the permanent classification is proven distinguishable from); T3.20's replay result
-  - Provides: a structural rejection is classified permanent and never enters the retry ladder — it disposes the run's provider binding and reconstitutes from the canonical transcript. The classification is by the provider's typed refusal shape, never by matching message text, on the standing §Pitfalls prohibition.
-  - Tests: a stubbed provider that refuses identically on every attempt produces exactly **one** attempt, not a ladder — the assertion is on the call count, because the defect being prevented is expenditure; a genuinely transient fault still retries, so the two classes are proven distinguishable rather than merged.
+  - Consumes: T3.14 P3-3's `RecoveryCondition` taxonomy (the recovery classes the permanent classification must stay distinct from, per Spec-005's never-absorbed rule); T3.20's replay result
+  - Provides: a structural rejection is classified permanent and never enters the retry ladder — it disposes the run's provider binding and reconstitutes from the canonical transcript. The classification is by the provider's typed refusal shape, never by matching message text, on the standing §Pitfalls prohibition. The classifier owns **both arms** of the distinction — the transient arm classifies a transport fault retryable here, not by mapping onto a T3.14 `RecoveryCondition` class, and the permanent arm is never absorbed into `recovery-needed`.
+  - Tests: a stubbed provider that refuses identically on every attempt produces exactly **one** attempt, not a ladder — the assertion is on the call count, because the defect being prevented is expenditure, and the refusal is driven **through the replay caller**, never by importing the classifier directly; a genuinely transient fault still retries, so the two classes are proven distinguishable rather than merged.
   - Estimate: 1 PR
 
 - **T3.23 — Spawn-time binary resolution, in-band version read, and the ratified floor gate (EXTENDs T3.12 P0-2, 2026-08-26).**
