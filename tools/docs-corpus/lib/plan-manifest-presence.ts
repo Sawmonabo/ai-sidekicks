@@ -79,7 +79,12 @@ export interface PlanManifestViolation {
   detail?: string[];
 }
 
-function listPlanFiles(repoRoot: string): string[] {
+// Exported for reuse by the sibling plan-scoped checks (today:
+// plan-status-readability). Sharing the enumeration is the point — two checks
+// that each re-derived "which files are plans" would eventually disagree about
+// the corpus they claim to cover. `checkName` only labels the fail-closed
+// error so the caller that surfaces it is named accurately.
+export function listPlanFiles(repoRoot: string, checkName = "plan-manifest-presence"): string[] {
   // `git ls-files` bounds the scan to tracked + staged-new plans (an untracked
   // private draft must not gate a commit). The three-digit-prefix glob excludes
   // `000-plan-template.md`, which intentionally ships the empty manifest as a
@@ -104,7 +109,7 @@ function listPlanFiles(repoRoot: string): string[] {
     // the failure, not report "all clear". Mirrors path-canonical-ripple's
     // fail-closed stance on a missing registry.
     throw new Error(
-      `plan-manifest-presence: could not enumerate plans via git ls-files: ${err instanceof Error ? err.message : String(err)}`,
+      `${checkName}: could not enumerate plans via git ls-files: ${err instanceof Error ? err.message : String(err)}`,
       { cause: err },
     );
   }
@@ -114,7 +119,14 @@ function listPlanFiles(repoRoot: string): string[] {
     .filter((p) => !p.endsWith("000-plan-template.md"));
 }
 
-function readPlanFromIndex(repoRoot: string, file: string): string {
+// Exported alongside listPlanFiles, for the same reason: the two plan-scoped
+// checks must read the SAME bytes (the staged blob), not one the index and one
+// the worktree.
+export function readPlanFromIndex(
+  repoRoot: string,
+  file: string,
+  checkName = "plan-manifest-presence",
+): string {
   // Read the staged (index) blob, not the working tree — see the header note on
   // read-source. `file` is repo-relative (from `git ls-files`), so `:<file>`
   // addresses its index entry directly. Every path listPlanFiles returned has an
@@ -130,7 +142,7 @@ function readPlanFromIndex(repoRoot: string, file: string): string {
     });
   } catch (err) {
     throw new Error(
-      `plan-manifest-presence: could not read ${file} from the git index: ${err instanceof Error ? err.message : String(err)}`,
+      `${checkName}: could not read ${file} from the git index: ${err instanceof Error ? err.message : String(err)}`,
       { cause: err },
     );
   }
@@ -141,11 +153,31 @@ function parseStatus(source: string): string | null {
   return m ? m[1].toLowerCase() : null;
 }
 
-export function checkPlanManifestPresence(): PlanManifestViolation[] {
-  const repoRoot = getRepoRoot();
+/**
+ * The staged source of every dispatchable plan, keyed by repo-relative path.
+ *
+ * Exists so the plan-scoped checks can share ONE pass over the corpus. Each
+ * plan costs a `git show` spawn, so a second check re-reading them doubled the
+ * pre-commit plan scan (measured ~550ms each on the 30-plan corpus). Passing
+ * this to both `checkPlanManifestPresence` and `checkPlanStatusReadability`
+ * makes the second check free. Both still read the corpus themselves when
+ * called with no argument, so a standalone call (tests, ad-hoc probes) needs no
+ * ceremony.
+ */
+export type PlanCorpus = ReadonlyMap<string, string>;
+
+export function readPlanCorpus(repoRoot: string, checkName = "plan-manifest-presence"): PlanCorpus {
+  const corpus = new Map<string, string>();
+  for (const file of listPlanFiles(repoRoot, checkName)) {
+    corpus.set(file, readPlanFromIndex(repoRoot, file, checkName));
+  }
+  return corpus;
+}
+
+export function checkPlanManifestPresence(corpus?: PlanCorpus): PlanManifestViolation[] {
+  const plans = corpus ?? readPlanCorpus(getRepoRoot());
   const violations: PlanManifestViolation[] = [];
-  for (const file of listPlanFiles(repoRoot)) {
-    const source = readPlanFromIndex(repoRoot, file);
+  for (const [file, source] of plans) {
     const status = parseStatus(source);
     // A plan whose status cannot be read is itself malformed — fail closed by
     // treating it as required (an unparseable metadata table is a defect, not an
