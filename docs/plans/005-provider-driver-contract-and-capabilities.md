@@ -396,7 +396,7 @@ preconditions:
   - Estimate: 1 PR
 
 - **T3.20 — `replayTranscript` + the post-replay assertion, both drivers (2026-08-26).**
-  - Files: `packages/runtime-daemon/src/provider/drivers/codex-driver.ts` (**EXTEND T3.6**); `packages/runtime-daemon/src/provider/drivers/claude-driver.ts` (**EXTEND T3.1**); `packages/runtime-daemon/src/provider/transcript/replay-assertion.ts` (new)
+  - Files: `packages/runtime-daemon/src/provider/drivers/codex/lifecycle.ts` (**EXTEND T3.1** — the Codex replay leg over its seeding surface); `packages/runtime-daemon/src/provider/drivers/claude/lifecycle.ts` (**EXTEND T3.6** — the Claude replay leg); `packages/runtime-daemon/src/provider/transcript/replay-assertion.ts` (new)
   - **Spec coverage:** Spec-005 §Required Behavior (a replay is verified by what the session answers, never by what the call returned); Spec-005 §Canonical Transcript Export And Replay (capability discovery; the probe-valued Claude cell); Spec-005 §Per-Driver Capability Matrix (`transcript_replay`)
   - **Verifies invariant:** I-005-8
   - Consumes: T3.19's exported frames; T3.3 / T3.8 capability declaration
@@ -415,10 +415,10 @@ preconditions:
   - Estimate: 1 PR
 
 - **T3.22 — Permanent structural-refusal classification (2026-08-26).**
-  - Files: `packages/runtime-daemon/src/provider/drivers/failure-mapping.ts` (**EXTEND T3.15**)
+  - Files: `packages/runtime-daemon/src/provider/transcript/failure-mapping.ts` (new — the permanent-vs-transient refusal classifier, homed in `transcript/` per the ownership map's T3.19-T3.22 registration so the `drivers/` row's 13-file enumeration stays exact)
   - **Spec coverage:** Spec-005 §Required Behavior (a structurally invalid history is a permanent refusal, never a retry); Spec-005 §Fallback Behavior
   - **Verifies invariant:** I-005-9
-  - Consumes: T3.15's failure-mapping path; T3.20's replay result
+  - Consumes: T3.14 P3-3's resume-failure taxonomy (the transient classes the permanent classification is proven distinguishable from); T3.20's replay result
   - Provides: a structural rejection is classified permanent and never enters the retry ladder — it disposes the run's provider binding and reconstitutes from the canonical transcript. The classification is by the provider's typed refusal shape, never by matching message text, on the standing §Pitfalls prohibition.
   - Tests: a stubbed provider that refuses identically on every attempt produces exactly **one** attempt, not a ladder — the assertion is on the call count, because the defect being prevented is expenditure; a genuinely transient fault still retries, so the two classes are proven distinguishable rather than merged.
   - Estimate: 1 PR
