@@ -185,20 +185,27 @@ const resumeHandleSchema = wireFreeFormString(RESUME_HANDLE_MAX_LEN, "resume_han
 // + length + NUL-rejection) these schemas mirror, with `wireFreeFormString`'s
 // `/\S/` adding the same all-whitespace hardening the handles already get.
 //
-// Deliberately NO canonical-semver refinement on `semver` (contrast
-// `contractVersionSchema` above). Three reasons, in the T2.1 CHECK-scope
-// discipline this module already follows: (1) the DDL CHECK on this pair is
-// bounds-only — there is no semver clause to mirror; (2) parseability is
-// already guaranteed UPSTREAM and fail-closed — an unparseable provider version
-// refuses at attach as `driver.cli_version_unparseable` before any binding write,
-// so a value reaching this seam has already been parsed by the gate that owns
-// that judgement; (3) `semver` here is a FLOOR-COMPARE form, not a contract
-// IDENTITY (which is what makes build-metadata rejection load-bearing for
-// `contract_version`), so re-deriving canonical identity here would gold-plate
-// beyond the audited obligation and could reject a form the floor gate itself
-// accepted — two layers disagreeing about the same value.
+// `semver` additionally carries the SAME canonical-identity refinement as
+// `contractVersionSchema` (`semver.valid(v) === v`) — the one semver predicate
+// this module has, so the seam and the floor gate cannot disagree about what
+// parses. This is defense in depth, not the first line: the driver's own
+// handshake refusal (`driver.cli_version_unparseable`) remains the parse
+// authority for a provider's version string, and every well-behaved driver
+// derives `semver` canonically by construction. What this refinement closes is
+// the seam accepting a bounded-but-unparseable string from ANY caller and
+// persisting it, where it would poison the T3.23 floor comparison at a call
+// site far from the row that produced it (Codex PR #372 round 1). The DDL
+// CHECK on this pair stays bounds-only — the shipped `0011` migration is
+// frozen — so Zod is deliberately the tighter gate, the module-wide pattern.
 const cliVersionRawSchema = wireFreeFormString(CLI_VERSION_RAW_MAX_LEN, "cli_version_raw");
-const cliVersionSemverSchema = wireFreeFormString(CLI_VERSION_SEMVER_MAX_LEN, "cli_version_semver");
+const cliVersionSemverSchema = wireFreeFormString(
+  CLI_VERSION_SEMVER_MAX_LEN,
+  "cli_version_semver",
+).refine((value) => semver.valid(value) === value, {
+  message:
+    "cli_version_semver must be a canonical semver string within length bounds " +
+    "(the exact form `semver.valid` returns)",
+});
 
 // --------------------------------------------------------------------------
 // Assert functions
@@ -289,7 +296,7 @@ export function assertValidCliVersionReport(driverName: string, report: unknown)
     throw new ProviderOutputValidationError("Invalid provider cli_version report.", {
       driverName,
       field: "cli_version_semver",
-      reason: "must be a non-empty, non-whitespace, NUL-free string within length bounds",
+      reason: "must be a canonical, NUL-free semver string within length bounds",
     });
   }
 }

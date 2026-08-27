@@ -73,6 +73,7 @@ import type { Database, Statement, Transaction } from "better-sqlite3";
 
 import {
   assertValidCliVersionReport,
+  ProviderOutputValidationError,
   assertValidContractVersion,
   assertValidResumeHandle,
 } from "./provider-output-validation.js";
@@ -520,10 +521,27 @@ export class RuntimeBindingStore {
     // makes no admission decision — it only decides what is read once — so the
     // validator stays the SOLE owner of the accept/reject judgement and still
     // sees (and refuses) exactly the value the caller supplied.
-    const reportedCliVersion: DriverCliVersionReport | null = input.cliVersion ?? null;
-    const cliVersion: DriverCliVersionReport | null = isPlainObject(reportedCliVersion)
-      ? { raw: reportedCliVersion.raw, semver: reportedCliVersion.semver }
-      : reportedCliVersion;
+    // The property reads are themselves inside the getter/Proxy threat model:
+    // a throwing accessor must surface as the seam's typed leak-safe refusal,
+    // never as the caller object's own exception (Codex PR #372 round 1). The
+    // thrown value is discarded entirely so nothing caller-controlled reaches
+    // the message.
+    let cliVersion: DriverCliVersionReport | null;
+    try {
+      const reportedCliVersion: DriverCliVersionReport | null = input.cliVersion ?? null;
+      cliVersion = isPlainObject(reportedCliVersion)
+        ? ({
+            raw: reportedCliVersion["raw"],
+            semver: reportedCliVersion["semver"],
+          } as DriverCliVersionReport)
+        : reportedCliVersion;
+    } catch {
+      throw new ProviderOutputValidationError("Invalid provider cli_version report.", {
+        driverName: input.driverName,
+        field: "cliVersion",
+        reason: "a property accessor on the report threw during the defensive copy",
+      });
+    }
     if (cliVersion !== null) {
       assertValidCliVersionReport(input.driverName, cliVersion);
     }

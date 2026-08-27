@@ -674,13 +674,28 @@ export class DriverCapabilitiesWriter {
     // makes no admission decision — it only decides what is read once — so the
     // validator remains the SOLE owner of the accept/reject judgement and still
     // refuses an absent/null/primitive report on its own terms (`cliVersion`).
-    const reportedCliVersion: DriverCliVersionReport = input.result.cliVersion;
-    const declaredCliVersion: DriverCliVersionReport =
-      typeof reportedCliVersion === "object" &&
-      reportedCliVersion !== null &&
-      !Array.isArray(reportedCliVersion)
-        ? { raw: reportedCliVersion.raw, semver: reportedCliVersion.semver }
-        : reportedCliVersion;
+    // The property reads themselves are part of the getter/Proxy threat model:
+    // a throwing accessor would otherwise escape as the provider's OWN
+    // exception — provider-controlled text, untyped — before the assert below
+    // could produce the leak-safe refusal (Codex PR #372 round 1). Translate
+    // any accessor throw into the same typed refusal, discarding the thrown
+    // value entirely so nothing provider-controlled reaches the message.
+    let declaredCliVersion: DriverCliVersionReport;
+    try {
+      const reportedCliVersion: DriverCliVersionReport = input.result.cliVersion;
+      declaredCliVersion =
+        typeof reportedCliVersion === "object" &&
+        reportedCliVersion !== null &&
+        !Array.isArray(reportedCliVersion)
+          ? { raw: reportedCliVersion.raw, semver: reportedCliVersion.semver }
+          : reportedCliVersion;
+    } catch {
+      throw new ProviderOutputValidationError("Invalid provider cli_version report.", {
+        driverName: input.driverName,
+        field: "cliVersion",
+        reason: "a property accessor on the report threw during the defensive copy",
+      });
+    }
     assertValidCliVersionReport(input.driverName, declaredCliVersion);
 
     // (1) Validate the provider-declared contract_version at the write seam

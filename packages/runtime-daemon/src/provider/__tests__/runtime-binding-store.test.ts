@@ -1125,6 +1125,62 @@ describe("RuntimeBindingStore — spawn_config", () => {
 // ----------------------------------------------------------------------------
 
 describe("RuntimeBindingStore — cliVersion pair", () => {
+  it("rejects a bounded-but-unparseable semver and a non-canonical form at the seam", () => {
+    // Codex PR #372 round 1: a bounded garbage semver stored now poisons the
+    // T3.23 floor comparison at a call site far from the row that produced it.
+    // The seam applies the module's one semver predicate (`semver.valid(v) === v`,
+    // the same one the floor gate uses), so the two layers cannot disagree.
+    const store = makeStore();
+    for (const unparseableSemver of ["not-a-version", "v1.2.3", " 1.2.3", "1.2"]) {
+      let thrown: unknown;
+      try {
+        store.create({
+          runId: RUN_ID,
+          driverName: DRIVER_NAME,
+          contractVersion: CONTRACT_VERSION,
+          cliVersion: { raw: CLI_VERSION.raw, semver: unparseableSemver },
+          spawnConfig: {},
+        });
+      } catch (e) {
+        thrown = e;
+      }
+      expect(thrown).toBeInstanceOf(ProviderOutputValidationError);
+      expect((thrown as ProviderOutputValidationError).fields?.["field"]).toBe(
+        "cli_version_semver",
+      );
+    }
+    expect(countBindings()).toBe(0);
+  });
+
+  it("a THROWING accessor on the report surfaces as the typed leak-safe refusal", () => {
+    // The property reads are inside the getter/Proxy threat model: a throwing
+    // accessor must never escape as the caller object's own exception text.
+    const store = makeStore();
+    const reportWithThrowingAccessor = {
+      get raw(): string {
+        throw new Error("PROVIDER-CONTROLLED-SECRET-TEXT");
+      },
+      semver: CLI_VERSION.semver,
+    } as unknown as DriverCliVersionReport;
+
+    let thrown: unknown;
+    try {
+      store.create({
+        runId: RUN_ID,
+        driverName: DRIVER_NAME,
+        contractVersion: CONTRACT_VERSION,
+        cliVersion: reportWithThrowingAccessor,
+        spawnConfig: {},
+      });
+    } catch (e) {
+      thrown = e;
+    }
+    expect(thrown).toBeInstanceOf(ProviderOutputValidationError);
+    expect((thrown as Error).message).not.toContain("PROVIDER-CONTROLLED-SECRET-TEXT");
+    expect((thrown as ProviderOutputValidationError).fields?.["field"]).toBe("cliVersion");
+    expect(countBindings()).toBe(0);
+  });
+
   it("round-trips the pair and stores BOTH columns", () => {
     const store = makeStore();
     const created = store.create({

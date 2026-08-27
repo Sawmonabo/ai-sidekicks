@@ -564,6 +564,45 @@ describe("DriverCapabilitiesWriter — contractVersion-only bump", () => {
 // ----------------------------------------------------------------------------
 
 describe("DriverCapabilitiesWriter — cli_version pair persistence", () => {
+  it("a THROWING accessor on the report surfaces as the typed leak-safe refusal, before any txn", async () => {
+    // Codex PR #372 round 1: the property reads at step (0b) are inside the
+    // same getter/Proxy threat model as the swap case below — a throwing
+    // accessor must surface as `ProviderOutputValidationError`, never as the
+    // provider object's own exception text, and must open no transaction.
+    // Built literally for the same `makeResult`-spread reason as below.
+    const throwingReport: DriverCliVersionReport = {
+      get raw(): string {
+        throw new Error("PROVIDER-CONTROLLED-SECRET-TEXT");
+      },
+      semver: CLI_VERSION_REPORT.semver,
+    } as DriverCliVersionReport;
+    const result: GetCapabilitiesResult = {
+      capabilities: { flags: makeFlags(), contractVersion: CONTRACT_VERSION },
+      tools: [],
+      cliVersion: throwingReport,
+    };
+
+    const { writer } = makeWriter();
+    let thrown: unknown;
+    try {
+      await writer.declare({
+        sessionId: SESSION_ID,
+        nodeId: NODE_ID,
+        driverName: DRIVER_NAME,
+        result,
+      });
+    } catch (e) {
+      thrown = e;
+    }
+    expect(thrown).toBeInstanceOf(ProviderOutputValidationError);
+    expect((thrown as Error).message).not.toContain("PROVIDER-CONTROLLED-SECRET-TEXT");
+    expect((thrown as ProviderOutputValidationError).fields?.["field"]).toBe("cliVersion");
+    const metaCount = db
+      .prepare(`SELECT COUNT(*) AS n FROM driver_contract_meta WHERE driver_name = ?`)
+      .get(DRIVER_NAME) as { readonly n: number };
+    expect(metaCount.n).toBe(0);
+  });
+
   it("validates and persists ONE snapshot of the report — a getter cannot swap the value after validation", async () => {
     // The write-side twin of the RuntimeBindingStore case. `declare` copies the
     // reading into a plain object at step (0b), BEFORE validating it, and every
