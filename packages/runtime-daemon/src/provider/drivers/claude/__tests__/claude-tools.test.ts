@@ -19,9 +19,10 @@ import {
 import {
   CLAUDE_TOOL_CATALOG,
   CLAUDE_TOOL_DECLARATIONS,
-  DEFAULT_TOOL_IDEMPOTENCY_CLASS,
+  DEFAULT_CLAUDE_TOOL_IDEMPOTENCY_CLASS,
   closeToolIdempotencyClass,
   closeToolIdempotencyClasses,
+  getClaudeToolMetadata,
 } from "../tools.js";
 
 const RECOGNIZED_CLASSES: readonly IdempotencyClass[] = [
@@ -32,7 +33,7 @@ const RECOGNIZED_CLASSES: readonly IdempotencyClass[] = [
 
 describe("Claude tool metadata — the conservative default (I-005-3)", () => {
   it("fixes the default at manual_reconcile_only", () => {
-    expect(DEFAULT_TOOL_IDEMPOTENCY_CLASS).toBe("manual_reconcile_only");
+    expect(DEFAULT_CLAUDE_TOOL_IDEMPOTENCY_CLASS).toBe("manual_reconcile_only");
   });
 
   it("closes an unannotated declaration to the floor", () => {
@@ -165,6 +166,35 @@ describe("Claude tool catalog", () => {
         expect(parsed.data.idempotency_class).toBe(tool.idempotency_class);
       }
     }
+  });
+
+  it("is frozen at both levels, so a reader cannot re-class a tool process-wide", () => {
+    expect(Object.isFrozen(CLAUDE_TOOL_CATALOG)).toBe(true);
+    expect(Object.isFrozen(CLAUDE_TOOL_DECLARATIONS)).toBe(true);
+    for (const tool of CLAUDE_TOOL_CATALOG) {
+      expect(Object.isFrozen(tool)).toBe(true);
+    }
+    for (const declaration of CLAUDE_TOOL_DECLARATIONS) {
+      expect(Object.isFrozen(declaration)).toBe(true);
+    }
+  });
+
+  it("hands out fresh, mutable rows through getClaudeToolMetadata()", () => {
+    // `GetCapabilitiesResult.tools` is mutable on the contract, so the accessor
+    // — not the constant — is what may cross the driver boundary.
+    const first = getClaudeToolMetadata();
+    const second = getClaudeToolMetadata();
+
+    expect(first).toStrictEqual([...CLAUDE_TOOL_CATALOG]);
+    expect(Object.is(first, second)).toBe(false);
+    for (const [index, tool] of first.entries()) {
+      expect(Object.isFrozen(tool)).toBe(false);
+      expect(Object.is(tool, CLAUDE_TOOL_CATALOG[index])).toBe(false);
+    }
+
+    first[0] = { name: "Corrupted", idempotency_class: "idempotent" };
+    expect(second[0]?.name).not.toBe("Corrupted");
+    expect(CLAUDE_TOOL_CATALOG[0]?.name).not.toBe("Corrupted");
   });
 
   it("carries no daemon-invented descriptions", () => {

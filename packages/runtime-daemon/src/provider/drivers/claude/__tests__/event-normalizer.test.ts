@@ -462,11 +462,25 @@ describe("unknown frame handling", () => {
     }
     expect(thrown).toBeInstanceOf(UnknownClaudeWireFrameError);
     const typed = thrown as UnknownClaudeWireFrameError;
-    expect(typed.code).toBe("driver.claude_wire_frame_unmapped");
     expect(typed.name).toBe("UnknownClaudeWireFrameError");
     // The verbatim kind is the `rawWireType` the T3.11 DriverDiagnosticRecord
     // needs, carried as data rather than parsed out of the message.
     expect(typed.frameKind).toBe("system/zzq_nonexistent_subtype");
+  });
+
+  it("mints no dotted wire code, leaving the §Driver registry census closed", () => {
+    // `error-contracts.md` §Driver is a closed seven-code census, and this
+    // refusal rides no error envelope — T3.11 turns it into a daemon
+    // diagnostic keyed on `frameKind`. A `code` member here would be an
+    // unregistered eighth `driver.*` code declared in code and in no contract
+    // doc, so its ABSENCE is asserted rather than left to review. The twin
+    // `UnknownCodexInboundFrameError` carries none either.
+    const error = new UnknownClaudeWireFrameError("system/zzq_nonexistent_subtype");
+    expect(Object.hasOwn(error, "code")).toBe(false);
+    expect((error as unknown as Record<string, unknown>)["code"]).toBeUndefined();
+    // The two discriminators the seam actually uses.
+    expect(error).toBeInstanceOf(UnknownClaudeWireFrameError);
+    expect(error.frameKind).toBe("system/zzq_nonexistent_subtype");
   });
 
   it("never returns undefined or a fabricated family for an unmapped kind", () => {

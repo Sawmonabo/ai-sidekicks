@@ -518,10 +518,16 @@ describe("Codex event normalizer — normalized-family coverage", () => {
     // `interactive_request`, `approval_flow`, `usage_telemetry` and
     // `session_lifecycle` as target categories and never that one, and the
     // Codex `turn/diff/updated` delta row is routed to `tool_activity` (`diff`, row
-    // 32) rather than to `diff.created`. Artifact events are daemon-emitted
-    // (Plan-011 / Plan-014), not provider-normalized. Should a Codex frame
-    // ever gain an artifact-publication mapping, this assertion fires and the
-    // author must justify the new producer.
+    // 32) rather than to `diff.created`. And the family's emitter is not a
+    // driver at all: Plan-006's event-family ownership table assigns all six
+    // `artifact_publication` types to Plan-014, so a Codex normalizer
+    // producing one would assert an emitter the corpus gives to another plan.
+    // (Corrected 2026-08-27: an earlier revision of this comment also named
+    // Plan-011, which owns Gitflow PR and diff attribution and emits none of
+    // these six.) Should a Codex frame ever gain an artifact-publication
+    // mapping, this assertion fires and the author must justify the new
+    // producer. Full grounding lives in the normalizer header under "Why
+    // `artifact_publication` is reachable from no Codex frame".
     const reached = new Set(normalizedRowsOfCensus().map((row) => row.family));
     expect(reached.has("artifact_publication")).toBe(false);
 

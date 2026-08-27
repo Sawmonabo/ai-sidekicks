@@ -76,11 +76,15 @@ import {
 } from "@ai-sidekicks/contracts";
 import { randomUUID } from "node:crypto";
 
+import { CLAUDE_DRIVER_NAME } from "./capabilities.js";
+
 // --------------------------------------------------------------------------
 // Canonical driver id + fixed message text
 // --------------------------------------------------------------------------
 
-export const CLAUDE_DRIVER_ID: string = "claude";
+// The driver's identity constant lives in `capabilities.ts` beside the registry
+// it keys; this band imports it rather than declaring a second one, so a rename
+// cannot leave the two disagreeing.
 
 // The V1 driver-side span classification for EVERY resume failure. The halted
 // span's CONTENT is not knowable at the driver boundary — the driver sees a
@@ -293,7 +297,7 @@ export class ClaudeSessionUnavailableError extends Error {
     );
     this.name = "ClaudeSessionUnavailableError";
     this.fields = {
-      driverId: CLAUDE_DRIVER_ID,
+      driverId: CLAUDE_DRIVER_NAME,
       reason,
       sessionId: context.sessionId,
       runId: context.runId,
@@ -319,7 +323,7 @@ export class ClaudeControlRequestRefusedError extends Error {
   constructor(subtype: ClaudeControlRequest["subtype"], providerError: string) {
     super(`The Claude CLI refused the ${subtype} control request.`);
     this.name = "ClaudeControlRequestRefusedError";
-    this.fields = { driverId: CLAUDE_DRIVER_ID, subtype, providerError };
+    this.fields = { driverId: CLAUDE_DRIVER_NAME, subtype, providerError };
   }
 }
 
@@ -337,7 +341,7 @@ export class ClaudeAuthenticationRequiredError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "ClaudeAuthenticationRequiredError";
-    this.fields = { driverId: CLAUDE_DRIVER_ID };
+    this.fields = { driverId: CLAUDE_DRIVER_NAME };
   }
 }
 
@@ -418,6 +422,17 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   readonly #mintProviderSessionId: () => string;
   readonly #mintBindingId: () => string;
   readonly #liveSessions: Map<SessionId, LiveClaudeSession> = new Map();
+  // The session slots whose provider process is being brought up right now.
+  // `#liveSessions` alone cannot answer "is this session taken?": both entry
+  // points await a transport spawn between their check and their registration,
+  // so two concurrent callers would both pass a `#liveSessions.has()` test, both
+  // spawn, and the second registration would overwrite the first — leaving the
+  // loser's channel unreachable by `closeSession` and its CLI process alive
+  // forever. Claimed SYNCHRONOUSLY before the first await, which is what makes
+  // the check-then-act atomic on a single-threaded runtime. The stored promise
+  // settles when the establishment does and never rejects, so `closeSession` can
+  // await it without risking an unhandled rejection.
+  readonly #sessionsBeingEstablished: Map<SessionId, Promise<void>> = new Map();
   readonly #sessionIdByRunId: Map<RunId, SessionId> = new Map();
 
   constructor(dependencies: ClaudeSessionLifecycleDependencies) {
@@ -431,13 +446,24 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     // Fail closed rather than replacing: an existing live channel was spawned
     // with ITS OWN posture / cap / schema, so silently swapping it for a new one
     // would both orphan a process and re-realize the spawn-bound legs behind the
-    // daemon's back.
-    if (this.#liveSessions.has(params.sessionId)) {
+    // daemon's back. A create racing another create — or a resume — for the same
+    // canonical session is the same fault seen a moment earlier, so it takes the
+    // same refusal rather than a second one.
+    const slotHolder = this.#describeSlotHolder(params.sessionId);
+    if (slotHolder !== undefined) {
       throw new ClaudeSessionUnavailableError("session_already_live", {
         sessionId: params.sessionId,
+        detail: slotHolder,
       });
     }
 
+    return await this.#withSessionSlotClaimed(
+      params.sessionId,
+      async () => await this.#establishCreatedSession(params),
+    );
+  }
+
+  async #establishCreatedSession(params: CreateSessionParams): Promise<ProviderSessionHandle> {
     const pinnedProviderSessionId = this.#mintProviderSessionId();
     const attachment = await this.#transport.spawnSession({
       ...this.#buildSpawnBoundLegs(params),
@@ -476,14 +502,25 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     // Resuming beside a live channel for the same canonical session is the
     // silent-replacement shape from the other direction: two Claude processes,
     // one canonical run. Refuse through the `failed` arm — never by throwing,
-    // because the contract's failure channel for resume IS that arm.
-    if (this.#liveSessions.has(params.sessionId)) {
+    // because the contract's failure channel for resume IS that arm. An
+    // establishment already in flight is refused identically: the winner's
+    // spawn-bound legs are not this caller's, so handing back its handle would be
+    // the realization swap `#assertSpawnBoundRealization` exists to prevent.
+    const slotHolder = this.#describeSlotHolder(params.sessionId);
+    if (slotHolder !== undefined) {
       return this.#buildResumeFailure(
         "recovery-needed",
-        `A live Claude session is already bound to session ${params.sessionId}; resuming beside it would replace it silently.`,
+        `${slotHolder} Resuming beside it would replace it silently.`,
       );
     }
 
+    return await this.#withSessionSlotClaimed(
+      params.sessionId,
+      async () => await this.#establishResumedSession(params),
+    );
+  }
+
+  async #establishResumedSession(params: ResumeSessionParams): Promise<DriverResumeResult> {
     let attachment: ClaudeResumedSessionAttachment;
     try {
       attachment = await this.#transport.resumeSession({
@@ -587,6 +624,16 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   }
 
   async closeSession(params: CloseSessionParams): Promise<void> {
+    // A close arriving mid-establishment must not read the slot as empty and
+    // no-op: the in-flight create or resume would register its channel a moment
+    // later, and that process would outlive the session the daemon believes it
+    // closed. Waiting is safe — establishment never awaits a close, so no cycle
+    // exists — and the awaited promise never rejects.
+    const establishment = this.#sessionsBeingEstablished.get(params.sessionId);
+    if (establishment !== undefined) {
+      await establishment;
+    }
+
     const live = this.#liveSessions.get(params.sessionId);
     // Idempotent: closing an already-closed session is the teardown path's
     // normal double-call, not a fault.
@@ -687,6 +734,47 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
 
   #registerLiveSession(live: LiveClaudeSession): void {
     this.#liveSessions.set(live.sessionId, live);
+  }
+
+  // Names the current holder of a session slot for a refusal detail, or
+  // `undefined` when the slot is free. One predicate, so the two entry points
+  // cannot drift into disagreeing about what "taken" means.
+  #describeSlotHolder(sessionId: SessionId): string | undefined {
+    if (this.#liveSessions.has(sessionId)) {
+      return `A live Claude session is already bound to session ${sessionId};`;
+    }
+    if (this.#sessionsBeingEstablished.has(sessionId)) {
+      return `A create or resume for session ${sessionId} is already in flight;`;
+    }
+    return undefined;
+  }
+
+  // Claims the slot synchronously, runs the establishment, and releases the claim
+  // however it settles. The claim is published BEFORE `establish` is awaited, so
+  // no other caller can observe a free slot while this one is spawning.
+  async #withSessionSlotClaimed<TEstablished>(
+    sessionId: SessionId,
+    establish: () => Promise<TEstablished>,
+  ): Promise<TEstablished> {
+    const establishment = establish();
+    // `#sessionsBeingEstablished` holds a rejection-swallowed view: `closeSession`
+    // awaits it purely to sequence, and a stored promise that could reject would
+    // surface as an unhandled rejection whenever nobody closes the session.
+    const settled = establishment.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.#sessionsBeingEstablished.set(sessionId, settled);
+    try {
+      return await establishment;
+    } finally {
+      // Identity-checked: only ever clear OUR claim. A later caller's claim can
+      // not be reached here (it is refused while this one stands), and the check
+      // keeps that true without relying on that argument.
+      if (this.#sessionsBeingEstablished.get(sessionId) === settled) {
+        this.#sessionsBeingEstablished.delete(sessionId);
+      }
+    }
   }
 
   #forgetSession(sessionId: SessionId): void {

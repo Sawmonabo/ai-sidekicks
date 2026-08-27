@@ -15,7 +15,7 @@
  * may infer support from a method existing on the provider's wire. Two things
  * realize that here:
  *
- *   1. {@link CLAUDE_DECLARED_CAPABILITY_FLAGS} is annotated
+ *   1. {@link CLAUDE_CAPABILITY_FLAGS} is annotated
  *      `Record<DriverCapabilityFlag, boolean>` and written as an explicit
  *      literal — every canonical flag present, each with a decided boolean.
  *      A flag added to `DRIVER_CAPABILITY_FLAGS` in `@ai-sidekicks/contracts`
@@ -70,15 +70,14 @@ import {
   type DriverCapabilityFlag,
   type DriverCliVersionReport,
   type GetCapabilitiesResult,
-  type ProviderToolMetadata,
 } from "@ai-sidekicks/contracts";
 
 import type {
-  DeclareDriverCapabilitiesInput,
   DeclareDriverCapabilitiesResult,
+  DriverCapabilitiesWriter,
 } from "../../driver-capabilities-writer.js";
 
-import { CLAUDE_TOOL_CATALOG } from "./tools.js";
+import { getClaudeToolMetadata } from "./tools.js";
 
 // --------------------------------------------------------------------------
 // Identity
@@ -90,7 +89,7 @@ import { CLAUDE_TOOL_CATALOG } from "./tools.js";
  * derives the evented capability key `provider-driver-claude` from it
  * (CP-005-5), so it is daemon-controlled identity — never provider output.
  */
-export const CLAUDE_DRIVER_NAME = "claude";
+export const CLAUDE_DRIVER_NAME = "claude" as const;
 
 /**
  * The Claude driver's capability-contract version — a change-detection signal
@@ -110,48 +109,55 @@ export const CLAUDE_CAPABILITY_CONTRACT_VERSION: string = "1.0.0";
  * Claude's V1 capability declaration. TOTAL over `DRIVER_CAPABILITY_FLAGS` by
  * type annotation — see this module's header for why that is the invariant's
  * enforcement rather than its documentation.
+ *
+ * Frozen, and `Readonly` at the type level, so a consumer that reads the
+ * constant rather than copying it cannot corrupt every later declaration
+ * process-wide. `getCapabilities()` still hands out a fresh spread: the freeze
+ * hardens the module's own state, the copy protects the contract's mutable
+ * `flags` field.
  */
-export const CLAUDE_DECLARED_CAPABILITY_FLAGS: Record<DriverCapabilityFlag, boolean> = {
-  // `--resume` / `--resume-session-at` on the pinned CLI surface.
-  resume: true,
-  // FALSE: no mid-turn content injection exists on the programmatic surface.
-  // The steer intervention degrades to queue + interrupt, which is a REPORTED
-  // degradation (Spec-004 §Driver-Level Steer Mechanics) — declaring `true`
-  // here would silently convert that into a lost directive.
-  steer: false,
-  // Control-request registry: tool-permission and clarification requests.
-  interactive_requests: true,
-  // `--mcp-config`. Support is not visibility: this says the provider can
-  // invoke MCP tools, NOT that the daemon knows their census — an
-  // MCP-discovered tool still floors to `manual_reconcile_only` (`./tools.ts`).
-  mcp: true,
-  // Structured tool/function calling is the provider's native execution mode.
-  tool_calls: true,
-  // TRUE for Claude (and false for Codex): thinking/reasoning blocks are
-  // exposed on the streamed output surface.
-  reasoning_stream: true,
-  // Model selection is mutable across turns on the pinned surface.
-  model_mutation: true,
-  // `--json-schema` constrains the final output to a supplied schema.
-  structured_output: true,
-  // Composed natively from resume-at + `--fork-session`. Conversation
-  // rollback only; file-state restore is the daemon's turn-snapshot leg.
-  rollback: true,
-  // Driver-EMULATED (Spec-005 §Parity Capability Mechanism Grades): the goal
-  // is daemon-stored and composed into the system prompt at the next turn or
-  // resume boundary. The flag answers "does the driver deliver it", and it
-  // does — the grade records that the delivery is not live mid-turn.
-  session_goals: true,
-  // Daemon-hosted ephemeral MCP server surfaces callback tools into the run.
-  callback_tools: true,
-  // `--agents` AgentDefinitions (provider-native in-session subagents).
-  subagents: true,
-  // TRUE for Claude (and false for Codex): `--max-budget-usd` realizes a hard
-  // cost cap at spawn. Spec-016's native-cap unpriced-family escape reserves
-  // only against legs whose driver declares this flag, so a wrong `true` here
-  // admits unpriced work with no cap behind it.
-  cost_cap: true,
-};
+export const CLAUDE_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boolean>> =
+  Object.freeze({
+    // `--resume` / `--resume-session-at` on the pinned CLI surface.
+    resume: true,
+    // FALSE: no mid-turn content injection exists on the programmatic surface.
+    // The steer intervention degrades to queue + interrupt, which is a REPORTED
+    // degradation (Spec-004 §Driver-Level Steer Mechanics) — declaring `true`
+    // here would silently convert that into a lost directive.
+    steer: false,
+    // Control-request registry: tool-permission and clarification requests.
+    interactive_requests: true,
+    // `--mcp-config`. Support is not visibility: this says the provider can
+    // invoke MCP tools, NOT that the daemon knows their census — an
+    // MCP-discovered tool still floors to `manual_reconcile_only` (`./tools.ts`).
+    mcp: true,
+    // Structured tool/function calling is the provider's native execution mode.
+    tool_calls: true,
+    // TRUE for Claude (and false for Codex): thinking/reasoning blocks are
+    // exposed on the streamed output surface.
+    reasoning_stream: true,
+    // Model selection is mutable across turns on the pinned surface.
+    model_mutation: true,
+    // `--json-schema` constrains the final output to a supplied schema.
+    structured_output: true,
+    // Composed natively from resume-at + `--fork-session`. Conversation
+    // rollback only; file-state restore is the daemon's turn-snapshot leg.
+    rollback: true,
+    // Driver-EMULATED (Spec-005 §Parity Capability Mechanism Grades): the goal
+    // is daemon-stored and composed into the system prompt at the next turn or
+    // resume boundary. The flag answers "does the driver deliver it", and it
+    // does — the grade records that the delivery is not live mid-turn.
+    session_goals: true,
+    // Daemon-hosted ephemeral MCP server surfaces callback tools into the run.
+    callback_tools: true,
+    // `--agents` AgentDefinitions (provider-native in-session subagents).
+    subagents: true,
+    // TRUE for Claude (and false for Codex): `--max-budget-usd` realizes a hard
+    // cost cap at spawn. Spec-016's native-cap unpriced-family escape reserves
+    // only against legs whose driver declares this flag, so a wrong `true` here
+    // admits unpriced work with no cap behind it.
+    cost_cap: true,
+  });
 
 // --------------------------------------------------------------------------
 // Seams
@@ -172,17 +178,22 @@ export interface ClaudeCapabilityReporterDependencies {
 }
 
 /**
- * The capability-declaration sink — structurally satisfied by
- * `DriverCapabilitiesWriter` (Plan-005 T2.4), which performs the atomic
+ * The write seam this module declares through — structurally a
+ * `DriverCapabilitiesWriter` (Plan-005 T2.4, which performs the atomic
  * dual-write and emits `runtime_node.capability_declared` /
- * `runtime_node.capability_updated`. Stated structurally so this module
- * depends on the writer's SHAPE and not on its construction (a real writer
- * needs a database handle and an event-log service); the member types are the
- * writer's own, so conformance is by construction rather than by convention.
+ * `runtime_node.capability_updated`), narrowed to the one method used.
+ *
+ * A `Pick` of the real class rather than a hand-written mirror: a mirror keeps
+ * compiling against a writer whose `declare` signature has since moved, so the
+ * drift surfaces at the call site or not at all. Depending on the SHAPE and
+ * not on the construction is what keeps this module testable — a real writer
+ * needs a database handle and an event-log service.
+ *
+ * Deliberately duplicated from the sibling `../codex/capabilities.ts` rather
+ * than imported from it: the two driver trees stay import-independent, so
+ * neither can break the other by moving a file.
  */
-export interface DriverCapabilityDeclarationSink {
-  declare(input: DeclareDriverCapabilitiesInput): Promise<DeclareDriverCapabilitiesResult>;
-}
+export type DriverCapabilityDeclarationSink = Pick<DriverCapabilitiesWriter, "declare">;
 
 /** Who the declaration is recorded for. */
 export interface ClaudeCapabilityDeclarationTarget {
@@ -218,13 +229,12 @@ export class ClaudeCapabilityReporter {
   async getCapabilities(): Promise<GetCapabilitiesResult> {
     const cliVersion = await this.#readCliVersion();
     const capabilities: DriverCapabilities = {
-      flags: { ...CLAUDE_DECLARED_CAPABILITY_FLAGS },
+      flags: { ...CLAUDE_CAPABILITY_FLAGS },
       contractVersion: CLAUDE_CAPABILITY_CONTRACT_VERSION,
     };
-    const tools: ProviderToolMetadata[] = CLAUDE_TOOL_CATALOG.map((tool) => ({ ...tool }));
     return {
       capabilities,
-      tools,
+      tools: getClaudeToolMetadata(),
       cliVersion: { raw: cliVersion.raw, semver: cliVersion.semver },
     };
   }

@@ -17,7 +17,8 @@
 //     artifact publication, usage/quota telemetry). Five of the six are
 //     reachable from the pinned Codex inbound census; `artifact_publication`
 //     is reachable from none, and that is a CORPUS fact rather than a gap in
-//     this table — see the `artifact_publication` note below.
+//     this table. Grounded below under:
+//     "Why `artifact_publication` is reachable from no Codex frame".
 //
 // Verifies invariant: none. Normalization is structural; family-level
 // coverage is verified by the Plan-006 taxonomy tests.
@@ -106,6 +107,43 @@
 // diagnostic at once. The realtime eight above are the opposite case — opted
 // out by name at the source AND targeting a family with no V1 emitter, so no
 // corpus row supplies a disposition to keep.
+//
+// ---------------------------------------------------------------------------
+// Why `artifact_publication` is reachable from no Codex frame
+// ---------------------------------------------------------------------------
+//
+// This is the one Spec-005 required family no row below targets, so the reason
+// is recorded here rather than left as an absence a later reader must
+// re-derive. Three independent corpus facts, none of them a gap in this table:
+//
+//   1. Nothing in the normalized census adopts into it. Plan-006's 35-kind
+//      census assigns each kind a target category, and `EVENT_DISPOSITION_BY_KIND`
+//      names only `run_lifecycle`, `assistant_output`, `tool_activity`,
+//      `interactive_request`, `approval_flow`, `usage_telemetry`, and
+//      `session_lifecycle`. `artifact_publication` is never a target. There is
+//      therefore no kind this driver could route to it without inventing one.
+//
+//   2. The one plausible candidate is routed elsewhere BY THE CORPUS.
+//      `turn/diff/updated` carries file-change content, so it looks like an
+//      artifact producer; the `Plan-006 §Event-Kind Disposition Table (surveyed-runtime normalized census)` delta row
+//      routes it to the `diff` kind (row 32) in `tool_activity` / `tool.result`.
+//      This table follows that verbatim rather than second-guessing it.
+//
+//   3. The family's emitter is not a driver. Plan-006's event-family ownership
+//      table assigns all six `artifact_publication` types to Plan-014
+//      (Artifacts, Files And Attachments) — daemon-side emitters, reached
+//      through the artifact pipeline, not through a provider frame. A Codex
+//      normalizer producing one would be asserting an emitter the corpus gives
+//      to another plan.
+//
+// So five-of-six is the correct coverage for THIS driver, and the sixth is not
+// this module's to emit. The shortfall is pinned by the test
+// "pins artifact_publication as reachable from NO Codex frame, and why"
+// (describe block "Codex event normalizer — normalized-family coverage"),
+// which asserts both that no row reaches the family and that no disposition
+// entry targets it — so if either corpus fact ever changes, the suite fails
+// loudly and the author must justify the new producer rather than discovering
+// the drift later.
 //
 // ---------------------------------------------------------------------------
 // The T3.11 seam
@@ -559,9 +597,9 @@ type CodexFrameNormalizationTableRow =
  * into anything that executes.
  */
 export class UnknownCodexInboundFrameError extends Error {
-  public readonly nativeMethod: string;
+  readonly nativeMethod: string;
 
-  public constructor(nativeMethod: string) {
+  constructor(nativeMethod: string) {
     super(
       `Unmapped Codex inbound frame method: ${JSON.stringify(nativeMethod)}. ` +
         "The pinned census in event-normalizer.ts does not cover it; Plan-005 T3.11 " +
@@ -948,8 +986,8 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
   // Disposition from that same delta row: "`turn/diff` ... -> `diff` ->
   // persisted (32)". Row 32 puts the `diff` census kind in `tool_activity` /
   // `tool.result` — NOT in `artifact_publication`. That is the corpus's call
-  // and it is followed here verbatim; see the artifact_publication note in
-  // this module's header.
+  // and it is followed here verbatim. Full grounding in this module's header:
+  // "Why `artifact_publication` is reachable from no Codex frame".
   "turn/diff/updated": {
     disposition: "normalized",
     nativeMethod: "turn/diff/updated",

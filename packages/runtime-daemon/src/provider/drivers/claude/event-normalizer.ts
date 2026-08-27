@@ -377,16 +377,20 @@ type ClaudeFrameNormalizationTableRow =
  * provider output, so it is carried as data and never interpolated into
  * anything that executes.
  *
- * The `code` literal follows the house convention set by
- * `ProviderOutputValidationError` in `../../provider-output-validation.ts`, so
- * a catch site can discriminate on a stable dotted string.
+ * Discrimination is by CLASS IDENTITY plus `frameKind`, and deliberately NOT
+ * by a dotted `code` member — the twin `UnknownCodexInboundFrameError` carries
+ * none either. `error-contracts.md` §Driver is a closed census of seven
+ * `driver.*` codes, so minting an eighth here would register a wire code in
+ * code that no contract doc declares, and this refusal rides no error envelope
+ * at all: T3.11 converts it into a daemon diagnostic record, which keys on
+ * `frameKind`. The `code` members on the error classes in
+ * `../../provider-registry.ts` are not a counter-precedent — each of those
+ * names a code the §Driver registry actually lists.
  */
 export class UnknownClaudeWireFrameError extends Error {
-  public readonly code = "driver.claude_wire_frame_unmapped" as const;
+  readonly frameKind: string;
 
-  public readonly frameKind: string;
-
-  public constructor(frameKind: string) {
+  constructor(frameKind: string) {
     super(
       `Unmapped Claude inbound frame kind: ${JSON.stringify(frameKind)}. ` +
         "The pinned census in event-normalizer.ts does not cover it; Plan-005 T3.11 " +

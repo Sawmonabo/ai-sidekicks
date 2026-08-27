@@ -662,6 +662,116 @@ describe("ClaudeSessionLifecycle.closeSession", () => {
   });
 });
 
+// Two callers can be inside an establishment at once: both entry points await a
+// transport spawn between checking the session slot and registering the channel.
+// Without a claim taken BEFORE that await, both pass the check, both spawn, and
+// the second registration overwrites the first — the loser's channel is then
+// unreachable by `closeSession` and its CLI process outlives the daemon's record
+// of it. Each test holds the transport open so both callers are provably in
+// flight, then asserts the transport's own spawn count: exactly one process.
+describe("ClaudeSessionLifecycle establishment races", () => {
+  function openEstablishmentGate(): { gate: Promise<void>; release: () => void } {
+    let release = (): void => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    return { gate, release };
+  }
+
+  it("admits exactly one of two concurrent creates for one session", async () => {
+    const harness = buildHarness();
+    const { gate, release } = openEstablishmentGate();
+    harness.transport.establishmentGate = gate;
+
+    const winner = harness.lifecycle.createSession(buildCreateSessionParams());
+    const loser = harness.lifecycle.createSession(buildCreateSessionParams());
+    const loserOutcome = await loser.then(
+      () => "admitted",
+      (error: unknown) => error,
+    );
+    release();
+    await expect(winner).resolves.toBeDefined();
+
+    expect(loserOutcome).toMatchObject({
+      code: "driver.unavailable",
+      fields: { reason: "session_already_live" },
+    });
+    // The refusal is worth nothing if the loser spawned anyway: one process, one
+    // channel, and the survivor is the one the lifecycle actually holds.
+    expect(harness.transport.spawnRequests).toHaveLength(1);
+    expect(harness.transport.spawnedChannels).toHaveLength(1);
+  });
+
+  it("refuses a resume that arrives while a create is still in flight", async () => {
+    const harness = buildHarness();
+    const { gate, release } = openEstablishmentGate();
+    harness.transport.establishmentGate = gate;
+
+    const creating = harness.lifecycle.createSession(buildCreateSessionParams());
+    const resumed = await harness.lifecycle.resumeSession({
+      sessionId: TEST_SESSION_ID,
+      resumeHandle: "provider-session-earlier",
+    });
+    release();
+    await expect(creating).resolves.toBeDefined();
+
+    // Through the `failed` arm, never a throw: resume's contract failure channel
+    // is that arm regardless of which shape of collision caused it.
+    expect(resumed.status).toBe("failed");
+    if (resumed.status !== "failed") {
+      throw new Error("unreachable: the resume must fail");
+    }
+    expect(resumed.recoveryCondition).toBe("recovery-needed");
+    expect(harness.transport.resumeRequests).toHaveLength(0);
+    expect(harness.transport.spawnedChannels).toHaveLength(1);
+  });
+
+  it("refuses a create that arrives while a resume is still in flight", async () => {
+    const harness = buildHarness();
+    const { gate, release } = openEstablishmentGate();
+    harness.transport.establishmentGate = gate;
+
+    const resuming = harness.lifecycle.resumeSession({
+      sessionId: TEST_SESSION_ID,
+      resumeHandle: TEST_PINNED_PROVIDER_SESSION_ID,
+    });
+    const createOutcome = await harness.lifecycle.createSession(buildCreateSessionParams()).then(
+      () => "admitted",
+      (error: unknown) => error,
+    );
+    release();
+    await expect(resuming).resolves.toMatchObject({ status: "resumed" });
+
+    expect(createOutcome).toMatchObject({
+      code: "driver.unavailable",
+      fields: { reason: "session_already_live" },
+    });
+    expect(harness.transport.spawnRequests).toHaveLength(0);
+    expect(harness.transport.spawnedChannels).toHaveLength(1);
+  });
+
+  it("closes a session whose establishment was still in flight instead of no-opping", async () => {
+    const harness = buildHarness();
+    const { gate, release } = openEstablishmentGate();
+    harness.transport.establishmentGate = gate;
+
+    const creating = harness.lifecycle.createSession(buildCreateSessionParams());
+    const closing = harness.lifecycle.closeSession({ sessionId: TEST_SESSION_ID });
+    release();
+    await creating;
+    await closing;
+
+    // A close that read the slot as empty would return before the channel was
+    // ever registered, and the process would outlive the daemon's record of it.
+    expect(harness.transport.spawnedChannels).toHaveLength(1);
+    expect(harness.transport.spawnedChannels[0]?.disposals).toStrictEqual(["session_closed"]);
+    // The slot is genuinely free afterwards, not merely emptied of its record.
+    await expect(
+      harness.lifecycle.createSession(buildCreateSessionParams()),
+    ).resolves.toBeDefined();
+  });
+});
+
 describe("ClaudeSessionUnavailableError", () => {
   it("rides an error code already registered in the driver namespace", () => {
     const error = new ClaudeSessionUnavailableError("no_live_run", { runId: TEST_RUN_ID });

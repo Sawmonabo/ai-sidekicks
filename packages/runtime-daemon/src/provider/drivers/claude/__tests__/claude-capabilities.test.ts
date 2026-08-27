@@ -2,10 +2,12 @@
  * Plan-005 T3.8 — Claude capability declaration (I-005-2, CP-005-5).
  *
  * The invariant is that the declaration is EXPLICIT and TOTAL, and that no
- * caller may read support out of absence. Two of these assertions are
- * compile-time rather than runtime and say so where they appear: the flag
- * record's totality is enforced by its type annotation, and the writer's
- * conformance to the declaration sink is enforced by a conditional type.
+ * caller may read support out of absence. The strongest assertion here is a
+ * COMPILE-time one and says so where it appears: the flag record's totality is
+ * enforced by its type annotation, so a flag added to the contract union
+ * breaks this file and the module before any test runs. The sink's conformance
+ * to `DriverCapabilitiesWriter` needs no assertion at all now that the type is
+ * a `Pick` of the writer — the fake below carries that check by `implements`.
  *
  * What is deliberately NOT asserted here: that a
  * `runtime_node.capability_declared` / `capability_updated` event reaches the
@@ -28,7 +30,6 @@ import {
 import type {
   DeclareDriverCapabilitiesInput,
   DeclareDriverCapabilitiesResult,
-  DriverCapabilitiesWriter,
 } from "../../../driver-capabilities-writer.js";
 import {
   assertValidCapabilityFlags,
@@ -37,7 +38,7 @@ import {
 } from "../../../provider-output-validation.js";
 import {
   CLAUDE_CAPABILITY_CONTRACT_VERSION,
-  CLAUDE_DECLARED_CAPABILITY_FLAGS,
+  CLAUDE_CAPABILITY_FLAGS,
   CLAUDE_DRIVER_NAME,
   ClaudeCapabilityReporter,
   type DriverCapabilityDeclarationSink,
@@ -52,7 +53,13 @@ function makeReporter(
   return new ClaudeCapabilityReporter({ readCliVersion });
 }
 
-/** A typed fake sink: records what the refresh trigger hands the writer. */
+/**
+ * A typed fake of the ONE writer method this seam uses: it records what the
+ * refresh trigger hands the writer. Typing it as
+ * `DriverCapabilityDeclarationSink` (a `Pick` of the real class) means a
+ * signature change on `DriverCapabilitiesWriter.declare` breaks this file at
+ * compile time instead of leaving a stale fake passing.
+ */
 class RecordingDeclarationSink implements DriverCapabilityDeclarationSink {
   readonly calls: DeclareDriverCapabilitiesInput[] = [];
   #verdict: DeclareDriverCapabilitiesResult;
@@ -89,21 +96,21 @@ describe("Claude capability declaration — explicit and total (I-005-2)", () =>
       subagents: true,
       cost_cap: true,
     };
-    expect(CLAUDE_DECLARED_CAPABILITY_FLAGS).toStrictEqual(matrix);
+    expect(CLAUDE_CAPABILITY_FLAGS).toStrictEqual(matrix);
   });
 
   it("pins the three cells whose value is easy to get backwards", () => {
-    expect(CLAUDE_DECLARED_CAPABILITY_FLAGS.steer).toBe(false);
-    expect(CLAUDE_DECLARED_CAPABILITY_FLAGS.reasoning_stream).toBe(true);
-    expect(CLAUDE_DECLARED_CAPABILITY_FLAGS.cost_cap).toBe(true);
+    expect(CLAUDE_CAPABILITY_FLAGS.steer).toBe(false);
+    expect(CLAUDE_CAPABILITY_FLAGS.reasoning_stream).toBe(true);
+    expect(CLAUDE_CAPABILITY_FLAGS.cost_cap).toBe(true);
   });
 
   it("covers every canonical flag, with a boolean for each", () => {
-    const declared = Object.keys(CLAUDE_DECLARED_CAPABILITY_FLAGS).sort();
+    const declared = Object.keys(CLAUDE_CAPABILITY_FLAGS).sort();
     expect(declared).toStrictEqual([...DRIVER_CAPABILITY_FLAGS].sort());
     for (const flag of DRIVER_CAPABILITY_FLAGS) {
-      expect(Object.hasOwn(CLAUDE_DECLARED_CAPABILITY_FLAGS, flag)).toBe(true);
-      expect(typeof CLAUDE_DECLARED_CAPABILITY_FLAGS[flag]).toBe("boolean");
+      expect(Object.hasOwn(CLAUDE_CAPABILITY_FLAGS, flag)).toBe(true);
+      expect(typeof CLAUDE_CAPABILITY_FLAGS[flag]).toBe("boolean");
     }
   });
 
@@ -111,7 +118,7 @@ describe("Claude capability declaration — explicit and total (I-005-2)", () =>
     // Drives the real guard rather than restating its rule: a declaration this
     // module ships must survive the validator the writer applies to it.
     expect(() => {
-      assertValidCapabilityFlags(CLAUDE_DECLARED_CAPABILITY_FLAGS);
+      assertValidCapabilityFlags(CLAUDE_CAPABILITY_FLAGS);
     }).not.toThrow();
   });
 
@@ -119,9 +126,9 @@ describe("Claude capability declaration — explicit and total (I-005-2)", () =>
     // `transcript_replay` is in the Spec-005 matrix (Claude cell: `probe`) but
     // not in the union. Declaring it early would ship a key the writer rejects;
     // T3.19/T3.20 mints it in the contract and decides the value there.
-    expect(Object.hasOwn(CLAUDE_DECLARED_CAPABILITY_FLAGS, "transcript_replay")).toBe(false);
+    expect(Object.hasOwn(CLAUDE_CAPABILITY_FLAGS, "transcript_replay")).toBe(false);
     const canonical = new Set<string>(DRIVER_CAPABILITY_FLAGS);
-    for (const flag of Object.keys(CLAUDE_DECLARED_CAPABILITY_FLAGS)) {
+    for (const flag of Object.keys(CLAUDE_CAPABILITY_FLAGS)) {
       expect(canonical.has(flag)).toBe(true);
     }
   });
@@ -130,6 +137,10 @@ describe("Claude capability declaration — explicit and total (I-005-2)", () =>
     expect(() => {
       assertValidContractVersion(CLAUDE_CAPABILITY_CONTRACT_VERSION);
     }).not.toThrow();
+  });
+
+  it("freezes the declared record, so a reader cannot rewrite it process-wide", () => {
+    expect(Object.isFrozen(CLAUDE_CAPABILITY_FLAGS)).toBe(true);
   });
 
   it("names the driver with the daemon-controlled registry key", () => {
@@ -141,7 +152,7 @@ describe("getCapabilities() — the V1 result wrapper", () => {
   it("reports flags, contract version, tools, and the CLI version", async () => {
     const result: GetCapabilitiesResult = await makeReporter().getCapabilities();
 
-    expect(result.capabilities.flags).toStrictEqual(CLAUDE_DECLARED_CAPABILITY_FLAGS);
+    expect(result.capabilities.flags).toStrictEqual(CLAUDE_CAPABILITY_FLAGS);
     expect(result.capabilities.contractVersion).toBe(CLAUDE_CAPABILITY_CONTRACT_VERSION);
     expect(result.tools).toStrictEqual([...CLAUDE_TOOL_CATALOG]);
     expect(result.cliVersion).toStrictEqual(CLI_VERSION);
@@ -180,8 +191,8 @@ describe("getCapabilities() — the V1 result wrapper", () => {
     first.capabilities.flags.steer = true;
     first.tools.length = 0;
 
-    expect(CLAUDE_DECLARED_CAPABILITY_FLAGS.cost_cap).toBe(true);
-    expect(CLAUDE_DECLARED_CAPABILITY_FLAGS.steer).toBe(false);
+    expect(CLAUDE_CAPABILITY_FLAGS.cost_cap).toBe(true);
+    expect(CLAUDE_CAPABILITY_FLAGS.steer).toBe(false);
     expect(CLAUDE_TOOL_CATALOG.length).toBeGreaterThan(0);
 
     const second = await reporter.getCapabilities();
@@ -277,16 +288,5 @@ describe("refreshDeclaration() — the emission seam (CP-005-5)", () => {
     await expect(
       makeReporter().refreshDeclaration(failing, { sessionId: "s", nodeId: "n" }),
     ).rejects.toThrow("write seam rejected the declaration");
-  });
-
-  it("is satisfied by the real DriverCapabilitiesWriter (compile-time)", () => {
-    // The runtime assertion is trivial; the guarantee is the conditional type,
-    // which fails `tsc -p tsconfig.test.json` if the writer's `declare` ever
-    // stops matching the sink this module declares.
-    type WriterConformsToSink = DriverCapabilitiesWriter extends DriverCapabilityDeclarationSink
-      ? true
-      : false;
-    const writerConforms: WriterConformsToSink = true;
-    expect(writerConforms).toBe(true);
   });
 });

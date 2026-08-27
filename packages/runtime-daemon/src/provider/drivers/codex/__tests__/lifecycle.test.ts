@@ -40,8 +40,11 @@ import {
 } from "@ai-sidekicks/contracts";
 
 import {
+  CodexAppServerConnection,
   CodexDriver,
+  CodexLifecycleManager,
   CodexLineTooLongError,
+  CodexSessionAlreadyLiveError,
   CodexProviderRequestError,
   CodexRequestTimeoutError,
   CodexTransportError,
@@ -87,6 +90,19 @@ class FakeCodexAppServer implements PtyHost {
 
   spawnResponse: SpawnResponse = { kind: "spawn_response", session_id: "pty-session-1" };
   emitSentinelOnSubscribe = true;
+  /**
+   * Kills the child during the next write and then fails that write.
+   *
+   * Both halves matter. The exit rejects the request's inner promise while its
+   * caller is still suspended, and the write's own failure means `request()`
+   * rethrows from its catch and NEVER returns that promise -- so nothing
+   * downstream can ever attach to it. Sequenced across macrotasks so a full
+   * microtask drain (which is when Node decides a rejection is unhandled)
+   * happens between the rejection and any possible handler.
+   */
+  failWriteAfterChildExit = false;
+  /** Parks the next write on a macrotask, leaving its caller suspended. */
+  parkNextWrite = false;
 
   readonly #listeners = new Map<string, CodexPtySessionListeners>();
   readonly #handlers = new Map<string, MethodHandler>();
@@ -159,6 +175,23 @@ class FakeCodexAppServer implements PtyHost {
   }
 
   write(_sessionId: string, bytes: Uint8Array): Promise<void> {
+    if (this.parkNextWrite) {
+      this.parkNextWrite = false;
+      return new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
+    }
+    if (this.failWriteAfterChildExit) {
+      this.failWriteAfterChildExit = false;
+      return new Promise((_resolve, reject) => {
+        setTimeout(() => {
+          this.emitExit(1);
+          setTimeout(() => {
+            reject(new Error("pty write failed: broken pipe"));
+          }, 0);
+        }, 0);
+      });
+    }
     const text = new TextDecoder().decode(bytes);
     for (const line of text.split("\n")) {
       if (line.length === 0) {
@@ -953,6 +986,183 @@ describe("CodexAppServerConnection transport", () => {
 // --------------------------------------------------------------------------
 
 // --------------------------------------------------------------------------
+// Session identity and process ownership
+// --------------------------------------------------------------------------
+
+describe("CodexDriver session ownership (Spec-005 §Required Behavior)", () => {
+  it("refuses a second createSession for a live session, spawning nothing", async () => {
+    const harness = createHarness();
+    await createdSession(harness);
+
+    await expect(
+      harness.driver.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG }),
+    ).rejects.toBeInstanceOf(CodexSessionAlreadyLiveError);
+    // The refusal is the point only if it costs nothing: a replace would have
+    // left the first child running with nothing routing to it.
+    expect(harness.server.spawnRequests).toHaveLength(1);
+    expect(harness.server.closedSessions).toEqual([]);
+  });
+
+  it("still creates a session once the previous one has been closed", async () => {
+    const harness = createHarness();
+    await createdSession(harness);
+    harness.server.on("thread/unsubscribe", () => ({ result: {} }));
+    await harness.driver.closeSession({ sessionId: SESSION_ID });
+
+    await expect(
+      harness.driver.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG }),
+    ).resolves.toMatchObject({ resumeHandle: THREAD_ID });
+  });
+
+  it("releases the spawned child when the subscriber throws", async () => {
+    const harness = createHarness({
+      subscribeToPtySession: () => {
+        throw new Error("subscription registry refused the attach");
+      },
+    });
+
+    await expect(
+      harness.driver.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG }),
+    ).rejects.toThrow(/subscription registry refused the attach/);
+    expect(harness.server.spawnRequests).toHaveLength(1);
+    expect(harness.server.closedSessions).toEqual(["pty-session-1"]);
+  });
+
+  // Driven at the CONNECTION, because `createSession` has a guard of its own
+  // that would release the child anyway and so cannot tell the two designs
+  // apart. `open()` states on its own that it never leaves a child behind, and
+  // that claim has to hold for every caller, not just the one with a net.
+  it("open() itself releases the child when the subscriber throws", async () => {
+    const server = new FakeCodexAppServer();
+    const scheduler = makeManualScheduler();
+    const connection = new CodexAppServerConnection({
+      ptyHost: server,
+      subscribeToPtySession: () => {
+        throw new Error("subscription registry refused the attach");
+      },
+      reportDiagnostic: () => {},
+      scheduleTimeout: scheduler.schedule,
+      executablePath: EXECUTABLE_PATH,
+    });
+
+    await expect(connection.open(RESUME_SPAWN_CONFIG)).rejects.toThrow(/refused the attach/);
+    expect(server.spawnRequests).toHaveLength(1);
+    expect(server.closedSessions).toEqual(["pty-session-1"]);
+  });
+
+  // Pins the ROUTING consequence of a resume: a run from the superseded leg is
+  // no longer active, because the replacement record knows nothing of it.
+  //
+  // Honest limit: this does not discriminate the route sweep itself. A stale
+  // entry and a swept one both dead-end (the stale one resolves to a record with
+  // no such turn), so the sweep has no behavioural observable on this class's
+  // surface -- it bounds map growth across repeated resumes, and the only way to
+  // assert that directly would be a test-only accessor on a production class.
+  it("reports no active turn for a run that predates a resume", async () => {
+    const server = new FakeCodexAppServer();
+    server.on("initialize", () => ({ result: { userAgent: "codex-driver/0.149.1" } }));
+    server.on("thread/start", () => threadStartResult());
+    server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    const scheduler = makeManualScheduler();
+    const manager = new CodexLifecycleManager({
+      ptyHost: server,
+      subscribeToPtySession: (ptySessionId, listeners) => server.subscribe(ptySessionId, listeners),
+      reportDiagnostic: () => {},
+      scheduleTimeout: scheduler.schedule,
+      executablePath: EXECUTABLE_PATH,
+      resumeSpawnConfig: RESUME_SPAWN_CONFIG,
+      newBindingId: () => "binding-abc",
+    });
+
+    await manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "go" },
+    });
+    expect(manager.hasActiveTurn(RUN_ID)).toBe(true);
+
+    server.spawnResponse = { kind: "spawn_response", session_id: "pty-session-2" };
+    server.on("thread/resume", () => threadStartResult(2));
+    await manager.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID });
+
+    // The replacement record knows no runs, so `closeSession` could never sweep
+    // this route afterwards: unswept here, it would outlive the daemon.
+    expect(manager.hasActiveTurn(RUN_ID)).toBe(false);
+  });
+});
+
+// --------------------------------------------------------------------------
+// Rejection handling — a rejection nobody is attached to kills the daemon
+// --------------------------------------------------------------------------
+
+describe("CodexAppServerConnection rejection handling", () => {
+  it("never leaves a request rejection unhandled when the child dies mid-write", async () => {
+    const unhandled: unknown[] = [];
+    const captureUnhandled = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    process.on("unhandledRejection", captureUnhandled);
+    try {
+      const harness = createHarness();
+      await createdSession(harness);
+      // The window: `request()` is suspended on its write, so `reject` is live
+      // in `#pending` while the returned promise still has no handler -- and
+      // because the write then fails too, `request()` rethrows and never returns
+      // that promise, so no handler can arrive later either.
+      harness.server.failWriteAfterChildExit = true;
+
+      const pending = harness.driver.startRun({
+        runId: RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "go" },
+      });
+
+      // The caller still learns the truth: the write's own failure propagates.
+      await expect(pending).rejects.toThrow(/broken pipe/);
+      // Two macrotasks: Node reports an unhandled rejection only after the
+      // microtask queue drains, so a same-tick assertion would always pass.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", captureUnhandled);
+    }
+  });
+
+  it("delivers a deadline that fires while the write is still parked", async () => {
+    const unhandled: unknown[] = [];
+    const captureUnhandled = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    process.on("unhandledRejection", captureUnhandled);
+    try {
+      const harness = createHarness();
+      await createdSession(harness);
+      harness.server.parkNextWrite = true;
+
+      const pending = harness.driver.startRun({
+        runId: RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "go" },
+      });
+      // The deadline is armed inside the executor, so it is live before the
+      // write is. Firing it here rejects the inner promise while `request()` is
+      // still parked -- the same handlerless window as the exit case, reached
+      // through the other rejector.
+      harness.scheduler.fireAll();
+
+      await expect(pending).rejects.toBeInstanceOf(CodexRequestTimeoutError);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", captureUnhandled);
+    }
+  });
+});
+
+// --------------------------------------------------------------------------
 // Framing bounds — the read buffer is fed from provider-controlled input
 // --------------------------------------------------------------------------
 
@@ -1188,6 +1398,10 @@ describe("Codex driver config read-shapes", () => {
     ["a missing input", { sessionId: SESSION_ID }],
     ["an empty input", { sessionId: SESSION_ID, input: "" }],
     ["an empty optional model", { sessionId: SESSION_ID, input: "hello", model: "" }],
+    // The brand is a UUID, so a plausible-looking string must not wear it into
+    // the session map, where the mismatch would surface as a puzzling "no live
+    // session" far from the input that caused it.
+    ["a session id that is not a session id", { sessionId: "session-1", input: "hello" }],
   ])("refuses %s", (_label, agentConfig) => {
     expect(() => parseCodexRunConfig(agentConfig)).toThrow(/StartRunParams\.agentConfig/);
   });

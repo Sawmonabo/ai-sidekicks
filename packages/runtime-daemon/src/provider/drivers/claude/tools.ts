@@ -82,7 +82,7 @@ import type {
  * value: it halts recovery for operator reconciliation rather than replaying
  * an effect whose repeat-safety nobody declared.
  */
-export const DEFAULT_TOOL_IDEMPOTENCY_CLASS: IdempotencyClass = "manual_reconcile_only";
+export const DEFAULT_CLAUDE_TOOL_IDEMPOTENCY_CLASS: IdempotencyClass = "manual_reconcile_only";
 
 /** The closed `idempotency_class` vocabulary, for runtime recognition. */
 const RECOGNIZED_IDEMPOTENCY_CLASSES: readonly IdempotencyClass[] = [
@@ -120,7 +120,7 @@ export function closeToolIdempotencyClass(
     declaration.idempotency_class,
   )
     ? declaration.idempotency_class
-    : DEFAULT_TOOL_IDEMPOTENCY_CLASS;
+    : DEFAULT_CLAUDE_TOOL_IDEMPOTENCY_CLASS;
   if (declaration.description !== undefined) {
     return {
       name: declaration.name,
@@ -150,30 +150,52 @@ export function closeToolIdempotencyClasses(
  * (an unannotated entry here appearing floored in {@link CLAUDE_TOOL_CATALOG}),
  * rather than only on a synthetic input.
  */
-export const CLAUDE_TOOL_DECLARATIONS: readonly ProviderToolMetadata[] = [
-  // Pure local reads — safe to repeat after a crash; nothing observable changes.
-  // `idempotent` per Spec-005 §Tool Metadata ("a pure read").
-  { name: "Read", idempotency_class: "idempotent" },
-  { name: "Glob", idempotency_class: "idempotent" },
-  { name: "Grep", idempotency_class: "idempotent" },
+export const CLAUDE_TOOL_DECLARATIONS: readonly ProviderToolMetadata[] = Object.freeze(
+  (
+    [
+      // Pure local reads — safe to repeat after a crash; nothing observable changes.
+      // `idempotent` per Spec-005 §Tool Metadata ("a pure read").
+      { name: "Read", idempotency_class: "idempotent" },
+      { name: "Glob", idempotency_class: "idempotent" },
+      { name: "Grep", idempotency_class: "idempotent" },
 
-  // Everything below is UNANNOTATED on purpose: each either mutates local
-  // state, or hands an effect to a target whose repeat-safety the daemon
-  // cannot establish. The I-005-3 floor classifies them.
-  { name: "Bash" },
-  { name: "Write" },
-  { name: "Edit" },
-  { name: "NotebookEdit" },
-  { name: "WebFetch" },
-  { name: "WebSearch" },
-  { name: "TodoWrite" },
-  { name: "Task" },
-];
+      // Everything below is UNANNOTATED on purpose: each either mutates local
+      // state, or hands an effect to a target whose repeat-safety the daemon
+      // cannot establish. The I-005-3 floor classifies them.
+      { name: "Bash" },
+      { name: "Write" },
+      { name: "Edit" },
+      { name: "NotebookEdit" },
+      { name: "WebFetch" },
+      { name: "WebSearch" },
+      { name: "TodoWrite" },
+      { name: "Task" },
+    ] satisfies readonly ProviderToolMetadata[]
+  ).map((declaration) => Object.freeze(declaration)),
+);
 
 /**
  * The Claude driver's tool catalog as reported by `getCapabilities()` — every
  * entry class-closed. Built by {@link closeToolIdempotencyClasses}; never
  * hand-written, so the I-005-3 floor cannot be bypassed by an author.
+ *
+ * Frozen at BOTH levels: a consumer that reads this constant instead of
+ * copying it cannot rewrite a tool's class for every later declaration in the
+ * process. Callers building a `GetCapabilitiesResult` use
+ * {@link getClaudeToolMetadata}, which hands back fresh, mutable rows.
  */
-export const CLAUDE_TOOL_CATALOG: readonly NormalizedProviderToolMetadata[] =
-  closeToolIdempotencyClasses(CLAUDE_TOOL_DECLARATIONS);
+export const CLAUDE_TOOL_CATALOG: readonly NormalizedProviderToolMetadata[] = Object.freeze(
+  closeToolIdempotencyClasses(CLAUDE_TOOL_DECLARATIONS).map((tool) => Object.freeze(tool)),
+);
+
+/**
+ * A fresh, independently-mutable copy of the catalog.
+ *
+ * `GetCapabilitiesResult.tools` is a MUTABLE array on a contract that crosses
+ * the driver boundary; handing out the module constant would make one
+ * caller's mutation everyone's (the defensive-clone doctrine
+ * `provider-registry.ts` applies to its cached flags snapshot).
+ */
+export function getClaudeToolMetadata(): NormalizedProviderToolMetadata[] {
+  return CLAUDE_TOOL_CATALOG.map((tool) => ({ ...tool }));
+}

@@ -41,18 +41,22 @@
 //     `ClaudeSessionUnavailableError`, for the same reason. This is a routing
 //     fault, not an unsupported capability, and I-005-4 governs the latter.
 
-import type {
-  ApplyInterventionParams,
-  DriverInterventionResult,
-  RunId,
+import {
+  DriverInterventionResultSchema,
+  type ApplyInterventionParams,
+  type DriverInterventionResult,
+  type RunId,
 } from "@ai-sidekicks/contracts";
 
 import { ClaudeSessionUnavailableError, type ClaudeRunChannelLookup } from "./lifecycle.js";
 
 // ADR-011's documented fallback for a no-native-steer provider: the daemon
 // queues the steer content and interrupts the running turn so the queued content
-// is picked up at the next turn boundary. Bounded by
-// `DRIVER_FALLBACK_ACTION_MAX_LEN`; the daemon reads it as a hint, not a command.
+// is picked up at the next turn boundary. The daemon reads it as a hint, not a
+// command. Its `DRIVER_FALLBACK_ACTION_MAX_LEN` bound is ENFORCED rather than
+// asserted: every result this module returns is built through
+// `DriverInterventionResultSchema.parse`, so an over-long or misshapen action
+// fails here instead of travelling as a malformed envelope.
 export const CLAUDE_STEER_FALLBACK_ACTION: string = "queue_and_interrupt";
 
 export interface ClaudeInterventionDispatcherDependencies {
@@ -72,7 +76,10 @@ export class ClaudeInterventionDispatcher {
         // Deliberately answered WITHOUT resolving the run: "this provider has no
         // native steer" is a fact about the driver, not about the run, so it
         // cannot depend on whether a channel is currently live. Nothing is sent.
-        return { status: "degraded", fallbackAction: CLAUDE_STEER_FALLBACK_ACTION };
+        return DriverInterventionResultSchema.parse({
+          status: "degraded",
+          fallbackAction: CLAUDE_STEER_FALLBACK_ACTION,
+        });
       }
       case "interrupt": {
         return await this.#dispatchInterrupt(params.targetRunId, false);
@@ -99,9 +106,13 @@ export class ClaudeInterventionDispatcher {
     }
     const response = await channel.sendControlRequest({ subtype: "interrupt", cancelQueued });
     if (response.subtype === "error") {
-      return { status: "degraded" };
+      // No `fallbackAction`: the provider refused THIS request, which says
+      // nothing about what the daemon should do instead. The key is omitted
+      // rather than set to `undefined` — under `exactOptionalPropertyTypes` and a
+      // `.strict()` envelope those are different values.
+      return DriverInterventionResultSchema.parse({ status: "degraded" });
     }
-    return { status: "applied" };
+    return DriverInterventionResultSchema.parse({ status: "applied" });
   }
 }
 
@@ -113,5 +124,8 @@ export class ClaudeInterventionDispatcher {
 // asserting one would be worse than admitting ignorance.
 function degradeUnroutedInterventionType(params: never): DriverInterventionResult {
   void params;
-  return { status: "degraded" };
+  // Parsing a statically-known-valid literal cannot throw, so routing this arm
+  // through the schema costs nothing and keeps I-005-4's "never a throw" clause
+  // intact while every other arm is schema-built.
+  return DriverInterventionResultSchema.parse({ status: "degraded" });
 }

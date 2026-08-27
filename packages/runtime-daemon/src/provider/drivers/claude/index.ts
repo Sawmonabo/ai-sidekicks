@@ -37,13 +37,45 @@ import type {
 import { ClaudeInterventionDispatcher } from "./intervention.js";
 import { ClaudeSessionLifecycle, type ClaudeSessionLifecycleDependencies } from "./lifecycle.js";
 
-// Only the two bands this task owns. The sibling `capabilities.ts` / `tools.ts`
-// modules in this directory are deliberately NOT re-exported here: whoever widens
-// `ClaudeDriverOperations` toward the full 14-operation `ProviderDriver` surface
-// adds their exports alongside the operations that consume them, so the barrel
-// never advertises a capability the driver object cannot yet serve.
-export * from "./intervention.js";
-export * from "./lifecycle.js";
+// Curated rather than `export *`: this barrel is the driver's public surface, and
+// a star re-export would enlist every future symbol added to either band
+// automatically — the surface would grow by accident instead of by decision. The
+// sibling `capabilities.ts` / `tools.ts` modules are deliberately absent for the
+// same reason: whoever widens `ClaudeDriverOperations` toward the full
+// 14-operation `ProviderDriver` surface adds their exports alongside the
+// operations that consume them, so the barrel never advertises a capability the
+// driver object cannot yet serve.
+export {
+  ClaudeInterventionDispatcher,
+  CLAUDE_STEER_FALLBACK_ACTION,
+  type ClaudeInterventionDispatcherDependencies,
+} from "./intervention.js";
+export {
+  ClaudeAuthenticationRequiredError,
+  ClaudeControlRequestRefusedError,
+  ClaudeSessionLifecycle,
+  ClaudeSessionUnavailableError,
+  type ClaudeChannelDisposalReason,
+  type ClaudeControlRequest,
+  type ClaudeControlRequestRefusedFields,
+  type ClaudeControlResponse,
+  type ClaudeInterruptControlRequest,
+  type ClaudeResumedSessionAttachment,
+  type ClaudeRunChannelLookup,
+  type ClaudeRunDispatch,
+  type ClaudeRunDispatchResolver,
+  type ClaudeSessionAttachment,
+  type ClaudeSessionChannel,
+  type ClaudeSessionLifecycleDependencies,
+  type ClaudeSessionResumeRequest,
+  type ClaudeSessionSpawnRequest,
+  type ClaudeSessionTransport,
+  type ClaudeSessionUnavailableContext,
+  type ClaudeSessionUnavailableFields,
+  type ClaudeSessionUnavailableReason,
+  type ClaudeSpawnBoundLegs,
+  type ClaudeUserTextFrame,
+} from "./lifecycle.js";
 
 // The operations PR-A owns, named once so the class declaration and any consumer
 // assertion read from the same list.

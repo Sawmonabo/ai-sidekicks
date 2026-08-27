@@ -85,6 +85,11 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
   readonly spawnedChannels: FakeClaudeSessionChannel[] = [];
   spawnFailure: Error | undefined = undefined;
   resumeFailure: Error | undefined = undefined;
+  // When set, BOTH establishment paths park here until the test releases it. A
+  // concurrency test needs two callers provably in flight at the same time; a
+  // fake that merely yields a microtask makes that depend on how many ticks the
+  // implementation happens to take, which is not a property worth asserting.
+  establishmentGate: Promise<void> | undefined = undefined;
   // When set, the spawned/resumed process announces THIS id instead of the one
   // that was pinned or requested — the fresh-session-on-mismatch behaviour the
   // Claude CLI exhibits, and the mechanism I-005-5's identity gate catches.
@@ -93,6 +98,7 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
 
   async spawnSession(request: ClaudeSessionSpawnRequest): Promise<ClaudeSessionAttachment> {
     this.spawnRequests.push(request);
+    await this.establishmentGate;
     if (this.spawnFailure !== undefined) {
       throw this.spawnFailure;
     }
@@ -107,6 +113,7 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
     request: ClaudeSessionResumeRequest,
   ): Promise<ClaudeResumedSessionAttachment> {
     this.resumeRequests.push(request);
+    await this.establishmentGate;
     if (this.resumeFailure !== undefined) {
       throw this.resumeFailure;
     }

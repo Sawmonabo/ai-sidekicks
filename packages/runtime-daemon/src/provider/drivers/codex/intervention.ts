@@ -40,7 +40,7 @@
 // `CodexLifecycleManager`. The dispatcher does not import the manager: the two
 // are composed in `index.ts`, which keeps the module graph acyclic (the manager
 // routes steering INTO this dispatcher's neighbour operations) and lets the
-// dispatcher be tested against a three-method fake rather than a live transport.
+// dispatcher be tested against a two-method fake rather than a live transport.
 //
 // Result shapes are produced through `DriverInterventionResultSchema.parse`, so
 // the `.strict()` envelope is enforced mechanically rather than asserted. The
@@ -93,7 +93,8 @@ export const CODEX_INTERVENTION_CAPABILITY_FLAGS: Readonly<
  * The provider operations this dispatcher routes onto.
  *
  * Structurally satisfied by `CodexLifecycleManager`; declared here so the
- * dispatcher depends on the three calls it makes rather than on the manager.
+ * dispatcher depends on the two operations it calls rather than on the manager.
+ * Two, not three: `cancel` and `interrupt` share `interruptRun` (see the arm).
  */
 export interface CodexInterventionRuntime {
   steerRun(runId: RunId, content: string, expectedTurnId?: string): Promise<void>;
@@ -107,6 +108,25 @@ export type CodexCapabilitySnapshotReader = () => DriverCapabilities;
 export interface CodexInterventionOptions {
   readonly runtime: CodexInterventionRuntime;
   readonly readCapabilities: CodexCapabilitySnapshotReader;
+}
+
+/**
+ * Type-level backstop for an intervention type this switch does not route.
+ *
+ * `params: never` is the whole mechanism: the day `ApplyInterventionParams`
+ * grows an arm, this call stops compiling, and the arm cannot reach the
+ * `applied` return by falling through. Unreachable at runtime today -- the
+ * capability gate degrades an unmapped type before the switch is entered -- so
+ * this buys the COMPILE-time guarantee the gate cannot give.
+ *
+ * Degrades rather than throwing, per I-005-4. It names NO `fallbackAction`:
+ * `queue_and_interrupt` is the documented fallback for a missing native steer,
+ * and asserting it for a type nothing here knows anything about would put a verb
+ * into the daemon's mouth. Mirrors the Claude leg's arm of the same name.
+ */
+function degradeUnroutedInterventionType(params: never): DriverInterventionResult {
+  void params;
+  return DriverInterventionResultSchema.parse({ status: "degraded" });
 }
 
 /** Generic intervention dispatcher for the Codex driver. */
@@ -164,6 +184,9 @@ export class CodexInterventionDispatcher {
           ...(params.payload.reason === undefined ? {} : { reason: params.payload.reason }),
         });
         break;
+      }
+      default: {
+        return degradeUnroutedInterventionType(params);
       }
     }
 

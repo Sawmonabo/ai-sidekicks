@@ -12,6 +12,7 @@
 //     is about to queue.
 
 import {
+  DRIVER_FALLBACK_ACTION_MAX_LEN,
   DriverInterventionResultSchema,
   type ApplyInterventionParams,
 } from "@ai-sidekicks/contracts";
@@ -59,6 +60,16 @@ function buildHarness(): InterventionHarness {
 function buildDispatcherWithoutLiveRun(): ClaudeInterventionDispatcher {
   return new ClaudeInterventionDispatcher({ channelLookup: new StubRunChannelLookup(undefined) });
 }
+
+describe("CLAUDE_STEER_FALLBACK_ACTION", () => {
+  it("stays inside the bound the driver result envelope enforces", () => {
+    // The bound is enforced at runtime by the schema parse every result goes
+    // through; this asserts the shipped value against it directly, so a later
+    // edit to the constant fails here rather than only inside a dispatch path.
+    expect(CLAUDE_STEER_FALLBACK_ACTION.length).toBeLessThanOrEqual(DRIVER_FALLBACK_ACTION_MAX_LEN);
+    expect(CLAUDE_STEER_FALLBACK_ACTION).toBe("queue_and_interrupt");
+  });
+});
 
 describe("ClaudeInterventionDispatcher steer (I-005-4)", () => {
   it("degrades with the documented queue_and_interrupt fallback", async () => {

@@ -65,12 +65,17 @@ function createHarness(
   overrides: Partial<Record<DriverCapabilityFlag, boolean>> = {},
   runtimeOverrides: Partial<CodexInterventionRuntime> = {},
 ): Harness {
-  const steerRun = vi.fn(async () => {});
-  const interruptRun = vi.fn(async (_params: InterruptRunParams) => {});
+  // Declared with the port's real parameter lists, so the fake is checked
+  // against the contract it stands in for. A cast here would have let the port
+  // change shape without a single test noticing.
+  const steerRun = vi.fn(
+    async (_runId: RunId, _content: string, _expectedTurnId?: string): Promise<void> => {},
+  );
+  const interruptRun = vi.fn(async (_params: InterruptRunParams): Promise<void> => {});
   const capabilities = makeCapabilities(overrides);
   const runtime: CodexInterventionRuntime = {
-    steerRun: steerRun as unknown as CodexInterventionRuntime["steerRun"],
-    interruptRun: interruptRun as unknown as CodexInterventionRuntime["interruptRun"],
+    steerRun,
+    interruptRun,
     ...runtimeOverrides,
   };
   return {
@@ -260,9 +265,11 @@ describe("CodexInterventionDispatcher degraded fallback (I-005-4, ADR-011)", () 
     const harness = createHarness(
       {},
       {
-        steerRun: vi.fn(async () => {
-          throw new Error("no active Codex turn");
-        }) as unknown as CodexInterventionRuntime["steerRun"],
+        steerRun: vi.fn(
+          async (_runId: RunId, _content: string, _expectedTurnId?: string): Promise<void> => {
+            throw new Error("no active Codex turn");
+          },
+        ),
       },
     );
 

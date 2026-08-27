@@ -60,6 +60,7 @@ export {
   CodexDriverConfigError,
   CodexLifecycleManager,
   CodexLineTooLongError,
+  CodexSessionAlreadyLiveError,
   CodexProviderRequestError,
   CodexRequestTimeoutError,
   CodexTransportError,

@@ -98,6 +98,7 @@ import { randomUUID } from "node:crypto";
 import {
   DRIVER_FAILURE_DETAIL_MAX_LEN,
   DriverResumeResultSchema,
+  SessionIdSchema,
   type CloseSessionParams,
   type CreateSessionParams,
   type DriverResumeResult,
@@ -191,6 +192,17 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
  * change rather than a code change.
  */
 const DEFAULT_TURN_START_TIMEOUT_MS = 60_000;
+
+/**
+ * Deadline for the courtesy `thread/unsubscribe` that precedes teardown.
+ *
+ * Deliberately NOT the ordinary request deadline. The process is going away
+ * regardless, so this call buys tidiness, not correctness -- and inheriting the
+ * 60s default means a wedged provider holds `closeSession` (and any shutdown
+ * drain waiting on it) for a minute to no purpose. Seconds are enough for a
+ * responsive peer; an unresponsive one is exactly the peer not worth waiting on.
+ */
+const UNSUBSCRIBE_TIMEOUT_MS = 5_000;
 
 const DEFAULT_PTY_ROWS = 24;
 const DEFAULT_PTY_COLS = 120;
@@ -293,6 +305,29 @@ export class CodexProviderRequestError extends Error {
 }
 
 /**
+ * `createSession` was called for a session that already has a live process.
+ *
+ * Codeless, like the config error below: this is a caller-sequencing defect, not
+ * a provider condition, and this task must not mint an error-contract row.
+ *
+ * Mirrors the Claude leg's `session_already_live` refusal. The alternative --
+ * replacing the record -- has no legitimate caller: the superseded child would
+ * keep running with nothing routing to it, and `closeSession` would then dispose
+ * only the replacement, so the orphan would outlive the session that spawned it.
+ * Resume is where a session legitimately re-spawns, and `resumeSession` releases
+ * the superseded leg explicitly.
+ */
+export class CodexSessionAlreadyLiveError extends Error {
+  readonly sessionId: string;
+
+  constructor(sessionId: string) {
+    super(`A live Codex session is already bound to "${sessionId}"; create would orphan it.`);
+    this.name = "CodexSessionAlreadyLiveError";
+    this.sessionId = sessionId;
+  }
+}
+
+/**
  * The daemon-supplied config bag did not carry the shape this driver requires.
  *
  * Codeless for the same reason as above, and because this is a caller/wiring
@@ -390,11 +425,24 @@ export interface CodexRunConfig {
   clientUserMessageId?: string | undefined;
 }
 
+/**
+ * The one place this module decides what "an object" means on a parse path.
+ *
+ * A value that passes indexes directly, so no use site re-states with a cast
+ * what the guard has already proved (the `runtime-binding-store.ts` idiom).
+ * Arrays are excluded: `typeof [] === "object"`, and every caller here means a
+ * keyed record, so admitting an array would let `[]["thread"]` read `undefined`
+ * and turn a malformed frame into a merely-absent field.
+ */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function readRecord(value: unknown, label: string): Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (!isPlainObject(value)) {
     throw new CodexDriverConfigError(`${label} must be an object.`, label);
   }
-  return value as Record<string, unknown>;
+  return value;
 }
 
 function readRequiredString(source: Record<string, unknown>, key: string, label: string): string {
@@ -452,11 +500,25 @@ export function parseCodexSessionConfig(config: unknown): CodexSessionConfig {
 /** Fail-closed parse of `StartRunParams.agentConfig`. */
 export function parseCodexRunConfig(agentConfig: unknown): CodexRunConfig {
   const source = readRecord(agentConfig, "StartRunParams.agentConfig");
-  const sessionId = readRequiredString(
+  // Earned, not asserted. `SessionId` is a branded UUID, and a cast here would
+  // have let any non-empty string wear the brand into the session map, where the
+  // mismatch surfaces as a puzzling "no live session" instead of a parse
+  // refusal. The Zod failure is re-thrown as this module's typed config error so
+  // the caller still sees one failure class from this function.
+  const rawSessionId = readRequiredString(
     source,
     "sessionId",
     "StartRunParams.agentConfig.sessionId",
-  ) as SessionId;
+  );
+  let sessionId: SessionId;
+  try {
+    sessionId = SessionIdSchema.parse(rawSessionId);
+  } catch {
+    throw new CodexDriverConfigError(
+      "StartRunParams.agentConfig.sessionId must be a session id.",
+      "StartRunParams.agentConfig.sessionId",
+    );
+  }
   const input = readRequiredString(source, "input", "StartRunParams.agentConfig.input");
   const model = readOptionalString(source, "model", "StartRunParams.agentConfig.model");
   const clientUserMessageId = readOptionalString(
@@ -624,16 +686,20 @@ export class CodexAppServerConnection {
       );
     }
     this.#ptySessionId = response.session_id;
-    this.#unsubscribe = this.#subscribeToPtySession(response.session_id, {
-      onData: (chunk) => {
-        this.#ingest(chunk);
-      },
-      onExit: (exitCode, signalCode) => {
-        this.#handleExit(exitCode, signalCode ?? null);
-      },
-    });
 
     try {
+      // Inside the guard, not before it. The subscriber is caller-supplied code
+      // and can throw; outside, a throw would leave a spawned child running with
+      // nothing reading it and nothing owning its teardown, which is exactly the
+      // leak this method's contract says never happens.
+      this.#unsubscribe = this.#subscribeToPtySession(response.session_id, {
+        onData: (chunk) => {
+          this.#ingest(chunk);
+        },
+        onExit: (exitCode, signalCode) => {
+          this.#handleExit(exitCode, signalCode ?? null);
+        },
+      });
       await this.#awaitReadySentinel();
       await this.request(
         "initialize",
@@ -671,6 +737,21 @@ export class CodexAppServerConnection {
         );
       }, deadlineMs);
       this.#pending.set(key, { method, resolve, reject, cancelDeadline });
+    });
+    // `reject` is reachable from `#pending` the moment the executor returns, but
+    // this function then SUSPENDS on the write below before `return settled`
+    // gives the caller a handler. A child exit during that window rejects a
+    // promise nobody is attached to, and Node's default
+    // `--unhandled-rejections=throw` turns that into a dead daemon. Worse, if
+    // the write then rejects too, the catch finds `#pending` already emptied and
+    // rethrows, so `return settled` never runs and the rejection is permanently
+    // unhandled.
+    //
+    // Attaching a no-op handler marks `settled` handled without consuming it:
+    // the caller still receives the rejection through the returned promise,
+    // because `.catch()` observes rather than replaces.
+    settled.catch(() => {
+      /* the returned promise is the caller's channel; this only marks it handled */
     });
 
     try {
@@ -880,11 +961,11 @@ export class CodexAppServerConnection {
       this.#reportDiagnostic({ kind: "unparsable-line", line });
       return;
     }
-    if (typeof frame !== "object" || frame === null || Array.isArray(frame)) {
+    if (!isPlainObject(frame)) {
       this.#reportDiagnostic({ kind: "unparsable-line", line });
       return;
     }
-    const message = frame as Record<string, unknown>;
+    const message = frame;
     const method = message["method"];
     if (typeof method === "string") {
       this.#handleInboundMethod(method, message);
@@ -943,11 +1024,11 @@ export class CodexAppServerConnection {
     pending.cancelDeadline();
     const error = message["error"];
     if (error !== undefined && error !== null) {
-      const errorRecord = typeof error === "object" ? (error as Record<string, unknown>) : {};
-      const providerErrorCode =
-        typeof errorRecord["code"] === "number" ? (errorRecord["code"] as number) : 0;
-      const providerMessage =
-        typeof errorRecord["message"] === "string" ? (errorRecord["message"] as string) : "";
+      const errorRecord = isPlainObject(error) ? error : {};
+      const rawCode = errorRecord["code"];
+      const rawMessage = errorRecord["message"];
+      const providerErrorCode = typeof rawCode === "number" ? rawCode : 0;
+      const providerMessage = typeof rawMessage === "string" ? rawMessage : "";
       pending.reject(
         new CodexProviderRequestError(
           pending.method,
@@ -1045,10 +1126,19 @@ export class CodexLifecycleManager {
 
   /** Spawns a process and starts a fresh Codex thread. */
   async createSession(params: CreateSessionParams): Promise<ProviderSessionHandle> {
+    // Refused BEFORE anything is spawned, so a mis-sequenced caller costs no
+    // process. See `CodexSessionAlreadyLiveError` for why replacing is wrong.
+    if (this.#sessions.has(params.sessionId)) {
+      throw new CodexSessionAlreadyLiveError(params.sessionId);
+    }
     const config = parseCodexSessionConfig(params.config);
     const connection = new CodexAppServerConnection(this.#options);
-    await connection.open(config);
     try {
+      // Inside the guard: `open()` tears its own process down on the paths it
+      // owns, but a caller-supplied subscriber that throws is not one of them,
+      // and `close()` is idempotent, so guarding here costs nothing and closes
+      // the window.
+      await connection.open(config);
       const response = await connection.request("thread/start", {
         cwd: config.cwd,
         // Pinned as defense in depth so no config or profile override can select
@@ -1108,6 +1198,13 @@ export class CodexLifecycleManager {
         spawnConfig,
         activeTurnIdByRunId: new Map(),
       });
+      // The replacement record starts with an empty turn map, so every route
+      // that pointed at the superseded leg is now dead. Swept here rather than
+      // at teardown: `closeSession` reads the LIVE record, which no longer knows
+      // those runs, so a route left behind would never be collected and the map
+      // would grow by one entry per in-flight run per resume, for the daemon's
+      // whole lifetime.
+      this.#forgetRunRoutes(params.sessionId);
       // A resume is a fresh spawn, so any prior leg for this session is now
       // superseded and its process would otherwise be orphaned. Released AFTER
       // the new record is installed, which is what keeps a FAILED resume
@@ -1184,14 +1281,18 @@ export class CodexLifecycleManager {
       return;
     }
     this.#sessions.delete(params.sessionId);
-    for (const runId of record.activeTurnIdByRunId.keys()) {
-      this.#sessionIdByRunId.delete(runId);
-    }
+    this.#forgetRunRoutes(params.sessionId);
     if (!record.connection.isClosed) {
       try {
-        // Best effort: the process is going away regardless, so a refused
-        // unsubscribe must not block teardown or surface as a close failure.
-        await record.connection.request("thread/unsubscribe", { threadId: record.threadId });
+        // Best effort, and bounded: the process is going away regardless, so a
+        // refused OR unanswered unsubscribe must not block teardown or surface
+        // as a close failure. The explicit deadline is what makes "must not
+        // block" true against a wedged provider.
+        await record.connection.request(
+          "thread/unsubscribe",
+          { threadId: record.threadId },
+          UNSUBSCRIBE_TIMEOUT_MS,
+        );
       } catch {
         /* teardown proceeds */
       }
@@ -1240,6 +1341,21 @@ export class CodexLifecycleManager {
     }
   }
 
+  /**
+   * Drops every run route bound to a session, scanning BY VALUE.
+   *
+   * Keyed lookup is not available: the routes are keyed by run, and the record
+   * that could enumerate them is either gone or replaced by the time a sweep is
+   * owed. Mirrors the Claude leg's `#forgetSession`.
+   */
+  #forgetRunRoutes(sessionId: SessionId): void {
+    for (const [runId, boundSessionId] of this.#sessionIdByRunId) {
+      if (boundSessionId === sessionId) {
+        this.#sessionIdByRunId.delete(runId);
+      }
+    }
+  }
+
   #requireSession(sessionId: SessionId): CodexSessionRecord {
     const record = this.#sessions.get(sessionId);
     if (record === undefined) {
@@ -1266,32 +1382,32 @@ interface ThreadView {
 }
 
 function readThread(response: unknown, method: string): ThreadView {
-  const record =
-    typeof response === "object" && response !== null ? (response as Record<string, unknown>) : {};
+  const record = isPlainObject(response) ? response : {};
   const thread = record["thread"];
-  if (typeof thread !== "object" || thread === null) {
+  // Routed through the shared guard so an ARRAY is refused here too. The former
+  // `typeof thread !== "object"` check admitted one, and an array's `["id"]`
+  // reads `undefined`, so a malformed response reached the identity check as a
+  // merely-absent field rather than as the wrong shape it is.
+  if (!isPlainObject(thread)) {
     throw new CodexTransportError(`The Codex app-server "${method}" response carried no thread.`, {
       method,
     });
   }
-  const threadRecord = thread as Record<string, unknown>;
-  const id = threadRecord["id"];
-  const sessionId = threadRecord["sessionId"];
+  const id = thread["id"];
+  const sessionId = thread["sessionId"];
   if (typeof id !== "string" || id.length === 0 || typeof sessionId !== "string") {
     throw new CodexTransportError(
       `The Codex app-server "${method}" response carried an unusable thread identity.`,
       { method },
     );
   }
-  return { id, sessionId, turns: threadRecord["turns"] };
+  return { id, sessionId, turns: thread["turns"] };
 }
 
 function readTurnId(response: unknown, method: string): string {
-  const record =
-    typeof response === "object" && response !== null ? (response as Record<string, unknown>) : {};
+  const record = isPlainObject(response) ? response : {};
   const turn = record["turn"];
-  const turnRecord =
-    typeof turn === "object" && turn !== null ? (turn as Record<string, unknown>) : {};
+  const turnRecord = isPlainObject(turn) ? turn : {};
   const id = turnRecord["id"];
   if (typeof id !== "string" || id.length === 0) {
     throw new CodexTransportError(`The Codex app-server "${method}" response carried no turn id.`, {

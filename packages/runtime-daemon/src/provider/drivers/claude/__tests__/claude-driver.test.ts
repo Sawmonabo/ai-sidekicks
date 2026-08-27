@@ -11,10 +11,10 @@ import { describe, expect, it } from "vitest";
 import {
   ClaudeDriver,
   ClaudeSessionUnavailableError,
-  CLAUDE_DRIVER_ID,
   CLAUDE_STEER_FALLBACK_ACTION,
   type ClaudeDriverOperations,
 } from "../index.js";
+import { CLAUDE_DRIVER_NAME } from "../capabilities.js";
 import {
   buildCreateSessionParams,
   buildInterruptParams,
@@ -63,7 +63,12 @@ describe("ClaudeDriver", () => {
     expect(typeof operations.interruptRun).toBe("function");
     expect(typeof operations.applyIntervention).toBe("function");
     expect(typeof operations.closeSession).toBe("function");
-    expect(CLAUDE_DRIVER_ID).toBe("claude");
+    // One identity for the driver, not two: the refusals this band raises stamp
+    // the same constant the capability registry keys its rows on, so a rename
+    // cannot leave an error envelope pointing at a driver name that no longer
+    // exists.
+    const refusal = new ClaudeSessionUnavailableError("no_live_run", { runId: TEST_RUN_ID });
+    expect(refusal.fields.driverId).toBe(CLAUDE_DRIVER_NAME);
   });
 
   it("drives a session from create through run start to close", async () => {
