@@ -1,10 +1,10 @@
 // ProviderRegistry — Plan-005 Phase 2 (T2.3).
 //
 // Exercises the in-memory registry + the capability-flag gate against a
-// hand-rolled fake `ProviderDriver`. The fake implements all 10 contract ops;
+// hand-rolled fake `ProviderDriver`. The fake implements all 14 contract ops;
 // only `getCapabilities` carries behavior (a controllable `flags` record + a call
-// counter), the other nine throw "not implemented in test" because no path here
-// invokes them — proving the gate reads the CACHED snapshot, never the driver.
+// counter), the other thirteen throw "not implemented in test" because no path
+// here invokes them — proving the gate reads the CACHED snapshot, never the driver.
 //
 // Coverage map (cites are the authoritative contract, not just the ACs):
 //   * `Spec-005 §Required Behavior` (every provider integration implements a normalized driver
@@ -18,23 +18,31 @@
 // `docs/architecture/contracts/error-contracts.md §Driver`
 // (`driver.unavailable` + `driver.capability_unsupported`).
 
-import type {
-  ApplyInterventionParams,
-  CloseSessionParams,
-  CreateSessionParams,
-  DriverCapabilities,
-  DriverCapabilityFlag,
-  DriverInterventionResult,
-  DriverResumeResult,
-  GetCapabilitiesResult,
-  InterruptRunParams,
-  ProviderDriver,
-  ProviderModel,
-  ProviderMode,
-  ProviderSessionHandle,
-  RespondToRequestParams,
-  ResumeSessionParams,
-  StartRunParams,
+import {
+  DRIVER_CAPABILITY_FLAGS,
+  type ApplyInterventionParams,
+  type ClearSessionGoalParams,
+  type CloseSessionParams,
+  type CreateSessionParams,
+  type DriverAuthProbeResult,
+  type DriverCapabilities,
+  type DriverCapabilityFlag,
+  type DriverCliVersionReport,
+  type DriverGoalResult,
+  type DriverInterventionResult,
+  type DriverResumeResult,
+  type DriverRollbackResult,
+  type GetCapabilitiesResult,
+  type InterruptRunParams,
+  type ProviderDriver,
+  type ProviderModel,
+  type ProviderMode,
+  type ProviderSessionHandle,
+  type RespondToRequestParams,
+  type ResumeSessionParams,
+  type RollbackToParams,
+  type SetSessionGoalParams,
+  type StartRunParams,
 } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
@@ -53,29 +61,41 @@ const OTHER_DRIVER_ID: string = "codex";
 
 /**
  * Build a complete `Record<DriverCapabilityFlag, boolean>` from a partial
- * override. Every one of the 7 flags MUST be answered (the contract `Record` is
+ * override. EVERY canonical flag MUST be answered (the contract `Record` is
  * total — the structural half of I-005-2), so this defaults all to `false` and
  * lets a test flip just the flags it cares about.
+ *
+ * The base record is DERIVED from `DRIVER_CAPABILITY_FLAGS` rather than spelled
+ * out, so widening the contract's flag union cannot leave a stale hand-written
+ * copy behind here (the same derivation `driver-capabilities-writer.test.ts`
+ * uses).
  */
 function makeFlags(
   overrides: Partial<Record<DriverCapabilityFlag, boolean>> = {},
 ): Record<DriverCapabilityFlag, boolean> {
-  return {
-    resume: false,
-    steer: false,
-    interactive_requests: false,
-    mcp: false,
-    tool_calls: false,
-    reasoning_stream: false,
-    model_mutation: false,
-    ...overrides,
-  };
+  const base = Object.fromEntries(DRIVER_CAPABILITY_FLAGS.map((flag) => [flag, false])) as Record<
+    DriverCapabilityFlag,
+    boolean
+  >;
+  return { ...base, ...overrides };
 }
+
+/**
+ * A well-formed `cliVersion` reading. REQUIRED on `GetCapabilitiesResult` (T1.8):
+ * a capability report without a parseable provider version never reaches the
+ * daemon. The registry caches `result.capabilities` ONLY, so no assertion here
+ * reads this — it exists so the fakes satisfy the contract honestly instead of
+ * being cast past it.
+ */
+const CLI_VERSION_REPORT: DriverCliVersionReport = {
+  raw: "mock-provider-cli 2.1.234 (build 7)",
+  semver: "2.1.234",
+};
 
 /**
  * A minimal fake `ProviderDriver`. Only `getCapabilities` is meaningful: it
  * returns a caller-chosen `flags` record and counts its own invocations so a test
- * can assert the registry snapshots it EXACTLY ONCE. The other nine ops throw —
+ * can assert the registry snapshots it EXACTLY ONCE. The other thirteen ops throw —
  * if the registry ever calls one, the test fails loudly.
  */
 class FakeProviderDriver implements ProviderDriver {
@@ -100,11 +120,12 @@ class FakeProviderDriver implements ProviderDriver {
       flags: this.#flags,
       contractVersion: this.#contractVersion,
     };
-    return Promise.resolve({ capabilities, tools: [] });
+    return Promise.resolve({ capabilities, tools: [], cliVersion: CLI_VERSION_REPORT });
   }
 
-  // The remaining nine ops are never exercised here — the gate reads the cached
-  // snapshot, not the live driver — so they throw to catch any accidental call.
+  // The remaining thirteen ops are never exercised here — the gate reads the
+  // cached snapshot, not the live driver — so they throw to catch any accidental
+  // call. Declared in contract order.
   createSession(_params: CreateSessionParams): Promise<ProviderSessionHandle> {
     throw new Error("not implemented in test");
   }
@@ -120,7 +141,16 @@ class FakeProviderDriver implements ProviderDriver {
   applyIntervention(_params: ApplyInterventionParams): Promise<DriverInterventionResult> {
     throw new Error("not implemented in test");
   }
+  rollbackTo(_params: RollbackToParams): Promise<DriverRollbackResult> {
+    throw new Error("not implemented in test");
+  }
   respondToRequest(_params: RespondToRequestParams): Promise<void> {
+    throw new Error("not implemented in test");
+  }
+  setSessionGoal(_params: SetSessionGoalParams): Promise<DriverGoalResult> {
+    throw new Error("not implemented in test");
+  }
+  clearSessionGoal(_params: ClearSessionGoalParams): Promise<DriverGoalResult> {
     throw new Error("not implemented in test");
   }
   closeSession(_params: CloseSessionParams): Promise<void> {
@@ -130,6 +160,9 @@ class FakeProviderDriver implements ProviderDriver {
     throw new Error("not implemented in test");
   }
   listModes(): Promise<ProviderMode[]> {
+    throw new Error("not implemented in test");
+  }
+  probeAuth(): Promise<DriverAuthProbeResult> {
     throw new Error("not implemented in test");
   }
 }
@@ -341,6 +374,7 @@ class DeferredProviderDriver extends FakeProviderDriver {
     this.#resolve?.({
       capabilities: { flags: this.#flagsToReport, contractVersion: "1.0.0" },
       tools: [],
+      cliVersion: CLI_VERSION_REPORT,
     });
   }
 }

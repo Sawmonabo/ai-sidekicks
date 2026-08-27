@@ -7,13 +7,14 @@
 // SQLite tables (migration `0003`) AND emits the matching
 // `runtime_node.capability_*` session event, ATOMICALLY, on driver
 // registration + capability refresh. It also exposes a cold-start hydration
-// read that reconstructs the in-memory `GetCapabilitiesResult` wrapper from
-// those same three tables WITHOUT round-tripping the driver (`Spec-005 §Recovery Consequences`,
+// read that reconstructs the cache-backed part of that wrapper
+// (`HydratedDriverCapabilities` — everything but `cliVersion`) from those
+// same three tables WITHOUT round-tripping the driver (`Spec-005 §Recovery Consequences`,
 // the cache-as-source-of-truth). This is the durable cache that the in-memory
 // `ProviderRegistry` (T2.3) mirrors; together they complete the capability
 // round-trip that T2.5 verifies end-to-end (`Spec-005 §Required Behavior`, invariant I-005-2).
 //
-//   * driver_capabilities  — the 7-flag matrix (PK driver_name, capability_flag).
+//   * driver_capabilities  — the flag matrix (PK driver_name, capability_flag).
 //   * driver_tools         — per-tool metadata (PK driver_name, tool_name).
 //   * driver_contract_meta — the single per-driver `contract_version` parent row
 //                            (PK driver_name); its PRESENCE is the existence gate
@@ -39,12 +40,14 @@
 // validating these events. Carrying the NESTED `GetCapabilitiesResult` in the
 // event would miss the canonical arm at BOTH layers — accepted forever via the
 // tolerant record arm, never canonically typed. By contrast `hydrate()` returns
-// the NESTED `GetCapabilitiesResult` — `{ capabilities: { flags,
-// contractVersion }, tools }` — which is exactly what `ProviderRegistry.register`
-// consumes (`result.capabilities`). A single private `#snapshot(driverName)`
-// reader produces the FLAT form, which is the one source for BOTH change-
-// detection and event contents; `hydrate()` wraps that flat snapshot into the
-// nested form.
+// the NESTED `HydratedDriverCapabilities` — `{ capabilities: { flags,
+// contractVersion }, tools }`, i.e. `GetCapabilitiesResult` MINUS the
+// live-reading-only `cliVersion` (see that type's own comment — T2.6 owns the
+// re-widening) — whose `capabilities` member is exactly what
+// `ProviderRegistry.register` consumes (`result.capabilities`). A single private
+// `#snapshot(driverName)` reader produces the FLAT form, which is the one source
+// for BOTH change-detection and event contents; `hydrate()` wraps that flat
+// snapshot into the nested form.
 //
 // Capability key — `"provider-driver-<driverName>"` (CP-005-5)
 // --------------------------------------------------------------------------
@@ -88,7 +91,7 @@
 // anything else, `declare`:
 //   1. validates `contractVersion` via `assertValidContractVersion`,
 //   2. validates the `flags` key-set cardinality via `assertValidCapabilityFlags`
-//      (exactly the 7 canonical flags — no extra, no missing key),
+//      (exactly the canonical flag set — no extra, no missing key),
 //   3. normalizes each tool via `ProviderToolMetadataSchema.safeParse` (which
 //      fills `idempotency_class` default `"manual_reconcile_only"` and strips
 //      unknown keys — I-005-3 — and raises the leak-safe typed error, not a raw
@@ -285,7 +288,10 @@ function providerDriverCapabilityKey(driverName: string): string {
  * stored in the driver-keyed tables — those carry no session column).
  * `driverName` is the cache key for all three tables. `result` is the driver's
  * advertised `GetCapabilitiesResult` (`{ capabilities: { flags, contractVersion },
- * tools }`). `actor` defaults to `null` (system actor) at the emit when omitted.
+ * tools, cliVersion }`); its `cliVersion` is NOT persisted by this seam — T2.6
+ * owns that leg (`driver_contract_meta.cli_version_raw` / `cli_version_semver`,
+ * added by T1.7's currency migration). `actor` defaults to `null` (system actor)
+ * at the emit when omitted.
  */
 export interface DeclareDriverCapabilitiesInput {
   // Threaded to the emit only — the event's per-session partition/sequence key.
@@ -309,6 +315,29 @@ export interface DeclareDriverCapabilitiesInput {
 export interface DeclareDriverCapabilitiesResult {
   readonly emitted: "declared" | "updated" | "noop";
 }
+
+/**
+ * What cold-start hydration can HONESTLY reconstruct: the whole
+ * `GetCapabilitiesResult` EXCEPT `cliVersion`.
+ *
+ * `cliVersion` (`DriverCliVersionReport { raw, semver }`) is REQUIRED on the
+ * contract and is a property of a LIVE READING of the installed provider build,
+ * not of the three-table capability cache — which carries no version column at
+ * all until T1.7's currency migration adds
+ * `driver_contract_meta.cli_version_raw` / `cli_version_semver`. **T2.6** owns
+ * the leg that reads that pair back and re-widens this return to the full
+ * `GetCapabilitiesResult`, under the canonical NULL-pair rule (a NULL pair is a
+ * cache MISS — hydration refreshes from the driver rather than reporting a
+ * version it does not have; `docs/architecture/schemas/local-sqlite-schema.md §Driver and Runtime Binding Tables (Plan-005)`).
+ *
+ * Until that leg lands, this `Omit` is what keeps the seam honest: fabricating a
+ * report here (`{ raw: "", semver: "" }`, or a reading copied from an unrelated
+ * driver) would feed a FALSE version into the attach-time floor gate, which is
+ * fail-closed precisely because an unknown version must not pass. The type makes
+ * that unrepresentable and forces a caller that needs `cliVersion` to take it
+ * from the driver's own `getCapabilities()` report.
+ */
+export type HydratedDriverCapabilities = Omit<GetCapabilitiesResult, "cliVersion">;
 
 // Private row shapes (snake_case, raw DB shape).
 interface DriverCapabilityRow {
@@ -399,9 +428,10 @@ export class DriverCapabilitiesWriter {
     );
 
     // --- Writers ---
-    // driver_capabilities UPSERT. The 7-flag enum is FIXED, so we upsert exactly
-    // 7 rows every write and a plain ON CONFLICT … DO UPDATE leaves no orphan
-    // class (no flag can ever be "dropped" the way a tool can).
+    // driver_capabilities UPSERT. The flag enum is FIXED, so we upsert exactly one
+    // row per `DRIVER_CAPABILITY_FLAGS` member every write and a plain
+    // ON CONFLICT … DO UPDATE leaves no orphan class (no flag can ever be
+    // "dropped" the way a tool can).
     this.#upsertCapabilityFlagStmt = db.prepare(
       `INSERT INTO driver_capabilities (driver_name, capability_flag, supported, refreshed_at)
        VALUES (@driver_name, @capability_flag, @supported, @refreshed_at)
@@ -477,10 +507,11 @@ export class DriverCapabilitiesWriter {
     assertValidContractVersion(input.result.capabilities.contractVersion);
 
     // (2) Validate the `flags` key-set cardinality at the write seam — EXACTLY
-    // the 7 canonical flags, no extra and no missing key (this writer explodes
+    // the canonical `DRIVER_CAPABILITY_FLAGS` key set, no extra and no missing key
+    // (this writer explodes
     // `flags` into one CHECK-constrained `driver_capabilities` row per flag, so
     // an extra/typo'd key would otherwise hit the SQL CHECK mid-transaction and
-    // an omitted key would persist a partial <7-row cache). THROWS the leak-safe
+    // an omitted key would persist an under-full cache). THROWS the leak-safe
     // `ProviderOutputValidationError`, before any txn opens.
     assertValidCapabilityFlags(input.result.capabilities.flags);
 
@@ -669,7 +700,7 @@ export class DriverCapabilitiesWriter {
 
         const refreshedAt: string = this.#now();
 
-        // WRITE driver_capabilities — upsert exactly 7 rows. Each key of the
+        // WRITE driver_capabilities — one row per canonical flag. Each key of the
         // `flags` Record is a `DriverCapabilityFlag`; `supported = 1` iff `true`.
         for (const capabilityFlag of Object.keys(newSnapshot.flags) as DriverCapabilityFlag[]) {
           this.#upsertCapabilityFlagStmt.run({
@@ -729,19 +760,21 @@ export class DriverCapabilitiesWriter {
   }
 
   /**
-   * Cold-start hydration: reconstruct a driver's advertised
-   * `GetCapabilitiesResult` from the durable cache WITHOUT round-tripping the
-   * driver (`Spec-005 §Recovery Consequences`). Pure READ (no write, no emit); the three SELECTs
+   * Cold-start hydration: reconstruct a driver's advertised capability snapshot
+   * from the durable cache WITHOUT round-tripping the driver (`Spec-005 §Recovery Consequences`). Pure READ (no write, no emit); the three SELECTs
    * run inside ONE `BEGIN DEFERRED` read transaction so they share a consistent
    * snapshot — see the `#readTxn` field comment. Returns `undefined` when the
    * driver has never been written.
    *
-   * Returns the NESTED `GetCapabilitiesResult` (`{ capabilities: { flags,
-   * contractVersion }, tools }`) — the shape `ProviderRegistry.register`
-   * consumes — NOT the flat `CapabilityDetails` the events carry (see file
-   * header for the flat-vs-nested distinction). `tools` is in canonical order.
+   * Returns the NESTED `HydratedDriverCapabilities` (`{ capabilities: { flags,
+   * contractVersion }, tools }`) — whose `capabilities` member is what
+   * `ProviderRegistry.register` consumes — NOT the flat `CapabilityDetails` the
+   * events carry (see the file header for the flat-vs-nested distinction).
+   * `tools` is in canonical order. `cliVersion` is deliberately ABSENT: it is a
+   * live reading this cache does not yet hold, and T2.6 owns re-widening the
+   * return to the full `GetCapabilitiesResult` (see `HydratedDriverCapabilities`).
    */
-  hydrate(driverName: string): GetCapabilitiesResult | undefined {
+  hydrate(driverName: string): HydratedDriverCapabilities | undefined {
     // Route the three-SELECT `#snapshot` read through a DEFERRED read transaction
     // so the SELECTs share ONE consistent snapshot — a concurrent refresh
     // committing between them cannot yield a torn read (`.deferred(...)`; see the
@@ -792,7 +825,7 @@ export class DriverCapabilitiesWriter {
 
     // Reconstruct the flag matrix. `supported === 1` → `true`. The Record is
     // keyed by `capability_flag`; the column's CHECK constraint guarantees each
-    // value is one of the 7 `DriverCapabilityFlag` literals, so the cast is sound.
+    // value is one of the `DriverCapabilityFlag` literals, so the cast is sound.
     const flagRows: DriverCapabilityRow[] = this.#selectCapabilityFlagsStmt.all(
       driverName,
     ) as DriverCapabilityRow[];

@@ -246,7 +246,7 @@ export function assertValidGetCapabilitiesResultShape(result: unknown): void {
  * explodes `flags` into one CHECK-constrained `driver_capabilities` row per
  * flag, so the table requires EXACTLY the canonical set — no more, no fewer.
  * An extra/typo'd key would otherwise hit the SQL CHECK mid-transaction (a
- * leaky SqliteError), and an omitted key would silently persist a <7-row
+ * leaky SqliteError), and an omitted key would silently persist an under-full
  * partial cache. We REJECT extras here (contrast: tool metadata STRIPS unknown
  * keys for forward-compat) because each flag maps to a fixed CHECK-constrained
  * row — the set is closed for this contract version. The canonical key-set is
@@ -260,11 +260,12 @@ export function assertValidGetCapabilitiesResultShape(result: unknown): void {
  * Both halves are on an OWN-key basis (the cardinality check via `Object.keys`;
  * the per-flag loop via `Object.prototype.hasOwnProperty.call`). This is
  * load-bearing: a mixed basis (own-key cardinality + prototype-inclusive
- * `flags[flag]` access) would let a crafted 7-OWN-key input — one typo'd key,
- * with the missing canonical flag INHERITED as a boolean from the prototype —
+ * `flags[flag]` access) would let a crafted input with the RIGHT own-key COUNT —
+ * one typo'd key, the missing canonical flag INHERITED from the prototype —
  * pass both checks, then trip the SQL CHECK mid-transaction (a leaky
  * SqliteError) for exactly the input class this guard exists to reject. With
- * cardinality === 7 AND all 7 canonical flags present as OWN keys, pigeonhole
+ * cardinality === `DRIVER_CAPABILITY_FLAGS.length` AND every canonical flag
+ * present as an OWN key, pigeonhole
  * guarantees the own-key set is EXACTLY canonical — so the writer's
  * `Object.keys`-based write loop can never reach a non-canonical key.
  *
